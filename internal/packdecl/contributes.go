@@ -53,6 +53,11 @@ type Contribution struct {
 	InstallHints map[string]string `json:"install_hints,omitempty"`
 
 	// --- skills / briefing / files (staged trees) ---
+	// From is the pack-relative source path. For `skills`, read it through
+	// SkillsSources() rather than off the struct: an absent `from` means the
+	// conventional dir, and a call site that resolves that by hand is a call site
+	// that can quietly stop honoring the declared value (which is exactly what all
+	// three skills readers did).
 	From  string `json:"from,omitempty"`  // pack-relative source path
 	Into  string `json:"into,omitempty"`  // home-relative jail destination
 	After string `json:"after,omitempty"` // briefing: "host:<path>" to prepend the user's own file
@@ -306,6 +311,61 @@ func (m *Manifest) PostureFor(autonomy bool) *AutonomyPosture {
 		return ac.Autonomous
 	}
 	return ac.Guarded
+}
+
+// DefaultSkillsDir is the conventional pack-relative directory a `skills`
+// contribution reads when it declares no `from` — and what a zero-ceremony pack (a
+// bare skills/ dir, no manifest at all) uses. Every pack yolo ships relies on it.
+const DefaultSkillsDir = "skills"
+
+// SkillsSource is the pack-relative source directory THIS skills contribution reads:
+// its declared `from`, or DefaultSkillsDir when absent.
+//
+// It exists because `from` used to be accepted and silently ignored on `skills` — all
+// three readers (two on the jail path, one at the host) hardcoded "skills" — so a pack
+// declaring `{"kind":"skills","from":"my-skills"}` got skills/ read instead, with no
+// warning. One resolver, called by every reader, is what keeps the three from drifting
+// again; the shape mirrors hostBriefingProse's `from`-first-then-convention precedence
+// for `briefing`.
+//
+// Kind is NOT checked here: it is a method on the contribution the caller has already
+// filtered by kind, and returning "skills" for a `files` contribution would be a worse
+// answer than trusting the caller. Callers that hold a whole manifest use
+// SkillsSources.
+func (c Contribution) SkillsSource() string {
+	if c.From != "" {
+		return c.From
+	}
+	return DefaultSkillsDir
+}
+
+// SkillsSources returns the resolved pack-relative source dir of every `skills`
+// contribution, in declaration order, deduplicated.
+//
+// Deduplicated because two contributions naming one source (a pack delivering the same
+// skills to two agents' dirs — the ordinary multi-agent case) is ONE tree to read: the
+// jail path stages the union of these into a per-pack dir, so a repeat would copy the
+// same content twice for no effect.
+//
+// EMPTY for a pack with no `skills` contribution, and that is load-bearing rather than
+// incidental: the jail's zero-ceremony merge reads DefaultSkillsDir for such a pack, so
+// the caller supplies that fallback (see run.packSkillSourceDirs) instead of this
+// returning a source the manifest never claimed.
+func (m *Manifest) SkillsSources() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range m.Contributions() {
+		if c.Kind != KindSkills {
+			continue
+		}
+		src := c.SkillsSource()
+		if seen[src] {
+			continue
+		}
+		seen[src] = true
+		out = append(out, src)
+	}
+	return out
 }
 
 // HostFileContributions returns the reads-host contributions as legacy HostFiles.

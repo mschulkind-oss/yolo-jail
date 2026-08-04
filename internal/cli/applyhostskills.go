@@ -84,6 +84,17 @@ func applyHostSkills(pr richtext.Printer, errw io.Writer, p *packload.Pack, home
 			// hand-edited staged tree). Say so rather than silently choosing.
 			pr.Printf("  [yellow]skills     unknown tier %q — using flat (the safe tier)[/yellow]", c.Tier)
 		}
+		// The pack-relative SOURCE this contribution declares (`from`), or the conventional
+		// skills/ dir when it declares none. Resolved through packload so the host notch and
+		// the jail read one pack.json the same way — three hardcoded "skills" joins are what
+		// made `from` a field yolo validated and ignored.
+		src, prob := p.SkillsSourceDir(c)
+		if prob != "" {
+			// A declared source that is not there delivers nothing, so it is reported by name
+			// rather than left to be inferred from an empty destination.
+			pr.Printf("  [yellow]skills     refused[/yellow] — %s", prob)
+			rc = 1
+		}
 		skillsDir := filepath.Join(home, c.Into)
 		for _, pl := range plugins {
 			results, derr := hostskills.DeliverPlugin(hostskills.PluginRequest{
@@ -108,9 +119,14 @@ func applyHostSkills(pr richtext.Printer, errw io.Writer, p *packload.Pack, home
 		results, derr := hostskills.Deliver(hostskills.Request{
 			Pack:        p.Name,
 			Description: p.Decl.Description,
-			// The pack's own skills/ dir is the only source. Built-ins and the user's
-			// own tree are both deliberately excluded (see the file comment).
-			Sources: []string{filepath.Join(p.Root, "skills")},
+			// The pack's own skills dir — the one this contribution's `from` names — is
+			// the only source. Built-ins and the user's own tree are both deliberately
+			// excluded (see the file comment). Empty when the source could not be
+			// resolved, which Deliver reads as "this pack carries no skills" and
+			// therefore leaves the destination alone: the refusal above is the report,
+			// and a pack whose `from` is missing must not also retire what a previous
+			// apply delivered.
+			Sources: sourceList(src),
 			// A wrapped plugin's subtree is already delivered verbatim above, so it must not
 			// ALSO arrive here as a loose skill dir named after the plugin.
 			SkipSources: pluginDirs,
@@ -168,6 +184,21 @@ func printSkillResult(pr richtext.Printer, r hostskills.Result) {
 	default:
 		pr.Printf("  [yellow]skills[/yellow]     %-24s %s  [dim]%s[/dim]", r.Name, r.Action, r.Detail)
 	}
+}
+
+// sourceList wraps a resolved source dir as hostskills.Request.Sources, and yields NO
+// sources for an unresolved one ("").
+//
+// A nil Sources is not the same as a source that happens to be empty on disk, and the
+// difference is the point: Deliver reads "no skills collected" as "this pack carries none"
+// and returns without touching the destination, so a pack whose `from` is missing gets a
+// refusal line and its previously-delivered skills left alone — rather than an apply that
+// silently ARCHIVES them because the source it was told to read does not exist.
+func sourceList(dir string) []string {
+	if dir == "" {
+		return nil
+	}
+	return []string{dir}
 }
 
 // skillsContributions returns the pack's skills declarations.

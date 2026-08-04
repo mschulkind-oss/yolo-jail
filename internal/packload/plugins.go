@@ -25,7 +25,18 @@ import (
 // only describe the pack (`pack footprint`, the install prompt) want the full picture,
 // including a claim that would be refused — the point of showing a footprint is to see what a
 // pack WANTS before trusting it.
-func (p *Pack) Plugins() []*pluginpack.Plugin { return pluginpack.Discover(p.Root) }
+//
+// Scanned in the pack's resolved SKILLS SOURCE dirs (each `skills` contribution's `from`,
+// else the conventional one), not a hardcoded skills/. A wrapped plugin is carried BY a
+// skills contribution — that is why it has no kind of its own (kinds.go) — so a pack that
+// moves its skills to `my-skills/` moves its plugins with them, and discovery that kept
+// looking in skills/ would report a footprint with no plugin claim while delivery found one
+// (or the reverse). Problems are dropped here: a pack whose declared source is missing has
+// no plugins to report, and the refusal is printed by the render paths that act on it.
+func (p *Pack) Plugins() []*pluginpack.Plugin {
+	dirs, _ := p.SkillsSourceDirs()
+	return pluginpack.DiscoverIn(p.Root, dirs)
+}
 
 // HonoredPlugins returns the wrapped plugins whose CODE-RUNNING components this pack's origin
 // permits, and one reported refusal per component that was denied.

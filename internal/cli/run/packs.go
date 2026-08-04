@@ -160,9 +160,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 	var skillDirs []string
 	var briefings []agents.PackBriefing
 	for _, p := range loaded {
-		if skills := filepath.Join(p.Root, "skills"); isDir(skills) {
-			skillDirs = append(skillDirs, skills)
-		}
+		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
 		if text, ok := readPackBriefing(p.Root); ok {
 			briefings = append(briefings, agents.PackBriefing{Name: p.Name, Text: text})
 		}
@@ -232,9 +230,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 		}
 		loaded = append(loaded, p)
 
-		if skills := filepath.Join(dest, "skills"); isDir(skills) {
-			skillDirs = append(skillDirs, skills)
-		}
+		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
 		if text, ok := readPackBriefing(dest); ok {
 			briefings = append(briefings, agents.PackBriefing{Name: entry.Name, Text: text})
 		}
@@ -281,6 +277,25 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 
 	agents.SetPackSkillDirs(skillDirs)
 	return stagingRoot, loaded, briefings, nil
+}
+
+// packSkillSourceDirs is the pack's skills source dirs for THIS launch, honoring each
+// `skills` contribution's `from` and falling back to the conventional dir.
+//
+// The `from` resolution and the zero-ceremony fallback both live in packload
+// (Pack.SkillsSourceDirs); this wrapper exists only to print the problems, because a pack
+// whose declared source is missing gets no skills and must not learn that from an empty
+// destination. NO SILENT CAPS, the same rule the 0-files-staged warning above follows.
+//
+// Reads p.Root, which for both branches of the caller is the STAGED tree — so an
+// only/exclude filter that removed the skills dir is reported here rather than surfacing as
+// a pack that "does nothing".
+func (o *Options) packSkillSourceDirs(p *packload.Pack) []string {
+	dirs, problems := p.SkillsSourceDirs()
+	for _, prob := range problems {
+		o.pr(o.Stdout).print("[yellow]Warning: " + prob + "[/yellow]")
+	}
+	return dirs
 }
 
 // livePackSlugs is the set of staging-dir names the CURRENT config still claims.

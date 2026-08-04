@@ -36,6 +36,12 @@ var packSkillDirs []string
 // Passing nil clears them.
 func SetPackSkillDirs(dirs []string) { packSkillDirs = dirs }
 
+// PackSkillDirs returns what SetPackSkillDirs last set — the SOURCE dirs the next
+// PrepareSkills will copy from. Exported so the CLI's own tests can assert which dir a
+// pack's `skills` contribution resolved to, which is otherwise observable only by
+// inspecting the staged output after a full PrepareSkills run.
+func PackSkillDirs() []string { return packSkillDirs }
+
 // SkillTarget is one pack-declared skills destination: which staging dir to build, and
 // the jail path it will be mounted at.
 type SkillTarget struct {

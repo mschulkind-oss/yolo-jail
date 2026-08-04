@@ -23,17 +23,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -309,18 +310,67 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	if len(res.Staged) == 0 {
 		problems = append(problems, "pack contains no stageable files")
 	}
+
+	// Manifest validation, BEFORE the content checks below, because those checks depend on
+	// it: a `skills` contribution's `from` decides WHICH staged dir holds the skills, so the
+	// "no skills dir", "skill without SKILL.md" and plugin-wrapper rules all have to read the
+	// declared source rather than assume the conventional one. Linting `skills/` while the
+	// pack delivers from `my-skills/` is the same silent-ignore bug in the linter.
+	//
+	// LoadDir runs packdecl.Decode over the STAGED tree (tmp), so an unknown kind, a missing
+	// required field, or an unknown top-level key is caught HERE rather than at jail boot
+	// (where only the first problem surfaces, one per launch). Staged, not source, so a
+	// manifest filtered out by only/exclude is not linted as if it shipped. A manifest is
+	// optional, so an absent one is not a problem — LoadDir returns no problems in that case.
+	//
+	// mayAccessHost=true so a reads-host / installer / host-prepending-briefing
+	// contribution is validated for SHAPE regardless of origin; lint checks the
+	// declaration, and the origin gate (a fetched pack getting it refused) is a
+	// separate, install-time concern.
+	pack, manifestProblems := packload.LoadDir(tmp, filepath.Base(dir), true)
+	problems = append(problems, manifestProblems...)
+
+	// The skills SOURCE dirs this pack actually delivers from, pack-relative. Every
+	// `skills` contribution's `from`, or the conventional dir when the manifest names none.
+	skillRoots := pack.Decl.SkillsSources()
+	if len(skillRoots) == 0 {
+		skillRoots = []string{packdecl.DefaultSkillsDir}
+	}
+	// A NON-CONVENTIONAL `from` that stages nothing delivers nothing, at either notch.
+	// Reported as a lint failure because this is the authoring boundary: `from` used to be
+	// validated for SHAPE and then ignored, so a typo'd source was invisible everywhere — the
+	// linter said the manifest was fine and the jail read skills/ instead.
+	//
+	// The conventional dir is deliberately exempt (the same line packload.SkillsSourceDir
+	// draws): a pack whose contribution exists only to NAME a destination other packs merge
+	// into carries no skills of its own, and that is what all six shipped packs do. The
+	// "nothing reads this pack" check below still covers a pack that stages no content at all.
+	for _, c := range pack.Decl.Contributions() {
+		if c.Kind != packdecl.KindSkills || path.Clean(c.SkillsSource()) == packdecl.DefaultSkillsDir {
+			continue
+		}
+		if !stagedUnder(res.Staged, c.From) {
+			problems = append(problems, fmt.Sprintf(
+				"skills `from` is %q, but nothing stages under %s/ — that contribution would "+
+					"deliver no skills (check the path, and any only/exclude filters)",
+				c.From, strings.TrimSuffix(c.From, "/")))
+		}
+	}
+
 	hasSkills, hasBriefing := false, false
-	for _, s := range res.Staged {
-		if strings.HasPrefix(s, "skills/") {
+	for _, root := range skillRoots {
+		if stagedUnder(res.Staged, root) {
 			hasSkills = true
 		}
+	}
+	for _, s := range res.Staged {
 		if s == "AGENTS.md" || s == "CLAUDE.md" {
 			hasBriefing = true
 		}
 	}
 	if !hasSkills && !hasBriefing {
-		problems = append(problems, "pack has neither a skills/ dir nor an AGENTS.md — "+
-			"it would stage files nothing reads")
+		problems = append(problems, "pack has neither a "+strings.Join(skillRoots, "/ nor a ")+
+			"/ dir nor an AGENTS.md — it would stage files nothing reads")
 	}
 	// A skill dir without SKILL.md is invisible to every agent, which is the single
 	// most likely authoring mistake and produces no error anywhere else.
@@ -329,31 +379,20 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// dir — its skills live one level down and its manifest is what makes them loadable — so
 	// the SKILL.md rule would reject every plugin wrapper, including the one
 	// `pack init --from-plugin` just wrote. Recognized from the staged tree rather than
-	// assumed, so a dir merely NAMED like a plugin still gets the rule.
+	// assumed, so a dir merely NAMED like a plugin still gets the rule. Through pack.Plugins()
+	// so discovery scans the declared source dirs, matching what delivery will find.
 	pluginDirs := map[string]bool{}
-	for _, pl := range pluginpack.Discover(tmp) {
+	for _, pl := range pack.Plugins() {
 		pluginDirs[filepath.Base(pl.Dir)] = true
 	}
-	for _, d := range skillDirsMissingManifest(res.Staged) {
-		if pluginDirs[d] {
-			continue
+	for _, root := range skillRoots {
+		for _, d := range skillDirsMissingManifest(res.Staged, root) {
+			if pluginDirs[d] {
+				continue
+			}
+			problems = append(problems, root+"/"+d+" has no SKILL.md — agents will not see it")
 		}
-		problems = append(problems, "skills/"+d+" has no SKILL.md — agents will not see it")
 	}
-
-	// Manifest validation. LoadDir runs packdecl.Decode over the STAGED tree (tmp),
-	// so an unknown kind, a missing required field, or an unknown top-level key is
-	// caught HERE rather than at jail boot (where only the first problem surfaces,
-	// one per launch). Staged, not source, so a manifest filtered out by only/exclude
-	// is not linted as if it shipped. A manifest is optional, so an absent one is not
-	// a problem — LoadDir returns no problems in that case.
-	//
-	// mayAccessHost=true so a reads-host / installer / host-prepending-briefing
-	// contribution is validated for SHAPE regardless of origin; lint checks the
-	// declaration, and the origin gate (a fetched pack getting it refused) is a
-	// separate, install-time concern.
-	pack, manifestProblems := packload.LoadDir(tmp, filepath.Base(dir), true)
-	problems = append(problems, manifestProblems...)
 
 	if len(problems) > 0 {
 		for _, p := range problems {
@@ -437,14 +476,33 @@ func reportShippedSurfaceClash(pr richtext.Printer, p *packload.Pack) {
 	}
 }
 
-// skillDirsMissingManifest returns the skills/<dir> names that staged files but no
-// SKILL.md. Sorted, deduped.
-func skillDirsMissingManifest(staged []string) []string {
+// stagedUnder reports whether any staged path lives under the pack-relative dir `root`.
+// Used by lint to ask "did this contribution's declared source stage anything", which is a
+// question about the DECLARED dir rather than the conventional one.
+func stagedUnder(staged []string, root string) bool {
+	prefix := strings.TrimSuffix(filepath.ToSlash(root), "/") + "/"
+	for _, s := range staged {
+		if strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// skillDirsMissingManifest returns the <root>/<dir> names that staged files but no
+// SKILL.md, for one skills source dir. Sorted, deduped.
+//
+// root is a parameter rather than the constant "skills/" it used to be, because a `skills`
+// contribution's `from` decides where the skills live: linting the conventional dir for a
+// pack that delivers from `my-skills/` would check a tree nothing reads and pass every
+// missing SKILL.md in the tree that IS read.
+func skillDirsMissingManifest(staged []string, root string) []string {
+	prefix := strings.TrimSuffix(filepath.ToSlash(root), "/") + "/"
 	hasManifest := map[string]bool{}
 	seen := map[string]bool{}
 	var order []string
 	for _, s := range staged {
-		rest, ok := strings.CutPrefix(s, "skills/")
+		rest, ok := strings.CutPrefix(s, prefix)
 		if !ok {
 			continue
 		}

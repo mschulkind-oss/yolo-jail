@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -541,5 +542,104 @@ func TestResolveHostApproval(t *testing.T) {
 	approved, denied = resolveHostApproval("acme", dir, prev, true, pr, strings.NewReader(""), &bytes.Buffer{})
 	if denied || len(approved) != 1 || approved[0] != claim {
 		t.Errorf("an already-approved claim must carry forward without prompting: approved=%v denied=%v", approved, denied)
+	}
+}
+
+// lint must read the skills source the manifest DECLARES, not a hardcoded skills/. The
+// bug being guarded: `from` was validated for shape and then ignored everywhere, so a pack
+// delivering from `my-skills/` linted clean while the linter checked a tree nothing read —
+// and a missing SKILL.md in the tree that WAS read passed.
+func TestPackLintReadsDeclaredSkillsFrom(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "pack.json"),
+		`{"name":"sf","contributes":[{"kind":"skills","from":"my-skills","into":".claude/skills"}]}`)
+	writeFile(t, filepath.Join(dir, "AGENTS.md"), "prose\n")
+	// A skill dir under the DECLARED source with no SKILL.md: invisible to every agent.
+	writeFile(t, filepath.Join(dir, "my-skills", "broken", "notes.md"), "x")
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+		t.Fatalf("lint passed a skill dir with no SKILL.md under the declared source:\n%s",
+			out.String())
+	}
+	if !strings.Contains(out.String(), "my-skills/broken") {
+		t.Errorf("lint named the wrong dir (it should follow `from`):\n%s", out.String())
+	}
+}
+
+// A NON-CONVENTIONAL `from` naming nothing is a lint failure: the author asked for a
+// specific path and would get no skills from it at either notch.
+func TestPackLintFlagsMissingDeclaredSkillsFrom(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "pack.json"),
+		`{"name":"sf","contributes":[{"kind":"skills","from":"my-skills","into":".claude/skills"}]}`)
+	writeFile(t, filepath.Join(dir, "AGENTS.md"), "prose\n")
+	// The CONVENTIONAL dir exists; the declared one does not. The old code read this one.
+	writeFile(t, filepath.Join(dir, "skills", "example", "SKILL.md"),
+		"---\nname: example\ndescription: d\n---\nbody\n")
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+		t.Fatalf("lint passed a pack whose declared skills source is absent:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "my-skills") {
+		t.Errorf("lint did not name the missing declared source:\n%s", out.String())
+	}
+}
+
+// The CONVENTIONAL source being absent is NOT a lint failure on its own, because a
+// contribution that only NAMES a destination other packs merge into is legitimate — that is
+// what all six shipped packs do. Guards against the noise regression: keying the check on
+// `from != ""` would fail-lint every shipped pack.
+func TestPackLintAcceptsConventionalFromWithNoSkills(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "pack.json"),
+		`{"name":"dest","contributes":[{"kind":"skills","from":"skills","into":".claude/skills"}]}`)
+	writeFile(t, filepath.Join(dir, "AGENTS.md"), "prose\n")
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("lint rejected a destination-naming pack (rc=%d):\n%s", rc, out.String())
+	}
+}
+
+// No SHIPPED pack draws the new `from`-is-missing complaint. Every one declares
+// `from: "skills"` and carries no skills of its own — their contribution names the destination
+// other packs merge into — so a rule keyed on `from != ""` rather than on the CONVENTION
+// would fail-lint all six.
+//
+// Scoped to THIS rule rather than asserting rc==0, because the shipped packs already fail
+// lint at HEAD on an unrelated pre-existing rule: they are pack.json + derive.lua with no
+// skills/ and no AGENTS.md, so "pack has neither … it would stage files nothing reads" fires
+// (verified against HEAD). That is a separate question from this fix, and folding it in here
+// would make this test fail for a reason it is not about.
+func TestShippedPacksDrawNoMissingSkillsFromComplaint(t *testing.T) {
+	for _, p := range packload.Embedded() {
+		var out, errw bytes.Buffer
+		packMain([]string{"lint", p.Root}, &out, &errw, false, nil)
+		if strings.Contains(out.String(), "nothing stages under") {
+			t.Errorf("shipped pack %s draws the missing-skills-source complaint:\n%s",
+				p.Name, out.String())
+		}
+	}
+}
+
+// The footprint names the resolved SOURCE, so an author can see at lint time which dir their
+// skills come from. A claim line reading only "merged" is identical for a working pack and one
+// whose skills nothing reads.
+func TestPackLintFootprintNamesSkillsSource(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "pack.json"),
+		`{"name":"sf","contributes":[{"kind":"skills","from":"my-skills","into":".claude/skills"}]}`)
+	writeFile(t, filepath.Join(dir, "AGENTS.md"), "prose\n")
+	writeFile(t, filepath.Join(dir, "my-skills", "example", "SKILL.md"),
+		"---\nname: example\ndescription: d\n---\nbody\n")
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("lint rc=%d:\n%s", rc, out.String())
+	}
+	if !strings.Contains(out.String(), "from my-skills/") {
+		t.Errorf("footprint does not name the resolved skills source:\n%s", out.String())
 	}
 }

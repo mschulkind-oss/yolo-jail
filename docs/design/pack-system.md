@@ -222,22 +222,31 @@ packs requiring one binary is the normal case rather than a collision.
 ### `skills`
 A skills tree merged into an agent's skills dir. Precedence is built-in < pack < the user's
 own tree, so a local skill always wins.
-- `from` (required) — pack-relative source dir.
+- `from` (required) — pack-relative source dir. **Honored** at both notches (the jail's skills
+  staging and `apply --host`), and by wrapped-plugin discovery, which scans it rather than a
+  fixed `skills/`. A pack with no manifest at all still merges its `skills/` dir — the
+  zero-ceremony case.
 - `into` (required) — home-relative destination.
 
 ```json
 { "kind": "skills", "from": "skills", "into": ".claude/skills" }
 ```
 
-> **Shipped-behavior caveat.** The stager reads a pack's skills from a conventional
-> `skills/` directory at the pack root, *regardless of `from`* — the `from` value is
-> validated but not yet honored, so a pack must put its skills in `skills/`. And `into` is
-> the mount destination: two loaded packs declaring a `skills` contribution with the *same*
-> `into` currently produce two bind mounts at one path and the jail fails to start
-> ("duplicate mount destination"), even though the footprint model treats skills as safely
-> mergeable. A zero-ceremony pack (a bare `skills/` dir, no contribution) merges cleanly into
-> whichever agent pack owns that destination; declaring an explicit `skills` contribution
-> that duplicates another pack's `into` is the case to avoid. See §14.
+> **A source that is not there.** A `from` naming a directory the pack does not contain
+> delivers nothing and is REPORTED by name — a warning at launch, a `refused` line and a
+> non-zero exit at `apply --host` — rather than silently falling back to `skills/`. The
+> CONVENTIONAL `skills/` being absent is the one exemption, and it is not an oversight: all
+> six packs yolo ships declare `from: "skills"` and carry no skills of their own (their
+> contribution exists to NAME the destination other packs merge into), so complaining there
+> would fire on every launch of a stock config.
+
+> **Shipped-behavior caveat.** `into` is the mount destination: two loaded packs declaring a
+> `skills` contribution with the *same* `into` currently produce two bind mounts at one path
+> and the jail fails to start ("duplicate mount destination"), even though the footprint model
+> treats skills as safely mergeable. A zero-ceremony pack (a bare `skills/` dir, no
+> contribution) merges cleanly into whichever agent pack owns that destination; declaring an
+> explicit `skills` contribution that duplicates another pack's `into` is the case to avoid.
+> See §14.
 
 ### `briefing`
 Prose concatenated into a briefing file, attributed to its pack.
@@ -250,9 +259,10 @@ Prose concatenated into a briefing file, attributed to its pack.
 { "kind": "briefing", "from": "AGENTS.md", "into": ".claude/CLAUDE.md", "after": "host:.claude/CLAUDE.md" }
 ```
 
-> **Shipped-behavior caveat.** As with `skills`, the briefing source is read from a
-> conventional `AGENTS.md` or `CLAUDE.md` at the pack root regardless of `from`; `into` and
-> `after` are honored.
+> **Shipped-behavior caveat.** At the HOST notch `from` is honored, falling back to the
+> conventional `AGENTS.md`/`CLAUDE.md` pair. In a JAIL the briefing source is still read from
+> that conventional pair regardless of `from` (`run.readPackBriefing`) — unlike `skills`,
+> whose jail path now follows the declaration. `into` and `after` are honored at both.
 
 ### `files`
 An opaque tree the pack owns outright, bind-mounted `:ro` at `into` in the jail.
@@ -778,9 +788,11 @@ Not yet wired:
   (`docs/plans/pack-host-management-plan.md` Phase 7). Refused by name, never silently
   skipped.
 
-- **`from` on `skills`/`briefing`.** The stager reads skills from a conventional `skills/`
-  dir and briefing prose from a root `AGENTS.md`/`CLAUDE.md`, regardless of the `from` value.
-  `from` is validated but not honored; a pack must use the conventional locations.
+- **`from` on `briefing`, in a JAIL.** ~~`skills`~~ now honors `from` at both notches (see
+  the kind's section above). The remaining half is briefing prose in a jail:
+  `run.readPackBriefing` still reads a root `AGENTS.md`/`CLAUDE.md` regardless of `from`, so a
+  pack whose prose lives elsewhere gets its briefing at the host notch
+  (`hostBriefingProse` honors it) and not in a jail. Validated, not honored, on that one path.
 
 - **Typed inter-pack exports.** The design allows a pack to `export` a canonical type (e.g.
   MCP servers) that other packs `import`, so a shared dependency lives in one pack. Only the

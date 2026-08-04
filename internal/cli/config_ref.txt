@@ -470,7 +470,11 @@
                     preferred over a hint — a tool shipping its own installer ships its
                     own updater, while a distro package pins whatever that repo has.
                     So hints matter most on `requires`, where yolo installs nothing.
-      skills        {from (pack dir), into (~ dir)} — merged (built-in < pack < yours)
+      skills        {from (pack dir), into (~ dir)} — merged (built-in < pack < yours).
+                    `from` IS honored, at both notches and by wrapped-plugin discovery; a
+                    pack with no manifest merges its skills/ dir.  A `from` naming a dir
+                    the pack lacks delivers nothing and says so (except the CONVENTIONAL
+                    skills/, whose absence is normal for a pack that only names a dest).
       briefing      {from, into, after:"host:<path>" to prepend your own file first}
       files         {from, into} — an opaque tree the pack owns, bind-mounted :ro at
                     `into` in the jail.  Unlike skills/briefing, `from` IS honored (a
@@ -498,9 +502,9 @@
                     {config:[surface...]} patching the managed layer of a surface THIS
                     pack owns, plus {launch:[{bin, flags}]}.  Either posture may be
                     empty (a permissive-by-default tool only needs `guarded`).
-    NOTE (shipped behavior): skills/briefing read from the conventional skills/ dir
-    and root AGENTS.md regardless of `from`; and two packs declaring a skills `into`
-    at the SAME path fail the jail at boot.  Rely on the zero-ceremony skills/ merge.
+    NOTE (shipped behavior): a JAIL still reads briefing prose from a root AGENTS.md
+    regardless of `from` (the host notch honors it); and two packs declaring a skills
+    `into` at the SAME path fail the jail at boot.
     Entry forms — a bare name, a source string, or an object:
       source      required unless the entry is a bare embedded-pack name.
                   file:///abs/path (local) or

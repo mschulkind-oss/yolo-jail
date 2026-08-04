@@ -375,44 +375,66 @@ func ManifestPath(dir string) (string, bool) {
 	return "", false
 }
 
-// Discover returns the plugin trees a pack carries, in a deterministic order: the pack ROOT
-// if it is itself plugin-shaped, then each immediate child of the pack's skills/ dir that
-// is.
+// Discover returns the plugin trees a pack carries, scanning the CONVENTIONAL skills dir —
+// the right entry for a caller that holds only a path. A caller that also holds the pack's
+// manifest should use DiscoverIn, so a `skills` contribution's `from` is honored here too.
+func Discover(packRoot string) []*Plugin { return DiscoverIn(packRoot, nil) }
+
+// DiscoverIn returns the plugin trees a pack carries, in a deterministic order: the pack ROOT
+// if it is itself plugin-shaped, then each immediate child of each skills dir that is.
+//
+// skillsDirs are absolute directories to scan (what a `skills` contribution's `from`
+// resolves to); nil means the conventional <packRoot>/skills. It is a LIST because a pack may
+// declare several skills contributions, and honoring `from` on only the first would be the
+// same silent-ignore bug one contribution over.
 //
 // Those two layouts, and not an arbitrary-depth walk, because depth would find a plugin
 // vendored inside a skill's test fixtures and deliver it — a surprise, and one that arrives
 // with hooks. Both supported layouts are legible from `ls`:
 //
-//	<pack>/skills/<plugin>/.claude-plugin/plugin.json   portable: the jail's flat skills
+//	<pack>/<skills dir>/<plugin>/.claude-plugin/plugin.json   portable: the jail's flat skills
 //	                                                   merge lands it at the same path the
 //	                                                   host render writes, so one layout
 //	                                                   works at both notches
 //	<pack>/.claude-plugin/plugin.json                  wrap-in-place: the pack root IS the
 //	                                                   plugin. Host-only — a jail delivers
-//	                                                   the pack's skills/ subtree, never its
+//	                                                   the pack's skills subtree, never its
 //	                                                   root, so the manifest never arrives.
-func Discover(packRoot string) []*Plugin {
+func DiscoverIn(packRoot string, skillsDirs []string) []*Plugin {
 	var out []*Plugin
 	if p, ok := Load(packRoot); ok {
 		out = append(out, p)
 	}
-	skillsDir := filepath.Join(packRoot, SkillsSubdir)
-	entries, err := os.ReadDir(skillsDir)
-	if err != nil {
-		return out
+	if len(skillsDirs) == 0 {
+		skillsDirs = []string{filepath.Join(packRoot, SkillsSubdir)}
 	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		sub := filepath.Join(skillsDir, name)
-		if fi, err := os.Stat(sub); err != nil || !fi.IsDir() {
+	seen := map[string]bool{}
+	for _, skillsDir := range skillsDirs {
+		entries, err := os.ReadDir(skillsDir)
+		if err != nil {
 			continue
 		}
-		if p, ok := Load(sub); ok {
-			out = append(out, p)
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			sub := filepath.Join(skillsDir, name)
+			if fi, err := os.Stat(sub); err != nil || !fi.IsDir() {
+				continue
+			}
+			// Deduped by resolved path: two contributions may name one source dir (the
+			// same skills delivered to two agents), and a plugin found twice would be
+			// delivered twice and collide with itself in pluginNameCollisions.
+			if c := filepath.Clean(sub); seen[c] {
+				continue
+			} else {
+				seen[c] = true
+			}
+			if p, ok := Load(sub); ok {
+				out = append(out, p)
+			}
 		}
 	}
 	return out

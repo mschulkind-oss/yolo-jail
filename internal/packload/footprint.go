@@ -84,7 +84,13 @@ func FootprintOf(p *Pack) Footprint {
 			}
 			add(packdecl.KindRequires, c.Bin, detail, false)
 		case packdecl.KindSkills:
-			add(packdecl.KindSkills, c.Into, "merged (built-in < pack < user)", false)
+			// Name the SOURCE, not just the merge rule. `from` was accepted and ignored on
+			// this kind, and a footprint that said only "merged" was one of the reports that
+			// let it stay hidden — an author who moved their skills to `my-skills/` saw a
+			// claim identical to the one a working pack makes. Resolved through the same
+			// helper delivery uses, so the line cannot claim a source delivery would not read.
+			add(packdecl.KindSkills, c.Into,
+				"from "+c.SkillsSource()+"/ — merged (built-in < pack < user)", false)
 		case packdecl.KindBriefing:
 			detail := "concat"
 			review := strings.HasPrefix(c.After, "host:")

@@ -31,10 +31,10 @@ import (
 // being a channel around them. Same argument the pack-manifest mount makes for :ro-ing
 // /ctx/packs.
 //
-// Unlike skills/briefing — where `from` is decorative, because the stager reads the
-// conventional skills/ dir and root AGENTS.md regardless (pack-system.md §14) — `files`
-// HONORS `from`: there is no convention for an opaque tree, so the declaration is the
-// only thing that can name it.
+// `files` HONORS `from`, as `skills` now does (packload.SkillsSourceDir) and as `briefing`
+// does at the host notch — but for `files` there is no fallback to fall back TO: there is no
+// convention for an opaque tree, so the declaration is the only thing that can name it, and
+// an absent source is a warning rather than a different dir.
 type packFilesTarget struct {
 	Pack string
 	Src  string // absolute host path: <staged pack root>/<from>
