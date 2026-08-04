@@ -423,6 +423,35 @@ from-first-then-convention precedence, so the fix is to route both readers throu
 part of Q4** (the briefing wholesale rewrite touches this reader anyway), rather than as its own
 item — doing it separately would mean editing the same function twice.
 
+## 6a-5. Found verifying Q5: the local pack LOSES at flat tier
+
+**Probed 2026-08-04, after `374f995` landed.** The local pack is appended LAST in the entry order
+(`internal/config/packs.go:205-216`), which is correct — but at `tier: "flat"` a later pack cannot
+overwrite an earlier pack's entry at all:
+
+    # codex (tier=flat) + a flat shared pack + the local pack, all claiming skill "mine"
+    skills  mine  rendered  invoke as /mine
+    skills  mine  skipped (yours)  exists and belongs to pack "sflat" — left untouched
+    -> ~/.codex/skills/mine/SKILL.md contains the SHARED pack's body, NOT the local one
+
+So the local pack's "the user's own copy always wins" precedence **does not hold at flat tier**.
+The rule is `if occupied && !man.OwnedBy(dest, req.Pack)` (`internal/hostskills/deliver.go:368`):
+one pack may not overwrite another's recorded entry, whatever the order. **Pre-existing** — it
+arrived with tiered delivery in `aa044eb`, not with the local pack — and it is correct for two
+*shared* packs contesting a name. It is wrong for the local pack, which is defined as the layer
+that outranks everything.
+
+**Not visible at namespaced tier**, which is why it took a deliberate probe: there each pack gets
+its own subtree (`skills/<pack>/skills/<name>`), so a collision is unrepresentable and precedence
+is moot. Mixed tiers ship today — `claude`/`copilot` are namespaced, `agy`/`codex`/`pi` are flat —
+so a real user hits the flat path.
+
+**Fix belongs to Q6, not a patch here.** Q6 replaces this negotiation with wholesale composition
+(clear the destination, then built-ins < packs in config order < the local pack), in which
+"later wins" is the mechanism rather than something the ownership manifest must permit. Patching
+`deliverFlat` to special-case the local pack would add a rule Q6 then deletes. Q6's acceptance
+test must include the flat-tier collision above.
+
 ## 6b. Divergence audit — where else a kind means two different things by notch
 
 **Requested 2026-08-04:** *"do a pass for other such misaligned mechanisms. I want to simplify
