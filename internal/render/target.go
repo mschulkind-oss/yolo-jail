@@ -53,25 +53,54 @@ type Target struct {
 	// "dropped a UI-added MCP server" messages. nil means discard (a preview, or a test
 	// that does not assert on notices).
 	Stderr io.Writer
+
+	// kind is the notch this target renders at, STATED by the constructor that built it
+	// rather than derived from the fields above (see KindOf). Unexported because a Target
+	// is only correct if a constructor chose its notch: a struct literal assembled outside
+	// this package cannot claim one, and gets KindUnset — the guarded answer — instead of
+	// whichever notch its shape happens to resemble.
+	kind Kind
 }
 
-// Kind names which of the three targets a Target is, for the small number of decisions
-// that legitimately differ by target (e.g. whether ${workspace} has a referent, whether
-// a computed layer is even supplied). It is deliberately coarse — three values, not a
-// policy vector — mirroring the confinement dial's own "presets, not a matrix" rule.
+// Kind names which target a Target is, for the small number of decisions that legitimately
+// differ by target (e.g. whether ${workspace} has a referent, whether a computed layer is
+// even supplied). It is deliberately coarse — a handful of values, not a policy vector —
+// mirroring the confinement dial's own "presets, not a matrix" rule.
+//
+// STATED, NOT INFERRED (plan §6b D2 / Q1). Kind used to be derived from a Target's shape —
+// "no Workspace" meant host, "Home == Workspace" meant preview — which made the notch
+// load-bearing on an ABSENCE: a `guest` target is a real home WITH a workspace and
+// Home != Workspace, so it resolved to KindJail and inherited jail semantics with nothing
+// recording that as a choice. Every value below is now set by a constructor, and every
+// switch over them carries a case (or a default someone had to write) for each — so adding
+// a notch is a question the compiler asks rather than one a struct's shape answers.
 type Kind int
 
 const (
-	// KindJail is the in-jail boot render: a disposable home, a computed layer built
-	// from the live tables, sidecars under the container workspace.
-	KindJail Kind = iota
-	// KindPreview is `yolo config render`: writes nothing outside its scratch dir; used
-	// to show what a render would produce without touching a real home.
-	KindPreview
+	// KindUnset is the zero value, and it is deliberately NOT a notch: a Target nobody's
+	// constructor built has not chosen one. This member is what keeps the enum's zero from
+	// being a real level — with KindJail at iota 0, a bare `render.Target{}` would claim
+	// the STRONGEST notch (every kind honored, autonomy on), which is D2's bug with the
+	// safety inverted. Everything below treats it as the most restricted answer.
+	KindUnset Kind = iota
+	// KindJail is the in-jail boot render: a home yolo regenerates every boot, a computed
+	// layer built from the live tables, sidecars under the container workspace.
+	KindJail
+	// KindGuest is the middle notch (env-manager plan Phase 7): a real home on the real
+	// filesystem, confined by an LSM/Seatbelt profile rather than a container. It has NO
+	// constructor yet — its shape (which home, which workspace referent) is Phase 7's to
+	// state, and inventing one here would be guessing. The member exists anyway, and that
+	// is the point of Q1: every switch on Kind now has to name it or fall to a default,
+	// so the notch cannot be added by silently inheriting a branch it happens to land in.
+	KindGuest
 	// KindHost is `yolo apply --host`: the invoking user's real home, no computed layer
 	// (its values embed jail-absolute paths), every surface read-modify-written so the
 	// agent's own keys survive (env-manager plan OQ-4, host-render-target.md §6.3).
 	KindHost
+	// KindPreview is `yolo config render`: writes nothing outside its scratch dir; used
+	// to show what a render would produce without touching a real home. Last because it is
+	// not a point on the confinement dial at all — the three above are.
+	KindPreview
 )
 
 // Jail builds the boot-render Target from resolved home + workspace paths and the boot
@@ -79,27 +108,46 @@ const (
 // WorkspaceDir() — this package never imports entrypoint, so the values cross as plain
 // strings.
 func Jail(home, workspace string, stderr io.Writer) Target {
-	return Target{Home: home, Workspace: workspace, Stderr: stderr}
+	return Target{Home: home, Workspace: workspace, Stderr: stderr, kind: KindJail}
 }
 
 // Preview builds a Target that writes only under dir — the `yolo config render` case,
 // which must not touch any real file. Workspace is dir too, so a ${workspace} surface
 // resolves to something inside the scratch area rather than a real path.
 func Preview(dir string) Target {
-	return Target{Home: dir, Workspace: dir, Stderr: nil}
+	return Target{Home: dir, Workspace: dir, Stderr: nil, kind: KindPreview}
 }
 
 // Host builds the host-render Target: the real home, no workspace referent (a
 // ${workspace} surface is refused, not bound), notices to the given stderr.
 func Host(home string, stderr io.Writer) Target {
-	return Target{Home: home, Workspace: "", Stderr: stderr}
+	return Target{Home: home, Workspace: "", Stderr: stderr, kind: KindHost}
 }
 
-// KindOf reports which target this is, from its shape. Jail and Preview both have a
-// Workspace; Host does not. Preview is distinguished by Home==Workspace. This keeps
-// callers from having to thread a Kind field through every construction while the
-// three constructors above set the shape.
-func (t Target) KindOf() Kind {
+// KindOf reports which notch this target renders at — the field its constructor set, not a
+// re-derivation from its shape. Kept as an accessor rather than exporting the field so the
+// notch can only be CHOSEN by a constructor in this package; every caller reads it the same
+// way it always did.
+//
+// A Target with no constructor behind it reads KindUnset, which is neither jail nor host and
+// is handled as the most restricted answer wherever it can reach (see Fields, SidecarDir).
+func (t Target) KindOf() Kind { return t.kind }
+
+// Profile is the confinement preset this target renders under, and therefore the single
+// source of the §4.2 AgentAutonomy policy for every render path (plan §6c step 1). A caller
+// that has a Target has the policy; it never picks a true/false for itself.
+//
+// A method rather than a field so the two halves of the notch cannot drift: Kind is stated
+// once, by a constructor, and the preset follows from it through ProfileFor's one table.
+func (t Target) Profile() Profile { return ProfileFor(t.KindOf()) }
+
+// inferKindFromShape is the derivation KindOf USED to be, kept only so a test can assert the
+// explicit field agrees with it for the three constructors that existed before Q1 — proving
+// the refactor behavior-preserving rather than assuming it. It is not a fallback: the whole
+// point of the explicit field is that a shape no longer decides a notch, and a guest target
+// is exactly the case this function gets wrong (a real home with a workspace, so it says
+// "jail").
+func inferKindFromShape(t Target) Kind {
 	if t.Workspace == "" {
 		return KindHost
 	}
@@ -122,30 +170,43 @@ const hostProvenanceLeaf = "host-provenance"
 // no baseline and captures no edits, and there is no per-workspace referent to put them
 // under anyway.
 //
-// Never relative. That is the load-bearing property: the jail and preview kinds are
-// defined by having a Workspace (see KindOf), so the join always has an absolute root,
-// and the host kind — whose Workspace is deliberately empty — returns "" instead of a
-// bare ".yolo/prism" that would resolve against whatever directory the process happens to
-// be sitting in. `yolo apply --host` runs from anywhere.
+// Never relative. That is the load-bearing property: only the two kinds that HAVE a
+// workspace join one, so the join always has an absolute root, and every other kind returns
+// "" instead of a bare ".yolo/prism" that would resolve against whatever directory the
+// process happens to be sitting in. `yolo apply --host` runs from anywhere.
+//
+// A SWITCH rather than the old `if KindOf() == KindHost` (Q1). While the notch was inferred
+// the two spellings were the same statement — Workspace=="" was the DEFINITION of host — so
+// "not host" implied "has a workspace" and the join was safe. With Kind stated, they part
+// company: a Target whose kind nobody set has no workspace either, and the old `if` would
+// have handed it the relative path this function exists to prevent. So the kinds that
+// produce a sidecar tree are named, and everything else — guest until Phase 7 states where
+// its sidecars live, and any unset target — gets "".
 func (t Target) SidecarDir() string {
-	if t.KindOf() == KindHost {
+	switch t.KindOf() {
+	case KindJail, KindPreview:
+		return filepath.Join(t.Workspace, ".yolo", "prism")
+	default:
 		return ""
 	}
-	return filepath.Join(t.Workspace, ".yolo", "prism")
 }
 
 // ProvenanceDir is where THIS target's per-key "which layer set this key" records go. It
-// is the one sidecar every target keeps, so unlike SidecarDir it has an answer at all
-// three notches:
+// is the one sidecar every constructed target keeps:
 //
 //   - jail / preview: beside the other sidecars, under <workspace>/.yolo/prism/.
 //   - host: under the STATE dir of the home being rendered into,
 //     <home>/.local/share/yolo-jail/host-provenance/.
+//   - guest / unset: "" — nowhere, which the caller reads as "nothing to record". Guest is
+//     a real home with a workspace, so BOTH answers above are mechanically available and
+//     that is precisely why it must not be defaulted into one: which of the two a guest
+//     keeps is Phase 7's decision, and inheriting the jail's by falling through an `if`
+//     is the D2 bug this file's explicit Kind exists to make impossible.
 //
 // Why the state dir at the host, and not the two alternatives:
 //
-//   - NOT the workspace. `render.Host()` leaves Workspace empty on purpose (KindOf uses
-//     that as the definition of "host"), so there is no workspace to put it under; joining
+//   - NOT the workspace. `render.Host()` leaves Workspace empty on purpose, so there is no
+//     workspace to put it under; joining
 //     anyway yields a RELATIVE ".yolo/prism" that scatters records into whatever directory
 //     `yolo apply --host` was invoked from. A host render is user-scoped — what it writes
 //     is a function of the pack plus the user config, never of a workspace — so keying its
@@ -163,13 +224,17 @@ func (t Target) SidecarDir() string {
 // test with a t.TempDir() home. Empty when the target has no home to key on (an
 // unusable Target); the caller treats that as "nowhere to record".
 func (t Target) ProvenanceDir() string {
-	if t.KindOf() != KindHost {
+	switch t.KindOf() {
+	case KindJail, KindPreview:
 		return t.SidecarDir()
-	}
-	if t.Home == "" {
+	case KindHost:
+		if t.Home == "" {
+			return ""
+		}
+		return filepath.Join(paths.GlobalStorageUnder(t.Home), hostProvenanceLeaf)
+	default:
 		return ""
 	}
-	return filepath.Join(paths.GlobalStorageUnder(t.Home), hostProvenanceLeaf)
 }
 
 // ProvenancePath is the provenance record for one surface under this target, or "" when

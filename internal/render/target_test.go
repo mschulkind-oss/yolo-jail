@@ -8,8 +8,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
-// The three constructors set the shape KindOf reads back — the discriminator callers
-// use without threading a Kind field through every construction.
+// Each constructor STATES its notch, and KindOf reads that field back — the discriminator
+// callers use, unchanged by Q1's move from inference to declaration.
 func TestTargetKinds(t *testing.T) {
 	if got := Jail("/home/agent", "/workspace", nil).KindOf(); got != KindJail {
 		t.Errorf("Jail().KindOf() = %d, want KindJail", got)
@@ -23,6 +23,76 @@ func TestTargetKinds(t *testing.T) {
 	// A host target has no workspace referent — that is what refuses ${workspace}.
 	if Host("/home/me", nil).Workspace != "" {
 		t.Error("Host target must have empty Workspace (no ${workspace} referent)")
+	}
+}
+
+// The explicit Kind field agrees with the SHAPE INFERENCE it replaced, for all three
+// constructors that existed before Q1. This is what proves the refactor behavior-preserving
+// rather than assuming it: every caller in the tree reads KindOf, so if the stated field and
+// the old derivation ever disagreed on a constructed target, the change moved behavior.
+func TestExplicitKindMatchesTheOldShapeInference(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		target Target
+	}{
+		{"jail", Jail("/home/agent", "/workspace", nil)},
+		{"preview", Preview("/tmp/scratch")},
+		{"host", Host("/home/me", nil)},
+	} {
+		if got, want := c.target.KindOf(), inferKindFromShape(c.target); got != want {
+			t.Errorf("%s: stated Kind = %d but the pre-Q1 shape inference said %d — the "+
+				"refactor changed behavior for a constructor that already worked", c.name, got, want)
+		}
+	}
+}
+
+// GUEST IS WHY THE FIELD IS EXPLICIT (plan §6b D2). A guest home is a real home WITH a
+// workspace and Home != Workspace, so the old shape inference called it a jail — and it would
+// have inherited the jail's every kind, the jail's sidecars, and (via the profile) the jail's
+// autonomy, with nothing recording that as a choice. This test is the inverse of the one
+// above: it pins that the two DISAGREE on a guest-shaped target, so the disagreement is the
+// documented reason the field exists rather than an accident someone might "fix" by restoring
+// the inference.
+func TestGuestShapeWouldHaveInferredJail(t *testing.T) {
+	guestShaped := Target{Home: "/Users/agent", Workspace: "/Users/matt/code/proj", kind: KindGuest}
+	if got := guestShaped.KindOf(); got != KindGuest {
+		t.Fatalf("KindOf() = %d, want KindGuest — the field must win over the shape", got)
+	}
+	if inferKindFromShape(guestShaped) != KindJail {
+		t.Fatal("a guest-shaped target no longer infers as a jail — if the shapes have " +
+			"genuinely diverged, this test's premise (and D2's) needs restating")
+	}
+	// And the consequences a silent KindJail would have handed it: the full jail census, jail
+	// autonomy, and a sidecar tree under someone's real workspace. All three must be the
+	// conservative answer until Phase 7 states guest's own.
+	if guestShaped.Fields().Honors(packdecl.KindMount) {
+		t.Error("guest must not honor `mount` by default — there is no mount namespace below jail")
+	}
+	if guestShaped.SidecarDir() != "" {
+		t.Errorf("guest must not inherit the jail's sidecar tree by default; got %q",
+			guestShaped.SidecarDir())
+	}
+}
+
+// An unconstructed Target claims NOTHING. The zero value is the one Kind a caller outside this
+// package can produce (the field is unexported, so a struct literal cannot set it), which is
+// exactly why KindUnset must not be a notch: with KindJail at iota 0, `render.Target{}` would
+// have claimed the strongest one.
+func TestUnsetTargetIsNotANotch(t *testing.T) {
+	var zero Target
+	if zero.KindOf() != KindUnset {
+		t.Fatalf("the zero Target must read KindUnset, got %d", zero.KindOf())
+	}
+	if zero.Fields().Honors(packdecl.KindMount) {
+		t.Error("an unset target must get the REDUCED census, not the jail's")
+	}
+	for label, got := range map[string]string{
+		"SidecarDir":    zero.SidecarDir(),
+		"ProvenanceDir": zero.ProvenanceDir(),
+	} {
+		if got != "" {
+			t.Errorf("an unset target has nowhere to keep records; %s = %q", label, got)
+		}
 	}
 }
 
@@ -152,5 +222,36 @@ func TestFieldSetCensus(t *testing.T) {
 	// program is honored by the FieldSet (confirm-gated by the caller, not refused here).
 	if !host.Honors(packdecl.KindProgram) {
 		t.Error("host FieldSet should honor program (the caller confirm-gates it, OQ-6/7)")
+	}
+}
+
+// `env` and `launch` are unbuilt because `apply --host` NEVER LAUNCHES A PROCESS — a limit of
+// the command, not of the notch (plan §6b D3). The distinction is not pedantry: at `guest`
+// yolo already execs the agent, and `yolo --at host -- <cmd>` would give the host notch the
+// same verb, so a reason phrased as "off-container" or "below jail" would refuse two kinds
+// that are in fact honorable and send a reader looking for a confinement fix to a problem that
+// is a missing command.
+//
+// Asserted on the SHAPE of the reason, not its exact prose, so rewording stays free while the
+// two claims that must not come back are pinned: the reason has to name the command, and must
+// not blame the notch.
+func TestEnvAndLaunchRefusalsBlameTheCommandNotTheNotch(t *testing.T) {
+	for _, k := range []packdecl.Kind{packdecl.KindEnv, packdecl.KindLaunch} {
+		why, unbuilt := HostUnimplemented(k)
+		if !unbuilt {
+			// Implemented is a fine outcome — delete this kind's row rather than the test.
+			continue
+		}
+		if !strings.Contains(why, "apply --host") {
+			t.Errorf("%s: the reason must name the COMMAND that cannot honor it; got %q", k, why)
+		}
+		// The old wording's mistake, in the two forms it took: presenting the limit as a
+		// property of being off a container rather than of this command.
+		for _, blames := range []string{"off-container", "below jail", "off the container"} {
+			if strings.Contains(why, blames) {
+				t.Errorf("%s: reason blames the NOTCH (%q) — a guest target inheriting this "+
+					"text would refuse a kind it can honor; got %q", k, blames, why)
+			}
+		}
 	}
 }
