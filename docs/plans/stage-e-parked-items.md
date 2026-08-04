@@ -29,6 +29,8 @@ the one nix item that is a *prerequisite* rather than an option).
 | E3 | Capture timing (`yolo config capture` + capture on terminate) | **not urgent** — nothing is lost today, only observability lags | small; the cheap half is one subcommand |
 | E4 | Comment preservation on `json`/`toml` surfaces | starts from decisions, not blank | cheapest useful step needs no comment parsing at all |
 | E5 | `managed`/`defaults` array-append pinning | no user surface has ever needed it | small, but do not build it speculatively |
+| §6a | **open question:** should the jail briefing use markers like the host's? | not a defect today — the two notches are each correct for their own destination | a decision, forced by Phase 7's real home |
+| §7 | **`pack lint`'s content rule asks the wrong question** | pre-existing; needs the two conflated checks split | lint-only, no boot path |
 
 ---
 
@@ -112,7 +114,7 @@ main asset.
 
 ---
 
-## 6. Potential future work — a host nix environment
+## 6. Potential future work — a non-container nix environment
 
 [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) is a full design study
 for giving the `host` notch a reproducible tool environment via nix, rather than
@@ -134,6 +136,56 @@ What a reader should know before opening it:
 - One verified fact worth carrying: `packages.yoloDarwinPackages` is **already per-system** and
   resolves for `x86_64-linux`. The name is the lie, not the mechanism.
 - The devShell pollution was measured, not guessed: 22 PATH entries, 121 env vars.
+
+---
+
+## 6a. Open question — should the JAIL briefing use markers too?
+
+**Raised by the maintainer 2026-08-04:** *"briefings are currently rmw? that seems a bit wrong.
+why would we not replace them all wholesale?"*
+
+**At the HOST the answer is settled, and wholesale replacement would be data loss.** The
+destination IS the user's own file: `~/.claude/CLAUDE.md` is where a human keeps their global
+agent instructions (the maintainer's is 4.4 KB of hand-written commit rules, testing philosophy
+and conventions). A pack declares `after: "host:.claude/CLAUDE.md"` and
+`into: ".claude/CLAUDE.md"` — source and destination are the SAME file, so a plain append
+re-appends yolo's previous output every apply and grows without bound, and a wholesale write eats
+the user's prose.
+
+So the delimited block is not "rmw by analogy" — it is the **Markdown equivalent of what `config`
+does at the key level**. `config` rmw: yolo owns these keys, your other keys are untouched.
+Briefing block: yolo owns the bytes between these markers, the rest of the file is yours. Same
+rule, different granularity, and it is what makes "hand-written prose survives" a property of the
+mechanism rather than a test result (`internal/entrypoint/hostbriefing.go:1-32`).
+
+**The jail is the case where the question has teeth, and nobody has asked it.** There,
+`ComposePackBriefings` writes to a DIFFERENT path — a staging file the jail bind-mounts `:ro` —
+so wholesale regeneration is safe and is what happens today. Two things follow that are worth
+deciding rather than inheriting:
+
+1. **The two notches use different mechanisms for the same kind.** That is currently justified
+   (different destinations, different ownership), but it is exactly the sort of divergence that
+   became a defect for `skills` when `from` was honored at one notch and not the other. If the
+   jail ever renders a briefing to a user-visible path — a `guest` home, say, which is a REAL
+   home (env-manager Phase 7) — the two would silently disagree about who owns the file. **Phase
+   7 is where this must be answered**, and answering it early is cheaper than discovering it as a
+   `guest` data-loss bug.
+2. **The marker mechanism is strictly more general.** Markers work whether or not the
+   destination is user-owned; wholesale replacement only works when it is not. So "use markers
+   everywhere" is a coherent simplification (one mechanism, one code path, no notch-dependent
+   ownership question) at the cost of marker comments in a file the user never edits. Worth
+   weighing against the fingerprint gate: unifying would change every jail briefing's bytes.
+
+**Not urgent, and not a defect today** — both notches are correct for their own destination. It
+is an open question because the *reason* they differ is a fact about the destination, and Phase 7
+introduces a destination that has both properties (a real home yolo provisions).
+
+Related: F3 in [`feedback-real-pack-adoption.md`](feedback-real-pack-adoption.md) — a first apply
+against a briefing that already contains the pack's prose produces it twice. That is a
+consequence of the append-based first write, not a bug in the marker design, and its proposed
+"adopt the existing prose into the markers" fix is **rejected** in that doc's triage: adopting
+claims ownership of text yolo did not write, so the retirement path would later delete the user's
+own words.
 
 ---
 

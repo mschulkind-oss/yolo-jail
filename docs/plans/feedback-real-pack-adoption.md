@@ -210,6 +210,106 @@ those paths are read-only mounts. But that was luck, not design.)
 
 ---
 
+## Triage and recommended order (added 2026-08-04)
+
+Every finding above re-verified against the code before ranking. Two are re-ranked, one fix is
+partly rejected, and F5 turns out to be the same rule an independent audit hit the same week.
+
+**The unifying diagnosis is the one this doc's own last paragraph makes, and it is right:** all
+three 🔴/🟠 first-contact findings are SILENT, in a codebase whose stated discipline is "never
+silent." F1's note makes the sharpest form of it — the G1 fix made *declared-but-unimplemented*
+kinds loud; these are the *undeclared* and *blocked* cases, and they are still mute. That is a
+gap in a principle we thought was closed, not six unrelated papercuts.
+
+| Order | Finding | Why here |
+|---|---|---|
+| 1 | **F2** dangling symlinks | The only finding that BROKE a working machine. No design question: `Lstat` says symlink + `Stat` fails ⇒ absent. Cheapest real fix in the list |
+| 2 | **F1** zero-ceremony host no-op | Silent, and the fix is already PROVEN by the jail — see below |
+| 3 | **F5 + the lint rewrite** | One rule, two reports. Do them together |
+| 4 | **F4** outranked overlay key | One line of output; turns a misleading warning into stated policy |
+| 5 | **F6** tense + `--allow-exec` | Two cosmetics, genuinely cheap |
+| 6 | **F3** briefing duplication | Needs an ownership decision first — the proposed fix is half wrong |
+
+### F1 — take fix option 1, and here is why it is safe
+
+Confirmed by probe 2026-08-04: a pack with `skills/` + `AGENTS.md` and no `pack.json` lints
+`✓ pack ok — 2 file(s) stage` and renders **zero** files to a real `$HOME`.
+
+**The mechanism, which the report inferred correctly and which the code confirms:**
+`packload.SkillsSourceDirs` has an explicit zero-ceremony fallback —
+
+```go
+if !declared {
+    // Zero-ceremony: no manifest (or none mentioning skills) still merges skills/.
+    add(packdecl.Contribution{Kind: packdecl.KindSkills})
+}
+```
+
+— while the host render iterates `p.Decl.Contributions()` only. So this is an **asymmetry
+between notches, not a host-side policy**, which is exactly what makes option 1 the right
+choice: the jail already proves the inference is well-defined and already ships the destination
+list. The host is not being asked to invent anything.
+
+Suggested fix 2 (warn instead) is the fallback, and suggested fix 3 (reword
+`(no declared claims)`) should happen **regardless** — it is the lint rewrite below.
+
+### F2 — the ranking bump, and why the message matters as much as the behavior
+
+Promoted above F1: it is the only finding that caused breakage rather than absence, and it has
+no open design question.
+
+The refusal rule (never clobber what yolo cannot prove it wrote) is **correct and must stay**.
+The defect is that a *dangling* symlink is indistinguishable to it from precious user content —
+and by any reading, a link to a file that no longer exists is not user content. The report's
+`skipped (yours) — left untouched` observation is the important half: it reads as a safe no-op
+while meaning *"this pack will never work until you delete something by hand."*
+
+The `--doctor` suggestion is worth taking further than proposed: "why is my pack doing nothing"
+is the same question F1 raises, so ONE command should answer both — destinations blocked by
+`skipped (yours)`, plus packs that declare no destinations at all.
+
+### F3 — take the warning, REJECT the adopt-into-markers half
+
+The warning is right and matches the `⚠ would overwrite your existing value` precedent that made
+the settings half of this migration uneventful.
+
+**Adoption is not safe, though**, and the reason is a rule this codebase already follows
+everywhere else: *never claim ownership of content you cannot prove you wrote.* Wrapping the
+user's hand-written prose in yolo's markers claims exactly that — and the retirement path
+shipped 2026-08-03 would then **delete the user's original text** when the pack later drops that
+prose or is removed from config. The user would experience "I removed a pack and it ate my
+CLAUDE.md."
+
+So: warn, name the duplication, tell the user to delete their hand-written copy if they want the
+pack to own it. Let the human transfer ownership explicitly; do not infer it from a byte match.
+
+### F4 — the output actively misleads, which is worse than silence
+
+The mechanism is right (this is the autonomy-leak fix, verified 2026-08-03: a host apply writes
+`defaultMode: "default"`, `additionalDirectories: []`, `skipDangerousModePermissionPrompt:
+false`). The defect is purely legibility, and it is the sharp kind: the overlay is accepted,
+LISTED as contributing, and then loses — while `⚠ overwrote your existing value` fires, so the
+output reads as though the overlay won.
+
+This is ruling R3's question ("which pack set that key?") one layer deeper: R3 made overlay
+contributions visible, but not overlay contributions that were **outranked**. Name the loss and
+its cause, as proposed.
+
+### F5 — the same rule an independent audit hit, and the rule asks the wrong question
+
+Reported independently as the `pack lint` finding in
+[`stage-e-parked-items.md`](stage-e-parked-items.md) §7, where the full probe table and the
+recommended rewrite live. Short version: the rule asks *"did this pack stage `skills/` or
+`AGENTS.md`?"* as a proxy for *"does anything read this pack?"* — true when a pack could only
+ship content, false now that a pack contributes any of 14 kinds. A pack with **zero
+contributions** and a working config-only pack get the *identical* message, so the rule is
+useless in the one case it exists for.
+
+The fix is two honest checks in place of one bad one — warn on zero contributions (which
+`pack footprint` already computes exactly), keep the declared-source-delivers-nothing check —
+and the report's own wording complaint is the tell: *"would stage files nothing reads"* is
+simply false for a `files` tree.
+
 ## What worked well (so it doesn't get refactored away)
 
 Genuinely good, and load-bearing for trusting `--assert` on a real home:

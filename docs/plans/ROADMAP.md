@@ -20,6 +20,7 @@ lane order:
 | 3 | **composed-file follow-ups** — the deferred tail of `host_files` + two pre-existing prism defects (see below) | jail-side | none; each item is independently shippable |
 | 4 | **agent auth — capture the model, fix the asymmetry** (Claude broker rationale, the five un-investigated agents, macos-user parity, 4 verified defects) | jail-side (macos-user half is Mac-gated) | none for the audit/docs half; the macos-user fixes need a Mac to verify |
 | 5 | **agent config packs** — share skills/AGENTS.md prose across agents by `(repo, path, branch)`, no PR ([agent-config-packs.md](agent-config-packs.md)) | jail-side | none; Phase 0 is local-only and fixes a standalone `pi`/`codex` skills gap |
+| 6 | **pack first-contact fixes** — six field findings from a real migration, ranked, two of them silent-failure 🔴s ([feedback-real-pack-adoption.md](feedback-real-pack-adoption.md)) | jail-side | none; F2 and F5 have no design question. F3 needs one ownership call (see its triage note) |
 
 ### Item 0 — remove the `gemini` agent
 
