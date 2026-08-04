@@ -70,6 +70,16 @@ func TestValidateContributes(t *testing.T) {
 		{"unknown kind", Contribution{Kind: "mcp-server", Bin: "x"}, "unknown kind"},
 		{"program no via", Contribution{Kind: KindProgram, Bin: "x"}, "needs \"via\""},
 		{"skills no into", Contribution{Kind: KindSkills, From: "skills"}, "needs \"into\""},
+		// `from` is CONVENTIONAL on skills/briefing and MANDATORY on files. The three
+		// live together because the boundary between them is the schema decision, and a
+		// regression would move exactly one of these rows.
+		{"skills no from", Contribution{Kind: KindSkills, Into: ".acme/skills"}, ""},
+		{"briefing no from", Contribution{Kind: KindBriefing, Into: ".acme/A.md"}, ""},
+		{"files no from", Contribution{Kind: KindFiles, Into: ".acme/prompts"}, "needs \"from\""},
+		// `into` stays required on all three — a destination has one right answer per
+		// AGENT, so there is no convention to fall back to (see validateContribution).
+		{"briefing no into", Contribution{Kind: KindBriefing, From: "AGENTS.md"}, "needs \"into\""},
+		{"files no into", Contribution{Kind: KindFiles, From: "prompts"}, "needs \"into\""},
 		{"machine state no because", Contribution{Kind: KindState, At: ".x", Scope: "machine"}, "needs a \"because\""},
 		{"state escaping path", Contribution{Kind: KindState, At: "../etc"}, "must not contain"},
 		{"unknown hook", Contribution{Kind: KindHook, Hook: "nope"}, "unknown hook"},
@@ -397,6 +407,97 @@ func TestConfigOverlayValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A `skills` contribution with no `from` must both VALIDATE and RESOLVE — through the
+// authoring boundary (Decode, strict) rather than validateContributions alone, because that
+// is the door a pack author actually knocks on.
+//
+// The resolution half is the point: a schema that accepts an omitted `from` and then
+// resolves it to "" would be worse than requiring it, since "" reads as the pack ROOT at
+// every call site that joins it onto p.Root — the whole tree delivered as skills instead of
+// a clear validation error.
+func TestSkillsFromIsOptionalAndDefaults(t *testing.T) {
+	m, probs := Decode([]byte(`{"name":"acme","contributes":[
+	  {"kind":"skills","into":".acme/skills"}]}`))
+	if len(probs) != 0 {
+		t.Fatalf("omitting `from` on skills must validate, got %v", probs)
+	}
+	c := m.Contributions()[0]
+	if got := c.SkillsSource(); got != DefaultSkillsDir {
+		t.Errorf("SkillsSource() = %q, want %q — an omitted `from` must resolve to the "+
+			"convention, never to the empty pack root", got, DefaultSkillsDir)
+	}
+	if got := m.SkillsSources(); len(got) != 1 || got[0] != DefaultSkillsDir {
+		t.Errorf("SkillsSources() = %v, want [%q]", got, DefaultSkillsDir)
+	}
+	// A DECLARED source still wins — the default must not have flattened the field.
+	m, probs = Decode([]byte(`{"name":"acme","contributes":[
+	  {"kind":"skills","from":"my-skills","into":".acme/skills"}]}`))
+	if len(probs) != 0 {
+		t.Fatalf("declared `from` must still validate, got %v", probs)
+	}
+	if got := m.Contributions()[0].SkillsSource(); got != "my-skills" {
+		t.Errorf("SkillsSource() = %q, want %q", got, "my-skills")
+	}
+}
+
+// Same pair for `briefing`, whose convention is two names rather than one: an omitted
+// `from` resolves to AGENTS.md then CLAUDE.md, in that order, and a declared one is tried
+// FIRST without dropping the convention behind it (the precedence hostBriefingProse
+// implements).
+func TestBriefingFromIsOptionalAndDefaults(t *testing.T) {
+	m, probs := Decode([]byte(`{"name":"acme","contributes":[
+	  {"kind":"briefing","into":".acme/A.md","after":"host:.acme/A.md"}]}`))
+	if len(probs) != 0 {
+		t.Fatalf("omitting `from` on briefing must validate, got %v", probs)
+	}
+	want := []string{"AGENTS.md", "CLAUDE.md"}
+	if got := m.Contributions()[0].BriefingCandidates(); !equalStrings(got, want) {
+		t.Errorf("BriefingCandidates() = %v, want %v — an omitted `from` must resolve to "+
+			"the conventional pair, in precedence order", got, want)
+	}
+	m, probs = Decode([]byte(`{"name":"acme","contributes":[
+	  {"kind":"briefing","from":"prose/BRIEF.md","into":".acme/A.md"}]}`))
+	if len(probs) != 0 {
+		t.Fatalf("declared `from` must still validate, got %v", probs)
+	}
+	want = []string{"prose/BRIEF.md", "AGENTS.md", "CLAUDE.md"}
+	if got := m.Contributions()[0].BriefingCandidates(); !equalStrings(got, want) {
+		t.Errorf("BriefingCandidates() = %v, want %v", got, want)
+	}
+}
+
+// `files` KEEPS `from` required, and this is the row that must not follow the other two.
+// The kind is CombineExclusive over an ARBITRARY path — there is no conventional location
+// for an opaque tree, so the declaration is the only thing that can name it, and defaulting
+// would mean claiming the pack root. Asserted at the authoring boundary because that is
+// where the author gets told.
+func TestFilesFromStaysRequired(t *testing.T) {
+	_, probs := Decode([]byte(`{"name":"acme","contributes":[
+	  {"kind":"files","into":".acme/prompts"}]}`))
+	joined := strings.Join(probs, "; ")
+	if !contains(joined, `needs "from"`) {
+		t.Errorf("omitting `from` on files must be a validation error, got %q", joined)
+	}
+	// And the combine rule that is the reason: if this ever stops being exclusive
+	// ownership of an arbitrary path, revisit whether the field is still mandatory.
+	if fp, ok := FootprintOf(KindFiles); !ok || fp.Combine != CombineExclusive {
+		t.Errorf("files combine = %v, want %v — the premise of the required `from`",
+			fp.Combine, CombineExclusive)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // autonomy validation: at least one posture, and a launch entry needs a bin.

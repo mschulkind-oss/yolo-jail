@@ -53,11 +53,12 @@ type Contribution struct {
 	InstallHints map[string]string `json:"install_hints,omitempty"`
 
 	// --- skills / briefing / files (staged trees) ---
-	// From is the pack-relative source path. For `skills`, read it through
-	// SkillsSources() rather than off the struct: an absent `from` means the
-	// conventional dir, and a call site that resolves that by hand is a call site
-	// that can quietly stop honoring the declared value (which is exactly what all
-	// three skills readers did).
+	// From is the pack-relative source path. OPTIONAL for `skills` and `briefing`,
+	// which each have a conventional source, and REQUIRED for `files`, which does not
+	// (see validateContribution). Read it through SkillsSource() / BriefingCandidates()
+	// rather than off the struct: an absent `from` means the convention, and a call
+	// site that resolves that by hand is a call site that can quietly stop honoring
+	// the declared value (which is exactly what all three skills readers did).
 	From  string `json:"from,omitempty"`  // pack-relative source path
 	Into  string `json:"into,omitempty"`  // home-relative jail destination
 	After string `json:"after,omitempty"` // briefing: "host:<path>" to prepend the user's own file
@@ -368,6 +369,38 @@ func (m *Manifest) SkillsSources() []string {
 	return out
 }
 
+// DefaultBriefingFiles are the conventional pack-relative files a `briefing`
+// contribution reads when it declares no `from`, in precedence order. Both names are in
+// the wild and a pack author should not have to know which one yolo happens to read, so
+// the convention is a PAIR rather than a single name — which is also why `briefing` has a
+// candidate list where `skills` has one DefaultSkillsDir.
+func DefaultBriefingFiles() []string { return []string{"AGENTS.md", "CLAUDE.md"} }
+
+// BriefingCandidates returns the pack-relative files THIS briefing contribution's prose
+// may live in, in precedence order: the declared `from` first, then the conventional pair.
+// The caller reads the first one that exists and is non-empty.
+//
+// Same shape and the same reason as SkillsSource: `from` is optional on this kind because
+// every reader already falls back to the convention (entrypoint's hostBriefingProse builds
+// exactly this list), so requiring it in the schema only made the author write a literal
+// the resolver would have supplied.
+//
+// It is the AUTHORITY for that precedence, not a third copy of it: both readers still
+// inline the pair — hostBriefingProse `from`-first-then-convention, run.readPackBriefing
+// convention-only, ignoring `from` — and that divergence is the shipped defect where a pack
+// whose prose lives elsewhere briefs at the host notch and not in a jail
+// (docs/design/pack-system.md, "Shipped-behavior caveat" under `briefing`). Both should read
+// through here; SkillsSource is the precedent for what converging them fixes.
+//
+// Kind is NOT checked, for the reason SkillsSource states: this is a method on a
+// contribution the caller has already filtered by kind.
+func (c Contribution) BriefingCandidates() []string {
+	if c.From == "" {
+		return DefaultBriefingFiles()
+	}
+	return append([]string{c.From}, DefaultBriefingFiles()...)
+}
+
 // HostFileContributions returns the reads-host contributions as legacy HostFiles.
 func (m *Manifest) HostFileContributions() []HostFile {
 	var out []HostFile
@@ -659,7 +692,24 @@ func validateContribution(label string, c Contribution) []string {
 			}
 		}
 	case KindSkills, KindBriefing, KindFiles:
-		req("from", c.From)
+		// `from` is required on `files` ONLY, and the split is the whole point rather than
+		// an inconsistency. `skills` and `briefing` each have a CONVENTIONAL source that
+		// every reader already falls back to — DefaultSkillsDir for skills (see
+		// SkillsSource), AGENTS.md then CLAUDE.md for briefing (entrypoint's
+		// hostBriefingProse, run.readPackBriefing) — so demanding the field made every pack
+		// author write a literal the resolver would have supplied anyway, and the validator
+		// was the only half of the code that thought it mattered. `files` is
+		// CombineExclusive over an ARBITRARY path with no conventional location, so there is
+		// nothing to default to: the declaration is the only thing that can name the tree.
+		//
+		// `into` stays required on all three, and that is not symmetry-for-its-own-sake
+		// either. A source has one right answer per KIND; a destination has one right answer
+		// per AGENT, so inferring it means inferring the agent set — which is what the
+		// `packs` list is for. The jail already infers a skills destination where the host
+		// does not, and that asymmetry is a silent no-op bug, not a convention to spread.
+		if c.Kind == KindFiles {
+			req("from", c.From)
+		}
 		req("into", c.Into)
 		problems = appendPathProblems(problems, label+".from", c.From)
 		problems = appendPathProblems(problems, label+".into", c.Into)
