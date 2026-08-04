@@ -1,8 +1,13 @@
-# Stage E — parked items
+# Outstanding work — queued rulings and parked design
 
-**What this is.** The design work deliberately *not* built, gathered in one place with the
-reason each is parked and what it would take to unpark it. Written 2026-08-03, after the pack
-system reached functional completeness, so that "what is left?" has one honest answer.
+**What this is.** Everything not built, in one place, split into **QUEUED** (decided; waiting on
+one implementation pass) and **PARKED** (no decision yet). Started 2026-08-03 as a Stage E parked
+list, after the pack system reached functional completeness, so that "what is left?" has one
+honest answer; the queued half accreted from the 2026-08-04 rulings and divergence audit.
+
+**Implementation intent (maintainer, 2026-08-04):** *"keep adding decided-on work to the docs to
+be queued. We will implement it all at once when everything is unblocked and ready."* So the
+QUEUED table is a batch, not a backlog — its dependency column is the load-bearing part.
 
 **Most items here are parked by a decision, not by an omission** — none of E1–E5 is a defect in
 the pack system. **Two sections are NOT parked:** §6a is a ruling ready to implement, and §6b is
@@ -23,6 +28,31 @@ the one nix item that is a *prerequisite* rather than an option).
 
 ## Summary
 
+### QUEUED — decided, to implement together once unblocked
+
+Not parked. These are rulings and audit outcomes waiting on a single implementation pass, in
+dependency order. **Do §Q1 first: it turns every item below it from a discovered bug into a
+compile-time question.**
+
+| | Work | Ruled / found | Depends on |
+|---|---|---|---|
+| Q1 | **`Kind` an explicit field + a `KindGuest` member** (D2's root cause) — the notch is currently INFERRED from struct shape, so guest resolves to `KindJail` silently | §6b D2 | nothing |
+| Q2 | **Wire up `render.Profile`** — it has zero production callers while `AgentAutonomy` is decided by four hardcoded literals; make the Profile the single source and delete them | §6c step 1 | nothing (pairs with Q1) |
+| Q3 | **D3 wording** — `env`/`launch` are refused with reasons true of `apply --host` and false of the notch; they describe a missing VERB, not an inapplicable kind | §6b D3 | nothing (strings only) |
+| Q4 | **`briefing` wholesale-generated at every notch**, pre-existing prose MOVED to the local pack's `AGENTS.md` (archive only as fallback) | §6a + §6a-2 (ruled) | Q1, Q5 |
+| Q5 | **The conventional LOCAL PACK** — `~/.config/yolo-jail/local/`, implicitly included, zero config | §6a-2 (ruled) | **Q9** (a zero-ceremony pack renders nothing at the host today — F1) |
+| Q6 | **`skills` wholesale-composed at every notch**, user's tree MOVED into the local pack (union + suffix on differing content, warn), archive only as fallback | §6a-2 (ruled) | Q4 (prove the mechanism on the smaller kind), Q5 |
+| Q7 | **`describe` prints the primitive vector** | §6c step 2 | Q2 |
+| Q8 | **Mode set as a target property**, not a `KindOf()` branch | §6b D2 | Q1; forced by Phase 7 |
+| Q9 | **`pack lint`: split the two conflated checks** + F1/F5 | §7, F1/F5 | nothing |
+| Q10 | **Core stops knowing notch NAMES** — only `ResolveConfinement` and the briefing prose keep them | §6c step 3 | Q1, Q2, Q7 |
+
+Field findings F2/F3/F4/F6 are queued separately in
+[`feedback-real-pack-adoption.md`](feedback-real-pack-adoption.md) with their own order; F2 and F3
+are **dissolved** by Q5 and Q4 respectively rather than needing their own fix.
+
+### PARKED — no decision yet
+
 | # | Item | Parked because | Unpark cost |
 |---|---|---|---|
 | E1 | `host_files` modes 4→3 (`copy` merges into `readonly`) | behavior change on a shipped key; **blocked on E2** | small once E2 is decided |
@@ -30,9 +60,6 @@ the one nix item that is a *prerequisite* rather than an option).
 | E3 | Capture timing (`yolo config capture` + capture on terminate) | **not urgent** — nothing is lost today, only observability lags | small; the cheap half is one subcommand |
 | E4 | Comment preservation on `json`/`toml` surfaces | starts from decisions, not blank | cheapest useful step needs no comment parsing at all |
 | E5 | `managed`/`defaults` array-append pinning | no user surface has ever needed it | small, but do not build it speculatively |
-| §6a | **RULED 2026-08-04 — `briefing` becomes wholesale-generated at every notch**, pre-existing file ARCHIVED | not parked: ruled, ready to implement | contained; markers have 2 referents, fingerprint must not move |
-| §6b | **divergence audit** — 3 more kinds where the jail's mechanism became the kind's definition | D3 is wording; D2 is forced by Phase 7; D1 is a principle to record | see the suggested order at the end of §6b |
-| §7 | **`pack lint`'s content rule asks the wrong question** | pre-existing; needs the two conflated checks split | lint-only, no boot path |
 
 ---
 
@@ -176,10 +203,17 @@ What the ruling buys, in order of value:
 
 ### What must be true for this to be safe
 
-- **ARCHIVE, never delete.** The pre-existing file moves under the archive root with the apply's
-  stamp, reclaimed by `yolo prune` — the mechanism `hostskills.Archive` already provides and
-  which `files`/`skills` retirement already uses. This is the whole safety story, so it is not
-  optional and it must be reported by path.
+- **MOVE to the local pack, not archive** — amended 2026-08-04 by the same ruling that gave
+  `skills` a local pack (§6a-2). The user's existing briefing prose moves into
+  `~/.config/yolo-jail/local/AGENTS.md`, where yolo composes it back into every destination. So
+  the migration is behavior-PRESERVING (their instructions still reach their agents, now through
+  the layer model) rather than merely non-destructive. Archiving remains the fallback for prose
+  that cannot be moved, so nothing is ever deleted.
+- **The union caveat applies here and is worse than for skills.** Prose has no name to
+  disambiguate, so several agents' briefings merging into one local `AGENTS.md` must concatenate
+  in a stated order with a provenance comment per section (the
+  `<!-- from pack: <name> -->` marker `ComposePackBriefings` already emits), warn that it
+  happened, and leave the editing to the user. Do not attempt dedup-by-similarity.
 - **Warn on the FIRST apply that adopts a destination**, in the shape `confirmHostLosses`
   already established: a user whose hand-written `~/.claude/CLAUDE.md` is about to become
   yolo-owned must be told, once, before it happens. Wholesale ownership of a file the user wrote
@@ -206,6 +240,169 @@ What the ruling buys, in order of value:
 - **The render fingerprint gate will NOT move.** The jail already generates wholesale, so this
   changes the host path only — which means the fingerprint staying identical is a real check that
   the change is scoped correctly.
+
+## 6a-2. RULED — `skills` wholesale-owned, migrated into a conventional LOCAL PACK
+
+**Maintainer rulings, 2026-08-04.** Two, and the second replaces the archive answer:
+
+> *"I want to force user-level skills migration so we can cleanly own them. Out-of-sync skills
+> between agents is the bigger risk."*
+>
+> *"The answer here is actually not archive. We should designate a default 'local pack' dir,
+> something like `~/.config/yolo-jail/local/`, and maybe have that be a default included path?
+> Conventions over configuration are always nice… this way we can just move files out of the
+> agent dirs and into the local pack and it's like a no-op essentially during migration, rather
+> than just an ignored archived dir."*
+
+So: yolo **composes each skills destination wholesale at every notch**, as the jail already does
+— and the user's own skills move into a **conventional local pack** rather than an archive.
+
+### Why the local pack is the better answer, stated plainly
+
+Archiving is *safe* but it is not a *migration*: the user's skills end up in a timestamped
+directory nothing reads, and getting them back is manual. Moving them into a pack yolo already
+composes makes the migration **behavior-preserving** — the same skills reach the same agents,
+now through the layer model instead of loose files. That is the difference between "we did not
+destroy your work" and "your work still works."
+
+It also fixes the thing the ruling names as the real risk. Today a user's skill lives in each
+agent's directory INDEPENDENTLY, so the same skill drifts per agent (`claude` has v2, `codex` has
+v1, `pi` never got it) with nothing reporting the divergence. One local pack means one copy,
+composed into every destination — which is exactly the win packs already delivered for shared
+skills, applied to personal ones.
+
+### The convention
+
+```
+~/.config/yolo-jail/
+├── config.jsonc          ← already the user-config convention
+└── local/                ← NEW: an implicitly-included pack, zero config
+    ├── skills/
+    └── AGENTS.md
+```
+
+Beside `config.jsonc` because that is already where user-scope yolo config lives
+(`paths.userConfigSuffix`), so the convention extends an existing one rather than inventing a
+location. **Implicitly included** — it needs no `packs` entry, which is the whole point: a user
+with a few personal skills should never author a manifest. It is an ordinary pack in every other
+respect (`packload.LoadDir` on a dir with no `pack.json` is already zero-ceremony, so this needs
+no new pack machinery — see Q8/F1, which must land first or the local pack renders nothing at the
+host).
+
+**Conventions over configuration, applied elsewhere too** (maintainer: *"perhaps we can apply
+that to other places. Now is the time to break backwards compatibility."*). Candidates worth
+considering in the same pass, each of which currently requires an explicit declaration for a
+thing that has exactly one sensible location:
+`~/.config/yolo-jail/local/AGENTS.md` as the user's own briefing prose (same dir, same rule);
+the personal-tree question §6a-2 previously left open (now answered — it is the local pack);
+and `from: "skills"` on a `skills` contribution, which every shipped pack declares redundantly.
+
+### Collisions — union, warn, and the empirical case is milder than it looks
+
+The ruling accepts the cost: *"we'll have to be careful to prevent collisions with suffixes… maybe
+just union everything and let the user deal with the fallout. We'll clearly warn."*
+
+**Measured before designing** (this jail's four agent skills dirs, 2026-08-04):
+
+| | Finding |
+|---|---|
+| Names shared across agents | `configuring-the-jail`, `developing-yolo-jail`, `diagnosing-the-jail`, `jail-startup` |
+| Are they the same content? | **Byte-identical — 1 distinct hash each across claude/codex/pi** |
+| Names unique to one agent | `agent-standards`, `headful-browser`, `new-project`, `open-source-project`, `user-stories` |
+
+So the overwhelming majority of cross-agent duplication is **yolo's own built-ins**, which the
+composition already writes as layer 1 and which collide with themselves harmlessly. The
+genuinely user-owned skills were unique to a single agent. **A union will usually be conflict-free
+in practice**, which means the collision machinery needs to be correct but will rarely fire — the
+opposite of the assumption that made it sound expensive.
+
+Design consequences:
+
+- **Union into one local pack, per destination-agnostic name.** Identical content under one name
+  is not a collision at all (compare content, not just names) — that alone resolves the common
+  case silently and correctly.
+- **DIFFERING content under one name is a real conflict and must not be silently resolved.**
+  Today `copySkillSubdirs` does `os.RemoveAll(target)` then copies — **silent last-writer-wins**
+  (`internal/agents/skills.go:146-150`). That is fine while the loser is a lower layer by design,
+  and wrong for two user skills that merely share a name. Suffix them (`<name>-from-claude`), keep
+  both, and warn naming both sources: losing one of two hand-written skills silently is the
+  failure this whole ruling exists to prevent.
+- **`AGENTS.md` union is harder and should NOT try to be clever.** Prose has no name to
+  disambiguate and no way to detect semantic duplication. Concatenate in a stated order with a
+  provenance comment per section (`ComposePackBriefings` already emits
+  `<!-- from pack: <name> -->`), warn that it happened, and let the user edit. Do not attempt
+  dedup-by-similarity.
+- **Warn loudly, once, at migration.** The migration is the only moment the user has the context
+  to fix a conflict; a warning on every subsequent apply trains them to ignore it.
+
+### What the implementation must do
+
+The jail's composition is the specification (`internal/agents/skills.go:73-110`): clear the
+destination, then built-ins < each pack in config order < **the local pack last** (so a personal
+skill outranks a shared pack's, preserving today's "the user's own copy wins" precedence).
+
+Migration, on the first apply that would adopt a destination:
+
+1. Detect user-owned entries at each destination (the ownership manifest already proves which are
+   yolo's).
+2. **MOVE them into `~/.config/yolo-jail/local/skills/`**, unioning across agents, suffixing only
+   on differing content, warning on every suffix and on every `AGENTS.md` concat.
+3. Print what moved, per path, and confirm before doing it (`confirmHostLosses` shape) — this
+   moves real user work, even though it moves rather than archives.
+4. Re-render, at which point every agent gets every skill and the result is a no-op in effect.
+
+The archive stays as the **fallback for anything that cannot be moved** (a name collision the user
+declines to resolve, an unreadable entry), so nothing is ever deleted.
+
+### What this dissolves
+
+- **F2's dangling symlinks** ([`feedback-real-pack-adoption.md`](feedback-real-pack-adoption.md)) —
+  a broken link is absent input to a regenerated directory, not a path to negotiate over. And the
+  rcm/stow case gets better than "documented recipe": the migration MOVES the real files into the
+  local pack, which is what the user was going to do by hand.
+- **The tier A/B split may collapse.** Tiers exist because a flat merge into a shared directory
+  needs provenance to know what it may touch. If yolo owns the directory outright, namespaced vs
+  flat becomes a question about how the AGENT invokes a skill (`pack:skill` vs `skill`), not about
+  what yolo may overwrite. Worth checking during implementation — it would delete a concept.
+- **The "where does layer 4 live?" question §6a-2 originally left open.** Answered: the local
+  pack. No new config key.
+
+## 6a-3. Conventions over configuration — the wider pass
+
+**Maintainer, 2026-08-04:** *"Conventions over configuration are always nice. Perhaps we can apply
+that to other places. Now is the time to break backwards compatibility."*
+
+The local pack (§6a-2) is the first instance. Recorded here so the batch does one deliberate
+convention pass rather than accreting them, and so the backwards-compatibility break happens
+ONCE. Each candidate is a place where an explicit declaration is required for a thing that has
+exactly one sensible answer.
+
+| Candidate | Today | Convention | Breaks compat? |
+|---|---|---|---|
+| **Personal skills / prose** | no home at all — loose in each agent's dir | `~/.config/yolo-jail/local/{skills,AGENTS.md}`, implicitly included | yes: the agent dirs stop being user-writable |
+| **`from` on a `skills` contribution** | REQUIRED by `validateContribution`, and all six shipped packs declare the same literal `"skills"` | default to `skills/`; the resolver already does, so only the validator disagrees | no — strictly loosening |
+| **`from` on `briefing`** | required; every shipped pack says `AGENTS.md` | default to `AGENTS.md`, then `CLAUDE.md` (the fallback `hostBriefingProse` already implements) | no — strictly loosening |
+| **`into` on a `skills`/`briefing` contribution** | required, and it is the per-agent destination | keep required — it is the one field with genuinely several right answers, and F1 shows inferring it is what the JAIL does and the host does not | n/a |
+
+**The `from` rows are the cheap, obvious win and should be part of the same commit as Q9's lint
+rewrite**, because they are the same bug: the schema demands a field whose value is always the
+same literal, so a pack author writes ceremony that carries no information — and (verified) the
+`skills` resolver already defaults it while the validator refuses it, so the two halves of the
+code already disagree about whether it is required.
+
+**What NOT to conventionalize, and why it is worth stating**: `into`. F1 is the cautionary case —
+the jail INFERS a skills destination when none is declared, the host does not, and that
+asymmetry is precisely the silent-no-op bug. A destination has one right answer *per agent*, not
+one right answer, so inferring it means inferring the agent set. That is what the pack list is
+for. Keep it explicit.
+
+**Compat break, stated once for the whole batch.** After Q4–Q6 the agent skills dirs and briefing
+files are yolo-owned: a file dropped there by hand is not read (it is composed away on the next
+apply). That is the break, it is deliberate, and it needs to be in the migration guide's
+"what changes" section rather than discovered. The migration MOVES existing content into the local
+pack, so no user loses anything — but a user who later hand-edits `~/.claude/skills/foo/SKILL.md`
+will see it disappear, and the warning at that moment must name the local pack as the place to
+put it.
 
 ## 6b. Divergence audit — where else a kind means two different things by notch
 
@@ -386,6 +583,90 @@ Suggested order:
 5. **Mode set as a target property** (D2's second half), as part of Phase 7 where it is forced.
 6. **`files`: no change**, and record why, so the ruling is not over-applied to a kind with no
    layer model.
+
+## 6c. Could confinement be packs? — "right in spirit," and closer than expected
+
+**Maintainer, 2026-08-04:** *"what's the chance we could turn confinement into packs? That seems
+wrong in practice, but right in spirit. Can we come closer to this in a sane way? Ideally core
+doesn't even know about guest/host/jail/whatever. They're just composable modules of some sort."*
+
+**The short answer: the model already exists and is not wired up.** `internal/render/confinement.go`
+models confinement exactly as asked — independent PRIMITIVES with the notches as presets over
+them:
+
+```go
+PrimNamespaces  PrimVM  PrimSeatbelt  PrimLandlock  PrimSeparateUser  PrimBakedImage
+
+JailProfile(useVM)   = {namespaces|VM, bakedImage}     autonomy on
+GuestProfileMacOS()  = {separateUser, seatbelt}        autonomy on
+GuestProfileLinux()  = {namespaces, landlock}          autonomy on
+HostProfile()        = {}                              autonomy off
+```
+
+That is "composable modules with presets," written down, with a doc comment explaining that the
+combinations are real (a separate user without Seatbelt; a namespace with neither).
+
+**And nothing consumes it.** Audited 2026-08-04: `render.Profile`, `render.Primitive`, and all
+three preset constructors have **zero production callers** — every reference outside
+`confinement.go` is a doc comment. Meanwhile the policy the Profile is supposed to carry is
+decided by **hardcoded literals at four call sites**:
+
+```
+packoverlay.go:114   p.SurfacesFor(autonomy)   ← the only one that takes a parameter
+packoverlay.go:176   p.SurfacesFor(true)       ← literal
+hostoverlayprune.go  p.SurfacesFor(false)      ← literal
+hostrender.go:126    p.SurfacesFor(false)      ← literal
+```
+
+So `Profile.AgentAutonomy` exists, is documented as the §4.2 policy bit, and is never read. The
+notch's behavior lives in `true`/`false` constants chosen per file — which is the same rot as D2's
+inferred `Kind`, in a second place.
+
+### Should confinement literally become packs? No — and the reason is worth keeping
+
+A pack is **content plus declarations that yolo renders**. Confinement is **enforcement yolo
+executes**, and it is the security boundary that decides whether a pack may read the host at all.
+Making confinement a pack inverts that: the thing being confined would declare its own
+confinement, and `MayAccessHost` — the gate that makes a fetched pack safe — would be decided by
+a pack. That is not a slippery slope, it is a direct contradiction.
+
+The two also differ in what "composable" means. Pack kinds compose by MERGE (later pack wins a
+key, skills concatenate). Confinement primitives compose by INTERSECTION of what is permitted —
+adding a primitive can only remove capability. A mechanism whose composition rule is "later wins"
+cannot express "strictest wins" without becoming a different mechanism.
+
+### What "closer, in a sane way" looks like — three steps, each shippable
+
+1. **Wire up the model that exists.** Make `Profile` the single source for `AgentAutonomy` and
+   delete the four literals. Cheap, removes a class of "which file did I edit?" bug, and gives the
+   primitive vector its first real consumer. **This is the whole of what makes the rest possible.**
+2. **`describe` prints the primitive vector.** The file's own comment already says this is the
+   intent (*"an implementation fact that `describe` can print"*) and it does not. Once printed,
+   "what does guest actually give me?" is answerable without reading Go — and a preset that
+   composes nothing (today's `HostProfile`) becomes visibly the weakest rather than nominally a
+   level.
+3. **Then core stops knowing notch NAMES.** With (1) and (2) done, the remaining `"jail"`/`"guest"`/
+   `"host"` string comparisons in core are: `config.ResolveConfinement` (config parsing — a name
+   must exist somewhere, and this is the right somewhere) and `agents/agentsmd.go:66-77` (the
+   briefing's per-notch prose). Both become "look up a preset by name at the edge, pass a Profile
+   inward." That is as close to the maintainer's goal as is coherent: **core reasons about
+   primitives; only the config boundary knows the names.**
+
+**What stays out of scope deliberately:** letting a user hand-assemble a primitive vector in
+config. `happy-path-principle.md` rules, and `confinement.go`'s own comment already draws this
+line — three named presets are selectable, the vector is an implementation fact. Wiring the model
+up does not change that, and should not be read as a step toward it.
+
+### Why this matters beyond tidiness
+
+It is the same finding as D2 from a different angle. D2: the render notch is INFERRED from struct
+shape, so `guest` resolves to `KindJail` silently. Here: the confinement notch's policy is a
+LITERAL per call site, so `guest` has no way to express its own answer at all. **Both mean the
+same thing — there is no single place that says "this is the notch, here is what it implies," so
+adding one is invisible instead of impossible.** Step 1 above and D2's explicit `Kind` field are
+the same fix applied to the two halves of the notch, and they should land together.
+
+---
 
 ## 7. Closed — do not re-open from a stale reference
 
