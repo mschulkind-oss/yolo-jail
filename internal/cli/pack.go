@@ -1197,6 +1197,16 @@ func packStatus(out, errw io.Writer, color bool) int {
 			pr.Printf("%-20s [dim]builtin[/dim]", e.Name)
 			continue
 		}
+		if e.Implicit {
+			// Same rule as the builtin above, for the opposite reason: the conventional
+			// local pack has no lock entry because nothing FETCHED it — it is a directory
+			// the user created, found by convention rather than by a config line. Falling
+			// through would print "not installed (run `yolo pack install`)" for a pack the
+			// user never installed and cannot install, which is exactly the dead end the
+			// builtin case above exists to avoid.
+			pr.Printf("%-20s [dim]local (by convention, no install step)[/dim]", e.Name)
+			continue
+		}
 		locked, ok := lock.Get(e.Name)
 		switch {
 		case !ok:

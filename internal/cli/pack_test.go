@@ -667,6 +667,58 @@ func TestPackStatusFlagsConfigDrift(t *testing.T) {
 	}
 }
 
+// The conventional local pack has no lock entry — nothing FETCHED it — so `pack status` must
+// not send the user to `yolo pack install`, a command that cannot help. Same rule as the
+// builtin case, for the opposite reason. The second half is what keeps the fix from being
+// over-broad: a genuinely uninstalled FETCHED pack must still be told to install.
+func TestPackStatusDoesNotTellYouToInstallTheLocalPack(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(filepath.Join(cfgDir, "local", "skills", "mine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "local", "skills", "mine", "SKILL.md"),
+		[]byte("---\nname: mine\ndescription: d\n---\nb\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"),
+		[]byte(`{"packs": ["claude", {"name": "remote", "source": "git+https://example.invalid/p.git"}]}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	packMain([]string{"status"}, &out, &errw, false, nil)
+	report := out.String()
+
+	local := statusLineFor(t, report, "local")
+	if strings.Contains(local, "not installed") {
+		t.Errorf("the local pack is found by CONVENTION and cannot be installed; status says:\n  %s", local)
+	}
+	// The negative control: an actually-uninstalled fetched pack still needs the remedy.
+	if remote := statusLineFor(t, report, "remote"); !strings.Contains(remote, "not installed") {
+		t.Errorf("a fetched pack with no lock entry must still say so; got:\n  %s", remote)
+	}
+}
+
+// statusLineFor returns the single `pack status` line for name, failing if there is not exactly
+// one. Scoped rather than a report-wide Contains: this report names several packs, so a
+// whole-output substring check passes on another pack's line (a trap that made a sibling test in
+// this suite pass under mutation).
+func statusLineFor(t *testing.T, report, name string) string {
+	t.Helper()
+	var found []string
+	for _, line := range strings.Split(report, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), name) {
+			found = append(found, strings.TrimSpace(line))
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("want exactly one status line for %q, got %d:\n%s", name, len(found), report)
+	}
+	return found[0]
+}
+
 // A pack removed from config must be pruned from the lockfile, and the removal
 // REPORTED: it means content is about to stop being delivered.
 func TestPackInstallPrunesRemovedPacks(t *testing.T) {
