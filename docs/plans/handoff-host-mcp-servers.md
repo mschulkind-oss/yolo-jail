@@ -314,3 +314,22 @@ been careful about. Suggested split:
   (`⚠ would damage your existing entry: …`).
 
 Either way the rule this workstream keeps arriving at applies: **never silent.**
+
+---
+
+## Two nits found while adopting the packs (2026-08-03)
+
+Found building three real personal packs and applying them to a real host.
+
+1. **`apply --host` in OBSERVE mode reports skills as `rendered`, not `would render`.**
+   Every other kind uses the future tense in a dry-run (`would render`, `⚠ would
+   overwrite`); per-skill lines say `skills  agent-standards  rendered  invoke as
+   /agent-standards`. Verified it writes nothing — the destination stayed absent — so this
+   is cosmetic, but it reads as though observe mutated the home, which is exactly the fear
+   a dry-run exists to allay.
+
+2. **`yolo pack footprint` has no `--allow-exec`.** `pack lint --allow-exec <dir>` accepts
+   a pack shipping an executable, but `pack footprint <dir>` on the same pack exits 1 with
+   the exec-bit refusal, so a pack you *can* lint you cannot inspect. `lint` already prints
+   the footprint, so the workaround is easy — but the flag asymmetry is surprising, and
+   `footprint`'s docstring advertises it as the way to inspect a pack you are authoring.
