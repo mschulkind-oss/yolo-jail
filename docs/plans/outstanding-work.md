@@ -45,7 +45,7 @@ compile-time question.**
 | Q7 | **`describe` prints the primitive vector** | §6c step 2 | Q2 |
 | Q8 | **Mode set as a target property**, not a `KindOf()` branch | §6b D2 | Q1; forced by Phase 7 |
 | Q9 | ~~**`pack lint`: split the two conflated checks** + F5, and `footprint --allow-exec` (F6b)~~ **DONE 2026-08-04** — see §7. **F1 is still open** and was never a lint problem: it is the host render skipping an undeclared skills destination | §7, F5, F6b | nothing |
-| Q10 | **Core stops knowing notch NAMES** — only `ResolveConfinement` and the briefing prose keep them | §6c step 3 | Q1, Q2, Q7 |
+| ✅ Q10 | ~~Core stops knowing notch NAMES~~ **DONE 2026-08-04** (`51ff674`, `a4e6200`, `592f580`). `render.KindForNotch` / `Kind.String()` are the inbound and outbound edges; `describe` and `config diff` reason about a Kind between them; the last two autonomy literals (the BOOT loop's) now read `Target.Profile()`. Remaining names: `ResolveConfinement` (parsing), `render.kindNames` (the boundary table itself, drift-tested against `config.KnownConfinements`), and the briefing prose — which SHOULD read the Profile and is deferred to Q4, whose agent owns that file | §6c step 3 | Q1, Q2, Q7 |
 
 Field findings F2/F3/F4/F6 are queued separately in
 [`feedback-real-pack-adoption.md`](feedback-real-pack-adoption.md) with their own order; F2 and F3
@@ -699,6 +699,28 @@ cannot express "strictest wins" without becoming a different mechanism.
    briefing's per-notch prose). Both become "look up a preset by name at the edge, pass a Profile
    inward." That is as close to the maintainer's goal as is coherent: **core reasons about
    primitives; only the config boundary knows the names.**
+
+   **SHIPPED 2026-08-04** (`51ff674`, `a4e6200`, `592f580`). The two edges are
+   `render.KindForNotch` (a name in) and `Kind.String()` (a label out); `describe` and `config
+   diff` each cross once and reason about a Kind after. Three things worth carrying forward:
+
+   - **The audit found MORE literals than the step predicted, and they were the load-bearing
+     ones.** Step 1 was recorded as leaving only `packoverlay.Collect`'s three callers, but the
+     BOOT loop (`ConfigurePackSurfaces`) and `ConfigurePackByName` each also passed autonomy
+     implicitly through `p.Surfaces()` — the wrapper that hardcodes `true`. So the notch policy
+     on the path that reaches a real jail was still a constant.
+   - **Mutation caught a test gap the byte gate could not.** Negating the boot loop's autonomy
+     left the whole suite green: every jail-notch posture assertion (and
+     `TestRenderFingerprintStable` itself) drives `ConfigurePackByName`, the non-boot entry.
+     `bootautonomy_test.go` now covers the loop directly, both directions.
+   - **`packoverlay.Collect` keeps its bool**, promoted from leftover to boundary: every caller
+     derives the bit from a notch now, and a package whose job is resolving overlays against
+     owners needs one bit, not the confinement model.
+
+   The briefing prose (`agents/agentsmd.go:66-77`) was NOT converted — it should read the
+   Profile (describe the PRIMITIVES a notch composes, so the text is accurate for a notch
+   nobody has enumerated), and that file belongs to Q4's briefing-wholesale work. Tracked
+   there rather than done twice.
 
 **What stays out of scope deliberately:** letting a user hand-assemble a primitive vector in
 config. `happy-path-principle.md` rules, and `confinement.go`'s own comment already draws this
