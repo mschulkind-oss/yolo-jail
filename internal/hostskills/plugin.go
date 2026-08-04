@@ -100,7 +100,7 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 
 	skills := req.Plugin.SkillDirs()
 	out := []Result{{
-		Name: name, Path: dest, Action: ActionWrote,
+		Name: name, Path: dest, Action: wroteAction(req.Observe),
 		Detail: pluginTreeDetail(name, skills),
 	}}
 	// Components that RUN are delivered here (the destination tool loads the manifest, which
@@ -111,17 +111,26 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 		if !c.RunsCode {
 			continue
 		}
+		detail := "delivered — " + c.Detail + " once your tool loads the plugin"
+		if req.Observe {
+			detail = "would be delivered — " + c.Detail + " once your tool loads the plugin"
+		}
 		out = append(out, Result{
-			Name: name + ":" + c.Name, Path: req.Plugin.ManifestPath, Action: ActionWrote,
-			Detail: "delivered — " + c.Detail + " once your tool loads the plugin",
+			Name: name + ":" + c.Name, Path: req.Plugin.ManifestPath,
+			Action: wroteAction(req.Observe), Detail: detail,
 		})
 	}
+
+	// A dangling link standing where the skills dir or the plugin's own dir has to be is cleared
+	// and reported, for the same reason as in Deliver: MkdirAll can neither use the name nor
+	// create it, so the raw `file exists` was the entire user-visible output.
+	out = append(out, clearDanglingDirs(req.SkillsDir, dest, req.Observe)...)
 
 	if req.Observe {
 		return out, nil
 	}
 	if err := os.MkdirAll(req.SkillsDir, 0o755); err != nil {
-		return out, err
+		return out, mkdirError(req.SkillsDir, err)
 	}
 	// Replace wholesale rather than merging into the previous copy. Exact mirroring is what
 	// makes a plugin that DROPPED a skill stop offering it, and it is legitimate only because

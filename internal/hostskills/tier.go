@@ -113,6 +113,11 @@ func ProbeTier(declared Tier, skillsDir, pack string) (Tier, string) {
 	fi, err := os.Stat(packDir)
 	if err != nil {
 		if os.IsNotExist(err) {
+			// Covers a DANGLING symlink too, and must: Stat follows the link and reports ENOENT,
+			// so a stale deployed link reads as "free to create it" — which is the correct answer
+			// (the delivery clears it and says so, see dangling.go). Downgrading here instead
+			// would report "was not written by yolo" about a link with nothing behind it, and
+			// would push the pack's skills into the flat namespace it declared away from.
 			return TierNamespaced, "" // free to create it
 		}
 		return TierFlat, "cannot inspect " + packDir + ": " + err.Error()

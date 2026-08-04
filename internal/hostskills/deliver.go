@@ -7,7 +7,9 @@ package hostskills
 //
 //  1. NEVER touch what yolo did not write. A destination entry that is not provably yolo's
 //     (a marked plugin dir at tier A, a manifest entry at tier B) is the user's. It is
-//     reported and skipped, never overwritten and never removed.
+//     reported and skipped, never overwritten and never removed. The ONE exception is a
+//     DANGLING symlink, which is not content at all — see dangling.go for why that follows
+//     from this rule rather than bending it.
 //  2. NEVER delete; archive. Retiring goes through archive.go so being wrong about
 //     ownership costs a `mv` back rather than the user's work.
 //  3. NEVER write in observe posture. Everything computes identically in both postures and
@@ -34,9 +36,50 @@ const (
 	// ActionArchived is a previously-delivered entry the pack no longer ships, moved to
 	// the archive.
 	ActionArchived Action = "archived"
+	// ActionCleared is a DANGLING symlink yolo removed to make room. Distinct from a plain
+	// write because "yolo unlinked something in my home" is a fact the user must be able to
+	// scan for, not one to find inside another line's detail.
+	ActionCleared Action = "cleared a dangling symlink"
 	// ActionRefused is an entry yolo declined to deliver, with a reason.
 	ActionRefused Action = "refused"
 )
+
+// The OBSERVE-posture wordings. The tense lives in the ACTION, not only in the detail, because
+// the action column is what a reader scans — and a dry run that says `rendered` reads as though
+// it mutated the home, which is precisely the fear a dry run exists to allay. Every other kind
+// already speaks in the future here (`would render`, `would archive`); skills did not.
+//
+// Only the actions that describe a WRITE get a future form. `skipped (yours)` and `refused`
+// describe the ABSENCE of an action and are identical in both postures, so there is no tense to
+// correct: rewording them to "would skip" would imply the assert run might do something else.
+const (
+	ActionWouldWrite   Action = "would render"
+	ActionWouldArchive Action = "would archive"
+	ActionWouldClear   Action = "would clear a dangling symlink"
+)
+
+// wroteAction, archivedAction and clearedAction pick the action word for the posture. Separate
+// tiny functions rather than one map so a caller cannot accidentally ask for the wrong pair.
+func wroteAction(observe bool) Action {
+	if observe {
+		return ActionWouldWrite
+	}
+	return ActionWrote
+}
+
+func archivedAction(observe bool) Action {
+	if observe {
+		return ActionWouldArchive
+	}
+	return ActionArchived
+}
+
+func clearedAction(observe bool) Action {
+	if observe {
+		return ActionWouldClear
+	}
+	return ActionCleared
+}
 
 // Result is one entry's outcome, for the caller to print.
 type Result struct {
@@ -141,8 +184,13 @@ func deliverNamespaced(req Request, skills map[string]string) ([]Result, error) 
 	packDir := filepath.Join(req.SkillsDir, req.Pack)
 	nested := filepath.Join(packDir, "skills")
 
-	var out []Result
-	// Retire first: a skill the pack no longer ships must stop being loaded, and inside
+	// Clear dangling directory links FIRST, before the retire scan reads the subtree: a stale
+	// link at <skillsDir>, at <skillsDir>/<pack> or at its skills/ is a name MkdirAll can
+	// neither use nor create, which aborted the whole delivery with `mkdir …: file exists`.
+	// Reported per link, so an unlink in a real home is never silent.
+	out := clearDanglingDirs(req.SkillsDir, nested, req.Observe)
+
+	// Retire next: a skill the pack no longer ships must stop being loaded, and inside
 	// yolo's own subtree the set of stale entries is simply "what is there minus what we
 	// ship" — no manifest needed, which is tier A's whole advantage.
 	if existing, err := os.ReadDir(nested); err == nil {
@@ -151,7 +199,7 @@ func deliverNamespaced(req Request, skills map[string]string) ([]Result, error) 
 				continue
 			}
 			stale := filepath.Join(nested, e.Name())
-			r := Result{Name: e.Name(), Path: stale, Action: ActionArchived}
+			r := Result{Name: e.Name(), Path: stale, Action: archivedAction(req.Observe)}
 			if !req.Observe {
 				at, aerr := Archive(req.ArchiveRoot, req.Stamp, req.Pack, stale)
 				if aerr != nil {
@@ -168,7 +216,7 @@ func deliverNamespaced(req Request, skills map[string]string) ([]Result, error) 
 
 	if !req.Observe {
 		if err := os.MkdirAll(nested, 0o755); err != nil {
-			return out, err
+			return out, mkdirError(nested, err)
 		}
 		// Write yolo's synthetic manifest only when there is not already a REAL one here.
 		//
@@ -194,12 +242,14 @@ func deliverNamespaced(req Request, skills map[string]string) ([]Result, error) 
 	for _, name := range sortedKeys(skills) {
 		dest := filepath.Join(nested, name)
 		r := Result{
-			Name: name, Path: dest, Action: ActionWrote,
+			Name: name, Path: dest, Action: wroteAction(req.Observe),
 			Detail: "invoke as /" + req.Pack + ":" + name,
 		}
 		if !req.Observe {
 			// Replace yolo's own previous copy wholesale. Safe here and only here: the
-			// path is inside a subtree whose manifest marks it as yolo's output.
+			// path is inside a subtree whose manifest marks it as yolo's output. RemoveAll
+			// also clears a dangling link at this name without following it, and needs no
+			// report: inside yolo's own subtree it was never the user's to begin with.
 			if err := os.RemoveAll(dest); err != nil {
 				r.Action, r.Detail = ActionRefused, err.Error()
 				out = append(out, r)
@@ -234,7 +284,27 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 			man.Forget(dest) // already gone; drop the stale record
 			continue
 		}
-		r := Result{Name: filepath.Base(dest), Path: dest, Action: ActionArchived}
+		// A retiring entry that is now a DANGLING link is cleared, not archived: renaming a
+		// broken link into the archive would put a file there the user can find and cannot use,
+		// while reporting "moved to <path>" as though their content were recoverable. Nothing
+		// with no content gets archived.
+		if target := danglingLink(dest); target != "" {
+			r := Result{
+				Name: filepath.Base(dest), Path: dest, Action: clearedAction(req.Observe),
+				Detail: "was → " + target + ", which no longer exists — the pack no longer " +
+					"ships it and there is nothing to archive",
+			}
+			if !req.Observe {
+				if err := clearLinks([]clearedLink{{Path: dest, Target: target}}); err != nil {
+					r.Action, r.Detail = ActionRefused, err.Error()
+				} else {
+					man.Forget(dest)
+				}
+			}
+			out = append(out, r)
+			continue
+		}
+		r := Result{Name: filepath.Base(dest), Path: dest, Action: archivedAction(req.Observe)}
 		if req.Observe {
 			r.Detail = "would move to the archive"
 		} else {
@@ -249,9 +319,14 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 		out = append(out, r)
 	}
 
+	// The skills DIR ITSELF may be a dangling link — the `~/.pi/agent/skills` shape in the
+	// field report, where the whole directory was deployed as one link. That aborted the entire
+	// delivery with a bare `mkdir …: file exists` and no per-entry report, which is the same
+	// defect as the leaf case but louder and less legible.
+	out = append(out, clearDanglingDirs(req.SkillsDir, req.SkillsDir, req.Observe)...)
 	if !req.Observe {
 		if err := os.MkdirAll(req.SkillsDir, 0o755); err != nil {
-			return out, err
+			return out, mkdirError(req.SkillsDir, err)
 		}
 	}
 
@@ -259,6 +334,33 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 		dest := filepath.Join(req.SkillsDir, name)
 		_, statErr := os.Lstat(dest)
 		occupied := statErr == nil
+		// A dangling symlink is ABSENT, not occupied. It reads as occupied to Lstat (which is
+		// the right call for every other shape — a broken link does hold the name), so without
+		// this it fell into the rule below and the pack was reported "skipped (yours)" against a
+		// pointer to a file that no longer existed: permanently inert, and phrased as a safe
+		// no-op. Clearing it is AUTOMATIC rather than offered, because there is no content to
+		// weigh: the alternative is prompting the user about a file that is not there.
+		if occupied {
+			if target := danglingLink(dest); target != "" {
+				out = append(out, Result{
+					Name: name, Path: dest, Action: clearedAction(req.Observe),
+					Detail: "was → " + target + ", which no longer exists (a stale dotfile-manager " +
+						"link, most likely) — nothing to archive, delivering over it",
+				})
+				if !req.Observe {
+					if err := clearLinks([]clearedLink{{Path: dest, Target: target}}); err != nil {
+						out[len(out)-1].Action = ActionRefused
+						out[len(out)-1].Detail = err.Error()
+						continue
+					}
+				}
+				// The name is free now. In observe posture nothing was unlinked, but the
+				// computation must match the write path exactly or the dry run would report a
+				// skip the real run does not make.
+				occupied = false
+				man.Forget(dest)
+			}
+		}
 		// THE tier-B rule: an existing entry yolo cannot prove it wrote belongs to the
 		// user. Skipped, reported, never overwritten. This is what makes "can I still add
 		// my own skill?" a yes even on a tool with no namespace — the cost is that yolo
@@ -272,7 +374,8 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 			out = append(out, Result{Name: name, Path: dest, Action: ActionSkippedUser, Detail: detail})
 			continue
 		}
-		r := Result{Name: name, Path: dest, Action: ActionWrote, Detail: "invoke as /" + name}
+		r := Result{Name: name, Path: dest, Action: wroteAction(req.Observe),
+			Detail: "invoke as /" + name}
 		if !req.Observe {
 			if occupied {
 				// Ours from a previous apply: archive the old copy before replacing it, so
