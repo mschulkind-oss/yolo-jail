@@ -63,16 +63,26 @@ var refusalReasons = map[packdecl.Kind]string{
 // (HostRenderResult.Overlays) and names an ownerless overlay in its own line, so the kind
 // still produces output on every path; it just is not this map's kind of output.
 var hostUnimplemented = map[packdecl.Kind]string{
-	// Honored in the census because a host target CAN express the concept, but there is
-	// nothing to express it INTO: below jail, yolo launches no process, so there is no
-	// shim and no argv to inject flags after.
-	packdecl.KindLaunch: "launch flags need a launcher — apply --host configures your " +
-		"tools but never runs them, so there is nowhere to inject them",
-	// Same shape: a jail gets these as `-e` on the container. On a real host the only
-	// place to put them is a shell profile, and editing your shell rc unprompted is a
-	// much larger claim than a pack's env contribution asks for.
-	packdecl.KindEnv: "host env render not implemented — the only place to set these " +
-		"off-container is your shell profile, which apply --host does not write",
+	// `launch` and `env` are honored by the census and unbuilt for ONE reason, and the
+	// wording has to name it precisely (plan §6b D3): `apply --host` never launches a
+	// process. It is a limit of this COMMAND, not of the notch. The old text — "launch flags
+	// need a launcher", "the only place to set these off-container is your shell profile" —
+	// read as facts about being off-container, which they are not: at `guest` yolo already
+	// execs the agent (macos-user does it today), and `yolo --at host -- <cmd>` (design §4.1)
+	// would make both renderable at the host notch too, because then yolo is the one
+	// spawning the process and can carry an argv and an environment. A `guest` target
+	// inheriting the old sentences would refuse two kinds it can honor, which is exactly the
+	// silent-inheritance failure the explicit Kind exists to stop.
+	//
+	// So both say the same thing about the same missing VERB, and the remedy is the same
+	// one — which is why they are two entries with one reason rather than two reasons.
+	packdecl.KindLaunch: "launch flags apply to a process yolo starts, and `apply --host` " +
+		"only configures your tools — it never runs them, so there is no argv to inject " +
+		"them into. A notch where yolo does the launching can honor them",
+	packdecl.KindEnv: "env vars apply to a process yolo starts, and `apply --host` only " +
+		"configures your tools — it never runs them. Setting them for your whole session " +
+		"would mean editing your shell rc, a much larger claim than a pack's env " +
+		"contribution asks for. A notch where yolo does the launching can honor them",
 	// The three shipped hooks are all jail plumbing: shared_credentials symlinks a
 	// credentials file into a machine-global dir, per_jail_history isolates a history
 	// file PER JAIL, claude_plugins reconciles in-jail plugin installs. Off-container
@@ -139,9 +149,26 @@ func HostFields() FieldSet {
 }
 
 // Fields returns the FieldSet for this target's kind.
+//
+// A SWITCH naming every kind rather than "jail, else host" (Q1). The `if` was correct while a
+// Kind could only be one of three INFERRED values, and becomes a silent over-permission the
+// moment a fourth exists — so the point of writing it out is that the default is now a
+// decision on the record. That default is the REDUCED set, which is the fail-closed direction:
+// a kind wrongly refused is a message, a kind wrongly honored is a write nobody asked for. In
+// particular `guest` must not fall into the jail set, which would honor
+// `mount`/`reads-host`/`state` at a notch with no mount namespace to honor them with; its real
+// census is Phase 7's to state.
+//
+// KindPreview is in the default branch because that is where the shape inference put it, and
+// this change is meant to be behavior-preserving — not because it is obviously right. A
+// preview exists to show what the JAIL render produces, so the jail set is the likelier
+// answer; nothing depends on it either way today (render.Preview has no production caller), so
+// the wrong-looking half is at least now VISIBLE as a listed case rather than a fallthrough.
 func (t Target) Fields() FieldSet {
-	if t.KindOf() == KindJail {
+	switch t.KindOf() {
+	case KindJail:
 		return JailFields()
+	default: // KindHost, KindGuest, KindPreview, KindUnset
+		return HostFields()
 	}
-	return HostFields()
 }
