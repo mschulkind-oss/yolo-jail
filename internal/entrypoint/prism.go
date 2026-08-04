@@ -546,8 +546,9 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	if err := writeInPlaceString(path, text); err != nil {
 		return err
 	}
-	// Record which layer won each key — AT THE HOST NOTCH ONLY, and the asymmetry is
-	// precisely the shape of the bug it fixes.
+	// Record which layer won each key — at the notches whose census says THIS MECHANISM is
+	// the one that records (render.ModeSet). True at the host, false in a jail, and the
+	// asymmetry is precisely the shape of the bug it fixes.
 	//
 	// In a JAIL, `rmw` keeping no sidecar is a documented design decision
 	// (pack-config-collaboration.md §8): rmw is one mode among four, and the surfaces that
@@ -560,9 +561,16 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	// there means "the host records nothing", which is what left `config diff` inferring a
 	// winner from declarations and reporting an overlay as having LOST a key it in fact WON.
 	//
+	// ASKED OF THE CENSUS rather than of the Kind (plan §6b D2 / Q8). This was
+	// `KindOf() == render.KindHost` — the codebase's only live KindHost special-case — and
+	// the two spellings agree for every notch that exists. What the census adds is that the
+	// two paragraphs above are now DATA a new notch has to answer for: `guest` reads
+	// undecided (records nothing) until Phase 7 states its policy, instead of inheriting
+	// whichever side of an equality test its Kind happened to fall on.
+	//
 	// AFTER the surface write, so a provenance failure cannot cost the render; derived
 	// rather than read from a Result, because rmw has no layer fold to produce one.
-	if e.renderTarget().KindOf() == render.KindHost {
+	if e.renderTarget().Modes().Records(manifest.ModeRMW) {
 		// The PREVIOUS record, read at the notch that keeps one. It is what makes a key
 		// whose owning layer has gone away distinguishable from a key the user wrote — the
 		// correct attribution exists only in the record one apply earlier, so a derivation
