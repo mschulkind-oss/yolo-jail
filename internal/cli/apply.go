@@ -277,9 +277,13 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 			"owner. Nothing was written.[/bold red]", len(cols))
 		return 1
 	}
-	// autonomy=false: host renders the GUARDED posture, so the owner set matches the
-	// surfaces the render will actually produce (§4.2).
-	overlays := packoverlay.Collect(loaded, false)
+	// The §4.2 autonomy policy comes from THIS apply's render target, not from the `false`
+	// that used to sit here (C3, plan §6c step 1). It resolves to OFF — the guarded posture
+	// — so the owner set matches the surfaces RenderHostPack will actually produce, which is
+	// the property this call needs; but it now reads that from the same render.Host target
+	// the render itself keys on, so the two cannot disagree about the notch. The literal
+	// could only agree by inspection.
+	overlays := packoverlay.Collect(loaded, render.Host(home, nil).Profile().AgentAutonomy)
 	for _, prob := range overlays.Problems {
 		pr.Printf("  [red]config-overlay refused[/red] — %s", prob)
 		rc = 1

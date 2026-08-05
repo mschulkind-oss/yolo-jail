@@ -105,12 +105,23 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 // posture.
 //
 // Still a bool rather than a render.Profile, and by now that is a deliberate boundary rather
-// than a leftover: every caller derives the bit from a notch (packsurfaces.go from the boot
-// Target's Profile, configdiff.go from render.ProfileFor over the notch it is describing,
-// apply.go at the host notch), so the literals plan §6c step 1 set out to remove are gone.
-// Taking a Profile here would import the confinement model into a package whose whole job is
-// resolving overlays against owners — it needs ONE bit, and receiving one bit is what keeps
-// this package unable to disagree with the notch that computed it.
+// than a leftover: every caller derives the bit from a Target's Profile (packsurfaces.go from
+// the boot Target, apply.go from render.Host, configdiff.go from render.ProfileFor over the
+// notch it is describing), so the literals plan §6c step 1 set out to remove are gone — C3
+// closed the last one. Taking a Profile here would import the confinement model into a package
+// whose whole job is resolving overlays against owners — it needs ONE bit, and receiving one
+// bit is what keeps this package unable to disagree with the notch that computed it.
+//
+// AND ITS EFFECT ON THIS FUNCTION'S OUTPUT IS ZERO, which is worth stating because it looks
+// like a gap. The posture fold (packload.foldPostureManaged) merges keys into the Managed
+// layer of surfaces already declared and IGNORES a patch naming no base surface, so both
+// postures yield the same surface-identity set — and identities are all this function reads.
+// Inverting the argument at every caller therefore leaves the suite green. That survival is a
+// property, not missing coverage, and autonomyinert_test.go pins it so the two stay
+// distinguishable: if a posture ever gains the power to add or remove an identity, the
+// parameter starts deciding which overlays find an owner, and that test fails at the moment it
+// does. Where the bit IS consequential — p.SurfacesFor at the render — it is pinned in both
+// directions by internal/entrypoint/bootautonomy_test.go.
 func Collect(packs []*packload.Pack, autonomy bool) *OverlaySet {
 	set := &OverlaySet{byTarget: map[manifest.SurfaceKey][]agentcfg.Overlay{}}
 

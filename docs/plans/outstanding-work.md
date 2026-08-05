@@ -361,12 +361,32 @@ autonomy bit — because then the prose is accurate for a notch nobody has enume
 argument that motivated `KindGuest`. Deferred at the time only because another agent held that
 file.
 
-## C3 — `packoverlay.Collect`'s autonomy parameter
+## C3 — `packoverlay.Collect`'s autonomy parameter — DONE
 
 Three of four autonomy literals are gone. `Collect` was already parameterized, and its three
 callers each pass a literal — so converting it without deriving those callers' values from a
 `Target` just moves the same literals one frame out. §6c's remaining half; small, and worth doing
 when someone is next in those three callers.
+
+**Only ONE literal was actually left** when this was picked up: `packsurfaces.go` already read
+`e.renderTarget().Profile().AgentAutonomy` and `configdiff.go` already read
+`render.ProfileFor(notch).AgentAutonomy`; the item's "three callers each pass a literal" was
+stale. `apply.go` now derives from `render.Host(home, nil).Profile()`, so no autonomy literal
+survives at any call site.
+
+**The mutation SURVIVED at every caller, and that is the finding.** Inverting the argument
+leaves the whole suite green — because the parameter has no observable effect on `Collect`'s
+output at all: the posture fold (`packload.foldPostureManaged`) merges keys into the `Managed`
+layer of surfaces already declared and ignores a patch naming no base surface, so both postures
+yield the same surface-identity set, and identities are all `Collect` reads. So the survival is
+a property, not absent coverage — but the two are indistinguishable without a test that says
+which, and `internal/packoverlay/autonomyinert_test.go` now pins it: if a posture ever gains the
+power to add or remove a surface identity, the parameter starts deciding which overlays find an
+owner and that test fails at that moment. Verified by mutating the fold to promote patches to
+declarations, which fails it. Behavior was probed in both directions: `apply --host --assert`
+still writes the guarded posture (`defaultMode: "default"`, `additionalDirectories: []`,
+`skipDangerousModePermissionPrompt: false`) and a jail render still writes `acceptEdits` /
+`skipDangerousModePermissionPrompt: true`.
 
 ---
 
