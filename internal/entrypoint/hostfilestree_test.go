@@ -81,6 +81,76 @@ func TestHostFilesTreeRenders(t *testing.T) {
 	}
 }
 
+// F7: a repeated apply against an UNCHANGED destination must archive nothing and say
+// `unchanged`. The kind used to ask only whether the path was occupied, so it archived a copy
+// of a byte-identical file on every single apply — one timestamped dir per run, forever.
+//
+// The cost was never disk. `archived to <path>` is the load-bearing safety signal at this
+// notch, so firing it when nothing changed trains the reader to skip the one line that should
+// stop them. Both negative controls are asserted below, because the easy over-broad fix
+// (never archive) silences the real case too.
+func TestHostFilesUnchangedDestinationArchivesNothing(t *testing.T) {
+	home := t.TempDir()
+	p := filesPack(t, "fp", "bin", ".claude/bin", map[string]string{"t.sh": "v1"}, 0o644)
+	req := filesReq(t)
+	dest := filepath.Join(home, ".claude", "bin", "t.sh")
+
+	// Apply 1 renders and records ownership, which is what makes apply 2 the case under test.
+	if _, err := RenderHostFiles(p, home, req, false); err != nil {
+		t.Fatal(err)
+	}
+	req.Manifest.Record(dest, "fp")
+
+	archiveCount := func() int {
+		entries, err := os.ReadDir(string(req.ArchiveRoot))
+		if err != nil {
+			return 0
+		}
+		return len(entries)
+	}
+	before := archiveCount()
+
+	results, err := RenderHostFiles(p, home, req, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Action != "unchanged" {
+		t.Fatalf("an identical destination must report `unchanged`, got %+v", results)
+	}
+	if got := archiveCount(); got != before {
+		t.Errorf("archived %d new entries for an unchanged file; want 0", got-before)
+	}
+
+	// NEGATIVE CONTROL 1 — a user edit to a yolo-written file must still be archived, or the
+	// fix has traded noise for data loss.
+	if err := os.Chmod(dest, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("the user edited this"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	results, err = RenderHostFiles(p, home, req, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(results[0].Action, "archived to") {
+		t.Errorf("a user edit must be archived before being replaced, got %q", results[0].Action)
+	}
+
+	// NEGATIVE CONTROL 2 — a changed PACK source must render, not report unchanged.
+	p2 := filesPack(t, "fp", "bin", ".claude/bin", map[string]string{"t.sh": "v2"}, 0o644)
+	results, err = RenderHostFiles(p2, home, req, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].Action == "unchanged" {
+		t.Error("a changed pack source must render, not report unchanged")
+	}
+	if data, _ := os.ReadFile(dest); string(data) != "v2" {
+		t.Errorf("destination = %q, want the pack's new content", data)
+	}
+}
+
 // THE ownership test. `files` being sole-owned decides which PACK may claim a path; it is
 // not a licence over a file the user put there. An occupied path yolo cannot prove it wrote
 // is refused BY NAME and left byte-for-byte alone.

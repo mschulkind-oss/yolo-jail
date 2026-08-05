@@ -111,15 +111,30 @@ func renderOneHostFile(pack, srcPath, dest string, req HostFilesRequest, observe
 		return res
 	}
 
+	// ALREADY WHAT THE PACK SHIPS: say so and touch nothing. Without this the kind archived
+	// its destination on EVERY apply — one timestamped copy per file per run, forever, of a
+	// file byte-identical to its source (field finding F7: 10 spurious lines and 6.4M of
+	// archive from an ordinary repeated apply).
+	//
+	// The cost was not disk. `archived to <path>` is the load-bearing safety signal at this
+	// notch — it is what makes overwriting something in a real $HOME recoverable — so firing
+	// it when nothing changed trains the reader to skip the one line that should stop them,
+	// and buries a REAL archive among the noise. Compared BEFORE the observe branch so a
+	// dry-run predicts the same no-op rather than promising a render it would not do.
+	if occupied && owned && !hostskills.Changed(srcPath, dest) {
+		res.Action = "unchanged"
+		return res
+	}
+
 	if observe {
 		res.Action = "would render"
 		return res
 	}
 
 	if occupied {
-		// Ours from a previous apply: archive before replacing, so an edit the user made to
-		// a yolo-written file survives as a recoverable copy rather than being lost to a
-		// silent overwrite.
+		// Ours from a previous apply AND genuinely different: archive before replacing, so an
+		// edit the user made to a yolo-written file survives as a recoverable copy rather than
+		// being lost to a silent overwrite.
 		if at, err := hostskills.Archive(req.ArchiveRoot, req.Stamp, pack, dest); err == nil {
 			res.Action = "rendered (previous copy archived to " + at + ")"
 		}

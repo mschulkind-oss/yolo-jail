@@ -413,7 +413,7 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 			//     unchanged home grew one archive copy of every skill per `apply --host` forever.
 			//     Pre-existing, and composition made it louder rather than caused it: this pass now
 			//     visits every destination in one run instead of one pack's at a time.
-			if occupied && req.PreOwned[dest] && changed(skills[name], dest) {
+			if occupied && req.PreOwned[dest] && Changed(skills[name], dest) {
 				if at, aerr := Archive(req.ArchiveRoot, req.Stamp, "skills", dest); aerr == nil {
 					r.Detail += " (previous copy archived to " + at + ")"
 				}
@@ -486,12 +486,16 @@ func forget(req Request, dest string) {
 	}
 }
 
-// changed reports whether delivering src over dest would alter it, by content digest.
+// Changed reports whether delivering src over dest would alter it, by content digest.
 //
 // An UNREADABLE side reads as CHANGED, which is the direction that archives rather than skips: the
 // only consequence of a false positive is one recoverable copy in the archive, while a false
 // negative would replace content nobody could compare without keeping a copy of it.
-func changed(src, dest string) bool {
+//
+// Exported for the `files` kind (internal/entrypoint/hostfilestree.go), which archived its
+// destination on EVERY apply because it asked only whether the path was occupied — see F7. The
+// two kinds ask the same question of a tree, so a second digest would be a second thing to drift.
+func Changed(src, dest string) bool {
 	a, aerr := treeDigest(src)
 	b, berr := treeDigest(dest)
 	return aerr != nil || berr != nil || a != b
