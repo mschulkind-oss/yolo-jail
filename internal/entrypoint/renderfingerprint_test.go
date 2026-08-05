@@ -88,6 +88,17 @@ func renderFingerprintAt(t *testing.T, ws string) (map[string]string, []string) 
 	return fp, paths
 }
 
+// WHAT THIS GATE DOES NOT COVER, stated because it has been misread as covering everything:
+// it renders CONFIG SURFACES (via ConfigurePackByName) and nothing else. A change to the
+// BRIEFING's prose does not move it — verified 2026-08-05 by corrupting the jail briefing's
+// header, which left this test green while internal/agents caught it. Same for skills
+// composition, the `files` tree, and anything else that is not a config surface.
+//
+// So "the fingerprint is unchanged" is the right invariant for a config-layer or host-only
+// change, and is NOT evidence that a briefing or skills change left the jail alone. The owning
+// package's own tests are the gate there (agents.TestBriefingJailHeaderIsUnchanged pins the
+// jail header as a literal, which is what a briefing change has to answer to).
+//
 // TestRenderFingerprintStable pins the set of files every shipped pack renders. This is the
 // coarse half of the gate: which files exist. If Phase 1 drops or adds a rendered surface,
 // this list changes and the test fails with the delta.
