@@ -1,6 +1,9 @@
 package run
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -158,6 +161,11 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 	if strings.HasPrefix(base, prefix) {
 		shortHash := strings.TrimPrefix(base, prefix)
 		o.relayKill(relayPIDFile(shortHash), filepath.Join(socketsDir, broker.BrokerLoopholeName+".sock"))
+		// The jail is gone: retire its bearer token rather than leaving a live
+		// broker credential on disk (issue #31). relayKill must NOT do this —
+		// it also runs when a still-running container's relay is respawned,
+		// whose baked env holds this exact token.
+		_ = os.Remove(relayTokenFile(shortHash))
 	}
 	if fileExists(socketsDir) {
 		_ = os.RemoveAll(socketsDir)
@@ -356,7 +364,7 @@ func (o *Options) relayEnsure(cname, socketsDir string) {
 	shortHash := relayShortHash(cname)
 	pidFile := relayPIDFile(shortHash)
 	sockPath := filepath.Join(socketsDir, broker.BrokerLoopholeName+".sock")
-	if o.relayIsAlive(pidFile, sockPath) {
+	if o.relayHealthy(pidFile, sockPath, socketsDir) {
 		return
 	}
 	lf, err := os.OpenFile(relayLockFile(shortHash), os.O_CREATE|os.O_WRONLY, 0o644)
@@ -367,12 +375,16 @@ func (o *Options) relayEnsure(cname, socketsDir string) {
 	if syscall.Flock(int(lf.Fd()), syscall.LOCK_EX) != nil {
 		return
 	}
-	if o.relayIsAlive(pidFile, sockPath) {
+	if o.relayHealthy(pidFile, sockPath, socketsDir) {
 		return
 	}
 	o.relayKill(pidFile, sockPath)
 	_ = os.MkdirAll(socketsDir, 0o755)
 	_ = os.Remove(sockPath)
+	// macOS TCP transport (issue #31): drop a stale endpoint file so the
+	// terminator never dials a dead port before the fresh relay republishes.
+	tcpPub := filepath.Join(socketsDir, brokerEndpointLeaf)
+	_ = os.Remove(tcpPub)
 	argv := o.relaySpawnArgv(sockPath, broker.BrokerSingletonSocket, cname)
 	if argv == nil {
 		return
@@ -389,6 +401,19 @@ func (o *Options) relayEnsure(cname, socketsDir string) {
 	}
 	_ = os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644)
 	o.waitForSocket(sockPath, broker.BrokerSpawnTimeout)
+	// On macOS also wait for the relay to publish its TCP endpoint (waitForSocket
+	// just polls path existence), so the terminator's first dial finds the file.
+	// If it never lands, the jail WILL come up with a broken broker (every
+	// platform.claude.com request 502s), so say so instead of failing silently —
+	// the relay log has the reason.
+	if o.IsMacOS {
+		o.waitForSocket(tcpPub, broker.BrokerSpawnTimeout)
+		if !o.PathExists(tcpPub) {
+			o.pr(o.Stdout).printf("[yellow]Broker relay never published its TCP endpoint (%s); "+
+				"the OAuth broker will be unreachable from this jail. See "+
+				"broker-relay-%s.log.[/yellow]", tcpPub, shortHash)
+		}
+	}
 }
 
 // relaySpawnArgv builds the per-jail broker-relay spawn argv: the running yolo
@@ -402,10 +427,152 @@ func (o *Options) relayEnsure(cname, socketsDir string) {
 // the relay never started. Now it always yields a runnable argv, so relayEnsure
 // actually spawns the relay whenever a broker loophole is active.
 func (o *Options) relaySpawnArgv(sockPath, brokerSocket, cname string) []string {
-	return execx.SelfExecArgv([]string{
+	argv := []string{
 		"yolo", "internal", "daemon", "broker-relay",
 		"--socket", sockPath, "--broker", brokerSocket, "--jail", cname,
-	})
+	}
+	// macOS transport (issue #31): give the relay a per-jail token and a publish
+	// path so it binds its OWN loopback TCP front (owning the kernel-assigned
+	// port from birth — no probe-then-rebind race) and writes the advertised
+	// host:port there for the in-jail terminator to read across the VM boundary
+	// (a host unix socket is unconnectable over virtiofs).
+	if token := o.relayTCPToken(cname); token != "" {
+		publish := filepath.Join(filepath.Dir(sockPath), brokerEndpointLeaf)
+		tokenFile := relayTokenFile(relayShortHash(cname))
+		argv = append(argv, "--tcp-publish", publish, "--tcp-advertise", relayJailAdvertiseHost, "--token-file", tokenFile)
+	}
+	return execx.SelfExecArgv(argv)
+}
+
+// brokerEndpointLeaf is the filename the relay publishes its loopback TCP
+// host:port into, inside the per-jail host-services dir (issue #31). One
+// definition so the relay's publish path and the terminator's tcpfile: address
+// (built in assemble_parts.go) always name the same file.
+const brokerEndpointLeaf = broker.BrokerLoopholeName + ".tcp"
+
+// relayJailAdvertiseHost is how a jail reaches the macOS host — podman maps it
+// (and host.docker.internal) to the gvproxy gateway in the jail's /etc/hosts.
+// The relay writes this host (plus its kernel-assigned port) into the published
+// endpoint file so the terminator dials the host across the VM boundary.
+const relayJailAdvertiseHost = "host.containers.internal"
+
+// relayTCPToken returns the per-jail bearer token for the macOS broker TCP
+// transport (issue #31), generating and persisting it once per jail. Returns ""
+// off macOS or on error, so callers keep the unix-only path.
+//
+// SECURITY: the token file lives in a HOST-ONLY, USER-PRIVATE dir under the
+// state dir — never the jail-writable host-services mount (a jail could symlink
+// it and make this host-side read leak an arbitrary file), and never the shared
+// /tmp that holds the pid/lock files. /tmp is world-writable: any local user can
+// pre-create <path> as a file they own or a symlink, at which point they either
+// CHOOSE the token (0600 on os.WriteFile applies at creation only, so an
+// existing attacker-owned mode-0666 file keeps its perms) or redirect the write.
+// Knowing the token is full broker access — it is the only thing guarding the
+// loopback front. So the token is written O_EXCL under a 0700 dir, and a
+// pre-existing file is only trusted if it is a regular file we own.
+//
+// hostServicesMountArgs (the terminator's token env) and relaySpawnArgv (the
+// relay's --token-file) both call this so they agree — hence persistence.
+// Unlike the port (which the relay owns and publishes), the token is yolo-owned
+// and stable, so a relay re-ensured behind a still-running container keeps the
+// token that container's baked env already holds.
+func (o *Options) relayTCPToken(cname string) string {
+	if !o.IsMacOS {
+		return ""
+	}
+	tokenPath := relayTokenFile(relayShortHash(cname))
+	if err := os.MkdirAll(filepath.Dir(tokenPath), 0o700); err != nil {
+		return ""
+	}
+	if t, ok := readOwnedToken(tokenPath); ok {
+		return t
+	}
+	tok, err := randHexToken(32)
+	if err != nil {
+		return ""
+	}
+	// O_EXCL so we never write our secret into a file someone else planted;
+	// a stale/corrupt one of OUR OWN is replaced (readOwnedToken rejected it).
+	_ = os.Remove(tokenPath)
+	f, err := os.OpenFile(tokenPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return ""
+	}
+	if _, err := f.WriteString(tok + "\n"); err != nil {
+		f.Close()
+		return ""
+	}
+	if err := f.Close(); err != nil {
+		return ""
+	}
+	return tok
+}
+
+// readOwnedToken returns the persisted token if tokenPath is a regular file
+// owned by this user holding a well-formed token. A symlink, a directory, or a
+// file owned by anyone else is NOT trusted — see relayTCPToken's SECURITY note.
+func readOwnedToken(tokenPath string) (string, bool) {
+	// O_NOFOLLOW: a symlink here is a plant, not our token file — refusing to
+	// follow it is what keeps the write below from landing in its target.
+	f, err := os.OpenFile(tokenPath, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return "", false
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() {
+		return "", false
+	}
+	sys, ok := st.Sys().(*syscall.Stat_t)
+	if !ok || int(sys.Uid) != os.Getuid() {
+		return "", false
+	}
+	data, err := io.ReadAll(io.LimitReader(f, 4096))
+	if err != nil {
+		return "", false
+	}
+	t := strings.TrimSpace(string(data))
+	if !isHexToken(t) {
+		return "", false
+	}
+	return t, true
+}
+
+// isHexToken reports whether s is a 64-char lowercase-hex token (randHexToken's
+// output) — a cheap guard against a corrupted token file.
+func isHexToken(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+func randHexToken(nbytes int) (string, error) {
+	b := make([]byte, nbytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// relayHealthy reports whether the existing relay can actually serve this jail.
+// On macOS that also requires the published TCP endpoint file: a relay whose
+// TCP front failed to bind/publish, or an older unix-only relay from before this
+// transport, has a live unix socket but no endpoint — the terminator can't reach
+// it, so it must be respawned rather than trusted (issue #31).
+func (o *Options) relayHealthy(pidFile, sockPath, socketsDir string) bool {
+	if !o.relayIsAlive(pidFile, sockPath) {
+		return false
+	}
+	if o.IsMacOS {
+		return o.PathExists(filepath.Join(socketsDir, brokerEndpointLeaf))
+	}
+	return true
 }
 
 func (o *Options) relayIsAlive(pidFile, sockPath string) bool {
@@ -489,7 +656,13 @@ func (o *Options) relayReapOrphansIn(base string, liveKnown bool, liveCnames map
 	}
 	return prune.ReapRelayOrphans(
 		base, liveKnown, live, relayOrphanGraceSeconds, true, o.Now(),
-		func(pidFile string) { o.relayKill(pidFile, "") },
+		func(pidFile string) {
+			o.relayKill(pidFile, "")
+			// Same reasoning as stopLoopholes: a reaped jail's bearer token is
+			// a live broker credential, so it dies with the relay (issue #31).
+			leaf := strings.TrimPrefix(filepath.Base(pidFile), "yolo-broker-relay-")
+			_ = os.Remove(relayTokenFile(strings.TrimSuffix(leaf, ".pid")))
+		},
 	)
 }
 
@@ -510,6 +683,18 @@ func relayPIDFile(shortHash string) string {
 }
 func relayLockFile(shortHash string) string {
 	return "/tmp/yolo-broker-relay-" + shortHash + ".lock"
+}
+
+// relayTokenFile is the HOST-ONLY per-jail bearer-token file. It deliberately
+// does NOT sit beside the pid/lock files in the shared /tmp — it holds a secret,
+// and /tmp is world-writable (see relayTCPToken's SECURITY note). The state dir
+// is user-private, so no other local user can pre-create or read the path.
+func relayTokenFile(shortHash string) string {
+	return filepath.Join(relayTokenDir(), shortHash+".token")
+}
+
+func relayTokenDir() string {
+	return filepath.Join(paths.GlobalStorage(), "broker-relay-tokens")
 }
 
 func readPIDFile(p string) (int, bool) {

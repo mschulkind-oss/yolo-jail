@@ -1,17 +1,27 @@
 package oauthterminator
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"io"
+	"math/big"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 func TestIsRefreshGrant(t *testing.T) {
@@ -274,5 +284,148 @@ func plain(v any) any {
 			}
 			return s
 		}
+	}
+}
+
+// --- macOS tcpfile: transport (issue #31) ----------------------------------
+
+// tcpFront is a loopback TCP relay double for the macOS transport: it expects a
+// leading token frame (4-byte BE len + token), records it, then behaves like a
+// framed relay — reads one request frame and replies stdout {"pong":true} +
+// exit 0.
+type tcpFront struct {
+	ln       net.Listener
+	mu       sync.Mutex
+	gotToken string
+}
+
+// startTCPFront starts the double on a loopback TLS listener (with a self-signed
+// cert whose SAN matches paths.BrokerTLSServerName) and publishes
+// "127.0.0.1:<port> <base64 cert>" to publishPath, exactly as the real relay does.
+func startTCPFront(t *testing.T, publishPath string) *tcpFront {
+	t.Helper()
+	cert, certB64 := mintTestRelayCert(t)
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(publishPath, []byte(ln.Addr().String()+" "+certB64+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &tcpFront{ln: ln}
+	go f.serve()
+	t.Cleanup(func() { ln.Close() })
+	return f
+}
+
+// mintTestRelayCert mints a self-signed leaf mirroring the real relay's cert
+// (CN/SAN = paths.BrokerTLSServerName), returning it and its base64(DER).
+func mintTestRelayCert(t *testing.T) (tls.Certificate, string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: paths.BrokerTLSServerName},
+		DNSNames:              []string{paths.BrokerTLSServerName},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, base64.StdEncoding.EncodeToString(der)
+}
+
+func (f *tcpFront) serve() {
+	for {
+		c, err := f.ln.Accept()
+		if err != nil {
+			return
+		}
+		go f.handle(c)
+	}
+}
+
+func (f *tcpFront) handle(c net.Conn) {
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	hdr := make([]byte, 4)
+	if _, err := io.ReadFull(c, hdr); err != nil {
+		return
+	}
+	tok := make([]byte, binary.BigEndian.Uint32(hdr))
+	if _, err := io.ReadFull(c, tok); err != nil {
+		return
+	}
+	f.mu.Lock()
+	f.gotToken = string(tok)
+	f.mu.Unlock()
+	rhdr := make([]byte, 4)
+	if _, err := io.ReadFull(c, rhdr); err != nil {
+		return
+	}
+	io.ReadFull(c, make([]byte, binary.BigEndian.Uint32(rhdr)))
+	payload := []byte(`{"pong": true}`)
+	fh := make([]byte, 5)
+	fh[0] = streamStdout
+	binary.BigEndian.PutUint32(fh[1:], uint32(len(payload)))
+	c.Write(fh)
+	c.Write(payload)
+	ex := make([]byte, 5)
+	ex[0] = streamExit
+	binary.BigEndian.PutUint32(ex[1:], 4)
+	c.Write(ex)
+	c.Write([]byte{0, 0, 0, 0})
+}
+
+func (f *tcpFront) token() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.gotToken
+}
+
+// TestAskHostBrokerTCPFileSuccess: a "tcpfile:" address reads the relay's
+// published host:port, dials it, presents the per-jail token as the leading
+// frame, and round-trips a framed request.
+func TestAskHostBrokerTCPFileSuccess(t *testing.T) {
+	pub := filepath.Join(shortDir(t), "relay.tcp")
+	const token = "per-jail-token-xyz"
+	t.Setenv(paths.BrokerTokenEnv, token)
+	front := startTCPFront(t, pub)
+
+	resp, err := AskHostBroker(paths.BrokerTCPFileSentinel+pub, singleton("action", "ping"))
+	if err != nil {
+		t.Fatalf("tcpfile dial failed: %v", err)
+	}
+	if v, _ := resp.Get("pong"); v != true {
+		t.Errorf("resp pong = %v", v)
+	}
+	if front.token() != token {
+		t.Errorf("relay saw token %q, want %q (token frame must precede the request)", front.token(), token)
+	}
+}
+
+// TestAskHostBrokerTCPFileMissingFileRelayLayer: a "tcpfile:" address whose file
+// doesn't exist yet (relay not up) must attribute to the relay layer (ENOENT),
+// not a generic error — so the jail log says the right thing.
+func TestAskHostBrokerTCPFileMissingFileRelayLayer(t *testing.T) {
+	missing := filepath.Join(shortDir(t), "nope.tcp")
+	_, err := AskHostBroker(paths.BrokerTCPFileSentinel+missing, singleton("action", "ping"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.HasPrefix(err.Error(), "relay unreachable") {
+		t.Errorf("err = %q, want relay-layer prefix for a missing endpoint file", err.Error())
 	}
 }

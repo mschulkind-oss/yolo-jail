@@ -11,15 +11,20 @@
 package oauthterminator
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // UpstreamHost is the intercepted host, named in the startup log line
@@ -33,6 +38,82 @@ const (
 	streamExit   = 2
 )
 
+// dialBroker connects to the host broker. On Linux the address is a unix socket
+// path. On macOS the mounted unix socket is unconnectable across the podman-VM
+// boundary, so the address is "tcpfile:<path>": read the relay's published
+// host:port + pinned cert from that file (in the mounted host-services dir)
+// fresh on every dial — so a relay that restarted on a new port/cert is picked
+// up transparently — then TLS-dial (pinning that exact cert) and authenticate
+// with the per-jail token as a leading 4-byte-length-framed message inside TLS,
+// before the normal frame protocol begins.
+func dialBroker(address string) (net.Conn, error) {
+	if strings.HasPrefix(address, paths.BrokerTCPFileSentinel) {
+		hostport, certB64, err := readBrokerEndpoint(strings.TrimPrefix(address, paths.BrokerTCPFileSentinel))
+		if err != nil {
+			return nil, err
+		}
+		return dialTCPBroker(hostport, certB64)
+	}
+	return net.DialTimeout("unix", address, 30*time.Second)
+}
+
+// dialTCPBroker TLS-dials the relay's loopback TCP front, trusting ONLY the
+// published cert (a dedicated root pool — no PKI, no broker CA, whose key is
+// mounted into every jail and so can't be trusted here), then writes the per-jail
+// token frame (4-byte BE length + token) inside TLS. Encryption defeats a
+// sibling jail sniffing the shared bridge; pinning the relay's host-only-key cert
+// defeats impersonation/MITM. An empty token is rejected up front
+// (misconfiguration) rather than sent as a zero-length frame the relay would
+// silently drop as a confusing broker-layer EOF.
+func dialTCPBroker(hostport, certB64 string) (net.Conn, error) {
+	token := os.Getenv(paths.BrokerTokenEnv)
+	if token == "" {
+		return nil, errors.New("no broker token in env " + paths.BrokerTokenEnv + " — relay auth is misconfigured")
+	}
+	der, err := base64.StdEncoding.DecodeString(certB64)
+	if err != nil {
+		return nil, errors.New("bad broker cert in endpoint file: " + err.Error())
+	}
+	relayCert, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil, errors.New("bad broker cert in endpoint file: " + err.Error())
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(relayCert)
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 30 * time.Second}, "tcp", hostport, &tls.Config{
+		RootCAs:    pool,
+		ServerName: paths.BrokerTLSServerName,
+		MinVersion: tls.VersionTLS12,
+	})
+	if err != nil {
+		return nil, err
+	}
+	hdr := make([]byte, 4)
+	binary.BigEndian.PutUint32(hdr, uint32(len(token)))
+	if _, werr := conn.Write(append(hdr, []byte(token)...)); werr != nil {
+		_ = conn.Close()
+		return nil, werr
+	}
+	return conn, nil
+}
+
+// readBrokerEndpoint reads the relay's published "host:port <base64 cert>" from
+// path (the <name>.tcp file in the mounted host-services dir), fresh on every
+// dial so a relay that restarted on a new port/cert is picked up without a jail
+// relaunch. A missing file (relay not up yet) surfaces as ENOENT, which
+// AskHostBroker attributes to the relay layer — the correct "relay down" reading.
+func readBrokerEndpoint(path string) (hostport, certB64 string, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", err
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) < 2 {
+		return "", "", errors.New("malformed broker endpoint file " + path)
+	}
+	return fields[0], fields[1], nil
+}
+
 // AskHostBroker sends a request to the host-side broker over the per-jail relay
 // socket and returns the parsed JSON response.
 // including the two-layer error attribution:
@@ -41,7 +122,7 @@ const (
 // unreachable through the relay" (broker layer)
 // The distinction is load-bearing: the jail log must say WHICH layer failed.
 func AskHostBroker(socketPath string, request *jsonx.OrderedMap) (*jsonx.OrderedMap, error) {
-	conn, err := net.DialTimeout("unix", socketPath, 30*time.Second)
+	conn, err := dialBroker(socketPath)
 	if err != nil {
 		// Relay layer ONLY for ENOENT (socket missing) / ECONNREFUSED (no relay
 		// behind the file) — matching Python's errno gate. Any OTHER connect

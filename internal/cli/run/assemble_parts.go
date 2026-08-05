@@ -397,8 +397,20 @@ func (o *Options) hostServicesMountArgs(rt, cname string) []string {
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	args := []string{"-v", socketsDir + ":" + paths.JailHostServicesDir + ":rw"}
 	if o.PathExists(broker.BrokerSingletonSocket) {
-		brokerJailSock := paths.JailHostServicesDir + "/" + broker.BrokerLoopholeName + ".sock"
-		args = append(args, "-e", hostServiceEnvVar(broker.BrokerLoopholeName)+"="+brokerJailSock)
+		socketEnv := hostServiceEnvVar(broker.BrokerLoopholeName)
+		envVal := paths.JailHostServicesDir + "/" + broker.BrokerLoopholeName + ".sock"
+		// macOS transport (issue #31): the mounted unix socket is unconnectable
+		// across the VM boundary. The relay binds a loopback TCP front and
+		// publishes its host:port to <name>.tcp in this same host-services dir
+		// (mounted into the jail); point the terminator at that file with a
+		// "tcpfile:" sentinel and hand it the per-jail token. Reading host:port
+		// from the file — rather than baking a port in here — is what lets the
+		// relay own the port from birth, with no probe-then-rebind race.
+		if token := o.relayTCPToken(cname); token != "" {
+			envVal = paths.BrokerTCPFileSentinel + paths.JailHostServicesDir + "/" + brokerEndpointLeaf
+			args = append(args, "-e", paths.BrokerTokenEnv+"="+token)
+		}
+		args = append(args, "-e", socketEnv+"="+envVal)
 	}
 	return args
 }
