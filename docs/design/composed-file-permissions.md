@@ -460,7 +460,7 @@ redesign — they are broken today.
 | [4.2](#42-copilotconfig-can-wipe-a-live-oauth-token) | `copilot/config` can **wipe a live OAuth token** | ⚠ **data loss** | two steps, both specified in [§5.2](#52-how-to-actually-de-compose-a-credential-surface): **(1)** adopt-on-first-migration (one branch in `staterender.go`, fixes every surface at once, proved by probe); **(2)** then de-compose the credential surfaces so tokens leave the capture path |
 | [4.3](#43-claudeconfig-is-a-dead-surface-with-two-live-side-effects) | `claude/config` declared but never rendered; `config render` renders it anyway | misleading output, one `writeInPlaceString` from data loss | mark it explicitly non-rendered so both the CLI and any future generic loop skip it |
 | [4.4](#44-yolo-config-render-does-not-show-what-the-jail-gets) | `config render` omits the overlay **and** computed layers, and reads "host" from its own destination | the debugging command lies | feed it the real layers, or relabel it a defaults+host preview |
-| [4.5](#45-host_files-reserves-symlink-aliases-but-not-their-targets) | reserved destinations miss symlink **targets** | gap, not yet exploited | reserve targets alongside aliases |
+| [4.5](#45-host_files-reserves-symlink-aliases-but-not-their-targets--fixed) | reserved destinations miss symlink **targets** | gap, not yet exploited | **FIXED** — three named targets as A2; the generated `.config/yolo-home/` staging subtree as V1 |
 | [§2](#2-where-composed-files-actually-live-and-why-nothing-is-enforced-today) | `writeInPlaceString`'s "umask-independent 0o644" comment is false | latent | set modes explicitly (`writeBytesMode`) and correct the comment |
 
 ### 4.1 `~/.gitconfig` is unwritable, and `git config --global` fails
@@ -542,15 +542,38 @@ essentially all yolo-owned content lives, so `render` output for those surfaces 
 structurally unlike the real render. **Fix: feed `render` the overlay sidecar and
 the computed layer, or label plainly that it is a defaults+host preview.**
 
-### 4.5 `host_files` reserves symlink aliases but not their targets
+### 4.5 `host_files` reserves symlink aliases but not their targets — FIXED
 
-`reservedHomeFiles` blocks `~/.gitconfig`, `~/.bashrc`, `~/.claude.json`, but not
+`reservedHomeFiles` blocked `~/.gitconfig`, `~/.bashrc`, `~/.claude.json`, but not
 the paths they point at. Verified with a built binary against a temp workspace:
 `~/.config/git/config`, `~/.config/git/ignore`, `~/.claude/claude.json` and
-`~/.config/bashrc` all **pass** validation. Two of those are `:ro` mounts (the
+`~/.config/bashrc` all **passed** validation. Two of those are `:ro` mounts (the
 render would EROFS-warn and skip); `~/.claude/claude.json` is the real
 `~/.claude.json` inode, i.e. Claude's state file reachable under its alias.
 **Fix: reserve symlink targets alongside their aliases.**
+
+**Shipped in two halves.** The three named targets landed as A2 (`.claude/claude.json`,
+`.config/git/config`, `.config/bashrc` in `reservedHomeFiles`, pinned by
+`TestHostFileReservedDestsCoverSymlinkTargets`). Re-probing that in V1 found a FOURTH
+alias of the same shape which no literal list can cover: `HostFileEntry.SymlinkTarget()`
+stages every home-root destination (`~/.npmrc`) at `.config/yolo-home/<slug>`, so the
+alias and the staging target are one file — but the target's name is *generated* from the
+entry, not enumerable. Reserved as a SUBTREE instead (`reservedHomeSubtrees`, matched on
+cleaned segments so `.config/yolo-homework/` stays claimable), which also closes the
+adjacent case of a user planting an unrelated file among yolo's staged ones.
+
+`~/.config/git/ignore` is deliberately still claimable: it is a `:ro` bind, but it is not
+an alias of anything, so it belongs to the §4.1 legibility problem rather than to this one.
+
+**The guard is lexical, and that is the fix rather than a shortcut.** Resolving a
+destination through the filesystem is wrong in both outcomes: `filepath.EvalSymlinks`
+errors on a path that does not exist, which is the normal state of a `host_files`
+destination (bringing the file into being is the feature) — so a resolving guard falls back
+to the lexical answer for every new destination and differs only for one that already
+exists, where it resolves an alias *away* from the reserved name and turns a rejected
+spelling into an accepted one. A reservation that passes because the file is not there yet
+is worse than one that rejects a spelling. Pinned by
+`TestHostFileDestGuardIsPurelyLexical`.
 
 ## 5. The capture overlay is invisible, and partly noise
 

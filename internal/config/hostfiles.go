@@ -753,6 +753,10 @@ var corePathsForReservation = []string{
 // Directory roots are NOT reserved here for the same reason: the overlay dirs are
 // read-write binds, so composing a NEW file inside one is exactly what should
 // work.
+//
+// The ONE subtree exception is reservedHomeSubtrees — see checkHostFileDest, which
+// applies it — because its members are generated from a slug rather than nameable
+// here.
 func hostFileReservedDests() map[string]string {
 	dests := make(map[string]string, len(reservedHomeFiles)+len(builtinSurfacePaths()))
 	for _, f := range reservedHomeFiles {
@@ -764,6 +768,25 @@ func hostFileReservedDests() map[string]string {
 	return dests
 }
 
+// reservedHomeSubtreeReason returns why clean is refused for lying in (or being) a
+// directory yolo owns the contents of, or "" when it is not.
+//
+// Kept beside the exact-path lookup rather than folded into the map because the two
+// rules answer different questions and a map cannot express the second: an exact path
+// is one file yolo writes, a subtree is a directory whose CONTENTS yolo generates
+// (reservedHomeSubtrees explains the one member). Matching is on cleaned path
+// SEGMENTS — `dest == root` or `dest` under `root + "/"` — so `.config/yolo-homework/x`
+// merely shares a prefix and stays claimable. A plain strings.HasPrefix would have
+// swallowed it.
+func reservedHomeSubtreeReason(clean string) string {
+	for _, root := range reservedHomeSubtrees {
+		if clean == root || strings.HasPrefix(clean, root+"/") {
+			return "yolo stages composed home-root files there, keyed by a slug it derives"
+		}
+	}
+	return ""
+}
+
 // checkHostFileDest validates a jail DESTINATION and returns it home-relative
 // (slash-separated, no leading "~/", no trailing slash), or a reason it is
 // rejected.
@@ -772,6 +795,19 @@ func hostFileReservedDests() map[string]string {
 // would parse it as a mount option rather than part of the path) — because the
 // destination becomes a path under /home/agent the same way. The RESERVATION rule
 // differs: see hostFileReservedDests.
+//
+// PURELY LEXICAL, and that is load-bearing rather than incidental (V1). The verdict is
+// a function of the string alone — path.Clean plus two table lookups, no Stat and no
+// filepath.EvalSymlinks. Resolving would be worse in BOTH of its outcomes: EvalSymlinks
+// errors on a path that does not exist, which is the normal state of a host_files
+// destination (bringing the file into being is the feature), so a resolving guard would
+// fall back to this same lexical answer for every new destination; and where the path DOES
+// exist it would resolve an alias AWAY from the reserved name into whatever it points at,
+// turning a rejected spelling into an accepted one. A reservation check that passes because
+// the file is not there yet is strictly worse than one that rejects a spelling. Both
+// spellings of an aliased file are therefore listed as literals (reservedHomeFiles' A2
+// entries) or covered by a subtree (reservedHomeSubtrees), never discovered by walking the
+// filesystem.
 func checkHostFileDest(s string, reserved map[string]string) (string, string) {
 	if s == "" {
 		return "", "must not be empty"
@@ -796,7 +832,12 @@ func checkHostFileDest(s string, reserved map[string]string) (string, string) {
 	if clean == ".." || strings.HasPrefix(clean, "../") {
 		return "", "must not escape $HOME with '..'"
 	}
-	if why, bad := reserved[clean]; bad {
+	why, bad := reserved[clean]
+	if !bad {
+		why = reservedHomeSubtreeReason(clean)
+		bad = why != ""
+	}
+	if bad {
 		return "", fmt.Sprintf("%s is managed by yolo (%s) — writing it from config would "+
 			"clobber yolo's own file; pick a different destination",
 			pytext.Repr("~/"+clean), why)
@@ -1059,6 +1100,11 @@ func (e HostFileEntry) StagingFor() HostFileStaging {
 	return HostFileStagingWritableDir
 }
 
+// hostFileStagingRoot is the home-relative subtree SymlinkTarget stages into, and
+// therefore a destination subtree yolo OWNS: see reservedHomeSubtrees for why the
+// reservation covers all of it rather than only the slugs in play.
+const hostFileStagingRoot = ".config/yolo-home"
+
 // SymlinkTarget is the home-relative path a HostFileStagingSymlink entry's
 // GlobalHome symlink points at: a private subtree of the writable `~/.config`
 // overlay, keyed by the entry's injective slug so two entries can never collide.
@@ -1067,7 +1113,7 @@ func (e HostFileEntry) StagingFor() HostFileStaging {
 // home-root file is visibly yolo-provisioned and can never collide with a real
 // `~/.config` entry a tool expects to own.
 func (e HostFileEntry) SymlinkTarget() string {
-	return path.Join(".config", "yolo-home", e.Slug())
+	return path.Join(hostFileStagingRoot, e.Slug())
 }
 
 // WritableParent is the home-relative directory a HostFileStagingWritableDir

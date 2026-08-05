@@ -77,6 +77,34 @@ var reservedHomeFiles = []string{
 	".claude/claude.json", ".config/git/config", ".config/bashrc",
 }
 
+// reservedHomeSubtrees are home-relative DIRECTORIES yolo owns the inside of, so a
+// destination anywhere beneath one is refused. Separate from reservedHomeFiles because
+// the members cannot be enumerated as paths: what they hold is generated.
+//
+// V1. There is exactly one, and it is the other half of the A2 alias problem. A home-root
+// destination (`~/.npmrc`) cannot be written into the `:ro` home base, so the CLI stages a
+// symlink there pointing at HostFileEntry.SymlinkTarget() — `.config/yolo-home/<slug>` in
+// the writable `.config` overlay. That makes the alias and the target two spellings of ONE
+// file, exactly as `~/.gitconfig` and `~/.config/git/config` are; but where A2 could list
+// its three targets literally, these are keyed by a slug derived from whatever the user
+// declared, so no literal list can cover them.
+//
+// A SUBTREE rather than the computed targets, and that is the point rather than
+// convenience: reserving only the slugs a config happens to name today would still let a
+// user plant a file among yolo's staged ones — and the whole subtree is yolo
+// infrastructure the user never asked for, so there is no legitimate destination inside
+// it. SymlinkTarget's doc said the slug keying meant "two entries can never collide",
+// which was true of the case it was reasoning about (a real `~/.config` entry a tool owns)
+// and false of the one that matters here (a second host_files entry).
+//
+// Directory-root reservation is deliberately NOT extended past this: the overlay dirs
+// (`.config`, `.cache`, …) stay claimable because composing a NEW file inside one is
+// host_files' central use case (see hostFileReservedDests). This subtree is different
+// because yolo, not the user, decides what lives in it.
+var reservedHomeSubtrees = []string{
+	hostFileStagingRoot,
+}
+
 // reservedHomeDirs returns reservedHomeDirRoots plus every known agent's overlay
 // dirs, as a set. Kept as a function (not a package var) so it always reflects
 // the current agent set.
