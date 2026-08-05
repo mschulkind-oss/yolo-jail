@@ -28,11 +28,16 @@ the one nix item that is a *prerequisite* rather than an option).
 
 ## Summary
 
-### QUEUED — decided, to implement together once unblocked
+### QUEUED — ✅ ALL TEN SHIPPED 2026-08-04
 
-Not parked. These are rulings and audit outcomes waiting on a single implementation pass, in
-dependency order. **Do §Q1 first: it turns every item below it from a discovered bug into a
-compile-time question.**
+**The batch is done.** Ten queued items plus six field findings, in dependency order, each
+verified by probe rather than by report. `just done` green, tree clean.
+
+What the batch cost and produced, since the numbers are the argument for how it was run:
+16 agents, ~40 commits. **Nine defects surfaced that no amount of reading found** — they appear
+only when the lifecycle runs — and **two mutations SURVIVED**, each revealing that a correct fix
+had no coverage at all (the real boot loop's autonomy posture, and §6a-5's saved-record half).
+A surviving mutation turned out to be the batch's most valuable signal.
 
 | | Work | Ruled / found | Depends on |
 |---|---|---|---|
