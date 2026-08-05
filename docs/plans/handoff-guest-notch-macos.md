@@ -14,7 +14,8 @@ spec), [`../design/macos-user-nix-and-features.md`](../design/macos-user-nix-and
 [`../guides/macos.md`](../guides/macos.md) (usage),
 [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §5
 and §8 (Option 1 is a **prerequisite** for 7.2 — see §5 below), and
-[`outstanding-work.md`](outstanding-work.md) for the adjacent parked work.
+[`outstanding-work.md`](outstanding-work.md) — which now holds N1 (the unrooted nix profile, a live
+defect) and N2 (the rename that is this handoff's §5 prerequisite).
 
 ---
 

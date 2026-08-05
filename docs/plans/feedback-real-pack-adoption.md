@@ -2,6 +2,12 @@
 
 **Audience:** an agent or maintainer working on yolo-jail's pack/host-render surface.
 **Written:** 2026-08-04, against `0.7.1+380.ga3d6d4e`.
+**Status 2026-08-05: ALL SEVEN FINDINGS CLOSED.** F1/F2/F4/F6 fixed in the pack batch, F3 and F5
+dissolved by rulings rather than patched, F7 (a regression this doc caught against the batch
+itself) fixed 2026-08-05. Kept as the record of what real adoption found — the *diagnosis* in the
+last section is the reusable part. Nothing here is open; for open work see
+[`outstanding-work.md`](outstanding-work.md).
+
 **What this is:** field notes from converting a real hand-tuned agent config into three
 packs and applying them to a real `$HOME` — not a jail, not a `/tmp` fixture. Everything
 below was hit in practice, in order, and every claim was verified by running the binary.
@@ -30,7 +36,7 @@ The pre-existing config was deployed by **rcm** (`rcup` symlinks `~/.dotfiles/**
 
 ---
 
-## F1 — 🔴 A zero-ceremony pack silently renders NOTHING to the host
+## F1 — ✅ FIXED 2026-08-04 (`18695f5`) — a zero-ceremony pack silently rendered NOTHING to the host
 
 **The worst finding, because it fails silently and the docs actively recommend the broken
 path.**
@@ -88,7 +94,7 @@ Note this interacts badly with the "never silent" discipline the G1 fix establis
 
 ---
 
-## F2 — 🔴 Migrating an rcm-managed config breaks the live home, and packs stay inert
+## F2 — ✅ FIXED 2026-08-04 (`8bc562e`) — migrating an rcm-managed config left packs inert
 
 This is the one that actually broke a working machine mid-migration, and the interaction is
 subtle enough to deserve a documented recipe.
@@ -159,7 +165,7 @@ what made the settings side of this migration painless by comparison.
 
 ---
 
-## F4 — 🟠 `permissions.defaultMode` cannot be set at the host, and the docs imply it can
+## F4 — ✅ FIXED 2026-08-04 (`bfd4a1f`) — an outranked overlay key lost while the output implied it won
 
 The guide's Part 2 story is "declare what you want, render it wherever." For this one key
 that isn't true, and it's a key many people will reach for first.
@@ -211,7 +217,7 @@ those paths are read-only mounts. But that was luck, not design.)
 
 ---
 
-## F6 — 🟡 Two smaller inconsistencies
+## F6 — ✅ FIXED 2026-08-04 (`8bc562e` + `d7478a0`) — two smaller inconsistencies
 
 1. **Observe mode reports skills in the past tense.** Every other kind uses future tense in
    a dry-run (`would render`, `⚠ would overwrite`); skills say
@@ -365,7 +371,7 @@ already-silent cases in a codebase whose stated discipline is "never silent."
 
 ---
 
-## F7 — 🔴 REGRESSION (0.7.1+431): `files` re-archives on every apply, unbounded
+## F7 — ✅ FIXED 2026-08-05 (`c30a2b3`) — `files` re-archived on every apply, unbounded
 
 Found re-running the real-home adoption against `0.7.1+431.gb522a69`. The `files` kind now
 archives its destination on **every** `apply --host --assert`, even when the live file is
@@ -396,6 +402,19 @@ message that should stop them. It also buries a *real* archive when one eventual
 
 Note these land under `archive/skills/…` even though they are `files` contributions, which is
 its own small wrongness (the path implies a skill was archived).
+
+**FIXED 2026-08-05** (`c30a2b3`). Reproduced before fixing: `renderOneHostFile` asked only whether
+the path was OCCUPIED, never whether the content differed — `skills` and `config` were already
+quiet, so it was specifically `files` that had no unchanged check. Now compares content first
+(reusing `hostskills.Changed`, so the two kinds cannot drift into two digests) and reports
+`unchanged`. Compared BEFORE the observe branch, so a dry-run predicts the same no-op. Both
+negative controls are asserted, because the easy over-broad fix (never archive) silences the real
+case too: a user's edit to a yolo-written file is still archived and recoverable, and a changed
+pack source still renders. Mutation-tested in both directions.
+
+The `archive/skills/` path wart this finding also noted is real and is tracked as V3 in
+[`outstanding-work.md`](outstanding-work.md) — renaming it orphans existing archives from
+`yolo prune`, so it needs a migration rather than a rename.
 
 **Expected:** `files` compares content first, renders nothing and archives nothing when the
 destination already matches — matching the `unchanged` verb `briefing` uses. Second

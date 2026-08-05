@@ -227,7 +227,7 @@ own tree, so a local skill always wins.
   wrapped-plugin discovery, which scans it rather than a fixed `skills/`. It became optional
   because every shipped pack declared the same literal while the resolver already defaulted it —
   the validator was the only half of the code that thought the field mattered (§6a-3 of
-  `../plans/outstanding-work.md`). A pack with no manifest at all still merges its `skills/` dir — the
+  `../plans/shipped-2026-08-pack-batch.md` §6a-3). A pack with no manifest at all still merges its `skills/` dir — the
   zero-ceremony case.
 - `into` (required) — home-relative destination.
 
@@ -804,7 +804,7 @@ Not yet wired:
   (`docs/plans/pack-host-management-plan.md` Phase 7). Refused by name, never silently
   skipped.
 
-- ~~**`from` on `briefing`, in a JAIL.**~~ **FIXED 2026-08-04** (outstanding-work.md §6a-4).
+- ~~**`from` on `briefing`, in a JAIL.**~~ **FIXED 2026-08-04** (shipped-2026-08-pack-batch.md §6a-4).
   `run.readPackBriefing` took a DIRECTORY and read a root `AGENTS.md`/`CLAUDE.md` regardless of
   `from`, so a pack whose prose lived elsewhere briefed at the host notch and not in a jail.
   Both readers now go through `packload.BriefingProseFor`, over
@@ -829,7 +829,7 @@ Not yet wired:
     deleting (reclaimed by `yolo prune`). `skills` used to work the same way and no longer does —
     see the next bullet.
   - **`skills` is COMPOSED WHOLESALE**, at every notch (maintainer ruling 2026-08-04,
-    outstanding-work.md §6a-2), which makes it the `briefing` story applied to a directory:
+    shipped-2026-08-pack-batch.md §6a-2), which makes it the `briefing` story applied to a directory:
     - **The user's own skills MOVE into the local pack** (`~/.config/yolo-jail/local/skills/`),
       where yolo composes them back into EVERY destination. That is the point of the ruling
       rather than a side effect: a personal skill used to live in each agent's dir
@@ -854,7 +854,7 @@ Not yet wired:
       default `flat` writes bare names) and therefore what shape yolo writes — never what yolo
       may overwrite. Still declared by the pack and then probed.
   - **`briefing` is GENERATED WHOLESALE**, at every notch (maintainer ruling 2026-08-04,
-    outstanding-work.md §6a). It was a delimited managed block inside the user's file; that
+    shipped-2026-08-pack-batch.md §6a). It was a delimited managed block inside the user's file; that
     mechanism existed to keep an append from growing without bound when source and destination
     are the same file, which accepted a premise the ruling rejects — that a briefing file is
     jointly owned. Three consequences a reader should know:
