@@ -102,6 +102,17 @@ func PacksDir() string { return filepath.Join(GlobalStorage(), "packs") }
 // BuildDir returns the nix build-root dir.
 func BuildDir() string { return filepath.Join(GlobalStorage(), "build") }
 
+// PackageRootsDir returns $HOME/.local/share/yolo-jail/build/package-roots — where the
+// durable nix GC roots for NON-CONTAINER package profiles live (the buildEnv that
+// `packages:` materializes for a notch with no baked image; see internal/darwinpkg).
+//
+// A SIBLING of the per-image roots dir (image.ImageRootsDir, build/roots) and deliberately
+// NOT the same dir: prune.PruneOrphanImageRoots enumerates every symlink under build/roots
+// and reaps the ones no recently-loaded IMAGE needs, so a package-profile root parked there
+// would be swept away by a routine `yolo prune --apply` — unrooting the very closure it was
+// created to pin. Different lifetime, different dir.
+func PackageRootsDir() string { return filepath.Join(BuildDir(), "package-roots") }
+
 // FlakeBundleDir is where a from-source `just install` stages the self-contained
 // flake bundle (flake.nix + flake.lock + prebuilt bin/linux-<arch>/) so an
 // installed `yolo` builds the jail image with no source checkout — the

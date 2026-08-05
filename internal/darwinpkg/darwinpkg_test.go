@@ -4,22 +4,47 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 func TestBuildProfileArgv(t *testing.T) {
+	// The UNROOTED form (outLink "") keeps --no-link.
 	want := []string{
 		"nix", "--extra-experimental-features", "nix-command flakes",
 		"--accept-flake-config",
 		"build", "--impure", "--no-link", "--print-out-paths", "--print-build-logs",
 		".#packages.aarch64-darwin.yoloDarwinPackages",
 	}
-	if got := BuildProfileArgv(""); !reflect.DeepEqual(got, want) {
-		t.Errorf("argv = %v", got)
+	if got := BuildProfileArgv("", ""); !reflect.DeepEqual(got, want) {
+		t.Errorf("argv = %v\nwant %v", got, want)
 	}
 	// Custom system flows through.
-	if got := BuildProfileArgv("x86_64-darwin"); got[len(got)-1] != ".#packages.x86_64-darwin.yoloDarwinPackages" {
+	if got := BuildProfileArgv("x86_64-darwin", ""); got[len(got)-1] != ".#packages.x86_64-darwin.yoloDarwinPackages" {
 		t.Errorf("custom system attr = %q", got[len(got)-1])
+	}
+}
+
+// A non-empty outLink turns the build into its own GC root: `--out-link <path>` REPLACES
+// `--no-link`, so nix registers an indirect root as part of the build (N1). Both halves
+// are asserted — the flag present AND --no-link gone — because keeping --no-link alongside
+// --out-link is exactly the mistake that would leave the profile unrooted while looking
+// fixed.
+func TestBuildProfileArgvRootsWithOutLink(t *testing.T) {
+	argv := BuildProfileArgv("aarch64-darwin", "/state/build/package-roots/packages")
+	joined := strings.Join(argv, " ")
+	if !strings.Contains(joined, "--out-link /state/build/package-roots/packages") {
+		t.Errorf("outLink must become --out-link <path>: %q", joined)
+	}
+	if strings.Contains(joined, "--no-link") {
+		t.Errorf("--no-link must NOT survive alongside --out-link (nix would not root "+
+			"the build): %q", joined)
+	}
+	// The out-path print stays: the caller still needs the store path itself.
+	if !strings.Contains(joined, "--print-out-paths") {
+		t.Errorf("--print-out-paths must survive: %q", joined)
 	}
 }
 
@@ -30,7 +55,52 @@ func TestUnavailableEvalArgv(t *testing.T) {
 		"eval", "--impure", "--json", ".#darwinUnavailablePackages.aarch64-darwin",
 	}
 	if got := UnavailableEvalArgv(""); !reflect.DeepEqual(got, want) {
-		t.Errorf("argv = %v", got)
+		t.Errorf("argv = %v\nwant %v", got, want)
+	}
+}
+
+// The GC root's path: under GlobalStorage (never a bare $HOME leaf), a SIBLING of the
+// per-image roots dir, and keyed on the passed home rather than the process $HOME.
+func TestProfileRootLink(t *testing.T) {
+	got := ProfileRootLink("/homes/alice")
+	want := "/homes/alice/.local/share/yolo-jail/build/package-roots/packages"
+	if got != want {
+		t.Errorf("ProfileRootLink = %q, want %q", got, want)
+	}
+	// It must NOT live in build/roots — prune.PruneOrphanImageRoots enumerates every
+	// symlink there and reaps the ones no recently-loaded IMAGE needs, which would
+	// unroot this profile on a routine `yolo prune --apply`.
+	if strings.Contains(got, "/build/roots/") {
+		t.Errorf("the package root must not share build/roots with the image roots "+
+			"(prune would sweep it): %q", got)
+	}
+	// The dir this link sits in must be exactly what paths.PackageRootsDir names, or the
+	// accessor and the link would drift into two different locations.
+	t.Setenv("HOME", "/homes/alice")
+	if dir := filepath.Dir(got); dir != paths.PackageRootsDir() {
+		t.Errorf("ProfileRootLink's dir = %q, want paths.PackageRootsDir() = %q",
+			dir, paths.PackageRootsDir())
+	}
+	// Keyed on the ARGUMENT, not $HOME: a caller that already resolved a home (a guest
+	// notch provisioning a home it was handed) must not have the env silently win.
+	t.Setenv("HOME", "/homes/bob")
+	if again := ProfileRootLink("/homes/alice"); again != want {
+		t.Errorf("ProfileRootLink must ignore $HOME, got %q", again)
+	}
+}
+
+// The root leaf is FIXED, not content-keyed, and that is what makes a CHANGED profile
+// replace its root instead of accumulating one per package set. Asserted as a property of
+// the path function (two different homes differ; the same home never does) because the
+// replacement itself is nix's `--out-link` behavior, not ours.
+func TestProfileRootLinkIsStablePerHome(t *testing.T) {
+	a := ProfileRootLink("/homes/alice")
+	if b := ProfileRootLink("/homes/alice"); a != b {
+		t.Errorf("the same home must yield ONE root path (a per-materialization key would "+
+			"leak a root per package set): %q vs %q", a, b)
+	}
+	if c := ProfileRootLink("/homes/carol"); c == a {
+		t.Error("two homes must not share one root link")
 	}
 }
 

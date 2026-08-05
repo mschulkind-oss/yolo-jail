@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // MaterializeError nix missing or the build
@@ -22,11 +24,19 @@ type MaterializeError struct{ msg string }
 
 func (e *MaterializeError) Error() string { return e.msg }
 
-// Materialize realizes the darwin buildEnv profile natively via nix and returns
-// its PATH prefix + env + skip list. IMPURE (runs nix; macOS-only in practice).
-// It streams the build's stderr (`--print-build-logs` progress) straight to the
-// process stderr so a from-source darwin build is VISIBLE, while capturing
-// stdout (the store out-path) and a 30-line stderr tail for the error message.
+// Materialize realizes the darwin buildEnv profile natively via nix and returns its
+// PATH prefix + env + skip list. IMPURE (runs nix). It streams the build's
+// stderr (`--print-build-logs` progress) straight to the process stderr so a
+// from-source build is VISIBLE, while capturing stdout (the store out-path) and
+// a 30-line stderr tail for the error message.
+//
+// The build is ROOTED: it writes its `--out-link` to ProfileRootLink(home), so
+// the closure survives an arbitrary `nix store gc` for as long as this profile is
+// the current one (N1; see gcroot.go for the lifetime argument). Unlike
+// image.RegisterImageRoot this cannot be best-effort-and-swallowed — the root IS
+// the build's out-link, so a failure to create it is a failed build. That is the
+// right polarity for a notch with no baked image: an unrooted tool closure the
+// agent then executes from is the exact failure the root exists to prevent.
 //
 // repoRoot is the nix build cwd (the repo ROOT — parent of src). system ""
 // defaults to DarwinSystem. errStderr defaults to os.Stderr (injectable for
@@ -47,7 +57,8 @@ func Materialize(repoRoot string, packages []any, system string, errStderr io.Wr
 
 	// Stream stderr live while capturing stdout (the store out-path) and a
 	// bounded stderr tail for the error message.
-	cmd := exec.Command(BuildProfileArgv(system)[0], BuildProfileArgv(system)[1:]...)
+	argv := materializeArgv(system, paths.Home())
+	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = repoRoot
 	cmd.Env = baseEnv
 	var stdout strings.Builder
@@ -78,11 +89,24 @@ func Materialize(repoRoot string, packages []any, system string, errStderr io.Wr
 	return pkgs, nil
 }
 
+// materializeArgv is the exact argv Materialize runs: the profile build ROOTED at this
+// home's ProfileRootLink. Extracted as a pure function purely so the rooting is TESTABLE —
+// a mutation replacing the out-link with "" (the unrooted `--no-link` build, i.e. the N1
+// defect restored) survived every test while this was an inline expression, because
+// Materialize itself cannot be unit-tested without running nix.
+//
+// That is the whole value here: the argv is the contract, and one line of indirection makes
+// the contract assertable instead of merely written down.
+func materializeArgv(system, home string) []string {
+	return BuildProfileArgv(system, ProfileRootLink(home))
+}
+
 // ProfilePathsFromStdout is the PURE tail of materialize: pick the last
 // non-blank line of `--print-out-paths` stdout (the profile) and derive the
-// PATH prefix + env, attaching the skip list. Returns nil when stdout has no
-// store path (the DarwinPackagesError("no store path") branch). checkPkgConfig
-// is forwarded to ProfilePaths (nil → real filesystem).
+// PATH prefix + env, attaching the skip list and the profile store path itself.
+// Returns nil when stdout has no store path (the DarwinPackagesError("no store
+// path") branch). checkPkgConfig is forwarded to ProfilePaths (nil → real
+// filesystem).
 func ProfilePathsFromStdout(stdout string, skipped []string, checkPkgConfig func(string) bool) *DarwinPackages {
 	var outLines []string
 	for _, ln := range strings.Split(stdout, "\n") {
@@ -93,8 +117,14 @@ func ProfilePathsFromStdout(stdout string, skipped []string, checkPkgConfig func
 	if len(outLines) == 0 {
 		return nil
 	}
-	pathPrefix, extra := ProfilePaths(outLines[len(outLines)-1], checkPkgConfig)
-	return &DarwinPackages{PathPrefix: pathPrefix, Env: extra, Skipped: skipped}
+	profile := strings.TrimSpace(outLines[len(outLines)-1])
+	pathPrefix, extra := ProfilePaths(profile, checkPkgConfig)
+	return &DarwinPackages{
+		PathPrefix:  pathPrefix,
+		Env:         extra,
+		Skipped:     skipped,
+		ProfilePath: profile,
+	}
 }
 
 // skippedNames is the best-effort read of the no-darwin-build skip list (a nix

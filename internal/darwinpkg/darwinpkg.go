@@ -26,6 +26,10 @@ type DarwinPackages struct {
 	PathPrefix []string          // /nix/store/*/bin dirs
 	Env        map[string]string // whitelisted non-PATH vars
 	Skipped    []string          // names with no darwin build
+	// ProfilePath is the buildEnv store out path itself — the thing the GC root
+	// pins. Distinct from PathPrefix, which is <ProfilePath>/bin: a caller that
+	// must name the closure should not have to strip a suffix back off.
+	ProfilePath string
 }
 
 // nixFlags returns the flags shared by every darwin nix invocation:
@@ -69,16 +73,32 @@ func BuildEnv(baseEnv []string, packages []any) ([]string, error) {
 
 // BuildProfileArgv is the argv to realize the darwin buildEnv profile and print
 // its store out path.
-func BuildProfileArgv(system string) []string {
+//
+// outLink, when non-empty, becomes `--out-link <outLink>` — which is BOTH the
+// symlink and the GC ROOT (nix registers an indirect root under
+// /nix/var/nix/gcroots/auto pointing back at it). That is the N1 fix, and the
+// reason it is an out-link rather than a follow-up `nix-store --add-root` like
+// image.RegisterImageRoot uses: the image path builds with `--no-link` and then
+// roots the printed path in a second process, leaving a window in which a
+// concurrent GC can collect a just-built closure. There is no such window here
+// because nix creates the root as part of the build it is already running.
+//
+// An empty outLink keeps the historical `--no-link` — the UNROOTED build, which
+// is what a caller that only wants the path (a diagnostic, a dry run) should
+// ask for, stated rather than defaulted.
+func BuildProfileArgv(system, outLink string) []string {
 	if system == "" {
 		system = DarwinSystem
 	}
 	argv := []string{"nix"}
 	argv = append(argv, nixFlags()...)
+	argv = append(argv, "build", "--impure")
+	if outLink != "" {
+		argv = append(argv, "--out-link", outLink)
+	} else {
+		argv = append(argv, "--no-link")
+	}
 	argv = append(argv,
-		"build",
-		"--impure",
-		"--no-link",
 		"--print-out-paths",
 		"--print-build-logs",
 		".#packages."+system+"."+ProfileAttr,
