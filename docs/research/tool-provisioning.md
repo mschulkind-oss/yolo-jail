@@ -180,8 +180,13 @@ Installed into `~/.npm-global/bin` (`NPM_CONFIG_PREFIX`, set in
   `InstallerURL: "https://claude.ai/install.sh"` (`agents.go:57-62`), installed to
   `~/.local/bin/claude` on first use by the native lazy launcher
   (`shims.go:304-340`).
-- **Python `pip`:** `showboat` is pip-installed unconditionally by the bootstrap
-  (`shell.go:251-255`) — "tiny dep, useful for debugging".
+- ~~**Python `pip`:** `showboat` is pip-installed unconditionally by the bootstrap.~~
+  **REMOVED 2026-08-05.** It was the only ungated install in the script and nothing in the repo
+  consumed it; being the LAST command, a jail without a bare `pip` on PATH reported
+  "PROVISIONING FAILED (exit 127)" on every boot (PR #29 made it resilient, then it was deleted
+  outright). There is now **no `pip` install path in the bootstrap at all** — which is the
+  accurate answer to "how does yolo provision Python tools?": it does not. `packages:` (baked)
+  or a pack's `requires`/`program` contribution are the mechanisms.
 
 ---
 
