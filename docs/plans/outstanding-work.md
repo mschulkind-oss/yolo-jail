@@ -21,20 +21,20 @@ docs during the batch, so verify-against-code is the house rule now.
 | **S2** | `tier` becomes an opt-in pack declaration, not a property yolo resolves per destination | ruled, mostly moot given S1 | S1 |
 | **S3** | The jail's layer 4 reads the DESTINATION, which yolo now owns — circular | 🔴 live defect | S1 |
 | **S4** | **UNAUDITED:** can a pack's `into` deliver to an agent the user never selected, and do all packs' skills reach all destinations? | audit, not yet done | nothing |
-| **N1** | `nix` profile has no gcroot — a `packages:` build can be garbage-collected out from under a launch | 🔴 live defect | nothing |
-| **N2** | Generalize `yoloDarwinPackages` → system-neutral, un-hardcode `aarch64-darwin`, report the resolved path | prerequisite for Phase 7.2 | nothing |
+| ✅ **N1** | ~~nix profile has no gcroot~~ **DONE** (`23cee7a`) — rooted by the build's own `--out-link`, so rooting cannot fail separately from the build. Root is a SIBLING of `build/roots`, not in it: `prune.PruneOrphanImageRoots` reaps every symlink there that no live IMAGE needs, and would have unrooted this on a routine `yolo prune --apply` | — | — |
+| ✅ **N2** | ~~Generalize `yoloDarwinPackages`~~ **DONE** (`11f8bb7`) — `yoloNoncontainerPackages`, `NativeSystem()`, and `describe`/`check` report the profile path. Named for the AXIS (no baked image) rather than either notch, since `guest` needs the same closure. Found a FOURTH E8 instance: the nix-probe *remedy string* said `aarch64-linux` while its detector matched any `<arch>-linux`, so an Intel Mac was told to delete a line it does not have | — | — |
 | **N3** | Non-container nix: pick Option 0/2/3 beyond N2 | **your decision** | you |
 | **P7** | The `guest` notch (env-manager Phase 7) | feature | a Mac |
 | **E1+E2** | `host_files` modes 4→3, `readonly` as a real `:ro` mount | behavior change on a shipped key | a design pass (E2 first) |
 | **E3** | Capture on terminate (the `yolo config capture` half SHIPPED) | small | nothing |
 | **E4** | Comment preservation on `json`/`toml` surfaces | small, decisions already made | nothing |
 | **E5** | `managed`/`defaults` array-append pinning | small | **do not build speculatively** |
-| **V1** | Reserved destinations miss symlink aliases | validation gap | nothing |
+| ✅ **V1** | ~~Reserved destinations miss symlink aliases~~ **DONE** (`8e7717f`). The three named aliases were ALREADY fixed (`99fabe6`, 2026-07-27) — a fourth stale marker in this doc. But a live one of the same shape remained and no literal list could cover it: a home-root dest stages at `.config/yolo-home/<slug>`, a slug derived from user input, so it is reserved as a SUBTREE | — | — |
 | **V2** | `apply --host` is not whole-home idempotent until apply 3 | pre-existing, in `config` | nothing |
 | **V3** | Pack-set-wide archives land under `archive/skills/` even for `files` | cosmetic, migration-shaped | nothing |
-| **C1** | Drop the now-redundant `"from"` literals from the six shipped packs | cleanup | nothing |
-| **C2** | Briefing prose should read the Profile, not switch on a notch name | small | nothing |
-| **C3** | `packoverlay.Collect`'s autonomy parameter — §6c's remaining half | small | nothing |
+| **C1** | Drop the now-redundant `"from"` literals from the six shipped packs | cleanup | in flight (with S1–S3) |
+| ✅ **C2** | ~~Briefing prose should read the Profile~~ **DONE** (`f2d0692`) — the enforcement vector and autonomy bit derive from `ProfileFor`; the payoff is the default branch, which used to tell an unenumerated notch it was in a container | — | — |
+| ✅ **C3** | ~~`Collect`'s autonomy parameter~~ **DONE** (`db695d8`). Premise was stale: only ONE literal remained, not three | — | — |
 
 ---
 
