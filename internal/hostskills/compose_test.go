@@ -274,6 +274,50 @@ func TestComposeObserveRetireUsesTheFutureTense(t *testing.T) {
 	}
 }
 
+// AN INCOMPLETE PACK SET stops the RENDER's own retire, not only the prune's — which is sharper than
+// the briefing analogue and is the offline-apply data loss. A content pack whose remote is
+// unreachable contributes no layer while the AGENT pack naming the destination still does, so the
+// directory IS composed and a retire keyed only on "no layer ships this name" archives the
+// unreachable pack's skills on every offline apply while reporting success.
+//
+// Found by mutation: disabling this guard left the package suite entirely green (one CLI test caught
+// it), so the render-level half of PackSetComplete had no coverage at all here.
+func TestComposeRenderRetiresNothingWhenThePackSetIsIncomplete(t *testing.T) {
+	d, sources := composeFixture(t, TierFlat, "agentpack", "contentpack")
+	writeSkill(t, sources[1], "fromremote", "REMOTE BODY")
+	req := composeReq(t)
+	stillConfigured(&req, d)
+	if _, err := RenderHostSkills([]Destination{d}, req, false); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(d.Dir, "fromremote")
+	if _, err := os.Stat(dest); err != nil {
+		t.Fatalf("the first apply should have delivered it: %v", err)
+	}
+
+	// The content pack's remote is unreachable this run: it resolves to nothing, so it contributes
+	// no layer — while the agent pack that names the destination still does.
+	offline := Destination{Dir: d.Dir, Layers: d.Layers[:1]}
+	req.PackSetComplete = false
+
+	res, err := RenderHostSkills([]Destination{offline}, req, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range res {
+		if r.Action == ActionArchived || r.Action == ActionCleared {
+			t.Errorf("an offline apply must not retire a merely-unreachable pack's skills: %+v", r)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dest, "SKILL.md")); err != nil {
+		t.Errorf("the unreachable pack's skill must survive an offline apply — archiving it costs "+
+			"the user a trip to the state dir: %v", err)
+	}
+	if _, recorded := req.Composed.Owner(dest); !recorded {
+		t.Error("the record must still name it, or the next apply reads it as the user's own")
+	}
+}
+
 // An UNRESOLVED layer leaves the WHOLE destination alone. This is where wholesale composition costs
 // more than the per-pack delivery did and has to be more careful: there, a pack whose `from` was
 // missing merely delivered nothing of its own; here, composing from the remaining layers would

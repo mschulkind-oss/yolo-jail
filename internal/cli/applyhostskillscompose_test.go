@@ -386,23 +386,32 @@ func TestApplyHostSkillsLocalPackWinsFlatTierCollision(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
-	rc, report := applyWith(t, true, nil) // nothing to adopt: a clean destination never prompts
-	if rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
-	}
-	got, err := os.ReadFile(filepath.Join(home, ".codex", "skills", "mine", "SKILL.md"))
-	if err != nil {
-		t.Fatalf("the skill was not delivered: %v\n%s", err, report)
-	}
-	if !strings.Contains(string(got), "LOCAL BODY") {
-		t.Errorf("the LOCAL PACK's copy must win a flat-tier collision — it is appended last "+
-			"precisely because a personal skill outranks a shared pack's (§6a-5). Got:\n%s\nreport:\n%s",
-			got, report)
-	}
-	// And nothing was reported as the user's: under the old rule this printed `skipped (yours)`
-	// against a name the local pack was entitled to.
-	if n := countLines(report, "skipped (yours)"); n != 0 {
-		t.Errorf("a pack overwriting another PACK's entry is not a user-content refusal, got %d "+
-			"such lines:\n%s", n, report)
+	dest := filepath.Join(home, ".codex", "skills", "mine", "SKILL.md")
+	// TWICE, and the second apply is not a formality — it is the run that exercises the OWNERSHIP
+	// RECORD. On a first apply both layers write inside one run, so the per-run claim set alone
+	// decides the collision; only on a re-apply does the SAVED record answer it, and the record is
+	// where §6a-5 actually lived (`OwnedBy(dest, thisPack)`). A single-apply assertion passes with
+	// the defect fully restored, verified by mutation.
+	for i, label := range []string{"first", "second"} {
+		rc, report := applyWith(t, true, nil) // nothing to adopt: a clean destination never prompts
+		if rc != 0 {
+			t.Fatalf("%s apply --host --assert rc=%d\n%s", label, rc, report)
+		}
+		got, err := os.ReadFile(dest)
+		if err != nil {
+			t.Fatalf("%s apply: the skill was not delivered: %v\n%s", label, err, report)
+		}
+		if !strings.Contains(string(got), "LOCAL BODY") {
+			t.Errorf("%s apply: the LOCAL PACK's copy must win a flat-tier collision — it is "+
+				"appended last precisely because a personal skill outranks a shared pack's "+
+				"(§6a-5). Got:\n%s\nreport:\n%s", label, got, report)
+		}
+		// And nothing was reported as the user's: under the old rule the second apply printed
+		// `skipped (yours) … belongs to pack "sflat"` against a name the local pack was entitled to.
+		if n := countLines(report, "skipped (yours)"); n != 0 {
+			t.Errorf("%s apply: a pack overwriting another PACK's entry is not a user-content "+
+				"refusal, got %d such lines:\n%s", label, n, report)
+		}
+		_ = i
 	}
 }
