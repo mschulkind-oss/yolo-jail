@@ -139,11 +139,12 @@ const bashrcPart3 = `:$GOPATH/bin:/bin:/usr/bin:$LAUNCHER_DIR"
 if [[ $- == *i* ]]; then
     eval "$(mise activate bash)"
 fi
-# Trust workspace mise configs from any cwd.  mise trust is dir-scoped and
-# --all covers cwd+parents only; MISE_TRUSTED_CONFIG_PATHS=/workspace is the
-# blanket mechanism — this hook is belt-and-suspenders for configs written
-# after boot.
-(cd /workspace 2>/dev/null && mise trust --all --quiet 2>/dev/null) || true
+# Trust workspace mise configs from any cwd.  Trust is dir-scoped (cwd+parents);
+# MISE_TRUSTED_CONFIG_PATHS=/workspace is the blanket mechanism that already
+# trusts every child config, so this hook is just belt-and-suspenders for a
+# config at the workspace root.  NOT --all: that also walks every subdirectory
+# (mise trust --help), which costs minutes per boot on a large multi-repo tree.
+(cd /workspace 2>/dev/null && mise trust --quiet 2>/dev/null) || true
 
 # Aliases
 alias ls='ls --color=auto'
