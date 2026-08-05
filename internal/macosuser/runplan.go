@@ -40,6 +40,27 @@ type Darwin struct {
 	PathPrefix []string
 	Env        *jsonx.OrderedMap
 	Skipped    []string
+	// System is the nix system double the materialization actually resolved
+	// against (e.g. "aarch64-darwin"). Carried on the RESULT rather than read
+	// from a constant here so the skip message names the real target: on an
+	// Intel Mac a skip is an x86_64-darwin fact, and this package must not
+	// acquire a darwinpkg import to say so — the whole point of the injected
+	// MaterializeDarwin seam is that macosuser stays free of that dependency.
+	System string
+	// ProfilePath is the buildEnv store out path (PathPrefix is <it>/bin). The
+	// GC-rooted closure the agent's tools come from.
+	ProfilePath string
+}
+
+// darwinSystemLabel is the system double for a skip message, falling back to the
+// generic word when the materializer did not report one — a message reading "no
+// build" is honest where one reading "no aarch64-darwin build" on an Intel Mac is
+// not, so an unset System degrades rather than guessing.
+func darwinSystemLabel(d *Darwin) string {
+	if d == nil || d.System == "" {
+		return "native"
+	}
+	return d.System
 }
 
 // DarwinBootstrapArgv returns the self-exec bootstrap argv (J2 §3): run the

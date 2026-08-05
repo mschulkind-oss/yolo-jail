@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/containerbuilder"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
@@ -89,10 +90,17 @@ func (o *Options) nixExtraPlatformsAndBuilder(r *reporter) {
 	if res.Ran && !res.Timeout && res.RC == 0 {
 		for _, line := range strings.Split(res.Stdout, "\n") {
 			if strings.HasPrefix(line, "extra-platforms =") && strings.Contains(line, "linux") {
+				// The remedy names THIS host's linux double, not a hardcoded
+				// `aarch64-linux`: the detector above matches any `<arch>-linux`, so on
+				// an Intel Mac it fires for `x86_64-linux` and then told the user to
+				// remove a line that is not in their nix.conf — an unfollowable remedy
+				// for a real problem. Same source the builder probe uses
+				// (containerbuilder.BuilderSystem), so the two cannot disagree about
+				// which arch this host wants. BACKLOG E8's bug class.
 				r.warn("extra-platforms includes linux — local Linux builds "+
 					"will be attempted and fail",
-					"Remove 'aarch64-linux' from extra-platforms in your "+
-						"nix config (~/.config/nix/nix.conf or /etc/nix/nix.conf) "+
+					"Remove '"+containerbuilder.BuilderSystem()+"' from extra-platforms "+
+						"in your nix config (~/.config/nix/nix.conf or /etc/nix/nix.conf) "+
 						"— it makes nix try to run Linux binaries locally, which "+
 						"fails on macOS.  A normal `yolo` run offloads any "+
 						"from-source Linux build to an on-demand container builder "+

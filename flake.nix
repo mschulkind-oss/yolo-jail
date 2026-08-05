@@ -241,21 +241,31 @@
         extraPackages = builtins.concatMap
           (r: selectOutputs r.drv r.outputs) resolvedPackageSpecs;
 
-        # ── Native aarch64-darwin resolution (macos-user backend) ──────────
+        # ── Native NON-CONTAINER resolution (any notch with no image) ──────
         # Mirror resolvedPackageSpecs but resolve against `pkgs` (the flake's
-        # own `system` — aarch64-darwin on a Mac) instead of imagePkgs, and
-        # thread `system` (NOT imageSystem) into the pinned/version branches.
+        # own `system`) instead of imagePkgs, and thread `system` (NOT
+        # imageSystem) into the pinned/version branches.
         # Each spec is wrapped in tryEval + guarded by lib.meta.availableOn so
-        # a package with no darwin build is SKIPPED (warn-and-skip) instead of
-        # failing the whole shell.  Same YOLO_EXTRA_PACKAGES contract as the
-        # image path.  Only NEW outputs are added below; the image path is
-        # untouched, so Linux eval stays safe (empty specs → empty results).
-        darwinSpecName = spec:
+        # a package with no build for THIS system is SKIPPED (warn-and-skip)
+        # instead of failing the whole shell.  Same YOLO_EXTRA_PACKAGES
+        # contract as the image path.  Only NEW outputs are added below; the
+        # image path is untouched, so Linux eval stays safe (empty specs →
+        # empty results).
+        #
+        # NOT "darwin" anything, despite macos-user being the only caller
+        # today: `system` is flake-utils' per-system argument and availableOn
+        # is a per-system predicate, so this whole block resolves for
+        # x86_64-linux exactly as it does for aarch64-darwin.  The axis is
+        # "no baked image", not "macOS" — the `guest` notch needs a tool
+        # closure for precisely the reason `host` does
+        # (docs/design/noncontainer-nix-environment.md §7), and a
+        # darwin-shaped name would have to be renamed again to serve it.
+        noncontainerSpecName = spec:
           if builtins.isString spec then (parseDottedSpec spec).base
           else spec.name;
-        darwinResolved = map (spec:
+        noncontainerResolved = map (spec:
           let
-            name = darwinSpecName spec;
+            name = noncontainerSpecName spec;
             parsed = if builtins.isString spec then parseDottedSpec spec else null;
             # Source attrset for the base attr: pinned specs fetch their own
             # nixpkgs (system = darwin), everything else resolves from `pkgs`.
@@ -348,22 +358,22 @@
           }
         ) extraPackageSpecs;
 
-        darwinKept = builtins.filter (r: r.available) darwinResolved;
-        darwinSkipped = builtins.filter (r: !r.available) darwinResolved;
-        darwinSkippedNames = map (r: r.name) darwinSkipped;
-        # The warning rides on darwinPackages — the BUILD path — rather than on
-        # the skip list alone: `nix build`'s stderr is streamed to the user
-        # (internal/darwinpkg streamStderrTail), while the skip list is read by a
-        # separate `nix eval` whose stderr is discarded.  So a user who never
-        # reads darwinUnavailablePackages still learns which package was dropped
-        # and why, in the same invocation that used to abort.
-        darwinPackages =
+        noncontainerKept = builtins.filter (r: r.available) noncontainerResolved;
+        noncontainerSkipped = builtins.filter (r: !r.available) noncontainerResolved;
+        noncontainerSkippedNames = map (r: r.name) noncontainerSkipped;
+        # The warning rides on noncontainerPackages — the BUILD path — rather
+        # than on the skip list alone: `nix build`'s stderr is streamed to the
+        # user (internal/darwinpkg streamStderrTail), while the skip list is
+        # read by a separate `nix eval` whose stderr is discarded.  So a user
+        # who never reads yoloUnavailablePackages still learns which package
+        # was dropped and why, in the same invocation that used to abort.
+        noncontainerPackages =
           builtins.foldl'
             (acc: r: pkgs.lib.warn
               "yolo: skipping \"${r.name}\" from `packages` — ${r.skipReason}"
               acc)
-            (builtins.concatMap (r: selectOutputs r.drv r.outputs) darwinKept)
-            darwinSkipped;
+            (builtins.concatMap (r: selectOutputs r.drv r.outputs) noncontainerKept)
+            noncontainerSkipped;
 
         # Runtime-library derivations for the /lib farm.  getLib is applied
         # to the BASE derivation of each spec, never the selected outputs:
@@ -980,24 +990,34 @@
           ];
         };
 
-        # ── macos-user backend: native darwin package materialization ──────
-        # yoloDarwinPackages is a buildEnv (profile) whose single `/bin` holds
-        # EXACTLY the aarch64-darwin build of `packages:` (from
-        # YOLO_EXTRA_PACKAGES) — NOT a devShell.  A devShell's `print-dev-env`
-        # would dump the whole stdenv toolchain (clang, GNU coreutils/sed/grep,
-        # make, …) onto the agent PATH ahead of the macOS BSD userland; a
-        # buildEnv contains only the declared packages.  The CLI realizes it
-        # with `nix build --print-out-paths` and puts `<out>/bin` on the
-        # sandboxed agent's PATH — no VM, no Linux image.  Packages with no
-        # darwin build are filtered out and surfaced via
-        # darwinUnavailablePackages (warn-and-skip).  See internal/darwinpkg.
-        packages.yoloDarwinPackages = pkgs.buildEnv {
-          name = "yolo-darwin-packages";
-          paths = darwinPackages;
+        # ── Non-container notches: native package materialization ──────────
+        # yoloNoncontainerPackages is a buildEnv (profile) whose single `/bin`
+        # holds EXACTLY the NATIVE build of `packages:` for this flake's own
+        # `system` (from YOLO_EXTRA_PACKAGES) — NOT a devShell.  A devShell's
+        # `print-dev-env` would dump the whole stdenv toolchain (clang, GNU
+        # coreutils/sed/grep, make, …) onto the agent PATH ahead of the host
+        # userland; a buildEnv contains only the declared packages.  The CLI
+        # realizes it with `nix build --out-link --print-out-paths` (the
+        # out-link is the GC root) and puts `<out>/bin` on the confined agent's
+        # PATH — no VM, no image.  Packages with no build for this system are
+        # filtered out and surfaced via yoloUnavailablePackages
+        # (warn-and-skip).  See internal/darwinpkg.
+        #
+        # The NAME carries the axis: this is what every notch BELOW `jail`
+        # needs, because "below jail" means "no baked image" and a tool closure
+        # has to come from somewhere.  macos-user is the only caller today,
+        # which is why it was called yoloDarwinPackages — but the attr resolves
+        # for x86_64-linux unchanged, and Linux `guest` (env-manager Phase 7.2)
+        # is the next consumer.  "noncontainer", not "host": `host` is one
+        # notch and `guest` needs the identical mechanism, so naming it after
+        # either one would be the same lie in a new spelling.
+        packages.yoloNoncontainerPackages = pkgs.buildEnv {
+          name = "yolo-noncontainer-packages";
+          paths = noncontainerPackages;
           # Merge pkg-config metadata so PKG_CONFIG_PATH can point at one dir.
           extraOutputsToInstall = [ "bin" "lib" "dev" ];
         };
-        darwinUnavailablePackages = darwinSkippedNames;
+        yoloUnavailablePackages = noncontainerSkippedNames;
       }
     );
 }

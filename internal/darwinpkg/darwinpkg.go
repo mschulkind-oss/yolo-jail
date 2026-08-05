@@ -1,43 +1,86 @@
-// Package darwinpkg provides native aarch64-darwin materialization of the
-// config `packages:` for the macos-user backend. The nix argv builders, the
-// YOLO_EXTRA_PACKAGES env contract, the buildEnv out-path → PATH/env
-// derivation, and the flake.lock rev read are pure functions; materialize's
-// actual nix invocation (streaming build) stays in the run wiring.
+// Package darwinpkg provides NATIVE materialization of the config `packages:`
+// for a notch with no baked image — macos-user today, Linux `guest` next
+// (env-manager Phase 7.2). The nix argv builders, the YOLO_EXTRA_PACKAGES env
+// contract, the buildEnv out-path → PATH/env derivation, and the flake.lock rev
+// read are pure functions; materialize's actual nix invocation (streaming
+// build) stays in the run wiring.
+//
+// The MECHANISM is platform-neutral even though the package name is not:
+// `system` is a parameter that defaults to the RUNNING platform (NativeSystem),
+// the flake attr it realizes is `yoloNoncontainerPackages`, and nixpkgs'
+// availableOn is a per-system predicate — so the exact same code resolves
+// x86_64-linux. Only the package's own name is still darwin-shaped, and
+// renaming a Go package is a mechanical move left for the consumer that needs
+// it (docs/design/noncontainer-nix-environment.md §8 Option 1).
 package darwinpkg
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// Frozen attribute contract (byte-identical to darwin_packages.py).
+// Flake attribute contract — the two attrs flake.nix exposes for a
+// non-container notch's tool closure.
 const (
-	DarwinSystem    = "aarch64-darwin"
-	ProfileAttr     = "yoloDarwinPackages"        // packages.<system>.yoloDarwinPackages (buildEnv)
-	UnavailableAttr = "darwinUnavailablePackages" // <attr>.<system> -> [str]
+	ProfileAttr     = "yoloNoncontainerPackages" // packages.<system>.<attr> (buildEnv)
+	UnavailableAttr = "yoloUnavailablePackages"  // <attr>.<system> -> [str]
 )
 
-// DarwinPackages is the result of materializing `packages:` natively on darwin.
+// DarwinPackages is the result of materializing `packages:` natively.
 type DarwinPackages struct {
 	PathPrefix []string          // /nix/store/*/bin dirs
 	Env        map[string]string // whitelisted non-PATH vars
-	Skipped    []string          // names with no darwin build
+	Skipped    []string          // names with no build for the target system
 	// ProfilePath is the buildEnv store out path itself — the thing the GC root
-	// pins. Distinct from PathPrefix, which is <ProfilePath>/bin: a caller that
-	// must name the closure should not have to strip a suffix back off.
+	// pins and the thing `describe` / `check` report. Distinct from PathPrefix,
+	// which is <ProfilePath>/bin: a caller that wants to name the closure must
+	// not have to strip a suffix back off.
 	ProfilePath string
 }
 
-// nixFlags returns the flags shared by every darwin nix invocation:
+// NativeSystem returns the nix system double for the RUNNING platform — the
+// default target for a non-container notch, whose tool closure is by definition
+// built for the machine the agent runs on.
+//
+// This replaces a `DarwinSystem = "aarch64-darwin"` constant, which was true of
+// an Apple Silicon Mac and wrong of every other host — the same defect class as
+// BACKLOG E8's hardcoded `aarch64-linux` in internal/containerbuilder, and it
+// hid the same way: macos-user is macOS-only, so nobody noticed the constant
+// also excluded an Intel Mac.
+func NativeSystem() string { return nixSystem(runtime.GOOS, runtime.GOARCH) }
+
+// nixSystem maps Go's GOOS/GOARCH to nix's `<arch>-<os>` double. Pure so every
+// platform combination is unit-testable from one host, mirroring
+// containerbuilder.nixLinuxSystem and check.machineForPlatform.
+//
+// An unrecognized GOARCH passes through verbatim rather than being defaulted:
+// `riscv64-linux` is wrong in the same way a hardcoded constant is wrong, but
+// it NAMES what it saw, and nix rejects an unknown system loudly where a
+// plausible-but-wrong one resolves a package set for the wrong machine. GOOS
+// passes through for the same reason — nix's own spelling for both platforms
+// yolo supports matches Go's ("darwin", "linux").
+func nixSystem(goos, goarch string) string {
+	arch := goarch
+	switch goarch {
+	case "amd64":
+		arch = "x86_64"
+	case "arm64":
+		arch = "aarch64"
+	}
+	return arch + "-" + goos
+}
+
+// nixFlags returns the flags shared by every nix invocation here:
 //   - experimental-features so the CLI works regardless of the host's nix.conf;
 //   - --accept-flake-config so nix honors THIS flake's own declared binary
 //     cache (flake.nix nixConfig: yolo-jail.cachix.org). Without it nix prints
 //     "ignoring untrusted flake configuration setting 'extra-substituters'" on
-//     every run and never consults the cache — forcing a from-source darwin
+//     every run and never consults the cache — forcing a from-source native
 //     build even when a cached closure exists. Trusting the project's own flake
 //     config from the project's own build step is the happy path; it mutates no
 //     system nix.conf (a trusted user still gates whether the substituter is
@@ -71,8 +114,8 @@ func BuildEnv(baseEnv []string, packages []any) ([]string, error) {
 	return out, nil
 }
 
-// BuildProfileArgv is the argv to realize the darwin buildEnv profile and print
-// its store out path.
+// BuildProfileArgv is the argv to realize the buildEnv profile and print its
+// store out path. system "" defaults to NativeSystem().
 //
 // outLink, when non-empty, becomes `--out-link <outLink>` — which is BOTH the
 // symlink and the GC ROOT (nix registers an indirect root under
@@ -88,7 +131,7 @@ func BuildEnv(baseEnv []string, packages []any) ([]string, error) {
 // ask for, stated rather than defaulted.
 func BuildProfileArgv(system, outLink string) []string {
 	if system == "" {
-		system = DarwinSystem
+		system = NativeSystem()
 	}
 	argv := []string{"nix"}
 	argv = append(argv, nixFlags()...)
@@ -106,10 +149,11 @@ func BuildProfileArgv(system, outLink string) []string {
 	return argv
 }
 
-// UnavailableEvalArgv is the argv to read the no-darwin-build skip list as JSON.
+// UnavailableEvalArgv is the argv to read the no-build-for-this-system skip list
+// as JSON. system "" defaults to NativeSystem().
 func UnavailableEvalArgv(system string) []string {
 	if system == "" {
-		system = DarwinSystem
+		system = NativeSystem()
 	}
 	argv := []string{"nix"}
 	argv = append(argv, nixFlags()...)

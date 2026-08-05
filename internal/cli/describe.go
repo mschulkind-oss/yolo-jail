@@ -22,6 +22,7 @@ import (
 	"slices"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -88,7 +89,9 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 		return 1
 	}
 	pr.Printf("[bold]environment[/bold]  confinement [cyan]%s[/cyan]", notch)
-	printConfinementVector(pr, confinementProfile(notch, resolvedMechanism(cfg), paths.IsMacOS))
+	prof := confinementProfile(notch, resolvedMechanism(cfg), paths.IsMacOS)
+	printConfinementVector(pr, prof)
+	printPackageProfile(pr, prof, config.EffectivePackages(cfg), darwinpkg.ProfileRootLink(paths.Home()))
 	if packs, perr := config.LoadPacks(nil); perr == nil && len(packs) > 0 {
 		names := make([]string, 0, len(packs))
 		for _, p := range packs {
@@ -153,6 +156,38 @@ func printConfinementVector(pr richtext.Printer, prof render.Profile) {
 		pr.Printf("  autonomy     [yellow]OFF[/yellow] — packs render their guarded posture " +
 			"(permission prompts stay on)")
 	}
+}
+
+// printPackageProfile reports the RESOLVED `packages:` tool closure for a notch that has
+// no baked image (N2's fourth sub-item). Two facts a user could not previously get from
+// anywhere: that their declared packages resolve to a nix profile at all, and WHERE — the
+// store path whose bin/ the agent's PATH is prefixed with.
+//
+// Sourced from the GC-ROOT SYMLINK (darwinpkg.ProfileRootLink), not from nix: describe is
+// a read-only report and must stay instant, where realizing the profile is a build. The
+// root is the right oracle precisely because it is what the last materialization pointed
+// at — reading it answers "which closure would a launch use" without asking nix, and its
+// absence is itself the honest answer ("declared, not yet resolved").
+//
+// Gated on PrimBakedImage being ABSENT, which is the whole point of the mechanism's rename:
+// the question "where does my toolset come from" has a nix-profile answer only below the
+// jail notch. A jail's packages come from the image, so printing a profile path there would
+// name a closure the launch does not use.
+func printPackageProfile(pr richtext.Printer, prof render.Profile, packages []any, rootLink string) {
+	if prof.Has(render.PrimBakedImage) || len(packages) == 0 {
+		return
+	}
+	target, err := os.Readlink(rootLink)
+	if err != nil {
+		// Declared but never materialized (or the root was collected/removed). Not a
+		// warning: `apply`/a launch resolves it, and describe does not provision.
+		pr.Printf("[bold]packages[/bold]     %d declared [dim](no nix profile resolved yet — "+
+			"a launch or `yolo apply` materializes it)[/dim]", len(packages))
+		return
+	}
+	pr.Printf("[bold]packages[/bold]     %d declared, resolved to [cyan]%s[/cyan]", len(packages), target)
+	pr.Printf("%s[dim]add %s/bin to PATH to use them outside a launch; "+
+		"GC-rooted at %s[/dim]", confinementLabelPad, target, rootLink)
 }
 
 // confinementProfile is the notch → primitive vector lookup for DISPLAY. It is not
@@ -225,7 +260,8 @@ The description is the product: what tools, agents, config, and confinement leve
 environment resolves to. It is meant to be a thing you can hold and compare.
 
   yolo describe          human-readable summary (confinement — what enforces it and
-                         whether agent autonomy is on — packs, description hash)
+                         whether agent autonomy is on — the resolved package
+                         profile below the jail notch, packs, description hash)
   yolo describe --json   the full canonical computed config (supersedes 'config dump')
   yolo describe --hash   a sha256 pin over the canonical config, for CI / cache keys
 

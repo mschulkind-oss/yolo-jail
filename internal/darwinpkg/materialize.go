@@ -24,7 +24,7 @@ type MaterializeError struct{ msg string }
 
 func (e *MaterializeError) Error() string { return e.msg }
 
-// Materialize realizes the darwin buildEnv profile natively via nix and returns its
+// Materialize realizes the buildEnv profile natively via nix and returns its
 // PATH prefix + env + skip list. IMPURE (runs nix). It streams the build's
 // stderr (`--print-build-logs` progress) straight to the process stderr so a
 // from-source build is VISIBLE, while capturing stdout (the store out-path) and
@@ -39,11 +39,11 @@ func (e *MaterializeError) Error() string { return e.msg }
 // agent then executes from is the exact failure the root exists to prevent.
 //
 // repoRoot is the nix build cwd (the repo ROOT — parent of src). system ""
-// defaults to DarwinSystem. errStderr defaults to os.Stderr (injectable for
+// defaults to NativeSystem(). errStderr defaults to os.Stderr (injectable for
 // tests). The returned error is always a *MaterializeError on failure.
 func Materialize(repoRoot string, packages []any, system string, errStderr io.Writer) (*DarwinPackages, error) {
 	if system == "" {
-		system = DarwinSystem
+		system = NativeSystem()
 	}
 	if errStderr == nil {
 		errStderr = os.Stderr
@@ -127,8 +127,8 @@ func ProfilePathsFromStdout(stdout string, skipped []string, checkPkgConfig func
 	}
 }
 
-// skippedNames is the best-effort read of the no-darwin-build skip list (a nix
-// eval with a 120s timeout). Non-fatal on any failure.
+// skippedNames is the best-effort read of the no-build-for-this-system skip list
+// (a nix eval with a 120s timeout). Non-fatal on any failure.
 func skippedNames(repoRoot string, env []string, system string) []string {
 	argv := UnavailableEvalArgv(system)
 	cmd := exec.Command(argv[0], argv[1:]...)

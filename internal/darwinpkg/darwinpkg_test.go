@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -11,18 +12,20 @@ import (
 )
 
 func TestBuildProfileArgv(t *testing.T) {
-	// The UNROOTED form (outLink "") keeps --no-link.
+	// The UNROOTED form (outLink "") keeps --no-link. system "" resolves to the
+	// running platform, so the attr is asserted against NativeSystem() rather than a
+	// frozen "aarch64-darwin" — the whole point of N2 is that this is not a constant.
 	want := []string{
 		"nix", "--extra-experimental-features", "nix-command flakes",
 		"--accept-flake-config",
 		"build", "--impure", "--no-link", "--print-out-paths", "--print-build-logs",
-		".#packages.aarch64-darwin.yoloDarwinPackages",
+		".#packages." + NativeSystem() + ".yoloNoncontainerPackages",
 	}
 	if got := BuildProfileArgv("", ""); !reflect.DeepEqual(got, want) {
 		t.Errorf("argv = %v\nwant %v", got, want)
 	}
 	// Custom system flows through.
-	if got := BuildProfileArgv("x86_64-darwin", ""); got[len(got)-1] != ".#packages.x86_64-darwin.yoloDarwinPackages" {
+	if got := BuildProfileArgv("x86_64-darwin", ""); got[len(got)-1] != ".#packages.x86_64-darwin.yoloNoncontainerPackages" {
 		t.Errorf("custom system attr = %q", got[len(got)-1])
 	}
 }
@@ -52,10 +55,43 @@ func TestUnavailableEvalArgv(t *testing.T) {
 	want := []string{
 		"nix", "--extra-experimental-features", "nix-command flakes",
 		"--accept-flake-config",
-		"eval", "--impure", "--json", ".#darwinUnavailablePackages.aarch64-darwin",
+		"eval", "--impure", "--json", ".#yoloUnavailablePackages." + NativeSystem(),
 	}
 	if got := UnavailableEvalArgv(""); !reflect.DeepEqual(got, want) {
 		t.Errorf("argv = %v\nwant %v", got, want)
+	}
+}
+
+// The GOARCH/GOOS → nix-system mapping, tested without a cross-compile — the shape that
+// pinned BACKLOG E8's fix in internal/containerbuilder. amd64/arm64 on both platforms yolo
+// supports, plus the passthrough: an unrecognized arch must NAME what it saw, because a
+// wrong-but-plausible system is precisely how a hardcoded arch hides.
+func TestNixSystem(t *testing.T) {
+	for _, tc := range []struct{ goos, goarch, want string }{
+		{"darwin", "arm64", "aarch64-darwin"},
+		{"darwin", "amd64", "x86_64-darwin"},
+		{"linux", "amd64", "x86_64-linux"},
+		{"linux", "arm64", "aarch64-linux"},
+		// Unknown arch passes through rather than defaulting to a shipped one.
+		{"linux", "riscv64", "riscv64-linux"},
+		{"linux", "someth1ng", "someth1ng-linux"},
+	} {
+		if got := nixSystem(tc.goos, tc.goarch); got != tc.want {
+			t.Errorf("nixSystem(%q, %q) = %q, want %q", tc.goos, tc.goarch, got, tc.want)
+		}
+	}
+	// And NativeSystem must actually be a double for the RUNNING platform — without this
+	// the assertions above are satisfiable by a function nothing calls correctly.
+	if got := NativeSystem(); !strings.HasSuffix(got, "-"+runtime.GOOS) {
+		t.Errorf("NativeSystem() = %q, want a double ending in the running GOOS %q",
+			got, runtime.GOOS)
+	}
+	// The E8 REGRESSION GUARD, stated as a property rather than a value: whatever
+	// NativeSystem returns must not be a constant that ignores the platform. On a linux
+	// runner an aarch64-darwin answer is the exact old bug.
+	if NativeSystem() == "aarch64-darwin" && (runtime.GOOS != "darwin" || runtime.GOARCH != "arm64") {
+		t.Error("NativeSystem() returned aarch64-darwin off Apple Silicon — the hardcoded " +
+			"DarwinSystem constant is back")
 	}
 }
 

@@ -366,7 +366,11 @@ func runRun(args []string) int {
 func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot string, dryRun bool) int {
 	runProxy := run.RunWithProxy
 	materialize := func(nixRoot string, packages []any) (*macosuser.Darwin, bool, error) {
-		pkgs, err := darwinpkg.Materialize(nixRoot, packages, "", os.Stderr)
+		// system "" → darwinpkg.NativeSystem(), the running platform. NOT a
+		// hardcoded aarch64-darwin: this backend is macOS-only but Macs are not
+		// all Apple Silicon (BACKLOG E8's bug class).
+		system := darwinpkg.NativeSystem()
+		pkgs, err := darwinpkg.Materialize(nixRoot, packages, system, os.Stderr)
 		if err != nil {
 			return nil, false, err
 		}
@@ -382,9 +386,11 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 			env.Set(k, pkgs.Env[k])
 		}
 		return &macosuser.Darwin{
-			PathPrefix: pkgs.PathPrefix,
-			Env:        env,
-			Skipped:    pkgs.Skipped,
+			PathPrefix:  pkgs.PathPrefix,
+			Env:         env,
+			Skipped:     pkgs.Skipped,
+			System:      system,
+			ProfilePath: pkgs.ProfilePath,
 		}, true, nil
 	}
 	// Mirror run's `Color && IsTTYStdout()`: color is requested for the

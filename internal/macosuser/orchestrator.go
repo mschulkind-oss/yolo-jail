@@ -217,8 +217,9 @@ func RunMacosUser(deps Deps, opts Options) int {
 		return 1
 	}
 
-	// Materialize `packages:` as native aarch64-darwin nix (the acceptance
-	// bar). Runs nix on the HOST user before any sandbox; on failure abort.
+	// Materialize `packages:` as native darwin nix for THIS Mac's arch (the
+	// acceptance bar). Runs nix on the HOST user before any sandbox; on failure
+	// abort.
 	var darwin *Darwin
 	pkgs := config.EffectivePackages(opts.Config)
 	if len(pkgs) > 0 {
@@ -232,8 +233,11 @@ func RunMacosUser(deps Deps, opts Options) int {
 		}
 		darwin = d
 		if darwin != nil && len(darwin.Skipped) > 0 {
-			out.printf("[yellow]Skipped packages with no aarch64-darwin build:[/yellow] "+
-				"%s\n"+
+			// Names the system nix actually resolved against rather than a
+			// hardcoded arch: on an Intel Mac the skip is an x86_64-darwin fact,
+			// and blaming aarch64 sends the reader looking for the wrong cause.
+			out.printf("[yellow]Skipped packages with no "+darwinSystemLabel(darwin)+
+				" build:[/yellow] %s\n"+
 				"[dim](use the container runtime for these — or, if a name is "+
 				"unexpected, check for a typo: an unknown attr is skipped, not "+
 				"errored, because a hard error would abort the whole eval.)[/dim]",

@@ -43,7 +43,8 @@
     On Apple Silicon the container is native arm64 (no emulation).
     "macos-user" (macOS only, EXPLICIT opt-in — never auto-detected) runs the
     agent as a dedicated macOS user under Seatbelt: NO VM, no Linux image,
-    "packages:" materialized via native aarch64-darwin nix. Fastest startup,
+    "packages:" materialized as native darwin nix for THIS Mac's arch (Apple
+    Silicon or Intel — the system is derived, not assumed). Fastest startup,
     but a WEAKER isolation boundary than a container/VM. (Under the confinement
     dial this is the `guest` notch by another name; `runtime` stays for
     compatibility and as the in-jail mechanism hint.)

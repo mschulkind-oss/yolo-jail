@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // describe prints the resolved confinement + packs + a description hash; --json is the
@@ -176,6 +177,60 @@ func TestDescribeVectorFollowsMechanism(t *testing.T) {
 // table itself (C2): the briefing header now renders the same vector for an agent, so the
 // assertion belongs beside the one description both consumers read rather than in whichever
 // caller happened to own it first.
+
+// describe reports the RESOLVED `packages:` nix profile for a notch with no baked image
+// (N2's fourth sub-item) — read from the GC-root symlink, never by invoking nix. The three
+// states that matter: rooted (name the store path), declared-but-unresolved (say so), and
+// a jail notch (say nothing, because a jail's packages come from the image).
+func TestDescribeReportsPackageProfile(t *testing.T) {
+	store := t.TempDir() // stands in for a /nix/store profile path
+	root := filepath.Join(t.TempDir(), "package-roots", "packages")
+	if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(store, root); err != nil {
+		t.Fatal(err)
+	}
+	pkgs := []any{"ripgrep", "fd"}
+
+	// host (no baked image), root present → names the resolved store path AND the root.
+	var buf bytes.Buffer
+	pr := richtext.Printer{W: &buf}
+	printPackageProfile(pr, render.HostProfile(), pkgs, root)
+	if !strings.Contains(buf.String(), store) {
+		t.Errorf("a resolved profile must be named by its store path:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), root) {
+		t.Errorf("the report should name the GC root that pins it:\n%s", buf.String())
+	}
+
+	// Root ABSENT → declared, not yet resolved. Must not print a bogus path.
+	buf.Reset()
+	printPackageProfile(richtext.Printer{W: &buf}, render.HostProfile(), pkgs,
+		filepath.Join(t.TempDir(), "nope"))
+	if !strings.Contains(buf.String(), "2 declared") {
+		t.Errorf("an unresolved profile should still report the declared count:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), "/nix/store") {
+		t.Errorf("an unresolved profile must not name a store path:\n%s", buf.String())
+	}
+
+	// jail: a baked image supplies the packages, so there is NO profile to report. This is
+	// the gate the mechanism's rename is about — printing a nix profile path for a jail
+	// would name a closure the launch does not use.
+	buf.Reset()
+	printPackageProfile(richtext.Printer{W: &buf}, render.JailProfile(false), pkgs, root)
+	if buf.Len() != 0 {
+		t.Errorf("a jail's packages come from the image; nothing should be printed:\n%s", buf.String())
+	}
+
+	// No packages declared → nothing to report at any notch.
+	buf.Reset()
+	printPackageProfile(richtext.Printer{W: &buf}, render.HostProfile(), nil, root)
+	if buf.Len() != 0 {
+		t.Errorf("no declared packages => no line:\n%s", buf.String())
+	}
+}
 
 // apply routes by notch; the not-yet-built notches fail closed (rc!=0) with an honest
 // message rather than silently doing nothing, and a bogus --at is a usage error.
