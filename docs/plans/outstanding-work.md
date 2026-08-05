@@ -41,7 +41,7 @@ compile-time question.**
 | ✅ Q3 | ~~D3 wording~~ **DONE 2026-08-04** (`e923f49`) — both refusals now name the COMMAND's limitation, so a future guest target reading the same map is not told a kind is inapplicable when it can honor it | §6b D3 | — |
 | ✅ Q4 | ~~**`briefing` wholesale-generated at every notch**, pre-existing prose MOVED to the local pack's `AGENTS.md`~~ **DONE 2026-08-04**. The marker mechanism is gone; §6a-4's jail-side `from` fix landed with it (one resolver, `packload.BriefingProseFor`). Three defects found only by running the lifecycle — see §6a-6 | §6a + §6a-2 (ruled) | Q1, Q5 |
 | ✅ Q5 | ~~The conventional LOCAL PACK~~ **DONE** (`374f995`) — — `~/.config/yolo-jail/local/`, implicitly included, zero config | §6a-2 (ruled) | **F1** (a zero-ceremony pack renders nothing at the host today). Q9 shipped without F1 — the lint half was separable, the host-render half was not |
-| Q6 | **`skills` wholesale-composed at every notch**, user's tree MOVED into the local pack (union + suffix on differing content, warn), archive only as fallback | §6a-2 (ruled) | Q4 (prove the mechanism on the smaller kind), Q5 |
+| ✅ Q6 | ~~**`skills` wholesale-composed at every notch**, user's tree MOVED into the local pack (union + suffix on differing content, warn), archive only as fallback~~ **DONE 2026-08-04** (`187e6ad`). §6a-5 is DISSOLVED, not patched: precedence is the layer order, so the local pack wins a flat-tier collision. **Tiers did NOT collapse** — they narrowed to invocation shape; see §6a-7. Four defects found only by running the lifecycle — see §6a-7 | §6a-2 (ruled) + §6a-5 | Q4 (prove the mechanism on the smaller kind), Q5 |
 | ✅ Q7 | ~~`describe` prints the primitive vector~~ **DONE** (`62d1052`). Sources the vector from the resolved MECHANISM, not the notch name alone — so `runtime: macos-user` prints separate-user+Seatbelt even at `jail`, because that backend has no container and no image | §6c step 2 | — |
 | ✅ Q8 | ~~Mode set as a target property~~ **DONE** (`a537cfd`) — `render.ModeSet`, the mode-side twin of `FieldSet`; `guest` gets `UndecidedModes(reason)`, fail-closed, for Phase 7 to state | §6b D2 | — |
 | Q9 | ~~**`pack lint`: split the two conflated checks** + F5, and `footprint --allow-exec` (F6b)~~ **DONE 2026-08-04** — see §7. **F1 is still open** and was never a lint problem: it is the host render skipping an undeclared skills destination | §7, F5, F6b | nothing |
@@ -500,6 +500,58 @@ so a real user hits the flat path.
 `deliverFlat` to special-case the local pack would add a rule Q6 then deletes. Q6's acceptance
 test must include the flat-tier collision above.
 
+**FIXED 2026-08-04 by Q6** (`187e6ad`), and dissolved rather than patched — the fix is one word in
+one predicate. `ownedHere` asks whether a path is YOLO'S, where `OwnedBy(dest, thisPack)` asked
+whether it is THIS PACK'S; precedence then lives in the layer order, and a name legitimately
+changing composer between applies self-heals instead of being refused forever. The acceptance test
+(`TestApplyHostSkillsLocalPackWinsFlatTierCollision`) applies TWICE, which mutation testing proved
+necessary: a single apply is decided by the per-run claim set alone and passes with the defect fully
+restored — §6a-5 lived in the SAVED record, which only a re-apply consults.
+
+## 6a-7. Found shipping Q6: four defects, and the tier question answered
+
+**The tier A/B split did NOT collapse**, which §6a-2 flagged as a possible concept deletion. It
+narrowed, and the narrowing is worth stating precisely because the reasoning for collapsing it was
+sound as far as it went: tiers existed so a flat merge into a shared directory could know what it
+may touch, and yolo now owns the directory outright, so that job is gone. What remains is a
+different job the same field was already doing — a tier decides how the AGENT INVOKES a skill
+(`namespaced` → `/<pack>:<skill>` under a per-pack subtree; `flat` → `/<skill>`) and therefore what
+SHAPE yolo writes. Removing it would silently rename every namespaced invocation, which no ruling
+asked for. So: `tier` no longer answers "what may yolo overwrite?" (composition does) and still
+answers "what does the destination tool load?".
+
+Four defects, all found by RUNNING the lifecycle or by MUTATING the fix, none predicted:
+
+1. **The composition's silent retire pre-empted ruling R1's confirmed one.** Both passes reach the
+   same paths, and the unconfirmed one got there first — so removing a pack from `packs` archived
+   its skills with no `[y/N]` at all. The gate was intact; the code had stopped arriving at it. Fix:
+   `ComposeRequest.Configured`, on BOTH retire paths rather than only the prune — a destination the
+   render still visits holds a dropped pack's entries too, because the AGENT pack naming the dir
+   stays while the content pack leaves. The boundary is a real distinction, not plumbing: "the pack
+   I still have stopped shipping this skill" is yolo's own upkeep, and "I removed a pack" is R1.
+2. **`PackSetComplete` had to gate the RENDER's retire, not only the prune's.** Sharper here than in
+   the briefing kind it was modelled on: there an unresolvable pack could only produce an orphan the
+   PRUNE would find, while here the destination stays composed (the agent pack resolved) and the
+   retire runs — so an offline apply archived the unreachable pack's skills while reporting the
+   directory as successfully composed.
+3. **The previous-copy archive fired on every apply whatever the content**, so an unchanged home
+   grew one archive copy of every skill per `apply --host`, forever. Pre-existing in `deliverFlat`;
+   composition made it loud rather than caused it, because this pass now visits every destination in
+   one run instead of one pack's at a time. Fix: archive only when the digest actually differs.
+4. **A hand-authored plugin dir is not a skill and must not be migrated as one.** Moving it into the
+   local pack's `skills/` would re-deliver it under a different namespace and break the component
+   paths its own manifest declares. It is reported and left alone — the one place "yolo owns this
+   directory" yields, and it yields to content this KIND does not model rather than to content it
+   merely did not write.
+
+**Also worth recording: `apply --host` is not whole-home idempotent at head, and it is not skills.**
+A surface's provenance record classifies a key as `default` on the first apply (absent, so the
+default fills it) and as `host` on the second (now present in the file), so
+`host-provenance/<surface>.provenance` differs between apply 1 and apply 2 and converges from apply
+3 on. Verified against a binary built from HEAD without Q6, so it belongs to the `config` kind.
+Q6's idempotency test therefore asserts over the skills destinations and the local pack rather than
+the whole home, and says why at the helper.
+
 ## 6b. Divergence audit — where else a kind means two different things by notch
 
 **Requested 2026-08-04:** *"do a pass for other such misaligned mechanisms. I want to simplify
@@ -512,7 +564,7 @@ asymmetry with a decision behind it, and one is a gap masquerading as a policy.
 | Kind | Jail mechanism | Non-container mechanism | Verdict |
 |---|---|---|---|
 | `briefing` | wholesale-generated to a staging file, `:ro` | ~~delimited block inside the user's file~~ **wholesale-generated** | ✅ **UNIFIED 2026-08-04** (§6a, Q4) |
-| `skills` | **wipe + recompose**: built-ins < packs < user's tree, `:ro` | deliver per-entry, REFUSE what yolo cannot prove it wrote | **same misalignment as briefing** — see D1 |
+| `skills` | **wipe + recompose**: built-ins < packs < user's tree, `:ro` | ~~deliver per-entry, REFUSE what yolo cannot prove it wrote~~ **compose wholesale; the user's tree MOVES to the local pack** | ✅ **UNIFIED 2026-08-04** (§6a-2, Q6). The one remaining difference is deliberate: the host does not write yolo's own jail-oriented BUILT-INS into a real home, and layer 3 reads the LOCAL PACK rather than the destination itself — at the host the destination *is* what the jail's layer 3 read |
 | `files` | `:ro` bind mount, pack owns the path outright | write, but REFUSE a path the user owns | **correct** — no layer model to recompose; see D1 |
 | `config` | four modes (`stateful`/`rmw`/`computed`/`unrendered`) | ONE mode (`rmw`) | **look at this** — see D2 |
 | `env` | `-e` on the container | unimplemented ("your shell profile") | **gap, not policy** — see D3 |
@@ -522,6 +574,12 @@ asymmetry with a decision behind it, and one is a gap masquerading as a policy.
 
 ### D1 — `skills`: the jail ALREADY owns the directory, so the divergence is real and the
 ### earlier "it should stay" verdict was WRONG
+
+> **SHIPPED 2026-08-04 as Q6** (`187e6ad`). Everything below is the argument that produced it, kept
+> because the reasoning is what makes the result reviewable. Two things it predicted correctly and
+> one it got wrong: the local pack IS the answer to "where does layer 4 live", and the migration IS
+> bigger than the briefing one — but the tier A/B split did NOT collapse, it narrowed to invocation
+> shape. See §6a-7 for that and for the four defects only running the lifecycle found.
 
 **Corrected 2026-08-04 after the maintainer asked "why don't we own the skills directory
 entirely?" The answer is that in the jail we already do**, and my previous entry here — which
@@ -676,9 +734,11 @@ Suggested order:
    fingerprint did NOT move (host-side only, as predicted). What the estimate missed is that
    three defects only appeared when the lifecycle was RUN, all of them about ownership records and
    resolution ORDER rather than about composition — see §6a-6, and expect the same class in Q6.
-4. **`skills` wholesale composition** (D1) — the same ruling extended, but flag the migration
+4. ~~**`skills` wholesale composition** (D1) — the same ruling extended, but flag the migration
    cost first: a briefing is one file most users did not hand-write, while `~/.claude/skills` may
-   hold real work.
+   hold real work.~~ **DONE 2026-08-04** (Q6, `187e6ad`). The predicted "same class" of defect did
+   arrive, in a new form: not a resolution-ORDER bug but a resolution-AUTHORITY one — two retire
+   passes with different confirmation postures reaching the same paths, the silent one first. §6a-7.
 5. **Mode set as a target property** (D2's second half), as part of Phase 7 where it is forced.
 6. **`files`: no change**, and record why, so the ruling is not over-applied to a kind with no
    layer model.

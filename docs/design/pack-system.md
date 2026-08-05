@@ -824,13 +824,35 @@ Not yet wired:
   state, and accounts for every other kind BY NAME (rendered, refused, or unbuilt — never
   silently absent). Three things a reader should know before relying on it:
   - **Ownership does not carry over from the jail.** Every jail path is disposable and
-    `:ro`; the host equivalents are the user's own files. So `skills` and `files` refuse any
-    path they cannot prove yolo wrote, and retire their own output by ARCHIVING it under the
-    state dir rather than deleting (reclaimed by `yolo prune`).
-  - **`skills` delivery is tiered**, because how safely a tool's skills dir can be managed is
-    a property of the TOOL. `tier: "namespaced"` writes one subtree per pack (invoked
-    `<pack>:<skill>`), so a user's own skills cannot collide; the default `flat` writes
-    beside them under a provenance manifest. Declared by the pack, then probed.
+    `:ro`; the host equivalents are the user's own files. So `files` refuses any path it cannot
+    prove yolo wrote, and retires its own output by ARCHIVING it under the state dir rather than
+    deleting (reclaimed by `yolo prune`). `skills` used to work the same way and no longer does —
+    see the next bullet.
+  - **`skills` is COMPOSED WHOLESALE**, at every notch (maintainer ruling 2026-08-04,
+    outstanding-work.md §6a-2), which makes it the `briefing` story applied to a directory:
+    - **The user's own skills MOVE into the local pack** (`~/.config/yolo-jail/local/skills/`),
+      where yolo composes them back into EVERY destination. That is the point of the ruling
+      rather than a side effect: a personal skill used to live in each agent's dir
+      independently and drift per agent — `claude` on v2, `codex` on v1, `pi` without it — with
+      no command reporting the divergence. One copy cannot diverge. The first apply that adopts
+      a destination is CONFIRMED and fails closed on a non-interactive stdin; archiving is the
+      fallback for anything that cannot be moved.
+    - **Collisions are resolved by CONTENT, not by name.** Byte-identical copies of one name
+      union silently (measured: every name shared across four real agent dirs was
+      byte-identical). DIFFERING content is a real conflict — both survive as `<name>` and
+      `<name>-from-<agent>`, warned about ONCE, at the migration, naming both sources. Losing
+      one of two hand-written skills silently is the failure the ruling exists to prevent.
+    - **Precedence is the LAYER ORDER**, so the local pack — appended last — outranks every
+      shared pack. It did not before: the per-entry rule asked "did THIS PACK write it?", which
+      refused any pack overwriting another's recorded name whatever the order, and the local
+      pack lost a flat-tier collision (§6a-5). Composition asks only "is this yolo's?", so the
+      refusal is unrepresentable rather than handled.
+    - **The tier survived, narrowed.** Tiers were expected to collapse — they existed so a flat
+      merge into a shared directory could know what it may touch, and yolo now owns the
+      directory outright. What remains is real but smaller: a tier decides how the AGENT invokes
+      a skill (`tier: "namespaced"` writes one subtree per pack, invoked `<pack>:<skill>`; the
+      default `flat` writes bare names) and therefore what shape yolo writes — never what yolo
+      may overwrite. Still declared by the pack and then probed.
   - **`briefing` is GENERATED WHOLESALE**, at every notch (maintainer ruling 2026-08-04,
     outstanding-work.md §6a). It was a delimited managed block inside the user's file; that
     mechanism existed to keep an append from growing without bound when source and destination

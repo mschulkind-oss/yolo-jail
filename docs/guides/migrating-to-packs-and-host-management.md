@@ -292,10 +292,21 @@ Three things this tells you — but note the last is a real gap, not honesty:
   still naming the two pruned keys. (This used to be a surface-level *refusal*, which made
   all of `~/.claude.json` — including user-scope MCP servers — unreachable at the host notch
   because of two unrelated keys.)
-- **`skills` and `briefing` are honored by the census but silently NOT written by
-  `apply --host`** — it renders config surfaces only. So the `AGENTS.md` and skills you
-  authored in Part 1 do **not** reach your real home this way, and they don't appear in the
-  refused list either. Copy them by hand if you want them on the host.
+- **`skills` and `briefing` ARE written**, and yolo owns those destinations **outright** — this
+  changed on 2026-08-04 and the earlier text here (saying they were silently skipped) is no
+  longer true. Each skills directory and each briefing file is **composed wholesale** from your
+  pack set, exactly as a jail composes them, so the `AGENTS.md` and skills you authored in Part 1
+  do reach your real home. Two consequences worth knowing before your first `--assert`:
+  - **Skills and prose you already had are MIGRATED, once, behind a confirmation.** They move into
+    `~/.config/yolo-jail/local/` (the conventional *local pack*), and yolo composes them back into
+    **every** agent's destination from there — so the same skills reach the same agents, and now
+    reach all of them instead of drifting per agent. The prompt lists every path first and fails
+    closed on a non-interactive stdin. Nothing is ever deleted: anything that cannot be moved is
+    archived under the state dir.
+  - **After that, hand-editing an agent's skills dir does not stick.** A skill you drop into
+    `~/.claude/skills/foo/` by hand is composed away on the next apply — it is offered for
+    migration into the local pack instead, and the report says so. Edit
+    `~/.config/yolo-jail/local/skills/` and every agent gets it.
 - **`program` (install) is not run** by `apply --host`. Installing software on your real
   machine is a separate, sharper decision (see Step 4).
 
@@ -431,13 +442,13 @@ A few things the design calls for are **not built**:
 - **`apply --host` offering to run installs for you.** Today it renders config and *names*
   missing deps (`check-deps`); it does not run installers. That confirm-gated offer-to-run
   is a planned follow-up.
-- **`apply --host` rendering `skills`/`briefing`.** It writes config surfaces only; the
-  skills tree and `AGENTS.md` you author do not reach the host through it (copy them by hand).
 - **A provision-without-launch at the jail notch.** `yolo apply` at jail currently directs
   you to `yolo -- <cmd>` (or `yolo -- true` to provision and exit); a dedicated no-exec
   provision is a follow-up.
-- **A `pack import`/`adopt` verb.** Migration is manual re-authoring (Part 1) — nothing
-  reads your existing `~/.claude/settings.json` into a pack for you.
+- **A `pack import`/`adopt` verb for CONFIG.** Config surfaces are still manual re-authoring
+  (Part 1) — nothing reads your existing `~/.claude/settings.json` into a pack for you. Your
+  existing `skills` and briefing prose ARE migrated for you, on the first `apply --host --assert`
+  (see Part 2) — that half is no longer manual.
 
 Tracking for all of it: [../plans/environment-manager-plan.md](../plans/environment-manager-plan.md).
 
