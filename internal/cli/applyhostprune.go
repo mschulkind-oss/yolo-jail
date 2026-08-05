@@ -87,6 +87,22 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	}
 	manPath := hostSkillsManifestPath()
 	man, err := hostskills.LoadManifest(manPath)
+	// The COMPOSED skills record is merged in read-only, and merging is what keeps ruling R1 true for
+	// `skills` after §6a-2. Its owner is a real pack name for exactly this reason (see compose.go's
+	// record comment), so the scan below needs no new concept — but it is a different FILE, and
+	// without reading it a composed skill's pack could leave `packs` and its skills would stay
+	// loadable forever, which is the defect this whole file exists to fix.
+	//
+	// Read-only, and that asymmetry is deliberate: retiring a path here also has to FORGET it, and
+	// the forget belongs to the record that named it. So the composed half is merged for the SCAN
+	// and forgotten in its own file (composedForget below), rather than having two files write each
+	// other's keys.
+	composedPath := hostComposedSkillsManifestPath(home)
+	composed, cerr := hostskills.LoadManifest(composedPath)
+	if cerr != nil {
+		pr.Printf("  [yellow]⚠ retire: %v — nothing a composed skills destination holds is "+
+			"retired this run[/yellow]", cerr)
+	}
 	var present, vanished []droppedOutput
 	if err != nil {
 		// A record yolo cannot read proves nothing, and the tier-A scan below leans on it too
@@ -101,7 +117,7 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		pr.Printf("  [yellow]⚠ retire: %v — nothing from a dropped pack is retired this "+
 			"run[/yellow]", err)
 	} else {
-		present, vanished = droppedPackOrphans(man, candidates, configured, home)
+		present, vanished = droppedPackOrphans(man, composed, candidates, configured, home)
 	}
 	for _, o := range vanished {
 		// The record outlived the file: the user removed it themselves, or another tool did.
@@ -112,6 +128,7 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	if len(present) == 0 && len(keys.Orphans) == 0 {
 		if write && len(vanished) > 0 {
 			saveHostSkillsManifest(pr, man, manPath, forgetAll(man, vanished))
+			saveHostSkillsManifest(pr, composed, composedPath, forgetAll(composed, vanished))
 		}
 		return rc
 	}
@@ -163,7 +180,13 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	// Forget only what actually moved, and only AFTER it moved: a record dropped for a path
 	// still sitting in the home would make the next apply read that path as the user's own,
 	// which is the one state from which yolo can never clean up after itself again.
-	saveHostSkillsManifest(pr, man, manPath, forgetAll(man, append(forget, vanished...)))
+	//
+	// BOTH records, over the same set. A path is named by exactly one of them, so Forget is a no-op
+	// in the other — which is what makes passing the whole set to each correct rather than a
+	// widening, and cheaper than tracking which record found which path.
+	gone := append(forget, vanished...)
+	saveHostSkillsManifest(pr, man, manPath, forgetAll(man, gone))
+	saveHostSkillsManifest(pr, composed, composedPath, forgetAll(composed, gone))
 	return rc
 }
 
@@ -218,20 +241,35 @@ func saveHostSkillsManifest(pr richtext.Printer, man *hostskills.Manifest, path 
 // PruneHostBriefings uses. The residual gap: a dropped pack whose `into` no OTHER candidate
 // pack names has no discoverable subtree. That is narrow (the kind exists to merge into an
 // agent's dir, and the agent pack names it) and the tier-B half is unaffected.
-func droppedPackOrphans(man *hostskills.Manifest, candidates []*packload.Pack,
+func droppedPackOrphans(man, composed *hostskills.Manifest, candidates []*packload.Pack,
 	configured map[string]bool, home string) (present, vanished []droppedOutput) {
 	recorded := map[string]bool{}
-	for dest, owner := range man.Entries {
-		recorded[dest] = true
-		if configured[owner] {
+	// Both path→pack records, scanned identically: the per-entry one (shared with `files`) and the
+	// composition's. A path is in exactly one of them, and both answer the same question with the
+	// same key space — an absolute path and the pack that put it there — which is why one loop over
+	// the pair is right where sharing one FILE was wrong (compose.go's record comment).
+	for _, m := range []*hostskills.Manifest{man, composed} {
+		if m == nil {
 			continue
 		}
-		o := droppedOutput{Pack: owner, Dest: dest}
-		if _, err := os.Lstat(dest); err != nil {
-			vanished = append(vanished, o)
-			continue
+		for dest, owner := range m.Entries {
+			recorded[dest] = true
+			if configured[owner] {
+				continue
+			}
+			// Namespaced is read off the PATH, not inferred from which record named it. The
+			// composition records a tier-A delivery at the subtree (that is the unit it owns), so
+			// such a path now arrives here through the record rather than only through the marker
+			// scan below — and the note it carries is the one thing telling the user that
+			// confirming takes every skill inside it at once.
+			o := droppedOutput{Pack: owner, Dest: dest,
+				Namespaced: hostskills.IsYoloPluginDir(dest)}
+			if _, err := os.Lstat(dest); err != nil {
+				vanished = append(vanished, o)
+				continue
+			}
+			present = append(present, o)
 		}
-		present = append(present, o)
 	}
 	for _, dir := range hostSkillsDirs(candidates, home) {
 		entries, err := os.ReadDir(dir)

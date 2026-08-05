@@ -66,7 +66,8 @@ func testPluginReq(t *testing.T, tier Tier, manifest string) (PluginRequest, *pl
 		Plugin:      pl,
 		SkillsDir:   filepath.Join(home, ".claude", "skills"),
 		Tier:        tier,
-		Manifest:    &Manifest{Entries: map[string]string{}},
+		Composed:    &Manifest{Entries: map[string]string{}},
+		Claimed:     map[string]string{},
 		ArchiveRoot: ArchiveRoot(filepath.Join(t.TempDir(), "archive")),
 		Stamp:       "20260802-000000",
 	}, pl
@@ -400,10 +401,14 @@ func TestPluginManifestSurvivesOrdinarySkillsDelivery(t *testing.T) {
 	if len(pl) != 1 {
 		t.Fatalf("Discover = %v; want exactly one plugin", pl)
 	}
+	// One record and one claim set across both passes, as a real composition has: they are the two
+	// halves of ONE layer, so a fixture giving them separate state would not be the shape that
+	// produced the bug.
 	man := &Manifest{Entries: map[string]string{}}
+	claimed := map[string]string{}
 	req := PluginRequest{
 		Pack: "acme-tools", Plugin: pl[0], SkillsDir: skillsDir,
-		Tier: TierNamespaced, Manifest: man,
+		Tier: TierNamespaced, Composed: man, Claimed: claimed,
 		ArchiveRoot: ArchiveRoot(filepath.Join(t.TempDir(), "a")), Stamp: "20260802-000000",
 	}
 	if _, err := DeliverPlugin(req); err != nil {
@@ -413,7 +418,7 @@ func TestPluginManifestSurvivesOrdinarySkillsDelivery(t *testing.T) {
 	if _, err := Deliver(Request{
 		Pack: "acme-tools", Description: "wrapper pack",
 		Sources: []string{filepath.Join(packRoot, "skills")}, SkipSources: []string{pl[0].Dir},
-		SkillsDir: skillsDir, Tier: TierNamespaced, Manifest: man,
+		SkillsDir: skillsDir, Tier: TierNamespaced, Composed: man, Claimed: claimed,
 		ArchiveRoot: req.ArchiveRoot, Stamp: req.Stamp,
 	}); err != nil {
 		t.Fatal(err)

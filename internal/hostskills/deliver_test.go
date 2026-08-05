@@ -30,7 +30,13 @@ func writeSkill(t *testing.T, root, name, body string) string {
 	return dir
 }
 
-// testReq builds a Request with temp dirs for everything writable.
+// testReq builds a Request with temp dirs for everything writable — ONE LAYER of a composition,
+// which is what this file tests. The destination-wide passes (adoption, migration, retire) belong
+// to compose.go and are tested in compose_test.go.
+//
+// Composed and Claimed are the composition's plumbing: Composed is the record a real apply
+// persists, Claimed the per-run set that makes layer order the precedence. Both start empty, which
+// is a first apply into an untouched home.
 func testReq(t *testing.T, tier Tier) (Request, string) {
 	t.Helper()
 	home := t.TempDir()
@@ -44,10 +50,25 @@ func testReq(t *testing.T, tier Tier) (Request, string) {
 		Sources:     []string{packSkills},
 		SkillsDir:   filepath.Join(home, ".claude", "skills"),
 		Tier:        tier,
-		Manifest:    &Manifest{Entries: map[string]string{}},
+		Composed:    &Manifest{Entries: map[string]string{}},
+		Claimed:     map[string]string{},
 		ArchiveRoot: ArchiveRoot(filepath.Join(t.TempDir(), "archive")),
 		Stamp:       "20260801-000000",
 	}, packSkills
+}
+
+// reapply re-runs one layer the way a SECOND apply would: the record persists, the per-run claim
+// set does not, and what the record owned going in is what may be archived on the way out.
+//
+// A test that reused the same Request would carry the first run's Claimed forward, which is
+// precisely the state a real second apply does not have — and Claimed is what suppresses the
+// archive-the-previous-copy branch, so reusing it would hide the very behavior these tests pin.
+func reapply(req *Request) {
+	req.PreOwned = map[string]bool{}
+	for dest := range req.Composed.Entries {
+		req.PreOwned[dest] = true
+	}
+	req.Claimed = map[string]string{}
 }
 
 func find(t *testing.T, results []Result, name string) Result {
@@ -223,11 +244,17 @@ func TestFlatWritesAndRecordsOwnership(t *testing.T) {
 		t.Fatalf("action = %q, want %q (%q)", r.Action, ActionWrote, r.Detail)
 	}
 	dest := filepath.Join(req.SkillsDir, "packonly")
-	if !req.Manifest.OwnedBy(dest, "matt-core") {
-		t.Fatal("a delivered entry must be recorded, or the next apply cannot update it")
+	// The composing PACK is recorded, which is what still answers ruling R1's "did a pack that left
+	// my config put this here?". What §6a-5 changed is not the value but how the write gate READS it
+	// — membership, not equality — so a later layer can legitimately take the name
+	// (TestFlatLaterLayerWinsTheName).
+	if !req.Composed.OwnedBy(dest, "matt-core") {
+		t.Fatalf("a delivered entry must be recorded under its composing pack, or a later apply "+
+			"can neither update nor retire it: %v", req.Composed.Entries)
 	}
 	// Second apply updates its own entry rather than skipping it as the user's.
 	writeSkill(t, packSkills, "packonly", "v2")
+	reapply(&req)
 	results, err = Deliver(req)
 	if err != nil {
 		t.Fatal(err)
@@ -251,7 +278,8 @@ func TestFlatFailsClosedWhenRecordIsLost(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Simulate the record being lost.
-	req.Manifest = &Manifest{Entries: map[string]string{}}
+	req.Composed = &Manifest{Entries: map[string]string{}}
+	req.Claimed = map[string]string{}
 	writeSkill(t, packSkills, "packonly", "v2")
 
 	results, err := Deliver(req)
@@ -268,34 +296,14 @@ func TestFlatFailsClosedWhenRecordIsLost(t *testing.T) {
 	}
 }
 
-// Tier B removal is authorized by the record and goes through the archive.
-func TestFlatArchivesDroppedSkill(t *testing.T) {
-	req, packSkills := testReq(t, TierFlat)
-	dropped := writeSkill(t, packSkills, "goes", "bye")
-	writeSkill(t, packSkills, "stays", "here")
-	if _, err := Deliver(req); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.RemoveAll(dropped); err != nil {
-		t.Fatal(err)
-	}
-	results, err := Deliver(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r := find(t, results, "goes")
-	if r.Action != ActionArchived {
-		t.Fatalf("action = %q, want %q (%q)", r.Action, ActionArchived, r.Detail)
-	}
-	// Recoverable: the content is in the archive, not gone.
-	archived := strings.TrimPrefix(r.Detail, "moved to ")
-	if _, err := os.Stat(filepath.Join(archived, "SKILL.md")); err != nil {
-		t.Errorf("archived content must be recoverable at the reported path %q: %v", archived, err)
-	}
-	if _, err := os.Stat(filepath.Join(req.SkillsDir, "stays", "SKILL.md")); err != nil {
-		t.Errorf("the still-shipped skill must survive: %v", err)
-	}
-}
+// Tier-B REMOVAL is not a layer's job any more: it moved to the destination-wide pass, and its
+// tests moved with it (compose_test.go's TestComposeRetiresWhatNoLayerShips and
+// TestComposeRetireClearsADanglingEntry).
+//
+// Not merely relocated — the behavior it pinned was WRONG once several packs merge into one dir. A
+// per-pack retire can only see "what this pack recorded minus what it ships now", so a name moving
+// from pack A to pack B between applies read as A retiring it and B being refused it.
+// TestFlatNameChangingHandsIsAnUpdate is the case that could not be expressed here.
 
 // Observe posture writes NOTHING, at either tier, while still reporting what it would do.
 // A dry run that diverges from the real thing is worse than no dry run.

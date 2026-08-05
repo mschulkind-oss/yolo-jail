@@ -276,6 +276,13 @@ func TestApplyHostRetireDoesNotPromptWithNothingToRetire(t *testing.T) {
 // A STILL-CONFIGURED pack's output, and the USER'S OWN skill, survive a retirement aimed at a
 // third pack. This is the blast-radius test: the orphan scan keys on the owner recorded per
 // path, so a bug that widened it would take these with it.
+//
+// "SURVIVES" changed meaning for the user's skill with §6a-2 and the assertion changed with it. The
+// skill is no longer expected in place at ~/.claude/skills/myown: yolo composes that directory
+// wholesale now, so the first apply MIGRATES the skill into the local pack and composes it back into
+// every destination. What must never break is the property, not the path — the content is readable,
+// and it is readable from MORE agents than before. Asserting the old path would pin the per-agent
+// divergence the ruling exists to remove.
 func TestApplyHostRetireSparesConfiguredPacksAndUserSkills(t *testing.T) {
 	home, dropDir := dropFixture(t, dropPackJSON)
 	keepDir := filepath.Join(t.TempDir(), "keepme")
@@ -301,9 +308,24 @@ func TestApplyHostRetireSparesConfiguredPacksAndUserSkills(t *testing.T) {
 	skill, _ := deliveredPaths(home)
 	mustNotExist(t, skill, "dropme left the config")
 	mustExist(t, filepath.Join(home, ".claude", "skills", "kept"), "keepme is still configured")
-	data, err := os.ReadFile(mine)
+	// The user's skill is in the LOCAL PACK, byte-identical, and composed back into the destination
+	// from there. Both halves are asserted: the local pack is where it lives now, and the
+	// destination is where it still reaches the agent.
+	local := filepath.Join(home, ".config", "yolo-jail", "local", "skills", "myown", "SKILL.md")
+	data, err := os.ReadFile(local)
 	if err != nil || !strings.Contains(string(data), "MINE") {
-		t.Errorf("the user's own skill must be byte-identical: %v %q", err, data)
+		t.Errorf("the user's own skill must survive the migration byte-identical at %s: %v %q",
+			local, err, data)
+	}
+	// claude is namespaced, so the local pack's skills arrive under its own subtree.
+	back := filepath.Join(home, ".claude", "skills", "local", "skills", "myown", "SKILL.md")
+	if got, rerr := os.ReadFile(back); rerr != nil || string(got) != string(data) {
+		t.Errorf("the migrated skill must still reach the agent, byte-identical, at %s: %v",
+			back, rerr)
+	}
+	if _, serr := os.Stat(mine); !os.IsNotExist(serr) {
+		t.Errorf("a MIGRATION moves rather than copies — a leftover at %s would drift per agent "+
+			"again, which is the risk §6a-2 exists to remove (stat err=%v)", mine, serr)
 	}
 }
 

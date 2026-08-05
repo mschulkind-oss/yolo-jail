@@ -154,16 +154,20 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 		// against, which a nil OverlaySet expresses exactly (For returns nil).
 		empty := map[string]bool{}
 		stamp := time.Now().UTC().Format("20060102-150405")
-		// The BRIEFING half too, now that a briefing destination is a whole yolo-owned file
-		// rather than a block inside the user's. With no pack contributing prose anywhere,
-		// every composed destination is an orphan — a generated file with nobody left to
-		// regenerate it — which is precisely what the retire pass archives. A nil active set
+		// The BRIEFING and SKILLS halves too, now that both destinations are whole yolo-owned
+		// content rather than something inside the user's. With no pack contributing anywhere,
+		// every composed destination is an orphan — generated content with nobody left to
+		// regenerate it — which is precisely what the retire passes archive. A nil active set
 		// would be refused, so the honest empty map is passed; the pack set is trivially
 		// COMPLETE, since an empty config names nothing that could have failed to resolve.
 		// nil reload: with no pack configured there is nothing for a migration to compose back,
 		// so re-resolving would find the same empty set.
 		rc := applyHostBriefings(pr, out, stdin, nil, packload.Embedded(), empty, true,
 			home, stamp, write, nil)
+		if src := applyHostSkills(pr, out, stdin, nil, packload.Embedded(), empty, empty, true,
+			home, stamp, write, nil); src != 0 {
+			rc = src
+		}
 		if prc := pruneDroppedPackOutput(pr, out, stdin, packload.Embedded(), empty,
 			home, stamp, write,
 			planOverlayKeyRetirement(pr, packload.Embedded(), empty, nil, home)); prc != 0 {
@@ -332,17 +336,14 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 				c.Kind == packdecl.KindFiles:
 				// All three render below with their own per-entry lines (applyHostSkills,
 				// applyHostBriefings, applyHostFiles), so a summary line here would just be
-				// noise. `briefing` renders once for the whole pack SET rather than per pack
-				// (its destination's content is the union of every contributor's prose), so its
-				// lines come after the loop.
+				// noise. `briefing` and `skills` render once for the whole pack SET rather than
+				// per pack (each destination's content is the union of every contributor's), so
+				// their lines come after the loop.
 			default:
 				if why, unbuilt := render.HostUnimplemented(c.Kind); unbuilt {
 					pr.Printf("  [yellow]%-10s refused[/yellow] — %s", string(c.Kind), why)
 				}
 			}
-		}
-		if src := applyHostSkills(pr, errw, p, home, stamp, write); src != 0 {
-			rc = src
 		}
 		if frc := applyHostFiles(pr, errw, p, home, stamp, write); frc != 0 {
 			rc = frc
@@ -415,11 +416,20 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 		}
 	}
 
-	// Compose the briefing destinations, for the WHOLE pack set at once. After the per-pack
-	// loop because a destination's content is the union of every contributing pack's prose
-	// (§6a): rendering it inside the loop would either append (unbounded growth — the defect
-	// the delimited block existed to avoid) or let the last pack's write erase the others'.
+	// Compose the SKILLS and BRIEFING destinations, for the WHOLE pack set at once. After the
+	// per-pack loop because each destination's content is the union of every contributing pack's
+	// (§6a, §6a-2): rendering inside the loop would either accumulate or let the last pack's write
+	// erase the others' — and for `skills` it would additionally have to negotiate a name two packs
+	// both claim, which is the negotiation composition deletes (§6a-5).
 	candidates := append(loaded, embeddedPacksForPrune()...)
+	// Skills FIRST, deliberately. Both migrations create the local pack and both re-resolve after
+	// a confirmed one, so either order converges — but a user answering two prompts should be
+	// asked about the bigger move first, and moving a directory of skills is bigger than moving
+	// one file's prose.
+	if src := applyHostSkills(pr, out, stdin, loaded, candidates, active, configured, resolvedAll,
+		home, stamp, write, reloadPacks); src != 0 {
+		rc = src
+	}
 	if brc := applyHostBriefings(pr, out, stdin, loaded, candidates, active, resolvedAll,
 		home, stamp, write, reloadPacks); brc != 0 {
 		rc = brc

@@ -98,19 +98,25 @@ func (m *Manifest) Record(dest, pack string) {
 // Forget drops dest from the record, after its content has been archived or removed.
 func (m *Manifest) Forget(dest string) { delete(m.Entries, dest) }
 
-// EntriesFor returns the recorded destinations written by pack that live under skillsDir,
-// sorted for deterministic output. This is how a delivery finds its own STALE entries: what
-// the record says yolo put there last time, minus what the pack ships now, is exactly the
-// set to retire.
-func (m *Manifest) EntriesFor(pack, skillsDir string) []string {
+// EntriesUnder returns every recorded destination that lives directly under dir, sorted for
+// deterministic output. This is how a COMPOSITION finds its stale entries: what the record says yolo
+// put in this directory last time, minus what the composition ships now, is exactly the set to
+// retire.
+//
+// Owner-AGNOSTIC, deliberately. Under composition a name changes composer between applies (that is
+// what "later wins" means), so filtering by pack would leave an entry the previous apply's pack no
+// longer ships and the current one never claimed sitting in the home forever — owned by a name
+// nothing asks about. The owner is still recorded, for the dropped-pack question; it is just not the
+// key to this one.
+//
+// DIRECTLY under, not anywhere beneath: a namespaced subtree is recorded at the subtree, and its
+// leaves are not recorded at all, so a recursive reading would find nothing extra and a `..`-style
+// containment test would wrongly claim a sibling destination's entries when one skills dir nests
+// inside another (`.pi/agent/skills` under a hypothetical `.pi/skills`).
+func (m *Manifest) EntriesUnder(dir string) []string {
 	var out []string
-	for dest, owner := range m.Entries {
-		if owner != pack {
-			continue
-		}
-		rel, err := filepath.Rel(skillsDir, dest)
-		if err != nil || rel == ".." || filepath.IsAbs(rel) ||
-			len(rel) > 3 && rel[:3] == ".."+string(filepath.Separator) {
+	for dest := range m.Entries {
+		if filepath.Dir(dest) != filepath.Clean(dir) {
 			continue
 		}
 		out = append(out, dest)

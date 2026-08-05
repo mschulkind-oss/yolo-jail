@@ -46,10 +46,14 @@ type PluginRequest struct {
 	SkillsDir string
 	// Tier is the DECLARED tier of that destination; ProbeTier decides what is used.
 	Tier Tier
-	// Manifest is the ownership record. Used at BOTH tiers here, unlike plain skill
-	// delivery: tier A needs it to catch a second pack claiming one plugin name, which the
-	// per-directory marker alone cannot distinguish from yolo's own earlier apply.
-	Manifest *Manifest
+	// Composed, Legacy, PreOwned and Claimed are the composition's ownership plumbing — see
+	// Request, whose fields these are passed straight through to. Claimed matters at BOTH tiers
+	// here, unlike plain skill delivery: it is what catches a second pack claiming one plugin
+	// name, which the per-directory marker alone cannot distinguish from yolo's own earlier apply.
+	Composed *Manifest
+	Legacy   *Manifest
+	PreOwned map[string]bool
+	Claimed  map[string]string
 	// ArchiveRoot is where a retired entry is moved.
 	ArchiveRoot ArchiveRoot
 	// Stamp names the archive generation.
@@ -89,8 +93,14 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 	// A plugin NAME is exclusive at a destination even though `skills` as a kind merges: two
 	// packs wrapping plugins that call themselves the same thing want one directory, and
 	// whichever applied last would win with no report. The per-directory marker cannot catch
-	// this (both copies are genuinely yolo's), so the record is the only evidence.
-	if owner, recorded := req.Manifest.Owner(dest); recorded && owner != req.Pack {
+	// this (both copies are genuinely yolo's), so the run's claim set is the only evidence.
+	//
+	// Keyed on THIS RUN's claims rather than on a saved owner, which is what composition changed:
+	// the record now names a pseudo-owner (ComposedOwner) for every composed path, so "does the
+	// record name a different pack?" can no longer be asked of it. Within one composition, though,
+	// the question is exactly "has another layer already claimed this directory?" — which is
+	// sharper: it catches the collision on the FIRST apply rather than on the second.
+	if owner, claimed := req.Claimed[dest]; claimed {
 		return []Result{{
 			Name: name, Path: dest, Action: ActionRefused,
 			Detail: "pack " + owner + " already delivers a plugin named " + name +
@@ -103,6 +113,10 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 		Name: name, Path: dest, Action: wroteAction(req.Observe),
 		Detail: pluginTreeDetail(name, skills),
 	}}
+	// Claimed BEFORE the writes, and in both postures: the claim is what a later layer and the
+	// composition's retire pass read, so gating it on the write succeeding would make an
+	// unwritable plugin dir look like an orphan to retire.
+	claimPath(req.Composed, req.Claimed, dest, req.Pack, req.Observe)
 	// Components that RUN are delivered here (the destination tool loads the manifest, which
 	// is the point of tier A) — so say so. The install-time approval decided whether they may
 	// come at all; this is the always-warn half, because "a pack put a hook in my real home"
@@ -149,7 +163,6 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 		out[0].Action, out[0].Detail = ActionRefused, err.Error()
 		return out, nil
 	}
-	req.Manifest.Record(dest, req.Pack)
 	return out, nil
 }
 
@@ -189,7 +202,10 @@ func deliverPluginFlat(req PluginRequest, name string) ([]Result, error) {
 	res, err := deliverFlat(Request{
 		Pack:         req.Pack,
 		SkillsDir:    req.SkillsDir,
-		Manifest:     req.Manifest,
+		Composed:     req.Composed,
+		Legacy:       req.Legacy,
+		PreOwned:     req.PreOwned,
+		Claimed:      req.Claimed,
 		ArchiveRoot:  req.ArchiveRoot,
 		Stamp:        req.Stamp,
 		Observe:      req.Observe,

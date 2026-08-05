@@ -366,80 +366,41 @@ func TestObserveUsesTheFutureTense(t *testing.T) {
 }
 
 // An ARCHIVE in observe posture is future-tense too. Same defect, different action word.
+//
+// NAMESPACED only, and the flat half is not lost: tier A's retire is a LAYER's own business (inside
+// its subtree the stale set is "what is there minus what we ship"), while tier B's moved to the
+// destination-wide pass. compose_test.go's TestComposeObserveRetireUsesTheFutureTense is the flat
+// half, at the level that now performs it.
 func TestObserveArchiveUsesTheFutureTense(t *testing.T) {
-	for _, tier := range []Tier{TierFlat, TierNamespaced} {
-		t.Run(tier.String(), func(t *testing.T) {
-			req, packSkills := testReq(t, tier)
-			dropped := writeSkill(t, packSkills, "goes", "bye")
-			writeSkill(t, packSkills, "stays", "here")
-			if _, err := Deliver(req); err != nil { // assert, to create the state
-				t.Fatal(err)
-			}
-			if err := os.RemoveAll(dropped); err != nil {
-				t.Fatal(err)
-			}
-
-			req.Observe = true
-			results, err := Deliver(req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if r := find(t, results, "goes"); r.Action != ActionWouldArchive {
-				t.Errorf("observe archive action = %q, want %q", r.Action, ActionWouldArchive)
-			}
-			// And the dry run really did not archive it.
-			if _, err := os.Stat(filepath.Join(req.SkillsDir, "goes")); err != nil {
-				if _, nerr := os.Stat(filepath.Join(req.SkillsDir, "matt-core", "skills",
-					"goes")); nerr != nil {
-					t.Errorf("observe archived the entry: %v / %v", err, nerr)
-				}
-			}
-		})
-	}
-}
-
-// A RETIRING entry that has become a dangling link is cleared, not archived: renaming a broken
-// link into the archive would report "moved to <path>" as though the user's content were
-// recoverable there, when there is no content at all.
-func TestRetiringADanglingEntryClearsInsteadOfArchiving(t *testing.T) {
-	req, packSkills := testReq(t, TierFlat)
+	req, packSkills := testReq(t, TierNamespaced)
 	dropped := writeSkill(t, packSkills, "goes", "bye")
-	// A second skill the pack KEEPS: a pack that ships nothing at all leaves no trace by design
-	// and retires nothing, so without this the delivery returns before the retire scan runs.
 	writeSkill(t, packSkills, "stays", "here")
-	if _, err := Deliver(req); err != nil {
+	if _, err := Deliver(req); err != nil { // assert, to create the state
 		t.Fatal(err)
 	}
-	// The pack stops shipping it, AND the delivered copy has been replaced by a stale link
-	// (the user re-ran their dotfile manager over the top).
 	if err := os.RemoveAll(dropped); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.RemoveAll(filepath.Join(req.SkillsDir, "goes")); err != nil {
-		t.Fatal(err)
-	}
-	target := dangle(t, req.SkillsDir, "goes")
 
+	reapply(&req)
+	req.Observe = true
 	results, err := Deliver(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := find(t, results, "goes")
-	if r.Action != ActionCleared {
-		t.Errorf("a dangling entry being retired must be CLEARED, not archived — there is no "+
-			"content to recover: action = %q (%q)", r.Action, r.Detail)
+	if r := find(t, results, "goes"); r.Action != ActionWouldArchive {
+		t.Errorf("observe archive action = %q, want %q", r.Action, ActionWouldArchive)
 	}
-	if !strings.Contains(r.Detail, target) {
-		t.Errorf("the report must name the stale target: %q", r.Detail)
-	}
-	if _, err := os.Lstat(filepath.Join(req.SkillsDir, "goes")); !os.IsNotExist(err) {
-		t.Errorf("the stale link should be gone: %v", err)
-	}
-	// The record no longer claims it.
-	if _, recorded := req.Manifest.Owner(filepath.Join(req.SkillsDir, "goes")); recorded {
-		t.Error("the ownership record must forget a cleared entry")
+	// And the dry run really did not archive it.
+	if _, err := os.Stat(filepath.Join(req.SkillsDir, "matt-core", "skills", "goes")); err != nil {
+		t.Errorf("observe archived the entry: %v", err)
 	}
 }
+
+// The RETIRING-a-dangling-entry case moved to the destination-wide pass with the retire itself —
+// see compose_test.go's TestComposeRetireClearsADanglingEntry, which pins the identical claim (a
+// broken link is cleared rather than archived, because there is no content to recover) at the level
+// that now performs it.
 
 // A cleared link does not become a permanent exception: the second apply is an ordinary update
 // of yolo's own entry, and the tree is identical. An accumulating or re-clearing render would

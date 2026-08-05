@@ -1,37 +1,75 @@
 package cli
 
-// applyhostskills.go is the `apply --host` call site for skill delivery: it turns a pack's
-// `skills` contributions into internal/hostskills requests, prints one line per entry, and
-// persists the tier-B provenance record.
+// applyhostskills.go is the `apply --host` call site for the `skills` kind, which yolo now
+// COMPOSES WHOLESALE at every notch (maintainer ruling 2026-08-04, outstanding-work.md §6a-2).
 //
-// The delivery policy lives in internal/hostskills (tiers, ownership, archiving); this file
-// is only the wiring plus two decisions that belong to the HOST notch specifically:
+// It is the second host kind whose call site is PACK-SET-WIDE rather than per-pack, and for the
+// same reason applyhostbriefings.go is: a destination's content is the union of every contributing
+// pack's skills, so a per-pack pass would have to either leave an earlier pack's stale entry behind
+// or refuse to overwrite it — the latter being §6a-5, where the local pack lost a flat-tier
+// collision to a shared pack because the ownership record forbade any pack overwriting another's
+// recorded name whatever the order.
+//
+// The order below is load-bearing, and it is the briefing kind's order because the lifecycle is
+// the same one:
+//
+//  1. ADOPT — ask which entries at these destinations yolo cannot prove it composed, and CONFIRM.
+//     The first apply that takes over a hand-written ~/.claude/skills/mine is a one-way door, so it
+//     rides the same warn-and-confirm gate confirmHostLosses established, with the same
+//     fail-closed-on-nil-stdin contract.
+//  2. MIGRATE — MOVE those entries into the local pack's skills/, so each one still reaches every
+//     agent. Archive is the fallback, never the first answer.
+//  3. RENDER — compose and write, retiring this destination's own stale entries as it goes.
+//  4. RETIRE — archive the composed output at a destination no active pack contributes to any
+//     more, so dropping the last contributing pack does not leave an orphan.
+//
+// Steps 1 and 2 must not run in observe: a dry run writes nothing, so there is nothing to confirm,
+// and the migration is reported as `would move` instead.
+//
+// The two host-notch decisions that predate composition and survive it:
 //
 //   - Built-ins are NOT written to a real home. yolo's own skills (jail-startup,
-//     diagnosing-the-jail, configuring-the-jail) are about being inside a jail; on the host
-//     they are noise at best and misleading at worst. The jail still stages them. They are
-//     reported as skipped rather than silently omitted.
+//     diagnosing-the-jail, configuring-the-jail) are about being inside a jail; on the host they
+//     are noise at best and misleading at worst. The jail still stages them as its layer 1.
 //   - The user's OWN skills tree is not a source. In a jail, PrepareSkills layers the host's
-//     ~/.<agent>/skills in last so a local skill outranks a pack's. At the host that tree IS
-//     the destination — reading it as a source and writing it back would be a copy onto
-//     itself.
+//     ~/.<agent>/skills in last so a local skill outranks a pack's. At the host that tree IS the
+//     destination — and since §6a-2 it is not a layer at all: it MOVES into the local pack, which
+//     is composed last and therefore holds exactly the precedence that layer used to.
 
 import (
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
-	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
-// hostSkillsManifestPath is where the tier-B provenance record lives. Under the state dir
-// (not the config dir) because it is yolo's own bookkeeping about what it did, not something
-// a user edits or commits.
+// hostSkillsManifestPath is where the pre-composition PER-ENTRY provenance record lives. Under the
+// state dir (not the config dir) because it is yolo's own bookkeeping about what it did, not
+// something a user edits or commits.
+//
+// Still read, and still written by the `files` kind which shares it. The skills composition reads
+// it for one purpose only: a path this record names is yolo's own output from BEFORE composition,
+// so the first apply after an upgrade must not offer to migrate it into the user's local pack as
+// though they had written it.
 func hostSkillsManifestPath() string {
 	return filepath.Join(paths.GlobalStorage(), "host-skills-manifest.json")
+}
+
+// hostComposedSkillsManifestPath is where the COMPOSITION's ownership record lives — its OWN file,
+// beside the per-entry one and the briefing one.
+//
+// Separate, not shared, and the reason is a defect the shared version produced immediately in the
+// sibling kind (§6a-6 defect 1): every composed path's owner is a pseudo-owner
+// (hostskills.ComposedOwner) because the content belongs to the pack SET, while droppedPackOrphans
+// reads every owner in the per-entry record as a PACK NAME and archives the paths of any owner
+// absent from `packs`. So every composed skill would be retired as a dropped pack's output on the
+// very next apply. Three questions, three key spaces, three files.
+func hostComposedSkillsManifestPath(home string) string {
+	return filepath.Join(paths.GlobalStorageUnder(home), "host-composed-skills.json")
 }
 
 // hostSkillsArchiveRoot is where retired skills are moved. Under the state dir so
@@ -40,179 +78,265 @@ func hostSkillsArchiveRoot() hostskills.ArchiveRoot {
 	return hostskills.ArchiveRoot(filepath.Join(paths.GlobalStorage(), "archive", "skills"))
 }
 
-// applyHostSkills delivers every `skills` contribution of one pack into the real home and
-// prints the outcome. write=false is the observe posture: it computes and prints exactly
-// what assert would do, and writes nothing.
+// localPackSkillsPath is where an adopted entry MOVES to: the conventional local pack's own
+// skills/ dir.
 //
-// `p` is the pack as packload.ResolveDestinations returned it, so a ZERO-CEREMONY pack arrives
-// here already declaring the destinations the selected agent packs name — this function sees no
-// difference between one and a pack whose author wrote them out. That is what closed finding
-// F1: it used to read Decl.Contributions() directly, find none, and return 0 without a line.
-//
-// stamp names the archive generation. Threaded in from the caller rather than computed here
-// so one apply groups all its archived entries together, and so this stays testable without
-// a clock.
-func applyHostSkills(pr richtext.Printer, errw io.Writer, p *packload.Pack, home, stamp string, write bool) int {
-	contributions := skillsContributions(p)
-	if len(contributions) == 0 {
-		return 0
+// Derived from the home this apply is rendering into, not from paths.LocalPackDir(), and that
+// distinction is load-bearing for the same reason localPackBriefingPath states it:
+// paths.LocalPackDir() reads $HOME, so a test (or any caller rendering into a home it was handed)
+// would migrate the user's skills into their REAL config dir.
+func localPackSkillsPath(home string) string {
+	rel, err := filepath.Rel(paths.Home(), paths.LocalPackDir())
+	if err != nil || rel == "" || rel == "." {
+		return ""
 	}
+	return filepath.Join(home, rel, "skills")
+}
 
-	manPath := hostSkillsManifestPath()
-	man, err := hostskills.LoadManifest(manPath)
+// applyHostSkills runs the four steps for the whole pack set and returns an rc contribution.
+//
+// The parameters mirror applyHostBriefings exactly, because the two kinds now share a lifecycle:
+// `loaded` is the ACTIVE set (post-ResolveDestinations, so a zero-ceremony pack already declares
+// its destinations); `candidates` adds every pack yolo ships, because a dropped pack's destination
+// must still be visited; `active` names the packs whose destinations are legitimate; `complete`
+// says every pack the config NAMES resolved this run.
+//
+// `reload` re-resolves the pack set, and is called ONCE, after a confirmed migration. The
+// migration creates the conventional local pack, which is included by convention rather than by
+// config — so the set resolved before it ran cannot contain it, and the render would otherwise
+// drop the user's just-migrated skills for exactly one apply (§6a-6 defect 2, found in the sibling
+// kind by asserting idempotency). nil means "no reload available", which is correct for the
+// no-packs-configured caller and fails safe everywhere else.
+func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
+	loaded, candidates []*packload.Pack, active, configured map[string]bool, complete bool,
+	home, stamp string, write bool, reload func() []*packload.Pack) int {
+	composedPath := hostComposedSkillsManifestPath(home)
+	composed, err := hostskills.LoadManifest(composedPath)
 	if err != nil {
-		// A corrupt record must not silently grant or silently deny. Report it and carry
-		// on with an empty one, which fails CLOSED: every existing entry then looks like
-		// the user's and is left alone.
+		// A record yolo cannot read proves nothing, and here that fails CLOSED in the useful
+		// direction: every existing entry reads as the user's, so nothing is regenerated without a
+		// confirmation. Report it — a silent degradation would make the adoption prompt reappear on
+		// a home the user already opted in.
 		pr.Printf("  [yellow]⚠ skills: %v — treating every existing entry as yours[/yellow]", err)
 	}
-
-	// A pack may WRAP an existing agent plugin — a subtree carrying its own plugin manifest.
-	// Those are delivered by copying the tree verbatim (the destination tool already loads
-	// exactly that shape), so they are pulled out of the ordinary skill set below rather than
-	// flattened into loose skills. Origin-gated: a fetched pack's plugin that runs code needs
-	// the same approval any other host-power claim needs.
-	plugins, pluginRefused := p.HonoredPlugins()
-	for _, msg := range pluginRefused {
-		pr.Printf("  [yellow]skills     refused[/yellow] — %s", msg)
+	legacy, lerr := hostskills.LoadManifest(hostSkillsManifestPath())
+	if lerr != nil {
+		// Worse than the composed record failing, and worth its own line: without the legacy
+		// record, skills a PREVIOUS yolo delivered read as the user's own and the migration would
+		// offer to move yolo's output into the user's local pack.
+		pr.Printf("  [yellow]⚠ skills: %v — skills a previous apply delivered may be offered "+
+			"for migration[/yellow]", lerr)
 	}
-	pluginDirs := make([]string, 0, len(plugins))
-	for _, pl := range plugins {
-		pluginDirs = append(pluginDirs, pl.Dir)
+	req := hostskills.ComposeRequest{
+		Composed:        composed,
+		Legacy:          legacy,
+		ArchiveRoot:     hostSkillsArchiveRoot(),
+		Stamp:           stamp,
+		LocalPackSkills: localPackSkillsPath(home),
+		PackSetComplete: complete,
+		// `configured`, not `active`: the boundary this draws is against ruling R1's confirmed
+		// retire, which itself keys on the CONFIGURED set so an unreachable fetched pack does not
+		// read as dropped. Passing `active` here would hand a merely-unreachable pack's skills to
+		// the silent pass, which is the offline-apply data loss both keys exist to prevent.
+		Configured: configured,
 	}
 
 	rc := 0
-	for _, c := range contributions {
-		tier, ok := hostskills.ParseTier(c.Tier)
-		if !ok {
-			// Reachable only for a manifest that bypassed validation (an older pack, a
-			// hand-edited staged tree). Say so rather than silently choosing.
-			pr.Printf("  [yellow]skills     unknown tier %q — using flat (the safe tier)[/yellow]", c.Tier)
-		}
-		// The pack-relative SOURCE this contribution declares (`from`), or the conventional
-		// skills/ dir when it declares none. Resolved through packload so the host notch and
-		// the jail read one pack.json the same way — three hardcoded "skills" joins are what
-		// made `from` a field yolo validated and ignored.
-		src, prob := p.SkillsSourceDir(c)
-		if prob != "" {
-			// A declared source that is not there delivers nothing, so it is reported by name
-			// rather than left to be inferred from an empty destination.
-			pr.Printf("  [yellow]skills     refused[/yellow] — %s", prob)
-			rc = 1
-		}
-		skillsDir := filepath.Join(home, c.Into)
-		for _, pl := range plugins {
-			results, derr := hostskills.DeliverPlugin(hostskills.PluginRequest{
-				Pack:        p.Name,
-				Plugin:      pl,
-				SkillsDir:   skillsDir,
-				Tier:        tier,
-				Manifest:    man,
-				ArchiveRoot: hostSkillsArchiveRoot(),
-				Stamp:       stamp,
-				Observe:     !write,
-			})
-			if derr != nil {
-				pr.Printf("  [red]skills     plugin %s failed[/red] — %v", pl.Name(), derr)
-				rc = 1
-				continue
-			}
-			for _, r := range results {
+	dests := hostskills.ComposeHostSkills(loaded, home)
+	reportSkillDestinations(pr, dests)
+	adoptions, foreignPlugins := hostskills.Adoptions(dests, req)
+	for _, r := range foreignPlugins {
+		// A plugin the user authored is left alone at every posture — never adopted, never
+		// composed over — so it is reported once here rather than inside the render loop, where a
+		// reader would take it for an entry the composition considered and declined.
+		printSkillResult(pr, r)
+	}
+	if len(adoptions) > 0 {
+		if !write {
+			// OBSERVE reports the adoption and the migration WITHOUT prompting — which is how the
+			// user learns what the write would take over before any prompt exists.
+			reportSkillAdoptions(pr, adoptions, req.LocalPackSkills)
+			mres, _ := hostskills.MigrateHostSkills(adoptions, req, true)
+			for _, r := range mres {
 				printSkillResult(pr, r)
 			}
-		}
-		results, derr := hostskills.Deliver(hostskills.Request{
-			Pack:        p.Name,
-			Description: p.Decl.Description,
-			// The pack's own skills dir — the one this contribution's `from` names — is
-			// the only source. Built-ins and the user's own tree are both deliberately
-			// excluded (see the file comment). Empty when the source could not be
-			// resolved, which Deliver reads as "this pack carries no skills" and
-			// therefore leaves the destination alone: the refusal above is the report,
-			// and a pack whose `from` is missing must not also retire what a previous
-			// apply delivered.
-			Sources: sourceList(src),
-			// A wrapped plugin's subtree is already delivered verbatim above, so it must not
-			// ALSO arrive here as a loose skill dir named after the plugin.
-			SkipSources: pluginDirs,
-			SkillsDir:   skillsDir,
-			Tier:        tier,
-			Manifest:    man,
-			ArchiveRoot: hostSkillsArchiveRoot(),
-			Stamp:       stamp,
-			Observe:     !write,
-		})
-		if derr != nil {
-			pr.Printf("  [red]skills     failed[/red] — %v", derr)
-			rc = 1
-			continue
-		}
-		if len(results) == 0 && len(plugins) == 0 {
-			// A pack that CARRIES no skills is normal and common: the six shipped agent
-			// packs declare a `skills` contribution to name the destination their agent
-			// reads from, and the content comes from the user's own packs merging into it.
-			// So this is a quiet note, not the "check your filters" warning it first was —
-			// firing that on every apply of a stock config would train the user to ignore
-			// warnings.
-			pr.Printf("  [dim]skills     %s ships none (its contribution names the "+
-				"destination other packs merge into)[/dim]", p.Name)
-			continue
-		}
-		for _, r := range results {
-			printSkillResult(pr, r)
+		} else if !confirmSkillAdoption(pr, out, stdin, adoptions, req.LocalPackSkills) {
+			// Declining is a legitimate answer and leaves the destinations alone — including the
+			// render, since composing over skills the user just declined to migrate is the data
+			// loss the gate exists to prevent. The rc is unchanged for confirmDroppedPackRetire's
+			// reason: nothing the user asked for failed, and a permanent non-zero would make every
+			// scripted apply after any hand-edit look broken.
+			pr.Printf("[bold yellow]not adopted — %d skill(s) in your agent dirs are still "+
+				"yours, and no skills destination was composed.[/bold yellow]", len(adoptions))
+			pr.Printf("[dim]Re-run and answer `y`, or move them into %s yourself (yolo composes "+
+				"them back into every destination from there). Nothing was moved or "+
+				"written.[/dim]", req.LocalPackSkills)
+			return rc
+		} else {
+			mres, merr := hostskills.MigrateHostSkills(adoptions, req, false)
+			for _, r := range mres {
+				printSkillResult(pr, r)
+			}
+			if merr != nil {
+				pr.Printf("  [red]skills     migrate failed[/red] — %v", merr)
+				return 1
+			}
+			warnSkillRenames(pr, mres, req.LocalPackSkills)
+			// The migration just created the local pack, so re-resolve before composing (see
+			// `reload`). Only on the CONFIRMED path: the observe and decline branches wrote
+			// nothing, so there is no new pack to find.
+			if reload != nil {
+				if fresh := reload(); len(fresh) > 0 {
+					loaded = fresh
+					candidates = append(fresh, embeddedPacksForPrune()...)
+					for _, p := range fresh {
+						// BOTH sets: the local pack the migration just created is now active AND
+						// configured (by convention rather than by a config line, which is what
+						// makes it invisible to a set built before it existed). Leaving it out of
+						// `configured` would hand its freshly-migrated skills to R1's dropped-pack
+						// prompt on this very run.
+						active[p.Name], configured[p.Name] = true, true
+					}
+					dests = hostskills.ComposeHostSkills(loaded, home)
+				}
+			}
 		}
 	}
 
+	sres, serr := hostskills.RenderHostSkills(dests, req, !write)
+	for _, r := range sres {
+		printSkillResult(pr, r)
+		if r.Action == hostskills.ActionRefused {
+			rc = 1
+		}
+	}
+	if serr != nil {
+		pr.Printf("  [red]skills     failed[/red] — %v", serr)
+		rc = 1
+	}
+
+	// Retire the composed output at an ORPHANED destination: one yolo composed into that no active
+	// pack contributes skills to any more. Unconfirmed, unlike the dropped-pack retire in
+	// applyhostprune.go, because every byte being moved is a byte yolo composed — the same
+	// asymmetry PruneHostBriefings carries, and the user's own skills are not here to be moved
+	// (they are in the local pack, which does not stop existing when a pack is dropped).
+	pres, perr := hostskills.PruneHostSkills(candidates, active, home, req, !write)
+	for _, r := range pres {
+		printSkillResult(pr, r)
+	}
+	if perr != nil {
+		pr.Printf("  [red]skills prune refused[/red] — %v", perr)
+		rc = 1
+	}
+
 	// Persist the record only after a real write. Saving in observe posture would record
-	// deliveries that never happened, which is exactly the stale-record case the delivery
-	// policy is built to survive — no reason to manufacture one.
+	// compositions that never happened, manufacturing exactly the stale record the adoption gate is
+	// built to survive.
 	if write {
-		if err := man.Save(manPath); err != nil {
+		if err := composed.Save(composedPath); err != nil {
 			pr.Printf("  [yellow]⚠ skills: could not save the ownership record: %v[/yellow]", err)
-			pr.Printf("  [dim]  (the skills were written; the next apply will treat them " +
-				"as yours and leave them alone)[/dim]")
+			pr.Printf("  [dim]  (the skills were written; the next apply will treat them as " +
+				"yours and ask before regenerating)[/dim]")
 		}
 	}
 	return rc
 }
 
-// printSkillResult renders one entry's outcome, colored by whether it is a write, a
-// hands-off, or a problem.
-func printSkillResult(pr richtext.Printer, r hostskills.Result) {
-	switch r.Action {
-	case hostskills.ActionWrote:
-		pr.Printf("  [cyan]skills[/cyan]     %-24s %s  [dim]%s[/dim]", r.Name, r.Action, r.Detail)
-	case hostskills.ActionSkippedUser:
-		pr.Printf("  [green]skills[/green]     %-24s %s  [dim]%s[/dim]", r.Name, r.Action, r.Detail)
-	case hostskills.ActionArchived:
-		pr.Printf("  [yellow]skills[/yellow]     %-24s %s  [dim]%s[/dim]", r.Name, r.Action, r.Detail)
-	default:
-		pr.Printf("  [yellow]skills[/yellow]     %-24s %s  [dim]%s[/dim]", r.Name, r.Action, r.Detail)
+// reportSkillAdoptions names every entry about to become yolo-owned and what becomes of it. Shared
+// by the observe path and the prompt so the preview and the confirmation say the same thing.
+func reportSkillAdoptions(pr richtext.Printer, adoptions []hostskills.Adoption, localPack string) {
+	pr.Printf("[bold yellow]⚠ yolo COMPOSES these skills directories wholesale, and they "+
+		"currently hold %d skill(s) yolo did not write:[/bold yellow]", len(adoptions))
+	for _, a := range adoptions {
+		pr.Printf("  [cyan]%s[/cyan]", a.Path)
 	}
+	if localPack == "" {
+		pr.Printf("[dim]Each one is ARCHIVED before its directory is regenerated — nothing is " +
+			"deleted, but nothing composes it back either (no local pack location could be " +
+			"resolved).[/dim]")
+		return
+	}
+	pr.Printf("[dim]Each one MOVES into %s — the conventional local pack, which yolo composes "+
+		"back into EVERY skills destination. So your skills keep reaching your agents, and they "+
+		"reach ALL of them instead of drifting per agent. Adding a skill to an agent's dir by "+
+		"hand will not survive the next apply — add it to the local pack instead.[/dim]", localPack)
 }
 
-// sourceList wraps a resolved source dir as hostskills.Request.Sources, and yields NO
-// sources for an unresolved one ("").
+// warnSkillRenames is the union caveat's LOUD half, printed once at the migration and never again.
 //
-// A nil Sources is not the same as a source that happens to be empty on disk, and the
-// difference is the point: Deliver reads "no skills collected" as "this pack carries none"
-// and returns without touching the destination, so a pack whose `from` is missing gets a
-// refusal line and its previously-delivered skills left alone — rather than an apply that
-// silently ARCHIVES them because the source it was told to read does not exist.
-func sourceList(dir string) []string {
-	if dir == "" {
-		return nil
-	}
-	return []string{dir}
-}
-
-// skillsContributions returns the pack's skills declarations.
-func skillsContributions(p *packload.Pack) []packdecl.Contribution {
-	var out []packdecl.Contribution
-	for _, c := range p.Decl.Contributions() {
-		if c.Kind == packdecl.KindSkills {
-			out = append(out, c)
+// The migration is the only moment the user has the context to fix a conflict — they know which
+// agent held which version — so a warning on every later apply would train them to ignore it. Two
+// skills sharing a name with DIFFERENT bodies is the only migration outcome yolo cannot resolve
+// correctly on its own, so it is the only one that gets this.
+func warnSkillRenames(pr richtext.Printer, results []hostskills.Result, localPack string) {
+	var renamed []hostskills.Result
+	for _, r := range results {
+		if r.Action == hostskills.ActionRenamed {
+			renamed = append(renamed, r)
 		}
 	}
-	return out
+	if len(renamed) == 0 {
+		return
+	}
+	pr.Printf("[bold yellow]⚠ %d name conflict(s): two of your agents had DIFFERENT skills "+
+		"under one name, so BOTH were kept.[/bold yellow]", len(renamed))
+	for _, r := range renamed {
+		pr.Printf("  [yellow]%s[/yellow] [dim]— %s[/dim]", r.Name, r.Detail)
+	}
+	pr.Printf("[dim]Both now compose into every destination under their distinct names. yolo "+
+		"does not guess which one you meant: merge or delete one in %s if only one should "+
+		"survive.[/dim]", localPack)
+}
+
+// confirmSkillAdoption is the one-way door for wholesale skills ownership. Returns true to proceed.
+//
+// It shares confirmHostLosses' three properties, and for the same reasons:
+//
+//   - ONLY WHEN SOMETHING IS ACTUALLY AT STAKE. The caller reaches here only with at least one
+//     entry yolo cannot prove it composed — an empty destination, or one holding only yolo's own
+//     output, never prompts. A confirmation that fires every run is one people learn to answer
+//     blind.
+//   - OBSERVE NEVER REACHES HERE. A dry run writes nothing, so it reports the same entries as
+//     `would move` lines instead.
+//   - FAIL-CLOSED on stdin. promptYesNo reads a nil or EOF stdin as NO, so a scripted
+//     `apply --host --assert` aborts rather than silently moving a user's skills.
+func confirmSkillAdoption(pr richtext.Printer, out io.Writer, stdin io.Reader,
+	adoptions []hostskills.Adoption, localPack string) bool {
+	reportSkillAdoptions(pr, adoptions, localPack)
+	verb := "Move these skills into the local pack and let yolo compose"
+	if localPack == "" {
+		verb = "Archive these skills and let yolo compose"
+	}
+	return promptYesNo(out, stdin, "  "+verb+" these directories? [y/N] ")
+}
+
+// printSkillResult renders one entry's outcome, colored by whether it is a write, a hands-off, or
+// a problem.
+func printSkillResult(pr richtext.Printer, r hostskills.Result) {
+	color := "yellow"
+	switch r.Action {
+	case hostskills.ActionWrote, hostskills.ActionWouldWrite:
+		color = "cyan"
+	case hostskills.ActionSkippedUser:
+		color = "green"
+	case hostskills.ActionMoved, hostskills.ActionWouldMove,
+		hostskills.ActionUnioned, hostskills.ActionWouldUnion:
+		color = "cyan"
+	}
+	pr.Printf("  ["+color+"]skills[/"+color+"]     %-24s %s  [dim]%s[/dim]",
+		r.Name, r.Action, r.Detail)
+}
+
+// reportSkillDestinations names each composed destination and its contributing packs, once per
+// apply, before the per-entry lines.
+//
+// It exists because composition made the per-entry lines ambiguous in one specific way: an entry
+// says which skill landed and where, but not which packs the DIRECTORY is now a function of — and
+// "why did my hand-added skill disappear from ~/.codex/skills?" is answered by the destination
+// being composed, not by any one entry's line.
+func reportSkillDestinations(pr richtext.Printer, dests []hostskills.Destination) {
+	for _, d := range dests {
+		pr.Printf("  [dim]skills     %s composed from: %s[/dim]", d.Dir,
+			strings.Join(d.Packs(), ", "))
+	}
 }
