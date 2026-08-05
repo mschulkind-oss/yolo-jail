@@ -63,6 +63,39 @@ func newOpts(ws string) Options {
 	}
 }
 
+// macos-user had NEITHER MISE_TRUSTED_CONFIG_PATHS nor a `mise trust` call, so a
+// repo-committed mise.toml under the workspace could stop its agent with an untrusted-config
+// prompt the container path never sees. We enter this environment through a `yolo` command, so
+// the launch env is ours to set.
+//
+// The negative half is the load-bearing one: the value must be the WORKSPACE, not a blanket
+// "trust anything", or the fix trades a prompt for a hole.
+func TestSandboxPlanTrustsTheWorkspaceMiseConfigs(t *testing.T) {
+	// The launch env is baked onto LaunchArgv, so that is where the assertion belongs — a
+	// value that never reaches the argv never reaches the agent.
+	argv := strings.Join(buildPlan(mockDeps(nil), newOpts("/Users/Shared/proj"), nil).LaunchArgv, " ")
+	if !strings.Contains(argv, "MISE_TRUSTED_CONFIG_PATHS=/Users/Shared/proj") {
+		t.Errorf("macos-user must trust the workspace's mise configs; LaunchArgv = %s", argv)
+	}
+	// A wider value would trust configs outside the tree yolo was pointed at.
+	if strings.Contains(argv, "MISE_TRUSTED_CONFIG_PATHS=/ ") ||
+		strings.Contains(argv, "MISE_TRUSTED_CONFIG_PATHS=$HOME") {
+		t.Errorf("the trust path must be the WORKSPACE, not a blanket root: %s", argv)
+	}
+}
+
+// A user who sets it explicitly wins: it goes in BEFORE env_sources and SandboxEnv precisely so
+// it stays a default rather than an override.
+func TestSandboxTrustPathIsOverridable(t *testing.T) {
+	opts := newOpts("/Users/Shared/proj")
+	opts.SandboxEnv = jsonx.NewOrderedMap()
+	opts.SandboxEnv.Set("MISE_TRUSTED_CONFIG_PATHS", "/Users/Shared/proj/only-here")
+	argv := strings.Join(buildPlan(mockDeps(nil), opts, nil).LaunchArgv, " ")
+	if !strings.Contains(argv, "MISE_TRUSTED_CONFIG_PATHS=/Users/Shared/proj/only-here") {
+		t.Errorf("an explicit sandbox_env value must win: %s", argv)
+	}
+}
+
 func TestRunMacosUserFailsClosedOffMacOS(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)

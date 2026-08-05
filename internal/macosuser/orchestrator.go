@@ -119,6 +119,24 @@ func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 // last, then builds the plan.
 func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	env := MacosSandboxEnv(deps, opts.Config)
+	// Trust the workspace's mise configs, for the same reason the container gets this on its
+	// `-e` line: we ENTER this environment through a `yolo` command, so the launch env is ours
+	// to set, and a repo-committed mise.toml under the workspace must not stop the agent with
+	// an untrusted-config prompt it cannot answer.
+	//
+	// The env var rather than a `mise trust` call, deliberately — see boot.go's "Workspace mise
+	// trust — REMOVED": the call writes a mark under ~/.local/state that is per-workspace and
+	// re-earned every launch, while this is a fact about the tree that travels with the
+	// environment. Scoped to the workspace, so a config outside it stays untrusted.
+	//
+	// This closes a real gap rather than mirroring the container for symmetry: macos-user had
+	// NEITHER the env var nor a trust call, so its agent could hit a prompt the container path
+	// never sees. Set BEFORE env_sources and SandboxEnv so a user who wants a different value
+	// can still override it. At the `host` notch there is deliberately nothing — we do not own
+	// that environment and have no business asserting trust in it.
+	if opts.Workspace != "" {
+		env.Set("MISE_TRUSTED_CONFIG_PATHS", resolvePathAbs(opts.Workspace))
+	}
 	// The resolver's warnings (e.g. "env_sources file not found") must reach
 	// deps.Out via the rich-stripping printer so the plan output includes them
 	// (the container path wires the same warn callback; a no-op here would

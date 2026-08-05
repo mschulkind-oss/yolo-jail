@@ -2,11 +2,10 @@ package run
 
 import "strings"
 
-// setupScript is the provisioning core (mise trust/prune/install/upgrade,
+// setupScript is the provisioning core (store prune, mise install/upgrade,
 // bootstrap, venv-precreate) run under `YOLO_BYPASS_SHIMS=1 sh -c '…'`. Frozen
 // contract (must not drift — the in-jail entrypoint depends on the exact bytes).
 const setupScript = "YOLO_BYPASS_SHIMS=1 sh -c '" +
-	"(mise trust --quiet 2>/dev/null || true) && " +
 	`if [ "${YOLO_STORE_PRUNE_OK:-0}" = "1" ]; then ` +
 	`for _p in "$MISE_DATA_DIR"/installs/*/*; do ` +
 	`if [ -L "$_p" ] && [ ! -e "$_p" ]; then ` +

@@ -15,9 +15,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// A package var so tests can redirect it.
-var workspaceDir = "/workspace"
-
 // socket. A package var so tests can redirect it.
 var cgdSocket = "/run/yolo-services/cgroup-delegate.sock"
 
@@ -192,25 +189,29 @@ func setupCgroupDelegation(w io.Writer) {
 }
 
 // ---------------------------------------------------------------------------
-// Workspace mise trust
+// Workspace mise trust — REMOVED, deliberately
 // ---------------------------------------------------------------------------
-// --quiet` in /workspace when it is a directory. Output discarded. Belt-and-
-// suspenders atop MISE_TRUSTED_CONFIG_PATHS.
-func trustWorkspaceConfigs() {
-	if fi, err := os.Stat(workspaceDir); err != nil || !fi.IsDir() {
-		return
-	}
-	// NOT `--all`: `mise trust --all` also walks every subdirectory of the
-	// workspace (see `mise trust --help`), which on a large multi-repo workspace
-	// costs minutes per boot and runs on every launch. Trust is dir-scoped
-	// (cwd+parents) and MISE_TRUSTED_CONFIG_PATHS=/workspace already trusts every
-	// child config, so the subdirectory walk buys nothing.
-	cmd := exec.Command("mise", "trust", "--quiet")
-	cmd.Dir = workspaceDir
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	_ = cmd.Run()
-}
+// There used to be a trustWorkspaceConfigs() here, running `mise trust` in /workspace on
+// every boot. It is gone, and so are its two siblings (the .bashrc hook and the provisioning
+// setupScript). Do not add another.
+//
+// MISE_TRUSTED_CONFIG_PATHS=/workspace is sufficient ON ITS OWN. Verified 2026-08-05: a config
+// at an untrusted path reports `untrusted`, the same path with the env var set reports
+// `trusted` with NO on-disk mark written and no `mise trust` ever run, and a config OUTSIDE the
+// named path stays untrusted — so it is properly scoped rather than blanket-trust-everything.
+//
+// The calls were worse than redundant. `mise trust` records its mark under
+// ~/.local/state/mise/trusted-configs/, and ~/.local is bound per-WORKSPACE
+// (cli/run/assemble_parts.go), so every mark was workspace-local state that had to be
+// re-earned in each jail and vanished with a pruned state dir. The env var rides the
+// environment instead, which is where a fact about "this whole tree is ours" belongs.
+//
+// Keeping them also made the mark look load-bearing, which is how a false comment survived for
+// months: the old code claimed `--all` "covers cwd+parents only" when `mise trust --help` says
+// it walks subdirectories too — the walk that cost minutes per boot on a multi-repo workspace
+// (PR #30).
+
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // nvim config copy)
@@ -515,9 +516,6 @@ func Main(args []string) error {
 		e.ShimDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), "/bin", "/usr/bin",
 		e.LauncherDir(),
 	}, ":"))
-
-	trustWorkspaceConfigs()
-	p.mark("trust_workspace_configs")
 
 	// NOTE: We intentionally do NOT call `mise hook-env` here (flock deadlock).
 	p.dump(e.Home)
