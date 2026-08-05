@@ -20,6 +20,7 @@ docs during the batch, so verify-against-code is the house rule now.
 | **S1** | Skill collisions are SILENT at flat tier and produce two names at namespaced — unnamespaced by default, **fatal** on collision | 🔴 ruled, not built | nothing |
 | **S2** | `tier` becomes an opt-in pack declaration, not a property yolo resolves per destination | ruled, mostly moot given S1 | S1 |
 | **S3** | The jail's layer 4 reads the DESTINATION, which yolo now owns — circular | 🔴 live defect | S1 |
+| **S4** | **UNAUDITED:** can a pack's `into` deliver to an agent the user never selected, and do all packs' skills reach all destinations? | audit, not yet done | nothing |
 | **N1** | `nix` profile has no gcroot — a `packages:` build can be garbage-collected out from under a launch | 🔴 live defect | nothing |
 | **N2** | Generalize `yoloDarwinPackages` → system-neutral, un-hardcode `aarch64-darwin`, report the resolved path | prerequisite for Phase 7.2 | nothing |
 | **N3** | Non-container nix: pick Option 0/2/3 beyond N2 | **your decision** | you |
@@ -127,6 +128,41 @@ packs, and the user's own home — and each appears exactly once.
 
 **Do S1 first**: with collisions fatal, arriving twice stops being invisible and becomes an error,
 so the ordering matters.
+
+## S4 — UNAUDITED: does `into` respect the selected agent set?
+
+**Not investigated. Recorded so it is not mistaken for a settled question**, because two readings
+of the code point the same way and neither has been probed.
+
+The suspicion, from reading `internal/cli/run/prepare.go:303-317` and
+`internal/agents/skills.go:73-110`:
+
+1. **`packSkillTargets` iterates `loadedPacks` and emits a target per `skills` contribution, using
+   `Dest: c.Into`.** So the destination list comes from whatever packs are loaded — and `into`
+   names a *specific agent's* directory. Nothing visible checks that the named agent is one the
+   user selected. A pack declaring `into: ".codex/skills"` while only `claude` is in `packs`
+   looks like it would still create and populate a codex dir.
+2. **`PrepareSkills` copies EVERY pack's `skills/` into EVERY staging dir** (`packSkillDirs` is a
+   flat list, `skills.go:98`, with no per-destination filter). So a codex-specific pack's skills
+   look like they land in `.claude/skills` too.
+
+**Why this matters beyond tidiness.** `packs` is the user's selection gate — it is USER-SCOPE ONLY
+precisely so a repo-committed config cannot decide what content enters the environment. If `into`
+can name any agent's directory regardless of selection, then the gate is on *loading* while the
+effect is on *delivery*, and the second is not a subset of the first. That is the same shape as the
+mise-trust finding: the enforcement point and the real boundary were different layers.
+
+**What would settle it** — three probes, none run:
+
+1. Select **only** `claude`; add a pack declaring `into: ".codex/skills"`. Does `.codex/skills`
+   get created/mounted?
+2. Two packs, each shipping a distinct skill, two destinations. Does each skill reach both?
+3. Do the jail and host now **disagree**? Q6 changed the host to wholesale composition and left
+   the jail's flat merge alone, so this may be a fourth notch-divergence on top of S1–S3.
+
+**Do it after S1.** With collisions fatal, "every pack's skills reach every destination" stops
+being invisible and starts producing errors — which will either prove the concern or dissolve it,
+and either way the audit is cheaper once the noise is loud.
 
 ## The local pack IS layer 4 — the rationale, corrected
 
@@ -337,15 +373,16 @@ when someone is next in those three callers.
 ## Suggested order
 
 1. **S1** (collisions fatal + unnamespaced default) — it is a ruling, it is a live silent-loss
-   defect, and S2/S3 both depend on it.
+   defect, and S2/S3/S4 all depend on or are clarified by it.
 2. **S3** (layer 4 reads the local pack) immediately after, since S1 turns its double-arrival from
    invisible into an error.
 3. **S2** falls out of S1 — mostly deletion.
-4. **N1** (gcroot) — a live defect, no ruling needed.
-5. **V1** (symlink aliases) and **C1**/**C3** — small, independent, no decisions.
-6. **N2** — mechanical, and unblocks P7.2.
-7. **Your call on N3**, which decides whether Option 2 joins the list.
-8. **E2's design pass**, then **E1**.
-9. **E3**'s terminate half and **E4**'s header step.
-10. **P7** when you are on a Mac. **V2/V3/C2** as anyone passes through.
-11. **E5** only when a real surface needs it.
+4. **S4**'s audit, once S1 makes the delivery-vs-selection mismatch loud.
+5. **N1** (gcroot) — a live defect, no ruling needed.
+6. **V1** (symlink aliases) and **C1**/**C3** — small, independent, no decisions.
+7. **N2** — mechanical, and unblocks P7.2.
+8. **Your call on N3**, which decides whether Option 2 joins the list.
+9. **E2's design pass**, then **E1**.
+10. **E3**'s terminate half and **E4**'s header step.
+11. **P7** when you are on a Mac. **V2/V3/C2** as anyone passes through.
+12. **E5** only when a real surface needs it.
