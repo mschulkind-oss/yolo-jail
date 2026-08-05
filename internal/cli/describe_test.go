@@ -163,7 +163,7 @@ func TestDescribeVectorFollowsMechanism(t *testing.T) {
 			}
 		}
 		// And nothing beyond it — a vector that over-claims is worse than one that is absent.
-		for _, prim := range primitiveOrder {
+		for _, prim := range render.PrimitiveOrder() {
 			if prof.Has(prim) && !slices.Contains(tc.want, prim) {
 				t.Errorf("%s/%s: vector must not compose primitive %d", tc.notch, tc.mechanism, prim)
 			}
@@ -171,20 +171,11 @@ func TestDescribeVectorFollowsMechanism(t *testing.T) {
 	}
 }
 
-// Every primitive the model defines has a human phrasing. Without this, adding a Primitive
-// to internal/render prints a blank line in the one output whose entire job is naming what
-// enforces the confinement.
-func TestDescribeNamesEveryPrimitive(t *testing.T) {
-	for _, prim := range primitiveOrder {
-		if primitiveDoes[prim] == "" {
-			t.Errorf("primitive %d has no human description", prim)
-		}
-	}
-	if len(primitiveOrder) != len(primitiveDoes) {
-		t.Errorf("primitiveOrder (%d) and primitiveDoes (%d) disagree — a primitive is unordered "+
-			"or undescribed", len(primitiveOrder), len(primitiveDoes))
-	}
-}
+// The "every primitive has a human phrasing" invariant moved to
+// internal/render/confinement_test.go (TestEveryPrimitiveIsOrderedAndDescribed) along with the
+// table itself (C2): the briefing header now renders the same vector for an agent, so the
+// assertion belongs beside the one description both consumers read rather than in whichever
+// caller happened to own it first.
 
 // apply routes by notch; the not-yet-built notches fail closed (rc!=0) with an honest
 // message rather than silently doing nothing, and a bogus --at is a usage error.

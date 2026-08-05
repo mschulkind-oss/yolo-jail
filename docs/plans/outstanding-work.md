@@ -352,7 +352,7 @@ resolver would have supplied. Removing them exercises the default and shortens t
 examples. **Check the render fingerprint when you do** — it should not move, and if it does, the
 default is not resolving the way the validator now permits.
 
-## C2 — the briefing's per-notch prose should read the Profile
+## C2 — the briefing's per-notch prose should read the Profile — DONE
 
 `internal/agents/agentsmd.go` switches on the notch NAME to pick its prose. Q10 deliberately left
 it: the text genuinely differs per notch and a human reads it, so it is a legitimate boundary. But
@@ -360,6 +360,32 @@ it would be **better** reading the Profile — describing the primitives the not
 autonomy bit — because then the prose is accurate for a notch nobody has enumerated yet. Same
 argument that motivated `KindGuest`. Deferred at the time only because another agent held that
 file.
+
+**Split the way the item suggested:** the name still picks the title and the framing sentence
+(that prose genuinely differs, and no generated line says "this is the human's REAL machine" as
+usefully), while the two facts an agent most needs — the enforcement vector and the
+`AgentAutonomy` bit — are derived from `render.ProfileFor`. The payoff is the DEFAULT branch: the
+old name-switch fell through to the jail text, so any notch nobody enumerated was told it was in
+"a sandboxed container" — for anything below jail, exactly the falsehood the notch line was added
+to prevent. It now echoes the configured name and describes its real (fail-closed) vector.
+
+**The fingerprint did NOT move, and the spec's premise about it was wrong.** The briefing is not
+in the gate at all: `TestRenderFingerprintStable` covers the 10 files `ConfigurePackByName`
+renders (config surfaces only), and mutating the jail's briefing line to a literal `MUTATED JAIL
+BRIEFING LINE.` leaves the fingerprint test green — `internal/agents`'s own tests are what catch
+it. The jail's bytes are unchanged regardless, pinned as a literal by
+`TestBriefingJailHeaderIsUnchanged`, because every jail that boots renders that header.
+
+**Vocabulary deduplicated rather than mirrored.** `primitiveOrder`/`primitiveDoes` moved from
+`internal/cli/describe.go` into `internal/render` as `PrimitiveOrder()`/`PrimitiveDoes()`, with
+`describe` and the briefing both reading them — two wordings for one primitive drift, and a reader
+who hits the disagreement cannot tell which is current. The "every primitive is ordered and
+described" invariant moved with the table.
+
+**The `netMode == "host"` trap is pinned.** `TestBriefingNetModeHostIsNotTheHostNotch` asserts
+both directions: a host-NETWORKED jail keeps the container framing, and a host-NOTCH environment
+keeps bridge networking. Mutating `confinementHeader(in.Confinement)` to
+`confinementHeader(netMode)` fails six tests.
 
 ## C3 — `packoverlay.Collect`'s autonomy parameter — DONE
 

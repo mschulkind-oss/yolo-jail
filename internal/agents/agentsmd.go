@@ -10,6 +10,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // BlockedTool is one entry of the "Blocked Tools" section (name + optional
@@ -55,36 +57,60 @@ type BriefingInput struct {
 // output (agentsmd_test.go covers only the helpers), so sections can be added
 // or removed without regenerating a golden. NetMode defaults to "bridge" when
 // empty.
-// confinementHeader is the briefing's opening block, keyed on the confinement notch
-// (env-manager plan Phase 8). For "jail" (and empty — the default) it is exactly the
-// historical text, so the common case is unchanged byte-for-byte. For guest/host it
-// states the notch, the grants, and the absences, because an agent that believes it is
-// disposable when it is on the human's real machine will take a disposable agent's
-// risks.
+
+// confinementHeader is the briefing's opening block for the notch this environment runs
+// at (env-manager plan Phase 8, C2).
+//
+// It reads the notch's PROFILE, not just its name. The name still picks the title and the
+// framing sentence — that prose genuinely differs per notch, a human reads it, and no
+// generated sentence would say "this is the human's REAL machine" as usefully — but the
+// two facts an agent most needs are DERIVED: which primitives actually enforce the
+// boundary, and whether agent autonomy is on. That is what makes the header correct for a
+// notch nobody has enumerated yet (a Linux `guest`, whatever Phase 7 lands): an unrecognized
+// name falls to the default branch and still describes its real enforcement vector instead
+// of asserting a container that may not be there. Same argument that motivated
+// render.KindGuest — a new notch should be a question the code asks, not a branch it
+// silently inherits.
+//
+// The vocabulary comes from render.PrimitiveDoes, the same table `yolo describe` prints, so
+// the two human-facing descriptions of one primitive cannot drift.
+//
+// THE JAIL'S BYTES ARE UNCHANGED, deliberately. Every jail that boots today renders this
+// header, so adding detail there would move a rendered surface for every existing user to
+// tell them something the next two lines of the briefing already say ("a sandboxed
+// container", "no systemd, no sudo"). The notches that gain the primitive vector are the
+// ones whose prose was thin and whose enforcement is genuinely ambiguous — so
+// enforcementLines is appended on the guest/host/unknown paths only, and the jail branch
+// returns its historical literal.
 func confinementHeader(confinement string) []string {
-	switch confinement {
-	case "host":
-		return []string{
+	notch, known := render.KindForNotch(confinement)
+	if confinement == "" {
+		// Empty means the default, which is jail — the historical behavior, preserved so a
+		// caller that has not resolved the notch renders exactly what it always did.
+		notch, known = render.KindJail, true
+	}
+	prof := render.ProfileFor(notch)
+
+	switch {
+	case known && notch == render.KindHost:
+		return append([]string{
 			"# YOLO Environment — host",
 			"",
 			"You are running at the **host** confinement level: this is the human's REAL",
 			"machine, with no container around you. Changes are NOT disposable.",
 			"You have: their real credentials, their real dotfiles, no snapshot to fall back on.",
 			"Absent: nothing is mounted read-only; there is no jail to restart; `sudo` is real.",
-			"Jail tooling: `yolo --help`; config reference: `yolo config-ref`.",
-			"",
-		}
-	case "guest":
-		return []string{
+		}, enforcementLines(prof)...)
+	case known && notch == render.KindGuest:
+		return append([]string{
 			"# YOLO Environment — guest",
 			"",
 			"You are running at the **guest** confinement level: a restricted account on the",
-			"real machine (LSM-confined, its own identity), NOT a disposable container.",
+			"real machine, NOT a disposable container.",
 			"Your home is real and persists; there is no image and no jail to restart.",
-			"Jail tooling: `yolo --help`; config reference: `yolo config-ref`.",
-			"",
-		}
-	default: // "jail" or empty — unchanged from the historical briefing.
+		}, enforcementLines(prof)...)
+	case known && notch == render.KindJail:
+		// Byte-identical to the historical briefing — see the doc comment.
 		return []string{
 			"# YOLO Jail Environment",
 			"",
@@ -92,7 +118,66 @@ func confinementHeader(confinement string) []string {
 			"Jail tooling: `yolo --help`; config reference: `yolo config-ref`.",
 			"",
 		}
+	default:
+		// A notch this function does not recognize. It gets a header describing its actual
+		// primitive vector rather than one that CLAIMS a container, which is the whole point
+		// of reading the Profile: the previous version's default branch told an agent at an
+		// unknown notch it was in a sandboxed container, which for anything below jail is
+		// exactly the dangerous falsehood Phase 8 exists to prevent. ProfileFor is total and
+		// fails closed (an unrecognized name resolves to KindUnset and thus the host preset —
+		// no primitives, autonomy off), so this describes the most restricted reading rather
+		// than guessing a stronger one.
+		//
+		// The name is echoed as the CONFIG WROTE IT, not as notch.String(): an unresolvable
+		// name lands on KindUnset, so printing the Kind would title the section "unset" and
+		// lose the one clue a human debugging it needs — which value produced this. Config
+		// validation rejects an unknown `confinement` (validateConfinement), so reaching here
+		// means something bypassed that, and the actual string is the evidence.
+		return append([]string{
+			"# YOLO Environment — " + confinement,
+			"",
+			"You are running at confinement level `" + confinement + "`, which this briefing does",
+			"not recognize. Do not assume a container: what actually constrains you is listed",
+			"below, and nothing beyond it is implied.",
+		}, enforcementLines(prof)...)
 	}
+}
+
+// enforcementLines is the derived tail of a confinement header: what enforces the boundary,
+// and whether agent autonomy is on. Both are read off the Profile rather than written per
+// notch, which is what keeps them true for a notch nobody enumerated.
+//
+// The autonomy line is here because it is the most consequential thing an agent can know
+// about its own notch and is invisible everywhere else — it decides the posture INSIDE a
+// pack's config surfaces, never as a statement of its own. `yolo describe` prints the same
+// two facts to the human from the same table (printConfinementVector); this is the agent's
+// copy.
+func enforcementLines(prof render.Profile) []string {
+	lines := []string{"", "Enforced by:"}
+	var any bool
+	for _, prim := range render.PrimitiveOrder() {
+		if prof.Has(prim) {
+			lines = append(lines, "- "+render.PrimitiveDoes(prim))
+			any = true
+		}
+	}
+	if !any {
+		// A preset that composes NOTHING must say so plainly. Omitting the section would read
+		// as "not stated" when the fact IS the point.
+		lines = append(lines, "- nothing — no enforcement primitive at all; this is a real machine.")
+	}
+	if prof.AgentAutonomy {
+		lines = append(lines,
+			"",
+			"Agent autonomy is **ON**: your tools run without permission prompts, which is safe",
+			"only because the boundary above contains you.")
+	} else {
+		lines = append(lines,
+			"",
+			"Agent autonomy is **OFF**: permission prompts stay on, because nothing above",
+			"contains you. Do not try to disable them.")
+	}
+	return append(lines, "", "Jail tooling: `yolo --help`; config reference: `yolo config-ref`.", "")
 }
 
 func BriefingContent(in BriefingInput) string {

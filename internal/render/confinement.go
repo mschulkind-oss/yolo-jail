@@ -14,6 +14,8 @@ package render
 // `describe` can print, not a matrix the user hand-assembles. So this file gives a
 // primitive set and the three presets over it — not a config surface.
 
+import "strconv"
+
 // Primitive is one independent enforcement mechanism a confinement level may compose.
 type Primitive int
 
@@ -39,6 +41,46 @@ const (
 	// below it.
 	PrimBakedImage
 )
+
+// PrimitiveOrder fixes the order primitives are listed in for OUTPUT. A Profile stores its
+// primitives in a map, so without a fixed order the same notch would describe itself
+// differently per run — and the whole point of stating the vector is that two notches (or two
+// machines) can be compared. Declaration order above, strongest first.
+//
+// Returned as a fresh slice so a caller cannot reorder the canonical one in place.
+func PrimitiveOrder() []Primitive {
+	return []Primitive{
+		PrimNamespaces, PrimVM, PrimSeatbelt, PrimLandlock, PrimSeparateUser, PrimBakedImage,
+	}
+}
+
+// primitiveDoes names each enforcement primitive by WHAT IT DOES, not by its mechanism name
+// alone: "Landlock" and "namespaces" mean nothing to most readers, and a vector nobody can
+// interpret is not an improvement over not stating it.
+//
+// HERE, in the package that defines Primitive, because more than one surface renders this
+// vector for a human — `yolo describe` prints it, and the per-notch briefing prose describes it
+// to an agent. Two independent wordings for one primitive drift, and the reader who hits the
+// disagreement has no way to tell which is current. One table, two consumers.
+var primitiveDoes = map[Primitive]string{
+	PrimNamespaces:   "namespaces — kernel-isolated filesystem, processes, PIDs and network",
+	PrimVM:           "a virtual machine — its own kernel; the strongest boundary available",
+	PrimSeatbelt:     "Seatbelt — a macOS kernel policy on which files and syscalls are allowed",
+	PrimLandlock:     "Landlock — a Linux kernel policy on which paths are reachable",
+	PrimSeparateUser: "a separate OS user — its own home and keychain reach (a credential boundary)",
+	PrimBakedImage:   "a baked image — a nix-built package set, not your machine's PATH",
+}
+
+// PrimitiveDoes is the canonical one-line description of what a primitive does, for any
+// human-facing surface. A primitive with no entry describes itself by number rather than
+// returning "", so a newly added one shows up in the output as unlabelled instead of leaving
+// a blank in it — the same rule Kind.String follows.
+func PrimitiveDoes(p Primitive) string {
+	if s, ok := primitiveDoes[p]; ok {
+		return s
+	}
+	return "Primitive(" + strconv.Itoa(int(p)) + ")"
+}
 
 // Profile is a confinement level as a composed set of primitives — the thing the code
 // assembles and `describe` prints. The three constructors below are the presets; a

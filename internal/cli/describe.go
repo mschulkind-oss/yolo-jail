@@ -109,26 +109,13 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 // rather than as three unrelated lines.
 const confinementLabelPad = "               "
 
-// primitiveOrder fixes the print order of the vector. A Profile stores its primitives in a
-// map, so without this the same notch would print them in a different order per run — and
-// the whole point of printing the vector is that two notches (or two machines) can be
-// compared. Declaration order in internal/render/confinement.go, strongest first.
-var primitiveOrder = []render.Primitive{
-	render.PrimNamespaces, render.PrimVM, render.PrimSeatbelt,
-	render.PrimLandlock, render.PrimSeparateUser, render.PrimBakedImage,
-}
-
-// primitiveDoes names each enforcement primitive by WHAT IT DOES, not by its mechanism
-// name alone: "Landlock" and "namespaces" mean nothing to most readers, and a vector
-// nobody can interpret is not an improvement over not printing it.
-var primitiveDoes = map[render.Primitive]string{
-	render.PrimNamespaces:   "namespaces — kernel-isolated filesystem, processes, PIDs and network",
-	render.PrimVM:           "a virtual machine — its own kernel; the strongest boundary available",
-	render.PrimSeatbelt:     "Seatbelt — a macOS kernel policy on which files and syscalls are allowed",
-	render.PrimLandlock:     "Landlock — a Linux kernel policy on which paths are reachable",
-	render.PrimSeparateUser: "a separate OS user — its own home and keychain reach (a credential boundary)",
-	render.PrimBakedImage:   "a baked image — a nix-built package set, not your machine's PATH",
-}
+// The print order and the per-primitive prose both come from internal/render
+// (render.PrimitiveOrder / render.PrimitiveDoes) rather than living here, because this is no
+// longer the only surface that renders the vector for a human: the per-notch briefing header
+// describes the same primitives to an AGENT (C2, internal/agents/agentsmd.go). Two wordings
+// for one primitive drift, and a reader who hits the disagreement cannot tell which is
+// current — so the table sits in the package that defines Primitive, with both consumers
+// reading it.
 
 // printConfinementVector prints the resolved notch's COMPOSED PRIMITIVES plus the one
 // policy bit, which is what internal/render/confinement.go's own comment says describe is
@@ -146,9 +133,9 @@ var primitiveDoes = map[render.Primitive]string{
 // named presets are selectable (happy-path-principle.md), and this adds no config surface.
 func printConfinementVector(pr richtext.Printer, prof render.Profile) {
 	var composed []string
-	for _, prim := range primitiveOrder {
+	for _, prim := range render.PrimitiveOrder() {
 		if prof.Has(prim) {
-			composed = append(composed, primitiveDoes[prim])
+			composed = append(composed, render.PrimitiveDoes(prim))
 		}
 	}
 	if len(composed) == 0 {

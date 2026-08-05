@@ -52,6 +52,49 @@ func TestProfileForEveryKind(t *testing.T) {
 	}
 }
 
+// Every primitive the model defines is both ORDERED and DESCRIBED. Without this, adding a
+// Primitive silently prints a blank (or omits itself entirely) in the two outputs whose whole
+// job is naming what enforces the confinement: `yolo describe`'s vector and the per-notch
+// briefing header (C2).
+//
+// It lives here rather than in either caller because the table does: two independently worded
+// descriptions of one primitive drift, and a reader who hits the disagreement cannot tell which
+// is current. PrimitiveDoes never returns "" (it falls back to the number), so the emptiness
+// check is against the FALLBACK rather than against a blank — a primitive nobody described
+// shows up as "Primitive(6)", which is visible but not acceptable output.
+func TestEveryPrimitiveIsOrderedAndDescribed(t *testing.T) {
+	order := PrimitiveOrder()
+	if len(order) != len(primitiveDoes) {
+		t.Errorf("PrimitiveOrder (%d) and primitiveDoes (%d) disagree — a primitive is unordered "+
+			"or undescribed", len(order), len(primitiveDoes))
+	}
+	seen := map[Primitive]bool{}
+	for _, prim := range order {
+		if seen[prim] {
+			t.Errorf("primitive %d is listed twice in PrimitiveOrder", prim)
+		}
+		seen[prim] = true
+		if _, ok := primitiveDoes[prim]; !ok {
+			t.Errorf("primitive %d has no human description (PrimitiveDoes falls back to %q)",
+				prim, PrimitiveDoes(prim))
+		}
+	}
+	// And the reverse direction: a described primitive nobody ordered never prints at all,
+	// which is the silent half of the same drift.
+	for prim := range primitiveDoes {
+		if !seen[prim] {
+			t.Errorf("primitive %d is described but absent from PrimitiveOrder, so it never prints",
+				prim)
+		}
+	}
+	// PrimitiveOrder must hand out a COPY: a caller that sorted or truncated the canonical
+	// slice in place would change every other consumer's output.
+	order[0] = PrimBakedImage
+	if PrimitiveOrder()[0] != PrimNamespaces {
+		t.Error("PrimitiveOrder returns the canonical slice by reference — a caller can reorder it")
+	}
+}
+
 // A Target's Profile follows its stated Kind, so a caller holding a Target holds the policy
 // and never chooses a boolean of its own. The host row is the one that was a literal `false`
 // in three separate files before Q2.
