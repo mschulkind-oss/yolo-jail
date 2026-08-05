@@ -200,7 +200,12 @@ func trustWorkspaceConfigs() {
 	if fi, err := os.Stat(workspaceDir); err != nil || !fi.IsDir() {
 		return
 	}
-	cmd := exec.Command("mise", "trust", "--all", "--quiet")
+	// NOT `--all`: `mise trust --all` also walks every subdirectory of the
+	// workspace (see `mise trust --help`), which on a large multi-repo workspace
+	// costs minutes per boot and runs on every launch. Trust is dir-scoped
+	// (cwd+parents) and MISE_TRUSTED_CONFIG_PATHS=/workspace already trusts every
+	// child config, so the subdirectory walk buys nothing.
+	cmd := exec.Command("mise", "trust", "--quiet")
 	cmd.Dir = workspaceDir
 	cmd.Stdout = nil
 	cmd.Stderr = nil
