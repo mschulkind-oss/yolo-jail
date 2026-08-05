@@ -17,6 +17,9 @@ docs during the batch, so verify-against-code is the house rule now.
 
 | # | Item | Kind of work | Blocked on |
 |---|---|---|---|
+| **S1** | Skill collisions are SILENT at flat tier and produce two names at namespaced — unnamespaced by default, **fatal** on collision | 🔴 ruled, not built | nothing |
+| **S2** | `tier` becomes an opt-in pack declaration, not a property yolo resolves per destination | ruled, mostly moot given S1 | S1 |
+| **S3** | The jail's layer 4 reads the DESTINATION, which yolo now owns — circular | 🔴 live defect | S1 |
 | **N1** | `nix` profile has no gcroot — a `packages:` build can be garbage-collected out from under a launch | 🔴 live defect | nothing |
 | **N2** | Generalize `yoloDarwinPackages` → system-neutral, un-hardcode `aarch64-darwin`, report the resolved path | prerequisite for Phase 7.2 | nothing |
 | **N3** | Non-container nix: pick Option 0/2/3 beyond N2 | **your decision** | you |
@@ -33,6 +36,116 @@ docs during the batch, so verify-against-code is the house rule now.
 | **C3** | `packoverlay.Collect`'s autonomy parameter — §6c's remaining half | small | nothing |
 
 ---
+
+## S1 — skill collisions: unnamespaced by default, FATAL on collision 🔴
+
+**Maintainer ruling, 2026-08-05:** *"I want unnamespaced by default with a fatal collision error if
+skills collide on name. Namespacing should be possible by the pack's choice, but it should be a
+positive choice."*
+
+### What happens today, measured
+
+A local pack and a shared pack both shipping a skill called `dup`, one apply, `claude` (namespaced)
+plus `codex` (flat):
+
+```
+skills  dup  rendered  invoke as /sp:dup
+skills  dup  rendered  invoke as /local:dup     <- .claude: BOTH survive, two names
+skills  dup  rendered  invoke as /dup           <- .codex:  ONE survives
+```
+
+- At **namespaced** tier both coexist, so what the user thinks of as one skill has two invocations.
+- At **flat** tier one silently wins. I checked for a warning on the loss: **there is none.** A
+  pack's skill can vanish with no output line at all.
+
+The second is the defect that matters. It is the exact class of silent failure the batch existed
+to remove, and it survived because tiers made the collision unrepresentable in the case anyone
+tested (namespaced) while leaving it silent in the case that ships by default (flat — `agy`,
+`codex`, `pi` all leave `tier` unset, and `tier.go:52` documents the zero value as "the SAFE
+treatment").
+
+### And a third spelling nobody had named: the jail
+
+`internal/agents/skills.go` has **no tier concept at all** — the jail is flat-only. So one skill is
+`/mine` in a jail and `/local:mine` at host-claude. The notch changes the invocation name. The
+divergence audit (`shipped-2026-08-pack-batch.md` §6b) missed this because it audited *mechanism*
+per kind, not user-visible *naming*.
+
+### The ruling, and why it is better than resolving collisions
+
+Unnamespaced by default; a name collision is **fatal at apply time**; namespacing is a positive
+per-pack opt-in.
+
+This makes the failure **unrepresentable rather than negotiated**, which is the same move as the
+doubly-declared-config-surface refusal: today a flat collision picks a winner and says nothing,
+and a namespaced one invents a second name. A fatal error surfaces it when the user can still fix
+it — rename, or opt one pack into namespacing.
+
+**It will fire on a real case**, and that is correct rather than unfortunate: a personal pack and a
+shipped pack both shipping `agent-standards` is a genuine ambiguity the user should resolve. So the
+error has to name **both packs, both source paths, and both remedies** — a fatal error the user
+cannot act on would be worse than the silence it replaces.
+
+Note this also means the migration's suffix-on-differing-content behavior (shipped in Q6) becomes
+the *migration-only* path: adopting a user's pre-existing tree still keeps both copies under
+distinct names, because that content already exists and refusing to adopt it would be the data
+loss the migration exists to avoid. Two different situations, deliberately: **adoption preserves,
+declaration refuses.**
+
+## S2 — `tier` becomes an opt-in pack declaration
+
+Mostly a consequence of S1, and the maintainer's own read: *"maybe moot by (2)?"* — largely yes.
+
+The problem `tier` has today is that it is a **per-contribution** declaration controlling a
+**global** property (what a skill is called), so it cannot express a consistent name. Worse, a
+zero-ceremony pack declares no destinations, borrows them from the other selected packs, and
+inherits each destination's tier (`internal/packload/mergedest.go`) — which is how the local pack
+ends up namespaced in Claude and flat everywhere else without ever choosing either.
+
+Under S1 there is nothing to inherit: unnamespaced is the default, and a pack that wants a
+namespace says so once, for itself, at every destination. That is what makes it a positive choice
+rather than a property of whichever agent pack happened to name the directory.
+
+**What survives of `tier`:** the pack's own opt-in. **What goes:** yolo resolving it per
+destination, and the inheritance path.
+
+## S3 — the jail's layer 4 reads a directory yolo now owns 🔴
+
+**Verified 2026-08-05.** `internal/cli/run/prepare.go:312` sets `t.HostSource = c.Into` — so the
+jail's fourth composition layer ("the user's OWN skills tree", `skills.go:104`) reads the
+**destination**, e.g. `~/.claude/skills`.
+
+That was correct when the destination held loose user files. It is circular now: after Q6, the host
+`apply` **generates** that directory, so a jail launch reads yolo's own composed output back in as
+"the user's tree." And because the local pack is an ordinary pack entry
+(`internal/config/packs.go:215`), its content is already **layer 2** — so in a jail it arrives
+twice, by two paths, with only the flat last-writer-wins rule making that invisible.
+
+**The fix follows from the local pack's real purpose** (see below): layer 4 should read
+`paths.LocalPackDir()/skills`, not the destination. Then the layers are disjoint — built-ins,
+packs, and the user's own home — and each appears exactly once.
+
+**Do S1 first**: with collisions fatal, arriving twice stops being invisible and becomes an error,
+so the ordering matters.
+
+## The local pack IS layer 4 — the rationale, corrected
+
+An earlier note in this file conceded that a local pack needing a manifest is "just a pack in an
+awkward location." **The maintainer pushed back and was right:** *"we need somewhere for user
+contributions to go, so where else could they go now that we control briefings and skills
+completely?"*
+
+The manifest-avoidance argument was the weak one. The load-bearing argument is that yolo now owns
+`~/.claude/skills` and `~/.claude/CLAUDE.md` wholesale, so **a user contribution has nowhere else
+to live.** "Commit it to a repo pack" is not an answer for a half-baked skill, a machine-specific
+one, or scratch space you do not want in git.
+
+The jail already had this slot — layer 4, "the user's OWN skills tree, written last so a
+same-named local skill wins" (`skills.go:102-104`). The local pack is not a new concept; it is
+**that slot given a home yolo does not overwrite.** Which is also why S3 is a defect and not a
+design choice: layer 4 pointing at the destination was how the slot worked before it had a home.
+
+And S1/S2 remove the manifest need anyway — no tier declaration, no split-brain, no `pack.json`.
 
 ## N1 — the nix profile has no gcroot 🔴
 
@@ -223,11 +336,16 @@ when someone is next in those three callers.
 
 ## Suggested order
 
-1. **N1** (gcroot) — a live defect, no ruling needed.
-2. **V1** (symlink aliases) and **C1**/**C3** — small, independent, no decisions.
-3. **N2** — mechanical, and unblocks P7.2.
-4. **Your call on N3**, which decides whether Option 2 joins the list.
-5. **E2's design pass**, then **E1**.
-6. **E3**'s terminate half and **E4**'s header step.
-7. **P7** when you are on a Mac. **V2/V3/C2** as anyone passes through.
-8. **E5** only when a real surface needs it.
+1. **S1** (collisions fatal + unnamespaced default) — it is a ruling, it is a live silent-loss
+   defect, and S2/S3 both depend on it.
+2. **S3** (layer 4 reads the local pack) immediately after, since S1 turns its double-arrival from
+   invisible into an error.
+3. **S2** falls out of S1 — mostly deletion.
+4. **N1** (gcroot) — a live defect, no ruling needed.
+5. **V1** (symlink aliases) and **C1**/**C3** — small, independent, no decisions.
+6. **N2** — mechanical, and unblocks P7.2.
+7. **Your call on N3**, which decides whether Option 2 joins the list.
+8. **E2's design pass**, then **E1**.
+9. **E3**'s terminate half and **E4**'s header step.
+10. **P7** when you are on a Mac. **V2/V3/C2** as anyone passes through.
+11. **E5** only when a real surface needs it.
