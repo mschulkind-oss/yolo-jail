@@ -313,10 +313,22 @@ done
 # Persist the new sentinel.
 printf '%s\n' "$desired" > "$SENTINEL"
 
-# --- showboat (unconditional; tiny dep, useful for debugging) -----------
+# --- showboat (optional; tiny dep, useful for debugging) ----------------
+# Best-effort + non-fatal: the image may not ship a bare 'pip' on PATH (only 'python -m pip',
+# or 'pipx', or none at all), so an unconditional 'pip install' aborted the WHOLE provisioning
+# run with exit 127 ("PROVISIONING FAILED") on those jails. Try whatever installer exists, and
+# never let an optional debug tool fail provisioning.
 if ! command -v showboat >/dev/null; then
     echo "  Installing showboat..." >&2
-    YOLO_BYPASS_SHIMS=1 pip install showboat
+    if command -v pip >/dev/null 2>&1; then
+        YOLO_BYPASS_SHIMS=1 pip install showboat || true
+    elif python3 -m pip --version >/dev/null 2>&1; then
+        YOLO_BYPASS_SHIMS=1 python3 -m pip install showboat || true
+    elif command -v pipx >/dev/null 2>&1; then
+        YOLO_BYPASS_SHIMS=1 pipx install showboat || true
+    else
+        echo "  (no pip/pipx available — skipping showboat, an optional debug tool)" >&2
+    fi
 fi
 `
 
