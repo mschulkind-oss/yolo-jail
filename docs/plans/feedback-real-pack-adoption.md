@@ -362,3 +362,44 @@ dangling links that make packs permanently inert while reporting a reassuring
 `skipped (yours)` (F2), and briefings double up (F3). All three are *first-run* problems
 that a one-time user hits exactly when they have the least context — and all three are
 already-silent cases in a codebase whose stated discipline is "never silent."
+
+---
+
+## F7 — 🔴 REGRESSION (0.7.1+431): `files` re-archives on every apply, unbounded
+
+Found re-running the real-home adoption against `0.7.1+431.gb522a69`. The `files` kind now
+archives its destination on **every** `apply --host --assert`, even when the live file is
+byte-identical to the pack source and nothing changed:
+
+```console
+$ yolo apply --host --assert | grep -c 'archived to'
+10                      # matt-fzf's script + matt-local's 9 pi files
+$ yolo apply --host --assert | grep -c 'archived to'
+10                      # again. and again.
+$ ls ~/.local/share/yolo-jail/archive/skills/ | wc -l
+8                       # one new timestamped dir per apply
+$ du -sh ~/.local/share/yolo-jail/archive/
+6.4M
+```
+
+Two consecutive archive dirs are byte-identical (`diff -rq` clean), and the live file matches
+the pack source exactly — so every one of these archives is pointless.
+
+Contrast `skills`, which is correctly quiet: composed wholesale, reports
+`composed from: claude, matt-core`, and archives nothing when unchanged. And `config`
+surfaces are quiet too. It is specifically `files` that lost its unchanged check.
+
+**Why it matters beyond disk:** `archived to <path>` is the load-bearing safety signal from
+this workstream — it is what made `--assert` on a real `$HOME` feel safe (see "What worked
+well"). Ten spurious archive lines per apply, forever, trains the user to ignore exactly the
+message that should stop them. It also buries a *real* archive when one eventually happens.
+
+Note these land under `archive/skills/…` even though they are `files` contributions, which is
+its own small wrongness (the path implies a skill was archived).
+
+**Expected:** `files` compares content first, renders nothing and archives nothing when the
+destination already matches — matching the `unchanged` verb `briefing` uses. Second
+`--assert` should be a no-op in the output, not just on disk.
+
+**Note the content IS correct** — `settings.json` and briefings stayed byte-identical across
+applies, and the skills tree was unchanged. This is a noise/growth defect, not corruption.
