@@ -25,6 +25,9 @@ docs during the batch, so verify-against-code is the house rule now.
 | ✅ **N2** | ~~Generalize `yoloDarwinPackages`~~ **DONE** (`11f8bb7`) — `yoloNoncontainerPackages`, `NativeSystem()`, and `describe`/`check` report the profile path. Named for the AXIS (no baked image) rather than either notch, since `guest` needs the same closure. Found a FOURTH E8 instance: the nix-probe *remedy string* said `aarch64-linux` while its detector matched any `<arch>-linux`, so an Intel Mac was told to delete a line it does not have | — | — |
 | **N3** | Non-container nix: pick Option 0/2/3 beyond N2 | **your decision** | you |
 | **P7** | The `guest` notch (env-manager Phase 7) | feature | a Mac |
+| **B1** | Audit-only log of every jail↔host boundary crossing ([boundary-broker.md](../design/boundary-broker.md) step 1) | small, additive | nothing |
+| **B2** | Approval-gated host credentials — one allowlisted verb, synchronous ([boundary-broker.md](../design/boundary-broker.md)) | new capability | N3/OQ-1 first (shape depends on it) |
+| **B3** | Model Claude's auth MODES (oauth vs bedrock) as config — Bedrock is unmodeled in yolo today | gap | nothing; separable from B2 |
 | **E1+E2** | `host_files` modes 4→3, `readonly` as a real `:ro` mount | behavior change on a shipped key | a design pass (E2 first) |
 | **E3** | Capture on terminate (the `yolo config capture` half SHIPPED) | small | nothing |
 | **E4** | Comment preservation on `json`/`toml` surfaces | small, decisions already made | nothing |
