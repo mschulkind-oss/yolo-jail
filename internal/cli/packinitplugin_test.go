@@ -85,8 +85,15 @@ func TestInitFromPluginProducesALintablePack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(decl), `"tier": "namespaced"`) {
-		t.Errorf("the scaffolded pack.json must declare tier namespaced:\n%s", decl)
+	// MANIFEST-level `skills_tier` since S2, not a per-contribution `tier`: a wrapper is the case
+	// with the strongest claim to a namespace (the plugin's docs say `/<plugin>:<skill>`), and the
+	// key it opts in with moved.
+	if !strings.Contains(string(decl), `"skills_tier": "namespaced"`) {
+		t.Errorf("the scaffolded pack.json must declare skills_tier namespaced:\n%s", decl)
+	}
+	if strings.Contains(string(decl), `"tier"`) {
+		t.Errorf("the scaffold still writes the retired per-contribution `tier`, which every "+
+			"manifest read now refuses by name:\n%s", decl)
 	}
 }
 

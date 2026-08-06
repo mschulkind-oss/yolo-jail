@@ -60,12 +60,18 @@ func packInitFromPlugin(pluginDir, packRoot, name string, out, errw io.Writer) i
 	//     both notches read: a jail merges that dir flat (so the plugin's skills arrive, minus
 	//     its manifest), and the host render recognizes the plugin inside it and copies the
 	//     tree verbatim.
-	//   - tier `namespaced` is what asks for the verbatim copy at all. Left unstated it
-	//     defaults to flat — the safe tier — and the plugin's hooks/MCP/agents would be
-	//     refused by name instead of delivered.
+	//   - `skills_tier: "namespaced"` is what asks for the verbatim copy at all. Left unstated it
+	//     defaults to unnamespaced — and the plugin's hooks/MCP/agents would be refused by name
+	//     instead of delivered. It is a MANIFEST-level key (S2): a tier decides what a skill is
+	//     called, which is one fact about the pack rather than one per destination.
+	//
+	// A WRAPPER IS THE CASE WITH THE MOST CLAIM TO A NAMESPACE, which is why scaffolding the
+	// opt-in is right even though the default is now unnamespaced: the plugin's own documentation
+	// says `/<plugin>:<skill>`, so delivering it flat would rename every invocation it describes.
 	decl := map[string]any{
 		"name":        name,
 		"description": wrapperDescription(pluginName, plugin.Manifest.Description),
+		"skills_tier": "namespaced",
 		"contributes": []any{
 			map[string]any{
 				"kind": "skills",
@@ -75,7 +81,6 @@ func packInitFromPlugin(pluginDir, packRoot, name string, out, errw io.Writer) i
 				// so in the README. A wrong guess here is visible and one edit to fix; the
 				// alternative (no destination) does not validate.
 				"into": ".claude/skills",
-				"tier": "namespaced",
 			},
 		},
 	}

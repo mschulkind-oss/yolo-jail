@@ -150,25 +150,23 @@ func (p *Pack) declares(kind packdecl.Kind) bool {
 // borrowedDestinations is one synthesized contribution per distinct destination the OTHER packs
 // in the set name for `kind`.
 //
-// The synthesized contribution carries the declaring one's `into` and `tier` and nothing else,
-// and each omission is a decision:
+// The synthesized contribution carries the declaring one's `into` and NOTHING else, and each
+// omission is a decision:
 //
 //   - `from` stays EMPTY so it resolves to the CONVENTIONAL source — this pack's own `skills/`
 //     or AGENTS.md. That is the whole shape of the thing: the destination is borrowed, the
 //     content never is.
-//   - `tier` IS inherited, because it is a fact about the destination TOOL rather than about
-//     the pack delivering into it (internal/hostskills' package comment: core must not infer a
-//     tier from a path, and the pack that names the directory is the authority on it). So a
-//     zero-ceremony pack merging into `.claude/skills` gets the same namespaced subtree a
-//     manifest-bearing pack would — which is also the safer tier, since a namespaced subtree
-//     cannot collide with a skill the user wrote by hand.
+//   - THE TIER IS NOT INHERITED, and that inheritance is what S2 removed. It used to be, on the
+//     argument that a tier is a fact about the destination TOOL and the pack naming the
+//     directory is the authority on it. The consequence was the defect: a zero-ceremony pack
+//     borrowing `.claude/skills` (namespaced) and `.codex/skills` (flat) inherited BOTH, so the
+//     user's own local pack was namespaced in one home and flat in another and one skill had two
+//     invocation names. A tier is now the PACK's own positive choice (packdecl's SkillsTier), so
+//     there is nothing here to inherit: a borrowed destination is a destination, not a naming
+//     policy.
 //   - `after` is NOT inherited. On a `briefing` it means "prepend the user's own file", which
 //     is the AGENT pack's job at that destination; copying it would have two packs both
 //     prepending the same host file into one composed briefing.
-//
-// `tier` is only ever meaningful on `skills` (validateContribution rejects it elsewhere), so
-// copying it unconditionally is a no-op for `briefing` rather than a special case to keep in
-// sync.
 //
 // Deduplicated by destination, first in set order winning: several packs naming one skills dir
 // is `skills`' CombineMerge feature, not a conflict, and delivering the same content twice
@@ -187,7 +185,7 @@ func borrowedDestinations(kind packdecl.Kind, p *Pack, set []*Pack) []packdecl.C
 				continue
 			}
 			seen[c.Into] = true
-			out = append(out, packdecl.Contribution{Kind: kind, Into: c.Into, Tier: c.Tier})
+			out = append(out, packdecl.Contribution{Kind: kind, Into: c.Into})
 		}
 	}
 	return out

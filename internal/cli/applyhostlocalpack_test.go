@@ -47,12 +47,19 @@ func TestApplyHostDeliversTheLocalPack(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
 	}
-	// claude declares tier `namespaced`, and the inference inherits it, so the skill lands in
-	// the local pack's own subtree — where it cannot collide with a skill the user wrote by hand
-	// directly into ~/.claude/skills.
-	skill := filepath.Join(home, ".claude", "skills", "local", "skills", "mine", "SKILL.md")
+	// UNNAMESPACED, at a destination whose AGENT PACK is namespaced. That inversion is S1/S2: the
+	// tier used to be inherited from the destination's declaring pack, so this same skill landed at
+	// `.claude/skills/local/skills/mine` here and at `.codex/skills/mine` elsewhere — one skill,
+	// two invocation names, neither of them chosen by the pack that owns the content. A tier is now
+	// the PACK's own opt-in, and the local pack (which has no manifest at all) never opts in.
+	skill := filepath.Join(home, ".claude", "skills", "mine", "SKILL.md")
 	if _, err := os.Stat(skill); err != nil {
 		t.Fatalf("the local pack's skill did not reach %s: %v\nreport:\n%s", skill, err, report)
+	}
+	// And NOT under a namespace it did not ask for.
+	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "local")); err == nil {
+		t.Errorf("the local pack got a namespaced subtree it never declared — `skills_tier` is a "+
+			"POSITIVE choice, and a pack with no pack.json cannot have made it:\n%s", report)
 	}
 	brief, err := os.ReadFile(filepath.Join(home, ".claude", "CLAUDE.md"))
 	if err != nil {
@@ -63,10 +70,15 @@ func TestApplyHostDeliversTheLocalPack(t *testing.T) {
 	}
 }
 
-// ONE COPY, EVERY AGENT — the win the ruling names as the real risk it addresses. Today a
-// personal skill lives in each agent's directory independently and drifts per agent with
-// nothing reporting the divergence; one local pack is composed into every destination.
-func TestApplyHostLocalPackReachesEveryAgentPack(t *testing.T) {
+// ONE COPY, EVERY AGENT, UNDER ONE NAME — the win the ruling names as the real risk it addresses,
+// plus the half S1/S2 added.
+//
+// Before S2 the paths below were NOT parallel: claude's copy sat at `.claude/skills/local/skills/`
+// because the tier was inherited per destination, while pi's and codex's were bare. So the user
+// invoked `/local:mine` in one agent and `/mine` in the other two — a split-brain in the naming of
+// a single skill, which the pack that owns the content never asked for and could not express. The
+// symmetry of this list IS the assertion.
+func TestApplyHostLocalPackReachesEveryAgentPackUnderOneName(t *testing.T) {
 	home := localPackFixture(t, `"claude","pi","codex"`, "mine", "Personal body.")
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
@@ -74,13 +86,23 @@ func TestApplyHostLocalPackReachesEveryAgentPack(t *testing.T) {
 		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
 	}
 	for _, rel := range []string{
-		filepath.Join(".claude", "skills", "local", "skills", "mine", "SKILL.md"),
+		filepath.Join(".claude", "skills", "mine", "SKILL.md"),
 		filepath.Join(".pi", "agent", "skills", "mine", "SKILL.md"),
 		filepath.Join(".codex", "skills", "mine", "SKILL.md"),
 	} {
 		if _, err := os.Stat(filepath.Join(home, rel)); err != nil {
-			t.Errorf("the local pack's skill did not reach ~/%s: %v", rel, err)
+			t.Errorf("the local pack's skill did not reach ~/%s: %v\n%s", rel, err, report)
 		}
+	}
+	// The invocation name is the same everywhere, which is the fact the paths above encode. Asserted
+	// on the REPORT too, because the detail line is what tells the user what to type: three
+	// `invoke as /mine` lines and no `invoke as /local:mine` anywhere.
+	if n := countLines(report, "invoke as /mine"); n != 3 {
+		t.Errorf("want one `invoke as /mine` line per destination (3), got %d:\n%s", n, report)
+	}
+	if n := countLines(report, "invoke as /local:mine"); n != 0 {
+		t.Errorf("the local pack's skill is namespaced at some destination — one skill must have "+
+			"ONE name at every notch, got %d such lines:\n%s", n, report)
 	}
 }
 
@@ -173,11 +195,12 @@ func TestApplyHostConfiguredPackNamedLocalWins(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "local", "skills",
+	// Unnamespaced: the explicit `local` entry declares no `skills_tier` either (S1/S2).
+	if _, err := os.Stat(filepath.Join(home, ".claude", "skills",
 		"fromconfig", "SKILL.md")); err != nil {
 		t.Errorf("the CONFIGURED pack named `local` did not deliver: %v\n%s", err, report)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "local", "skills",
+	if _, err := os.Stat(filepath.Join(home, ".claude", "skills",
 		"fromconvention")); err == nil {
 		t.Error("the conventional dir delivered too — two packs named `local` would share one " +
 			"staging dir, and the explicit entry must win the slot outright")

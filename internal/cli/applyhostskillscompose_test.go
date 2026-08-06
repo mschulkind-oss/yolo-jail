@@ -36,7 +36,7 @@ func userSkillsFixture(t *testing.T) (home string) {
 	packDir := filepath.Join(t.TempDir(), "shared")
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"shared","description":"s","contributes":[`+
-			`{"kind":"skills","from":"skills","into":".codex/skills","tier":"flat"}]}`)
+			`{"kind":"skills","from":"skills","into":".codex/skills"}]}`)
 	writeFile(t, filepath.Join(packDir, "skills", "packonly", "SKILL.md"),
 		"---\nname: packonly\ndescription: d\n---\nPACK BODY\n")
 
@@ -358,27 +358,34 @@ func TestApplyHostSkillsObserveWritesNothing(t *testing.T) {
 	}
 }
 
-// §6a-5 AT THE COMMAND LEVEL: the local pack's copy WINS a flat-tier collision with a shared pack's
-// same-named skill.
+// S1 AT THE COMMAND LEVEL: two packs claiming one unnamespaced skill name is FATAL, and the message
+// names both packs, both source paths, and both remedies.
 //
-// This is the acceptance test §6a-5 requires, and the fixture details are all load-bearing:
+// THIS TEST REPLACES TestApplyHostSkillsLocalPackWinsFlatTierCollision, whose assertion was the
+// opposite: §6a-5 made the LOCAL PACK's copy win, because it is appended last precisely so a
+// personal skill outranks a shared pack's. The 2026-08-05 ruling gives that up deliberately, and the
+// trade is worth recording where the old test was: an intentional override and an accidental clash
+// are the SAME declaration, so yolo cannot distinguish them — and the loser got no report line at
+// all, which made it the silent-loss class this batch exists to remove. §6a-5's own fix (a later
+// layer MAY overwrite yolo's own record, so precedence is layer order rather than a permission) is
+// untouched and still exercised by the local pack winning a name no other pack ships.
 //
-//   - `codex`, whose tier is FLAT. At namespaced tier each pack gets its own subtree so a collision
-//     cannot be represented — the probe that used `claude` had both copies coexist and proved
-//     nothing, which is how the defect survived.
+// The fixture is the old one, and every detail is still load-bearing:
+//
+//   - `codex`, which is unnamespaced. A namespaced pack claims its own SUBTREE, so this pair would
+//     not contend at all — that is the message's second remedy.
 //   - a SHARED pack listed BEFORE the local pack, which is unavoidable: the local pack is appended
-//     last by config.LoadPacks. Under the old rule the earlier pack's recorded entry could not be
-//     overwritten by anything, so the local pack lost.
-//   - the assertion is on the delivered CONTENT, not on the report. The old behavior printed a
-//     `skipped (yours)` line, so a report-shaped assertion would pass on a fix that changed only the
-//     wording.
-func TestApplyHostSkillsLocalPackWinsFlatTierCollision(t *testing.T) {
+//     last by config.LoadPacks.
+//   - the assertion is on the rc and the MESSAGE CONTENT, not on a wording: each `Contains` below is
+//     a fact the user needs in order to act (which packs, which files, which two fixes).
+func TestApplyHostSkillsCollisionIsFatalAndNamesBothPacks(t *testing.T) {
 	home := t.TempDir()
 	shared := filepath.Join(t.TempDir(), "sflat")
+	sharedSkill := filepath.Join(shared, "skills", "mine")
 	writeFile(t, filepath.Join(shared, "pack.json"),
 		`{"name":"sflat","description":"s","contributes":[`+
-			`{"kind":"skills","from":"skills","into":".codex/skills","tier":"flat"}]}`)
-	writeFile(t, filepath.Join(shared, "skills", "mine", "SKILL.md"),
+			`{"kind":"skills","from":"skills","into":".codex/skills"}]}`)
+	writeFile(t, filepath.Join(sharedSkill, "SKILL.md"),
 		"---\nname: mine\ndescription: d\n---\nSHARED BODY\n")
 	writeFile(t, filepath.Join(localPackSkills(home), "mine", "SKILL.md"),
 		"---\nname: mine\ndescription: d\n---\nLOCAL BODY\n")
@@ -386,32 +393,74 @@ func TestApplyHostSkillsLocalPackWinsFlatTierCollision(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
-	dest := filepath.Join(home, ".codex", "skills", "mine", "SKILL.md")
-	// TWICE, and the second apply is not a formality — it is the run that exercises the OWNERSHIP
-	// RECORD. On a first apply both layers write inside one run, so the per-run claim set alone
-	// decides the collision; only on a re-apply does the SAVED record answer it, and the record is
-	// where §6a-5 actually lived (`OwnedBy(dest, thisPack)`). A single-apply assertion passes with
-	// the defect fully restored, verified by mutation.
-	for i, label := range []string{"first", "second"} {
-		rc, report := applyWith(t, true, nil) // nothing to adopt: a clean destination never prompts
+	rc, report := applyWith(t, true, nil) // nothing to adopt: a clean destination never prompts
+	if rc == 0 {
+		t.Fatalf("two packs claiming `mine` at an unnamespaced destination must FAIL the apply:\n%s",
+			report)
+	}
+	// NOTHING was composed. Asserted on the filesystem rather than the report, because "refused" is
+	// only worth saying if the home was really left alone.
+	if _, err := os.Stat(filepath.Join(home, ".codex", "skills", "mine")); !os.IsNotExist(err) {
+		t.Errorf("a refused composition still wrote the contended skill (stat err=%v)\n%s",
+			err, report)
+	}
+	// EXACTLY ONE refusal line for the kind. A report-wide Contains is unreliable here — the census
+	// and destination lines mention `skills` too — so this asserts the specific line.
+	if n := countLines(report, "skills     refused", "name collision"); n != 1 {
+		t.Errorf("want exactly one skills-collision refusal line, got %d:\n%s", n, report)
+	}
+	// THE MESSAGE IS THE FEATURE: a fatal the user cannot act on is worse than the silence it
+	// replaces, and this one WILL fire on a real case (a personal pack and a shipped pack both
+	// shipping `agent-standards`).
+	for _, want := range []string{
+		"sflat", "local", // both packs, by name
+		sharedSkill, // the shared pack's source path
+		filepath.Join(localPackSkills(home), "mine"), // and the local pack's
+		"RENAME",      // remedy 1
+		"skills_tier", // remedy 2, by the exact key
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the refusal does not mention %q, which the user needs in order to fix "+
+				"it:\n%s", want, report)
+		}
+	}
+}
+
+// RENAMING RESOLVES IT, and the local pack still wins a name no other pack ships — which is the half
+// of §6a-5 that survives S1: precedence is LAYER ORDER, not a permission a record grants.
+func TestApplyHostSkillsRenameResolvesTheCollision(t *testing.T) {
+	home := t.TempDir()
+	shared := filepath.Join(t.TempDir(), "sflat")
+	writeFile(t, filepath.Join(shared, "pack.json"),
+		`{"name":"sflat","description":"s","contributes":[`+
+			`{"kind":"skills","from":"skills","into":".codex/skills"}]}`)
+	writeFile(t, filepath.Join(shared, "skills", "theirs", "SKILL.md"),
+		"---\nname: theirs\ndescription: d\n---\nSHARED BODY\n")
+	writeFile(t, filepath.Join(localPackSkills(home), "mine", "SKILL.md"),
+		"---\nname: mine\ndescription: d\n---\nLOCAL BODY\n")
+	selectPacks(t, home, `"codex",{"source":"file://`+shared+`","name":"sflat"}`)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	// TWICE, and the second apply is not a formality — it is the run that exercises the SAVED
+	// OWNERSHIP RECORD rather than the per-run claim set (the original test's note, still true).
+	for _, label := range []string{"first", "second"} {
+		rc, report := applyWith(t, true, nil)
 		if rc != 0 {
 			t.Fatalf("%s apply --host --assert rc=%d\n%s", label, rc, report)
 		}
-		got, err := os.ReadFile(dest)
-		if err != nil {
-			t.Fatalf("%s apply: the skill was not delivered: %v\n%s", label, err, report)
+		for name, body := range map[string]string{"mine": "LOCAL BODY", "theirs": "SHARED BODY"} {
+			got, err := os.ReadFile(filepath.Join(home, ".codex", "skills", name, "SKILL.md"))
+			if err != nil {
+				t.Fatalf("%s apply: %s was not delivered: %v\n%s", label, name, err, report)
+			}
+			if !strings.Contains(string(got), body) {
+				t.Errorf("%s apply: %s carries %q, want %q", label, name, got, body)
+			}
 		}
-		if !strings.Contains(string(got), "LOCAL BODY") {
-			t.Errorf("%s apply: the LOCAL PACK's copy must win a flat-tier collision — it is "+
-				"appended last precisely because a personal skill outranks a shared pack's "+
-				"(§6a-5). Got:\n%s\nreport:\n%s", label, got, report)
-		}
-		// And nothing was reported as the user's: under the old rule the second apply printed
-		// `skipped (yours) … belongs to pack "sflat"` against a name the local pack was entitled to.
 		if n := countLines(report, "skipped (yours)"); n != 0 {
-			t.Errorf("%s apply: a pack overwriting another PACK's entry is not a user-content "+
-				"refusal, got %d such lines:\n%s", label, n, report)
+			t.Errorf("%s apply: a pack's own entry is not a user-content refusal, got %d such "+
+				"lines:\n%s", label, n, report)
 		}
-		_ = i
 	}
 }

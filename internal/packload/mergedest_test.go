@@ -103,22 +103,34 @@ func TestResolveDestinationsInfersFromTheSelectedSet(t *testing.T) {
 	}
 }
 
-// `tier` is INHERITED from the pack that named the destination: it is a fact about the
-// destination tool, not about who delivers into it (internal/hostskills). Without this a
-// zero-ceremony pack would land flat in ~/.claude/skills, beside the user's own entries, where
-// the declaring pack gets its own namespaced subtree.
-func TestResolveDestinationsInheritsTier(t *testing.T) {
+// S2: A TIER IS NOT INHERITED. A BORROWED DESTINATION IS A DESTINATION, NOT A NAMING POLICY.
+//
+// This test replaces TestResolveDestinationsInheritsTier, which asserted the opposite on the
+// argument that a tier is a fact about the destination TOOL and the pack naming the directory is
+// the authority on it. The consequence was the defect: a zero-ceremony pack borrowing BOTH
+// `.claude/skills` (namespaced) and `.codex/skills` (flat) inherited both, so one skill in one pack
+// was `/zc:mine` in Claude and `/mine` in codex — two names for one skill, neither of them chosen
+// by the pack that owns the content, which has no manifest to choose with. A tier is now the pack's
+// OWN positive opt-in (packdecl's SkillsTier), so there is nothing here to inherit.
+func TestResolveDestinationsDoesNotInheritTier(t *testing.T) {
 	claude := agentPack(t, "claude", packdecl.Contribution{
-		Kind: packdecl.KindSkills, From: "skills", Into: ".claude/skills", Tier: "namespaced"})
+		Kind: packdecl.KindSkills, From: "skills", Into: ".claude/skills"})
+	claude.Decl.SkillsTier = "namespaced" // the DECLARING pack's own choice, for itself
 	zc := zeroCeremonyPack(t, "zc", true, false)
 
 	d := zc.ResolveDestinations([]*Pack{claude, zc})
 	if len(d.Inferred) != 1 {
 		t.Fatalf("Inferred = %v, want one skills destination", d.Inferred)
 	}
-	if d.Inferred[0].Tier != "namespaced" {
-		t.Errorf("inferred tier = %q, want %q — the pack that NAMES a skills dir is the "+
-			"authority on how much namespacing that tool supports", d.Inferred[0].Tier, "namespaced")
+	if d.Inferred[0].Tier != "" {
+		t.Errorf("inferred tier = %q, want empty — the retired per-contribution field must not be "+
+			"synthesized either", d.Inferred[0].Tier)
+	}
+	// And the BORROWER's own tier is untouched by the pack it borrowed from: `zc` has no manifest,
+	// so it never opted in, and yolo must not opt in on its behalf.
+	if d.Pack.Decl.WantsNamespacedSkills() {
+		t.Error("a zero-ceremony pack inherited the destination pack's namespacing — `skills_tier` " +
+			"is a POSITIVE choice, and a pack with no pack.json cannot have made it")
 	}
 	// `from` must stay EMPTY so it resolves to the borrower's OWN conventional dir. Inheriting
 	// it would read the agent pack's source, which is the one thing the inference must not do.

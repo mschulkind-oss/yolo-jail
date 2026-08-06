@@ -223,7 +223,7 @@ func TestSkillsSourceKeepsDistinctSources(t *testing.T) {
 func TestPluginsFollowSkillsFrom(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "pack.json"),
-		[]byte(`{"contributes":[{"kind":"skills","from":"my-skills","into":".claude/skills","tier":"namespaced"}]}`),
+		[]byte(`{"skills_tier":"namespaced","contributes":[{"kind":"skills","from":"my-skills","into":".claude/skills"}]}`),
 		0o644); err != nil {
 		t.Fatal(err)
 	}

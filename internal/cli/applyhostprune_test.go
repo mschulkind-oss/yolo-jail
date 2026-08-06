@@ -23,7 +23,7 @@ import (
 // assert that the CONFIRMED half (skills, files) and the unconditional half (briefing) keep
 // their separate behavior.
 const dropPackJSON = `{"name":"dropme","description":"d","contributes":[
-  {"kind":"skills","from":"skills","into":".claude/skills","tier":"flat"},
+  {"kind":"skills","from":"skills","into":".claude/skills"},
   {"kind":"files","from":"bin","into":".claude/bin"},
   {"kind":"briefing","from":"AGENTS.md","into":".claude/CLAUDE.md"}]}`
 
@@ -288,7 +288,7 @@ func TestApplyHostRetireSparesConfiguredPacksAndUserSkills(t *testing.T) {
 	keepDir := filepath.Join(t.TempDir(), "keepme")
 	writeFile(t, filepath.Join(keepDir, "pack.json"),
 		`{"name":"keepme","description":"k","contributes":[
-		  {"kind":"skills","from":"skills","into":".claude/skills","tier":"flat"}]}`)
+		  {"kind":"skills","from":"skills","into":".claude/skills"}]}`)
 	writeFile(t, filepath.Join(keepDir, "skills", "kept", "SKILL.md"),
 		"---\nname: kept\ndescription: k\n---\nKept.\n")
 	mine := filepath.Join(home, ".claude", "skills", "myown", "SKILL.md")
@@ -317,15 +317,21 @@ func TestApplyHostRetireSparesConfiguredPacksAndUserSkills(t *testing.T) {
 		t.Errorf("the user's own skill must survive the migration byte-identical at %s: %v %q",
 			local, err, data)
 	}
-	// claude is namespaced, so the local pack's skills arrive under its own subtree.
-	back := filepath.Join(home, ".claude", "skills", "local", "skills", "myown", "SKILL.md")
+	// Unnamespaced, so it composes back to the SAME PATH it was migrated from (S2: the local pack
+	// has no manifest, so it never made the positive `skills_tier` choice, and `claude` no longer
+	// lends it one). `mine` and `back` are therefore one path, which is why the "no leftover copy"
+	// assertion that used to sit here is gone: at this level the two claims contradict each other
+	// now, and the one that matters — a MOVE leaves nothing behind — is pinned where the render
+	// does not immediately re-deliver over it
+	// (hostskills.TestMigrationMovesTheUsersSkillIntoTheLocalPack).
+	back := filepath.Join(home, ".claude", "skills", "myown", "SKILL.md")
+	if back != mine {
+		t.Fatalf("fixture drift: this test's premise is that an unnamespaced local pack composes "+
+			"back to the migrated-from path (%s vs %s)", back, mine)
+	}
 	if got, rerr := os.ReadFile(back); rerr != nil || string(got) != string(data) {
 		t.Errorf("the migrated skill must still reach the agent, byte-identical, at %s: %v",
 			back, rerr)
-	}
-	if _, serr := os.Stat(mine); !os.IsNotExist(serr) {
-		t.Errorf("a MIGRATION moves rather than copies — a leftover at %s would drift per agent "+
-			"again, which is the risk §6a-2 exists to remove (stat err=%v)", mine, serr)
 	}
 }
 
@@ -336,8 +342,8 @@ func TestApplyHostRetiresDroppedNamespacedSubtree(t *testing.T) {
 	home := t.TempDir()
 	packDir := filepath.Join(t.TempDir(), "nsdrop")
 	writeFile(t, filepath.Join(packDir, "pack.json"),
-		`{"name":"nsdrop","description":"n","contributes":[
-		  {"kind":"skills","from":"skills","into":".claude/skills","tier":"namespaced"}]}`)
+		`{"name":"nsdrop","description":"n","skills_tier":"namespaced","contributes":[
+		  {"kind":"skills","from":"skills","into":".claude/skills"}]}`)
 	writeFile(t, filepath.Join(packDir, "skills", "nsdemo", "SKILL.md"),
 		"---\nname: nsdemo\ndescription: n\n---\nNS.\n")
 	selectPacks(t, home, `"claude",{"source":"file://`+packDir+`","name":"nsdrop"}`)

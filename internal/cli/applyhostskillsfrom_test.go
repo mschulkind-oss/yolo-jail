@@ -25,7 +25,7 @@ func hostSkillsFixture(t *testing.T, srcDir, from string) string {
 	packDir := filepath.Join(t.TempDir(), "sf")
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"sf","description":"d","contributes":[`+
-			`{"kind":"skills","from":"`+from+`","into":".claude/skills","tier":"flat"}]}`)
+			`{"kind":"skills","from":"`+from+`","into":".claude/skills"}]}`)
 	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "sf prose\n")
 	if srcDir != "" {
 		writeFile(t, filepath.Join(packDir, srcDir, "sfskill", "SKILL.md"),
@@ -118,8 +118,8 @@ func TestApplyHostSkillsPluginUnderCustomFrom(t *testing.T) {
 	home := t.TempDir()
 	packDir := filepath.Join(t.TempDir(), "wrapper")
 	writeFile(t, filepath.Join(packDir, "pack.json"),
-		`{"name":"wrapper","description":"d","contributes":[`+
-			`{"kind":"skills","from":"my-skills","into":".claude/skills","tier":"namespaced"}]}`)
+		`{"name":"wrapper","description":"d","skills_tier":"namespaced","contributes":[`+
+			`{"kind":"skills","from":"my-skills","into":".claude/skills"}]}`)
 	writeFile(t, filepath.Join(packDir, "my-skills", "acme-tools", ".claude-plugin", "plugin.json"),
 		`{"name":"acme-tools","description":"third-party","skills":["./"]}`)
 	writeFile(t, filepath.Join(packDir, "my-skills", "acme-tools", "skills", "deep", "SKILL.md"),

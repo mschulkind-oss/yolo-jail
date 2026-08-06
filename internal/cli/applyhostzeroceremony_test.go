@@ -49,9 +49,11 @@ func TestApplyHostZeroCeremonyPackDelivers(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
 	}
-	// claude declares tier `namespaced`, and the inference inherits it — so the skill lands in
-	// the pack's own subtree, where it cannot collide with a skill the user wrote by hand.
-	skill := filepath.Join(home, ".claude", "skills", "zc", "skills", "zcskill", "SKILL.md")
+	// UNNAMESPACED, even though `claude` — the pack that NAMES this destination — is namespaced.
+	// The inference used to inherit the destination's tier, which is what S2 removed: a borrowed
+	// destination is a destination, not a naming policy, and a pack that declared nothing cannot
+	// have made the positive choice `skills_tier` now requires.
+	skill := filepath.Join(home, ".claude", "skills", "zcskill", "SKILL.md")
 	if _, err := os.Stat(skill); err != nil {
 		t.Fatalf("a zero-ceremony pack's skill did not reach %s: %v\n"+
 			"F1: the jail infers this destination and the host must too\nreport:\n%s",
@@ -95,10 +97,13 @@ func TestApplyHostZeroCeremonyReachesEveryAgentPack(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
 	}
-	// pi and codex declare no tier, so they get the flat delivery: the skill sits directly in
-	// the agent's own skills dir.
+	// ONE NAME AT ALL THREE, which is S2's outcome and the reason this list is now parallel. It
+	// used to read `.claude/skills/zc/skills/zcskill` against two bare paths, because the tier was
+	// inherited per destination — so this one pack's one skill was `/zc:zcskill` in Claude and
+	// `/zcskill` in pi and codex. The pack never chose either, and could not have: it has no
+	// manifest.
 	for _, rel := range []string{
-		filepath.Join(".claude", "skills", "zc", "skills", "zcskill", "SKILL.md"),
+		filepath.Join(".claude", "skills", "zcskill", "SKILL.md"),
 		filepath.Join(".pi", "agent", "skills", "zcskill", "SKILL.md"),
 		filepath.Join(".codex", "skills", "zcskill", "SKILL.md"),
 	} {
@@ -108,6 +113,11 @@ func TestApplyHostZeroCeremonyReachesEveryAgentPack(t *testing.T) {
 	}
 	if !strings.Contains(report, "zcskill") {
 		t.Errorf("report never names the delivered skill:\n%s", report)
+	}
+	// The invocation name is identical everywhere — the split-brain S2 removed.
+	if n := countLines(report, "invoke as /zc:zcskill"); n != 0 {
+		t.Errorf("a pack with NO manifest was namespaced at some destination, got %d such "+
+			"lines:\n%s", n, report)
 	}
 }
 
@@ -134,7 +144,7 @@ func TestApplyHostDeclaringPackIsUnaffectedByTheInference(t *testing.T) {
 	packDir := filepath.Join(t.TempDir(), "declaring")
 	writeFile(t, filepath.Join(packDir, "pack.json"),
 		`{"name":"declaring","description":"d","contributes":[`+
-			`{"kind":"skills","from":"skills","into":".claude/skills","tier":"flat"}]}`)
+			`{"kind":"skills","from":"skills","into":".claude/skills"}]}`)
 	writeFile(t, filepath.Join(packDir, "skills", "decskill", "SKILL.md"),
 		"---\nname: decskill\ndescription: d\n---\nbody\n")
 	writeFile(t, filepath.Join(packDir, "AGENTS.md"), "Declaring prose.\n")

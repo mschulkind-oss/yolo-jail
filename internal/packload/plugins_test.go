@@ -26,8 +26,8 @@ func writeWrapperPack(t *testing.T, name, pluginName, pluginManifest string) str
 		[]byte(pluginManifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	decl := `{"name":"` + name + `","contributes":[` +
-		`{"kind":"skills","from":"skills","into":".claude/skills","tier":"namespaced"}]}`
+	decl := `{"name":"` + name + `","skills_tier":"namespaced","contributes":[` +
+		`{"kind":"skills","from":"skills","into":".claude/skills"}]}`
 	if err := os.WriteFile(filepath.Join(root, packdecl.ManifestName),
 		[]byte(decl), 0o644); err != nil {
 		t.Fatal(err)
