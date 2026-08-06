@@ -19,6 +19,7 @@ package packdecl
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -37,6 +38,31 @@ type Manifest struct {
 
 	// Description is one line, shown by `yolo pack ls`.
 	Description string `json:"description,omitempty"`
+
+	// SkillsTier is the pack's POSITIVE OPT-IN to having its own skills namespaced in a
+	// real home (maintainer ruling 2026-08-05, outstanding-work.md S1/S2). Values:
+	//
+	//   ""            unnamespaced — every skill this pack ships is a bare name, and a
+	//                 collision with another pack's bare name is FATAL at apply time
+	//                 (internal/hostskills' Collisions) rather than silently resolved
+	//   "flat"        the same thing said out loud
+	//   "namespaced"  yolo writes ONE subtree per destination — <skills-dir>/<pack>/ with a
+	//                 plugin manifest — and this pack's skills invoke as <pack>:<skill>
+	//
+	// PER PACK, not per contribution, and that is the whole of S2. A tier decides what a
+	// skill is CALLED, which is a global property; declared per contribution it could not
+	// express a consistent name, and a zero-ceremony pack (which declares no destinations at
+	// all, borrowing them from the other selected packs) INHERITED a tier per destination —
+	// which is how the local pack came to be namespaced in Claude and flat everywhere else
+	// without ever choosing either.
+	//
+	// So it is the PACK's choice at every destination it reaches, never yolo's per
+	// destination. The consequence, stated because it is a real trade: a pack that opts in
+	// gets a namespaced subtree at EVERY destination it names, including one whose tool may
+	// not load a plugin manifest. ProbeTier still refuses the shape where the destination
+	// itself rules it out, but it cannot ask a tool what it supports — and under this ruling
+	// guessing on the pack's behalf is the thing being removed.
+	SkillsTier string `json:"skills_tier,omitempty"`
 
 	// Contributes is the pack's effects: one list of typed contributions, each with
 	// an explicit `kind` from the closed set (see contributes.go / kinds.go). It
@@ -155,10 +181,31 @@ func DecodeTolerant(data []byte) (*Manifest, []string) {
 	return &m, m.Validate()
 }
 
-// Validate reports every structural problem — per-kind over contributes[].
+// Validate reports every structural problem — the pack-level fields, then per-kind over
+// contributes[].
 func (m *Manifest) Validate() []string {
-	return m.validateContributions()
+	problems := m.validateSkillsTier()
+	return append(problems, m.validateContributions()...)
 }
+
+// validateSkillsTier rejects a misspelled `skills_tier`.
+//
+// An ERROR, not a silent downgrade, for the reason the per-contribution field's check gave and
+// one more the move makes sharper: this is now a PACK-level declaration, so reading it as flat
+// would unnamespace every skill the pack ships at every destination — and the author's only
+// symptom would be collisions they did not cause.
+func (m *Manifest) validateSkillsTier() []string {
+	switch m.SkillsTier {
+	case "", "flat", "namespaced":
+		return nil
+	}
+	return []string{fmt.Sprintf("skills_tier: unknown tier %q (flat or namespaced)", m.SkillsTier)}
+}
+
+// WantsNamespacedSkills reports whether this pack opted in to namespacing. THE accessor for
+// the tier, so no reader compares the string itself — the `tier` field this replaced was read
+// in four places and one of them (mergedest's inheritance) is exactly what S2 removed.
+func (m *Manifest) WantsNamespacedSkills() bool { return m.SkillsTier == "namespaced" }
 
 // appendPathProblems rejects a path that escapes the tree it is relative to.
 //

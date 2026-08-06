@@ -77,22 +77,16 @@ type Contribution struct {
 	// approval for, whether or not this launch is in a jail.
 	After string `json:"after,omitempty"`
 
-	// Tier declares how much SKILL NAMESPACING the destination tool supports, which bounds
-	// how safely yolo can manage that tool's skills dir in a REAL home (a jail is
-	// unaffected: its skills mount is disposable and :ro). Values:
+	// Tier is a TOMBSTONE for the per-contribution tier S2 removed: it declared a GLOBAL
+	// property (what a skill is called) at a PER-DESTINATION site, so it could not express a
+	// consistent name — and mergedest inherited it per destination, which is how a pack that
+	// declared nothing ended up namespaced in one home and flat in another. It is now
+	// Manifest.SkillsTier: one positive choice, per pack, honored everywhere.
 	//
-	//   ""            same as "flat" — the safe default, so a pack that says nothing gets
-	//                 no authority over a subtree of the user's home
-	//   "flat"        every skill is a bare name in one dir; yolo writes beside the user's
-	//                 own entries and tracks its output in a manifest
-	//   "namespaced"  the tool loads a per-directory plugin manifest and qualifies those
-	//                 skills by its name, so one pack can own one subtree outright
-	//
-	// Declared by the PACK because the pack is what knows which tool it configures; core
-	// must not infer it from the destination path, which would hardcode a tool's name into
-	// core. Verified against the destination before it is trusted (internal/hostskills
-	// ProbeTier), since the namespaced mechanism is undocumented in the tools that
-	// implement it and could regress.
+	// It stays DECODABLE, and refused by name (validateContribution), rather than being
+	// deleted outright. Deleting it would make an existing pack fail on the strict decoder's
+	// `json: unknown field "tier"` — loud, but naming neither the replacement nor the reason,
+	// which is the one thing a pack author cannot act on. Nothing reads the value.
 	Tier string `json:"tier,omitempty"`
 
 	// --- config / config-overlay ---
@@ -677,6 +671,15 @@ func (m *Manifest) validateContributions() []string {
 // runs the path guards on every path-bearing field.
 func validateContribution(label string, c Contribution) []string {
 	var problems []string
+	// The retired per-contribution tier, refused for EVERY kind with the migration in the
+	// message (see Contribution.Tier). Before the switch because the field is no longer a
+	// property of any one kind — it is a property of the pack now.
+	if c.Tier != "" {
+		problems = append(problems, fmt.Sprintf(
+			"%s: \"tier\" is no longer a contribution field — a tier decides what a skill is "+
+				"CALLED, which is one fact about the whole pack rather than one per destination. "+
+				"Move it to the manifest's top-level \"skills_tier\": %q", label, c.Tier))
+	}
 	req := func(field, val string) {
 		if val == "" {
 			problems = append(problems, fmt.Sprintf("%s: kind %q needs %q", label, c.Kind, field))
@@ -732,19 +735,6 @@ func validateContribution(label string, c Contribution) []string {
 		req("into", c.Into)
 		problems = appendPathProblems(problems, label+".from", c.From)
 		problems = appendPathProblems(problems, label+".into", c.Into)
-		// A misspelled tier is an ERROR, not a silent downgrade to flat. Silently reading
-		// it as flat would be safe but confusing (the pack author sees no namespacing and
-		// no reason why); silently reading it as namespaced would hand a real home more
-		// authority than the pack meant to ask for.
-		if c.Kind == KindSkills && c.Tier != "" &&
-			c.Tier != "flat" && c.Tier != "namespaced" {
-			problems = append(problems, fmt.Sprintf(
-				"%s: unknown tier %q (flat or namespaced)", label, c.Tier))
-		}
-		if c.Kind != KindSkills && c.Tier != "" {
-			problems = append(problems, fmt.Sprintf(
-				"%s: %q does not take a \"tier\" (it only applies to skills)", label, c.Kind))
-		}
 	case KindConfig:
 		if len(c.Raw) == 0 {
 			problems = append(problems, label+": config needs a \"config\" surface definition")
