@@ -113,8 +113,17 @@ func TestResolveDestinationsInfersFromTheSelectedSet(t *testing.T) {
 // by the pack that owns the content, which has no manifest to choose with. A tier is now the pack's
 // OWN positive opt-in (packdecl's SkillsTier), so there is nothing here to inherit.
 func TestResolveDestinationsDoesNotInheritTier(t *testing.T) {
+	// The declaring pack carries BOTH spellings, and that is what gives the assertions below their
+	// teeth. Found by mutation: with the fixture declaring neither, restoring
+	// `Tier: c.Tier` in borrowedDestinations copied an empty string and the suite stayed green —
+	// the test proved only that nothing invents a tier, not that nothing PROPAGATES one.
+	//
+	// `Tier` on the contribution is the RETIRED field (packdecl refuses it at the authoring
+	// boundary), reachable here only through the tolerant decoder at a version boundary. It is set
+	// deliberately: the inference must not launder a field the validator rejects into a
+	// synthesized contribution, where no validator ever looks again.
 	claude := agentPack(t, "claude", packdecl.Contribution{
-		Kind: packdecl.KindSkills, From: "skills", Into: ".claude/skills"})
+		Kind: packdecl.KindSkills, From: "skills", Into: ".claude/skills", Tier: "namespaced"})
 	claude.Decl.SkillsTier = "namespaced" // the DECLARING pack's own choice, for itself
 	zc := zeroCeremonyPack(t, "zc", true, false)
 
@@ -124,7 +133,8 @@ func TestResolveDestinationsDoesNotInheritTier(t *testing.T) {
 	}
 	if d.Inferred[0].Tier != "" {
 		t.Errorf("inferred tier = %q, want empty — the retired per-contribution field must not be "+
-			"synthesized either", d.Inferred[0].Tier)
+			"synthesized OR propagated: nothing reads it, and a synthesized contribution is past "+
+			"every validator that would refuse it", d.Inferred[0].Tier)
 	}
 	// And the BORROWER's own tier is untouched by the pack it borrowed from: `zc` has no manifest,
 	// so it never opted in, and yolo must not opt in on its behalf.
