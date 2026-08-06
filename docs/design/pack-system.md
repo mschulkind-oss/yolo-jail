@@ -846,13 +846,33 @@ Not yet wired:
       shared pack. It did not before: the per-entry rule asked "did THIS PACK write it?", which
       refused any pack overwriting another's recorded name whatever the order, and the local
       pack lost a flat-tier collision (§6a-5). Composition asks only "is this yolo's?", so the
-      refusal is unrepresentable rather than handled.
-    - **The tier survived, narrowed.** Tiers were expected to collapse — they existed so a flat
-      merge into a shared directory could know what it may touch, and yolo now owns the
-      directory outright. What remains is real but smaller: a tier decides how the AGENT invokes
-      a skill (`tier: "namespaced"` writes one subtree per pack, invoked `<pack>:<skill>`; the
-      default `flat` writes bare names) and therefore what shape yolo writes — never what yolo
-      may overwrite. Still declared by the pack and then probed.
+      refusal is unrepresentable rather than handled. **Superseded in part by S1 below:** layer
+      order still decides which layer may write a name, but two packs *contending* for one
+      unnamespaced name no longer reach that rule at all — it is refused.
+    - **The tier survived, narrowed** — and then narrowed again. It decides how the AGENT invokes
+      a skill (a namespaced pack gets one subtree, invoked `<pack>:<skill>`; the default writes
+      bare names) and therefore what shape yolo writes, never what yolo may overwrite.
+      **Superseded by S1/S2 (maintainer ruling 2026-08-05):** it is now a MANIFEST-level
+      `"skills_tier"` — one positive choice per pack, honored at every destination — not a
+      per-contribution `"tier"`, and unnamespaced is the default:
+      - A per-contribution tier declared a GLOBAL property (what a skill is called) at a
+        PER-DESTINATION site, so it could not express a consistent name. Worse, a zero-ceremony
+        pack borrows its destinations and INHERITED each one's tier, so the user's own local pack
+        was namespaced in Claude and flat everywhere else without ever choosing either — one
+        skill, two invocation names. The inheritance is gone; a borrowed destination is a
+        destination, not a naming policy.
+      - **A NAME COLLISION BETWEEN TWO PACKS IS FATAL** at apply time, naming both packs, both
+        source paths, and both remedies (rename, or opt one pack into namespacing). Measured
+        before the ruling: at flat tier one pack's skill silently won and the loser produced no
+        output line at all; at namespaced tier both survived under two names. The error costs the
+        deliberate flat-tier override, and that is the ruling's own trade — an intentional
+        override and an accidental clash are the same declaration, so yolo cannot tell them apart
+        and the user should.
+      - The MIGRATION's suffix path is untouched: adopting a user's pre-existing tree still keeps
+        both copies (`mine`, `mine-from-codex`). **Adoption preserves, declaration refuses** —
+        two different situations, deliberately.
+      - A pack still carrying `"tier"` on a contribution is refused BY NAME with the migration in
+        the message, rather than failing on the strict decoder's bare `unknown field "tier"`.
   - **`briefing` is GENERATED WHOLESALE**, at every notch (maintainer ruling 2026-08-04,
     shipped-2026-08-pack-batch.md §6a). It was a delimited managed block inside the user's file; that
     mechanism existed to keep an append from growing without bound when source and destination
