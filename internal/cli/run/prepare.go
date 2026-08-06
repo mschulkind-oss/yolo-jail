@@ -296,10 +296,11 @@ func briefingStagingName(pack string) string { return "briefing-" + pack + ".md"
 
 // packSkillTargets turns pack mount declarations into skills staging targets.
 //
-// The user's OWN skills tree is layered in from the same jail-relative path the pack
-// declared, because a tool reads its skills from one place regardless of who put them
-// there — and a local skill must outrank a pack's. Only a pack whose origin permits
-// host access gets that layer, since it reads the host home.
+// It used to also set each target's HostSource to `c.Into` — the DESTINATION — so the jail's
+// last skills layer read the host's own ~/.<agent>/skills. That is S3: since `apply --host`
+// composes those directories, the jail was reading yolo's generated output back in as "the
+// user's tree", and the local pack's content therefore arrived twice. The user's own skills
+// reach a jail through the local pack, which is an ordinary pack entry appended last.
 func packSkillTargets(loadedPacks []*packload.Pack) []agents.SkillTarget {
 	var out []agents.SkillTarget
 	for _, p := range loadedPacks {
@@ -307,11 +308,9 @@ func packSkillTargets(loadedPacks []*packload.Pack) []agents.SkillTarget {
 			if c.Kind != packdecl.KindSkills {
 				continue
 			}
-			t := agents.SkillTarget{Staging: agents.SkillStagingName(p.Name), Dest: c.Into}
-			if p.MayAccessHost {
-				t.HostSource = c.Into
-			}
-			out = append(out, t)
+			out = append(out, agents.SkillTarget{
+				Staging: agents.SkillStagingName(p.Name), Dest: c.Into,
+			})
 		}
 	}
 	return out

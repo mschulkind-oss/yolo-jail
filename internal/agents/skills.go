@@ -9,27 +9,24 @@ import (
 )
 
 // PrepareSkills stages per-agent skills dirs on the host for :ro bind mounting.
-// For each SELECTED agent that has a user-skills dir, the staging dir gets the
-// built-in skill suite (builtinskills.FS) plus a mirror of the host's
-// per-agent user skills. Agents without a skills dir are skipped. Returns the
-// staging directory (AGENTS_DIR/<cname>).
-// homeDir is the host home (~) whose ~/.<agent>/skills dirs are the sources;
-// agentNames is the selected set — nil and empty alike stage nothing, since
-// ResolveAgents has no default (there is no agent to stage skills FOR until a
-// pack installs one). includeDev stages the source-tree-only skills (e.g.
-// developing-yolo-jail) — pass
-// WorkspaceIsYoloSourceTree(workspace). CRITICAL: entries are cleared *inside*
-// each skills_dir — the dir itself is NEVER rmtree+mkdir'd, because a running
-// jail's bind mount captured its inode and a fresh inode would silently detach
-// attach-time refreshes.
+// Each pack-declared destination's staging dir gets the built-in skill suite
+// (builtinskills.FS) plus every selected pack's skills. Returns the staging
+// directory (AGENTS_DIR/<cname>).
+// includeDev stages the source-tree-only skills (e.g. developing-yolo-jail) —
+// pass WorkspaceIsYoloSourceTree(workspace). CRITICAL: entries are cleared
+// *inside* each skills_dir — the dir itself is NEVER rmtree+mkdir'd, because a
+// running jail's bind mount captured its inode and a fresh inode would silently
+// detach attach-time refreshes.
 // packSkillDirs are the per-pack `skills/` directories to layer in, in config
 // order (C3). Threaded as a package-level var rather than a parameter so the
 // existing four-arg signature and its callers stay untouched; the CLI sets it once
 // per run, before PrepareSkills.
 //
-// Precedence within one agent's staging dir: built-ins < packs < the user's own host
-// skills. A pack may override a built-in (that is a legitimate reason to ship one),
-// but never the user's local copy.
+// Precedence within one agent's staging dir: built-ins < packs, with the
+// CONVENTIONAL LOCAL PACK last among the packs (config.LoadPacks appends it there).
+// So a pack may override a built-in — a legitimate reason to ship one — and the
+// user's own copy still outranks a shared pack's. There is no fourth layer: the one
+// that read the destination back in was S3's defect.
 var packSkillDirs []string
 
 // SetPackSkillDirs sets the pack skills dirs consulted by the next PrepareSkills.
@@ -49,9 +46,21 @@ type SkillTarget struct {
 	Staging string
 	// Dest is the home-relative jail path the staged dir is mounted at.
 	Dest string
-	// HostSource is the user's OWN skills tree to layer in last, so a local skill
-	// always outranks a pack's. Empty means none.
-	HostSource string
+
+	// A HostSource FIELD USED TO LIVE HERE, naming "the user's OWN skills tree to layer in
+	// last" — and it was set to the DESTINATION (run.packSkillTargets), e.g. the host's
+	// ~/.claude/skills. That was right while the destination held loose user files and became
+	// circular once `apply --host` COMPOSED it: a jail read yolo's own generated output back
+	// in as "the user's tree", and since the local pack is an ordinary pack entry its content
+	// arrived twice by two paths (outstanding-work.md S3). Invisible only because flat is
+	// last-writer-wins — and under S1, arriving twice is the kind of thing that becomes an
+	// error rather than a coincidence.
+	//
+	// There is nothing to replace it with, because the slot it described already has a home:
+	// the CONVENTIONAL LOCAL PACK is layer 4. config.LoadPacks appends it LAST, so its skills
+	// are copied last in the packSkillDirs loop below and a personal skill still outranks
+	// every shared pack's and every built-in — the exact precedence the field provided, now
+	// reached by the same route every other pack's content takes.
 }
 
 // packSkillTargets are the destinations PrepareSkills builds. Set per run by the CLI
@@ -68,8 +77,12 @@ func SkillStagingName(pack string) string { return "skills-" + pack }
 
 // PACK-DECLARED skills destinations replace the agent list: SetPackSkillTargets is
 // what tells this which staging dirs to build, so a pack gets its skills whether or not
-// anything calls it an agent. agentNames is retained ONLY as the source of the user's
-// own ~/.<agent>/skills tree, which is keyed by the tool's real home dir either way.
+// anything calls it an agent.
+//
+// homeDir and agentNames are both vestigial now and kept for their callers' sake: they existed
+// to locate the host's own ~/.<agent>/skills trees, which S3 removed as a layer (see
+// SkillTarget). The signature is left alone deliberately — five call sites pass them, and
+// churning those would be a bigger diff than the fix, with no behavior in it.
 func PrepareSkills(cname, homeDir string, agentNames []string, includeDev bool) (string, error) {
 	staging := filepath.Join(paths.AgentsDir(), cname)
 	if err := os.MkdirAll(staging, 0o755); err != nil {
@@ -89,20 +102,14 @@ func PrepareSkills(cname, homeDir string, agentNames []string, includeDev bool) 
 		if err := writeBuiltinSkills(skillsDir, includeDev); err != nil {
 			return "", err
 		}
-		// 2. PACK skills (C3), in config order. Written after the built-ins so a pack
-		//    may override a built-in skill, and BEFORE the host's own skills so the
-		//    user's local copy always wins over anything a shared pack ships — the
-		//    precedence a user expects, and the one that keeps a pack from silently
-		//    replacing a skill they wrote.
+		// 2. PACK skills (C3), in config order — LAST, and that is now the whole of the
+		//    precedence rather than the middle of it. A pack may override a built-in (a
+		//    legitimate reason to ship one), and the CONVENTIONAL LOCAL PACK is appended last
+		//    by config.LoadPacks, so a personal skill still outranks every shared pack's. The
+		//    layer that used to follow this one read the DESTINATION and is gone — see
+		//    SkillTarget for why that was circular.
 		for _, dir := range packSkillDirs {
 			if err := copySkillSubdirs(dir, skillsDir); err != nil {
-				return "", err
-			}
-		}
-		// 3. The user's OWN skills tree, written last so a same-named local skill
-		//    overrides both a built-in and a pack's.
-		if target.HostSource != "" {
-			if err := copySkillSubdirs(filepath.Join(homeDir, target.HostSource), skillsDir); err != nil {
 				return "", err
 			}
 		}
