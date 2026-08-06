@@ -149,6 +149,14 @@ Delivery differs by backend but the *resolver* is shared
   `.bashrc` and the entrypoint (`internal/entrypoint/boot.go:113-119`,
   `shell.go:100`). It is a **file the jail sources**, not a `docker -e` block, so
   the values are re-derivable from that one file.
+
+  Because the file OUTLIVES the config that produced it, the writer's empty case
+  truncates rather than no-ops: an empty resolve means "nothing should be
+  exported", and leaving the previous render in place instead made removing
+  `env_sources` unable to revoke a credential — the stale file kept exporting it
+  through every subsequent rebuild. The file itself must survive (it is a
+  bind-mount source; podman refuses to start on a missing one), so revocation is
+  truncate-in-place, not delete.
 - **macos-user:** resolved host-side in `buildPlan`
   (`internal/macosuser/orchestrator.go:120-131`), then baked onto the sandbox
   launch/bootstrap argv via `env -i K=V …`

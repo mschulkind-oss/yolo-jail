@@ -179,6 +179,10 @@
     file outside your dotfiles tree.
     Written to ~/.config/yolo-user-env.sh (sourced by .bashrc and entrypoint);
     can be overridden by mise .env or by editing that file inside the jail.
+    Dropping a key (or the whole list) REVOKES it: the next launch rewrites
+    that file, truncating it to empty when nothing resolves, so a removed
+    credential stops being exported.  Values already live in a RUNNING jail
+    persist until it restarts.
     Example: [
       "~/.config/yolo-jail/defaults.env",
       {"DEBUG": "1"},

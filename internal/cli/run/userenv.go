@@ -14,11 +14,18 @@ import (
 //	export K=${K:-'v'}
 //
 // line per entry (in userEnv order), with each value's single quotes escaped as
-// '\” (the `'` → `'\”` replacement). An empty userEnv just ensures the file
-// exists (touch) so the mount doesn't fail. Returns the file path.
+// '\” (the `'` → `'\”` replacement).
+//
+// An empty userEnv TRUNCATES to zero bytes, leaving the file in place so the
+// bind mount still has a source (podman refuses to start on a missing one). It
+// must not merely touch: dropping env_sources from config yields an empty map,
+// and a no-op on an existing path left the previous launch's render mounted —
+// so commented-out credentials kept being exported, rebuild after rebuild, via
+// hydrateEnvFromUserEnvFile and .bashrc alike. Removing a key from config has to
+// revoke it. Returns the file path.
 func writeUserEnvFile(userEnvFile string, userEnv *jsonx.OrderedMap) {
 	if userEnv == nil || userEnv.Len() == 0 {
-		touchFile(userEnvFile)
+		_ = os.WriteFile(userEnvFile, nil, 0o644)
 		return
 	}
 	var b strings.Builder
