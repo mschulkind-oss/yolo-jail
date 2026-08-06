@@ -1,15 +1,21 @@
 package brokerrelay
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // shortDir returns a short per-test dir under /tmp — AF_UNIX paths cap at 108
@@ -31,7 +37,7 @@ func startRelay(t *testing.T, socketPath, brokerPath, jail string) (stop func())
 	stopCh := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		_ = Serve(socketPath, brokerPath, jail, stopCh)
+		_ = Serve(Config{SocketPath: socketPath, BrokerPath: brokerPath, JailID: jail}, stopCh)
 		close(done)
 	}()
 	waitConnectable(t, socketPath)
@@ -403,4 +409,224 @@ func TestSigtermUnlinksOwnSocket(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Error("relay did not unlink its socket on shutdown")
+}
+
+// --- macOS TCP-front transport (issue #31) ---------------------------------
+
+// waitEndpointFile waits for the relay to publish its host:port and returns it.
+func waitEndpointFile(t *testing.T, path string) string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if data, err := os.ReadFile(path); err == nil {
+			if s := strings.TrimSpace(string(data)); s != "" {
+				return s
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("relay never published its endpoint to %s", path)
+	return ""
+}
+
+// startRelayTCP starts Serve with a loopback TLS front that publishes its
+// host:port + cert to publishPath, waits until the unix socket and the TCP front
+// accept, and returns the resolved TCP address + published base64 cert.
+func startRelayTCP(t *testing.T, socketPath, brokerPath, jail, publishPath, token string) (addr, certB64 string, stop func()) {
+	t.Helper()
+	stopCh := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		_ = Serve(Config{
+			SocketPath: socketPath, BrokerPath: brokerPath, JailID: jail,
+			TCP: &TCPFront{PublishPath: publishPath, AdvertiseHost: "127.0.0.1", Token: token},
+		}, stopCh)
+		close(done)
+	}()
+	waitConnectable(t, socketPath)
+	fields := strings.Fields(waitEndpointFile(t, publishPath))
+	if len(fields) < 2 {
+		t.Fatalf("endpoint line missing cert: %v", fields)
+	}
+	addr, certB64 = fields[0], fields[1]
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if c, err := net.DialTimeout("tcp", addr, time.Second); err == nil {
+			c.Close()
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return addr, certB64, func() {
+		close(stopCh)
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("relay did not shut down")
+		}
+	}
+}
+
+// pinnedTLSPool builds a root pool trusting only the published cert, mirroring
+// the terminator's pinning.
+func pinnedTLSPool(t *testing.T, certB64 string) *x509.CertPool {
+	t.Helper()
+	der, err := base64.StdEncoding.DecodeString(certB64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crt, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(crt)
+	return pool
+}
+
+// dialPinnedTLS dials the TLS front trusting only the published cert (as the
+// terminator does).
+func dialPinnedTLS(t *testing.T, addr, certB64 string) net.Conn {
+	t.Helper()
+	c, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", addr, &tls.Config{
+		RootCAs:    pinnedTLSPool(t, certB64),
+		ServerName: paths.BrokerTLSServerName,
+		MinVersion: tls.VersionTLS12,
+	})
+	if err != nil {
+		t.Fatalf("pinned TLS dial: %v", err)
+	}
+	return c
+}
+
+func writeTokenFrame(c net.Conn, token string) {
+	hdr := make([]byte, 4)
+	binary.BigEndian.PutUint32(hdr, uint32(len(token)))
+	c.Write(hdr)
+	c.Write([]byte(token))
+}
+
+// framedRequestConn sends one framed request over an already-connected conn and
+// returns the first stdout-frame JSON of the response.
+func framedRequestConn(t *testing.T, c net.Conn, request map[string]any) map[string]any {
+	t.Helper()
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	body, _ := json.Marshal(request)
+	hdr := make([]byte, 4)
+	binary.BigEndian.PutUint32(hdr, uint32(len(body)))
+	c.Write(hdr)
+	c.Write(body)
+	for {
+		fh := make([]byte, 5)
+		if _, err := io.ReadFull(c, fh); err != nil {
+			t.Fatalf("EOF before a response frame: %v", err)
+		}
+		sid := fh[0]
+		length := binary.BigEndian.Uint32(fh[1:])
+		payload := make([]byte, length)
+		if _, err := io.ReadFull(c, payload); err != nil {
+			t.Fatalf("truncated response frame: %v", err)
+		}
+		if sid == 0 {
+			var m map[string]any
+			json.Unmarshal(payload, &m)
+			return m
+		}
+		if sid == 2 {
+			t.Fatal("exit frame before any stdout frame")
+		}
+	}
+}
+
+// TestTCPFrontTokenAuth: a correct token frame splices the TCP connection to the
+// unix relay (request reaches the broker, jail_id stamped host-side); a wrong
+// token drops the connection with no broker access.
+func TestTCPFrontTokenAuth(t *testing.T) {
+	d := shortDir(t)
+	brokerPath := filepath.Join(d, "broker.sock")
+	relayPath := filepath.Join(d, "relay.sock")
+	publishPath := filepath.Join(d, "relay.tcp")
+	const token = "s3cr3t-token"
+	broker := startFakeBroker(t, brokerPath)
+	defer broker.stop()
+	tcpAddr, certB64, stop := startRelayTCP(t, relayPath, brokerPath, "jail-tcp", publishPath, token)
+	defer stop()
+
+	// Correct token over pinned TLS -> full round-trip through the TCP front.
+	c := dialPinnedTLS(t, tcpAddr, certB64)
+	writeTokenFrame(c, token)
+	reply := framedRequestConn(t, c, map[string]any{"action": "ping"})
+	c.Close()
+	if reply["pong"] != true {
+		t.Errorf("pong = %v via TCP front", reply["pong"])
+	}
+	if got := broker.lastRequest()["jail_id"]; got != "jail-tcp" {
+		t.Errorf("stamped jail_id = %v, want jail-tcp", got)
+	}
+
+	// Wrong token over pinned TLS -> connection dropped, no broker access.
+	broker.mu.Lock()
+	before := len(broker.requests)
+	broker.mu.Unlock()
+	c2 := dialPinnedTLS(t, tcpAddr, certB64)
+	writeTokenFrame(c2, "WRONG-token")
+	c2.SetDeadline(time.Now().Add(3 * time.Second))
+	body, _ := json.Marshal(map[string]any{"action": "ping"})
+	fhdr := make([]byte, 4)
+	binary.BigEndian.PutUint32(fhdr, uint32(len(body)))
+	c2.Write(fhdr)
+	c2.Write(body)
+	buf := make([]byte, 1)
+	n, rerr := c2.Read(buf)
+	c2.Close()
+	if n != 0 || rerr == nil {
+		t.Errorf("wrong token: expected dropped connection (n=0, err!=nil), got n=%d err=%v", n, rerr)
+	}
+	broker.mu.Lock()
+	after := len(broker.requests)
+	broker.mu.Unlock()
+	if after != before {
+		t.Errorf("wrong token reached the broker: requests %d -> %d", before, after)
+	}
+}
+
+// TestTCPFrontRejectsPlaintextAndWrongCert: the front is TLS-only (a plaintext
+// dial fails the handshake), and a client that trusts a DIFFERENT cert than the
+// relay's published one fails verification (the pin blocks MITM).
+func TestTCPFrontRejectsPlaintextAndWrongCert(t *testing.T) {
+	d := shortDir(t)
+	brokerPath := filepath.Join(d, "broker.sock")
+	relayPath := filepath.Join(d, "relay.sock")
+	publishPath := filepath.Join(d, "relay.tcp")
+	broker := startFakeBroker(t, brokerPath)
+	defer broker.stop()
+	tcpAddr, _, stop := startRelayTCP(t, relayPath, brokerPath, "jail-tls", publishPath, "tok")
+	defer stop()
+
+	// Plaintext (no TLS) request -> the relay's TLS handshake rejects it, so the
+	// token frame never reaches the broker.
+	pc, err := net.DialTimeout("tcp", tcpAddr, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pc.SetDeadline(time.Now().Add(3 * time.Second))
+	writeTokenFrame(pc, "tok")
+	buf := make([]byte, 1)
+	n, rerr := pc.Read(buf)
+	pc.Close()
+	if n != 0 || rerr == nil {
+		t.Errorf("plaintext dial: expected TLS-handshake rejection, got n=%d err=%v", n, rerr)
+	}
+
+	// A client pinning a DIFFERENT (attacker) cert must fail to connect.
+	_, attackerB64, astop := startRelayTCP(t, filepath.Join(d, "a.sock"), brokerPath, "jail-a", filepath.Join(d, "a.tcp"), "tok")
+	defer astop()
+	_, err = tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", tcpAddr, &tls.Config{
+		RootCAs:    pinnedTLSPool(t, attackerB64),
+		ServerName: paths.BrokerTLSServerName,
+		MinVersion: tls.VersionTLS12,
+	})
+	if err == nil {
+		t.Error("dialing with a mismatched pinned cert must fail verification")
+	}
 }

@@ -1,6 +1,8 @@
 package run
 
 import (
+	"strings"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -8,6 +10,21 @@ import (
 func shquoteJoin(args []string) string { return shquote.Join(args) }
 
 func shquoteJoinDebug(args []string) string { return shquote.Join(args) }
+
+// redactSecretsForDebug returns a copy of argv with secret-bearing env values
+// ("…_TOKEN=<value>") masked, so YOLO_DEBUG can print the launch argv without
+// leaking the per-jail broker token (issue #31).
+func redactSecretsForDebug(argv []string) []string {
+	out := make([]string, len(argv))
+	for i, a := range argv {
+		if eq := strings.IndexByte(a, '='); eq > 0 && strings.HasSuffix(a[:eq], "_TOKEN") {
+			out[i] = a[:eq+1] + "<redacted>"
+		} else {
+			out[i] = a
+		}
+	}
+	return out
+}
 
 // writeTracking wraps runtime.WriteContainerTracking.
 func writeTracking(cname, workspaceResolved string) error {

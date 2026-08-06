@@ -28,16 +28,27 @@
 package brokerrelay
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/subtle"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/binary"
 	"io"
 	"log"
+	"math/big"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // First-message bounds for the attribution read. Requests are small JSON
@@ -199,10 +210,33 @@ func drainBounded(conn *net.UnixConn, budget time.Duration) {
 	}
 }
 
+// TCPFront configures the optional macOS loopback TCP front (issue #31). A nil
+// *TCPFront on Config leaves the relay unix-only, which is every Linux run.
+type TCPFront struct {
+	// PublishPath is the file the front writes "<host:port> <base64 cert>" to,
+	// inside the jail's mounted host-services dir.
+	PublishPath string
+	// AdvertiseHost is the name the jail uses to reach the host (written into
+	// PublishPath alongside the kernel-assigned port).
+	AdvertiseHost string
+	// Token is the per-jail bearer token the front requires on each connection.
+	Token string
+}
+
+// Config is Serve's parameter set. It is a struct rather than a positional list
+// because the fields are same-typed strings a caller could silently transpose.
+type Config struct {
+	SocketPath string
+	BrokerPath string
+	JailID     string
+	TCP        *TCPFront
+}
+
 // Serve runs the accept loop until stop is closed; one goroutine per client.
 // dev/ino, and on shutdown unlink the socket ONLY if it's still the file we
 // bound. Returns nil on clean shutdown.
-func Serve(socketPath, brokerPath, jailID string, stop <-chan struct{}) error {
+func Serve(cfg Config, stop <-chan struct{}) error {
+	socketPath, brokerPath, jailID := cfg.SocketPath, cfg.BrokerPath, cfg.JailID
 	if err := os.MkdirAll(dir(socketPath), 0o755); err != nil {
 		return err
 	}
@@ -212,6 +246,21 @@ func Serve(socketPath, brokerPath, jailID string, stop <-chan struct{}) error {
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketPath, Net: "unix"})
 	if err != nil {
 		return err
+	}
+
+	// macOS transport (issue #31): an in-jail terminator can't connect to this
+	// unix socket across the podman-machine VM boundary (virtiofs shares the
+	// inode, not the connection). When tcpPublish is set, also run a loopback
+	// TCP front that serves TLS (host-only key, terminator-pinned), authenticates
+	// a per-jail token, and splices to this same unix socket, leaving the relay
+	// core below untouched. The front binds 127.0.0.1:0 (kernel-assigned) and
+	// publishes its host:port + cert there for the terminator to read.
+	if front := cfg.TCP; front != nil && front.PublishPath != "" {
+		go func() {
+			if err := serveTCPFront(*front, socketPath, stop); err != nil {
+				Logger.Printf("tcp-front (publish %s) failed: %v", front.PublishPath, err)
+			}
+		}()
 	}
 	// Go's UnixListener unlinks the socket on Close by default; disable that so
 	// WE control unlink (only-if-ours), matching Python's dev/ino guard.
@@ -243,6 +292,174 @@ func Serve(socketPath, brokerPath, jailID string, stop <-chan struct{}) error {
 		}
 	}
 	return nil
+}
+
+// serveTCPFront runs the macOS loopback TCP front (issue #31). It binds
+// 127.0.0.1:0 and lets the KERNEL assign the port, so the relay OWNS the
+// listener from birth — nobody probes-then-closes a port for the relay to
+// re-bind, so there is no window in which another local process could squat it.
+//
+// The front is wrapped in TLS with an ephemeral self-signed cert whose PRIVATE
+// KEY stays host-only (in-memory, never persisted, never entering a jail). It
+// publishes the advertised host:port AND that cert (public) to tcpPublish — a
+// file in the jail's mounted host-services dir — which the terminator reads at
+// connect time, pinning the exact cert. This is what actually protects the hop:
+// the jail-to-gateway segment is a shared bridge on which sibling jails hold
+// NET_RAW, and the broker CA can't help (its key is mounted into every jail), so
+// TLS + a host-only-key pin gives confidentiality against sniffing and blocks
+// impersonation/MITM. Each accepted connection then authenticates a per-jail
+// bearer token and splices to the relay's own unix socket, leaving the unix
+// relay core (jail_id stamping, per-connection broker dial, failure semantics)
+// completely untouched.
+func serveTCPFront(front TCPFront, unixSocketPath string, stop <-chan struct{}) error {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	cert, certB64, err := mintRelayCert()
+	if err != nil {
+		_ = ln.Close()
+		return err
+	}
+	tlsLn := tls.NewListener(ln, &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	})
+	go func() {
+		<-stop
+		_ = tlsLn.Close()
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	hostport := net.JoinHostPort(front.AdvertiseHost, strconv.Itoa(port))
+	// Published line: "<host:port> <base64(cert DER)>". The cert is public; the
+	// terminator trusts ONLY it (dedicated root pool) — no PKI, no broker CA.
+	if err := writeEndpointFile(front.PublishPath, hostport+" "+certB64); err != nil {
+		_ = tlsLn.Close()
+		return err
+	}
+	Logger.Printf("tcp-front listening 127.0.0.1:%d (advertised %s, tls cert-pinned) -> %s", port, hostport, unixSocketPath)
+	for {
+		conn, err := tlsLn.Accept()
+		if err != nil {
+			break // listener closed on stop
+		}
+		go handleTCPFront(conn, unixSocketPath, front.Token)
+	}
+	return nil
+}
+
+// mintRelayCert generates an ephemeral P-256 self-signed cert for the TCP front.
+// The private key is HOST-ONLY — in-memory, never persisted, never mounted into
+// a jail — so a malicious jail cannot impersonate the relay even though it can
+// read the broker CA's key (mounted into every jail). It returns the tls
+// certificate and the base64(DER) the terminator pins. A fresh cert per relay
+// process is fine: the terminator re-reads the published cert on every dial.
+func mintRelayCert() (tls.Certificate, string, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, "", err
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return tls.Certificate{}, "", err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: paths.BrokerTLSServerName},
+		DNSNames:              []string{paths.BrokerTLSServerName},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true, // self-signed leaf doubles as its own trust anchor
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		return tls.Certificate{}, "", err
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, base64.StdEncoding.EncodeToString(der), nil
+}
+
+// writeEndpointFile atomically publishes the endpoint line ("host:port cert")
+// to path (temp + rename, so a terminator never reads a torn line). Neither
+// field is a secret — the per-jail token guards access and the cert is public —
+// but the write stays 0600 to match the host-services dir's posture.
+func writeEndpointFile(path, endpoint string) error {
+	d := dir(path)
+	if err := os.MkdirAll(d, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(d, "relay-tcp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.WriteString(endpoint + "\n"); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
+// tokenFrameMax caps the leading token frame so a garbage length prefix can't
+// buffer unbounded memory before the token check.
+const tokenFrameMax = 4096
+
+// handleTCPFront authenticates one TCP connection's leading token frame
+// (4-byte BE length + token bytes, matching the loophole framing) and, on a
+// constant-time match, splices it to the relay's unix socket. Any missing,
+// oversized, or mismatched token drops the connection (payload-free log), so an
+// unauthenticated caller gets no broker access and learns nothing.
+func handleTCPFront(client net.Conn, unixSocketPath, token string) {
+	defer client.Close()
+
+	_ = client.SetReadDeadline(time.Now().Add(firstMsgTimeout))
+	hdr := make([]byte, 4)
+	if _, err := io.ReadFull(client, hdr); err != nil {
+		return
+	}
+	n := binary.BigEndian.Uint32(hdr)
+	if n == 0 || n > tokenFrameMax {
+		return
+	}
+	got := make([]byte, n)
+	if _, err := io.ReadFull(client, got); err != nil {
+		return
+	}
+	_ = client.SetReadDeadline(time.Time{})
+	if subtle.ConstantTimeCompare(got, []byte(token)) != 1 {
+		Logger.Printf("tcp-front: token mismatch (%d bytes) — dropping connection", len(got))
+		return
+	}
+
+	// Authenticated: hand off to the unix relay, which does the real work.
+	up, err := net.Dial("unix", unixSocketPath)
+	if err != nil {
+		Logger.Printf("tcp-front: dial relay %s failed: %v", unixSocketPath, err)
+		return
+	}
+	defer up.Close()
+	// Splice both ways, but wait ONLY on the response direction: it ends when
+	// the relay closes after the broker's exit frame, by which point io.Copy has
+	// written every byte to the client. Returning on whichever direction ended
+	// first (and closing both) would cut a response short the moment the request
+	// direction ended — and the request goroutine deliberately does NOT
+	// propagate the client's EOF upstream, because the relay core's pipe() tears
+	// down BOTH sockets on either EOF (frozen Python-parity semantics), which
+	// would discard a response still in flight.
+	go func() { _, _ = io.Copy(up, client) }()
+	_, _ = io.Copy(client, up)
 }
 
 // statDevIno returns the (dev, ino) of path, or ok=false on error.

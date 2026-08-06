@@ -36,6 +36,21 @@ const (
 	// JailHostServicesDir is where all host service sockets appear in-jail.
 	JailHostServicesDir = "/run/yolo-services"
 
+	// BrokerTCPFileSentinel prefixes the broker address env when the macOS TCP
+	// transport is active (issue #31): "tcpfile:<path>" tells the in-jail
+	// terminator to read the relay's published host:port from <path> (a file in
+	// JailHostServicesDir) rather than dialing a unix socket. Shared here so the
+	// producer (run pipeline) and consumer (terminator) can never drift.
+	BrokerTCPFileSentinel = "tcpfile:"
+	// BrokerTokenEnv carries the per-jail bearer token the terminator presents
+	// to the relay's TCP front (issue #31). Shared for the same reason.
+	BrokerTokenEnv = "YOLO_SERVICE_CLAUDE_OAUTH_BROKER_TOKEN"
+	// BrokerTLSServerName is the CN/SAN of the relay's ephemeral TLS cert and the
+	// name the terminator verifies (issue #31). The relay's key is host-only and
+	// the terminator pins the exact published cert, so the hop is encrypted and
+	// unforgeable even by a jail that can read the broker CA key.
+	BrokerTLSServerName = "yolo-broker-relay"
+
 	// BuiltinCgroupLoopholeName is the reserved cgroup-delegate service name.
 	BuiltinCgroupLoopholeName = "cgroup-delegate"
 	// BuiltinJournalLoopholeName is the reserved journal-bridge service name.

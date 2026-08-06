@@ -463,8 +463,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	if o.Getenv("YOLO_DEBUG") != "" {
 		// Write RAW (not via the rich-stripping printer): the argv contains
 		// literal bracket sequences (e.g. the grep block_flags "-*[rR]*", the
-		// "[path]" suggestion) that the rich-tag regex would eat.
-		fmt.Fprintln(o.Stderr, shquoteJoinDebug(runCmd))
+		// "[path]" suggestion) that the rich-tag regex would eat. Redact
+		// secret-bearing env values (…_TOKEN=…) so the per-jail broker token
+		// isn't leaked to the debug log.
+		fmt.Fprintln(o.Stderr, shquoteJoinDebug(redactSecretsForDebug(runCmd)))
 	}
 
 	// Launch under the TTY proxy. on_started releases the lock once the

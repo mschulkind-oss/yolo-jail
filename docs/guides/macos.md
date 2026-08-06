@@ -708,6 +708,36 @@ at `~/.local/share/yolo-jail/logs/broker-relay-<hash>.log`. Any `yolo`
 invocation that targets the jail (run or attach) heals a dead relay. No manual
 action is needed.
 
+### Podman Machine: the relay socket itself is unconnectable in-jail
+
+The directory mount above makes the relay socket *visible* in the jail, but not
+*connectable*: virtiofs shares the inode across the VM boundary, not the
+connection endpoint, so the in-jail `oauth-terminator`'s `connect()` fails and
+every `platform.claude.com` request 502s. On macOS the relay therefore also
+runs a **loopback TCP front** (issue #31), leaving Linux on the unix path:
+
+- The relay binds `127.0.0.1:0` itself, so it owns the kernel-assigned port from
+  birth (nothing probes a port then re-binds it, so nothing can squat it), and
+  publishes `<host:port> <base64 cert>` to `<name>.tcp` in the same mounted
+  host-services dir. The terminator re-reads that file on every dial, so a
+  restarted relay's new port and cert are picked up with no jail relaunch.
+- The front serves TLS with an **ephemeral self-signed cert whose private key is
+  host-only** (in memory, never persisted, never mounted into a jail), and the
+  terminator trusts *only* that published cert. The broker CA cannot play this
+  role — its key is mounted into every jail. Encryption matters because the
+  jail→gateway hop is a shared bridge on which sibling jails hold `NET_RAW`.
+- Each connection presents a **per-jail bearer token** inside TLS before the
+  front splices it to the relay's unix socket. The token file is host-only and
+  **user-private** (`~/.local/share/yolo-jail/broker-relay-tokens/<hash>.token`,
+  dir `0700`) — deliberately not beside the pid/lock files in the world-writable
+  `/tmp`, where another local user could pre-create the path and thereby choose,
+  read, or redirect the credential. It is removed when the jail is torn down or
+  its relay is reaped.
+
+A relay that is alive but has published no endpoint counts as unhealthy and is
+respawned. If the endpoint never appears, `yolo` warns at launch and the reason
+is in `~/.local/share/yolo-jail/logs/broker-relay-<hash>.log`.
+
 ### Podman Machine: TTY error (`crun: unlink /dev/console: Read-only file system`)
 
 When stdout is a TTY, Podman passes `-t` to `crun`, which tries to unlink
