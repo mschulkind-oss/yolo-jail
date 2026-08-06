@@ -17,9 +17,10 @@ docs during the batch, so verify-against-code is the house rule now.
 
 | # | Item | Kind of work | Blocked on |
 |---|---|---|---|
-| **S1** | Skill collisions are SILENT at flat tier and produce two names at namespaced — unnamespaced by default, **fatal** on collision | 🔴 ruled, not built | nothing |
-| **S2** | `tier` becomes an opt-in pack declaration, not a property yolo resolves per destination | ruled, mostly moot given S1 | S1 |
-| **S3** | The jail's layer 4 reads the DESTINATION, which yolo now owns — circular | 🔴 live defect | S1 |
+| ✅ **S1** | ~~Skill collisions are SILENT at flat tier and produce two names at namespaced~~ **DONE** (`3e0be7b`) — unnamespaced by default, fatal at `apply --host`, naming both packs/paths/remedies. Verified end-to-end on the real `agent-standards` case, including that the message's own remedy resolves it. **See S5: the JAIL notch still resolves silently** | — | — |
+| ✅ **S2** | ~~`tier` becomes an opt-in pack declaration~~ **DONE** (`663cb29`, `0557c9e`) — manifest-level `skills_tier`; the per-destination inheritance is gone, so one skill has ONE name everywhere. The retired per-contribution `tier` is refused BY NAME at authoring and TOLERATED at the version boundary — making it a `Validate` problem reproduced the original `tier` incident in mirror image and stopped jails booting (`ceb93b3`) | — | — |
+| ✅ **S3** | ~~The jail's layer 4 reads the DESTINATION, which yolo now owns~~ **DONE** (`315c150`) — the layer is DELETED rather than repointed: the local pack is already layer 2 and composes last, so it holds exactly the precedence layer 4 provided. Repointing layer 4 at the local pack would have kept the double arrival S3 is about | — | — |
+| **S5** | **A jail resolves a skill-name collision SILENTLY** — the notch S1 does not reach. Measured 2026-08-05 with the same two-pack set that `apply --host` refuses: the jail's flat merge (`agents.PrepareSkills`) picked the local pack's copy and printed nothing. S1's ruling says "fatal at apply time", so this is not a regression — but it is the same silent loss at the other notch, and it is now the ONLY place it survives | 🔴 live gap | nothing |
 | **S4** | **UNAUDITED:** can a pack's `into` deliver to an agent the user never selected, and do all packs' skills reach all destinations? | audit, not yet done | nothing |
 | ✅ **N1** | ~~nix profile has no gcroot~~ **DONE** (`23cee7a`) — rooted by the build's own `--out-link`, so rooting cannot fail separately from the build. Root is a SIBLING of `build/roots`, not in it: `prune.PruneOrphanImageRoots` reaps every symlink there that no live IMAGE needs, and would have unrooted this on a routine `yolo prune --apply` | — | — |
 | ✅ **N2** | ~~Generalize `yoloDarwinPackages`~~ **DONE** (`11f8bb7`) — `yoloNoncontainerPackages`, `NativeSystem()`, and `describe`/`check` report the profile path. Named for the AXIS (no baked image) rather than either notch, since `guest` needs the same closure. Found a FOURTH E8 instance: the nix-probe *remedy string* said `aarch64-linux` while its detector matched any `<arch>-linux`, so an Intel Mac was told to delete a line it does not have | — | — |
@@ -35,110 +36,82 @@ docs during the batch, so verify-against-code is the house rule now.
 | ✅ **V1** | ~~Reserved destinations miss symlink aliases~~ **DONE** (`8e7717f`). The three named aliases were ALREADY fixed (`99fabe6`, 2026-07-27) — a fourth stale marker in this doc. But a live one of the same shape remained and no literal list could cover it: a home-root dest stages at `.config/yolo-home/<slug>`, a slug derived from user input, so it is reserved as a SUBTREE | — | — |
 | **V2** | `apply --host` is not whole-home idempotent until apply 3 | pre-existing, in `config` | nothing |
 | **V3** | Pack-set-wide archives land under `archive/skills/` even for `files` | cosmetic, migration-shaped | nothing |
-| **C1** | Drop the now-redundant `"from"` literals from the six shipped packs | cleanup | in flight (with S1–S3) |
+| ✅ **C1** | ~~Drop the now-redundant `"from"` literals from the six shipped packs~~ **DONE** (`d342827`) — the render fingerprint did NOT move: byte-identical across all 10 rendered files vs the pre-batch base, measured under a FIXED workspace path (`${workspace}` substitution otherwise masks the comparison, which is why the coarse `TestRenderFingerprintStable` cannot answer this on its own) | — | — |
 | ✅ **C2** | ~~Briefing prose should read the Profile~~ **DONE** (`f2d0692`) — the enforcement vector and autonomy bit derive from `ProfileFor`; the payoff is the default branch, which used to tell an unenumerated notch it was in a container | — | — |
 | ✅ **C3** | ~~`Collect`'s autonomy parameter~~ **DONE** (`db695d8`). Premise was stale: only ONE literal remained, not three | — | — |
 
 ---
 
-## S1 — skill collisions: unnamespaced by default, FATAL on collision 🔴
+## S1–S3 — SHIPPED 2026-08-05. What the ruling cost, and the one notch it did not reach
 
-**Maintainer ruling, 2026-08-05:** *"I want unnamespaced by default with a fatal collision error if
-skills collide on name. Namespacing should be possible by the pack's choice, but it should be a
-positive choice."*
+The full reasoning is in [`shipped-2026-08-pack-batch.md`](shipped-2026-08-pack-batch.md); the
+design record is `docs/design/pack-system.md`'s §6a passage, marked superseded in place. Kept here
+only for what a reader of THIS file still needs:
 
-### What happens today, measured
+**S1 — a declared collision is fatal.** Unnamespaced by default; two packs claiming one entry name
+at one destination refuses the whole `apply --host` before any destination is touched, naming both
+packs, both source paths, and both remedies. The message is most of the value, because it fires on a
+real case — verified end-to-end on exactly the predicted one (a personal pack and a shared pack both
+shipping `agent-standards`), including that following the remedy the message prints resolves it.
 
-A local pack and a shared pack both shipping a skill called `dup`, one apply, `claude` (namespaced)
-plus `codex` (flat):
+**What it cost, deliberately.** §6a-5's flat-tier OVERRIDE is gone: the local pack no longer wins a
+same-named skill, it refuses. An intentional override and an accidental clash are the same
+declaration, so yolo cannot tell them apart and the ruling says the user should. §6a-5's actual fix
+— precedence is LAYER ORDER, not a permission a record grants — is untouched and still exercised
+wherever the local pack ships a name nobody else does.
 
-```
-skills  dup  rendered  invoke as /sp:dup
-skills  dup  rendered  invoke as /local:dup     <- .claude: BOTH survive, two names
-skills  dup  rendered  invoke as /dup           <- .codex:  ONE survives
-```
+**S2 — the tier is the PACK's.** `skills_tier` at the manifest level. The per-destination
+inheritance was the defect's engine: a zero-ceremony pack borrowed two destinations and inherited a
+tier from each, so the user's own local pack was namespaced in Claude and flat in codex, and one
+skill had two invocation names it never chose.
 
-- At **namespaced** tier both coexist, so what the user thinks of as one skill has two invocations.
-- At **flat** tier one silently wins. I checked for a warning on the loss: **there is none.** A
-  pack's skill can vanish with no output line at all.
+**S3 — layer 4 is DELETED, not repointed.** The plan proposed pointing it at
+`paths.LocalPackDir()/skills`. That would have kept the double arrival S3 is about: the local pack is
+an ordinary pack entry, so it is ALREADY layer 2, and `config.LoadPacks` appends it last — which is
+precisely the precedence layer 4 existed to provide. The layers are now disjoint with no fourth.
 
-The second is the defect that matters. It is the exact class of silent failure the batch existed
-to remove, and it survived because tiers made the collision unrepresentable in the case anyone
-tested (namespaced) while leaving it silent in the case that ships by default (flat — `agy`,
-`codex`, `pi` all leave `tier` unset, and `tier.go:52` documents the zero value as "the SAFE
-treatment").
+**Two traps worth carrying forward:**
 
-### And a third spelling nobody had named: the jail
+- **A retired manifest field is a VERSION-SKEW fact, not a structural one.** Refusing the retired
+  per-contribution `tier` inside `Validate` reproduced the original `tier` incident in mirror image:
+  `DecodeTolerant` runs `Validate`, so an OLDER baked entrypoint reading the newly-staged manifests
+  refused them and the jail would not start — no route to recovery, since the offending manifest is
+  one yolo ships. Found only by running a nested jail against the previous baked image. The refusal
+  belongs in `Decode` alone.
+- **The coarse fingerprint test cannot answer "did the bytes move?"** `TestRenderFingerprintStable`
+  pins the file SET. A byte comparison needs a FIXED workspace path, or claude's
+  `projects["${workspace}"]` differs between two runs and hides the answer in noise.
 
-`internal/agents/skills.go` has **no tier concept at all** — the jail is flat-only. So one skill is
-`/mine` in a jail and `/local:mine` at host-claude. The notch changes the invocation name. The
-divergence audit (`shipped-2026-08-pack-batch.md` §6b) missed this because it audited *mechanism*
-per kind, not user-visible *naming*.
+## S5 — a JAIL resolves a skill-name collision silently 🔴
 
-### The ruling, and why it is better than resolving collisions
+**Measured 2026-08-05**, with the same two-pack set `apply --host` now refuses: the jail came up, and
+`~/.codex/skills/mine` held the local pack's copy. The other pack's skill was simply not there, and
+nothing said so.
 
-Unnamespaced by default; a name collision is **fatal at apply time**; namespacing is a positive
-per-pack opt-in.
+This is **not a regression** — S1's ruling is explicit that the collision is fatal *at apply time*,
+and `internal/agents/skills.go` has no collision concept (nor any tier concept: the jail is
+unnamespaced-only, which is now the same thing the default is everywhere). But it is the same silent
+loss the ruling exists to remove, and after S1 it is the **only** place it survives.
 
-This makes the failure **unrepresentable rather than negotiated**, which is the same move as the
-doubly-declared-config-surface refusal: today a flat collision picks a winner and says nothing,
-and a namespaced one invents a second name. A fatal error surfaces it when the user can still fix
-it — rename, or opt one pack into namespacing.
+**What makes it a real decision rather than a port.** A jail launch is not an apply: refusing to
+START a jail over a skills collision is a much heavier consequence than refusing to write a real
+home, and A12's fatal-generator policy would make it exactly that. Three options, in ascending
+severity — a WARNING naming both packs at launch (cheap, and closes the "nothing said so" half); a
+`yolo check` failure (loud where the user is already asking about config, and non-fatal at launch);
+or a boot refusal (consistent with the host, and the one that can strand someone mid-task).
 
-**It will fire on a real case**, and that is correct rather than unfortunate: a personal pack and a
-shipped pack both shipping `agent-standards` is a genuine ambiguity the user should resolve. So the
-error has to name **both packs, both source paths, and both remedies** — a fatal error the user
-cannot act on would be worse than the silence it replaces.
+The cheap half is worth doing regardless of which: the destinations and their layers are already
+computed, and `hostskills.Collisions` is a pure function of them.
 
-Note this also means the migration's suffix-on-differing-content behavior (shipped in Q6) becomes
-the *migration-only* path: adopting a user's pre-existing tree still keeps both copies under
-distinct names, because that content already exists and refusing to adopt it would be the data
-loss the migration exists to avoid. Two different situations, deliberately: **adoption preserves,
-declaration refuses.**
-
-## S2 — `tier` becomes an opt-in pack declaration
-
-Mostly a consequence of S1, and the maintainer's own read: *"maybe moot by (2)?"* — largely yes.
-
-The problem `tier` has today is that it is a **per-contribution** declaration controlling a
-**global** property (what a skill is called), so it cannot express a consistent name. Worse, a
-zero-ceremony pack declares no destinations, borrows them from the other selected packs, and
-inherits each destination's tier (`internal/packload/mergedest.go`) — which is how the local pack
-ends up namespaced in Claude and flat everywhere else without ever choosing either.
-
-Under S1 there is nothing to inherit: unnamespaced is the default, and a pack that wants a
-namespace says so once, for itself, at every destination. That is what makes it a positive choice
-rather than a property of whichever agent pack happened to name the directory.
-
-**What survives of `tier`:** the pack's own opt-in. **What goes:** yolo resolving it per
-destination, and the inheritance path.
-
-## S3 — the jail's layer 4 reads a directory yolo now owns 🔴
-
-**Verified 2026-08-05.** `internal/cli/run/prepare.go:312` sets `t.HostSource = c.Into` — so the
-jail's fourth composition layer ("the user's OWN skills tree", `skills.go:104`) reads the
-**destination**, e.g. `~/.claude/skills`.
-
-That was correct when the destination held loose user files. It is circular now: after Q6, the host
-`apply` **generates** that directory, so a jail launch reads yolo's own composed output back in as
-"the user's tree." And because the local pack is an ordinary pack entry
-(`internal/config/packs.go:215`), its content is already **layer 2** — so in a jail it arrives
-twice, by two paths, with only the flat last-writer-wins rule making that invisible.
-
-**The fix follows from the local pack's real purpose** (see below): layer 4 should read
-`paths.LocalPackDir()/skills`, not the destination. Then the layers are disjoint — built-ins,
-packs, and the user's own home — and each appears exactly once.
-
-**Do S1 first**: with collisions fatal, arriving twice stops being invisible and becomes an error,
-so the ordering matters.
 
 ## S4 — UNAUDITED: does `into` respect the selected agent set?
 
 **Not investigated. Recorded so it is not mistaken for a settled question**, because two readings
 of the code point the same way and neither has been probed.
 
-The suspicion, from reading `internal/cli/run/prepare.go:303-317` and
-`internal/agents/skills.go:73-110`:
+The suspicion, from reading `run.packSkillTargets` (`internal/cli/run/prepare.go:304`) and
+`agents.PrepareSkills` (`internal/agents/skills.go:86`) — named rather than line-pinned, because S3
+moved both:
 
 1. **`packSkillTargets` iterates `loadedPacks` and emits a target per `skills` contribution, using
    `Dest: c.Into`.** So the destination list comes from whatever packs are loaded — and `into`
@@ -146,8 +119,9 @@ The suspicion, from reading `internal/cli/run/prepare.go:303-317` and
    user selected. A pack declaring `into: ".codex/skills"` while only `claude` is in `packs`
    looks like it would still create and populate a codex dir.
 2. **`PrepareSkills` copies EVERY pack's `skills/` into EVERY staging dir** (`packSkillDirs` is a
-   flat list, `skills.go:98`, with no per-destination filter). So a codex-specific pack's skills
-   look like they land in `.claude/skills` too.
+   flat list, `skills.go:111`, with no per-destination filter). So a codex-specific pack's skills
+   look like they land in `.claude/skills` too. **S3 sharpened this rather than changing it:** that
+   loop is now the LAST layer, so it is the only thing deciding a staged dir's contents.
 
 **Why this matters beyond tidiness.** `packs` is the user's selection gate — it is USER-SCOPE ONLY
 precisely so a repo-committed config cannot decide what content enters the environment. If `into`
@@ -163,9 +137,11 @@ mise-trust finding: the enforcement point and the real boundary were different l
 3. Do the jail and host now **disagree**? Q6 changed the host to wholesale composition and left
    the jail's flat merge alone, so this may be a fourth notch-divergence on top of S1–S3.
 
-**Do it after S1.** With collisions fatal, "every pack's skills reach every destination" stops
-being invisible and starts producing errors — which will either prove the concern or dissolve it,
-and either way the audit is cheaper once the noise is loud.
+**S1 is done, and probe 3 is now partly answered — see S5.** The jail and host DO disagree, on
+collisions: the host refuses, the jail picks a winner silently. That was measured with a two-pack
+set, not with the `into`-vs-selection question this item is about, so S4 itself is still unaudited —
+but the "fourth notch-divergence" suspicion is confirmed rather than open, and S5 is the piece of it
+that has been pinned down.
 
 ## The local pack IS layer 4 — the rationale, corrected
 
@@ -180,11 +156,16 @@ to live.** "Commit it to a repo pack" is not an answer for a half-baked skill, a
 one, or scratch space you do not want in git.
 
 The jail already had this slot — layer 4, "the user's OWN skills tree, written last so a
-same-named local skill wins" (`skills.go:102-104`). The local pack is not a new concept; it is
-**that slot given a home yolo does not overwrite.** Which is also why S3 is a defect and not a
-design choice: layer 4 pointing at the destination was how the slot worked before it had a home.
+same-named local skill wins". The local pack is not a new concept; it is **that slot given a home
+yolo does not overwrite.** Which is also why S3 was a defect and not a design choice: layer 4
+pointing at the destination was how the slot worked before it had a home.
 
-And S1/S2 remove the manifest need anyway — no tier declaration, no split-brain, no `pack.json`.
+**SHIPPED, and the conclusion is stronger than "repoint layer 4".** The local pack does not just
+FILL the slot, it IS the slot: as an ordinary pack entry appended last by `config.LoadPacks`, it
+already sits in the pack layer with exactly the precedence layer 4 had. So the fix was to DELETE the
+fourth layer, not repoint it — repointing would have left the local pack arriving twice, which is
+the double arrival S3 was about. And S1/S2 removed the manifest need as predicted: no tier
+declaration, no split-brain, no `pack.json`.
 
 ## N1 — the nix profile has no gcroot 🔴
 
@@ -421,14 +402,14 @@ still writes the guarded posture (`defaultMode: "default"`, `additionalDirectori
 
 ## Suggested order
 
-1. **S1** (collisions fatal + unnamespaced default) — it is a ruling, it is a live silent-loss
-   defect, and S2/S3/S4 all depend on or are clarified by it.
-2. **S3** (layer 4 reads the local pack) immediately after, since S1 turns its double-arrival from
-   invisible into an error.
-3. **S2** falls out of S1 — mostly deletion.
-4. **S4**'s audit, once S1 makes the delivery-vs-selection mismatch loud.
-5. **N1** (gcroot) — a live defect, no ruling needed.
-6. **V1** (symlink aliases) and **C1**/**C3** — small, independent, no decisions.
+1. ~~**S1**, **S2**, **S3**~~ — SHIPPED 2026-08-05, in that order (S1 first, which is what turned
+   S3's double arrival from invisible into an error).
+2. **S5** (a jail resolves a collision silently) — the notch S1 did not reach, and now the only
+   place the silent loss survives. The warning half needs no ruling; the refusal half does.
+3. **S4**'s audit. Cheaper now: S1 makes a delivery-vs-selection mismatch loud at the host, and S5
+   already confirmed the notch-divergence half of probe 3.
+4. **N1** (gcroot) — a live defect, no ruling needed.
+5. **V1** (symlink aliases) and ~~**C1**~~/**C3** — small, independent, no decisions.
 7. **N2** — mechanical, and unblocks P7.2.
 8. **Your call on N3**, which decides whether Option 2 joins the list.
 9. **E2's design pass**, then **E1**.
