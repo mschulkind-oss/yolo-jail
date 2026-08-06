@@ -328,16 +328,25 @@ func TestObserveWritesNothing(t *testing.T) {
 	}
 }
 
-// An unstated tier is FLAT: the safe treatment, never the permissive one. A pack that says
-// nothing must not get authority over a subtree of the user's home.
+// UNNAMESPACED IS THE DEFAULT (S1), and namespacing takes a positive declaration. A pack that
+// says nothing must not get authority over a subtree of the user's home — and, since the ruling,
+// must not have its skills invoked under a namespace it never asked for either.
 func TestUnstatedTierIsFlat(t *testing.T) {
-	got, ok := ParseTier("")
-	if !ok || got != TierFlat {
-		t.Errorf("ParseTier(\"\") = %v, %v; want flat, true", got, ok)
+	if got := PackTier(""); got != TierFlat {
+		t.Errorf("PackTier(\"\") = %v, want flat — unnamespaced is the default", got)
 	}
-	// A typo must also degrade to flat, but be reportable.
-	if got, ok := ParseTier("namespcaed"); ok || got != TierFlat {
-		t.Errorf("ParseTier(typo) = %v, %v; want flat, false", got, ok)
+	if got := PackTier("flat"); got != TierFlat {
+		t.Errorf("PackTier(\"flat\") = %v, want flat", got)
+	}
+	// The POSITIVE choice, and the only spelling of it.
+	if got := PackTier("namespaced"); got != TierNamespaced {
+		t.Errorf("PackTier(\"namespaced\") = %v, want namespaced", got)
+	}
+	// A value packdecl's validator would have rejected reaches the default rather than the
+	// permissive tier: the one route here is a manifest read tolerantly across a version
+	// boundary, and inventing a namespace from a typo is the outcome that costs the user a name.
+	if got := PackTier("namespcaed"); got != TierFlat {
+		t.Errorf("PackTier(typo) = %v, want flat", got)
 	}
 }
 

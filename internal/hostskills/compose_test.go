@@ -78,57 +78,164 @@ func body(t *testing.T, dir, name string) string {
 	return string(data)
 }
 
-// §6a-5, THE DEFECT THIS CHANGE EXISTS TO DISSOLVE. At flat tier a LATER layer wins a same-named
-// skill. Under the per-pack delivery the ownership rule refused any pack overwriting another pack's
-// recorded entry whatever the order, so the local pack — appended last precisely because it
-// outranks everything — LOST a flat-tier collision to a shared pack and the user's own copy was
-// silently not the one their agent loaded.
+// S1: TWO PACKS, ONE SKILL NAME, NO NAMESPACE → FATAL, and NOTHING is written.
 //
-// Flat tier specifically: at namespaced tier each pack gets its own subtree, so a collision cannot
-// be represented and the test would prove nothing (which is how the defect survived its first
-// probe). `codex`, `pi` and `agy` all ship flat, so a real user reaches this path.
-func TestFlatLaterLayerWinsTheName(t *testing.T) {
+// This test replaces TestFlatLaterLayerWinsTheName, which pinned the opposite: §6a-5 established
+// that the LAST layer won such a collision, so the local pack (appended last precisely because it
+// outranks everything) took the name. The maintainer's 2026-08-05 ruling reverses that deliberately,
+// and the reason is worth keeping here rather than only in the plan: an intentional override and an
+// accidental clash are the SAME declaration, so yolo cannot tell them apart — and the losing side of
+// the old rule got no output line at all. Measured before the change: a pack's skill vanished
+// silently. §6a-5's fix (a later pack MAY overwrite yolo's own record) is untouched; what changed is
+// that two packs contending for one NAME no longer reaches it.
+//
+// Flat tier specifically. At namespaced tier each pack has its own subtree, so this pair does not
+// contend — which is exactly the remedy the message offers.
+func TestFlatCollisionIsFatalAndWritesNothing(t *testing.T) {
 	d, sources := composeFixture(t, TierFlat, "sflat", "local")
 	writeSkill(t, sources[0], "mine", "SHARED BODY")
 	writeSkill(t, sources[1], "mine", "LOCAL BODY")
 
-	if _, err := RenderHostSkills([]Destination{d}, composeReq(t), false); err != nil {
-		t.Fatal(err)
+	res, err := RenderHostSkills([]Destination{d}, composeReq(t), false)
+	if err == nil {
+		t.Fatalf("two packs claiming the skill %q at an unnamespaced destination must be FATAL; "+
+			"got results %+v", "mine", res)
 	}
-	if got := body(t, d.Dir, "mine"); !strings.Contains(got, "LOCAL BODY") {
-		t.Errorf("the LAST layer must win a same-named skill at flat tier — the local pack is "+
-			"appended last exactly so a personal skill outranks a shared pack's (§6a-5):\n%s", got)
+	if len(res) != 0 {
+		t.Errorf("a refused composition must return no results — a caller printing them would "+
+			"report writes that did not happen: %+v", res)
+	}
+	// NOTHING in the home: the refusal is before any destination is touched, so a multi-destination
+	// apply cannot leave the home half-composed.
+	if _, serr := os.Stat(d.Dir); !os.IsNotExist(serr) {
+		t.Errorf("the destination was created despite the refusal (stat err=%v)", serr)
+	}
+	// THE MESSAGE IS THE FEATURE. It has to name both packs, both source paths, and both remedies —
+	// a fatal the user cannot act on is worse than the silence it replaces.
+	msg := err.Error()
+	for _, want := range []string{
+		"sflat", "local", // both packs
+		sources[0], sources[1], // both source paths
+		"RENAME",        // remedy 1
+		"skills_tier",   // remedy 2, by the exact key to add
+		"namespaced",    // ...and its value
+		d.Dir, `"mine"`, // where, and which name
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the collision error does not mention %q — it is the only thing the user has "+
+				"to act on:\n%s", want, msg)
+		}
 	}
 }
 
-// The same collision is IDEMPOTENT and archives nothing. The naive fix — let a later layer
-// overwrite, and archive the previous copy first because the record owns it — produces one archive
-// entry per apply forever for a destination that never changed.
-func TestFlatCollisionIsIdempotentAndArchivesNothing(t *testing.T) {
+// The refusal holds in OBSERVE too. A dry run exists to say what the write would do, and what this
+// write would do is refuse: previewing a composition that cannot happen is the dry run disagreeing
+// with the write, which every other posture pair in this package is built to prevent.
+func TestFlatCollisionIsFatalInObserveToo(t *testing.T) {
 	d, sources := composeFixture(t, TierFlat, "sflat", "local")
 	writeSkill(t, sources[0], "mine", "SHARED BODY")
 	writeSkill(t, sources[1], "mine", "LOCAL BODY")
-	req := composeReq(t)
 
-	if _, err := RenderHostSkills([]Destination{d}, req, false); err != nil {
+	if _, err := RenderHostSkills([]Destination{d}, composeReq(t), true); err == nil {
+		t.Error("observe previewed a composition the write would refuse")
+	}
+}
+
+// ONE PACK claiming a name twice is NOT a collision: a pack whose two sources ship one name resolves
+// that within its own tree (collectSkills, later source wins), which is its to order. Without this,
+// the check would refuse every pack that lists two skills dirs.
+func TestOnePacksOwnDuplicateIsNotACollision(t *testing.T) {
+	d, sources := composeFixture(t, TierFlat, "one")
+	second := filepath.Join(t.TempDir(), "extra")
+	if err := os.MkdirAll(second, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	first := treeSnapshot(t, d.Dir)
-	res, err := RenderHostSkills([]Destination{d}, req, false)
-	if err != nil {
+	writeSkill(t, sources[0], "mine", "FIRST SOURCE")
+	writeSkill(t, second, "mine", "SECOND SOURCE")
+	d.Layers[0].Sources = append(d.Layers[0].Sources, second)
+
+	if cols := Collisions([]Destination{d}); len(cols) != 0 {
+		t.Fatalf("one pack's own two sources must not collide with each other: %+v", cols)
+	}
+	if _, err := RenderHostSkills([]Destination{d}, composeReq(t), false); err != nil {
 		t.Fatal(err)
 	}
-	if second := treeSnapshot(t, d.Dir); first != second {
-		t.Errorf("the second apply changed the tree:\nfirst:\n%s\nsecond:\n%s", first, second)
+	if got := body(t, d.Dir, "mine"); !strings.Contains(got, "SECOND SOURCE") {
+		t.Errorf("within one pack the later source still wins:\n%s", got)
 	}
-	for _, r := range res {
-		if r.Action == ActionArchived {
-			t.Errorf("re-composing a name two layers both claim archived something — the previous "+
-				"copy is only archivable when it survives from a previous APPLY: %+v", r)
-		}
+}
+
+// A NAMESPACED PACK does not contend for a bare skill name — which is what makes the message's
+// second remedy real rather than advice. Both survive, each under its own name.
+func TestNamespacingResolvesTheCollision(t *testing.T) {
+	d, sources := composeFixture(t, TierFlat, "sflat", "local")
+	d.Layers[1].Tier = TierNamespaced // the local pack opts in
+	writeSkill(t, sources[0], "mine", "SHARED BODY")
+	writeSkill(t, sources[1], "mine", "LOCAL BODY")
+
+	if cols := Collisions([]Destination{d}); len(cols) != 0 {
+		t.Fatalf("a namespaced pack claims its own subtree, not the bare name: %+v", cols)
 	}
-	if got := body(t, d.Dir, "mine"); !strings.Contains(got, "LOCAL BODY") {
-		t.Errorf("the last layer must still win on re-apply:\n%s", got)
+	if _, err := RenderHostSkills([]Destination{d}, composeReq(t), false); err != nil {
+		t.Fatal(err)
+	}
+	if got := body(t, d.Dir, "mine"); !strings.Contains(got, "SHARED BODY") {
+		t.Errorf("the flat pack keeps the bare name:\n%s", got)
+	}
+	if got := body(t, filepath.Join(d.Dir, "local", "skills"), "mine"); !strings.Contains(got,
+		"LOCAL BODY") {
+		t.Errorf("the namespaced pack's copy must live in its own subtree:\n%s", got)
+	}
+}
+
+// A collision between a flat pack's SKILL name and a namespaced pack's SUBTREE name is still a
+// collision: both want the same top-level entry, and the namespaced pack's dir name is its PACK
+// name. Easy to miss, because the two claims come from different delivery paths.
+func TestFlatSkillVersusNamespacedSubtreeCollides(t *testing.T) {
+	d, sources := composeFixture(t, TierFlat, "sflat", "collide")
+	d.Layers[1].Tier = TierNamespaced
+	writeSkill(t, sources[0], "collide", "SHARED BODY") // a skill named like the other pack
+	writeSkill(t, sources[1], "whatever", "LOCAL BODY")
+
+	cols := Collisions([]Destination{d})
+	if len(cols) != 1 || cols[0].Name != "collide" {
+		t.Fatalf("a flat skill name against a namespaced pack's subtree name must collide: %+v", cols)
+	}
+	if _, err := RenderHostSkills([]Destination{d}, composeReq(t), false); err == nil {
+		t.Error("the render composed over a top-level name two packs both claim")
+	}
+}
+
+// A pack that carries NO SKILLS claims nothing, at either tier — the case that would otherwise make
+// every stock config fatal. All six shipped agent packs declare a `skills` contribution purely to
+// NAME the destination other packs merge into, so a namespaced one (claude, copilot) would "claim"
+// a subtree Deliver never writes, and a user pack called `claude` would collide with a directory
+// that does not exist.
+func TestAPackWithNoSkillsClaimsNothing(t *testing.T) {
+	for _, tier := range []Tier{TierFlat, TierNamespaced} {
+		t.Run(tier.String(), func(t *testing.T) {
+			d, sources := composeFixture(t, tier, "agentpack", "agentpack2")
+			_ = sources // both layers deliberately empty: they only NAME the destination
+			if cols := Collisions([]Destination{d}); len(cols) != 0 {
+				t.Errorf("two content-free agent packs collided: %+v", cols)
+			}
+		})
+	}
+}
+
+// An UNRESOLVED layer's destination is not checked at all. Its content could not be read, so the
+// claim set is unknown — and a collision computed from the layers that DID resolve would be an
+// accusation about packs that did nothing wrong, on an apply the render leaves alone anyway.
+func TestUnresolvedLayerSuppressesTheCollisionCheck(t *testing.T) {
+	d, sources := composeFixture(t, TierFlat, "good", "broken")
+	writeSkill(t, sources[0], "mine", "GOOD BODY")
+	writeSkill(t, sources[1], "mine", "BROKEN BODY")
+	d.Layers[1].Unresolved = true
+	d.Layers[1].Problem = "pack broken declares `skills` from \"nope\""
+
+	if cols := Collisions([]Destination{d}); len(cols) != 0 {
+		t.Errorf("a destination with an unresolved layer must not be accused of collisions: %+v",
+			cols)
 	}
 }
 
@@ -375,15 +482,19 @@ func TestComposeLeavesNoTraceWhenNoLayerShipsSkills(t *testing.T) {
 	}
 }
 
-// OBSERVE WRITES NOTHING and resolves every name the same way the write does. The second half is
-// the sharper claim: the claim set is populated in observe too, so a collision two layers both
-// reach reports the same winner in both postures.
+// OBSERVE WRITES NOTHING and resolves every name the same way the write does.
+//
+// The two layers ship DISTINCT names, and that changed with S1: this fixture used to have both ship
+// `mine`, so the second half of the claim was "a collision two layers both reach reports the same
+// winner in both postures". A flat collision is now fatal in both postures instead
+// (TestFlatCollisionIsFatalInObserveToo covers the agreement for that case), so pinning it here
+// would only re-assert the refusal and would stop exercising the composition this test is about.
 func TestComposeObserveWritesNothingAndAgreesWithTheWrite(t *testing.T) {
 	for _, tier := range []Tier{TierFlat, TierNamespaced} {
 		t.Run(tier.String(), func(t *testing.T) {
 			d, sources := composeFixture(t, tier, "sflat", "local")
-			writeSkill(t, sources[0], "mine", "SHARED BODY")
-			writeSkill(t, sources[1], "mine", "LOCAL BODY")
+			writeSkill(t, sources[0], "shared", "SHARED BODY")
+			writeSkill(t, sources[1], "personal", "LOCAL BODY")
 			req := composeReq(t)
 
 			observed, err := RenderHostSkills([]Destination{d}, req, true)

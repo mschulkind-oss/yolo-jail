@@ -34,6 +34,14 @@
 // is the coupling AGENTS.md forbids — core knows the domain, not the tool. And because the
 // tier-A mechanism is an undocumented implementation detail of the tools involved, a
 // declaration that does not hold up is downgraded rather than trusted.
+//
+// UNNAMESPACED IS THE DEFAULT AND A COLLISION IS FATAL (maintainer ruling 2026-08-05,
+// outstanding-work.md S1). Tier A is now a PACK's positive opt-in (packdecl's SkillsTier),
+// not a fact yolo resolves per destination — so two packs shipping one skill NAME at the
+// same unnamespaced destination is refused by name (Collisions) instead of being resolved.
+// Before the ruling, flat tier picked a winner and said nothing while namespaced invented a
+// second invocation for what the user thinks of as one skill; both are now unrepresentable
+// rather than negotiated.
 package hostskills
 
 import (
@@ -42,16 +50,17 @@ import (
 	"path/filepath"
 )
 
-// Tier is how much namespacing the destination tool supports. The zero value is TierFlat:
-// an unstated tier gets the SAFE treatment, never the permissive one.
+// Tier is how much namespacing a PACK asked for. The zero value is TierFlat: unnamespaced is
+// the default, and a pack gets a subtree of the user's home only by saying so.
 type Tier int
 
 const (
 	// TierFlat is a skills dir with no namespace: yolo's entries sit beside the user's,
-	// tracked by the manifest, removed by archiving.
+	// tracked by the manifest, removed by archiving. A name collision between two packs
+	// here is FATAL (Collisions), not resolved.
 	TierFlat Tier = iota
-	// TierNamespaced is a skills dir whose tool loads a per-directory plugin manifest,
-	// letting one pack own one subtree under its own name.
+	// TierNamespaced is the pack's opt-in: yolo writes one subtree per destination, with a
+	// plugin manifest, and the pack's skills invoke as <pack>:<skill>.
 	TierNamespaced
 )
 
@@ -62,20 +71,18 @@ func (t Tier) String() string {
 	return "flat"
 }
 
-// ParseTier lowers a pack's declared tier string. An empty or unrecognized value is
-// TierFlat with ok=false, so a typo degrades to the safe tier AND is reportable — a
-// silently-misread tier would hand a pack more power over a real home than it asked for.
-func ParseTier(s string) (Tier, bool) {
-	switch s {
-	case "":
-		return TierFlat, true // unstated is a legitimate choice, not an error
-	case "flat":
-		return TierFlat, true
-	case "namespaced":
-		return TierNamespaced, true
-	default:
-		return TierFlat, false
+// PackTier lowers a pack's own tier declaration (packdecl's Manifest.SkillsTier), which
+// packdecl has already validated — so an unrecognized value cannot reach here from a manifest
+// yolo read, and reading it as the DEFAULT is right for the one case that can (a hand-edited
+// staged tree, an older build's manifest through the tolerant decoder).
+//
+// Per PACK rather than per contribution, which is S2: a tier decides what a skill is CALLED,
+// so resolving it per destination could not express a consistent name.
+func PackTier(declared string) Tier {
+	if declared == "namespaced" {
+		return TierNamespaced
 	}
+	return TierFlat
 }
 
 // pluginManifestDir is the per-directory manifest a tier-A tool looks for. The name is the

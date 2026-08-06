@@ -87,12 +87,10 @@ type Layer struct {
 	Pack string
 	// Description goes into the namespaced plugin manifest.
 	Description string
-	// Tier is the DECLARED tier of this contribution. Kept PER LAYER rather than promoted to the
-	// destination, even though a tier is a fact about the destination tool: two packs naming one
-	// dir with different tiers is a pack bug, but resolving it by picking one would silently move
-	// a pack's skills from the flat namespace it declared into a subtree (or the reverse). Per
-	// layer, a disagreement costs one oddly-shaped delivery that the report names, instead of a
-	// declaration honored as its opposite.
+	// Tier is the PACK's own tier — its opt-in to namespacing, identical at every destination
+	// this pack reaches (S1/S2). It used to be the CONTRIBUTION's, which meant one pack could be
+	// namespaced in one home and flat in another, so what the user thinks of as one skill had two
+	// invocation names depending on which agent asked.
 	Tier Tier
 	// Sources are the pack-relative skills dirs this contribution resolved to, empty when the
 	// declared `from` could not be honored (Problem then says so).
@@ -101,15 +99,12 @@ type Layer struct {
 	// per-component refusals its origin denied.
 	Plugins  []*pluginpack.Plugin
 	Refusals []string
-	// Problem is a failure to report about this layer: an unresolvable source, an unknown tier.
+	// Problem is a failure to report about this layer: an unresolvable source.
 	Problem string
 	// Unresolved marks a layer whose DECLARED source could not be read, which is the sharper half
 	// of Problem and the one with a consequence: the composition of this destination is incomplete,
 	// so it must be left entirely alone rather than composed from the remaining layers. Composing
 	// anyway would retire every other pack's skills there because one pack's `from` was misspelled.
-	//
-	// Distinct from Problem because an unknown TIER is also a problem and is NOT a reason to skip:
-	// the layer still has content, it just gets the safe tier.
 	Unresolved bool
 }
 
@@ -209,16 +204,10 @@ func ComposeHostSkills(packs []*packload.Pack, homeDir string) []Destination {
 				byDir[dir] = d
 				order = append(order, dir)
 			}
+			// The tier comes off the PACK, so every layer this pack contributes carries the same
+			// one and its skills are called the same thing wherever they land (S2).
 			l := Layer{Pack: p.Name, Description: p.Decl.Description, Plugins: plugins,
-				Refusals: refused}
-			tier, ok := ParseTier(c.Tier)
-			l.Tier = tier
-			if !ok {
-				// Reachable only for a manifest that bypassed validation (an older pack, a
-				// hand-edited staged tree). Say so rather than silently choosing.
-				l.Problem = fmt.Sprintf("pack %s: unknown skills tier %q — using flat (the safe "+
-					"tier)", p.Name, c.Tier)
-			}
+				Refusals: refused, Tier: PackTier(p.Decl.SkillsTier)}
 			src, prob := p.SkillsSourceDir(c)
 			if prob != "" {
 				l.Problem, l.Unresolved = prob, true
@@ -232,6 +221,191 @@ func ComposeHostSkills(packs []*packload.Pack, homeDir string) []Destination {
 	out := make([]Destination, 0, len(order))
 	for _, dir := range order {
 		out = append(out, *byDir[dir])
+	}
+	return out
+}
+
+// Collision is one NAME two packs both want at one destination — the S1 refusal.
+//
+// Maintainer ruling, 2026-08-05: *"I want unnamespaced by default with a fatal collision error if
+// skills collide on name. Namespacing should be possible by the pack's choice, but it should be a
+// positive choice."*
+//
+// WHAT IT REPLACED, measured before the ruling: two packs both shipping `dup`, one apply. At flat
+// tier ONE silently won and there was no warning on the loss at all — a pack's skill vanished with
+// no output line. At namespaced tier BOTH survived, so what the user thinks of as one skill had two
+// invocations (`/sp:dup` and `/local:dup`). The first is the silent-failure class this whole body of
+// work exists to remove; the second is a name yolo invented on the user's behalf.
+//
+// Refusing makes the failure UNREPRESENTABLE rather than negotiated, which is the same move as the
+// doubly-declared-config-surface refusal. It costs the deliberate flat-tier OVERRIDE that §6a-5
+// established (the local pack's copy winning a shared pack's same-named skill), and that is the
+// ruling's own trade: an override and an accident are the same declaration, so yolo cannot tell them
+// apart, and the ruling says the user should. The `-from-<agent>` suffix the MIGRATION applies is
+// untouched — adoption preserves, declaration refuses.
+type Collision struct {
+	// Dir is the destination both packs write into.
+	Dir string
+	// Name is the top-level entry name they both want. That is the unit of collision rather than
+	// "a skill": at flat tier it is a skill's dir, at namespaced tier it is a pack's whole subtree,
+	// and the two CAN contend for one name (a flat pack shipping a skill called `foo` against a
+	// namespaced pack called `foo`).
+	Name string
+	// Claims are the contending claims in composition order — always at least two.
+	Claims []Claim
+}
+
+// Claim is one pack's claim on one top-level name at one destination.
+type Claim struct {
+	// Pack is the claiming pack.
+	Pack string
+	// Source is where the content comes from: the skill's source dir at flat tier, or "" for a
+	// namespaced subtree, which has no single source path (it is the pack's whole skills tree).
+	Source string
+	// Namespaced says the claim is a whole per-pack subtree rather than one skill.
+	Namespaced bool
+}
+
+// Message is the refusal a user reads, and it is most of this feature's value: the collision WILL
+// fire on a real case (a personal pack and a shipped pack both shipping `agent-standards` is a
+// genuine ambiguity), so a message the user cannot act on would be worse than the silence it
+// replaces. It names every pack, every source path, and both remedies.
+func (c Collision) Message() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s: %d packs both want the entry %q, and none of them is namespaced, so yolo "+
+		"will not choose:", c.Dir, len(c.Claims), c.Name)
+	for _, cl := range c.Claims {
+		switch {
+		case cl.Namespaced:
+			fmt.Fprintf(&b, "\n    pack %s — its namespaced subtree is called %q", cl.Pack, c.Name)
+		default:
+			fmt.Fprintf(&b, "\n    pack %s — from %s", cl.Pack, cl.Source)
+		}
+	}
+	b.WriteString("\n  Two ways to resolve it, and yolo cannot pick for you because a deliberate " +
+		"override and an accidental clash are the same declaration:")
+	// The suggested new name is built from a CONTENDING PACK's name rather than a generic
+	// suffix, so the line is copy-pasteable and unambiguous about which copy is being renamed.
+	fmt.Fprintf(&b, "\n    - RENAME one of them. A skill's DIRECTORY NAME is what the agent "+
+		"invokes, so renaming %s's copy to `%s-%s` (say) gives you both.",
+		c.Claims[len(c.Claims)-1].Pack, c.Name, c.Claims[len(c.Claims)-1].Pack)
+	b.WriteString("\n    - Or add `\"skills_tier\": \"namespaced\"` to one pack's pack.json. Its " +
+		"skills then live in a subtree of its own and invoke as /<pack>:<skill>, at every " +
+		"destination it reaches.")
+	return b.String()
+}
+
+// Collisions returns every name two packs both claim at one destination, sorted by destination then
+// name, so a report is stable and a user fixing one is not handed a different order next run.
+//
+// A PURE function of the composed destinations, like ComposeHostSkills, because three callers need
+// the same answer: the CLI refuses the apply with it, the render refuses to write without checking
+// it, and a preview reports it.
+//
+// Two claims from ONE pack are not a collision — a pack whose two sources ship one name resolves
+// that itself (collectSkills, later source wins), which is its own tree to order.
+//
+// An UNRESOLVED layer's destination is skipped entirely: its content could not be read, so the
+// claim set is unknown and a collision computed from the remaining layers would be an accusation
+// about packs that did nothing wrong. The render leaves such a destination alone anyway.
+func Collisions(dests []Destination) []Collision {
+	var out []Collision
+	for _, d := range dests {
+		unresolved := false
+		for _, l := range d.Layers {
+			unresolved = unresolved || l.Unresolved
+		}
+		if unresolved {
+			continue
+		}
+		byName := map[string][]Claim{}
+		var order []string
+		for _, l := range d.Layers {
+			claimed := layerClaims(l)
+			for _, name := range sortedKeys(claimed) {
+				if _, seen := byName[name]; !seen {
+					order = append(order, name)
+				}
+				byName[name] = append(byName[name],
+					Claim{Pack: l.Pack, Source: claimed[name], Namespaced: l.Tier == TierNamespaced})
+			}
+		}
+		sort.Strings(order)
+		for _, name := range order {
+			claims := dedupePackClaims(byName[name])
+			if len(claims) < 2 {
+				continue
+			}
+			out = append(out, Collision{Dir: d.Dir, Name: name, Claims: claims})
+		}
+	}
+	return out
+}
+
+// layerClaims is {top-level entry name → source path} for one layer: exactly the names this layer
+// would create at the destination's top level, which is what can collide.
+//
+// It mirrors writeLayer's two deliveries rather than guessing:
+//
+//   - NAMESPACED: the pack's own subtree (one name, the pack's), plus one per WRAPPED PLUGIN, whose
+//     tree lands at its own name (deliverPluginTree) rather than under the pack's.
+//   - FLAT: one per skill, from the same sources Deliver reads — the pack's skills dirs MINUS the
+//     plugin subtrees inside them, plus each plugin's own skills, which deliverPluginFlat writes
+//     as bare names.
+//
+// An unreadable source contributes no claims. That direction is deliberate: a collision is a
+// REFUSAL, and refusing on content nobody could read would block an apply over a guess.
+//
+// A pack that CARRIES NO SKILLS claims nothing, at either tier, and that is load-bearing rather
+// than an optimization: all six shipped agent packs declare a `skills` contribution purely to NAME
+// the destination other packs merge into, so counting the empty subtree Deliver never writes
+// (its `len(skills) == 0` early return) would have `claude` collide with a pack called `claude`
+// over a directory neither one creates.
+func layerClaims(l Layer) map[string]string {
+	pluginDirs := make([]string, 0, len(l.Plugins))
+	for _, pl := range l.Plugins {
+		pluginDirs = append(pluginDirs, pl.Dir)
+	}
+	skills, err := collectSkills(l.Sources, pluginDirs)
+	if err != nil {
+		skills = nil
+	}
+	out := map[string]string{}
+	if l.Tier == TierNamespaced {
+		if len(skills) > 0 {
+			out[l.Pack] = ""
+		}
+		// A wrapped plugin's tree lands at the PLUGIN's name, beside the pack's own subtree
+		// rather than inside it (deliverPluginTree), so it is its own claim.
+		for _, pl := range l.Plugins {
+			out[pl.Name()] = pl.Dir
+		}
+		return out
+	}
+	for name, src := range skills {
+		out[name] = src
+	}
+	// At flat tier a plugin contributes its SKILLS as bare names (deliverPluginFlat) and nothing
+	// else; every other component is refused there by name.
+	for _, pl := range l.Plugins {
+		for name, src := range pl.SkillDirs() {
+			out[name] = src
+		}
+	}
+	return out
+}
+
+// dedupePackClaims collapses several claims from ONE pack to its first, so a pack contributing a
+// name twice (its own skill and a wrapped plugin's, say) does not read as colliding with itself.
+func dedupePackClaims(claims []Claim) []Claim {
+	seen := map[string]bool{}
+	out := make([]Claim, 0, len(claims))
+	for _, c := range claims {
+		if seen[c.Pack] {
+			continue
+		}
+		seen[c.Pack] = true
+		out = append(out, c)
 	}
 	return out
 }
@@ -515,7 +689,16 @@ func skillsArchiveDetail(path string, req ComposeRequest, observe bool, why stri
 // Retire LAST, not first: a name that moves from one pack to another between applies must not be
 // archived and immediately rewritten, which is what a retire-then-write order produces (an archive
 // entry per apply, forever, for a destination that never changed).
+//
+// A COLLISION IS FATAL BEFORE ANY DESTINATION IS TOUCHED (S1). Checked here rather than only at the
+// call site, and for the whole SET rather than per destination, because both alternatives write
+// something first: a per-destination check would compose `.claude/skills` and then refuse
+// `.codex/skills`, leaving the home half-composed from a pack set the user is about to change. The
+// error is what the CLI prints; every collision is in it, so one run names every rename to make.
 func RenderHostSkills(dests []Destination, req ComposeRequest, observe bool) ([]Result, error) {
+	if cols := Collisions(dests); len(cols) > 0 {
+		return nil, CollisionError(cols)
+	}
 	var out []Result
 	for _, d := range dests {
 		res, err := renderDestination(d, req, observe)
@@ -525,6 +708,20 @@ func RenderHostSkills(dests []Destination, req ComposeRequest, observe bool) ([]
 		}
 	}
 	return out, nil
+}
+
+// CollisionError is the fatal every collision folds into, one per line.
+//
+// It refuses in OBSERVE posture too, which is not merely consistency: a dry run exists to say what
+// the write would do, and what this write would do is refuse. Reporting the collisions and then
+// previewing a composition that cannot happen would be the dry run disagreeing with the write.
+func CollisionError(cols []Collision) error {
+	msgs := make([]string, 0, len(cols))
+	for _, c := range cols {
+		msgs = append(msgs, c.Message())
+	}
+	return fmt.Errorf("skills: refusing to compose — %d name collision(s):\n  %s",
+		len(cols), strings.Join(msgs, "\n  "))
 }
 
 func renderDestination(d Destination, req ComposeRequest, observe bool) ([]Result, error) {

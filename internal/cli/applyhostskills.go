@@ -144,6 +144,19 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	rc := 0
 	dests := hostskills.ComposeHostSkills(loaded, home)
 	reportSkillDestinations(pr, dests)
+	// THE S1 REFUSAL, and it comes BEFORE the adoption gate rather than after. Two packs both
+	// claiming one skill NAME at an unnamespaced destination is fatal, so nothing this apply
+	// would do to the user's home may happen first — least of all the adoption prompt, which is a
+	// ONE-WAY DOOR: answering `y` to a migration and then being told the composition is refused
+	// would move the user's skills for a render that never ran.
+	//
+	// Printed here rather than left to RenderHostSkills' error (which still refuses, so the
+	// structural guarantee does not depend on this call site) because the message is the feature:
+	// it names both packs, both source paths and both remedies, and the render's error is a
+	// single string a caller might collapse into one line.
+	if reportSkillCollisions(pr, dests) {
+		return 1
+	}
 	adoptions, foreignPlugins := hostskills.Adoptions(dests, req)
 	for _, r := range foreignPlugins {
 		// A plugin the user authored is left alone at every posture — never adopted, never
@@ -198,6 +211,13 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 						active[p.Name], configured[p.Name] = true, true
 					}
 					dests = hostskills.ComposeHostSkills(loaded, home)
+					// RE-CHECKED, because the pack set just changed: the migration created the
+					// local pack, whose freshly-adopted skill can share a name with a shared
+					// pack's. Refusing here leaves the migrated content where it is — in the local
+					// pack, reachable and named in the message — rather than composed over.
+					if reportSkillCollisions(pr, dests) {
+						return 1
+					}
 				}
 			}
 		}
@@ -325,6 +345,25 @@ func printSkillResult(pr richtext.Printer, r hostskills.Result) {
 	}
 	pr.Printf("  ["+color+"]skills[/"+color+"]     %-24s %s  [dim]%s[/dim]",
 		r.Name, r.Action, r.Detail)
+}
+
+// reportSkillCollisions prints the S1 refusal and reports whether the apply must stop.
+//
+// ONE LINE PER COLLISION, each carrying the whole remedy (Collision.Message), rather than a
+// summary plus a pointer to docs: a fatal error the user cannot act on is worse than the silent
+// loss it replaces, and this one WILL fire on a real case — a personal pack and a shipped pack
+// both shipping `agent-standards` is a genuine ambiguity yolo has no business resolving.
+func reportSkillCollisions(pr richtext.Printer, dests []hostskills.Destination) bool {
+	cols := hostskills.Collisions(dests)
+	if len(cols) == 0 {
+		return false
+	}
+	pr.Printf("  [red]skills     refused[/red] — %d name collision(s); nothing was composed",
+		len(cols))
+	for _, c := range cols {
+		pr.Printf("  [red]%s[/red]", c.Message())
+	}
+	return true
 }
 
 // reportSkillDestinations names each composed destination and its contributing packs, once per
