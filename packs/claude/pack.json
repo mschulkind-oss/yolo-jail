@@ -11,15 +11,12 @@
     },
     {
       "after": "host:.claude/CLAUDE.md",
-      "from": "AGENTS.md",
       "into": ".claude/CLAUDE.md",
       "kind": "briefing"
     },
     {
-      "from": "skills",
       "into": ".claude/skills",
-      "kind": "skills",
-      "tier": "namespaced"
+      "kind": "skills"
     },
     {
       "config": [
@@ -147,5 +144,6 @@
       "kind": "hook"
     }
   ],
-  "name": "claude"
+  "name": "claude",
+  "skills_tier": "namespaced"
 }

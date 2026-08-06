@@ -12,7 +12,6 @@
     },
     {
       "after": "host:.config/opencode/AGENTS.md",
-      "from": "AGENTS.md",
       "into": ".config/opencode/AGENTS.md",
       "kind": "briefing"
     },

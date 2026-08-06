@@ -11,12 +11,10 @@
     },
     {
       "after": "host:.gemini/antigravity-cli/AGENTS.md",
-      "from": "AGENTS.md",
       "into": ".gemini/antigravity-cli/AGENTS.md",
       "kind": "briefing"
     },
     {
-      "from": "skills",
       "into": ".gemini/antigravity-cli/skills",
       "kind": "skills"
     },

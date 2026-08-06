@@ -15,12 +15,10 @@
     },
     {
       "after": "host:.pi/agent/AGENTS.md",
-      "from": "AGENTS.md",
       "into": ".pi/agent/AGENTS.md",
       "kind": "briefing"
     },
     {
-      "from": "skills",
       "into": ".pi/agent/skills",
       "kind": "skills"
     },

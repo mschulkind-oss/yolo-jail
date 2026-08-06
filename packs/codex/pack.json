@@ -12,12 +12,10 @@
     },
     {
       "after": "host:.codex/AGENTS.md",
-      "from": "AGENTS.md",
       "into": ".codex/AGENTS.md",
       "kind": "briefing"
     },
     {
-      "from": "skills",
       "into": ".codex/skills",
       "kind": "skills"
     },
