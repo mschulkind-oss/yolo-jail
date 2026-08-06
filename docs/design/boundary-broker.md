@@ -1,17 +1,14 @@
-# A stateful broker on the jail boundary — approvals and credential switching
+# A stateful broker on the jail boundary — approvals for what crosses
 
-**Status:** DESIGN SKETCH, 2026-08-05. Nothing built. Written in response to two use cases the
-maintainer named together, plus a third the research surfaced. Where the answer is "this already
-exists," it says so.
+**Status:** DESIGN SKETCH, 2026-08-05. Nothing built. Where the answer is "this already exists,"
+it says so.
 
 **The thesis, from the maintainer:**
 
 > "I want to put some sort of service in between the contained area and the host, just like
 > loopholes, but positioned in a place where it can hold tasks that are waiting for a human for
 > approval or have other state associated with it… the agent inside can ask to use my GitHub
-> credentials to post a comment to a PR, and then it will go to a queue and I can say yes or no…
-> and I want to be able to switch out my Claude auth, basically a Claude account switcher between
-> OAuth and Bedrock keys, dynamically at the jail layer."
+> credentials to post a comment to a PR, and then it will go to a queue and I can say yes or no."
 
 **The short version.** The mechanism is 90% built — it is the loophole protocol plus what the
 OAuth broker already does. What is missing is not a transport or a daemon framework; it is **two
@@ -19,13 +16,20 @@ things a loophole cannot express today: a request that OUTLIVES its connection, 
 whose answer comes from a HUMAN rather than from the host filesystem.** Those two absences are
 the whole design, and they are smaller than they sound.
 
-The credential-switching case turns out to be a *different* feature that happens to want the same
-front door — worth building, worth not conflating. See §5.
+**The most important thing in this doc is §5:** for the motivating GitHub case, an approval queue
+is probably the *wrong* tier. There are three tiers, not two, and the middle one needs no human.
+
+**Scope note.** Claude auth switching was originally sketched here as a third use case. It is a
+different feature that wants the same front door, and it is now
+[`agent-auth-modes.md`](agent-auth-modes.md) — split out because it shares this doc's front door
+and none of its blockers (this waits on N3/OQ-1; that waits on nothing). §6 keeps only the
+constraint the two share.
 
 **Reads with:** [`loophole-protocol.md`](loophole-protocol.md) (the wire format this extends),
 [`agent-credentials.md`](agent-credentials.md) (what crosses the boundary today and why),
+[`agent-auth-modes.md`](agent-auth-modes.md) (the split-out sibling),
 [`../guides/loopholes.md`](../guides/loopholes.md) (the three shipped loopholes),
-[`../plans/outstanding-work.md`](../plans/outstanding-work.md) (where this lands in priority).
+[`../plans/outstanding-work.md`](../plans/outstanding-work.md) (rows B1/B2).
 
 ---
 
@@ -171,47 +175,50 @@ guarantees down to compensate.
 
 ---
 
-## 5. Use case C: Claude auth switching — a DIFFERENT feature, same front door
+## 5. Three tiers, not two — and git wants the middle one
 
-**The ask:** switch between OAuth and Bedrock keys dynamically at the jail layer, like an account
-switcher.
+The framing above ("no access, or hand over a token") is a false binary, and the missing option
+is the one the GitHub case most likely wants. **Approval is the heaviest of three tiers, and the
+maintainer's own instinct — "it's possible for the git thing that we'll want to just filter access
+instead" — is right more often than this doc's §3 implies.**
 
-**This is not an approval problem and should not be built as one.** It is a *credential selection*
-problem, and conflating them would give both a worse design. Approvals are per-action, ephemeral,
-and human-answered; auth selection is per-jail (or per-session), persistent, and configuration.
+| Tier | Credential lives | Human in the loop | Right when |
+|---|---|---|---|
+| **filter** | in the jail, scoped | no | the permission system can *express* the limit |
+| **proxy** | host-side, injected after egress | no | it cannot, but the action is still mechanically checkable |
+| **approve** | host-side, action gated | **yes** | the judgment is genuinely human |
 
-**What it actually needs.** Today (`packs/claude/pack.json`) the credential arrives as a
-`shared_credentials` hook symlinking `~/.claude/.credentials.json` into a machine-wide shared dir
-— one credential, one shape, decided before the jail boots. And the Bedrock path is not modeled in
-yolo at all: `rg -n 'bedrock' internal/` finds **nothing**. On this machine it works because
-`AWS_*` + `CLAUDE_CODE_USE_BEDROCK` come through `env_sources`, which is invisible to yolo's
-config model.
+**Filter** is what this workspace already does: a fine-grained PAT with `Contents: Read` on one
+repo, delivered by `env_sources`, is how this jail reads `origin`. It needs no queue, no daemon, no
+UI, and no human. It is the correct answer whenever the scope you want is a scope the provider can
+express.
 
-So the honest statement of the gap: **yolo has one credential channel per agent, and no notion
-that an agent might have several mutually exclusive auth modes.** That is the thing to model.
+It stops working at two points. First, expressiveness: a GitHub PAT cannot say "may comment, may
+not push," or "may push only to `agent/*`". Second, and more important, **a token inside the jail
+is unauditable and un-revokable per-action for its whole lifetime** — which is the boundary
+becoming a fiction for that credential, exactly as §3 says.
 
-**Where the broker helps, and where it does not.** It helps if switching must be *dynamic* — a
-running jail changing modes without a restart — because then something host-side must hold "which
-mode is jail X on" and hand out the right material on request. That is a state-holding boundary
-service, and it is the same daemon.
+**Proxy is the tier this doc was missing.** Route the operation through a host-side proxy that
+injects the credential *after the request leaves the jail*. The jail holds nothing; the host holds
+the secret and sees every request. This is not speculative — it is the shape Anthropic's own
+managed-agents git path uses: the repo token is never placed in the sandbox, and `git pull` /
+`git push` / GitHub REST calls route through a proxy that injects it on the way out, so code
+running in the sandbox cannot read or exfiltrate it.
 
-But **ask whether dynamic is the requirement**, because the cheaper answer may be enough: a config
-key (`claude_auth: oauth | bedrock`) plus the existing per-jail credential plumbing gets you an
-account switcher at *launch* time, with no new daemon, no new protocol, and no new state. That
-covers "I want this jail on Bedrock and that one on OAuth" — which may be the actual need. It does
-not cover "switch this running jail," which is the only part that needs the broker.
+For git specifically that is a credential helper or an `http.extraHeader` pointing at a host-side
+endpoint, and it delivers **this doc's own central rule — the action crosses, the credential does
+not — with no human in the loop at all.** It also gets the audit log (§7 step 1) for free, since
+every request passes through one place.
 
-**My recommendation: split it.** Model the auth modes first (config + credential channel), which
-is useful alone and is a prerequisite either way; add broker-mediated *dynamic* switching only if
-launch-time selection proves insufficient in practice. Building the daemon first would be designing
-for a requirement not yet demonstrated.
+**So the recommendation for the GitHub case changes:** reach for **proxy** first, and reserve
+**approve** for the operations where a human would actually say no. Posting a PR comment is
+probably proxy-tier. Force-pushing to `main` is approve-tier. That distinction is the same
+forcing question as §6.1, applied earlier.
 
-**One real constraint to carry either way:** the OAuth broker exists because Anthropic's refresh
-token is **single-use**, so concurrent refreshes across jails burn each other's token. Any auth
-switcher must not reintroduce that race — e.g. two jails switching to OAuth simultaneously, or a
-switch racing a refresh. The flock precedent (`RefreshLockPath`) is the mechanism, and this is the
-argument for auth state living in the *same* daemon as the refresh serialization rather than beside
-it.
+**What this does not change.** The approval tier still needs to exist for the class of action
+where the judgment is irreducibly human, and the two absences in §2 are still what it costs.
+Nothing below is retracted — it is re-scoped to a smaller set of verbs than "anything using host
+credentials."
 
 ---
 
@@ -259,13 +266,33 @@ Each step is independently useful, which is the property that makes this safe to
    review after the fact. No queue, no prompt, no new protocol — it is mostly already there.
    Establishes what people actually ask for, which should inform every later decision. **Cheapest
    thing with real value.**
-2. **One allowlisted verb, synchronous approval.** `github.pr_comment`, human answers at a
-   foreground `yolo approve` while the jail blocks with a timeout. Proves the preview-and-validate
-   design without any durable queue. Fail-closed on timeout.
-3. **The durable queue.** Only once (2) shows the synchronous version is genuinely too limiting —
+2. **The injecting proxy for git** (§5). No human, no queue, no new protocol beyond a credential
+   helper — and it satisfies the "action crosses, credential does not" rule outright. This is the
+   step that most likely *removes* the need for step 3 in the motivating case.
+3. **One allowlisted verb, synchronous approval.** Human answers at a foreground `yolo approve`
+   while the jail blocks with a timeout. Proves the preview-and-validate design without any
+   durable queue. Fail-closed on timeout. Pick the verb from what step 1 shows people ask for and
+   step 2 cannot cover — deliberately *not* pre-chosen here any more, because §5 makes
+   `github.pr_comment` a poor first candidate: it is proxy-tier.
+4. **The durable queue.** Only once (3) shows the synchronous version is genuinely too limiting —
    which it may not be, if the human is usually present.
-4. **Auth modes as configuration** (§5), independent of 1–3 and useful on its own.
-5. **Broker-mediated dynamic switching**, only if launch-time selection proves insufficient.
+
+### 7.1 One front door, several front-ends
+
+The maintainer wants "a web app locally hosted, ideally one for all jails, or similarly control
+things with a tui/cli through the same protocol." That grain is already right: daemons are
+host-side and per-user, jails are clients, and the OAuth broker is already one singleton serving
+every jail. Multiple front-ends over one store is the natural shape.
+
+The discipline that makes it work: **the state is the API and the front-ends are dumb.**
+`yolo approve`, a TUI, and a web app are all clients of the same daemon. That also dissolves OQ-E
+— "where does the human answer" stops being a state-design question and becomes a packaging one.
+
+**One caution that is not cosmetic.** The protocol's security posture is *"the socket file is the
+authentication."* A TCP port is not that. In bridge mode a jail reaches the host at
+`host.containers.internal`, so **an HTTP approval UI is reachable by the very thing whose requests
+it approves** — loopback-binding does not exclude the jail. Keep authority in the unix socket and
+make HTTP a thin local proxy, or the approver and the approved share a channel.
 
 ---
 
@@ -287,10 +314,13 @@ possibly step 1.** The reasons:
 - **Step 1 (the audit log) is the exception** and could be done any time: it is small, it is
   strictly additive, it has no design risk, and it produces the evidence that would tell us which
   verbs are worth gating. If any part of this jumps the queue, that is the part.
-- **§5's auth-mode modeling is separable and arguably higher value than the broker**, because the
-  Bedrock path being entirely unmodeled in yolo is a real gap today — it works on this machine only
-  through `env_sources`, which yolo cannot see or reason about. That is worth its own row in the
-  queue independent of any of this.
+- **Step 2 (the injecting proxy) is the second exception**, and it is not blocked on N3/OQ-1 the
+  way the approval tier is — it has no human in it, so it does not care whether `host` is a place
+  agents run. It is also the step that makes the motivating use case work, which is a better
+  reason to do it than its position here suggests.
+- **Auth-mode modeling was split out** to [`agent-auth-modes.md`](agent-auth-modes.md) (row B3)
+  and is **higher value than anything in this doc**, because it is a real gap today rather than a
+  new capability. It waits on nothing.
 
 **What would move it up:** a concrete instance of wanting it that the current model blocks. The
 GitHub-comment case is close — this session has already wanted it — and if that recurs, step 2
