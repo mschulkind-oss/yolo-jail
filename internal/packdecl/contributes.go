@@ -671,15 +671,6 @@ func (m *Manifest) validateContributions() []string {
 // runs the path guards on every path-bearing field.
 func validateContribution(label string, c Contribution) []string {
 	var problems []string
-	// The retired per-contribution tier, refused for EVERY kind with the migration in the
-	// message (see Contribution.Tier). Before the switch because the field is no longer a
-	// property of any one kind — it is a property of the pack now.
-	if c.Tier != "" {
-		problems = append(problems, fmt.Sprintf(
-			"%s: \"tier\" is no longer a contribution field — a tier decides what a skill is "+
-				"CALLED, which is one fact about the whole pack rather than one per destination. "+
-				"Move it to the manifest's top-level \"skills_tier\": %q", label, c.Tier))
-	}
 	req := func(field, val string) {
 		if val == "" {
 			problems = append(problems, fmt.Sprintf("%s: kind %q needs %q", label, c.Kind, field))

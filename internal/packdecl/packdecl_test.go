@@ -47,37 +47,51 @@ func TestDecodeTolerantIgnoresUnknownFields(t *testing.T) {
 	}
 }
 
-// TOLERANCE IS ABOUT UNKNOWN FIELDS, NOT ABOUT VALIDATION — and the retired per-contribution
-// `tier` is the case that distinguishes them.
+// THE RETIRED `tier` IS REFUSED WHERE A HUMAN IS AUTHORING AND TOLERATED AT THE VERSION
+// BOUNDARY — the two halves of this test are one decision, and getting it wrong reproduced the
+// original incident in mirror image.
 //
-// It is still DECODABLE (a tombstone field, so the strict decoder does not answer a pack still
-// carrying it with a bare `json: unknown field "tier"`), and it is REFUSED by validation, at both
-// decoders. That is the right split: a manifest malformed in a way BOTH builds understand must
-// fail loudly, or the migration message never reaches the author.
-func TestRetiredContributionTierIsRefusedWithTheMigration(t *testing.T) {
+// The field stays DECODABLE, so the strict decoder does not answer a pack still carrying it with a
+// bare `json: unknown field "tier"` — loud, but naming neither the replacement nor the reason.
+//
+// The TOLERANT half is the sharp one. A retired field is a version-skew fact: after this change a
+// manifest yolo SHIPS carries `skills_tier`, and a newer host CLI stages that tree for an OLDER
+// baked entrypoint. Refusing there — which is what making this a Validate problem did — meant
+// `load_packs` failed and the jail would not start at all, with no route to recovery, since the
+// offending manifest is one yolo ships. Caught by running a nested jail against the previous baked
+// image, not by any unit test; hence this one.
+func TestRetiredContributionTierIsAuthoringOnly(t *testing.T) {
 	manifest := []byte(`{"name":"acme","contributes":[` +
 		`{"kind":"skills","from":"skills","into":".acme/skills","tier":"namespaced"}]}`)
 
-	for _, tc := range []struct {
-		name   string
-		decode func([]byte) (*Manifest, []string)
-	}{{"strict", Decode}, {"tolerant", DecodeTolerant}} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, problems := tc.decode(manifest)
-			if len(problems) == 0 {
-				t.Fatal("a per-contribution `tier` must be refused — it declared a global property " +
-					"at a per-destination site (S2)")
-			}
-			joined := strings.Join(problems, "\n")
-			// The message has to carry the MIGRATION, or the author is told only that their working
-			// manifest stopped working.
-			for _, want := range []string{"skills_tier", "namespaced"} {
-				if !strings.Contains(joined, want) {
-					t.Errorf("the refusal does not mention %q, so it names no way forward:\n%s",
-						want, joined)
-				}
-			}
-		})
+	// AUTHORING: refused, with the migration named.
+	_, problems := Decode(manifest)
+	if len(problems) == 0 {
+		t.Fatal("a per-contribution `tier` must be refused at authoring time — it declared a " +
+			"global property at a per-destination site (S2)")
+	}
+	joined := strings.Join(problems, "\n")
+	for _, want := range []string{"skills_tier", "namespaced"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the refusal does not mention %q, so it names no way forward:\n%s", want, joined)
+		}
+	}
+
+	// VERSION BOUNDARY: accepted, and the rest of the manifest still decodes. A jail must boot
+	// even when the two ends disagree about which fields exist.
+	m, tolerated := DecodeTolerant(manifest)
+	if len(tolerated) != 0 {
+		t.Errorf("DecodeTolerant refused a RETIRED field, which is a version-skew fact — an older "+
+			"baked entrypoint reading a newer staged manifest would refuse to start the jail: %v",
+			tolerated)
+	}
+	if cs := m.Contributions(); len(cs) != 1 || cs[0].Into != ".acme/skills" {
+		t.Errorf("tolerance must not mean skipping the entry: %+v", cs)
+	}
+	// Nothing reads the retired value, so tolerating it changes no behavior — it just boots.
+	if m.WantsNamespacedSkills() {
+		t.Error("a per-contribution `tier` must not be honored as the pack's opt-in — that would " +
+			"resurrect the per-destination tier through the tolerant path")
 	}
 }
 
@@ -110,10 +124,14 @@ func TestDecodeStaysStrictForAuthors(t *testing.T) {
 // understand — an unknown kind, a missing required field — must still fail loudly, or the
 // tolerant path becomes a way to ship a broken pack into a jail.
 func TestDecodeTolerantStillValidatesStructure(t *testing.T) {
+	// A RETIRED field is deliberately absent from this list — it is a version-skew fact rather
+	// than a structural one, which is the split TestRetiredContributionTierIsAuthoringOnly pins.
+	// `bad skills_tier` replaces the old `bad tier` case: a value NEITHER build understands is
+	// still malformed in a way both agree on, so it must fail at both decoders.
 	for name, manifest := range map[string]string{
-		"unknown kind":  `{"name":"a","contributes":[{"kind":"nonsense"}]}`,
-		"missing field": `{"name":"a","contributes":[{"kind":"skills","from":"skills"}]}`,
-		"bad tier":      `{"name":"a","contributes":[{"kind":"skills","from":"s","into":"i","tier":"nope"}]}`,
+		"unknown kind":    `{"name":"a","contributes":[{"kind":"nonsense"}]}`,
+		"missing field":   `{"name":"a","contributes":[{"kind":"skills","from":"skills"}]}`,
+		"bad skills_tier": `{"name":"a","skills_tier":"nope"}`,
 	} {
 		if _, problems := DecodeTolerant([]byte(manifest)); len(problems) == 0 {
 			t.Errorf("%s: DecodeTolerant must still report structural problems", name)

@@ -148,7 +148,37 @@ func Decode(data []byte) (*Manifest, []string) {
 	if err := dec.Decode(&m); err != nil {
 		return nil, []string{ManifestName + ": " + err.Error()}
 	}
-	return &m, m.Validate()
+	return &m, append(m.retiredFieldProblems(), m.Validate()...)
+}
+
+// retiredFieldProblems reports a field this build has RETIRED — decodable, so the strict
+// decoder does not answer it with an unhelpful `json: unknown field`, but refused with the
+// migration named.
+//
+// AUTHORING-ONLY, and that boundary is the whole point rather than a detail. It is NOT part of
+// Validate, so DecodeTolerant does not run it: a retired field is a VERSION-SKEW fact, which is
+// exactly the class the tolerant decoder exists to survive. Making it a validation problem
+// reproduced the original `tier` incident in mirror image — a manifest yolo SHIPS gained
+// `skills_tier`, and an older baked entrypoint reading the newly-staged tree refused it:
+//
+//	yolo-entrypoint: refusing to start the jail: 2 config generator(s) failed:
+//	  - load_packs: pack claude: contributes[2]: "tier" is no longer a contribution field …
+//
+// Caught by running a nested jail against the previous baked image. The asymmetry is right in
+// both directions: an author must hear that their declaration is retired, and a jail must still
+// boot when the two ends of the version boundary disagree about which fields exist.
+func (m *Manifest) retiredFieldProblems() []string {
+	var problems []string
+	for i, c := range m.Contributes {
+		if c.Tier == "" {
+			continue
+		}
+		problems = append(problems, fmt.Sprintf(
+			"contributes[%d]: \"tier\" is no longer a contribution field — a tier decides what a "+
+				"skill is CALLED, which is one fact about the whole pack rather than one per "+
+				"destination. Move it to the manifest's top-level \"skills_tier\": %q", i, c.Tier))
+	}
+	return problems
 }
 
 // DecodeTolerant parses a manifest, IGNORING fields this build does not know.
