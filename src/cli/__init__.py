@@ -62,6 +62,7 @@ from .image import (
     _jail_image,
     _load_image_for_apple_container,
     _materialize_image,
+    _most_recently_loaded_path,
     _read_loaded_paths,
     _stream_image_command,
     _summarize_nix_line,

@@ -37,6 +37,7 @@ from cli import (  # noqa: E402
     _prepare_skills,
     _read_loaded_paths,
     _add_loaded_path,
+    _most_recently_loaded_path,
     _report_unknown_keys,
     _resolve_env_sources,
     _runtime_for_check,
@@ -719,6 +720,29 @@ class TestSentinelFiles:
         _add_loaded_path(sentinel, "/nix/store/abc")
         lines = [ln for ln in sentinel.read_text().splitlines() if ln.strip()]
         assert len(lines) == 1
+
+    def test_most_recently_loaded_path_missing_sentinel(self, tmp_path):
+        sentinel = tmp_path / "sentinel"
+        assert _most_recently_loaded_path(sentinel) is None
+
+    def test_most_recently_loaded_path_returns_last(self, tmp_path):
+        sentinel = tmp_path / "sentinel"
+        _add_loaded_path(sentinel, "/nix/store/abc")
+        _add_loaded_path(sentinel, "/nix/store/def")
+        assert _most_recently_loaded_path(sentinel) == "/nix/store/def"
+
+    def test_most_recently_loaded_path_ignores_stale_history_membership(self, tmp_path):
+        """A path can be reproduced by nix after a different path has since
+        become :latest — membership in the history alone must not be
+        treated as "currently loaded." Only the last entry represents what
+        :latest actually is."""
+        sentinel = tmp_path / "sentinel"
+        _add_loaded_path(sentinel, "/nix/store/abc")  # abc loads, becomes :latest
+        _add_loaded_path(sentinel, "/nix/store/def")  # def loads, becomes :latest
+        # abc is still in the history set...
+        assert "/nix/store/abc" in _read_loaded_paths(sentinel)
+        # ...but it is not the most recently loaded path anymore.
+        assert _most_recently_loaded_path(sentinel) == "/nix/store/def"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

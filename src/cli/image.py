@@ -314,6 +314,24 @@ def _read_loaded_paths(sentinel: Path) -> set[str]:
     return {line.strip() for line in sentinel.read_text().splitlines() if line.strip()}
 
 
+def _most_recently_loaded_path(sentinel: Path) -> Optional[str]:
+    """Return the store path most recently loaded into this runtime, or None.
+
+    ``_read_loaded_paths`` returns an order-independent set, so membership
+    only answers "was this path loaded at some point in the last 10
+    loads" — not "is this path what the runtime's ``:latest`` tag
+    currently points to." Those diverge once a different path is loaded
+    afterward (retagging ``:latest``) and the original path recurs, e.g.
+    after a config change is reverted and nix reproduces the same
+    content-addressed store path. This reads the last line instead,
+    which ``_add_loaded_path`` always keeps as the most recent entry.
+    """
+    if not sentinel.exists():
+        return None
+    lines = [line.strip() for line in sentinel.read_text().splitlines() if line.strip()]
+    return lines[-1] if lines else None
+
+
 def _add_loaded_path(sentinel: Path, store_path: str):
     """Add a store path to the sentinel, capping at 10 entries (LRU)."""
     paths = (
@@ -492,11 +510,16 @@ def auto_load_image(
         )
         return
 
-    # 2. Check if this store path has already been loaded into the runtime.
-    # The sentinel can lie: podman storage may have been pruned, reset, or
-    # migrated since the sentinel was written. Verify the image actually
-    # exists in the runtime — if not, force a reload regardless of sentinel.
-    loaded_paths = _read_loaded_paths(sentinel)
+    # 2. Check if this store path is what the runtime's :latest tag actually
+    # points to. Comparing against the *most recent* load (not mere set
+    # membership in the last-10 history) matters because nix builds are
+    # content-addressed: reverting a config change can reproduce a store
+    # path that's still in the history from an earlier load, even though a
+    # different, newer path has since become :latest. The sentinel can also
+    # lie in a second way: podman storage may have been pruned, reset, or
+    # migrated since it was written. Verify the image actually exists in
+    # the runtime — if not, force a reload regardless of sentinel.
+    last_loaded = _most_recently_loaded_path(sentinel)
     image_name = _jail_image(runtime)
     image_present = (
         subprocess.run(
@@ -506,14 +529,14 @@ def auto_load_image(
         == 0
     )
 
-    if current_path not in loaded_paths or not image_present:
+    if current_path != last_loaded or not image_present:
         # Print the reason for the reload
-        if not image_present and current_path in loaded_paths:
+        if not image_present and current_path == last_loaded:
             console.print(
                 f"[bold blue]Image load needed:[/bold blue] sentinel claims loaded, "
                 f"but {image_name} is missing from {runtime} (storage reset / pruned?)"
             )
-        elif not loaded_paths:
+        elif last_loaded is None:
             console.print(
                 f"[bold blue]Image load needed:[/bold blue] first run (no images loaded into {runtime} yet)"
             )

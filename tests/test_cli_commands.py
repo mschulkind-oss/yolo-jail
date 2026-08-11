@@ -38,7 +38,7 @@ class TestAutoLoadImage:
     """Test the nix image build + load pipeline."""
 
     @patch("cli.image._build_image_store_path")
-    @patch("cli.image._read_loaded_paths")
+    @patch("cli.image._most_recently_loaded_path")
     @patch("cli.image._add_loaded_path")
     @patch("subprocess.Popen")
     @patch("subprocess.run")
@@ -47,7 +47,7 @@ class TestAutoLoadImage:
         self, mock_est, mock_run, mock_popen, mock_add, mock_read, mock_build, tmp_path
     ):
         mock_build.return_value = ("/nix/store/abc", [])
-        mock_read.return_value = {"/nix/store/abc"}  # Already loaded
+        mock_read.return_value = "/nix/store/abc"  # Most recently loaded
         mock_run.return_value = MagicMock(returncode=0)  # image inspect succeeds
         with patch("cli.image.BUILD_DIR", tmp_path):
             auto_load_image(tmp_path, runtime="podman")
@@ -55,7 +55,7 @@ class TestAutoLoadImage:
         mock_add.assert_not_called()  # Sentinel not rewritten
 
     @patch("cli.image._build_image_store_path")
-    @patch("cli.image._read_loaded_paths")
+    @patch("cli.image._most_recently_loaded_path")
     @patch("cli.image._add_loaded_path")
     @patch("cli.image._estimate_image_size", return_value=100_000_000)
     def test_reloads_when_sentinel_says_loaded_but_image_missing(
@@ -65,7 +65,7 @@ class TestAutoLoadImage:
         Without re-verifying, podman run falls back to a registry pull
         ('Trying to pull docker://localhost/yolo-jail:latest')."""
         mock_build.return_value = ("/nix/store/abc", [])
-        mock_read.return_value = {"/nix/store/abc"}  # Sentinel claims loaded
+        mock_read.return_value = "/nix/store/abc"  # Sentinel claims loaded
 
         stream_proc = MagicMock()
         stream_proc.stdout.read.side_effect = [b"x" * 1024, b""]
@@ -90,6 +90,85 @@ class TestAutoLoadImage:
         mock_add.assert_called_once()  # Reloaded → sentinel rewritten
 
     @patch("cli.image._build_image_store_path")
+    @patch("cli.image._estimate_image_size", return_value=100_000_000)
+    def test_reloads_when_reverted_config_reproduces_an_older_store_path(
+        self, mock_est, mock_build, tmp_path
+    ):
+        """Regression for https://github.com/mschulkind-oss/yolo-jail/issues/35.
+
+        Nix builds are content-addressed: reverting a config change can
+        reproduce a store path that's still sitting in the last-10-loads
+        sentinel history, even though a *different*, newer path has since
+        become the runtime's actual :latest image. Checking set membership
+        in that history (instead of comparing against the most recent
+        entry) wrongly concludes "already loaded" and skips the reload,
+        leaving :latest stale — e.g. re-adding a package that was
+        temporarily removed silently fails to reinstall it.
+        """
+        sentinel = tmp_path / "last-load-podman"
+
+        # Step 1: path A loads and becomes :latest. Sentinel: [A]
+        mock_build.return_value = ("/nix/store/path-A", [])
+        load_result = MagicMock(returncode=0, stderr=b"")
+        stream_proc = MagicMock()
+        stream_proc.stdout.read.side_effect = [b"x" * 1024, b""]
+        stream_proc.returncode = 0
+        stream_proc.wait.return_value = None
+        with (
+            patch("cli.image.BUILD_DIR", tmp_path),
+            patch("cli.image.GLOBAL_CACHE", tmp_path / "cache"),
+            patch("subprocess.Popen", return_value=stream_proc),
+            patch("subprocess.run", return_value=load_result),
+        ):
+            auto_load_image(tmp_path, runtime="podman")
+        assert sentinel.read_text().splitlines()[-1] == "/nix/store/path-A"
+
+        # Step 2: config changes, path B loads and becomes :latest. Sentinel: [A, B]
+        mock_build.return_value = ("/nix/store/path-B", [])
+        stream_proc2 = MagicMock()
+        stream_proc2.stdout.read.side_effect = [b"x" * 1024, b""]
+        stream_proc2.returncode = 0
+        stream_proc2.wait.return_value = None
+        with (
+            patch("cli.image.BUILD_DIR", tmp_path),
+            patch("cli.image.GLOBAL_CACHE", tmp_path / "cache"),
+            patch("subprocess.Popen", return_value=stream_proc2),
+            patch("subprocess.run", return_value=load_result),
+        ):
+            auto_load_image(tmp_path, runtime="podman")
+        assert sentinel.read_text().splitlines()[-1] == "/nix/store/path-B"
+
+        # Step 3: config reverts, nix reproduces path A again. Even though A
+        # is still present in the sentinel *history*, B is what :latest
+        # actually is — so A must be reloaded.
+        mock_build.return_value = ("/nix/store/path-A", [])
+        assert "/nix/store/path-A" in sentinel.read_text()  # still in history
+        stream_proc3 = MagicMock()
+        stream_proc3.stdout.read.side_effect = [b"x" * 1024, b""]
+        stream_proc3.returncode = 0
+        stream_proc3.wait.return_value = None
+        with (
+            patch("cli.image.BUILD_DIR", tmp_path),
+            patch("cli.image.GLOBAL_CACHE", tmp_path / "cache"),
+            patch("subprocess.Popen", return_value=stream_proc3),
+            patch("subprocess.run", return_value=load_result) as mock_run3,
+        ):
+            auto_load_image(tmp_path, runtime="podman")
+
+        # The bug: with set-membership checking, this would skip reloading
+        # entirely (A is "in" the history) and :latest would stay on B —
+        # only the `image inspect` call would happen, no `load`. A's tar is
+        # already cached from step 1 (nix reproduced the same
+        # content-addressed store path), so it's `podman load` rather than
+        # a re-materialize, but the load into the runtime (and the
+        # resulting sentinel/`:latest` update) must still happen.
+        load_calls = [
+            c for c in mock_run3.call_args_list if c.args[0][:2] == ["podman", "load"]
+        ]
+        assert len(load_calls) == 1  # Must reload A into the runtime
+        assert sentinel.read_text().splitlines()[-1] == "/nix/store/path-A"
+
+    @patch("cli.image._build_image_store_path")
     @patch("subprocess.run")
     def test_warns_on_build_failure_with_existing_image(
         self, mock_run, mock_build, tmp_path
@@ -110,7 +189,7 @@ class TestAutoLoadImage:
             auto_load_image(tmp_path, runtime="podman")
 
     @patch("cli.image._build_image_store_path")
-    @patch("cli.image._read_loaded_paths", return_value=set())
+    @patch("cli.image._most_recently_loaded_path", return_value=None)
     @patch("cli.image._add_loaded_path")
     @patch("cli.image._estimate_image_size", return_value=100_000_000)
     def test_caches_and_loads_image_on_new_path(
@@ -137,7 +216,7 @@ class TestAutoLoadImage:
         mock_add.assert_called_once()
 
     @patch("cli.image._build_image_store_path")
-    @patch("cli.image._read_loaded_paths", return_value=set())
+    @patch("cli.image._most_recently_loaded_path", return_value=None)
     @patch("cli.image._add_loaded_path")
     def test_reuses_cached_tar(self, mock_add, mock_read, mock_build, tmp_path):
         """When the tar cache file already exists, skip materialization."""
