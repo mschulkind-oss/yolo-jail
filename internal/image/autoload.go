@@ -223,19 +223,24 @@ func AutoLoadImage(opts AutoLoadOptions) bool {
 		return false
 	}
 
-	// Check if this store path has already been loaded into the runtime.
-	loadedPaths := ReadLoadedPaths(sentinel)
+	// Check if this store path is what the runtime's :latest tag actually
+	// points to. Comparing against the most-recently-loaded path (not mere
+	// map/set membership across the last-10 history) matters because nix
+	// builds are content-addressed: reverting a config change can reproduce
+	// a store path that's still in the history from an earlier load, even
+	// though a different, newer path has since become :latest.
+	lastLoaded, hasLastLoaded := CurrentLoadedPath(sentinel)
 	imageName := JailImage(o.Runtime)
 	rc, ran := o.Run(ImageInspectCmd(o.Runtime, imageName))
 	imagePresent := ran && rc == 0
 
-	_, alreadyLoaded := loadedPaths[currentPath]
+	alreadyLoaded := hasLastLoaded && lastLoaded == currentPath
 	if !alreadyLoaded || !imagePresent {
 		switch {
 		case !imagePresent && alreadyLoaded:
 			fmt.Fprintln(out, "Image load needed: sentinel claims loaded, but "+imageName+
 				" is missing from "+o.Runtime+" (storage reset / pruned?)")
-		case len(loadedPaths) == 0:
+		case !hasLastLoaded:
 			fmt.Fprintln(out, "Image load needed: first run (no images loaded into "+o.Runtime+" yet)")
 		default:
 			fmt.Fprintln(out, "Image load needed: nix store path changed")
