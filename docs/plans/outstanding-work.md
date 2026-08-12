@@ -14,7 +14,7 @@ over the last fortnight, so verify-against-code is the house rule.
 
 | | Thread | First move | Blocked on |
 |---|---|---|---|
-| **C** | [Open PRs on the public repo](#thread-c--the-three-open-prs) | **land #37** — a silent stale-image bug that undermines nested-jail verification | nothing |
+| **C** | [Open PRs + issues on the public repo](#thread-c--the-open-prs-and-issues-on-the-public-repo) | **fix issue #33** (`ca.key` in every jail — open, no PR), then land #37 | nothing; #32 has a question awaiting your answer |
 | **A** | [Claude auth as swappable packs](#thread-a--claude-auth-as-two-swappable-packs) | move `shared_credentials` off the base `claude` pack | nothing |
 | **B** | [macos-user + non-container nix](#thread-b--macos-user-and-non-container-nix) | fix macos-user rendering zero pack surfaces | a Mac to verify; N3 is your call |
 
@@ -22,17 +22,27 @@ Everything else is [below](#everything-else-still-open).
 
 ---
 
-# Thread C — the three open PRs
+# Thread C — the open PRs and issues on the public repo
 
-All three are on [mschulkind-oss/yolo-jail](https://github.com/mschulkind-oss/yolo-jail/pulls);
-`.env`'s `GH_TOKEN` reads and pushes `origin`, so no extra credentials are needed. Reviewed
-2026-08-12; premises re-verified against local code rather than taken from the PR bodies.
+All on [mschulkind-oss/yolo-jail](https://github.com/mschulkind-oss/yolo-jail); `.env`'s
+`GH_TOKEN` reads and pushes `origin`, so no extra credentials are needed. Reviewed 2026-08-12;
+every premise re-verified against local code rather than taken from a PR body.
 
-| PR | Title | Size | CI | Verdict |
-|---|---|---|---|---|
-| [#37](https://github.com/mschulkind-oss/yolo-jail/pull/37) | image staleness: compare against most-recently-loaded path | +88/−4 | none reported | **land first** — premise verified |
-| [#34](https://github.com/mschulkind-oss/yolo-jail/pull/34) | weekly `flake.lock` bump | +3/−3 | none reported | routine; needs an image rebuild to mean anything |
-| [#32](https://github.com/mschulkind-oss/yolo-jail/pull/32) | macOS+podman broker transport (fixes #31) | +1064/−13 | **green** (integration pass, secrets-scan pass, check-macos skipped) | land, then **promote** — see [`agent-auth-modes.md`](../design/agent-auth-modes.md) §12 |
+**Two of these are from outside contributors, both awaiting a first response.** Each filed an
+issue *and* a PR fixing it. Neither has any review or comment on it yet, and **all three PRs are
+`MERGEABLE`** (no conflicts). One carries a direct question for you (C-3).
+
+| PR | Title | Author | Size | CI | Verdict |
+|---|---|---|---|---|---|
+| [#37](https://github.com/mschulkind-oss/yolo-jail/pull/37) | image staleness: compare against most-recently-loaded path (fixes [#35](https://github.com/mschulkind-oss/yolo-jail/issues/35)) | Georgi Popov, **external** | +88/−4 | none reported | **land first** — premise verified locally |
+| [#34](https://github.com/mschulkind-oss/yolo-jail/pull/34) | weekly `flake.lock` bump | `github-actions` bot | +3/−3 | none reported | routine; inert until an image rebuild |
+| [#32](https://github.com/mschulkind-oss/yolo-jail/pull/32) | macOS+podman broker transport (fixes [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31)) | Dong Liu, **external** | +1064/−13 | **green** (integration + secrets-scan pass; check-macos skipped) | land, then **promote** — and it has a **question for you** |
+
+| Issue | Title | Author | State |
+|---|---|---|---|
+| [#35](https://github.com/mschulkind-oss/yolo-jail/issues/35) | Stale `:latest` reused after reverting config | Georgi Popov | fixed by #37 |
+| [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) | **`ca.key` is mounted into every jail** | Dong Liu | 🔴 **open, no PR** — see C-4 |
+| [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) | Broker relay socket unreachable on macOS+podman | Dong Liu | fixed by #32 |
 
 ## C-1. #37 first, and it is more important than its size 🔴
 
@@ -81,8 +91,54 @@ matter for prioritization:
    ([`boundary-broker.md`](../design/boundary-broker.md) §10.3), against yolo's current *"the socket
    file is the authentication"*.
 
-**It does not fix the CA key exposure** it works around — the broker CA's private key is still
-mounted `:ro` into every jail (`ROADMAP.md` §4d). Merging #32 must not be read as closing that.
+**It does not fix the CA key exposure** it works around — see C-4. Merging #32 must not be read as
+closing that.
+
+### The question #32 is waiting on you to answer
+
+The PR ends with an explicit ask:
+
+> *"I keep the terminator↔relay hop on a per-jail token + pinned host-only-key TLS (no client
+> certs). Happy to switch to full mTLS if you'd prefer."*
+
+**Nobody has answered it.** Worth deciding alongside OQ-8 (generalize the transport, or merge as
+scoped), because if the transport becomes the loophole framework's, the answer applies to every
+future host service rather than to one hop. A per-jail bearer token inside pinned TLS is already
+strictly stronger than the current *"the socket file is the authentication"* posture, so "as
+proposed" is a defensible answer — it just needs to be given.
+
+## C-4. Issue #33 — `ca.key` in every jail 🔴 open, no PR, and it is ours
+
+**The most serious item in this thread, and the only one with nobody working on it.** Dong Liu
+filed it separately while writing #32, whose body explains why it matters there: the broker's whole
+state dir — **including `ca.key`** — is mounted `:ro` into every jail, so a malicious jail could
+sign a `yolo-broker-relay` cert and MITM a sibling. That is why #32 pins an exact host-only-key
+cert instead of trusting the broker CA: **verifying against that CA is worthless.**
+
+This is the same defect `ROADMAP.md` §4d records from the internal audit — independently found and
+now **publicly filed**. Combined with `NODE_EXTRA_CA_CERTS` trusting that CA inside the jail, a jail
+process can mint a trusted leaf for *any* host.
+
+**Re-measured from inside a live jail, 2026-08-12** — not inferred from the audit:
+
+```
+$ ls -l /var/lib/yolo-jail/loopholes/claude-oauth-broker/
+-rw-r--r--  ca.crt      -rw-------  ca.key      -rw-r--r--  ca.srl
+-rw-r--r--  leaf.cnf    -rw-r--r--  refresh.lock
+-rw-r--r--  server.crt  -rw-------  server.key
+$ head -c 28 …/ca.key    →  -----BEGIN PRIVATE KEY-----      (3268 bytes, readable)
+```
+
+**The `0600` mode is not a mitigation here.** A yolo jail runs its agent as UID 0 (Claude YOLO is
+`--dangerously-skip-permissions` plus `IS_SANDBOX=1`, which exists precisely to bypass the UID-0
+refusal), so owner-only permissions are no barrier — as the read above demonstrates.
+
+**The fix is narrow and known:** only `server.crt` / `server.key` are needed in-jail; `ca.key` is
+used solely host-side by `cert.go`. Mount the two server files rather than the whole state dir.
+
+**This should probably jump ahead of #37.** It is a live privilege boundary failure that an
+outside contributor has now published, the remedy is a mount-scope change rather than a redesign,
+and every day it stays open is a day the published issue has no response.
 
 ---
 
