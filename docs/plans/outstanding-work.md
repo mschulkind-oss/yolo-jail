@@ -10,14 +10,79 @@ over the last fortnight, so verify-against-code is the house rule.
 
 ---
 
-## The two active threads
+## The three active threads
 
 | | Thread | First move | Blocked on |
 |---|---|---|---|
-| **A** | [Claude auth as swappable packs](#thread-a--claude-auth-as-two-swappable-packs) | move `shared_credentials` off the base `claude` pack | nothing (partly coupled to B) |
+| **C** | [Open PRs on the public repo](#thread-c--the-three-open-prs) | **land #37** — a silent stale-image bug that undermines nested-jail verification | nothing |
+| **A** | [Claude auth as swappable packs](#thread-a--claude-auth-as-two-swappable-packs) | move `shared_credentials` off the base `claude` pack | nothing |
 | **B** | [macos-user + non-container nix](#thread-b--macos-user-and-non-container-nix) | fix macos-user rendering zero pack surfaces | a Mac to verify; N3 is your call |
 
 Everything else is [below](#everything-else-still-open).
+
+---
+
+# Thread C — the three open PRs
+
+All three are on [mschulkind-oss/yolo-jail](https://github.com/mschulkind-oss/yolo-jail/pulls);
+`.env`'s `GH_TOKEN` reads and pushes `origin`, so no extra credentials are needed. Reviewed
+2026-08-12; premises re-verified against local code rather than taken from the PR bodies.
+
+| PR | Title | Size | CI | Verdict |
+|---|---|---|---|---|
+| [#37](https://github.com/mschulkind-oss/yolo-jail/pull/37) | image staleness: compare against most-recently-loaded path | +88/−4 | none reported | **land first** — premise verified |
+| [#34](https://github.com/mschulkind-oss/yolo-jail/pull/34) | weekly `flake.lock` bump | +3/−3 | none reported | routine; needs an image rebuild to mean anything |
+| [#32](https://github.com/mschulkind-oss/yolo-jail/pull/32) | macOS+podman broker transport (fixes #31) | +1064/−13 | **green** (integration pass, secrets-scan pass, check-macos skipped) | land, then **promote** — see [`agent-auth-modes.md`](../design/agent-auth-modes.md) §12 |
+
+## C-1. #37 first, and it is more important than its size 🔴
+
+**Premise verified locally 2026-08-12.** `internal/image/autoload.go:232` decides "already loaded"
+with `loadedPaths[currentPath]` — membership in the **unordered last-10 LRU set** from
+`ReadLoadedPaths`. `internal/image/image.go:119` already has `CurrentLoadedPath`, whose doc comment
+explicitly distinguishes it as *"the MOST-RECENT store path… Distinct from ReadLoadedPaths, which
+returns the whole LRU"* — and it has **zero non-test call sites**. The helper the fix needs was
+written and never wired up.
+
+**Why it outranks its diff.** Nix builds are content-addressed, so reverting a config change
+reproduces a store path that may still sit in the history while a *newer* path is the runtime's
+actual `:latest`. The check then concludes "already loaded", skips the reload, and leaves `:latest`
+**stale indefinitely, with no error or warning**.
+
+That lands directly on this repo's mandatory verification method. `AGENTS.md` requires nested-jail
+verification for every `cmd/`/`internal/` change, and already warns that *"a failed nix build does
+not stop the jail… so a broken build looks like a working jail running stale code."* #37 is a
+second, quieter route to the same false green — reached by ordinary edit-revert-re-edit iteration,
+which is exactly what happens while developing. **A bug in the tool you verify with is worth more
+than its line count.**
+
+**Before merging:** it reports no CI checks. Re-run against current `main` — the file has not moved
+locally, so it should apply cleanly.
+
+## C-2. #34 — routine, with one caveat
+
+A weekly `flake.lock` refresh (+3/−3). Merging changes nothing until an image rebuild
+(`just load && just install` on the host), so it is safe to land and easy to forget. Worth pairing
+with a nested-jail run so the new lock is actually exercised once.
+
+## C-3. #32 — land it, then promote it; do NOT close it as subsumed
+
+Full analysis: [`agent-auth-modes.md`](../design/agent-auth-modes.md) §12. The three points that
+matter for prioritization:
+
+1. **It is not subsumed by the auth work.** The broker exists for the OAuth refresh race, so a
+   **Bedrock-mode jail never touches the path #31 breaks** — but Teams mode on macOS+podman still
+   does. Auth modes make "Claude Code won't start on macOS" *conditional on the mode*, not fixed.
+2. **Its transport is what every future host service needs on macOS.** The virtiofs socket problem
+   is a property of the boundary, not of the broker; B1/B1b/B2 all hit it. Generalizing #32's
+   loopback-TLS + pinned host-only cert out of `brokerrelay` into the loophole framework makes
+   every host service macOS-capable in one move (**OQ-8** in that doc).
+3. **Its per-jail bearer token is the client-auth upgrade the boundary work independently reached**
+   — the third convergence on unYOLO's "named broker-client secret"
+   ([`boundary-broker.md`](../design/boundary-broker.md) §10.3), against yolo's current *"the socket
+   file is the authentication"*.
+
+**It does not fix the CA key exposure** it works around — the broker CA's private key is still
+mounted `:ro` into every jail (`ROADMAP.md` §4d). Merging #32 must not be read as closing that.
 
 ---
 
@@ -78,22 +143,59 @@ ascending:
 **Recommendation: (1).** It is the only one that expresses the actual invariant — these two packs
 are alternatives — rather than catching a symptom.
 
-## A3. Coupling to Thread B: `env` does not render at the host notch 🔴
+## A3. Host support — SOLVED, and it no longer needs N3 ✅
 
-`internal/render/fieldset.go:82` refuses `env` at `host`: *"env vars apply to a process yolo starts,
-and `apply --host` only configures."* So a Bedrock pack **works in a jail and delivers nothing at
-`apply --host`** — the mode would silently not apply on the host.
+An earlier version of this row said `env` is "refused at the host notch" and that Thread A was
+therefore blocked on N3. **That was imprecise, and the correction removes the dependency.** Full
+reasoning: [`agent-auth-modes.md`](../design/agent-auth-modes.md) §11.2.
 
-That is the same refusal N3 **Option 2** would lift (see Thread B). So the two threads share a
-blocker: auth-as-packs is jail-complete today and host-complete only after N3.
+`HostFields()` *includes* `KindEnv` — the notch can express it. What refuses it is
+`hostUnimplemented`, whose recorded reason is scoped to the **command**: *"`apply --host` only
+configures your tools — it never runs them."* The code comment says so deliberately, precisely so
+`guest` does not inherit a refusal it could honor.
 
-## A4. Order of work
+**The design answer is to not need the verb.** Claude Code reads an `env` block out of
+`settings.json`, so a Bedrock pack puts `CLAUDE_CODE_USE_BEDROCK` and `AWS_REGION` there via
+**`config-overlay`** — which renders at **both** notches — rather than via the `env` kind, which is
+jail-only until yolo owns the launch. Auth-as-packs is host-complete now.
+
+`hook`, by contrast, **is** refused at the host as policy, and that is correct: a host has one real
+home and one credential file, so `shared_credentials` is meaningless there. The Teams pack is
+near-empty at the host notch by design (§11.3).
+
+## A4. Composition — packs cannot depend on other packs 🔴
+
+Verified 2026-08-12: **no pack→pack mechanism exists.** The `requires` kind takes a `bin`, not a
+pack name — it asserts a binary is on `PATH` and carries install hints. See
+[`agent-auth-modes.md`](../design/agent-auth-modes.md) §11.1.
+
+So composition today is the flat, ordered, user-scope `packs` list:
+`["claude", "claude-bedrock", "matt-bedrock-extras"]`. That is adequate for manual swapping — the
+list *is* the mode selector — but nothing stops a personal pack being selected without the auth
+pack it was written for.
+
+**A `requires_pack` contribution is the minimal fix**, and it pairs with A2's `conflicts`: one
+names packs that must be present, the other packs that must not be. Both are load-time checks over
+a list yolo already has. **OQ-5.**
+
+The Tavily case needs no new mechanism (§11.4): MCP servers are config under `mcpServers` in
+`claude/config`, the delivery path already supports `requires_env` gating, so the personal pack is
+a `config-overlay` plus a key in `env_sources`.
+
+## A5. Order of work
 
 1. **A1** — move the hook and state onto `claude-teams`; fingerprint before/after.
-2. **Build `claude-bedrock`** — `env` + `config-overlay` model IDs, no secrets.
+2. **Build `claude-bedrock`** — `config-overlay` for the env block *and* model IDs, no secrets, no
+   `env` kind (A3).
 3. **A2** — make double-selection loud.
-4. **B4 below** — correct `agent-credentials.md` §3 while in the area.
-5. **A3** — revisit after N3.
+4. **B4 below** — correct `agent-credentials.md` §3 while in the area; §11.2 shows it described the
+   right mechanism before anything used it.
+5. **A4 / OQ-5** — `requires_pack`, if the flat list proves insufficient.
+
+**Decide before step 2: shipped or fetched?** Adding shipped auth packs breaks several tests that
+hardcode the official six (`packload_test.go`, `packconfigexclusive_test.go`, the briefing/skills
+source tests). A separate public pack repo matches "shareable" better and exercises the
+fetched-pack approval path. **OQ-6; recommendation: fetched.**
 
 **Still unrun and decisive for the ambitious version:** the `ANTHROPIC_BASE_URL` test
 ([`agent-auth-modes.md`](../design/agent-auth-modes.md) §6) — does Claude Code send a subscription
@@ -147,13 +249,15 @@ N1 and N2 were Option 1 and are **done**.
 
 - **Option 0** — stop here. `install_hints` keeps printing a remedy the user runs by hand.
 - **Option 2** — `yolo --at host -- <cmd>`. `--at` is `apply`-only today
-  (`internal/cli/apply.go:54`). **This is the one that unblocks Thread A3**, because it makes `env`
-  and `launch` renderable at the host. Against: "yolo launches your host agent" is a bigger product
-  claim than "yolo configures it."
+  (`internal/cli/apply.go:54`). Makes `env` and `launch` renderable at the host, because yolo would
+  then be the process spawner. Against: "yolo launches your host agent" is a bigger product claim
+  than "yolo configures it."
 - **Option 3** — a yolo-owned `nix profile` as a confirm-gated install remedy.
 
-**Recommendation: Option 2**, now with a second reason — it is no longer only about two refused
-kinds, it is what makes an auth mode apply on the host at all.
+**Recommendation: still Option 2, but it is no longer urgent.** A3's correction routes Thread A
+around the `env` refusal entirely (via `config-overlay` into the `settings.json` env block), so
+Option 2 is back to being about the two refused kinds and the `guest` notch — worth doing, not
+blocking anything.
 
 ## B-3. P7 — the `guest` notch
 

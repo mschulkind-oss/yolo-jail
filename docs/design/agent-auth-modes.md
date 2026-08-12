@@ -292,3 +292,190 @@ the host-Claude case, where a native refresher never took the lock.
   a switch that requires a restart is honest, a switch that half-applies is not.
 - **OQ-4. Should `check` verify the selected mode's credential is live?** §7.2 argues yes. The
   cost is a network call in a command that is currently offline-safe.
+
+**§11 and §12 add OQ-5 through OQ-9.** They are collected in §12.4.
+
+---
+
+## 11. Packaging — two packs, and what pack composition can and cannot express
+
+**The maintainer's shape:** a *shareable* Bedrock auth pack, plus a *personal* pack that adds
+Tavily MCP whenever Bedrock is the active mode, "swapped manually for now" — and **all of it has
+to work on the host as well as in a jail.**
+
+All findings below verified against the code 2026-08-12.
+
+### 11.1 Packs cannot depend on, or include, other packs 🔴
+
+**There is no dependency mechanism.** The nearest thing, the `requires` kind, asserts that a
+**binary** must exist on `PATH` and carries install hints (`RequiredBins`, `DepRequirements`) —
+it takes a `bin`, not a pack name. Nothing in `packdecl` expresses pack→pack.
+
+So the composition available today is **the `packs` list itself**, which is flat, ordered, and
+user-scope:
+
+```jsonc
+"packs": ["claude", "claude-bedrock", "matt-bedrock-extras"]
+```
+
+That works, and for manual swapping it is arguably the *right* amount of machinery: the list is
+the mode selector, and reading it tells you the whole story. What it cannot express is the
+dependency — nothing stops `matt-bedrock-extras` being selected without `claude-bedrock`, in which
+case the personal pack contributes Tavily to a jail that is on Teams. That is not harmful here
+(an MCP server is additive), but the general shape — *a pack that is only meaningful alongside
+another* — has no way to say so.
+
+**A `requires_pack` contribution would be the minimal fix**, and it composes with the `conflicts`
+idea A2 needs: one names packs that must be present, the other names packs that must not be.
+Both are load-time checks over a list yolo already has, with no runtime cost. **OQ-5** below.
+
+### 11.2 The host-notch mechanism: use `config-overlay`, NOT the `env` kind
+
+This corrects Thread A's earlier claim that `env` is "refused at the host notch." The truth is
+more precise and much more useful.
+
+`HostFields()` **includes** `KindEnv` — the host target *can* express it. What refuses it is
+`hostUnimplemented`, and the recorded reason is scoped deliberately:
+
+> *"env vars apply to a process yolo starts, and `apply --host` only configures your tools — it
+> never runs them… A notch where yolo does the launching can honor them."*
+
+The code comment goes out of its way to say this is **a limit of the `apply --host` COMMAND, not
+of the notch** — precisely so a future `guest` target does not inherit a refusal it could honor.
+
+**So the design answer is to not need the verb at all.** Claude Code reads an `env` block out of
+`settings.json`. A Bedrock pack can therefore put `CLAUDE_CODE_USE_BEDROCK` and `AWS_REGION` into
+`claude/settings` via **`config-overlay`** — a kind that renders at **both** notches — instead of
+the `env` kind, which is jail-only until yolo owns the launch.
+
+| | `env` kind | `config-overlay` → `settings.json` `env` block |
+|---|---|---|
+| in a jail | works | works |
+| `apply --host` | unbuilt (no argv to inject into) | **works** |
+| carries secrets | forbidden by the kind's contract | also must not — same discipline |
+
+This is worth noticing: `agent-credentials.md` §3 *describes* Bedrock keys arriving through the
+`settings.json` `env` block. That is stale as a description of the current machine (§2 measured the
+block as `{}`), but it is **the correct target design** — the doc described the right mechanism
+before anything used it.
+
+**It also removes Thread A's dependency on N3.** Auth-as-packs becomes host-complete now, rather
+than after `yolo --at host -- <cmd>` lands.
+
+### 11.3 `hook` IS refused at the host — and that is correct
+
+Unlike `env`, the `hook` kind is refused as a matter of policy, not left unbuilt:
+
+> *"hooks are jail provisioning steps (credential symlinks, per-jail history, plugin
+> reconciliation) — `apply --host` does not run them against your real home."*
+
+That means a Teams pack's `shared_credentials` hook **will never fire at the host notch.** This is
+right rather than limiting: the hook exists because a jail has a disposable home and *several*
+jails share one credential file, so it symlinks into a machine-global dir. A host has one real home
+and one credential file already in the right place. **On the host the hook is meaningless**, which
+is exactly what the refusal says.
+
+Consequence for the pack split: **the Teams pack is nearly a no-op at the host** — its host-side
+contribution is the bare model IDs, and the credential arrives because you ran `/login`. That is a
+feature. It also means "does auth work outside a jail?" has different answers per mode, and both
+are fine:
+
+| mode | in a jail | on the host |
+|---|---|---|
+| Teams | hook + broker + machine-shared creds | `/login` writes `~/.claude/.credentials.json` directly; pack contributes model IDs only |
+| Bedrock | `config-overlay` env block + `env_sources` keys | `config-overlay` env block; keys from the user's own shell or `settings.json` |
+
+### 11.4 The personal-pack case (Tavily) is already expressible
+
+MCP servers are config, not a dedicated kind: they live under `mcpServers` in `~/.claude.json`
+(the `claude/config` surface), and the delivery path already supports `requires_env` gating so a
+server that needs `TAVILY_API_KEY` stays inert without it. So `matt-bedrock-extras` is a
+`config-overlay` on `claude/config` adding one `mcpServers` entry, plus the key via `env_sources`.
+
+No new mechanism. The only thing missing is §11.1's "and I only want this when Bedrock is active",
+which today is expressed by *selecting both packs together*.
+
+### 11.5 A shipped auth pack breaks the "six shipped packs" tests
+
+Several tests hardcode the official set — `packload_test.go` ("The six official packs must be
+EMBEDDED"), `packconfigexclusive_test.go` (`["claude","copilot","opencode","pi","codex","agy"]`),
+plus briefing/skills source tests that assert "all six". Adding shipped auth packs means updating
+those, which is mechanical but should be a deliberate commit rather than a surprise in a larger
+one.
+
+**This is also an argument for shipping the auth packs as a separate fetched/public repo rather
+than embedding them** — which matches "shareable" better anyway, and exercises the fetched-pack
+approval path that already exists. **OQ-6.**
+
+---
+
+## 12. Relationship to PR #32 (macOS broker transport)
+
+[PR #32](https://github.com/mschulkind-oss/yolo-jail/pull/32) — *"oauth broker: loopback TCP
+transport for macOS+podman"*, +1064/−13, open — fixes
+[#31](https://github.com/mschulkind-oss/yolo-jail/issues/31): on macOS+podman the in-jail
+`oauth-terminator` cannot `connect()` the relay's unix socket, because virtiofs shares the inode
+but not the socket endpoint across the podman-machine VM boundary. Every `platform.claude.com`
+request 502s and Claude Code will not start. Its fix is a loopback **TLS** front on the relay with
+an **ephemeral host-only-key cert** (pinned by the terminator, never mounted into a jail) plus a
+**per-jail bearer token** sent inside TLS.
+
+### 12.1 It is not subsumed by auth modes — but Bedrock routes around it
+
+The broker exists only for the **OAuth refresh** race (Anthropic's refresh token is single-use).
+**Bedrock mode has no OAuth, no refresh, and therefore no broker** — so on macOS a Bedrock-mode
+jail never touches the path #31 breaks.
+
+That lowers #32's *urgency* without replacing it: it makes "Claude Code will not start on macOS"
+conditional on the mode rather than absolute. **Teams mode on macOS+podman still needs #32 or
+something like it.** Anyone reading "subsume" as "we can close it" would be wrong.
+
+### 12.2 The better move is to PROMOTE it, not replace it
+
+Two reasons it is worth more than its own PR description claims:
+
+1. **Its transport is the one every host service needs on macOS.** The virtiofs-socket problem is
+   not specific to the OAuth broker — it is a property of the boundary. `macos.md:575` already
+   documents `host.containers.internal` as the workaround for exactly this. Any future host-side
+   service — the audit log (B1), the git proxy (B1b), an approval queue (B2) — hits the same wall
+   on macOS. #32 solves it once, inside `brokerrelay`. **Generalizing it into the loophole
+   framework would make every host service macOS-capable in one move.**
+2. **Its per-jail bearer token is the client-auth upgrade the boundary work independently
+   arrived at.** [`boundary-broker.md`](boundary-broker.md) §10.3 recommends adopting unYOLO's
+   *named broker-client secret*, because yolo's current posture is "the socket file is the
+   authentication — a daemon trusts whoever can `connect()`." #32 implements precisely that
+   upgrade, for one service, on one platform. Third independent convergence on the same idea.
+
+So the relationship is the inverse of subsumption: **#32 is a down payment on the boundary-service
+architecture, currently scoped to one consumer.** The work that "replaces" it is generalizing it.
+
+### 12.3 What would genuinely replace it
+
+**macos-user** — no container, no VM boundary, so no virtiofs problem at all. But per Thread B it
+renders zero pack surfaces, has a dangling credentials symlink, and has the broker **unwired**
+(`BrokerSocketGrantCommands`, zero call sites). So "use macos-user instead" is not available today
+and is a larger project than merging #32.
+
+**Also worth carrying:** #32's own "why not reuse the broker CA" section documents that the broker
+CA's **private key is mounted `:ro` into every jail**, so a malicious jail could sign a relay cert
+and MITM a sibling. It works around that rather than fixing it — and it is the same confirmed
+defect `ROADMAP.md` §4d records. Merging #32 does not fix it and should not be read as having done
+so.
+
+### 12.4 Open questions from §11–§12
+
+- **OQ-5. Should packs be able to require other packs?** §11.1 — a `requires_pack` contribution,
+  paired with A2's `conflicts`. Both are load-time checks over a list yolo already has.
+  **Resolved by:** deciding whether the flat `packs` list is the whole composition story.
+- **OQ-6. Shipped, or a separate public pack repo?** §11.5 — shipping breaks the "six packs"
+  tests and embeds a personal auth choice in the binary; a fetched repo matches "shareable" and
+  exercises the approval path. **Recommendation: fetched.**
+- **OQ-7. Does the Teams pack own the model IDs, or does the base `claude` pack?** If the base
+  pack pins nothing, a jail with no auth pack has no model pin at all — which may be correct
+  (Claude Code defaults) or may be a silent hole.
+- **OQ-8. Generalize #32's transport into the loophole framework, or merge it as-is?** §12.2. As-is
+  is faster and leaves the next host service to rediscover the problem; generalizing is the same
+  code in a different package with a wider blast radius.
+- **OQ-9. Is `env_sources` still the right home for the AWS keys?** It works and is invisible to
+  yolo's config model (§1). §11.2 moves the *non-secret* half into a pack; the secret half has to
+  live somewhere, and `env_sources` puts it cleartext at 0644 in several files (§7.4).
