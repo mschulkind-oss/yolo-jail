@@ -233,6 +233,22 @@ therefore Mac-gated for verification even though the config work is not.
 
 ---
 
+### 7.6 The nearest prior art declines this problem
+
+[unyolo.io](https://unyolo.io/) — analyzed in [`boundary-broker.md`](boundary-broker.md) §10 — is
+an MIT-licensed agent credential broker that independently converged on that doc's whole design.
+It brokers **third-party service credentials** (GitHub, Hugging Face, Google Workspace, sudo) and
+has **no OAuth-subscription handling, no provider switching, and no Bedrock**.
+
+That is a mildly useful negative result rather than an omission on their part: the hard thing here
+is not "hold a credential on the agent's behalf", which is well-trodden, but that **an LLM provider
+credential selects a whole backend** — endpoint, wire dialect, feature set, and model namespace —
+in a way a GitHub token does not. Brokering a GitHub token changes who is authorized; switching to
+Bedrock changes what the API *is*. §4's bundle exists because of that difference, and it is why an
+off-the-shelf credential broker does not shorten this row.
+
+---
+
 ## 8. What the broker would add, and why it is not required
 
 [`boundary-broker.md`](boundary-broker.md) §5 argued auth switching is a different feature that

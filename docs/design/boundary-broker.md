@@ -19,6 +19,11 @@ the whole design, and they are smaller than they sound.
 **The most important thing in this doc is §5:** for the motivating GitHub case, an approval queue
 is probably the *wrong* tier. There are three tiers, not two, and the middle one needs no human.
 
+**Before building any of it, read §10.** [unyolo.io](https://unyolo.io/) is an MIT-licensed
+credential broker that converged on this design independently, ships a GitHub broker that is
+row B1b's entire scope, and solves four problems this doc had not thought of. Parts of the plan
+below are probably an adoption rather than a build.
+
 **Scope note.** Claude auth switching was originally sketched here as a third use case. It is a
 different feature that wants the same front door, and it is now
 [`agent-auth-modes.md`](agent-auth-modes.md) — split out because it shares this doc's front door
@@ -336,13 +341,116 @@ becomes cheap to justify.
 - **OQ-B. Should an approval be reusable?** "Yes, and don't ask again for this verb in this
   session" is the difference between a usable feature and prompt fatigue — but it is also how a
   gate quietly becomes an allowlist. **Resolved by:** deciding whether the grant is per-action or
-  per-(verb, jail, session), and if the latter, what expires it.
+  per-(verb, jail, session), and if the latter, what expires it. **→ §10 has a worked answer.**
 - **OQ-C. Does the jail see the RESULT or just success?** A PR comment returns a URL, which is
   useful; a credential-bearing response would defeat the "action crosses, credential does not"
   rule. **Resolved by:** a per-verb response schema, server-owned.
-- **OQ-D. Is dynamic auth switching a real requirement or a nice-to-have?** §5 argues launch-time
-  selection covers most of it. **Resolved by:** naming the case where restarting the jail is not
-  acceptable.
+- **OQ-D. Is dynamic auth switching a real requirement or a nice-to-have?** Moved with the auth
+  content to [`agent-auth-modes.md`](agent-auth-modes.md) §6 / OQ-1; kept here as a pointer
+  because the answer decides whether this daemon ever holds auth state (§6).
 - **OQ-E. Where does the human answer?** A foreground `yolo approve`, a TUI, a notification, the
   existing `yolo ps`-style view? This is a UX decision that constrains the state design, so it is
-  worth answering before step 3 rather than after.
+  worth answering before step 3 rather than after. **→ §10 answers the security half of this.**
+
+---
+
+## 10. Prior art — unYOLO (analyzed 2026-08-12)
+
+[unyolo.io](https://unyolo.io/) is an MIT-licensed framework for building credential brokers, by
+Onur Solmaz ([@osolmaz](https://github.com/osolmaz)). Its one-line thesis is this doc's §3 rule
+almost verbatim: *"Your agent talks to the broker and never holds the real credential."* It ships
+three brokers — **gh-broker** (GitHub), **hf-broker** (Hugging Face), **sudo-broker** (Unix
+commands).
+
+**Caveats on this analysis:** read from the project's website and threat-model page only — no code
+read, nothing run, adoption and maturity unknown. The Hacker News thread
+([49232548](https://news.ycombinator.com/item?id=49232548)) rate-limited on fetch, so no critique
+has been sampled. Treat the "adopt" recommendations below as *investigate*, not *decided*.
+
+The name collision with this project is unfortunate and unrelated — different authors, adjacent
+problems.
+
+### 10.1 It converged on this design independently
+
+Which is the most useful thing about it: two designs reached the same shape without contact, so
+the shape is probably right.
+
+| This doc | unYOLO |
+|---|---|
+| "the credential never crosses, the ACTION crosses" (§3) | "your agent talks to the broker and never holds the real credential" |
+| server-owned allowlisted verb, never argv (§6.5) | `operations` (`git.push.fast_forward`), `targets` (`kind`/`owner`/`name`), `attrs` (glob `refs`) |
+| a request that outlives its connection (§2.1) | queued approval records with `id` + `revision`; `POST /g_{id}/approve` |
+| a human in the answer path (§2.2) | a protected inbox on a separate listener |
+| preview rendered host-side from validated args (§3) | a `presentation` field: title, risk level, warnings |
+| expiry is mandatory, not optional (§6.3) | grants carry `mode: "window"`, `default_minutes` / `max_minutes` |
+| audit log without bodies (§6.4) | "records the decision and matching rule IDs without including secrets" |
+| filter / proxy / approve as three tiers (§5) | `effect: "allow" \| "deny" \| "request"` — the same three, as one rule field |
+
+That last row is a genuine improvement on §5. This doc treats the tiers as three *architectures*;
+unYOLO makes them three *outcomes of one policy evaluation*, so a single `scope.json` expresses
+"clone freely, comment with approval, never delete." That is a better factoring and it is the one
+worth stealing.
+
+### 10.2 Five things it does that this doc had not thought of
+
+1. **Content-addressed, immutable execution plans** that fail if modified after the request.
+   This doc says "render the preview from validated args, never from a jail-supplied string" —
+   which prevents the jail from *describing* one action and *requesting* another. unYOLO goes
+   further and binds the approved plan to the executed plan cryptographically, so approval and
+   execution cannot diverge even through a bug on the broker's own side. Strictly stronger; the
+   confused-deputy fix done properly.
+2. **Grants carry a use budget as well as a duration** — `default_max_uses` / `max_uses`
+   alongside the time window — and the operator can **narrow either at approval time**. That is
+   a concrete answer to **OQ-B**: not "per-action or per-session" but *per-action by default,
+   with the human able to widen it to a bounded window they choose*. Both dimensions bounded
+   means a grant cannot quietly become an allowlist, which was OQ-B's whole worry.
+3. **`expected_revision` on approve** — optimistic concurrency, so two operators (or a CLI and a
+   web app) cannot double-approve one request. This doc's §7.1 proposes exactly that multi-front-end
+   setup and did not consider the race it creates.
+4. **A deny floor no grant can lift** — *"Deletion is never delegated, even under an approved
+   grant."* This doc has no equivalent: every verb here is equally grantable. A category that
+   approval cannot unlock is a cheap, strong safety property.
+5. **One-time decision tokens** consumed by the pending transition; replay fails.
+
+### 10.3 It also answers §7.1's security caution
+
+§7.1 warns that a loopback HTTP approval UI is reachable from the jail via
+`host.containers.internal`, so the approver and the approved would share a channel. unYOLO's
+answer is the one to copy: **operators authenticate with distinct credentials on a separate
+listener**, and agent clients present a *named broker-client secret* before the broker will accept
+a request at all.
+
+That second half is a real posture upgrade over yolo's loopholes, whose stated security model is
+*"the socket file is the authentication — a daemon trusts whoever can connect()."* Per-jail
+broker-client secrets are cheap for yolo to add, because the relay already stamps `jail_id`
+host-side precisely so attribution is not an in-jail self-report.
+
+### 10.4 Where it does not help
+
+- **It does nothing for Claude auth.** unYOLO brokers *third-party service* credentials (GitHub,
+  Hugging Face, Google Workspace, sudo). There is no OAuth-subscription handling, no provider
+  switching, no Bedrock. Row **B3** and [`agent-auth-modes.md`](agent-auth-modes.md) are untouched
+  by it — a mildly interesting negative result, since the nearest prior art to "broker your agent's
+  credentials" declines the hardest part of our version.
+- **Its threat model assumes what yolo provides, and vice versa.** unYOLO explicitly does *not*
+  sandbox provider code, validate arbitrary shell strings, proxy arbitrary provider APIs, or
+  replace host hardening. yolo *is* the sandbox and does none of the credential brokering. They
+  are complementary layers, not competitors — which is the strongest argument for adopting rather
+  than rebuilding.
+- **Its non-protections list names our §6.5 risk.** "Does not validate arbitrary shell strings" is
+  the same admission as *do not let this become a general RPC* — and `sudo-broker` is exactly the
+  product shaped like that risk. Worth reading their `sudo-broker` before writing any yolo verb
+  that shells out.
+- **The threat model does not address prompt injection** or distinguish a malicious agent from a
+  confused one — the same gap `ROADMAP.md` §4e names for yolo ("who is the adversary?"). Neither
+  project has answered it.
+
+### 10.5 What this changes in the plan
+
+- **B1b (the git proxy) may be an adoption, not a build.** `gh-broker` is that row's scope, MIT
+  licensed, with a policy language already designed. Evaluate before writing code.
+- **B2's design is validated by convergence** — and should take unYOLO's grant model (§10.2 #2),
+  content-addressed plans (#1), and `expected_revision` (#3) rather than re-deriving them.
+- **§5's three tiers should be re-expressed as one policy file with three effects**, per §10.1.
+- **The open questions move:** OQ-B has a worked answer; OQ-E's security half is answered by
+  §10.3, leaving only the UX choice.
