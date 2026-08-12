@@ -337,7 +337,7 @@ does the dir get created? (2) two packs, distinct skills, two destinations — d
 | **B1** | Audit-only log of every jail↔host boundary crossing ([boundary-broker.md](../design/boundary-broker.md) step 1) | small, additive | nothing |
 | **B1b** | **Credential-injecting proxy for git** — host injects after egress, jail holds nothing, no human. **Possibly an ADOPTION**: unYOLO's MIT `gh-broker` is this row's entire scope ([§10](../design/boundary-broker.md)) | new capability | nothing |
 | **B2** | Approval-gated host credentials — one allowlisted verb, synchronous. Design validated by convergence with unYOLO; take its grant model, content-addressed plans, and `expected_revision` rather than re-deriving | new capability | N3/OQ-1 |
-| **B4** | Correct [agent-credentials.md](../design/agent-credentials.md) §3 — it documents Bedrock keys arriving via the `env` block of host `settings.json`; that block is `{}` and the real path is `env_sources` | doc defect | nothing |
+| ✅ **B4** | ~~Correct [agent-credentials.md](../design/agent-credentials.md) §3~~ **DONE** — it documented Bedrock keys arriving via the `env` block of host `settings.json`; that block is `{}` and the real path is `env_sources`. Corrected in place, with a note that the `env` block is nonetheless the right *target* design (§11.2) — it described the correct mechanism before anything used it | — | — |
 
 ---
 

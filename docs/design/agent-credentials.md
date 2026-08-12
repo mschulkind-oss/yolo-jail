@@ -300,12 +300,29 @@ that doc argues the framework ports cleanly to macos-user in principle.
 
 Claude-on-Bedrock is the canonical illustration of "jail-local credential, no
 host path in". The long-term IAM keys of a tightly-scoped user (`matt-bedrock`,
-`bedrock:InvokeModel` only, no session token, **not** SSO) are placed under the
-`"env"` block of `~/.claude/settings.json` on the host. `settings.json` is the
-yolo-declared claude host file (`agents.AgentSpec.HostFiles`), so it always
-rides into the jail via the `/ctx/host-claude/` `:ro` mount + boot compose
-(§2.1-2.2); Claude Code reads it at startup and injects the keys into its own
-process env, inherited by every Bash tool call. yolo itself contains **zero**
+`bedrock:InvokeModel` only, no session token, **not** SSO) reach the jail through
+**`env_sources`**, resolved into `~/.config/yolo-user-env.sh`, which the jail
+shell sources — so `CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, and the key pair land
+in the agent's process env and are inherited by every Bash tool call.
+
+> **Corrected 2026-08-12 (queue row B4).** This paragraph previously said the keys
+> live under the `"env"` block of `~/.claude/settings.json` on the host, riding the
+> `/ctx/host-claude/` `:ro` mount. **Measured in a live jail: that block is `{}`,
+> and the delivery path is — and was — `env_sources`.** Everything after this note
+> was accurate; only the mechanism was wrong.
+>
+> The `settings.json` `env` block is nonetheless **the right target design**: it is
+> the one channel that renders at *both* the jail and host notches, which is why
+> [`agent-auth-modes.md`](agent-auth-modes.md) §11.2 has a Bedrock auth pack deliver
+> its non-secret half there via `config-overlay`. The old sentence described the
+> correct mechanism before anything used it.
+>
+> **Secrets-hygiene cost, tracked as open in `ROADMAP.md` §4e:** `env_sources` values
+> land cleartext at 0644 in several agent config files and a prism `last_render`
+> sidecar, and on macos-user they ride the process argv (`env -i K=V…`), visible in
+> `ps`. Choosing it as the secret channel is a decision, not a default.
+
+yolo itself contains **zero**
 AWS code — it does not mount `~/.aws` and does not forward
 `AWS_SESSION_TOKEN`/`AWS_PROFILE`. The blast radius of the key leaking inside the
 jail is bounded to Bedrock invoke cost on the allowed model ARNs. (Source:
