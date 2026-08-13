@@ -94,6 +94,14 @@ switches on it per platform (Apple Container skips `tls-intercept`).
 **So this is not "add a transport concept to manifests" — it is "add a fourth value."** The
 vocabulary, the validation, and the per-platform switch all exist.
 
+> **Correction, as built (§8):** the last clause overstates it. `runtime.go` does not "switch per
+> platform" on the transport — it consults `Transport` in exactly ONE place, to skip
+> `tls-intercept` loopholes on Apple Container, and that was the field's only behavioural reader in
+> the whole repo. There was no existing per-platform transport switch to hang `loopback-tls` on;
+> the *vocabulary* and the *validation* existed and the *mechanism* did not. That is why §4 turned
+> out bigger than this section predicted, and why the one reader is now keyed on `intercepts`
+> instead — see §8.
+
 This is why the answer belongs in the framework. Every host service the plans call for —
 **B1** (the crossing audit log), **B1b** (the git credential proxy), **B2** (approval-gated
 credentials) — is a socket-reached host daemon, and each would rediscover #31 on a Mac.
@@ -348,6 +356,12 @@ broker failing is not.
 Selection should be **automatic by platform, overridable by config**: `loopback-tls` where a Unix
 socket cannot cross (macOS + podman), `unix` elsewhere. A user should not have to know what
 virtiofs is to run a loophole on a Mac.
+
+> **Superseded by §7.4's own decision, and no selection key shipped.** This paragraph predates
+> "unify"; with one transport there is nothing to select and nothing to override, so an override
+> could only mean "no daemon", which `enabled: false` already says. What OQ-T2's reasoning actually
+> rested on — that the active choice is *visible* rather than silent — is preserved: `yolo loopholes
+> list` still prints `transport=` per loophole. See §8.
 
 ### 4.1 Per-jail client secrets, everywhere
 
@@ -686,3 +700,97 @@ handshake, and the migration is bounded at **two consumers**: the broker relay a
    the boundary is *"whatever runs as your user"* and name the token as the mechanism that enforces
    it on a port, so the next reader does not rediscover this argument.
 
+
+---
+
+## 8. As built — 2026-08-13
+
+The design above is what was decided; this section is what shipped, including the three places the
+design was wrong about the code it was describing and the two places the implementation departed
+from it. Written at the end of the build so the doc is not read as a plan whose outcome is unknown.
+
+### 8.1 What exists now
+
+`internal/svcendpoint` is the transport — one stdlib-only leaf package owning **both halves**,
+because the file format, the token frame and the pin are one contract and splitting server from
+client is how they drift (§3.3). `Listen` binds `127.0.0.1:0`, mints a P-256 certificate whose
+private key is never marshalled, mints a 32-byte token, and publishes
+`<host:port> <base64 cert DER> <token>` atomically at `0600` into the jail's per-jail directory
+(created `0700`, and publication **fails closed** into one that is not). `Dial` re-reads that file
+fresh every time, pins the exact certificate through a dedicated root pool, sends the token frame
+under a length cap checked **before** allocation, and reads a one-byte accept ack.
+
+Migrated: `host-processes` first (harmless failure, and row **D4**), then the broker relay's
+jail-facing hop. `hostservice.Serve` keeps its exact signature and now delegates to
+`svcendpoint.Listen`; its conformance tests pass **with their assertions unchanged**, which is the
+mechanical proof that a daemon never learns its transport.
+
+### 8.2 Three claims in this document that the code did not support
+
+1. **§2.2 overstates what existed.** `Transport` was consulted in exactly one behavioural place —
+   the Apple Container skip — not in a per-platform switch. That reader is now keyed on
+   `len(Intercepts)`, which is the thing that actually emits the `--add-host` flags it skips, and
+   that re-key is what allowed `tls-intercept` to retire alongside `unix-socket`.
+2. **§7.4's "bounded at two consumers" undercounts by two.** There were four host services on the
+   retired transport, not two: `cgroup-delegate` and `journal` also have clients baked into the
+   image — generated **Python** speaking `AF_UNIX`, neither of which even speaks `frameproto` (one
+   is newline-JSON, one uses stream IDs 1/2/3). Retiring the value did not migrate them.
+3. **OQ-T2's config override has no domain.** See the inline note in §4.
+
+### 8.3 Where the implementation departed, and why
+
+- **The token is minted by the listener, in process.** §3.2 decides *where the token is delivered*
+  and is silent on *who generates it*. #32 minted it host-side because env delivery forced two
+  writers to agree; OQ-T7 removes that reason. One writer, one file, one rename — no persistence, no
+  second artifact to leak, and rotation for free.
+- **The token is per-(jail, service), not per-jail.** §7.2's answer holds at one relay per jail *per
+  service*; a shared per-jail token would mean one leaked endpoint file granted the others. Free
+  under in-process minting.
+- **A one-byte accept ack was added to the wire.** Without it a token mismatch is a post-accept drop,
+  which reaches the terminator as EOF-before-exit-frame and is reported as a **broker** failure —
+  the most misleading message in the system for the most likely misconfiguration. The ack makes
+  auth-rejected a first-class, testable error and leaks nothing (the server still writes nothing on
+  failure).
+- **`YOLO_SERVICE_<NAME>_SOCKET` became `..._ENDPOINT`, with no dual emission.** The decisive
+  argument is image skew: a baked pre-migration client reading a same-named variable whose value is
+  now an endpoint file would `net.Dial("unix", …)` a regular file and report something obscure,
+  where one reading an *absent* variable hits its existing clean "not wired up in this jail" exit.
+- **The relay's own Unix socket left the mounted directory** for `/tmp/yolo-broker-relay-<8hex>.sock`.
+  Leaving it in the `:rw`-mounted dir would keep the retired transport reachable from inside the
+  jail, and the jail could unlink the relay's own socket.
+
+### 8.4 What did NOT change, and what is still owed
+
+**Unchanged, deliberately:** the wire protocol (`internal/frameproto`, untouched); the broker's hops
+A, C and D — the in-jail TLS terminator still binds `127.0.0.1:443`, and relay→singleton and
+CLI→singleton are still host→host Unix; the host broker singleton daemon.
+
+**Still owed:**
+
+- **`yolo-cglimit` and `yolo-journalctl` are still `AF_UNIX` Python clients**, so those two
+  built-ins still publish sockets. Porting them to Go and pointing them at `svcendpoint.Dial` is the
+  remaining work. One dialer, four clients — a second TLS implementation in generated Python would
+  be exactly the "two security models that drift" this unification exists to prevent.
+- **A `loopholes:` config entry still gets a plain socket**, and this is the one place the retired
+  value survives. `internal/hostservice` is `internal/`, so nothing yolo ships lets a third-party
+  daemon publish an endpoint file; flipping that path would kill those daemons rather than migrate
+  them. Retirement there means the value is unwritable in a manifest and rejected by name, which is
+  §7.4 item 2's actual requirement.
+- **The macOS `guest` cross-uid grant is built but uncalled.** `macosuser.EndpointGrantCommands`
+  emits two `chmod +a` ACEs (read on the file, traverse on its directory) and replaces
+  `BrokerSocketGrantCommands`, which had zero call sites, no test, and would have `chgrp`ed and
+  `chmod 0750`ed the machine's `/tmp`. It stays uncalled because macos-user starts no host services
+  at all (Thread B).
+- **Apple Container remains explicitly deferred** (§6.5 of the implementation spec): `loopback-tls`
+  removes the *transport* obstacle, but how the endpoint file crosses into an AC guest is an unmade
+  mount decision. Recorded as an unclaimed win with a named blocker, not as delivered.
+
+### 8.5 What was NOT verified
+
+**macOS + podman, Apple Container and `macos-user` were never executed** — the whole build ran on
+Linux. So the headline claim of this document, that this fixes
+[#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) and row **D4**, is *unverified on the
+platform it is about*. What was verified, in nested jails against freshly built binaries: the
+endpoint file's mode and shape through the `:rw` bind, `yolo-ps` over pinned TLS, the terminator
+reaching the real broker through the relay's front with its host-side `jail_id` stamp intact, all
+four failure layers distinguishable, and token rotation picked up with no restart.
