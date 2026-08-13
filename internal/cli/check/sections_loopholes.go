@@ -1,6 +1,7 @@
 package check
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
 // checkLoopholes surfaces loophole discovery + each
@@ -168,12 +171,16 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 	for _, cname := range cnames {
 		socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 		for _, lp := range externals {
-			sockPath := filepath.Join(socketsDir, lp.Name+".sock")
 			label := fmt.Sprintf("loophole %s @ %s", lp.Name, cname)
 			if lp.Name == brokerLoopholeName {
-				o.checkBrokerRelay(r, label, sockPath, rt, cname)
+				o.checkBrokerRelay(r, label, filepath.Join(socketsDir, lp.Name+".sock"), rt, cname)
 				continue
 			}
+			if lp.Transport == loopholes.TransportLoopbackTLS {
+				o.checkLoopbackTLSService(r, label, filepath.Join(socketsDir, lp.Name+paths.ServiceEndpointExt), lp.Name)
+				continue
+			}
+			sockPath := filepath.Join(socketsDir, lp.Name+".sock")
 			if !o.PathExists(sockPath) {
 				r.fail(label+": no socket",
 					fmt.Sprintf("Expected %s.  Daemon never started or "+
@@ -193,6 +200,49 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 			r.ok(label + ": socket accepting")
 		}
 	}
+}
+
+// checkLoopbackTLSService probes one loopback-TLS host service end-to-end, naming
+// the failing LAYER.
+//
+// The prober runs HOST-SIDE and as the same uid that published the file, so it can
+// read the endpoint and authenticate exactly as the jail does — a property that only
+// exists because the token lives in the file rather than in the jail's environment.
+// It never prints the file's contents: that file is this jail's credential.
+func (o *Options) checkLoopbackTLSService(r *reporter, label, endpointPath, name string) {
+	if !o.PathExists(endpointPath) {
+		r.fail(label+": no endpoint published",
+			fmt.Sprintf("Expected %s.  Daemon never started or "+
+				"crashed at spawn.  Tail "+
+				"~/.local/share/yolo-jail/logs/host-service-%s.log "+
+				"for the reason; restart the jail to respawn.", endpointPath, name))
+		return
+	}
+	if !svcendpoint.Probe(endpointPath) {
+		r.fail(label+": endpoint file incomplete",
+			fmt.Sprintf("%s exists but does not parse as a complete endpoint "+
+				"(address, certificate, token).  It was truncated or written by an "+
+				"older yolo; restart the jail to republish it.", endpointPath))
+		return
+	}
+	// DialLocal, not Dial: the published address names the runtime's gateway, which
+	// a jail resolves and this host does not. Same port, same pinned cert, same
+	// token — only the name substituted.
+	conn, err := svcendpoint.DialLocal(endpointPath, 2*time.Second)
+	if err != nil {
+		detail := fmt.Sprintf("Dialing the listener named by %s failed: %s.  "+
+			"Daemon process likely exited; restart the jail.", endpointPath, err)
+		if errors.Is(err, svcendpoint.ErrAuthRejected) {
+			detail = fmt.Sprintf("The listener named by %s rejected the token in that "+
+				"file.  The file is stale relative to the running daemon (it restarted "+
+				"and republished, or a predecessor's file was left behind); restart the "+
+				"jail.", endpointPath)
+		}
+		r.fail(label+": listener unreachable", detail)
+		return
+	}
+	_ = conn.Close()
+	r.ok(label + ": endpoint accepting (cert-pinned, token-authenticated)")
 }
 
 // firstLine returns the first line of s, or "" when s is empty.

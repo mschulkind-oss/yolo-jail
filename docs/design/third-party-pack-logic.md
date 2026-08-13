@@ -69,9 +69,9 @@ describing:
   "version": 1,
   "enabled": true,
   "requires": { "command_on_path": "ps" },
-  "transport": "unix-socket",
+  "transport": "loopback-tls",
   "lifecycle": "spawned",
-  "host_daemon": { "cmd": ["yolo", "internal", "daemon", "host-processes", "--socket", "{socket}"] },
+  "host_daemon": { "cmd": ["yolo", "internal", "daemon", "host-processes", "--endpoint", "{endpoint}"] },
   "doctor_cmd": ["yolo", "internal", "daemon", "host-processes", "--self-check"]
 }
 ```

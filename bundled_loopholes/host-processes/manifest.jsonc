@@ -12,12 +12,15 @@
   "requires": {
     "command_on_path": "ps"
   },
-  "transport": "unix-socket",
+  "transport": "loopback-tls",
   "lifecycle": "spawned",
   // No TLS intercept: jails reach the daemon via the ``yolo-ps``
-  // client, which connects to YOLO_SERVICE_HOST_PROCESSES_SOCKET.
+  // client, which reads the endpoint file named by
+  // YOLO_SERVICE_HOST_PROCESSES_ENDPOINT and then dials the pinned,
+  // token-authenticated loopback listener the file describes.  There is
+  // no token env var: the token lives in that file and nowhere else.
   "host_daemon": {
-    "cmd": ["yolo", "internal", "daemon", "host-processes", "--socket", "{socket}"]
+    "cmd": ["yolo", "internal", "daemon", "host-processes", "--endpoint", "{endpoint}"]
   },
   "doctor_cmd": ["yolo", "internal", "daemon", "host-processes", "--self-check"]
 }

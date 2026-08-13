@@ -86,12 +86,16 @@ func TestStartJournalStartsBridge(t *testing.T) {
 		t.Errorf("handle name = %q, want journal", h.name)
 	}
 	wantSock := filepath.Join(socketsDir, "journal.sock")
-	if h.hostSocketPath != wantSock {
-		t.Errorf("hostSocketPath = %q, want %q", h.hostSocketPath, wantSock)
+	if h.hostPath != wantSock {
+		t.Errorf("hostPath = %q, want %q", h.hostPath, wantSock)
 	}
-	if h.jailSocketPath != "/run/yolo-services/journal.sock" {
-		t.Errorf("jailSocketPath = %q, want /run/yolo-services/journal.sock", h.jailSocketPath)
+	if h.jailPath != "/run/yolo-services/journal.sock" {
+		t.Errorf("jailPath = %q, want /run/yolo-services/journal.sock", h.jailPath)
 	}
+	// Still the _SOCKET spelling, and that is the point: the journal bridge is a
+	// unix-socket service until its generated-Python client is ported, and the env
+	// var must describe the VALUE. A rename here would advertise an endpoint file
+	// where a socket path is.
 	if h.envVarName != "YOLO_SERVICE_JOURNAL_SOCKET" {
 		t.Errorf("envVarName = %q, want YOLO_SERVICE_JOURNAL_SOCKET", h.envVarName)
 	}

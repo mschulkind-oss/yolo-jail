@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // sha1Hex8 returns the first 8 hex chars of sha1(s) — the per-jail hash keying
@@ -62,11 +63,45 @@ func mkdirHostServicesDir(dir string) {
 
 var nonAlnumRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
-// hostServiceEnvVar returns YOLO_SERVICE_<SANITIZED>_SOCKET.
-func hostServiceEnvVar(serviceName string) string {
+// serviceEnvSlug sanitizes a service name into the middle of its env var name.
+func serviceEnvSlug(serviceName string) string {
 	s := nonAlnumRe.ReplaceAllString(serviceName, "_")
-	s = strings.Trim(s, "_")
-	return "YOLO_SERVICE_" + strings.ToUpper(s) + "_SOCKET"
+	return strings.ToUpper(strings.Trim(s, "_"))
+}
+
+// hostServiceEnvVar returns YOLO_SERVICE_<SANITIZED>_ENDPOINT — the variable a
+// loopback-TLS service's clients read to find its endpoint FILE.
+//
+// The spelling comes from internal/paths, where the producer/consumer contract is
+// documented: yolo-ps and the OAuth terminator read exactly this name, and a drift
+// between the two halves is what once silently disabled the cgroup delegate in
+// every jail.
+func hostServiceEnvVar(serviceName string) string {
+	return paths.ServiceEnvVarPrefix + serviceEnvSlug(serviceName) + paths.ServiceEnvVarSuffix
+}
+
+// hostServiceSocketEnvVar returns YOLO_SERVICE_<SANITIZED>_SOCKET — the RETIRING
+// spelling, emitted only for a service still on unix-socket.
+//
+// The two names are kept apart rather than one being renamed globally, because the
+// name has to describe the VALUE: a service whose variable holds a socket path must
+// not advertise an endpoint file, and a service whose variable holds an endpoint
+// file must not advertise a socket. Emitting both for one service is what the
+// rename exists to avoid — a stale baked client reading an ABSENT variable hits its
+// own clear "not wired up in this jail" path, where one reading a same-named
+// variable whose value is no longer a socket would dial a regular file and report
+// something obscure. This function disappears with the last unix-socket service.
+func hostServiceSocketEnvVar(serviceName string) string {
+	return paths.ServiceEnvVarPrefix + serviceEnvSlug(serviceName) + "_SOCKET"
+}
+
+// hostServiceEndpointPath returns the IN-JAIL path of a service's endpoint file.
+//
+// It is always a PATH and never an address. The address lives inside the file, so
+// it can change without relaunching the jail — whose environment is frozen at
+// container start while the host side re-ensures its daemons on every later attach.
+func hostServiceEndpointPath(serviceName string) string {
+	return paths.JailHostServicesDir + "/" + serviceName + paths.ServiceEndpointExt
 }
 
 // acMaterialize copies src into

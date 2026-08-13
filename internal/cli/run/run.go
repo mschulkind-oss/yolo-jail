@@ -512,7 +512,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	// Start host services (cgroup delegate + external) BEFORE the container,
-	// inserting each `-e VAR=sock` pair at index(image).
+	// inserting each `-e VAR=<path>` pair at index(image).
 	hostServices := o.startLoopholes(cname, rt, cfg)
 	imageRef := jailImageRef(rt)
 	for _, svc := range hostServices {
@@ -520,7 +520,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		if idx < 0 {
 			continue
 		}
-		runCmd = insertStrsAt(runCmd, idx, []string{"-e", svc.envVarName + "=" + svc.jailSocketPath})
+		// The value is always a PATH — never a port, never an address. That is the
+		// bootstrap-ordering invariant: the container's environment is frozen at
+		// `podman run` time, so anything that can change (a restarted daemon's port,
+		// a rotated token) has to live behind a stable path the client re-reads.
+		runCmd = insertStrsAt(runCmd, idx, []string{"-e", svc.envVarName + "=" + svc.jailPath})
 	}
 
 	// Final internal command tail.

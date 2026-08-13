@@ -16,16 +16,22 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
-// loopholeDaemon is a host-side service exposing a Unix socket inside the jail.
-// index(image), and stop() tears it down at container exit.
+// loopholeDaemon is a host-side service this jail can reach.
+//
+// hostPath/jailPath are deliberately transport-NEUTRAL names: for a loopback-TLS
+// service they are the published endpoint file (host side and as mounted in-jail),
+// for a still-unix-socket one they are the socket. envVarName is chosen to match —
+// see hostServiceEnvVar vs hostServiceSocketEnvVar. stop() tears the daemon down at
+// container exit.
 type loopholeDaemon struct {
-	name           string
-	hostSocketPath string
-	jailSocketPath string
-	envVarName     string
-	stop           func()
+	name       string
+	hostPath   string
+	jailPath   string
+	envVarName string
+	stop       func()
 }
 
 // startLoopholes starts all host services for this jail and returns handles.
@@ -60,6 +66,14 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 		LoopholesConfig: cfgMap(cfg, "loopholes"),
 	})
 	manifestSpecs := loopholes.ManifestHostDaemonSpecs(discovered)
+	// The TRANSPORT comes from the Loophole record, not from the config-shaped spec
+	// map, because it is the framework's decision and not a user-supplied key. A name
+	// absent here (a config loophole with only a `command`) takes the default in
+	// startExternalService.
+	transportOf := map[string]string{}
+	for _, lp := range discovered {
+		transportOf[lp.Name] = lp.Transport
+	}
 	external := map[string]*jsonx.OrderedMap{}
 	var order []string
 	if manifestSpecs != nil {
@@ -95,7 +109,7 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 			o.brokerEnsure()
 			continue
 		}
-		if h, ok := o.startExternalService(name, external[name], socketsDir); ok {
+		if h, ok := o.startExternalService(name, external[name], socketsDir, transportOf[name]); ok {
 			handles = append(handles, h)
 		} else {
 			_ = out
@@ -175,11 +189,13 @@ func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDae
 		return loopholeDaemon{}, false
 	}
 	return loopholeDaemon{
-		name:           paths.BuiltinCgroupLoopholeName,
-		hostSocketPath: sockPath,
-		jailSocketPath: paths.JailHostServicesDir + "/" + paths.BuiltinCgroupLoopholeName + ".sock",
-		envVarName:     hostServiceEnvVar(paths.BuiltinCgroupLoopholeName),
-		stop:           stop,
+		name:     paths.BuiltinCgroupLoopholeName,
+		hostPath: sockPath,
+		jailPath: paths.JailHostServicesDir + "/" + paths.CgdSocketName,
+		// Still unix-socket: the in-image client hardcodes CGD_SOCKET and is
+		// ported in its own change.
+		envVarName: hostServiceSocketEnvVar(paths.BuiltinCgroupLoopholeName),
+		stop:       stop,
 	}, true
 }
 
@@ -228,18 +244,43 @@ func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap) (loopho
 		"yolo", "internal", "daemon", paths.BuiltinJournalLoopholeName,
 		"--socket", "{socket}", "--mode", mode,
 	})
-	return o.startExternalService(paths.BuiltinJournalLoopholeName, spec, socketsDir)
+	// Still unix-socket: the in-image yolo-journalctl client is generated Python
+	// speaking AF_UNIX and is ported in its own change.
+	return o.startExternalService(paths.BuiltinJournalLoopholeName, spec, socketsDir,
+		loopholes.TransportUnixSocket)
 }
 
-// startExternalService is the common host-service path: substitute {socket},
-// expand ~, spawn, wait for the socket to bind. Returns the
-// handle on success.
-func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, socketsDir string) (loopholeDaemon, bool) {
+// startExternalService is the common host-service path: substitute the host-side
+// path into the argv, expand ~, spawn, wait for the service to become REACHABLE.
+// Returns the handle on success.
+//
+// transport selects what the daemon publishes and how we wait for it:
+//
+//   - loopback-tls — an endpoint FILE, and the wait predicate parses it
+//     (svcendpoint.Probe). Existence is not health there: a truncated or
+//     older-format file would otherwise read as healthy forever, so the daemon is
+//     never respawned and the jail can never reach it.
+//   - anything else — a unix socket, waited for by existence, exactly as before.
+//
+// An empty transport is treated as unix-socket, which is what a config-declared
+// loophole gets, and is the conservative direction: the fallback keeps the path
+// that works today rather than assuming a publication that never happens.
+func (o *Options) startExternalService(
+	name string, spec *jsonx.OrderedMap, socketsDir, transport string,
+) (loopholeDaemon, bool) {
 	if spec == nil {
 		return loopholeDaemon{}, false
 	}
-	hostSocket := filepath.Join(socketsDir, name+".sock")
-	_ = os.Remove(hostSocket)
+	loopbackTLS := transport == loopholes.TransportLoopbackTLS
+	leaf := name + ".sock"
+	if loopbackTLS {
+		leaf = name + paths.ServiceEndpointExt
+	}
+	hostPath := filepath.Join(socketsDir, leaf)
+	// Remove a dead predecessor's artifact BEFORE the spawn. Without this the wait
+	// below can succeed against a stale endpoint file naming a port nobody is on,
+	// and every client then dials a dead address.
+	_ = os.Remove(hostPath)
 	cmdTemplate := asAnyList(mapGet(spec, "command"))
 	if len(cmdTemplate) == 0 {
 		o.pr(o.Stdout).print("[red]Host service '" + name + "' has no command; skipping[/red]")
@@ -251,7 +292,12 @@ func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, sock
 		if strings.HasPrefix(s, "~") {
 			s = expandUser(s)
 		}
-		cmdArgs = append(cmdArgs, strings.ReplaceAll(s, "{socket}", hostSocket))
+		// {endpoint} is canonical; {socket} stays an accepted alias so a
+		// third-party manifest written against the older name keeps working. Both
+		// expand to the same host-side path — the framework decides what that path
+		// IS, which is the whole point of owning the transport.
+		s = strings.ReplaceAll(s, "{endpoint}", hostPath)
+		cmdArgs = append(cmdArgs, strings.ReplaceAll(s, "{socket}", hostPath))
 	}
 	// A manifest host_daemon.cmd of the form
 	// ["yolo","internal","daemon",<name>,"--socket",…] re-execs the running yolo
@@ -285,11 +331,15 @@ func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, sock
 		o.pr(o.Stdout).print("[red]Failed to launch host service '" + name + "': " + err.Error() + "[/red]")
 		return loopholeDaemon{}, false
 	}
-	// Wait for the socket to bind (5s). Real wall clock, deliberately NOT
-	// o.Now() — see relayKill below.
+	// Wait for the service to become reachable (5s). Real wall clock, deliberately
+	// NOT o.Now() — see relayKill below.
+	reachable := func() bool { return fileExists(hostPath) }
+	if loopbackTLS {
+		reachable = func() bool { return svcendpoint.Probe(hostPath) }
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if fileExists(hostSocket) {
+		if reachable() {
 			break
 		}
 		if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
@@ -297,11 +347,26 @@ func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, sock
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if !fileExists(hostSocket) {
+	if !reachable() {
 		_ = cmd.Process.Kill()
 		return loopholeDaemon{}, false
 	}
-	jailSocket := mapStrOr(spec, "jail_socket", paths.JailHostServicesDir+"/"+name+".sock")
+	// jail_endpoint is canonical; jail_socket stays an accepted alias, for the same
+	// reason {socket} does — silently ignoring a third-party loophole's override key
+	// over a rename is worse than carrying two spellings.
+	jailPath := paths.JailHostServicesDir + "/" + leaf
+	if loopbackTLS {
+		jailPath = hostServiceEndpointPath(name)
+	}
+	if v := mapStr(spec, "jail_endpoint"); v != "" {
+		jailPath = v
+	} else if v := mapStr(spec, "jail_socket"); v != "" {
+		jailPath = v
+	}
+	envVar := hostServiceSocketEnvVar(name)
+	if loopbackTLS {
+		envVar = hostServiceEnvVar(name)
+	}
 	stop := func() {
 		if cmd.Process != nil {
 			_ = cmd.Process.Signal(syscall.SIGTERM)
@@ -315,11 +380,11 @@ func (o *Options) startExternalService(name string, spec *jsonx.OrderedMap, sock
 		}
 	}
 	return loopholeDaemon{
-		name:           name,
-		hostSocketPath: hostSocket,
-		jailSocketPath: jailSocket,
-		envVarName:     hostServiceEnvVar(name),
-		stop:           stop,
+		name:       name,
+		hostPath:   hostPath,
+		jailPath:   jailPath,
+		envVarName: envVar,
+		stop:       stop,
 	}, true
 }
 

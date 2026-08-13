@@ -21,16 +21,33 @@ import (
 // runtime translates it into the right host-reachable address.
 const DefaultBrokerIP = "host-gateway"
 
+// Transport values. Named rather than spelled inline because the run pipeline,
+// the checks and the manifests all have to agree on them, and a typo in any one
+// of those places silently selects the other publication mechanism.
+const (
+	// TransportLoopbackTLS is the unified transport (internal/svcendpoint): the
+	// framework publishes an endpoint file and the daemon never learns what
+	// carried its bytes.
+	TransportLoopbackTLS = "loopback-tls"
+	// TransportUnixSocket is the retiring transport. Still the default for a
+	// manifest that says nothing and for a config-declared loophole, until both
+	// remaining consumers are ported (docs/design/loophole-transport.md §7.4).
+	TransportUnixSocket = "unix-socket"
+	// TransportTLSIntercept is the broker's declared value. It describes hop A
+	// (the in-jail TLS terminator) and is silent about the hop that actually
+	// carries bytes to the host, which is why it cannot select a transport.
+	TransportTLSIntercept = "tls-intercept"
+	// TransportNone means NO DAEMON, not a different transport. It stays.
+	TransportNone = "none"
+)
+
 // Valid enum values. Kept as ordered slices in sorted order so the
 // "not in [...]" error strings render deterministically.
 var (
-	// "loopback-tls" is the unified transport (internal/svcendpoint): the framework
-	// publishes an endpoint file and the daemon never learns what carried its bytes.
-	// It sits alongside the older values only for the length of the migration —
-	// "unix-socket" and "tls-intercept" both retire once both consumers are ported
-	// (docs/design/loophole-transport.md §7.4). "none" stays: it means "no daemon",
-	// not a different transport.
-	validTransports = []string{"loopback-tls", "tls-intercept", "unix-socket", "none"}
+	// "loopback-tls" sits alongside the older values only for the length of the
+	// migration — "unix-socket" and "tls-intercept" both retire once both
+	// consumers are ported (docs/design/loophole-transport.md §7.4).
+	validTransports = []string{TransportLoopbackTLS, TransportTLSIntercept, TransportUnixSocket, TransportNone}
 	validLifecycles = []string{"external", "spawned"}
 	validRestarts   = []string{"always", "on-failure", "no"}
 )

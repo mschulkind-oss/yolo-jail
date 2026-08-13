@@ -139,12 +139,19 @@ func validateInlineService(spec *jsonx.OrderedMap, path string, errs *[]string) 
 			}
 		}
 	}
-	jsV, present := spec.Get("jail_socket")
-	if present && jsV != nil {
+	// jail_endpoint is the canonical override; jail_socket stays an ACCEPTED ALIAS.
+	// Retiring the older key rather than aliasing it would make a third-party
+	// loophole's override silently vanish over a rename, which is the same class of
+	// failure as a manifest disappearing because one enum value changed.
+	for _, key := range []string{"jail_endpoint", "jail_socket"} {
+		jsV, present := spec.Get(key)
+		if !present || jsV == nil {
+			continue
+		}
 		if js, ok := asStr(jsV); !ok {
-			add(errs, path+".jail_socket: expected a string")
+			add(errs, path+"."+key+": expected a string")
 		} else if !hasPrefix(js, paths.JailHostServicesDir+"/") {
-			add(errs, path+".jail_socket: must start with "+
+			add(errs, path+"."+key+": must start with "+
 				paths.JailHostServicesDir+"/ "+
 				"(got "+pytext.Repr(js)+")")
 		}

@@ -397,8 +397,11 @@ func (o *Options) hostServicesMountArgs(rt, cname string) []string {
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	args := []string{"-v", socketsDir + ":" + paths.JailHostServicesDir + ":rw"}
 	if o.PathExists(broker.BrokerSingletonSocket) {
+		// Still the unix-socket spelling: the broker relay's hop B migrates in its
+		// own change, and emitting _ENDPOINT for a value that is still a socket
+		// path would break the in-jail terminator immediately.
 		brokerJailSock := paths.JailHostServicesDir + "/" + broker.BrokerLoopholeName + ".sock"
-		args = append(args, "-e", hostServiceEnvVar(broker.BrokerLoopholeName)+"="+brokerJailSock)
+		args = append(args, "-e", hostServiceSocketEnvVar(broker.BrokerLoopholeName)+"="+brokerJailSock)
 	}
 	return args
 }

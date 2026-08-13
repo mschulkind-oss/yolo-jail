@@ -2,7 +2,6 @@ package hostprocesses
 
 import (
 	"encoding/json"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,33 +9,44 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
-// The black-box suite: drive the daemon over a real socket with a
-// PATH-shimmed fake `ps`, covering list/tree/pid, the exit-code contract
-// (0/1/2/3/124), per-request config re-read, empty-allowlist, and the
-// failure/edge paths (non-string mode, tree timeout, tree ps-nonzero-empty ->
-// exit 0). Byte-level where the fake ps makes output deterministic. The daemon
-// runs in-process (BuildHandler + hostservice.Serve).
+// The black-box suite: drive the daemon over the REAL TRANSPORT (cert-pinned,
+// token-authenticated loopback TLS) with a PATH-shimmed fake `ps`, covering
+// list/tree/pid, the exit-code contract (0/1/2/3/124), per-request config re-read,
+// empty-allowlist, and the failure/edge paths (non-string mode, tree timeout, tree
+// ps-nonzero-empty -> exit 0). Byte-level where the fake ps makes output
+// deterministic. The daemon runs in-process (BuildHandler + hostservice.Serve).
+//
+// EVERY ASSERTION BELOW IS UNCHANGED BY THE TRANSPORT MIGRATION — only how a
+// connection is obtained changed. That is the proof the daemon never learns which
+// transport carried its bytes.
 
-func startDaemon(t *testing.T, configPath, fakePSDir string) (sock string, stop func()) {
+func startDaemon(t *testing.T, configPath, fakePSDir string) (endpoint string, stop func()) {
 	t.Helper()
+	// Publish 127.0.0.1 rather than the runtime's gateway name: the client here is on
+	// the same machine as the listener. Only the name inside the file differs from
+	// production — the pin, the token frame and the ack are the real ones.
+	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
+	// os.MkdirTemp creates 0700, which svcendpoint requires of a directory it
+	// publishes a credential into. t.TempDir() creates 0755 and is REFUSED.
 	dir, err := os.MkdirTemp("/tmp", "yj-hp-bb-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sock = filepath.Join(dir, "hp.sock")
+	endpoint = filepath.Join(dir, "hp.endpoint")
 	// Prepend the fake-ps dir to PATH for the daemon's exec of `ps`.
 	oldPath := os.Getenv("PATH")
 	os.Setenv("PATH", fakePSDir+":"+oldPath)
 	stopCh := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		_ = hostservice.Serve(BuildHandler(configPath), sock, stopCh)
+		_ = hostservice.Serve(BuildHandler(configPath), endpoint, stopCh)
 		close(done)
 	}()
-	waitSock(t, sock)
-	return sock, func() {
+	waitEndpoint(t, endpoint)
+	return endpoint, func() {
 		os.Setenv("PATH", oldPath)
 		close(stopCh)
 		<-done
@@ -44,23 +54,23 @@ func startDaemon(t *testing.T, configPath, fakePSDir string) (sock string, stop 
 	}
 }
 
-func waitSock(t *testing.T, sock string) {
+// waitEndpoint waits for a COMPLETE, USABLE endpoint file — Probe, not existence.
+func waitEndpoint(t *testing.T, endpoint string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if c, err := net.DialTimeout("unix", sock, time.Second); err == nil {
-			c.Close()
+		if svcendpoint.Probe(endpoint) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("daemon socket never appeared")
+	t.Fatal("daemon never published a usable endpoint")
 }
 
 // query sends a request and returns (stdout, stderr, rc).
-func query(t *testing.T, sock string, req map[string]any) ([]byte, []byte, int) {
+func query(t *testing.T, endpoint string, req map[string]any) ([]byte, []byte, int) {
 	t.Helper()
-	c, err := net.Dial("unix", sock)
+	c, err := svcendpoint.Dial(endpoint, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,10 +129,10 @@ func TestBlackboxListMode(t *testing.T) {
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway","waykeeper"],"fields":["pid","comm"]}}`)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
-	sock, stop := startDaemon(t, cfg, ps)
+	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
 
-	out, _, rc := query(t, sock, map[string]any{"mode": "list"})
+	out, _, rc := query(t, ep, map[string]any{"mode": "list"})
 	if rc != 0 {
 		t.Fatalf("list rc=%d, want 0", rc)
 	}
@@ -139,9 +149,9 @@ func TestBlackboxEmptyAllowlistExit3(t *testing.T) {
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":[]}}`)
 	ps := fakePS(t, "echo x\n")
-	sock, stop := startDaemon(t, cfg, ps)
+	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
-	_, stderr, rc := query(t, sock, map[string]any{"mode": "list"})
+	_, stderr, rc := query(t, ep, map[string]any{"mode": "list"})
 	if rc != 3 {
 		t.Errorf("empty allowlist rc=%d, want 3", rc)
 	}
@@ -157,10 +167,10 @@ func TestBlackboxNonStringModeExit2(t *testing.T) {
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"]}}`)
 	ps := fakePS(t, "echo x\n")
-	sock, stop := startDaemon(t, cfg, ps)
+	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
 	// A non-string mode (5) must be rejected exit 2, NOT silently run list.
-	_, stderr, rc := query(t, sock, map[string]any{"mode": 5})
+	_, stderr, rc := query(t, ep, map[string]any{"mode": 5})
 	if rc != 2 {
 		t.Errorf("non-string mode rc=%d, want 2", rc)
 	}
@@ -176,9 +186,9 @@ func TestBlackboxUnknownModeExit2(t *testing.T) {
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"]}}`)
 	ps := fakePS(t, "echo x\n")
-	sock, stop := startDaemon(t, cfg, ps)
+	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
-	_, stderr, rc := query(t, sock, map[string]any{"mode": "bogus"})
+	_, stderr, rc := query(t, ep, map[string]any{"mode": "bogus"})
 	if rc != 2 || string(stderr) != "unknown mode: 'bogus'\n" {
 		t.Errorf("unknown mode: rc=%d stderr=%q", rc, stderr)
 	}
@@ -193,9 +203,9 @@ func TestBlackboxTreeNonzeroEmptyExit0(t *testing.T) {
 	// fake ps exits 1 with EMPTY stdout -> stdout is read regardless ->
 	// exit 0 empty, NOT an error.
 	ps := fakePS(t, "exit 1\n")
-	sock, stop := startDaemon(t, cfg, ps)
+	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
-	out, stderr, rc := query(t, sock, map[string]any{"mode": "tree"})
+	out, stderr, rc := query(t, ep, map[string]any{"mode": "tree"})
 	if rc != 0 {
 		t.Errorf("tree ps-nonzero-empty rc=%d, want 0 (stdout read regardless of exit)", rc)
 	}
@@ -211,10 +221,10 @@ func TestBlackboxPidModeNotAllowlisted(t *testing.T) {
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["definitely-not-our-comm"]}}`)
 	ps := fakePS(t, "echo x\n")
-	sock, stop := startDaemon(t, cfg, ps)
+	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
 	// Our own pid's comm won't be in the allowlist -> exit 2.
-	_, stderr, rc := query(t, sock, map[string]any{"mode": "pid", "pid": os.Getpid()})
+	_, stderr, rc := query(t, ep, map[string]any{"mode": "pid", "pid": os.Getpid()})
 	if rc != 2 {
 		t.Errorf("pid not-allowlisted rc=%d, want 2 (stderr=%q)", rc, stderr)
 	}
@@ -227,15 +237,15 @@ func TestBlackboxConfigReReadBetweenRequests(t *testing.T) {
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":[]}}`)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
-	sock, stop := startDaemon(t, cfg, ps)
+	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
 	// First request: empty allowlist -> exit 3.
-	if _, _, rc := query(t, sock, map[string]any{"mode": "list"}); rc != 3 {
+	if _, _, rc := query(t, ep, map[string]any{"mode": "list"}); rc != 3 {
 		t.Fatalf("pre-edit rc=%d, want 3", rc)
 	}
 	// Edit config between requests — daemon re-reads per request.
 	writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"],"fields":["pid"]}}`)
-	out, _, rc := query(t, sock, map[string]any{"mode": "list"})
+	out, _, rc := query(t, ep, map[string]any{"mode": "list"})
 	if rc != 0 {
 		t.Fatalf("post-edit rc=%d, want 0", rc)
 	}

@@ -12,11 +12,18 @@ import (
 // Main is the allowlisted host-process viewer daemon entry point. It keeps
 // exec'ing the real `ps` — the output format is the contract.
 //
-// CLI contract: --socket, --config, --self-check. Config defaults to
+// CLI contract: --endpoint, --config, --self-check. Config defaults to
 // $YOLO_HOST_PROCESSES_CONFIG or CWD/yolo-jail.jsonc.
+//
+// --socket is retained as an ALIAS for --endpoint, not as a second transport: it
+// is the escape hatch for a host yolo older than this binary, whose manifest still
+// spawns us with `--socket {socket}`. The value is used identically — a path to
+// publish an endpoint file at — so such a spawn produces a working daemon at an
+// oddly named path rather than a daemon that refuses to start.
 func Main(argv []string) int {
 	fs := flag.NewFlagSet("yolo-host-processes", flag.ExitOnError)
-	socket := fs.String("socket", "", "Unix socket to bind")
+	endpoint := fs.String("endpoint", "", "Endpoint file to publish (loopback-TLS)")
+	socket := fs.String("socket", "", "Alias for --endpoint (accepted for compatibility)")
 	config := fs.String("config", "", "yolo-jail.jsonc path (defaults to $YOLO_HOST_PROCESSES_CONFIG)")
 	selfCheck := fs.Bool("self-check", false, "Emit status and exit (used by `yolo doctor`)")
 	_ = fs.Parse(argv)
@@ -24,8 +31,12 @@ func Main(argv []string) int {
 	if *selfCheck {
 		return SelfCheck()
 	}
-	if *socket == "" {
-		fmt.Fprintln(os.Stderr, "ERROR: --socket is required")
+	publish := *endpoint
+	if publish == "" {
+		publish = *socket
+	}
+	if publish == "" {
+		fmt.Fprintln(os.Stderr, "ERROR: --endpoint is required")
 		return 2
 	}
 	cfg := *config
@@ -39,7 +50,7 @@ func Main(argv []string) int {
 	}
 
 	stop := make(chan struct{})
-	if err := hostservice.Serve(BuildHandler(cfg), *socket, stop); err != nil {
+	if err := hostservice.Serve(BuildHandler(cfg), publish, stop); err != nil {
 		fmt.Fprintln(os.Stderr, "yolo-host-processes:", err)
 		return 1
 	}

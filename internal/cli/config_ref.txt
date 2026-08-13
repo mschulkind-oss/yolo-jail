@@ -118,26 +118,37 @@
     Example:
       "agents_md_extra": "## Cerebras MCP\\n\\nUse cerebras-mcp for X."
 
-  [bold]host_services[/bold] (object): Host-side services exposed inside the jail via Unix sockets.
+  [bold]host_services[/bold] (object): Host-side services the jail can reach.
     Each key is a service name (must match ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$).
     The name "cgroup-delegate" is reserved for the built-in cgroup daemon.
 
     Each value is an object with:
       "command" (array of strings, required): the command to launch on the host
-        when the jail starts.  "{socket}" in any arg is substituted with the
-        actual host-side socket path the service should bind.
+        when the jail starts.  "{endpoint}" in any arg is substituted with the
+        actual host-side path the service should publish at.  "{socket}" is
+        accepted as an alias for it.
       "env" (object, optional): extra env vars for the host daemon (NOT the jail).
-      "jail_socket" (string, optional): override the jail-side socket path.
-        Must start with /run/yolo-services/ and end in .sock.
-        Default: /run/yolo-services/<name>.sock
+      "jail_endpoint" (string, optional): override the jail-side path.
+        Must start with /run/yolo-services/.
+        Default: /run/yolo-services/<name>.endpoint
+        ("jail_socket" is accepted as an alias.)
 
     Each service gets:
-      • Its socket bind-mounted into the jail at /run/yolo-services/<name>.sock
-      • An env var YOLO_SERVICE_<NAME>_SOCKET injected into the container so
-        agents can locate the socket without hard-coding paths.
+      • Its published path bind-mounted into the jail under /run/yolo-services/
+      • An env var YOLO_SERVICE_<NAME>_ENDPOINT injected into the container so
+        agents can locate the service without hard-coding paths.  The value is
+        always a PATH, never an address: the address lives inside the file, so a
+        restarted daemon needs no jail relaunch.
       • A managed lifecycle: started before container start, SIGTERM + 5s grace +
         SIGKILL after the container exits.
       • stdout/stderr captured to ~/.local/share/yolo-jail/logs/host-service-<name>.log
+
+    A bundled loophole declaring [cyan]transport: loopback-tls[/cyan] publishes an
+    ENDPOINT FILE — one line naming a 127.0.0.1 listener, the exact certificate a
+    client must pin, and a per-jail bearer token.  That file IS A CREDENTIAL: it is
+    written 0600 into this jail's own directory and is never shared between jails.
+    There is deliberately no token env var.  A service that declares no transport
+    still gets a plain Unix socket.
 
     Use this to split the jail boundary cleanly: a host-side process can hold
     secrets, credentials, and access-control logic that the agent inside the

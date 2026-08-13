@@ -1,7 +1,13 @@
-// Package hostservice is the server side of the unix-socket loophole frame
-// protocol. It owns socket setup, the accept loop, per-connection threading,
-// the access log, and the command-injection-guarded exec helper, so each daemon
-// shrinks to a handler plus its allowlist.
+// Package hostservice is the server side of the loophole frame protocol. It owns
+// the accept loop, per-connection threading, the access log, and the
+// command-injection-guarded exec helper, so each daemon shrinks to a handler plus
+// its allowlist.
+//
+// It does NOT own a transport. Serve delegates that to internal/svcendpoint
+// (loopback-TLS, cert-pinned, token-authenticated), whose Accept returns only
+// authenticated connections — so a daemon cannot forget to authenticate, and none
+// of the code below learns which transport carried its bytes. Session and
+// handleOne were already net.Conn-based, which is why nothing here changed shape.
 //
 // Frame wire format lives in internal/frameproto (the frozen contract);
 // this package is the request-parsing + response-emitting harness around it.
@@ -23,6 +29,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
 // Logger is where the access log + diagnostics go (stderr, or a file the
@@ -183,26 +190,31 @@ func (s *Session) ExecAllowlisted(
 // Handler processes one Session.
 type Handler func(*Session)
 
-// Serve listens on socketPath until a SIGTERM/SIGINT (or stop close); one
-// goroutine per connection. The socket is created 0600 and removed on exit.
-func Serve(handler Handler, socketPath string, stop <-chan struct{}) error {
-	if _, err := os.Stat(socketPath); err == nil {
-		_ = os.Remove(socketPath)
-	}
-	if err := os.MkdirAll(dirOf(socketPath), 0o755); err != nil {
-		return err
-	}
-
-	old := syscall.Umask(0o077)
-	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketPath, Net: "unix"})
-	syscall.Umask(old)
+// Serve publishes a loopback-TLS endpoint at endpointPath and serves it until a
+// SIGTERM/SIGINT (or stop close); one goroutine per connection.
+//
+// The endpoint file it publishes IS A CREDENTIAL — it carries this service's
+// per-jail bearer token — so svcendpoint writes it 0600 and refuses to publish
+// into a group/world-accessible directory. Retirement is automatic: Listener.Close
+// unlinks the file, so the token dies with the listener and there is no second
+// artifact to reap. Nothing here persists a key or a token: the TLS private key
+// lives only in this process's memory.
+func Serve(handler Handler, endpointPath string, stop <-chan struct{}) error {
+	ln, err := svcendpoint.Listen(endpointPath, "")
 	if err != nil {
 		return err
 	}
-	ln.SetUnlinkOnClose(false)
-	_ = os.Chmod(socketPath, 0o600)
+	return serveListener(handler, ln, stop)
+}
 
-	Logger.Printf("listening on %s (protocol v%d)", socketPath, frameproto.ProtocolVersion)
+// serveListener is the transport-agnostic half: shutdown wiring plus the accept
+// loop. Split out of Serve so the loop is testable against any net.Listener and so
+// there is exactly one place that decides a connection becomes a session.
+//
+// ln.Accept MUST return only authenticated connections. svcendpoint.Listener does;
+// that guarantee is what lets handleOne stay unchanged.
+func serveListener(handler Handler, ln net.Listener, stop <-chan struct{}) error {
+	Logger.Printf("serving frame protocol v%d", frameproto.ProtocolVersion)
 
 	// stop channel (explicit) OR signals (when run as a real daemon).
 	sigCh := make(chan os.Signal, 1)
@@ -217,13 +229,12 @@ func Serve(handler Handler, socketPath string, stop <-chan struct{}) error {
 	}()
 
 	for {
-		conn, err := ln.AcceptUnix()
+		conn, err := ln.Accept()
 		if err != nil {
 			break
 		}
 		go handleOne(handler, conn)
 	}
-	_ = os.Remove(socketPath)
 	return nil
 }
 
@@ -307,17 +318,6 @@ func exitCodeFromErr(err error) int {
 		return ee.ExitCode()
 	}
 	return 1
-}
-
-func dirOf(path string) string {
-	i := strings.LastIndexByte(path, '/')
-	if i < 0 {
-		return "."
-	}
-	if i == 0 {
-		return "/"
-	}
-	return path[:i]
 }
 
 func itoa(i int) string {
