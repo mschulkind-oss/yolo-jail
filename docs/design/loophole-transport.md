@@ -297,6 +297,11 @@ visible in `ps` today, and this is the same mistake one layer down.
 
 ## 5. The `ca.key` defect belongs in this doc
 
+> **FIXED 2026-08-12** — per §5.1, via a `state_files` key on the loophole manifest. The shipped
+> broker declares `["ca.crt", "server.crt", "server.key"]`, so those three files each cross on
+> their own `:ro` mount and the state **directory** no longer crosses at all. The section below is
+> kept as the analysis; OQ-T6 records why the narrow form was chosen.
+
 [Issue #33](https://github.com/mschulkind-oss/yolo-jail/issues/33), open, no PR — and it is
 inseparable from §3, because it is *why* #32 pins its own cert instead of reusing the broker CA.
 
@@ -392,7 +397,19 @@ So the mount narrows from the state **directory** to **three files**.
 
 **There is already a declaration to build on.** The loophole manifest names the CA cert explicitly
 — `"ca_cert": "{state}/ca.crt"` — so the framework already knows which single file is the public
-CA. What it does not have is a way to say *"mount these files, not the state dir"*. See **OQ-T6**.
+CA. What it did not have is a way to say *"mount these files, not the state dir"*. See **OQ-T6**.
+
+**What shipped** (`internal/loopholes`, 2026-08-12): an OPTIONAL `state_files` list of paths
+relative to the state dir. Present → each named file crosses on its own `:ro` mount and the state
+directory does not; absent → the whole dir, exactly as before, so no external manifest changed
+meaning. Two details worth keeping:
+
+- **a missing entry is skipped, not mounted.** The container runtime materializes a missing bind
+  source as an empty *directory*, which would shadow the very file the jail daemon waits for. The
+  ordering makes this rare — `brokerEnsure` runs before the argv is assembled and the broker's
+  `EnsureCAAndLeaf` completes before its socket binds — but "rare" is not "never".
+- **entries are validated at load time** as relative, `..`-free paths, so the key can only narrow
+  the mount it describes and never reach outside it.
 
 This is a **mount-scope change, not a redesign**, and it should land before or with #32 — not
 after, because #32's security argument explicitly assumes the CA is untrustworthy and a reader who
@@ -414,7 +431,7 @@ queue.
 
 | §4d defect | State today | Evidence |
 |---|---|---|
-| **`ca.key` readable in-jail** | 🔴 open | measured above; now also public as #33 |
+| **`ca.key` readable in-jail** | ✅ fixed 2026-08-12 | §5.1's `state_files` narrowing; verified in a nested jail — `ca.key` absent, the three needed files present |
 | **Claude creds symlink dangles on macos-user** | 🔴 open | Thread B; blocks the Teams auth mode on macOS |
 | **Config-approval snapshot is agent-writable** | 🔴 open | `.yolo/config-snapshot.json` is mode `664` and writable in-jail *(re-measured)*. An agent that edits `yolo-jail.jsonc` **and** matches the snapshot makes the launch-time diff prompt disappear — the exact bypass [`config-safety.md`](config-safety.md) exists to prevent |
 | **Two shipped docs contradict the code** | 🟡 partly | `USER_GUIDE.md:182` and `bundled_loopholes/claude-oauth-broker/README.md:59` both still say *"no background timer / no proactive refresh"*, while `oauthbrokercmd.go:88` starts `RunBackgroundRefresher` by default. The separate `--host-creds-file` staleness **has** since been fixed |
@@ -490,3 +507,10 @@ macOS + podman. Nobody has reported it because `yolo-ps` failing is quiet, but i
   it is a breaking manifest change for external loophole authors, for a problem only one shipped
   loophole has today. **Recommendation: fix the broker narrowly now, and treat the general form as
   a candidate for the transport work in §4** — the two touch the same code.
+  **ANSWERED 2026-08-12 — narrowly, as recommended, with one deliberate refinement:** the narrowing
+  is declared in the *manifest* (`state_files`) rather than switched on the broker's name in
+  framework code, because `internal/loopholes/runtime.go` renders every loophole in one loop with no
+  per-loophole branch and adding the first one to buy three mounts is a bad trade. It is **not**
+  the general form: it is opt-in, it defaults to today's whole-dir behavior, and it covers only the
+  state dir — not the module dir or `host_bind_mounts`. `mounts_into_jail` (default-nothing, whole
+  surface, breaking) remains open for §4, and it subsumes this key cleanly when it lands.

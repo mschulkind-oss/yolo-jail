@@ -265,6 +265,171 @@ func TestNoFileOverlayOnDirMount(t *testing.T) {
 	}
 }
 
+// TestStateFilesNarrowsTheStateMount is the mechanism half of issue #33: with
+// `state_files` declared, the whole-directory state mount is replaced by one
+// :ro file mount per declared entry, and everything else in the state dir —
+// notably a private key — never crosses.
+func TestStateFilesNarrowsTheStateMount(t *testing.T) {
+	unsetJail(t)
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "narrowed"))
+	writeManifest(t, mod, map[string]any{
+		"name": "narrowed", "description": "x",
+		"intercepts":  []any{map[string]any{"host": "example.test"}},
+		"broker_ip":   "127.0.0.1",
+		"ca_cert":     "{state}/ca.crt",
+		"state_files": []any{"ca.crt", "server.crt", "server.key"},
+		"jail_daemon": map[string]any{"cmd": []any{"true"}, "restart": "no"},
+	})
+	stateRoot := t.TempDir()
+	stateDir := mkdir(t, filepath.Join(stateRoot, "narrowed"))
+	for _, name := range []string{"ca.crt", "ca.key", "ca.srl", "server.crt", "server.key"} {
+		if err := os.WriteFile(filepath.Join(stateDir, name), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	orig := StateDirFor
+	StateDirFor = func(name string) string { return filepath.Join(stateRoot, name) }
+	defer func() { StateDirFor = orig }()
+
+	args := argsFor(md, "")
+	// The state DIRECTORY itself is no longer a mount source.
+	if containsArg(args, stateDir+":/var/lib/yolo-jail/loopholes/narrowed:ro") {
+		t.Errorf("whole state dir still mounted: %v", args)
+	}
+	for _, name := range []string{"ca.crt", "server.crt", "server.key"} {
+		want := filepath.Join(stateDir, name) + ":/var/lib/yolo-jail/loopholes/narrowed/" + name + ":ro"
+		if !containsArg(args, want) {
+			t.Errorf("declared state file not mounted: want %q in %v", want, args)
+		}
+	}
+	for _, undeclared := range []string{"ca.key", "ca.srl"} {
+		if strings.Contains(joinArgs(args), undeclared) {
+			t.Errorf("undeclared state file %q crossed into the jail: %v", undeclared, args)
+		}
+	}
+	// The CA still resolves through the state mount, so NODE_EXTRA_CA_CERTS is
+	// unchanged by the narrowing.
+	nodeCA := ""
+	for _, a := range args {
+		if strings.HasPrefix(a, "NODE_EXTRA_CA_CERTS=") {
+			nodeCA = a
+		}
+	}
+	if nodeCA != "NODE_EXTRA_CA_CERTS=/var/lib/yolo-jail/loopholes/narrowed/ca.crt" {
+		t.Errorf("NODE_EXTRA_CA_CERTS = %q", nodeCA)
+	}
+}
+
+// A declared state file that does not exist host-side must be SKIPPED, never
+// emitted as a -v: the container runtime materializes a missing bind source as
+// an empty DIRECTORY, which would shadow the file the jail daemon waits for.
+func TestStateFilesSkipMissingSource(t *testing.T) {
+	unsetJail(t)
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "narrowed"))
+	writeManifest(t, mod, map[string]any{
+		"name": "narrowed", "description": "x", "transport": "none",
+		"state_files": []any{"server.crt", "not-generated-yet.crt"},
+		"jail_daemon": map[string]any{"cmd": []any{"true"}, "restart": "no"},
+	})
+	stateRoot := t.TempDir()
+	stateDir := mkdir(t, filepath.Join(stateRoot, "narrowed"))
+	if err := os.WriteFile(filepath.Join(stateDir, "server.crt"), []byte("crt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	orig := StateDirFor
+	StateDirFor = func(name string) string { return filepath.Join(stateRoot, name) }
+	defer func() { StateDirFor = orig }()
+
+	args := argsFor(md, "")
+	if !containsArg(args, filepath.Join(stateDir, "server.crt")+":/var/lib/yolo-jail/loopholes/narrowed/server.crt:ro") {
+		t.Errorf("present state file should still mount: %v", args)
+	}
+	if strings.Contains(joinArgs(args), "not-generated-yet.crt") {
+		t.Errorf("missing state file must be skipped, not emitted: %v", args)
+	}
+}
+
+// An empty/absent state_files keeps the historical whole-directory mount, so
+// external manifests that never heard of the key do not change meaning.
+func TestNoStateFilesKeepsWholeDirMount(t *testing.T) {
+	unsetJail(t)
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "wide"))
+	writeManifest(t, mod, map[string]any{
+		"name": "wide", "description": "x", "transport": "none",
+		"jail_daemon": map[string]any{"cmd": []any{"true"}, "restart": "no"},
+	})
+	stateRoot := t.TempDir()
+	stateDir := mkdir(t, filepath.Join(stateRoot, "wide"))
+	orig := StateDirFor
+	StateDirFor = func(name string) string { return filepath.Join(stateRoot, name) }
+	defer func() { StateDirFor = orig }()
+
+	args := argsFor(md, "")
+	if !containsArg(args, stateDir+":/var/lib/yolo-jail/loopholes/wide:ro") {
+		t.Errorf("whole state dir mount missing: %v", args)
+	}
+}
+
+// A state_files list that FORGETS the CA must not silently drop CA trust: the
+// CA falls back to its own single-file mount under the module dir, and
+// NODE_EXTRA_CA_CERTS follows it. Narrowing the mount can therefore never
+// break TLS verification by omission — the failure mode an author is most
+// likely to introduce.
+func TestStateFilesOmittingCAStillTrustsIt(t *testing.T) {
+	unsetJail(t)
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "no-ca-declared"))
+	writeManifest(t, mod, map[string]any{
+		"name": "no-ca-declared", "description": "x",
+		"intercepts":  []any{map[string]any{"host": "example.test"}},
+		"broker_ip":   "127.0.0.1",
+		"ca_cert":     "{state}/ca.crt",
+		"state_files": []any{"server.crt", "server.key"},
+		"jail_daemon": map[string]any{"cmd": []any{"true"}, "restart": "no"},
+	})
+	stateRoot := t.TempDir()
+	stateDir := mkdir(t, filepath.Join(stateRoot, "no-ca-declared"))
+	for _, name := range []string{"ca.crt", "ca.key", "server.crt", "server.key"} {
+		if err := os.WriteFile(filepath.Join(stateDir, name), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	orig := StateDirFor
+	StateDirFor = func(name string) string { return filepath.Join(stateRoot, name) }
+	defer func() { StateDirFor = orig }()
+
+	args := argsFor(md, "")
+	want := filepath.Join(stateDir, "ca.crt") + ":/etc/yolo-jail/loopholes/no-ca-declared/ca.crt:ro"
+	if !containsArg(args, want) {
+		t.Errorf("CA should fall back to its own mount: want %q in %v", want, args)
+	}
+	if !containsArg(args, "NODE_EXTRA_CA_CERTS=/etc/yolo-jail/loopholes/no-ca-declared/ca.crt") {
+		t.Errorf("NODE_EXTRA_CA_CERTS should follow the fallback mount: %v", args)
+	}
+	// The private key is still nowhere near the jail.
+	if strings.Contains(joinArgs(args), "ca.key") {
+		t.Errorf("ca.key must not cross: %v", args)
+	}
+}
+
+func TestStateFilesRejectsEscapes(t *testing.T) {
+	for _, bad := range []any{"/etc/shadow", "../../.ssh/id_rsa", ""} {
+		md := modsDir(t)
+		mod := mkdir(t, filepath.Join(md, "bad-state"))
+		writeManifest(t, mod, map[string]any{
+			"name": "bad-state", "description": "x",
+			"state_files": []any{bad},
+		})
+		entries := ValidateLoopholes(md, true, false)
+		if len(entries) != 1 || entries[0].Loophole != nil || !contains(entries[0].Err, "state_files[0]") {
+			t.Errorf("state_files entry %q should be rejected, got %+v", bad, entries)
+		}
+	}
+}
+
 func TestHostBindMountsEmittedAndReadonly(t *testing.T) {
 	unsetJail(t)
 	md := modsDir(t)

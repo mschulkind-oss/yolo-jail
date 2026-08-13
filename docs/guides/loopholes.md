@@ -36,10 +36,22 @@ Only `manifest.jsonc` is required. Everything else is up to the loophole.
   ],
   "broker_ip": "host-gateway",    // tls-intercept only; container runtime magic value
   "ca_cert": "ca.crt",            // tls-intercept only; auto-mounted + trusted
+  "state_files": ["ca.crt"],      // optional; narrows the state-dir mount
   "jail_env": {"FOO": "bar"},     // any transport
   "doctor_cmd": ["bin", "--ok"]   // optional; run by `yolo doctor`
 }
 ```
+
+**`state_files`** is the jail-visible slice of the per-loophole state dir
+(`~/.local/share/yolo-jail/state/<name>/`, mounted at
+`/var/lib/yolo-jail/loopholes/<name>/` when the loophole has a `jail_daemon`).
+Entries are paths relative to the state dir, each mounted as a single `:ro`
+file; an entry that does not exist host-side is skipped rather than mounted, so
+the runtime never materializes it as an empty directory. **Omit the key and the
+whole state dir crosses** — the historical behavior, which is why the shipped
+`claude-oauth-broker` declares it: without it the CA's private key was readable
+in every jail ([#33](https://github.com/mschulkind-oss/yolo-jail/issues/33)).
+Declare it whenever your state dir holds anything the jail does not read.
 
 What the loader does at each `yolo run`:
 

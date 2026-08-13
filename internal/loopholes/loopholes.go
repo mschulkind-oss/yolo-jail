@@ -129,8 +129,15 @@ type Loophole struct {
 	JailDaemon    *JailDaemon
 	HostBindMount []HostBindMount
 	HostDevices   []string
-	Requires      Requires
-	Source        string
+	// StateFiles narrows what crosses from the per-loophole state dir into the
+	// jail: paths relative to StateDir(), each mounted as a single :ro file.
+	// nil/empty keeps the historical whole-directory mount, so an external
+	// manifest without the key does not change meaning. Declaring it is
+	// least-privilege — see runtime.go and issue #33 (the broker CA's PRIVATE
+	// key rode the whole-dir mount into every jail, where nothing reads it).
+	StateFiles []string
+	Requires   Requires
+	Source     string
 }
 
 // FromConfig reports whether this loophole came from a yolo-jail.jsonc

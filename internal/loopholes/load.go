@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -145,6 +146,10 @@ func loadManifest(modulePath string) (*Loophole, error) {
 	if err != nil {
 		return nil, err
 	}
+	stateFiles, err := parseStateFiles(manifestPath, getOrNil(data, "state_files"))
+	if err != nil {
+		return nil, err
+	}
 	requires, err := parseRequires(manifestPath, getOrNil(data, "requires"))
 	if err != nil {
 		return nil, err
@@ -178,6 +183,7 @@ func loadManifest(modulePath string) (*Loophole, error) {
 		JailDaemon:    jailDaemon,
 		HostBindMount: hostBindMounts,
 		HostDevices:   hostDevices,
+		StateFiles:    stateFiles,
 		Requires:      requires,
 		Source:        SourceUser,
 	}, nil
@@ -290,6 +296,43 @@ func parseHostDevices(manifestPath string, raw any) ([]string, error) {
 			return nil, loopholeErrorf("%s: host_devices[%d] must be a non-empty string", manifestPath, i)
 		}
 		out = append(out, s)
+	}
+	return out, nil
+}
+
+// parseStateFiles parses the optional `state_files` list: the subset of the
+// per-loophole state dir that is allowed to cross into the jail. ABSENT (or an
+// empty list) means the whole state dir is mounted — the historical behavior,
+// preserved deliberately so an external manifest without the key keeps its
+// meaning.
+//
+// Entries are paths RELATIVE to the state dir. Absolute paths and any ".."
+// escape are rejected here, at load time, so the key can only ever narrow the
+// existing mount and never reach outside the directory it is narrowing.
+func parseStateFiles(manifestPath string, raw any) ([]string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		return nil, loopholeErrorf("%s: 'state_files' must be a list", manifestPath)
+	}
+	out := []string{}
+	for i, entry := range list {
+		s, isStr := entry.(string)
+		if !isStr || s == "" {
+			return nil, loopholeErrorf("%s: state_files[%d] must be a non-empty string", manifestPath, i)
+		}
+		if filepath.IsAbs(s) {
+			return nil, loopholeErrorf("%s: state_files[%d]=%s must be relative to the state dir",
+				manifestPath, i, pytext.Repr(s))
+		}
+		clean := filepath.Clean(s)
+		if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return nil, loopholeErrorf("%s: state_files[%d]=%s must stay inside the state dir",
+				manifestPath, i, pytext.Repr(s))
+		}
+		out = append(out, clean)
 	}
 	return out, nil
 }

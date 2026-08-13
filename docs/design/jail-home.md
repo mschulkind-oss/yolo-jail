@@ -320,10 +320,13 @@ Only the home-relevant ones expanded; the rest one-lined for orientation.
   `refreshJailBriefings` (prepare.go:20-93; called run.go:121-122) with
   inode-preserving writes so live mounts see updates.
 - **Loophole runtime mounts** (`loopholes.RuntimeArgsFor`,
-  internal/loopholes/runtime.go:26-129): module dir →
+  internal/loopholes/runtime.go): module dir →
   `/etc/yolo-jail/loopholes/<name>` ro + state dir →
-  `/var/lib/yolo-jail/loopholes/<name>` ro (both jail_daemon-only), CA cert +
-  `NODE_EXTRA_CA_CERTS`,
+  `/var/lib/yolo-jail/loopholes/<name>` ro (both jail_daemon-only). The state
+  mount is the WHOLE dir only when the manifest declares no `state_files`;
+  with the key, each named file crosses on its own `:ro` mount and nothing else
+  does (`claude-oauth-broker` ships it so its CA private key stays host-side —
+  issue #33). Plus CA cert + `NODE_EXTRA_CA_CERTS`,
   `host_bind_mounts` (e.g. audio: pulse/pipewire sockets rw + `/etc/asound.conf`
   ro), `host_devices` (`/dev/snd`).
 

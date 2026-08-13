@@ -44,26 +44,47 @@ func RuntimeArgsFor(loopholes []*Loophole, runtime string) []string {
 		}
 
 		stateContainer := "/var/lib/yolo-jail/loopholes/" + m.Name
-		stateMounted := false
+		stateDirMounted := false
+		stateFileMounted := map[string]bool{}
 		dirMounted := false
 
 		if m.JailDaemon != nil {
 			args = append(args, "-v", m.Path+":"+containerDir+":ro")
 			dirMounted = true
 			if isDir(m.StateDir()) {
-				args = append(args, "-v", m.StateDir()+":"+stateContainer+":ro")
-				stateMounted = true
+				if len(m.StateFiles) > 0 {
+					// Least privilege (issue #33): only the DECLARED files cross.
+					// The whole-dir mount below carried the broker CA's PRIVATE key
+					// into every jail, where nothing reads it — signing is host-side
+					// in internal/oauthbroker/cert.go — and 0600 is no barrier
+					// because a jail's agent runs as UID 0 by design.
+					for _, rel := range m.StateFiles {
+						src := filepath.Join(m.StateDir(), rel)
+						if !isFile(src) {
+							// Never emit a -v for a missing source: the runtime
+							// would materialize it as an empty DIRECTORY, shadowing
+							// the file the jail daemon is waiting for.
+							warnf("loophole %s: skipping state file, host source missing: %s", m.Name, src)
+							continue
+						}
+						args = append(args, "-v", src+":"+stateContainer+"/"+rel+":ro")
+						stateFileMounted[rel] = true
+					}
+				} else {
+					args = append(args, "-v", m.StateDir()+":"+stateContainer+":ro")
+					stateDirMounted = true
+				}
 			}
 		}
 
 		if m.HasCA() && m.CACertSet {
 			containerCA := ""
 			haveCA := false
-			if stateMounted {
-				if rel, ok := relativeTo(m.CACert, m.StateDir()); ok {
-					containerCA = stateContainer + "/" + rel
-					haveCA = true
-				}
+			// The CA rides the state mount only when the state mount actually
+			// carries it: the whole dir, or that exact file under state_files.
+			if rel, ok := relativeTo(m.CACert, m.StateDir()); ok && (stateDirMounted || stateFileMounted[rel]) {
+				containerCA = stateContainer + "/" + rel
+				haveCA = true
 			}
 			if !haveCA && dirMounted {
 				if rel, ok := relativeTo(m.CACert, m.Path); ok {
@@ -253,6 +274,11 @@ func toAnySlice(ss []string) []any {
 func isDir(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()
+}
+
+func isFile(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.Mode().IsRegular()
 }
 
 // Returns (rel, true) when base is a path-component prefix of target, else

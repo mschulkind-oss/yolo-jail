@@ -25,6 +25,12 @@
   // {state} → per-loophole writable state dir; the generated CA/leaf
   // pair lives there, not in the read-only bundled dir.
   "ca_cert": "{state}/ca.crt",
+  // The ONLY files from {state} that cross into a jail (issue #33). Without
+  // this key the whole state dir is mounted :ro — which put the CA's PRIVATE
+  // key inside every jail, where nothing reads it: signing happens host-side
+  // in internal/oauthbroker/cert.go.  ca.key, ca.srl, leaf.cnf and
+  // refresh.lock are all host-side bookkeeping and stay host-side.
+  "state_files": ["ca.crt", "server.crt", "server.key"],
   "host_daemon": {
     "cmd": ["yolo", "internal", "daemon", "claude-oauth-broker", "--socket", "{socket}"]
   },

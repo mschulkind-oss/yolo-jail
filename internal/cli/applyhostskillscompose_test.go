@@ -85,14 +85,18 @@ func linkAwareHashes(t *testing.T, home string) map[string]string {
 // skillsHashes is linkAwareHashes narrowed to every skills destination plus the local pack — the
 // paths this kind owns.
 //
-// The narrowing exists for one measured reason and is not a general licence. `apply --host` is NOT
-// whole-home idempotent at head: a surface's provenance record classifies a key as `default` on the
-// first apply (the key is absent, so the default fills it) and as `host` on the second (the key is
-// now present in the file), so `host-provenance/pi-settings.provenance` differs between apply 1 and
-// apply 2 and converges from apply 3 on. Verified against a binary built from HEAD without this
-// change, so it is pre-existing and belongs to the `config` kind. Asserting the whole home here
-// would pin that unrelated wobble into the skills suite; the OBSERVE test still asserts over the
-// WHOLE home, because observe writes nothing at all and has no such excuse.
+// THE NARROWING NO LONGER HIDES ANYTHING, and the history is worth keeping because it is what
+// made the wider defect findable. It used to carry an exemption: `apply --host` was not
+// whole-home idempotent, because a surface's provenance record classified a key as `defaults` on
+// the first apply (absent, so the default filled it) and as `host` on the second (present — put
+// there by that very default), so `host-provenance/pi-settings.provenance` differed between apply
+// 1 and apply 2 and converged only from apply 3. That was tracked as V2 and is FIXED
+// (entrypoint.keepFilledDefaults); applyhostidempotent_test.go now asserts convergence over the
+// WHOLE home, which is where a cross-kind property belongs.
+//
+// What survives is the narrowing itself, for its own reason: these tests are about which SKILL
+// landed where, and a failure that names `.pi/agent/settings.json` would be reporting the config
+// kind's business in the skills suite. Scope, not exemption.
 func skillsHashes(t *testing.T, home string) map[string]string {
 	t.Helper()
 	out := map[string]string{}

@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -520,6 +521,11 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	// (fill-if-absent) while losing to everything yolo force-writes. Taken here because
 	// the writes below mutate obj in place.
 	present := obj.Keys()
+	// Which of those keys still hold exactly what the `defaults` layer declares. Snapshotted
+	// here for the same reason `present` is — the defaults write below fills into obj in
+	// place, so after it every default key trivially matches and the measurement is worthless.
+	// See intactDefaults for what the answer is used for.
+	intact := intactDefaults(surface, obj)
 
 	// config-overlay contributions: below everything yolo and the owner assert, above
 	// the file's existing content (see the doc comment).
@@ -577,7 +583,7 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 		// that ignored it would launder yolo's own output into "the user set this" on the
 		// very next apply. See rmwProvenance's `previous` parameter.
 		writeProvenanceRecord(e, surface.Agent, surface.Name,
-			rmwProvenance(surface, present, computed, overlays,
+			rmwProvenance(surface, present, intact, computed, overlays,
 				readProvenanceRecord(e, surface.Agent, surface.Name)))
 	}
 	return nil
@@ -660,13 +666,19 @@ func readProvenanceRecord(e *Env, agent, name string) map[string]string {
 //
 // previous is the record a prior render of this surface left (nil for a first-ever apply, or
 // whenever the record cannot be trusted — see readProvenanceRecord). It is consulted ONLY by
-// the retirement pass at the end, and only to keep an attribution the record already made;
-// nothing about this render's own outcome is read from it. That containment is what keeps the
-// parity claim above intact: on the first render into a fresh home `previous` is nil, the
-// retirement pass is a no-op, and this function is the pure write-order replay the shared
-// corpus compares against Compose.
-func rmwProvenance(surface manifest.Surface, present []string, computed map[string]any,
-	overlays []agentcfg.Overlay, previous map[string]string) map[string]string {
+// the two CORRECTION passes at the end (keepFilledDefaults, retireUnclaimed), and only to keep
+// an attribution the record already made; nothing about this render's own outcome is read from
+// it. That containment is what keeps the parity claim above intact: on the first render into a
+// fresh home `previous` is nil, both passes are no-ops, and this function is the pure
+// write-order replay the shared corpus compares against Compose.
+//
+// intact names the default keys the file's PRE-RENDER content already satisfies, measured by
+// the caller (intactDefaults). Like `previous` it is read only by a correction pass, and for
+// the same reason: it answers a question about a file yolo wrote EARLIER, which a replay of
+// this render cannot see.
+func rmwProvenance(surface manifest.Surface, present []string, intact map[string]bool,
+	computed map[string]any, overlays []agentcfg.Overlay,
+	previous map[string]string) map[string]string {
 	prov := map[string]string{}
 	// defaults: the floor, and only where the key was absent — the `host` pass below
 	// corrects the ones the file already had, which is what fill-if-absent means.
@@ -706,7 +718,108 @@ func rmwProvenance(surface manifest.Surface, present []string, computed map[stri
 			prov[k] = agentcfg.LayerManaged
 		}
 	}
-	return retireUnclaimed(prov, previous)
+	return retireUnclaimed(keepFilledDefaults(prov, previous, intact), previous)
+}
+
+// keepFilledDefaults undoes the `host` guess for a key that is only IN the file because yolo's
+// own `defaults` layer filled it, and that the user has not changed since.
+//
+// THE DEFECT (V2, `apply --host` is not whole-home idempotent). The `host` pass above reads the
+// existing file as the user's layer, which is right for a file the user wrote and wrong for the
+// part of it yolo wrote LAST APPLY. A default key is absent on apply 1 — so it records
+// `defaults` — and present on apply 2, because the apply-1 write put it there, so it records
+// `host`. Nothing changed but the record did, and it converged only from apply 3 on. Two runs
+// over one unchanged config produced two different homes, which destroys the only thing an
+// apply report is for: telling "something changed" apart from "the tool is unsettled".
+//
+// It is the same shape as retireUnclaimed's defect and takes the same evidence — the previous
+// record — because it is the same blind spot: `present` cannot distinguish content the user
+// authored from content this command emitted, and only the earlier record can.
+//
+// THREE CONDITIONS, and each one is load-bearing:
+//
+//	this render says `host`   The one attribution that is a guess. A key a live layer still
+//	                          claims (managed/computed/an overlay) was attributed by the passes
+//	                          above and is none of this pass's business.
+//	previously `defaults`     The proof that yolo FILLED the key rather than found it. Without
+//	                          it, a file the user wrote whose value happens to equal the
+//	                          declared default would be quietly reattributed to yolo — and on a
+//	                          first render `previous` is nil, so the pass cannot fire at all,
+//	                          which is what keeps the parity corpus a pure write-order replay.
+//	still AT the default      intactDefaults. `defaults` is fill-if-absent: yolo writes the
+//	                          value once and the key is the user's to change from then on. The
+//	                          moment their value differs, `host` is the true answer again and
+//	                          this pass must not fight it.
+//
+// It runs BEFORE retireUnclaimed, which only rewrites keys still reading `host` — so a key this
+// pass hands back to `defaults` is correctly out of retirement's reach. It was never in it
+// anyway: agentcfg.LayerAsserted excludes `defaults` precisely because a filled default is not
+// yolo's output to retire.
+func keepFilledDefaults(prov, previous map[string]string, intact map[string]bool) map[string]string {
+	for k, layer := range prov {
+		if layer != agentcfg.LayerHost || !intact[k] {
+			continue
+		}
+		if previous[k] == agentcfg.LayerDefaults {
+			prov[k] = agentcfg.LayerDefaults
+		}
+	}
+	return prov
+}
+
+// intactDefaults reports which of the surface's declared default keys the file ALREADY
+// satisfies — i.e. which ones the fill-if-absent write below would leave untouched.
+//
+// Measured against the PRE-RENDER object, which is the only moment the answer means anything:
+// applyRMWLayer fills the defaults into that same object, so afterwards every default key is
+// satisfied by construction and the measurement degenerates to "yes".
+//
+// SATISFIED, not equal, and the difference only shows on a nested default. applyRMWLayer
+// recurses into an object-valued default and fills each absent LEAF, so "the default still
+// stands" means every leaf it declares is present with the declared value — a sibling key the
+// user added under the same parent does not make the default any less intact. Mirroring the
+// writer's own recursion is what keeps this a measurement of that write rather than a second,
+// subtly different rule.
+//
+// Values are compared through jsonx.Plain because the two sides arrive from different decoders:
+// the declared layer from a stdlib decode of pack.json (numbers as float64), the file from
+// jsonx/tomlx (integer literals preserved as their own type). Comparing the raw values would
+// report a difference for `1` versus `1` and quietly disable the fix for every integer default.
+func intactDefaults(surface manifest.Surface, obj *jsonx.OrderedMap) map[string]bool {
+	defaults, isMap := surface.Defaults.(map[string]any)
+	if !isMap {
+		return nil
+	}
+	intact := map[string]bool{}
+	for k, want := range defaults {
+		have, present := obj.Get(k)
+		if !present {
+			continue // absent: the fill is a real write, and `defaults` is already the answer
+		}
+		if defaultSatisfied(jsonx.Plain(have), want) {
+			intact[k] = true
+		}
+	}
+	return intact
+}
+
+// defaultSatisfied reports whether `have` (in jsonx.Plain form) already carries everything the
+// declared default `want` asserts. See intactDefaults for why this mirrors applyRMWLayer.
+func defaultSatisfied(have, want any) bool {
+	if sub, isObject := want.(map[string]any); isObject {
+		hm, isObject := have.(map[string]any)
+		if !isObject {
+			return false
+		}
+		for k, v := range sub {
+			hv, present := hm[k]
+			if !present || !defaultSatisfied(hv, v) {
+				return false
+			}
+		}
+		return true
+	}
+	return reflect.DeepEqual(have, want)
 }
 
 // retireUnclaimed rewrites the attributions this render derived so a key yolo FORCE-WROTE for
