@@ -509,7 +509,7 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 		return refusal
 	}
 	path := expandHomePath(e, surface.Path)
-	obj, err := decodeSurfaceObject(surface, path)
+	orig, obj, before, err := readRMWSource(surface, path)
 	if err != nil {
 		return err
 	}
@@ -527,25 +527,9 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	// See intactDefaults for what the answer is used for.
 	intact := intactDefaults(surface, obj)
 
-	// config-overlay contributions: below everything yolo and the owner assert, above
-	// the file's existing content (see the doc comment).
-	for _, ov := range overlays {
-		if layer, isMap := ov.Data.(map[string]any); isMap {
-			applyRMWLayer(obj, layer, true)
-		}
-	}
-	// Dynamic managed tables (MCP servers) FIRST, so a managed key nested under the
-	// same parent still wins the floor.
-	regenerateManagedTables(e, surface, obj, computed)
-	// Managed: yolo owns these outright, so re-assert every boot.
-	if managed, isMap := surface.Managed.(map[string]any); isMap {
-		applyRMWLayer(obj, managed, true)
-	}
-	// Defaults: user-overridable, so fill only where the key is absent.
-	if defaults, isMap := surface.Defaults.(map[string]any); isMap {
-		applyRMWLayer(obj, defaults, false)
-	}
-	text, err := encodeSurfaceObject(surface, obj)
+	applyRMWLayers(e, surface, obj, computed, overlays)
+
+	text, err := encodeSurfaceObject(surface, obj, orig, before)
 	if err != nil {
 		return err
 	}
@@ -948,6 +932,37 @@ func sortedKeys(m map[string]any) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// applyRMWLayers folds every layer an RMW render asserts into obj, in the §5 precedence
+// order the mode expresses as WRITE order (there is no layer fold in `rmw`): the
+// config-overlay contributions first, then the dynamic managed tables, then the owner's
+// `managed`, then `defaults` filling only where a key is absent.
+//
+// Factored out of renderSurfaceRMWSurface so the OBSERVE path can compute the same result
+// without writing (hostFormattingLosses needs the post-render object to say which comments
+// this render would drop). Duplicating the order in a second function is exactly how a
+// dry-run starts previewing something the assert does not do.
+func applyRMWLayers(e *Env, surface manifest.Surface, obj *jsonx.OrderedMap,
+	computed map[string]any, overlays []agentcfg.Overlay) {
+	// config-overlay contributions: below everything yolo and the owner assert, above
+	// the file's existing content (see renderSurfaceRMWSurface's doc comment).
+	for _, ov := range overlays {
+		if layer, isMap := ov.Data.(map[string]any); isMap {
+			applyRMWLayer(obj, layer, true)
+		}
+	}
+	// Dynamic managed tables (MCP servers) FIRST, so a managed key nested under the
+	// same parent still wins the floor.
+	regenerateManagedTables(e, surface, obj, computed)
+	// Managed: yolo owns these outright, so re-assert every boot.
+	if managed, isMap := surface.Managed.(map[string]any); isMap {
+		applyRMWLayer(obj, managed, true)
+	}
+	// Defaults: user-overridable, so fill only where the key is absent.
+	if defaults, isMap := surface.Defaults.(map[string]any); isMap {
+		applyRMWLayer(obj, defaults, false)
+	}
 }
 
 // applyRMWLayer writes layer into obj. force=true overwrites (managed semantics);

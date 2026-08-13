@@ -218,7 +218,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 		// Non-value losses from the canonical re-emit (a TOML file's comments). Computed in
 		// both postures for the same reason the overwrites are: the point is to see it before
 		// the write.
-		formatting := hostFormattingLosses(s, path)
+		formatting := hostFormattingLosses(e, s, path, tableLayer, surfaceOverlays)
 		if observe {
 			out = append(out, HostRenderResult{Surface: id, Path: path, Action: "would render",
 				Overwrites: overwrites, Overlays: overlayPackNames(surfaceOverlays),
@@ -276,27 +276,38 @@ func hostRMWRefusal(s manifest.Surface, path string) *rmwRefusedError {
 }
 
 // hostFormattingLosses names what a codec-canonical re-emit costs beyond values — today,
-// exactly one thing: a TOML file's comments.
+// exactly one thing: a TOML file's comments, and only the ones this render cannot keep.
 //
-// yolo re-emits a TOML surface through the shared deterministic emitter
-// (internal/agentcfg/codec), which renders values and nothing else. Every value round-trips;
-// every comment is gone. Comment preservation is BACKLOG E4 (open, deliberately unbuilt), so
-// this is a REPORT rather than a fix — and it has to be a report rather than silence, because
-// a user whose config.toml documents each setting loses that prose while every diff-visible
-// value looks correct.
+// It used to be a blanket "comments are NOT preserved" line, which was the honest report of
+// an emitter that rendered values and nothing else. E4's `rmw` half changed the fact it was
+// reporting: a comment now survives whenever the value it sits above does (tomltrivia.go),
+// so the line has narrowed to the exceptions — a comment above a key this render CHANGES,
+// which rule ① drops rather than leave lying, and one attached to nothing.
+//
+// It runs the SAME layer fold the writer does (applyRMWLayers) against a scratch copy, which
+// is what makes an observe preview honest: the drops it names are the drops --assert will
+// cause, not a guess from declarations. Nothing is written — the fold is in memory and the
+// encoded text is discarded.
 //
 // JSON surfaces yield nothing (JSON has no comment syntax, so there is nothing to lose), and
-// so does an uncommented TOML file — the line only appears when there is a real loss.
-func hostFormattingLosses(s manifest.Surface, path string) []string {
+// so does a TOML file whose comments all survive — the line only appears when there is a
+// real loss.
+func hostFormattingLosses(e *Env, s manifest.Surface, path string, computed map[string]any,
+	overlays []agentcfg.Overlay) []string {
 	if s.Codec != "toml" {
 		return nil
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil || !tomlHasComments(raw) {
+	s = agentcfg.SubstituteWorkspace(s, e.WorkspaceDir())
+	orig, obj, before, err := readRMWSource(s, path)
+	if err != nil || len(orig) == 0 {
 		return nil
 	}
-	return []string{"comments in this file are NOT preserved — yolo re-emits it from the " +
-		"decoded values (every value survives; the comments do not)"}
+	applyRMWLayers(e, s, obj, computed, overlays)
+	_, losses, err := encodeSurfaceObjectReporting(s, obj, orig, before)
+	if err != nil {
+		return nil // the render itself will refuse and report; one problem, one message
+	}
+	return losses
 }
 
 // hostProvenanceExists reports whether yolo has EVER asserted this surface in this home.

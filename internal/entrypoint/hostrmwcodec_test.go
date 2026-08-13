@@ -278,37 +278,82 @@ func TestHostRenderCodexTOMLReportsOverwrites(t *testing.T) {
 	}
 }
 
-// COMMENTS ARE DROPPED and the drop is REPORTED. Comment preservation is BACKLOG E4 (open,
-// deliberately unbuilt); what is in scope is that the loss is never silent.
-func TestHostRenderCodexTOMLWarnsCommentsAreDropped(t *testing.T) {
+// COMMENTS SURVIVE a host apply on a TOML surface — E4's `rmw` half, end to end over the
+// shipped codex pack. `model` is a key yolo does not declare, so both its comments are
+// untouched by the render that asserts approval_policy/sandbox_mode beside them.
+//
+// This test used to assert the opposite (comments dropped, drop warned) and said so: "if
+// this is now implemented (E4), drop the warning instead of the test".
+func TestHostRenderCodexTOMLPreservesComments(t *testing.T) {
 	home, path := codexHostHome(t,
 		"# my carefully documented setting\nmodel = \"gpt-5\"  # the good one\n")
 
-	got := renderCodexHost(t, home, true) // observe: the warning must precede the write
-	if len(got.Formatting) == 0 {
-		t.Fatalf("a commented TOML file must warn that comments are dropped: %+v", got)
+	if got := renderCodexHost(t, home, true); len(got.Formatting) != 0 {
+		t.Errorf("nothing is lost here, so nothing should be reported: %v", got.Formatting)
 	}
-	if !strings.Contains(strings.Join(got.Formatting, " "), "comments") {
-		t.Errorf("the warning should say what is lost: %v", got.Formatting)
-	}
-
-	// And it is the truth: after an assert the comments are gone, the values are not.
 	renderCodexHost(t, home, false)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), "carefully documented") {
-		t.Errorf("comments unexpectedly survived — if this is now implemented (E4), drop " +
-			"the warning instead of the test")
+	for _, want := range []string{"carefully documented", "the good one"} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("comment %q did not survive the render:\n%s", want, raw)
+		}
 	}
-	decoded, _ := tomlx.Decode(raw)
+	decoded, derr := tomlx.Decode(raw)
+	if derr != nil {
+		t.Fatalf("re-attaching comments produced invalid TOML (%v):\n%s", derr, raw)
+	}
 	if decoded["model"] != "gpt-5" {
-		t.Errorf("the VALUE must survive even though the comment does not:\n%s", raw)
+		t.Errorf("the VALUE must survive alongside its comment:\n%s", raw)
+	}
+	if decoded["approval_policy"] != "on-request" {
+		t.Errorf("the managed key must still be asserted:\n%s", raw)
 	}
 }
 
-// No comments, no warning: the line only appears when there is a real loss, or it stops
+// RULE ① end to end: the comment above a key yolo OVERRIDES is dropped rather than left
+// lying about a value that is no longer there, and the drop is reported BEFORE the write.
+func TestHostRenderCodexTOMLReportsOverriddenComment(t *testing.T) {
+	home, path := codexHostHome(t,
+		"# I want to be prompted for everything\napproval_policy = \"never\"\n"+
+			"# unrelated\nmodel = \"gpt-5\"\n")
+
+	got := renderCodexHost(t, home, true) // observe: the report must precede the write
+	if len(got.Formatting) == 0 {
+		t.Fatalf("an overridden key's comment loss must be reported: %+v", got)
+	}
+	if !strings.Contains(strings.Join(got.Formatting, " "), "approval_policy") {
+		t.Errorf("the report must name the key whose comment is dropped: %v", got.Formatting)
+	}
+
+	renderCodexHost(t, home, false)
+	raw := string(mustRead(t, path))
+	if strings.Contains(raw, "prompted for everything") {
+		t.Errorf("the comment above an overridden key must not survive to lie:\n%s", raw)
+	}
+	if !strings.Contains(raw, "# unrelated") {
+		t.Errorf("an untouched key's comment must survive the same render:\n%s", raw)
+	}
+}
+
+// A SECOND assert on a commented file is byte-identical: comment re-attachment must not
+// churn the file, or every apply produces a diff.
+func TestHostRenderCodexTOMLCommentedSecondApplyIsIdentical(t *testing.T) {
+	home, path := codexHostHome(t,
+		"# preamble\n\n# about model\nmodel = \"gpt-5\"  # inline\n\n[tui]\ntheme = \"dark\"\n")
+	renderCodexHost(t, home, false)
+	first := string(mustRead(t, path))
+	renderCodexHost(t, home, false)
+	second := string(mustRead(t, path))
+	if first != second {
+		t.Errorf("a second apply churned a commented file:\n--- first ---\n%s\n--- second ---\n%s",
+			first, second)
+	}
+}
+
+// No comments, no report: the line only appears when there is a real loss, or it stops
 // being read.
 func TestHostRenderCodexTOMLQuietWithoutComments(t *testing.T) {
 	home, _ := codexHostHome(t, "model = \"gpt-5\"\n")

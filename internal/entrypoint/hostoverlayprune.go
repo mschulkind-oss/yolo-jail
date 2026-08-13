@@ -135,7 +135,7 @@ func PruneHostOverlayKeys(candidates []*packload.Pack, active map[string]bool,
 			continue
 		}
 		path := expandHomePath(e, s.Path)
-		obj, derr := decodeSurfaceObject(s, path)
+		orig, obj, before, derr := readRMWSource(s, path)
 		if derr != nil {
 			// Best-effort by design — see the file comment. A file yolo cannot read yields no
 			// orphans and no write, and the render loop reports the refusal.
@@ -165,7 +165,9 @@ func PruneHostOverlayKeys(candidates []*packload.Pack, active map[string]bool,
 		for _, k := range removed {
 			obj.Delete(k)
 		}
-		text, eerr := encodeSurfaceObject(s, obj)
+		// orig/before carry the file's comments into the re-emit: a prune removes named keys
+		// and must leave the rest — including the prose around it — exactly as it found it.
+		text, eerr := encodeSurfaceObject(s, obj, orig, before)
 		if eerr != nil {
 			return out, fmt.Errorf("%s: %w", id, eerr)
 		}

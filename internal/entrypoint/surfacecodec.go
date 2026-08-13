@@ -133,6 +133,18 @@ func decodeSurfaceObject(surface manifest.Surface, path string) (*jsonx.OrderedM
 		return nil, refuseRMW(surface, "cannot read %s: %v — the file is left untouched",
 			path, err)
 	}
+	return decodeSurfaceBytes(surface, path, raw)
+}
+
+// decodeSurfaceBytes is decodeSurfaceObject over bytes the caller already holds.
+//
+// It exists because the RMW render needs the SAME source twice — once as the working object
+// it mutates, once as an untouched BEFORE snapshot for the comment-preservation rule (see
+// tomltrivia.go) — plus the raw bytes themselves. Decoding twice from one read is both
+// cheaper and safer than deep-copying the mutable OrderedMap tree: a shallow copy would
+// alias the nested maps the layers write into, which is precisely the snapshot the rule
+// must not have.
+func decodeSurfaceBytes(surface manifest.Surface, path string, raw []byte) (*jsonx.OrderedMap, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return jsonx.NewOrderedMap(), nil
 	}
@@ -166,6 +178,37 @@ func decodeSurfaceObject(surface manifest.Surface, path string) (*jsonx.OrderedM
 	}
 }
 
+// readRMWSource reads the file an RMW render is about to modify, returning its raw bytes,
+// the WORKING object the layers are applied to, and an independent BEFORE snapshot.
+//
+// One read, two decodes. The snapshot cannot be a copy of the working object because the
+// layer writes mutate it in place, several levels deep — the very state the comment rule
+// (rmwTriviaKeeper) has to compare against. Decoding the same bytes twice is the cheapest
+// way to get a tree that shares nothing with the one about to be rewritten.
+//
+// An absent or empty file yields nil bytes and two empty objects, which is the ordinary
+// first-apply case: nothing to preserve, so every key is an add and there are no comments.
+func readRMWSource(surface manifest.Surface, path string) ([]byte, *jsonx.OrderedMap,
+	*jsonx.OrderedMap, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), nil
+		}
+		return nil, nil, nil, refuseRMW(surface,
+			"cannot read %s: %v — the file is left untouched", path, err)
+	}
+	obj, err := decodeSurfaceBytes(surface, path, raw)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	before, err := decodeSurfaceBytes(surface, path, raw)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return raw, obj, before, nil
+}
+
 // encodeSurfaceObject renders obj as the exact file text to write, using the surface's
 // codec. It returns a refusal when the value cannot be encoded, so an unencodable render
 // leaves the file alone instead of truncating it.
@@ -174,31 +217,77 @@ func decodeSurfaceObject(surface manifest.Surface, path string) (*jsonx.OrderedM
 // every JSON surface (every RMW surface the jail renders) is unchanged.
 //
 // TOML goes through internal/agentcfg/codec's emitter, the same one the jail's compose path
-// uses, deliberately rather than a second one local to the RMW writer. Two consequences the
-// caller has to own, neither of which this function can hide:
+// uses, deliberately rather than a second one local to the RMW writer, and then through
+// tomltrivia.go's comment re-attachment pass. Two consequences the caller has to own,
+// neither of which this function can hide:
 //
-//   - COMMENTS AND KEY ORDER ARE NOT PRESERVED. The emitter is a canonical, deterministic
-//     renderer (sorted keys, no comments) — see codec.Codec's round-trip contract, and
-//     BACKLOG E4 for comment preservation as tracked, deliberately-unbuilt work. So the
-//     VALUES round-trip and the FORMATTING does not. Callers report the comment loss
-//     (tomlHasComments); this function does not warn, because a pure encoder that printed
-//     to stderr would be unreportable in the observe posture that needs it most.
+//   - KEY ORDER IS NOT PRESERVED. The emitter is a canonical, deterministic renderer
+//     (sorted keys) — see codec.Codec's round-trip contract. So the VALUES round-trip and
+//     the LAYOUT does not.
+//   - COMMENTS ARE PRESERVED WHERE THEIR VALUE SURVIVED, and the exceptions are RETURNED
+//     rather than printed: a comment above a key this render changes is dropped (E4's rule
+//     ①, see tomltrivia.go), as is one attached to nothing. A pure encoder writing to
+//     stderr would be unreportable in the observe posture that needs it most, so the losses
+//     come back as a value the caller prints.
 //   - it is deterministic, so a second apply writes byte-identical bytes.
-func encodeSurfaceObject(surface manifest.Surface, obj *jsonx.OrderedMap) (string, error) {
+//
+// orig and before are the file's bytes and its decoded state BEFORE this render; both are
+// optional (nil for a caller with no prior file, e.g. a first apply) and only the TOML path
+// reads them. JSON ignores them — strict JSON has no comment syntax, so a `json` surface has
+// no comments to preserve and a commented file was never decodable in the first place.
+func encodeSurfaceObject(surface manifest.Surface, obj *jsonx.OrderedMap, orig []byte,
+	before *jsonx.OrderedMap) (string, error) {
+	text, _, err := encodeSurfaceObjectReporting(surface, obj, orig, before)
+	return text, err
+}
+
+// encodeSurfaceObjectReporting is encodeSurfaceObject plus the comment losses, for the
+// OBSERVE caller that wants the report and throws the bytes away. One function computes
+// both, so a dry-run cannot name a different set of losses than the write causes.
+func encodeSurfaceObjectReporting(surface manifest.Surface, obj *jsonx.OrderedMap,
+	orig []byte, before *jsonx.OrderedMap) (string, []string, error) {
 	switch surface.Codec {
 	case "json":
-		return dumpJSONIndent2(obj), nil
+		return dumpJSONIndent2(obj), nil, nil
 	case "toml":
 		c, _ := codec.LookupCodec("toml")
 		encoded, err := c.Encode(tomlValue(obj))
 		if err != nil {
-			return "", refuseRMW(surface, "the composed value cannot be written as TOML "+
-				"(%v) — the file is left untouched", err)
+			return "", nil, refuseRMW(surface, "the composed value cannot be written as "+
+				"TOML (%v) — the file is left untouched", err)
 		}
-		return string(encoded) + "\n", nil
+		text, losses := reattachTOMLComments(string(encoded)+"\n", orig, before, obj)
+		return text, losses, nil
 	default:
-		return "", refuseRMW(surface, "no RMW encoder for codec %q", surface.Codec)
+		return "", nil, refuseRMW(surface, "no RMW encoder for codec %q", surface.Codec)
 	}
+}
+
+// reattachTOMLComments puts the original file's comments back into freshly emitted TOML and
+// reports what it could not keep. It is the single place the two RMW notches agree on what
+// comment preservation means, so `apply --host`'s observe preview and its assert write can
+// never disagree about which comments survive.
+//
+// It FAILS OPEN to the old behavior: a source the scanner cannot confidently read yields the
+// canonical bytes plus the blanket "comments are not preserved" line, because a misplaced
+// comment — one moved above a key it does not describe — is worse than a missing one.
+func reattachTOMLComments(encoded string, orig []byte, before, after *jsonx.OrderedMap) (string, []string) {
+	if len(bytes.TrimSpace(orig)) == 0 {
+		return encoded, nil
+	}
+	tv, ok := scanTOMLTrivia(orig)
+	if !ok {
+		if tomlHasComments(orig) {
+			return encoded, []string{"comments in this file are NOT preserved — yolo could " +
+				"not read their positions, so it re-emits the file from the decoded values " +
+				"(every value survives; the comments do not)"}
+		}
+		return encoded, nil
+	}
+	if before == nil {
+		before = jsonx.NewOrderedMap()
+	}
+	return attachTOMLTrivia(encoded, tv, rmwTriviaKeeper(before, after))
 }
 
 // tomlValue lowers the RMW writer's jsonx value model into the generic model the TOML

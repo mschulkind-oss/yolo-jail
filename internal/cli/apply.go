@@ -412,8 +412,12 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 			// What the canonical re-emit costs beyond values — a TOML file's comments. Not an
 			// overwrite and not an entry loss: nothing the user CONFIGURED changes, so it does
 			// not belong in either ⚠ above. It is still a loss they should see before the
-			// write, which is why it has a line of its own (comment preservation is BACKLOG
-			// E4, tracked and deliberately unbuilt).
+			// write, which is why it has a line of its own.
+			//
+			// E4 shipped the `rmw` half, so this line has narrowed rather than disappeared: a
+			// comment now survives whenever the value it sits above does, and what remains is
+			// the exceptions — a comment over a key this render CHANGES (dropped rather than
+			// left lying about a value that is gone), and one attached to no key at all.
 			for _, f := range r.Formatting {
 				pr.Printf("    [yellow]⚠ %s[/yellow]", f)
 			}
