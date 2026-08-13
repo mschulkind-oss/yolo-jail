@@ -171,18 +171,53 @@ This is the ordinary package-manager shape (Debian `Provides`/`Conflicts`, RPM `
 `provides`), which is a point in its favour — the semantics are well understood and users have met
 them before.
 
-**The one sub-question left is how exclusivity is expressed**, and it is small:
+**Who owns exclusivity — reviewed 2026-08-13, and my first answer was wrong.**
 
-- **(a) every capability is at-most-one.** Simplest, and exactly right for auth modes. Wrong the
-  moment a capability is legitimately satisfied by several packs.
-- **(b) the provider marks it** — `"provides": [{"name": "claude-auth", "exclusive": true}]`. Two
-  providers disagreeing about exclusivity is a lint error.
-- **(c) a separate `provides_exclusive` list.** Same as (b) with less nesting and no disagreement to
-  resolve.
+I offered three options and recommended (c), a separate `provides_exclusive` list. The review's
+objection lands on (b) *and* (c) equally: **both are provider-owned, so nothing is definitive.** If
+each provider asserts its own exclusivity there is no authority — two providers can disagree, and
+the "lint error" I proposed for that is a tell that the model has no answer, not that it has one.
+(c) was (b) with tidier syntax and the same hole.
 
-**My read: (c).** It keeps the common case a bare string list, needs no schema for the uncommon one,
-and makes exclusivity visible in the manifest rather than inferred. **This is the remaining
-decision — see OQ-A2.**
+**Corrected: the CONSUMER declares the slot; providers only fill it.** The `claude` pack knows
+Claude Code has exactly one auth mode — that is a fact about the agent, and the agent's pack is the
+right owner of it. Auth packs stay dumb.
+
+```jsonc
+// claude/pack.json — declares the slot and its arity
+{ "capabilities": [ { "name": "claude-auth", "max": 1 } ] }
+
+// claude-teams/pack.json        // claude-bedrock/pack.json
+{ "provides": ["claude-auth"] }  { "provides": ["claude-auth"] }
+```
+
+**Why this is definitive where provider-owned was not:** one declarer, one statement, no
+disagreement possible. A provider that names a capability nobody declared is a lint error with an
+obvious fix, rather than an unresolvable conflict between equals.
+
+**`max: 1`, not `exactly: 1` — the hazard is two, not zero.** A2's problem is selecting *both*
+auth packs. Requiring *at least* one would newly break `packs: ["claude"]` on its own, which A1
+deliberately makes legal (an auth-neutral base pack, credential sharing as an explicit choice). So
+the arity to enforce is a ceiling, not an equality. If a floor is ever wanted it is a separate
+decision with a separate cost.
+
+**On the review's reservation** — *"all agents need auth, so being clear about where that auth
+comes from isn't terrible, but still not great"* — the discomfort is fair but I think it resolves:
+the claude pack is not learning about an auth-pack ecosystem, it is declaring **its own shape**
+("I have one auth slot"). It names no pack and needs no edit when a third mode appears. That is the
+same reason `into` is a path rather than an agent name: packs describe themselves, and core stays
+ignorant.
+
+**Could yolo own it instead?** Only for a capability that is *core's*, and `claude-auth` is not —
+core deliberately does not know what an agent is (`internal/packdecl`'s opening premise), so it
+cannot know that Claude Code has one auth slot. yolo owns the **mechanism** (the field, the arity
+check, the error message); the pack owns the **fact**. A core-level registry of capability names
+would rebuild the agent registry the pack system exists to avoid.
+
+**What is left to decide** is narrower than it was: whether the slot declaration lives on a
+`capabilities` field as above, or is folded into `requires` with an arity
+(`requires: [{capability: "claude-auth", max: 1}]`). The first reads better for a slot nobody is
+obliged to fill; the second avoids a fourth composition field. **See OQ-A2.**
 
 **One thing to check before building:** a capability is just a string, so a typo silently creates a
 new capability with one provider and no requirer. `yolo pack lint` should warn on that — it is the
@@ -404,7 +439,7 @@ relay per jail" was noticed), and ship T1 instead of #32 (OQ-T8). What is left t
 
 | # | Decision | Read it in | My read |
 |---|---|---|---|
-| **OQ-A2** | **How is auth-pack exclusivity expressed?** `provides` is ruled; the sub-question is (a) every capability at-most-one, (b) the provider marks it `exclusive`, or (c) a separate `provides_exclusive` list. **Folds in the old OQ-5** — `requires: ["<capability>"]` replaces `requires_pack` | **this file → Thread A → A2** (and A4 for the requires half) | **(c)** — bare string list for the common case, exclusivity visible in the manifest |
+| **OQ-A2** | **Where does the capability SLOT get declared?** `provides` is ruled, and provider-owned exclusivity is ruled OUT (nothing definitive). The consumer declares the slot and its arity — the open bit is whether that is a `capabilities` field or an arity on `requires`. **Folds in the old OQ-5** | **this file → Thread A → A2** (and A4 for the requires half) | a `capabilities` field, `max: 1` — a ceiling not an equality, so `packs: ["claude"]` alone stays legal |
 | **OQ-D1** | **How to fix the writable config snapshot** — move it out of the workspace, per-file `:ro` mount, HMAC it, or accept-and-document | **this file → OQ-D1 below**; background in [`config-safety.md`](../design/config-safety.md) | (2) if a per-file `:ro` mount inside the workspace is practical, else (1). **(4) is the current state and only defensible if written down** |
 | **OQ-S4** | **Should the jail narrow its skills fan-out to match the host?** Or: does a declaration NARROW delivery or only ADD to it? | **this file → OQ-S4 below**; the audit evidence is in [`shipped-2026-08-12.md`](shipped-2026-08-12.md) § S4; the mechanism is `packload.ResolveDestinations` | (2) — run `ResolveDestinations` on the jail path too. (1) is the honest fallback and worth doing either way |
 | **OQ-E4** | **Do `stateful` surfaces get comment preservation too?** `rmw` shipped, `computed` is provably vacuous | **this file → OQ-E4 below**; the five costed options are in [`host-file-staging.md`](host-file-staging.md) | (3) for now, then (1) when something needs it — no shipped `stateful` surface has a commented host source |
