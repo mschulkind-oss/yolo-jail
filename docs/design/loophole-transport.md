@@ -233,65 +233,58 @@ one file the terminator already re-reads on every dial. Consequences to implemen
 This does not block landing #32 — it is a local change at both ends, and #32's own re-read-per-dial
 design is what makes it cheap.
 
-### 3.3 Why not drop the Unix socket entirely and unify on loopback TCP?
+### 3.3 Drop the Unix socket and unify on loopback TCP? — the security argument WITHDRAWN
 
 Asked in review: *"is there a good argument for keeping the socket at all? it's not like TCP is
-expensive for loopback and it would unify designs."* The instinct is right that two transports is a
-cost. **The answer is still keep both — and the reason is not performance.**
+expensive for loopback and it would unify designs."* An earlier draft of this section answered
+"keep both" and called `SO_PEERCRED` the **decisive** argument. **That was wrong, and the review's
+follow-up is what showed it:**
 
-**The comparison is not socket-vs-TCP.** It is:
+> *"On the host, anything as your user can read creds on disk or act as you. We want that in the
+> jail to extend to anything as your user can use privs granted to this jail — so why do we need
+> this extra UID checking? Make a file only readable by your user."*
 
-| | `unix-socket` | `loopback-tls` |
-|---|---|---|
-| authorization | **the path itself** — the socket lives in a per-jail mounted dir, so only that jail's mount namespace can reach it | a port any router can reach → needs a token |
-| confidentiality | kernel-local, nothing on the wire | needs TLS (a sibling holds `NET_RAW`) |
-| server-side identity | **`SO_PEERCRED`/`getpeereid`** — the kernel tells the server the client's real uid/pid, unforgeable | nothing equivalent |
-| moving parts | one filesystem path | port + TLS + ephemeral host-only-key cert + cert publication + token issuance + token distribution + verification + endpoint staleness |
+Three reasons that lands, and the third is fatal to the old argument:
 
-So "unify on TCP" means **every loophole on every platform pays seven mechanisms to replace one
-path**, and adds a listening port on the platform that is 100% of current use and has no problem to
-solve.
+**1. The same-user set is the INTENDED boundary, not a gap.** The product deliberately matches the
+host: anything running as you can act as you. So "a same-user host process can use this jail's
+privileges" is the *specification*, not a weakness. Calling it "the widest weakness in the loophole
+model" — as §4.1 did — imported a threat model the product does not claim.
 
-**The decisive argument is `SO_PEERCRED`.** §4.1 concedes that per-jail secrets do *not* close the
-"anything running as the same user on the host" gap — the widest weakness in the loophole model —
-because such a process can read the token file too. **Kernel-attested peer credentials are one of
-the only two things that could ever close it**: a daemon on a Unix socket can ask the kernel which
-uid actually connected, and a separate-user `guest` notch (P7) would then make that answer
-meaningful. Delete the socket and that door is permanently shut. `git 84d0365` already sketched
-exactly this for the macos-user broker — `getpeereid` to attest a real uid.
+**2. A `0600` file is the boundary, and the token is exactly that for a transport with no file.**
+This is the cleanest framing and it comes from the review: file permissions are how you say
+"only my user" on a path; a pre-shared token is how you say the same thing on a port. The token is
+not extra security machinery layered on top — **it is the file-permission equivalent.** #32 already
+stores it `0600` and host-only.
 
-Giving up the strongest identity signal available, to remove a branch, on the platform where the
-branch costs nothing, is the wrong trade.
+**3. `SO_PEERCRED` cannot distinguish the jail from a same-user host process anyway.** Rootless
+podman maps the container's UID 0 to the invoking user's uid (and `--userns host` on the nested
+path makes it literal), so both connections arrive at the host socket carrying **the same uid**.
+There is nothing for the kernel to tell apart. The repo's own protocol doc has said so all along —
+*"a daemon trusts whoever can `connect()` — which is the jail (and anything else running as the
+same user on the host)"* — which is only true **because** peer credentials cannot separate them.
+So the old §3.3 cited as decisive a mechanism that answers a question with one possible answer.
 
-**Where the review's instinct is right, and it changes the plan:** two transports means two
-security models, and the weaker one rots. Mitigations, all of which belong in the §4 work:
+**What actually survives for keeping the socket, having dropped the security claim:**
 
-1. **The framework owns both** — `loopback-tls` must not stay a bolt-on inside `brokerrelay`, or it
-   will drift from the one everybody uses.
-2. **A test per transport** asserting that transport enforces its own authorization, so neither can
-   silently lose it.
-3. **`unix-socket` stays the preferred transport where it works**, stated in the manifest docs — it
-   is the stronger one, not the legacy one.
+| Surviving argument | Weight |
+|---|---|
+| **Fewer moving parts on Linux.** A path that exists or does not, versus port + TLS + ephemeral cert + publication + token issuance/distribution/verification + endpoint staleness + a dial-ordering constraint the terminator must handle. | Real. This is complexity and failure modes, not security. |
+| **No listening port where none exists today**, on the platform that is 100% of current use. | Modest — the token makes reachability insufficient, so it is defense-in-depth, not a boundary. |
+| **Peer credentials become meaningful on a SEPARATE-USER backend.** macos-user runs the sandbox as its own `SandboxUser`, and a future `guest` with `PrimSeparateUser` would too. There the jail genuinely *is* a different uid, so the socket can enforce a boundary **tighter than the host baseline**. | Narrow and forward-looking. Not available today: the broker is unwired on macos-user and `guest` is unbuilt. And a tighter-than-host boundary is a bigger product claim than the one above. |
 
-**And one thing the review's framing surfaces that argues FOR building `loopback-tls` well:** it is
-not only a macOS+podman patch. Per [`agent-credentials.md`](agent-credentials.md) §2.7, host
-services are **unavailable on Apple Container** for the same reason — no Unix-socket bind through
-virtiofs. So `loopback-tls` is what makes loopholes work on AC *at all*, turning a permanent feature
-gap into a supported backend. That is a better reason to invest in it than "macOS is broken."
+**Revised read: I now lean toward unifying on `loopback-tls`,** which is the review's position. The
+argument I was defending has been withdrawn, and what is left — "do not add machinery where a path
+already works" — is a legitimate engineering preference but not a reason to carry two security
+models that can drift apart, which was the review's original point and stands.
 
-**On "can they guess the port or read the file?"** — the endpoint file is in *jail A's* mount, so a
-sibling cannot read it, and #32 notes this. But the port is a scannable ephemeral, so treat it as
-discoverable and let the token carry the weight. That is the right assumption to design under, and
-it is why the token is not optional decoration on top of TLS.
+**The one thing unifying forfeits** is row 3 above: on a separate-user notch, a socket could assert
+"only the sandbox uid may connect," which no token can. That is a capability for a backend that
+does not work yet, and it can be reintroduced for that notch alone if `guest` ever wants it — so it
+should not decide the default now.
 
-**What the token does NOT do**, stated because §4.1 previously overclaimed it:
-
-- it does not protect against the jail's own agent (nothing here does, by design);
-- it does not protect against **another process running as the same user on the host** — that
-  process can read the host-side token file just as the relay does. The documented weakness in
-  [`loophole-protocol.md`](loophole-protocol.md) §Security posture is **unchanged** by this work.
-
----
+**This is now an engineering/complexity call rather than a security one, so it is a decision rather
+than a finding: OQ-T9.**
 
 ## 4. The generalization, and the trust-model upgrade hiding inside it
 
@@ -317,8 +310,14 @@ The upgrade worth taking beyond macOS: **give every jail a named client secret a
 every request, on both transports.**
 
 Today's *"the socket file is the authentication"* means a daemon trusts anything running as the
-same user on the host — a browser extension, an unrelated npm postinstall, another jail. That is
-documented and deliberate, and it is the weakest claim in the loophole design.
+same user on the host — a browser extension, an unrelated npm postinstall, another jail.
+
+> **Reframed 2026-08-13 (see §3.3).** An earlier draft called this "the weakest claim in the
+> loophole design". It is not a weakness — it is the **specification**, chosen to match the host,
+> where anything running as you can already read your credentials or act as you. The jail extends
+> that unchanged: anything as your user may use privileges granted to this jail. So there is no gap
+> here to close, and a mechanism that "closes" it would be making a tighter claim than the product
+> makes.
 
 > **Correction to an earlier draft, which said per-jail secrets fix that weakness. They do not.**
 > Per §3.1, a same-user host process can read the host-side token file exactly as the relay does,
@@ -545,7 +544,7 @@ is recorded as decided, with the reasoning, so nothing looks quietly dropped.
 | **OQ-T5** is the endpoint file jail-writable, and does it matter? | **A jail can rewrite its own, and it gains nothing.** | It already holds its own token, and redirecting its own endpoint only breaks its own connection. A sibling cannot reach it — separate per-jail mounts. Now stated in §3.2 rather than left to inference. **This changes with §3.2's decision:** the file is secret-bearing, so it must be `0600` and per-jail — but the tamper analysis is unchanged. |
 | **OQ-T6** per-file mounts: general or one-off? | **Narrow, shipped** as the `state_files` manifest key. | Done 2026-08-12. The general `mounts_into_jail` (default-nothing, whole surface, breaking) is folded into the §4 work, which it subsumes cleanly. |
 | **OQ-T7** token delivery: env, endpoint file, or a separate file? | **The endpoint file** — decided by the maintainer 2026-08-13. | See §3.2 for the four consequences that must land with it, including deleting the env var rather than deprecating it. |
-| **§3.3** drop the socket, unify on TCP? | **Keep both; `unix-socket` stays preferred where it works.** | `SO_PEERCRED` is one of only two things that could ever close the same-user gap §4.1 leaves open. Deleting the socket shuts that door permanently to remove a branch that costs nothing on Linux. Full argument in §3.3, including the three mitigations that address the real risk the review named. |
+| **§3.3** drop the socket, unify on TCP? | **REOPENED as OQ-T9** — the security argument was withdrawn 2026-08-13. | I had called `SO_PEERCRED` decisive; it cannot distinguish the jail from a same-user host process (both arrive as the same uid under rootless podman), and the same-user set is the *intended* boundary rather than a gap. What is left is a complexity-vs-uniformity engineering call, which is a decision, not a finding. See §7.4. |
 
 ### 7.2 OQ-T1 — answer #32's author: token + pinned cert as proposed, or full mTLS?
 
@@ -608,3 +607,34 @@ and the generalization can start immediately after the merge rather than someday
 
 **Either way, tell him which.** Leaving a tested PR open with an unanswered question is the one
 option with no upside.
+
+### 7.4 OQ-T9 — one transport, or two?
+
+**Status: waiting on you. The security argument for two has been withdrawn (§3.3), so this is now
+purely an engineering call — and it is close.**
+
+| | Unify on `loopback-tls` | Keep both |
+|---|---|---|
+| code paths | one, everywhere | two, plus a per-platform selector |
+| security models | one | two — and **the review's original point stands: the less-used one drifts** |
+| Linux (100% of current use) | gains a listening port + a TLS handshake per connection where it has neither | unchanged |
+| moving parts | port, TLS, ephemeral cert, publication, token issue/distribute/verify, endpoint staleness, dial ordering | a filesystem path |
+| Apple Container | **works** (host services are unavailable there today for the same virtiofs reason) | still unsupported unless `loopback-tls` is built anyway |
+| separate-user notches (macos-user, future `guest`) | forfeits a socket-only capability: asserting "only the sandbox uid may connect", which is **tighter than the host baseline** | retains it |
+
+**Note the asymmetry in the AC row:** `loopback-tls` has to be built either way — that is #32 — so
+"keep both" does not save the work, only the migration of the two existing `unix-socket` consumers
+(the broker relay and `host-processes`).
+
+**My read, revised: unify.** Two security models that can drift is a worse long-term cost than a
+loopback TLS handshake, and the thing I was protecting turned out to be a mechanism that answers a
+question with only one possible answer. The migration is bounded — two consumers.
+
+**What would change my mind:** if `guest` with a separate user becomes a near-term goal. There the
+socket can make a genuinely tighter claim than "anything as your user", and that is the one place
+peer credentials stop being vacuous. Today `guest` is unbuilt and the broker is unwired on
+macos-user, so it should not decide the default.
+
+**If you unify, two things must land with it** so the old path does not linger half-alive: migrate
+`host-processes` (row **D4**, which is broken on macOS today and is therefore the natural first
+port), and retire `unix-socket` from `validTransports` rather than leaving it accepted-but-unused.
