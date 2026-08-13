@@ -10,13 +10,30 @@ over the last fortnight, so verify-against-code is the house rule.
 
 ---
 
+## Status key
+
+Scan the first column. **One status per row**, plus 🐛 when the item is a live defect rather
+than new work.
+
+| | Means |
+|---|---|
+| 🟢 | **ready** — no decision needed. Say the word and it starts. |
+| 🟡 | **waiting on you** — a decision or open question blocks it. Every one is listed in [Every decision waiting on you](#every-decision-waiting-on-you). |
+| ⛔ | **blocked** — on something that is *not* a decision (a Mac, an upstream merge). |
+| 🔄 | **in progress** |
+| ⏸️ | **held** — deliberately not being built. |
+| ✅ | **done** |
+| 🐛 | *(flag, not a status)* a live defect rather than new work. |
+
+---
+
 ## The three active threads
 
-| | Thread | First move | Blocked on |
-|---|---|---|---|
-| **C** | [Open PRs + issues on the public repo](#thread-c--the-open-prs-and-issues-on-the-public-repo) | **land #37** (certain, already-occurring bug in the verification tool), then #33 | nothing; #32 has a question awaiting your answer |
-| **A** | [Claude auth as swappable packs](#thread-a--claude-auth-as-two-swappable-packs) | move `shared_credentials` off the base `claude` pack | nothing |
-| **B** | [macos-user + non-container nix](#thread-b--macos-user-and-non-container-nix) | fix macos-user rendering zero pack surfaces | a Mac to verify; N3 is your call |
+| | | Thread | First move | Blocked on |
+|---|---|---|---|---|
+| 🟢 | **C** | [Open PRs + issues on the public repo](#thread-c--the-open-prs-and-issues-on-the-public-repo) | **land #37** (certain, already-occurring bug in the verification tool), then #33 | nothing; #32 has a question awaiting your answer |
+| 🟡 | **A** | [Claude auth as swappable packs](#thread-a--claude-auth-as-two-swappable-packs) | move `shared_credentials` off the base `claude` pack | nothing |
+| ⛔ | **B** | [macos-user + non-container nix](#thread-b--macos-user-and-non-container-nix) | fix macos-user rendering zero pack surfaces | a Mac to verify; N3 is your call |
 
 Everything else is [below](#everything-else-still-open).
 
@@ -32,19 +49,19 @@ every premise re-verified against local code rather than taken from a PR body.
 issue *and* a PR fixing it. Neither has any review or comment on it yet, and **all three PRs are
 `MERGEABLE`** (no conflicts). One carries a direct question for you (C-3).
 
-| PR | Title | Author | Size | CI | Verdict |
-|---|---|---|---|---|---|
-| [#37](https://github.com/mschulkind-oss/yolo-jail/pull/37) | image staleness: compare against most-recently-loaded path (fixes [#35](https://github.com/mschulkind-oss/yolo-jail/issues/35)) | Georgi Popov, **external** | +88/−4 | none reported | **land first** — premise verified locally |
-| [#34](https://github.com/mschulkind-oss/yolo-jail/pull/34) | weekly `flake.lock` bump | `github-actions` bot | +3/−3 | none reported | routine; inert until an image rebuild |
-| [#32](https://github.com/mschulkind-oss/yolo-jail/pull/32) | macOS+podman broker transport (fixes [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31)) | Dong Liu, **external** | +1064/−13 | **green** (integration + secrets-scan pass; check-macos skipped) | land, then **promote** — and it has a **question for you** |
+| | PR | Title | Author | Size | CI | Verdict |
+|---|---|---|---|---|---|---|
+| 🟢🐛 | [#37](https://github.com/mschulkind-oss/yolo-jail/pull/37) | image staleness: compare against most-recently-loaded path (fixes [#35](https://github.com/mschulkind-oss/yolo-jail/issues/35)) | Georgi Popov, **external** | +88/−4 | none reported | **land first** — premise verified locally |
+| 🟢 | [#34](https://github.com/mschulkind-oss/yolo-jail/pull/34) | weekly `flake.lock` bump | `github-actions` bot | +3/−3 | none reported | routine; inert until an image rebuild |
+| 🟡 | [#32](https://github.com/mschulkind-oss/yolo-jail/pull/32) | macOS+podman broker transport (fixes [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31)) | Dong Liu, **external** | +1064/−13 | **green** (integration + secrets-scan pass; check-macos skipped) | land, then **promote** — and it has a **question for you** |
 
-| Issue | Title | Author | State |
-|---|---|---|---|
-| [#35](https://github.com/mschulkind-oss/yolo-jail/issues/35) | Stale `:latest` reused after reverting config | Georgi Popov | fixed by #37 |
-| [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) | **`ca.key` is mounted into every jail** | Dong Liu | **open, no PR** — see C-4; severity downgraded, not an auth escalation |
-| [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) | Broker relay socket unreachable on macOS+podman | Dong Liu | fixed by #32 |
+| | Issue | Title | Author | State |
+|---|---|---|---|---|
+| 🟢 | [#35](https://github.com/mschulkind-oss/yolo-jail/issues/35) | Stale `:latest` reused after reverting config | Georgi Popov | fixed by #37 |
+| 🟢🐛 | [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) | **`ca.key` is mounted into every jail** | Dong Liu | **open, no PR** — see C-4; severity downgraded, not an auth escalation |
+| 🟢 | [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) | Broker relay socket unreachable on macOS+podman | Dong Liu | fixed by #32 |
 
-## C-1. #37 — a silent stale-image bug in the tool you verify with 🔴
+## 🟢🐛 C-1. #37 — a silent stale-image bug in the tool you verify with
 
 ### What it is
 
@@ -86,7 +103,7 @@ you verify with costs more than its line count, because every result it produces
 No CI checks reported. Re-run against current `main` — `autoload.go` and `image.go` have not moved
 locally, so it should apply cleanly.
 
-## C-2. #34 — real, correctly paced, and self-suppressing
+## 🟢 C-2. #34 — real, correctly paced, and self-suppressing
 
 Three questions worth answering, since this recurs weekly:
 
@@ -139,7 +156,7 @@ and new lock and post `nix store diff-closures` output into the PR body. That tu
 lines into "go 1.25.1 → 1.25.3, openssl 3.5.2 → 3.5.4, +2 MiB" — which is a thing a human can
 actually review. Recorded as **D3** below.
 
-## C-3. #32 — land it, then promote it; do NOT close it as subsumed
+## 🟡 C-3. #32 — land it, then promote it; do NOT close it as subsumed
 
 Full analysis: [`agent-auth-modes.md`](../design/agent-auth-modes.md) §12. The three points that
 matter for prioritization:
@@ -180,7 +197,7 @@ future host service rather than to one hop. A per-jail bearer token inside pinne
 strictly stronger than the current *"the socket file is the authentication"* posture, so "as
 proposed" is a defensible answer — it just needs to be given.
 
-## C-4. Issue #33 — `ca.key` in every jail — open, no PR
+## 🟢🐛 C-4. Issue #33 — `ca.key` in every jail — open, no PR
 
 > **Severity downgraded 2026-08-12 after review.** This section previously called it "the most
 > serious item in this thread" and argued it should jump ahead of #37. **That was overstated.** It
@@ -208,7 +225,7 @@ This is the same defect `ROADMAP.md` §4d records from the internal audit — in
 now **publicly filed**. Combined with `NODE_EXTRA_CA_CERTS` trusting that CA inside the jail, a jail
 process can mint a trusted leaf for *any* host.
 
-### Why it was not acted on, and what else was not 🔴
+### Why it was not acted on, and what else was not
 
 Because **the audit produced findings, not work items.** `ROADMAP.md` §4d recorded four verified
 defects around 2026-08-02 and **none was carried into this queue**, so every planning pass since
@@ -219,10 +236,10 @@ scoped from a list that did not contain them. The pack batch that followed was s
 
 | §4d defect | State | Now tracked as |
 |---|---|---|
-| `ca.key` readable in-jail | 🔴 open | **C-4** (this row) |
-| Claude creds symlink dangles on macos-user | 🔴 open | **B-1**, and it blocks Thread A's Teams mode on macOS |
-| Config-approval snapshot is agent-writable | 🔴 open | **D1** below — re-measured: `.yolo/config-snapshot.json` is mode `664` and writable in-jail |
-| Two shipped docs contradict the code | 🟡 partly | **D2** below — the refresher contradiction survives; the `--host-creds-file` half was fixed |
+| `ca.key` readable in-jail | 🟢🐛 open | **C-4** (this row) |
+| Claude creds symlink dangles on macos-user | ⛔🐛 open | **B-1**, and it blocks Thread A's Teams mode on macOS |
+| Config-approval snapshot is agent-writable | 🟡🐛 open | **D1** below — re-measured: `.yolo/config-snapshot.json` is mode `664` and writable in-jail |
+| Two shipped docs contradict the code | 🟢🐛 partly | **D2** below — the refresher contradiction survives; the `--host-creds-file` half was fixed |
 
 **The process lesson matters more than the four items:** an audit whose output lives only in a
 narrative doc is invisible to planning. Findings have to become queue rows the day they are found,
@@ -262,7 +279,7 @@ selected. Manual swapping is fine for now.
 not `config`), [`boundary-broker.md`](../design/boundary-broker.md) §10 (prior art; declines this
 problem).
 
-## A0. The verdict: expressible today, with one move and one hazard
+## ℹ️ A0. The verdict: expressible today, with one move and one hazard
 
 Checked against the kinds on 2026-08-12. **No new kind is needed.** A mode pack is:
 
@@ -278,7 +295,7 @@ strings only — no interpolation, no secrets, no host references"*. So a Bedroc
 `env_sources`. That separation is exactly what makes the pack shareable — the maintainer's own
 requirement, delivered by an existing constraint rather than by new work.
 
-## A1. The one structural move 🔴
+## 🟢 A1. The one structural move
 
 **`shared_credentials` and the machine-scope `.claude-shared-credentials` state must move off the
 `claude` pack onto `claude-teams`.** Today the base pack owns both, so "select `claude` alone"
@@ -288,7 +305,7 @@ Consequence to accept deliberately: **selecting `claude` with no auth pack yield
 sharing.** That is correct — it makes the mode an explicit choice — but it changes the behavior of
 a shipped pack, so it wants the render fingerprint gate run before and after.
 
-## A2. The hazard: nothing prevents selecting both 🔴
+## 🟡 A2. The hazard: nothing prevents selecting both
 
 Two auth packs selected at once yields `CLAUDE_CODE_USE_BEDROCK=1` from one, the credentials hook
 from the other, and model IDs from whichever overlay lands last. **That is precisely the silent
@@ -309,7 +326,7 @@ ascending:
 **Recommendation: (1).** It is the only one that expresses the actual invariant — these two packs
 are alternatives — rather than catching a symptom.
 
-## A3. Host support — SOLVED, and it no longer needs N3 ✅
+## ✅ A3. Host support — SOLVED, and it no longer needs N3
 
 An earlier version of this row said `env` is "refused at the host notch" and that Thread A was
 therefore blocked on N3. **That was imprecise, and the correction removes the dependency.** Full
@@ -329,7 +346,7 @@ jail-only until yolo owns the launch. Auth-as-packs is host-complete now.
 home and one credential file, so `shared_credentials` is meaningless there. The Teams pack is
 near-empty at the host notch by design (§11.3).
 
-## A4. Composition — packs cannot depend on other packs 🔴
+## 🟡 A4. Composition — packs cannot depend on other packs
 
 Verified 2026-08-12: **no pack→pack mechanism exists.** The `requires` kind takes a `bin`, not a
 pack name — it asserts a binary is on `PATH` and carries install hints. See
@@ -348,7 +365,7 @@ The Tavily case needs no new mechanism (§11.4): MCP servers are config under `m
 `claude/config`, the delivery path already supports `requires_env` gating, so the personal pack is
 a `config-overlay` plus a key in `env_sources`.
 
-## A5. Order of work
+## ℹ️ A5. Order of work
 
 1. **A1** — move the hook and state onto `claude-teams`; fingerprint before/after.
 2. **Build `claude-bedrock`** — `config-overlay` for the env block *and* model IDs, no secrets, no
@@ -378,7 +395,7 @@ load-bearing, §8 has the options),
 [`macos-user-nix-and-features.md`](../design/macos-user-nix-and-features.md) (the backend — see the
 correction below).
 
-## B-0. macos-user renders ZERO pack surfaces 🔴 — re-verified 2026-08-12
+## 🟢🐛 B-0. macos-user renders ZERO pack surfaces — re-verified 2026-08-12
 
 **Still live.** `internal/cli/run/run.go:60-76`: the `rt == "macos-user"` branch returns at the
 `o.MacosUserRun(...)` call, which is **before `stagePacks`**. So `YOLO_PACK_ROOT` is never set, and
@@ -392,7 +409,7 @@ an empty list. A backend that looks provisioned and configures nothing — no er
 non-container backend at all — and if it cannot express macos-user, it will not express `guest`.
 This is plan item 1.4 in the handoff.
 
-## B-1. The other confirmed macos-user defects
+## ⛔🐛 B-1. The other confirmed macos-user defects
 
 From `ROADMAP.md` §4c, none fixed:
 
@@ -408,7 +425,7 @@ From `ROADMAP.md` §4c, none fixed:
   on the Mac — and they reach the launch argv but not the bootstrap argv, so MCP `${VAR}` gating
   silently drops every secret-gated server.
 
-## B-2. N3 — the decision that is yours
+## 🟡 B-2. N3 — the decision that is yours
 
 Full study: [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §8.
 N1 and N2 were Option 1 and are **done**.
@@ -425,18 +442,18 @@ around the `env` refusal entirely (via `config-overlay` into the `settings.json`
 Option 2 is back to being about the two refused kinds and the `guest` notch — worth doing, not
 blocking anything.
 
-## B-3. P7 — the `guest` notch
+## ⛔ B-3. P7 — the `guest` notch
 
 Not built; host/Mac-gated rather than design-blocked. `render.KindGuest` exists with no behavior;
 `render.UndecidedModes(reason)` is its fail-closed mode census. Needs B-0 first — same abstraction.
 
-## B-4. Also Mac-gated, collected
+## ⛔ B-4. Also Mac-gated, collected
 
-| Item | What is needed |
-|---|---|
-| **D4 Cachix** | one real download proof; everything else done 2026-07-22 |
-| **E8's nightly** | the first nightly AFTER the next release (`publish.yml` is tag-triggered) |
-| **`cache_relocations`** | one real cross-filesystem move as an acceptance step |
+| | Item | What is needed |
+|---|---|---|
+| ⛔ | **D4 Cachix** | one real download proof; everything else done 2026-07-22 |
+| ⛔ | **E8's nightly** | the first nightly AFTER the next release (`publish.yml` is tag-triggered) |
+| ⛔ | **`cache_relocations`** | one real cross-filesystem move as an acceptance step |
 
 ---
 
@@ -446,18 +463,18 @@ Not built; host/Mac-gated rather than design-blocked. `render.KindGuest` exists 
 `yolo pack footprint`, host render, config collaboration) is complete. What remains is one live
 gap, one audit, and a tail of small items.
 
-| # | Item | Kind | Blocked on |
-|---|---|---|---|
-| **S5** 🔴 | **A jail resolves a skill-name collision SILENTLY** — the notch S1 does not reach | live gap | nothing |
-| **S4** | **UNAUDITED:** can a pack's `into` deliver to an agent the user never selected? | audit | nothing |
-| **E1+E2** | `host_files` modes 4→3, `readonly` as a real `:ro` mount | behavior change on a shipped key | a design pass (E2 first) |
-| **E3** | Capture on terminate (the `yolo config capture` half shipped) | small | nothing |
-| **E4** | Comment preservation on `json`/`toml` surfaces | small, decisions made | nothing |
-| **E5** | `managed`/`defaults` array-append pinning | small | **do not build speculatively** |
-| **V2** | `apply --host` is not whole-home idempotent until apply 3 | pre-existing, in `config` | nothing |
-| **V3** | Pack-set-wide archives land under `archive/skills/` even for `files` | cosmetic | nothing |
+| | # | Item | Kind | Blocked on |
+|---|---|---|---|---|
+| 🟡🐛 | **S5** | **A jail resolves a skill-name collision SILENTLY** — the notch S1 does not reach | live gap | nothing |
+| 🟢 | **S4** | **UNAUDITED:** can a pack's `into` deliver to an agent the user never selected? | audit | nothing |
+| 🟡 | **E1+E2** | `host_files` modes 4→3, `readonly` as a real `:ro` mount | behavior change on a shipped key | a design pass (E2 first) |
+| 🟢 | **E3** | Capture on terminate (the `yolo config capture` half shipped) | small | nothing |
+| 🟢 | **E4** | Comment preservation on `json`/`toml` surfaces | small, decisions made | nothing |
+| ⏸️ | **E5** | `managed`/`defaults` array-append pinning | small | **do not build speculatively** |
+| 🟢 | **V2** | `apply --host` is not whole-home idempotent until apply 3 | pre-existing, in `config` | nothing |
+| 🟢 | **V3** | Pack-set-wide archives land under `archive/skills/` even for `files` | cosmetic | nothing |
 
-## S5 — the detail
+## 🟡🐛 S5 — the detail
 
 **Measured 2026-08-05**, same two-pack set `apply --host` refuses: the jail came up, `~/.codex/skills/mine`
 held the local pack's copy, the other pack's skill was absent, nothing said so.
@@ -474,7 +491,7 @@ refusal** (consistent with the host, and the one that can strand someone mid-tas
 is worth doing regardless — the destinations and layers are already computed, and
 `hostskills.Collisions` is a pure function of them.
 
-## S4 — the detail
+## 🟢 S4 — the detail
 
 Two readings of the code point the same way; neither has been probed.
 
@@ -498,22 +515,22 @@ does the dir get created? (2) two packs, distinct skills, two destinations — d
 
 # Everything else still open
 
-| # | Item | Kind | Blocked on |
-|---|---|---|---|
-| **B1** | Audit-only log of every jail↔host boundary crossing ([boundary-broker.md](../design/boundary-broker.md) step 1) | small, additive | nothing |
-| **B1b** | **Credential-injecting proxy for git** — host injects after egress, jail holds nothing, no human. **Possibly an ADOPTION**: unYOLO's MIT `gh-broker` is this row's entire scope ([§10](../design/boundary-broker.md)) | new capability | nothing |
-| **B2** | Approval-gated host credentials — one allowlisted verb, synchronous. Design validated by convergence with unYOLO; take its grant model, content-addressed plans, and `expected_revision` rather than re-deriving | new capability | N3/OQ-1 |
-| **D1** 🔴 | **Config-approval snapshot is agent-writable** — `.yolo/config-snapshot.json` is mode `664` and writable in-jail (re-measured 2026-08-12). An agent that edits `yolo-jail.jsonc` **and** matches the snapshot makes the launch-time diff prompt vanish — the exact bypass [config-safety.md](../design/config-safety.md) exists to prevent, and it is undiscussed there. From `ROADMAP.md` §4d; never queued until now. **Has an open question — see OQ-D1** | security | **your call** (OQ-D1) |
-| **D2** | **Two shipped docs contradict the code** — `USER_GUIDE.md:182` and `bundled_loopholes/claude-oauth-broker/README.md:59` both say *"no background timer / no proactive refresh"*, but `oauthbrokercmd.go:88` starts `RunBackgroundRefresher` by default — and that refresher **is** the architectural fix for all three logout paths. (The `--host-creds-file` half has since been fixed.) From `ROADMAP.md` §4d. **No OQ: the code is right and the docs are wrong**, so this is a doc edit, not a decision | doc defect | nothing |
-| **D4** 🔴 | **`host-processes` is silently broken on macOS + podman** — found 2026-08-12 while writing [loophole-transport.md](../design/loophole-transport.md) §2.1. Its manifest declares `"transport": "unix-socket"`, the *same* transport whose virtiofs failure is [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31); `yolo-ps` fails identically. Unreported because a broken `yolo-ps` is quiet where a broken broker blocks startup. Means the loophole is Linux-only in practice while advertised as available. **Porting it is also the natural proof for the transport generalization** (§6 step 3) | bug + the generalization's test case | nothing |
-| **D3** | **`flake.lock` bumps are unreviewable** — three opaque lines that could be a CVE fix or a README typo (C-2). Have the update workflow post `nix store diff-closures` between the old and new image derivation into the PR body, turning the bump into a readable package-version delta | small, additive | nothing |
-| ✅ **B4** | ~~Correct [agent-credentials.md](../design/agent-credentials.md) §3~~ **DONE** — it documented Bedrock keys arriving via the `env` block of host `settings.json`; that block is `{}` and the real path is `env_sources`. Corrected in place, with a note that the `env` block is nonetheless the right *target* design (§11.2) — it described the correct mechanism before anything used it | — | — |
+| | # | Item | Kind | Blocked on |
+|---|---|---|---|---|
+| 🟢 | **B1** | Audit-only log of every jail↔host boundary crossing ([boundary-broker.md](../design/boundary-broker.md) step 1) | small, additive | nothing |
+| 🟢 | **B1b** | **Credential-injecting proxy for git** — host injects after egress, jail holds nothing, no human. **Possibly an ADOPTION**: unYOLO's MIT `gh-broker` is this row's entire scope ([§10](../design/boundary-broker.md)) | new capability | nothing |
+| 🟡 | **B2** | Approval-gated host credentials — one allowlisted verb, synchronous. Design validated by convergence with unYOLO; take its grant model, content-addressed plans, and `expected_revision` rather than re-deriving | new capability | N3/OQ-1 |
+| 🟡🐛 | **D1** | **Config-approval snapshot is agent-writable** — `.yolo/config-snapshot.json` is mode `664` and writable in-jail (re-measured 2026-08-12). An agent that edits `yolo-jail.jsonc` **and** matches the snapshot makes the launch-time diff prompt vanish — the exact bypass [config-safety.md](../design/config-safety.md) exists to prevent, and it is undiscussed there. From `ROADMAP.md` §4d; never queued until now. **Has an open question — see OQ-D1** | security | **your call** (OQ-D1) |
+| 🟢🐛 | **D2** | **Two shipped docs contradict the code** — `USER_GUIDE.md:182` and `bundled_loopholes/claude-oauth-broker/README.md:59` both say *"no background timer / no proactive refresh"*, but `oauthbrokercmd.go:88` starts `RunBackgroundRefresher` by default — and that refresher **is** the architectural fix for all three logout paths. (The `--host-creds-file` half has since been fixed.) From `ROADMAP.md` §4d. **No OQ: the code is right and the docs are wrong**, so this is a doc edit, not a decision | doc defect | nothing |
+| 🟢🐛 | **D4** | **`host-processes` is silently broken on macOS + podman** — found 2026-08-12 while writing [loophole-transport.md](../design/loophole-transport.md) §2.1. Its manifest declares `"transport": "unix-socket"`, the *same* transport whose virtiofs failure is [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31); `yolo-ps` fails identically. Unreported because a broken `yolo-ps` is quiet where a broken broker blocks startup. Means the loophole is Linux-only in practice while advertised as available. **Porting it is also the natural proof for the transport generalization** (§6 step 3) | bug + the generalization's test case | nothing |
+| 🟢 | **D3** | **`flake.lock` bumps are unreviewable** — three opaque lines that could be a CVE fix or a README typo (C-2). Have the update workflow post `nix store diff-closures` between the old and new image derivation into the PR body, turning the bump into a readable package-version delta | small, additive | nothing |
+| ✅ | **B4** | ~~Correct [agent-credentials.md](../design/agent-credentials.md) §3~~ **DONE** — it documented Bedrock keys arriving via the `env` block of host `settings.json`; that block is `{}` and the real path is `env_sources`. Corrected in place, with a note that the `env` block is nonetheless the right *target* design (§11.2) — it described the correct mechanism before anything used it | — | — |
 
 ---
 
 # Every decision waiting on you
 
-One index, because these are spread across four docs. **Nothing below is blocked on work — only
+🟡 **Everything in this section is waiting on you.** One index, because these are spread across four docs. ❓ marks the two where I have no recommendation; the rest carry one, so a bare "go with your read" clears them. **Nothing below is blocked on work — only
 on an answer.** Where I have a recommendation it is stated; where I do not, it says so.
 
 | # | Decision | Where | My read |
@@ -533,14 +550,14 @@ on an answer.** Where I have a recommendation it is stated; where I do not, it s
 | **OQ-4** | Should `check` verify the selected mode's credential is live? | same | yes |
 | **OQ-5** | Should packs be able to require other packs (`requires_pack`)? | same §12.4 | yes, paired with `conflicts` |
 | **OQ-6** | Auth packs **shipped or fetched**? *Gates building them.* | same | **fetched** |
-| **OQ-7** | Does the Teams pack own the model IDs, or the base `claude` pack? | same | no recommendation yet |
+| **OQ-7** ❓ | Does the Teams pack own the model IDs, or the base `claude` pack? | same | ❓ **no recommendation — genuinely your call** |
 | **OQ-8** | Generalize #32's transport, or merge as scoped? | same | merge as scoped, generalize at B1 |
-| **OQ-9** | Is `env_sources` still the right home for the AWS keys? | same | no recommendation yet |
+| **OQ-9** ❓ | Is `env_sources` still the right home for the AWS keys? | same | ❓ **no recommendation — genuinely your call** |
 | **A2** | How loud should selecting both auth packs be? | Thread A | a `conflicts` manifest field |
 | **S5** | Jail skill collision: warn, `check` failure, or boot refusal? | S5 above | warn now; decide the rest later |
 | **OQ-B/E** | Approval grants: reusable? answered where? | [`boundary-broker.md`](../design/boundary-broker.md) §9 | §10 has worked answers |
 
-## OQ-D1 — how to fix the writable config snapshot
+## 🟡 OQ-D1 — how to fix the writable config snapshot
 
 `.yolo/config-snapshot.json` lives in the **workspace**, which is bind-mounted read-write by
 design — that is the whole point of the workspace. So "make it read-only" is not a one-liner, and
