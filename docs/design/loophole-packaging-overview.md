@@ -6,7 +6,7 @@
 **What this doc is for.** The detailed design is written for whoever implements it — it cites line
 numbers, names functions, and argues from measured code. That is the right shape for building and
 the wrong shape for deciding. This doc carries the same design at the level where the choices
-actually live: what we are adding, what it costs, what it opens, and the nine rulings it needs from
+actually live: what we are adding, what it costs, what it opens, and the decisions it needs from
 you. **Where the two disagree the detailed doc is the authority** — but if a comment here changes
 something, the change lands there too.
 
@@ -78,9 +78,9 @@ command has no special case left to serve, which forces the enable/disable state
 sources — which the detailed design already calls the better end state and defers as a separate
 decision.
 
-**Two new questions, both in §8: OQ-LP10** (retire the home directory) and **OQ-LP11** (bundled
-loopholes become official packs). Neither blocks the 15th kind — the kind is what makes either one
-*possible* — so this is a direction to rule on, not a prerequisite. The rest of this doc describes
+**Both became questions in §8, and one is now settled: OQ-LP10** (retire the home directory) is
+**ruled yes**, and **OQ-LP11** (bundled loopholes become official packs) is still open. Neither
+blocks the 15th kind — the kind is what makes either one *possible*. The rest of this doc describes
 the world with all three channels intact, because that is the world the design was written against.
 
 ---
@@ -390,7 +390,68 @@ a file the agent cannot write — rather than a prompt people learn to hit `y` o
 the biggest reduction in *who can declare* host execution, and it should still ship first, but it
 should stop being described as closing the hole. It closes half of one.
 
-### 4.5 Things the design names rather than solves
+### 4.5 The model in two verbs — RULED in review, and it resolves most of this document
+
+> **Ruling:** *"loopholes can only be installed at the user level, and enabled at the workspace level
+> or user level."*
+
+That sentence settles more open questions than anything else here, so this section states the whole
+model in one place — which is what the review asked for.
+
+| | **INSTALL** | **ENABLE** |
+|---|---|---|
+| What it decides | that this code may run on your machine **at all** | whether an installed loophole is **active for this jail** |
+| Scope | **user only** | **user or workspace** |
+| Who can perform it | a human editing a file no agent can write | anyone who can edit the workspace config — including an agent |
+| The gate | **content-anchored confirmation, every origin** (§4.4) | none needed |
+| Cost of getting it wrong | arbitrary host execution | a vetted daemon runs for a repo you did not intend |
+
+**Why the split is the right line.** The risk was never "a daemon runs" — it is "code you never
+vetted runs". Install is where vetting happens, once, against content. Enable is a routing decision
+*within an already-vetted set*, so it can safely live in a file an agent can write: the worst an
+agent can do is switch on something you already looked at and approved.
+
+**What "install" means concretely, and what has to change.** Today a loophole can arrive five ways
+and only one of them asks you anything — `yolo pack install` prompts for **fetched** packs, while a
+`file://` pack, the local pack, the home directory and the config block are all silent. Under
+§1.1's consolidation those five collapse toward one (a pack named in the user config), and that act
+*is* install. **So the change is: install becomes an explicit, confirmed act for every origin.**
+Origin then decides how loud the first confirmation is, never whether there is one.
+
+**What it does to the open questions:**
+
+- **OQ-LP12 dissolves.** No request/grant machinery, and my "the workspace asks, you approve" proposal
+  is withdrawn as more mechanism than the problem needs. You install once; each workspace enables what
+  it wants from the set you vetted.
+- **OQ-LP2 sharpens into the same split.** The config block's `command`, `env` and `doctor_cmd` are
+  install-shaped, so user-only. `enabled` is enable-shaped, so both scopes.
+- **OQ-LP3 dissolves.** `file://` stops being a trusted origin that skips the prompt; it becomes an
+  origin whose first confirmation is quieter.
+- **OQ-LP13 gets its home.** Install is exactly where content confirmation belongs.
+
+**One thing the design had decided the other way, stated plainly.** §4.2's G1 required `enabled` to be
+user-scope-only for any daemon-bearing loophole, in **both** directions. This ruling overrides that:
+`enabled` is available at workspace scope for everything. Two consequences, and the second is the one
+to watch:
+
+1. **ON** — a workspace can switch on any *installed* loophole. Bounded, because install already
+   vetted the content, and that is the whole point of the split.
+2. **OFF** — a workspace can still disable the broker silently, which is the failure §4.2 named. Scope
+   no longer protects it, so **disclosure has to**: a launch-time line naming the loophole *and the
+   file that disabled it*, and `yolo check` warning rather than rendering a green pass. Those were
+   already requirements; under this ruling they stop being belt-and-braces and become the only
+   protection.
+
+**And the development escape hatch is DELETED.** I proposed a per-path "I am developing this one"
+opt-out to blunt re-confirmation friction, and the review answer is better: **develop a loophole
+inside a jail.** Checked it — the loophole runtime has exactly **one** jail-aware branch, the device
+passthrough skip; host daemons, bind mounts, endpoint publication and intercepts all behave
+identically when the launcher is itself in a jail. So a nested jail is a real development
+environment, the daemon's "host" is a container you can throw away, and the re-confirmation friction
+stays exactly where it should be: on the machine that matters. An escape hatch would have punched a
+hole in the one gate that reads content, to serve a workflow that already had a better answer.
+
+### 4.6 Things the design names rather than solves
 
 - **A `file://` pack is trusted unconditionally and forever** — no approval, no re-approval. Not
   changing it: the origin model's whole claim is that a directory you control carries your own
@@ -430,8 +491,10 @@ token race. Where that default *lives* is OQ-LP11; that it exists is not in ques
 
 **But "it stays bundled" does not keep the default safe** — that was the draft's third refuted
 claim. Staying bundled protects the broker from being *deselected*, which was never the threat. The
-threat is a workspace config turning it off silently. G1's scoping, plus a launch-time line naming
-*who* turned something off, are what actually keep it.
+threat is a workspace config turning it off silently. **And under §4.5's ruling, scoping no longer
+protects it either**: `enabled` is writable at workspace scope by design. So the launch-time line
+naming the loophole *and the file that disabled it*, plus `yolo check` warning instead of passing
+green, are not belt-and-braces any more — they are the only thing keeping this default.
 
 **The `audio` example is dogfood, not a migration.** Under the corrected claim enumeration a fetched
 copy of it emits four review-worthy claims and would prompt — which makes it *better* dogfood than
@@ -488,61 +551,94 @@ parties will write even if only bundled loopholes are ever superseded.
 
 ## 8. What I need from you
 
-Nine rulings. Four of them came out of your own review, and **OQ-LP13 is the one I would decide
-first** — it is a live hole rather than a design choice, and it is the only one that changes what
-"ship G1 first" means.
+**Three are now RULED and are recorded here as answers, not questions:** the install/enable scope
+model (§4.5), content-anchored confirmation (**LP13**), and retiring the home directory (**LP10**).
+Those rulings dissolved two more — **LP12** and **LP3** — so what is left needs four decisions.
+
+> **One flag on LP10.** Your "yes, absolutely" highlighted LP10's recommendation, but the line anchor
+> had drifted onto LP13's heading, because the document changed under you while you were reading it.
+> I have recorded it as **LP10 ruled yes**, which is what the highlighted text says. If you meant
+> LP13, say so and I will move it — I would be glad to, since LP13 is the one I think matters most.
 
 The other four open questions live in the detailed doc (§9) and do not need you: one is a technical
 placement choice, one is a one-way door I am flagging rather than opening, one resolves itself when a
 real pack wants it, and one belongs to the `guest` notch work.
 
-### OQ-LP13 🆕 — is everything a loophole runs on the host promoted under content-anchored confirmation?
+### OQ-LP13 — content-anchored confirmation for host execution ✅ *(pending the flag above)*
 
-**The question.** Every gate in this design governs a *declaration*; none governs the *file* the
+**The question was:** every gate in this design governs a *declaration*; none governs the *file* the
 declaration names. A `file://` pack under a live-mounted workspace, or a config-block `command`
-naming a workspace path, is rewritable by the agent between launches with nothing to notice it.
-Do we hash what is about to execute and re-confirm when it changes — regardless of origin?
+naming a workspace path, is rewritable by the agent between launches with nothing to notice it. Do
+we hash what is about to execute and re-confirm when it changes — regardless of origin?
 
-**My read: yes, and before the kind ships.** This is not a new risk the 15th kind introduces; it
-exists today and G1 does not touch it, so it is worth fixing whether or not any of the rest happens.
-The shape is in §4.4: hash the loophole's module directory plus any argv-named file outside it,
-record the digest with the confirmation, re-confirm on change. Origin decides how loud the first
-confirmation is, not whether there is one.
+**Answer: yes, and before the kind ships.** This is not a risk the 15th kind introduces; it exists
+today and G1 does not touch it, so it lands whether or not any of the rest happens. The shape is in
+§4.4: hash the loophole's module directory plus any argv-named file outside it, record the digest
+with the confirmation, re-confirm on change. Origin decides how loud the first confirmation is, not
+whether there is one.
 
-**What to weigh.** The digest covers what yolo can *name*, not everything that will *run* — a script
-can import, a binary can `dlopen` — so it is a tripwire, not a boundary, and should be described that
-way. And a loophole under development re-confirms on every edit, which wants an explicit
-"I am developing this one" escape in the user config rather than a prompt people learn to click
-through.
+**Where it lives:** at **install**, which §4.5's ruling makes a user-scope act. That is the whole of
+it — one confirmation point, one scope, every origin.
+
+**One limit to state rather than discover.** The digest covers what yolo can *name*, not everything
+that will *run* — a script can import, a binary can `dlopen`. So it is a tripwire against silent
+substitution, not a boundary, and it should be described that way rather than sold as one.
+
+**The escape hatch is deleted.** I previously wanted a per-path "I am developing this one" opt-out to
+blunt re-confirmation friction. Withdrawn on your answer: **develop the loophole in a jail.** The
+loophole runtime has exactly one jail-aware branch (device passthrough), so a nested jail runs host
+daemons, bind mounts, endpoint publication and intercepts identically — a real development
+environment whose "host" is a container you can throw away. Re-confirmation friction then only
+applies on the machine where it should. An opt-out would have been a hole in the one gate that reads
+content, serving a workflow that already had a better answer.
 
 ### OQ-LP2 — do the config block's host-execution keys become user-scope-only now?
 
-Covers the command, the environment overrides in both shapes, the doctor command, and `enabled` for
-anything carrying a daemon.
+**Context first, since the one-line version assumed the config schema.** The `loopholes` block in a
+config file takes entries in two shapes, and the validator already distinguishes them:
 
-**My read: yes.** It is the biggest single reduction in *who may declare* host execution, and it is
-independent of everything else here. Two caveats that have both grown since the first draft: it is a
-breaking change for everyone who followed the shipped guide — which literally calls the block "the
-workspace-scoped entry point" — and a scope error refuses the **whole launch**, not just the
-loophole. So it needs one release of warn-then-error.
+- an **inline** entry *declares a loophole* — it must carry a `command`, which is the argv yolo runs
+  on your host. It may also carry `env` (that command's environment) and `doctor_cmd` (a second
+  command, run by `yolo check` and `yolo loopholes status`).
+- an **override** entry *adjusts a loophole that already exists* — no `command`, just `enabled`,
+  `env`, and `jail_env`.
 
-**Decide OQ-LP12 with it**, because that is what the warning has to point people at. And per
-OQ-LP13, stop describing this as closing the hole: it closes half of one.
+Applying §4.5's two verbs to those keys gives the answer directly, and it is not "everything moves":
 
-### OQ-LP12 🆕 — how does a workspace get a loophole another workspace does not?
+| Key | Why it lands where it does | Scope |
+|---|---|---|
+| `command` | it **is** the host execution | **user** |
+| `doctor_cmd` | a second host execution, run by two commands users treat as read-only preflight | **user** |
+| `env` — *either shape* | changes **what runs**, not whether: an override entry can set `LD_PRELOAD` on a daemon **yolo itself** spawns, injecting code into a first-party process | **user** |
+| `enabled` | changes **whether** an already-installed loophole is active | **either** |
+| `jail_env` | container-side environment; touches nothing on the host | **either** |
 
-G1 removes the only mechanism that exists (§4.3), and packs were never per-workspace, so without a
-decision here the capability simply disappears. Either the user config declares the loophole and
-names which workspace paths get it, or the workspace *asks* and your approval is recorded host-side.
+**My read: yes** — for the install-shaped keys above. It is the biggest single reduction in *who may
+declare* host execution and is independent of everything else here.
 
-**My read: the workspace asks.** It is `yolo pack install`'s existing y/N-plus-lockfile with a
-different requester, keyed by (workspace, claim set) — machinery that already ships rather than new
-scoping vocabulary. The obvious objection is that `three-decisions.md` already deleted a
-request/grant split for packs; its stated reason was that *a repo can already lay out whatever it
-likes in its own tree*, which is true and does not transfer, because a repo cannot already run host
-code.
+**Note what changed:** the design previously wanted `enabled` user-only too, for daemon-bearing
+loopholes. §4.5's ruling overrides that, and the protection for the case that motivated it — a
+workspace silently disabling the broker — moves from scoping to disclosure (§4.5, consequence 2).
 
-### OQ-LP10 🆕 — retire the hand-placed loophole directory in your home?
+**Two caveats, both grown since the first draft.** It is a breaking change for everyone who followed
+the shipped guide, which literally calls the block "the workspace-scoped entry point". And a scope
+error refuses the **whole launch**, not just the loophole — so it needs one release of
+warn-then-error, and the warning has to name the fix.
+
+### OQ-LP12 — how does a workspace get a loophole another workspace does not? ✅ DISSOLVED
+
+**Answered by §4.5's ruling, and no new machinery is needed.** You install at user scope; each
+workspace enables what it wants from the set you already vetted. **My earlier proposal — the
+workspace *asks* and you approve, keyed by (workspace, claims) — is withdrawn as more mechanism than
+the problem needed.** The request/grant split existed to answer "how does a repo get something it
+cannot grant itself"; the two-verb model answers it by making the thing a repo can do (enable)
+harmless, rather than by building an approval path for it.
+
+Residual worth knowing: a workspace can enable **any** installed loophole, not only the ones you had
+that repo in mind for. That is bounded by install-time vetting, and the per-launch disclosure naming
+what is active is what makes it visible.
+
+### OQ-LP10 — retire the hand-placed loophole directory in your home? ✅ RULED YES
 
 **Answering your question directly: yes, the local pack is exactly what it becomes**, and that makes
 this cheaper than I implied. The conventional local pack (`~/.config/yolo-jail/local/`) is
@@ -556,7 +652,8 @@ actually improves is different and worth having: a pack-shipped loophole emits c
 the per-launch disclosure, where the home directory prints nothing at all today. Visibility, not
 gating.
 
-**My read: yes, retire it — after the kind ships.** The second payoff is unchanged: it leaves
+**Ruled: yes, retire it — after the kind ships**, so there is somewhere to go. The second payoff is
+unchanged and is a real simplification: it leaves
 `loopholes enable/disable` with no special case to serve, forcing enable/disable state into config
 for every source, which the design already wants and currently defers.
 
@@ -571,16 +668,17 @@ would be ceremony over a thing that ignores the package. Do `audio` first as the
 builds it as an example, so this is mostly a relabel), and leave the broker until those two have
 manifest vocabulary.
 
-### OQ-LP3 — a `file://` pack runs a host daemon with no prompt, ever
+### OQ-LP3 — a `file://` pack runs a host daemon with no prompt, ever ✅ DISSOLVED
 
-**My earlier read was "leave it"; that is withdrawn.** Your review is why: local origin is a bare
-`file://` prefix check with no constraint on the path, so a directory an agent writes is "local," and
-the justification in the code is an argument about *reading* files you can already read (§4.4).
+**Absorbed by LP13.** My original read was "leave it — the origin model's coherence is worth more
+than a special case"; that is withdrawn, because local origin is a bare `file://` prefix check with
+no path constraint, so a directory an agent writes counts as yours (§4.4). Content-anchored
+confirmation covers this row with no special case at all — which is a better outcome than the
+special case I was arguing against.
 
-**My read now: this is not a separate question — it is OQ-LP13's second row.** Content-anchored
-confirmation covers it without a special case, which is better than the special case I was about to
-recommend against. What survives independently is only whether local origin should additionally
-constrain the path, and that is worth documenting either way.
+**What survives, and it is small:** whether `IsLocal()` should *additionally* constrain the path
+(refusing, say, a `file://` under a live-mounted workspace). Worth documenting either way, and not
+urgent once confirmation is content-anchored.
 
 ### OQ-LP6 — is the capability system still worth building for one auto-activating bundled loophole?
 
@@ -591,9 +689,10 @@ are ever superseded.
 ### OQ-LP8 — how does an execution approval survive a moving pin without re-prompting forever?
 
 **My read: commit-anchor now, digest later if the friction is real** — the friction is visible and
-recoverable where content-blind approval is neither. **But OQ-LP13 may collapse this question**: if
-confirmation is content-anchored for every origin, the digest is being built anyway and the commit
-anchor becomes redundant. Worth deciding LP13 first and seeing whether this one still exists.
+recoverable where content-blind approval is neither. **And LP13 being ruled probably collapses this question**: if
+confirmation is content-anchored for every origin, the digest is built anyway and the commit anchor
+is redundant. I would fold this into LP13's implementation and expect it to disappear; flag it if you
+want the commit anchor kept as a separate signal.
 
 ### OQ-LP9 — does the scope error downgrade in-jail?
 
