@@ -311,12 +311,66 @@ $ head -c 28 …/ca.key  →  -----BEGIN PRIVATE KEY-----     (3268 bytes, reada
 ```
 
 The **entire loophole state dir** crosses the boundary `:ro`, so the CA's private key is inside
-every jail. Combined with `NODE_EXTRA_CA_CERTS` trusting that CA in-jail, **a jail process can mint
-a trusted leaf for any host** — including impersonating a sibling jail's relay.
+every jail.
 
 **`0600` is not a mitigation.** A yolo jail runs its agent as UID 0 by design (Claude YOLO is
 `--dangerously-skip-permissions` plus `IS_SANDBOX=1`, which exists to bypass the UID-0 refusal), so
 owner-only permissions are no barrier — the read above is the proof.
+
+### 5.0 How bad is it, actually? — a correction
+
+**Challenged in review: *"was it really even an issue? you can MITM and steal data, but it doesn't
+escalate auth at all."* That is substantially correct, and an earlier draft of this section
+oversold it** (it called this "the most serious item", "a live privilege-boundary failure", and
+argued it should jump ahead of #37). Working it through properly:
+
+**A MITM needs two things: a trusted certificate *and* the ability to redirect the victim's
+traffic. `ca.key` supplies only the first.** The second is a separate capability the attacker must
+obtain independently.
+
+| Scenario | Does `ca.key` help? |
+|---|---|
+| **Attacker in jail A, victim = jail A** | **No.** A UID-0 process already owns that jail — it can read credential files directly, `LD_PRELOAD`, patch binaries, read `/proc/*/environ`. Minting a cert is more work for less. |
+| **Attacker in jail A, victim = sibling jail B** | **Only with traffic redirection too** (ARP spoof on a shared bridge, DNS control). Given that, yes — forge any host, jail B trusts it. |
+| **Escalate to the host** | **No.** The CA signs certs; it is not a credential for anything upstream. |
+| **Escalate to the broker** | **No.** Broker authorization is the socket (Linux) or the pre-shared token (§3). #32 deliberately does not use this CA. |
+
+**And for the headline case it yields nothing new:** the Claude credential is what flows over
+`platform.claude.com`, and `.claude-shared-credentials` is **machine-global and already mounted into
+every jail**. Jail A does not need to MITM jail B to read it.
+
+**So the accurate framing:** not an auth-escalation bug. A **lateral-movement / defense-in-depth**
+issue, gated behind a second capability, whose realistic yield is cross-jail theft of *per-workspace*
+secrets (copilot's `gho_` token, a workspace `.env`) that the attacker does not otherwise hold.
+
+### 5.0.1 One thing that is worse than assumed
+
+The trust surface is **not** Node-only. `internal/entrypoint/system.go` merges every
+`NODE_EXTRA_CA_CERTS` path into `$HOME/.yolo-ca-bundle.crt` and points `SSL_CERT_FILE`,
+`CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`, and `REQUESTS_CA_BUNDLE` at it. **Verified in a live jail
+2026-08-12:** all four env vars point at that bundle, and the broker CA's PEM body is present among
+its 122 certificates.
+
+So a forged leaf is trusted by **curl, git, python-requests and Node alike** — essentially every
+TLS client in the jail, not just Node ones. That widens *case 2*'s blast radius without changing
+the precondition that gates it.
+
+### 5.0.2 What this changes about priority
+
+**#37 should go first after all.** It is a *certain, already-occurring* correctness bug in the
+tool nested-jail verification depends on. This is a *conditional* lateral-movement issue requiring
+a capability the attacker must separately obtain. On expected impact, #37 wins.
+
+**Still fix this, for reasons that survive the downgrade:** it is free (three files instead of a
+directory), it is least-privilege with no argument for the status quo, it removes a precondition so
+that §3's pinning defends a narrower attacker, and it is publicly filed — which carries weight
+independent of severity.
+
+**A structural alternative worth naming:** the reason *case 2* exists at all is that **one CA is
+shared by every jail** (the state dir is machine-global). Per-jail CAs would make `ca.key` exposure
+self-only, and case 2 would vanish regardless of routing. That is a larger change than the mount
+fix and probably not worth it alone — but if the CA is ever regenerated for another reason, it is
+the better shape.
 
 ### 5.1 The fix
 

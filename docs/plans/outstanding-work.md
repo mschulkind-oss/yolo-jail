@@ -14,7 +14,7 @@ over the last fortnight, so verify-against-code is the house rule.
 
 | | Thread | First move | Blocked on |
 |---|---|---|---|
-| **C** | [Open PRs + issues on the public repo](#thread-c--the-open-prs-and-issues-on-the-public-repo) | **fix issue #33** (`ca.key` in every jail — open, no PR), then land #37 | nothing; #32 has a question awaiting your answer |
+| **C** | [Open PRs + issues on the public repo](#thread-c--the-open-prs-and-issues-on-the-public-repo) | **land #37** (certain, already-occurring bug in the verification tool), then #33 | nothing; #32 has a question awaiting your answer |
 | **A** | [Claude auth as swappable packs](#thread-a--claude-auth-as-two-swappable-packs) | move `shared_credentials` off the base `claude` pack | nothing |
 | **B** | [macos-user + non-container nix](#thread-b--macos-user-and-non-container-nix) | fix macos-user rendering zero pack surfaces | a Mac to verify; N3 is your call |
 
@@ -41,7 +41,7 @@ issue *and* a PR fixing it. Neither has any review or comment on it yet, and **a
 | Issue | Title | Author | State |
 |---|---|---|---|
 | [#35](https://github.com/mschulkind-oss/yolo-jail/issues/35) | Stale `:latest` reused after reverting config | Georgi Popov | fixed by #37 |
-| [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) | **`ca.key` is mounted into every jail** | Dong Liu | 🔴 **open, no PR** — see C-4 |
+| [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) | **`ca.key` is mounted into every jail** | Dong Liu | **open, no PR** — see C-4; severity downgraded, not an auth escalation |
 | [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) | Broker relay socket unreachable on macOS+podman | Dong Liu | fixed by #32 |
 
 ## C-1. #37 — a silent stale-image bug in the tool you verify with 🔴
@@ -180,9 +180,20 @@ future host service rather than to one hop. A per-jail bearer token inside pinne
 strictly stronger than the current *"the socket file is the authentication"* posture, so "as
 proposed" is a defensible answer — it just needs to be given.
 
-## C-4. Issue #33 — `ca.key` in every jail 🔴 open, no PR, and it is ours
+## C-4. Issue #33 — `ca.key` in every jail — open, no PR
 
-**The most serious item in this thread, and the only one with nobody working on it.** Dong Liu
+> **Severity downgraded 2026-08-12 after review.** This section previously called it "the most
+> serious item in this thread" and argued it should jump ahead of #37. **That was overstated.** It
+> is **not an auth-escalation bug**: `ca.key` supplies a trusted certificate but not the ability to
+> redirect a victim's traffic, and against the attacker's *own* jail it adds nothing a UID-0
+> process cannot already do. Full worked analysis in
+> [`loophole-transport.md`](../design/loophole-transport.md) §5.0.
+>
+> **Revised ranking: #37 first.** #37 is a certain, already-occurring bug in the verification tool;
+> this is a conditional lateral-movement issue. Still worth fixing — it is free, it is
+> least-privilege, and it is publicly filed — just not ahead of #37.
+
+**Nobody is working on it.** Dong Liu
 filed it separately while writing #32, whose body explains why it matters there: the broker's whole
 state dir — **including `ca.key`** — is mounted `:ro` into every jail, so a malicious jail could
 sign a `yolo-broker-relay` cert and MITM a sibling. That is why #32 pins an exact host-only-key
@@ -235,9 +246,9 @@ refusal), so owner-only permissions are no barrier — as the read above demonst
 **The fix is narrow and known:** only `server.crt` / `server.key` are needed in-jail; `ca.key` is
 used solely host-side by `cert.go`. Mount the two server files rather than the whole state dir.
 
-**This should probably jump ahead of #37.** It is a live privilege boundary failure that an
-outside contributor has now published, the remedy is a mount-scope change rather than a redesign,
-and every day it stays open is a day the published issue has no response.
+**Fix it, but after #37.** The remedy is a mount-scope change rather than a redesign, it is
+least-privilege with no argument for the status quo, and a published issue with no response carries
+weight independent of its severity — but #37's bug is certain where this one is conditional.
 
 ---
 
