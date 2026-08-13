@@ -35,11 +35,14 @@ func Run(opts Options) int {
 	// stale loaded/cached image instead is worse than failing — it hides that the
 	// environment is not what the config describes. (This reverts D2's graceful
 	// degradation: launching on an old image with no rebuild was deemed a
-	// footgun, not a convenience.) The gate is applied at repoRootFatal below,
-	// AFTER the macos-user branch, because macos-user with empty `packages:`
-	// genuinely needs no repo (it materializes native darwin packages only when
-	// `packages:` is non-empty, and MaterializeDarwin fails loudly on a bad flake
-	// root of its own accord).
+	// footgun, not a convenience.) The gate is applied below, under an explicit
+	// `rt != "macos-user"` guard rather than by sitting after the macos-user
+	// branch: macos-user with empty `packages:` genuinely needs no repo (it
+	// materializes native darwin packages only when `packages:` is non-empty, and
+	// MaterializeDarwin fails loudly on a bad flake root of its own accord), and
+	// naming that exemption beats encoding it in statement order — which is how it
+	// was expressed until pack staging had to move above the dispatch (B-0), and
+	// what would have silently gated macos-user the moment anything moved again.
 	repoRoot, repoRootOK := o.RepoRoot()
 	if err := ensureStorage(); err != nil {
 		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
