@@ -67,6 +67,13 @@ design over verified code paths, not over a working instance (**R2**).
 >    named extension point for a future platform-specific transport.
 > 4. **The front cannot be the crossing audit log.** Withdrawn: a loophole's protocol can be anything,
 >    so connection-level is the honest ceiling (§2.1b hazard 3).
+>
+> A second round added two more:
+>
+> 5. **EOF non-propagation is not implemented, not impossible** — it is the relay's frozen teardown
+>    imposing a default, so it becomes a per-loophole `request_end` declaration (§2.1b hazard 2).
+> 6. **G1 removes per-workspace loopholes with no replacement** — a capability removal the doc was
+>    calling a migration. **OQ-LP12** (§4.3).
 
 ---
 
@@ -237,6 +244,19 @@ cheaper to implement and is exactly the "works until it doesn't" shape this doc 
    need EOF — but a daemon that reads its request *to EOF* works on a bare socket and **hangs
    forever** behind the front. That is a behaviour change the author cannot see, so it is a named
    requirement in the guide, not a footnote.
+
+   **REVIEW ASKED: "impossible or just not implemented yet?" — NOT IMPLEMENTED, and the distinction
+   changes what to build.** The constraint comes from the one upstream that exists, not from
+   splicing. `front.go:44-55` records it: the relay's core tears down BOTH its sockets on either EOF
+   (frozen parity), so half-closing upstream when the request direction ends would cut short a
+   response still in flight — which is why `splice` runs the request direction unwaited and returns
+   only on the response. A third-party daemon has the opposite requirement, and serving it is
+   `up.(*net.UnixConn).CloseWrite()` after the request-direction `io.Copy` returns — the dial is
+   `net.Dial("unix", …)` at `front.go:59`, so the assertion holds. **Both behaviours cannot be the
+   default, so it is a per-loophole declaration**: beside `publishes: "socket"`, how a request ends
+   — `request_end: "framed"` (default, today's behaviour) or `"eof"` (half-close upstream).
+   Defaulting to `framed` keeps the relay bit-identical. Documenting it as an inherent limit would
+   have taught authors to work around something one field away.
 3. **No per-request access log, and — REVIEW CORRECTION — the front can never be one.** Draft 2
    called the front *"the natural home for the crossing audit log later, since every third-party
    crossing would pass through one yolo-owned process."* The maintainer's objection is correct and
@@ -868,6 +888,34 @@ unknown-key **error** on an inline entry today (`validate_loopholes.go:114`) whi
 (adding `doctor_cmd`, `description`, `jail_endpoint`) **before** scoping anything over it, or the
 canonical validator and the loader keep disagreeing about which keys exist.
 
+**G1 REMOVES A CAPABILITY, not just a spelling — review found the gap.** *"Meaning you can't declare
+a loophole in a workspace? then how do you provision some workspaces with a priv and not others?"*
+Two halves, already different today:
+
+- **A pack-shipped loophole was never per-workspace.** `packs` is user-scope-only now
+  (`config/packs.go:182-184`: *"makes workspace scope inexpressible"*), so selecting a
+  loophole-bearing pack per repo is impossible before and after this design.
+- **A config-block loophole IS per-workspace today, and G1 removes exactly that** — a workspace
+  `yolo-jail.jsonc` with a `command` gets a host daemon for that repo alone. It works *because* it is
+  ungated, i.e. via §4.1's hole.
+
+**So after G1 there is no per-workspace loophole mechanism at all**, and there is no per-workspace
+scoping anywhere else in the config to borrow: the layering is user → workspace → workspace-local
+(`config.go:34`, `load.go:202`), and `yolo-jail.local.jsonc` lives *in the workspace*, so it is as
+agent-editable as the tracked file and buys nothing here. Two shapes give the capability back without
+giving it to the agent — **(a)** a user-scope declaration naming which workspace paths get it, or
+**(b)** the workspace *asks* and the human's approval is recorded host-side, keyed by (workspace,
+claim set), re-prompting when the ask widens.
+
+**Recommend (b): it is `yolo pack install`'s shipped y/N-plus-lockfile with a different requester**
+(`pack.go:1089-1123`, `packsrc.LockEntry`), so it reuses the machinery G2 already depends on rather
+than inventing scoping vocabulary. The tempting counter-argument must be answered rather than
+inherited: [`three-decisions.md`](three-decisions.md) §0.1 deleted `pack_requests`, but its stated
+reason — *"a repo … already has a git repo and can lay out whatever it likes in the workspace"* —
+**does not transfer**, because a repo cannot already run host code. That deletion covered a request
+that bought nothing; this one buys the only thing that makes the capability safe. **OQ-LP12**, and it
+should be decided WITH OQ-LP2 because it is what G1's warning would point people at.
+
 **And G1 needs a migration, because its population is "everyone who followed the shipped guide."**
 `docs/guides/loopholes.md:88` reads *"The `loopholes` block is the workspace-scoped entry point"* and
 its worked example (`:91-98`) carries a `command`. A scope violation goes into `errs`, and a config
@@ -1398,6 +1446,15 @@ recoverable, and content-blind approval is neither. **Resolved by:** a maintaine
 and warns in-jail, because the in-jail config is a generated snapshot (AGENTS.md). A `loopholes`
 scope error refuses the whole launch (§4.3), and `/workspace` is live-mounted, so in-jail `yolo` and
 nested jails break identically. **Resolved by:** a maintainer ruling, alongside OQ-LP2.
+
+**OQ-LP12 — how does a workspace get a loophole another workspace does not?** Raised in review
+(§4.3 G1). G1 removes the only mechanism and packs were never per-workspace, so this is a capability
+removal with no replacement unless one is designed. **(a)** user-scope declaration selecting
+workspace paths, or **(b)** the workspace asks and the human approves host-side, keyed by (workspace,
+claim set). **My read: (b)** — it is `yolo pack install`'s existing approval with a different
+requester, and `three-decisions.md`'s deletion of `pack_requests` does not cover it (a repo can
+already lay out its own files; it cannot already run host code). **Resolved by:** a maintainer
+ruling, alongside OQ-LP2 — G1's warn-then-error migration needs somewhere to point people.
 
 **OQ-LP10 — retire the USER LOOPHOLE DIRECTORY once a pack can carry one?** Raised in review: *"what's
 the argument for keeping this? we can easily have local packs."* There is no good one. §3.1 justifies

@@ -163,10 +163,26 @@ is restored on the server side. **And it is what revives the config block**: a h
 daemon becomes "loopback-TLS, publishes a socket," which is *true of it*, needs no retired
 vocabulary, and does not change its argv or its behaviour.
 
-**One real cost, stated as a requirement rather than a footnote.** The front does not propagate the
-client's end-of-stream upstream, so a daemon that reads its request *to EOF* works when tested
-against a bare socket and hangs forever behind the front. That is a behaviour change the author
-cannot see from the outside, so it is a named deliverable in the guide.
+**One real cost — and to answer the review question directly: not implemented, not impossible.** The
+front does not propagate the client's end-of-stream upstream, so a daemon that reads its request *to
+EOF* works when tested against a bare socket and hangs forever behind the front.
+
+That is a **deliberate constraint imposed by the one upstream that exists today**, not a property of
+splicing. The front's own comment records the reasoning: the broker relay tears down *both* of its
+sockets on either EOF (frozen parity behaviour), so closing the upstream's write side when the
+request direction ends would cut short a response still in flight — which is exactly what a framed
+client that writes once and then waits would suffer. So the front deliberately waits only on the
+response direction and never signals EOF upstream.
+
+A third-party daemon that reads to EOF has the **opposite** requirement, and the mechanism to serve
+it is a few lines: half-close the upstream when the request direction ends. The two behaviours cannot
+both be the default, so **it becomes a per-loophole declaration** — the manifest already has to say
+`publishes: "socket"`, and it says alongside it how a request ends: framed (the default, today's
+behaviour) or terminated by EOF. Presenting it as an inherent limit would have taught authors to
+work around something that is one field away.
+
+Until that field exists it is still a real trap, so it stays a named deliverable in the guide — a
+behaviour change the author cannot see from the outside.
 
 **And one thing the front cannot do, corrected from review.** The first version called the front
 *"the natural home for the crossing audit log."* That overclaims: the front sees a byte stream, and
@@ -245,7 +261,7 @@ wins over user. Which means, concretely:
 
 | | What it does |
 |---|---|
-| **G1** | the config block's host-execution surface becomes **user-scope-only** — so an agent-editable file cannot reach it |
+| **G1** | the config block's host-execution surface becomes **user-scope-only** — so an agent-editable file cannot reach it. **This costs per-workspace loopholes; see §4.3** |
 | **G2** | everything a pack-shipped loophole touches on your host becomes an **approval claim** you saw at install time |
 | **G3** | **origin still bounds it** — a pack you fetched needs approval; one in a directory you control does not; a missing or corrupt lockfile approves nothing |
 | **G4** | the **per-launch disclosure** names the host access in effect, every launch, not just in a lockfile you have to go read |
@@ -286,7 +302,49 @@ carry. So an approval carrying an execution claim is anchored to the **commit**,
 That has a real cost — a pack pinned to a moving branch re-prompts on every commit — which is
 **OQ-LP8**.
 
-### 4.3 Things the design names rather than solves
+### 4.3 What G1 costs: per-workspace loopholes stop being expressible — raised in review
+
+The reviewer's question — *"meaning you can't declare a loophole in a workspace? then how do you
+provision some workspaces with a priv and not others?"* — is the one the design should have answered
+and did not. Taking it in two halves, because they are already different today:
+
+**A pack-shipped loophole is already not per-workspace, and G1 has nothing to do with it.** The
+`packs` key is user-scope-only *now*: the loader's own comment says workspace scope is
+"inexpressible," and its file header gives the reason this design keeps repeating — a workspace
+config travels with the repo and is agent-editable. So selecting a loophole-bearing pack for one repo
+and not another is not possible before this design and not possible after it.
+
+**A config-block loophole IS per-workspace today, and G1 removes exactly that.** A workspace
+`yolo-jail.jsonc` can declare a `command` and get a host daemon for that repo alone. That is the
+mechanism a reader would reach for, the shipped guide teaches it, and it works **because it is
+ungated** — the same ungatedness §4.1 calls the pre-existing hole. So:
+
+> **After G1 there is no per-workspace loophole mechanism at all.** That is not a migration cost, it
+> is a capability removal with no replacement, and the design was calling it a migration.
+
+Two shapes could give the capability back without giving it back to the agent. Both keep the rule
+that *the human decides* and differ in where the decision is written:
+
+| | How it works | Trade |
+|---|---|---|
+| **(a) User-scope declaration, workspace-selected** | the user config declares the loophole once and names which workspace paths get it | no new trust machinery; but new vocabulary, and the user config has to enumerate paths it otherwise knows nothing about |
+| **(b) Workspace requests, human approves** ✅ | the workspace *asks*; approval is recorded host-side, keyed by (workspace, claims), and re-prompts when the ask widens | **the machinery already exists and is proven** — this is `yolo pack install`'s y/N-plus-lockfile with a different requester |
+
+**My read is (b), and the objection to it needs answering rather than inheriting.**
+`three-decisions.md` deleted a request/grant split for packs, and it would be easy to cite that as
+settled. But read *why* it was deleted: *"a repo that wants to configure its agents already has a git
+repo and can lay out whatever it likes in the workspace — it does not need a distribution mechanism
+to reach files it already owns."* That reasoning is sound and **does not transfer**: a workspace
+cannot "already lay out" host execution. The deletion covered a case where the request bought
+nothing; here it buys the only thing that makes the capability safe. Recorded as **OQ-LP12**.
+
+**And it changes G1's shipping story.** G1 is still right — an agent-editable file must not reach
+host execution — but "warn for one release, then error" assumes users have somewhere to go. Under
+(b) they do, and the warning can name it. Without a decision here, G1's migration is telling people
+their working setup is now a config error with no supported replacement, which is a different and
+worse message.
+
+### 4.4 Things the design names rather than solves
 
 - **A `file://` pack is trusted unconditionally and forever** — no approval, no re-approval. Not
   changing it: the origin model's whole claim is that a directory you control carries your own
@@ -384,7 +442,7 @@ parties will write even if only bundled loopholes are ever superseded.
 
 ## 8. What I need from you
 
-Seven rulings — five from the design, two raised by your own review. The other four open questions
+Eight rulings — five from the design, three raised by your own review. The other four open questions
 are recorded in the detailed doc (§9) and do not need you: one is a technical placement choice, one
 is a one-way door I am flagging rather than opening, one resolves itself when a real pack wants it,
 and one belongs to the `guest` notch work.
@@ -397,7 +455,8 @@ early avoids building toward a shape you do not want.
 |---|---|---|
 | **OQ-LP10** 🆕 | **Retire the hand-placed loophole directory in your home?** A `file://` pack does the same job with the same authority, and the directory is the one channel that starts a host daemon with no selection step at all. | **Yes, retire it** — after the kind ships, so there is somewhere to go. It also forces `loopholes enable/disable` off its one special case and into config state for every source, which the design already wants. |
 | **OQ-LP11** 🆕 | **Do bundled loopholes become official packs?** `AGENTS.md` says *"AGENTS ARE PACKS. Core does not know what an agent is."* A loophole registry plus a magic directory plus a config block is the world before that move. | **Yes in principle, and not yet.** One real blocker: the broker's manifest is not what runs, so packaging it is ceremony over a thing that ignores the package. Do `audio` first as the proof, keep the broker where it is until its spawn and relay have manifest vocabulary. |
-| **OQ-LP2** | **Do the config block's host-execution keys become user-scope-only now?** Covers the command, the environment overrides in both shapes, the doctor command, and `enabled` for anything with a daemon. | **Yes.** Independent of everything else and the biggest single risk reduction here. It is a breaking change for everyone who followed the shipped guide — which literally calls the block "the workspace-scoped entry point" — and a scope error refuses the *whole launch*, so it needs one release of warn-then-error. |
+| **OQ-LP2** | **Do the config block's host-execution keys become user-scope-only now?** Covers the command, the environment overrides in both shapes, the doctor command, and `enabled` for anything with a daemon. | **Yes.** Independent of everything else and the biggest single risk reduction here. It is a breaking change for everyone who followed the shipped guide — which literally calls the block "the workspace-scoped entry point" — and a scope error refuses the *whole launch*, so it needs one release of warn-then-error. **Decide OQ-LP12 alongside it**, since that is what the warning points people at. |
+| **OQ-LP12** 🆕 | **How does a workspace get a loophole another workspace does not?** G1 removes the only mechanism (§4.3), and packs were never per-workspace. Declare it user-scope and select workspaces, or let the workspace *ask* and record the human's approval host-side? | **The workspace asks.** It is `yolo pack install`'s existing y/N-plus-lockfile with a different requester, keyed by (workspace, claims). `three-decisions.md` deleted a request/grant split for packs, but for a reason that does not transfer — a repo *can* already lay out its own files; it cannot already run host code. |
 | **OQ-LP3** | **A `file://` pack runs a host daemon with no prompt, ever.** Leave the origin model coherent, or special-case this one kind? | **Leave it** — the origin model's coherence is worth more than a special case. But a host daemon sharpens it, and a one-time confirmation is defensible. Either way it must be *documented*. |
 | **OQ-LP6** | **Is the capability system still worth building for one auto-activating bundled loophole?** | **Genuinely open.** The extension-point argument cuts both ways. |
 | **OQ-LP8** | **How does an execution approval survive a moving pin without re-prompting forever?** Commit-anchoring, or a digest of the loophole's own files? | **Commit-anchor now, digest later if the friction is real.** The friction is visible and recoverable; content-blind approval is neither. |
