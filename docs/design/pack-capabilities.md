@@ -250,7 +250,85 @@ known-broken failure surface, not three idle processes.
 6. The `Enabled` config knob and `RequirementsMet()` are unchanged and independent — three gates,
    any of which can deactivate.
 
-## 10. Open question
+## 10. The bigger fork this design may be working around — OQ-CAP2
+
+**Raised in review 2026-08-13, and it is the most important open question here:** *"packs can't
+ship a loophole? then how are loopholes distributed? I think this is a mistake."*
+
+### How loopholes are distributed today
+
+| Source | Who it is for | State |
+|---|---|---|
+| `bundled_loopholes/` (embedded in the binary) | yolo's own three | fine |
+| a user loophole dir | a local, hand-placed loophole | no packaging, no fetch, no versioning |
+| the `loopholes` block in `yolo-jail.jsonc` | **the only third-party path** | **degraded, and getting worse** |
+
+That last row is the finding. `internal/loopholes/discover.go` pins config-defined loopholes to the
+**retired `unix-socket` transport**, and its comment says exactly why:
+
+> *"a config entry's daemon is a THIRD-PARTY PROGRAM yolo did not write… nothing yolo ships lets it
+> publish a loopback-TLS endpoint file instead (`internal/hostservice` is `internal/`, so it is not
+> importable from outside this module)."*
+
+So as the transport unifies (row **T1**), **third-party loopholes are stranded on a transport the
+manifest vocabulary no longer accepts** — and they have no sharing story at all: no fetch, no
+version, no approval, no manifest travelling with the code.
+
+### Why this bears on the design above
+
+**Supersession exists because loopholes are not SELECTED the way packs are.** The review put it
+precisely: *"if you're superseding something, it's because you can't just remove the other pack."*
+
+That is the tell. If the broker shipped inside a pack and were selected by selecting that pack, then
+"do not run the broker under Bedrock" is **"do not select the broker pack"** — and §§1–9 above
+become unnecessary. No capability namespace, no two verbs, no matching rule.
+
+**So this design may be a workaround for a distribution gap rather than a fix for it.**
+
+### Why it does not dissolve completely
+
+The broker **deliberately auto-activates** (`requires: {command_on_path: "claude"}`) so a user gets
+refresh serialization *without knowing they need it*. Make it opt-in and anyone who does not select
+it silently gets the single-use-refresh-token race — the exact bug it exists to prevent. A default-on
+pack is expressible (the local pack is already `Implicit: true`), but then "not this time" needs a
+mechanism again, and that is supersession or an exclude list.
+
+**So the residue is narrow: supersession is only needed for things that AUTO-ACTIVATE.** Its
+necessity is proportional to how many of those exist — and if loopholes moved into packs and were
+selected explicitly, that count could be zero.
+
+### The cost of the other path, stated plainly
+
+**No pack kind causes host-side code execution today.** Pack hooks run in the entrypoint, which is
+in-jail; `program` installs in-jail. A loophole daemon is a **host** process. So "packs ship
+loopholes" is not one more kind — it is packs crossing from *"configure the jail"* to *"run code on
+your machine"*. There is precedent for gated host **access** (a fetched pack's `host_files` claim is
+approved at install and recorded in the lockfile) but none for host **execution**.
+
+That is a real trust step, not a blocker: the approval machinery exists and the boundary is exactly
+the kind of thing it was built to gate. But it should be decided deliberately, not arrived at.
+
+### OQ-CAP2 — the fork
+
+- **(A) Ship capabilities as designed (§§1–9).** Works with loopholes as they are, small, touches no
+  trust boundary. Leaves third-party loophole distribution unfixed and stranded on a retired
+  transport.
+- **(B) Let packs ship loopholes.** Fixes distribution properly, makes *selection* the mechanism,
+  and probably makes most of this doc unnecessary. Needs the host-execution trust story and a way to
+  keep good defaults on.
+- **(C) Both**, in that order — (A) now because it is small and (B) is not, (B) when the trust story
+  is worked out, retiring whatever of (A) selection makes redundant.
+
+**My read: the review is right that (B) is the real fix**, and I do not think (A) should be built
+first on the strength of it — building a workaround for a gap you have already decided to close is
+how the workaround becomes permanent, which is the exact failure
+[`extension-point-principle.md`](extension-point-principle.md) warns about. **Recommendation: decide
+(B) first.** If (B) is going to happen, (A) shrinks to whatever auto-activating loopholes remain,
+and that is a much smaller thing to design.
+
+---
+
+## 11. Open question (design detail)
 
 **OQ-CAP.** `supersedes` currently lives at the **manifest top level**, beside `name`, rather than
 as a `contributes[]` entry. That matches `skills_tier` (a per-pack fact, not a contribution) and
