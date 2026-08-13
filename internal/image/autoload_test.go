@@ -94,6 +94,85 @@ func TestAutoLoadImageAlreadyLoaded(t *testing.T) {
 	}
 }
 
+// Regression for https://github.com/mschulkind-oss/yolo-jail/issues/35: nix
+// builds are content-addressed, so reverting a config change (e.g. removing
+// then re-adding a package) can reproduce a store path that's still sitting
+// in the last-10-loads sentinel history, even though a *different*, newer
+// path has since become the runtime's actual :latest image. Checking
+// membership in that history (instead of comparing against the single
+// most-recently-loaded entry) wrongly concludes "already loaded" and skips
+// the reload, leaving :latest silently stale.
+func TestAutoLoadImageReloadsWhenRevertedConfigReproducesOlderStorePath(t *testing.T) {
+	bd := withBuildDir(t)
+	sentinel := filepath.Join(bd, "last-load-podman")
+
+	pathA := "/nix/store/path-A-image"
+	pathB := "/nix/store/path-B-image"
+	loadCount := 0
+
+	makeOpts := func(storePath string) AutoLoadOptions {
+		return AutoLoadOptions{
+			Runtime: "podman",
+			Out:     &bytes.Buffer{},
+			BuildStorePath: func(string, []any, string) (string, []string) {
+				return storePath, nil
+			},
+			Run: func(argv []string) (int, bool) {
+				if len(argv) >= 2 && argv[1] == "load" {
+					loadCount++
+					return 0, true
+				}
+				return 0, true // inspect: always present
+			},
+			Materialize: func(sp, cacheFile string) int64 {
+				_ = os.WriteFile(cacheFile, []byte("tar-"+sp), 0o644)
+				return 1024
+			},
+		}
+	}
+
+	// Step 1: path A builds, loads, becomes :latest.
+	if !AutoLoadImage(makeOpts(pathA)) {
+		t.Fatal("step 1: AutoLoadImage returned false")
+	}
+	if loadCount != 1 {
+		t.Fatalf("step 1: expected 1 load, got %d", loadCount)
+	}
+
+	// Step 2: config changes, path B builds, loads, becomes :latest.
+	if !AutoLoadImage(makeOpts(pathB)) {
+		t.Fatal("step 2: AutoLoadImage returned false")
+	}
+	if loadCount != 2 {
+		t.Fatalf("step 2: expected 2 loads total, got %d", loadCount)
+	}
+
+	// Sanity check the premise: A is still present in the sentinel's history...
+	data, err := os.ReadFile(sentinel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), pathA) {
+		t.Fatalf("expected sentinel history to still contain path A: %q", string(data))
+	}
+
+	// Step 3: config reverts, nix reproduces path A again. Even though A is
+	// still "in" the sentinel history, B is what :latest actually is right
+	// now — A must be reloaded, not skipped.
+	if !AutoLoadImage(makeOpts(pathA)) {
+		t.Fatal("step 3: AutoLoadImage returned false")
+	}
+	if loadCount != 3 {
+		t.Fatalf("step 3: expected a reload of path A (3 total loads), got %d — "+
+			"the reload was wrongly skipped because A is still in the history", loadCount)
+	}
+
+	last, ok := CurrentLoadedPath(sentinel)
+	if !ok || last != pathA {
+		t.Fatalf("expected sentinel's most-recent entry to be path A, got %q (ok=%v)", last, ok)
+	}
+}
+
 // The storage-lifecycle §1 root is registered for the store path we run against
 // on the fresh-load path and the already-loaded self-heal path, but NOT on the
 // degraded "Using existing"/cached-tar fallbacks (currentPath is unknown there,
