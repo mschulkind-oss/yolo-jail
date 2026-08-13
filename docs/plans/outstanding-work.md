@@ -33,7 +33,7 @@ than new work.
 |---|---|---|---|---|
 | 🟢 | **C** | [Open PRs + issues on the public repo](#thread-c--the-open-prs-and-issues-on-the-public-repo) | **land #37** (certain, already-occurring bug in the verification tool), then #33 | nothing; #32 has a question awaiting your answer |
 | 🟡 | **A** | [Claude auth as swappable packs](#thread-a--claude-auth-as-two-swappable-packs) | move `shared_credentials` off the base `claude` pack | nothing |
-| ⛔ | **B** | [macos-user + non-container nix](#thread-b--macos-user-and-non-container-nix) | fix macos-user rendering zero pack surfaces | a Mac to verify; N3 is your call |
+| ⛔ | **B** | [macos-user + non-container nix](#thread-b--macos-user-and-non-container-nix) | run B-0 once on a Mac (the wiring landed 2026-08-12; nothing else in the thread moves until a Mac confirms it) | a Mac to verify; N3 is your call |
 
 Everything else is [below](#everything-else-still-open).
 
@@ -154,7 +154,10 @@ installs.
 **That is fixable and worth doing:** have the workflow build the image derivation on both the old
 and new lock and post `nix store diff-closures` output into the PR body. That turns three opaque
 lines into "go 1.25.1 → 1.25.3, openssl 3.5.2 → 3.5.4, +2 MiB" — which is a thing a human can
-actually review. Recorded as **D3** below.
+actually review. **Shipped — see D3 below.** What it diffs is not the image derivation but
+`.#imageClosureRoot`, a new flake output whose closure is the image's contents *minus our own Go
+build*: a lock bump cannot move our binaries, and excluding them keeps both sides of the diff a
+download from cache.nixos.org rather than a build.
 
 ## 🟡 C-3. #32 — land it, then promote it; do NOT close it as subsumed
 
@@ -395,19 +398,60 @@ load-bearing, §8 has the options),
 [`macos-user-nix-and-features.md`](../design/macos-user-nix-and-features.md) (the backend — see the
 correction below).
 
-## 🟢🐛 B-0. macos-user renders ZERO pack surfaces — re-verified 2026-08-12
+## ⛔🐛 B-0. macos-user renders ZERO pack surfaces — wired 2026-08-12, Mac-unverified
 
-**Still live.** `internal/cli/run/run.go:60-76`: the `rt == "macos-user"` branch returns at the
-`o.MacosUserRun(...)` call, which is **before `stagePacks`**. So `YOLO_PACK_ROOT` is never set, and
-`RunDarwinBootstrap`'s `LoadJailPacks` / `ConfigurePackSurfaces` / `RunPackHooks` loops all iterate
-an empty list. A backend that looks provisioned and configures nothing — no error, no warning.
+**The Go side is done; the status is ⛔ and not ✅ because no Mac has run it.** The defect was an
+ORDERING one: `internal/cli/run/run.go`'s `rt == "macos-user"` branch returned at the
+`o.MacosUserRun(...)` call, which sat **before `stagePacks`**, so `YOLO_PACK_ROOT` was never set and
+`RunDarwinBootstrap`'s `LoadJailPacks` / `ConfigurePackSurfaces` / `RunPackHooks` loops each iterated
+an empty list — a backend that looked provisioned and configured nothing, with no error and no
+warning.
 
-> **`macos-user-nix-and-features.md:174` still claims pack selection works there. It does not.**
-> Fix the doc when you fix the bug.
+What changed:
 
-**Do this first.** It is the cheapest real test of whether `render.Target` can express a
-non-container backend at all — and if it cannot express macos-user, it will not express `guest`.
-This is plan item 1.4 in the handoff.
+- **Staging moved above the backend dispatch.** `Run()` now stages once, before choosing a backend,
+  and hands the result to whichever arm runs (`stagedPacks`). No backend can be dispatched with an
+  undecided pack set. Pinned by `TestPacksAreStagedBeforeBackendDispatch`, which asserts the handler
+  receives a root that already holds the staged manifest — a path argument is easy to thread wrongly,
+  so the test checks the tree, not the string.
+- **The tree is staged root-owned.** `/var/yolo-jail/packs/<session>`, copied by sudo and made
+  `a+rX` — the macos-user analogue of the container's `:ro` `/ctx/packs`, and for the same reason: a
+  pack manifest is an INPUT to composition, so an agent that could rewrite one could grant its own
+  pack a host file next launch. It deliberately does NOT point at the invoking user's
+  `~/.local/share/yolo-jail`, which is the boundary this backend exists to enforce.
+- **`YOLO_PACK_ROOT` is baked into the bootstrap argv**, and three `PlanInvariants` now refuse a plan
+  that stages a tree nobody names, names a tree nobody stages, or puts the tree outside the
+  root-owned dir.
+- **`LoadJailPacks` no longer swallows every `ReadDir` error.** Absent still means "render nothing";
+  anything else (a root that is a file, unreadable, or on a mount that did not appear) is now
+  A12-fatal instead of an indistinguishable empty set — the same silence in the entrypoint that the
+  pipeline had.
+
+**What is verified, and from where.** The whole decision surface is unit-tested on Linux (the run
+pipeline's ordering, the plan's stage commands + env, the invariants, the entrypoint split). The
+render fingerprint gate is byte-identical to HEAD (10 files, hashes compared A/B in a HEAD worktree),
+and a nested jail launched from the freshly built binary still stages packs and renders a real
+surface (`~/.claude/settings.json`).
+
+**What is NOT verified — this is the ⛔.** No Mac has executed the sudo stage commands, and nothing
+outside a Mac can: whether `_yolojail` can read the staged tree, whether the bootstrap's surfaces
+land in the sandbox home, whether the hooks run. **Do not mark this ✅ on the strength of the Linux
+suite.** One `yolo run --dry-run` on a Mac shows the plan (it now prints the pack root, or
+`none staged`); one real launch closes the row.
+
+**Also still open on this backend:** skills and briefings do not reach a macos-user home at all —
+they cross into a container as bind mounts, and this backend has none. That is a separate gap from
+B-0, not a leftover of it, and it is unclaimed.
+
+> `macos-user-nix-and-features.md`'s `packs` row is corrected to ⚠️ with the same caveat. (It
+> previously read "`agents` selection ✅ — `YOLO_AGENTS` → per-agent config": a ✅ for a mechanism
+> that no longer exists, on a backend that rendered nothing.)
+
+The abstraction question this was meant to answer — can `render.Target` express a non-container
+backend? — is answered **not yet, and it did not need to be**. macos-user renders at the JAIL notch
+(`Env.renderTarget()` → `render.Jail`) with a real macOS home, which is what it did before this fix
+and what it still does. Nothing here required a new Kind. B-3's `guest` notch is where a Target must
+actually describe a non-container confinement, and it remains unstated.
 
 ## ⛔🐛 B-1. The other confirmed macos-user defects
 
@@ -469,7 +513,7 @@ gap, one decision the S4 audit surfaced, and a tail of small items.
 | 🟡 | **S4** | **AUDITED 2026-08-12 — the gate holds.** `into` does reach an unselected agent's dir, and that is the model, not a hole. What the probes DID find is a notch asymmetry in fan-out | audit done, one decision left | **your call** (OQ-S4) |
 | 🟡 | **E1+E2** | `host_files` modes 4→3, `readonly` as a real `:ro` mount | behavior change on a shipped key | a design pass (E2 first) |
 | 🟢 | **E3** | Capture on terminate (the `yolo config capture` half shipped) | small | nothing |
-| 🟢 | **E4** | Comment preservation on `json`/`toml` surfaces | small, decisions made | nothing |
+| 🟡 | **E4** | **`rmw` SHIPPED 2026-08-12; `computed` ruled out as vacuous; `stateful` is a different problem** — see below | one mode left, and it wants a decision | **your call** (OQ-E4) |
 | ⏸️ | **E5** | `managed`/`defaults` array-append pinning | small | **do not build speculatively** |
 | 🟢 | **V2** | `apply --host` is not whole-home idempotent until apply 3 | pre-existing, in `config` | nothing |
 | 🟢 | **V3** | Pack-set-wide archives land under `archive/skills/` even for `files` | cosmetic | nothing |
@@ -576,6 +620,42 @@ selected destination would make the footprint true without touching delivery.
 three probe results, including the notch disagreement, so answering OQ-S4 either way moves a test
 deliberately rather than rediscovering the behavior.
 
+## 🟡 E4 — the detail: one mode shipped, one is vacuous, one is a different problem
+
+**Shipped 2026-08-12** (`internal/entrypoint/tomltrivia.go`). The row said "small, decisions
+made"; the decisions were in [`host-file-staging.md`](host-file-staging.md), which ranked five
+options and put the *trivia* one — the only one that keeps a comment beside the key it explains —
+third, as real work wanting a decision. **It was third for `stateful`. For `rmw` it is nearly
+free, and the mode is the reason.**
+
+Three of the four costs priced there are costs of CAPTURED STATE: widening the overlay envelope,
+the sidecar migration, and finding somewhere for the staleness rule to live. An `rmw` surface has
+no captured state, and its source and destination are the same file, read and rewritten in one
+operation — so the option collapses to "scan the comments in, put them back out". No sidecar, no
+`TriviaCodec` on the engine interface, and nothing touching the shared emitter that `stateful`
+and `TestRenderFingerprintStable` ride (the fingerprint is byte-identical, checked).
+
+| mode | ruling | why |
+|---|---|---|
+| `rmw` | **preserve — done** | its contract already says "preserve everything yolo does not declare"; comments are part of everything, so the mode was breaking its own promise |
+| `computed` | **do not preserve, and that is correct** | yolo is the sole author. There is no user comment in the file to keep; a comment in that output would be one yolo *wrote*, which is a different feature |
+| `stateful` | **open — OQ-E4** | the file is COMPOSED, so a comment can only come from the `host` layer and preserving it is a PROJECTION between two files, not an in-place edit |
+
+**What `rmw` now does.** A comment survives iff the render did not change the value under it —
+sub-question ①'s ruling ("better a missing explanation than a lying one"), translated to the mode
+where the file *is* the layer the comment came from. Every drop is **reported by key** in
+`apply --host`, in observe as well as assert; the doc had conceded the rule "silently drops the
+user's comment", and it no longer does.
+
+**The `json` half of the row is vacuous, and now provably so.** Strict JSON has no comment
+syntax, so a commented `json` surface never decodes and the RMW path REFUSES it, byte-untouched.
+That was an observation about today's `settings.json`; it is now pinned by a test, so "E4 on a
+JSON surface" cannot quietly become a loss later.
+
+**Still lost, deliberately, and named rather than hidden:** key ORDER (the emitter is canonical),
+a comment block detached by a blank line anywhere but the file's top or bottom, a comment inside
+a multi-line value, and anything under an `[[array of tables]]`.
+
 ---
 
 # Everything else still open
@@ -588,7 +668,7 @@ deliberately rather than rediscovering the behavior.
 | 🟡🐛 | **D1** | **Config-approval snapshot is agent-writable** — `.yolo/config-snapshot.json` is mode `664` and writable in-jail (re-measured 2026-08-12). An agent that edits `yolo-jail.jsonc` **and** matches the snapshot makes the launch-time diff prompt vanish — the exact bypass [config-safety.md](../design/config-safety.md) exists to prevent, and it is undiscussed there. From `ROADMAP.md` §4d; never queued until now. **Has an open question — see OQ-D1** | security | **your call** (OQ-D1) |
 | 🟢🐛 | **D2** | **Two shipped docs contradict the code** — `USER_GUIDE.md:182` and `bundled_loopholes/claude-oauth-broker/README.md:59` both say *"no background timer / no proactive refresh"*, but `oauthbrokercmd.go:88` starts `RunBackgroundRefresher` by default — and that refresher **is** the architectural fix for all three logout paths. (The `--host-creds-file` half has since been fixed.) From `ROADMAP.md` §4d. **No OQ: the code is right and the docs are wrong**, so this is a doc edit, not a decision | doc defect | nothing |
 | 🟢🐛 | **D4** | **`host-processes` is silently broken on macOS + podman** — found 2026-08-12 while writing [loophole-transport.md](../design/loophole-transport.md) §2.1. Its manifest declares `"transport": "unix-socket"`, the *same* transport whose virtiofs failure is [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31); `yolo-ps` fails identically. Unreported because a broken `yolo-ps` is quiet where a broken broker blocks startup. Means the loophole is Linux-only in practice while advertised as available. **Porting it is also the natural proof for the transport generalization** (§6 step 3) | bug + the generalization's test case | nothing |
-| 🟢 | **D3** | **`flake.lock` bumps are unreviewable** — three opaque lines that could be a CVE fix or a README typo (C-2). Have the update workflow post `nix store diff-closures` between the old and new image derivation into the PR body, turning the bump into a readable package-version delta | small, additive | nothing |
+| ✅ | **D3** | ~~**`flake.lock` bumps are unreviewable**~~ **DONE** — the weekly workflow now builds `.#imageClosureRoot` (new flake output: the nixpkgs half of the image's contents, 571 store paths / 3.1 GiB, our Go build excluded) against the old and the new lock and appends `nix store diff-closures` to the PR body. Rehearsed on the real 08-05 → 08-12 pair, which produces `chromium: 151.0.7922.71 → 151.0.7922.108`, `aardvark-dns: 2.0.0 → 2.1.0`, `7 of 570 store paths changed` — the path count is reported because a staging-next merge that rebuilds the world without moving a version is invisible to `diff-closures`. Runs *after* the PR exists and `continue-on-error`, so it can only add to a bump, never block one; a build failure degrades to a note in the body. **Unverified until the first Monday run: the `gh pr edit` half** (everything before it was run locally) | — | — |
 | ✅ | **B4** | ~~Correct [agent-credentials.md](../design/agent-credentials.md) §3~~ **DONE** — it documented Bedrock keys arriving via the `env` block of host `settings.json`; that block is `{}` and the real path is `env_sources`. Corrected in place, with a note that the `env` block is nonetheless the right *target* design (§11.2) — it described the correct mechanism before anything used it | — | — |
 
 ---
@@ -602,6 +682,7 @@ on an answer.** Where I have a recommendation it is stated; where I do not, it s
 |---|---|---|---|
 | **OQ-D1** | **How to fix the writable config snapshot** (D1) | below | make it host-owned and read-only in-jail |
 | **OQ-S4** | **Should the jail narrow its skills fan-out to match the host?** (S4) | below | yes — run `ResolveDestinations` on the jail path too |
+| **OQ-E4** | **Do `stateful` surfaces get comment preservation too?** (E4) | below | not yet — the cheap half already landed, and this half is a real engine change |
 | **OQ-T1** | #32: per-jail token + pinned cert **as proposed**, or full mTLS? *The PR author asked this and is waiting.* | [`loophole-transport.md`](../design/loophole-transport.md) §7 | as proposed |
 | **OQ-T2** | Transport selection: automatic by platform, configured, or both? | same | automatic + override |
 | **OQ-T3** | Per-jail client secrets on the `unix` transport too, or only TCP? | same | yes, both |

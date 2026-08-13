@@ -37,29 +37,46 @@ fixed.
 
 ---
 
-## 2. The bug to fix first, and a doc that lies about it
+## 2. The bug that was fixed blind — your first job is to run it
 
-**`macos-user` renders ZERO pack surfaces, every launch, silently.** Verified still live
-2026-08-03 by reading the code:
+**Item 1.4 is wired as of 2026-08-12, from Linux, and has never run on a Mac.** Do this
+before anything else in this document: everything below assumes packs reach the sandbox.
 
-- `internal/entrypoint/darwin.go` — `RunDarwinBootstrap` does call
-  `LoadJailPacks` / `ConfigurePackSurfaces` / `RunPackHooks`. The machinery is wired.
-- `internal/cli/run/run.go:60-76` — the `rt == "macos-user"` branch returns at the
-  `MacosUserRun` call, which is **before `stagePacks`**. So `YOLO_PACK_ROOT` is never set,
-  and every one of those loops runs over an empty list.
+What was wrong: `internal/cli/run/run.go`'s `rt == "macos-user"` branch returned at the
+`MacosUserRun` call, which sat **before `stagePacks`**, so `YOLO_PACK_ROOT` was never set and
+`RunDarwinBootstrap`'s `LoadJailPacks` / `ConfigurePackSurfaces` / `RunPackHooks` loops each
+ran over an empty list. A backend that looked provisioned and configured nothing.
 
-The result is a backend that looks provisioned and configures nothing. No error, no warning —
-the loops simply have nothing to iterate.
+What is there now (full detail in [`outstanding-work.md`](outstanding-work.md) B-0):
 
-> **`macos-user-nix-and-features.md:174` still claims pack selection works there. It does
-> not.** Do not trust that line; fix it when you fix the bug. This is the third stale
-> status claim found in these docs this week (the other two were an "unbuilt" autonomy fix
-> that had shipped, and an out-of-scope note for a collision already fixed), so the general
-> lesson holds: **verify against code, not against markers.**
+- pack staging runs **above the backend dispatch**, so no backend is reachable without one;
+- the staged tree is copied to `/var/yolo-jail/packs/<session>` (root-owned, `a+rX`) — the
+  analogue of the container's `:ro` `/ctx/packs`, and NOT a pointer into the invoking user's
+  home, which is the boundary this backend exists to enforce;
+- `YOLO_PACK_ROOT` is baked into the bootstrap argv, and `PlanInvariants` refuses a plan
+  where the staging and the variable disagree.
 
-This is plan item **1.4**, and it is deliberately the first thing to do: it is the cheapest
-real test of whether `render.Target` can express a non-container backend at all. If `Target`
-cannot express macos-user cleanly, it will not express `guest` either.
+**How to check it in two commands.** `yolo run --dry-run` now prints a `packs:` line — the
+staged root, or `none staged`. Then a real launch: the sandbox home should hold the surfaces
+the selected packs declare (`~/.claude/settings.json` for the `claude` pack). If the dry run
+names a root and the launch renders nothing, the suspect is the **sudo stage commands or the
+sandbox-uid read** — those are the only parts no Linux test can reach.
+
+> **Two more things on this backend are still unfixed**, so a working pack render is not the
+> whole story: skills and briefings do not reach a macos-user home at all (they cross into a
+> container as bind mounts, and there are none here), and B-1's four defects stand.
+
+> The old version of this section warned that `macos-user-nix-and-features.md:174` claimed
+> pack selection worked here when it did not. That row now reads ⚠️ with the Mac-unverified
+> caveat. The lesson that produced it is the one to keep: **verify against code, not against
+> markers** — and, now, against a marker that says a Linux agent wired something it could
+> not run.
+
+The abstraction question 1.4 was supposed to answer — can `render.Target` express a
+non-container backend? — came back **not yet, and it did not need to**: macos-user renders at
+the JAIL notch (`Env.renderTarget()` → `render.Jail`) with a real macOS home, exactly as
+before, so no new Kind was required. §3's `guest` work is still where a Target has to describe
+a non-container confinement for the first time.
 
 ---
 

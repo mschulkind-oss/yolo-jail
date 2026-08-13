@@ -172,10 +172,27 @@ pure functions of `*Env`. So the per-workspace config surface is preserved:
 | `mise_tools` | ✅ | `ConfigureMisePrism` |
 | `lsp_servers` | ✅ | bootstrap env → lazy install |
 | `mcp_servers` + `mcp_presets` | ✅ | `GenerateMCPWrappers` |
-| `agents` selection | ✅ | `YOLO_AGENTS` → per-agent config |
+| `packs` selection | ⚠️ | staged + `YOLO_PACK_ROOT` → `LoadJailPacks` → surfaces/hooks. **Wired 2026-08-12 (B-0); UNVERIFIED on a Mac** |
 | `env_sources` | ✅ | `config.ResolveEnvSources`, layered into the launch env |
 | git identity | ✅ | host git config → `YOLO_GIT_*` → `configureGit` (host creds never cross) |
 | `macos_log` | ✅ | the `yolo-log` helper (Apple unified-logging bridge): `off`/`user`/`full` |
+
+> **The `packs` row was a ✅ that had never been true, and the correction is worth keeping
+> visible.** The row used to read "`agents` selection ✅ — `YOLO_AGENTS` → per-agent config",
+> naming a mechanism that no longer exists (agents are packs; there is no `YOLO_AGENTS`) for
+> a backend that rendered **zero** pack surfaces on every launch. The machinery in
+> `RunDarwinBootstrap` was real, but the run pipeline returned at the macos-user branch
+> *before* pack staging, so `LoadJailPacks` / `ConfigurePackSurfaces` / `RunPackHooks` each
+> looped over an empty list — no error, no warning (`outstanding-work.md` B-0).
+>
+> The ordering is fixed: staging now happens above the backend dispatch, the tree is copied
+> into the root-owned state dir (`/var/yolo-jail/packs/<session>`, the analogue of the
+> container's `:ro` `/ctx/packs`), and its path is baked into the bootstrap argv as
+> `YOLO_PACK_ROOT`. Every part of that is asserted by the plan invariants and unit tests on
+> Linux. **What no Linux test can answer is whether the sudo stage commands and the
+> sandbox-uid read actually work on a Mac**, which is why the row is ⚠️ and not ✅ — the
+> lesson of this entry being a stale ✅ in the first place is not one to repeat with a
+> fresh one.
 
 Two macOS-only pieces run here that the Linux boot does not: the `yolo-log`
 helper, and the **login-rc PATH re-prepend** (`.zprofile`/`.zshrc`/`.bash_profile`),
