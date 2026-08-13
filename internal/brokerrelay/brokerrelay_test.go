@@ -31,7 +31,7 @@ func startRelay(t *testing.T, socketPath, brokerPath, jail string) (stop func())
 	stopCh := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		_ = Serve(socketPath, brokerPath, jail, stopCh)
+		_ = Serve(Config{SocketPath: socketPath, BrokerPath: brokerPath, JailID: jail}, stopCh)
 		close(done)
 	}()
 	waitConnectable(t, socketPath)
