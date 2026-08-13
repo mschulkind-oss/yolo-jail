@@ -141,7 +141,7 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		keys.observeLines(pr)
 		pr.Printf("[dim]--assert will ask before retiring the entries above (paths move under "+
 			"%s; a config key is removed in place).[/dim]",
-			string(hostSkillsArchiveRoot()))
+			string(hostArchiveRoot(archiveBucketRetired)))
 		return rc
 	}
 
@@ -164,7 +164,10 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 
 	var forget []droppedOutput
 	for _, o := range present {
-		at, aerr := hostskills.Archive(hostSkillsArchiveRoot(), stamp, o.Pack, o.Dest)
+		// The `retired` bucket, not the skills one (V3): this pass archives a dropped pack's
+		// skills AND its files through one path-keyed record, so the destination cannot be
+		// named for either kind without lying about half of what lands in it.
+		at, aerr := hostskills.Archive(hostArchiveRoot(archiveBucketRetired), stamp, o.Pack, o.Dest)
 		if aerr != nil {
 			pr.Printf("  [red]%-20s retire failed[/red] — %v", o.Pack+"/retire", aerr)
 			rc = 1
@@ -372,7 +375,7 @@ func confirmDroppedPackRetire(pr richtext.Printer, out io.Writer, stdin io.Reade
 		"— nothing is deleted. A config KEY is removed from the file in place, since it is the "+
 		"pack's own assertion and comes back if you put the pack back in `packs`; every other "+
 		"key in that file is left alone. Declining leaves everything above exactly as it "+
-		"is.[/dim]", string(hostSkillsArchiveRoot()))
+		"is.[/dim]", string(hostArchiveRoot(archiveBucketRetired)))
 	return promptYesNo(out, stdin, fmt.Sprintf(
 		"  Retire the %d path(s) and %d config key(s) above? [y/N] ", len(present), len(keys)))
 }

@@ -423,8 +423,12 @@ func Run(opts Options) int {
 		p.line("")
 		p.line("[bold]Host-render archive[/bold]")
 		var names []string
-		hostArchiveBytes, hostArchiveGens, names = PruneHostArchive(
-			joinPath(joinPath(gs, "archive"), "skills"), hostArchiveKeep, apply)
+		// EVERY BUCKET under archive/, not the single hardcoded `skills` this used to name
+		// (V3). Each host kind now archives into its own bucket, so naming one would leave the
+		// rest to grow forever while this section reported "none" — and would also strand the
+		// legacy generations already sitting under `archive/skills`.
+		hostArchiveBytes, hostArchiveGens, names = PruneHostArchiveBuckets(
+			joinPath(gs, "archive"), hostArchiveKeep, apply)
 		if hostArchiveGens > 0 {
 			p.line(fmt.Sprintf("  %s: %s across %s generation(s)",
 				verb(apply, "would remove", "removed"), FmtBytes(hostArchiveBytes), fmtComma(hostArchiveGens)))

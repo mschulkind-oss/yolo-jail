@@ -85,7 +85,7 @@ func mustNotExist(t *testing.T, path, why string) {
 // archivedUnder returns every file the CONFIRMED retire archived, for asserting that retirement
 // MOVED rather than deleted (ruling R2).
 //
-// The briefing subtree is excluded, and that exclusion is the R4 asymmetry made visible in the
+// The briefing bucket is excluded, and that exclusion is the R4 asymmetry made visible in the
 // helper rather than left to each test: since §6a a briefing destination is a whole yolo-owned
 // file, so its retirement archives too — but UNCONFIRMED, because every byte being moved is a
 // byte yolo wrote. A helper that counted both would make "an unconfirmed retire archived nothing"
@@ -94,7 +94,7 @@ func archivedUnder(t *testing.T, home string) []string {
 	t.Helper()
 	var out []string
 	for _, rel := range archivedAll(t, home) {
-		if strings.Contains(rel, string(filepath.Separator)+"briefing"+string(filepath.Separator)) {
+		if archiveBucketOf(rel) == "briefing" {
 			continue
 		}
 		out = append(out, rel)
@@ -102,23 +102,28 @@ func archivedUnder(t *testing.T, home string) []string {
 	return out
 }
 
-// archivedBriefings returns every file the BRIEFING retire archived (the `<stamp>/briefing/…`
-// generation subtree).
+// archivedBriefings returns every file the BRIEFING retire archived — since V3, everything in
+// the `briefing` bucket.
 func archivedBriefings(t *testing.T, home string) []string {
 	t.Helper()
 	var out []string
 	for _, rel := range archivedAll(t, home) {
-		if strings.Contains(rel, string(filepath.Separator)+"briefing"+string(filepath.Separator)) {
+		if archiveBucketOf(rel) == "briefing" {
 			out = append(out, rel)
 		}
 	}
 	return out
 }
 
-// archivedAll lists every file under the shared host-render archive root, generation-relative.
+// archivedAll lists every file under the host-render archive ROOT — across every bucket —
+// relative to that root, so a path starts with the bucket that holds it.
+//
+// Walked from the root rather than from one bucket (V3): the buckets are the thing under test,
+// so a helper that looked in only one would report "nothing was archived" for the very mistake
+// of archiving into the wrong place.
 func archivedAll(t *testing.T, home string) []string {
 	t.Helper()
-	root := filepath.Join(home, ".local", "share", "yolo-jail", "archive", "skills")
+	root := filepath.Join(home, ".local", "share", "yolo-jail", "archive")
 	var out []string
 	_ = filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
 		if err == nil && fi != nil && !fi.IsDir() {
@@ -128,6 +133,12 @@ func archivedAll(t *testing.T, home string) []string {
 		return nil
 	})
 	return out
+}
+
+// archiveBucketOf is the first path segment of an archivedAll entry: the bucket it landed in.
+func archiveBucketOf(rel string) string {
+	bucket, _, _ := strings.Cut(rel, string(filepath.Separator))
+	return bucket
 }
 
 // applyThenDrop applies with the pack selected, then rewrites the config without it — the

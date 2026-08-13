@@ -21,7 +21,53 @@ import (
 	"time"
 )
 
-// PruneHostArchive reclaims host-render archive generations, keeping the newest `keep` and
+// PruneHostArchiveBuckets sweeps every BUCKET under the host-render archive root, keeping the
+// newest `keep` generations in each. Returns the totals plus every removed generation named as
+// `<bucket>/<stamp>`; apply=false reports without touching disk.
+//
+// WHY BUCKETS EXIST (V3). The archive used to be one directory, `archive/skills`, shared by
+// every host kind — so a replaced `files` copy was filed under a name that said "skills". The
+// render now writes one bucket per kind (internal/cli.hostArchiveRoot), and this is the sweep
+// that keeps that from becoming a disk leak: hardcoding one bucket name would have left every
+// new bucket to grow forever while prune reported "none".
+//
+// IT IS ALSO THE MIGRATION. `archive/skills` is still a live bucket — nothing was moved, so
+// every copy a previous yolo archived there is exactly where its report said it was — and
+// enumerating buckets rather than naming them is what keeps those legacy generations
+// reclaimable instead of stranding them.
+//
+// PER-BUCKET keep, not global: each bucket is its own undo buffer, and one apply that only
+// replaced a skill has no business evicting the generation holding the user's edited `files`
+// copy. A directory that holds no generation at all contributes nothing and is left alone,
+// which is the same "do not delete what you cannot account for" rule the stamp check applies
+// one level down.
+func PruneHostArchiveBuckets(archiveRoot string, keep int, apply bool) (bytesRemoved int64, removed int, removedNames []string) {
+	entries, err := os.ReadDir(archiveRoot)
+	if err != nil {
+		return 0, 0, nil // no archive is the normal case
+	}
+	var buckets []string
+	for _, e := range entries {
+		if e.IsDir() {
+			buckets = append(buckets, e.Name())
+		}
+	}
+	sort.Strings(buckets)
+	for _, bucket := range buckets {
+		b, n, names := PruneHostArchive(filepath.Join(archiveRoot, bucket), keep, apply)
+		bytesRemoved += b
+		removed += n
+		for _, name := range names {
+			// Qualified by bucket, because a stamp is a per-APPLY name and one apply can
+			// archive into several buckets — an unqualified list would print the same stamp
+			// twice with no way to tell which copy went.
+			removedNames = append(removedNames, bucket+"/"+name)
+		}
+	}
+	return bytesRemoved, removed, removedNames
+}
+
+// PruneHostArchive reclaims one BUCKET's archive generations, keeping the newest `keep` and
 // removing the rest. Returns (bytesRemoved, generationsRemoved, removedNames); apply=false
 // reports without touching disk.
 //

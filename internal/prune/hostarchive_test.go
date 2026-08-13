@@ -124,6 +124,87 @@ func TestPruneHostArchiveNoopCases(t *testing.T) {
 	}
 }
 
+// ── The bucket sweep (V3) ─────────────────────────────────────────────────────────────────
+
+// EVERY BUCKET is swept, and the legacy one is a bucket like any other. This is the migration
+// assertion: `archive/skills` used to be the whole archive, so a user upgrading has real
+// generations sitting there — a sweep that only knew the NEW bucket names would strand them
+// forever, which for an undo buffer means an unbounded leak in the user's own state dir.
+func TestPruneHostArchiveBucketsSweepsLegacyAndNewBuckets(t *testing.T) {
+	root := t.TempDir()
+	// `skills` is the historical path (it held every kind's copies); `files` and `retired` are
+	// the buckets the V3 render introduced.
+	for _, bucket := range []string{"skills", "files", "retired"} {
+		for _, stamp := range []string{"20260801-010000", "20260801-020000", "20260801-030000"} {
+			writeGeneration(t, filepath.Join(root, bucket), stamp, 100)
+		}
+	}
+
+	bytes, removed, names := PruneHostArchiveBuckets(root, 1, true)
+	// Two of three generations go in EACH bucket: the keep count is per bucket, because each
+	// one is its own undo buffer and an apply that touched only skills has no business evicting
+	// the generation holding the user's replaced `files` copy.
+	if removed != 6 {
+		t.Errorf("removed = %d, want 6 (3 buckets × 2 doomed generations)", removed)
+	}
+	if bytes != 600 {
+		t.Errorf("bytes = %d, want 600", bytes)
+	}
+	want := []string{
+		"files/20260801-010000", "files/20260801-020000",
+		"retired/20260801-010000", "retired/20260801-020000",
+		"skills/20260801-010000", "skills/20260801-020000",
+	}
+	if len(names) != len(want) {
+		t.Fatalf("names = %v, want %v", names, want)
+	}
+	for i, w := range want {
+		if names[i] != w {
+			// Bucket-qualified, because one apply archives into several buckets under ONE
+			// stamp — a bare list would print the same name three times with no way to tell
+			// which copy went.
+			t.Errorf("names[%d] = %q, want %q", i, names[i], w)
+		}
+	}
+	for _, bucket := range []string{"skills", "files", "retired"} {
+		if left := generationNames(t, filepath.Join(root, bucket)); len(left) != 1 {
+			t.Errorf("bucket %q kept %v, want the single newest", bucket, left)
+		}
+	}
+}
+
+// A bucket holding NO generation is left alone, and so is a stray file at the archive root.
+// Same rule as the stamp check one level down: prune does not delete what it cannot account
+// for, and this directory is in the user's own state dir.
+func TestPruneHostArchiveBucketsLeavesUnaccountedEntriesAlone(t *testing.T) {
+	root := t.TempDir()
+	writeGeneration(t, filepath.Join(root, "skills"), "20260801-010000", 10)
+	writeGeneration(t, filepath.Join(root, "skills"), "20260801-020000", 10)
+	if err := os.MkdirAll(filepath.Join(root, "my-own-backup"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, removed, _ := PruneHostArchiveBuckets(root, 1, true); removed != 1 {
+		t.Errorf("removed = %d, want 1 (only real generations inside buckets are candidates)", removed)
+	}
+	for _, keep := range []string{"my-own-backup", "README"} {
+		if _, err := os.Stat(filepath.Join(root, keep)); err != nil {
+			t.Errorf("prune removed %q, which it cannot account for: %v", keep, err)
+		}
+	}
+}
+
+// A missing archive root is the normal case — nobody has run `apply --host` yet.
+func TestPruneHostArchiveBucketsMissingRootIsANoop(t *testing.T) {
+	b, n, names := PruneHostArchiveBuckets(filepath.Join(t.TempDir(), "absent"), 3, true)
+	if b != 0 || n != 0 || names != nil {
+		t.Errorf("a missing archive root should be a no-op, got %d bytes / %d gens / %v", b, n, names)
+	}
+}
+
 // keep=0 clears the archive entirely — a legitimate "reclaim everything" request, and the
 // boundary most likely to be off by one.
 func TestPruneHostArchiveKeepZeroClearsAll(t *testing.T) {

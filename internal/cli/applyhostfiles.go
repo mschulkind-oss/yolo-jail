@@ -37,8 +37,14 @@ func applyHostFiles(pr richtext.Printer, errw io.Writer, p *packload.Pack, home,
 	}
 
 	results, rerr := entrypoint.RenderHostFiles(p, home, entrypoint.HostFilesRequest{
-		Manifest:    man,
-		ArchiveRoot: hostSkillsArchiveRoot(),
+		Manifest: man,
+		// The kind's OWN bucket (V3). It shared `archive/skills` with every other host kind,
+		// so a replaced `files` copy landed under a directory named for skills — the one place
+		// a user looking for it will not look. The ownership RECORD is still shared with skill
+		// delivery (see the file header); the archive is not, because they answer different
+		// questions: one is keyed by path and must not fork, the other is a place a human
+		// browses and must say what it holds.
+		ArchiveRoot: hostArchiveRoot(string(packdecl.KindFiles)),
 		Stamp:       stamp,
 	}, !write)
 	if rerr != nil {

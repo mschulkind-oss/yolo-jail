@@ -42,6 +42,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -72,11 +73,37 @@ func hostComposedSkillsManifestPath(home string) string {
 	return filepath.Join(paths.GlobalStorageUnder(home), "host-composed-skills.json")
 }
 
-// hostSkillsArchiveRoot is where retired skills are moved. Under the state dir so
-// `yolo prune` can find and reclaim it.
-func hostSkillsArchiveRoot() hostskills.ArchiveRoot {
-	return hostskills.ArchiveRoot(filepath.Join(paths.GlobalStorage(), "archive", "skills"))
+// hostArchiveRoot is where a host render moves a copy it is about to replace or retire, for
+// one BUCKET. Under the state dir so `yolo prune` can find and reclaim it.
+//
+// ONE BUCKET PER KIND, which is what V3 fixed: every host kind used to share the literal
+// `archive/skills`, so a `files` copy — pi's models.json, a theme, a script the pack owns —
+// was archived into a directory named for skills. The report prints the absolute path, so the
+// copy was never unreachable; it was unfindable by the one route a user actually takes, which
+// is looking under the state dir for the thing they just lost. A bucket that lies about its
+// contents is worse than no bucket, because the user stops looking.
+//
+// THE BUCKET NAME IS NOT ALWAYS A KIND, and `retired` is the case that proves it: the
+// dropped-pack retire is kind-agnostic BY DESIGN (droppedPackOrphans answers "whose was this
+// path?" from an ownership record keyed on the path alone, and its docstring says in as many
+// words that it does not need to know which kind wrote it). Forcing a kind onto it would mean
+// inventing an answer the pass deliberately does not have. So the parameter is the bucket, and
+// the callers that HAVE a kind pass its name.
+//
+// MIGRATION — nothing moves. `skills` keeps the historical path, so every copy already under
+// `archive/skills` (whatever kind put it there) stays exactly where it is and stays reachable.
+// The other buckets are new directories, and prune.PruneHostArchive sweeps every bucket under
+// `archive/` rather than the one hardcoded name, so neither the legacy generations nor the new
+// ones are orphaned. Moving old copies to "tidy" them would be the one thing this archive
+// exists to prevent: yolo relocating a file the user was told the location of.
+func hostArchiveRoot(bucket string) hostskills.ArchiveRoot {
+	return hostskills.ArchiveRoot(filepath.Join(paths.GlobalStorage(), "archive", bucket))
 }
+
+// archiveBucketRetired is the dropped-pack retire's bucket. Named for the OPERATION rather
+// than a kind because that pass retires skills and files through one path-keyed record; see
+// hostArchiveRoot.
+const archiveBucketRetired = "retired"
 
 // localPackSkillsPath is where an adopted entry MOVES to: the conventional local pack's own
 // skills/ dir.
@@ -130,7 +157,7 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	req := hostskills.ComposeRequest{
 		Composed:        composed,
 		Legacy:          legacy,
-		ArchiveRoot:     hostSkillsArchiveRoot(),
+		ArchiveRoot:     hostArchiveRoot(string(packdecl.KindSkills)),
 		Stamp:           stamp,
 		LocalPackSkills: localPackSkillsPath(home),
 		PackSetComplete: complete,

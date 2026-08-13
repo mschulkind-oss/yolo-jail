@@ -30,6 +30,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -92,8 +93,10 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		pr.Printf("  [yellow]⚠ briefing: %v — treating every existing briefing as yours[/yellow]", err)
 	}
 	req := entrypoint.HostBriefingRequest{
-		Manifest:        man,
-		ArchiveRoot:     hostSkillsArchiveRoot(),
+		Manifest: man,
+		// The kind's own bucket (V3) — see hostArchiveRoot. A retired briefing used to be
+		// archived under `archive/skills`, which is a directory naming a different kind.
+		ArchiveRoot:     hostArchiveRoot(string(packdecl.KindBriefing)),
 		Stamp:           stamp,
 		LocalPackAGENTS: localPackBriefingPath(home),
 		PackSetComplete: complete,
