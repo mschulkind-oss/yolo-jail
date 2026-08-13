@@ -118,7 +118,10 @@
     Example:
       "agents_md_extra": "## Cerebras MCP\\n\\nUse cerebras-mcp for X."
 
-  [bold]host_services[/bold] (object): Host-side services the jail can reach.
+  [bold]loopholes[/bold] (object): Host-side services the jail can reach.
+    ("host_services" is what this block is called in prose and in the code that
+    validates it; the KEY is "loopholes" — config.go's known-key list has no
+    "host_services", so writing that spelling is an unknown-key error.)
     Each key is a service name (must match ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$).
     The name "cgroup-delegate" is reserved for the built-in cgroup daemon.
 
@@ -189,7 +192,7 @@
       • "full" — args pass through unchanged (requires host journal read access)
     Socket: /run/yolo-services/journal.sock
     Env var: YOLO_SERVICE_JOURNAL_SOCKET
-    "journal" is reserved as a host_services name — you cannot shadow it.
+    "journal" is reserved as a loopholes name — you cannot shadow it.
 
   [bold]env_sources[/bold] (array): Environment variables set inside the jail.
     Ordered list; each entry is either:

@@ -65,6 +65,15 @@ running as the same user on the host)."* So the boundary is **not** a security b
 malicious jail occupant; it is a boundary against *accident and unaudited action*. That framing
 decides several things below, and getting it wrong would oversell the feature.
 
+> **The quote is the OLD wording, 2026-08-13; the constraint it names is unchanged.**
+> [`loophole-protocol.md`](loophole-protocol.md) §Security posture now says the boundary is
+> *"whatever runs as your user"* and names the per-jail token as what enforces it on a port — because
+> there is no socket file on the jail-facing hop any more (see
+> [`loophole-transport.md`](loophole-transport.md)). Every conclusion in this document that rests on
+> the sentence survives verbatim: the same-user set is the specification, so this is still a boundary
+> against accident and unaudited action, not against a hostile occupant. Quoted here as history so
+> the argument's premise is traceable — do not re-derive the old wording from it.
+
 ---
 
 ## 2. The two absences, and why they are the whole design
@@ -244,8 +253,9 @@ that discipline is not optional here. A good forcing question: **would the human
 not, it should not be a prompt; it should be an allowlist entry or a log line.
 
 **6.2 The boundary is not a security boundary against the jail occupant.** Per the protocol's own
-security posture, *the socket file is the authentication* — anything running as the same user can
-connect. So this protects against **accident and unaudited action**, not against a hostile agent
+security posture — since 2026-08-13 worded as *the boundary is whatever runs as your user*, with a
+per-jail token enforcing it where there is no socket file to permit — anything running as the same
+user can connect. So this protects against **accident and unaudited action**, not against a hostile agent
 that could simply ask again, or ask for something innocuous-looking. Documenting it as a security
 control would be a lie, and the doc should say so where a user reads it.
 

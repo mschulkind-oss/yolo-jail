@@ -284,10 +284,17 @@ in §2 of that doc). So none of those are named, hence none cross.
 
 ### 2.7 Host-service loopholes (secrets that never enter the jail)
 
-The general pattern (`host_services` config; broker is one instance): a host-side
-daemon holds the secret and exposes a Unix socket bind-mounted at
-`/run/yolo-services/<name>.sock`, with `YOLO_SERVICE_<NAME>_SOCKET` in the launch
-env. The agent calls the service but **never sees the raw credential**
+The general pattern (`loopholes` config; broker is one instance): a host-side
+daemon holds the secret and the jail reaches it through a per-jail directory
+bind-mounted at `/run/yolo-services/`. **What lands in that directory changed
+2026-08-13** ([`loophole-transport.md`](loophole-transport.md)): a loophole with a
+manifest publishes an **endpoint file** — `<host:port> <base64 cert> <token>`,
+written `0600` — named by `YOLO_SERVICE_<NAME>_ENDPOINT`, and the client dials a
+cert-pinned, token-authenticated `127.0.0.1` port rather than `connect()`ing a
+socket. A service declared in `yolo-jail.jsonc` still gets
+`<name>.sock` and `YOLO_SERVICE_<NAME>_SOCKET`, because its daemon is a program
+yolo did not write. Either way the agent calls the service but **never sees the raw
+credential**
 ([../guides/USER_GUIDE.md:797-921](../guides/USER_GUIDE.md); config-ref
 `host_services`). This is the sanctioned way to give a jail scoped access to a
 credential without handing it over. **Unavailable on Apple Container** (no

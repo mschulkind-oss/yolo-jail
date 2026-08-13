@@ -228,6 +228,8 @@ To verify YOLO Jail's security, audit these specific code sections:
 
 1. **Minimize the bridge**. The untrusted side communicates with the trusted side through exactly two Unix sockets (cgroup + port-forward) and zero other channels. Every other mount is either read-only or data (workspace files the agent is supposed to edit).
 
+   > **Correction 2026-08-13 — "zero other channels" undercounts, and one of them is now a TCP port.** Loopholes are a third channel and always were (each published a socket into `/run/yolo-services/`); since the transport unification ([`loophole-transport.md`](loophole-transport.md)) an active loophole is reached over **loopback TCP**, not a socket: the jail reads a `0600` endpoint file, pins the exact certificate named in it, and presents the per-jail bearer token that also lives in it. So the count is "two Unix sockets **plus one loopback-TLS port per active host service**", and the port is authenticated by that token rather than by a mount. The "invisible to network scanners" row in §3's port-forwarding table still holds — that mechanism is unchanged — but it does not generalize to loopholes any more.
+
 2. **Kernel-attested identity**. We never trust the container to identify itself. `SO_PEERCRED` gives us the host-namespace PID of the connecting process — this is set by the kernel, not by the caller. It's the Unix equivalent of a hardware attestation.
 
 3. **Finite protocol**. The cgroup daemon accepts exactly 3 message types. The port-forward bridge has zero runtime messages (it's a static tunnel). There is no general-purpose RPC, no shell execution, no eval, no dynamic code loading across the trust boundary.
