@@ -17,6 +17,17 @@ format did not move.
 External loophole authors can rely on this spec: breaking changes
 will bump `PROTOCOL_VERSION` and ship a transition window.
 
+**This document is the WIRE contract only.** How a third party
+*distributes* a loophole — and how they implement the server side
+without a TLS stack — is
+[`loophole-packaging.md`](loophole-packaging.md): a designed 15th
+pack contribution kind, plus a yolo-run TLS **front** that lets a
+daemon bind a plain AF_UNIX socket and have yolo publish the
+endpoint file in front of it. Read it before writing a server; the
+"Writing a server from scratch" section this doc still lacks is one
+of its deliverables (§2.3 there), and it is explicit that the
+spec-only path is the **unsupervised** one.
+
 ## Handshake
 
 **There is no handshake at the frame layer.** A client sends one
@@ -233,3 +244,36 @@ retired `unix-socket` transport a shell one-liner really was enough.
 
 Redo steps 1–4 on **every** connection. Caching the address, the
 certificate, or the token is what re-reading exists to avoid.
+
+## Writing a SERVER from scratch — and the easier path
+
+There is no server-side section here yet, and adding one is a
+deliverable of [`loophole-packaging.md`](loophole-packaging.md)
+§2.3. Two things a would-be daemon author should know before
+reaching for a TLS library:
+
+- **You probably do not need one.** Under that design a manifest
+  declares `host_daemon.publishes: "socket"`, the daemon binds a
+  plain AF_UNIX socket at `{socket}`, and yolo runs
+  `svcendpoint.ServeFront` in front of it — so anything that can
+  bind AF_UNIX and read a 4-byte length prefix works: Python, Node,
+  Rust, a shell script with `socat`. The `nc`-era simplicity this
+  doc mourns above is restored on the *server* side, behind the
+  front. One behaviour change is invisible from inside the daemon
+  and worth stating twice: the front **never propagates the
+  client's EOF upstream**, so a daemon that reads its request *to
+  EOF* works on a bare socket and hangs forever behind the front.
+  Read to the length prefix.
+- **Implementing the transport yourself is the unsupervised path.**
+  Every security-critical property of the server half — the
+  endpoint file's `0600`, the publication directory's `0700`, the
+  private key never touching disk, a constant-time token compare, a
+  frame-length cap checked before allocation — is enforced by the
+  daemon and is **undetectable by yolo**. A daemon on that path is
+  trusted to the degree its author is. Three couplings will
+  otherwise kill it with a misleading symptom: the token must be
+  exactly 64 lowercase hex or the file parses fine and probes
+  false; `Probe`, not file existence, is the health predicate
+  everywhere; and `yolo check` dials `127.0.0.1` with the
+  *published* port, so the listener must accept on loopback
+  whatever it advertised.

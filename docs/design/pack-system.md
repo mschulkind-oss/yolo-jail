@@ -127,6 +127,14 @@ because they widen the trust surface — machine-scope state (it leaks across wo
 `reads-host` grant, a `mount` of a host directory, an installer URL, a briefing that
 prepends a host file. The review flag is an invitation to look, not a refusal.
 
+> **A 15th kind, `loophole`, is DESIGNED and not built:**
+> [`loophole-packaging.md`](loophole-packaging.md). It would let a pack ship a host daemon by
+> pointing at a module directory, and it is the first kind whose claim is **host code
+> execution** rather than a host read — so it carries its own trust story, its own claim
+> classes, and a hard prerequisite: an unknown kind is A12-fatal to a jail booting a
+> pre-`just load` image (that doc §3.3a), so the tolerance change lands *before* the kind.
+> Nothing in the table above changes until it does.
+
 The per-kind fields:
 
 ### `program`
@@ -772,6 +780,16 @@ dir.
 - The credential boundary holds — a fetched pack reads the host only for claims the user
   approved at install, and a pin that gains access re-prompts; a fetched pack never reads the
   host silently.
+
+> **Both of the above are stressed by the designed `loophole` kind**
+> ([`loophole-packaging.md`](loophole-packaging.md)), and the first must be **sharpened in the
+> same commit that adds it** (that doc, R1). A declared argv is static data, so the sentence
+> stays literally true — but its spirit was "reading a manifest costs you nothing", and with a
+> loophole, reading the claim is safe while *selecting* it is host execution. The second
+> invariant is the one the design's own first draft violated: a loophole declaring only
+> `host_bind_mounts` produced no approval claims at all, and the gate returns true on an empty
+> claim set. Read that doc's §3.3 before adding any kind whose claims come from a file outside
+> `pack.json`.
 - Packs stay user scope — a workspace config cannot name one.
 - The source set for `derive` stays closed and core-owned — a pack projects, never invents.
 - `derive` is deterministic.
@@ -960,6 +978,7 @@ Resolved sharp edges (kept because the reasoning is the interesting part):
 | The `packs` config key, precedence, entry schema | `yolo config-ref` |
 | The composition engine internals | `internal/agentcfg` |
 | Bringing host files INTO a jail as a user (the `host_files` key) | `docs/plans/host-file-staging.md` |
+| A pack shipping a LOOPHOLE (host daemon) — the designed 15th kind | `docs/design/loophole-packaging.md` |
 | Rendering a pack OUT to the host (the invert-the-flow design) | `docs/design/host-render-target.md` |
 | The credential/identity boundary a pack respects | `docs/design/agent-credentials.md`, `docs/design/identity-prism-decision.md` |
 | Composed-file read/write posture, in depth | `docs/design/composed-file-permissions.md` |
