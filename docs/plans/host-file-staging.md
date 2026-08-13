@@ -823,6 +823,50 @@ vendored dep first), and its whitespace-significant, multi-document, anchor-bear
 syntax is where a naive round trip does the most damage. `.yaml` → `raw` is the right
 default regardless of what happens above.
 
+#### What shipped: option 3, for `rmw` only, and the reason it was small there
+
+**Done 2026-08-12** (`internal/entrypoint/tomltrivia.go`). Option 3 — the trivia option,
+the only one that keeps a comment *beside the key it explains* — turned out to cost almost
+none of what is priced above, **for one mode**. Three of its four listed costs are costs of
+CAPTURED STATE: widening the overlay envelope, the sidecar migration, and the staleness rule
+needing somewhere to live. An `rmw` surface has no captured state at all, and its source and
+destination are the same file, read and rewritten in one operation. So the option collapses
+to "scan the comments on the way in, put them back on the way out" — no sidecar, no
+migration, no `TriviaCodec` on the engine's interface, and nothing touching the shared
+emitter that `stateful` and the render-fingerprint gate depend on.
+
+**The mode is not an implementation detail here — it is the argument.** `rmw`'s contract
+already says "preserve everything yolo does not declare"; comments are part of everything,
+so the mode was violating its own promise. The other two modes are different problems, not
+smaller versions of this one:
+
+| mode | ruling |
+|---|---|
+| `rmw` | **preserve** — contract-mandated, and cheap for the reason above |
+| `computed` | **do not preserve, and this is correct.** yolo is the sole author; there is no user comment in the file. A comment in that output would be one yolo *wrote*, which is option 2, a different feature |
+| `stateful` | **still open.** The file is composed, so a comment can only come from the `host` layer and preserving it is a PROJECTION from one file into another — the case this whole section was about. Still wants the optional codec interface, trivia surviving the Lua transform boundary, and ① keyed on `Result.Provenance` |
+
+Four of the sub-questions above resolved as written, one corrected:
+
+- **① staleness** — taken as ruled, translated to the mode where the file IS the layer the
+  comment came from: a comment survives iff the render did not change the value under it.
+- **② in-jail additions** — untouched; `rmw` keeps no sidecar, so there was never a channel
+  for a comment to travel back through.
+- **③ which surface needs it** — confirmed by construction rather than by inspection. Every
+  shipped `json` surface has *nothing to lose*: strict JSON has no comment syntax, so a
+  commented file does not decode and the RMW path REFUSES it, byte-untouched. That is now
+  pinned by a test rather than left as an observation about today's `settings.json`.
+- **the concession that ① "silently drops the user's comment"** — corrected. Every drop is
+  reported by key through `HostRenderResult.Formatting`, in observe as well as assert, so the
+  user sees which comment goes before the write happens.
+
+**What is deliberately still lost, and reported rather than fixed:** key ORDER (the emitter
+is canonical, so a re-emitted file is sorted), a comment block detached from what follows by
+a blank line anywhere but the top or bottom of the file, a comment inside a multi-line value,
+and anything under an `[[array of tables]]`. Hoisting those somewhere they did not come from
+is the "detached comments are close to noise" failure this section already rejected, so they
+are counted and named instead.
+
 ## The credential boundary — per entry
 
 > **✅ Built** as described, including the `inJail()`-gated probe. One addition:

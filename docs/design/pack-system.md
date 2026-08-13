@@ -511,6 +511,21 @@ server a UI adds at the user scope is overwritten with a boot-time drop notice, 
 local-scope and project `.mcp.json` servers are untouched. yolo does not reconcile; it
 regenerates.
 
+**Comments survive an `rmw` render, and the mode is why.** "Preserve everything yolo does
+not declare" covers the prose as well as the keys, so on a `toml` surface a comment is put
+back beside the key it explains — with one exception, which is a rule rather than a
+limitation: a comment above a key the render CHANGES is dropped, because a `# pinned to 2.13`
+sitting above `"2.15"` misleads worse than no comment at all. Every such drop is named in
+`apply --host`'s output, in observe as well as assert. A `json` surface has nothing to
+preserve: strict JSON has no comment syntax, so a commented file never decodes and `rmw`
+refuses it untouched.
+
+The other two composing modes are deliberately unchanged and for different reasons.
+`computed` is a file yolo solely authors, so there is no user comment in it to keep.
+`stateful` composes a file from many layers, which makes preserving a comment a PROJECTION
+out of the `host` layer rather than an in-place edit — still open, and the remaining cost is
+in [`../plans/host-file-staging.md`](../plans/host-file-staging.md).
+
 ---
 
 ## 6. Composed-file posture: what "writable" means
