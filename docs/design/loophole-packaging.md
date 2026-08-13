@@ -50,6 +50,24 @@ design over verified code paths, not over a working instance (**R2**).
 > **One finding is REJECTED on measurement** and one is scoped down; both are argued in place
 > (§7 and §4.5). A rejected finding that leaves no trace gets rediscovered.
 
+> ### Revision 3 — maintainer review of the overview
+>
+> Five comments on [`loophole-packaging-overview.md`](loophole-packaging-overview.md), and two of
+> them challenge the design rather than the prose. Folded in here because this doc is the authority:
+>
+> 1. **"Why three channels?"** — a `file://` pack does what the user loophole directory does, with
+>    the same justifying sentence; and a bundled loophole could be an *official pack*, the way
+>    `AGENTS.md` already dissolved agents into packs. §5.4's three reasons are re-graded (one
+>    survives, one is wrong) and the direction is **OQ-LP10** and **OQ-LP11**.
+> 2. **The framework owns the wire, so a pack may not opt out of it** — *"loopholes MUST use TCP, so
+>    that should be in the framework not the loophole."* `publishes: "socket"` becomes the only legal
+>    value for a pack-shipped loophole (§2.1); self-publishing stays first-party.
+> 3. **Platform awareness is missing** — `requires` says *"the thing I need is present"*, never *"I
+>    only exist for this platform"*, and packs will ship native code (§3.1, new subsection). Also the
+>    named extension point for a future platform-specific transport.
+> 4. **The front cannot be the crossing audit log.** Withdrawn: a loophole's protocol can be anything,
+>    so connection-level is the honest ceiling (§2.1b hazard 3).
+
 ---
 
 ## 1. The gap, and why it got acute this week
@@ -58,8 +76,8 @@ Loopholes have three distribution channels and only one of them is third-party:
 
 | Source | Constant / entry | Who it is for | State |
 |---|---|---|---|
-| `bundled_loopholes/`, embedded in the binary | `BundledLoopholesDir` (`internal/loopholes/loopholes.go:89`) | yolo's own three | fine |
-| a user loophole dir | `UserLoopholesDir` → `~/.local/share/yolo-jail/loopholes` (`loopholes.go:110`) | one hand-placed local loophole | no fetch, no version, no approval, no manifest travelling with the code |
+| `bundled_loopholes/`, embedded in the binary | `BundledLoopholesDir` (`internal/loopholes/loopholes.go:89`) | yolo's own three | fine — but **why not an official pack?** OQ-LP11 |
+| a user loophole dir | `UserLoopholesDir` → `~/.local/share/yolo-jail/loopholes` (`loopholes.go:110`) | one hand-placed local loophole | no fetch, no version, no approval, no manifest travelling with the code — and **a `file://` pack subsumes it**, OQ-LP10 |
 | the `loopholes` block in `yolo-jail.jsonc` | `synthesizeConfigLoopholes` (`discover.go:29`) | **the only third-party path** | **degraded, and now dead** |
 
 **The transport unification killed the last row.** `internal/loopholes/loopholes.go:63` is now
@@ -147,6 +165,17 @@ the daemon binds**. Splitting them retires it honestly:
 `transport` stays `loopback-tls` in both cases, because the transport is what the jail dials and
 that does not change. The jail sees one thing; the daemon author picks the easier half.
 
+**REVIEW RULING: a PACK-shipped loophole may only say `publishes: "socket"`.** The maintainer's
+framing is that the transport is a property of the framework, not of the loophole — *"loopholes MUST
+use TCP, so that should be in the framework not the loophole"* — and the enforcement asymmetry in
+§2.3 is exactly why. Self-publishing stays available to a **bundled** loophole (all three do it
+today), because that is yolo's own code publishing yolo's own credential. For a distributed artifact
+the front is mandatory, which converts the asymmetry from something this doc *documents* into
+something a third party cannot express: they cannot get the endpoint mode, the compare or the cap
+wrong because they never write them. Cost: one splice hop for a Go-authored third-party daemon that
+could have done it correctly — cheap, and reversible if anyone complains. Enforced at load, in the
+pack-shipped-subset validation beside the `jail_env` refusal (§3.1).
+
 **`{socket}` and `{endpoint}` must diverge under `publishes: "socket"`.** Today both expand to the
 same host path and `{socket}` is a back-compat alias (`loopholesruntime.go:367-372`). Under the new
 value `{socket}` is the **upstream** path and `{endpoint}` is the **published** file. A manifest
@@ -208,11 +237,18 @@ cheaper to implement and is exactly the "works until it doesn't" shape this doc 
    need EOF — but a daemon that reads its request *to EOF* works on a bare socket and **hangs
    forever** behind the front. That is a behaviour change the author cannot see, so it is a named
    requirement in the guide, not a footnote.
-3. **No per-request access log.** `hostservice`'s structured line
-   ([`loophole-protocol.md`](loophole-protocol.md) §Access logging) is a property of daemons using
-   the helper. The front sees bytes, not requests, so a spliced third-party daemon's requests are
-   unlogged by yolo. A known limit — and the natural home for the crossing audit log later, since
-   every third-party crossing would pass through one yolo-owned process.
+3. **No per-request access log, and — REVIEW CORRECTION — the front can never be one.** Draft 2
+   called the front *"the natural home for the crossing audit log later, since every third-party
+   crossing would pass through one yolo-owned process."* The maintainer's objection is correct and
+   the claim is **withdrawn**: *"seems impossible to generically log here, protocol could be
+   anything including video/audio who knows."* The front splices a byte stream it does not parse, and
+   nothing constrains a loophole's protocol to be request-shaped — `frameproto` is what yolo's own
+   daemons speak, not a property of the transport. **What the front CAN record is connection-level**:
+   which loophole, when, which jail, bytes each way, duration. That is a real and useful audit
+   surface and it is the honest ceiling. Per-request logging stays a property of daemons using
+   `hostservice`'s helper ([`loophole-protocol.md`](loophole-protocol.md) §Access logging); anything
+   richer is per-loophole, not framework. Say so in the server-side spec so nobody designs against
+   the withdrawn promise.
 
 ### 2.1c A daemon that starts and never becomes reachable is COMPLETELY silent
 
@@ -297,7 +333,9 @@ and the same reason row **T2** refuses a second TLS implementation in generated 
 **Deliverable:** a *"Writing a server from scratch"* section in
 [`loophole-protocol.md`](loophole-protocol.md), mirroring the client one, stating plainly that it is
 the **unsupervised** path — yolo cannot verify the mode, the compare or the cap, so a daemon on it is
-trusted to the degree its author is. Three couplings belong in it because they are enforced by yolo's
+trusted to the degree its author is. **And per §2.1's review ruling, it is reachable only by a
+loophole yolo itself ships**: the spec is written so the framework's own front can be understood and
+audited, not so a pack can opt out of it. Three couplings belong in it because they are enforced by yolo's
 *health* code rather than by the wire, so a conforming-looking daemon dies with a misleading symptom:
 the token must be exactly 64 lowercase hex (`svcendpoint` `IsToken`) or the file parses fine, probes
 false, and the daemon is SIGKILLed after five seconds with a healthy-looking log; `Probe` and not
@@ -428,6 +466,36 @@ exactly that (`PULSE_SERVER` only makes sense when the sockets crossed). So a pa
 audio-shaped loophole would set env even when inactive. That is the case that would justify a
 cross-kind collision pass, and it is purely additive — same claim model, one more pass beside the
 three bespoke ones already there (`footprint.go:311-352`, `:357-384`, `:419-453`).
+
+#### A loophole must declare where it can run — REVIEW ADDITION
+
+The framework owning the wire (§2) makes the **transport** portable. It does not make the **daemon**
+portable, and the maintainer's note is that packs will ship native things: *"as we may ship native
+things, we also need to be platform aware for what platforms are supported."*
+
+Today's `requires` predicates (`command_on_path`, `file_exists`; parsed at `load.go:250-262`,
+evaluated by `RequirementsMet` at `loopholes.go:201`) express
+*"the thing I need is present"* — a runtime probe. They cannot express *"I only exist for this
+platform"*, and the difference is not cosmetic. A pack shipping a compiled Linux daemon on macOS
+should be reported as **unsupported here**, not as a requirement that happened to be unmet (which
+reads as "install the missing thing") and certainly not as a spawn that fails five seconds later
+through §2.1c's silent path.
+
+**Requirement:** the manifest declares supported platforms — `GOOS`, and `GOARCH` where it matters —
+validated statically at load and evaluated host-side during discovery. A selected pack whose loophole
+is unsupported on this machine is reported **by name**, once, with the platforms it does support.
+
+**And it shares its mechanism with the inert-backend report (§8), deliberately.** Platform
+(`darwin` vs `linux`) and backend (`container` and `macos-user` skip loopholes entirely) are two
+different axes with one answer shape: *this loophole does nothing here, and here is why.* Two
+mechanisms would give two half-messages for one user-visible situation, which is the B-0 shape again.
+
+**This is also the extension point for a future native transport, named and not designed.** The
+maintainer's read: *"until we need a very native platform specific one that can't work with all
+runtimes, which we should plan for I guess, but not truly design yet."* A platform declaration is
+what makes such a loophole expressible later without a schema break —
+[`extension-point-principle.md`](extension-point-principle.md)'s rule exactly, and the cost of
+omitting it now is a migration for every manifest in existence at that point.
 
 #### The fatal-collision rule is NOT free, and cannot live in `Discover`
 
@@ -1054,24 +1122,43 @@ of. This design does not claim otherwise, and no packaging design could.
 
 ### 5.4 So how does the broker stay on by default?
 
-**It stays bundled.** `bundled_loopholes/` is not a legacy channel to be migrated away from; it is
-the channel for *the things yolo itself is accountable for*. Two channels, one loader, and the
-difference is who is accountable — precisely the `_official/` versus top-level split pack staging
-already has (`run/packs.go:39`).
+**It stays bundled — but REVIEW CHALLENGED THE CHANNEL ITSELF, and the challenge lands.** Draft 2
+argued `bundled_loopholes/` is *"the channel for the things yolo itself is accountable for"*, citing
+the `_official/` versus top-level split pack staging already has (`run/packs.go:39`). The maintainer's
+objection: *"why not a real pack? it can still come from a built in shipped namespace or whatever."*
 
-Three reasons this is right and not a dodge:
+**That is the same move this repo already made for agents, and AGENTS.md's headline sentence is the
+precedent against draft 2's argument, not for it:** *"AGENTS ARE PACKS. Core does not know what an
+agent is. There is no agent registry, no `agents` config key."* The six shipped agents are ordinary
+packs that happen to live in the binary. `bundled_loopholes/` **is** a registry, and accountability
+is a property of *who wrote it* — which an official pack already carries, since it is embedded in
+the same binary.
 
-1. **Bundled + `requires` already IS the default-on mechanism.** `claude-oauth-broker` declares
-   `requires: {command_on_path: "claude"}` and `Active()` is `Enabled && RequirementsMet()`
-   (`loopholes.go:232`), so a user with Claude Code installed gets refresh serialization without
-   knowing they need it. Make it opt-in and anyone who does not select it silently gets the
-   single-use-refresh-token race the broker exists to prevent.
-2. **A pack could not express what the broker needs.** Its `host_daemon.cmd` is **not what runs** —
-   `startLoopholes` special-cases the name (`loopholesruntime.go:156-159`) and reconstructs the argv
-   in Go via `broker.BrokerSpawnArgv`. And its per-jail relay, the only loopback-TLS hop a jail
-   actually dials for it, has **no manifest vocabulary at all** (`ensureBrokerRelay` at `:498`).
-   Migrating it would mean inventing two manifest features for one consumer.
-3. **`host-processes` cannot move either**: its client is `cmd/yolo-ps`, a baked image binary.
+So of the three reasons below, **only the second survives as an argument about the channel**; the
+other two are facts about the specific loopholes. Recorded as **OQ-LP11**, and note the ordering
+consequence: this kind is the prerequisite for that consolidation, so nothing here needs to change
+to keep the door open.
+
+Three reasons draft 2 gave, re-graded:
+
+1. **Bundled + `requires` already IS the default-on mechanism** — ⚠️ **partly.**
+   `claude-oauth-broker` declares `requires: {command_on_path: "claude"}` and `Active()` is
+   `Enabled && RequirementsMet()` (`loopholes.go:232`), so a user with Claude Code installed gets
+   refresh serialization without knowing they need it. Make it opt-in and anyone who does not select
+   it silently gets the single-use-refresh-token race the broker exists to prevent. **The
+   requirement is real; the channel is not the only way to meet it.** An *official* pack could carry
+   an implicit-selection bit — the mechanism exists today, since the conventional local pack is
+   `Implicit: true` (`config/packs.go:275`). What §5.3 rules out is a **third-party** pack being
+   default-on, which is a different sentence.
+2. **A pack could not express what the broker needs** — ✅ **this is the one that survives.** Its
+   `host_daemon.cmd` is **not what runs**: `startLoopholes` special-cases the name
+   (`loopholesruntime.go:156-159`) and reconstructs the argv in Go via `broker.BrokerSpawnArgv`. And
+   its per-jail relay, the only loopback-TLS hop a jail actually dials for it, has **no manifest
+   vocabulary at all** (`ensureBrokerRelay` at `:498`). Packaging it would be ceremony over a thing
+   that ignores the package — so it is blocked on giving those two a manifest, not on the channel.
+3. **`host-processes` cannot move either** — ❌ **this one does not hold.** Its client is
+   `cmd/yolo-ps`, a baked image binary, which rules out a **fetched** pack. An official pack is
+   embedded in the same binary, so a baked client is no obstacle at all.
 
 **But "bundled" alone does NOT make the default safe** — review's third refutation, and it is the one
 that changes work. A workspace `yolo-jail.jsonc` can set
@@ -1209,7 +1296,10 @@ Two things the design must state rather than leave to discovery:
    **Requirement:** on `container` **and** `macos-user`, a selected pack's loophole contribution
    prints one line saying it is inert on this backend. That is the **B-0 rule** applied to the new
    kind — `run.go:90-104` records B-0 as *"a backend that looked provisioned and configured
-   nothing"* and restructured the pipeline to end it.
+   nothing"* and restructured the pipeline to end it. **One mechanism with §3.1's platform-support
+   declaration**, which is the same situation on the other axis: platform (`darwin` vs `linux`) and
+   backend (`container`, `macos-user`) both answer *this loophole does nothing here, and here is
+   why*, and two half-messages for one user-visible situation is how B-0 happened in the first place.
 
 ---
 
@@ -1309,6 +1399,39 @@ and warns in-jail, because the in-jail config is a generated snapshot (AGENTS.md
 scope error refuses the whole launch (§4.3), and `/workspace` is live-mounted, so in-jail `yolo` and
 nested jails break identically. **Resolved by:** a maintainer ruling, alongside OQ-LP2.
 
+**OQ-LP10 — retire the USER LOOPHOLE DIRECTORY once a pack can carry one?** Raised in review: *"what's
+the argument for keeping this? we can easily have local packs."* There is no good one. §3.1 justifies
+the directory's last-wins overwrite as *"a hand-placed directory carries the user's own authority —
+the same reason a `file://` pack does"* — i.e. **the same sentence justifies both mechanisms**. And
+it is the only channel that activates a host daemon with **no selection step at all**: `loadFromDir`
+walks it and every manifest found is discovered, which contradicts §5.3's *"nothing is active by
+default"* in the one place it matters most.
+
+Two payoffs beyond the deletion. **It resolves §5.2 for free:** `CmdSetEnabled` (`loopholescmd.go:165-172`)
+works *only* for user-dir loopholes and refuses every other source, so retiring the directory leaves
+that command with no special case and forces enable/disable state into config for all sources —
+which §5.2 already calls the better end state and defers as a separate decision. And it removes one
+of the four sources `Discover` merges, shrinking §5.1's convergence problem rather than growing it.
+
+Cost: a migration note, and someone with a hand-placed loophole has to write a four-line `pack.json`
+around it. **My read: yes, retire — but after the kind ships, so there is somewhere to go.**
+**Resolved by:** a maintainer ruling.
+
+**OQ-LP11 — do BUNDLED loopholes become official packs?** Raised in review: *"why not a real pack? it
+can still come from a built in shipped namespace or whatever."* §5.4 re-grades draft 2's three
+reasons and only one survives — the broker's manifest is not what runs, so packaging it is ceremony
+over a thing that ignores the package. The `host-processes` reason was simply wrong (an official pack
+is embedded in the same binary), and the auto-activation reason is a *requirement* that an implicit
+official pack could also meet.
+
+The prize is that `AGENTS.md`'s *"AGENTS ARE PACKS. Core does not know what an agent is"* becomes
+true of loopholes too: one channel, one loader, no registry, and `internal/loopholes` stops being a
+thing core knows about specially. **My read: yes in principle, and not yet** — do `audio` as an
+official pack first (§7 already builds it as an example, so this is mostly a relabel), and leave the
+broker where it is until `BrokerSpawnArgv` and `ensureBrokerRelay` have manifest vocabulary. That
+sequencing also gives the "official pack that is implicitly selected" mechanism a low-stakes first
+consumer. **Resolved by:** a maintainer ruling; nothing in this design blocks either answer.
+
 ---
 
 ## What must land together
@@ -1335,7 +1458,10 @@ in revision 2 and are real work draft 1 priced at zero.
 4. **`internal/loopholedecl`** (OQ-LP1), because the footprint depends on it.
 5. **The `loophole` kind** (§3): the `refusalReasons` entry and the explicit `JailFields()` exclusion
    (§3.4), the **total** claim enumeration (§3.3), the load-time control-character refusal (§3.2),
-   the reserved-name refusal and the home-relative bind-mount constraint (§3.1).
+   the reserved-name refusal, the home-relative bind-mount constraint, the
+   **`publishes: "socket"`-only rule for pack-shipped loopholes** (§2.1), and the
+   **platform-support declaration** sharing one mechanism and one message with 5d's
+   inert-on-backend report (§3.1, §8).
    - **5b.** The **fourth bespoke pre-flight** for loophole-name exclusivity, wired into `stagePacks`
      beside the other three (§3.1). `packload.Collisions` does not do this and is not called at
      launch.
