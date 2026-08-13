@@ -35,6 +35,7 @@
 #
 set -uo pipefail
 
+HEADING='### What this moves in the jail image'
 ATTR="${ATTR:-.#imageClosureRoot}"
 NIX_TIMEOUT="${NIX_TIMEOUT:-20m}"
 TMP="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
@@ -65,6 +66,11 @@ emit() {
     log "could not read PR #$PR body; leaving it as the action wrote it"
     return 0
   fi
+  # The bump runs weekly against the SAME PR when one is already open, so a
+  # section from a previous run may already be there.  Cut at the heading and
+  # re-append rather than stacking a second copy.
+  awk -v h="$HEADING" '$0 == h {exit} {print}' "$body" >"$body.base" &&
+    mv "$body.base" "$body"
   printf '\n%s\n' "$1" >>"$body"
   gh pr edit "$PR" --body-file "$body" ||
     log "could not edit PR #$PR body"
@@ -72,7 +78,7 @@ emit() {
 
 degrade() {
   emit "$(
-    printf '### What this moves in the jail image\n\n'
+    printf '%s\n\n' "$HEADING"
     printf 'Not computed: %s. See %s.\n' "$1" "$(run_link)"
   )"
   exit 0
@@ -110,7 +116,7 @@ after_root="$(build_side "$AFTER_LOCK")" ||
 
 if [ "$before_root" = "$after_root" ]; then
   emit "$(
-    printf '### What this moves in the jail image\n\n'
+    printf '%s\n\n' "$HEADING"
     printf 'Nothing. The image closure is byte-identical on both locks, so this\n'
     printf 'bump cannot change the jail image at all.\n'
   )"
@@ -157,7 +163,7 @@ size_line="$(
 )"
 
 section="$(
-  printf '### What this moves in the jail image\n\n'
+  printf '%s\n\n' "$HEADING"
   if [ -n "$diff_out" ]; then
     printf '```\n%s\n```\n\n' "$diff_out"
   else
