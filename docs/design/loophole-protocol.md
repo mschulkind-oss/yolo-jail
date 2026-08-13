@@ -1,18 +1,48 @@
 # Loophole wire protocol — v1
 
-This is the framed-socket protocol spoken between a jail-side client
-and a host-side loophole daemon that uses the `internal/hostservice`
-helper package (transport: `unix-socket`, lifecycle: `spawned`).
+This is the framed protocol spoken between a jail-side client and a
+host-side loophole daemon that uses the `internal/hostservice` helper
+package (transport: `loopback-tls`, lifecycle: `spawned`).
 The frame codec itself lives in `internal/frameproto`.
+
+**The frame format is UNCHANGED.** What changed is only what carries
+it: the bind-mounted Unix socket became a cert-pinned, token-
+authenticated loopback TCP connection, because a Unix socket cannot
+cross virtiofs on macOS + podman — see
+[`loophole-transport.md`](loophole-transport.md). Everything from
+"## Request" through "## Framing rules" below is byte-identical to v1
+and stays that way; `PROTOCOL_VERSION` is still 1 because the wire
+format did not move.
 
 External loophole authors can rely on this spec: breaking changes
 will bump `PROTOCOL_VERSION` and ship a transition window.
 
 ## Handshake
 
-There is no handshake. A client opens the Unix socket, sends one
-length-prefixed JSON request, and reads framed response data until the
-server closes the connection or emits an exit frame.
+**There is no handshake at the frame layer.** A client sends one
+length-prefixed JSON request and reads framed response data until the
+server closes the connection or emits an exit frame. That much is
+unchanged, and everything below "## Request" describes it.
+
+**But four steps now precede the first request byte**, owned by the
+transport rather than by this protocol. A client that skips them is
+hung up on before the daemon ever sees it:
+
+1. **Read the endpoint file** whose path is in
+   `$YOLO_SERVICE_<NAME>_ENDPOINT`. One line, three whitespace-
+   separated fields: `<host:port> <base64 cert DER> <token>`. Read it
+   **fresh on every dial** and cache nothing — that is what lets a
+   restarted daemon, on a new port with a new certificate and a new
+   token, be picked up without relaunching the jail.
+2. **TLS-dial** `host:port`, trusting **exactly** the certificate in
+   field 2 through a dedicated root pool — not a CA, not the system
+   roots — and verifying the server name `yolo-host-service`.
+3. **Send the token frame**: a 4-byte big-endian length followed by
+   the token bytes, as the first bytes on the connection, before any
+   request.
+4. **Read one byte.** `0x01` means authenticated. EOF means the token
+   was rejected: the server writes nothing on failure, so a port
+   scanner learns only that it was hung up on.
 
 ## Request
 
@@ -62,8 +92,8 @@ Stream IDs:
 | 2  | exit   | Exactly 4 bytes: big-endian signed int32 exit code. Terminates response. |
 
 A client consumes frames until it sees stream id 2 (exit) or the
-socket closes. A daemon that finishes without sending an exit frame is
-treated as exit code 0 by the library; closure without frames counts
+connection closes. A daemon that finishes without sending an exit frame
+is treated as exit code 0 by the library; closure without frames counts
 as a protocol error (client's choice how to report).
 
 ## Framing rules
@@ -74,8 +104,8 @@ as a protocol error (client's choice how to report).
   forward each to the corresponding stream without reordering.
 - After an exit frame, the daemon MUST NOT send additional frames. The
   library enforces this via `Session._exited`.
-- Neither side should hold the socket open after the exit frame. Clients
-  close after reading exit; daemons close after writing it.
+- Neither side should hold the connection open after the exit frame.
+  Clients close after reading exit; daemons close after writing it.
 
 ## Versioning
 
@@ -91,16 +121,72 @@ body.
 
 ## Security posture
 
-- The socket is chmod 0600 and lives under the user's socket dir (one
-  per jail boot; the path lives in the `YOLO_*_SOCKET` env var the jail
-  sees).
-- The socket file is the authentication. A daemon trusts whoever can
-  `connect()` — which is the jail (and anything else running as the
-  same user on the host).
+**The boundary is "whatever runs as your user", and it did not change
+when the transport did.** That is the specification rather than a gap:
+on the host, anything running as you can already read your credentials
+or act as you, and a jail extends that unchanged — anything running as
+you may use the privileges granted to this jail. What changed is only
+how that sentence is *enforced*.
+
+The old wording — *"the socket file is the authentication; a daemon
+trusts whoever can `connect()`"* — is quoted widely, including by
+[`loophole-transport.md`](loophole-transport.md). It described a path.
+On a port it is false twice over, so it is replaced rather than edited:
+
+- **`0600` on a path is how you say "only my user"; a pre-shared token
+  is how you say the same thing on a port.** The token is not extra
+  security machinery bolted on top of the file-permission model — it
+  *is* that model, expressed where there is no file to permit.
+- **Reachability is not authorization.** The port is kernel-assigned
+  but scannable, so "can connect" stopped being proof of anything.
+  Connecting gets you a TLS handshake and then a dropped connection.
+
+What each control actually stops:
+
+| Control | Adversary it stops |
+|---|---|
+| bind `127.0.0.1` | anything on the LAN |
+| TLS | a sibling jail **sniffing** a shared bridge (every jail holds `NET_RAW` there) |
+| pinning the exact cert, whose key is host-only | a sibling jail **impersonating the daemon** |
+| the per-jail, per-service token | a sibling jail **impersonating this jail** to its daemon |
+
+**The token defends against a sibling jail, not against the jail's own
+agent.** Anything inside jail A can read jail A's endpoint file — it is
+mounted there and the agent runs as UID 0 by design. That is expected:
+jail A using jail A's credential is the system working. A per-jail-
+mounted Unix socket gave that isolation by construction and a shared
+TCP port destroys it, which is the entire reason the token exists. A
+jail may also rewrite its own endpoint file, and gains nothing by it —
+it would only break its own connection.
+
+Concretely:
+
+- **The endpoint file is a credential.** It is written `0600` into the
+  jail's own per-jail directory, which is created `0700`; a daemon
+  refuses to publish into a directory that is group- or world-
+  accessible. Never copy one between jails, and never paste one into a
+  log or a bug report.
+- **The TLS private key never leaves the daemon's memory** — never
+  written to disk, never mounted into a jail. A fresh certificate per
+  daemon process is correct precisely because clients re-read the file
+  on every dial.
+- **There is no token environment variable, deliberately.** An env var
+  is inherited by every child process a client spawns; a file is read
+  at the moment of use by the one process that needs it.
 - Daemons must never trust request fields as argv material. The
-  library's `Session.exec_allowlisted(argv_builder, allowlist=...)`
-  helper enforces this by construction: argv positions are validated
-  against a server-owned allowlist before the subprocess runs.
+  library's `Session.ExecAllowlisted(argvBuilder, allowlist, …)` helper
+  enforces this by construction: argv positions are validated against a
+  server-owned allowlist before the subprocess runs.
+
+> **What the deleted first bullet claimed, and why it had to go.** It
+> said the socket "is chmod 0600 and lives under the user's socket
+> dir". Measured in a live jail 2026-08-13, of the three sockets then
+> mounted `cgroup-delegate.sock` was `0777`, `claude-oauth-broker.sock`
+> `0755`, and only `host-processes.sock` `0600` — inside a `0755`
+> directory. The mode was never the mechanism it was described as; the
+> per-jail **mount** was. Under `loopback-tls` the endpoint file's mode
+> genuinely is load-bearing, so it is asserted in code rather than
+> claimed here.
 
 ## Access logging
 
@@ -117,14 +203,33 @@ without hoarding payload data.
 
 ## Writing a client from scratch
 
-Not strictly necessary — the existing `yolo-ps` is the reference
-implementation — but if you need a non-Python client:
+`cmd/yolo-ps` is the reference implementation. **This is no longer
+implementable with `nc`** — steps 2–4 need a TLS library. That is the
+honest cost of a transport that works on every platform, and it is
+worth naming here rather than letting someone discover it: on the
+retired `unix-socket` transport a shell one-liner really was enough.
 
-1. Connect `AF_UNIX` stream socket to the path in
-   `$YOLO_<SERVICE>_SOCKET`.
-2. Write a 4-byte big-endian request length, then the JSON body.
-3. Read response:
+1. Read the path in `$YOLO_SERVICE_<NAME>_ENDPOINT`, then read **that
+   file**. Split on whitespace into **exactly three** fields:
+   `host:port`, base64 cert DER, token. Fewer or more is a malformed
+   endpoint — in particular, do not read a two-field file as "no
+   token"; it is a truncated or stale file and authenticates nothing.
+2. Base64-decode field 2, parse the DER certificate, and put that one
+   certificate into a fresh, otherwise-empty trust root pool.
+3. TLS-dial `host:port` with that pool as the **only** roots and
+   `yolo-host-service` as the expected server name. Do not disable
+   verification; the dial target and the certificate name differ on
+   purpose, so the server name is overridden, not the checking.
+4. Write the token frame: a 4-byte big-endian length, then the token
+   bytes. Then read one byte — `0x01` is authenticated; EOF means the
+   token was rejected, and reporting that as "the daemon is down" is
+   the single most misleading thing a client can do here.
+5. Write a 4-byte big-endian request length, then the JSON body.
+6. Read response:
    - Read 5-byte header `(stream_id:u8, length:u32)`.
    - Read `length` bytes; forward or capture by `stream_id`.
    - If `stream_id == 2`, payload is a 4-byte signed exit code; done.
-4. Close the socket.
+7. Close the connection.
+
+Redo steps 1–4 on **every** connection. Caching the address, the
+certificate, or the token is what re-reading exists to avoid.

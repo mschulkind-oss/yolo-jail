@@ -83,9 +83,11 @@ That is exactly the semantics a pack's capability requirement wants.
 
 ### 1.3 A protocol — already frozen
 
-`internal/frameproto` is "the frame protocol v1 used by unix-socket loophole daemons. **The
-wire format is a frozen interop contract.**" Length-prefixed frames, stream IDs, a signed
-exit code that round-trips negative values for signal deaths.
+`internal/frameproto` is "the frame protocol v1 spoken between a jail-side client and a
+host-side loophole daemon. **The wire format is a frozen interop contract.**" Length-prefixed
+frames, stream IDs, a signed exit code that round-trips negative values for signal deaths.
+It is transport-agnostic — every function takes an `io.Reader`/`io.Writer` — which is why the
+`loopback-tls` unification left it untouched.
 
 And loopholes already execute third-party programs: `cmd` is an **argv `[]string`**, not a
 shell string (`loopholes.go:94`), and a loophole's own directory is bind-mounted `:ro` into

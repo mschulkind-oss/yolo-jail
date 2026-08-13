@@ -135,20 +135,30 @@
 
     Each service gets:
       • Its published path bind-mounted into the jail under /run/yolo-services/
-      • An env var YOLO_SERVICE_<NAME>_ENDPOINT injected into the container so
-        agents can locate the service without hard-coding paths.  The value is
-        always a PATH, never an address: the address lives inside the file, so a
-        restarted daemon needs no jail relaunch.
+      • An env var so agents can locate the service without hard-coding paths:
+        YOLO_SERVICE_<NAME>_ENDPOINT for a manifest loophole, or
+        YOLO_SERVICE_<NAME>_SOCKET for a service declared here.  The names differ
+        because the VALUES differ, and a client that dials a regular file as if it
+        were a socket reports something obscure.  An _ENDPOINT value is always a
+        PATH, never an address: the address lives inside the file, so a restarted
+        daemon needs no jail relaunch.
       • A managed lifecycle: started before container start, SIGTERM + 5s grace +
         SIGKILL after the container exits.
       • stdout/stderr captured to ~/.local/share/yolo-jail/logs/host-service-<name>.log
 
-    A bundled loophole declaring [cyan]transport: loopback-tls[/cyan] publishes an
-    ENDPOINT FILE — one line naming a 127.0.0.1 listener, the exact certificate a
-    client must pin, and a per-jail bearer token.  That file IS A CREDENTIAL: it is
-    written 0600 into this jail's own directory and is never shared between jails.
-    There is deliberately no token env var.  A service that declares no transport
-    still gets a plain Unix socket.
+    A loophole with a [cyan]manifest.jsonc[/cyan] publishes an ENDPOINT FILE — one
+    line naming a 127.0.0.1 listener, the exact certificate a client must pin, and
+    a per-jail bearer token.  That file IS A CREDENTIAL: it is written 0600 into
+    this jail's own directory and is never shared between jails.  There is
+    deliberately no token env var.  [cyan]loopback-tls[/cyan] is the only manifest
+    transport and the default; [cyan]unix-socket[/cyan] and
+    [cyan]tls-intercept[/cyan] were REMOVED from the manifest vocabulary, not
+    deprecated.
+
+    A service declared HERE, in yolo-jail.jsonc, still gets a plain Unix socket and
+    a YOLO_SERVICE_<NAME>_SOCKET variable, because its daemon is a program yolo did
+    not write: nothing yolo ships lets an external daemon publish an endpoint file,
+    so flipping this path would kill those daemons rather than migrate them.
 
     Use this to split the jail boundary cleanly: a host-side process can hold
     secrets, credentials, and access-control logic that the agent inside the
@@ -162,7 +172,10 @@
         }
       }
 
-    Apple Container is unsupported (no Unix-socket bind-mount through virtiofs).
+    Apple Container is unsupported.  The reason USED to be the transport (no
+    Unix-socket bind-mount through virtiofs); loopback-tls removes that obstacle,
+    but how the endpoint file crosses into an AC guest is an unmade decision, so
+    host services stay explicitly DEFERRED there rather than quietly enabled.
 
   [bold]journal[/bold] (string, default "off"): Enable the built-in journal bridge.
     Exposes [bold]yolo-journalctl[/bold] inside the jail, which forwards its args to

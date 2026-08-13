@@ -1,5 +1,12 @@
-// Package frameproto is the frame protocol v1 used by unix-socket loophole
-// daemons. The wire format is a frozen interop contract.
+// Package frameproto is the frame protocol v1 spoken between a jail-side client
+// and a host-side loophole daemon. The wire format is a frozen interop contract.
+//
+// It is transport-agnostic and always was: every function here takes an
+// io.Reader or io.Writer, never a net.Conn. That is why the unification onto
+// loopback-TLS (internal/svcendpoint, docs/design/loophole-transport.md) changed
+// nothing in this package — the transport sits BENEATH this layer, and a daemon
+// never learns which one carried its bytes.
+//
 // Wire format (docs/design/loophole-protocol.md):
 //
 //	request:  <4-byte BE length><length bytes of UTF-8 JSON>   (client-first)

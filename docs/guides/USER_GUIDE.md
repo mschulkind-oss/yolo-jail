@@ -799,7 +799,9 @@ ROCm exposes the AMD GPU through PyTorch's `torch.cuda` API, so `torch.cuda.is_a
 
 ## Loopholes (spawned host services)
 
-**A way to split the jail boundary cleanly.** A *spawned* loophole is a process that runs on the host (outside the jail) and exposes a Unix socket that gets bind-mounted into the jail at `/run/yolo-services/<name>.sock`. The agent inside the jail can talk to the loophole without ever holding its secrets, credentials, or privileges. See [docs/guides/loopholes.md](loopholes.md) for the broader loophole system (including `tls-intercept` loopholes for things like the Claude OAuth broker).
+**A way to split the jail boundary cleanly.** A *spawned* loophole is a process that runs on the host (outside the jail) and publishes an address the jail can reach through a per-jail directory bind-mounted at `/run/yolo-services/`. The agent inside the jail can talk to the loophole without ever holding its secrets, credentials, or privileges. See [docs/guides/loopholes.md](loopholes.md) for the broader loophole system (including intercepting loopholes like the Claude OAuth broker).
+
+> **Two shapes, and this section documents the second.** A loophole shipped as a `manifest.jsonc` uses the framework's `loopback-tls` transport: it publishes `/run/yolo-services/<name>.endpoint`, a `0600` file naming a `127.0.0.1` listener plus the certificate to pin and this jail's bearer token. A service declared in the `loopholes:` config block below still gets a plain Unix socket at `/run/yolo-services/<name>.sock`, because its daemon is a program yolo did not write and nothing yolo ships lets an external daemon publish an endpoint file. Everything below describes the socket shape, which is what you get here.
 
 This is exactly the pattern used by the built-in cgroup delegate daemon: a host-side process performs privileged cgroup operations on behalf of the container so the jail itself doesn't need `CAP_SYS_ADMIN` or rw cgroup mounts. The `loopholes` config block lets you define your own in the same shape.
 
@@ -842,17 +844,17 @@ The service name (`auth-broker` above) must match `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$
 
 For each service, on `yolo run`:
 
-1. Per-jail directory `<workspace>/.yolo/host-services/` is created on the host and bind-mounted into the jail at `/run/yolo-services/`.
-2. yolo substitutes `{socket}` in the service's command with the host-side path, e.g. `<workspace>/.yolo/host-services/auth-broker.sock`.
+1. Per-jail directory `/tmp/yolo-host-services-<8hex>/` is created on the host, mode `0700`, and bind-mounted into the jail at `/run/yolo-services/`. (It is **not** under your workspace — an earlier revision of this page said `<workspace>/.yolo/host-services/`, which was never true and is actively misleading now that a manifest loophole's endpoint file in there is a credential.)
+2. yolo substitutes `{socket}` in the service's command with the host-side path, e.g. `/tmp/yolo-host-services-a1b2c3d4/auth-broker.sock`. (`{endpoint}` is the canonical spelling and an accepted alias here.)
 3. yolo launches the command as a child process. The service is expected to bind the socket at the substituted path.
-4. yolo waits up to 5 seconds for the socket file to appear. If the service exits early or doesn't bind in time, yolo logs the failure and continues without that service.
+4. yolo waits up to 5 seconds for the service to become reachable — for a socket, that the file appears; for a manifest loophole's endpoint file, that it *parses*, since a truncated file would otherwise read as healthy forever. If the service exits early or doesn't publish in time, yolo logs the failure and continues without that service.
 5. The container starts. The agent inside sees `/run/yolo-services/auth-broker.sock` and can connect.
 6. When the container exits, yolo sends `SIGTERM` to each service, waits 5 seconds, then `SIGKILL`.
-7. The per-jail sockets directory is removed.
+7. The per-jail directory is removed — which is also how a manifest loophole's bearer token is retired, since the token lives only in the file inside it.
 
 Service stdout and stderr are captured to `~/.local/share/yolo-jail/logs/host-service-<name>.log` for debugging.
 
-### Discovering the socket from inside the jail
+### Discovering the service from inside the jail
 
 For each service, yolo injects an env var so the agent doesn't need to hard-code the path:
 
@@ -861,6 +863,8 @@ YOLO_SERVICE_AUTH_BROKER_SOCKET=/run/yolo-services/auth-broker.sock
 ```
 
 The variable name is `YOLO_SERVICE_<UPPERCASED-NAME>_SOCKET`, with non-alphanumeric characters replaced by underscores.
+
+A loophole shipped as a `manifest.jsonc` gets `YOLO_SERVICE_<NAME>_ENDPOINT` instead, naming its endpoint **file**. The two names are deliberately distinct rather than one being reused: the value's meaning differs, and a client that dials a regular file as though it were a socket reports something obscure, where a client that finds its variable absent reports "not wired up in this jail" and exits cleanly.
 
 ### Minimal example service
 
@@ -917,12 +921,17 @@ echo '{"key": "OPENAI_API_KEY"}' | nc -U "$YOLO_SERVICE_AUTH_BROKER_SOCKET"
 # {"value": "sk-..."}
 ```
 
+That one-liner works **because a config-declared service is still a socket**. It does not generalize: against a manifest loophole's `_ENDPOINT` there is nothing for `nc` to do — a client there must read the endpoint file, pin the certificate named in it, and present the token in it, which needs a TLS library. See [`loophole-protocol.md`](../design/loophole-protocol.md) §"Writing a client from scratch".
+
 The secret never enters the jail filesystem, env vars, or any bind mount.
 
 ### Security model
 
-- Each service's socket lives in a per-jail directory bind-mounted to `/run/yolo-services/`. Other jails can't see it.
-- On Linux, services can use `SO_PEERCRED` on accepted connections to attest the caller's host PID — same mechanism the cgroup delegate uses.
+**The boundary is "whatever runs as your user", on either shape.** That matches the host — anything running as you can already read your credentials or act as you — and a jail extends it unchanged. What differs is how it is enforced:
+
+- **A socket service** (config-declared): the per-jail directory is the isolation. Other jails cannot see it, because it is a separate mount. Nothing else authenticates the caller, so anything on the host running as you can connect.
+- **A manifest loophole** (`loopback-tls`): the per-jail bearer token in its `0600` endpoint file is the enforcement, because a loopback TCP port has no "can connect implies authorized" property to inherit. `0600` on a path and a pre-shared token on a port say the same thing.
+- On Linux, a socket service can use `SO_PEERCRED` on accepted connections to attest the caller's host PID — same mechanism the cgroup delegate uses. It cannot separate the jail from a same-user host process, though: rootless podman maps the container's UID 0 to your uid, so both arrive carrying the same one. Treat it as attribution, not as a boundary.
 - What the service does with secrets, scopes, audit logging, and rate limiting is entirely up to the service. yolo just wires the plumbing.
 - The cgroup delegate daemon is one of these services internally — proof that the pattern is enough to support privileged operations safely.
 
@@ -932,7 +941,9 @@ The secret never enters the jail filesystem, env vars, or any bind mount.
 
 ### Apple Container caveat
 
-Apple Container doesn't bind-mount Unix sockets through virtiofs, so host services are skipped entirely on the `container` runtime. Use `podman` if you need this feature on macOS.
+Host services are skipped entirely on the `container` runtime. Use `podman` if you need this feature on macOS.
+
+The reason **used to be** the transport: Apple Container doesn't bind-mount Unix sockets through virtiofs. The `loopback-tls` transport removes that obstacle — it is a TCP connection, not a socket file — but how the endpoint file itself crosses into an Apple Container guest is a mount decision nobody has made yet. So this is now **explicitly deferred rather than blocked**: an unclaimed win with a named blocker, not something that quietly started working.
 
 ---
 
