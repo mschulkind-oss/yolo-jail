@@ -215,9 +215,69 @@ well-understood one.
 bind-mounted read-only into the jail. That buys the no-inheritance and rotation properties without
 making the endpoint file secret-bearing — at the cost of one more mount.
 
-**My read: the reviewer is right that env is the weakest of the three**, and the choice is between
-their proposal and the separate-file variant. Recorded as **OQ-T7**; it does not block landing #32,
-because changing the delivery channel later is a local change at both ends.
+**DECIDED 2026-08-13: the published endpoint file.** The token joins `host:port` and the cert in the
+one file the terminator already re-reads on every dial. Consequences to implement deliberately:
+
+- the file **becomes secret-bearing**, so its mode and its mount posture are now load-bearing where
+  before they were not. It must be written `0600`, and it must land in the *per-jail* host-services
+  dir it already uses — never a shared one;
+- the endpoint file's own comment in `brokerrelay` currently says "no field is a secret — the token
+  guards access and the cert is public." **That comment becomes false and must change with the
+  code**, or the next reader will reasonably treat the file as publishable;
+- **`YOLO_SERVICE_CLAUDE_OAUTH_BROKER_TOKEN` goes away.** Leaving it as a fallback would keep the
+  inheritance problem alive for anything that reads it first, so the env path is removed rather
+  than deprecated;
+- rotation now works: the relay rewrites the file, the terminator picks it up on the next dial, no
+  restart. That is the property env could not give.
+
+This does not block landing #32 — it is a local change at both ends, and #32's own re-read-per-dial
+design is what makes it cheap.
+
+### 3.3 Why not drop the Unix socket entirely and unify on loopback TCP?
+
+Asked in review: *"is there a good argument for keeping the socket at all? it's not like TCP is
+expensive for loopback and it would unify designs."* The instinct is right that two transports is a
+cost. **The answer is still keep both — and the reason is not performance.**
+
+**The comparison is not socket-vs-TCP.** It is:
+
+| | `unix-socket` | `loopback-tls` |
+|---|---|---|
+| authorization | **the path itself** — the socket lives in a per-jail mounted dir, so only that jail's mount namespace can reach it | a port any router can reach → needs a token |
+| confidentiality | kernel-local, nothing on the wire | needs TLS (a sibling holds `NET_RAW`) |
+| server-side identity | **`SO_PEERCRED`/`getpeereid`** — the kernel tells the server the client's real uid/pid, unforgeable | nothing equivalent |
+| moving parts | one filesystem path | port + TLS + ephemeral host-only-key cert + cert publication + token issuance + token distribution + verification + endpoint staleness |
+
+So "unify on TCP" means **every loophole on every platform pays seven mechanisms to replace one
+path**, and adds a listening port on the platform that is 100% of current use and has no problem to
+solve.
+
+**The decisive argument is `SO_PEERCRED`.** §4.1 concedes that per-jail secrets do *not* close the
+"anything running as the same user on the host" gap — the widest weakness in the loophole model —
+because such a process can read the token file too. **Kernel-attested peer credentials are one of
+the only two things that could ever close it**: a daemon on a Unix socket can ask the kernel which
+uid actually connected, and a separate-user `guest` notch (P7) would then make that answer
+meaningful. Delete the socket and that door is permanently shut. `git 84d0365` already sketched
+exactly this for the macos-user broker — `getpeereid` to attest a real uid.
+
+Giving up the strongest identity signal available, to remove a branch, on the platform where the
+branch costs nothing, is the wrong trade.
+
+**Where the review's instinct is right, and it changes the plan:** two transports means two
+security models, and the weaker one rots. Mitigations, all of which belong in the §4 work:
+
+1. **The framework owns both** — `loopback-tls` must not stay a bolt-on inside `brokerrelay`, or it
+   will drift from the one everybody uses.
+2. **A test per transport** asserting that transport enforces its own authorization, so neither can
+   silently lose it.
+3. **`unix-socket` stays the preferred transport where it works**, stated in the manifest docs — it
+   is the stronger one, not the legacy one.
+
+**And one thing the review's framing surfaces that argues FOR building `loopback-tls` well:** it is
+not only a macOS+podman patch. Per [`agent-credentials.md`](agent-credentials.md) §2.7, host
+services are **unavailable on Apple Container** for the same reason — no Unix-socket bind through
+virtiofs. So `loopback-tls` is what makes loopholes work on AC *at all*, turning a permanent feature
+gap into a supported backend. That is a better reason to invest in it than "macOS is broken."
 
 **On "can they guess the port or read the file?"** — the endpoint file is in *jail A's* mount, so a
 sibling cannot read it, and #32 notes this. But the port is a scannable ephemeral, so treat it as
@@ -470,47 +530,81 @@ macOS + podman. Nobody has reported it because `yolo-ps` failing is quiet, but i
 
 ---
 
-## 7. Open questions
+## 7. Decisions — settled, and the two that are not
 
-- **OQ-T1. Per-jail token + pinned host-only cert, or full mTLS?** #32's author asked this
-  explicitly and nobody has answered. A bearer token inside pinned TLS is already stronger than
-  the socket-file model; mTLS adds client-cert lifecycle for a hop that is already
-  loopback-bound and pinned. **Recommendation: as proposed** — but the answer should be given
-  alongside §4, because generalizing makes it every service's answer.
-- **OQ-T2. Is transport selection automatic, configured, or both?** §4 argues automatic-by-platform
-  with a config override. The risk of automatic is a silent fallback nobody notices; the risk of
-  configured is a Mac user who must know what virtiofs is.
-- **OQ-T3. Do per-jail secrets apply to the `unix-socket` transport too?** §4.1 argues yes — but
-  the case is **weaker than the earlier draft claimed**, now that §3.1 establishes they do not
-  close the same-user gap. On `unix-socket` the per-jail mount already provides sibling isolation,
-  so a token there buys only verifiable attribution, at the cost of a new failure mode on a path
-  that works. **Revised recommendation: `loopback-tls` only**, unless attribution alone justifies
-  it.
-- **OQ-T4. Does `macos-user` make this moot?** It has no VM, so no virtiofs boundary — but the
-  broker is unwired there (`BrokerSocketGrantCommands`, zero call sites) and it renders zero pack
-  surfaces. Not available today; worth re-asking once Thread B moves.
-- **OQ-T5. Should the endpoint file be treated as jail-writable?** It lands in the jail's mounted
-  host-services dir. #32 notes a sibling cannot tamper with *another* jail's file (separate
-  per-jail mounts), but a jail can presumably rewrite **its own** — which redirects only itself,
-  and it already knows its own token. Worth stating explicitly rather than leaving to inference.
-- **OQ-T7. How is the pre-shared token delivered into the jail — env, the published endpoint file,
-  or a separate read-only mounted file?** §3.2. Env (today) is inherited by every child process and
-  cannot rotate without a terminator restart; both alternatives fix that. The endpoint file is the
-  smallest change but makes a deliberately-public file secret-bearing; a separate file avoids that
-  at the cost of one more mount. **No security difference** between the three — this is exposure
-  surface and operability. **Recommendation: not env.** Does not block #32.
-- **OQ-T6. Per-file mounts as a framework feature, or a one-off for the broker?** §5.1's fix is
-  three files instead of a directory. The manifest already declares `ca_cert` by path, so the
-  framework has half the vocabulary — a general `mounts_into_jail: [...]` (default: nothing, rather
-  than today's implicit whole-state-dir) would make **every** loophole's jail-visible surface
-  explicit and reviewable, and would have made this defect visible in a manifest diff. Against:
-  it is a breaking manifest change for external loophole authors, for a problem only one shipped
-  loophole has today. **Recommendation: fix the broker narrowly now, and treat the general form as
-  a candidate for the transport work in §4** — the two touch the same code.
-  **ANSWERED 2026-08-12 — narrowly, as recommended, with one deliberate refinement:** the narrowing
-  is declared in the *manifest* (`state_files`) rather than switched on the broker's name in
-  framework code, because `internal/loopholes/runtime.go` renders every loophole in one loop with no
-  per-loophole branch and adding the first one to buy three mounts is a bad trade. It is **not**
-  the general form: it is opt-in, it defaults to today's whole-dir behavior, and it covers only the
-  state dir — not the module dir or `host_bind_mounts`. `mounts_into_jail` (default-nothing, whole
-  surface, breaking) remains open for §4, and it subsumes this key cleanly when it lands.
+Audited 2026-08-13 to leave **only** questions that genuinely need the maintainer. Everything else
+is recorded as decided, with the reasoning, so nothing looks quietly dropped.
+
+### 7.1 Settled
+
+| Was | Answer | Why it did not need a ruling |
+|---|---|---|
+| **OQ-T2** transport selection: automatic, configured, or both? | **Automatic by platform, with an explicit config override.** | The "silent fallback nobody notices" objection is already answered by shipped code: `yolo loopholes list` prints `transport=` per loophole, so the active choice is visible without asking. A Mac user should not have to know what virtiofs is to run a loophole, and an override costs one key. |
+| **OQ-T3** per-jail secrets on `unix-socket` too? | **No — `loopback-tls` only.** | §3.1 established they do not close the same-user gap, and §3.3 that the socket's per-jail mount already gives sibling isolation. On that path a token buys only attribution, at the cost of a new failure mode on a path that works. |
+| **OQ-T4** does `macos-user` make this moot? | **No, not today.** | Factual, not a preference: it has no VM, but the broker is unwired there (`BrokerSocketGrantCommands`, zero call sites) and skills/briefings never reach that home at all (see Thread B). Re-ask if P7 lands. |
+| **OQ-T5** is the endpoint file jail-writable, and does it matter? | **A jail can rewrite its own, and it gains nothing.** | It already holds its own token, and redirecting its own endpoint only breaks its own connection. A sibling cannot reach it — separate per-jail mounts. Now stated in §3.2 rather than left to inference. **This changes with §3.2's decision:** the file is secret-bearing, so it must be `0600` and per-jail — but the tamper analysis is unchanged. |
+| **OQ-T6** per-file mounts: general or one-off? | **Narrow, shipped** as the `state_files` manifest key. | Done 2026-08-12. The general `mounts_into_jail` (default-nothing, whole surface, breaking) is folded into the §4 work, which it subsumes cleanly. |
+| **OQ-T7** token delivery: env, endpoint file, or a separate file? | **The endpoint file** — decided by the maintainer 2026-08-13. | See §3.2 for the four consequences that must land with it, including deleting the env var rather than deprecating it. |
+| **§3.3** drop the socket, unify on TCP? | **Keep both; `unix-socket` stays preferred where it works.** | `SO_PEERCRED` is one of only two things that could ever close the same-user gap §4.1 leaves open. Deleting the socket shuts that door permanently to remove a branch that costs nothing on Linux. Full argument in §3.3, including the three mitigations that address the real risk the review named. |
+
+### 7.2 OQ-T1 — answer #32's author: token + pinned cert as proposed, or full mTLS?
+
+**Status: waiting on you. An outside contributor asked this when he opened the PR and nobody has
+replied.** His words:
+
+> *"I keep the terminator↔relay hop on a per-jail token + pinned host-only-key TLS (no client
+> certs). Happy to switch to full mTLS if you'd prefer."*
+
+**What is actually being chosen.** Both options authenticate the client; they differ in what the
+credential *is* and who manages its lifecycle.
+
+| | as proposed (bearer token) | full mTLS |
+|---|---|---|
+| client credential | a random per-jail string | a per-jail client certificate |
+| lifecycle | generate, write, delete with the jail | generate, sign, distribute, **expire**, re-issue, and handle clock skew |
+| who signs | nobody | a CA — and §5 is the whole story of what having one costs us |
+| revocation | delete the file | CRL/OCSP, or short expiry plus re-issue |
+| identity strength | equal — both prove possession of a per-jail secret, neither is kernel-attested |
+
+**Why I recommend "as proposed."** The hop is already loopback-bound and pinned to a host-only-key
+cert, so mTLS's marginal gain is *client*-side proof — which a token already provides equally well,
+since both are "possession of a per-jail secret." What mTLS adds is a second certificate lifecycle
+and, if done conventionally, **a second CA** — and issue #33 is a live lesson in what a CA we own
+costs when its key ends up somewhere it should not be. Paying that for no identity gain is the
+wrong direction.
+
+**What would change my mind:** if we ever want a daemon to make an authorization decision *based on
+which jail is calling* rather than merely *that a valid jail is calling*, a certificate carries a
+verifiable subject where a bearer token carries nothing but itself. That is the boundary-broker's
+per-verb-policy world ([`boundary-broker.md`](boundary-broker.md) §5). It is not this feature, and
+a token can be swapped for a cert later without changing the transport shape.
+
+**Why it needs you and not me:** it is a reply to a contributor in your repo, and §4 makes it every
+future host service's answer rather than one hop's — so it is a posture decision, not a code review
+note.
+
+### 7.3 OQ-T8 — does the generalization ship with #32, or after it?
+
+**Status: waiting on you, and it is the live disagreement between us.** §6 recommends landing #32
+as scoped and generalizing when a second consumer appears. You have suggested replacing it with the
+open work instead.
+
+**The case for merge-then-generalize:** #32 fixes a **total outage** — on macOS + podman every
+`platform.claude.com` request 502s and Claude Code will not start. It is green, `MERGEABLE`, and
+re-verified 2026-08-13 as still conflict-free against everything we pushed (including B-0's
+restructuring of the same `run.go`). The generalization is unstarted work; replacing means macOS
+stays broken for its duration, and 1064 tested lines get rewritten rather than relocated.
+Generalizing *after* makes the move a refactor with tests already in place.
+
+**The case for replace:** the generalization moves his transport out of `brokerrelay` into the
+framework, so merging first guarantees churn on code that just landed — and §3.3's mitigation (1)
+says the bolt-on placement is exactly what will let the TCP path drift. If the rewrite is happening
+anyway, doing it once is cheaper than doing it twice.
+
+**My read: merge first.** The churn is real but bounded and mechanical; the outage window is not.
+And **the second consumer already exists** — `host-processes` is `unix-socket` and silently broken
+on macOS the same way (row **D4**), so §6's "wait for a second consumer" test is already satisfied
+and the generalization can start immediately after the merge rather than someday.
+
+**Either way, tell him which.** Leaving a tested PR open with an unanswered question is the one
+option with no upside.

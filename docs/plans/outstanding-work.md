@@ -702,7 +702,7 @@ a multi-line value, and anything under an `[[array of tables]]`.
 
 # Every decision waiting on you
 
-🟡 **Everything in this section is waiting on you.** One index, because these are spread across four docs. ❓ marks the two where I have no recommendation; the rest carry one, so a bare "go with your read" clears them. **Nothing below is blocked on work — only
+🟡 **Everything in this section is waiting on you.** The loophole-transport design was audited 2026-08-13 and **five of its seven questions resolved without a ruling** — they are recorded as settled with reasoning in [`loophole-transport.md`](../design/loophole-transport.md) §7.1, so nothing was quietly dropped. Only OQ-T1 and OQ-T8 survive. One index, because these are spread across four docs. ❓ marks the two where I have no recommendation; the rest carry one, so a bare "go with your read" clears them. **Nothing below is blocked on work — only
 on an answer.** Where I have a recommendation it is stated; where I do not, it says so.
 
 | # | Decision | Where | My read |
@@ -710,13 +710,8 @@ on an answer.** Where I have a recommendation it is stated; where I do not, it s
 | **OQ-D1** | **How to fix the writable config snapshot** (D1) | below | make it host-owned and read-only in-jail |
 | **OQ-S4** | **Should the jail narrow its skills fan-out to match the host?** (S4) | below | yes — run `ResolveDestinations` on the jail path too |
 | **OQ-E4** | **Do `stateful` surfaces get comment preservation too?** (E4) | below | not yet — the cheap half already landed, and this half is a real engine change |
-| **OQ-T1** | #32: per-jail token + pinned cert **as proposed**, or full mTLS? *The PR author asked this and is waiting.* | [`loophole-transport.md`](../design/loophole-transport.md) §7 | as proposed |
-| **OQ-T2** | Transport selection: automatic by platform, configured, or both? | same | automatic + override |
-| **OQ-T3** | Per-jail client secrets on the `unix` transport too, or only TCP? | same | yes, both |
-| **OQ-T4** | Does `macos-user` make the transport problem moot? | same | no, not today |
-| **OQ-T5** | Is the endpoint file jail-writable, and does it matter? | same | state it explicitly either way |
-| **OQ-T6** | Per-file loophole mounts as a framework feature, or one-off for the broker? | same | narrow fix now, general form with §4 |
-| **OQ-T7** | Token delivery into the jail: env (today), the published endpoint file, or a separate mounted file? | same §3.2 | **not env** — it is inherited by every child and cannot rotate live |
+| **OQ-T1** | **Answer #32's author**: per-jail token + pinned cert as proposed, or full mTLS? *He asked when he opened the PR; still unanswered.* | [`loophole-transport.md`](../design/loophole-transport.md) §7.2 | **as proposed** — mTLS buys no identity gain and adds a second cert lifecycle plus a second CA, and #33 is a live lesson in what a CA costs |
+| **OQ-T8** | **Does the transport generalization ship WITH #32 or AFTER it?** The live disagreement — you suggested replacing #32 with the open work | same §7.3 | **merge first** — #32 fixes a total outage and the churn is bounded; `host-processes` (D4) already is the second consumer, so generalizing can start immediately after |
 | **N3** | Non-container nix: Option 0 / 2 / 3 | B-2 above | Option 2, no longer urgent |
 | **OQ-1** | Is per-jail auth selection enough, or is dynamic switching required? | [`agent-auth-modes.md`](../design/agent-auth-modes.md) §10 | per-jail is probably enough |
 | **OQ-2** | Bedrock bundle: stays in `env_sources`, or becomes a declared bundle? | same | declared |
