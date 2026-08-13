@@ -33,6 +33,33 @@ func hostServiceSocketsDir(cname string, isMacOS bool) string {
 	return filepath.Join(base, "yolo-host-services-"+sha1Hex8(cname))
 }
 
+// mkdirHostServicesDir creates the per-jail host-services dir 0700, tightening it
+// when an older yolo already created it looser.
+//
+// 0700 IS LOAD-BEARING, not tidiness. The directory holds each service's published
+// endpoint file, and an endpoint file carries that service's per-jail bearer token —
+// so svcendpoint REFUSES to publish into a group/world-accessible directory and the
+// daemon dies at spawn instead. The path is fully deterministic and sits under a
+// world-writable /tmp, which is the whole reason that refusal exists.
+//
+// The two branches are exclusive on purpose, so each mode has exactly ONE author:
+//
+//   - a dir that already exists with group/world bits is CHMODed. This is the only
+//     thing carrying an existing host across the change — MkdirAll leaves an
+//     existing directory's mode alone, and every host that ran an older yolo has a
+//     0755 one. On a directory we do not own the Chmod fails, publication then fails
+//     closed, and that is the intended outcome rather than a bug.
+//   - otherwise it is CREATED 0700, never created loose and then tightened. Creating
+//     it 0755 first would leave a window in which the credential directory is
+//     world-readable, and a window is not something a mode assertion can see later.
+func mkdirHostServicesDir(dir string) {
+	if st, err := os.Lstat(dir); err == nil && st.IsDir() && st.Mode().Perm()&0o077 != 0 {
+		_ = os.Chmod(dir, 0o700)
+		return
+	}
+	_ = os.MkdirAll(dir, 0o700)
+}
+
 var nonAlnumRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
 // hostServiceEnvVar returns YOLO_SERVICE_<SANITIZED>_SOCKET.

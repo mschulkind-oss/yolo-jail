@@ -381,7 +381,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// mount + broker env are emitted by the assembler when the socket exists).
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	if rt != "container" {
-		_ = os.MkdirAll(socketsDir, 0o755)
+		mkdirHostServicesDir(socketsDir)
 		o.brokerEnsure()
 		if o.PathExists(broker.BrokerSingletonSocket) {
 			o.ensureBrokerRelay(cname, rt)

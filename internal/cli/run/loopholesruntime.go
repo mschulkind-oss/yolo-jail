@@ -36,7 +36,7 @@ type loopholeDaemon struct {
 // (host-wide, not per-jail).
 func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loopholeDaemon {
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
-	_ = os.MkdirAll(socketsDir, 0o755)
+	mkdirHostServicesDir(socketsDir)
 	if rt == "container" {
 		return nil
 	}
@@ -371,7 +371,7 @@ func (o *Options) relayEnsure(cname, socketsDir string) {
 		return
 	}
 	o.relayKill(pidFile, sockPath)
-	_ = os.MkdirAll(socketsDir, 0o755)
+	mkdirHostServicesDir(socketsDir)
 	_ = os.Remove(sockPath)
 	argv := o.relaySpawnArgv(sockPath, broker.BrokerSingletonSocket, cname)
 	if argv == nil {
