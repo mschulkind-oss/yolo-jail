@@ -220,7 +220,7 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 	base := filepath.Base(socketsDir)
 	if strings.HasPrefix(base, prefix) {
 		shortHash := strings.TrimPrefix(base, prefix)
-		o.relayKill(relayPIDFile(shortHash), filepath.Join(socketsDir, broker.BrokerLoopholeName+".sock"))
+		o.relayKill(relayPIDFile(shortHash))
 	}
 	if fileExists(socketsDir) {
 		_ = os.RemoveAll(socketsDir)
@@ -498,7 +498,7 @@ func (o *Options) relayEnsure(cname, socketsDir string) {
 	if o.relayIsAlive(pidFile, sockPath) {
 		return
 	}
-	o.relayKill(pidFile, sockPath)
+	o.relayKill(pidFile)
 	mkdirHostServicesDir(socketsDir)
 	_ = os.Remove(sockPath)
 	argv := o.relaySpawnArgv(sockPath, broker.BrokerSingletonSocket, cname)
@@ -553,11 +553,19 @@ func (o *Options) relayIsAlive(pidFile, sockPath string) bool {
 // relayKill SIGTERMs the relay PID (SIGKILL straggler), then removes the PID
 // file. Identity/pgrep-fallback guards are omitted — the PID file is the common
 // case; a recycled-PID misfire is bounded by the pidAlive check.
+//
+// It takes the PID FILE ONLY. It used to take a socket path as well and ignore it,
+// which made every caller responsible for passing a value that could not matter —
+// and left a site that a socket-path change would have to chase for no effect.
+// Unlinking the socket is the relay's own SIGTERM job (under its dev/ino guard, so
+// a successor that healed over the same path is never disturbed); a caller that
+// wants the file gone after a SIGKILL removes it itself.
+//
 // relayKillGraceDefault is the production SIGTERM→SIGKILL drain window. Tests
 // override it via Options.RelayKillGrace to avoid a real 3s sleep.
 const relayKillGraceDefault = 3 * time.Second
 
-func (o *Options) relayKill(pidFile, sockPath string) {
+func (o *Options) relayKill(pidFile string) {
 	pid, ok := readPIDFile(pidFile)
 	if ok && o.PIDAlive(pid) {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
@@ -582,7 +590,6 @@ func (o *Options) relayKill(pidFile, sockPath string) {
 		}
 	}
 	_ = os.Remove(pidFile)
-	_ = sockPath
 }
 
 // grace floor: a relay whose PID file's mtime is younger than this is spared, so
@@ -617,7 +624,7 @@ func (o *Options) relayReapOrphansIn(base string, liveKnown bool, liveCnames map
 	}
 	return prune.ReapRelayOrphans(
 		base, liveKnown, live, relayOrphanGraceSeconds, true, o.Now(),
-		func(pidFile string) { o.relayKill(pidFile, "") },
+		func(pidFile string) { o.relayKill(pidFile) },
 	)
 }
 

@@ -65,7 +65,7 @@ func TestRelayKillFrozenClockTerminates(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		o.relayKill(pidFile, "")
+		o.relayKill(pidFile)
 		close(done)
 	}()
 
