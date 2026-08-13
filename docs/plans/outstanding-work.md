@@ -33,7 +33,7 @@ than new work.
 
 | | | Thread | First move | Blocked on |
 |---|---|---|---|---|
-| 🟡 | **C** | [Open PRs + issues on the public repo](#thread-c--the-open-prs-and-issues-on-the-public-repo) | **two replies to send** — close #33 as fixed, and close #32 explaining it is superseded by T1. #37 and #34 are merged | nothing; both are messages, not work |
+| 🟡 | **C** | [Open PRs + issues on the public repo](#thread-c--the-open-prs-and-issues-on-the-public-repo) | **one reply left** — close #33 as fixed. #37/#34 merged, #32 closed unmerged | nothing; it is a message, not work |
 | 🟡 | **A** | [Claude auth as swappable packs](#thread-a--claude-auth-as-two-swappable-packs) | move `shared_credentials` off the base `claude` pack | nothing |
 | ⛔ | **B** | [macos-user + non-container nix](#thread-b--macos-user-and-non-container-nix) | run B-0 once on a Mac (the wiring landed 2026-08-12; nothing else in the thread moves until a Mac confirms it) | a Mac to verify; N3 is your call |
 
@@ -53,14 +53,14 @@ see [`shipped-2026-08-12.md`](shipped-2026-08-12.md) for what shipped.
 
 | | PR | Title | Author | Size | CI | Verdict |
 |---|---|---|---|---|---|---|
-| 🟡 | [#32](https://github.com/mschulkind-oss/yolo-jail/pull/32) | macOS+podman broker transport (fixes [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31)) | Dong Liu, **external** | +1064/−13 | **green**; still `MERGEABLE` (re-checked 2026-08-13 against everything pushed) | **DECIDED: superseded by T1, not merged.** Needs a close comment — see C-3 |
+| ✅ | [#32](https://github.com/mschulkind-oss/yolo-jail/pull/32) | macOS+podman broker transport | Dong Liu, **external** | +1064/−13 | was green | **CLOSED unmerged 2026-08-13**, superseded by T1. Its design is T1's spec — see [`loophole-transport.md`](../design/loophole-transport.md) §7.3 |
 
 | | Issue | Title | Author | State |
 |---|---|---|---|---|
 | 🟡 | [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) | **`ca.key` is mounted into every jail** | Dong Liu | **fixed and PUSHED** (C-4; `state_files` is on `origin/main`) — **still OPEN upstream.** Only a close comment is outstanding |
 | ⛔ | [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) | Broker relay socket unreachable on macOS+podman | Dong Liu | **now fixed by T1, not #32.** Stays open until the unified transport ships — macOS+podman cannot run a jail meanwhile, a deliberate cost |
 
-## 🟡 C-3. #32 — **superseded by T1, not merged.** One close comment outstanding
+## ✅ C-3. #32 — **closed unmerged 2026-08-13**, superseded by T1
 
 > **REVERSED 2026-08-13.** This section previously argued "land it, then promote it; do NOT close it
 > as subsumed", and recommended against generalizing first. **The maintainer decided the opposite:
@@ -124,104 +124,84 @@ strings only — no interpolation, no secrets, no host references"*. So a Bedroc
 `env_sources`. That separation is exactly what makes the pack shareable — the maintainer's own
 requirement, delivered by an existing constraint rather than by new work.
 
-## 🟢 A1. The one structural move
+## ℹ️ A1–A2. **RETHOUGHT 2026-08-13: the two packs are not peers, and one of them should not exist**
 
-**`shared_credentials` and the machine-scope `.claude-shared-credentials` state must move off the
-`claude` pack onto `claude-teams`.** Today the base pack owns both, so "select `claude` alone"
-implies subscription auth. For modes to be swappable, the base pack must be auth-neutral.
+Review question that undid the previous design: *"say you don't use either auth pack — you try to
+log in to a Teams account and Claude's going to let you. The only reason we even have a Teams auth
+pack is the broker. So it's not quite this exclusive-provide thing."*
 
-Consequence to accept deliberately: **selecting `claude` with no auth pack yields no credential
-sharing.** That is correct — it makes the mode an explicit choice — but it changes the behavior of
-a shipped pack, so it wants the render fingerprint gate run before and after.
+**That is correct, and checking it dissolves most of Thread A's machinery.**
 
-## 🟡 A2. The hazard: nothing prevents selecting both — and `provides` is the shape
+### What the base `claude` pack already does (verified 2026-08-13)
 
-Two auth packs selected at once yields `CLAUDE_CODE_USE_BEDROCK=1` from one, the credentials hook
-from the other, and model IDs from whichever overlay lands last. **That is precisely the silent
-wrong-state the whole mode model exists to prevent** — and it is the failure the maintainer's own
-manual switch already demonstrated once (`agent-auth-modes.md` §2.3, where a hand-switch left a
-Bedrock model pin behind).
-
-**Ruled 2026-08-13: a `provides` capability, not a `conflicts` list.** An earlier draft recommended
-`conflicts` — each pack naming the packs it cannot coexist with. The review's counter is better and
-this row now carries it: **both packs should name a third thing rather than naming each other.**
-
-```jsonc
-// claude-teams/pack.json          // claude-bedrock/pack.json
-{ "provides": ["claude-auth"] }    { "provides": ["claude-auth"] }
+```
+hook  shared_credentials   .claude/.credentials.json → machine-shared dir
+state .claude-shared-credentials   scope: machine
 ```
 
-The invariant becomes *"at most one pack may provide `claude-auth`"*, checked at load.
+plus the `claude-oauth-broker` loophole, gated only on `command_on_path: claude`. So **a jail with
+`packs: ["claude"]` and nothing else already has the complete Teams setup**: Claude Code performs
+its own `/login`, the credential is shared across every jail on the machine, and the broker
+serializes refreshes so concurrent jails do not burn the single-use refresh token. **That ships
+today.**
 
-**Why it beats `conflicts` on four counts:**
+### So the two "modes" are different KINDS of thing
 
-1. **No N² knowledge.** With `conflicts`, every auth pack must name every other one, so adding a
-   third mode means editing the two that shipped. With `provides`, a third mode declares the same
-   capability and the rule catches it for free.
-2. **Third parties can participate.** A pack yolo does not ship cannot make itself an alternative
-   under `conflicts` unless the shipped packs name it — which they cannot, because they predate it.
-   Under `provides` it just declares the capability.
-3. **It expresses the invariant rather than the symptom.** "These are alternatives for one job" is
-   the actual fact; "A refuses B" is a consequence of it, restated once per pair.
-4. **It subsumes A4/OQ-5.** `requires_pack` becomes `requires: ["claude-auth"]` — *"I need
-   something that provides this"*, not *"I need `claude-teams` specifically"*. One mechanism, two
-   open questions closed. See A4.
+| | Teams | Bedrock |
+|---|---|---|
+| what it is | **the default path**, plus infrastructure yolo already provides around it | an **override** — `CLAUDE_CODE_USE_BEDROCK=1` takes over inference regardless of login state |
+| does auth work without it? | **yes** — `/login` is Claude Code's own | n/a: without it you are not on Bedrock |
+| what a pack would add | nothing not already shipped | the whole mode |
 
-This is the ordinary package-manager shape (Debian `Provides`/`Conflicts`, RPM `Provides`, Arch
-`provides`), which is a point in its favour — the semantics are well understood and users have met
-them before.
+They are not alternatives competing for one slot. One is *the floor*; the other *replaces the
+floor*. A capability both `provides` describes a symmetry that does not exist.
 
-**Who owns exclusivity — reviewed 2026-08-13, and my first answer was wrong.**
+### Consequences — three things retired
 
-I offered three options and recommended (c), a separate `provides_exclusive` list. The review's
-objection lands on (b) *and* (c) equally: **both are provider-owned, so nothing is definitive.** If
-each provider asserts its own exclusivity there is no authority — two providers can disagree, and
-the "lint error" I proposed for that is a tell that the model has no answer, not that it has one.
-(c) was (b) with tidier syntax and the same hole.
+1. **A1's structural move is WRONG and is withdrawn.** It said move `shared_credentials` and the
+   machine-scope state off the base pack onto a `claude-teams` pack. That would make the good
+   default worse: `packs: ["claude"]` alone would lose credential sharing, so every jail re-logins
+   and the refresh race the broker exists to prevent comes back — **for a pack that adds nothing.**
+2. **There is no `claude-teams` pack.** Nothing shareable would be in it. The maintainer's
+   requirement was two *shareable* packs; the Bedrock one carries a real, secret-free shape
+   (backend, region, model namespace) and the Teams one would carry an empty manifest.
+3. **`provides` / capability exclusivity is retired for this case, and OQ-A2 with it.** I built a
+   mechanism for a conflict between peers, then checked and found no peers. The review was right
+   twice over — first that `conflicts` should have been `provides`, then that the ownership was
+   wrong; the third answer is that neither was needed here.
 
-**Corrected: the CONSUMER declares the slot; providers only fill it.** The `claude` pack knows
-Claude Code has exactly one auth mode — that is a fact about the agent, and the agent's pack is the
-right owner of it. Auth packs stay dumb.
+### What genuinely remains
 
-```jsonc
-// claude/pack.json — declares the slot and its arity
-{ "capabilities": [ { "name": "claude-auth", "max": 1 } ] }
+**One pack: `claude-bedrock`.** `config-overlay` carrying `CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`
+and the Bedrock-shaped model IDs; AWS keys stay in `env_sources` (secret-free pack = shareable).
+Select it for Bedrock, deselect for Teams.
 
-// claude-teams/pack.json        // claude-bedrock/pack.json
-{ "provides": ["claude-auth"] }  { "provides": ["claude-auth"] }
-```
+**And deselecting now works properly**, which fixes the bug that started this: the maintainer's
+manual switch left a `us.anthropic.` model pin behind because it was hand-edited in `settings.json`.
+A pack's overlay is *withdrawn when the pack is deselected*, so mode and model IDs move together by
+construction — the exact failure §2.3 of [`agent-auth-modes.md`](../design/agent-auth-modes.md)
+records.
 
-**Why this is definitive where provider-owned was not:** one declarer, one statement, no
-disagreement possible. A provider that names a capability nobody declared is a lint error with an
-obvious fix, rather than an unresolvable conflict between equals.
+**Two residual items, both small:**
 
-**`max: 1`, not `exactly: 1` — the hazard is two, not zero.** A2's problem is selecting *both*
-auth packs. Requiring *at least* one would newly break `packs: ["claude"]` on its own, which A1
-deliberately makes legal (an auth-neutral base pack, credential sharing as an explicit choice). So
-the arity to enforce is a ceiling, not an equality. If a floor is ever wanted it is a separate
-decision with a separate cost.
+- **The broker runs pointlessly under Bedrock.** Measured harmless this session — the shared creds
+  file was 0 bytes while `CLAUDE_CODE_USE_BEDROCK=1` and the jail worked — but it is waste and a
+  confusing log. Its predicate vocabulary is only `command_on_path` and `file_exists`
+  (`internal/loopholes/load.go`), neither of which can express "Bedrock is active" or "the creds
+  file is non-empty". **An `env_absent` predicate would let it self-disable with no pack
+  coordination at all** — which is a better shape than any pack-to-pack mechanism, because the
+  loophole decides its own applicability. 🟢, small, and useful beyond auth.
+- **`check`/`describe` should report the EFFECTIVE auth mode.** This is the real fix for "which
+  account am I on?", and it is OQ-2's payoff: a declared bundle is what makes the mode reportable,
+  where `env_sources` is invisible to yolo's config model.
 
-**On the review's reservation** — *"all agents need auth, so being clear about where that auth
-comes from isn't terrible, but still not great"* — the discomfort is fair but I think it resolves:
-the claude pack is not learning about an auth-pack ecosystem, it is declaring **its own shape**
-("I have one auth slot"). It names no pack and needs no edit when a third mode appears. That is the
-same reason `into` is a path rather than an agent name: packs describe themselves, and core stays
-ignorant.
+### The generic question that survives, and it is not an auth question
 
-**Could yolo own it instead?** Only for a capability that is *core's*, and `claude-auth` is not —
-core deliberately does not know what an agent is (`internal/packdecl`'s opening premise), so it
-cannot know that Claude Code has one auth slot. yolo owns the **mechanism** (the field, the arity
-check, the error message); the pack owns the **fact**. A core-level registry of capability names
-would rebuild the agent registry the pack system exists to avoid.
-
-**What is left to decide** is narrower than it was: whether the slot declaration lives on a
-`capabilities` field as above, or is folded into `requires` with an arity
-(`requires: [{capability: "claude-auth", max: 1}]`). The first reads better for a slot nobody is
-obliged to fill; the second avoids a fourth composition field. **See OQ-A2.**
-
-**One thing to check before building:** a capability is just a string, so a typo silently creates a
-new capability with one provider and no requirer. `yolo pack lint` should warn on that — it is the
-same failure mode as a misspelled skill destination, and cheap to catch there.
+Two packs writing the **same `config-overlay` key with different values** is still silent
+last-one-wins. That is a real gap — but it belongs to
+[`pack-config-collaboration.md`](../design/pack-config-collaboration.md), not here, and it needs no
+new manifest vocabulary. With one auth pack there is no second writer, so it is not blocking
+anything. **Recorded as OQ-CO below.**
 
 ## 🟡 A4. Composition — packs cannot depend on other packs
 
@@ -234,35 +214,33 @@ So composition today is the flat, ordered, user-scope `packs` list:
 list *is* the mode selector — but nothing stops a personal pack being selected without the auth
 pack it was written for.
 
-**A4 is the same mechanism as A2, seen from the other side.** Rather than a separate
-`requires_pack`, the composition primitive is `requires: ["<capability>"]` — *"I need something that
-provides this"*. So `matt-bedrock-extras` requires the capability the Bedrock pack provides, and
-never names a pack. `provides` + `requires` over one capability namespace closes A2 and A4 together;
-see A2 for the shape and the remaining sub-question. **OQ-5 is therefore folded into OQ-A2.**
+**A4 is now smaller too, because A1–A2 removed its motivating case.** The flat `packs` list was
+only inadequate if two auth packs had to exclude each other; with one Bedrock pack there is nothing
+to exclude. A personal pack selected *without* it (the Tavily case) is **additive and harmless** —
+an MCP server whose key is absent is already inert via `requires_env` gating.
+
+So `requires_pack` / capability composition has **no demonstrated need left**. Recorded, not
+recommended: build it when something actually breaks without it, not before. **OQ-5 is retired
+with OQ-A2.**
 
 The Tavily case needs no new mechanism (§11.4): MCP servers are config under `mcpServers` in
 `claude/config`, the delivery path already supports `requires_env` gating, so the personal pack is
 a `config-overlay` plus a key in `env_sources`.
 
-## ℹ️ A5. Order of work
+## ℹ️ A5. Order of work — collapsed
 
-1. **A1** — move the hook and state onto `claude-teams`; fingerprint before/after.
-2. **Build `claude-bedrock`** — `config-overlay` for the env block *and* model IDs, no secrets, no
-   `env` kind (A3).
-3. **A2** — make double-selection loud.
-4. **B4 below** — correct `agent-credentials.md` §3 while in the area; §11.2 shows it described the
-   right mechanism before anything used it.
-5. **A2/A4 together** — `provides` + `requires` over one capability namespace (**OQ-A2**).
+1. **Build `claude-bedrock`** — one pack, `config-overlay` for the env block *and* the model IDs,
+   no secrets. **OQ-6 still gates it: shipped or fetched?** (recommendation: fetched).
+2. **`env_absent` loophole predicate** so the broker self-disables under Bedrock. Independent, and
+   useful beyond auth.
+3. **`check`/`describe` reports the effective auth mode** (OQ-2).
 
-**Decide before step 2: shipped or fetched?** Adding shipped auth packs breaks several tests that
-hardcode the official six (`packload_test.go`, `packconfigexclusive_test.go`, the briefing/skills
-source tests). A separate public pack repo matches "shareable" better and exercises the
-fetched-pack approval path. **OQ-6; recommendation: fetched.**
+**Not doing:** the A1 move, a `claude-teams` pack, `provides`/capability exclusivity — see A1–A2.
 
 **Still unrun and decisive for the ambitious version:** the `ANTHROPIC_BASE_URL` test
 ([`agent-auth-modes.md`](../design/agent-auth-modes.md) §6) — does Claude Code send a subscription
 OAuth bearer to a non-Anthropic base URL? If yes, a proxy gives no-restart switching. If no,
-pack-swapping is the ceiling. ~5 minutes; nothing downstream should be built before it.
+pack-swapping is the ceiling. ~5 minutes.
 
 ---
 
@@ -439,7 +417,7 @@ relay per jail" was noticed), and ship T1 instead of #32 (OQ-T8). What is left t
 
 | # | Decision | Read it in | My read |
 |---|---|---|---|
-| **OQ-A2** | **Where does the capability SLOT get declared?** `provides` is ruled, and provider-owned exclusivity is ruled OUT (nothing definitive). The consumer declares the slot and its arity — the open bit is whether that is a `capabilities` field or an arity on `requires`. **Folds in the old OQ-5** | **this file → Thread A → A2** (and A4 for the requires half) | a `capabilities` field, `max: 1` — a ceiling not an equality, so `packs: ["claude"]` alone stays legal |
+| **OQ-CO** | **Should two packs writing the same `config-overlay` key with different values be LOUD?** Today it is silent last-one-wins. Generic, not auth-specific — with one auth pack there is no second writer, so nothing is blocked on it | [`pack-config-collaboration.md`](../design/pack-config-collaboration.md) (the layer model); surfaced in **this file → A1–A2** | yes, refuse and name both packs — same shape as the `config` exclusivity collision that already ships |
 | **OQ-D1** | **How to fix the writable config snapshot** — move it out of the workspace, per-file `:ro` mount, HMAC it, or accept-and-document | **this file → OQ-D1 below**; background in [`config-safety.md`](../design/config-safety.md) | (2) if a per-file `:ro` mount inside the workspace is practical, else (1). **(4) is the current state and only defensible if written down** |
 | **OQ-S4** | **Should the jail narrow its skills fan-out to match the host?** Or: does a declaration NARROW delivery or only ADD to it? | **this file → OQ-S4 below**; the audit evidence is in [`shipped-2026-08-12.md`](shipped-2026-08-12.md) § S4; the mechanism is `packload.ResolveDestinations` | (2) — run `ResolveDestinations` on the jail path too. (1) is the honest fallback and worth doing either way |
 | **OQ-E4** | **Do `stateful` surfaces get comment preservation too?** `rmw` shipped, `computed` is provably vacuous | **this file → OQ-E4 below**; the five costed options are in [`host-file-staging.md`](host-file-staging.md) | (3) for now, then (1) when something needs it — no shipped `stateful` surface has a commented host source |
