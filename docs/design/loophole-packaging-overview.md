@@ -6,7 +6,7 @@
 **What this doc is for.** The detailed design is written for whoever implements it — it cites line
 numbers, names functions, and argues from measured code. That is the right shape for building and
 the wrong shape for deciding. This doc carries the same design at the level where the choices
-actually live: what we are adding, what it costs, what it opens, and the five rulings it needs from
+actually live: what we are adding, what it costs, what it opens, and the nine rulings it needs from
 you. **Where the two disagree the detailed doc is the authority** — but if a comment here changes
 something, the change lands there too.
 
@@ -344,7 +344,53 @@ host execution — but "warn for one release, then error" assumes users have som
 their working setup is now a config error with no supported replacement, which is a different and
 worse message.
 
-### 4.4 Things the design names rather than solves
+### 4.4 The gap all four gates miss: what runs is not what was approved — raised in review
+
+Your question — *"the agent could change the loophole host binary if it lived in the workspace and
+that certainly would not be noticed"* — is correct, is **not** introduced by this design, and is not
+closed by any of the four gates. It is the most serious thing in this document.
+
+**Every gate above governs a DECLARATION. None governs the FILE the declaration names.** G1 decides
+who may write `command: ["python3", "/workspace/tool.py"]`. G2 records that string in a lockfile.
+G3 asks who the pack came from. G4 prints it at launch. **Nothing looks at `tool.py`.** And
+`/workspace` is bind-mounted live and agent-writable, so the one thing that actually executes on your
+host is the one thing no gate reads.
+
+The `file://` escape is worse than the doc said, and my earlier "leave it" read is **withdrawn**.
+Local origin is a bare `file://` prefix check with **no constraint on the path whatsoever** — a
+`file:///workspace/…` pack is "local", so it is trusted with no prompt, ever. The justification in
+the code is explicitly an argument about *reading*: local content is *"the user's own files, which
+they can already read."* That is sound for a host **read** and unsound for host **execution**, and
+it collapses entirely when the "local" directory is one an agent writes.
+
+**So this is one defect with three faces**, and seeing them as one is what makes it fixable:
+
+| Where | What changes silently |
+|---|---|
+| a fetched pack at a moving ref | the daemon's file content; the argv never has to change (§4.2) |
+| a `file://` pack under a workspace | the same, with **no approval at any point** to be stale |
+| a config-block `command` naming a workspace path | the same, and **G1 does not touch it** — it gates the declaration, not the target |
+
+**Your conclusion is the right one: everything a loophole runs on the host is promoted under manual
+confirmation, anchored to CONTENT, regardless of origin.** Not "fetched packs re-prompt on a commit
+bump" (§4.2's fix, which only covers the first row) but: yolo hashes what it is about to execute —
+the loophole's module directory, plus any file named in the argv that lives outside it — records
+that digest with the confirmation, and re-confirms when it changes. Origin then decides how loud the
+first confirmation is, not whether there is one.
+
+**Two things to be honest about rather than discover later.** The digest is not a security boundary
+in the strong sense — a Python daemon can `import` anything and a binary can `dlopen` anything, so
+what is hashed is *what yolo can name*, not *everything that will run*. Stating that scope is the
+difference between a useful tripwire and a false promise. And the friction is real and worse than
+§4.2's: a loophole under active development changes on every edit, so it re-confirms on every
+launch. That wants a deliberate "I am developing this one" escape recorded in the **user** config —
+a file the agent cannot write — rather than a prompt people learn to hit `y` on.
+
+**This is OQ-LP13, and it outranks the rest.** It also changes what "ship G1 first" means: G1 remains
+the biggest reduction in *who can declare* host execution, and it should still ship first, but it
+should stop being described as closing the hole. It closes half of one.
+
+### 4.5 Things the design names rather than solves
 
 - **A `file://` pack is trusted unconditionally and forever** — no approval, no re-approval. Not
   changing it: the origin model's whole claim is that a directory you control carries your own
@@ -442,25 +488,118 @@ parties will write even if only bundled loopholes are ever superseded.
 
 ## 8. What I need from you
 
-Eight rulings — five from the design, three raised by your own review. The other four open questions
-are recorded in the detailed doc (§9) and do not need you: one is a technical placement choice, one
-is a one-way door I am flagging rather than opening, one resolves itself when a real pack wants it,
-and one belongs to the `guest` notch work.
+Nine rulings. Four of them came out of your own review, and **OQ-LP13 is the one I would decide
+first** — it is a live hole rather than a design choice, and it is the only one that changes what
+"ship G1 first" means.
 
-**LP10 and LP11 are a direction, not a prerequisite.** Neither blocks the 15th kind — the kind is
-what makes either one *possible*. But they change what the end state looks like, so ruling on them
-early avoids building toward a shape you do not want.
+The other four open questions live in the detailed doc (§9) and do not need you: one is a technical
+placement choice, one is a one-way door I am flagging rather than opening, one resolves itself when a
+real pack wants it, and one belongs to the `guest` notch work.
 
-| | Question | My read |
-|---|---|---|
-| **OQ-LP10** 🆕 | **Retire the hand-placed loophole directory in your home?** A `file://` pack does the same job with the same authority, and the directory is the one channel that starts a host daemon with no selection step at all. | **Yes, retire it** — after the kind ships, so there is somewhere to go. It also forces `loopholes enable/disable` off its one special case and into config state for every source, which the design already wants. |
-| **OQ-LP11** 🆕 | **Do bundled loopholes become official packs?** `AGENTS.md` says *"AGENTS ARE PACKS. Core does not know what an agent is."* A loophole registry plus a magic directory plus a config block is the world before that move. | **Yes in principle, and not yet.** One real blocker: the broker's manifest is not what runs, so packaging it is ceremony over a thing that ignores the package. Do `audio` first as the proof, keep the broker where it is until its spawn and relay have manifest vocabulary. |
-| **OQ-LP2** | **Do the config block's host-execution keys become user-scope-only now?** Covers the command, the environment overrides in both shapes, the doctor command, and `enabled` for anything with a daemon. | **Yes.** Independent of everything else and the biggest single risk reduction here. It is a breaking change for everyone who followed the shipped guide — which literally calls the block "the workspace-scoped entry point" — and a scope error refuses the *whole launch*, so it needs one release of warn-then-error. **Decide OQ-LP12 alongside it**, since that is what the warning points people at. |
-| **OQ-LP12** 🆕 | **How does a workspace get a loophole another workspace does not?** G1 removes the only mechanism (§4.3), and packs were never per-workspace. Declare it user-scope and select workspaces, or let the workspace *ask* and record the human's approval host-side? | **The workspace asks.** It is `yolo pack install`'s existing y/N-plus-lockfile with a different requester, keyed by (workspace, claims). `three-decisions.md` deleted a request/grant split for packs, but for a reason that does not transfer — a repo *can* already lay out its own files; it cannot already run host code. |
-| **OQ-LP3** | **A `file://` pack runs a host daemon with no prompt, ever.** Leave the origin model coherent, or special-case this one kind? | **Leave it** — the origin model's coherence is worth more than a special case. But a host daemon sharpens it, and a one-time confirmation is defensible. Either way it must be *documented*. |
-| **OQ-LP6** | **Is the capability system still worth building for one auto-activating bundled loophole?** | **Genuinely open.** The extension-point argument cuts both ways. |
-| **OQ-LP8** | **How does an execution approval survive a moving pin without re-prompting forever?** Commit-anchoring, or a digest of the loophole's own files? | **Commit-anchor now, digest later if the friction is real.** The friction is visible and recoverable; content-blind approval is neither. |
-| **OQ-LP9** | **Does the scope error downgrade in-jail**, the way the `agents` key hard-errors on the host and warns in-jail? | **Yes, downgrade.** `/workspace` is live-mounted, so in-jail `yolo` and nested jails break identically otherwise. |
+### OQ-LP13 🆕 — is everything a loophole runs on the host promoted under content-anchored confirmation?
+
+**The question.** Every gate in this design governs a *declaration*; none governs the *file* the
+declaration names. A `file://` pack under a live-mounted workspace, or a config-block `command`
+naming a workspace path, is rewritable by the agent between launches with nothing to notice it.
+Do we hash what is about to execute and re-confirm when it changes — regardless of origin?
+
+**My read: yes, and before the kind ships.** This is not a new risk the 15th kind introduces; it
+exists today and G1 does not touch it, so it is worth fixing whether or not any of the rest happens.
+The shape is in §4.4: hash the loophole's module directory plus any argv-named file outside it,
+record the digest with the confirmation, re-confirm on change. Origin decides how loud the first
+confirmation is, not whether there is one.
+
+**What to weigh.** The digest covers what yolo can *name*, not everything that will *run* — a script
+can import, a binary can `dlopen` — so it is a tripwire, not a boundary, and should be described that
+way. And a loophole under development re-confirms on every edit, which wants an explicit
+"I am developing this one" escape in the user config rather than a prompt people learn to click
+through.
+
+### OQ-LP2 — do the config block's host-execution keys become user-scope-only now?
+
+Covers the command, the environment overrides in both shapes, the doctor command, and `enabled` for
+anything carrying a daemon.
+
+**My read: yes.** It is the biggest single reduction in *who may declare* host execution, and it is
+independent of everything else here. Two caveats that have both grown since the first draft: it is a
+breaking change for everyone who followed the shipped guide — which literally calls the block "the
+workspace-scoped entry point" — and a scope error refuses the **whole launch**, not just the
+loophole. So it needs one release of warn-then-error.
+
+**Decide OQ-LP12 with it**, because that is what the warning has to point people at. And per
+OQ-LP13, stop describing this as closing the hole: it closes half of one.
+
+### OQ-LP12 🆕 — how does a workspace get a loophole another workspace does not?
+
+G1 removes the only mechanism that exists (§4.3), and packs were never per-workspace, so without a
+decision here the capability simply disappears. Either the user config declares the loophole and
+names which workspace paths get it, or the workspace *asks* and your approval is recorded host-side.
+
+**My read: the workspace asks.** It is `yolo pack install`'s existing y/N-plus-lockfile with a
+different requester, keyed by (workspace, claim set) — machinery that already ships rather than new
+scoping vocabulary. The obvious objection is that `three-decisions.md` already deleted a
+request/grant split for packs; its stated reason was that *a repo can already lay out whatever it
+likes in its own tree*, which is true and does not transfer, because a repo cannot already run host
+code.
+
+### OQ-LP10 🆕 — retire the hand-placed loophole directory in your home?
+
+**Answering your question directly: yes, the local pack is exactly what it becomes**, and that makes
+this cheaper than I implied. The conventional local pack (`~/.config/yolo-jail/local/`) is
+implicitly selected, so a loophole dropped into it is discovered with no config edit at all — the
+"drop a directory in and it works" ergonomics survive the retirement intact. The migration is moving
+a directory, not writing a manifest and editing config.
+
+**But it does not fix the objection I raised, and I should not have implied it would.** The local
+pack is *implicitly* selected too, so a loophole in it also activates with no selection step. What
+actually improves is different and worth having: a pack-shipped loophole emits claims and appears in
+the per-launch disclosure, where the home directory prints nothing at all today. Visibility, not
+gating.
+
+**My read: yes, retire it — after the kind ships.** The second payoff is unchanged: it leaves
+`loopholes enable/disable` with no special case to serve, forcing enable/disable state into config
+for every source, which the design already wants and currently defers.
+
+### OQ-LP11 🆕 — do bundled loopholes become official packs?
+
+`AGENTS.md` opens with *"AGENTS ARE PACKS. Core does not know what an agent is."* A loophole
+registry plus a magic directory plus a config block is the world before that move.
+
+**My read: yes in principle, not yet.** One blocker is real: the broker's manifest is not what runs —
+its spawn is reconstructed in Go and its per-jail relay has no manifest vocabulary — so packaging it
+would be ceremony over a thing that ignores the package. Do `audio` first as the proof (§7 already
+builds it as an example, so this is mostly a relabel), and leave the broker until those two have
+manifest vocabulary.
+
+### OQ-LP3 — a `file://` pack runs a host daemon with no prompt, ever
+
+**My earlier read was "leave it"; that is withdrawn.** Your review is why: local origin is a bare
+`file://` prefix check with no constraint on the path, so a directory an agent writes is "local," and
+the justification in the code is an argument about *reading* files you can already read (§4.4).
+
+**My read now: this is not a separate question — it is OQ-LP13's second row.** Content-anchored
+confirmation covers it without a special case, which is better than the special case I was about to
+recommend against. What survives independently is only whether local origin should additionally
+constrain the path, and that is worth documenting either way.
+
+### OQ-LP6 — is the capability system still worth building for one auto-activating bundled loophole?
+
+**Genuinely open**, and the extension-point argument cuts both ways: a loophole manifest is a public
+surface regardless, so `serves` is a field third parties will write even if only bundled loopholes
+are ever superseded.
+
+### OQ-LP8 — how does an execution approval survive a moving pin without re-prompting forever?
+
+**My read: commit-anchor now, digest later if the friction is real** — the friction is visible and
+recoverable where content-blind approval is neither. **But OQ-LP13 may collapse this question**: if
+confirmation is content-anchored for every origin, the digest is being built anyway and the commit
+anchor becomes redundant. Worth deciding LP13 first and seeing whether this one still exists.
+
+### OQ-LP9 — does the scope error downgrade in-jail?
+
+The `agents` key hard-errors on the host and warns in-jail, because the in-jail config is a generated
+snapshot. **My read: yes, downgrade** — `/workspace` is live-mounted, so in-jail `yolo` and nested
+jails break identically otherwise.
 
 ---
 

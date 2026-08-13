@@ -74,6 +74,13 @@ design over verified code paths, not over a working instance (**R2**).
 >    imposing a default, so it becomes a per-loophole `request_end` declaration (§2.1b hazard 2).
 > 6. **G1 removes per-workspace loopholes with no replacement** — a capability removal the doc was
 >    calling a migration. **OQ-LP12** (§4.3).
+>
+> A third round found the worst one:
+>
+> 7. **Every gate governs a DECLARATION; none governs the FILE it names.** An agent rewrites a
+>    workspace-resident daemon between launches and nothing notices — `file://` is a bare prefix
+>    check with no path constraint, so "local" includes a directory the agent writes. **OQ-LP13**,
+>    which subsumes G2b and OQ-LP3 (§4.3a).
 
 ---
 
@@ -996,6 +1003,53 @@ review-worthy kind is missing from it, and print the host-**execution** line **b
 `startLoopholes`. For a read, after is cosmetic; for an exec, after is a notification that something
 already happened.
 
+### 4.3a EVERY GATE GOVERNS A DECLARATION; NONE GOVERNS THE FILE — review, and it is the worst gap here
+
+*"The agent could change the loophole host binary if it lived in the workspace and that certainly
+would not be noticed. I guess we need everything the loophole runs on the host to be promoted under
+some manual confirmation as well."* Correct, **pre-existing**, and closed by none of G1–G4.
+
+G1 decides who may write `command: ["python3", "/workspace/tool.py"]`. G2 records that string in the
+lockfile. G3 asks where the pack came from. G4 prints it at launch. **Nothing reads `tool.py`** — and
+`/workspace` is bind-mounted `:rw`, so the only artifact that actually executes is the only one no
+gate inspects.
+
+**The `file://` escape is wider than §4.4 item 2 said, and that item's "not changing it" is
+WITHDRAWN.** Measured: `IsLocal()` is `strings.HasPrefix(p.Source, "file://")` (`config/packs.go:126-128`)
+with **no path constraint of any kind**, so `file:///workspace/mypack` is `OriginLocal`,
+`MayGrantHostFiles()` returns true (`:175-177`) and `packMayAccessHost` short-circuits to true
+(`run/packs.go:378-381`) — no prompt, no lockfile entry, no re-approval, ever. And the code's own
+justification is explicitly a READ argument: *"content at a path on this machine — authored or
+vendored by the user, and readable by them without yolo's help"*, *"the user's own files, which they
+can already read"* (`packs.go:137-139`, `:171-172`). Sound for `host_files`. Unsound for host
+execution, and void when the "local" directory is one an agent writes.
+
+**One defect, three faces** — and G2b (§4.3) fixed only the first:
+
+| Where | What changes with nothing to notice |
+|---|---|
+| a fetched pack at a moving ref | file content; the argv never has to change — G2b's commit anchor |
+| a `file://` pack under a workspace | the same, with **no approval at any point** to be stale against |
+| a config-block `command` naming a workspace path | the same, and **G1 does not touch it**: it gates the declaration, not the target |
+
+**Requirement: confirmation is anchored to CONTENT, for every origin.** yolo digests what it is about
+to execute — the loophole module dir, plus any argv-named file outside it — records that digest with
+the confirmation, and re-confirms on change. Origin then decides how loud the FIRST confirmation is,
+not whether one exists. This subsumes G2b (a commit is a coarse digest) and subsumes OQ-LP3, which
+was heading for a special case.
+
+**Two limits to state rather than discover.** (1) The digest covers what yolo can NAME, not
+everything that will run: a Python daemon imports, a binary `dlopen`s. It is a tripwire against
+silent substitution, not a boundary — and `state_files`/`{state}` content is deliberately outside it,
+or every CA regeneration would re-prompt. (2) The friction is worse than OQ-LP8's: a loophole under
+development changes on every edit. That wants an explicit per-path development escape in the **user**
+config (agent-unwritable), not a prompt users learn to `y` through.
+
+**Recorded as OQ-LP13, and it reorders the argument.** §4.2 justifies the kind partly on *"the claim
+enumeration is now total, so nothing crosses without a string a user saw"* — true of the string and
+false of the bytes. G1 stays first in the landing order (it is still the largest reduction in *who
+may declare*), but it must stop being described as closing the hole.
+
 ### 4.4 Things to name honestly
 
 1. **`allow_exec` is not this gate and would not even fire.** It gates staging a file with an execute
@@ -1005,11 +1059,13 @@ already happened.
    (`entrypoint/hostfilestree.go:192-201`), which is the live matt-fzf case: a pack-owned script the
    **host's** Claude Code executes. yolo does not exec it; the pack causes host-side code to exist
    where host software runs it.
-2. **`file://` is trusted unconditionally, and forever.** `OriginLocal` is nothing but a `file://`
-   prefix (`config/packs.go:125-127`, `:154`) and `MayGrantHostFiles()` returns true with no approval
-   and no re-approval. **Not changing it** — the origin model's whole claim is that a directory the
-   user controls carries the user's own authority. It is this design's largest residual risk
-   (OQ-LP3).
+2. **`file://` is trusted unconditionally, and forever — and "not changing it" is WITHDRAWN
+   (§4.3a).** `OriginLocal` is nothing but a `file://` prefix (`config/packs.go:126-128`) and
+   `MayGrantHostFiles()` returns true with no approval and no re-approval. Draft 2 kept it on the
+   grounds that *a directory the user controls carries the user's own authority*. Review showed the
+   premise fails exactly where it matters: the check constrains the path in no way, so a directory an
+   **agent** writes is equally "local". Superseded by OQ-LP13's content anchoring, which covers it
+   with no special case.
 3. **`yes | yolo pack install` grants approval.** `promptYesNo` (`pack.go:1147`) fails closed on a nil
    stdin or EOF, but the call site always passes `os.Stdin` with **no TTY check**. A one-line
    hardening, independent of this design, worth doing in the same batch — and more worth it once a
@@ -1409,11 +1465,13 @@ larger than draft 1 said: it covers `command`, `env` (both shapes), `doctor_cmd`
 daemon-bearing loopholes, and it needs the migration in §4.3 because the shipped guide teaches the
 workspace scope. **Resolved by:** a maintainer ruling.
 
-**OQ-LP3 — `file://` packs run host daemons with no prompt, ever.** Local origin is a `file://`
-prefix, trusted unconditionally and permanently. My read: **leave it** — the origin model's coherence
-is worth more than a special case. But a host daemon sharpens it, and a one-time confirmation for
-this kind specifically is defensible. **Resolved by:** a maintainer ruling. Either way it must be
-*documented*.
+**OQ-LP3 — `file://` packs run host daemons with no prompt, ever.** Local origin is a bare `file://`
+prefix with no path constraint, trusted unconditionally and permanently. Draft 2's read was
+**leave it**; **withdrawn** (§4.3a) — the premise is that the path is one the user controls, and
+nothing checks that, so a live-mounted workspace qualifies. **Mostly subsumed by OQ-LP13**: content
+anchoring covers this row without the special case draft 2 was arguing against. What survives
+independently is only whether `IsLocal()` should additionally constrain the path. **Resolved by:**
+OQ-LP13, plus a ruling on the path constraint. Either way it must be *documented*.
 
 **OQ-LP4 — the front's declaration: `publishes` on `host_daemon`, or a `yolo internal front`
 subcommand named in the manifest's own argv?** I recommend `publishes` (§2.1); a manifest naming
@@ -1446,6 +1504,18 @@ recoverable, and content-blind approval is neither. **Resolved by:** a maintaine
 and warns in-jail, because the in-jail config is a generated snapshot (AGENTS.md). A `loopholes`
 scope error refuses the whole launch (§4.3), and `/workspace` is live-mounted, so in-jail `yolo` and
 nested jails break identically. **Resolved by:** a maintainer ruling, alongside OQ-LP2.
+
+**OQ-LP13 — is host execution confirmed against CONTENT, for every origin?** Raised in review
+(§4.3a) and the most serious item in this document. Every gate governs a declaration; the file that
+executes is unread, and `file://` imposes no path constraint, so a live-mounted workspace is "local"
+and prompts nothing ever. **My read: yes, and it is independent of the kind — it is a live gap
+today.** Digest the loophole module dir plus any argv-named file outside it, record it with the
+confirmation, re-confirm on change; origin decides how loud the first confirmation is, not whether
+there is one. Subsumes G2b's commit anchoring (a commit is a coarse digest) and most of OQ-LP3.
+Two limits belong in the ruling: the digest covers what yolo can NAME, not everything that runs; and
+a loophole under development re-confirms on every edit, which needs a per-path development escape in
+the **user** config rather than a prompt users learn to `y` through. **Resolved by:** a maintainer
+ruling — and it should be the first one, because it changes what G1 is claimed to close.
 
 **OQ-LP12 — how does a workspace get a loophole another workspace does not?** Raised in review
 (§4.3 G1). G1 removes the only mechanism and packs were never per-workspace, so this is a capability
@@ -1502,8 +1572,12 @@ in revision 2 and are real work draft 1 priced at zero.
 1. **The `loopholes` block's host-exec surface goes user-scope-only** (§4.3 G1) — over entry
    *shapes*, including `doctor_cmd` and `enabled` for daemon-bearing loopholes, with the warn-then-
    error migration and the `docs/guides/loopholes.md:88` fix in the same commit. Fix
-   `knownHostServiceKeys` first (§4.3). Independent of everything else and the biggest risk
-   reduction. **Ship first.**
+   `knownHostServiceKeys` first (§4.3). Independent of everything else and the biggest reduction in
+   **who may declare** host execution. **Ship first** — but it closes half a hole, not the hole
+   (§4.3a), and the migration needs OQ-LP12 decided so the warning has somewhere to point.
+   - **1a. Content-anchored confirmation for host execution, every origin** (§4.3a, OQ-LP13). Also
+     independent of the kind, also pre-existing, and it is what makes item 1 add up to a closed hole
+     rather than a narrowed one. Subsumes item 6's commit anchoring.
    - **1b.** Make `loopholesWithConfig` refuse (or drop) `loopholes` entries that fail
      `validateInlineService` — a command that executes what it reads must not read through a path
      that skips validation (§4.1).
