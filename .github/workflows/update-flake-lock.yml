@@ -39,9 +39,18 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
+      # The pre-update lock is one half of the closure diff below, and it has
+      # to be captured BEFORE the action rewrites it.  It goes to RUNNER_TEMP,
+      # never the working tree: the `create-pull-request` action inside
+      # update-flake-lock commits every new or modified file it finds there
+      # (which is why update-flake-lock itself deletes its own pr_body.txt).
+      - name: Capture the pre-update flake.lock
+        run: cp flake.lock "$RUNNER_TEMP/flake.lock.before"
+
       # flake.nix/flake.lock live at the repo root (src/flake.* are
       # symlinks to them), so no working directory override is needed.
       - name: Update flake.lock
+        id: update
         uses: DeterminateSystems/update-flake-lock@v28
         with:
           pr-title: "chore(deps): weekly flake.lock bump"
@@ -55,3 +64,26 @@ jobs:
           pr-labels: |
             dependencies
             automated
+
+      # What the three-line lock diff cannot say: which of the ~40 packages
+      # this image bakes actually moved.  This step builds `.#imageClosureRoot`
+      # on both locks and appends `nix store diff-closures` to the PR body —
+      # "go 1.26.4 → 1.26.5, chromium 150 → 151, +40.8 MiB".
+      #
+      # It runs AFTER the PR exists so that it can only ever ADD to the bump,
+      # never block it: `continue-on-error` plus a script that degrades to a
+      # note means the worst case is the body the action already wrote.  Both
+      # sides are pure substitution from cache.nixos.org (~900 MiB cold, then
+      # only the delta for the second side), because the root deliberately
+      # excludes our own Go build — see the comment on `imageClosureRoot` in
+      # flake.nix.  No new permissions: `pull-requests: write` above is what
+      # `gh pr edit` needs, and the job already had it to open the PR.
+      - name: Add the image closure diff to the PR body
+        if: steps.update.outputs.pull-request-number != ''
+        continue-on-error: true
+        timeout-minutes: 45
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.update.outputs.pull-request-number }}
+          BEFORE_LOCK: ${{ runner.temp }}/flake.lock.before
+        run: .github/scripts/flake-lock-closure-diff.sh

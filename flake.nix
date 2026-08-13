@@ -711,8 +711,13 @@
         # Core packages: everything the integration test suite in
         # integration/ actually touches, plus POSIX essentials.
         # Shared between the full and minimal image variants.
-        corePackages = [
-          installPrefix
+        #
+        # Split in two on purpose: ``installPrefix`` is OUR OWN Go build,
+        # everything below it comes from nixpkgs.  ``imageClosureRoot`` (below)
+        # wants the nixpkgs half ALONE — a flake.lock bump cannot move our Go
+        # binaries, and including them would make the weekly diff pay for two
+        # `go build`s it can never learn anything from.
+        corePackagesFromNixpkgs = [
           imagePkgs.bashInteractive
           imagePkgs.coreutils-full
           imagePkgs.git
@@ -754,6 +759,7 @@
           # points glibc at this store path.
           imagePkgs.tzdata
         ];
+        corePackages = [ installPrefix ] ++ corePackagesFromNixpkgs;
 
         # Extras that bulk the image up but aren't exercised by the
         # integration test suite.  Kept out of the minimal variant so CI
@@ -787,6 +793,45 @@
           imagePkgs.slirp4netns                # rootless networking for nested podman
           imagePkgs.shadow                     # newuidmap/newgidmap
         ];
+
+        # ── The image's nixpkgs closure, as one cheap root ────────────────
+        # A weekly `flake.lock` bump is three opaque lines — a nixpkgs `rev`,
+        # its `narHash`, a `lastModified`.  What a reviewer needs is what
+        # MOVED in the image, and `nix store diff-closures` computes exactly
+        # that, given two realized closures to compare.  This attr is the root
+        # it compares: a text file whose *references* are the nixpkgs half of
+        # `mkOciImage`'s `contents`, so its closure is the image's closure
+        # minus our own Go build (571 store paths / 3.1 GiB as of writing).
+        # Consumed by .github/workflows/update-flake-lock.yml;
+        # `nix build .#imageClosureRoot` to look at one by hand.
+        #
+        # Why not diff `.#ociImage` itself, which would be exact?  Two `go
+        # build`s and a layered-tarball stream added to a job whose only
+        # question is "what did nixpkgs change" — and a flake.lock bump can
+        # move neither of those.  What is left here is substitutable from
+        # cache.nixos.org (nixos-unstable only advances once Hydra has built
+        # the channel), so both sides of the weekly diff are a DOWNLOAD rather
+        # than a build.  That is the property that keeps the job cheap, and
+        # it is why `installPrefix` is factored out of `corePackages` above.
+        #
+        # Why `writeText` and not `buildEnv`?  Nix scans every output for
+        # store-path hashes and registers what it finds as references, so
+        # printing the paths into a file yields the identical closure for the
+        # cost of writing one file — no symlink farm over ~100k paths and no
+        # collisions between packages shipping the same `bin/` name.
+        #
+        # ONE deliberate omission: `binPathLinks`.  Every library it links is
+        # already in this closure through the package that owns it (glibc,
+        # zlib, gcc's libstdc++, and chromium's glib/pango/cairo/…), so the
+        # only package it would ADD to the diff is our `nix-ld` override —
+        # which, being an override, is in no binary cache and would put a
+        # rustc closure and a Rust compile on the critical path of a report
+        # about nixpkgs versions.  The trade is one package of signal against
+        # the job's whole cost model.
+        imageClosureRoot = pkgs.writeText "yolo-jail-image-closure-root"
+          (builtins.concatStringsSep "\n"
+            (map (p: "${p}")
+              (corePackagesFromNixpkgs ++ fullPackages ++ extraPackages)) + "\n");
 
         mkOciImage = { minimal ? false }:
           ociTools.streamLayeredImage {
@@ -983,6 +1028,9 @@
         # humans can assert lib discovery (e.g. that a "foo.dev" package
         # spec still lands libfoo.so in /lib) without building an image.
         packages.binPathLinks = binPathLinksMinimal;
+        # Closure root for the weekly flake.lock bump's package-version diff
+        # (see the definition above and .github/workflows/update-flake-lock.yml).
+        packages.imageClosureRoot = imageClosureRoot;
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
