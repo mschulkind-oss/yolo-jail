@@ -528,9 +528,32 @@ func (o *Options) relayEnsure(cname, socketsDir, advertiseHost string) {
 	if o.relayHealthy(pidFile, sockPath, endpointPath) {
 		return
 	}
+	// A jail launched by a PRE-UPGRADE yolo has a relay that works and no endpoint
+	// file, so relayHealthy says unhealthy and we would kill it — and the container
+	// could never reach the replacement, because its environment was frozen at
+	// launch naming YOLO_SERVICE_..._SOCKET at the legacy path. Killing it converts
+	// a working jail into a broken one MID-SESSION, recoverable only by relaunching.
+	//
+	// So: if the legacy relay is alive, leave it alone and say why. The upgrade
+	// completes when the jail is next relaunched, which is the only moment the
+	// container's environment can pick up the new variable.
+	if legacy := legacyRelaySocketFile(socketsDir); o.relayIsAlive(pidFile, legacy) {
+		o.pr(o.Stdout).print("[yellow]This jail predates the loopback-TLS relay transport; " +
+			"leaving its existing relay running. Claude auth keeps working, and the jail " +
+			"picks up the new transport when you next relaunch it.[/yellow]")
+		return
+	}
+
 	o.relayKill(pidFile)
 	mkdirHostServicesDir(socketsDir)
 	retireStaleRelayFiles(sockPath, endpointPath)
+	// Also retire the LEGACY socket. relayKill closes the listener but
+	// SetUnlinkOnClose(false) leaves the file, so a pre-upgrade container whose
+	// frozen env still names it would dial a dead file and get ECONNREFUSED —
+	// indistinguishable from "the relay crashed". Removing it turns that into
+	// ENOENT, which the terminator already reports as the clean "not wired up in
+	// this jail" case.
+	_ = os.Remove(legacyRelaySocketFile(socketsDir))
 	argv := o.relaySpawnArgv(sockPath, broker.BrokerSingletonSocket, cname, endpointPath)
 	if argv == nil {
 		return
@@ -606,6 +629,18 @@ func retireStaleRelayFiles(sockPath, endpointPath string) {
 // own socket. That directory now holds endpoint files and nothing else.
 func relaySocketFile(shortHash string) string {
 	return "/tmp/yolo-broker-relay-" + shortHash + ".sock"
+}
+
+// legacyRelaySocketFile is where a PRE-loopback-TLS relay bound its socket: inside
+// the per-jail host-services dir, so the jail could dial it directly. The new relay
+// binds host-only in /tmp and publishes an endpoint file here instead.
+//
+// Kept because a running container launched by an older yolo still names this path
+// in its frozen environment, and both halves of relayEnsure's upgrade handling need
+// it — the "do not kill a working legacy relay" check, and the retirement that
+// turns a dead legacy file into an honest ENOENT.
+func legacyRelaySocketFile(socketsDir string) string {
+	return filepath.Join(socketsDir, broker.BrokerLoopholeName+".sock")
 }
 
 // relayEndpointFile is where the relay's front publishes, inside the per-jail

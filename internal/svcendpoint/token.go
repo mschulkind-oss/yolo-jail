@@ -127,14 +127,28 @@ func verifyTokenFrame(conn net.Conn, token string) error {
 }
 
 // readAck reads the server's one-byte accept ack under a handshake deadline and
-// then clears BOTH deadlines, so the returned conn carries none. EOF here means
-// the token was rejected: the ack precedes the request, so nothing else can have
-// closed the connection yet.
+// then clears BOTH deadlines, so the returned conn carries none.
+//
+// ONLY A CLEAN EOF IS A REJECTION SIGNAL, and that distinction is load-bearing. A
+// rejecting listener returns errBadToken and drops the connection WITHOUT writing
+// (see verifyToken above), so the client reads zero bytes and gets io.EOF — and
+// because the ack precedes the request, nothing else can have closed it yet.
+//
+// A TIMEOUT or a RESET is not a verdict, it is the connection dying: the listener
+// accepted TCP and TLS and then went away mid-handshake. That is exactly what a
+// relay RESTART looks like, and relayEnsure opens that window on every attach — so
+// mapping it to ErrAuthRejected hands the most common transient the message
+// reserved for the one fault that needs a human ("your token does not match").
+// An earlier version wrapped every read error, which moved that misattribution
+// rather than removing it.
 func readAck(conn net.Conn) error {
 	_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
 	var ack [1]byte
 	if _, err := io.ReadFull(conn, ack[:]); err != nil {
-		return fmt.Errorf("%w: no accept ack from the listener (%v)", ErrAuthRejected, err)
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return fmt.Errorf("%w: the listener closed without an accept ack", ErrAuthRejected)
+		}
+		return fmt.Errorf("svcendpoint: no accept ack from the listener: %w", err)
 	}
 	if ack[0] != authAck {
 		return fmt.Errorf("%w: unexpected accept byte %#02x", ErrAuthRejected, ack[0])
