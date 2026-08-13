@@ -2,8 +2,9 @@
 
 **Status:** DESIGN, 2026-08-12. Written because [PR #32](https://github.com/mschulkind-oss/yolo-jail/pull/32)
 solves a problem that is **not specific to the OAuth broker**, and standardizing its answer needs a
-document rather than a merge. Leans heavily on that PR, which is the working implementation of
-most of what is proposed here.
+document rather than a merge. Leans heavily on that PR, whose design is adopted almost wholesale —
+though **#32 itself is being replaced by this work rather than merged** (§7.3), so treat it as the
+spec and its test suite as the acceptance bar, not as code to relocate.
 
 **The question this exists to answer:** the loophole protocol says a client connects to a Unix
 socket. On macOS + podman that does not work. Is the fix a broker patch, or is it the loophole
@@ -552,9 +553,10 @@ All four are now rows in the queue.
 
 1. **Fix `ca.key`** (§5.1). Narrow, known, publicly filed, and a prerequisite for reading #32's
    security argument correctly.
-2. **Land #32 as scoped**, answering its author's open question (§7, OQ-T1). It is green, it is
-   `MERGEABLE`, and it unblocks Claude on macOS today. Generalizing first would strand a working
-   fix behind a refactor.
+2. **Build the unified `loopback-tls` transport in the framework, superseding #32** (§7.3). Not a
+   merge: #32 is closed and its design is the spec (§7.3 lists what must be carried over, and its
+   test suite is what to re-derive against). Until this ships, macOS + podman cannot run a jail —
+   a deliberate cost, recorded in §7.3.
 3. **Unify on `loopback-tls`** (§4, decided in §7.4) — no longer "add a fourth value" but
    **replace three with one**. `unix-socket` retires. `host-processes` is the first port and the
    proof, because it is broken on macOS today (row **D4**) and its failure is harmless; the broker
@@ -580,6 +582,10 @@ is recorded as decided, with the reasoning, so nothing looks quietly dropped.
 
 ### 7.1 Settled
 
+**All of §7 is now settled.** OQ-T1 (§7.2) and OQ-T8 (§7.3) closed 2026-08-13; OQ-T9 (§7.4)
+the same day. Nothing in this design is waiting on a decision — the remaining work is execution,
+tracked as row **T1** in [`../plans/outstanding-work.md`](../plans/outstanding-work.md).
+
 | Was | Answer | Why it did not need a ruling |
 |---|---|---|
 | **OQ-T2** transport selection: automatic, configured, or both? | **Automatic by platform, with an explicit config override.** | The "silent fallback nobody notices" objection is already answered by shipped code: `yolo loopholes list` prints `transport=` per loophole, so the active choice is visible without asking. A Mac user should not have to know what virtiofs is to run a loophole, and an override costs one key. |
@@ -590,67 +596,67 @@ is recorded as decided, with the reasoning, so nothing looks quietly dropped.
 | **OQ-T7** token delivery: env, endpoint file, or a separate file? | **The endpoint file** — decided by the maintainer 2026-08-13. | See §3.2 for the four consequences that must land with it, including deleting the env var rather than deprecating it. |
 | **§3.3 / OQ-T9** drop the socket, unify on TCP? | **DECIDED 2026-08-13: unify.** `unix-socket` retired. | I had called `SO_PEERCRED` decisive; it cannot distinguish the jail from a same-user host process (both arrive as the same uid under rootless podman), and the same-user set is the *intended* boundary rather than a gap. What is left is a complexity-vs-uniformity engineering call, which is a decision, not a finding. See §7.4. |
 
-### 7.2 OQ-T1 — answer #32's author: token + pinned cert as proposed, or full mTLS?
+### 7.2 OQ-T1 — token or mTLS? — **SETTLED: token, and mTLS changes nothing**
 
-**Status: waiting on you. An outside contributor asked this when he opened the PR and nobody has
-replied.** His words:
+Originally framed as a question for the maintainer, because #32's author asked it. **The review
+closed it with one question — *"we mint a unique token per jail, how does mTLS change this?"* — and
+the answer is that it does not.**
 
-> *"I keep the terminator↔relay hop on a per-jail token + pinned host-only-key TLS (no client
-> certs). Happy to switch to full mTLS if you'd prefer."*
+I had written that a certificate "carries a verifiable subject where a bearer token carries nothing
+but itself". That is true of bearer tokens in general and **false of this architecture**, because
+**there is one relay per jail**. The relay's token *is* its jail's token, so a matching token
+identifies the caller structurally — no map, no lookup, no subject field. There is nothing for a
+cert's subject to add.
 
-**What is actually being chosen.** Both options authenticate the client; they differ in what the
-credential *is* and who manages its lifecycle.
+Working through where a cert could still earn its place, all three come up empty here:
 
-| | as proposed (bearer token) | full mTLS |
-|---|---|---|
-| client credential | a random per-jail string | a per-jail client certificate |
-| lifecycle | generate, write, delete with the jail | generate, sign, distribute, **expire**, re-issue, and handle clock skew |
-| who signs | nobody | a CA — and §5 is the whole story of what having one costs us |
-| revocation | delete the file | CRL/OCSP, or short expiry plus re-issue |
-| identity strength | equal — both prove possession of a per-jail secret, neither is kernel-attested |
+| Possible advantage of mTLS | Does it apply? |
+|---|---|
+| Identity is verifiable by a party that does not hold the secret | **No.** The only verifier is the per-jail relay, which owns the secret by construction. |
+| The broker behind the relay could verify the jail itself instead of trusting the relay's `jail_id` stamp | **No.** The relay is a host-side process we run; it is already trusted. The stamp exists to distrust the *jail's* self-report, not the relay's. |
+| Revocation at scale | **Worse.** Jails are ephemeral; deleting a file is revocation. Certs would need expiry, re-issue, and clock-skew handling. |
 
-**Why I recommend "as proposed."** The hop is already loopback-bound and pinned to a host-only-key
-cert, so mTLS's marginal gain is *client*-side proof — which a token already provides equally well,
-since both are "possession of a per-jail secret." What mTLS adds is a second certificate lifecycle
-and, if done conventionally, **a second CA** — and issue #33 is a live lesson in what a CA we own
-costs when its key ends up somewhere it should not be. Paying that for no identity gain is the
-wrong direction.
+**So: token, and this is settled rather than preferred.** mTLS would add a second certificate
+lifecycle and, conventionally, a second CA — with issue #33 as a live lesson in what a CA we own
+costs — in exchange for nothing. The earlier "what would change my mind" paragraph has been deleted
+rather than softened, because it named an advantage that does not exist at one relay per jail.
 
-**What would change my mind:** if we ever want a daemon to make an authorization decision *based on
-which jail is calling* rather than merely *that a valid jail is calling*, a certificate carries a
-verifiable subject where a bearer token carries nothing but itself. That is the boundary-broker's
-per-verb-policy world ([`boundary-broker.md`](boundary-broker.md) §5). It is not this feature, and
-a token can be swapped for a cert later without changing the transport shape.
+The one thing that would genuinely reopen it: a **single shared** relay serving many jails. Then the
+verifier no longer maps one-to-one to a caller and a signed subject starts doing real work. #32's
+architecture is deliberately one relay per jail, and §7.3 keeps it that way.
 
-**Why it needs you and not me:** it is a reply to a contributor in your repo, and §4 makes it every
-future host service's answer rather than one hop's — so it is a posture decision, not a code review
-note.
+### 7.3 OQ-T8 — ship the unification instead of #32? — **DECIDED: yes, replace it**
 
-### 7.3 OQ-T8 — does the generalization ship with #32, or after it?
+**Answered 2026-08-13 by the maintainer: we ship the unified transport instead of merging #32.**
+My recommendation was the opposite (merge first, migrate after); recorded here because the decision
+has consequences that must be planned for rather than discovered.
 
-**Status: waiting on you, and it is the live disagreement between us.** §6 recommends landing #32
-as scoped and generalizing when a second consumer appears. You have suggested replacing it with the
-open work instead.
+**What this costs, stated plainly so nobody later reads it as an oversight:**
 
-**The case for merge-then-generalize:** #32 fixes a **total outage** — on macOS + podman every
-`platform.claude.com` request 502s and Claude Code will not start. It is green, `MERGEABLE`, and
-re-verified 2026-08-13 as still conflict-free against everything we pushed (including B-0's
-restructuring of the same `run.go`). The generalization is unstarted work; replacing means macOS
-stays broken for its duration, and 1064 tested lines get rewritten rather than relocated.
-Generalizing *after* makes the move a refactor with tests already in place.
+1. **macOS + podman stays broken until the unification ships.** Every `platform.claude.com` request
+   502s and Claude Code will not start there ([#31](https://github.com/mschulkind-oss/yolo-jail/issues/31)).
+   That outage window is now a deliberate choice, not a gap.
+2. **The transport is no longer free.** The earlier plan treated `loopback-tls` as already built —
+   #32 is the working implementation. Replacing it means row **T1** covers *building* the transport
+   **and** migrating both consumers, not just migrating. Scope up accordingly.
+3. **1064 tested lines are not reused directly.** Its test suite — token auth over pinned TLS,
+   plaintext-dial rejection, wrong-cert MITM rejection, `tcpfile:` dial, ENOENT attribution — is the
+   spec to re-derive against, and re-deriving is slower than relocating.
 
-**The case for replace:** the generalization moves his transport out of `brokerrelay` into the
-framework, so merging first guarantees churn on code that just landed — and §3.3's mitigation (1)
-says the bolt-on placement is exactly what will let the TCP path drift. If the rewrite is happening
-anyway, doing it once is cheaper than doing it twice.
+**What must be carried over from #32, because it was reverse-engineered the hard way** (§3, §3.1):
+binding `127.0.0.1:0` rather than probing a port; the TLS key living **only** in process memory;
+publishing the public cert plus `host:port` and re-reading it **fresh on every dial** so a relay
+restart needs no jail relaunch; exact-cert pinning via a dedicated root pool rather than trusting a
+CA; constant-time token comparison with a framed length cap; and **one relay per jail** — which
+§7.2 now depends on.
 
-**My read: merge first.** The churn is real but bounded and mechanical; the outage window is not.
-And **the second consumer already exists** — `host-processes` is `unix-socket` and silently broken
-on macOS the same way (row **D4**), so §6's "wait for a second consumer" test is already satisfied
-and the generalization can start immediately after the merge rather than someday.
-
-**Either way, tell him which.** Leaving a tested PR open with an unanswered question is the one
-option with no upside.
+**What to tell him.** Closing an outside contributor's green, tested, conflict-free PR needs a real
+explanation, and there is one: his diagnosis of #31 was correct and is why this document exists, his
+transport design is being adopted almost wholesale, and the reason we are not merging it is that it
+lives in `brokerrelay` where §3.3's mitigation (1) says it would drift — the framework has to own
+it, and `host-processes` (row **D4**) is broken on macOS for exactly the same reason his broker is.
+He also filed [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33), which is fixed. That is
+a genuine contribution record even with the PR closed, and the close comment should say so.
 
 ### 7.4 OQ-T9 — one transport, or two? — **DECIDED: unify**
 
