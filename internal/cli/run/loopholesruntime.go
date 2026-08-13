@@ -221,6 +221,10 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 	if strings.HasPrefix(base, prefix) {
 		shortHash := strings.TrimPrefix(base, prefix)
 		o.relayKill(relayPIDFile(shortHash))
+		// The relay's socket is host-only now, so the rmtree below no longer covers
+		// it. A SIGTERMed relay unlinks it itself (dev/ino-guarded); a SIGKILLed one
+		// cannot, and the file would then litter /tmp forever.
+		_ = os.Remove(relaySocketFile(shortHash))
 	}
 	if fileExists(socketsDir) {
 		_ = os.RemoveAll(socketsDir)
@@ -469,22 +473,26 @@ func (o *Options) brokerEnsure() {
 // ensureBrokerRelay heals the per-jail relay on every path that targets the
 // jail. Skipped for Apple Container and when the singleton
 // socket is absent.
-func (o *Options) ensureBrokerRelay(cname, rt string) {
+//
+// cfg is read only to resolve the advertise host — what the relay's front should
+// PUBLISH depends on whether the jail will share this process's network namespace.
+func (o *Options) ensureBrokerRelay(cname, rt string, cfg *jsonx.OrderedMap) {
 	if rt == "container" || !o.PathExists(broker.BrokerSingletonSocket) {
 		return
 	}
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
-	o.relayEnsure(cname, socketsDir)
+	o.relayEnsure(cname, socketsDir, o.advertiseHostFor(rt, cfg))
 }
 
 // relayEnsure is idempotent per-jail relay supervision under a
 // flock. Spawns the self-exec'd `yolo internal daemon broker-relay` (see
 // relaySpawnArgv).
-func (o *Options) relayEnsure(cname, socketsDir string) {
+func (o *Options) relayEnsure(cname, socketsDir, advertiseHost string) {
 	shortHash := relayShortHash(cname)
 	pidFile := relayPIDFile(shortHash)
-	sockPath := filepath.Join(socketsDir, broker.BrokerLoopholeName+".sock")
-	if o.relayIsAlive(pidFile, sockPath) {
+	sockPath := relaySocketFile(shortHash)
+	endpointPath := relayEndpointFile(socketsDir)
+	if o.relayHealthy(pidFile, sockPath, endpointPath) {
 		return
 	}
 	lf, err := os.OpenFile(relayLockFile(shortHash), os.O_CREATE|os.O_WRONLY, 0o644)
@@ -495,13 +503,20 @@ func (o *Options) relayEnsure(cname, socketsDir string) {
 	if syscall.Flock(int(lf.Fd()), syscall.LOCK_EX) != nil {
 		return
 	}
-	if o.relayIsAlive(pidFile, sockPath) {
+	// The post-lock re-check must use the SAME predicate as the pre-lock one.
+	// Checking only the cheap half here would let two racing invocations disagree
+	// about what "healthy" means and respawn a relay the other just fixed.
+	if o.relayHealthy(pidFile, sockPath, endpointPath) {
 		return
 	}
 	o.relayKill(pidFile)
 	mkdirHostServicesDir(socketsDir)
 	_ = os.Remove(sockPath)
-	argv := o.relaySpawnArgv(sockPath, broker.BrokerSingletonSocket, cname)
+	// The dead predecessor's endpoint file goes too. Left behind, the wait below
+	// would be satisfied instantly by a file naming a port nobody is on, and every
+	// dial from inside the jail would hit a dead address for the container's life.
+	_ = os.Remove(endpointPath)
+	argv := o.relaySpawnArgv(sockPath, broker.BrokerSingletonSocket, cname, endpointPath)
 	if argv == nil {
 		return
 	}
@@ -512,11 +527,63 @@ func (o *Options) relayEnsure(cname, socketsDir string) {
 		cmd.Stdout, cmd.Stderr = l, l
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// The advertise host reaches the front as an env var on THIS HOST-SIDE CHILD —
+	// never inside a jail, so it carries none of the inheritance objection that
+	// keeps the token out of any environment.
+	if advertiseHost != "" {
+		cmd.Env = append(os.Environ(), svcendpoint.AdvertiseHostEnv+"="+advertiseHost)
+	}
 	if err := cmd.Start(); err != nil {
 		return
 	}
 	_ = os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644)
 	o.waitForSocket(sockPath, broker.BrokerSpawnTimeout)
+	if !waitForEndpoint(endpointPath, broker.BrokerSpawnTimeout) {
+		// Not fatal — the jail still starts, and any later `yolo` invocation
+		// re-ensures. But it IS the state in which every in-jail Claude auth request
+		// 502s, and the failure is otherwise silent until the agent hits it, so say
+		// so here and name the log that has the reason.
+		o.pr(o.Stdout).print("[yellow]Warning: the broker relay for this jail did not publish " +
+			endpointPath + " — in-jail Claude auth will fail until it does. See " +
+			filepath.Join(logDir, "broker-relay-"+shortHash+".log") + "[/yellow]")
+	}
+}
+
+// relayHealthy reports whether the per-jail relay is usable BY THE JAIL, which is
+// strictly more than "the process is alive and its socket accepts".
+//
+// The Unix socket is host-only now; the jail's only route in is the published
+// endpoint file. A relay that is alive and accepting on that socket but has
+// published nothing — or a truncated, or an older-format, file — is unreachable
+// from inside the jail, and existence-based health would call it fine forever:
+// never respawned, and the jail permanently unable to authenticate. That is
+// exactly the state a PRE-UPGRADE relay is in after a yolo upgrade, so it is not
+// hypothetical, and the check is unconditional rather than gated on a platform.
+//
+// Probe first: it reads one small file, where relayIsAlive may spend up to two
+// seconds on a connect probe.
+func (o *Options) relayHealthy(pidFile, sockPath, endpointPath string) bool {
+	if !svcendpoint.Probe(endpointPath) {
+		return false
+	}
+	return o.relayIsAlive(pidFile, sockPath)
+}
+
+// relaySocketFile is the relay's own Unix socket — HOST-ONLY, beside its pid and
+// lock files.
+//
+// It deliberately no longer lives in the jail's :rw-mounted host-services dir.
+// Leaving it there would keep the retired transport reachable from inside the jail
+// (which is what retiring it forbids) and would let the jail unlink the relay's
+// own socket. That directory now holds endpoint files and nothing else.
+func relaySocketFile(shortHash string) string {
+	return "/tmp/yolo-broker-relay-" + shortHash + ".sock"
+}
+
+// relayEndpointFile is where the relay's front publishes, inside the per-jail
+// host-services dir — the ONE thing in that dir the jail needs, and a credential.
+func relayEndpointFile(socketsDir string) string {
+	return filepath.Join(socketsDir, broker.BrokerLoopholeName+paths.ServiceEndpointExt)
 }
 
 // relaySpawnArgv builds the per-jail broker-relay spawn argv: the running yolo
@@ -529,11 +596,18 @@ func (o *Options) relayEnsure(cname, socketsDir string) {
 // nor YOLO_REPO_ROOT was set in production, so relaySpawnArgv returned nil and
 // the relay never started. Now it always yields a runnable argv, so relayEnsure
 // actually spawns the relay whenever a broker loophole is active.
-func (o *Options) relaySpawnArgv(sockPath, brokerSocket, cname string) []string {
-	return execx.SelfExecArgv([]string{
+func (o *Options) relaySpawnArgv(sockPath, brokerSocket, cname, endpointPath string) []string {
+	argv := []string{
 		"yolo", "internal", "daemon", "broker-relay",
 		"--socket", sockPath, "--broker", brokerSocket, "--jail", cname,
-	})
+	}
+	if endpointPath != "" {
+		// A PATH, never a token: the front mints its own credential and writes it
+		// inside this 0600 file. Nothing secret crosses this argv, so nothing here
+		// needs redacting before YOLO_DEBUG prints it.
+		argv = append(argv, "--endpoint", endpointPath)
+	}
+	return execx.SelfExecArgv(argv)
 }
 
 func (o *Options) relayIsAlive(pidFile, sockPath string) bool {
@@ -637,6 +711,25 @@ func (o *Options) waitForSocket(sockPath string, timeout time.Duration) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// waitForEndpoint polls until the relay's front has published a COMPLETE endpoint
+// file, returning whether it landed.
+//
+// Content, not existence (svcendpoint.Probe): the file is written temp+rename so a
+// reader cannot see a torn line, but an older or crashed publisher can still leave
+// a file that parses as nothing usable — and treating that as "published" hands the
+// jail an address it can never dial.
+func waitForEndpoint(endpointPath string, timeout time.Duration) bool {
+	// Real wall clock, deliberately NOT o.Now() — see relayKill above.
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if svcendpoint.Probe(endpointPath) {
+			return true
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return svcendpoint.Probe(endpointPath)
 }
 
 func relayShortHash(cname string) string { return sha1Hex8(cname) }

@@ -98,40 +98,69 @@ func (o *Options) reportBrokerDaemon(r *reporter) {
 	}
 }
 
-// checkBrokerRelay probes one jail's broker relay
-// socket end-to-end, naming the failing LAYER.
-func (o *Options) checkBrokerRelay(r *reporter, label, sockPath, rt, cname string) {
-	if !o.PathExists(sockPath) {
-		r.fail(label+": relay socket missing",
-			fmt.Sprintf("Expected %s.  The per-jail relay never started or "+
-				"its sockets dir was removed.  Any `yolo` invocation against "+
-				"this jail respawns it.", sockPath))
+// checkBrokerRelay probes one jail's broker relay end-to-end THROUGH THE HOP THE
+// JAIL USES — read the endpoint file, pin its certificate, present its token, then
+// ping the singleton behind it — naming the failing LAYER.
+//
+// Probing the relay's own Unix socket instead would test a path no jail travels:
+// that socket is host-only now, so it can be perfectly healthy while the jail's
+// half is unpublished, stale, or mismatched. The prober can authenticate at all
+// only because it runs as the uid that published the file and reads the same 0600
+// file the jail does — a property that exists because the token lives there rather
+// than in the jail's environment. It never prints the file's contents.
+func (o *Options) checkBrokerRelay(r *reporter, label, endpointPath, rt, cname string) {
+	if !o.PathExists(endpointPath) {
+		r.fail(label+": relay endpoint missing",
+			fmt.Sprintf("Expected %s.  The per-jail relay never started, its front "+
+				"failed to publish, or its host-services dir was removed.  Any `yolo` "+
+				"invocation against this jail respawns it.", endpointPath))
 		return
 	}
-	conn, err := net.DialTimeout("unix", sockPath, 2*time.Second)
+	if !svcendpoint.Probe(endpointPath) {
+		r.fail(label+": relay endpoint incomplete",
+			fmt.Sprintf("%s exists but does not parse as a complete endpoint "+
+				"(address, certificate, token).  It was truncated or written by an "+
+				"older yolo; any `yolo` invocation against this jail republishes it.",
+				endpointPath))
+		return
+	}
+	// DialLocal, not Dial: the published address names the container runtime's
+	// gateway, which a jail resolves and this host does not. Same port, same pinned
+	// certificate, same token — only the name substituted.
+	conn, err := svcendpoint.DialLocal(endpointPath, 2*time.Second)
 	if err != nil {
-		r.fail(label+": relay socket dead",
-			fmt.Sprintf("connect(%s) failed: %s.  The relay process exited; "+
-				"any `yolo` invocation against this jail respawns it.", sockPath, err))
+		if errors.Is(err, svcendpoint.ErrAuthRejected) {
+			r.fail(label+": relay rejected this jail's token",
+				fmt.Sprintf("The relay named by %s refused the token in that file, so "+
+					"the file is stale relative to the running relay (it restarted and "+
+					"republished, or a predecessor's file was left behind).  Any `yolo` "+
+					"invocation against this jail republishes it.", endpointPath))
+			return
+		}
+		r.fail(label+": relay endpoint dead",
+			fmt.Sprintf("Dialing the relay named by %s failed: %s.  The relay process "+
+				"exited; any `yolo` invocation against this jail respawns it.", endpointPath, err))
 		return
 	}
+	ok := brokerPingConn(conn, 2*time.Second)
 	_ = conn.Close()
-	if brokerPing(sockPath, 2*time.Second) {
-		if v := o.relaySocketVisibleInJail(rt, cname); v != nil && !*v {
-			r.fail(label+": relay ok on host, socket invisible in-jail",
-				"The sockets dir was recreated after the container mounted "+
+	if ok {
+		if v := o.relayEndpointVisibleInJail(rt, cname); v != nil && !*v {
+			r.fail(label+": relay ok on host, endpoint invisible in-jail",
+				"The host-services dir was recreated after the container mounted "+
 					"it (host /tmp cleanup or a teardown/startup race): the "+
 					"jail's bind mount still points at the old, deleted "+
 					"directory, so in-jail auth requests 502 even though the "+
-					"host-side relay answers.  Relaunch the jail to remount "+
-					"the directory.")
+					"host-side relay answers.  That directory now holds this jail's "+
+					"CREDENTIAL, so re-reading cannot recover it either.  Relaunch "+
+					"the jail to remount the directory.")
 		} else {
-			r.ok(label + ": relay ok, broker answers through it")
+			r.ok(label + ": relay ok (cert-pinned, token-authenticated), broker answers through it")
 		}
 	} else {
 		r.fail(label+": relay up, broker unreachable",
-			"The relay accepted but the singleton broker did not answer "+
-				"the proxied ping.  Check `yolo broker status` / "+
+			"The relay authenticated and accepted, but the singleton broker did not "+
+				"answer the proxied ping.  Check `yolo broker status` / "+
 				"`yolo broker restart`.")
 	}
 }
@@ -173,7 +202,8 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 		for _, lp := range externals {
 			label := fmt.Sprintf("loophole %s @ %s", lp.Name, cname)
 			if lp.Name == brokerLoopholeName {
-				o.checkBrokerRelay(r, label, filepath.Join(socketsDir, lp.Name+".sock"), rt, cname)
+				o.checkBrokerRelay(r, label,
+					filepath.Join(socketsDir, lp.Name+paths.ServiceEndpointExt), rt, cname)
 				continue
 			}
 			if lp.Transport == loopholes.TransportLoopbackTLS {

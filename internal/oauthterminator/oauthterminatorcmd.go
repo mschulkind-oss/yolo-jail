@@ -11,6 +11,11 @@
 //   - Content-Length is recomputed (we set it); the caller's is dropped.
 //   - The 502/400 status mapping + layer-named error detail come from the
 //     handler in this package.
+//
+// The host-side hop is the per-jail relay's loopback-TLS endpoint FILE, named by
+// BrokerEndpointEnv. The value is a path, never an address and never a token: the
+// address can change under a running container (a respawned relay gets a new
+// kernel-assigned port) and the file is re-read on every dial, so it does.
 package oauthterminator
 
 import (
@@ -32,8 +37,14 @@ func Main(argv []string) int {
 	port := fs.Int("port", 443, "listen port")
 	cert := fs.String("cert", "/var/lib/yolo-jail/loopholes/claude-oauth-broker/server.crt", "TLS cert")
 	key := fs.String("key", "/var/lib/yolo-jail/loopholes/claude-oauth-broker/server.key", "TLS key")
-	hostSocket := fs.String("host-socket", os.Getenv("YOLO_SERVICE_CLAUDE_OAUTH_BROKER_SOCKET"),
-		"Unix socket for the host-side broker (default: from env)")
+	hostEndpoint := fs.String("host-endpoint", os.Getenv(BrokerEndpointEnv),
+		"Endpoint file naming the host-side broker relay (default: from "+BrokerEndpointEnv+")")
+	// --host-socket is retained as an ALIAS for --host-endpoint, not as a second
+	// transport: it is the escape hatch for a host yolo older than this binary. Its
+	// env default is deliberately GONE — a stale _SOCKET variable left in a jail's
+	// environment would otherwise silently win over an absent endpoint and send this
+	// daemon at a socket that no longer exists.
+	hostSocket := fs.String("host-socket", "", "Alias for --host-endpoint (accepted for compatibility)")
 	logFile := fs.String("log-file", "", "append the operational log here (default: stderr)")
 	verbose := fs.Bool("verbose", false, "verbose logging")
 	verboseShort := fs.Bool("v", false, "verbose logging")
@@ -52,10 +63,14 @@ func Main(argv []string) int {
 	// sink the Python terminator's basicConfig(stderr) landed in).
 	SetupLog(*logFile, *verbose || *verboseShort)
 
-	if *hostSocket == "" {
+	hostAddr := *hostEndpoint
+	if hostAddr == "" {
+		hostAddr = *hostSocket
+	}
+	if hostAddr == "" {
 		// Python logs this via log.error (basicConfig -> stderr); the logger's
 		// default sink is stderr too, so a single LogError matches the wire.
-		LogError("no host socket path available — expected YOLO_SERVICE_CLAUDE_OAUTH_BROKER_SOCKET")
+		LogError("no host broker endpoint available — expected %s", BrokerEndpointEnv)
 		return 2
 	}
 	if !isFile(*cert) || !isFile(*key) {
@@ -65,7 +80,7 @@ func Main(argv []string) int {
 
 	srv := &http.Server{
 		Addr:    *host + ":" + itoa(*port),
-		Handler: makeHandler(*hostSocket),
+		Handler: makeHandler(hostAddr),
 		// Pin HTTP/1.1: an empty TLSNextProto disables ALPN 'h2' negotiation.
 		// Python's ssl context offers no ALPN (HTTP/1.x only); auto-negotiated
 		// HTTP/2 would strip Connection: close, force lowercase headers, and
@@ -77,7 +92,7 @@ func Main(argv []string) int {
 	srv.SetKeepAlivesEnabled(false)
 
 	LogInfo("listening on https://%s:%d (intercepting %s -> %s)",
-		*host, *port, UpstreamHost, *hostSocket)
+		*host, *port, UpstreamHost, hostAddr)
 
 	if err := srv.ListenAndServeTLS(*cert, *key); err != nil && err != http.ErrServerClosed {
 		LogError("yolo-jaild oauth-terminator: %s", err)
@@ -86,7 +101,7 @@ func Main(argv []string) int {
 	return 0
 }
 
-func makeHandler(hostSocket string) http.Handler {
+func makeHandler(hostEndpoint string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		_ = r.Body.Close()
@@ -104,9 +119,9 @@ func makeHandler(hostSocket string) http.Handler {
 
 		var result ProxyResult
 		if isRefresh {
-			result = Refresh(hostSocket)
+			result = Refresh(hostEndpoint)
 		} else {
-			result = ProxyUpstream(hostSocket, r.Method, r.URL.RequestURI(), flattenHeaders(r.Header), body)
+			result = ProxyUpstream(hostEndpoint, r.Method, r.URL.RequestURI(), flattenHeaders(r.Header), body)
 			LogInfo("proxy: %s %s -> %d body_len=%d",
 				r.Method, r.URL.RequestURI(), result.Status, len(result.Body))
 		}

@@ -386,24 +386,49 @@ func (o *Options) fwdSocketDir(cname string) string {
 	return filepath.Join(base, "yolo-fwd-"+cname)
 }
 
-// hostServicesMountArgs builds the host-services sockets-dir mount + broker relay
-// env. The broker singleton ensure + relay spawn are side effects
-// handled by the lifecycle phase; here we emit the -v + the broker socket env
-// when the singleton socket exists.
-func (o *Options) hostServicesMountArgs(rt, cname string) []string {
+// hostServicesMountArgs builds the host-services dir mount + the broker relay's
+// endpoint env. The broker singleton ensure + relay spawn are side effects handled
+// by the lifecycle phase; here we emit the -v and the env var.
+//
+// THE ENV IS GATED ON THE LOOPHOLE BEING ACTIVE, not on the singleton's socket
+// existing at this instant. The container's environment is frozen at `podman run`
+// time, so a jail that happened to launch while the singleton was restarting used
+// to get NO broker address for its entire life: the in-jail terminator then exits
+// 2 and Claude Code will not start, and nothing later can repair it. Loophole
+// activity is the same predicate that decides whether the terminator is started at
+// all (RuntimeArgsFor's YOLO_JAIL_DAEMONS payload), so the two can no longer
+// disagree — and a relay that is late is now a clear "relay unreachable" from the
+// terminator rather than a missing variable.
+func (o *Options) hostServicesMountArgs(rt, cname string, cfg *jsonx.OrderedMap) []string {
 	if rt == "container" {
 		return nil
 	}
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	args := []string{"-v", socketsDir + ":" + paths.JailHostServicesDir + ":rw"}
-	if o.PathExists(broker.BrokerSingletonSocket) {
-		// Still the unix-socket spelling: the broker relay's hop B migrates in its
-		// own change, and emitting _ENDPOINT for a value that is still a socket
-		// path would break the in-jail terminator immediately.
-		brokerJailSock := paths.JailHostServicesDir + "/" + broker.BrokerLoopholeName + ".sock"
-		args = append(args, "-e", hostServiceSocketEnvVar(broker.BrokerLoopholeName)+"="+brokerJailSock)
+	if brokerLoopholeActive(cfg) {
+		// A PATH to the 0600 endpoint file. Never an address (the port is
+		// kernel-assigned and can change under a running container) and never a
+		// token — there is no token environment variable, deliberately: an env var
+		// is inherited by every child the terminator spawns.
+		args = append(args, "-e",
+			hostServiceEnvVar(broker.BrokerLoopholeName)+"="+hostServiceEndpointPath(broker.BrokerLoopholeName))
 	}
 	return args
+}
+
+// brokerLoopholeActive reports whether this launch's broker loophole is enabled
+// and its requirements are met — Active(), the same predicate RuntimeArgsFor uses
+// to decide whether the in-jail terminator runs at all.
+func brokerLoopholeActive(cfg *jsonx.OrderedMap) bool {
+	for _, lp := range loopholes.Discover(loopholes.DiscoverOptions{
+		IncludeBundled:  true,
+		LoopholesConfig: cfgMap(cfg, "loopholes"),
+	}) {
+		if lp.Name == broker.BrokerLoopholeName {
+			return lp.Active()
+		}
+	}
+	return false
 }
 
 // deviceArgs builds the device-passthrough args: raw paths, USB by

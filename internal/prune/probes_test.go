@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // stubRun builds a RunFunc keyed by the joined argv, returning canned stdout
@@ -228,6 +230,51 @@ func TestPySplitMax(t *testing.T) {
 	for _, c := range cases {
 		if got := pySplitMax(c.in, c.max); !reflect.DeepEqual(got, c.out) {
 			t.Errorf("pySplitMax(%q, %d) = %v, want %v", c.in, c.max, got, c.out)
+		}
+	}
+}
+
+// TestReapRelayOrphansRemovesHostOnlySocket: the reap must clean the relay's own
+// socket, which no longer sits inside the per-jail directory it rmtrees.
+//
+// The relay's socket moved out of /tmp/yolo-host-services-<hash>/ when the jail hop
+// became loopback-TLS — leaving it there would have kept the retired transport
+// reachable from inside the jail. It now lives beside the pid and lock files, so
+// the rmtree stopped covering it and a SIGKILLed relay (which cannot unlink its own
+// socket) would litter /tmp permanently.
+func TestReapRelayOrphansRemovesHostOnlySocket(t *testing.T) {
+	base := t.TempDir()
+	now := time.Now()
+	old := now.Add(-2 * time.Hour)
+	deadHash := relayShortHash("yolo-dead-bbbb")
+	pid := filepath.Join(base, "yolo-broker-relay-"+deadHash+".pid")
+	lock := filepath.Join(base, "yolo-broker-relay-"+deadHash+".lock")
+	sock := filepath.Join(base, "yolo-broker-relay-"+deadHash+".sock")
+	dir := filepath.Join(base, paths.HostServicesDirName(deadHash))
+	for _, p := range []string{pid, lock, sock} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(pid, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	var killed []string
+	ReapRelayOrphans(base, true, map[string]struct{}{}, 3600, true, now,
+		func(p string) { killed = append(killed, p) })
+
+	// The pid file goes via the injected kill seam (it owns the signalling), so
+	// assert the seam saw it rather than that this function unlinked it.
+	if !reflect.DeepEqual(killed, []string{pid}) {
+		t.Errorf("killed %v, want [%s]", killed, pid)
+	}
+	for _, p := range []string{lock, sock, dir} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("%s survived the reap", filepath.Base(p))
 		}
 	}
 }

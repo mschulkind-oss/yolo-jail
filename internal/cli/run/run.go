@@ -315,7 +315,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	if existingCID != "" {
-		return o.attachExisting(cname, rt, targetCmd, false)
+		return o.attachExisting(cname, rt, targetCmd, cfg, false)
 	}
 
 	// --- Fresh launch: config-change approval ---
@@ -349,7 +349,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	if !o.New {
 		if raced := o.findRunningContainer(cname, rt); raced != "" {
 			lock.Close()
-			return o.attachExisting(cname, rt, targetCmd, true)
+			return o.attachExisting(cname, rt, targetCmd, cfg, true)
 		}
 	}
 
@@ -384,7 +384,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		mkdirHostServicesDir(socketsDir)
 		o.brokerEnsure()
 		if o.PathExists(broker.BrokerSingletonSocket) {
-			o.ensureBrokerRelay(cname, rt)
+			o.ensureBrokerRelay(cname, rt, cfg)
 		}
 	}
 
@@ -599,7 +599,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 
 // attachExisting runs the exec-into-existing-container branch (and the
 // raced-attach twin). raced selects the second banner text.
-func (o *Options) attachExisting(cname, rt, targetCmd string, raced bool) int {
+func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.OrderedMap, raced bool) int {
 	out := o.pr(o.Stdout)
 	// Startup banner to stderr — surfaces the jail's BAKED version so a host CLI
 	// upgrade attaching to a pre-upgrade container (stale shims/mounts/entrypoint)
@@ -615,7 +615,7 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, raced bool) int {
 	// is one a user with a long-lived jail may never see.
 	o.warnIfNoPacks()
 	// Heal the per-jail relay before handing the session over.
-	o.ensureBrokerRelay(cname, rt)
+	o.ensureBrokerRelay(cname, rt, cfg)
 
 	execFlags := []string{"-i"}
 	if o.IsTTYStdout() {

@@ -291,7 +291,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, o.forwardHostPortsArgs(rt, in.cname, forwardHostPorts)...)
 
 	// --- host services sockets dir + broker relay env ---
-	runCmd = append(runCmd, o.hostServicesMountArgs(rt, in.cname)...)
+	runCmd = append(runCmd, o.hostServicesMountArgs(rt, in.cname, cfg)...)
 
 	// --- device passthrough ---
 	runCmd = append(runCmd, o.deviceArgs(cfg)...)

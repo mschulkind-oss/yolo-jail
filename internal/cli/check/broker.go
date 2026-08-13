@@ -22,9 +22,11 @@ const (
 	brokerSingletonPIDFil = "/tmp/yolo-claude-oauth-broker.pid"
 )
 
-// hostServiceDefaultJailSocket returns the in-jail socket path for a host service.
-func hostServiceDefaultJailSocket(name string) string {
-	return paths.JailHostServicesDir + "/" + name + ".sock"
+// hostServiceDefaultJailEndpoint returns the in-jail path of a host service's
+// published endpoint file — a REGULAR FILE, which is why the in-jail probe tests
+// it with `test -f` and not `test -S`.
+func hostServiceDefaultJailEndpoint(name string) string {
+	return paths.JailHostServicesDir + "/" + name + paths.ServiceEndpointExt
 }
 
 // hostServiceSocketsDir returns the per-jail host-side endpoint-file dir. It
@@ -74,12 +76,24 @@ func brokerReadPID() (int, bool) {
 // brokerPing connects to socketPath, sends a length-prefixed
 // {"action":"ping"} request, and expect a data frame (stream 0) whose JSON has
 // pong:true, before the exit frame (stream 2). Any error → false.
+//
+// Still a Unix dial: this probes the host-wide SINGLETON directly (hop D), which
+// the transport change does not touch. The per-jail relay is probed by
+// brokerPingConn over an already-authenticated loopback-TLS connection.
 func brokerPing(socketPath string, timeout time.Duration) bool {
 	conn, err := net.DialTimeout("unix", socketPath, timeout)
 	if err != nil {
 		return false
 	}
 	defer conn.Close()
+	return brokerPingConn(conn, timeout)
+}
+
+// brokerPingConn is brokerPing over a connection the caller already opened — the
+// shape the relay probe needs, because reaching a relay now means reading its
+// endpoint file, pinning its certificate and presenting its token before a single
+// protocol byte is written.
+func brokerPingConn(conn net.Conn, timeout time.Duration) bool {
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 
 	body := []byte(`{"action":"ping"}`)
@@ -135,15 +149,20 @@ func readFull(conn net.Conn, buf []byte) (int, error) {
 	return total, nil
 }
 
-// relaySocketVisibleInJail reports whether the RUNNING
-// container sees the relay socket. Returns tri-state: visible=true, absent=false,
-// unknown=nil (exec unavailable / exec-level failure). Represented as (*bool).
-func (o *Options) relaySocketVisibleInJail(rt, cname string) *bool {
+// relayEndpointVisibleInJail reports whether the RUNNING
+// container sees the relay's endpoint file. Returns tri-state: visible=true,
+// absent=false, unknown=nil (exec unavailable / exec-level failure). Represented
+// as (*bool).
+//
+// `test -f`, not `test -S`: what crosses into the jail is a regular file naming
+// the relay's loopback listener, not a socket. The old -S probe would report every
+// healthy jail as broken.
+func (o *Options) relayEndpointVisibleInJail(rt, cname string) *bool {
 	if rt == "" || cname == "" {
 		return nil
 	}
-	jailSock := hostServiceDefaultJailSocket(brokerLoopholeName)
-	res := o.Exec([]string{rt, "exec", cname, "sh", "-c", "test -S " + jailSock}, "", nil, 10*time.Second)
+	jailEndpoint := hostServiceDefaultJailEndpoint(brokerLoopholeName)
+	res := o.Exec([]string{rt, "exec", cname, "sh", "-c", "test -f " + jailEndpoint}, "", nil, 10*time.Second)
 	if !res.Ran || res.Timeout {
 		return nil
 	}

@@ -7,8 +7,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/binary"
-	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -31,18 +29,17 @@ func TestVerbatimResponseHeaderNames(t *testing.T) {
 	if testing.Short() {
 		t.Skip("network; -short")
 	}
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "relay.sock")
-	// Fake relay: reply to action=proxy with a lowercase 'x-request-id' header.
-	startFakeRelay(t, sock, map[string]any{
+	// Fake relay behind the real transport: reply to action=proxy with a lowercase
+	// 'x-request-id' header.
+	double := startRelayDouble(t, respondPlain(map[string]any{
 		"status":   418,
 		"headers":  map[string]any{"x-request-id": "abc123"},
 		"body_b64": "aGk=", // "hi"
-	})
+	}))
 
 	// Serve the handler over an httptest-style plain server (we only assert
 	// header casing, which the handler controls before TLS).
-	srv := &http.Server{Handler: makeHandler(sock)}
+	srv := &http.Server{Handler: makeHandler(double.endpointPath)}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -75,13 +72,12 @@ func TestPinnedHTTP11(t *testing.T) {
 	if testing.Short() {
 		t.Skip("network; -short")
 	}
-	dir := t.TempDir()
-	cert, key := genSelfSigned(t, dir)
-	sock := filepath.Join(dir, "relay.sock")
-	startFakeRelay(t, sock, map[string]any{"status": 200, "headers": map[string]any{}, "body_b64": ""})
+	cert, key := genSelfSigned(t, t.TempDir())
+	double := startRelayDouble(t, respondPlain(
+		map[string]any{"status": 200, "headers": map[string]any{}, "body_b64": ""}))
 
 	srv := &http.Server{
-		Handler:      makeHandler(sock),
+		Handler:      makeHandler(double.endpointPath),
 		TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){},
 	}
 	srv.SetKeepAlivesEnabled(false)
@@ -109,45 +105,6 @@ func TestPinnedHTTP11(t *testing.T) {
 }
 
 // --- helpers ---
-
-// startFakeRelay serves one framed action=proxy request, replying with resp
-// framed as stdout JSON + exit 0.
-func startFakeRelay(t *testing.T, sock string, resp map[string]any) {
-	t.Helper()
-	ln, err := net.Listen("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { ln.Close() })
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go func(c net.Conn) {
-				defer c.Close()
-				hdr := make([]byte, 4)
-				if _, err := io.ReadFull(c, hdr); err != nil {
-					return
-				}
-				n := binary.BigEndian.Uint32(hdr)
-				io.ReadFull(c, make([]byte, n))
-				body, _ := json.Marshal(resp)
-				fh := make([]byte, 5)
-				binary.BigEndian.PutUint32(fh[1:], uint32(len(body)))
-				c.Write(fh) // stream 0
-				c.Write(body)
-				ex := make([]byte, 5)
-				ex[0] = 2 // exit
-				binary.BigEndian.PutUint32(ex[1:], 4)
-				c.Write(ex)
-				c.Write([]byte{0, 0, 0, 0})
-			}(c)
-		}
-	}()
-	time.Sleep(30 * time.Millisecond)
-}
 
 func firstLines(s string, n int) string {
 	lines := strings.SplitN(s, "\n", n+1)

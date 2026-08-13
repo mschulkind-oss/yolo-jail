@@ -252,8 +252,10 @@ func relayShortHash(cname string) string { return paths.JailShortHash(cname) }
 // - a pid file younger than olderThanSeconds (mtime grace floor for a jail
 // mid-startup) is kept;
 // - on apply, the relay is killed (via the injected relayKill seam — the
-// signal/pgrep machinery is the caller's concern), then the .lock file and
-// the yolo-host-services-<hash> sockets dir are removed.
+// signal/pgrep machinery is the caller's concern), then the .lock file, the
+// relay's own .sock, and the yolo-host-services-<hash> dir are removed. The
+// .sock is listed separately because the relay's socket is HOST-ONLY and lives
+// beside its pid file, not inside the per-jail dir the rmtree covers.
 //
 // The reaped list is sorted by path, so the displayed order is deterministic.
 func ReapRelayOrphans(base string, liveKnown bool, liveCnames map[string]struct{}, olderThanSeconds float64, apply bool, now time.Time, relayKill func(pidFile string)) []string {
@@ -289,6 +291,7 @@ func ReapRelayOrphans(base string, liveKnown bool, liveCnames map[string]struct{
 			relayKill(pidFile)
 		}
 		_ = os.Remove(filepath.Join(base, "yolo-broker-relay-"+shortHash+".lock"))
+		_ = os.Remove(filepath.Join(base, "yolo-broker-relay-"+shortHash+".sock"))
 		_ = os.RemoveAll(filepath.Join(base, paths.HostServicesDirName(shortHash)))
 	}
 	return reaped

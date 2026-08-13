@@ -42,7 +42,7 @@ type ProxyResult struct {
 // transport failure or broker {error} -> 502 with the layer-named detail;
 // malformed proxy response -> 502 broker_bad_response; else the upstream
 // status/headers/body verbatim.
-func ProxyUpstream(socketPath, method, path string, headers map[string]string, body []byte) ProxyResult {
+func ProxyUpstream(endpointPath, method, path string, headers map[string]string, body []byte) ProxyResult {
 	req := jsonx.NewOrderedMap()
 	req.Set("action", "proxy")
 	req.Set("method", method)
@@ -58,7 +58,7 @@ func ProxyUpstream(socketPath, method, path string, headers map[string]string, b
 		req.Set("body_b64", "")
 	}
 
-	resp, err := AskHostBroker(socketPath, req)
+	resp, err := AskHostBroker(endpointPath, req)
 	if err != nil {
 		// err names the failing layer (relay vs broker) — don't prefix it
 		// (Python: log.error("proxy failed: %s", e)).
@@ -104,8 +104,8 @@ func ProxyUpstream(socketPath, method, path string, headers map[string]string, b
 
 // Refresh sends action=refresh and maps the response to an HTTP result:
 // transport failure -> 502; broker {error} -> 400; else 200 with the tokens.
-func Refresh(socketPath string) ProxyResult {
-	resp, err := AskHostBroker(socketPath, singleton("action", "refresh"))
+func Refresh(endpointPath string) ProxyResult {
+	resp, err := AskHostBroker(endpointPath, singleton("action", "refresh"))
 	if err != nil {
 		// Message names the failing layer (relay vs broker).
 		LogError("refresh failed: %s", err)

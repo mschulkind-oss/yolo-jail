@@ -5,10 +5,30 @@ Ships with the yolo-jail wheel. Serializes Claude OAuth refreshes so multi-jail 
 ## Architecture — two daemons + a per-jail relay, no privileged ports
 
 - **Host daemon** (`yolo internal daemon claude-oauth-broker`) — a host-wide **singleton** serving every jail. Holds the flock, reads/writes the shared credentials file. Listens only on `/tmp/yolo-claude-oauth-broker.sock`; that socket is never exposed to jails.
-- **Per-jail relay** (`yolo internal daemon broker-relay`) — a supervised standalone host process, one per running jail, re-ensured on every `yolo` invocation that targets the jail. Listens on `claude-oauth-broker.sock` in the jail's host-services dir (host side `/tmp/yolo-host-services-<hash>/`, visible in-jail at `/run/yolo-services/` via the existing directory mount) and dials the singleton's socket **per connection** — so a restarted broker is picked up on the very next request, no jail relaunch. The relay is also the attribution point: it injects `jail_id` into each connection's first length-prefixed request message, so the broker log names the jail (host-side injection — trustworthy, unlike an in-jail self-report).
-- **Jail daemon** (`yolo-jaild oauth-terminator`) — supervised inside the jail at boot. Binds `127.0.0.1:443` in the container network namespace (unprivileged there), terminates TLS for `platform.claude.com` with a CA-signed leaf cert, forwards refresh/proxy requests to the relay socket (`YOLO_SERVICE_CLAUDE_OAUTH_BROKER_SOCKET=/run/yolo-services/claude-oauth-broker.sock`).
+- **Per-jail relay** (`yolo internal daemon broker-relay`) — a supervised standalone host process, one per running jail, re-ensured on every `yolo` invocation that targets the jail. It dials the singleton's socket **per connection** — so a restarted broker is picked up on the very next request, no jail relaunch. The relay is also the attribution point: it injects `jail_id` into each connection's first length-prefixed request message, so the broker log names the jail (host-side injection — trustworthy, unlike an in-jail self-report).
 
-Failure layers in the jail daemon's log: `relay unreachable — …` means the host-side relay for this jail is down (relay socket missing or connection refused); `host broker unreachable through the relay …` / `host broker exited N` means the relay answered but the broker behind it failed.
+  The relay has two faces. Its own Unix socket, `/tmp/yolo-broker-relay-<hash>.sock`, is **host-only** and beside its pid and lock files — no jail can reach it. What the jail reaches is a **loopback-TLS front**: a `127.0.0.1` listener on a kernel-assigned port, serving a throwaway certificate whose private key never leaves the relay's memory, which splices each authenticated connection into that socket.
+- **Jail daemon** (`yolo-jaild oauth-terminator`) — supervised inside the jail at boot. Binds `127.0.0.1:443` in the container network namespace (unprivileged there), terminates TLS for `platform.claude.com` with a CA-signed leaf cert, and forwards refresh/proxy requests to the relay's front, which it finds via `YOLO_SERVICE_CLAUDE_OAUTH_BROKER_ENDPOINT=/run/yolo-services/claude-oauth-broker.endpoint`.
+
+## The endpoint file is a credential
+
+That file is one line — `<host:port> <base64 cert> <token>` — written **0600** into this jail's own host-services dir (`/tmp/yolo-host-services-<hash>/`, mounted at `/run/yolo-services/`). It is re-read **fresh on every dial**, so a restarted relay on a new port with a new certificate and a new token is picked up with no jail relaunch.
+
+- The client trusts **exactly** the certificate in that file, via a dedicated root pool — not a CA, and specifically not this loophole's own CA ([#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) is why).
+- The **token** is what `0600` means on a port: reachability is not authorization. It is minted in the relay's memory, per jail and per service, and compared in constant time.
+- **There is no token environment variable, deliberately.** An env var is inherited by every child process the terminator spawns; a file is read at the moment of use by the one process that needs it. `YOLO_SERVICE_CLAUDE_OAUTH_BROKER_TOKEN` does not exist and no fallback reads one.
+- Never copy an endpoint file between jails, and never paste one into a log or a bug report.
+
+Failure layers in the jail daemon's log, four now rather than three:
+
+| Message | Meaning |
+|---|---|
+| `relay unreachable — …` | the endpoint file is not published, or nothing is listening at the address it names — the host-side relay for this jail is down |
+| `relay auth rejected — …` | the endpoint file's token does not match the running relay: the file is stale (the relay restarted and republished, or a predecessor's file was left behind) |
+| `host broker endpoint …: malformed endpoint file` | the file exists but is truncated or was written by an older yolo |
+| `host broker unreachable through the relay …` / `host broker exited N` | the relay answered but the broker behind it failed |
+
+Any `yolo` invocation against the jail respawns the relay and republishes the file.
 
 ## Activation
 

@@ -1,9 +1,7 @@
 package oauthterminator
 
 import (
-	"encoding/binary"
 	"encoding/json"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
 func TestIsRefreshGrant(t *testing.T) {
@@ -33,21 +32,15 @@ func TestIsRefreshGrant(t *testing.T) {
 	}
 }
 
-// shortDir: AF_UNIX path cap.
-func shortDir(t *testing.T) string {
-	t.Helper()
-	d, err := os.MkdirTemp("/tmp", "yj-term-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(d) })
-	return d
-}
-
-// TestAskHostBrokerRelayLayerMissingSocket: a missing socket path is the relay
-// layer ("relay unreachable — ...").
-func TestAskHostBrokerRelayLayerMissingSocket(t *testing.T) {
-	_, err := AskHostBroker(filepath.Join(shortDir(t), "nope.sock"), singleton("action", "ping"))
+// TestAskHostBrokerMissingEndpointIsRelayLayer: an unpublished endpoint file is
+// the relay layer ("relay unreachable — ...").
+//
+// The attribution rides on ENOENT surviving svcendpoint's error wrapping — the
+// errno gate here is unchanged from the Unix-socket era, and it only keeps working
+// because Read wraps the *PathError alongside its own sentinel. This test is what
+// notices if that ever stops being true.
+func TestAskHostBrokerMissingEndpointIsRelayLayer(t *testing.T) {
+	_, err := AskHostBroker(filepath.Join(privateDir(t), "nope.endpoint"), singleton("action", "ping"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -56,30 +49,90 @@ func TestAskHostBrokerRelayLayerMissingSocket(t *testing.T) {
 	}
 }
 
-// TestAskHostBrokerBrokerLayerEOF: a relay that accepts then closes WITHOUT an
-// exit frame is the broker layer ("host broker unreachable through the relay
-// (connection closed without an exit frame)").
-func TestAskHostBrokerBrokerLayerEOF(t *testing.T) {
-	dir := shortDir(t)
-	sock := filepath.Join(dir, "relay.sock")
-	ln, err := net.Listen("unix", sock)
+// TestAskHostBrokerAuthRejectedIsItsOwnLayer: a token mismatch is reported as AUTH,
+// not as the broker layer.
+//
+// This is the defect #32 leaves behind. A mismatch is a post-accept drop, so
+// without a distinct signal it surfaces as EOF-before-exit-frame and gets reported
+// as "host broker unreachable through the relay" — telling the operator to go look
+// at the broker when the actual fault is a stale endpoint file. svcendpoint's
+// one-byte accept ack is what makes the two distinguishable: it arrives before any
+// request is written, so an EOF at that point can only be a refused token.
+func TestAskHostBrokerAuthRejectedIsItsOwnLayer(t *testing.T) {
+	double := startRelayDouble(t, respondOnce(func() *jsonx.OrderedMap {
+		m := jsonx.NewOrderedMap()
+		m.Set("pong", true)
+		return m
+	}))
+	// Republish the SAME address and certificate with a DIFFERENT token — exactly
+	// what a stale file left by a predecessor looks like.
+	ep, err := svcendpoint.Read(double.endpointPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
-	go func() {
-		c, err := ln.Accept()
-		if err != nil {
-			return
-		}
+	wrong, err := svcendpoint.NewToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep.Token = wrong
+	if err := svcendpoint.Publish(double.endpointPath, ep); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = AskHostBroker(double.endpointPath, singleton("action", "ping"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.HasPrefix(err.Error(), "relay auth rejected") {
+		t.Errorf("err = %q, want the auth layer", err.Error())
+	}
+	// The two frozen layers must not claim it.
+	if strings.Contains(err.Error(), "unreachable through the relay") {
+		t.Errorf("auth failure misattributed to the BROKER layer: %q", err.Error())
+	}
+	if strings.HasPrefix(err.Error(), "relay unreachable") {
+		t.Errorf("auth failure misattributed to the relay-down layer: %q", err.Error())
+	}
+}
+
+// TestAskHostBrokerMalformedEndpointIsNotMisattributed: a 2-field (older-format or
+// truncated) endpoint file is neither layer — it names its own fault.
+//
+// Putting it in the relay-down branch would send someone hunting a dead process;
+// putting it in the broker branch would send them to the broker. The file itself is
+// the problem and the message has to say so.
+func TestAskHostBrokerMalformedEndpointIsNotMisattributed(t *testing.T) {
+	path := filepath.Join(privateDir(t), "stale.endpoint")
+	if err := os.WriteFile(path, []byte("127.0.0.1:1 Y29zdA==\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := AskHostBroker(path, singleton("action", "ping"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.HasPrefix(err.Error(), "relay unreachable") ||
+		strings.Contains(err.Error(), "unreachable through the relay") {
+		t.Errorf("a malformed endpoint file was attributed to a layer: %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "malformed endpoint file") {
+		t.Errorf("err = %q, want it to name the malformed file", err.Error())
+	}
+}
+
+// TestAskHostBrokerBrokerLayerEOF: a relay that AUTHENTICATES, accepts, then closes
+// WITHOUT an exit frame is the broker layer ("host broker unreachable through the
+// relay (connection closed without an exit frame)").
+//
+// Unchanged in assertion, and that is the point: the frozen broker-layer
+// attribution must survive the transport swap. Only the double moved onto the real
+// transport — it now authenticates first, which is exactly what distinguishes this
+// from the auth failure above.
+func TestAskHostBrokerBrokerLayerEOF(t *testing.T) {
+	double := startRelayDouble(t, func(c net.Conn) {
 		// Read the request, then close without any response frame.
-		hdr := make([]byte, 4)
-		io.ReadFull(c, hdr)
-		length := binary.BigEndian.Uint32(hdr)
-		io.ReadFull(c, make([]byte, length))
-		c.Close()
-	}()
-	_, err = AskHostBroker(sock, singleton("action", "refresh"))
+		_, _ = readFramedRequest(c)
+	})
+	_, err := AskHostBroker(double.endpointPath, singleton("action", "refresh"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -93,59 +146,57 @@ func TestAskHostBrokerBrokerLayerEOF(t *testing.T) {
 	}
 }
 
-// TestAskHostBrokerSuccess: a relay that returns a framed JSON stdout + exit 0
-// yields the parsed object.
-func TestAskHostBrokerSuccess(t *testing.T) {
-	dir := shortDir(t)
-	sock := filepath.Join(dir, "relay.sock")
-	ln, err := net.Listen("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	go func() {
-		c, err := ln.Accept()
+// TestAskHostBrokerOverEndpoint: the success path over the real transport — read
+// the endpoint file, pin the certificate, present the token, then speak the frame
+// protocol.
+//
+// It also pins the ORDERING, not merely that a token was presented: the first bytes
+// the daemon side ever sees are the request's own length prefix, because the
+// transport consumed the token frame BEFORE handing the connection over. A daemon
+// therefore cannot forget to authenticate — the unauthenticated connection is never
+// offered to it.
+func TestAskHostBrokerOverEndpoint(t *testing.T) {
+	gotFirst := make(chan []byte, 1)
+	double := startRelayDouble(t, func(c net.Conn) {
+		body, err := readFramedRequest(c)
 		if err != nil {
 			return
 		}
-		defer c.Close()
-		hdr := make([]byte, 4)
-		io.ReadFull(c, hdr)
-		length := binary.BigEndian.Uint32(hdr)
-		io.ReadFull(c, make([]byte, length))
-		// stdout frame with a JSON body, then exit 0.
-		payload := []byte(`{"pong": true}`)
-		fh := make([]byte, 5)
-		fh[0] = streamStdout
-		binary.BigEndian.PutUint32(fh[1:], uint32(len(payload)))
-		c.Write(fh)
-		c.Write(payload)
-		ex := make([]byte, 5) // stream 2, len 4
-		ex[0] = streamExit
-		binary.BigEndian.PutUint32(ex[1:], 4)
-		c.Write(ex)
-		c.Write([]byte{0, 0, 0, 0})
-	}()
-	resp, err := AskHostBroker(sock, singleton("action", "ping"))
+		gotFirst <- body
+		writeFramedResponse(c, []byte(`{"pong": true}`))
+	})
+	resp, err := AskHostBroker(double.endpointPath, singleton("action", "ping"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if v, _ := resp.Get("pong"); v != true {
 		t.Errorf("resp pong = %v", v)
 	}
+	select {
+	case body := <-gotFirst:
+		// The daemon's FIRST read is the request. Had the token frame still been in
+		// the stream, this would be 64 hex bytes instead.
+		if !strings.Contains(string(body), `"action"`) {
+			t.Errorf("the daemon's first framed read was %q, want the request — the "+
+				"token frame must be consumed by the transport, before the handler", body)
+		}
+		if hex64.MatchString(string(body)) {
+			t.Errorf("a token reached the daemon's protocol stream: %q", body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the daemon side never read a request")
+	}
 }
 
 // TestProxyUpstreamMapping: a broker {error} response maps to 502.
 func TestProxyUpstream502OnBrokerError(t *testing.T) {
-	dir := shortDir(t)
-	sock := filepath.Join(dir, "relay.sock")
-	serveOnce(t, sock, func() *jsonx.OrderedMap {
+	double := startRelayDouble(t, respondOnce(func() *jsonx.OrderedMap {
 		m := jsonx.NewOrderedMap()
 		m.Set("error", "upstream_unreachable")
 		m.Set("message", "no DNS")
 		return m
-	})
-	res := ProxyUpstream(sock, "GET", "/foo", map[string]string{}, nil)
+	}))
+	res := ProxyUpstream(double.endpointPath, "GET", "/foo", map[string]string{}, nil)
 	if res.Status != 502 {
 		t.Errorf("status = %d, want 502", res.Status)
 	}
@@ -154,9 +205,7 @@ func TestProxyUpstream502OnBrokerError(t *testing.T) {
 // TestProxyUpstreamPassthrough: a well-formed proxy response passes the
 // upstream status/body through verbatim.
 func TestProxyUpstreamPassthrough(t *testing.T) {
-	dir := shortDir(t)
-	sock := filepath.Join(dir, "relay.sock")
-	serveOnce(t, sock, func() *jsonx.OrderedMap {
+	double := startRelayDouble(t, respondOnce(func() *jsonx.OrderedMap {
 		m := jsonx.NewOrderedMap()
 		m.Set("status", jsonx.IntValue(418))
 		h := jsonx.NewOrderedMap()
@@ -164,8 +213,8 @@ func TestProxyUpstreamPassthrough(t *testing.T) {
 		m.Set("headers", h)
 		m.Set("body_b64", "aGVsbG8=") // "hello"
 		return m
-	})
-	res := ProxyUpstream(sock, "GET", "/foo", map[string]string{}, nil)
+	}))
+	res := ProxyUpstream(double.endpointPath, "GET", "/foo", map[string]string{}, nil)
 	if res.Status != 418 {
 		t.Errorf("status = %d, want 418", res.Status)
 	}
@@ -179,66 +228,28 @@ func TestProxyUpstreamPassthrough(t *testing.T) {
 
 // TestRefreshMapping: broker {error} -> 400; success -> 200.
 func TestRefreshMapping(t *testing.T) {
-	dir := shortDir(t)
-	sockErr := filepath.Join(dir, "err.sock")
-	serveOnce(t, sockErr, func() *jsonx.OrderedMap {
+	errDouble := startRelayDouble(t, respondOnce(func() *jsonx.OrderedMap {
 		m := jsonx.NewOrderedMap()
 		m.Set("error", "no_refresh_token")
 		return m
-	})
-	if res := Refresh(sockErr); res.Status != 400 {
+	}))
+	if res := Refresh(errDouble.endpointPath); res.Status != 400 {
 		t.Errorf("error refresh status = %d, want 400", res.Status)
 	}
 
-	sockOK := filepath.Join(dir, "ok.sock")
-	serveOnce(t, sockOK, func() *jsonx.OrderedMap {
+	okDouble := startRelayDouble(t, respondOnce(func() *jsonx.OrderedMap {
 		m := jsonx.NewOrderedMap()
 		m.Set("access_token", "AT")
 		m.Set("token_type", "Bearer")
 		return m
-	})
-	res := Refresh(sockOK)
+	}))
+	res := Refresh(okDouble.endpointPath)
 	if res.Status != 200 {
 		t.Errorf("ok refresh status = %d, want 200", res.Status)
 	}
 	if !strings.Contains(string(res.Body), `"access_token": "AT"`) {
 		t.Errorf("ok refresh body = %q", res.Body)
 	}
-}
-
-// serveOnce starts a one-shot relay double that reads a framed request and
-// replies with respFn()'s object framed as stdout + exit 0.
-func serveOnce(t *testing.T, sock string, respFn func() *jsonx.OrderedMap) {
-	t.Helper()
-	ln, err := net.Listen("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { ln.Close() })
-	go func() {
-		c, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		defer c.Close()
-		hdr := make([]byte, 4)
-		io.ReadFull(c, hdr)
-		length := binary.BigEndian.Uint32(hdr)
-		io.ReadFull(c, make([]byte, length))
-		body, _ := json.Marshal(mapOf(respFn()))
-		fh := make([]byte, 5)
-		fh[0] = streamStdout
-		binary.BigEndian.PutUint32(fh[1:], uint32(len(body)))
-		c.Write(fh)
-		c.Write(body)
-		ex := make([]byte, 5)
-		ex[0] = streamExit
-		binary.BigEndian.PutUint32(ex[1:], 4)
-		c.Write(ex)
-		c.Write([]byte{0, 0, 0, 0})
-	}()
-	// Give the listener a moment.
-	time.Sleep(20 * time.Millisecond)
 }
 
 // mapOf flattens an OrderedMap to a plain map for json.Marshal in the test
