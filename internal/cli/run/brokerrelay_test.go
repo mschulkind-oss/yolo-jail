@@ -277,3 +277,54 @@ func listenUnixForTest(t *testing.T, path string) (io.Closer, error) {
 	t.Helper()
 	return net.Listen("unix", path)
 }
+
+// TestRetireStaleRelayFilesRemovesBoth: a respawn clears BOTH of the dead
+// predecessor's artifacts.
+//
+// Forgetting either is silent. A surviving socket makes the fresh relay's bind
+// fail with EADDRINUSE. A surviving endpoint file is worse: the publication wait
+// is satisfied instantly by a file naming a port nobody is on, so the "this jail
+// cannot reach its relay" warning never fires and every in-jail dial hits a dead
+// address until the new front happens to republish over it.
+func TestRetireStaleRelayFilesRemovesBoth(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(dir, "relay.sock")
+	endpointPath := filepath.Join(dir, "claude-oauth-broker.endpoint")
+
+	// A COMPLETE-looking predecessor publication: a real listener's file, kept after
+	// the listener died, which is exactly what a crashed relay leaves behind.
+	dead, err := svcendpoint.Listen(endpointPath, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep, err := svcendpoint.Read(endpointPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = dead.Close() // Close unlinks, so republish the same bytes.
+	if err := svcendpoint.Publish(endpointPath, ep); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sock, []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// It reads as healthy until it is retired — which is the whole hazard.
+	if !svcendpoint.Probe(endpointPath) {
+		t.Fatal("the fixture's stale endpoint does not parse; the test would prove nothing")
+	}
+
+	retireStaleRelayFiles(sock, endpointPath)
+
+	if _, err := os.Stat(sock); err == nil {
+		t.Error("the predecessor's socket survived; the fresh relay's bind would EADDRINUSE")
+	}
+	if _, err := os.Stat(endpointPath); err == nil {
+		t.Error("the predecessor's endpoint file survived; the publication wait would pass on it")
+	}
+	if svcendpoint.Probe(endpointPath) {
+		t.Error("the stale endpoint still probes healthy after retirement")
+	}
+}

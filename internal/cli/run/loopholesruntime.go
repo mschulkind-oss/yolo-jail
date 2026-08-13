@@ -511,11 +511,7 @@ func (o *Options) relayEnsure(cname, socketsDir, advertiseHost string) {
 	}
 	o.relayKill(pidFile)
 	mkdirHostServicesDir(socketsDir)
-	_ = os.Remove(sockPath)
-	// The dead predecessor's endpoint file goes too. Left behind, the wait below
-	// would be satisfied instantly by a file naming a port nobody is on, and every
-	// dial from inside the jail would hit a dead address for the container's life.
-	_ = os.Remove(endpointPath)
+	retireStaleRelayFiles(sockPath, endpointPath)
 	argv := o.relaySpawnArgv(sockPath, broker.BrokerSingletonSocket, cname, endpointPath)
 	if argv == nil {
 		return
@@ -567,6 +563,19 @@ func (o *Options) relayHealthy(pidFile, sockPath, endpointPath string) bool {
 		return false
 	}
 	return o.relayIsAlive(pidFile, sockPath)
+}
+
+// retireStaleRelayFiles removes BOTH of a dead predecessor's artifacts before a
+// respawn. Named rather than inlined because forgetting either one is silent:
+//
+//   - the socket, or the fresh relay's bind fails with EADDRINUSE;
+//   - the endpoint file, or the publication wait is satisfied INSTANTLY by a file
+//     naming a port nobody is on. The warning that says "this jail cannot reach its
+//     relay" then never fires, and until the new front happens to republish, every
+//     dial from inside the jail hits a dead address.
+func retireStaleRelayFiles(sockPath, endpointPath string) {
+	_ = os.Remove(sockPath)
+	_ = os.Remove(endpointPath)
 }
 
 // relaySocketFile is the relay's own Unix socket — HOST-ONLY, beside its pid and
