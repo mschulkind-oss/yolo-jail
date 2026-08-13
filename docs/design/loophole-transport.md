@@ -434,7 +434,7 @@ queue.
 | **`ca.key` readable in-jail** | ✅ fixed 2026-08-12 | §5.1's `state_files` narrowing; verified in a nested jail — `ca.key` absent, the three needed files present |
 | **Claude creds symlink dangles on macos-user** | 🔴 open | Thread B; blocks the Teams auth mode on macOS |
 | **Config-approval snapshot is agent-writable** | 🔴 open | `.yolo/config-snapshot.json` is mode `664` and writable in-jail *(re-measured)*. An agent that edits `yolo-jail.jsonc` **and** matches the snapshot makes the launch-time diff prompt disappear — the exact bypass [`config-safety.md`](config-safety.md) exists to prevent |
-| **Two shipped docs contradict the code** | 🟡 partly | `USER_GUIDE.md:182` and `bundled_loopholes/claude-oauth-broker/README.md:59` both still say *"no background timer / no proactive refresh"*, while `oauthbrokercmd.go:88` starts `RunBackgroundRefresher` by default. The separate `--host-creds-file` staleness **has** since been fixed |
+| **Two shipped docs contradict the code** | ✅ fixed 2026-08-12 | `USER_GUIDE.md` and `bundled_loopholes/claude-oauth-broker/README.md` both said *"no background timer / no proactive refresh"* while `oauthbrokercmd.go:88` starts `RunBackgroundRefresher` by default. Both now describe the real loop (tick 60 s, lead 300 s, 5 s fast retry ×12, `--no-background-refresh`). The separate `--host-creds-file` staleness was already fixed |
 
 **The process lesson, which matters more than the four items:** an audit whose output lives only in
 a narrative doc is invisible to planning. Findings need to become rows in the queue on the day they

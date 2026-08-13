@@ -1,6 +1,6 @@
 # claude-oauth-broker loophole (bundled)
 
-Ships with the yolo-jail wheel. Serializes Claude OAuth refreshes so multi-jail setups don't burn the single-use refresh token. See [`docs/plans/claude-oauth-mitm-proxy-plan.md`](../../../docs/plans/claude-oauth-mitm-proxy-plan.md) for design rationale, [`docs/research/claude-token-logouts.md`](../../../docs/research/claude-token-logouts.md) for operator triage, [`docs/guides/loopholes.md`](../../../docs/guides/loopholes.md) for the loophole system.
+Ships with the yolo-jail wheel. Serializes Claude OAuth refreshes so multi-jail setups don't burn the single-use refresh token. See [`docs/research/claude-oauth-refresh-mechanics.md`](../../docs/research/claude-oauth-refresh-mechanics.md) for design rationale, [`docs/research/claude-token-logouts.md`](../../docs/research/claude-token-logouts.md) for operator triage, [`docs/guides/loopholes.md`](../../docs/guides/loopholes.md) for the loophole system.
 
 ## Architecture — two daemons + a per-jail relay, no privileged ports
 
@@ -58,9 +58,15 @@ tail -F ~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log
 cat ~/.local/state/yolo-jail-daemons/claude-oauth-broker.log
 ```
 
-## On-demand refresh
+## Refresh: on demand, and proactively
 
-The broker refreshes on request: when a jail POSTs to `/v1/oauth/token`, the host daemon takes the flock, checks on-disk expiry, and either returns the cached tokens (still valid, ≥ 90 s headroom) or calls Anthropic once and rewrites the shared file. There is no background timer — the broker was the original rationale for the legacy `claude-token-refresher`, and once the broker became the single refresh authority the refresher had nothing left to do. It was removed.
+**On demand.** When a jail POSTs to `/v1/oauth/token`, the host daemon takes the flock, checks on-disk expiry, and either returns the cached tokens (still valid, ≥ 90 s headroom) or calls Anthropic once and rewrites the shared file.
+
+**Proactively.** The daemon also runs a background refresher **by default** (`RunBackgroundRefresher`, started in `oauthbrokercmd.go` unless `--no-background-refresh` is passed). It ticks every `BackgroundRefreshTickSeconds` = 60 s and refreshes when the shared token is within `BackgroundRefreshLeadSeconds` = 300 s of expiry. A tick that fails with `upstream_unreachable` while still due fast-retries every 5 s, up to 12 consecutive times — added for suspend/resume, where the token expires during sleep and the first post-wake tick fires before DNS is up.
+
+The proactive loop is architectural, not an optimization: Claude Code has **no** proactive refresh of its own for Pro/Max tokens — it refreshes reactively, after a 401, and gives up after a bounded number of retries. A jail that idles past expiry, or a host that suspends through it, would otherwise wake up logged out. Rationale and the tick/lead choices: [`docs/research/claude-oauth-refresh-mechanics.md`](../../docs/research/claude-oauth-refresh-mechanics.md) §5–6.
+
+(The legacy standalone `claude-token-refresher` **is** gone — the broker became the single refresh authority and absorbed the job. Earlier revisions of this file read that as "there is no background timer", which was never true of the Go daemon.)
 
 The broker operates on ONE credentials file — the shared jail file at `~/.local/share/yolo-jail/home/.claude-shared-credentials/.credentials.json` — and never touches host Claude's `~/.claude/.credentials.json`. Host and in-jail Claude maintain independent OAuth identities (separate refresh tokens minted by separate `/login` flows). Anthropic's OAuth issuer supports multiple concurrent active refresh tokens per account, so this is cheap and safe.
 

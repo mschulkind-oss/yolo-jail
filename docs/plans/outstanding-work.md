@@ -31,7 +31,7 @@ than new work.
 
 | | | Thread | First move | Blocked on |
 |---|---|---|---|---|
-| 🟢 | **C** | [Open PRs + issues on the public repo](#thread-c--the-open-prs-and-issues-on-the-public-repo) | **land #37** (certain, already-occurring bug in the verification tool), then #33 | nothing; #32 has a question awaiting your answer |
+| 🟢 | **C** | [Open PRs + issues on the public repo](#thread-c--the-open-prs-and-issues-on-the-public-repo) | **land #37** (certain, already-occurring bug in the verification tool); #33 is **fixed** and needs only a reply on the issue | nothing; #32 has a question awaiting your answer |
 | 🟡 | **A** | [Claude auth as swappable packs](#thread-a--claude-auth-as-two-swappable-packs) | move `shared_credentials` off the base `claude` pack | nothing |
 | ⛔ | **B** | [macos-user + non-container nix](#thread-b--macos-user-and-non-container-nix) | run B-0 once on a Mac (the wiring landed 2026-08-12; nothing else in the thread moves until a Mac confirms it) | a Mac to verify; N3 is your call |
 
@@ -58,7 +58,7 @@ issue *and* a PR fixing it. Neither has any review or comment on it yet, and **a
 | | Issue | Title | Author | State |
 |---|---|---|---|---|
 | 🟢 | [#35](https://github.com/mschulkind-oss/yolo-jail/issues/35) | Stale `:latest` reused after reverting config | Georgi Popov | fixed by #37 |
-| 🟢🐛 | [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) | **`ca.key` is mounted into every jail** | Dong Liu | **open, no PR** — see C-4; severity downgraded, not an auth escalation |
+| ✅ | [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) | **`ca.key` is mounted into every jail** | Dong Liu | **fixed 2026-08-12** (C-4) — closable; still open upstream until someone replies on the issue |
 | 🟢 | [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) | Broker relay socket unreachable on macOS+podman | Dong Liu | fixed by #32 |
 
 ## 🟢🐛 C-1. #37 — a silent stale-image bug in the tool you verify with
@@ -200,7 +200,26 @@ future host service rather than to one hop. A per-jail bearer token inside pinne
 strictly stronger than the current *"the socket file is the authentication"* posture, so "as
 proposed" is a defensible answer — it just needs to be given.
 
-## 🟢🐛 C-4. Issue #33 — `ca.key` in every jail — open, no PR
+## ✅🐛 C-4. Issue #33 — `ca.key` in every jail — **DONE 2026-08-12**
+
+> **DONE.** The loophole manifest gained an optional `state_files` key naming the state-dir subset
+> that crosses into a jail; the shipped broker declares `["ca.crt", "server.crt", "server.key"]`,
+> each mounted as its own `:ro` file, and the state **directory** no longer crosses. Omit the key
+> and the whole dir mounts as before, so no external manifest changed meaning
+> (`internal/loopholes/{load,runtime}.go`).
+>
+> **Verified in a nested jail**, not inferred: `/var/lib/yolo-jail/loopholes/claude-oauth-broker/`
+> holds exactly `ca.crt`, `server.crt`, `server.key`; `ca.key`, `ca.srl`, `leaf.cnf` and
+> `refresh.lock` are absent; the in-jail terminator serves TLS with the mounted pair and `curl`
+> verifies it against the mounted CA (`ssl_verify_result=0`). Pinned by
+> `TestBundledBrokerNeverMountsItsPrivateKey`, which fakes a full state dir against the manifest
+> that actually ships — so removing or widening `state_files` fails a test rather than a jail.
+>
+> Design note and the answer to OQ-T6 (narrow, but declared in the manifest rather than switched on
+> the broker's name): [`loophole-transport.md`](../design/loophole-transport.md) §5.1.
+>
+> **Still worth reporting on #33 as a fix, not a dismissal** — the severity downgrade below stands,
+> and the issue is closable.
 
 > **Severity downgraded 2026-08-12 after review.** This section previously called it "the most
 > serious item in this thread" and argued it should jump ahead of #37. **That was overstated.** It
@@ -219,10 +238,10 @@ state dir — **including `ca.key`** — is mounted `:ro` into every jail, so a 
 sign a `yolo-broker-relay` cert and MITM a sibling. That is why #32 pins an exact host-only-key
 cert instead of trusting the broker CA: **verifying against that CA is worthless.**
 
-**The fix now lives in [`loophole-transport.md`](../design/loophole-transport.md) §5**, alongside
+**The fix is described in [`loophole-transport.md`](../design/loophole-transport.md) §5**, alongside
 the transport design it is inseparable from — #32 pins its own cert *because* the broker CA cannot
 be trusted, so a reader who merges #32 without this may reasonably conclude the CA problem was
-handled. It should land **before or with** #32, not after.
+handled. It landed **before** #32, as that argument requires.
 
 This is the same defect `ROADMAP.md` §4d records from the internal audit — independently found and
 now **publicly filed**. Combined with `NODE_EXTRA_CA_CERTS` trusting that CA inside the jail, a jail
@@ -234,22 +253,22 @@ Because **the audit produced findings, not work items.** `ROADMAP.md` §4d recor
 defects around 2026-08-02 and **none was carried into this queue**, so every planning pass since
 scoped from a list that did not contain them. The pack batch that followed was scoped from here.
 
-**Re-checked 2026-08-12 — all four are still unfixed.** Full table and evidence in
+**Re-checked 2026-08-12 — two of the four are now fixed.** Full table and evidence in
 [`loophole-transport.md`](../design/loophole-transport.md) §5.2; summarized:
 
 | §4d defect | State | Now tracked as |
 |---|---|---|
-| `ca.key` readable in-jail | 🟢🐛 open | **C-4** (this row) |
+| `ca.key` readable in-jail | ✅🐛 fixed 2026-08-12 | **C-4** (this row) — `state_files`, verified in a nested jail |
 | Claude creds symlink dangles on macos-user | ⛔🐛 open | **B-1**, and it blocks Thread A's Teams mode on macOS |
 | Config-approval snapshot is agent-writable | 🟡🐛 open | **D1** below — re-measured: `.yolo/config-snapshot.json` is mode `664` and writable in-jail |
-| Two shipped docs contradict the code | 🟢🐛 partly | **D2** below — the refresher contradiction survives; the `--host-creds-file` half was fixed |
+| Two shipped docs contradict the code | ✅🐛 fixed 2026-08-12 | **D2** below — both refresher claims corrected |
 
 **The process lesson matters more than the four items:** an audit whose output lives only in a
 narrative doc is invisible to planning. Findings have to become queue rows the day they are found,
 or they age quietly until an outside contributor files one as a public issue — which is exactly
 what happened.
 
-**Re-measured from inside a live jail, 2026-08-12** — not inferred from the audit:
+**What it looked like, measured from inside a live jail 2026-08-12** — not inferred from the audit:
 
 ```
 $ ls -l /var/lib/yolo-jail/loopholes/claude-oauth-broker/
@@ -259,16 +278,24 @@ $ ls -l /var/lib/yolo-jail/loopholes/claude-oauth-broker/
 $ head -c 28 …/ca.key    →  -----BEGIN PRIVATE KEY-----      (3268 bytes, readable)
 ```
 
-**The `0600` mode is not a mitigation here.** A yolo jail runs its agent as UID 0 (Claude YOLO is
+**The `0600` mode was not a mitigation.** A yolo jail runs its agent as UID 0 (Claude YOLO is
 `--dangerously-skip-permissions` plus `IS_SANDBOX=1`, which exists precisely to bypass the UID-0
-refusal), so owner-only permissions are no barrier — as the read above demonstrates.
+refusal), so owner-only permissions were no barrier — as the read above demonstrates.
 
-**The fix is narrow and known:** only `server.crt` / `server.key` are needed in-jail; `ca.key` is
-used solely host-side by `cert.go`. Mount the two server files rather than the whole state dir.
+**And after the fix**, from a nested jail on the built binary:
 
-**Fix it, but after #37.** The remedy is a mount-scope change rather than a redesign, it is
-least-privilege with no argument for the status quo, and a published issue with no response carries
-weight independent of its severity — but #37's bug is certain where this one is conditional.
+```
+$ ls /var/lib/yolo-jail/loopholes/claude-oauth-broker/
+ca.crt  server.crt  server.key
+$ ls …/ca.key   →  No such file or directory
+```
+
+**One correction to the fix as it was scoped here:** this row said *"only `server.crt` /
+`server.key` are needed in-jail"*. **`ca.crt` is needed too** — `NODE_EXTRA_CA_CERTS` points at it
+and the entrypoint merges it into `$HOME/.yolo-ca-bundle.crt`, which `SSL_CERT_FILE`,
+`CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` and `REQUESTS_CA_BUNDLE` all reference. Dropping it would have
+broken every in-jail TLS client. The line that matters is **public vs private**, not **ca vs
+server**.
 
 ---
 
@@ -666,7 +693,7 @@ a multi-line value, and anything under an `[[array of tables]]`.
 | 🟡 | **B1b** | **Credential-injecting proxy for git** — host injects after egress, jail holds nothing, no human. **Settled 2026-08-12: a BUILD, not an adoption.** unYOLO's `gh-broker` was read at source ([§10](../design/boundary-broker.md)) and the earlier "possibly an adoption" note is retired — it is Go not Python, but yolo **already ships this transport** (`claude-oauth-broker` *is* a credential-injecting TLS-interception proxy), and gh-broker wants a GitHub App, has bus factor 1 at 11 weeks old, and carries 73 modules against yolo's 3. Smaller build than the row implied. **Carries one decision — OQ-B1b** | new capability | **your call** (OQ-B1b) |
 | 🟡 | **B2** | Approval-gated host credentials — one allowlisted verb, synchronous. Design validated by convergence with unYOLO. **Re-scoped 2026-08-12 from source** ([§10.6](../design/boundary-broker.md)): take the four-effect policy evaluation, code-owned `Grantable`, the operation registry, and two-bound **narrowing-only** grants; **defer** content-addressed plans, `expected_revision`, and decision tokens — each has a named trigger, and none has fired | new capability | N3/OQ-1 |
 | 🟡🐛 | **D1** | **Config-approval snapshot is agent-writable** — `.yolo/config-snapshot.json` is mode `664` and writable in-jail (re-measured 2026-08-12). An agent that edits `yolo-jail.jsonc` **and** matches the snapshot makes the launch-time diff prompt vanish — the exact bypass [config-safety.md](../design/config-safety.md) exists to prevent, and it is undiscussed there. From `ROADMAP.md` §4d; never queued until now. **Has an open question — see OQ-D1** | security | **your call** (OQ-D1) |
-| 🟢🐛 | **D2** | **Two shipped docs contradict the code** — `USER_GUIDE.md:182` and `bundled_loopholes/claude-oauth-broker/README.md:59` both say *"no background timer / no proactive refresh"*, but `oauthbrokercmd.go:88` starts `RunBackgroundRefresher` by default — and that refresher **is** the architectural fix for all three logout paths. (The `--host-creds-file` half has since been fixed.) From `ROADMAP.md` §4d. **No OQ: the code is right and the docs are wrong**, so this is a doc edit, not a decision | doc defect | nothing |
+| ✅ | **D2** | ~~**Two shipped docs contradict the code**~~ **DONE 2026-08-12** — `USER_GUIDE.md` and `bundled_loopholes/claude-oauth-broker/README.md` both claimed *"no background timer / no proactive refresh"* while `oauthbrokercmd.go:88` starts `RunBackgroundRefresher` by default. The code was right; both docs now describe the real behavior (tick 60 s, lead 300 s, 5 s fast retry ×12, `--no-background-refresh` to disable) and say why the loop is architectural: Claude Code has no proactive refresh of its own for Pro/Max tokens, so an idle jail or a suspended host would otherwise wake up logged out. The README's three dead `../../../docs/…` links were one level too high and are fixed in passing | — | — |
 | 🟢🐛 | **D4** | **`host-processes` is silently broken on macOS + podman** — found 2026-08-12 while writing [loophole-transport.md](../design/loophole-transport.md) §2.1. Its manifest declares `"transport": "unix-socket"`, the *same* transport whose virtiofs failure is [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31); `yolo-ps` fails identically. Unreported because a broken `yolo-ps` is quiet where a broken broker blocks startup. Means the loophole is Linux-only in practice while advertised as available. **Porting it is also the natural proof for the transport generalization** (§6 step 3) | bug + the generalization's test case | nothing |
 | ✅ | **D3** | ~~**`flake.lock` bumps are unreviewable**~~ **DONE** — the weekly workflow now builds `.#imageClosureRoot` (new flake output: the nixpkgs half of the image's contents, 571 store paths / 3.1 GiB, our Go build excluded) against the old and the new lock and appends `nix store diff-closures` to the PR body. Rehearsed on the real 08-05 → 08-12 pair, which produces `chromium: 151.0.7922.71 → 151.0.7922.108`, `aardvark-dns: 2.0.0 → 2.1.0`, `7 of 570 store paths changed` — the path count is reported because a staging-next merge that rebuilds the world without moving a version is invisible to `diff-closures`. Runs *after* the PR exists and `continue-on-error`, so it can only add to a bump, never block one; a build failure degrades to a note in the body. **Unverified until the first Monday run: the `gh pr edit` half** (everything before it was run locally) | — | — |
 | ✅ | **B4** | ~~Correct [agent-credentials.md](../design/agent-credentials.md) §3~~ **DONE** — it documented Bedrock keys arriving via the `env` block of host `settings.json`; that block is `{}` and the real path is `env_sources`. Corrected in place, with a note that the `env` block is nonetheless the right *target* design (§11.2) — it described the correct mechanism before anything used it | — | — |
@@ -764,6 +791,38 @@ where today it reaches everything. That is arguably correct (it is what the pack
 arguably a regression, and pack-system.md's own advice pushed authors toward declaring rather than
 staying silent. **Whether a declaration should NARROW delivery or only ADD to it is the actual
 question**, and it is a product call about what `into` promises.
+
+## 🟡 OQ-E4 — do `stateful` surfaces get comment preservation too?
+
+`rmw` has it (E4 above). `computed` provably does not need it. `stateful` is the remaining mode,
+and it is a **different problem wearing the same words**: the file is composed from layers, so a
+comment can only come from the `host` layer, and putting it in the render is a PROJECTION out of
+one file into another rather than an in-place edit. That is the case
+[`host-file-staging.md`](host-file-staging.md) priced, and its price is mostly still there.
+
+1. **Do it.** `Codec` grows an optional `TriviaCodec`; trivia rides the compose result; rule ① is
+   keyed on `Result.Provenance` (emit a comment only where the winning layer is `host`), which the
+   doc notes is already computed and one map lookup per key. **Cost:** it lands on the A12-fatal
+   boot path, and it needs an answer for the Lua transform boundary — a hook returns a table, and
+   trivia has to either survive that or be documented as dropped by any transform.
+2. **Do the cheap reading-the-trail half instead** — the doc's own option 1, ranked first there: a
+   yolo-authored header line pointing at the `:ro` original under `/ctx/host-user/<slug>`, so the
+   reader gets the *whole* untouched file with its comments in position. No comment parsing at all.
+   **Cost:** it is a pointer to the trail rather than the trail itself, and strict JSON has nowhere
+   to put a header line, so it serves `toml` only — which is the same one surface `rmw` just fixed.
+3. **Leave it, and say so.** `raw` already round-trips a hand-written file byte-exact, and
+   `config-ref` already documents the structured-codec trade. **Cost:** none new; it is the status
+   quo, now with one mode fewer in it.
+
+**My read: (3) for now, then (1) when something needs it.** The reader this was for — an agent
+reading config to learn *why* a value is what it is — is now served on the file the argument was
+actually about (`~/.codex/config.toml` at the host notch, where a real user's real comments were
+being destroyed on every apply). (2) is tempting and mostly redundant with what just landed.
+
+**What would change my read:** a `stateful` surface whose HOST source is a commented `.toml` that
+a user actually maintains. Today there is none — the only shipped TOML surface is `codex/config`,
+and the only shipped commented-config population is user-declared `host_files` entries, which get
+`raw` by auto-detect and keep their bytes exactly.
 
 ---
 

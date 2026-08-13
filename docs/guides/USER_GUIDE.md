@@ -179,7 +179,12 @@ Tokens are stored in `~/.local/share/yolo-jail/home/` on the host (same path on 
 
 Anthropic uses single-use refresh tokens — when multiple jails share the same `.credentials.json` and two of them try to refresh in the same window, one loses the race and gets logged out. YOLO Jail ships the **claude-oauth-broker** loophole: a host-side daemon that serializes refreshes behind a flock. Jails route their refresh requests through it instead of calling Anthropic directly.
 
-The broker refreshes on demand — when a jail asks for a refresh, if the on-disk token has headroom we return it cached, otherwise we refresh upstream once and hand the result back. No background timer, no proactive refresh, no wasted refresh-token rotations.
+The broker refreshes **both on demand and proactively**:
+
+- **On demand** — when a jail asks for a refresh, a token with headroom is returned from cache; otherwise the broker refreshes upstream once and hands the result back.
+- **Proactively** — the host daemon also runs a background refresher **by default**: it wakes every 60 s and refreshes when the shared token is within 5 minutes of expiry, retrying every 5 s (up to 12 times) while upstream is transiently unreachable. Pass `--no-background-refresh` to turn it off.
+
+The background loop is not an optimization. Claude Code has no proactive refresh of its own for Pro/Max tokens — it refreshes reactively, after a 401 — so a jail that idles past expiry, or a laptop that suspends through it, would otherwise wake up to a logout. Refreshing ahead of expiry on the host is what prevents that.
 
 `just deploy` primes the broker's CA + leaf certs into `~/.local/share/yolo-jail/state/claude-oauth-broker/`. Jails activate the loophole automatically when `claude` is on PATH. `yolo doctor` includes a broker self-check covering cert state and credentials parseability.
 
