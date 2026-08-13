@@ -73,3 +73,65 @@ func TestLocalPackDirIsBesideTheUserConfig(t *testing.T) {
 		t.Errorf("LocalPackDir with an empty HOME = %q, want an absolute path", got)
 	}
 }
+
+// TestServiceEndpointConstants pins the producer/consumer contract for a host
+// service's published endpoint file.
+//
+// These are pinned rather than trusted because the repo has already paid for a
+// drifted name once: CgdSocketName's own comment records a refactor that kept a
+// legacy spelling here and silently disabled the cgroup delegate in every jail.
+// The run pipeline writes YOLO_SERVICE_<NAME>_ENDPOINT; yolo-ps, the OAuth
+// terminator and the entrypoint's generated clients read it. Nothing catches a
+// mismatch at build time.
+func TestServiceEndpointConstants(t *testing.T) {
+	if ServiceEndpointExt != ".endpoint" {
+		t.Errorf("ServiceEndpointExt = %q, want \".endpoint\"", ServiceEndpointExt)
+	}
+	if ServiceEnvVarPrefix != "YOLO_SERVICE_" {
+		t.Errorf("ServiceEnvVarPrefix = %q", ServiceEnvVarPrefix)
+	}
+	if ServiceEnvVarSuffix != "_ENDPOINT" {
+		t.Errorf("ServiceEnvVarSuffix = %q", ServiceEnvVarSuffix)
+	}
+	// The composed name a consumer actually reads.
+	if got, want := ServiceEnvVarPrefix+"HOST_PROCESSES"+ServiceEnvVarSuffix,
+		"YOLO_SERVICE_HOST_PROCESSES_ENDPOINT"; got != want {
+		t.Errorf("composed env var = %q, want %q", got, want)
+	}
+	// _SOCKET must not creep back as a second, drifting spelling.
+	if ServiceEnvVarSuffix == "_SOCKET" {
+		t.Error("the endpoint env var still says _SOCKET; the value is a file path, not a socket")
+	}
+}
+
+// TestCgdEndpointNameIsComposed keeps the delegate's endpoint filename derived
+// from its loophole name, for the same reason CgdSocketName is. Two independently
+// spelled strings can both look right while naming different files.
+func TestCgdEndpointNameIsComposed(t *testing.T) {
+	if got, want := CgdEndpointName, "cgroup-delegate.endpoint"; got != want {
+		t.Errorf("CgdEndpointName = %q, want %q", got, want)
+	}
+	if CgdEndpointName != BuiltinCgroupLoopholeName+ServiceEndpointExt {
+		t.Errorf("CgdEndpointName %q is not composed from BuiltinCgroupLoopholeName %q + %q",
+			CgdEndpointName, BuiltinCgroupLoopholeName, ServiceEndpointExt)
+	}
+	// The socket name and the endpoint name must name DIFFERENT files: during the
+	// migration both spellings exist, and collapsing them would make a jail dial
+	// an endpoint file as a socket.
+	if CgdEndpointName == CgdSocketName {
+		t.Error("CgdEndpointName and CgdSocketName are the same string")
+	}
+}
+
+// TestJailHostServicesDirIsStable pins the in-jail mount point every consumer
+// hardcodes in its own error text and every manifest's jail_endpoint must sit
+// under.
+func TestJailHostServicesDirIsStable(t *testing.T) {
+	if got, want := JailHostServicesDir, "/run/yolo-services"; got != want {
+		t.Errorf("JailHostServicesDir = %q, want %q", got, want)
+	}
+	if got, want := JailHostServicesDir+"/"+CgdEndpointName,
+		"/run/yolo-services/cgroup-delegate.endpoint"; got != want {
+		t.Errorf("composed delegate endpoint path = %q, want %q", got, want)
+	}
+}

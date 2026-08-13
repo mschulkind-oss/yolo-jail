@@ -33,7 +33,14 @@ const (
 	JailImage      = "localhost/yolo-jail:latest"
 	JailImageShort = "yolo-jail:latest"
 
-	// JailHostServicesDir is where all host service sockets appear in-jail.
+	// JailHostServicesDir is where each host service's published ENDPOINT FILE
+	// appears in-jail: one <name>.endpoint per service, naming the loopback-TLS
+	// listener to dial.
+	//
+	// THE DIRECTORY IS SECRET-BEARING. Every file in it carries that service's
+	// per-jail bearer token alongside its address and public cert, so the
+	// directory is per-jail and never shared, and each file is 0600. See
+	// internal/svcendpoint and docs/design/loophole-transport.md §3.2.
 	JailHostServicesDir = "/run/yolo-services"
 
 	// BuiltinCgroupLoopholeName is the reserved cgroup-delegate service name.
@@ -50,6 +57,37 @@ const (
 // "cgroup.sock" name here and every jail silently reported the delegate as
 // unavailable.
 const CgdSocketName = BuiltinCgroupLoopholeName + ".sock"
+
+// ServiceEndpointExt is the extension of a host service's published endpoint
+// file: /run/yolo-services/<name>.endpoint.
+//
+// THESE FILES ARE SECRET-BEARING. Each carries its service's per-jail bearer
+// token next to the address and the public cert, which is why the mode (0600)
+// and the per-jail directory are load-bearing rather than cosmetic.
+const ServiceEndpointExt = ".endpoint"
+
+// ServiceEnvVarPrefix and ServiceEnvVarSuffix compose YOLO_SERVICE_<NAME>_ENDPOINT,
+// the variable naming a service's endpoint FILE in-jail. The value is always a
+// path, never an address: the address lives inside the file so it can change
+// without relaunching the jail, whose environment is frozen at container start.
+//
+// The producer (the run pipeline) and every consumer (yolo-ps, the OAuth
+// terminator, the entrypoint's generated clients) must never drift — see
+// CgdSocketName above for what a drifted name costs: it silently disabled the
+// cgroup delegate in every jail.
+//
+// The _SOCKET spelling these replace is deliberately NOT also emitted. A stale
+// baked client reading an ABSENT variable hits its own clear "not wired up in this
+// jail" path, where one reading a same-named variable whose value is no longer a
+// socket would dial a regular file and report something obscure.
+const (
+	ServiceEnvVarPrefix = "YOLO_SERVICE_"
+	ServiceEnvVarSuffix = "_ENDPOINT"
+)
+
+// CgdEndpointName MUST be "<BuiltinCgroupLoopholeName>.endpoint" — composed, for
+// exactly the reason recorded above CgdSocketName.
+const CgdEndpointName = BuiltinCgroupLoopholeName + ServiceEndpointExt
 
 // Home-relative storage layout. Python computes these from Path.home() at
 // import time; Go exposes the fixed suffixes plus helpers that join with the
