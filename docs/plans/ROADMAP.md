@@ -207,15 +207,19 @@ session and every workspace**, no container, no bind mounts. Consequences:
   reference on any macos-user path). Claude's own `open(O_CREAT)` on it then fails
   ENOENT. The M1 runbook's login step was optional and never run, so this never
   surfaced.
-- **The broker is unwired, by decision.** `BrokerSocketGrantCommands`
-  (`internal/macosuser/macosuser.go:319`) exists with **zero call sites**. The recorded
+- **The broker is unwired, by decision.** `EndpointGrantCommands`
+  (`internal/macosuser/macosuser.go`) exists with **zero call sites**. The recorded
   reasoning — the shared home already gives one creds file — is sound for *sharing*
   but explicitly does **not** address serialization, and macos-user gets neither the
   flock nor the proactive refresher. Since nothing prevents two concurrent `yolo`
   runs there, the "defer the concurrent case" decision may be deferring the common
-  case. `git 84d0365` already sketches the port: no relay, no mount — just
-  chgrp/chmod on the singleton socket + parent so the sandbox uid connects directly
-  and `getpeereid` attests a real uid.
+  case. **The port `git 84d0365` sketched no longer applies:** it was chgrp/chmod on
+  the singleton *socket* plus its parent, so the sandbox uid could `connect()`
+  directly and `getpeereid` would attest a real uid. Under the unified transport
+  there is no jail-facing socket — the artifact is a `0600` endpoint file carrying a
+  bearer token, its parent holds every service's credential for that jail, and
+  `EndpointGrantCommands` grants read on the file plus traverse on the directory
+  instead. Peer credentials no longer enter into it.
 - **Bedrock creds do not reach a macos-user jail.** The worked example in
   agent-credentials.md §3 rides the `/ctx/host-claude` mount, which does not exist
   there, so the surface fails open to defaults. The doc notes the fail-open in its §5

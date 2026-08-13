@@ -382,18 +382,58 @@ func LaunchArgv(agentArgv []string, profilePath string, sandboxEnv *jsonx.Ordere
 // (scoped), full (passthrough).
 var macosLogModes = map[string]struct{}{"off": {}, "user": {}, "full": {}}
 
-// BrokerSocketGrantCommands returns the chmod/chgrp argv letting the sandbox
-// group reach the broker socket.
-func BrokerSocketGrantCommands(socketPath, group string) [][]string {
-	if group == "" {
-		group = SandboxGroup
+// endpointReadRights is the ACE right-set a host service's published endpoint
+// file needs, and nothing more. READ, never write: a Unix socket needed write to
+// connect(2), a file needs only read, and the sandbox has no reason to rewrite
+// its own endpoint (loophole-transport.md OQ-T5 — it gains nothing by doing so,
+// since the file already holds its own token).
+const endpointReadRights = "read,readattr,readextattr,readsecurity"
+
+// EndpointGrantCommands returns the `chmod +a` argv letting the sandbox USER read
+// one published endpoint file.
+//
+// Why a grant is needed at all: GuestProfileMacOS() carries PrimSeparateUser and
+// macos-user runs the sandbox as SandboxUser, so the process that must READ the
+// endpoint file is a different uid from the one that WROTE it. The file is 0600
+// and its directory 0700 — deliberately, because the file carries this jail's
+// bearer token and internal/svcendpoint refuses to publish into a directory that
+// is group- or world-accessible. Without an explicit grant the sandbox cannot
+// reach it, which is the one place PrimSeparateUser costs something.
+//
+// Two ACEs, and the shape is the point:
+//
+//   - read on the FILE (endpointReadRights).
+//   - search — traverse, not list — on the file's own directory, which is the
+//     ONLY ancestor that blocks the sandbox: yolo creates that one 0700 and every
+//     ancestor above it (/private/tmp at 1777, /private, /) is already
+//     world-searchable, so walking further would modify ACLs on shared system
+//     directories to no effect.
+//
+// A `user:` ACE, not a `group:` one: SandboxGroup contains the host user
+// (SharedRootProvisionCommands adds them), so a group ACE would widen the grant
+// past the single account that needs it.
+//
+// This replaces BrokerSocketGrantCommands, which had zero call sites and no test
+// and was never executed. With its only plausible argument
+// (/tmp/yolo-claude-oauth-broker.sock) it emitted `chgrp _yolojail /tmp` plus
+// `chmod 0750 /tmp` — group-owning the machine's /tmp and stripping its sticky
+// bit. Its chgrp+chmod-the-parent shape is exactly what an ACE avoids here: under
+// loopback-tls the parent of one credential is a directory full of OTHER jails'
+// credentials, so widening it is a credential-boundary regression on the one
+// backend whose entire point is that boundary.
+//
+// NOT EXECUTABLE ON LINUX — `chmod +a` is a macOS ACL extension. This builds the
+// argv and is unit-tested on the emitted strings; only a Mac can run it. It has
+// no call site yet: macos-user does not start host services at all today (the
+// broker is unwired there — Thread B), so this is the piece that has to exist
+// before that wiring can, not a behaviour change.
+func EndpointGrantCommands(endpointPath, user string) [][]string {
+	if user == "" {
+		user = SandboxUser
 	}
-	parent := pathParent(socketPath)
 	return [][]string{
-		{"chgrp", group, parent},
-		{"chmod", "0750", parent},
-		{"chgrp", group, socketPath},
-		{"chmod", "0660", socketPath},
+		{chmodBin, "+a", "user:" + user + " allow " + endpointReadRights, endpointPath},
+		{chmodBin, "+a", "user:" + user + " allow search", pathParent(endpointPath)},
 	}
 }
 

@@ -453,7 +453,7 @@ architecture, currently scoped to one consumer.** The work that "replaces" it is
 
 **macos-user** — no container, no VM boundary, so no virtiofs problem at all. But per Thread B it
 renders zero pack surfaces, has a dangling credentials symlink, and has the broker **unwired**
-(`BrokerSocketGrantCommands`, zero call sites). So "use macos-user instead" is not available today
+(`EndpointGrantCommands`, zero call sites). So "use macos-user instead" is not available today
 and is a larger project than merging #32.
 
 **Also worth carrying:** #32's own "why not reuse the broker CA" section documents that the broker

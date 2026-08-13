@@ -301,3 +301,86 @@ func mapOf(pairs ...string) *jsonx.OrderedMap {
 	}
 	return m
 }
+
+// TestEndpointGrantCommandsAreACLsNotAChmodWalk pins the SHAPE of the cross-uid
+// grant, because the shape is the whole content of the change: the function it
+// replaces (BrokerSocketGrantCommands) would have chgrp'd and chmod'd the
+// endpoint file's PARENT, and under loopback-tls that parent is a directory
+// holding every host service's credential for this jail. With its only plausible
+// argument it group-owned /tmp and stripped the sticky bit.
+//
+// Nothing here can run on Linux — `chmod +a` is a macOS ACL extension — so the
+// assertions are on the emitted argv, which is the whole function.
+func TestEndpointGrantCommandsAreACLsNotAChmodWalk(t *testing.T) {
+	const endpoint = "/private/tmp/yolo-host-services-deadbeef/claude-oauth-broker.endpoint"
+	const dir = "/private/tmp/yolo-host-services-deadbeef"
+	cmds := EndpointGrantCommands(endpoint, "")
+	if len(cmds) != 2 {
+		t.Fatalf("want exactly two ACEs (file read, dir search), got %v", cmds)
+	}
+
+	var sawFileRead, sawDirSearch bool
+	for _, c := range cmds {
+		if len(c) != 4 || c[1] != "+a" {
+			t.Errorf("not a `chmod +a` ACE: %v", c)
+			continue
+		}
+		if c[0] != chmodBin {
+			t.Errorf("argv[0] = %q, want the pinned %q", c[0], chmodBin)
+		}
+		ace, target := c[2], c[3]
+		// A user ACE, never a group one: SandboxGroup contains the HOST user, so a
+		// group grant reaches past the single account that needs the file.
+		if !hasPrefix(ace, "user:"+SandboxUser+" allow ") {
+			t.Errorf("ACE %q is not a `user:%s allow` grant", ace, SandboxUser)
+		}
+		// Read-only, always. A socket needed write to connect(2); a file does not.
+		for _, forbidden := range []string{"write", "append", "delete", "chown", "writesecurity"} {
+			if contains(ace, forbidden) {
+				t.Errorf("ACE %q grants %q — the sandbox only ever READS an endpoint file", ace, forbidden)
+			}
+		}
+		switch target {
+		case endpoint:
+			sawFileRead = true
+			if !contains(ace, "read") {
+				t.Errorf("file ACE %q does not grant read", ace)
+			}
+			if contains(ace, "search") || contains(ace, "list") {
+				t.Errorf("file ACE %q carries directory rights", ace)
+			}
+		case dir:
+			sawDirSearch = true
+			// search = traverse. NOT list: the sandbox has no business enumerating
+			// the other services' endpoint files in the same directory.
+			if !contains(ace, "search") {
+				t.Errorf("dir ACE %q does not grant search", ace)
+			}
+			if contains(ace, "list") {
+				t.Errorf("dir ACE %q grants list — the sandbox must not enumerate the credential dir", ace)
+			}
+		default:
+			t.Errorf("grant targets %q, which is neither the endpoint file nor its own directory", target)
+		}
+		// The D4 regression, stated as an assertion: no ancestor above the per-jail
+		// directory, and never a shared system directory.
+		for _, shared := range []string{"/", "/tmp", "/private", "/private/tmp", "/Users"} {
+			if target == shared {
+				t.Errorf("grant modifies the shared system directory %q", shared)
+			}
+		}
+		if c[0] == "chgrp" || c[0] == "chown" {
+			t.Errorf("grant uses %q; ownership changes are what the ACE form replaces", c[0])
+		}
+	}
+	if !sawFileRead || !sawDirSearch {
+		t.Errorf("missing an ACE (file read=%v, dir search=%v): %v", sawFileRead, sawDirSearch, cmds)
+	}
+
+	// An explicit user overrides the default, so a future non-default sandbox
+	// account does not silently get the hardcoded one.
+	custom := EndpointGrantCommands(endpoint, "_other")
+	if !hasPrefix(custom[0][2], "user:_other allow ") {
+		t.Errorf("explicit user ignored: %q", custom[0][2])
+	}
+}

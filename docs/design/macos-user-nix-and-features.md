@@ -294,10 +294,16 @@ three have **no boundary to punch through** on a native process:
   a shared file does not fix that, but porting the interception is genuinely hard
   natively (no `--add-host`; redirection would need root-global DNS/hosts control).
   So for the normal single-session case the broker is unneeded, and the awkward
-  concurrent case is exactly the one to defer. `macosuser.BrokerSocketGrantCommands`
-  *exists* (it would chmod/chgrp the broker socket for the sandbox group) but is
-  **not called anywhere**. Recommendation: leave it off; wire it only if concurrent
-  macos-user Claude sessions become a real need — see Open item #3.
+  concurrent case is exactly the one to defer. `macosuser.EndpointGrantCommands`
+  *exists* (two `chmod +a` ACEs letting the sandbox **user** read one published
+  endpoint file, and traverse — not list — the per-jail directory holding it) but
+  is **not called anywhere**. It replaced `BrokerSocketGrantCommands` in the
+  loopback-TLS unification: there is no broker socket to grant any more, the
+  jail-facing artifact is a `0600` endpoint file carrying a bearer token, and the
+  old helper's `chgrp`+`chmod 0750` of the socket's *parent* would now widen a
+  directory full of every service's credentials. Recommendation unchanged: leave it
+  off; wire it only if concurrent macos-user Claude sessions become a real need —
+  see Open item #3.
 
 **The framework itself is worth keeping, and macos-user is arguably a *better*
 fit than containers.** A loophole is just "a host-side daemon mediates the jail's
@@ -410,7 +416,7 @@ the fourth is a settled no-op.
    shared `/Users/_yolojail` home already gives one shared credentials file (the
    broker's main job on containers); refresh serialization only matters for
    *concurrent* Claude sessions and would need hard-to-port host redirection. Note
-   `BrokerSocketGrantCommands` as dead-until-needed. The loophole *framework* does
+   `EndpointGrantCommands` as dead-until-needed. The loophole *framework* does
    port and is the motivating future case — roadmap
    [Track L / OQ-L1](../plans/macos-revival-and-distribution-plan.md).
 4. **Skip-list policy** (§1.3) — **decided: implement the written design** (hard
