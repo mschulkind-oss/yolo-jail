@@ -121,7 +121,7 @@ the supersession takes effect**, so the justification travels with the consequen
 prints active/inactive per loophole; an inactive-by-supersession loophole must read:
 
 ```
-inactive  claude-oauth-broker  (bundled/tls-intercept/spawned)
+inactive  claude-oauth-broker  (bundled/loopback-tls/spawned)
     superseded by pack `claude-bedrock` — claude-oauth-refresh
     "Bedrock overrides the OAuth path entirely; no token is ever refreshed"
 ```

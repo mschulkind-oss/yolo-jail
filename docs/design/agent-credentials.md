@@ -252,10 +252,12 @@ loses the race and gets logged out
 
 Activation is gated by `requires.command_on_path: claude`
 (`manifest.jsonc:13-15`) — present-but-inactive when host Claude isn't
-installed. Apple Container **cannot** run it: it skips `tls-intercept` loopholes
-entirely because `--add-host` is unsupported
-(`internal/loopholes/runtime.go:37`; [loopholes.md](../guides/loopholes.md)
-step 3). macos-user **skips it by default** — see §5.
+installed. Apple Container **cannot** run it: it skips any loophole declaring
+`intercepts` entirely, because `--add-host` is unsupported
+(`internal/loopholes/runtime.go`; [loopholes.md](../guides/loopholes.md)
+step 3). That skip used to key on `transport == "tls-intercept"`; the transport
+is now `loopback-tls` for every daemon, and the intercept list is what emits the
+flags being skipped. macos-user **skips it by default** — see §5.
 
 ### 2.6 Git-identity composition (host-composed, never a wallet)
 

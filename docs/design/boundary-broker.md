@@ -217,7 +217,7 @@ not — with no human in the loop at all.** It also gets the audit log (§7 step
 every request passes through one place.
 
 **And yolo already ships this mechanism.** `claude-oauth-broker` is a credential-injecting
-TLS-interception proxy today — `"transport": "tls-intercept"`, an in-jail terminator on
+TLS-interception proxy today — an `intercepts` list, an in-jail terminator on
 `127.0.0.1:443`, a per-jail host relay that stamps `jail_id` host-side, a host singleton holding the
 credential. B1b is that pattern re-aimed from `platform.claude.com` at `github.com`, which is why
 [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker) concludes
@@ -487,7 +487,8 @@ explicitly `--dev-token-fallback`, "for local development only."
 
 **a. yolo already owns the transport half of B1b.** This is the most important fact in the section
 and it was not visible from the website. `claude-oauth-broker` is *already* a
-credential-injecting TLS-interception proxy: `"transport": "tls-intercept"`, an in-jail terminator
+credential-injecting TLS-interception proxy: an `intercepts` list (the transport field is
+`loopback-tls`, which is a different axis), an in-jail terminator
 binding `127.0.0.1:443` in the container netns with a CA-signed leaf, a per-jail host relay that
 stamps `jail_id` **host-side** (so attribution is not an in-jail self-report), and a host singleton
 that holds the credential. B1b is that pattern aimed at `github.com` instead of
