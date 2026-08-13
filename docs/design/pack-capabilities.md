@@ -1,31 +1,42 @@
-# Capabilities — naming the job, so a pack can say a loophole is unnecessary
+# Capabilities — naming the job, so a pack can say a bundled loophole is unnecessary
 
-**Status:** DESIGN, 2026-08-13. Not built. Queue row **A6**.
+**Status:** DESIGN, 2026-08-13. Not built. Queue row **A6**. **Rewritten 2026-08-13** against
+[`loophole-packaging.md`](loophole-packaging.md), which is its prerequisite.
 
-**Why this is a design doc and not three lines in a queue row.** The immediate need is one pack
+> ### PREREQUISITE — read [`loophole-packaging.md`](loophole-packaging.md) first
+>
+> §9 below (OQ-CAP2) asked whether packs should be able to ship loopholes and recommended deciding
+> that **before** building any of this. **The decision is made: (B), packs ship loopholes**, designed
+> in that doc. **Selection is now the primary mechanism for "do not run that loophole" — you
+> deselect the pack.**
+>
+> **This document was cut on that assumption**, and what remains is the residue that doc predicted:
+> **supersession exists only for loopholes SELECTION CANNOT REMOVE — i.e. bundled ones, and in
+> practice the one that auto-activates.** Concretely: the sections defending a public extension
+> surface against hypothetical third-party collisions went from ~90 lines to ~15 (the
+> "a pack cannot serve" argument, the namespace-inverts-the-skills-rule section, the over-broad-claim
+> failure mode, and the two-packs-disagree section); the OQ-CAP2 fork went from a 96-line
+> three-option decision to a resolution. What GREW is the statement of what is left, because that is
+> the thing a reader now needs. §6 of `loophole-packaging.md` is the section-by-section record; this
+> file is the live document.
+
+**Why this is still a design doc and not three lines in a queue row.** The immediate need is one pack
 turning off one loophole ([`../plans/outstanding-work.md`](../plans/outstanding-work.md) A6:
 selecting Bedrock makes the OAuth broker pointless, and on macOS it leaves a known-broken TLS stack
-starting for nothing). That could be solved with a hardcoded name in an afternoon. It is being
-designed instead because **loopholes and packs are extension points other people build on**, and
-the first outside author to want this must not have to invent it — see
-[`extension-point-principle.md`](extension-point-principle.md), which this doc is the worked
-example for.
+starting for nothing). That could be solved with a hardcoded name in an afternoon. It is designed
+instead because **a loophole manifest is a public surface** — see
+[`extension-point-principle.md`](extension-point-principle.md), which this doc is the worked example
+for. That argument survives the narrowing: `serves` is a field third parties will write even if only
+bundled loopholes are ever superseded.
 
-**Reads with:** [`pack-system.md`](pack-system.md) (the manifest and its kinds),
+**Reads with:** [`loophole-packaging.md`](loophole-packaging.md) (**prerequisite**),
+[`pack-system.md`](pack-system.md) (the manifest and its kinds),
 [`loophole-protocol.md`](loophole-protocol.md) and [`../guides/loopholes.md`](../guides/loopholes.md)
-(what a loophole is), [`extension-point-principle.md`](extension-point-principle.md) (why design it
-now).
-
-> **PREREQUISITE — read [`loophole-packaging.md`](loophole-packaging.md) first.** §10 below (OQ-CAP2)
-> asks whether packs should be able to ship loopholes and recommends deciding that **before**
-> building any of §§1–9. That decision is now made, in that doc, as **(B): packs ship loopholes**. It
-> supersedes parts of what follows — §2.2's argument in particular — and narrows the rest to the
-> **bundled** loophole set. Its §6 is the section-by-section list of what survives here and what
-> dies; §§1–9 have NOT yet been rewritten to match, so read them against that list.
+(what a loophole is).
 
 ---
 
-## 1. The concept
+## 1. The concept, and its now-narrow scope
 
 A **capability is a named job** — not a name for the thing that does the job.
 
@@ -33,7 +44,20 @@ A **capability is a named job** — not a name for the thing that does the job.
 single-use refresh token."* The `claude-oauth-broker` loophole is one implementation of it. A
 different implementation would serve the same capability.
 
-That distinction is the whole design, and §3 is why.
+**What this is now the answer to.** Not *"turn off a loophole"* — for a pack-shipped loophole that is
+"deselect the pack". It is the answer to *"turn off a loophole that runs whether or not I asked for
+it."* Three bundled loopholes exist and one of them auto-activates by design
+(`claude-oauth-broker`, `requires: {command_on_path: "claude"}`), so a user with Claude Code
+installed gets refresh serialization without knowing they need it. That default is deliberate and
+worth keeping ([`loophole-packaging.md`](loophole-packaging.md) §5.4) — which is exactly why it needs
+a way to say "not this time".
+
+**What it is NOT the answer to, and this is the correction that matters.** Supersession does not
+protect the broker's default from being *removed*; a workspace `yolo-jail.jsonc` can already set
+`loopholes.claude-oauth-broker.enabled: false` and the broker vanishes with no message and a green
+`yolo check` ([`loophole-packaging.md`](loophole-packaging.md) §4.3 G1, §5.4). That hole is closed by
+**scoping `enabled`**, not by anything here. Supersession is the *considered* off switch; it is not a
+guard against the blunt one.
 
 ## 2. The vocabulary — two verbs
 
@@ -54,59 +78,35 @@ another component is not.** Saying "this is my job" needs no justification. Sayi
 not need doing" is an assertion about code you did not write, and the person who later finds their
 loophole silently absent deserves a sentence explaining why.
 
-### 2.1 Supersede is NOT provide — and the difference is which way the demand goes
-
-Raised in review: *"if it would replace the whole thing, this would then be a `provides`
-mechanism… fine line between provides and serves."* It is a real fork, and getting it wrong is the
-most dangerous mistake this design allows, so it gets its own rule.
-
-**The test — after this pack is selected, does the job still need doing?**
+**Supersede is NOT provide, and the difference is which way the demand goes.** The test: *after this
+pack is selected, does the job still need doing?*
 
 | Answer | Verb | What happened |
 |---|---|---|
 | **No.** The demand is gone. | `supersedes` | Under Bedrock **no OAuth token is ever refreshed**, so serializing refreshes is not a job being done differently — it is a job that no longer exists. |
-| **Yes, and I do it now.** | *provision* — **NOT expressible today** | The demand persists; only the supplier changed. |
+| **Yes, and I do it now.** | *provision* — **not expressible today** | The demand persists; only the supplier changed. |
 
-**Superseding when you meant providing silently stops the job being done, with nothing taking
-over.** That is the failure this section exists to prevent, and it is quiet: the loophole goes
-inactive, `loopholes list` correctly reports why, and the work simply never happens. Nothing in the
-system can detect it, because "I will do it instead" is exactly the claim `supersedes` does not
-make.
+**Superseding when you meant providing silently stops the job being done, with nothing taking over.**
+Nothing in the system can detect it, because "I will do it instead" is exactly the claim `supersedes`
+does not make. So: **`supersedes` is a claim that DEMAND vanished, not that SUPPLY moved.**
 
-So: **`supersedes` is a claim that DEMAND vanished, not that SUPPLY moved.**
+**Granularity: always per job, never per component.** A loophole serving two capabilities with one
+superseded stays active for the other (§3's `every` rule). Superseding *all* of them retires the
+loophole — an arithmetic consequence of retiring each job, not a separate "retire this loophole"
+power. There is deliberately no way to say "turn that component off": `enabled: false` already exists
+for that and is honest about being a blunt instrument where this is a statement about work.
 
-### 2.2 Why a pack cannot `serve` — a hard line, not a policy
-
-The follow-on question in review — *"does any pack that `serves` something automatically have
-something else with it?"* — has a clean answer: **yes, and that is precisely why packs cannot
-serve.**
-
-Serving a capability means **carrying an implementation**. A loophole *is* one: a daemon, a
-transport, a lifecycle. A pack is a bundle of declarations across a **closed set of 14 contribution
-kinds** (`internal/packdecl/kinds.go`) — program, requires, skills, briefing, files, config,
-config-overlay, state, reads-host, mount, env, launch, hook, autonomy — **and none of them is "a
-daemon."** Loopholes come from `bundled_loopholes/` or a user loophole dir, never from a pack.
-
-So a pack has nothing to serve *with*. The asymmetry between the two verbs is not a restriction we
-imposed; it falls out of where implementations live:
-
-- **`serves`** — for things that ARE an implementation. Loopholes today.
-- **`supersedes`** — for things that can only make a claim. Packs today.
-
-That also sharpens §7: pack-to-pack provision is not merely undemanded, it is **unexpressible**,
-and making it expressible would mean letting a pack ship a daemon — a much larger change than a
-manifest field, and one with its own trust story (a pack that ships executable host-side code is
-not the same object as a pack that ships config).
-
-**Granularity, since the review raised "replacing PART":** supersession is always **per job**, never
-per component. A loophole serving two capabilities with one superseded stays active for the other
-(§4's `every` rule). Superseding *all* of them retires the loophole entirely — but that is an
-arithmetic consequence of retiring each job, not a separate "retire this loophole" power. There is
-deliberately no way to say "turn that component off" — `enabled: false` already exists for that, and
-it is honest about being a blunt instrument where this is a statement about work.
+> **`serves` stays on the loophole manifest, and the reason CHANGED.** The old argument was that a
+> pack is a bundle across a closed set of kinds *"and none of them is a daemon"*, so a pack has
+> nothing to serve *with*. **The 15th kind falsifies that premise** — a pack can now ship an
+> implementation. The conclusion survives for a better reason: **the implementation a pack ships has
+> a manifest of its own, and a statement about an implementation belongs there.** So `serves` lives
+> on the loophole manifest and travels *inside* the pack. Its old corollary — that pack-to-pack
+> provision is "unexpressible" — is now false and is deleted (§6).
 
 ## 3. Why a capability and not the loophole's name
 
+**This is the strongest argument in the doc and it survives the narrowing intact.**
 `"supersedes": ["claude-oauth-broker"]` would work today and be wrong tomorrow:
 
 - it couples the pack to **one implementation**, so a replacement loophole doing the identical job
@@ -128,55 +128,33 @@ Active()     = Enabled && RequirementsMet() && !Superseded()
 Superseded() = serves is NON-EMPTY  AND  every served capability is superseded by some selected pack
 ```
 
-Two choices worth stating, because the opposite of each is a plausible bug:
-
 - **`every`, not `any`.** A loophole serving two jobs, one of them superseded, still has a job.
-- **Non-empty `serves` is required.** A loophole that declares nothing can never be superseded.
-  **Silence means "not participating", never a default claim** — so adding this mechanism cannot
-  change the behavior of any manifest that does not opt in, including every third-party loophole
-  that exists today.
+- **Non-empty `serves` is required.** **Silence means "not participating", never a default claim** —
+  so adding this mechanism cannot change the behavior of any manifest that does not opt in.
+- **`Superseded()` is only ever REACHABLE for a loophole selection cannot remove.** A pack-shipped
+  loophole is deselected by deselecting its pack, so the gate is dead code for it. In practice that
+  means: bundled loopholes, and a hand-placed user-dir one.
 
-## 5. The namespace — and it INVERTS the skills rule
+**On the namespace, briefly.** Two declarations naming the same capability string is the mechanism
+working, not a collision — a capability name is an **interface** (a rendezvous point), where a skill
+name is an **identity**. Bare strings, no prefix; §5 makes an unmatched name a load error, so an
+accidental collision surfaces immediately. *(This was a full section arguing against reaching for the
+skills-collision rule by analogy. At three bundled manifests that hazard is hypothetical, so it is
+two sentences.)*
 
-**Two declarations naming the same capability string is the mechanism working, not a collision.**
-A capability name is a **rendezvous point**: `serves` and `supersedes` find each other precisely by
-matching on it.
+## 5. The two failure modes that are designed out
 
-This is worth saying loudly because the repo just spent a batch making name collisions **fatal** for
-skills (S1: two packs claiming one skill name refuses the whole apply). Someone will reach for that
-rule here by analogy and be wrong. The difference: a skill name is an **identity** — two things
-claiming it means one is lost. A capability name is an **interface** — two things naming it is how
-they connect.
+**A typo supersedes nothing, silently.** `"capability": "claude-oauth-refersh"` matches no `serves`,
+so nothing is superseded and the author believes it worked. **A supersession matching no served
+capability is REFUSED AT LOAD**, naming the unmatched string and listing what *is* served. The
+namespace is closed by the loopholes present, so this is decidable rather than a guess. This is S1's
+lesson applied where it fits: **the message is most of the value.** "Superseded nothing" is useless;
+*"no loophole serves `claude-oauth-refersh` — did you mean `claude-oauth-refresh`? served:
+[claude-oauth-refresh]"* is a fix.
 
-Bare strings, no namespacing prefix. A prefix would only help if capability names collided by
-accident across unrelated authors, and §6.1 makes an unmatched name a load error, so an accidental
-collision surfaces immediately rather than silently.
-
-## 6. Failure modes, designed out
-
-### 6.1 A typo supersedes nothing, silently
-
-`"capability": "claude-oauth-refersh"` matches no `serves`, so nothing is superseded and the pack
-author believes it worked.
-
-**A supersession matching no served capability is REFUSED AT LOAD**, naming the unmatched string and
-listing the capabilities that *are* served by the active loophole set. The namespace is closed by
-the loopholes present, so this is decidable rather than a guess.
-
-This is S1's lesson applied where it does fit: **the message is most of the value.** "superseded
-nothing" is useless; "no loophole serves `claude-oauth-refersh` — did you mean
-`claude-oauth-refresh`? served: [claude-oauth-refresh]" is a fix.
-
-### 6.2 An over-broad claim
-
-A pack supersedes a capability it does not actually replace, and the user loses a loophole they
-needed. Mitigated by the mandatory `because` (§2), which is not decoration: it is **printed wherever
-the supersession takes effect**, so the justification travels with the consequence.
-
-### 6.3 Something is off and nobody can tell why
-
-**Anything that turns something off must name who did it and why.** `yolo loopholes list` already
-prints active/inactive per loophole; an inactive-by-supersession loophole must read:
+**Something is off and nobody can tell why.** **Anything that turns something off must name who did
+it and why.** `yolo loopholes list` already prints active/inactive per loophole; an
+inactive-by-supersession loophole must read:
 
 ```
 inactive  claude-oauth-broker  (bundled/loopback-tls/spawned)
@@ -184,35 +162,42 @@ inactive  claude-oauth-broker  (bundled/loopback-tls/spawned)
     "Bedrock overrides the OAuth path entirely; no token is ever refreshed"
 ```
 
-`yolo doctor` and `yolo pack footprint` should carry the same line — footprint especially, since
-"what does selecting this pack do to me?" is exactly the question it answers.
+The mandatory `because` is not decoration: it is **printed wherever the supersession takes effect**,
+so the justification travels with the consequence. `yolo doctor` and `yolo pack footprint` carry the
+same line.
 
-### 6.4 Two packs disagree
+**This rule has gained two more authors, and both belong in the same code path:**
 
-Pack A supersedes `X`; pack B implicitly relies on the loophole serving `X`.
+1. **"No pack ships it"** is now a reason a loophole is absent, so `loopholes list` must distinguish
+   *superseded* from *not shipped* from *requirements unmet* — and per
+   [`loophole-packaging.md`](loophole-packaging.md) §5.1 that command is **census site 5**, which
+   does not see pack loopholes today. The provenance this section promises is blocked on that
+   convergence.
+2. **"A workspace config disabled it"** is the other, and it is the more dangerous one, because it is
+   agent-editable and prints nothing at all today
+   ([`loophole-packaging.md`](loophole-packaging.md) §4.3 G1). Applying this section's own rule to
+   `enabled` is a one-line launch notice and a `yolo check` warn instead of an `ok`.
 
-**v1 is one-directional: any supersession wins, and there is deliberately no `needs`.** Reliance on
-a loophole is already implicit today — nothing declares it — so adding a counter-claim would invent
-a conflict-resolution problem before anybody has the conflict. The mitigation is §6.3: the
-supersession is *visible*, with a reason, so the collision is diagnosable in one command.
+**Two packs disagreeing** (A supersedes X; B implicitly relies on X) is recorded as a known limit,
+not designed for: any supersession wins, there is deliberately no `needs`, and the mitigation is the
+visibility above. At three bundled loopholes and one superseding pack, the conflict is unreachable.
 
-**Recorded as a known limit**, not an oversight. If it ever bites, `needs` is additive (§7).
-
-## 7. What is deliberately NOT built — and why the namespace still generalizes
+## 6. What is deliberately NOT built
 
 | Not built | Why |
 |---|---|
-| **`serves` on a *pack*** (pack-to-pack provision) | **Unexpressible, not merely undemanded** — §2.2. Serving means carrying an implementation, and none of the 14 contribution kinds is a daemon, so a pack has nothing to serve with. Enabling it would mean letting a pack ship host-side executable code, which is a different object with its own trust story. (It is also the A1–A2 case, retired 2026-08-13 once the two auth "modes" turned out not to be peers.) |
-| **`needs: [<capability>]`** | §6.4 — invents conflict resolution before the conflict exists. |
-| **A yolo-owned registry of capability names** | Core deliberately does not know what an agent is (`internal/packdecl`'s opening premise). A central registry would rebuild the agent registry the pack system exists to avoid. Capabilities are declared by whoever holds the fact. |
+| **`needs: [<capability>]`** | Invents conflict resolution before the conflict exists (§5). Additive if it ever bites. |
+| **A yolo-owned registry of capability names** | Core deliberately does not know what an agent is. A central registry would rebuild the agent registry the pack system exists to avoid. Capabilities are declared by whoever holds the fact. |
 
-**The general thing being shipped is the NAMESPACE AND ITS SEMANTICS, not every edge.** That is what
-makes shipping one edge honest rather than premature: a later `serves` on packs, or a `needs`, is
-**purely additive** — same namespace, same matching rule, same load-time check, no migration for
-anything already written. An outside author who names a capability today is naming it in the system
-that will still be there.
+**Deleted 2026-08-13: "`serves` on a *pack* — unexpressible."** It is expressible now; it lives on
+the loophole manifest inside the pack (§2). The old row's reasoning — *"none of the kinds is a
+daemon, so a pack has nothing to serve with"* — was the premise
+[`loophole-packaging.md`](loophole-packaging.md) falsified.
 
-## 8. The first-party instance
+**The general thing being shipped is the NAMESPACE AND ITS SEMANTICS, not every edge.** A later
+`needs` is purely additive — same namespace, same matching rule, same load-time check, no migration.
+
+## 7. The first-party instance
 
 ```jsonc
 // bundled_loopholes/claude-oauth-broker/manifest.jsonc
@@ -241,127 +226,77 @@ binds `127.0.0.1:443` and sets up TLS interception — and on macOS + podman **t
 [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) breaks**. Superseding removes a
 known-broken failure surface, not three idle processes.
 
-## 9. Acceptance
+## 8. Acceptance
 
 1. A loophole with no `serves` behaves exactly as today — byte-identical, including every
    third-party manifest. Pinned by a test.
-1b. **`serves` is refused on a PACK manifest** (§2.2) with a message naming the distinction, so an
-   author reaching for provision when they mean supersession is told which one they want rather
-   than getting an unknown-field error.
-2. `serves` + a matching `supersedes` from a selected pack ⇒ inactive, and `loopholes list` prints
+2. **`serves` is refused on a PACK manifest**, with a message naming the distinction. The message
+   changed with the premise: not *"a pack has nothing to serve with"* (false since the 15th kind) but
+   *"put it on your loophole's `manifest.jsonc` — a statement about an implementation belongs with
+   the implementation."* A fix rather than a wall.
+3. `serves` + a matching `supersedes` from a selected pack ⇒ inactive, and `loopholes list` prints
    the pack, the capability and the `because`.
-3. `supersedes` naming an unserved capability ⇒ **load error** naming the string and listing what is
+4. `supersedes` naming an unserved capability ⇒ **load error** naming the string and listing what is
    served.
-4. `supersedes` without `because` ⇒ manifest validation error.
-5. A loophole serving two capabilities with only one superseded ⇒ still active.
-6. The `Enabled` config knob and `RequirementsMet()` are unchanged and independent — three gates,
+5. `supersedes` without `because` ⇒ manifest validation error.
+6. A loophole serving two capabilities with only one superseded ⇒ still active.
+7. The `Enabled` config knob and `RequirementsMet()` are unchanged and independent — three gates,
    any of which can deactivate.
 
-## 10. The bigger fork this design may be working around — OQ-CAP2
+## 9. OQ-CAP2 — RESOLVED 2026-08-13 with **(B)**
 
-**Raised in review 2026-08-13, and it is the most important open question here:** *"packs can't
-ship a loophole? then how are loopholes distributed? I think this is a mistake."*
+**The question, raised in review:** *"packs can't ship a loophole? then how are loopholes
+distributed? I think this is a mistake."*
 
-### How loopholes are distributed today
+**The tell it exposed:** supersession exists because loopholes are not SELECTED the way packs are —
+*"if you're superseding something, it's because you can't just remove the other pack."* If a loophole
+shipped inside a pack, "do not run the broker under Bedrock" would be "do not select the broker
+pack", and most of this document would be unnecessary.
 
-| Source | Who it is for | State |
-|---|---|---|
-| `bundled_loopholes/` (embedded in the binary) | yolo's own three | fine |
-| a user loophole dir | a local, hand-placed loophole | no packaging, no fetch, no versioning |
-| the `loopholes` block in `yolo-jail.jsonc` | **the only third-party path** | **degraded, and getting worse** |
+**Resolved (B): packs ship loopholes**, designed in
+[`loophole-packaging.md`](loophole-packaging.md) — a 15th contribution kind pointing at a module
+directory in the pack; a yolo-run TLS front so an external author needs neither Go nor a TLS
+implementation; host execution as an approvable claim in the machinery `yolo pack install` already
+has.
 
-That last row is the finding. `internal/loopholes/discover.go` pins config-defined loopholes to the
-**retired `unix-socket` transport**, and its comment says exactly why:
+**What that leaves here, precisely:**
 
-> *"a config entry's daemon is a THIRD-PARTY PROGRAM yolo did not write… nothing yolo ships lets it
-> publish a loopback-TLS endpoint file instead (`internal/hostservice` is `internal/`, so it is not
-> importable from outside this module)."*
+- **The residue is the bundled set, and no smaller.** All three bundled loopholes stay bundled — the
+  broker because it auto-activates by design and because neither its host singleton argv nor its
+  per-jail relay is expressible in a manifest; `host-processes` because its client is a baked image
+  binary; `audio` because there is no reason to move it. So every mechanism above is scoped to
+  **three first-party manifests**, of which **one** auto-activates in a way a pack can reasonably
+  want to cancel.
+- **This document was cut to match**, rather than left standing with a caveat at the top. The
+  namespace argument (§3), the two verbs (§2) and the two failure modes (§5) are what survived; the
+  sections that existed to defend a public extension surface against hypothetical third-party
+  collisions were compressed to their conclusions.
+- **The size question is now genuinely open.** Whether a capability namespace is the right shape for
+  one auto-activating loophole, or whether something blunter is, is
+  [`loophole-packaging.md`](loophole-packaging.md) **OQ-LP6** — a maintainer call, and it is now a
+  decision about three first-party manifests rather than about a public surface. The counter-argument
+  is in this doc's opening: a loophole manifest remains a public surface, so `serves` is a field
+  third parties will write regardless.
 
-So as the transport unifies (row **T1**), **third-party loopholes are stranded on a transport the
-manifest vocabulary no longer accepts** — and they have no sharing story at all: no fetch, no
-version, no approval, no manifest travelling with the code.
-
-### Why this bears on the design above
-
-**Supersession exists because loopholes are not SELECTED the way packs are.** The review put it
-precisely: *"if you're superseding something, it's because you can't just remove the other pack."*
-
-That is the tell. If the broker shipped inside a pack and were selected by selecting that pack, then
-"do not run the broker under Bedrock" is **"do not select the broker pack"** — and §§1–9 above
-become unnecessary. No capability namespace, no two verbs, no matching rule.
-
-**So this design may be a workaround for a distribution gap rather than a fix for it.**
-
-### Why it does not dissolve completely
-
-The broker **deliberately auto-activates** (`requires: {command_on_path: "claude"}`) so a user gets
-refresh serialization *without knowing they need it*. Make it opt-in and anyone who does not select
-it silently gets the single-use-refresh-token race — the exact bug it exists to prevent. A default-on
-pack is expressible (the local pack is already `Implicit: true`), but then "not this time" needs a
-mechanism again, and that is supersession or an exclude list.
-
-**So the residue is narrow: supersession is only needed for things that AUTO-ACTIVATE.** Its
-necessity is proportional to how many of those exist — and if loopholes moved into packs and were
-selected explicitly, that count could be zero.
-
-### The cost of the other path, stated plainly
-
-**No pack kind causes host-side code execution today.** Pack hooks run in the entrypoint, which is
-in-jail; `program` installs in-jail. A loophole daemon is a **host** process. So "packs ship
-loopholes" is not one more kind — it is packs crossing from *"configure the jail"* to *"run code on
-your machine"*. There is precedent for gated host **access** (a fetched pack's `host_files` claim is
-approved at install and recorded in the lockfile) but none for host **execution**.
-
-That is a real trust step, not a blocker: the approval machinery exists and the boundary is exactly
-the kind of thing it was built to gate. But it should be decided deliberately, not arrived at.
-
-### OQ-CAP2 — the fork
-
-- **(A) Ship capabilities as designed (§§1–9).** Works with loopholes as they are, small, touches no
-  trust boundary. Leaves third-party loophole distribution unfixed and stranded on a retired
-  transport.
-- **(B) Let packs ship loopholes.** Fixes distribution properly, makes *selection* the mechanism,
-  and probably makes most of this doc unnecessary. Needs the host-execution trust story and a way to
-  keep good defaults on.
-- **(C) Both**, in that order — (A) now because it is small and (B) is not, (B) when the trust story
-  is worked out, retiring whatever of (A) selection makes redundant.
-
-**My read: the review is right that (B) is the real fix**, and I do not think (A) should be built
-first on the strength of it — building a workaround for a gap you have already decided to close is
-how the workaround becomes permanent, which is the exact failure
-[`extension-point-principle.md`](extension-point-principle.md) warns about. **Recommendation: decide
-(B) first.** If (B) is going to happen, (A) shrinks to whatever auto-activating loopholes remain,
-and that is a much smaller thing to design.
-
-### RESOLVED 2026-08-13 — **(B)**, designed in [`loophole-packaging.md`](loophole-packaging.md)
-
-The recommendation was taken. A 15th contribution kind, `loophole`, points at a module directory in
-the pack; the framework runs a TLS front in front of a plain-socket daemon so an external author
-needs neither Go nor a TLS implementation; host execution is an approvable claim in the machinery
-`yolo pack install` already has. Three findings there change how §§1–9 should be read:
-
-1. **§2.2's argument is dead.** Its premise — *"none of the 14 kinds is 'a daemon'"* — is what the
-   15th kind falsifies. Its conclusion (`serves` does not go on `pack.json`) survives for a different
-   reason: the loophole a pack ships has a manifest of its own, and that is where a statement about
-   an implementation belongs. So `serves` stays exactly where it is and travels *inside* the pack.
-2. **The residue is what this doc predicted, and no smaller.** The three bundled loopholes stay
-   bundled — the broker because it auto-activates by design and because neither its host singleton
-   argv nor its per-jail relay is expressible in a manifest; `host-processes` because its client is a
-   baked image binary. So supersession survives for the **bundled set only**, and every §§1–9
-   mechanism is now scoped to three first-party manifests rather than to a public surface.
-3. **Which reopens the size question.** Whether a capability namespace is still the right shape for
-   three bundled loopholes, or whether something blunter is, is recorded there as **OQ-LP6**. The
-   extension-point argument cuts both ways: a loophole manifest is still a public surface, so
-   `serves` is a field third parties will write even if only bundled loopholes are ever superseded.
+**The cost of (B), recorded because it was the reason to hesitate.** No pack kind caused host-side
+code execution before it: pack hooks run in the entrypoint (in-jail), `program` installs in-jail. A
+loophole daemon is a **host** process, so this is packs crossing from *"configure the jail"* to
+*"run code on your machine"*. There is precedent for gated host **access** (a fetched pack's
+`host_files` claim is approved at install and recorded in the lockfile) but none for host
+**execution**. That is a real trust step and
+[`loophole-packaging.md`](loophole-packaging.md) §4 is where it is paid for — including the finding
+that **an approval anchored to a claim STRING is content-blind**, which is a new invariant host reads
+never needed.
 
 ---
 
-## 11. Open question (design detail)
+## 10. Open question (design detail)
 
-**OQ-CAP.** `supersedes` currently lives at the **manifest top level**, beside `name`, rather than
-as a `contributes[]` entry. That matches `skills_tier` (a per-pack fact, not a contribution) and
-reads correctly — superseding is a property *of the pack*, not a thing it delivers. The alternative
-is a `kind: "supersedes"` contribution, which would put it in the same list as everything else a
-pack does and make `yolo pack footprint` pick it up for free. **My read: top-level**, with footprint
-taught to print it explicitly — a contribution that contributes nothing is a category error, and
-`footprint` already reads the manifest.
+**OQ-CAP.** `supersedes` lives at the **manifest top level**, beside `name`, rather than as a
+`contributes[]` entry. That matches `skills_tier` (a per-pack fact, not a contribution) and reads
+correctly — superseding is a property *of the pack*, not a thing it delivers. The alternative is a
+`kind: "supersedes"` contribution, which would put it in the same list as everything else a pack does
+and make `yolo pack footprint` pick it up for free. **My read: top-level**, with footprint taught to
+print it explicitly — a contribution that contributes nothing is a category error, and `footprint`
+already reads the manifest. **(B) strengthens this:** the thing that *is* a contribution is now the
+loophole; `supersedes` staying top-level keeps the two visibly different.
