@@ -44,35 +44,66 @@ issue *and* a PR fixing it. Neither has any review or comment on it yet, and **a
 | [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) | **`ca.key` is mounted into every jail** | Dong Liu | 🔴 **open, no PR** — see C-4 |
 | [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) | Broker relay socket unreachable on macOS+podman | Dong Liu | fixed by #32 |
 
-## C-1. #37 first, and it is more important than its size 🔴
+## C-1. #37 — a silent stale-image bug in the tool you verify with 🔴
 
-**Premise verified locally 2026-08-12.** `internal/image/autoload.go:232` decides "already loaded"
-with `loadedPaths[currentPath]` — membership in the **unordered last-10 LRU set** from
-`ReadLoadedPaths`. `internal/image/image.go:119` already has `CurrentLoadedPath`, whose doc comment
-explicitly distinguishes it as *"the MOST-RECENT store path… Distinct from ReadLoadedPaths, which
-returns the whole LRU"* — and it has **zero non-test call sites**. The helper the fix needs was
-written and never wired up.
+### What it is
 
-**Why it outranks its diff.** Nix builds are content-addressed, so reverting a config change
-reproduces a store path that may still sit in the history while a *newer* path is the runtime's
-actual `:latest`. The check then concludes "already loaded", skips the reload, and leaves `:latest`
-**stale indefinitely, with no error or warning**.
+Georgi Popov filed [#35](https://github.com/mschulkind-oss/yolo-jail/issues/35) — *"Stale `:latest`
+image can be silently reused after reverting config to a previous value"* — and then #37 fixing it.
+(He first fixed it against the pre-rewrite **Python** implementation in #36, noticed the project had
+moved to Go, closed that, and redid it here. So he read the codebase rather than pattern-matching.)
 
-That lands directly on this repo's mandatory verification method. `AGENTS.md` requires nested-jail
+### The mechanism
+
+`AutoLoadImage` decides whether the loaded image is current. Today
+`internal/image/autoload.go:232` asks `loadedPaths[currentPath]` — *is this store path anywhere in
+the last-ten-loads sentinel history*, an **unordered set** from `ReadLoadedPaths`.
+
+Nix builds are content-addressed, so **reverting a config change reproduces a store path you built
+before** (remove a package, re-add it — same path). If that path is still in the ten-entry history
+while a *different, newer* path is the runtime's actual `:latest`, the check answers "already
+loaded", skips the reload, and `:latest` stays stale — **indefinitely, with no error or warning**.
+
+### The fix, and why it is two lines
+
+`internal/image/image.go:119` **already has `CurrentLoadedPath`**, which returns only the
+single most-recent sentinel entry. Its doc comment explicitly distinguishes it from
+`ReadLoadedPaths`'s *"whole LRU"*. **It has zero non-test call sites** — written for exactly this
+and never wired up (verified locally 2026-08-12). #37 wires it in and adds a regression test that
+loads path A, then B, then A again, and asserts the third call actually reloads.
+
+### Why it outranks its +88/−4
+
+It lands on this repo's **mandatory verification method**. `AGENTS.md` requires nested-jail
 verification for every `cmd/`/`internal/` change, and already warns that *"a failed nix build does
 not stop the jail… so a broken build looks like a working jail running stale code."* #37 is a
-second, quieter route to the same false green — reached by ordinary edit-revert-re-edit iteration,
-which is exactly what happens while developing. **A bug in the tool you verify with is worth more
-than its line count.**
+second, quieter route to the same false green — and unlike the build-failure route it is reached by
+**ordinary edit-revert-re-edit iteration**, which is what developing looks like. A bug in the tool
+you verify with costs more than its line count, because every result it produces is suspect.
 
-**Before merging:** it reports no CI checks. Re-run against current `main` — the file has not moved
+### Before merging
+
+No CI checks reported. Re-run against current `main` — `autoload.go` and `image.go` have not moved
 locally, so it should apply cleanly.
 
-## C-2. #34 — routine, with one caveat
+## C-2. #34 — real, correctly paced, and self-suppressing
 
-A weekly `flake.lock` refresh (+3/−3). Merging changes nothing until an image rebuild
-(`just load && just install` on the host), so it is safe to land and easy to forget. Worth pairing
-with a nested-jail run so the new lock is actually exercised once.
+Three questions worth answering, since this recurs weekly:
+
+**Is it changing anything real?** Yes. The diff moves nixpkgs `643809054d…` → `f13ff45afd…`, a
+`lastModified` gap of ~4.8 days of nixpkgs. It is not a no-op churn PR.
+
+**Is it too frequent?** `cron: "0 6 * * 1"` — **weekly, Mondays 06:00 UTC**. For a lock that the
+jail image's whole toolchain rides (mise, node, python, go), weekly is a reasonable floor; less
+often means larger, harder-to-attribute jumps when something breaks.
+
+**Does it drop itself when nothing changed?** Yes — `DeterminateSystems/update-flake-lock@v28` runs
+the update and opens a PR only when the lock actually moves. There is no "empty bump" PR to
+suppress; if nixpkgs had not moved, no PR would exist.
+
+**The one real caveat:** merging changes nothing until an image rebuild (`just load && just install`
+on the host), so it is safe to land and easy to forget. Worth pairing with one nested-jail run so
+the new lock is actually exercised rather than merely merged.
 
 ## C-3. #32 — land it, then promote it; do NOT close it as subsumed
 
@@ -82,10 +113,18 @@ matter for prioritization:
 1. **It is not subsumed by the auth work.** The broker exists for the OAuth refresh race, so a
    **Bedrock-mode jail never touches the path #31 breaks** — but Teams mode on macOS+podman still
    does. Auth modes make "Claude Code won't start on macOS" *conditional on the mode*, not fixed.
-2. **Its transport is what every future host service needs on macOS.** The virtiofs socket problem
-   is a property of the boundary, not of the broker; B1/B1b/B2 all hit it. Generalizing #32's
-   loopback-TLS + pinned host-only cert out of `brokerrelay` into the loophole framework makes
-   every host service macOS-capable in one move (**OQ-8** in that doc).
+2. **Yes — this is a general loophole-transport problem, and it now has its own design doc.**
+   The virtiofs socket problem is a property of the boundary, not of the broker: B1/B1b/B2 are all
+   socket-reached host daemons and would each rediscover [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31)
+   on a Mac. **Read [`loophole-transport.md`](../design/loophole-transport.md) before implementing
+   or standardizing anything here** — it leans heavily on #32 (which is the working implementation
+   of most of it), covers why each piece of the design is load-bearing, proposes transport as a
+   framework property rather than a `brokerrelay` one, and carries the `ca.key` fix (C-4) plus five
+   open questions including #32's own.
+
+   **Its recommendation is NOT to generalize first:** land #32 as scoped, and generalize when the
+   second consumer appears. #32 is a working fix for a total outage on one platform and should not
+   be held hostage to a refactor.
 3. **Its per-jail bearer token is the client-auth upgrade the boundary work independently reached**
    — the third convergence on unYOLO's "named broker-client secret"
    ([`boundary-broker.md`](../design/boundary-broker.md) §10.3), against yolo's current *"the socket
@@ -115,9 +154,35 @@ state dir — **including `ca.key`** — is mounted `:ro` into every jail, so a 
 sign a `yolo-broker-relay` cert and MITM a sibling. That is why #32 pins an exact host-only-key
 cert instead of trusting the broker CA: **verifying against that CA is worthless.**
 
+**The fix now lives in [`loophole-transport.md`](../design/loophole-transport.md) §5**, alongside
+the transport design it is inseparable from — #32 pins its own cert *because* the broker CA cannot
+be trusted, so a reader who merges #32 without this may reasonably conclude the CA problem was
+handled. It should land **before or with** #32, not after.
+
 This is the same defect `ROADMAP.md` §4d records from the internal audit — independently found and
 now **publicly filed**. Combined with `NODE_EXTRA_CA_CERTS` trusting that CA inside the jail, a jail
 process can mint a trusted leaf for *any* host.
+
+### Why it was not acted on, and what else was not 🔴
+
+Because **the audit produced findings, not work items.** `ROADMAP.md` §4d recorded four verified
+defects around 2026-08-02 and **none was carried into this queue**, so every planning pass since
+scoped from a list that did not contain them. The pack batch that followed was scoped from here.
+
+**Re-checked 2026-08-12 — all four are still unfixed.** Full table and evidence in
+[`loophole-transport.md`](../design/loophole-transport.md) §5.2; summarized:
+
+| §4d defect | State | Now tracked as |
+|---|---|---|
+| `ca.key` readable in-jail | 🔴 open | **C-4** (this row) |
+| Claude creds symlink dangles on macos-user | 🔴 open | **B-1**, and it blocks Thread A's Teams mode on macOS |
+| Config-approval snapshot is agent-writable | 🔴 open | **D1** below — re-measured: `.yolo/config-snapshot.json` is mode `664` and writable in-jail |
+| Two shipped docs contradict the code | 🟡 partly | **D2** below — the refresher contradiction survives; the `--host-creds-file` half was fixed |
+
+**The process lesson matters more than the four items:** an audit whose output lives only in a
+narrative doc is invisible to planning. Findings have to become queue rows the day they are found,
+or they age quietly until an outside contributor files one as a public issue — which is exactly
+what happened.
 
 **Re-measured from inside a live jail, 2026-08-12** — not inferred from the audit:
 
@@ -393,6 +458,8 @@ does the dir get created? (2) two packs, distinct skills, two destinations — d
 | **B1** | Audit-only log of every jail↔host boundary crossing ([boundary-broker.md](../design/boundary-broker.md) step 1) | small, additive | nothing |
 | **B1b** | **Credential-injecting proxy for git** — host injects after egress, jail holds nothing, no human. **Possibly an ADOPTION**: unYOLO's MIT `gh-broker` is this row's entire scope ([§10](../design/boundary-broker.md)) | new capability | nothing |
 | **B2** | Approval-gated host credentials — one allowlisted verb, synchronous. Design validated by convergence with unYOLO; take its grant model, content-addressed plans, and `expected_revision` rather than re-deriving | new capability | N3/OQ-1 |
+| **D1** 🔴 | **Config-approval snapshot is agent-writable** — `.yolo/config-snapshot.json` is mode `664` and writable in-jail (re-measured 2026-08-12). An agent that edits `yolo-jail.jsonc` **and** matches the snapshot makes the launch-time diff prompt vanish — the exact bypass [config-safety.md](../design/config-safety.md) exists to prevent, and it is undiscussed there. From `ROADMAP.md` §4d; never queued until now | security | nothing |
+| **D2** | **Two shipped docs contradict the code** — `USER_GUIDE.md:182` and `bundled_loopholes/claude-oauth-broker/README.md:59` both say *"no background timer / no proactive refresh"*, but `oauthbrokercmd.go:88` starts `RunBackgroundRefresher` by default — and that refresher **is** the architectural fix for all three logout paths. (The `--host-creds-file` half has since been fixed.) From `ROADMAP.md` §4d | doc defect | nothing |
 | ✅ **B4** | ~~Correct [agent-credentials.md](../design/agent-credentials.md) §3~~ **DONE** — it documented Bedrock keys arriving via the `env` block of host `settings.json`; that block is `{}` and the real path is `env_sources`. Corrected in place, with a note that the `env` block is nonetheless the right *target* design (§11.2) — it described the correct mechanism before anything used it | — | — |
 
 ---
