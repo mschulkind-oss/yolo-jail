@@ -1,7 +1,8 @@
 # Outstanding work
 
 **What this is.** Everything still to do, and nothing else. Restructured 2026-08-12 around the
-two threads the maintainer named; shipped items have moved out to
+threads the maintainer named; refreshed 2026-08-13 after the loophole-transport design closed and
+the first two PRs merged. Shipped items move out to
 [`shipped-2026-08-pack-batch.md`](shipped-2026-08-pack-batch.md).
 
 **Read this as today's forward plan.** Every claim below was checked against the code on the date
@@ -31,7 +32,7 @@ than new work.
 
 | | | Thread | First move | Blocked on |
 |---|---|---|---|---|
-| 🟢 | **C** | [Open PRs + issues on the public repo](#thread-c--the-open-prs-and-issues-on-the-public-repo) | **land #37** (certain, already-occurring bug in the verification tool); #33 is **fixed** and needs only a reply on the issue | nothing; #32 has a question awaiting your answer |
+| 🟡 | **C** | [Open PRs + issues on the public repo](#thread-c--the-open-prs-and-issues-on-the-public-repo) | **two replies to send** — close #33 as fixed, and close #32 explaining it is superseded by T1. #37 and #34 are merged | nothing; both are messages, not work |
 | 🟡 | **A** | [Claude auth as swappable packs](#thread-a--claude-auth-as-two-swappable-packs) | move `shared_credentials` off the base `claude` pack | nothing |
 | ⛔ | **B** | [macos-user + non-container nix](#thread-b--macos-user-and-non-container-nix) | run B-0 once on a Mac (the wiring landed 2026-08-12; nothing else in the thread moves until a Mac confirms it) | a Mac to verify; N3 is your call |
 
@@ -51,17 +52,17 @@ issue *and* a PR fixing it. Neither has any review or comment on it yet, and **a
 
 | | PR | Title | Author | Size | CI | Verdict |
 |---|---|---|---|---|---|---|
-| 🟢🐛 | [#37](https://github.com/mschulkind-oss/yolo-jail/pull/37) | image staleness: compare against most-recently-loaded path (fixes [#35](https://github.com/mschulkind-oss/yolo-jail/issues/35)) | Georgi Popov, **external** | +88/−4 | none reported | **land first** — premise verified locally |
-| 🟢 | [#34](https://github.com/mschulkind-oss/yolo-jail/pull/34) | weekly `flake.lock` bump | `github-actions` bot | +3/−3 | none reported | routine; inert until an image rebuild |
-| 🟡 | [#32](https://github.com/mschulkind-oss/yolo-jail/pull/32) | macOS+podman broker transport (fixes [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31)) | Dong Liu, **external** | +1064/−13 | **green** (integration + secrets-scan pass; check-macos skipped) | land, then **promote** — and it has a **question for you** |
+| ✅🐛 | [#37](https://github.com/mschulkind-oss/yolo-jail/pull/37) | image staleness: compare against most-recently-loaded path (fixes [#35](https://github.com/mschulkind-oss/yolo-jail/issues/35)) | Georgi Popov, **external** | +88/−4 | **all green** (incl. both `integration` runs) | **MERGED 2026-08-13** |
+| ✅ | [#34](https://github.com/mschulkind-oss/yolo-jail/pull/34) | weekly `flake.lock` bump | `github-actions` bot | +3/−3 | none reported | **MERGED 2026-08-13.** The *next* bump carries a closure diff (D3), so this was the last opaque three-liner |
+| 🟡 | [#32](https://github.com/mschulkind-oss/yolo-jail/pull/32) | macOS+podman broker transport (fixes [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31)) | Dong Liu, **external** | +1064/−13 | **green**; still `MERGEABLE` (re-checked 2026-08-13 against everything pushed) | **DECIDED: superseded by T1, not merged.** Needs a close comment — see C-3 |
 
 | | Issue | Title | Author | State |
 |---|---|---|---|---|
-| 🟢 | [#35](https://github.com/mschulkind-oss/yolo-jail/issues/35) | Stale `:latest` reused after reverting config | Georgi Popov | fixed by #37 |
-| ✅ | [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) | **`ca.key` is mounted into every jail** | Dong Liu | **fixed 2026-08-12** (C-4) — closable; still open upstream until someone replies on the issue |
-| 🟢 | [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) | Broker relay socket unreachable on macOS+podman | Dong Liu | fixed by #32 |
+| ✅ | [#35](https://github.com/mschulkind-oss/yolo-jail/issues/35) | Stale `:latest` reused after reverting config | Georgi Popov | **CLOSED** — auto-closed by #37's `Fixes #35` |
+| 🟡 | [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) | **`ca.key` is mounted into every jail** | Dong Liu | **fixed and PUSHED** (C-4; `state_files` is on `origin/main`) — **still OPEN upstream.** Only a close comment is outstanding |
+| ⛔ | [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) | Broker relay socket unreachable on macOS+podman | Dong Liu | **now fixed by T1, not #32.** Stays open until the unified transport ships — macOS+podman cannot run a jail meanwhile, a deliberate cost |
 
-## 🟢🐛 C-1. #37 — a silent stale-image bug in the tool you verify with
+## ✅🐛 C-1. #37 — a silent stale-image bug in the tool you verify with — **MERGED 2026-08-13**
 
 ### What it is
 
@@ -98,12 +99,14 @@ second, quieter route to the same false green — and unlike the build-failure r
 **ordinary edit-revert-re-edit iteration**, which is what developing looks like. A bug in the tool
 you verify with costs more than its line count, because every result it produces is suspect.
 
-### Before merging
+### Merged
 
-No CI checks reported. Re-run against current `main` — `autoload.go` and `image.go` have not moved
-locally, so it should apply cleanly.
+CI came back **all green** — `check-go`, `secrets-scan`, both `build-image` arches and **both
+`integration` runs** (~14 min each); `check-macos` skipping as expected on a Linux-runner PR. Merged
+2026-08-13, `#35` auto-closed by its `Fixes #35`, and the fix is now in local `main` (rebased onto
+it, so `AutoLoadImage` here reads `CurrentLoadedPath`).
 
-## 🟢 C-2. #34 — real, correctly paced, and self-suppressing
+## ✅ C-2. #34 — real, correctly paced, and self-suppressing — **MERGED 2026-08-13**
 
 Three questions worth answering, since this recurs weekly:
 
@@ -159,46 +162,41 @@ actually review. **Shipped — see D3 below.** What it diffs is not the image de
 build*: a lock bump cannot move our binaries, and excluding them keeps both sides of the diff a
 download from cache.nixos.org rather than a build.
 
-## 🟡 C-3. #32 — land it, then promote it; do NOT close it as subsumed
+## 🟡 C-3. #32 — **superseded by T1, not merged.** One close comment outstanding
 
-Full analysis: [`agent-auth-modes.md`](../design/agent-auth-modes.md) §12. The three points that
-matter for prioritization:
+> **REVERSED 2026-08-13.** This section previously argued "land it, then promote it; do NOT close it
+> as subsumed", and recommended against generalizing first. **The maintainer decided the opposite:
+> we ship the unified transport (row T1) instead of merging #32.** The reasoning and the costs are in
+> [`loophole-transport.md`](../design/loophole-transport.md) §7.3. The old argument is preserved
+> there rather than here, because it is the road not taken and the doc records why.
 
-1. **It is not subsumed by the auth work.** The broker exists for the OAuth refresh race, so a
-   **Bedrock-mode jail never touches the path #31 breaks** — but Teams mode on macOS+podman still
-   does. Auth modes make "Claude Code won't start on macOS" *conditional on the mode*, not fixed.
-2. **Yes — this is a general loophole-transport problem, and it now has its own design doc.**
-   The virtiofs socket problem is a property of the boundary, not of the broker: B1/B1b/B2 are all
-   socket-reached host daemons and would each rediscover [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31)
-   on a Mac. **Read [`loophole-transport.md`](../design/loophole-transport.md) before implementing
-   or standardizing anything here** — it leans heavily on #32 (which is the working implementation
-   of most of it), covers why each piece of the design is load-bearing, proposes transport as a
-   framework property rather than a `brokerrelay` one, and carries the `ca.key` fix (C-4) plus five
-   open questions including #32's own.
+**What the decision costs, so it is not later read as an oversight:**
 
-   **Its recommendation is NOT to generalize first:** land #32 as scoped, and generalize when the
-   second consumer appears. #32 is a working fix for a total outage on one platform and should not
-   be held hostage to a refactor.
-3. **Its per-jail bearer token is the client-auth upgrade the boundary work independently reached**
-   — the third convergence on unYOLO's "named broker-client secret"
-   ([`boundary-broker.md`](../design/boundary-broker.md) §10.3), against yolo's current *"the socket
-   file is the authentication"*.
+1. **macOS + podman cannot run a jail until T1 ships.** Every `platform.claude.com` request 502s and
+   Claude Code will not start ([#31](https://github.com/mschulkind-oss/yolo-jail/issues/31)). That
+   window is now a deliberate choice.
+2. **The transport is no longer free.** The earlier plan treated `loopback-tls` as already built —
+   #32 *was* the implementation. T1 now covers **building** it as well as migrating both consumers.
+3. **1064 tested lines are re-derived, not relocated.** Its test suite is the acceptance bar.
 
-**It does not fix the CA key exposure** it works around — see C-4. Merging #32 must not be read as
-closing that.
+**Its own open question is settled and needs no ruling.** The author asked whether to keep the
+terminator↔relay hop on a per-jail token + pinned host-only-key TLS, or switch to full mTLS.
+**Answer: as proposed — and mTLS changes nothing**, because at **one relay per jail** the relay's
+token *is* its jail's token, so a certificate's subject adds no identity a match does not already
+establish ([§7.2](../design/loophole-transport.md)). Only a *shared* relay would reopen it.
 
-### The question #32 is waiting on you to answer
+**What the close comment has to say**, because closing a green, tested, conflict-free PR from an
+outside contributor needs a real reason:
 
-The PR ends with an explicit ask:
-
-> *"I keep the terminator↔relay hop on a per-jail token + pinned host-only-key TLS (no client
-> certs). Happy to switch to full mTLS if you'd prefer."*
-
-**Nobody has answered it.** Worth deciding alongside OQ-8 (generalize the transport, or merge as
-scoped), because if the transport becomes the loophole framework's, the answer applies to every
-future host service rather than to one hop. A per-jail bearer token inside pinned TLS is already
-strictly stronger than the current *"the socket file is the authentication"* posture, so "as
-proposed" is a defensible answer — it just needs to be given.
+- his diagnosis of #31 was **correct** and is why `loophole-transport.md` exists;
+- his transport design is **adopted almost wholesale** — §7.3 lists the seven mechanisms that must
+  carry over verbatim, including the ones a naive reimplementation gets wrong (kernel-assigned port,
+  key never persisted, re-read per dial, exact-cert pinning rather than CA trust);
+- the reason it is not merged is **placement**: it lives in `brokerrelay`, and §3.3 argues that is
+  exactly where the TCP path would drift from the one everybody uses. The framework has to own it —
+  and `host-processes` (row **D4**) is broken on macOS for the identical reason his broker is;
+- he also filed [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33), which is **fixed and
+  pushed**. That is a real contribution record even with the PR closed.
 
 ## ✅🐛 C-4. Issue #33 — `ca.key` in every jail — **DONE 2026-08-12**
 
@@ -689,7 +687,7 @@ a multi-line value, and anything under an `[[array of tables]]`.
 
 | | # | Item | Kind | Blocked on |
 |---|---|---|---|---|
-| 🟢 | **T1** | **Build the unified `loopback-tls` transport, replacing PR #32** ([loophole-transport.md](../design/loophole-transport.md) §7.3, decided 2026-08-13) — #32 is CLOSED, not merged, so this covers **building** the transport as well as migrating both consumers. Its design is the spec and its test suite the acceptance bar (§7.3 lists what must carry over, incl. one relay per jail, which §7.2's token answer depends on). Port `host-processes` first (**D4**, broken on macOS today, harmless failure), then the broker relay, then drop `unix-socket` from `validTransports`. Also: the macOS-`guest` cross-uid grant, and correcting [loophole-protocol.md](../design/loophole-protocol.md) §Security posture. ⚠ **macOS + podman cannot run a jail until this ships** — a deliberate cost | feature | nothing |
+| 🔄 | **T1** | **Build the unified `loopback-tls` transport, replacing PR #32** — **IN PROGRESS 2026-08-13** via an orchestrated build (survey → spec → four sequential stages → adversarial verification → completeness critique). This row and **D4** will be rewritten by that work; treat what follows as the brief, not the status. ([loophole-transport.md](../design/loophole-transport.md) §7.3, decided 2026-08-13) — #32 is CLOSED, not merged, so this covers **building** the transport as well as migrating both consumers. Its design is the spec and its test suite the acceptance bar (§7.3 lists what must carry over, incl. one relay per jail, which §7.2's token answer depends on). Port `host-processes` first (**D4**, broken on macOS today, harmless failure), then the broker relay, then drop `unix-socket` from `validTransports`. Also: the macOS-`guest` cross-uid grant, and correcting [loophole-protocol.md](../design/loophole-protocol.md) §Security posture. ⚠ **macOS + podman cannot run a jail until this ships** — a deliberate cost | feature | nothing |
 | 🟢 | **B1** | Audit-only log of every jail↔host boundary crossing ([boundary-broker.md](../design/boundary-broker.md) step 1) | small, additive | nothing |
 | 🟡 | **B1b** | **Credential-injecting proxy for git** — host injects after egress, jail holds nothing, no human. **Settled 2026-08-12: a BUILD, not an adoption.** unYOLO's `gh-broker` was read at source ([§10](../design/boundary-broker.md)) and the earlier "possibly an adoption" note is retired — it is Go not Python, but yolo **already ships this transport** (`claude-oauth-broker` *is* a credential-injecting TLS-interception proxy), and gh-broker wants a GitHub App, has bus factor 1 at 11 weeks old, and carries 73 modules against yolo's 3. Smaller build than the row implied. **Carries one decision — OQ-B1b** | new capability | **your call** (OQ-B1b) |
 | 🟡 | **B2** | Approval-gated host credentials — one allowlisted verb, synchronous. Design validated by convergence with unYOLO. **Re-scoped 2026-08-12 from source** ([§10.6](../design/boundary-broker.md)): take the four-effect policy evaluation, code-owned `Grantable`, the operation registry, and two-bound **narrowing-only** grants; **defer** content-addressed plans, `expected_revision`, and decision tokens — each has a named trigger, and none has fired | new capability | N3/OQ-1 |
@@ -703,8 +701,16 @@ a multi-line value, and anything under an `[[array of tables]]`.
 
 # Every decision waiting on you
 
-🟡 **Everything in this section is waiting on you.** The loophole-transport design was audited 2026-08-13 and **five of its seven questions resolved without a ruling** — they are recorded as settled with reasoning in [`loophole-transport.md`](../design/loophole-transport.md) §7.1, so nothing was quietly dropped. Only OQ-T1 and OQ-T8 survive. One index, because these are spread across four docs. ❓ marks the two where I have no recommendation; the rest carry one, so a bare "go with your read" clears them. **Nothing below is blocked on work — only
-on an answer.** Where I have a recommendation it is stated; where I do not, it says so.
+🟡 **Everything in this section is waiting on you.** One index, because these are spread across
+four docs. ❓ marks the two where I have no recommendation; the rest carry one, so a bare "go with
+your read" clears them. **Nothing below is blocked on work — only on an answer.**
+
+**The loophole-transport design is now fully settled — ZERO of its nine questions remain.** Five
+resolved without needing a ruling (recorded with reasoning in
+[`loophole-transport.md`](../design/loophole-transport.md) §7.1, so nothing was quietly dropped),
+and four were decided by the maintainer on 2026-08-13: token in the endpoint file (OQ-T7), unify on
+`loopback-tls` (OQ-T9), token not mTLS (OQ-T1 — which turned out to need no judgement once "one
+relay per jail" was noticed), and ship T1 instead of #32 (OQ-T8). What is left there is execution.
 
 | # | Decision | Where | My read |
 |---|---|---|---|
@@ -719,7 +725,7 @@ on an answer.** Where I have a recommendation it is stated; where I do not, it s
 | **OQ-5** | Should packs be able to require other packs (`requires_pack`)? | same §12.4 | yes, paired with `conflicts` |
 | **OQ-6** | Auth packs **shipped or fetched**? *Gates building them.* | same | **fetched** |
 | **OQ-7** ❓ | Does the Teams pack own the model IDs, or the base `claude` pack? | same | ❓ **no recommendation — genuinely your call** |
-| **OQ-8** | Generalize #32's transport, or merge as scoped? | same | merge as scoped, generalize at B1 |
+| ✅ ~~**OQ-8**~~ | ~~Generalize #32's transport, or merge as scoped?~~ **DECIDED 2026-08-13: neither — #32 is superseded by T1.** Superseded by OQ-T8; see C-3 | — | — |
 | **OQ-9** ❓ | Is `env_sources` still the right home for the AWS keys? | same | ❓ **no recommendation — genuinely your call** |
 | **A2** | How loud should selecting both auth packs be? | Thread A | a `conflicts` manifest field |
 | **S5** | Jail skill collision: warn, `check` failure, or boot refusal? | S5 above | warn now; decide the rest later |
@@ -831,7 +837,31 @@ Full reasoning and the defects that only surfaced by running things:
 **2026-08-05:** S1 (skill collisions fatal, `3e0be7b`), S2 (`skills_tier`, `663cb29`/`0557c9e`/`ceb93b3`),
 S3 (layer 4 deleted, `315c150`), C1 (`from` literals, `d342827`), C2 (`f2d0692`), C3 (`db695d8`),
 N1 (gcroot, `23cee7a`), N2 (`yoloNoncontainerPackages`, `11f8bb7`), V1 (`8e7717f`).
-**2026-08-12:** the auth-modes/broker doc split (`78eb3b5`), the unYOLO analysis (`1b4f7f9`).
+
+**2026-08-12 — a seven-agent fan-out plus the doc work.** Code: **C-4/#33** (`state_files`, the
+`ca.key` narrowing), **V2** (`apply --host` converges after one apply), **V3** (per-kind archive
+buckets), **B-0** (packs staged before backend dispatch — Mac-unverified, so ⛔ not ✅), **D3**
+(closure diff in `flake.lock` bumps), **E4** (`rmw` comment preservation), **S4** (audited: the gate
+holds; three probes pinned as tests), **D2** + two more doc/code contradictions fixed. Docs: the
+auth-modes/broker split (`78eb3b5`), the unYOLO source evaluation (`1b4f7f9`).
+
+**2026-08-13.** #37 and #34 **merged** (#35 auto-closed). `docs/design/loophole-transport.md`
+written and then **fully settled** across four review rounds — including two arguments of mine
+withdrawn after review pushed back: `SO_PEERCRED` as a reason to keep the Unix socket (it cannot
+distinguish the jail from a same-user host process, and that set is the *intended* boundary), and
+mTLS carrying identity a token does not (false at one relay per jail). T1 launched as an
+orchestrated build.
+
+## One process lesson worth more than any single row
+
+**"Stage by explicit path" is NOT sufficient with concurrent agents.** It failed six times on
+2026-08-12: `git add <path>` stages the WHOLE FILE into a SHARED index, so whoever commits next
+sweeps everyone else's staged work into their own commit. Content survived every time — only
+attribution scrambled, and no agent reached for `--amend` (correctly; this repo forbids it).
+
+**The fix, found by one of the agents: `git commit -- <paths>` with no staging at all.** That form
+commits exactly the named paths from the working tree and ignores the index entirely. Every
+concurrent-agent brief should carry it.
 
 ## Two traps worth carrying forward
 
