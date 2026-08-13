@@ -33,7 +33,7 @@ than new work.
 
 | | | Thread | First move | Blocked on |
 |---|---|---|---|---|
-| 🟡 | **C** | [Open PRs + issues on the public repo](#thread-c--the-open-prs-and-issues-on-the-public-repo) | **one reply left** — close #33 as fixed. #37/#34 merged, #32 closed unmerged | nothing; it is a message, not work |
+| ✅ | **C** | ~~Open PRs + issues on the public repo~~ **CLOSED OUT 2026-08-13** — #37 and #34 merged, #35 auto-closed, #33 closed as fixed with a comment, #32 closed unmerged (superseded by T1). No reply owed on the mTLS question: §7.2 settled it as needing no judgement. Detail in [`shipped-2026-08-12.md`](shipped-2026-08-12.md) | — | — |
 | 🟡 | **A** | [Claude auth as swappable packs](#thread-a--claude-auth-as-two-swappable-packs) | move `shared_credentials` off the base `claude` pack | nothing |
 | ⛔ | **B** | [macos-user + non-container nix](#thread-b--macos-user-and-non-container-nix) | run B-0 once on a Mac (the wiring landed 2026-08-12; nothing else in the thread moves until a Mac confirms it) | a Mac to verify; N3 is your call |
 
@@ -47,9 +47,9 @@ All on [mschulkind-oss/yolo-jail](https://github.com/mschulkind-oss/yolo-jail); 
 `GH_TOKEN` reads and pushes `origin`, so no extra credentials are needed. Reviewed 2026-08-12;
 every premise re-verified against local code rather than taken from a PR body.
 
-**What is left here is two messages, not code.** #37 and #34 merged 2026-08-13 and #35 auto-closed;
-#33 is fixed and pushed. Both remaining items are replies owed to the same outside contributor —
-see [`shipped-2026-08-12.md`](shipped-2026-08-12.md) for what shipped.
+**Nothing is left here.** #37 and #34 merged, #35 auto-closed, #33 closed as fixed, #32 closed
+unmerged and superseded by T1. Kept only for the #31 row, which T1 closes when it ships. What
+shipped is in [`shipped-2026-08-12.md`](shipped-2026-08-12.md).
 
 | | PR | Title | Author | Size | CI | Verdict |
 |---|---|---|---|---|---|---|
@@ -57,7 +57,7 @@ see [`shipped-2026-08-12.md`](shipped-2026-08-12.md) for what shipped.
 
 | | Issue | Title | Author | State |
 |---|---|---|---|---|
-| 🟡 | [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) | **`ca.key` is mounted into every jail** | Dong Liu | **fixed and PUSHED** (C-4; `state_files` is on `origin/main`) — **still OPEN upstream.** Only a close comment is outstanding |
+| ✅ | [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) | **`ca.key` is mounted into every jail** | Dong Liu | **CLOSED 2026-08-13** with a comment covering the fix, the `ca.crt` correction and the severity downgrade |
 | ⛔ | [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) | Broker relay socket unreachable on macOS+podman | Dong Liu | **now fixed by T1, not #32.** Stays open until the unified transport ships — macOS+podman cannot run a jail meanwhile, a deliberate cost |
 
 ## ✅ C-3. #32 — **closed unmerged 2026-08-13**, superseded by T1
@@ -184,16 +184,56 @@ records.
 
 **Two residual items, both small:**
 
-- **The broker runs pointlessly under Bedrock.** Measured harmless this session — the shared creds
-  file was 0 bytes while `CLAUDE_CODE_USE_BEDROCK=1` and the jail worked — but it is waste and a
-  confusing log. Its predicate vocabulary is only `command_on_path` and `file_exists`
-  (`internal/loopholes/load.go`), neither of which can express "Bedrock is active" or "the creds
-  file is non-empty". **An `env_absent` predicate would let it self-disable with no pack
-  coordination at all** — which is a better shape than any pack-to-pack mechanism, because the
-  loophole decides its own applicability. 🟢, small, and useful beyond auth.
+- **The broker runs pointlessly under Bedrock — five options, see A6 below.**
 - **`check`/`describe` should report the EFFECTIVE auth mode.** This is the real fix for "which
   account am I on?", and it is OQ-2's payoff: a declared bundle is what makes the mode reportable,
   where `env_sources` is invisible to yolo's config model.
+
+## 🟢 A6. Making the Bedrock path disable the broker — options
+
+**Why it matters more than "waste".** Under Bedrock, Claude Code never talks to
+`platform.claude.com` for tokens, so the in-jail terminator is never dialed — but it still starts,
+binds `127.0.0.1:443`, and sets up TLS interception. **On macOS + podman that stack is the one that
+is broken** ([#31](https://github.com/mschulkind-oss/yolo-jail/issues/31)). So disabling it under
+Bedrock removes a known-broken failure surface, not merely three idle processes. On Linux it is
+genuinely just waste — measured harmless this session (0-byte creds file, `CLAUDE_CODE_USE_BEDROCK=1`,
+jail worked).
+
+**The mechanism that already exists.** `Loophole.Active() = Enabled && RequirementsMet()`
+(`internal/loopholes/loopholes.go:219`) — **two independent gates**, and both are already
+extensible:
+
+- `Enabled` comes from config: `{"loopholes": {"claude-oauth-broker": {"enabled": false}}}`, a
+  documented user-facing knob **that ships today**;
+- `RequirementsMet()` evaluates `requires`, whose vocabulary today is exactly `command_on_path` and
+  `file_exists` (`internal/loopholes/load.go:213-235`).
+
+**One constraint that rules out the obvious answer.** I previously suggested an `env_absent`
+predicate. **It does not work**, because under A3's design `CLAUDE_CODE_USE_BEDROCK` lives in the
+`env` block of the rendered `settings.json` — not in the host environment, where a launch-time
+predicate is evaluated. (Today it comes from `env_sources`, which is jail-side; also not host-visible.)
+The signal a host-side predicate *can* see is the **selected pack set**, not the env.
+
+| # | Option | How | For | Against |
+|---|---|---|---|---|
+| **0** | **The user disables it by hand** | add the `loopholes.claude-oauth-broker.enabled: false` stanza alongside selecting the pack | **Zero code. Ships today.** Matches the agreed "manual swapping is fine for now" posture | Two edits instead of one; forgetting the second gives exactly the pointless-broker state |
+| **1** | **A pack-aware predicate** | `requires: {pack_absent: "claude-bedrock"}` on the loophole | Host-side, launch-time, deterministic; smallest new vocabulary | Couples a bundled *loophole* to a *pack name* — and a third-party Bedrock pack is invisible to it. The same name-coupling smell A1–A2 just retired |
+| **2** | **A pack may disable a loophole** | a pack contribution that sets the `enabled: false` the config knob already honors | The pack declares its own consequence, which is the true statement — the Bedrock pack **is** the thing that knows the broker is moot. Reuses a shipped mechanism rather than inventing one | A real power increase: any pack could disable any loophole. Wants a mandatory `because` string (precedent: the claude pack's machine-scope state carries one) and a line in `yolo pack footprint` |
+| **3** | **Capability supersession** | the loophole declares `serves: "claude-oauth-refresh"`; a pack declares `supersedes: "claude-oauth-refresh"` | Decoupled from names, so any Bedrock-shaped pack works. This is `provides` in the place it actually fits: not two packs competing, but a pack telling a loophole it is unnecessary | Most new vocabulary, for one loophole and one pack. The "wait for a second consumer" discipline says not yet |
+| **4** | **Leave it; log it** | the broker logs "no credential to serialize" and exits its work loop early | No mechanism at all | Leaves the known-broken TLS-intercept stack starting on macOS under Bedrock, which is the case that most wants it gone |
+
+**A tempting option that is WRONG, recorded so nobody re-proposes it:** gate on the shared
+credentials file being non-empty (`requires: {file_nonempty: …}`). It reads as exactly the right
+question — *"is there a credential to serialize?"* — and it is **broken by chicken-and-egg**: a
+fresh Teams user's creds file is empty *before* their first `/login`, so the broker would not start,
+and that first session's refreshes would run unserialized. That is precisely the race it exists to
+prevent.
+
+**Recommendation: 0 now, 2 when the manual step annoys.** (0) costs nothing and is honest about the
+current posture; (2) is the natural upgrade, reuses the knob rather than adding a gate, and keeps
+the declaration on the pack that knows the fact — the same principle that settled A1–A2. (3) is
+right if a second case ever appears; (1) couples the wrong things; (4) is the only one that leaves
+macOS worse.
 
 ### The generic question that survives, and it is not an auth question
 
@@ -394,6 +434,7 @@ is worth doing regardless — the destinations and layers are already computed, 
 | | # | Item | Kind | Blocked on |
 |---|---|---|---|---|
 | 🔄 | **T1** | **Build the unified `loopback-tls` transport, replacing PR #32** — **IN PROGRESS 2026-08-13** via an orchestrated build (survey → spec → four sequential stages → adversarial verification → completeness critique). This row and **D4** will be rewritten by that work; treat what follows as the brief, not the status. ([loophole-transport.md](../design/loophole-transport.md) §7.3, decided 2026-08-13) — #32 is CLOSED, not merged, so this covers **building** the transport as well as migrating both consumers. Its design is the spec and its test suite the acceptance bar (§7.3 lists what must carry over, incl. one relay per jail, which §7.2's token answer depends on). Port `host-processes` first (**D4**, broken on macOS today, harmless failure), then the broker relay, then drop `unix-socket` from `validTransports`. Also: the macOS-`guest` cross-uid grant, and correcting [loophole-protocol.md](../design/loophole-protocol.md) §Security posture. ⚠ **macOS + podman cannot run a jail until this ships** — a deliberate cost | feature | nothing |
+| 🟢 | **A6** | **Make the Bedrock path disable the auth broker** — five options costed in Thread A → A6. Matters beyond waste: under Bedrock the in-jail terminator still binds `:443` and sets up TLS interception, and **that is the stack #31 breaks on macOS**, so disabling it removes a known-broken failure surface. `Active() = Enabled && RequirementsMet()` already gives two gates, and the `enabled: false` config knob ships today | small | nothing — **option 0 needs no code at all** |
 | 🟢 | **B1** | Audit-only log of every jail↔host boundary crossing ([boundary-broker.md](../design/boundary-broker.md) step 1) | small, additive | nothing |
 | 🟡 | **B1b** | **Credential-injecting proxy for git** — host injects after egress, jail holds nothing, no human. **Settled 2026-08-12: a BUILD, not an adoption.** unYOLO's `gh-broker` was read at source ([§10](../design/boundary-broker.md)) and the earlier "possibly an adoption" note is retired — it is Go not Python, but yolo **already ships this transport** (`claude-oauth-broker` *is* a credential-injecting TLS-interception proxy), and gh-broker wants a GitHub App, has bus factor 1 at 11 weeks old, and carries 73 modules against yolo's 3. Smaller build than the row implied. **Carries one decision — OQ-B1b** | new capability | **your call** (OQ-B1b) |
 | 🟡 | **B2** | Approval-gated host credentials — one allowlisted verb, synchronous. Design validated by convergence with unYOLO. **Re-scoped 2026-08-12 from source** ([§10.6](../design/boundary-broker.md)): take the four-effect policy evaluation, code-owned `Grantable`, the operation registry, and two-bound **narrowing-only** grants; **defer** content-addressed plans, `expected_revision`, and decision tokens — each has a named trigger, and none has fired | new capability | N3/OQ-1 |
