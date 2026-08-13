@@ -1,8 +1,6 @@
 package prune
 
 import (
-	"crypto/sha1"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -237,14 +236,11 @@ func PruneOldImages(rt string, keep int, apply bool, run RunFunc) []string {
 	return toRemove
 }
 
-// relayShortHash is the 8-char sha1 hash that keys a jail's broker-relay PID
-// file and sockets dir.
-// sync with the host-services-sockets-dir hash so ReapRelayOrphans can match a
-// pid file to a live container name.
-func relayShortHash(cname string) string {
-	sum := sha1.Sum([]byte(cname))
-	return hex.EncodeToString(sum[:])[:8]
-}
+// relayShortHash is the 8-char hash keying a jail's broker-relay pid/lock/socket
+// files and its host-services dir. It delegates to paths so it CANNOT drift from
+// the run pipeline's spelling — ReapRelayOrphans matches a pid file back to a live
+// container name through this value, so a divergence reaps live relays.
+func relayShortHash(cname string) string { return paths.JailShortHash(cname) }
 
 // ReapRelayOrphans sweeps per-jail broker-relay PID files under `base` whose jail
 // is no longer live, returning the PID-file paths reaped (or, in dry-run, that
@@ -293,7 +289,7 @@ func ReapRelayOrphans(base string, liveKnown bool, liveCnames map[string]struct{
 			relayKill(pidFile)
 		}
 		_ = os.Remove(filepath.Join(base, "yolo-broker-relay-"+shortHash+".lock"))
-		_ = os.RemoveAll(filepath.Join(base, "yolo-host-services-"+shortHash))
+		_ = os.RemoveAll(filepath.Join(base, paths.HostServicesDirName(shortHash)))
 	}
 	return reaped
 }

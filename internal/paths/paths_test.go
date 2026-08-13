@@ -135,3 +135,35 @@ func TestJailHostServicesDirIsStable(t *testing.T) {
 		t.Errorf("composed delegate endpoint path = %q, want %q", got, want)
 	}
 }
+
+// TestJailShortHashAndHostServicesDir pins the per-jail key and directory by
+// VALUE, not by re-deriving them.
+//
+// Three packages carried hand-copied implementations of this hash before it moved
+// here: the run pipeline (which creates the directory and spawns the relay),
+// internal/cli/check (which probes them) and internal/prune (whose reap matches a
+// broker-relay pid file back to a LIVE CONTAINER NAME through exactly this value).
+// A drift there does not fail loudly — it either orphans every relay forever or
+// kills a live one. Recomputing sha1 in the assertion would pin nothing, so the
+// expected strings are literals taken from the shipped behaviour.
+func TestJailShortHashAndHostServicesDir(t *testing.T) {
+	// sha1("yolo-ws-abcd1234") = 0420db187f015c2f... (verified against sha1sum),
+	// truncated to 8 hex chars.
+	const cname = "yolo-ws-abcd1234"
+	const wantHash = "0420db18"
+	if got := JailShortHash(cname); got != wantHash {
+		t.Errorf("JailShortHash(%q) = %q, want %q", cname, got, wantHash)
+	}
+	if got, want := HostServicesDirName(wantHash), "yolo-host-services-0420db18"; got != want {
+		t.Errorf("HostServicesDirName = %q, want %q", got, want)
+	}
+	if got, want := HostServicesDir(cname, false), "/tmp/yolo-host-services-0420db18"; got != want {
+		t.Errorf("HostServicesDir = %q, want %q", got, want)
+	}
+	// Distinct names must not collide into one directory: two jails sharing a
+	// host-services dir would share each other's endpoint files, and each of those
+	// carries a bearer token.
+	if HostServicesDir("yolo-a", false) == HostServicesDir("yolo-b", false) {
+		t.Error("two container names produced the same host-services dir")
+	}
+}

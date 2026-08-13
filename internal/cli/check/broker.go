@@ -1,12 +1,9 @@
 package check
 
 import (
-	"crypto/sha1"
 	"encoding/binary"
-	"encoding/hex"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -30,20 +27,12 @@ func hostServiceDefaultJailSocket(name string) string {
 	return paths.JailHostServicesDir + "/" + name + ".sock"
 }
 
-// hostServiceSocketsDir returns the per-jail host-side
-// dir under /tmp keyed by an 8-hex sha1 of the container name. On macOS /tmp
-// resolves to /private/tmp; the resolved form is used so socket paths match
-// what the kernel sees.
+// hostServiceSocketsDir returns the per-jail host-side endpoint-file dir. It
+// delegates to paths: this was a hand-copied third implementation of the same
+// hash-and-join, in the one package whose whole job is telling the user whether
+// the other two agree.
 func hostServiceSocketsDir(cname string, isMacOS bool) string {
-	sum := sha1.Sum([]byte(cname))
-	shortHash := hex.EncodeToString(sum[:])[:8]
-	base := "/tmp"
-	if isMacOS {
-		if r, err := filepath.EvalSymlinks(base); err == nil {
-			base = r
-		}
-	}
-	return filepath.Join(base, "yolo-host-services-"+shortHash)
+	return paths.HostServicesDir(cname, isMacOS)
 }
 
 // brokerStatus holds the broker liveness snapshot: pid, pid_live, socket_exists, ping_ok.

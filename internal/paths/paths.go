@@ -4,6 +4,8 @@
 package paths
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -88,6 +90,47 @@ const (
 // CgdEndpointName MUST be "<BuiltinCgroupLoopholeName>.endpoint" — composed, for
 // exactly the reason recorded above CgdSocketName.
 const CgdEndpointName = BuiltinCgroupLoopholeName + ServiceEndpointExt
+
+// hostServicesDirPrefix names the per-jail host-side directory. The 8-hex suffix
+// is JailShortHash(cname).
+const hostServicesDirPrefix = "yolo-host-services-"
+
+// JailShortHash is the 8-hex key derived from a container name. It identifies a
+// jail's host-services directory AND its broker-relay pid/lock/socket files, and
+// the reap path matches a pid file back to a live container name through it — so
+// every producer and consumer must compute it identically. It lived in three
+// packages before this, copied by hand.
+func JailShortHash(cname string) string {
+	sum := sha1.Sum([]byte(cname))
+	return hex.EncodeToString(sum[:])[:8]
+}
+
+// HostServicesDirName returns the per-jail directory's BASE NAME for a hash that
+// is already known — the reap path's shape, which sweeps by hash without ever
+// holding a container name.
+func HostServicesDirName(shortHash string) string { return hostServicesDirPrefix + shortHash }
+
+// HostServicesDir returns the per-jail host-side directory holding this jail's
+// published endpoint files: /tmp/yolo-host-services-<8hex>.
+//
+// THE DIRECTORY IS SECRET-BEARING (see JailHostServicesDir, its in-jail mount
+// point) and it sits at a fully deterministic path under a world-writable /tmp,
+// which is why it is created 0700 and why svcendpoint refuses to publish into one
+// that is not.
+//
+// isMacOS is a parameter rather than the package's own IsMacOS so callers that
+// inject the platform (the run pipeline's golden fixtures do) get the same answer
+// they assert. On macOS /tmp is a symlink to /private/tmp and the resolved form is
+// used, so a path here matches what the kernel reports.
+func HostServicesDir(cname string, isMacOS bool) string {
+	base := "/tmp"
+	if isMacOS {
+		if r, err := filepath.EvalSymlinks(base); err == nil {
+			base = r
+		}
+	}
+	return filepath.Join(base, HostServicesDirName(JailShortHash(cname)))
+}
 
 // Home-relative storage layout. Python computes these from Path.home() at
 // import time; Go exposes the fixed suffixes plus helpers that join with the

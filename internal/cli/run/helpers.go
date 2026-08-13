@@ -1,8 +1,6 @@
 package run
 
 import (
-	"crypto/sha1"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,23 +13,19 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// sha1Hex8 returns the first 8 hex chars of sha1(s) — the per-jail hash keying
-// the sockets dir + relay pid/lock files.
-func sha1Hex8(s string) string {
-	sum := sha1.Sum([]byte(s))
-	return hex.EncodeToString(sum[:])[:8]
-}
+// sha1Hex8 returns the per-jail 8-hex key for a container name — the hash that
+// names the host-services dir and the relay's pid/lock/socket files.
+//
+// It delegates to paths rather than recomputing: this repo carried three
+// hand-copied implementations of it (here, internal/cli/check, internal/prune) and
+// the reap path matches a pid file back to a live container THROUGH this value, so
+// a divergence would silently either orphan every relay or reap a live one.
+func sha1Hex8(s string) string { return paths.JailShortHash(s) }
 
-// hostServiceSocketsDir returns /tmp/yolo-host-services-<8hex>
-// keyed by sha1(cname)[:8]. macOS resolves /tmp → /private/tmp.
+// hostServiceSocketsDir returns this jail's host-side endpoint-file directory,
+// /tmp/yolo-host-services-<8hex>. See paths.HostServicesDir.
 func hostServiceSocketsDir(cname string, isMacOS bool) string {
-	base := "/tmp"
-	if isMacOS {
-		if r, err := filepath.EvalSymlinks(base); err == nil {
-			base = r
-		}
-	}
-	return filepath.Join(base, "yolo-host-services-"+sha1Hex8(cname))
+	return paths.HostServicesDir(cname, isMacOS)
 }
 
 // mkdirHostServicesDir creates the per-jail host-services dir 0700, tightening it
