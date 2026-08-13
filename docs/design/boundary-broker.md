@@ -511,11 +511,18 @@ separation is deliberate and CI-enforced (`scripts/check-architecture.sh`). `aut
 is the opposite — SQLite is welded in at `authorization/grants/sqlite.go` with no storage interface,
 so the *grant store* is not separable even though the *grant model* is.
 
-**d. There are no Go-importable versions.** The 66 tags are per-component
-(`gh-broker/v0.6.0`, `unyolo/v0.8.0`); Go's module resolution ignores them. The only real module
-tags are the bare `v0.1.0`/`v0.2.0`, stale since before the project's rename. **A module dependency
-would mean pinning a pseudo-version off `main`** — against a project whose stated policy is that
-there is none.
+**d. Versioning is thin, but it IS importable — corrected 2026-08-12.** An earlier draft of this
+section said there are "no Go-importable versions". That is wrong, and re-checked against the
+GitHub API: the repo has **exactly one `go.mod`, at the root**, with module path
+`github.com/osolmaz/unyolo` — so the bare root tags `v0.1.0` / `v0.2.0` are precisely the
+go-gettable form, and `go get github.com/osolmaz/unyolo@v0.2.0` resolves. The per-component tags
+(`gh-broker/v0.6.0`, `unyolo/v0.8.0`) are release-tooling artifacts for a layout that does not
+exist in Go terms, not a barrier.
+
+What survives is weaker and still real: **the importable tags are `v0.x` and lag the component
+tags badly**, against a project whose written policy is *"no legacy routes, no old-state readers,
+fresh-state coordinated cutover"*. So a pin is possible but buys little stability — the tagged
+surface is not where the work is.
 
 **e. License is MIT and clean — with one bundling caveat.** MIT at the root and in each of
 `brokers/{github,huggingface,sudo}/`. But `brokers/github/internal/upstream/snapshots/` carries
@@ -548,7 +555,7 @@ for downstream consumers.
 - **Bus factor 1.** 414 of 440 commits are the maintainer's (94%). The only other author
   contributed 26 commits over four days in early July and has not committed since; the identity
   reads as an agent, not a second maintainer. **Zero external PRs; exactly one external issue ever.**
-- **11 weeks old**, with a project rename mid-flight, and 20 stars.
+- **5 weeks old** (created 2026-07-08; an earlier draft said 11 — recomputed from the API), with a project rename mid-flight, and 20 stars.
 - **An explicit, repeatedly-stated policy of zero backward compatibility.** From its `AGENTS.md`:
   *"Do not add legacy routes, old-state readers, aliases, converters, dual reads, or dual writes.
   This repository uses a fresh-state coordinated cutover."* Breaking changes land as **in-place v1
@@ -595,7 +602,7 @@ wholesale, not ignore.** The four decisive facts, in order of weight:
    webhook secret, and explicitly rejects inline PATs outside development. For a
    single-developer tool that is a large step change in setup cost — and yolo does not need it,
    because a PAT plus a policy engine gives the same per-operation control.
-3. **Maturity** (§10.4): bus factor 1, 11 weeks old, no Go-importable versions, and a written
+3. **Maturity** (§10.4): bus factor 1, 5 weeks old, importable tags that lag the real work, and a written
    promise to break formats in place.
 4. **Build shape** (§10.3b/e): 73 modules vs yolo's 3, no nix packaging, 19 MB of CC BY 4.0
    snapshots if `brokers/github` is bundled.
