@@ -229,11 +229,39 @@ fresh Teams user's creds file is empty *before* their first `/login`, so the bro
 and that first session's refreshes would run unserialized. That is precisely the race it exists to
 prevent.
 
-**Recommendation: 0 now, 2 when the manual step annoys.** (0) costs nothing and is honest about the
-current posture; (2) is the natural upgrade, reuses the knob rather than adding a gate, and keeps
-the declaration on the pack that knows the fact — the same principle that settled A1–A2. (3) is
-right if a second case ever appears; (1) couples the wrong things; (4) is the only one that leaves
-macOS worse.
+**DECIDED 2026-08-13: option 3, capability supersession** — and the reasoning generalizes past this
+row. Full design: [`pack-capabilities.md`](../design/pack-capabilities.md). The principle it is the
+worked example for: [`extension-point-principle.md`](../design/extension-point-principle.md).
+
+**Why 3 over 0/2, against my own recommendation.** I argued "wait for a second consumer" — the same
+discipline that (correctly) kept the loophole transport ungeneralized. The review's counter is that
+the rule does not apply here: **a loophole manifest is a surface other people build on, so we do not
+own the callers.** The first outside author who wants this either cannot, or invents a workaround we
+then support forever. Waiting is right when *we* pay for being wrong; designing now is right when a
+stranger does.
+
+**And it changes what gets built, not just when.** Option 2's `enabled: false`, and any
+name-based form, says *"turn that thing off"* — where the true statement is *"that job does not need
+doing"*. Only the second survives the loophole being renamed or reimplemented, and only the second
+lets an alternative implementation participate. So the general design is not the expensive version
+of the specific one; **it is the correct one, and the specific one was a latent bug.**
+
+The shape, in one line each:
+
+```jsonc
+// loophole manifest — a statement about ITSELF, so it is free
+"serves": ["claude-oauth-refresh"]
+
+// the claude-bedrock pack — a claim about SOMETHING ELSE, so it costs a reason
+"supersedes": [{ "capability": "claude-oauth-refresh",
+                 "because": "Bedrock overrides the OAuth path; no token is ever refreshed" }]
+```
+
+`Active()` gains a third gate beside `Enabled` and `RequirementsMet()`. A loophole with no `serves`
+is unchanged — **silence never means "supersede me"**, so no existing manifest, first- or
+third-party, changes behavior. Options 0 and 2 remain available and unaffected: `enabled: false`
+still works, and is still the right answer for "I do not want this loophole" as opposed to "this
+job is handled".
 
 ### The generic question that survives, and it is not an auth question
 
@@ -434,7 +462,7 @@ is worth doing regardless — the destinations and layers are already computed, 
 | | # | Item | Kind | Blocked on |
 |---|---|---|---|---|
 | 🔄 | **T1** | **Build the unified `loopback-tls` transport, replacing PR #32** — **IN PROGRESS 2026-08-13** via an orchestrated build (survey → spec → four sequential stages → adversarial verification → completeness critique). This row and **D4** will be rewritten by that work; treat what follows as the brief, not the status. ([loophole-transport.md](../design/loophole-transport.md) §7.3, decided 2026-08-13) — #32 is CLOSED, not merged, so this covers **building** the transport as well as migrating both consumers. Its design is the spec and its test suite the acceptance bar (§7.3 lists what must carry over, incl. one relay per jail, which §7.2's token answer depends on). Port `host-processes` first (**D4**, broken on macOS today, harmless failure), then the broker relay, then drop `unix-socket` from `validTransports`. Also: the macOS-`guest` cross-uid grant, and correcting [loophole-protocol.md](../design/loophole-protocol.md) §Security posture. ⚠ **macOS + podman cannot run a jail until this ships** — a deliberate cost | feature | nothing |
-| 🟢 | **A6** | **Make the Bedrock path disable the auth broker** — five options costed in Thread A → A6. Matters beyond waste: under Bedrock the in-jail terminator still binds `:443` and sets up TLS interception, and **that is the stack #31 breaks on macOS**, so disabling it removes a known-broken failure surface. `Active() = Enabled && RequirementsMet()` already gives two gates, and the `enabled: false` config knob ships today | small | nothing — **option 0 needs no code at all** |
+| 🟢 | **A6** | **Capability supersession, so the Bedrock pack retires the broker** — designed in [pack-capabilities.md](../design/pack-capabilities.md); the principle behind designing it now rather than hardcoding a name is [extension-point-principle.md](../design/extension-point-principle.md). Five options were costed in Thread A → A6 and (3) won. Matters beyond waste: under Bedrock the in-jail terminator still binds `:443` and sets up TLS interception, and **that is the stack #31 breaks on macOS**, so disabling it removes a known-broken failure surface. `Active() = Enabled && RequirementsMet()` already gives two gates, and the `enabled: false` config knob ships today | small | nothing — **option 0 needs no code at all** |
 | 🟢 | **B1** | Audit-only log of every jail↔host boundary crossing ([boundary-broker.md](../design/boundary-broker.md) step 1) | small, additive | nothing |
 | 🟡 | **B1b** | **Credential-injecting proxy for git** — host injects after egress, jail holds nothing, no human. **Settled 2026-08-12: a BUILD, not an adoption.** unYOLO's `gh-broker` was read at source ([§10](../design/boundary-broker.md)) and the earlier "possibly an adoption" note is retired — it is Go not Python, but yolo **already ships this transport** (`claude-oauth-broker` *is* a credential-injecting TLS-interception proxy), and gh-broker wants a GitHub App, has bus factor 1 at 11 weeks old, and carries 73 modules against yolo's 3. Smaller build than the row implied. **Carries one decision — OQ-B1b** | new capability | **your call** (OQ-B1b) |
 | 🟡 | **B2** | Approval-gated host credentials — one allowlisted verb, synchronous. Design validated by convergence with unYOLO. **Re-scoped 2026-08-12 from source** ([§10.6](../design/boundary-broker.md)): take the four-effect policy evaluation, code-owned `Grantable`, the operation registry, and two-bound **narrowing-only** grants; **defer** content-addressed plans, `expected_revision`, and decision tokens — each has a named trigger, and none has fired | new capability | N3/OQ-1 |
