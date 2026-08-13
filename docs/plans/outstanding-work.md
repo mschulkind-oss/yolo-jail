@@ -24,6 +24,7 @@ than new work.
 | 🟡 | **waiting on you** — a decision or open question blocks it. Every one is listed in [Every decision waiting on you](#every-decision-waiting-on-you). |
 | ⛔ | **blocked** — on something that is *not* a decision (a Mac, an upstream merge). |
 | 🔄 | **in progress** |
+| 🚢 | **shipped, verification blocked** — the code landed and is green here; what is left is confirming it on hardware we do not have. Distinct from ⛔ (nothing built yet) and from 🔄 (someone is working it). Added 2026-08-13 because T1/D4 shipped a macOS fix from a Linux-only build, and calling that "blocked" would tell a reader to go build something that already exists. |
 | ⏸️ | **held** — deliberately not being built. |
 | 🐛 | *(flag, not a status)* a live defect rather than new work. |
 
@@ -48,7 +49,7 @@ All on [mschulkind-oss/yolo-jail](https://github.com/mschulkind-oss/yolo-jail); 
 every premise re-verified against local code rather than taken from a PR body.
 
 **Nothing is left here.** #37 and #34 merged, #35 auto-closed, #33 closed as fixed, #32 closed
-unmerged and superseded by T1. Kept only for the #31 row, which T1 closes when it ships. What
+unmerged and superseded by T1. Kept only for the #31 row, which T1 fixes — pending a Mac. What
 shipped is in [`shipped-2026-08-12.md`](shipped-2026-08-12.md).
 
 | | PR | Title | Author | Size | CI | Verdict |
@@ -58,7 +59,7 @@ shipped is in [`shipped-2026-08-12.md`](shipped-2026-08-12.md).
 | | Issue | Title | Author | State |
 |---|---|---|---|---|
 | ✅ | [#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) | **`ca.key` is mounted into every jail** | Dong Liu | **CLOSED 2026-08-13** with a comment covering the fix, the `ca.crt` correction and the severity downgrade |
-| ⛔ | [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) | Broker relay socket unreachable on macOS+podman | Dong Liu | **now fixed by T1, not #32.** Stays open until the unified transport ships — macOS+podman cannot run a jail meanwhile, a deliberate cost |
+| 🚢 | [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) | Broker relay socket unreachable on macOS+podman | Dong Liu | **fixed by T1, not #32 — but unverified on a Mac.** The unified transport shipped 2026-08-13 and the relay's jail-facing hop is no longer a Unix socket. Nobody has run it on macOS + podman, so leave it open until someone does; closing it on Linux evidence would be a claim we cannot support |
 
 ## ✅ C-3. #32 — **closed unmerged 2026-08-13**, superseded by T1
 
@@ -70,9 +71,10 @@ shipped is in [`shipped-2026-08-12.md`](shipped-2026-08-12.md).
 
 **What the decision costs, so it is not later read as an oversight:**
 
-1. **macOS + podman cannot run a jail until T1 ships.** Every `platform.claude.com` request 502s and
-   Claude Code will not start ([#31](https://github.com/mschulkind-oss/yolo-jail/issues/31)). That
-   window is now a deliberate choice.
+1. **macOS + podman could not run a jail until T1 shipped.** Every `platform.claude.com` request
+   502s and Claude Code will not start ([#31](https://github.com/mschulkind-oss/yolo-jail/issues/31)).
+   That window was a deliberate choice, and it **closed 2026-08-13** when the transport landed —
+   pending a Mac to confirm it, which nobody has run.
 2. **The transport is no longer free.** The earlier plan treated `loopback-tls` as already built —
    #32 *was* the implementation. T1 now covers **building** it as well as migrating both consumers.
 3. **1064 tested lines are re-derived, not relocated.** Its test suite is the acceptance bar.
@@ -384,7 +386,10 @@ From `ROADMAP.md` §4c, none fixed:
   the container bind mount, neither of which runs there. **This blocks Thread A's Teams pack on
   macOS** — the subscription mode cannot work until it is fixed.
 - **The OAuth broker is unwired**, by a decision that addressed sharing but not serialization.
-  `BrokerSocketGrantCommands` exists with zero call sites.
+  The cross-uid grant `EndpointGrantCommands` exists with zero call sites. (It replaced
+  `BrokerSocketGrantCommands` under T1: there is no jail-facing socket to grant any more, and the
+  old helper's `chgrp`+`chmod 0750` of the socket's *parent* would now widen a directory holding
+  every service's credential for that jail.)
 - **Bedrock creds do not reach a macos-user jail** — the delivery path rides `/ctx/host-claude`,
   which does not exist there. **Also blocks Thread A**, on the other mode.
 - **`env_sources` secrets are on the process argv** (`env -i K=V…`), visible in `ps` to every user
@@ -461,13 +466,14 @@ is worth doing regardless — the destinations and layers are already computed, 
 
 | | # | Item | Kind | Blocked on |
 |---|---|---|---|---|
-| 🔄 | **T1** | **Build the unified `loopback-tls` transport, replacing PR #32** — **IN PROGRESS 2026-08-13** via an orchestrated build (survey → spec → four sequential stages → adversarial verification → completeness critique). This row and **D4** will be rewritten by that work; treat what follows as the brief, not the status. ([loophole-transport.md](../design/loophole-transport.md) §7.3, decided 2026-08-13) — #32 is CLOSED, not merged, so this covers **building** the transport as well as migrating both consumers. Its design is the spec and its test suite the acceptance bar (§7.3 lists what must carry over, incl. one relay per jail, which §7.2's token answer depends on). Port `host-processes` first (**D4**, broken on macOS today, harmless failure), then the broker relay, then drop `unix-socket` from `validTransports`. Also: the macOS-`guest` cross-uid grant, and correcting [loophole-protocol.md](../design/loophole-protocol.md) §Security posture. ⚠ **macOS + podman cannot run a jail until this ships** — a deliberate cost | feature | nothing |
+| 🚢 | **T1** | **The unified `loopback-tls` transport — BUILT AND MIGRATED 2026-08-13**, replacing PR #32, which was closed unmerged. `internal/svcendpoint` is the transport (both halves in one stdlib-only leaf package): kernel-assigned `127.0.0.1:0`, an in-memory certificate whose private key is never marshalled, a per-(jail, service) token, all three published atomically `0600` into the per-jail dir and **re-read fresh on every dial**. Migrated: `host-processes` (row **D4**), then the broker relay's jail-facing hop — hops A/C/D and the singleton daemon are untouched. `unix-socket` and `tls-intercept` are REMOVED from `validTransports`, and the macOS-`guest` cross-uid grant is built (`macosuser.EndpointGrantCommands`, replacing the never-called `BrokerSocketGrantCommands`). [loophole-protocol.md](../design/loophole-protocol.md) §Security posture is rewritten: the boundary is *"whatever runs as your user"* and the token is what enforces that on a port. Full as-built record, including three claims the design doc got wrong about the code, in [loophole-transport.md](../design/loophole-transport.md) §8. ⚠ **What is NOT verified: macOS + podman, Apple Container and `macos-user` were never executed** — the whole build ran on Linux. So the headline claim, that this fixes [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31) and D4, is unverified on the platform it is about. Verified in nested jails: endpoint mode/shape through the `:rw` bind, `yolo-ps` over pinned TLS, the terminator reaching the real broker with its host-side `jail_id` stamp intact, all four failure layers distinguishable, rotation with no restart. **Remainder is row T2, not this one.** | feature | a Mac, for confirmation only |
+| 🟢 | **T2** | **Finish the transport retirement: port the last two AF_UNIX clients.** T1 left `cgroup-delegate` and `journal` publishing plain sockets, because their in-jail clients are **generated Python** baked into the image (`yolo-cglimit` hardcodes `CGD_SOCKET`; `yolo-journalctl` reads `YOLO_SERVICE_JOURNAL_SOCKET`) and neither even speaks `frameproto` — one is newline-JSON, one uses stream IDs 1/2/3. [loophole-transport.md](../design/loophole-transport.md) §7.4 said the migration was "bounded at two consumers"; **it was four.** Port both to `cmd/` Go binaries at parity on the existing transport first (green, committable), then flip each to `svcendpoint.Dial` in a one-line follow-up. **Not** a second TLS+token implementation in generated Python — that is precisely the "two security models that drift apart" the unification exists to prevent. Watch `flake.nix`'s `installPrefix` (a new `cmd/` binary not installed there vanishes from the image) and `git add -N` before any nix-visible check. **Then** a `loopholes:` config entry can move too: today it still gets a socket, because `internal/hostservice` is `internal/` and nothing yolo ships lets a third-party daemon publish an endpoint file — flipping it would kill those daemons rather than migrate them. That is the last place the retired value survives. | cleanup — closes out T1 | nothing |
 | 🟢 | **A6** | **Capability supersession, so the Bedrock pack retires the broker** — designed in [pack-capabilities.md](../design/pack-capabilities.md); the principle behind designing it now rather than hardcoding a name is [extension-point-principle.md](../design/extension-point-principle.md). Five options were costed in Thread A → A6 and (3) won. Matters beyond waste: under Bedrock the in-jail terminator still binds `:443` and sets up TLS interception, and **that is the stack #31 breaks on macOS**, so disabling it removes a known-broken failure surface. `Active() = Enabled && RequirementsMet()` already gives two gates, and the `enabled: false` config knob ships today | small | nothing — **option 0 needs no code at all** |
 | 🟢 | **B1** | Audit-only log of every jail↔host boundary crossing ([boundary-broker.md](../design/boundary-broker.md) step 1) | small, additive | nothing |
 | 🟡 | **B1b** | **Credential-injecting proxy for git** — host injects after egress, jail holds nothing, no human. **Settled 2026-08-12: a BUILD, not an adoption.** unYOLO's `gh-broker` was read at source ([§10](../design/boundary-broker.md)) and the earlier "possibly an adoption" note is retired — it is Go not Python, but yolo **already ships this transport** (`claude-oauth-broker` *is* a credential-injecting TLS-interception proxy), and gh-broker wants a GitHub App, has bus factor 1 at 11 weeks old, and carries 73 modules against yolo's 3. Smaller build than the row implied. **Carries one decision — OQ-B1b** | new capability | **your call** (OQ-B1b) |
 | 🟡 | **B2** | Approval-gated host credentials — one allowlisted verb, synchronous. Design validated by convergence with unYOLO. **Re-scoped 2026-08-12 from source** ([§10.6](../design/boundary-broker.md)): take the four-effect policy evaluation, code-owned `Grantable`, the operation registry, and two-bound **narrowing-only** grants; **defer** content-addressed plans, `expected_revision`, and decision tokens — each has a named trigger, and none has fired | new capability | N3/OQ-1 |
 | 🟡🐛 | **D1** | **Config-approval snapshot is agent-writable** — `.yolo/config-snapshot.json` is mode `664` and writable in-jail (re-measured 2026-08-12). An agent that edits `yolo-jail.jsonc` **and** matches the snapshot makes the launch-time diff prompt vanish — the exact bypass [config-safety.md](../design/config-safety.md) exists to prevent, and it is undiscussed there. From `ROADMAP.md` §4d; never queued until now. **Has an open question — see OQ-D1** | security | **your call** (OQ-D1) |
-| 🟢🐛 | **D4** | **`host-processes` is silently broken on macOS + podman** — found 2026-08-12 while writing [loophole-transport.md](../design/loophole-transport.md) §2.1. Its manifest declares `"transport": "unix-socket"`, the *same* transport whose virtiofs failure is [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31); `yolo-ps` fails identically. Unreported because a broken `yolo-ps` is quiet where a broken broker blocks startup. Means the loophole is Linux-only in practice while advertised as available. **Porting it is also the natural proof for the transport generalization** (§6 step 3) | bug + the generalization's test case | nothing |
+| 🚢🐛 | **D4** | **`host-processes` was silently broken on macOS + podman — FIXED 2026-08-13, unverified there.** Found 2026-08-12 while writing [loophole-transport.md](../design/loophole-transport.md) §2.1: its manifest declared `"transport": "unix-socket"`, the *same* transport whose virtiofs failure is [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31), so `yolo-ps` failed identically. Unreported because a broken `yolo-ps` is quiet where a broken broker blocks startup. It is now `loopback-tls` and was the first port under T1 — chosen first precisely because its failure is harmless, which made it the proof that the FRAMEWORK owns the transport rather than `brokerrelay`. Its `hostservice` conformance tests pass **with their assertions unchanged**, which is the mechanical evidence that a daemon never learns its transport. **What is left is confirmation, not work:** nobody has run `yolo-ps` on a Mac. Linux nested-jail evidence only. | bug — fixed, awaiting a Mac | a Mac, for confirmation only |
 
 ---
 
