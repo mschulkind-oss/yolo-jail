@@ -34,6 +34,54 @@ type loopholeDaemon struct {
 	stop       func()
 }
 
+// resolveNetMode returns the container network mode this launch will use, resolved
+// the same way the assembler resolves it (config `network.mode` overrides the flag).
+func (o *Options) resolveNetMode(cfg *jsonx.OrderedMap) string {
+	netMode := o.Network
+	if netSec := cfgMap(cfg, "network"); netSec != nil {
+		if m := mapStr(netSec, "mode"); m != "" {
+			netMode = m
+		}
+	}
+	return netMode
+}
+
+// advertiseHostFor returns the host name a loopback-TLS daemon should PUBLISH for
+// this jail to dial, which is not always the container runtime's gateway.
+//
+// A loopback-TLS daemon binds the LAUNCHER's 127.0.0.1, so the answer depends
+// entirely on whether the jail will share the launcher's network namespace:
+//
+//   - SHARED namespace — `--net=host`, forced for podman-in-podman (doubly-nested
+//     netns can't be created without NET_ADMIN) and selectable as
+//     `network.mode: "host"`. The jail's 127.0.0.1 IS the listener's, so 127.0.0.1
+//     is not merely correct, it is the ONLY thing that works. The gateway name
+//     resolves to the launcher's own upstream host, where nothing is listening —
+//     measured in a nested jail: "connect: connection refused" at the gateway
+//     address while the daemon was healthy on the shared loopback.
+//   - SEPARATE namespace — the normal bridge case. The gateway name is what a jail
+//     resolves to reach the machine its launcher runs on, and rootless podman's
+//     network helper forwards that address to the host's loopback.
+//
+// Empty means "leave it to svcendpoint's default", which is the gateway name.
+func (o *Options) advertiseHostFor(rt string, cfg *jsonx.OrderedMap) string {
+	if rt == "container" {
+		return ""
+	}
+	if o.resolveNetMode(cfg) == "host" || (rt == "podman" && o.inContainer()) {
+		return "127.0.0.1"
+	}
+	return ""
+}
+
+// inContainer reports whether THIS process is already inside a container — the same
+// probe the assembler uses to decide `--net=host`. The two must agree: if the
+// assembler shares the namespace and this says otherwise, every loopback-TLS daemon
+// publishes an address the jail cannot reach.
+func (o *Options) inContainer() bool {
+	return !o.IsMacOS && (o.PathExists("/run/.containerenv") || o.PathExists("/.dockerenv"))
+}
+
 // startLoopholes starts all host services for this jail and returns handles.
 // Apple Container gets none (no socket bind-mount there).
 // Otherwise: the builtin cgroup delegate (Linux + cgroup v2 only), the journal
@@ -48,6 +96,7 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	}
 
 	out := o.pr(o.Stdout)
+	advertise := o.advertiseHostFor(rt, cfg)
 	var handles []loopholeDaemon
 
 	// 1. Built-in cgroup delegate (Linux only, cgroup v2 only).
@@ -109,7 +158,7 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 			o.brokerEnsure()
 			continue
 		}
-		if h, ok := o.startExternalService(name, external[name], socketsDir, transportOf[name]); ok {
+		if h, ok := o.startExternalService(name, external[name], socketsDir, transportOf[name], advertise); ok {
 			handles = append(handles, h)
 		} else {
 			_ = out
@@ -247,7 +296,7 @@ func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap) (loopho
 	// Still unix-socket: the in-image yolo-journalctl client is generated Python
 	// speaking AF_UNIX and is ported in its own change.
 	return o.startExternalService(paths.BuiltinJournalLoopholeName, spec, socketsDir,
-		loopholes.TransportUnixSocket)
+		loopholes.TransportUnixSocket, "")
 }
 
 // startExternalService is the common host-service path: substitute the host-side
@@ -266,7 +315,7 @@ func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap) (loopho
 // loophole gets, and is the conservative direction: the fallback keeps the path
 // that works today rather than assuming a publication that never happens.
 func (o *Options) startExternalService(
-	name string, spec *jsonx.OrderedMap, socketsDir, transport string,
+	name string, spec *jsonx.OrderedMap, socketsDir, transport, advertiseHost string,
 ) (loopholeDaemon, bool) {
 	if spec == nil {
 		return loopholeDaemon{}, false
@@ -316,6 +365,17 @@ func (o *Options) startExternalService(
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	// env overrides.
 	env := os.Environ()
+	envSet := false
+	// The advertise host reaches the daemon as an env var on THIS HOST-SIDE CHILD —
+	// never inside a jail, so it carries none of the inheritance objection that keeps
+	// the token out of the environment. One variable rather than a per-daemon flag:
+	// a flag would have to be added to every daemon's flag set (three today, every
+	// future one) and would make the framework's contract with a daemon two
+	// placeholders instead of one.
+	if loopbackTLS && advertiseHost != "" {
+		env = append(env, svcendpoint.AdvertiseHostEnv+"="+advertiseHost)
+		envSet = true
+	}
 	if e := cfgMap(spec, "env"); e != nil {
 		for _, k := range e.Keys() {
 			if v, ok := mapGet(e, k).(string); ok {
@@ -325,6 +385,9 @@ func (o *Options) startExternalService(
 				env = append(env, k+"="+v)
 			}
 		}
+		envSet = true
+	}
+	if envSet {
 		cmd.Env = env
 	}
 	if err := cmd.Start(); err != nil {

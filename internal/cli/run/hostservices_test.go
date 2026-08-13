@@ -119,7 +119,7 @@ func startExternalServiceHarness(t *testing.T, socketsDir, script, transport str
 	o := &Options{}
 	fillDefaults(o)
 	o.Stdout = io.Discard
-	return o.startExternalService("fake-svc", spec, socketsDir, transport)
+	return o.startExternalService("fake-svc", spec, socketsDir, transport, "127.0.0.1")
 }
 
 // TestExternalServiceWaitsForCompleteEndpoint: a daemon that publishes an INCOMPLETE
@@ -272,5 +272,50 @@ func TestNoTokenInLaunchArgv(t *testing.T) {
 	}
 	if !sawHostServices {
 		t.Fatal("the assembled argv mentions no host services at all; the assertion above proved nothing")
+	}
+}
+
+// TestAdvertiseHostFollowsTheNetworkNamespace: what a loopback-TLS daemon publishes
+// must match whether the jail will SHARE the launcher's network namespace.
+//
+// This is not cosmetic. A daemon binds the launcher's 127.0.0.1. When the jail shares
+// that namespace — `--net=host`, forced for podman-in-podman and selectable as
+// network.mode: "host" — the gateway name resolves to the launcher's own upstream
+// host, where nothing is listening, and every dial is refused. Measured that way in a
+// nested jail before this existed. The two decisions live in different files
+// (assemble.go writes the flag, this picks the address) so they must be pinned
+// together.
+func TestAdvertiseHostFollowsTheNetworkNamespace(t *testing.T) {
+	bridge := jsonx.NewOrderedMap()
+	hostNet := jsonx.NewOrderedMap()
+	netSec := jsonx.NewOrderedMap()
+	netSec.Set("mode", "host")
+	hostNet.Set("network", netSec)
+
+	cases := []struct {
+		name        string
+		rt          string
+		cfg         *jsonx.OrderedMap
+		inContainer bool
+		want        string
+	}{
+		// Bridge on a real host: the gateway name is right, so leave the default.
+		{"podman bridge on a host", "podman", bridge, false, ""},
+		// Nested: the assembler forces --net=host, so the jail's loopback IS ours.
+		{"podman nested (net=host forced)", "podman", bridge, true, "127.0.0.1"},
+		// Explicit host networking: same shared namespace, same answer.
+		{"network.mode host", "podman", hostNet, false, "127.0.0.1"},
+		// Apple Container gets no host services at all.
+		{"apple container", "container", bridge, false, ""},
+	}
+	for _, tc := range cases {
+		o := &Options{}
+		fillDefaults(o)
+		o.IsMacOS = false
+		o.Network = "bridge"
+		o.PathExists = func(string) bool { return tc.inContainer }
+		if got := o.advertiseHostFor(tc.rt, tc.cfg); got != tc.want {
+			t.Errorf("%s: advertiseHostFor = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
