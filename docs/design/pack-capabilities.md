@@ -47,6 +47,57 @@ another component is not.** Saying "this is my job" needs no justification. Sayi
 not need doing" is an assertion about code you did not write, and the person who later finds their
 loophole silently absent deserves a sentence explaining why.
 
+### 2.1 Supersede is NOT provide — and the difference is which way the demand goes
+
+Raised in review: *"if it would replace the whole thing, this would then be a `provides`
+mechanism… fine line between provides and serves."* It is a real fork, and getting it wrong is the
+most dangerous mistake this design allows, so it gets its own rule.
+
+**The test — after this pack is selected, does the job still need doing?**
+
+| Answer | Verb | What happened |
+|---|---|---|
+| **No.** The demand is gone. | `supersedes` | Under Bedrock **no OAuth token is ever refreshed**, so serializing refreshes is not a job being done differently — it is a job that no longer exists. |
+| **Yes, and I do it now.** | *provision* — **NOT expressible today** | The demand persists; only the supplier changed. |
+
+**Superseding when you meant providing silently stops the job being done, with nothing taking
+over.** That is the failure this section exists to prevent, and it is quiet: the loophole goes
+inactive, `loopholes list` correctly reports why, and the work simply never happens. Nothing in the
+system can detect it, because "I will do it instead" is exactly the claim `supersedes` does not
+make.
+
+So: **`supersedes` is a claim that DEMAND vanished, not that SUPPLY moved.**
+
+### 2.2 Why a pack cannot `serve` — a hard line, not a policy
+
+The follow-on question in review — *"does any pack that `serves` something automatically have
+something else with it?"* — has a clean answer: **yes, and that is precisely why packs cannot
+serve.**
+
+Serving a capability means **carrying an implementation**. A loophole *is* one: a daemon, a
+transport, a lifecycle. A pack is a bundle of declarations across a **closed set of 14 contribution
+kinds** (`internal/packdecl/kinds.go`) — program, requires, skills, briefing, files, config,
+config-overlay, state, reads-host, mount, env, launch, hook, autonomy — **and none of them is "a
+daemon."** Loopholes come from `bundled_loopholes/` or a user loophole dir, never from a pack.
+
+So a pack has nothing to serve *with*. The asymmetry between the two verbs is not a restriction we
+imposed; it falls out of where implementations live:
+
+- **`serves`** — for things that ARE an implementation. Loopholes today.
+- **`supersedes`** — for things that can only make a claim. Packs today.
+
+That also sharpens §7: pack-to-pack provision is not merely undemanded, it is **unexpressible**,
+and making it expressible would mean letting a pack ship a daemon — a much larger change than a
+manifest field, and one with its own trust story (a pack that ships executable host-side code is
+not the same object as a pack that ships config).
+
+**Granularity, since the review raised "replacing PART":** supersession is always **per job**, never
+per component. A loophole serving two capabilities with one superseded stays active for the other
+(§4's `every` rule). Superseding *all* of them retires the loophole entirely — but that is an
+arithmetic consequence of retiring each job, not a separate "retire this loophole" power. There is
+deliberately no way to say "turn that component off" — `enabled: false` already exists for that, and
+it is honest about being a blunt instrument where this is a statement about work.
+
 ## 3. Why a capability and not the loophole's name
 
 `"supersedes": ["claude-oauth-broker"]` would work today and be wrong tomorrow:
@@ -144,7 +195,7 @@ supersession is *visible*, with a reason, so the collision is diagnosable in one
 
 | Not built | Why |
 |---|---|
-| **`serves` on a *pack*** (pack-to-pack provision) | This is the A1–A2 case, retired 2026-08-13 once the two auth "modes" turned out not to be peers. No demonstrated need. |
+| **`serves` on a *pack*** (pack-to-pack provision) | **Unexpressible, not merely undemanded** — §2.2. Serving means carrying an implementation, and none of the 14 contribution kinds is a daemon, so a pack has nothing to serve with. Enabling it would mean letting a pack ship host-side executable code, which is a different object with its own trust story. (It is also the A1–A2 case, retired 2026-08-13 once the two auth "modes" turned out not to be peers.) |
 | **`needs: [<capability>]`** | §6.4 — invents conflict resolution before the conflict exists. |
 | **A yolo-owned registry of capability names** | Core deliberately does not know what an agent is (`internal/packdecl`'s opening premise). A central registry would rebuild the agent registry the pack system exists to avoid. Capabilities are declared by whoever holds the fact. |
 
@@ -187,6 +238,9 @@ known-broken failure surface, not three idle processes.
 
 1. A loophole with no `serves` behaves exactly as today — byte-identical, including every
    third-party manifest. Pinned by a test.
+1b. **`serves` is refused on a PACK manifest** (§2.2) with a message naming the distinction, so an
+   author reaching for provision when they mean supersession is told which one they want rather
+   than getting an unknown-field error.
 2. `serves` + a matching `supersedes` from a selected pack ⇒ inactive, and `loopholes list` prints
    the pack, the capability and the `because`.
 3. `supersedes` naming an unserved capability ⇒ **load error** naming the string and listing what is
