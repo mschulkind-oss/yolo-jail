@@ -542,8 +542,8 @@ gap, one decision the S4 audit surfaced, and a tail of small items.
 | 🟢 | **E3** | Capture on terminate (the `yolo config capture` half shipped) | small | nothing |
 | 🟡 | **E4** | **`rmw` SHIPPED 2026-08-12; `computed` ruled out as vacuous; `stateful` is a different problem** — see below | one mode left, and it wants a decision | **your call** (OQ-E4) |
 | ⏸️ | **E5** | `managed`/`defaults` array-append pinning | small | **do not build speculatively** |
-| 🟢 | **V2** | `apply --host` is not whole-home idempotent until apply 3 | pre-existing, in `config` | nothing |
-| 🟢 | **V3** | Pack-set-wide archives land under `archive/skills/` even for `files` | cosmetic | nothing |
+| ✅ | **V2** | **SHIPPED 2026-08-12.** `apply --host` converges after ONE apply — a filled `defaults` key no longer relabels itself `host` on the second | was: pre-existing, in `config` | — |
+| ✅ | **V3** | **SHIPPED 2026-08-12.** One archive bucket per kind (`skills`/`files`/`briefing`, plus `retired`); legacy `archive/skills` copies stay put and stay reclaimable | was: cosmetic | — |
 
 ## 🟡🐛 S5 — the detail
 
