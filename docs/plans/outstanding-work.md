@@ -514,6 +514,7 @@ on an answer.** Where I have a recommendation it is stated; where I do not, it s
 | **OQ-T4** | Does `macos-user` make the transport problem moot? | same | no, not today |
 | **OQ-T5** | Is the endpoint file jail-writable, and does it matter? | same | state it explicitly either way |
 | **OQ-T6** | Per-file loophole mounts as a framework feature, or one-off for the broker? | same | narrow fix now, general form with §4 |
+| **OQ-T7** | Token delivery into the jail: env (today), the published endpoint file, or a separate mounted file? | same §3.2 | **not env** — it is inherited by every child and cannot rotate live |
 | **N3** | Non-container nix: Option 0 / 2 / 3 | B-2 above | Option 2, no longer urgent |
 | **OQ-1** | Is per-jail auth selection enough, or is dynamic switching required? | [`agent-auth-modes.md`](../design/agent-auth-modes.md) §10 | per-jail is probably enough |
 | **OQ-2** | Bedrock bundle: stays in `env_sources`, or becomes a declared bundle? | same | declared |

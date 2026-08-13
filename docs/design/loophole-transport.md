@@ -108,13 +108,30 @@ For the `tcp-publish` case the relay:
    never persisted, never mounted into a jail;
 3. **publishes the public cert plus `host:port`** to a file in the jail's mounted host-services
    dir;
-4. authenticates a **per-jail bearer token** (length-framed, constant-time compare) *inside* TLS;
+4. **verifies** a **pre-shared per-jail bearer token** carried in the connection's leading frame
+   (4-byte BE length + bytes, `subtle.ConstantTimeCompare`, dropped on mismatch);
 5. splices to the relay's own Unix socket, leaving the relay core (the `jail_id` stamp, the
    per-connection broker dial, the failure semantics) untouched.
 
 The terminator, for a `tcpfile:` address, re-reads the endpoint file **fresh on every dial** (so a
 restarted relay is picked up without relaunching the jail) and TLS-dials trusting **only** that
 cert, via a dedicated root pool.
+
+> **The token is never ISSUED over the connection — only verified.** An earlier draft said the
+> token is "sent inside TLS", which reads as *obtained by connecting*. It is not: connecting gets
+> you nothing. Verified in the diff:
+>
+> - the **run pipeline** generates the token and persists it host-side and user-private at
+>   `~/.local/share/yolo-jail/broker-relay-tokens/<hash>.token`;
+> - the **relay** receives it as `--token-file <path>` — a *path* on argv, deliberately, "so the
+>   secret isn't visible in process listings";
+> - the **terminator** (in-jail) reads it from the env var
+>   `YOLO_SERVICE_CLAUDE_OAUTH_BROKER_TOKEN` (`paths.BrokerTokenEnv`);
+> - the **published endpoint file carries no secret** — only `"<host:port> <base64 cert>"`, with an
+>   explicit comment in the PR that the cert is public and "the per-jail token guards access".
+>
+> So it is a **pre-shared secret injected into both ends out of band, before any connection
+> exists.** Guessing or scanning the port yields a TLS handshake and then a dropped connection.
 
 **Why each piece is load-bearing**, because a simpler version is tempting and wrong:
 
@@ -157,6 +174,50 @@ what the filesystem used to provide.
 | pinned host-only-key cert | a sibling **impersonating the relay** — and see §5: the broker CA cannot do this job |
 | **per-jail token** | a sibling **impersonating the jail** to its relay |
 | re-read on every dial | not security — a relay restart otherwise strands the jail |
+
+### 3.2 Where should the token be delivered — env, or the published file?
+
+Raised in review: *"we need to issue a token in the file we write inside the jail and verify
+that."* The premise it came from (that connecting yields a token) is not what #32 does — §3 —
+**but the underlying proposal is a real improvement, for reasons other than the one that prompted
+it.**
+
+**Security-wise the two channels are a wash.** Everything that can read one can read the other:
+
+| Reader | env var | file in the jail's mount |
+|---|---|---|
+| the jail's own agent (UID 0) | yes — `/proc/<pid>/environ` | yes |
+| a sibling jail | no — per-jail | no — per-jail mount |
+| a same-user host process | yes (host-side token file) | yes (host-side token file) |
+
+So neither choice changes the threat model in §3.1. The differences are operational, and two of
+them favour the file:
+
+1. **Env is inherited; a file is not.** `YOLO_SERVICE_CLAUDE_OAUTH_BROKER_TOKEN` propagates to
+   every child process the terminator spawns, and onward. A file is read at the moment of use by
+   the one process that needs it. That is a genuine reduction of exposure *inside* the jail, and it
+   is the same reasoning that already put the token on `--token-file` instead of argv host-side —
+   applied consistently to the other end.
+2. **Rotation works for free.** The endpoint file is already re-read **fresh on every dial**,
+   precisely so a restarted relay is picked up without relaunching the jail. A token delivered the
+   same way inherits that property. Delivered by env, a rotated token needs a terminator restart —
+   so today the address can rotate live and the credential cannot, which is an asymmetry with no
+   design reason behind it.
+3. **One connection, one lifetime, one place.** Address, cert, and credential are three parameters
+   of the same hop. Splitting them across two channels means they can desynchronise.
+
+**The argument against, which is the one #32 made deliberately:** the published file is currently
+*designed* to hold no secret, so its mode and mount posture do not matter. Putting a token in it
+makes it secret-bearing, and its permissions become load-bearing — a real cost, though a small and
+well-understood one.
+
+**A third option avoids both horns:** deliver the token in a *separate* host-only file
+bind-mounted read-only into the jail. That buys the no-inheritance and rotation properties without
+making the endpoint file secret-bearing — at the cost of one more mount.
+
+**My read: the reviewer is right that env is the weakest of the three**, and the choice is between
+their proposal and the separate-file variant. Recorded as **OQ-T7**; it does not block landing #32,
+because changing the delivery channel later is a local change at both ends.
 
 **On "can they guess the port or read the file?"** — the endpoint file is in *jail A's* mount, so a
 sibling cannot read it, and #32 notes this. But the port is a scannable ephemeral, so treat it as
@@ -361,6 +422,12 @@ macOS + podman. Nobody has reported it because `yolo-ps` failing is quiet, but i
   host-services dir. #32 notes a sibling cannot tamper with *another* jail's file (separate
   per-jail mounts), but a jail can presumably rewrite **its own** — which redirects only itself,
   and it already knows its own token. Worth stating explicitly rather than leaving to inference.
+- **OQ-T7. How is the pre-shared token delivered into the jail — env, the published endpoint file,
+  or a separate read-only mounted file?** §3.2. Env (today) is inherited by every child process and
+  cannot rotate without a terminator restart; both alternatives fix that. The endpoint file is the
+  smallest change but makes a deliberately-public file secret-bearing; a separate file avoids that
+  at the cost of one more mount. **No security difference** between the three — this is exposure
+  surface and operability. **Recommendation: not env.** Does not block #32.
 - **OQ-T6. Per-file mounts as a framework feature, or a one-off for the broker?** §5.1's fix is
   three files instead of a directory. The manifest already declares `ca_cert` by path, so the
   framework has half the vocabulary — a general `mounts_into_jail: [...]` (default: nothing, rather
