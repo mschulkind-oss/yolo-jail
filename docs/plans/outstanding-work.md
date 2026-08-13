@@ -461,12 +461,12 @@ Not built; host/Mac-gated rather than design-blocked. `render.KindGuest` exists 
 
 **Substantially done.** The ten-item batch plus S1–S3/C1–C3 shipped; the reform (14 kinds,
 `yolo pack footprint`, host render, config collaboration) is complete. What remains is one live
-gap, one audit, and a tail of small items.
+gap, one decision the S4 audit surfaced, and a tail of small items.
 
 | | # | Item | Kind | Blocked on |
 |---|---|---|---|---|
 | 🟡🐛 | **S5** | **A jail resolves a skill-name collision SILENTLY** — the notch S1 does not reach | live gap | nothing |
-| 🟢 | **S4** | **UNAUDITED:** can a pack's `into` deliver to an agent the user never selected? | audit | nothing |
+| 🟡 | **S4** | **AUDITED 2026-08-12 — the gate holds.** `into` does reach an unselected agent's dir, and that is the model, not a hole. What the probes DID find is a notch asymmetry in fan-out | audit done, one decision left | **your call** (OQ-S4) |
 | 🟡 | **E1+E2** | `host_files` modes 4→3, `readonly` as a real `:ro` mount | behavior change on a shipped key | a design pass (E2 first) |
 | 🟢 | **E3** | Capture on terminate (the `yolo config capture` half shipped) | small | nothing |
 | 🟢 | **E4** | Comment preservation on `json`/`toml` surfaces | small, decisions made | nothing |
@@ -491,25 +491,90 @@ refusal** (consistent with the host, and the one that can strand someone mid-tas
 is worth doing regardless — the destinations and layers are already computed, and
 `hostskills.Collisions` is a pure function of them.
 
-## 🟢 S4 — the detail
+## 🟡 S4 — the detail
 
-Two readings of the code point the same way; neither has been probed.
+**AUDITED 2026-08-12.** Both readings of the code were right about what it does. The conclusion
+drawn from them — that the selection gate has a hole — is **wrong**, and this section now says so
+in enough detail that nobody re-audits it. All three probes were run; probe 1 twice, the second
+time in a real nested jail.
 
-1. `run.packSkillTargets` emits a target per `skills` contribution using `Dest: c.Into`. Nothing
-   visible checks that the named agent is one the user selected.
-2. `agents.PrepareSkills` copies EVERY pack's `skills/` into EVERY staging dir — `packSkillDirs` is
-   a flat list with no per-destination filter. **S3 sharpened this:** that loop is now the last
-   layer, so it alone decides a staged dir's contents.
+**Probe 1 — `into` is honored against no agent set. TRUE.** `packs: ["claude", <content pack
+declaring `into: ".codex/skills"`>]`, nested jail, temp `HOME`:
 
-**Why it matters beyond tidiness.** `packs` is the user's selection gate, USER-SCOPE ONLY precisely
-so a repo-committed config cannot decide what enters the environment. If `into` can name any agent's
-directory regardless of selection, the gate is on *loading* while the effect is on *delivery* — the
-same shape as the mise-trust finding, where the enforcement point and the real boundary were
-different layers.
+```
+=== .codex ===
+/home/agent/.codex/skills:
+configuring-the-jail  diagnosing-the-jail  jail-startup  rogueskill
+```
 
-**Three probes, none run:** (1) select only `claude`, add a pack with `into: ".codex/skills"` —
-does the dir get created? (2) two packs, distinct skills, two destinations — does each reach both?
-(3) do jail and host disagree? **Probe 3 is partly answered by S5: yes, on collisions.**
+The directory is created, populated, and bind-mounted, with no `codex` pack selected.
+
+**Probe 2 — every pack's skills reach every destination. TRUE.** `packa` → `.alpha/skills` and
+`packb` → `.beta/skills`, one distinct skill each. Both destinations staged **both** skills.
+
+**Probe 3 — the notches disagree, and not only on collisions.** The same two-pack set through
+`apply --host --assert` into a temp home:
+
+```
+skills  <home>/.alpha/skills composed from: packa
+skills  <home>/.beta/skills  composed from: packb
+```
+
+One skill each. The jail delivers the full cross product; the host delivers only the declared
+pairing.
+
+### Why this is not a hole in the gate
+
+**`into` is a PATH, and core has no agent to check it against.** That is the pack model's opening
+premise (`internal/packdecl`'s package comment: *"the core deliberately does not know what an
+'agent' is"*). There is no registry, so "an agent the user never selected" is not a thing the code
+can express — and the `claude` pack reaches `.claude/skills` by exactly the same mechanism the
+content pack reaches `.codex/skills`: it declared the path.
+
+**The gate is on loading, and delivery IS a subset of it.** Every destination in the jail traces
+to a `skills` contribution on a pack in `packs`, and `packs` is user-scope only — so a
+repo-committed config still cannot add a destination, and neither can a fetched pack the user did
+not name. The mise-trust shape was an enforcement point that a lower layer could bypass; nothing
+bypasses anything here.
+
+**Selecting a pack is consent to its declared destinations**, and they are inspectable before the
+fact: `yolo pack footprint <dir>` prints the `skills` line with its `into`.
+
+### What the probes DID find
+
+**A pack's declaration understates where its content goes.** Probe 2 is the real result: `packa`
+never named `.beta/skills`, and its skill landed there. So the reviewable artifact — the manifest,
+and `yolo pack footprint` which reads it — is accurate about *destinations the pack creates* and
+silent about *destinations the pack reaches*. For a fetched pack scoped by its author to its own
+directory, "I installed it for tool X" is not what happens; its skills reach every selected
+agent's skills dir.
+
+**This is intended, and load-bearing.** `skills` is `CombineMerge` (pack-system.md §3) — a
+zero-ceremony pack is *"a bare `skills/` dir, no contribution"* and delivers only because the merge
+is global; the shipped packs *"carry no skills of their own (their contribution exists to NAME the
+destination other packs merge into)"*. Narrowing the merge naively deletes the zero-ceremony
+promise.
+
+**But the host already refuses to do it**, and says why —
+`packload.ResolveDestinations`' doc comment:
+
+> That is narrower than the jail, deliberately: in a jail the skills source list is GLOBAL (every
+> pack's skills reach every destination) […] Mirroring that here would mean an existing manifest
+> suddenly writes into home directories its author never named, which is not a fix anyone asked for.
+
+That reasoning is about a real `$HOME`. Whether it transfers to a container is the question this
+audit leaves behind — **see OQ-S4**. Note the mechanism the host uses (`ResolveDestinations`, which
+gives a *silent* pack borrowed destinations and leaves a *declaring* pack alone) is never called on
+the jail path; the jail has its own ad-hoc global merge instead. That is the same one-inference-in-
+two-places shape F1 closed for the host.
+
+**Cheap half, no decision needed:** `internal/packload/footprint.go`'s `skills` line reads
+`merged (built-in < pack < user)` beside a single `into`. Saying that the merge is into *every*
+selected destination would make the footprint true without touching delivery.
+
+**Pinned so this is not re-audited:** `internal/cli/run/packskillsdelivery_test.go` asserts all
+three probe results, including the notch disagreement, so answering OQ-S4 either way moves a test
+deliberately rather than rediscovering the behavior.
 
 ---
 
@@ -518,8 +583,8 @@ does the dir get created? (2) two packs, distinct skills, two destinations — d
 | | # | Item | Kind | Blocked on |
 |---|---|---|---|---|
 | 🟢 | **B1** | Audit-only log of every jail↔host boundary crossing ([boundary-broker.md](../design/boundary-broker.md) step 1) | small, additive | nothing |
-| 🟢 | **B1b** | **Credential-injecting proxy for git** — host injects after egress, jail holds nothing, no human. **Possibly an ADOPTION**: unYOLO's MIT `gh-broker` is this row's entire scope ([§10](../design/boundary-broker.md)) | new capability | nothing |
-| 🟡 | **B2** | Approval-gated host credentials — one allowlisted verb, synchronous. Design validated by convergence with unYOLO; take its grant model, content-addressed plans, and `expected_revision` rather than re-deriving | new capability | N3/OQ-1 |
+| 🟡 | **B1b** | **Credential-injecting proxy for git** — host injects after egress, jail holds nothing, no human. **Settled 2026-08-12: a BUILD, not an adoption.** unYOLO's `gh-broker` was read at source ([§10](../design/boundary-broker.md)) and the earlier "possibly an adoption" note is retired — it is Go not Python, but yolo **already ships this transport** (`claude-oauth-broker` *is* a credential-injecting TLS-interception proxy), and gh-broker wants a GitHub App, has bus factor 1 at 11 weeks old, and carries 73 modules against yolo's 3. Smaller build than the row implied. **Carries one decision — OQ-B1b** | new capability | **your call** (OQ-B1b) |
+| 🟡 | **B2** | Approval-gated host credentials — one allowlisted verb, synchronous. Design validated by convergence with unYOLO. **Re-scoped 2026-08-12 from source** ([§10.6](../design/boundary-broker.md)): take the four-effect policy evaluation, code-owned `Grantable`, the operation registry, and two-bound **narrowing-only** grants; **defer** content-addressed plans, `expected_revision`, and decision tokens — each has a named trigger, and none has fired | new capability | N3/OQ-1 |
 | 🟡🐛 | **D1** | **Config-approval snapshot is agent-writable** — `.yolo/config-snapshot.json` is mode `664` and writable in-jail (re-measured 2026-08-12). An agent that edits `yolo-jail.jsonc` **and** matches the snapshot makes the launch-time diff prompt vanish — the exact bypass [config-safety.md](../design/config-safety.md) exists to prevent, and it is undiscussed there. From `ROADMAP.md` §4d; never queued until now. **Has an open question — see OQ-D1** | security | **your call** (OQ-D1) |
 | 🟢🐛 | **D2** | **Two shipped docs contradict the code** — `USER_GUIDE.md:182` and `bundled_loopholes/claude-oauth-broker/README.md:59` both say *"no background timer / no proactive refresh"*, but `oauthbrokercmd.go:88` starts `RunBackgroundRefresher` by default — and that refresher **is** the architectural fix for all three logout paths. (The `--host-creds-file` half has since been fixed.) From `ROADMAP.md` §4d. **No OQ: the code is right and the docs are wrong**, so this is a doc edit, not a decision | doc defect | nothing |
 | 🟢🐛 | **D4** | **`host-processes` is silently broken on macOS + podman** — found 2026-08-12 while writing [loophole-transport.md](../design/loophole-transport.md) §2.1. Its manifest declares `"transport": "unix-socket"`, the *same* transport whose virtiofs failure is [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31); `yolo-ps` fails identically. Unreported because a broken `yolo-ps` is quiet where a broken broker blocks startup. Means the loophole is Linux-only in practice while advertised as available. **Porting it is also the natural proof for the transport generalization** (§6 step 3) | bug + the generalization's test case | nothing |
@@ -536,6 +601,7 @@ on an answer.** Where I have a recommendation it is stated; where I do not, it s
 | # | Decision | Where | My read |
 |---|---|---|---|
 | **OQ-D1** | **How to fix the writable config snapshot** (D1) | below | make it host-owned and read-only in-jail |
+| **OQ-S4** | **Should the jail narrow its skills fan-out to match the host?** (S4) | below | yes — run `ResolveDestinations` on the jail path too |
 | **OQ-T1** | #32: per-jail token + pinned cert **as proposed**, or full mTLS? *The PR author asked this and is waiting.* | [`loophole-transport.md`](../design/loophole-transport.md) §7 | as proposed |
 | **OQ-T2** | Transport selection: automatic by platform, configured, or both? | same | automatic + override |
 | **OQ-T3** | Per-jail client secrets on the `unix` transport too, or only TCP? | same | yes, both |
@@ -556,6 +622,7 @@ on an answer.** Where I have a recommendation it is stated; where I do not, it s
 | **A2** | How loud should selecting both auth packs be? | Thread A | a `conflicts` manifest field |
 | **S5** | Jail skill collision: warn, `check` failure, or boot refusal? | S5 above | warn now; decide the rest later |
 | **OQ-B/E** | Approval grants: reusable? answered where? | [`boundary-broker.md`](../design/boundary-broker.md) §9 | §10 has worked answers |
+| **OQ-B1b** | **Vendor unYOLO's policy engine, or re-derive the model?** *Adopt-vs-build is already settled (build); this is the one piece where copying may beat writing.* (B1b) | [`boundary-broker.md`](../design/boundary-broker.md) §10.6 | **vendor it** — MIT, stdlib-only, ~2,100 lines, zero new module deps, and safer than a module dep given upstream's no-compatibility policy |
 
 ## 🟡 OQ-D1 — how to fix the writable config snapshot
 
@@ -583,6 +650,39 @@ avoid quietly** — it is the current state, and it is only defensible if writte
 
 **This needs your call because it trades workspace-portability against a security property**, and
 that is a product question rather than a technical one.
+
+## 🟡 OQ-S4 — should the jail narrow its skills fan-out to match the host?
+
+Measured in S4 above: in a jail **every** loaded pack's skills reach **every** declared
+destination; at `apply --host` a pack's skills reach only the destinations that pack declared.
+Two notches, two answers to "where does this pack's content go".
+
+1. **Leave the jail as it is; make the reporting honest.** Say the fan-out out loud in
+   pack-system.md's `skills` section and in `yolo pack footprint`. **Cost:** a manifest keeps
+   understating delivery, so a pack scoped by its author to one directory still reaches every
+   selected agent — the reviewable artifact and the behavior stay out of step.
+2. **Run `packload.ResolveDestinations` on the jail path too.** A pack that DECLARES a destination
+   delivers only there; a pack that declares nothing borrows every destination in the set. The
+   zero-ceremony promise is preserved *by* the borrowing — that is what the function exists for.
+   **Cost:** a behavior change on a shipped kind. No pack yolo ships is affected (none carries
+   skills — checked), so it lands only on a third-party or local pack that both declares an `into`
+   **and** ships skills; that pack narrows to what it declared.
+3. **Widen the host to the jail's rule.** Symmetry in the other direction. **Rejected already**, by
+   `ResolveDestinations`' own comment: a manifest would start writing into home directories its
+   author never named.
+
+**My read: (2).** It makes both notches answer from one inference instead of two, makes `into` mean
+what it says, and makes `yolo pack footprint` true — the same argument F1 used to give the host the
+jail's inference, applied in the other direction. **(1) is the honest fallback** and is worth doing
+regardless of the answer, since even under (2) the footprint should say what a borrowed destination
+is.
+
+**The trade to weigh before agreeing.** Under (2) a content pack that declares a unique path (say
+`into: ".acme/skills"`) delivers to `.acme/skills` and nowhere an agent reads — it becomes inert
+where today it reaches everything. That is arguably correct (it is what the pack declared) and
+arguably a regression, and pack-system.md's own advice pushed authors toward declaring rather than
+staying silent. **Whether a declaration should NARROW delivery or only ADD to it is the actual
+question**, and it is a product call about what `into` promises.
 
 ---
 
