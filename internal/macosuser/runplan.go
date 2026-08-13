@@ -18,9 +18,12 @@ type RunPlan struct {
 	// StagedDir is the root-owned state dir; StagedYolo is the staged yolo
 	// binary the sandbox self-execs. StageCommands stage that binary
 	// (fresh-inode copy).
-	StagedDir          string
-	StagedYolo         string
-	StageCommands      [][]string
+	StagedDir     string
+	StagedYolo    string
+	StageCommands [][]string
+	// PackRoot is the root-owned staged pack tree this session's bootstrap renders
+	// from (YOLO_PACK_ROOT in BootstrapArgv), or "" when the launch staged no packs.
+	PackRoot           string
 	BootstrapArgv      []string
 	LaunchArgv         []string
 	GitIdentity        *jsonx.OrderedMap
@@ -109,8 +112,9 @@ func DarwinBootstrapArgv(stagedYolo, home string, bootstrapEnv *jsonx.OrderedMap
 // BuildRunPlan assembles the full RunPlan (pure — no shelling out). `config` is
 // the loaded jail config; `sandboxEnv` is the fully-resolved launch env;
 // `selfExe` is the running yolo binary (os.Executable()) staged for the sandbox
-// to self-exec as the bootstrap. `darwin` may be nil.
-func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe string, sandboxEnv *jsonx.OrderedMap, darwin *Darwin) RunPlan {
+// to self-exec as the bootstrap; `hostPackRoot` is the host-side staged pack tree
+// the run pipeline produced before dispatching here (""=no packs). `darwin` may be nil.
+func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, sandboxEnv *jsonx.OrderedMap, darwin *Darwin) RunPlan {
 	darwinPrefix := []string{}
 	darwinEnv := jsonx.NewOrderedMap()
 	darwinSkipped := []string{}
@@ -193,6 +197,19 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		bootstrapEnv.Set("YOLO_HOST_FILES", wire)
 	}
 
+	// YOLO_PACK_ROOT — the same generator-contract variable the container entrypoint
+	// reads off its /ctx/packs mount, pointed at the root-owned staged copy. Without it
+	// RunDarwinBootstrap's LoadJailPacks returns nothing and every pack loop below it
+	// (ConfigurePackSurfaces, RunPackHooks) iterates an empty list — silently, since
+	// "no packs mounted" is a legitimate state that renders nothing rather than failing
+	// (B-0). Set only when the launch actually staged a tree, so a genuinely pack-less
+	// launch still says so by ABSENCE rather than by naming a directory that is not there.
+	packRoot := ""
+	if hostPackRoot != "" {
+		packRoot = StagedPackRoot(cname, "")
+		bootstrapEnv.Set("YOLO_PACK_ROOT", packRoot)
+	}
+
 	// Darwin extras consumed by `yolo internal darwin-bootstrap`.
 	bootstrapEnv.Set("YOLO_DARWIN_WORKSPACE", workspace)
 	bootstrapEnv.Set("YOLO_DARWIN_MACOS_LOG", macosLogMode(cfg))
@@ -202,13 +219,18 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	offendingHome, offendingSet := HomeContaining(workspace, "")
 
 	return RunPlan{
-		Workspace:          workspace,
-		Cname:              cname,
-		ProfilePath:        profilePath,
-		Seatbelt:           SeatbeltProfile(workspace, SandboxHome()),
-		StagedDir:          stateDir,
-		StagedYolo:         stagedYolo,
-		StageCommands:      StageBinaryCommands(selfExe, ""),
+		Workspace:   workspace,
+		Cname:       cname,
+		ProfilePath: profilePath,
+		Seatbelt:    SeatbeltProfile(workspace, SandboxHome()),
+		StagedDir:   stateDir,
+		StagedYolo:  stagedYolo,
+		// Binary first, then the pack trees: both are prerequisites of the bootstrap
+		// the caller runs immediately after this list, and the binary is the one that
+		// fails most cheaply.
+		StageCommands: append(StageBinaryCommands(selfExe, ""),
+			StagePackCommands(hostPackRoot, cname, "")...),
+		PackRoot:           packRoot,
 		BootstrapArgv:      DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
 		LaunchArgv:         LaunchArgv(agentArgv, profilePath, sandboxEnv, workspace, "", "", darwinPrefix),
 		GitIdentity:        gitIdentity,
@@ -272,6 +294,31 @@ func PlanInvariants(plan RunPlan) []string {
 		}
 	}
 
+	// The pack tree must be STAGED and must reach the BOOTSTRAP env, or the bootstrap
+	// renders zero pack surfaces while reporting success — B-0, which survived because
+	// nothing on this path ever asserted that the pack root arrived. Both halves are
+	// checked because either one alone is silently useless: an env var naming a tree
+	// nothing copied is as empty as a copied tree the bootstrap is never told about.
+	if plan.PackRoot != "" {
+		if !strings.HasPrefix(plan.PackRoot, plan.StagedDir+"/") {
+			problems = append(problems,
+				"staged pack root "+plan.PackRoot+" is not under the root-owned state dir "+
+					plan.StagedDir+"; the sandbox could rewrite a pack manifest and grant "+
+					"itself host access on the next launch")
+		}
+		if !stagesPackRoot(plan.StageCommands, plan.PackRoot) {
+			problems = append(problems,
+				"nothing stages the pack tree at "+plan.PackRoot+
+					"; the bootstrap would render zero pack surfaces")
+		}
+		if !containsArg(plan.BootstrapArgv, "YOLO_PACK_ROOT="+plan.PackRoot) {
+			problems = append(problems,
+				"YOLO_PACK_ROOT="+plan.PackRoot+" is not baked into the bootstrap env; "+
+					"LoadJailPacks would find no packs and every surface/hook loop would "+
+					"iterate an empty list")
+		}
+	}
+
 	// Acceptance-bar guard: darwin store bin dirs must reach the launch PATH.
 	launchStr := strings.Join(plan.LaunchArgv, " ")
 	for _, storeBin := range plan.DarwinPathPrefix {
@@ -289,6 +336,20 @@ func PlanInvariants(plan RunPlan) []string {
 func containsArg(argv []string, arg string) bool {
 	for _, a := range argv {
 		if a == arg {
+			return true
+		}
+	}
+	return false
+}
+
+// stagesPackRoot reports whether the stage commands finish by moving a tree INTO
+// packRoot — the last command StagePackCommands emits. Checking the destination of
+// the final `mv` rather than merely "packRoot appears somewhere" is what makes the
+// invariant meaningful: the path also appears in the preceding `rm -rf`, so a
+// substring test would pass for a plan that deleted the tree and staged nothing.
+func stagesPackRoot(cmds [][]string, packRoot string) bool {
+	for _, c := range cmds {
+		if len(c) >= 4 && c[0] == mvBin && c[len(c)-1] == packRoot {
 			return true
 		}
 	}

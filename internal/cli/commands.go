@@ -361,9 +361,10 @@ func runRun(args []string) int {
 // real macosuser deps (TTY proxy + native darwin nix materialize) and runs the
 // Seatbelt-sandboxed launch. repoRoot is the yolo-jail checkout root (the nix
 // build root for darwin `packages:`); the native-Go bootstrap self-execs the
-// staged yolo binary and needs no source tree. macos-hardware-gated; on Linux
-// macosuser fails closed at its IsMacOS precondition (dry-run works anywhere).
-func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot string, dryRun bool) int {
+// staged yolo binary and needs no source tree. packRoot is the host-side staged
+// pack tree, which the run pipeline staged before dispatching here. macos-hardware-gated;
+// on Linux macosuser fails closed at its IsMacOS precondition (dry-run works anywhere).
+func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot, packRoot string, dryRun bool) int {
 	runProxy := run.RunWithProxy
 	materialize := func(nixRoot string, packages []any) (*macosuser.Darwin, bool, error) {
 		// system "" → darwinpkg.NativeSystem(), the running platform. NOT a
@@ -399,12 +400,13 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 	// the live setup/teardown chatter.
 	deps := macosuser.RealDeps(runProxy, materialize, isTTYStdout())
 	return macosuser.RunMacosUser(deps, macosuser.Options{
-		Workspace: workspace,
-		Config:    cfg,
-		Agents:    agents,
-		AgentArgv: agentArgv,
-		RepoRoot:  repoRoot,
-		DryRun:    dryRun,
+		Workspace:    workspace,
+		Config:       cfg,
+		Agents:       agents,
+		AgentArgv:    agentArgv,
+		RepoRoot:     repoRoot,
+		HostPackRoot: packRoot,
+		DryRun:       dryRun,
 	})
 }
 

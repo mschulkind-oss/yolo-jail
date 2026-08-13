@@ -105,11 +105,16 @@ type Options struct {
 	IsTTYStdout func() bool
 	IsTTYStdin  func() bool
 	// MacosUserRun handles the runtime==macos-user native branch. It receives the resolved config,
-	// workspace, selected agents, the post-`--` argv, the repo root, and the
-	// dry-run flag, returning the process exit code. nil => the branch prints an
-	// actionable "not wired" error (keeps run free of the macosuser +
+	// workspace, selected agents, the post-`--` argv, the repo root, the staged pack
+	// root, and the dry-run flag, returning the process exit code. nil => the branch
+	// prints an actionable "not wired" error (keeps run free of the macosuser +
 	// darwinpkg deps; the front door injects the real handler).
-	MacosUserRun func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot string, dryRun bool) int
+	//
+	// packRoot is the host-side staged pack tree (stagePacks' root). It is a PARAMETER
+	// rather than something the handler re-derives, because the whole B-0 defect was
+	// this backend running with no pack root at all: making it an argument means a
+	// backend cannot be dispatched without one being decided.
+	MacosUserRun func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot, packRoot string, dryRun bool) int
 }
 
 func fillDefaults(o *Options) {

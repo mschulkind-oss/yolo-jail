@@ -43,6 +43,10 @@ const (
 	chmodBin = "/bin/chmod"
 	cpBin    = "/bin/cp"
 	mvBin    = "/bin/mv"
+	rmBin    = "/bin/rm"
+
+	// packsLeaf is the state-dir subdir holding each session's staged pack tree.
+	packsLeaf = "packs"
 )
 
 // SandboxHome is /Users/_yolojail.
@@ -159,6 +163,63 @@ func StageBinaryCommands(selfExe, sd string) [][]string {
 		{cpBin, "-f", selfExe, tmp},
 		{chmodBin, "a+rX", tmp},
 		{mvBin, "-f", tmp, dst}, // atomic rename → fresh inode, drops the cached-signature vnode
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Staging the pack trees into the root-owned state dir
+// ---------------------------------------------------------------------------
+// StagedPackRoot returns where this session's pack trees are staged for the
+// sandbox user to read: <stateDir>/packs/<cname>. This is the macos-user analogue
+// of the container's `:ro` /ctx/packs mount, and it is root-owned for the same
+// reason that mount is read-only — a pack manifest is an INPUT to composition, so
+// an agent able to rewrite one could grant its own pack a host file on the next
+// launch.
+//
+// It is a COPY under /var rather than the host-side staging tree itself, which
+// lives under the invoking user's ~/.local/share/yolo-jail. Two reasons, both
+// structural: the sandbox uid has no business traversing the admin user's home
+// (that home is what this backend isolates the agent FROM, and the same state dir
+// holds the agent credential store), and it could not reliably do so anyway —
+// a macOS home is not required to be world-traversable, so pointing the sandbox at
+// one is a permission failure waiting to read as "packs silently did nothing",
+// which is the exact defect this whole path exists to end.
+func StagedPackRoot(cname, sd string) string {
+	if sd == "" {
+		sd = stateDir
+	}
+	return filepath.Join(sd, packsLeaf, cname)
+}
+
+// StagePackCommands returns the sudo argv that copy the host-side staged pack tree
+// (stagePacks' root) into the root-owned state dir, world-readable, for the
+// bootstrap to render from. Empty when there is no host tree to copy — a launch
+// with no packs stages nothing rather than an empty directory.
+//
+// Replace-by-rename, like StageBinaryCommands and for a related reason: the tree
+// must flip atomically from the previous launch's pack set to this one, and a `cp`
+// over a live directory would leave a union of the two — a pack the user dropped
+// from `packs` would keep rendering, which is precisely the bug pruneDroppedPackStaging
+// exists to prevent on the host side. The destination is removed BEFORE the rename
+// because `mv src dst` moves src INSIDE dst when dst is an existing directory; that
+// one is not a nicety, it is the difference between replacing the tree and nesting
+// it one level deeper every launch.
+func StagePackCommands(hostPackRoot, cname, sd string) [][]string {
+	if hostPackRoot == "" {
+		return nil
+	}
+	if sd == "" {
+		sd = stateDir
+	}
+	dst := StagedPackRoot(cname, sd)
+	tmp := dst + ".new"
+	return [][]string{
+		{mkdirBin, "-p", filepath.Join(sd, packsLeaf)},
+		{rmBin, "-rf", tmp},
+		{cpBin, "-R", hostPackRoot, tmp},
+		{chmodBin, "-R", "a+rX", tmp},
+		{rmBin, "-rf", dst},
+		{mvBin, "-f", tmp, dst},
 	}
 }
 

@@ -70,7 +70,17 @@ func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
 	for _, dir := range []string{filepath.Join(root, "_official"), root} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			continue
+			// ABSENT is normal and reads as empty: a launch with no embedded packs has no
+			// _official dir, and there is nothing to render. Any OTHER error is not —
+			// a root that is a file, unreadable, or on a mount that did not appear means
+			// the host staged packs this process cannot see. That must NOT degrade to
+			// "no packs": B-0 was exactly this shape of silence, and a backend that
+			// renders zero surfaces while reporting success is the failure mode the A12
+			// contract exists to make impossible.
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("pack root %s: %w", dir, err)
 		}
 		for _, ent := range entries {
 			if !ent.IsDir() || ent.Name() == "_official" {

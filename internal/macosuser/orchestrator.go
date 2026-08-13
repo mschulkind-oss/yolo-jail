@@ -78,6 +78,11 @@ type Options struct {
 	// the nix build root when `packages:` is non-empty. The native bootstrap
 	// needs no source tree, only the flake root for darwin packages.
 	RepoRoot string
+	// HostPackRoot is the host-side staged pack tree (the run pipeline's stagePacks
+	// root), copied into the root-owned state dir by the plan's stage commands and
+	// named to the bootstrap as YOLO_PACK_ROOT. Empty means this launch staged no
+	// packs, and the bootstrap is told nothing rather than pointed at an absent dir.
+	HostPackRoot string
 	// SandboxEnv is an optional caller-supplied env layered LAST; nil is the
 	// common case.
 	SandboxEnv *jsonx.OrderedMap
@@ -158,7 +163,7 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 		selfExe = deps.SelfExe()
 	}
 	return BuildRunPlan(opts.Workspace, opts.Config, opts.Agents, opts.AgentArgv,
-		selfExe, env, darwin)
+		selfExe, opts.HostPackRoot, env, darwin)
 }
 
 // RunMacosUser launches agent_argv in the dedicated-user + Seatbelt sandbox.
@@ -297,6 +302,13 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	p.printf("session:     %s", plan.Cname)
 	p.printf("profile:     %s", plan.ProfilePath)
 	p.printf("staged yolo: %s", plan.StagedYolo)
+	// Named even when empty: "this launch renders no packs" is the state that used to be
+	// indistinguishable from "packs work here", so the dry run has to say which one it is.
+	if plan.PackRoot == "" {
+		p.print("packs:       [dim]none staged — no pack surfaces will be rendered[/dim]")
+	} else {
+		p.printf("packs:       %s", plan.PackRoot)
+	}
 	p.printf("git identity: %s", gitIdentityRepr(plan.GitIdentity))
 	if plan.DarwinMaterialized {
 		p.printf("darwin pkgs: %d store bin dir(s) on PATH", len(plan.DarwinPathPrefix))

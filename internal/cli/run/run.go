@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -53,6 +54,56 @@ func Run(opts Options) int {
 		return 1
 	}
 
+	// The two container-only gates, hoisted ABOVE pack staging so a launch that is
+	// going to refuse still refuses before it does any staging work — the order the
+	// container path has always had, kept intact now that staging moved earlier.
+	// Both are skipped for macos-user: --dry-run is that backend's own flag, and a
+	// native run with empty `packages:` genuinely needs no repo (see the comment on
+	// repoRoot above).
+	if rt != "macos-user" {
+		if o.DryRun {
+			o.pr(o.Stdout).print(
+				"[bold red]--dry-run is only supported for the macos-user runtime.[/bold red]  " +
+					`Set runtime: "macos-user" (or YOLO_RUNTIME=macos-user) to use it.`)
+			return 1
+		}
+		// Container backends need a flake to build the image from. A missing repo
+		// root is FATAL rather than a degraded launch on a stale image: running the
+		// wrong environment silently is the failure this refuses. reporoot.Resolve
+		// already found nothing here (env → cwd-walk → exe-relative bundle all
+		// missed), so print the same actionable fix the resolver would and exit.
+		if !repoRootOK {
+			o.pr(o.Stderr).print("[bold red]Cannot find yolo-jail repo root.[/bold red]\n" +
+				"The yolo CLI needs the repo (a flake) to build the jail image, and refuses to\n" +
+				"launch on a possibly-stale cached image instead.\n\n" +
+				"Fix: run yolo from inside a yolo-jail checkout, point it at one with\n" +
+				"[bold]YOLO_REPO_ROOT[/bold], or reinstall so the flake bundle ships beside the\n" +
+				"binary (`just install`):\n" +
+				"  YOLO_REPO_ROOT=~/code/yolo-jail yolo …")
+			return 1
+		}
+	}
+
+	// --- Phase 2: pack staging, BEFORE the backend dispatch ---
+	//
+	// THE ORDERING IS THE FIX (B-0). Staging used to live inside runContainer, which
+	// the macos-user branch below returns before ever reaching — so that backend was
+	// handed no YOLO_PACK_ROOT and its RunDarwinBootstrap loops (LoadJailPacks →
+	// ConfigurePackSurfaces → RunPackHooks) iterated an empty list on every launch. Not
+	// an error, not a warning: a backend that looked provisioned and configured nothing.
+	//
+	// Staging is host-side work that no backend owns — it resolves the user's `packs`
+	// entries, copies their trees, and prunes the ones that left the config — so it
+	// belongs above the dispatch rather than inside one arm of it. Every backend that
+	// renders pack surfaces now gets the same staged set from the same call, which is
+	// what makes "a pack works on macos-user" a property of the pipeline instead of a
+	// second implementation. Pinned by TestPacksAreStagedBeforeBackendDispatch.
+	cname := runtime.FromWorkspace(o.Workspace)
+	staged, stagedOK := o.stageRunPacks(cname)
+	if !stagedOK {
+		return 1
+	}
+
 	// macos-user native branch: route to the injected handler,
 	// which wires internal/macosuser (SBPL sandbox, dscl provisioning, the
 	// sandbox-exec launch) + the darwinpkg streaming-build materialize adapter.
@@ -73,30 +124,40 @@ func Run(opts Options) int {
 		// either, and the native backend is where a "where is my agent?" is hardest to
 		// diagnose (no image, no provisioning output to read back).
 		o.warnIfNoPacks()
-		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv, repoRoot, o.DryRun)
+		// The staged tree crosses as a PATH, not as the loaded declarations: the native
+		// bootstrap re-reads the manifests itself (LoadJailPacks), exactly as the
+		// container entrypoint does off its /ctx/packs mount, so the two backends render
+		// from the same input in the same way.
+		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
+			repoRoot, staged.root, o.DryRun)
 	}
-	if o.DryRun {
-		o.pr(o.Stdout).print(
-			"[bold red]--dry-run is only supported for the macos-user runtime.[/bold red]  " +
-				`Set runtime: "macos-user" (or YOLO_RUNTIME=macos-user) to use it.`)
-		return 1
+	return o.runContainer(cfg, rt, repoRoot, cname, staged)
+}
+
+// stagedPacks is one run's staged pack set — the single result of the single staging
+// call a launch makes, threaded to whichever backend the dispatch picks.
+//
+// It exists because staging produces three things a backend needs together (the root to
+// point a renderer at, the declarations the mount assembler acts on, and the collected
+// briefing prose) and returning them as one value is what let staging move above the
+// dispatch without every arm growing a four-value signature.
+type stagedPacks struct {
+	root      string
+	packs     []*packload.Pack
+	briefings []agents.PackBriefing
+}
+
+// stageRunPacks stages this run's packs and reports the failure itself, so the caller's
+// dispatch stays a straight line. FAIL-CLOSED (A12): a pack that cannot be staged ends
+// the launch — the same contract stagePacks has always had, now applied before any
+// backend runs rather than inside one of them.
+func (o *Options) stageRunPacks(cname string) (stagedPacks, bool) {
+	root, packs, briefings, err := o.stagePacks(cname)
+	if err != nil {
+		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
+		return stagedPacks{}, false
 	}
-	// Container backends need a flake to build the image from. A missing repo
-	// root is FATAL rather than a degraded launch on a stale image: running the
-	// wrong environment silently is the failure this refuses. reporoot.Resolve
-	// already found nothing here (env → cwd-walk → exe-relative bundle all
-	// missed), so print the same actionable fix the resolver would and exit.
-	if !repoRootOK {
-		o.pr(o.Stderr).print("[bold red]Cannot find yolo-jail repo root.[/bold red]\n" +
-			"The yolo CLI needs the repo (a flake) to build the jail image, and refuses to\n" +
-			"launch on a possibly-stale cached image instead.\n\n" +
-			"Fix: run yolo from inside a yolo-jail checkout, point it at one with\n" +
-			"[bold]YOLO_REPO_ROOT[/bold], or reinstall so the flake bundle ships beside the\n" +
-			"binary (`just install`):\n" +
-			"  YOLO_REPO_ROOT=~/code/yolo-jail yolo …")
-		return 1
-	}
-	return o.runContainer(cfg, rt, repoRoot)
+	return stagedPacks{root: root, packs: packs, briefings: briefings}, true
 }
 
 // warnIfNoPacks prints the empty-packs notice when the user has no packs configured.
@@ -209,8 +270,12 @@ func ensureStorage() error {
 // workspace flock + raced re-check, stale-container removal, image load, argv
 // assembly, host-service start, tracking/owner-PID, port forwarding, the
 // run_with_proxy launch with the FROZEN teardown guard stack).
-func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
+func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string, staged stagedPacks) int {
 	out := o.pr(o.Stdout)
+	// Staged above the dispatch (see Run): this path consumes the result rather than
+	// producing it. packStaging is the tree /ctx/packs binds; loadedPacks is what the
+	// mount assembler reads declarations from.
+	packStaging, loadedPacks := staged.root, staged.packs
 
 	// Command construction (needed for both exec and run paths).
 	//
@@ -231,8 +296,6 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 		targetCmd = shquoteJoin(fullCommand)
 	}
 
-	cname := runtime.FromWorkspace(o.Workspace)
-
 	// Sweep jails orphaned by an uncatchable kill before the attach decision.
 	o.reapOrphanedJails(rt)
 
@@ -242,7 +305,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot string) int {
 	}
 
 	// Refresh the per-jail skills + AGENTS/CLAUDE staging on every invocation.
-	agentsPath, packStaging, loadedPacks, err := o.refreshJailBriefings(cname, cfg, rt)
+	agentsPath, err := o.refreshJailBriefings(cname, cfg, rt, staged)
 	if err != nil {
 		out.printf("[bold red]%s[/bold red]", err.Error())
 		return 1

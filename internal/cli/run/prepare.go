@@ -19,11 +19,14 @@ import (
 // every invocation (incl. attach) so host-side skill/briefing edits propagate to
 // a live jail via inode-preserving writes. Returns the staging dir
 // (AGENTS_DIR/<cname>).
-// It also returns the LOADED PACKS, because the mount assembler needs their
-// declarations (writable dirs, mount targets, host-file grants) and staging is where
-// they are read. Returning them here rather than re-loading later keeps one source of
-// truth for what this run's packs declared.
-func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt string) (string, string, []*packload.Pack, error) {
+//
+// It takes the ALREADY-STAGED pack set rather than staging it itself. Staging moved up
+// to Run(), above the backend dispatch, because it is not a container-path step: the
+// macos-user backend returns before this function is ever called, which is exactly how
+// that backend came to render zero pack surfaces (B-0). What stays here is the part that
+// genuinely is per-jail staging — skills layering and briefing composition — which reads
+// the staged set through the `staged` argument.
+func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt string, staged stagedPacks) (string, error) {
 	netSec := cfgMap(cfg, "network")
 	netMode := o.Network
 	if netSec != nil {
@@ -66,13 +69,10 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// off this. Derived from the stable workspace, so launch and attach agree.
 	isSrc := agents.WorkspaceIsYoloSourceTree(o.Workspace)
 
-	// Pack staging (C3), BEFORE skills so PrepareSkills can layer pack skills in.
-	// Fail-closed per A12: a declared pack that cannot be staged is an error, not a
-	// jail that silently comes up without it.
-	packStaging, loadedPacks, packBriefings, err := o.stagePacks(cname)
-	if err != nil {
-		return "", "", nil, err
-	}
+	// Pack staging (C3) already ran, ABOVE the backend dispatch, and its ordering
+	// relative to skills is still load-bearing in the same way: stagePacks sets
+	// agents.SetPackSkillDirs as a side effect and PrepareSkills consumes it below.
+	loadedPacks, packBriefings := staged.packs, staged.briefings
 
 	// PACK-DECLARED skills destinations. A pack mount whose source is "skills" says
 	// "put my skills tree here"; core builds a staging dir per pack and mounts it there.
@@ -81,7 +81,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// Skills staging.
 	staging, err := agents.PrepareSkills(cname, homeDir(), nil, isSrc)
 	if err != nil {
-		return "", "", nil, err
+		return "", err
 	}
 
 	// Resources map (sorted-key rendering handled inside BriefingContent).
@@ -124,12 +124,12 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 				content = agents.PrependHostBriefing(filepath.Join(home, hostOverlay), content)
 			}
 			if err := agents.WriteBriefing(filepath.Join(staging, briefingStagingName(p.Name)), content); err != nil {
-				return "", "", nil, err
+				return "", err
 			}
 		}
 	}
 	_ = rt
-	return staging, packStaging, loadedPacks, nil
+	return staging, nil
 }
 
 // blockedToolRecords converts NormalizeBlockedTools output (a []any of ordered
