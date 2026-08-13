@@ -16,6 +16,13 @@ example for.
 (what a loophole is), [`extension-point-principle.md`](extension-point-principle.md) (why design it
 now).
 
+> **PREREQUISITE — read [`loophole-packaging.md`](loophole-packaging.md) first.** §10 below (OQ-CAP2)
+> asks whether packs should be able to ship loopholes and recommends deciding that **before**
+> building any of §§1–9. That decision is now made, in that doc, as **(B): packs ship loopholes**. It
+> supersedes parts of what follows — §2.2's argument in particular — and narrows the rest to the
+> **bundled** loophole set. Its §6 is the section-by-section list of what survives here and what
+> dies; §§1–9 have NOT yet been rewritten to match, so read them against that list.
+
 ---
 
 ## 1. The concept
@@ -113,7 +120,7 @@ have to know the invariant.
 
 ## 4. The rule
 
-`Loophole.Active()` (`internal/loopholes/loopholes.go:219`) gains a third gate beside the two it
+`Loophole.Active()` (`internal/loopholes/loopholes.go:232`) gains a third gate beside the two it
 already has:
 
 ```
@@ -325,6 +332,27 @@ how the workaround becomes permanent, which is the exact failure
 [`extension-point-principle.md`](extension-point-principle.md) warns about. **Recommendation: decide
 (B) first.** If (B) is going to happen, (A) shrinks to whatever auto-activating loopholes remain,
 and that is a much smaller thing to design.
+
+### RESOLVED 2026-08-13 — **(B)**, designed in [`loophole-packaging.md`](loophole-packaging.md)
+
+The recommendation was taken. A 15th contribution kind, `loophole`, points at a module directory in
+the pack; the framework runs a TLS front in front of a plain-socket daemon so an external author
+needs neither Go nor a TLS implementation; host execution is an approvable claim in the machinery
+`yolo pack install` already has. Three findings there change how §§1–9 should be read:
+
+1. **§2.2's argument is dead.** Its premise — *"none of the 14 kinds is 'a daemon'"* — is what the
+   15th kind falsifies. Its conclusion (`serves` does not go on `pack.json`) survives for a different
+   reason: the loophole a pack ships has a manifest of its own, and that is where a statement about
+   an implementation belongs. So `serves` stays exactly where it is and travels *inside* the pack.
+2. **The residue is what this doc predicted, and no smaller.** The three bundled loopholes stay
+   bundled — the broker because it auto-activates by design and because neither its host singleton
+   argv nor its per-jail relay is expressible in a manifest; `host-processes` because its client is a
+   baked image binary. So supersession survives for the **bundled set only**, and every §§1–9
+   mechanism is now scoped to three first-party manifests rather than to a public surface.
+3. **Which reopens the size question.** Whether a capability namespace is still the right shape for
+   three bundled loopholes, or whether something blunter is, is recorded there as **OQ-LP6**. The
+   extension-point argument cuts both ways: a loophole manifest is still a public surface, so
+   `serves` is a field third parties will write even if only bundled loopholes are ever superseded.
 
 ---
 
