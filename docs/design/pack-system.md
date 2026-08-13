@@ -978,7 +978,7 @@ Resolved sharp edges (kept because the reasoning is the interesting part):
 | The `packs` config key, precedence, entry schema | `yolo config-ref` |
 | The composition engine internals | `internal/agentcfg` |
 | Bringing host files INTO a jail as a user (the `host_files` key) | `docs/plans/host-file-staging.md` |
-| A pack shipping a LOOPHOLE (host daemon) — the designed 15th kind | `docs/design/loophole-packaging.md` |
+| A pack shipping a LOOPHOLE (host daemon) — the designed 15th kind | `docs/design/loophole-packaging-overview.md` to decide, `docs/design/loophole-packaging.md` to build |
 | Rendering a pack OUT to the host (the invert-the-flow design) | `docs/design/host-render-target.md` |
 | The credential/identity boundary a pack respects | `docs/design/agent-credentials.md`, `docs/design/identity-prism-decision.md` |
 | Composed-file read/write posture, in depth | `docs/design/composed-file-permissions.md` |

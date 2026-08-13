@@ -2,6 +2,11 @@
 
 **Status:** DESIGN, 2026-08-13. Not built. Closes **OQ-CAP2** with option **(B)**.
 
+> **Reading this to DECIDE rather than to build? Start with
+> [`loophole-packaging-overview.md`](loophole-packaging-overview.md)** — the same design at
+> system level, with the five rulings it needs, and no line numbers. This doc is the
+> implementation authority and the two are kept in sync; the overview is derived from it.
+
 **Why this doc exists.** [`pack-capabilities.md`](pack-capabilities.md) §10 asks whether packs should
 be able to ship loopholes, concludes *"the review is right that (B) is the real fix"*, and
 recommends deciding (B) **before** building (A). The maintainer ruled: write (B) first, link it from
@@ -1246,7 +1251,9 @@ unknown. And `runtime.go:278` still names a `src/loopholes.py` that no longer ex
 writes that header into every manifest it toggles.
 
 **R6 — the claim-count grows the prompt, and a long prompt is a skimmed prompt.** With the total
-enumeration (§3.3) an audio-shaped pack emits five claims and a proxy-shaped one emits three or four.
+enumeration (§3.3) an audio-shaped pack emits **four** claims (counted from
+`bundled_loopholes/audio/manifest.jsonc`: three `host_bind_mounts` — two of them sockets, so the IPC
+class — plus `/dev/snd`; no daemon and no intercepts) and a proxy-shaped one emits three or four.
 That is honest, and it is also the shape people click through. Nothing here solves it; grouping by
 loophole in the display while keeping per-claim strings in the lockfile is the obvious mitigation and
 is a display concern, not a model one.
