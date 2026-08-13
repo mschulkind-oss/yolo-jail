@@ -24,7 +24,13 @@ const DefaultBrokerIP = "host-gateway"
 // Valid enum values. Kept as ordered slices in sorted order so the
 // "not in [...]" error strings render deterministically.
 var (
-	validTransports = []string{"tls-intercept", "unix-socket", "none"}
+	// "loopback-tls" is the unified transport (internal/svcendpoint): the framework
+	// publishes an endpoint file and the daemon never learns what carried its bytes.
+	// It sits alongside the older values only for the length of the migration —
+	// "unix-socket" and "tls-intercept" both retire once both consumers are ported
+	// (docs/design/loophole-transport.md §7.4). "none" stays: it means "no daemon",
+	// not a different transport.
+	validTransports = []string{"loopback-tls", "tls-intercept", "unix-socket", "none"}
 	validLifecycles = []string{"external", "spawned"}
 	validRestarts   = []string{"always", "on-failure", "no"}
 )

@@ -129,6 +129,18 @@ func loadFromDir(dirPath, source string) (map[string]*Loophole, []string) {
 		}
 		loophole, err := loadManifest(child)
 		if err != nil {
+			// NOT a silent skip. A manifest the loader rejects makes the whole
+			// loophole VANISH — no host daemon, no endpoint, no injected env var, no
+			// entry in `yolo loopholes list` — and every consumer then fails with a
+			// symptom that names something else entirely. bundled_loopholes is
+			// go:embed'd, so an installed binary breaks identically with no checkout
+			// to go and read. One rejected value (a transport the validator does not
+			// know yet) is enough to do it, which is exactly the shape of a migration
+			// mistake.
+			//
+			// Discovery still CONTINUES: one bad third-party manifest must not take
+			// the others down with it (TestInvalidManifestDoesNotBreakOthers).
+			warnf("loophole manifest %s failed to load, so that loophole is NOT active: %v", child, err)
 			continue
 		}
 		loophole.Source = source

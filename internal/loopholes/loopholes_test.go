@@ -1,7 +1,9 @@
 package loopholes
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -359,5 +361,120 @@ func TestRepoRootHostModeFindsBundled(t *testing.T) {
 	got := Discover(DiscoverOptions{IncludeDisabled: true, IncludeBundled: true})
 	if len(got) == 0 {
 		t.Fatal("host-mode discovery found ZERO loopholes — audit §B3 regression")
+	}
+}
+
+// captureWarnings swaps the package's warn sink for the duration of a test and
+// returns the accumulated lines.
+func captureWarnings(t *testing.T) *[]string {
+	t.Helper()
+	var got []string
+	prev := warnf
+	warnf = func(format string, args ...any) { got = append(got, fmt.Sprintf(format, args...)) }
+	t.Cleanup(func() { warnf = prev })
+	return &got
+}
+
+// TestRejectedManifestIsReportedNotVanished pins the loudness of the worst failure
+// mode in the loophole framework.
+//
+// loadFromDir used to `continue` on any load error, so ONE rejected field made the
+// entire loophole disappear: no host daemon, no endpoint, no injected env var, no
+// entry in `yolo loopholes list`, and no message anywhere saying why. Every
+// downstream failure then named something else. bundled_loopholes is go:embed'd, so
+// an installed binary fails the same way with no checkout to inspect — and the
+// migration to a new transport value is exactly the change that produces it.
+func TestRejectedManifestIsReportedNotVanished(t *testing.T) {
+	warnings := captureWarnings(t)
+	md := modsDir(t)
+	good := mkdir(t, filepath.Join(md, "good"))
+	writeManifest(t, good, map[string]any{"name": "good", "description": "x"})
+	bad := mkdir(t, filepath.Join(md, "bad-transport"))
+	writeManifest(t, bad, map[string]any{
+		"name": "bad-transport", "description": "x", "transport": "carrier-pigeon",
+	})
+
+	loaded := names(discoverDir(md, true))
+	if !containsStr(loaded, "good") {
+		t.Errorf("discovery = %v, want the valid loophole to survive one bad neighbour", loaded)
+	}
+	if containsStr(loaded, "bad-transport") {
+		t.Errorf("discovery = %v, want the rejected manifest excluded", loaded)
+	}
+
+	if len(*warnings) == 0 {
+		t.Fatal("a rejected manifest produced NO warning: the loophole vanished silently, " +
+			"which is the failure this test exists to prevent")
+	}
+	var found string
+	for _, w := range *warnings {
+		if contains(w, bad) {
+			found = w
+		}
+	}
+	if found == "" {
+		t.Fatalf("no warning named the offending directory %s; got %v", bad, *warnings)
+	}
+	// The warning has to carry the REASON as well as the path — "something in here
+	// failed" sends the reader back to the validator to find out what.
+	if !contains(found, "transport=") {
+		t.Errorf("warning %q does not carry the load error", found)
+	}
+	// And it must say the consequence, not just that a file was skipped: the
+	// loophole is ABSENT, which is what the reader is about to be confused by.
+	if !contains(found, "NOT active") {
+		t.Errorf("warning %q does not say the loophole is inactive as a result", found)
+	}
+}
+
+// TestWarnSinkIsNotSilentByDefault: the sink above is only meaningful if the
+// SHIPPED default actually goes somewhere. warnf was a no-op "for callers that
+// install a sink" and nothing in the tree ever installed one, so every warning
+// this package emitted was discarded.
+func TestWarnSinkIsNotSilentByDefault(t *testing.T) {
+	var buf bytes.Buffer
+	prevStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	warnf("canary %s", "line")
+	_ = w.Close()
+	os.Stderr = prevStderr
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(buf.String(), "canary line") {
+		t.Errorf("the default warn sink discarded its message (captured %q) — a warning "+
+			"nobody can read is not a diagnostic", buf.String())
+	}
+}
+
+// TestLoopbackTLSIsAValidTransport: the manifest validator must accept the unified
+// transport BEFORE any manifest declares it. A manifest changed ahead of its
+// validator is the R1 failure — the loophole silently disappears.
+func TestLoopbackTLSIsAValidTransport(t *testing.T) {
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "tls-svc"))
+	writeManifest(t, mod, map[string]any{
+		"name": "tls-svc", "description": "x", "transport": "loopback-tls",
+	})
+	got := discoverDir(md, true)
+	if len(got) != 1 || got[0].Name != "tls-svc" {
+		t.Fatalf("loaded %v, want [tls-svc]", names(got))
+	}
+	if got[0].Transport != "loopback-tls" {
+		t.Errorf("Transport = %q, want loopback-tls", got[0].Transport)
+	}
+	if !containsStr(validTransports, "loopback-tls") {
+		t.Error("validTransports does not list loopback-tls")
+	}
+	// The retiring values still validate during the migration, so no shipped or
+	// third-party manifest changes meaning in this commit.
+	for _, legacy := range []string{"tls-intercept", "unix-socket", "none"} {
+		if !containsStr(validTransports, legacy) {
+			t.Errorf("validTransports dropped %q before its consumers were migrated", legacy)
+		}
 	}
 }

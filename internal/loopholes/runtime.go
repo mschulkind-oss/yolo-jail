@@ -1,6 +1,7 @@
 package loopholes
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,11 +13,21 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// warnf/infof are the package's log sinks. Default to no-ops: the contract is
-// the emitted argv, not log output, but the side effect (one info per in-jail
-// device skip) is preserved for callers that install a sink.
+// warnf/infof are the package's log sinks.
+//
+// warnf writes to STDERR by default. It used to be a no-op "for callers that
+// install a sink", and in the whole tree no caller ever did — so every warning
+// this package emitted went nowhere. That is tolerable for "skipped a bind mount"
+// and NOT tolerable for "this loophole failed to load and is therefore absent",
+// which is otherwise invisible at launch (see loadFromDir). A warning nobody can
+// read is not a diagnostic.
+//
+// infof stays a no-op: its one use is a routine in-jail device skip that happens
+// on every launch and says nothing actionable.
 var (
-	warnf = func(format string, args ...any) {}
+	warnf = func(format string, args ...any) {
+		fmt.Fprintf(os.Stderr, "warning: "+format+"\n", args...)
+	}
 	infof = func(format string, args ...any) {}
 )
 
