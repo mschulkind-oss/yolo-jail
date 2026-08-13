@@ -49,7 +49,9 @@ func TestBrokerEndpointEnvVarDoesNotDrift(t *testing.T) {
 // hypothetical — which is why the check is unconditional rather than gated on a
 // platform.
 func TestRelayHealthyRequiresPublishedEndpoint(t *testing.T) {
-	dir := t.TempDir()
+	// shortSocketDir, not t.TempDir(): case 3 binds a real socket in here, and
+	// on darwin a TMPDIR-rooted path overruns sun_path.
+	dir := shortSocketDir(t)
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +277,69 @@ func containsStr(ss []string, want string) bool {
 // isolate the endpoint half of relayHealthy from the liveness half.
 func listenUnixForTest(t *testing.T, path string) (io.Closer, error) {
 	t.Helper()
+	assertSockPathFits(t, path)
 	return net.Listen("unix", path)
+}
+
+// sunPathMax is the longest AF_UNIX path that binds on the tighter of the two
+// platforms: darwin's sun_path is 104 bytes INCLUDING the NUL, Linux's is 108.
+const sunPathMax = 103
+
+// assertSockPathFits fails with the actionable message instead of letting the
+// bind return a bare "invalid argument", which names neither the limit nor the
+// fix.
+func assertSockPathFits(t *testing.T, path string) {
+	t.Helper()
+	if len(path) > sunPathMax {
+		t.Fatalf("socket path is %d bytes, over the %d-byte darwin sun_path limit:\n  %s\n"+
+			"use shortSocketDir(t) — t.TempDir() is rooted at TMPDIR, which on macOS is "+
+			"/var/folders/<2>/<26>/T/ (~49 bytes) before the test name is even appended",
+			len(path), sunPathMax, path)
+	}
+}
+
+// shortSocketDir returns a per-test directory short enough to hold a socket.
+//
+// t.TempDir() is NOT, and that is not a theoretical limit: two tests in the
+// loopback-TLS batch used it, went green on Linux, and failed only on
+// check-macos with "bind: invalid argument". Reproduce on Linux by pointing
+// TMPDIR at a long path — the error comes back byte-for-byte identical, which is
+// what TestSocketDirIgnoresALongTMPDIR pins.
+func shortSocketDir(t *testing.T) string {
+	t.Helper()
+	d, err := os.MkdirTemp("/tmp", "yj-run-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(d) })
+	return d
+}
+
+// TestSocketDirIgnoresALongTMPDIR is the permanent regression test for the
+// check-macos break: it reproduces darwin's long TMPDIR on any platform, proves
+// the reproduction is real, and then proves the helper is immune to it.
+func TestSocketDirIgnoresALongTMPDIR(t *testing.T) {
+	long := filepath.Join("/tmp", "yj-tmpdir-"+strings.Repeat("x", 60))
+	if err := os.MkdirAll(long, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(long) })
+	t.Setenv("TMPDIR", long)
+
+	// The control. Without it this test would still pass if sunPathMax were
+	// raised to something no path can exceed, proving nothing.
+	if p := filepath.Join(t.TempDir(), "relay.sock"); len(p) <= sunPathMax {
+		t.Fatalf("the control did not reproduce the failure — %d bytes is under the "+
+			"limit, so the assertion below is vacuous: %s", len(p), p)
+	}
+	// The fix: unaffected by TMPDIR, and actually bindable.
+	p := filepath.Join(shortSocketDir(t), "relay.sock")
+	assertSockPathFits(t, p)
+	ln, err := net.Listen("unix", p)
+	if err != nil {
+		t.Fatalf("the short socket dir did not yield a bindable path: %v", err)
+	}
+	_ = ln.Close()
 }
 
 // TestRetireStaleRelayFilesRemovesBoth: a respawn clears BOTH of the dead

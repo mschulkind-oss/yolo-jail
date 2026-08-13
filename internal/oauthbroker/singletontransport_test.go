@@ -47,10 +47,13 @@ func TestSingletonSocketIsAUnixSocket(t *testing.T) {
 	}
 	// 0700, i.e. the FRIENDLIEST possible directory. The production path is
 	// /tmp/yolo-claude-oauth-broker.sock, whose parent is 1777 — strictly harder.
-	sockDir := filepath.Join(dir, "run")
-	if err := os.MkdirAll(sockDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	//
+	// NOT under t.TempDir(): the socket name alone is 30 bytes, and a TMPDIR-rooted
+	// parent overruns darwin's 104-byte sun_path. The daemon then fails to bind,
+	// publishes nothing, and this test reports the 10s timeout — which reads as a
+	// broken singleton rather than a too-long path. That is exactly how it failed
+	// on check-macos while passing everywhere else.
+	sockDir := shortSocketDir(t)
 	sock := filepath.Join(sockDir, "yolo-claude-oauth-broker.sock")
 
 	logPath := filepath.Join(dir, "daemon.log")
@@ -135,4 +138,26 @@ func readFullConn(c net.Conn, buf []byte) (int, error) {
 		}
 	}
 	return total, nil
+}
+
+// shortSocketDir returns a per-test directory short enough to hold an AF_UNIX
+// socket path. darwin's sun_path is 104 bytes including the NUL (Linux's is
+// 108), and t.TempDir() is rooted at TMPDIR — which on macOS is
+// /var/folders/<2>/<26>/T/, ~49 bytes before the test name is appended.
+//
+// The failure this prevents is indirect and therefore expensive: the daemon is a
+// child process, so a too-long --socket surfaces here as "published nothing in
+// 10s", not as a bind error. Reproduce on any platform by pointing TMPDIR at a
+// long path; internal/cli/run pins the same property with a test.
+func shortSocketDir(t *testing.T) string {
+	t.Helper()
+	d, err := os.MkdirTemp("/tmp", "yj-broker-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d)+len("/yolo-claude-oauth-broker.sock") > 103 {
+		t.Fatalf("short socket dir is not short: %s", d)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(d) })
+	return d
 }

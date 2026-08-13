@@ -25,12 +25,17 @@ import (
 // the whole question is whether that socket is reachable — a fake would assert the
 // thing under test.
 func TestRelayEnsureSparesALiveLegacyRelay(t *testing.T) {
-	socketsDir := t.TempDir()
+	// shortSocketDir, not t.TempDir(): a TMPDIR-rooted path overruns darwin's
+	// sun_path, and the t.Skipf this used to carry turned that into a SILENT
+	// no-run on check-macos — the platform whose upgrade path this test exists to
+	// protect. A short path has no legitimate reason to fail, so it is fatal now.
+	socketsDir := shortSocketDir(t)
 	legacy := filepath.Join(socketsDir, broker.BrokerLoopholeName+".sock")
 
+	assertSockPathFits(t, legacy)
 	ln, err := net.Listen("unix", legacy)
 	if err != nil {
-		t.Skipf("cannot bind a unix socket here: %v", err)
+		t.Fatalf("cannot bind the legacy relay socket at %s: %v", legacy, err)
 	}
 	defer ln.Close()
 	go func() {
