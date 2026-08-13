@@ -765,6 +765,26 @@ mechanical proof that a daemon never learns its transport.
 A, C and D — the in-jail TLS terminator still binds `127.0.0.1:443`, and relay→singleton and
 CLI→singleton are still host→host Unix; the host broker singleton daemon.
 
+> **CORRECTION 2026-08-13, and it is a live defect: the singleton was NOT unchanged.** The sentence
+> above states the intent and the code does not implement it. `internal/oauthbroker/oauthbrokercmd.go`
+> serves via `hostservice.Serve`, and that function was migrated wholesale (`462729e`, 13:07) to
+> delegate to `svcendpoint.Listen` — so the host-wide singleton was carried across the boundary by
+> accident, with its signature preserved and every test still green. Measured with the real spawn
+> argv (`BrokerSpawnArgv` → `--socket /tmp/yolo-claude-oauth-broker.sock`), `HOME`, `XDG_CONFIG_HOME`
+> and `YOLO_BROKER_STATE_DIR` all temp:
+>
+> ```
+> yolo-claude-oauth-broker-host: svcendpoint: refusing to publish a credential into /tmp:
+>   mode 0755 is group/world-accessible, want 0700          exit=1, nothing published
+> ```
+>
+> and in a 0700 directory it publishes a 673-byte **`-rw------- ASCII text`** token file at the path
+> three sites dial with `net.Dial("unix", …)`. §3.2's first consequence — the file must never land in
+> a shared directory — is the only reason this fails closed rather than writing a bearer token into a
+> world-readable `/tmp`. Tracked as row **T3** in
+> [`../plans/outstanding-work.md`](../plans/outstanding-work.md); the fix direction is this
+> paragraph, not a new decision (the accept loop is already transport-neutral — `serveListener`).
+
 **Still owed:**
 
 - **`yolo-cglimit` and `yolo-journalctl` are still `AF_UNIX` Python clients**, so those two
@@ -794,3 +814,18 @@ platform it is about*. What was verified, in nested jails against freshly built 
 endpoint file's mode and shape through the `:rw` bind, `yolo-ps` over pinned TLS, the terminator
 reaching the real broker through the relay's front with its host-side `jail_id` stamp intact, all
 four failure layers distinguishable, and token rotation picked up with no restart.
+
+> **One item in that list was verified against STALE STATE, 2026-08-13.** "The terminator reaching
+> the real broker" could only have passed because this development jail still had a **pre-migration**
+> singleton alive: pid 203814, started `2026-08-12 23:38:40`, holding a real `srw-------` AF_UNIX
+> socket at `/tmp/yolo-claude-oauth-broker.sock` — i.e. a binary from *before* `462729e` (13:07 the
+> next day) made `hostservice.Serve` publish an endpoint file. `BrokerIsAlive`'s four gates (pid
+> file, pid live, socket exists, ping) therefore all pass, `brokerEnsure` no-ops, and the whole chain
+> works end to end **on a daemon this tree can no longer start** (the correction in §8.4). The
+> end-to-end hop through the relay's front is real and tested in-process; what is NOT established is
+> that a host with no surviving pre-migration singleton reaches a broker at all.
+>
+> **Discipline this earns, for anyone verifying broker work from inside a jail:** a long-lived
+> host-wide singleton is invisible stale state, and every liveness gate in the system is designed to
+> be satisfied by it. Restart it first (`yolo broker restart`, or a temp `YOLO_BROKER_STATE_DIR` plus
+> a spawn of the real argv) or the verification measures the previous binary.
