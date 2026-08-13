@@ -297,11 +297,27 @@ func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap) (loopho
 		"yolo", "internal", "daemon", paths.BuiltinJournalLoopholeName,
 		"--socket", "{socket}", "--mode", mode,
 	})
-	// Still unix-socket: the in-image yolo-journalctl client is generated Python
+	// Still a plain socket: the in-image yolo-journalctl client is generated Python
 	// speaking AF_UNIX and is ported in its own change.
 	return o.startExternalService(paths.BuiltinJournalLoopholeName, spec, socketsDir,
-		loopholes.TransportUnixSocket, "")
+		transportLegacySocket, "")
 }
+
+// transportLegacySocket is this pipeline's label for a host service still
+// published as an AF_UNIX socket.
+//
+// It is NOT a manifest transport. `unix-socket` was REMOVED from
+// loopholes.validTransports rather than deprecated (loophole-transport.md §7.4),
+// so no manifest can select this and loadManifest rejects the value by name. It
+// is spelled here, in the run pipeline, because the pipeline is the only thing
+// that still needs it, and it needs it for exactly two built-ins whose in-image
+// clients are generated Python speaking AF_UNIX: the cgroup delegate (whose
+// client hardcodes CGD_SOCKET) and this journal bridge. Porting those two clients
+// to Go deletes this constant with them.
+//
+// Its VALUE is only ever compared against loopback-tls, never parsed, so nothing
+// depends on it matching the string internal/loopholes uses for the same idea.
+const transportLegacySocket = "unix-socket"
 
 // startExternalService is the common host-service path: substitute the host-side
 // path into the argv, expand ~, spawn, wait for the service to become REACHABLE.
@@ -315,9 +331,12 @@ func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap) (loopho
 //     never respawned and the jail can never reach it.
 //   - anything else — a unix socket, waited for by existence, exactly as before.
 //
-// An empty transport is treated as unix-socket, which is what a config-declared
-// loophole gets, and is the conservative direction: the fallback keeps the path
-// that works today rather than assuming a publication that never happens.
+// The second branch is not dead and is not a safety net for a typo: it is the
+// live path for the two built-ins on transportLegacySocket and for a
+// yolo-jail.jsonc `loopholes:` entry, whose daemon is a third-party program that
+// binds a socket. An empty transport lands there too, which is the conservative
+// direction — the fallback keeps the path that works rather than assuming a
+// publication that never happens.
 func (o *Options) startExternalService(
 	name string, spec *jsonx.OrderedMap, socketsDir, transport, advertiseHost string,
 ) (loopholeDaemon, bool) {

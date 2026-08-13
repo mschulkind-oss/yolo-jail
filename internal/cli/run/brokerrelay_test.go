@@ -171,7 +171,7 @@ func brokerFixtureDirs(t *testing.T, enabled bool) {
 	}
 	manifest := `{"name": "` + broker.BrokerLoopholeName + `", "description": "fixture",
 	  "version": 1, "enabled": ` + map[bool]string{true: "true", false: "false"}[enabled] + `,
-	  "transport": "` + loopholes.TransportTLSIntercept + `", "lifecycle": "spawned",
+	  "transport": "` + loopholes.TransportLoopbackTLS + `", "lifecycle": "spawned",
 	  "intercepts": [{"host": "platform.claude.com"}], "broker_ip": "127.0.0.1",
 	  "host_daemon": {"cmd": ["yolo", "internal", "daemon", "` + broker.BrokerLoopholeName + `", "--socket", "{socket}"]},
 	  "jail_daemon": {"cmd": ["yolo-jaild", "oauth-terminator"], "restart": "on-failure"}}`

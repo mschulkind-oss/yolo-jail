@@ -9,8 +9,23 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// yolo-jail.jsonc loopholes: entries as Loophole records (transport
-// unix-socket, lifecycle spawned, source config).
+// yolo-jail.jsonc loopholes: entries as Loophole records (lifecycle spawned,
+// source config).
+//
+// THE TRANSPORT HERE IS THE RETIRED unix-socket, AND THAT IS DELIBERATE. It is
+// the last place the value survives, and the reason it survives is that a config
+// entry's daemon is a THIRD-PARTY PROGRAM yolo did not write: it binds an AF_UNIX
+// socket at the path substituted into its `command`, and nothing yolo ships lets
+// it publish a loopback-TLS endpoint file instead (internal/hostservice is
+// internal/, so it is not importable from outside this module). Flipping this
+// line to loopback-tls would not migrate those daemons; it would make yolo wait
+// five seconds for an endpoint file that never appears and then kill each one.
+//
+// So the value is retired from the MANIFEST vocabulary — validTransports has two
+// entries and loadManifest rejects this one by name — and stays here, where no
+// manifest can select it, until the framework can offer a third-party daemon a
+// supported way to publish an endpoint. Until then `yolo loopholes list` printing
+// `config/unix-socket/spawned` is the truth about what that daemon gets.
 func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
 	out := []*Loophole{}
 	if loopholesConfig == nil {
@@ -42,7 +57,7 @@ func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
 			Description:  description,
 			Path:         "<yolo-jail.jsonc:loopholes." + name + ">",
 			Enabled:      enabled,
-			Transport:    "unix-socket",
+			Transport:    retiredTransportUnixSocket,
 			Lifecycle:    "spawned",
 			Intercepts:   []Intercept{},
 			BrokerIP:     DefaultBrokerIP,

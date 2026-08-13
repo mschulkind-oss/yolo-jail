@@ -13,7 +13,13 @@
   "requires": {
     "command_on_path": "claude"
   },
-  "transport": "tls-intercept",
+  // The transport is the hop a JAIL dials, which is the per-jail relay's
+  // loopback-TLS front (see host_daemon below).  This used to say
+  // "tls-intercept", which named the in-jail TLS terminator instead — hop A, the
+  // one hop that never crosses the boundary — and so could not select anything.
+  // Interception is declared by `intercepts` + `broker_ip` + `ca_cert`, unchanged
+  // below and still the only thing that wires it.
+  "transport": "loopback-tls",
   "lifecycle": "spawned",
   "intercepts": [
     {"host": "platform.claude.com"}

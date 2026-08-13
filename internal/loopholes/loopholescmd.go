@@ -100,8 +100,12 @@ func List(deps Deps) int {
 		} else {
 			label = "active"
 		}
+		// Interception is a property of the intercept list, not of the transport
+		// string — see RuntimeArgsFor. The `transport=` fallback still prints for
+		// every non-intercepting loophole, which is what makes the active transport
+		// visible without asking (loophole-transport.md OQ-T2).
 		var extra string
-		if lh.Transport == "tls-intercept" && len(lh.Intercepts) > 0 {
+		if len(lh.Intercepts) > 0 {
 			hosts := make([]string, len(lh.Intercepts))
 			for i, ic := range lh.Intercepts {
 				hosts[i] = ic.Host

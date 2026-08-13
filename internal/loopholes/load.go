@@ -71,13 +71,18 @@ func loadManifest(modulePath string) (*Loophole, error) {
 		description = s
 	}
 
-	transport := "tls-intercept"
+	// An absent `transport` means loopback-tls: there is one transport, so the
+	// default is it. The old default was "tls-intercept", which was never a
+	// transport at all — a manifest that said nothing about transports got a value
+	// implying it intercepted TLS.
+	transport := TransportLoopbackTLS
 	if tv, ok := data.Get("transport"); ok {
 		transport = pyStr(tv)
 	}
 	if !inList(transport, validTransports) {
-		return nil, loopholeErrorf("%s: transport=%s not in %s",
-			manifestPath, pytext.Repr(transport), sortedListRepr(validTransports))
+		return nil, loopholeErrorf("%s: transport=%s not in %s%s",
+			manifestPath, pytext.Repr(transport), sortedListRepr(validTransports),
+			retiredTransportHint(transport))
 	}
 
 	lifecycle := "external"
@@ -187,6 +192,29 @@ func loadManifest(modulePath string) (*Loophole, error) {
 		Requires:      requires,
 		Source:        SourceUser,
 	}, nil
+}
+
+// retiredTransportHint appends the migration instruction to the "not in [...]"
+// error when the rejected value is one this repo used to ship.
+//
+// The bare enum error is technically complete and practically useless here: the
+// reader wrote a value the docs told them to write, and the consequence of the
+// rejection is that their loophole VANISHES (loadFromDir warns and moves on). The
+// hint turns a breaking change into a self-documenting one, which is the price of
+// removing a value rather than deprecating it.
+func retiredTransportHint(transport string) string {
+	switch transport {
+	case retiredTransportTLSIntercept:
+		return " — 'tls-intercept' was retired: it named the in-jail TLS terminator," +
+			" not a transport. Write 'loopback-tls' and keep 'intercepts'/'broker_ip'/" +
+			"'ca_cert' exactly as they are; those are what wire the interception."
+	case retiredTransportUnixSocket:
+		return " — 'unix-socket' was retired (docs/design/loophole-transport.md §7.4):" +
+			" it cannot cross virtiofs on macOS + podman. Write 'loopback-tls'; the" +
+			" daemon must then publish an endpoint file at the path yolo substitutes" +
+			" into '{endpoint}' instead of binding a socket there."
+	}
+	return ""
 }
 
 func parseIntercepts(manifestPath string, raw any) ([]Intercept, error) {

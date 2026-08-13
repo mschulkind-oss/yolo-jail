@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
@@ -70,7 +72,7 @@ func TestLoadsMinimalManifest(t *testing.T) {
 		t.Fatalf("expected 1, got %d", len(loaded))
 	}
 	m := loaded[0]
-	if m.Name != "my-mod" || !m.Enabled || m.Transport != "tls-intercept" || m.Lifecycle != "external" {
+	if m.Name != "my-mod" || !m.Enabled || m.Transport != TransportLoopbackTLS || m.Lifecycle != "external" {
 		t.Errorf("defaults wrong: %+v", m)
 	}
 	if len(m.Intercepts) != 0 || m.CACertSet {
@@ -157,10 +159,18 @@ func TestConfigSynthesizedAsLoopholes(t *testing.T) {
 	if !containsStr(got, "journal") || !containsStr(got, "cgroup-delegate") {
 		t.Fatalf("got %v", got)
 	}
+	// A config entry keeps the RETIRED transport on purpose: its daemon is a
+	// third-party program binding an AF_UNIX socket, and yolo ships nothing that
+	// would let such a program publish an endpoint file instead. Retirement here
+	// means "no manifest can select it" — pinned by
+	// TestValidTransportsIsLoopbackTLSAndNone — not "the socket path is gone".
 	for _, m := range loaded {
-		if m.Transport != "unix-socket" || m.Lifecycle != "spawned" || !m.FromConfig() {
+		if m.Transport != retiredTransportUnixSocket || m.Lifecycle != "spawned" || !m.FromConfig() {
 			t.Errorf("synthesized loophole shape wrong: %+v", m)
 		}
+	}
+	if containsStr(validTransports, retiredTransportUnixSocket) {
+		t.Error("a MANIFEST can still declare the value a config entry gets internally")
 	}
 }
 
@@ -467,14 +477,119 @@ func TestLoopbackTLSIsAValidTransport(t *testing.T) {
 	if got[0].Transport != "loopback-tls" {
 		t.Errorf("Transport = %q, want loopback-tls", got[0].Transport)
 	}
-	if !containsStr(validTransports, "loopback-tls") {
-		t.Error("validTransports does not list loopback-tls")
+}
+
+// TestValidTransportsIsLoopbackTLSAndNone pins the retirement itself. "unix-socket"
+// and "tls-intercept" are REMOVED, not deprecated — the maintainer's reason being
+// that a value which still validates is a value someone will use — so the
+// vocabulary is exactly two entries and this test fails the moment a third
+// reappears.
+func TestValidTransportsIsLoopbackTLSAndNone(t *testing.T) {
+	want := []string{TransportLoopbackTLS, TransportNone}
+	if len(validTransports) != len(want) {
+		t.Fatalf("validTransports = %v, want exactly %v", validTransports, want)
 	}
-	// The retiring values still validate during the migration, so no shipped or
-	// third-party manifest changes meaning in this commit.
-	for _, legacy := range []string{"tls-intercept", "unix-socket", "none"} {
-		if !containsStr(validTransports, legacy) {
-			t.Errorf("validTransports dropped %q before its consumers were migrated", legacy)
+	for _, w := range want {
+		if !containsStr(validTransports, w) {
+			t.Errorf("validTransports = %v, missing %q", validTransports, w)
 		}
+	}
+	for _, retired := range []string{retiredTransportUnixSocket, retiredTransportTLSIntercept} {
+		if containsStr(validTransports, retired) {
+			t.Errorf("validTransports still accepts the retired %q", retired)
+		}
+	}
+}
+
+// TestAbsentTransportDefaultsToLoopbackTLS: with one transport, saying nothing
+// means it. The old default was "tls-intercept", so a manifest that never
+// mentioned transports claimed to intercept TLS.
+func TestAbsentTransportDefaultsToLoopbackTLS(t *testing.T) {
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "quiet"))
+	writeManifest(t, mod, map[string]any{"name": "quiet", "description": "x"})
+	got := discoverDir(md, true)
+	if len(got) != 1 {
+		t.Fatalf("loaded %v, want [quiet]", names(got))
+	}
+	if got[0].Transport != TransportLoopbackTLS {
+		t.Errorf("default Transport = %q, want %q", got[0].Transport, TransportLoopbackTLS)
+	}
+}
+
+// TestRetiredTransportRejectedWithMigrationHint: removing a documented value
+// breaks third-party manifests that used it, and the consequence of the break is
+// that the loophole VANISHES. The rejection therefore has to name the replacement
+// — the bare enum error tells a reader what is wrong and not what to do about it.
+func TestRetiredTransportRejectedWithMigrationHint(t *testing.T) {
+	for _, tc := range []struct{ transport, wantSubstr string }{
+		{retiredTransportUnixSocket, "{endpoint}"},
+		{retiredTransportTLSIntercept, "intercepts"},
+	} {
+		t.Run(tc.transport, func(t *testing.T) {
+			md := modsDir(t)
+			mod := mkdir(t, filepath.Join(md, "legacy"))
+			writeManifest(t, mod, map[string]any{
+				"name": "legacy", "description": "x", "transport": tc.transport,
+			})
+			_, err := LoadLoophole(mod)
+			if err == nil {
+				t.Fatalf("transport=%q still loads; it was supposed to be REMOVED", tc.transport)
+			}
+			msg := err.Error()
+			if !contains(msg, TransportLoopbackTLS) {
+				t.Errorf("error does not name the replacement transport: %s", msg)
+			}
+			if !contains(msg, tc.wantSubstr) {
+				t.Errorf("error does not say what else to change (want %q): %s", tc.wantSubstr, msg)
+			}
+			// And it really is gone from discovery, warned about rather than silent.
+			if got := discoverDir(md, true); len(got) != 0 {
+				t.Errorf("rejected manifest still discovered: %v", names(got))
+			}
+		})
+	}
+}
+
+// TestListKeysInterceptsOnTheInterceptList: `yolo loopholes list` is the whole
+// answer to "is the active transport visible without asking" (loophole-transport
+// OQ-T2), so the `transport=` column has to print for every loophole that is not
+// intercepting — and the intercept column has to key on `intercepts`, not on a
+// transport string, now that no transport implies interception.
+func TestListKeysInterceptsOnTheInterceptList(t *testing.T) {
+	unsetJail(t)
+	md := modsDir(t)
+	plain := mkdir(t, filepath.Join(md, "plain"))
+	writeManifest(t, plain, map[string]any{
+		"name": "plain", "description": "x", "transport": TransportLoopbackTLS,
+	})
+	icept := mkdir(t, filepath.Join(md, "icept"))
+	writeManifest(t, icept, map[string]any{
+		"name": "icept", "description": "x", "transport": TransportLoopbackTLS,
+		"intercepts": []any{map[string]any{"host": "example.test"}},
+	})
+
+	empty := mkdir(t, filepath.Join(t.TempDir(), "none"))
+	origB, origU := BundledLoopholesDir, UserLoopholesDir
+	BundledLoopholesDir = func() string { return empty }
+	UserLoopholesDir = func() string { return md }
+	t.Cleanup(func() { BundledLoopholesDir, UserLoopholesDir = origB, origU })
+
+	var out strings.Builder
+	nilCfg := func() *jsonx.OrderedMap { return nil }
+	rc := List(Deps{
+		Out: &out, Err: &out,
+		LoadUserConfig:      nilCfg,
+		LoadWorkspaceConfig: func(string) *jsonx.OrderedMap { return nil },
+	})
+	if rc != 0 {
+		t.Fatalf("List rc = %d", rc)
+	}
+	got := out.String()
+	if !contains(got, "transport="+TransportLoopbackTLS) {
+		t.Errorf("no transport= column for the non-intercepting loophole:\n%s", got)
+	}
+	if !contains(got, "intercepts=[example.test]") {
+		t.Errorf("intercepting loophole did not print its hosts:\n%s", got)
 	}
 }

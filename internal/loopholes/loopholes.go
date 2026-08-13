@@ -24,30 +24,43 @@ const DefaultBrokerIP = "host-gateway"
 // Transport values. Named rather than spelled inline because the run pipeline,
 // the checks and the manifests all have to agree on them, and a typo in any one
 // of those places silently selects the other publication mechanism.
+//
+// THERE ARE TWO, and that is the whole point of the unification
+// (docs/design/loophole-transport.md §7.4). `transport` now answers exactly one
+// question — "does this loophole have a host daemon a jail dials, and if so how"
+// — where it used to conflate that with "does this loophole intercept TLS".
 const (
-	// TransportLoopbackTLS is the unified transport (internal/svcendpoint): the
-	// framework publishes an endpoint file and the daemon never learns what
-	// carried its bytes.
+	// TransportLoopbackTLS is THE transport (internal/svcendpoint): the framework
+	// publishes an endpoint file and the daemon never learns what carried its
+	// bytes.
 	TransportLoopbackTLS = "loopback-tls"
-	// TransportUnixSocket is the retiring transport. Still the default for a
-	// manifest that says nothing and for a config-declared loophole, until both
-	// remaining consumers are ported (docs/design/loophole-transport.md §7.4).
-	TransportUnixSocket = "unix-socket"
-	// TransportTLSIntercept is the broker's declared value. It describes hop A
-	// (the in-jail TLS terminator) and is silent about the hop that actually
-	// carries bytes to the host, which is why it cannot select a transport.
-	TransportTLSIntercept = "tls-intercept"
 	// TransportNone means NO DAEMON, not a different transport. It stays.
 	TransportNone = "none"
+)
+
+// Retired transport values, kept ONLY to recognize them and say what to write
+// instead. Neither is in validTransports, so a manifest naming one is rejected —
+// deliberately, because a value that still validates is a value someone will use.
+//
+// A manifest that declared either one loses nothing by declaring loopback-tls:
+//
+//   - "tls-intercept" never selected a transport. Intercept-ness is carried
+//     entirely by `intercepts` + `broker_ip` + `ca_cert`, which is why the one
+//     behavioural reader (RuntimeArgsFor's Apple Container skip) now keys on
+//     len(Intercepts) instead. It named hop A (the in-jail TLS terminator) while
+//     saying nothing about hop B, the hop that actually crosses to the host.
+//   - "unix-socket" is the transport that does not work on macOS + podman at all
+//     (virtiofs shares a socket's inode, not its connection endpoint), which is
+//     the defect the unification exists to fix.
+const (
+	retiredTransportTLSIntercept = "tls-intercept"
+	retiredTransportUnixSocket   = "unix-socket"
 )
 
 // Valid enum values. Kept as ordered slices in sorted order so the
 // "not in [...]" error strings render deterministically.
 var (
-	// "loopback-tls" sits alongside the older values only for the length of the
-	// migration — "unix-socket" and "tls-intercept" both retire once both
-	// consumers are ported (docs/design/loophole-transport.md §7.4).
-	validTransports = []string{TransportLoopbackTLS, TransportTLSIntercept, TransportUnixSocket, TransportNone}
+	validTransports = []string{TransportLoopbackTLS, TransportNone}
 	validLifecycles = []string{"external", "spawned"}
 	validRestarts   = []string{"always", "on-failure", "no"}
 )

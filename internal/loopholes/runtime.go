@@ -31,8 +31,8 @@ var (
 	infof = func(format string, args ...any) {}
 )
 
-// (podman) path; pass "container" for Apple Container (skips tls-intercept
-// loopholes). It is side-effect free and idempotent.
+// (podman) path; pass "container" for Apple Container (which skips any loophole
+// declaring `intercepts`). It is side-effect free and idempotent.
 func RuntimeArgsFor(loopholes []*Loophole, runtime string) []string {
 	args := []string{}
 	trustedCAPaths := []string{}
@@ -45,7 +45,17 @@ func RuntimeArgsFor(loopholes []*Loophole, runtime string) []string {
 		if !m.Active() {
 			continue
 		}
-		if runtime == "container" && m.Transport == "tls-intercept" {
+		// Apple Container does not support --add-host (apple/container#673), so a
+		// loophole that needs one is skipped whole there.
+		//
+		// The key is the INTERCEPT LIST, not a transport string. It used to be
+		// `Transport == "tls-intercept"`, which worked only because one value
+		// happened to imply the other; `intercepts` is what actually produces the
+		// --add-host flags twenty lines below, so keying on it makes the skip and
+		// the thing skipped the same fact. That is also what let "tls-intercept"
+		// retire (docs/design/loophole-transport.md §7.4): it was the field's only
+		// behavioural reader.
+		if runtime == "container" && len(m.Intercepts) > 0 {
 			continue
 		}
 		containerDir := "/etc/yolo-jail/loopholes/" + m.Name

@@ -117,7 +117,13 @@ func TestRuntimeArgsNoCANoEnv(t *testing.T) {
 	}
 }
 
-func TestRuntimeArgsSkipTLSOnAppleContainer(t *testing.T) {
+// TestAppleContainerSkipKeysOnIntercepts: Apple Container has no --add-host
+// (apple/container#673), so a loophole that needs one is skipped whole. The key is
+// the INTERCEPT LIST — the thing that produces the --add-host flags — not the
+// transport string, which is how "tls-intercept" could retire. Both manifests here
+// declare the one surviving daemon transport; only the intercepting one is
+// skipped.
+func TestAppleContainerSkipKeysOnIntercepts(t *testing.T) {
 	unsetJail(t)
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "broker"))
@@ -125,7 +131,7 @@ func TestRuntimeArgsSkipTLSOnAppleContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeManifest(t, mod, map[string]any{
-		"name": "broker", "description": "x",
+		"name": "broker", "description": "x", "transport": TransportLoopbackTLS,
 		"intercepts": []any{map[string]any{"host": "example.test"}},
 		"broker_ip":  "10.0.0.1", "ca_cert": "ca.crt", "jail_env": map[string]any{"FOO": "bar"},
 	})
@@ -135,7 +141,18 @@ func TestRuntimeArgsSkipTLSOnAppleContainer(t *testing.T) {
 	}
 	ac := argsFor(md, "container")
 	if len(ac) != 0 {
-		t.Errorf("apple container should skip tls-intercept entirely, got %v", ac)
+		t.Errorf("apple container should skip an intercepting loophole entirely, got %v", ac)
+	}
+
+	// Same transport, no intercepts: NOT skipped, or the re-key would have turned
+	// "skip what needs --add-host" into "skip every loophole".
+	plain := mkdir(t, filepath.Join(md, "plain"))
+	writeManifest(t, plain, map[string]any{
+		"name": "plain", "description": "x", "transport": TransportLoopbackTLS,
+		"jail_env": map[string]any{"BAR": "baz"},
+	})
+	if ac := argsFor(md, "container"); !containsArg(ac, "BAR=baz") {
+		t.Errorf("a non-intercepting loophole must survive apple container, got %v", ac)
 	}
 }
 
