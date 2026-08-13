@@ -105,6 +105,40 @@ suppress; if nixpkgs had not moved, no PR would exist.
 on the host), so it is safe to land and easy to forget. Worth pairing with one nested-jail run so
 the new lock is actually exercised rather than merely merged.
 
+### What the three changed lines actually are
+
+The diff looks trivial because a lockfile is a **pointer**, not content. The four fields:
+
+| Field | What it is | Is it a filter? |
+|---|---|---|
+| `rev` | the **git commit SHA** of nixpkgs. This is the whole input — it determines every package version in the image | no, it is the result |
+| `narHash` | a content hash of the **fetched, unpacked tree** (NAR serialization). Nix verifies the download against it | no — integrity check |
+| `lastModified` | the **commit timestamp** of that `rev`, Unix epoch. Descriptive metadata only | **no** — see below |
+| `owner`/`repo`/`type` | where to fetch from | no |
+
+**`lastModified` is not a version filter on a remote database.** Nothing queries by it. What
+decides *what gets resolved* is the `original` ref in `flake.nix` —
+`nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"`, i.e. **track the `nixos-unstable` branch
+head**. `nix flake update` asks GitHub for that branch's current tip, writes the resulting `rev`,
+and records `lastModified` because that is when the tip commit was authored. It is a "how stale is
+this pin?" readout, not a constraint.
+
+So the three lines say: *the nixos-unstable branch head moved from commit A to commit B, and here
+is the hash proving we fetched B intact.*
+
+### What it does NOT tell you, which is the real gap
+
+**A `rev` bump signals nothing about the packages this image actually uses.** Between two
+nixos-unstable tips, ~100k packages may have changed, of which the image consumes a few dozen. The
+PR body says "picks up current nixpkgs on the next image rebuild" — true, and unfalsifiable by
+reading it. A reviewer cannot tell an openssl CVE fix from a README typo in a package nobody here
+installs.
+
+**That is fixable and worth doing:** have the workflow build the image derivation on both the old
+and new lock and post `nix store diff-closures` output into the PR body. That turns three opaque
+lines into "go 1.25.1 → 1.25.3, openssl 3.5.2 → 3.5.4, +2 MiB" — which is a thing a human can
+actually review. Recorded as **D3** below.
+
 ## C-3. #32 — land it, then promote it; do NOT close it as subsumed
 
 Full analysis: [`agent-auth-modes.md`](../design/agent-auth-modes.md) §12. The three points that
@@ -458,9 +492,67 @@ does the dir get created? (2) two packs, distinct skills, two destinations — d
 | **B1** | Audit-only log of every jail↔host boundary crossing ([boundary-broker.md](../design/boundary-broker.md) step 1) | small, additive | nothing |
 | **B1b** | **Credential-injecting proxy for git** — host injects after egress, jail holds nothing, no human. **Possibly an ADOPTION**: unYOLO's MIT `gh-broker` is this row's entire scope ([§10](../design/boundary-broker.md)) | new capability | nothing |
 | **B2** | Approval-gated host credentials — one allowlisted verb, synchronous. Design validated by convergence with unYOLO; take its grant model, content-addressed plans, and `expected_revision` rather than re-deriving | new capability | N3/OQ-1 |
-| **D1** 🔴 | **Config-approval snapshot is agent-writable** — `.yolo/config-snapshot.json` is mode `664` and writable in-jail (re-measured 2026-08-12). An agent that edits `yolo-jail.jsonc` **and** matches the snapshot makes the launch-time diff prompt vanish — the exact bypass [config-safety.md](../design/config-safety.md) exists to prevent, and it is undiscussed there. From `ROADMAP.md` §4d; never queued until now | security | nothing |
-| **D2** | **Two shipped docs contradict the code** — `USER_GUIDE.md:182` and `bundled_loopholes/claude-oauth-broker/README.md:59` both say *"no background timer / no proactive refresh"*, but `oauthbrokercmd.go:88` starts `RunBackgroundRefresher` by default — and that refresher **is** the architectural fix for all three logout paths. (The `--host-creds-file` half has since been fixed.) From `ROADMAP.md` §4d | doc defect | nothing |
+| **D1** 🔴 | **Config-approval snapshot is agent-writable** — `.yolo/config-snapshot.json` is mode `664` and writable in-jail (re-measured 2026-08-12). An agent that edits `yolo-jail.jsonc` **and** matches the snapshot makes the launch-time diff prompt vanish — the exact bypass [config-safety.md](../design/config-safety.md) exists to prevent, and it is undiscussed there. From `ROADMAP.md` §4d; never queued until now. **Has an open question — see OQ-D1** | security | **your call** (OQ-D1) |
+| **D2** | **Two shipped docs contradict the code** — `USER_GUIDE.md:182` and `bundled_loopholes/claude-oauth-broker/README.md:59` both say *"no background timer / no proactive refresh"*, but `oauthbrokercmd.go:88` starts `RunBackgroundRefresher` by default — and that refresher **is** the architectural fix for all three logout paths. (The `--host-creds-file` half has since been fixed.) From `ROADMAP.md` §4d. **No OQ: the code is right and the docs are wrong**, so this is a doc edit, not a decision | doc defect | nothing |
+| **D3** | **`flake.lock` bumps are unreviewable** — three opaque lines that could be a CVE fix or a README typo (C-2). Have the update workflow post `nix store diff-closures` between the old and new image derivation into the PR body, turning the bump into a readable package-version delta | small, additive | nothing |
 | ✅ **B4** | ~~Correct [agent-credentials.md](../design/agent-credentials.md) §3~~ **DONE** — it documented Bedrock keys arriving via the `env` block of host `settings.json`; that block is `{}` and the real path is `env_sources`. Corrected in place, with a note that the `env` block is nonetheless the right *target* design (§11.2) — it described the correct mechanism before anything used it | — | — |
+
+---
+
+# Every decision waiting on you
+
+One index, because these are spread across four docs. **Nothing below is blocked on work — only
+on an answer.** Where I have a recommendation it is stated; where I do not, it says so.
+
+| # | Decision | Where | My read |
+|---|---|---|---|
+| **OQ-D1** | **How to fix the writable config snapshot** (D1) | below | make it host-owned and read-only in-jail |
+| **OQ-T1** | #32: per-jail token + pinned cert **as proposed**, or full mTLS? *The PR author asked this and is waiting.* | [`loophole-transport.md`](../design/loophole-transport.md) §7 | as proposed |
+| **OQ-T2** | Transport selection: automatic by platform, configured, or both? | same | automatic + override |
+| **OQ-T3** | Per-jail client secrets on the `unix` transport too, or only TCP? | same | yes, both |
+| **OQ-T4** | Does `macos-user` make the transport problem moot? | same | no, not today |
+| **OQ-T5** | Is the endpoint file jail-writable, and does it matter? | same | state it explicitly either way |
+| **OQ-T6** | Per-file loophole mounts as a framework feature, or one-off for the broker? | same | narrow fix now, general form with §4 |
+| **N3** | Non-container nix: Option 0 / 2 / 3 | B-2 above | Option 2, no longer urgent |
+| **OQ-1** | Is per-jail auth selection enough, or is dynamic switching required? | [`agent-auth-modes.md`](../design/agent-auth-modes.md) §10 | per-jail is probably enough |
+| **OQ-2** | Bedrock bundle: stays in `env_sources`, or becomes a declared bundle? | same | declared |
+| **OQ-3** | What happens on a mode switch mid-session? | same | require a restart; be honest about it |
+| **OQ-4** | Should `check` verify the selected mode's credential is live? | same | yes |
+| **OQ-5** | Should packs be able to require other packs (`requires_pack`)? | same §12.4 | yes, paired with `conflicts` |
+| **OQ-6** | Auth packs **shipped or fetched**? *Gates building them.* | same | **fetched** |
+| **OQ-7** | Does the Teams pack own the model IDs, or the base `claude` pack? | same | no recommendation yet |
+| **OQ-8** | Generalize #32's transport, or merge as scoped? | same | merge as scoped, generalize at B1 |
+| **OQ-9** | Is `env_sources` still the right home for the AWS keys? | same | no recommendation yet |
+| **A2** | How loud should selecting both auth packs be? | Thread A | a `conflicts` manifest field |
+| **S5** | Jail skill collision: warn, `check` failure, or boot refusal? | S5 above | warn now; decide the rest later |
+| **OQ-B/E** | Approval grants: reusable? answered where? | [`boundary-broker.md`](../design/boundary-broker.md) §9 | §10 has worked answers |
+
+## OQ-D1 — how to fix the writable config snapshot
+
+`.yolo/config-snapshot.json` lives in the **workspace**, which is bind-mounted read-write by
+design — that is the whole point of the workspace. So "make it read-only" is not a one-liner, and
+the options differ in what they cost:
+
+1. **Move it out of the workspace** into host-side state (`paths.GlobalStorage()`), keyed by
+   workspace path. The agent cannot reach it at all. **Cost:** the snapshot stops being visible
+   next to the config it describes, and a workspace copied to another machine loses its approval
+   state — which may be correct.
+2. **Keep it in place, make it host-owned and read-only in-jail** (`0444`, owned by a uid the jail
+   does not run as). **Cost:** the jail runs as UID 0, so file modes are not a barrier — this needs
+   a mount-level `:ro`, which means a per-file mount inside a read-write tree.
+3. **Sign it** — the snapshot carries an HMAC the host verifies, so tampering is detected rather
+   than prevented. **Cost:** a key to manage, for a threat the other two options simply remove.
+4. **Accept and document.** The threat is a *confused or prompt-injected* agent, not a malicious
+   one, and an agent that wants to bypass the prompt can ask the user to approve instead.
+   **Cost:** [`config-safety.md`](../design/config-safety.md) currently promises a guarantee it
+   does not deliver, so at minimum the doc must change.
+
+**My read: (2) if a per-file `:ro` mount inside the workspace is practical, else (1).** Both
+remove the bypass rather than detecting it, and (1) is the honest fallback. **(4) is the one to
+avoid quietly** — it is the current state, and it is only defensible if written down.
+
+**This needs your call because it trades workspace-portability against a security property**, and
+that is a product question rather than a technical one.
 
 ---
 

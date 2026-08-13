@@ -164,8 +164,25 @@ owner-only permissions are no barrier — the read above is the proof.
 
 ### 5.1 The fix
 
-**Only `server.crt` and `server.key` are needed in-jail.** `ca.key` is used solely host-side by
-`cert.go`. Mount the two server files rather than the state directory.
+**Three files are needed in-jail; `ca.key` is not one of them.** Verified 2026-08-12:
+
+| File | Needed in-jail? | Why |
+|---|---|---|
+| `ca.crt` | **yes** | `NODE_EXTRA_CA_CERTS` points at it — measured: `/var/lib/yolo-jail/loopholes/claude-oauth-broker/ca.crt` |
+| `server.crt`, `server.key` | **yes** | the in-jail TLS terminator serves with them |
+| **`ca.key`** | **NO** | read only by `caKey()` in `internal/oauthbroker/cert.go`, host-side signing |
+| `ca.srl`, `leaf.cnf`, `refresh.lock` | no | host-side CA bookkeeping and the refresh flock |
+
+So the mount narrows from the state **directory** to **three files**.
+
+> **Correction to an earlier draft**, which said "only `server.crt` and `server.key`". `ca.crt` is
+> required in-jail — dropping it would break `NODE_EXTRA_CA_CERTS` and therefore every in-jail TLS
+> verification of the terminator. The distinction that matters is **public vs private**, not
+> **ca vs server**.
+
+**There is already a declaration to build on.** The loophole manifest names the CA cert explicitly
+— `"ca_cert": "{state}/ca.crt"` — so the framework already knows which single file is the public
+CA. What it does not have is a way to say *"mount these files, not the state dir"*. See **OQ-T6**.
 
 This is a **mount-scope change, not a redesign**, and it should land before or with #32 — not
 after, because #32's security argument explicitly assumes the CA is untrustworthy and a reader who
@@ -238,3 +255,11 @@ platform, and the framework question should not hold it hostage.
   host-services dir. #32 notes a sibling cannot tamper with *another* jail's file (separate
   per-jail mounts), but a jail can presumably rewrite **its own** — which redirects only itself,
   and it already knows its own token. Worth stating explicitly rather than leaving to inference.
+- **OQ-T6. Per-file mounts as a framework feature, or a one-off for the broker?** §5.1's fix is
+  three files instead of a directory. The manifest already declares `ca_cert` by path, so the
+  framework has half the vocabulary — a general `mounts_into_jail: [...]` (default: nothing, rather
+  than today's implicit whole-state-dir) would make **every** loophole's jail-visible surface
+  explicit and reviewable, and would have made this defect visible in a manifest diff. Against:
+  it is a breaking manifest change for external loophole authors, for a problem only one shipped
+  loophole has today. **Recommendation: fix the broker narrowly now, and treat the general form as
+  a candidate for the transport work in §4** — the two touch the same code.
