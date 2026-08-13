@@ -50,7 +50,7 @@ func Main(argv []string) int {
 	}
 
 	stop := make(chan struct{})
-	if err := hostservice.Serve(BuildHandler(cfg), publish, stop); err != nil {
+	if err := hostservice.ServeEndpoint(BuildHandler(cfg), publish, stop); err != nil {
 		fmt.Fprintln(os.Stderr, "yolo-host-processes:", err)
 		return 1
 	}

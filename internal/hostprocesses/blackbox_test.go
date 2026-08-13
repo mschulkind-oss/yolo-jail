@@ -17,7 +17,7 @@ import (
 // list/tree/pid, the exit-code contract (0/1/2/3/124), per-request config re-read,
 // empty-allowlist, and the failure/edge paths (non-string mode, tree timeout, tree
 // ps-nonzero-empty -> exit 0). Byte-level where the fake ps makes output
-// deterministic. The daemon runs in-process (BuildHandler + hostservice.Serve).
+// deterministic. The daemon runs in-process (BuildHandler + hostservice.ServeEndpoint).
 //
 // EVERY ASSERTION BELOW IS UNCHANGED BY THE TRANSPORT MIGRATION — only how a
 // connection is obtained changed. That is the proof the daemon never learns which
@@ -42,7 +42,7 @@ func startDaemon(t *testing.T, configPath, fakePSDir string) (endpoint string, s
 	stopCh := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		_ = hostservice.Serve(BuildHandler(configPath), endpoint, stopCh)
+		_ = hostservice.ServeEndpoint(BuildHandler(configPath), endpoint, stopCh)
 		close(done)
 	}()
 	waitEndpoint(t, endpoint)

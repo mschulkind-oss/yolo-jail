@@ -32,7 +32,7 @@ func TestConformanceHandlerErrorFrame(t *testing.T) {
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		_ = Serve(func(s *Session) { panic(errString("boom")) }, ep, stop)
+		_ = ServeEndpoint(func(s *Session) { panic(errString("boom")) }, ep, stop)
 		close(done)
 	}()
 	waitForEndpoint(t, ep)
@@ -74,7 +74,7 @@ func TestExecAllowlistedSignalDeathExitCode(t *testing.T) {
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		_ = Serve(func(s *Session) {
+		_ = ServeEndpoint(func(s *Session) {
 			s.ExecAllowlisted(
 				func(*jsonx.OrderedMap) []string { return []string{"sh", "-c", "kill -TERM $$"} },
 				map[string]struct{}{"sh": {}, "-c": {}, "kill -TERM $$": {}},

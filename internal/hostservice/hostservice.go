@@ -3,11 +3,13 @@
 // command-injection-guarded exec helper, so each daemon shrinks to a handler plus
 // its allowlist.
 //
-// It does NOT own a transport. Serve delegates that to internal/svcendpoint
-// (loopback-TLS, cert-pinned, token-authenticated), whose Accept returns only
-// authenticated connections — so a daemon cannot forget to authenticate, and none
-// of the code below learns which transport carried its bytes. Session and
-// handleOne were already net.Conn-based, which is why nothing here changed shape.
+// It does NOT own a transport — it owns two, and each caller names the one it
+// wants: ServeUnix (host-to-host) or ServeEndpoint (jail-facing loopback-TLS via
+// internal/svcendpoint, cert-pinned and token-authenticated, whose Accept returns
+// only authenticated connections). There is deliberately no `Serve`; see the note
+// above ServeUnix for the outage that name caused. Neither transport reaches the
+// code below: Session and handleOne are net.Conn-based, which is why the accept
+// loop is shared and nothing here learns which transport carried its bytes.
 //
 // Frame wire format lives in internal/frameproto (the frozen contract);
 // this package is the request-parsing + response-emitting harness around it.
@@ -20,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -190,8 +193,60 @@ func (s *Session) ExecAllowlisted(
 // Handler processes one Session.
 type Handler func(*Session)
 
-// Serve publishes a loopback-TLS endpoint at endpointPath and serves it until a
-// SIGTERM/SIGINT (or stop close); one goroutine per connection.
+// THERE IS DELIBERATELY NO `Serve`. There were two transports and one function
+// name, and the migration to loopback-TLS changed what that name DID while leaving
+// its signature alone — so `internal/oauthbroker` kept compiling, kept passing a
+// Unix socket path, and silently began publishing a token-bearing regular FILE at
+// the path three call sites dial with net.Dial("unix", …). On a real host it did
+// not even get that far: /tmp is 1777, and svcendpoint refuses to write a
+// credential into a group/world-accessible directory, so the host-wide singleton
+// could not start at all and every jail's Claude auth failed — issue #31's symptom
+// on Linux, from the fix for issue #31.
+//
+// Both the design (loophole-transport.md §8.4, "Unchanged, deliberately: … the
+// host broker singleton daemon") and the shipped manifest ("host-to-host … so it
+// stays a plain Unix socket") said the singleton keeps its socket. The design was
+// right; the implementation drifted, and nothing caught it because a
+// signature-preserving change to a shared helper is invisible at the call site.
+//
+// So the ambiguous name is GONE. Each caller now names its transport, and a future
+// migration cannot silently re-point one by editing a helper.
+
+// ServeUnix serves a plain AF_UNIX socket at socketPath until SIGTERM/SIGINT (or
+// stop close); one goroutine per connection.
+//
+// This is the HOST-TO-HOST transport: both ends are processes on the host, no jail
+// boundary is crossed, and the filesystem already carries the authorization the
+// loopback-TLS transport has to reconstruct with a token (svcendpoint's whole
+// reason to exist). The socket is 0600 via umask, and a stale one is removed
+// first so a crashed daemon does not wedge its successor.
+func ServeUnix(handler Handler, socketPath string, stop <-chan struct{}) error {
+	if _, err := os.Stat(socketPath); err == nil {
+		_ = os.Remove(socketPath)
+	}
+	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
+		return err
+	}
+
+	old := syscall.Umask(0o077)
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketPath, Net: "unix"})
+	syscall.Umask(old)
+	if err != nil {
+		return err
+	}
+	ln.SetUnlinkOnClose(false)
+	_ = os.Chmod(socketPath, 0o600)
+
+	Logger.Printf("listening on %s (protocol v%d)", socketPath, frameproto.ProtocolVersion)
+	return serveListener(handler, ln, stop)
+}
+
+// ServeEndpoint publishes a loopback-TLS endpoint at endpointPath and serves it
+// until a SIGTERM/SIGINT (or stop close); one goroutine per connection.
+//
+// This is the JAIL-FACING transport — use it when the client is inside a container
+// and a Unix socket cannot cross the boundary (macOS + podman: virtiofs shares the
+// inode, not the endpoint).
 //
 // The endpoint file it publishes IS A CREDENTIAL — it carries this service's
 // per-jail bearer token — so svcendpoint writes it 0600 and refuses to publish
@@ -199,7 +254,7 @@ type Handler func(*Session)
 // unlinks the file, so the token dies with the listener and there is no second
 // artifact to reap. Nothing here persists a key or a token: the TLS private key
 // lives only in this process's memory.
-func Serve(handler Handler, endpointPath string, stop <-chan struct{}) error {
+func ServeEndpoint(handler Handler, endpointPath string, stop <-chan struct{}) error {
 	ln, err := svcendpoint.Listen(endpointPath, "")
 	if err != nil {
 		return err

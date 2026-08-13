@@ -75,7 +75,7 @@ func TestServeRejectsUnauthenticatedBeforeHandler(t *testing.T) {
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		_ = Serve(func(s *Session) {
+		_ = ServeEndpoint(func(s *Session) {
 			calls.Add(1)
 			s.Stdout("reached the handler\n")
 		}, ep, stop)
@@ -188,7 +188,7 @@ func TestServeRejectsPlaintextBeforeHandler(t *testing.T) {
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		_ = Serve(func(s *Session) { calls.Add(1) }, ep, stop)
+		_ = ServeEndpoint(func(s *Session) { calls.Add(1) }, ep, stop)
 		close(done)
 	}()
 	waitForEndpoint(t, ep)

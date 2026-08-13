@@ -89,13 +89,16 @@ func Main(argv []string) int {
 			BackgroundRefreshTickSeconds, BackgroundRefreshLeadSeconds)
 	}
 
-	// hostservice.Serve installs its own SIGTERM/SIGINT handler; wire a stop
+	// hostservice.ServeUnix installs its own SIGTERM/SIGINT handler; wire a stop
 	// channel too so the background refresher goroutine exits with the process.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	go func() { <-sigCh; close(stop) }()
 
-	if err := hostservice.Serve(BuildHandler(*credsFile), *socket, stop); err != nil {
+	// ServeUnix, not ServeEndpoint: this singleton is host-to-host (the relay dials it
+	// per connection, the CLI pings it) and never crosses a jail boundary. See the
+	// no-`Serve` note in internal/hostservice for why this is spelled out.
+	if err := hostservice.ServeUnix(BuildHandler(*credsFile), *socket, stop); err != nil {
 		fmt.Fprintln(os.Stderr, "yolo-claude-oauth-broker-host:", err)
 		return 1
 	}
