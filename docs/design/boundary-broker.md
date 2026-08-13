@@ -20,9 +20,10 @@ the whole design, and they are smaller than they sound.
 is probably the *wrong* tier. There are three tiers, not two, and the middle one needs no human.
 
 **Before building any of it, read §10.** [unyolo.io](https://unyolo.io/) is an MIT-licensed
-credential broker that converged on this design independently, ships a GitHub broker that is
-row B1b's entire scope, and solves four problems this doc had not thought of. Parts of the plan
-below are probably an adoption rather than a build.
+credential broker that converged on this design independently and solves several problems this doc
+had not thought of. **§10 was rewritten 2026-08-12 from the source rather than the website, and the
+verdict flipped: B1b is a BUILD, not an adoption** — but a smaller build than it looked, because
+the transport half already exists in this repo. §10.6 says which of unYOLO's ideas to take.
 
 **Scope note.** Claude auth switching was originally sketched here as a third use case. It is a
 different feature that wants the same front door, and it is now
@@ -215,6 +216,13 @@ endpoint, and it delivers **this doc's own central rule — the action crosses, 
 not — with no human in the loop at all.** It also gets the audit log (§7 step 1) for free, since
 every request passes through one place.
 
+**And yolo already ships this mechanism.** `claude-oauth-broker` is a credential-injecting
+TLS-interception proxy today — `"transport": "tls-intercept"`, an in-jail terminator on
+`127.0.0.1:443`, a per-jail host relay that stamps `jail_id` host-side, a host singleton holding the
+credential. B1b is that pattern re-aimed from `platform.claude.com` at `github.com`, which is why
+[§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker) concludes
+it is a build rather than an adoption.
+
 **So the recommendation for the GitHub case changes:** reach for **proxy** first, and reserve
 **approve** for the operations where a human would actually say no. Posting a PR comment is
 probably proxy-tier. Force-pushing to `main` is approve-tier. That distinction is the same
@@ -354,103 +362,318 @@ becomes cheap to justify.
 
 ---
 
-## 10. Prior art — unYOLO (analyzed 2026-08-12)
+## 10. Prior art — unYOLO (re-analyzed FROM SOURCE 2026-08-12)
 
-[unyolo.io](https://unyolo.io/) is an MIT-licensed framework for building credential brokers, by
-Onur Solmaz ([@osolmaz](https://github.com/osolmaz)). Its one-line thesis is this doc's §3 rule
-almost verbatim: *"Your agent talks to the broker and never holds the real credential."* It ships
-three brokers — **gh-broker** (GitHub), **hf-broker** (Hugging Face), **sudo-broker** (Unix
-commands).
+[unyolo.io](https://unyolo.io/) is an MIT-licensed **access-control framework for coding agents**,
+by Onur Solmaz ([@osolmaz](https://github.com/osolmaz)). Its thesis is this doc's §3 rule almost
+verbatim: the agent never receives a credential; the broker holds it and executes the operation. It
+ships three brokers — **gh-broker** (GitHub), **hf-broker** (Hugging Face), **sudo-broker** (Unix
+commands) — plus an approvals UI as a plugin for OpenClaw (a different agent host, not Claude Code).
 
-**Caveats on this analysis:** read from the project's website and threat-model page only — no code
-read, nothing run, adoption and maturity unknown. The Hacker News thread
-([49232548](https://news.ycombinator.com/item?id=49232548)) rate-limited on fetch, so no critique
-has been sampled. Treat the "adopt" recommendations below as *investigate*, not *decided*.
+**This section was rewritten from the code.** The first pass (same date) was written from the
+project's website and threat-model page; this one is based on the repository at commit `eaee5fe`
+(2026-08-10) — 893 Go files, 440 commits — plus the GitHub API for maturity signals and the HN
+thread, which was finally retrieved. **Every §10.1 claim below was checked against a file.** The
+headline correction is in §10.6: the earlier "probably an adoption" is wrong.
+
+**Two premises the queue carried were wrong**, and both mattered:
+
+- **It is Go, not Python.** One module, `github.com/osolmaz/unyolo`, `go 1.25.8`. There is no
+  language-boundary cost at all — which removes the argument that was doing most of the work
+  against adoption, and forces the decision onto better evidence.
+- **`gh-broker` is not quite "row B1b's entire scope."** It is B1b *plus* a policy engine, an
+  approval queue (B2), a grant store, and an operator inbox. It is closer to B1b+B2 than to B1b.
 
 The name collision with this project is unfortunate and unrelated — different authors, adjacent
 problems.
 
-### 10.1 It converged on this design independently
+### 10.1 The six claims from the website pass, checked against code
 
-Which is the most useful thing about it: two designs reached the same shape without contact, so
-the shape is probably right.
+All six are real. Three are stronger than the website suggested; two need correcting.
 
-| This doc | unYOLO |
-|---|---|
-| "the credential never crosses, the ACTION crosses" (§3) | "your agent talks to the broker and never holds the real credential" |
-| server-owned allowlisted verb, never argv (§6.5) | `operations` (`git.push.fast_forward`), `targets` (`kind`/`owner`/`name`), `attrs` (glob `refs`) |
-| a request that outlives its connection (§2.1) | queued approval records with `id` + `revision`; `POST /g_{id}/approve` |
-| a human in the answer path (§2.2) | a protected inbox on a separate listener |
-| preview rendered host-side from validated args (§3) | a `presentation` field: title, risk level, warnings |
-| expiry is mandatory, not optional (§6.3) | grants carry `mode: "window"`, `default_minutes` / `max_minutes` |
-| audit log without bodies (§6.4) | "records the decision and matching rule IDs without including secrets" |
-| filter / proxy / approve as three tiers (§5) | `effect: "allow" \| "deny" \| "request"` — the same three, as one rule field |
+| Claim (website pass) | Verdict | Where |
+|---|---|---|
+| Content-addressed immutable execution plans | **confirmed, smaller than it sounds** | `operation/digest/digest.go` is 20 lines — sha256 over canonical bytes. The binding is elsewhere: `internal/storage/state/plans.go:65`, `internal/storage/state/grants.go:149`, re-checked at execution in `brokers/sudo/internal/executorserver/server.go:191` |
+| Grants bounded by duration AND use count | **confirmed** | `authorization/policy/types.go:64-71` — `mode`, `default_minutes`, `max_minutes`, `default_max_uses`, `max_uses` |
+| …with operator narrowing at approval time | **confirmed, but NARROW-ONLY** | `authorization/grants/v1_decisions.go:269-280`. See correction below |
+| `expected_revision` optimistic concurrency | **confirmed** | enforced at `authorization/grants/v1_decisions.go:112`, alongside a required `IdempotencyKey` |
+| A deny floor no grant can lift | **confirmed, and it is two mechanisms** | see correction below |
+| One-time decision tokens | **confirmed** | only a verifier is stored (`grants.go:110`), rotated on re-request (`grants.go:546`), mismatch → `ErrInvalidDecisionToken` (`v1_decisions.go:152`) |
+| Operators on a separate listener, distinct credentials | **confirmed, and stronger** | three listeners, and in production the agent and operator sockets carry **distinct Unix groups** (`gh-broker-agent`, `gh-broker-operator`) as well as distinct secrets |
 
-That last row is a genuine improvement on §5. This doc treats the tiers as three *architectures*;
-unYOLO makes them three *outcomes of one policy evaluation*, so a single `scope.json` expresses
-"clone freely, comment with approval, never delete." That is a better factoring and it is the one
-worth stealing.
+Also confirmed: the `presentation` projection is a fixed vocabulary, not free text — `Risk` is
+`unknown|low|medium|high|critical` with `Title`/`Summary`/`Target`/`Facts`/`Warnings`/`PlanHash`
+(`approval/view/presentation.go:68-102`).
 
-### 10.2 Five things it does that this doc had not thought of
+**Correction 1 — the operator can only narrow, never widen.** §10 previously said the human could
+"widen it to a bounded window they choose." Wrong: `validApprovalConstraints` rejects any constraint
+exceeding what was requested (`constraints.Duration > duration` → false), and the request was itself
+bounded by policy. The chain is **policy ceiling ≥ request ≥ operator's grant**, monotonically
+narrowing. That is a better answer to OQ-B than the one recorded, not a worse one.
 
-1. **Content-addressed, immutable execution plans** that fail if modified after the request.
-   This doc says "render the preview from validated args, never from a jail-supplied string" —
-   which prevents the jail from *describing* one action and *requesting* another. unYOLO goes
-   further and binds the approved plan to the executed plan cryptographically, so approval and
-   execution cannot diverge even through a bug on the broker's own side. Strictly stronger; the
-   confused-deputy fix done properly.
-2. **Grants carry a use budget as well as a duration** — `default_max_uses` / `max_uses`
-   alongside the time window — and the operator can **narrow either at approval time**. That is
-   a concrete answer to **OQ-B**: not "per-action or per-session" but *per-action by default,
-   with the human able to widen it to a bounded window they choose*. Both dimensions bounded
-   means a grant cannot quietly become an allowlist, which was OQ-B's whole worry.
-3. **`expected_revision` on approve** — optimistic concurrency, so two operators (or a CLI and a
-   web app) cannot double-approve one request. This doc's §7.1 proposes exactly that multi-front-end
-   setup and did not consider the race it creates.
-4. **A deny floor no grant can lift** — *"Deletion is never delegated, even under an approved
-   grant."* This doc has no equivalent: every verb here is equally grantable. A category that
-   approval cannot unlock is a cheap, strong safety property.
-5. **One-time decision tokens** consumed by the pending transition; replay fails.
+**Correction 2 — the real deny floor is a code-owned flag, not a rule.** The quoted *"Deletion is
+never delegated, even under an approved grant"* is a `description` string in an **example policy**
+(`web/src/content/docs/reference/policy-schema.md:230`) — a convention, not an invariant. The
+actual floor is two things, both stronger:
 
-### 10.3 It also answers §7.1's security caution
+1. **Deny is evaluated before grants** (`authorization/policy/decide.go:23-25`) — a `deny` rule
+   structurally overrides every active grant, which is a property of the evaluator, not of the
+   policy file.
+2. **`OperationSpec.Grantable`** (`authorization/policy/registry.go:51`) — a per-operation boolean
+   owned by the broker's **Go code**, not by the policy file. A non-grantable operation cannot be
+   made grantable by any policy, and declaring grant settings on one is a **parse-time error**
+   (`registry.go:171-188`). This is the cheap, strong safety property, and it is the single best
+   idea in the project.
 
-§7.1 warns that a loopback HTTP approval UI is reachable from the jail via
-`host.containers.internal`, so the approver and the approved would share a channel. unYOLO's
-answer is the one to copy: **operators authenticate with distinct credentials on a separate
-listener**, and agent clients present a *named broker-client secret* before the broker will accept
-a request at all.
+### 10.2 What `gh-broker` actually does — the B1b question, answered
 
-That second half is a real posture upgrade over yolo's loopholes, whose stated security model is
-*"the socket file is the authentication — a daemon trusts whoever can connect()."* Per-jail
-broker-client secrets are cheap for yolo to add, because the relay already stamps `jail_id`
-host-side precisely so attribution is not an in-jail self-report.
+The mechanism is **not** an HTTP proxy, not `http.extraHeader`, not `/etc/hosts`. It is a gitconfig
+install with two halves (`git/client/gitclient.go:358-390`):
 
-### 10.4 Where it does not help
+```ini
+[url "http://127.0.0.1:38471/"]
+    insteadOf = https://github.com/
+    insteadOf = ssh://git@github.com/
+    insteadOf = git@github.com:
+[credential "http://127.0.0.1:38471"]
+    helper =                       ; clears inherited helpers
+    helper = unyolo --provider github
+```
 
-- **It does nothing for Claude auth.** unYOLO brokers *third-party service* credentials (GitHub,
-  Hugging Face, Google Workspace, sudo). There is no OAuth-subscription handling, no provider
-  switching, no Bedrock. Row **B3** and [`agent-auth-modes.md`](agent-auth-modes.md) are untouched
-  by it — a mildly interesting negative result, since the nearest prior art to "broker your agent's
-  credentials" declines the hardest part of our version.
-- **Its threat model assumes what yolo provides, and vice versa.** unYOLO explicitly does *not*
-  sandbox provider code, validate arbitrary shell strings, proxy arbitrary provider APIs, or
-  replace host hardening. yolo *is* the sandbox and does none of the credential brokering. They
-  are complementary layers, not competitors — which is the strongest argument for adopting rather
-  than rebuilding.
+So the README's *"remotes stay ordinary GitHub URLs and contain no credential"* is literally true —
+`remote.origin.url` is untouched — but the **resolved** URL is rewritten at transport time to a
+loopback TCP listener. The helper supplies the **broker-client secret**, never a GitHub credential.
+Facts that follow from this and matter for yolo:
+
+- **The git listener cannot be a unix socket** — stock git cannot dial one — so it is loopback TCP
+  by construction, and the code refuses anything else (`gitclient.go:313-325`).
+- **SSH remotes are silently rewritten to loopback HTTP.** `git@github.com:` is in the rewrite set;
+  an SSH key is bypassed entirely.
+- **Every git invocation by that user is routed through the broker**, including tools that shell out
+  to git unaware of unYOLO. That is the containment property — and it means a down broker breaks
+  all git for the account. `insteadOf` has no fallback.
+- **Injection point:** `brokers/github/internal/githubauth/types.go:81-93` sets
+  `Authorization: Basic base64("x-access-token:" + token)` and zeroes the plaintext after use; the
+  `Credential` type has no readback API. The inbound client secret is stripped before upstreaming.
+- **The credential is a GitHub App installation token**, minted per `(repo, permission-shape)` with
+  `repository_ids` of exactly one repo and a minimal permission map — `git.fetch` →
+  `contents:read`, any `git.push.*` → `contents:write` (`installation.go:459-474`) — cached and
+  refreshed 2 minutes before its ~1h expiry.
+- **Classification parses the packfile, not just the ref-update lines.** The broker strips
+  `thin-pack` from GitHub's capability advertisement so the pack is self-contained, then walks the
+  commit DAG inside it. **`git.push.force` is the default**; fast-forward must be affirmatively
+  proven (`server.go:841-856`).
+
+**One nuance worth carrying into any yolo design:** fast-forward is proven against the *client's
+claimed* `oldOID` and the pack's internal ancestry — **the broker never asks GitHub for the current
+ref value** (`git_pack_classification.go:49-51`). This is safe, because GitHub independently
+compare-and-swaps `oldOID` when the pack lands, and a lying client can only make its push look
+*more* dangerous. But "fast_forward" is a statement about the pack, not about the remote. Two
+consequences the docs do not mention: **SHA-256 repositories can never classify as fast-forward**
+(a hardcoded `len(oid) == 40` guard), and a subagent tracing the code could not find the
+deny→`[remote rejected]` rendering that the README advertises, though hf-broker has it — so a
+denied push may surface as a raw HTTP 403. *Both are unconfirmed with the maintainer; treat as
+observations, not established defects.*
+
+**Agent-side cost is genuinely low:** two binaries (`gh-broker`, `git-credential-unyolo`), one
+`0600` `client.json`, **no daemon, no port, no service**. The floor for one developer is a
+foreground `go run ./cmd/gh-broker` with a scope file and a dev token.
+
+**Production cost is not low:** it wants a **GitHub App** — App id, private key, webhook secret —
+and *"inline PAT configuration is rejected"* in production; the fine-grained-token path is
+explicitly `--dev-token-fallback`, "for local development only."
+
+### 10.3 Fit against yolo, concretely
+
+**a. yolo already owns the transport half of B1b.** This is the most important fact in the section
+and it was not visible from the website. `claude-oauth-broker` is *already* a
+credential-injecting TLS-interception proxy: `"transport": "tls-intercept"`, an in-jail terminator
+binding `127.0.0.1:443` in the container netns with a CA-signed leaf, a per-jail host relay that
+stamps `jail_id` **host-side** (so attribution is not an in-jail self-report), and a host singleton
+that holds the credential. B1b is that pattern aimed at `github.com` instead of
+`platform.claude.com` — including the `ca.key`-must-not-cross lesson already learned the hard way
+(#33). **The mechanism §5 called "not speculative" is not merely not speculative; it is shipped, in
+this repo, and debugged.**
+
+**b. The dependency asymmetry rules out wholesale adoption.** yolo has **2 direct dependencies**
+(`gopher-lua`, `x/sys`) and a 7.9 MB `vendor/` under a hermetic offline `-mod=vendor` nix build
+whose `goSrc` fileset sees only `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`,
+`bundled_loopholes/`. unYOLO has **16 direct + 57 indirect**: embedded SQLite
+(`modernc.org/sqlite` + `modernc.org/libc`, a transpiled C runtime), goose migrations, echo,
+Prometheus, the charm TUI stack, go-git, go-github v88. Vendoring that is a category change in
+yolo's build, for a feature whose transport we already have.
+
+**c. But the policy engine is separable and stdlib-only — verified, not assumed.**
+`go list -deps ./authorization/policy` resolves to **stdlib plus two in-repo packages**
+(`authorization/budget`, `internal/copyx`). ~2,100 non-test lines, ~3,850 with tests (a 1,456-line
+`policy_test.go`). **Zero third-party closure.** 98 of unYOLO's 191 packages are in that state; the
+separation is deliberate and CI-enforced (`scripts/check-architecture.sh`). `authorization/grants`
+is the opposite — SQLite is welded in at `authorization/grants/sqlite.go` with no storage interface,
+so the *grant store* is not separable even though the *grant model* is.
+
+**d. There are no Go-importable versions.** The 66 tags are per-component
+(`gh-broker/v0.6.0`, `unyolo/v0.8.0`); Go's module resolution ignores them. The only real module
+tags are the bare `v0.1.0`/`v0.2.0`, stale since before the project's rename. **A module dependency
+would mean pinning a pseudo-version off `main`** — against a project whose stated policy is that
+there is none.
+
+**e. License is MIT and clean — with one bundling caveat.** MIT at the root and in each of
+`brokers/{github,huggingface,sudo}/`. But `brokers/github/internal/upstream/snapshots/` carries
+**~19 MB of vendored GitHub API metadata** under **CC BY 4.0** (`LICENSE.github-docs`) plus MIT
+(`LICENSE.rest-api-description.md`). CC BY 4.0 carries a real attribution obligation, and 19 MB is
+real weight in a hermetic image. Vendoring `authorization/policy` alone touches none of it and needs
+only the MIT notice.
+
+**f. No nix packaging exists** — a `buildGoModule` would be ours to write. Signed release tarballs
+(linux/darwin × amd64/arm64) with SBOM and build provenance do exist, so a fetch-the-binary loophole
+is the cheaper shape if adoption were chosen.
+
+**g. Running it behind a loophole is architecturally plausible.** Its threat model demands the
+client cannot read the broker's files or inspect its process — which the jail boundary already
+provides more strongly than the separate-Unix-user setup it ships with. This is the one place the
+two projects fit together cleanly, and it is why "ignore" is the wrong verdict.
+
+### 10.4 Maturity — the decisive negative
+
+Engineering quality and project maturity diverge sharply here, and both readings are honest.
+
+**Quality is high, and better than most funded Go projects.** 382 test files / 2,363 tests, a
+0.63:1 test:code ratio, an **enforced 85% coverage floor**, `go test -race` on Linux *and* macOS,
+`govulncheck`, `gitleaks`, a CI-gated architecture check, SBOM + `attest-build-provenance` on every
+release artifact, SHA-pinned actions, ADRs, a written threat model, and reusable conformance suites
+for downstream consumers.
+
+**Maturity is low, and this is what decides the question:**
+
+- **Bus factor 1.** 414 of 440 commits are the maintainer's (94%). The only other author
+  contributed 26 commits over four days in early July and has not committed since; the identity
+  reads as an agent, not a second maintainer. **Zero external PRs; exactly one external issue ever.**
+- **11 weeks old**, with a project rename mid-flight, and 20 stars.
+- **An explicit, repeatedly-stated policy of zero backward compatibility.** From its `AGENTS.md`:
+  *"Do not add legacy routes, old-state readers, aliases, converters, dual reads, or dual writes.
+  This repository uses a fresh-state coordinated cutover."* Breaking changes land as **in-place v1
+  replacements that discard existing state**, and migrations are actively forbidden. No CHANGELOG.
+- **76 commits (17%) carry an explicit model co-author trailer** across four different models, and
+  the maintainer's own `slophammer` gate exists to bound LLM-generated duplication and complexity.
+  The gates are good and are doing work human review would normally do — but they are the
+  maintainer's own tool, so it is a self-consistent bar rather than an independent one.
+
+Taking a runtime dependency on this for yolo's git path means depending on a five-week-public,
+single-maintainer, pre-1.0 project that has promised to break its formats in place. **Vendoring a
+stdlib-only leaf package at a pinned SHA carries none of that risk**, which is exactly why the
+recommendation splits the two.
+
+### 10.5 The Hacker News thread — retrieved, and nearly empty
+
+The earlier pass recorded a 429. It still 429s on direct fetch; the **Algolia API**
+(`hn.algolia.com/api/v1/items/49232548`) returned it. **18 points, 5 comments.** Two are
+substantive:
+
+- **`torm115`** raises the sharper critique: *"Credential scoping handles the 'what can the agent do'
+  part, but after running a few agents on my own data for a while I think the harder problem is what
+  they can see. Prompts turned out to be pretty much useless as a boundary there, so I ended up
+  pushing all of it server-side."* The author's reply conflates read-gating with action-gating and
+  does not engage the exfiltration framing. **This is the same gap §10.7 names for both projects.**
+- **`TZubiri`** juxtaposes *"product about access control"* against
+  `curl -fsSL https://unyolo.io/install.sh | sh` with no further comment; a third user filed issue
+  #140 over it. The author says the installer is intentional.
+
+**Assessment: essentially no external critique of this design exists.** That is not evidence of
+quality in either direction, and the earlier "treat as investigate, not decided" caveat is now
+discharged by reading the code rather than by the thread.
+
+### 10.6 RECOMMENDATION — build B1b, vendor the policy engine, do not adopt gh-broker
+
+**Verdict: reimplement the ideas, with one narrow vendoring option. Not adopt, not vendor
+wholesale, not ignore.** The four decisive facts, in order of weight:
+
+1. **B1b's transport already exists in this repo** (§10.3a). Adopting `gh-broker` would replace a
+   mechanism yolo owns, has shipped, and has already debugged with an external 73-module daemon.
+   That is the argument that settles it; everything below is confirmation.
+2. **The GitHub App requirement** (§10.2). Today this jail reads `origin` with a fine-grained PAT
+   from `.env`. gh-broker's production path wants a registered GitHub App with a private key and a
+   webhook secret, and explicitly rejects inline PATs outside development. For a
+   single-developer tool that is a large step change in setup cost — and yolo does not need it,
+   because a PAT plus a policy engine gives the same per-operation control.
+3. **Maturity** (§10.4): bus factor 1, 11 weeks old, no Go-importable versions, and a written
+   promise to break formats in place.
+4. **Build shape** (§10.3b/e): 73 modules vs yolo's 3, no nix packaging, 19 MB of CC BY 4.0
+   snapshots if `brokers/github` is bundled.
+
+**Which ideas earn their complexity — take these:**
+
+- **The four-effect policy evaluation, deny-before-grant.** `allow` / `deny` / `request` /
+  `no_match` as outcomes of one evaluation, with deny checked first. This collapses §5's three
+  *architectures* into one policy *file*, and it is the single highest-value idea here. Already
+  recorded in §10.1 of the earlier pass; now verified as ~110 lines of evaluator
+  (`authorization/policy/decide.go`).
+- **`Grantable` as a code-owned per-operation flag.** The real deny floor. One bool, validated at
+  parse time, and it makes "approval can never unlock this verb" *unrepresentable* rather than
+  merely unwritten — the same shape as the launchers-ordered-last invariant yolo already likes.
+- **A server-owned operation registry** (operation → target kinds → permitted attrs, validated
+  before evaluation). This is §6.5's *do not let this become a general RPC* made concrete and
+  mechanical instead of aspirational.
+- **Both bounds on a grant — duration AND uses — narrowing-only.** The correct answer to **OQ-B**,
+  and stronger than the one currently recorded there (§10.1, correction 1).
+
+**Which do NOT earn it yet — defer, with the trigger that would change the answer:**
+
+- **Content-addressed plans.** The digest is 20 lines, but its *value* requires a durable queue, a
+  separate executor process, and a re-check at execution — unYOLO has all three; yolo's §7 step 3
+  deliberately has none. Ceremony until then. **Trigger:** B2 step 4 (the durable queue).
+- **`expected_revision` + idempotency keys.** These exist to stop two operators double-approving.
+  A single foreground `yolo approve` cannot race itself. **Trigger:** the second front-end in §7.1
+  actually being built — at which point take it rather than re-deriving it.
+- **One-time decision tokens.** Their purpose is to make an *out-of-band* channel (Telegram
+  callback buttons) unforgeable. yolo's approval path is a unix socket whose posture is already
+  "the socket file is the authentication." **Trigger:** approvals ever leaving the socket.
+- **The grant store** (SQLite + goose). Not separable from `authorization/grants` in any case, and
+  §7 step 3 is synchronous by design.
+- **A separate operator listener with distinct credentials.** Still the right answer to §7.1's
+  caution — but that caution only bites if the approval UI is HTTP. Keep authority in the unix
+  socket and the problem does not arise. **Trigger:** the web UI in §7.1.
+
+**The one vendoring option, if the policy model is wanted verbatim:** `authorization/policy` +
+`authorization/budget` + `internal/copyx` are MIT, **stdlib-only**, ~2,100 lines with a 1,456-line
+test file, and drop into `vendor/` with **no new module requirements** and no change to the `goSrc`
+fileset. Given §10.4's no-compatibility policy, copying at a pinned SHA is strictly safer than a
+module dependency, and it is the one piece where copying plausibly beats re-deriving. **This is a
+genuine fork in the road and it is the maintainer's call — see the B1b row in
+[`outstanding-work.md`](../plans/outstanding-work.md).**
+
+**What survives from the website pass unchanged:** the convergence itself. Two designs reached the
+same shape without contact, and that is still the most useful signal in this section.
+
+### 10.7 Where it does not help
+
+- **It does nothing for Claude auth.** unYOLO brokers *third-party service* credentials. There is no
+  OAuth-subscription handling, no provider switching, no Bedrock. Row **B3** and
+  [`agent-auth-modes.md`](agent-auth-modes.md) are untouched — still a mildly interesting negative
+  result, since the nearest prior art declines the hardest part of our version.
+- **Its threat model assumes what yolo provides, and vice versa.** Verified at
+  `docs/security/THREAT_MODEL.md:124-128`: it does *not* sandbox provider code, validate arbitrary
+  shell strings, proxy arbitrary provider APIs, or replace host hardening. yolo *is* the sandbox and
+  does none of the credential brokering. Complementary layers — which is why §10.3g holds even
+  though the verdict is "build."
 - **Its non-protections list names our §6.5 risk.** "Does not validate arbitrary shell strings" is
   the same admission as *do not let this become a general RPC* — and `sudo-broker` is exactly the
-  product shaped like that risk. Worth reading their `sudo-broker` before writing any yolo verb
-  that shells out.
+  product shaped like that risk. Still worth reading before writing any yolo verb that shells out.
 - **The threat model does not address prompt injection** or distinguish a malicious agent from a
-  confused one — the same gap `ROADMAP.md` §4e names for yolo ("who is the adversary?"). Neither
-  project has answered it.
+  confused one — the same gap `ROADMAP.md` §4e names for yolo. **The HN thread's one real critique
+  (§10.5) is precisely this**, and it went unanswered. Neither project has an answer.
 
-### 10.5 What this changes in the plan
+### 10.8 What this changes in the plan
 
-- **B1b (the git proxy) may be an adoption, not a build.** `gh-broker` is that row's scope, MIT
-  licensed, with a policy language already designed. Evaluate before writing code.
-- **B2's design is validated by convergence** — and should take unYOLO's grant model (§10.2 #2),
-  content-addressed plans (#1), and `expected_revision` (#3) rather than re-deriving them.
-- **§5's three tiers should be re-expressed as one policy file with three effects**, per §10.1.
-- **The open questions move:** OQ-B has a worked answer; OQ-E's security half is answered by
-  §10.3, leaving only the UX choice.
+- **B1b is a BUILD, not an adoption** — but a *smaller* build than the row implied, because the
+  transport is `claude-oauth-broker`'s pattern re-aimed. The row's "possibly an ADOPTION" note is
+  retired.
+- **B1b now carries one decision:** vendor the stdlib-only policy engine, or re-derive the model?
+  §10.6 recommends vendoring it.
+- **B2 should take** the four-effect evaluation, `Grantable`, and two-bound narrowing-only grants —
+  and should **defer** content-addressed plans, `expected_revision`, and decision tokens until the
+  triggers in §10.6 fire.
+- **§5's three tiers should still be re-expressed as one policy file with three effects.**
+- **OQ-B is answered** — per-action by default, operator may only narrow. Better than the earlier
+  reading, which had the human widening.
+- **OQ-E's security half stands** (§10.3, §10.6): keep authority in the unix socket, and the
+  separate-listener problem never arises.
