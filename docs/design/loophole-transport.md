@@ -52,10 +52,46 @@ macOS + podman fails the same way, for the same reason. The repo already knows t
 `docs/guides/macos.md:575` tells users to use `host.containers.internal` *"instead of Unix domain
 sockets (virtiofs doesn't…)"* — but the loophole framework never absorbed it.
 
-**So today's honest statement:** loopholes are a Linux feature that happens to work on macOS only
-where nothing needs a socket. `audio` and `host-processes` are unaffected or differently wired;
-`claude-oauth-broker` is the one that exposed it, because it is the one that must work before the
+### 2.1 All three shipped loopholes are affected — checked, not assumed
+
+An earlier draft said `audio` and `host-processes` were *"unaffected or differently wired"*. **That
+was a guess and it was wrong in both cases**, in two different ways. Read from the manifests
+2026-08-12:
+
+| Loophole | `transport` | macOS + podman |
+|---|---|---|
+| `claude-oauth-broker` | `tls-intercept` | 🔴 **broken** — the relay hop is a Unix socket; this is #31 |
+| `host-processes` | `unix-socket` | 🔴 **broken the same way** — same transport, same virtiofs failure |
+| `audio` | `none` | ⚪ **inapplicable** — but for a reason, not by luck |
+
+**`host-processes` has exactly the broker's problem.** Its manifest declares
+`"transport": "unix-socket"` and a spawned host daemon reached at `{socket}`. Nothing about #31 is
+broker-specific; `yolo-ps` fails identically on macOS + podman. It has simply never been the thing
+that blocks a jail from starting, so nobody noticed.
+
+**`audio` would break too — it is saved by a predicate, not by its design.** `transport: "none"`
+means no loophole daemon, but its `host_bind_mounts` pass through
+`${XDG_RUNTIME_DIR}/pulse/native` and `${XDG_RUNTIME_DIR}/pipewire-0`, **which are Unix sockets**.
+Bind-mounted across virtiofs they would fail exactly as the relay socket does. What prevents the
+failure is `requires: {file_exists: "${XDG_RUNTIME_DIR}/pulse/native"}` — macOS has no
+PipeWire/PulseAudio, the predicate is false, and the loophole never activates. So the honest
+reading is **inapplicable on macOS**, not unaffected; anyone running PulseAudio on a Mac would meet
+the same wall.
+
+**So today's honest statement:** the Unix-socket assumption is baked into the loophole framework,
+and **every shipped loophole that actually uses a socket is broken on macOS + podman.** The broker
+is not the special case — it is the one whose failure is loud, because it must work before the
 agent starts.
+
+### 2.2 The framework already has a transport field
+
+Worth stating plainly because it makes §4 much smaller than it first looks:
+`internal/loopholes/loopholes.go:27` already declares
+`validTransports = []string{"tls-intercept", "unix-socket", "none"}`, and `runtime.go:37` already
+switches on it per platform (Apple Container skips `tls-intercept`).
+
+**So this is not "add a transport concept to manifests" — it is "add a fourth value."** The
+vocabulary, the validation, and the per-platform switch all exist.
 
 This is why the answer belongs in the framework. Every host service the plans call for —
 **B1** (the crossing audit log), **B1b** (the git credential proxy), **B2** (approval-gated
@@ -90,21 +126,65 @@ cert, via a dedicated root pool.
 | per-jail bearer token | loopback TCP has no `connect()`-implies-authorized property; the socket-file model does not survive the port |
 | re-read on every dial | a relay restart otherwise strands the jail until relaunch |
 
-**The token is the interesting part.** A Unix socket carried authorization implicitly — filesystem
-permissions plus `getpeereid`. A TCP port carries none, so #32 had to invent explicit client
-authentication. That is not a workaround; it is the missing half of the trust model, and §4 argues
-we want it even where sockets work.
+### 3.1 The threat model, spelled out — who the token is actually against
+
+The token is easy to misread, so here is the whole picture.
+
+**The topology.** The relay is a **host** process, one per jail, binding loopback TCP. The jail
+reaches it across the podman-machine boundary. Per #32's own security section, **that hop is a
+shared bridge on which every jail holds `NET_RAW`/`NET_ADMIN`** — so jails are not isolated from
+each other at the network layer.
+
+**The adversary is a SIBLING JAIL. It is not the jail's own agent.**
+
+That distinction answers the obvious objection: *yes*, anything inside jail A can read jail A's
+token — it arrives in the terminator's environment, and the agent runs as UID 0, so
+`/proc/<pid>/environ` is readable. **That is expected and harmless.** The loophole model has always
+trusted the jail; [`loophole-protocol.md`](loophole-protocol.md) says so outright — *"a daemon
+trusts whoever can `connect()`"*. Jail A using jail A's credential to talk to jail A's relay is the
+system working.
+
+What breaks without a token is **jail B talking to jail A's relay**. A Unix socket made that
+impossible by construction: the socket lived in a per-jail mounted directory, so only that jail's
+mount namespace could reach it. A **shared-bridge TCP port has no such property** — the port is
+kernel-assigned but scannable, and reachability is no longer proof of identity. The token restores
+what the filesystem used to provide.
+
+| Control | Adversary it stops |
+|---|---|
+| loopback bind | anything on the LAN |
+| TLS | a sibling **sniffing** the bridge (they hold `NET_RAW`) |
+| pinned host-only-key cert | a sibling **impersonating the relay** — and see §5: the broker CA cannot do this job |
+| **per-jail token** | a sibling **impersonating the jail** to its relay |
+| re-read on every dial | not security — a relay restart otherwise strands the jail |
+
+**On "can they guess the port or read the file?"** — the endpoint file is in *jail A's* mount, so a
+sibling cannot read it, and #32 notes this. But the port is a scannable ephemeral, so treat it as
+discoverable and let the token carry the weight. That is the right assumption to design under, and
+it is why the token is not optional decoration on top of TLS.
+
+**What the token does NOT do**, stated because §4.1 previously overclaimed it:
+
+- it does not protect against the jail's own agent (nothing here does, by design);
+- it does not protect against **another process running as the same user on the host** — that
+  process can read the host-side token file just as the relay does. The documented weakness in
+  [`loophole-protocol.md`](loophole-protocol.md) §Security posture is **unchanged** by this work.
 
 ---
 
 ## 4. The generalization, and the trust-model upgrade hiding inside it
 
-**Proposal: the transport becomes a property of the loophole framework, not of `brokerrelay`.**
+**Proposal: `loopback-tls` becomes a fourth value of the transport field the framework already
+has** (§2.2), owned by the framework rather than by `brokerrelay`.
 
-A loophole manifest gains a transport selection — `unix` (today's default) or `loopback-tls` — and
-the framework owns endpoint publication, cert pinning, and token issuance. Daemons keep speaking
+The framework owns endpoint publication, cert pinning, and token issuance. Daemons keep speaking
 `frameproto` and never learn which transport carried the bytes. The wire protocol in
 [`loophole-protocol.md`](loophole-protocol.md) is **unchanged**; this is the layer beneath it.
+
+**`host-processes` is the second consumer and it already exists** (§2.1) — it is `unix-socket`
+today and broken on macOS for the same reason. So the "wait for a second consumer" test in §6 is
+already satisfied; it just has not been noticed, because `yolo-ps` failing is quiet where the
+broker failing is not.
 
 Selection should be **automatic by platform, overridable by config**: `loopback-tls` where a Unix
 socket cannot cross (macOS + podman), `unix` elsewhere. A user should not have to know what
@@ -116,8 +196,23 @@ The upgrade worth taking beyond macOS: **give every jail a named client secret a
 every request, on both transports.**
 
 Today's *"the socket file is the authentication"* means a daemon trusts anything running as the
-same user on the host — including a browser extension, an unrelated npm postinstall, or a second
-jail. That is documented and deliberate, and it is also the weakest claim in the loophole design.
+same user on the host — a browser extension, an unrelated npm postinstall, another jail. That is
+documented and deliberate, and it is the weakest claim in the loophole design.
+
+> **Correction to an earlier draft, which said per-jail secrets fix that weakness. They do not.**
+> Per §3.1, a same-user host process can read the host-side token file exactly as the relay does,
+> so the "anything running as the same user" gap **survives** this change untouched. Claiming
+> otherwise would be precisely the overclaim [`boundary-broker.md`](boundary-broker.md) §6.2 warns
+> against — manufacturing the appearance of a boundary.
+>
+> **What per-jail secrets actually buy, and it is still worth having:**
+> 1. **Sibling-jail isolation on a shared transport** — the property a per-jail-mounted Unix socket
+>    gave by construction and a shared TCP port destroys. This is the real win, and on macOS it is
+>    not optional.
+> 2. **Verifiable attribution** — *which* jail made this request, checked rather than self-reported.
+>
+> Fixing the same-user gap needs a different mechanism (peer credentials the host can attest, or
+> not co-locating the daemon with untrusted same-user code) and is out of scope here.
 
 **Three independent designs have now arrived at the same fix:**
 
@@ -225,13 +320,21 @@ All four are now rows in the queue.
 2. **Land #32 as scoped**, answering its author's open question (§7, OQ-T1). It is green, it is
    `MERGEABLE`, and it unblocks Claude on macOS today. Generalizing first would strand a working
    fix behind a refactor.
-3. **Generalize the transport** (§4) when the second consumer appears — B1 is the likely first,
-   and it is small enough to be a good forcing function.
-4. **Per-jail client secrets on both transports** (§4.1), as a deliberate trust-model change with
-   its own note in the protocol doc.
+3. **Generalize the transport** (§4) — as a **fourth value** of the existing field (§2.2), not a
+   new concept. The "wait for a second consumer" test is **already met**: `host-processes` is
+   `unix-socket` and broken on macOS today (§2.1). Porting it is the natural forcing function and
+   the natural proof, because it is small and its failure is harmless.
+4. **Per-jail client secrets on `loopback-tls`** (§4.1) — scoped down from "both transports" per
+   OQ-T3, since on `unix-socket` the per-jail mount already provides the isolation and a token
+   there buys only attribution.
 
 Deliberately *not* first: the generalization. #32 is a working fix for a total outage on one
 platform, and the framework question should not hold it hostage.
+
+**Also worth filing, and not in any queue before this doc:** `host-processes` is silently broken on
+macOS + podman. Nobody has reported it because `yolo-ps` failing is quiet, but it means the
+`host-processes` loophole is Linux-only in practice while being advertised as available. Tracked as
+**D4** in [`../plans/outstanding-work.md`](../plans/outstanding-work.md).
 
 ---
 
@@ -245,9 +348,12 @@ platform, and the framework question should not hold it hostage.
 - **OQ-T2. Is transport selection automatic, configured, or both?** §4 argues automatic-by-platform
   with a config override. The risk of automatic is a silent fallback nobody notices; the risk of
   configured is a Mac user who must know what virtiofs is.
-- **OQ-T3. Do per-jail secrets apply to the `unix` transport too?** §4.1 argues yes. Against: it
-  adds a failure mode to a path that works, on platforms where the socket already carries
-  authorization.
+- **OQ-T3. Do per-jail secrets apply to the `unix-socket` transport too?** §4.1 argues yes — but
+  the case is **weaker than the earlier draft claimed**, now that §3.1 establishes they do not
+  close the same-user gap. On `unix-socket` the per-jail mount already provides sibling isolation,
+  so a token there buys only verifiable attribution, at the cost of a new failure mode on a path
+  that works. **Revised recommendation: `loopback-tls` only**, unless attribution alone justifies
+  it.
 - **OQ-T4. Does `macos-user` make this moot?** It has no VM, so no virtiofs boundary — but the
   broker is unwired there (`BrokerSocketGrantCommands`, zero call sites) and it renders zero pack
   surfaces. Not available today; worth re-asking once Thread B moves.
