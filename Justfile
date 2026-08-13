@@ -228,6 +228,21 @@ clean:
     rm -f result
     rm -rf dist/ build/ dist-go/
 
-# Run `just done` at end of task to verify clean state
+# Run `just done` at end of task to verify clean state.
+#
+# The tree check is not decoration: `check` depends on `format`, which runs
+# `gofmt -w`, so this recipe can DIRTY the tree itself. It used to print
+# "working tree clean" unconditionally — a claim it never verified — and
+# AGENTS.md tells agents to run it and report its output, so a stale working
+# tree could be reported as a clean one.
 done: check
+    @if [ -n "$(git status --porcelain)" ]; then \
+        echo; \
+        echo "Checks passed, but the working tree is DIRTY:"; \
+        echo; \
+        git status --short; \
+        echo; \
+        echo "Commit before calling the task done (gofmt may have just rewritten a file)."; \
+        exit 1; \
+    fi
     @echo "All checks passed, working tree clean"
