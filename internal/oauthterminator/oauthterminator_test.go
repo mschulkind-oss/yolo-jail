@@ -49,6 +49,61 @@ func TestAskHostBrokerMissingEndpointIsRelayLayer(t *testing.T) {
 	}
 }
 
+// TestAskHostBrokerDeadListenerIsRelayLayer: a COMPLETE, well-formed endpoint file
+// whose listener is gone is the relay layer too — the second errno in the gate.
+//
+// This is the most likely real-world relay failure and it had no test. The file
+// outliving its listener is not hypothetical: svcendpoint publishes at 0600 and
+// unlinks on Close, but a SIGKILLed relay never runs that unlink, and stopLoopholes
+// deliberately leaves the directory alone whenever a relaunch holds the workspace
+// flock or the container is still running. So the steady state after a crash is
+// exactly this: a parseable endpoint naming an address nobody is on.
+//
+// Only ENOENT was covered, which is the branch a file that never existed takes.
+// ECONNREFUSED is a different syscall on a different code path through
+// svcendpoint.Dial (the TLS dial, wrapped in *net.OpError), and the whole point of
+// isRelayLayerDialErr's two-errno gate is that both mean "the relay is down". Drop
+// ECONNREFUSED from it and this case silently becomes the generic
+// "host broker endpoint …" message, which reads like a configuration fault and
+// sends the reader to the file rather than to the process.
+func TestAskHostBrokerDeadListenerIsRelayLayer(t *testing.T) {
+	path := filepath.Join(privateDir(t), "claude-oauth-broker.endpoint")
+	ln, err := svcendpoint.Listen(path, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep, err := svcendpoint.Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Kill the listener, then restore its file — a SIGKILLed relay's leftovers.
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := svcendpoint.Publish(path, ep); err != nil {
+		t.Fatal(err)
+	}
+	if !svcendpoint.Probe(path) {
+		t.Fatal("premise lost: the restored endpoint file must still parse as COMPLETE, " +
+			"otherwise this exercises the malformed-file branch instead")
+	}
+
+	_, err = AskHostBroker(path, singleton("action", "ping"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.HasPrefix(err.Error(), "relay unreachable") {
+		t.Errorf("err = %q, want the relay-down layer: the endpoint parses and the "+
+			"listener is gone", err.Error())
+	}
+	if strings.Contains(err.Error(), "unreachable through the relay") {
+		t.Errorf("a dead relay was misattributed to the BROKER layer: %q", err.Error())
+	}
+	if strings.HasPrefix(err.Error(), "relay auth rejected") {
+		t.Errorf("a dead relay was misattributed to the AUTH layer: %q", err.Error())
+	}
+}
+
 // TestAskHostBrokerAuthRejectedIsItsOwnLayer: a token mismatch is reported as AUTH,
 // not as the broker layer.
 //
