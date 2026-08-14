@@ -176,6 +176,12 @@ type disclosureLine struct{ pack, claim string }
 // Classified per CLAIM (disclosureClassOfClaim), not per kind, so a loophole's several claims
 // land in the right block each: the daemon argv before the spawn, its CA and binds with the
 // rest of the environment.
+//
+// ONE KIND NEEDS THE GATE APPLIED HERE, and it is the reason claimWillHappen exists: a
+// LOOPHOLE claim is deliberately NOT gated on MayAccessHost in the footprint (footprint.go
+// says why — `pack footprint` answers what a pack WANTS before you trust it, and hiding a
+// fetched pack's daemon argv from that report would hide the line the reader came for). The
+// launch answers a different question, so it has to subtract the refused ones itself.
 func disclosedClaims(packs []*packload.Pack, class disclosureClass) []disclosureLine {
 	var lines []disclosureLine
 	for _, p := range packs {
@@ -186,6 +192,9 @@ func disclosedClaims(packs []*packload.Pack, class disclosureClass) []disclosure
 			if !c.ReviewWorthy && c.Kind != packdecl.KindEnv {
 				continue
 			}
+			if !claimWillHappen(p, c) {
+				continue
+			}
 			detail := c.Target
 			if c.Detail != "" {
 				detail += " " + c.Detail
@@ -194,6 +203,41 @@ func disclosedClaims(packs []*packload.Pack, class disclosureClass) []disclosure
 		}
 	}
 	return lines
+}
+
+// claimWillHappen reports whether this claim describes something THIS LAUNCH actually does,
+// which is the question the launch disclosure answers and the footprint deliberately does not.
+//
+// # A banner that shows a refused daemon as pending is worse than silence
+//
+// The two reports ask different questions and the difference is load-bearing for exactly one
+// kind. `pack footprint` and `pack install` ask WHAT A PACK WANTS — so FootprintOf keeps a
+// loophole's claims regardless of MayAccessHost, on the stated grounds that hiding a fetched
+// pack's daemon argv would hide the line the reader came for. The launch asks WHAT IS ABOUT TO
+// HAPPEN, and the pre-spawn block's whole value is that every line in it is imminent. Printing
+// a withheld daemon's argv under "This launch runs pack code on your machine" is not a
+// harmless extra line: it is false, in the one place a user reads to decide whether to hit
+// ctrl-c, and it teaches them the block cannot be trusted.
+//
+// # Why only this kind needs the subtraction
+//
+// reads-host and mount are gated INSIDE FootprintOf (`if p.MayAccessHost`), so a refused one
+// is already absent — TestDisclosureOmitsRefusedClaims pins that. env is ungated by design
+// (literal strings, no host read) and always happens. `program via installer` and
+// `briefing after host:` are ungated in the footprint too, but their gate is applied where
+// they are HONORED (HonoredInstalls, BriefingProse), so an ungated claim line there would have
+// the same defect — which is why this predicate keys on the pack's gate for every claim whose
+// kind crosses the boundary, rather than special-casing `loophole` by name.
+func claimWillHappen(p *packload.Pack, c packload.Claim) bool {
+	if p.MayAccessHost {
+		return true
+	}
+	// env is the one host-disclosed class that is not origin-gated: it sets container
+	// variables from literals in pack.json, which a refused pack still gets.
+	if c.Kind == packdecl.KindEnv {
+		return true
+	}
+	return false
 }
 
 // packHostExecClaims returns the host-EXECUTION claim lines for the loaded packs.

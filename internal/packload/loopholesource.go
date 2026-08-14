@@ -148,6 +148,54 @@ func (p *Pack) LoopholeModules() (mods []LoopholeModule, refusals, warnings []st
 	return mods, refusals, warnings
 }
 
+// HonoredLoopholes returns the loophole modules this pack's ORIGIN permits, and a notice per
+// module that was refused — the fourth member of the Honored* family (HonoredHostFiles,
+// HonoredMounts, HonoredInstalls) and the one §4.3 G3 asked for and did not get.
+//
+// # A refusal was SILENT, which is the defect
+//
+// G3 says an unapproved fetched pack's loophole is "not discovered at all while its other
+// contributions still work — the same shape `mount` has today, refusals printed per-claim".
+// The withholding shipped; the printing did not. So a user could install a pack whose WHOLE
+// PURPOSE is a loophole, select it, and get a jail where it silently does nothing — no daemon,
+// no binds, no env var, and no line anywhere saying so or naming the fix. That is strictly
+// worse than the `mount` case it was modelled on, because a missing mount is visible as a
+// missing directory while a missing loophole looks like a loophole that does not work.
+//
+// # Per MODULE, not per claim, and the difference is what a user can act on
+//
+// The design's words are "per claim", and the claims are the right unit for APPROVAL — one per
+// bind, per device, per intercept, so each is separately approvable. They are the wrong unit
+// for a REFUSAL: the gate is per PACK (packMayAccessHost decides once, for the whole pack), so
+// a claim-granular refusal would print five identical lines about one decision. The fix is one
+// action ("`yolo pack install` records the approval"), so it is one line per loophole — the
+// unit whose name the user recognizes from their config.
+//
+// # Why it does not read the manifests
+//
+// It reports the DECLARATION, not what the declaration says. An unreadable manifest is still a
+// refused loophole (and is still worth naming), and the discovery layer already warns about the
+// file itself — so resolving it here would add a second complaint about the same thing and make
+// the refusal depend on a file whose contents cannot change it.
+func (p *Pack) HonoredLoopholes() (granted []LoopholeModule, refused []string) {
+	mods, _, _ := p.LoopholeModules()
+	if len(mods) == 0 {
+		return nil, nil
+	}
+	if p.MayAccessHost {
+		return mods, nil
+	}
+	for _, mod := range mods {
+		refused = append(refused, fmt.Sprintf(
+			"pack %s: refused loophole %q (from %q) — a FETCHED pack's loophole runs code on "+
+				"your machine and mounts host paths into the jail, so it is withheld until you "+
+				"approve what it asks for. Nothing of it crossed: no host daemon, no bind "+
+				"mounts, no devices, no CA, no jail env. Run `yolo pack install` to see its "+
+				"claims and approve them.", p.Name, mod.Name, mod.From))
+	}
+	return nil, refused
+}
+
 // LoopholeDeclProblems is the AUTHORING read of every loophole module this pack ships:
 // the resolution problems above, plus each manifest's problems under the STRICT decoder,
 // one per line.

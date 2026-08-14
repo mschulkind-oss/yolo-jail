@@ -226,6 +226,14 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 		if _, installRefused := p.HonoredInstalls(); len(installRefused) > 0 {
 			refused = append(refused, installRefused...)
 		}
+		// The FOURTH reporter, and the one §4.3 G3 asked for and did not get: a withheld
+		// LOOPHOLE. The withholding shipped without it, so a pack whose whole purpose is a
+		// loophole did nothing, silently — worse than the `mount` case it was modelled on,
+		// because a missing mount shows up as a missing directory while a missing loophole
+		// looks like a loophole that does not work.
+		if _, loopholeRefused := p.HonoredLoopholes(); len(loopholeRefused) > 0 {
+			refused = append(refused, loopholeRefused...)
+		}
 		for _, msg := range refused {
 			o.pr(o.Stdout).print("[yellow]Warning: " + msg + "[/yellow]")
 		}
