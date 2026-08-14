@@ -33,6 +33,35 @@ package packload_test
 //
 // It lives in packload because that is where the helper lives, so the test and the thing
 // it protects move together.
+//
+// # WHAT THIS TEST CANNOT SEE, and where the rest of the invariant lives
+//
+// It pins "the gate CALLS the helper". It does NOT pin "the gate ACTS ON THE WHOLE SET", and
+// the gap is reachable by a real change: inserting a POST-HOC FILTER after the merged call —
+//
+//	want := p.HostAccessClaims()
+//	for _, c := range want { if !strings.HasPrefix(c, "loophole ") { keep(c) } }
+//
+// leaves this scan satisfied while every loophole crossing becomes unprompted. Measured: with
+// that filter at run.packMayAccessHost the whole `-short` suite was green.
+//
+// IT CANNOT BE CLOSED STATICALLY, and the attempt is worse than the gap. Seeing the filter
+// requires reasoning about what happens to the VALUE the helper returned — dataflow, not a call
+// scan — and any rule crude enough to express here ("no `range` over the result", "no
+// strings.HasPrefix in this function") forbids ordinary code and breaks on the next legitimate
+// refactor of a security-critical function. A brittle rule that gets deleted the first time it
+// misfires protects nothing.
+//
+// So the other half is BEHAVIOURAL and lives beside the launch gate:
+// internal/cli/run/hostaccessgateeffect_test.go asserts, per producer, that a fetched pack
+// whose ONLY claim comes from that producer is REFUSED without a lockfile approval and GRANTED
+// with one. A filter dropping a producer's claims does not make the gate stricter — it makes it
+// GRANT, because `len(want) == 0` is read as "the gate is moot" — so the refusal case is what
+// catches it. That file also fails when the helper grows a producer no case covers, which is the
+// same protection this scan gives the CALL.
+//
+// Two tests, two different failure modes: this one catches a producer nobody merged, that one
+// catches a merged producer whose claims never reach the decision.
 
 import (
 	"go/ast"
