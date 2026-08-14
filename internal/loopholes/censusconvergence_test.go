@@ -35,6 +35,62 @@ var convergenceExemptions = map[string]string{
 	"internal/loopholes/resolver.go": "config.LoopholeResolver's own knobs; reads the same PackModules()",
 }
 
+// skippedTopLevelDirs are the repo-root subtrees the walker does not read, each because it
+// holds something that is not this tree's own source:
+//
+//	vendor, node_modules   third-party code
+//	.git, dist-go, bin     metadata and build output
+//	.claude                agent WORKTREES — other checkouts of THIS repo, at other commits.
+//	                       Walking them reports their copies of these files as offenders,
+//	                       which is both wrong (not this tree's source) and unfixable from
+//	                       here; without the skip the test fails on any machine that has ever
+//	                       run a worktree-isolated agent, and the failure text looks exactly
+//	                       like a real convergence regression. 5+ live checkouts sit there.
+var skippedTopLevelDirs = map[string]bool{
+	"vendor": true, ".git": true, "dist-go": true, "node_modules": true, "bin": true,
+	".claude": true,
+}
+
+// isSkippedTopLevelDir reports whether dir is one of the skipped subtrees AT THE REPO ROOT.
+//
+// AT THE ROOT, compared through filepath.Rel — not by BASENAME at any depth, which is what
+// this was. A basename match makes the exclusion list a set of forbidden NAMES rather than a
+// set of paths, so `internal/loopholes/bin/newsurface.go` would be invisible to the gate:
+// a new discovery surface in a package called `bin` (or `vendor`, or `dist-go`) silently
+// escapes the convergence check that exists to catch exactly that. The names are properties
+// of the repo root, so the comparison should be too.
+func isSkippedTopLevelDir(root, dir string) bool {
+	rel, err := filepath.Rel(root, dir)
+	if err != nil {
+		return false
+	}
+	return skippedTopLevelDirs[filepath.ToSlash(rel)]
+}
+
+// TestSkippedDirsAreTopLevelOnly is the walker's own control: the exclusion list must be a
+// set of REPO-ROOT PATHS, not a set of forbidden basenames at any depth.
+//
+// The distinction is the whole coverage of the gate. Under a basename match a new discovery
+// surface at `internal/loopholes/bin/newsurface.go` is INVISIBLE — the walker SkipDirs on the
+// name `bin` wherever it appears — so the file this test exists to catch is exactly the file
+// it never reads. `vendor`, `dist-go` and `node_modules` are all plausible Go package names
+// too; `.claude` is the only one that is genuinely a name (and it is correctly at the root).
+func TestSkippedDirsAreTopLevelOnly(t *testing.T) {
+	root := repoRootDir(t)
+	for name := range skippedTopLevelDirs {
+		if !isSkippedTopLevelDir(root, filepath.Join(root, name)) {
+			t.Errorf("%s at the repo root is not skipped, so the walker reads a subtree that is "+
+				"not this tree's source", name)
+		}
+		nested := filepath.Join(root, "internal", "loopholes", name)
+		if isSkippedTopLevelDir(root, nested) {
+			t.Errorf("%s is skipped at ANY depth: a discovery surface at %s/newsurface.go would "+
+				"be invisible to this gate, which is precisely the file it exists to catch",
+				name, filepath.ToSlash(filepath.Join("internal", "loopholes", name)))
+		}
+	}
+}
+
 // TestEveryDiscoverCallSiteIsConverged walks every non-test .go file in the module and fails
 // on any un-exempt file that builds its own DiscoverOptions or calls Discover directly.
 func TestEveryDiscoverCallSiteIsConverged(t *testing.T) {
@@ -45,16 +101,7 @@ func TestEveryDiscoverCallSiteIsConverged(t *testing.T) {
 			return nil // an unreadable subtree is not this test's business
 		}
 		if d.IsDir() {
-			switch d.Name() {
-			case "vendor", ".git", "dist-go", "node_modules", "bin":
-				return filepath.SkipDir
-			// .claude holds agent WORKTREES — other checkouts of this same repo,
-			// at other commits. Walking them reports their copies of these files as
-			// offenders here, which is both wrong (they are not this tree's source)
-			// and unfixable from this tree. Without this the test fails on any
-			// machine that has ever run a worktree-isolated agent, and the failure
-			// text looks exactly like a real convergence regression.
-			case ".claude":
+			if isSkippedTopLevelDir(root, path) {
 				return filepath.SkipDir
 			}
 			return nil

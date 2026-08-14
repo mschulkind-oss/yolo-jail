@@ -198,10 +198,6 @@ func TestConflictOrderIsDeterministic(t *testing.T) {
 // Collisions over two packs that BOTH declare the same loophole module reports nothing, so
 // wiring it in would not have refused the launch.
 func TestCollisionsIsNotOnTheLaunchPath(t *testing.T) {
-	if !packdecl.KnownKind(packLoopholeKind) {
-		t.Skip("the `loophole` kind is not in this build yet; the property under test is " +
-			"whether Collisions covers it, which is only askable once a pack can declare it")
-	}
 	a := &packload.Pack{Name: "alpha", Root: t.TempDir(), Decl: &packdecl.Manifest{
 		Name:        "alpha",
 		Contributes: []packdecl.Contribution{{Kind: packLoopholeKind, From: "loopholes/acme"}},
@@ -294,15 +290,12 @@ func TestPackLoopholeModulesCarryTheOriginGate(t *testing.T) {
 // beside the other three, covering the attach path too (a collision is a config error
 // either way).
 //
-// Skipped until the `loophole` kind is in this build: a manifest declaring an unknown kind
-// is refused by packdecl.Decode before it can reach any pre-flight, so today the launch
-// would fail for the WRONG reason and the test would pass without testing anything. It goes
-// live the moment the kind lands, which is why it stays.
+// It used to be skipped until the `loophole` kind was in the build (packdecl.Decode refuses an
+// unknown kind before any pre-flight sees it, so the launch would have failed for the wrong
+// reason). The kind landed and the guard went with it: a t.Skip on a condition that can no
+// longer be true is not inert, it is a way for a real KnownKind regression to silently
+// re-disable this refusal test instead of failing it.
 func TestStagePacksRefusesLoopholeNameCollision(t *testing.T) {
-	if !packdecl.KnownKind(packLoopholeKind) {
-		t.Skip("the `loophole` kind is not in this build yet; packdecl.Decode refuses the " +
-			"manifest before the pre-flight can see it")
-	}
 	home := packHome(t)
 	alpha := loopholePackDir(t, "alpha", "loopholes/acme")
 	beta := loopholePackDir(t, "beta", "vendor/acme")
@@ -324,9 +317,6 @@ func TestStagePacksRefusesLoopholeNameCollision(t *testing.T) {
 // The RESERVED half at the real call site, for the name the design measured as the worst
 // case: `journal` was reserved in paths.go and refused nowhere.
 func TestStagePacksRefusesReservedLoopholeName(t *testing.T) {
-	if !packdecl.KnownKind(packLoopholeKind) {
-		t.Skip("the `loophole` kind is not in this build yet")
-	}
 	home := packHome(t)
 	grabby := loopholePackDir(t, "grabby", "loopholes/"+paths.BuiltinJournalLoopholeName)
 	writeUserPacks(t, home, `["file://`+grabby+`"]`)

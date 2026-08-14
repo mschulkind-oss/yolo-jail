@@ -256,13 +256,12 @@ func TestLazyResolverReadsTheStoreAndGates(t *testing.T) {
 	writeUserPacks(t, home, `["file://`+pack+`"]`)
 
 	got := resolvePackLoopholeModules()
-	if len(got) == 0 {
-		// Skipped rather than failed while the kind is absent: packdecl.Decode refuses the
-		// unknown kind, so the projection legitimately finds nothing and the property under
-		// test is not yet observable. It goes live with the kind.
-		t.Skip("the `loophole` kind is not in this build yet, so the manifest is refused before " +
-			"the projection sees it")
-	}
+	// This used to t.Skip on len(got) == 0, because before the kind landed packdecl.Decode
+	// refused the unknown kind and the projection legitimately found nothing. The kind
+	// landed, so an empty answer is now the DEFECT this test exists to catch — a resolver
+	// that silently resolves nothing leaves the three never-staging surfaces (the
+	// pre-staging config validator, `loopholes list`/`status`, `yolo check`) pack-blind,
+	// which is the fork §5.1 refuses to leave open. A skip here would report that as ok.
 	if len(got) != 1 {
 		t.Fatalf("want one module, got %d: %+v", len(got), got)
 	}
