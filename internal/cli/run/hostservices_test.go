@@ -862,3 +862,61 @@ func TestAdvertiseHostFollowsTheNetworkNamespace(t *testing.T) {
 		}
 	}
 }
+
+// The §4.3a placement rule at the SPAWN: a daemon program inside the workspace
+// this launch mounts :rw is one the agent rewrites, so it is refused instead of
+// started. This is the face config validation cannot cover — a manifest's
+// host_daemon.cmd never passes through the config validator at all.
+func TestExternalServiceRefusesADaemonInsideTheWorkspace(t *testing.T) {
+	ws := t.TempDir()
+	daemon := filepath.Join(ws, "tool.py")
+	if err := os.WriteFile(daemon, []byte("#!/bin/sh\nsleep 60\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var buf strings.Builder
+	o := &Options{Workspace: ws}
+	fillDefaults(o)
+	o.Stdout = &buf
+	spec := jsonx.NewOrderedMap()
+	spec.Set("command", []any{daemon, "--socket", "{socket}"})
+
+	if _, ok := o.startExternalService("wsdaemon", spec, t.TempDir(),
+		loopholes.TransportLoopbackTLS, "127.0.0.1", nil); ok {
+		t.Fatal("a daemon inside the mounted workspace must not be spawned")
+	}
+	for _, want := range []string{"wsdaemon", daemon, "§4.3a"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("refusal %q does not name %q", buf.String(), want)
+		}
+	}
+}
+
+// Control: the same spec outside both agent-writable trees still starts, and the
+// bundled ["yolo", …] shape is untouched by the check — it runs BEFORE SelfExecArgv
+// precisely so yolo's own path (which lives in the workspace during nested-jail
+// verification) cannot trip it.
+func TestExternalServiceStartsADaemonOutsideTheWorkspace(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns a host process")
+	}
+	socketsDir := t.TempDir()
+	if err := os.Chmod(socketsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var buf strings.Builder
+	o := &Options{Workspace: t.TempDir()}
+	fillDefaults(o)
+	o.Stdout = &buf
+	spec := jsonx.NewOrderedMap()
+	spec.Set("command", []any{os.Args[0], "-front-upstream-child", "line", "{socket}"})
+	hd := &loopholes.HostDaemon{
+		Publishes:  loopholes.PublishesSocket,
+		RequestEnd: loopholes.RequestEndFramed,
+	}
+	h, ok := o.startExternalService("outside", spec, socketsDir,
+		loopholes.TransportLoopbackTLS, "127.0.0.1", hd)
+	if !ok {
+		t.Fatalf("a daemon outside the workspace must still start; output: %q", buf.String())
+	}
+	h.stop()
+}

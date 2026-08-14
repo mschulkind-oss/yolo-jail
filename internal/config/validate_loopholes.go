@@ -88,10 +88,12 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 		// Name/type problems are the shape pass's to report; the scope pass
 		// only runs where the entry is inspectable.
 		suppressFallback := false
+		scopeViolated := false
 		spec, isMap := asMap(specV)
 		if isMap && hostServiceName.MatchString(name) && name != paths.BuiltinCgroupLoopholeName {
 			entries := wsEntries[name]
 			scoped := func(msg string) {
+				scopeViolated = true
 				if jail {
 					add(warns, msg+loopholeScopeInJailSuffix)
 					return
@@ -116,6 +118,14 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 			}
 			if disclosure != "" {
 				add(warns, disclosure)
+			}
+			// --- Placement pass (§4.3a): WHERE the declared host execution lives.
+			// Scope decides who may declare it; this decides whether the file it
+			// names is one an agent rewrites between launches.
+			if !scopeViolated {
+				for _, p := range loopholeEntryPlacementProblems(name, spec, infoPtr, workspace) {
+					add(errs, p)
+				}
 			}
 		}
 
@@ -315,6 +325,24 @@ func workspaceLoopholeEntries(workspace string) map[string][]wsLoopholeEntry {
 	return out
 }
 
+// WorkspaceLoopholeOrigins maps loophole name → every workspace-scope config
+// file that contributed to it, in merge order (yolo-jail.jsonc, then
+// yolo-jail.local.jsonc, includes folded into whichever file pulled them in).
+//
+// It exists for callers that read the COLLAPSED workspace config — `yolo
+// loopholes list`/`status` go through LoadWorkspaceConfig, which merges the two
+// files and so cannot name an entry's origin. Refusing an entry while naming the
+// wrong file sends a human to edit a file the entry is not in.
+func WorkspaceLoopholeOrigins(workspace string) map[string][]string {
+	out := map[string][]string{}
+	for name, entries := range workspaceLoopholeEntries(workspace) {
+		for _, e := range entries {
+			out[name] = append(out[name], e.file)
+		}
+	}
+	return out
+}
+
 // WorkspaceDisabledLoopholes maps loophole name → the workspace config file
 // whose `loopholes.<name>.enabled: false` is the effective workspace-scope
 // disable. It is the provenance seam behind the two §4.3b disclosures: the
@@ -357,21 +385,30 @@ func WorkspaceDisabledLoopholes(workspace string) map[string]string {
 // inJail downgrades them to the warnings ValidateConfig would emit, which this
 // function does NOT return — matching the launch path, which honors such an
 // entry in-jail and refuses it on the host. srcFile names the entry's origin
-// in the scope messages.
-func LoopholeEntryErrors(name string, specV any, info *LoopholeInfo, userInstalledInline, fromWorkspace, inJail bool, srcFile string) []string {
+// in the scope messages. workspace is the workspace these commands are reading
+// from, for the §4.3a placement rule — which applies at EITHER scope, because it
+// is about the target file rather than the declaring one.
+func LoopholeEntryErrors(name string, specV any, info *LoopholeInfo, userInstalledInline, fromWorkspace, inJail bool, srcFile, workspace string) []string {
 	errs := &[]string{}
 	warns := &[]string{}
 	validateLoopholeEntryShape(name, specV, info, true, errs, warns)
-	if fromWorkspace && !inJail {
-		if spec, ok := asMap(specV); ok && hostServiceName.MatchString(name) &&
-			name != paths.BuiltinCgroupLoopholeName {
-			*errs = append(*errs, loopholeScopeKeyViolations(name, spec, srcFile, info != nil)...)
-			installed := info != nil || userInstalledInline
-			entry := []wsLoopholeEntry{{file: srcFile, spec: spec}}
-			if violation, _ := loopholeScopeEnableProblems(name, entry, installed); violation != "" {
-				*errs = append(*errs, violation)
-			}
+	spec, isMap := asMap(specV)
+	named := isMap && hostServiceName.MatchString(name) && name != paths.BuiltinCgroupLoopholeName
+	scopeRefused := false
+	if fromWorkspace && !inJail && named {
+		beforeScope := len(*errs)
+		*errs = append(*errs, loopholeScopeKeyViolations(name, spec, srcFile, info != nil)...)
+		installed := info != nil || userInstalledInline
+		entry := []wsLoopholeEntry{{file: srcFile, spec: spec}}
+		if violation, _ := loopholeScopeEnableProblems(name, entry, installed); violation != "" {
+			*errs = append(*errs, violation)
 		}
+		// One mistake, one message: a scope refusal already rejects the whole
+		// entry and names a fix, so the placement rule stays quiet.
+		scopeRefused = len(*errs) > beforeScope
+	}
+	if named && !scopeRefused {
+		*errs = append(*errs, loopholeEntryPlacementProblems(name, spec, info, workspace)...)
 	}
 	return *errs
 }

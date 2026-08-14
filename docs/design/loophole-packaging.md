@@ -1729,6 +1729,18 @@ in revision 2 and are real work draft 1 priced at zero.
    - **1a. Content-anchored confirmation for host execution, every origin** (§4.3a, OQ-LP13). Also
      independent of the kind, also pre-existing, and it is what makes item 1 add up to a closed hole
      rather than a narrowed one. Subsumes item 6's commit anchoring.
+     **Landed as the ruled PLACEMENT rule — partly — 2026-08-14.** Item 1 shipped without it, so the
+     hole stayed open one batch (measured: a user-config `command: ["python3", "/workspace/tool.py"]`
+     validated clean and spawned). Now refused for the two trees a launch hands an agent (the mounted
+     workspace, `paths.GlobalHome()`) in `internal/config/loopholeplacement.go`, called from
+     `ValidateConfig` (so `yolo check` + the launch preflight), from `LoopholeEntryErrors` (so
+     `loopholes list`/`status`, which executes `doctor_cmd`), and from `startExternalService` — the
+     spawn face, which is the only one that also sees a MANIFEST's `host_daemon.cmd`.
+     **Still owed:** a manifest's own `doctor_cmd` (run by the doctor path, which carries no
+     workspace), loophole MODULE dirs, and the pack-shipped `loophole` kind's dir — the last two are
+     moot until item 5 exists. The check is deliberately conservative about what counts as a path
+     (no whitespace, no shell metacharacters), because a false positive refuses a working loophole at
+     every launch; §4.3a's "cannot be complete" limit now has a second, narrower edge to name.
    - **1b.** Make `loopholesWithConfig` refuse (or drop) `loopholes` entries that fail
      `validateInlineService` — a command that executes what it reads must not read through a path
      that skips validation (§4.1).

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
@@ -197,5 +198,40 @@ func TestUserInlineEntryStillListed(t *testing.T) {
 	}
 	if !found || errBuf.String() != "" {
 		t.Errorf("user install must be honored silently; found=%v err=%q", found, errBuf.String())
+	}
+}
+
+// The refusal must name the file the entry is actually in. deps.LoadWorkspaceConfig
+// collapses yolo-jail.jsonc and yolo-jail.local.jsonc, so the command group used to
+// blame the tracked file for a violation living only in the local one — sending a
+// human to edit a file that does not contain the entry.
+func TestWorkspaceRefusalNamesTheLocalFileWhenThatIsWhereTheEntryIs(t *testing.T) {
+	isolateDirs(t)
+	ws := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(ws, config.WorkspaceLocalConfigName),
+		[]byte(`{"loopholes": {"wsd": {"command": ["/bin/true"]}}}`), 0o644))
+
+	var out, errBuf bytes.Buffer
+	deps := Deps{
+		Out: &out, Err: &errBuf, Cwd: ws,
+		LoadUserConfig: func() *jsonx.OrderedMap { return nil },
+		LoadWorkspaceConfig: func(cwd string) *jsonx.OrderedMap {
+			m, err := config.LoadWorkspaceConfig(cwd, false, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return m
+		},
+	}
+
+	loopholesWithConfig(deps, true)
+	reason := errBuf.String()
+	if !strings.Contains(reason, config.WorkspaceLocalConfigName) {
+		t.Errorf("refusal %q does not name %s, which is where the entry is",
+			reason, config.WorkspaceLocalConfigName)
+	}
+	if strings.Contains(reason, filepath.Join(ws, config.WorkspaceConfigName)) {
+		t.Errorf("refusal %q blames %s, which does not exist here",
+			reason, config.WorkspaceConfigName)
 	}
 }

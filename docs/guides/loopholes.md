@@ -117,6 +117,17 @@ naming the file and the fix; inside a jail the same violation downgrades to a
 warning, because the workspace is live-mounted and a hard error would refuse
 every nested launch. `enabled` and `jail_env` are legal at either scope.
 
+**And the program itself may not live where an agent writes.** Scope decides who
+may *declare* host execution; it says nothing about the file that actually runs.
+So an install naming a program inside the workspace yolo is about to bind-mount
+`:rw` — or inside the jail-home tree (`~/.local/share/yolo-jail/home`, which *is*
+`/home/agent`) — is refused, at either scope, by `yolo check`, by `yolo loopholes
+list`/`status`, and at launch (§4.3a). The user who wrote the entry has host
+access; the agent that can rewrite `tool.py` between launches does not. Keep
+loophole daemons somewhere the jail cannot reach, e.g. `~/.local/bin`. The rule
+covers the two trees yolo knows it hands over, not every directory some other jail
+mounts.
+
 One key is not a scope question at all: `doctor_cmd` on an entry that OVERRIDES a
 manifest-backed loophole. The manifest fixes that loophole's `doctor_cmd`, and an
 override only ever carries `enabled`, `env`, `jail_env` — so the key is refused in

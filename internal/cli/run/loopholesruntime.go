@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -481,6 +482,23 @@ func (o *Options) startExternalService(
 		// spelling it used.)
 		s = strings.ReplaceAll(s, "{endpoint}", daemonPath)
 		cmdArgs = append(cmdArgs, strings.ReplaceAll(s, "{socket}", daemonPath))
+	}
+	// The §4.3a PLACEMENT rule, applied to what is about to be EXECUTED: a daemon
+	// program living inside the workspace this launch mounts :rw (or inside the
+	// jail-home tree) is rewritable by the agent between launches, so no earlier
+	// gate — who declared it, what the lockfile recorded, what the banner printed —
+	// says anything about the bytes that will run. Checked here rather than only in
+	// config validation because a MANIFEST's host_daemon.cmd never passes through
+	// that validator, and deliberately BEFORE SelfExecArgv: after the substitution
+	// argv[0] is yolo's own path, which during nested-jail verification legitimately
+	// lives in the workspace.
+	if probs := config.LoopholePlacementProblems(
+		"loopholes."+name+".command", cmdArgs, o.Workspace); len(probs) > 0 {
+		p := o.pr(o.Stdout)
+		for _, prob := range probs {
+			p.print("[red]Refusing to start host service '" + name + "': " + prob + "[/red]")
+		}
+		return loopholeDaemon{}, false
 	}
 	// A manifest host_daemon.cmd of the form
 	// ["yolo","internal","daemon",<name>,"--socket",…] re-execs the running yolo

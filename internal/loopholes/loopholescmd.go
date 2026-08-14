@@ -76,12 +76,18 @@ func loopholesWithConfig(deps Deps, includeDisabled bool) []*Loophole {
 		src           string
 	}{
 		{deps.LoadUserConfig(), false, paths.UserConfigPath()},
-		// The workspace block is the MERGE of yolo-jail.jsonc and
-		// yolo-jail.local.jsonc (deps.LoadWorkspaceConfig collapses them); the
-		// tracked file is named as the origin. The launch path's validator
-		// re-reads each file and names the exact one.
+		// deps.LoadWorkspaceConfig collapses yolo-jail.jsonc and
+		// yolo-jail.local.jsonc, so the merged block cannot say which file an
+		// entry came from and the refusal used to blame the tracked file for a
+		// violation living in the local one. config.WorkspaceLoopholeOrigins
+		// re-reads the two files (the same re-read the launch validator does) and
+		// names the actual origin per entry; the collapsed map still supplies the
+		// VALUES, so the injected-config seam these commands are tested through
+		// keeps working — with no real files it simply finds no origins and falls
+		// back to the tracked name.
 		{deps.LoadWorkspaceConfig(deps.Cwd), true, filepath.Join(deps.Cwd, config.WorkspaceConfigName)},
 	}
+	wsOrigins := config.WorkspaceLoopholeOrigins(deps.Cwd)
 	userInline := map[string]bool{}
 	merged := jsonx.NewOrderedMap()
 	for _, sc := range scopes {
@@ -103,9 +109,19 @@ func loopholesWithConfig(deps Deps, includeDisabled bool) []*Loophole {
 				kiCopy := ki
 				info = &kiCopy
 			}
-			problems := config.LoopholeEntryErrors(k, val, info, userInline[k], sc.fromWorkspace, deps.InJail, sc.src)
+			src := sc.src
+			if sc.fromWorkspace {
+				if files := wsOrigins[k]; len(files) > 0 {
+					// "A or B" when both files contributed: both are
+					// agent-editable, and which key came from which is the
+					// per-file question only the launch validator answers.
+					src = strings.Join(files, " or ")
+				}
+			}
+			problems := config.LoopholeEntryErrors(k, val, info, userInline[k],
+				sc.fromWorkspace, deps.InJail, src, deps.Cwd)
 			if len(problems) > 0 {
-				fmt.Fprintf(deps.Err, "Ignoring loopholes.%s (from %s):\n", k, sc.src)
+				fmt.Fprintf(deps.Err, "Ignoring loopholes.%s (from %s):\n", k, src)
 				for _, p := range problems {
 					fmt.Fprintf(deps.Err, "  • %s\n", p)
 				}
