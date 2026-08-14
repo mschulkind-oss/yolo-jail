@@ -104,14 +104,23 @@ func TestLoopholePackStillFlagsUnclaimedContent(t *testing.T) {
 	}
 }
 
+// daemonManifest declares one of every crossing AND stays INSIDE the pack-shipped subset,
+// which `pack lint` now enforces (it is the authoring seam, so a manifest lint accepts has to
+// be one every launch accepts).
+//
+// The bind is `:ro` with a `.sock` basename rather than `readonly: false` on `$HOME/...`, and
+// the substitution is worth stating: it still lands in the IPC claim class, because `:ro` is
+// no boundary for an AF_UNIX socket (measured — the kernel exempts non-REG/DIR/LNK inodes), so
+// bindIsIPC keys on the socket basename too. The claim being asserted below is unchanged; only
+// the manifest's legality for a pack changed.
 const daemonManifest = `{
   "name": "acme-proxy",
   "description": "an example",
   "host_daemon": {"cmd": ["python3", "{loophole_dir}/acme-daemon.py", "--socket", "{socket}"],
                   "publishes": "socket"},
   "intercepts": [{"host": "api.acme.com"}],
-  "host_bind_mounts": [{"host": "$HOME/.acme/sock", "container": "/run/acme.sock",
-                        "readonly": false}],
+  "host_bind_mounts": [{"host": "{loophole_dir}/acme.sock", "container": "/run/acme.sock",
+                        "readonly": true}],
   "host_devices": ["/dev/acme"]
 }`
 

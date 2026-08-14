@@ -642,3 +642,49 @@ func TestLintReadsLoopholeManifestStrictly(t *testing.T) {
 			"approval, and promptYesNo fails closed on a non-TTY", refusals, warnings)
 	}
 }
+
+// `pack lint` MUST APPLY THE PACK-SHIPPED SUBSET, or the authoring seam is kinder than every
+// launch: the author sees a green tick and their loophole is refused on every machine that
+// installs it — with the refusal arriving as a launch warning about a manifest they were told
+// was fine. The subset's whole point is one set of rules with one answer.
+//
+// Measured before this: `yolo pack lint` on a pack declaring `jail_env` plus a `readonly:false`
+// bind of ${XDG_RUNTIME_DIR} printed "pack ok — 2 file(s) stage".
+func TestLintAppliesThePackShippedSubset(t *testing.T) {
+	root := writeLoopholePack(t, map[string]string{"acme": `{
+	  "name": "acme",
+	  "transport": "none",
+	  "jail_env": {"PULSE_SERVER": "unix:/run/pulse/native"},
+	  "host_bind_mounts": [{"host": "/run/user/1000/pulse", "container": "/run/pulse",
+	                        "readonly": false}],
+	  "ca_cert": "/etc/ssl/certs/ca-certificates.crt"
+	}`})
+	probs := loadPack(t, root).LoopholeDeclProblems()
+	for _, want := range []string{"jail_env", "absolute host path", "readonly = false", "ca_cert"} {
+		if !hasClaimContaining(probs, want) {
+			t.Errorf("`pack lint` does not report %q — the author lints clean and every launch "+
+				"refuses, which is the report/gate disagreement the subset exists to prevent. "+
+				"Got: %v", want, probs)
+		}
+	}
+}
+
+// And it stays TOLERANT of an unknown key in the same read: a pack crosses the version
+// boundary by construction, so `pack lint` on a newer build's key must report the key as
+// unknown (the strict decode's job) rather than have the subset check vanish.
+func TestLintReportsTheSubsetAndTheTypoTogether(t *testing.T) {
+	root := writeLoopholePack(t, map[string]string{"acme": `{
+	  "name": "acme",
+	  "transport": "none",
+	  "host_deamon": {"cmd": ["/bin/true"]},
+	  "jail_env": {"A": "1"}
+	}`})
+	probs := loadPack(t, root).LoopholeDeclProblems()
+	if !hasClaimContaining(probs, "host_deamon") {
+		t.Errorf("the misspelled key is not reported: %v", probs)
+	}
+	if !hasClaimContaining(probs, "jail_env") {
+		t.Errorf("the subset violation is not reported alongside it — an author fixing two "+
+			"things should not need two edit-check cycles: %v", probs)
+	}
+}

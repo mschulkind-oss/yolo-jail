@@ -197,19 +197,36 @@ func (p *Pack) HonoredLoopholes() (granted []LoopholeModule, refused []string) {
 }
 
 // LoopholeDeclProblems is the AUTHORING read of every loophole module this pack ships:
-// the resolution problems above, plus each manifest's problems under the STRICT decoder,
-// one per line.
+// the resolution problems above, plus each manifest's problems under the STRICT decoder AND
+// the PACK-SHIPPED SUBSET, one per line.
 //
 // Strict here and tolerant in LoopholeModules is the same asymmetry packdecl.Decode /
 // DecodeTolerant already draws, for the same reason: an author must hear that a key
 // declares nothing (today's loader had no unknown-key rejection at all, so `host_deamon`
 // read as a loophole with no daemon), while a gate reading a manifest some other build
 // wrote must not refuse the whole thing over a key it does not know.
+//
+// THE SUBSET IS THE OTHER HALF, and its absence here was the same disagreement the launch
+// path had, pointing the other way: `yolo pack lint` printed "pack ok" for a manifest
+// declaring `jail_env` and a `readonly:false` bind of ${XDG_RUNTIME_DIR} — measured — while
+// every machine that installed the pack refused it. An author told their loophole is fine
+// learns otherwise from a launch warning on somebody else's computer. This is the AUTHORING
+// seam LoadDirPackShipped exists for; it is applied through the same predicate, so lint and
+// the loader cannot come to different conclusions about what a pack may ship.
+//
+// The two reads are SEPARATE calls rather than LoadDirPackShipped, because their problems
+// must both be reported: a strict-decode failure returns before the subset would run, so an
+// author with a typo AND a forbidden field would fix the typo, re-run, and only then hear
+// about the field. Batching is the whole authoring win (PackShippedProblems' own contract).
 func (p *Pack) LoopholeDeclProblems() []string {
 	mods, refusals, warnings := p.LoopholeModules()
 	problems := append(append([]string(nil), refusals...), warnings...)
 	for _, mod := range mods {
-		if _, err := loopholedecl.LoadDir(mod.Dir); err != nil {
+		name := func(prob string) string {
+			return fmt.Sprintf("pack %s: loophole %q: %s", p.Name, mod.Name, prob)
+		}
+		m, err := loopholedecl.LoadDir(mod.Dir)
+		if err != nil {
 			var probs []string
 			if le, ok := err.(*loopholedecl.Error); ok {
 				probs = le.Problems()
@@ -217,9 +234,22 @@ func (p *Pack) LoopholeDeclProblems() []string {
 				probs = []string{err.Error()}
 			}
 			for _, prob := range probs {
-				problems = append(problems, fmt.Sprintf(
-					"pack %s: loophole %q: %s", p.Name, mod.Name, prob))
+				problems = append(problems, name(prob))
 			}
+		}
+		// The subset runs off whichever decode SUCCEEDED. A strict failure leaves m nil, so
+		// the tolerant record (already in hand from LoopholeModules) carries the fields — which
+		// is what lets a manifest with a typo AND a forbidden field report both at once. A
+		// manifest neither decoder could read has mod.Decl nil and is already reported as a
+		// warning above.
+		if m == nil {
+			m = mod.Decl
+		}
+		if m == nil {
+			continue
+		}
+		for _, prob := range m.PackShippedProblems(loopholedecl.ManifestPath(mod.Dir)) {
+			problems = append(problems, name(prob))
 		}
 	}
 	return problems
