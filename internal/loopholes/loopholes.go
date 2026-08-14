@@ -57,12 +57,44 @@ const (
 	retiredTransportUnixSocket   = "unix-socket"
 )
 
+// host_daemon.publishes values: WHAT THE DAEMON ITSELF PUBLISHES. The retired
+// `unix-socket` transport conflated two facts — what the jail dials and what
+// the daemon binds — and this field is the honest split's second half
+// (loophole-packaging.md §2.1). `transport` stays loopback-tls either way,
+// because the transport is what the jail dials and that does not change.
+const (
+	// PublishesEndpoint (the default): the daemon publishes the loopback-TLS
+	// endpoint file itself at {endpoint} — what all bundled loopholes do.
+	PublishesEndpoint = "endpoint"
+	// PublishesSocket: the daemon binds a plain AF_UNIX socket at {socket};
+	// yolo waits for that socket, then runs the TLS front (svcendpoint) and
+	// publishes the endpoint file in front of it. The daemon never learns what
+	// carried its bytes — this is what makes a non-Go daemon expressible.
+	PublishesSocket = "socket"
+)
+
+// host_daemon.request_end values: HOW A REQUEST ENDS on the daemon's socket,
+// meaningful under publishes:"socket" (loophole-packaging.md §2.1b hazard 2).
+const (
+	// RequestEndFramed (the default): the protocol is length-prefixed (or
+	// otherwise self-delimiting), so the front never propagates the client's
+	// EOF upstream — today's relay-parity behaviour, bit-identical.
+	RequestEndFramed = "framed"
+	// RequestEndEOF: the daemon reads its request TO EOF, so the front
+	// half-closes the upstream socket when the client's request direction
+	// ends. Without this such a daemon works on a bare socket and hangs
+	// forever behind the front.
+	RequestEndEOF = "eof"
+)
+
 // Valid enum values. Kept as ordered slices in sorted order so the
 // "not in [...]" error strings render deterministically.
 var (
-	validTransports = []string{TransportLoopbackTLS, TransportNone}
-	validLifecycles = []string{"external", "spawned"}
-	validRestarts   = []string{"always", "on-failure", "no"}
+	validTransports  = []string{TransportLoopbackTLS, TransportNone}
+	validLifecycles  = []string{"external", "spawned"}
+	validRestarts    = []string{"always", "on-failure", "no"}
+	validPublishes   = []string{PublishesEndpoint, PublishesSocket}
+	validRequestEnds = []string{RequestEndEOF, RequestEndFramed}
 )
 
 // Source labels, ordered weakest -> strongest: bundled < user < config.
@@ -129,6 +161,16 @@ type JailDaemon struct {
 type HostDaemon struct {
 	Cmd []string
 	Env *EnvMap
+	// Publishes is what the daemon itself brings up: PublishesEndpoint (the
+	// default — it publishes the endpoint file) or PublishesSocket (it binds a
+	// plain AF_UNIX socket and yolo fronts it). Always one of the two after a
+	// successful load.
+	Publishes string
+	// RequestEnd is how a request ends on the daemon's socket: RequestEndFramed
+	// (default) or RequestEndEOF (the front half-closes upstream when the
+	// client's request direction ends). Always one of the two after a
+	// successful load.
+	RequestEnd string
 }
 
 // Readonly defaults true.

@@ -382,7 +382,39 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &HostDaemon{Cmd: toStringSlice(cmdList), Env: env}, nil
+	publishes := PublishesEndpoint
+	if pv, ok := m.Get("publishes"); ok {
+		publishes = pyStr(pv)
+	}
+	if !inList(publishes, validPublishes) {
+		return nil, loopholeErrorf("%s: 'host_daemon.publishes' = %s not in %s",
+			manifestPath, pytext.Repr(publishes), sortedListRepr(validPublishes))
+	}
+	requestEnd := RequestEndFramed
+	if rv, ok := m.Get("request_end"); ok {
+		requestEnd = pyStr(rv)
+	}
+	if !inList(requestEnd, validRequestEnds) {
+		return nil, loopholeErrorf("%s: 'host_daemon.request_end' = %s not in %s",
+			manifestPath, pytext.Repr(requestEnd), sortedListRepr(validRequestEnds))
+	}
+	cmd := toStringSlice(cmdList)
+	// Under publishes:"socket" the two tokens DIVERGE: {socket} is the upstream
+	// AF_UNIX path the daemon binds, {endpoint} is the file yolo's front
+	// publishes. An argv naming {endpoint} there would silently publish nothing
+	// while yolo publishes over it, so it is an author error refused with the fix.
+	if publishes == PublishesSocket {
+		for _, s := range cmd {
+			if containsSubstr(s, "{endpoint}") {
+				return nil, loopholeErrorf(
+					"%s: 'host_daemon.cmd' names '{endpoint}' but publishes='socket' —"+
+						" under that mode the daemon binds an AF_UNIX socket at the path"+
+						" yolo substitutes into '{socket}', and yolo publishes the endpoint"+
+						" file in front of it; write '{socket}'", manifestPath)
+			}
+		}
+	}
+	return &HostDaemon{Cmd: cmd, Env: env, Publishes: publishes, RequestEnd: requestEnd}, nil
 }
 
 func parseJailDaemon(manifestPath string, raw any) (*JailDaemon, error) {

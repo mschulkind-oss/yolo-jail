@@ -551,6 +551,115 @@ func TestRetiredTransportRejectedWithMigrationHint(t *testing.T) {
 	}
 }
 
+// TestHostDaemonPublishesAndRequestEndParsed: `publishes` and `request_end` are
+// the host_daemon's half of the transport contract — publishes:"socket" means
+// the daemon binds a plain AF_UNIX socket at {socket} and yolo runs the TLS
+// front; request_end:"eof" means the front half-closes upstream when the
+// client's request direction ends (loophole-packaging.md §2.1, §2.1b).
+func TestHostDaemonPublishesAndRequestEndParsed(t *testing.T) {
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "fronted"))
+	writeManifest(t, mod, map[string]any{
+		"name": "fronted", "description": "x",
+		"host_daemon": map[string]any{
+			"cmd":         []any{"some-daemon", "--socket", "{socket}"},
+			"publishes":   "socket",
+			"request_end": "eof",
+		},
+	})
+	lp, err := LoadLoophole(mod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lp.HostDaemon == nil || lp.HostDaemon.Publishes != PublishesSocket {
+		t.Errorf("Publishes = %+v, want %q", lp.HostDaemon, PublishesSocket)
+	}
+	if lp.HostDaemon.RequestEnd != RequestEndEOF {
+		t.Errorf("RequestEnd = %q, want %q", lp.HostDaemon.RequestEnd, RequestEndEOF)
+	}
+}
+
+// TestHostDaemonPublishesDefaults: saying nothing keeps today's behaviour
+// exactly — the daemon publishes the endpoint file itself, and requests are
+// framed (no upstream half-close). The defaults ARE the backward-compat story,
+// so they are pinned.
+func TestHostDaemonPublishesDefaults(t *testing.T) {
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "quiet-hd"))
+	writeManifest(t, mod, map[string]any{
+		"name": "quiet-hd", "description": "x",
+		"host_daemon": map[string]any{"cmd": []any{"some-daemon", "{endpoint}"}},
+	})
+	lp, err := LoadLoophole(mod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lp.HostDaemon.Publishes != PublishesEndpoint {
+		t.Errorf("default Publishes = %q, want %q", lp.HostDaemon.Publishes, PublishesEndpoint)
+	}
+	if lp.HostDaemon.RequestEnd != RequestEndFramed {
+		t.Errorf("default RequestEnd = %q, want %q", lp.HostDaemon.RequestEnd, RequestEndFramed)
+	}
+}
+
+// TestHostDaemonInvalidPublishesAndRequestEndRejected: an invalid enum value is
+// a LOAD error naming the valid set — never a silent fallback to a default,
+// which would quietly select the other publication mechanism.
+func TestHostDaemonInvalidPublishesAndRequestEndRejected(t *testing.T) {
+	cases := []struct {
+		name    string
+		daemon  map[string]any
+		wantSub string
+	}{
+		{"bad-publishes",
+			map[string]any{"cmd": []any{"d", "{socket}"}, "publishes": "carrier-pigeon"},
+			"publishes"},
+		{"bad-request-end",
+			map[string]any{"cmd": []any{"d", "{socket}"}, "request_end": "telepathy"},
+			"request_end"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			md := modsDir(t)
+			mod := mkdir(t, filepath.Join(md, tc.name))
+			writeManifest(t, mod, map[string]any{
+				"name": tc.name, "description": "x", "host_daemon": tc.daemon,
+			})
+			_, err := LoadLoophole(mod)
+			if err == nil {
+				t.Fatalf("invalid %s loaded", tc.name)
+			}
+			if !contains(err.Error(), tc.wantSub) {
+				t.Errorf("error %q does not name %q", err.Error(), tc.wantSub)
+			}
+		})
+	}
+}
+
+// TestPublishesSocketRefusesEndpointToken: under publishes:"socket" the two
+// tokens DIVERGE — {socket} is the upstream path the daemon binds, {endpoint}
+// is the file yolo publishes in front of it. A manifest naming {endpoint} in
+// its argv under that mode would silently publish nothing, so it is refused at
+// load with the fix (loophole-packaging.md §2.1).
+func TestPublishesSocketRefusesEndpointToken(t *testing.T) {
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "confused"))
+	writeManifest(t, mod, map[string]any{
+		"name": "confused", "description": "x",
+		"host_daemon": map[string]any{
+			"cmd":       []any{"some-daemon", "--socket", "{endpoint}"},
+			"publishes": "socket",
+		},
+	})
+	_, err := LoadLoophole(mod)
+	if err == nil {
+		t.Fatal("a publishes:\"socket\" manifest naming {endpoint} in its argv loaded")
+	}
+	if !contains(err.Error(), "{socket}") {
+		t.Errorf("refusal does not name the fix ({socket}): %s", err.Error())
+	}
+}
+
 // TestListKeysInterceptsOnTheInterceptList: `yolo loopholes list` is the whole
 // answer to "is the active transport visible without asking" (loophole-transport
 // OQ-T2), so the `transport=` column has to print for every loophole that is not
