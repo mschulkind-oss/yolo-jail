@@ -609,7 +609,14 @@ func (o *Options) startExternalService(
 		// authenticated connection would then be silently dropped at the dial
 		// (loophole-packaging.md §2.1b hazard 1).
 		frontStop := make(chan struct{})
+		// frontDone closes when the front's listener is actually closed. Without it
+		// stop() only ASKS the front to stop, so "the endpoint file is gone once
+		// stop() returns" was true by timing rather than by construction — the
+		// listener's Close (which unlinks the file, retiring the jail's credential)
+		// races the caller.
+		frontDone := make(chan struct{})
 		go func() {
+			defer close(frontDone)
 			_ = svcendpoint.ServeFrontWithOptions(hostPath, advertiseHost, daemonPath, frontStop,
 				svcendpoint.FrontOptions{
 					HalfCloseUpstream: hd.RequestEnd == loopholes.RequestEndEOF,
@@ -631,6 +638,13 @@ func (o *Options) startExternalService(
 			// file, retiring the jail's credential — then the daemon group, then
 			// the upstream socket, which a SIGKILLed daemon cannot unlink itself.
 			close(frontStop)
+			// WAIT for that Close, bounded: an unbounded wait would let a wedged
+			// front hold up every teardown, and the sockets-dir rmtree in
+			// stopLoopholes is the backstop if this ever expires.
+			select {
+			case <-frontDone:
+			case <-time.After(frontStopGrace):
+			}
 			killServiceGroup(cmd, exited)
 			_ = os.Remove(daemonPath)
 		}
@@ -910,6 +924,12 @@ func (o *Options) relayIsAlive(pidFile, sockPath string) bool {
 // relayKillGraceDefault is the production SIGTERM→SIGKILL drain window. Tests
 // override it via Options.RelayKillGrace to avoid a real 3s sleep.
 const relayKillGraceDefault = 3 * time.Second
+
+// frontStopGrace bounds how long a fronted service's stop() waits for the front
+// goroutine to close its listener (which unlinks the endpoint file). Short because
+// the wait is for a Close, not for I/O: past it, stopLoopholes' sockets-dir rmtree
+// is the backstop.
+const frontStopGrace = 2 * time.Second
 
 func (o *Options) relayKill(pidFile string) {
 	pid, ok := readPIDFile(pidFile)

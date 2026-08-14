@@ -416,6 +416,7 @@ func TestFrontedServiceComesUpBehindFront(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial through the front: %v", err)
 	}
+	boundConn(t, conn)
 	if _, err := conn.Write([]byte("ping\n")); err != nil {
 		t.Fatal(err)
 	}
@@ -602,6 +603,7 @@ func TestManifestEOFDaemonRoundTripsBehindFront(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial through the front: %v", err)
 	}
+	boundConn(t, conn)
 	if _, err := conn.Write([]byte("payload")); err != nil {
 		t.Fatal(err)
 	}
@@ -614,10 +616,35 @@ func TestManifestEOFDaemonRoundTripsBehindFront(t *testing.T) {
 	resp, err := io.ReadAll(conn)
 	_ = conn.Close()
 	if err != nil {
-		t.Fatalf("read through the front: %v", err)
+		t.Fatalf("reading the response failed or timed out — the request_end:\"eof\" "+
+			"front did not half-close the upstream socket, so the daemon's "+
+			"read-to-EOF never returned: %v", err)
 	}
 	if got := string(resp); got != "got:payload" {
 		t.Errorf("response = %q, want %q", got, "got:payload")
+	}
+}
+
+// boundConn bounds every read on a conn dialed through svcendpoint: DialLocal's
+// handshake clears the dial deadlines it set, so without this a lost EOF anywhere
+// in client → front → upstream half-close → daemon blocks io.ReadAll forever and
+// the whole PACKAGE dies on go test's 10-minute timeout panic. That failure names
+// no cause and truncates the goroutine dump; a deadline turns the same regression
+// into a one-line assertion. (Observed once as a nondeterministic 9m49s hang in
+// TestManifestEOFDaemonRoundTripsBehindFront.)
+func boundConn(t *testing.T, conn net.Conn) {
+	t.Helper()
+	// 10s: the round trip is milliseconds once readiness has been waited for, and a
+	// bound that is generous by three orders of magnitude still cannot flake under
+	// load — but it does have to be a bound.
+	d := 10 * time.Second
+	if td, ok := t.Deadline(); ok {
+		if left := time.Until(td) - time.Second; left > 0 && left < d {
+			d = left
+		}
+	}
+	if err := conn.SetDeadline(time.Now().Add(d)); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -919,4 +946,63 @@ func TestExternalServiceStartsADaemonOutsideTheWorkspace(t *testing.T) {
 		t.Fatalf("a daemon outside the workspace must still start; output: %q", buf.String())
 	}
 	h.stop()
+}
+
+// TestExternalServiceAcceptsADaemonizingWrapper: the R1 refinement. A daemon whose
+// launcher FORKS the real server and exits 0 is a legitimate shape (every
+// daemonizing wrapper), so a clean pre-readiness exit must keep polling to the
+// deadline rather than be judged a failure — the crash report is for a NON-zero
+// exit. Without the status check, this whole class of daemon was refused the
+// moment the crash-report fix landed.
+func TestExternalServiceAcceptsADaemonizingWrapper(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("spawns a host process")
+	}
+	socketsDir := t.TempDir()
+	real := filepath.Join(t.TempDir(), "seed")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	seed := filepath.Join(real, "seed.endpoint")
+	ln, err := svcendpoint.Listen(seed, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	// The wrapper publishes from a BACKGROUND child, then exits 0 immediately —
+	// so the exited channel closes well before the endpoint appears.
+	h, ok := startExternalServiceHarness(t, socketsDir,
+		`( sleep 0.4; cp `+seed+` "$1" ) & exit 0`, loopholes.TransportLoopbackTLS)
+	if !ok {
+		t.Fatal("a wrapper that exits 0 after backgrounding its publisher must still " +
+			"reach readiness; the clean exit is not a failure")
+	}
+	h.stop()
+}
+
+// TestExternalServiceReportsCleanExitWithNoService: the other side of that
+// refinement. A daemon that exits 0 and publishes NOTHING must still be reported,
+// with its own message — "exited (status 0)" rather than the crash text or the bare
+// timeout text, because the two have different causes and different fixes.
+func TestExternalServiceReportsCleanExitWithNoService(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("spawns a host process")
+	}
+	socketsDir := t.TempDir()
+	var buf strings.Builder
+	o := &Options{}
+	fillDefaults(o)
+	o.Stdout = &buf
+	o.ServiceReadyTimeout = 300 * time.Millisecond
+	spec := jsonx.NewOrderedMap()
+	spec.Set("command", []any{"sh", "-c", "exit 0"})
+	if _, ok := o.startExternalService("quiet-svc", spec, socketsDir,
+		loopholes.TransportLoopbackTLS, "127.0.0.1", nil); ok {
+		t.Fatal("a daemon that published nothing produced a handle")
+	}
+	for _, want := range []string{"quiet-svc", "exited (status 0)", "never became reachable"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("warning %q does not carry %q", buf.String(), want)
+		}
+	}
 }

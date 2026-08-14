@@ -50,7 +50,13 @@ func TestFrontEOFModeHalfClosesUpstream(t *testing.T) {
 			return
 		}
 		defer conn.Close()
-		req, err := io.ReadAll(conn) // returns only when the front half-closes
+		// BOUNDED: this read returns only when the front half-closes upstream, so a
+		// regression here used to block both ends until go test's package-wide
+		// 10-minute timeout panic — a failure mode that names no cause and truncates
+		// the diagnosis. With a deadline the same regression fails in ~2s, here, with
+		// the half-close named.
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		req, err := io.ReadAll(conn)
 		if err != nil {
 			daemonErr <- err
 			return
@@ -80,15 +86,20 @@ func TestFrontEOFModeHalfClosesUpstream(t *testing.T) {
 	if err := conn.(*tls.Conn).CloseWrite(); err != nil {
 		t.Fatal(err)
 	}
+	// Bounded for the same reason as the daemon's read above.
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 	resp, err := io.ReadAll(conn)
 	if err != nil {
-		t.Fatalf("reading response: %v", err)
+		t.Fatalf("reading the response timed out or failed — the front did not "+
+			"half-close the upstream socket, so the daemon's read-to-EOF never "+
+			"returned: %v", err)
 	}
 	if got := string(resp); got != "got:ping" {
 		t.Errorf("response = %q, want %q", got, "got:ping")
 	}
 	if err := <-daemonErr; err != nil {
-		t.Errorf("upstream daemon: %v", err)
+		t.Errorf("upstream daemon never saw its request end (missing upstream "+
+			"half-close): %v", err)
 	}
 }
 
