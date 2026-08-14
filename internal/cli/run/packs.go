@@ -385,14 +385,19 @@ func packMayAccessHost(entry config.PackEntry, dest string, lock *packsrc.Lock) 
 	if p == nil {
 		return false
 	}
-	// The pack's own claims PLUS any wrapped plugin's code-running components. Both halves,
-	// or the gate disagrees with the prompt: `pack install` approves the merged set, so
-	// checking only the contributions here would grant a fetched plugin's hooks on the
-	// strength of an approval that never mentioned them.
-	want := append(p.Decl.HostAccessClaims(), p.PluginHostAccessClaims()...)
-	sort.Strings(want)
+	// EVERY producer's claims, through the ONE merged helper (packload.Pack.HostAccessClaims):
+	// pack.json's contributions plus a wrapped plugin's code-running components. Both ends of
+	// the approval must compute the same union or the gate disagrees with the prompt —
+	// `pack install` approves what the helper returns, so checking a hand-built subset here
+	// would grant a fetched plugin's hooks on the strength of an approval that never
+	// mentioned them. hostaccessgates_test.go fails if this line reaches for a producer
+	// directly.
+	want := p.HostAccessClaims()
 	if len(want) == 0 {
-		return true // reads nothing from the host, runs nothing on it; the gate is moot
+		// Reads nothing from the host, runs nothing on it; the gate is moot. Note what this
+		// branch demands of every producer: a crossing that emits NO claim arrives here and is
+		// granted, so "the enumeration is total" is a precondition of this line, not a nicety.
+		return true
 	}
 	if lock == nil {
 		return false

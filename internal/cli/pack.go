@@ -25,7 +25,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -1124,13 +1123,19 @@ func resolveHostApproval(name, treeRoot string, prev packsrc.LockEntry, hadPrev 
 	if p == nil {
 		return prevApproved(prev, hadPrev), false
 	}
-	// A WRAPPED PLUGIN's claims join the pack's own. They are not in pack.json — they come
-	// from the plugin's own manifest, which can declare hooks and MCP servers — so reading
-	// only the contributions would let a fetched tree arrive with code to run and nothing to
-	// approve. That is the specific hole plugin-as-pack could have opened, and merging here
-	// closes it with the gate that already exists rather than a second one beside it.
-	want := append(p.Decl.HostAccessClaims(), p.PluginHostAccessClaims()...)
-	sort.Strings(want)
+	// EVERY producer's claims, through the ONE merged helper (packload.Pack.HostAccessClaims).
+	// pack.json's contributions are only one of them: a WRAPPED PLUGIN's code-running
+	// components are declared in the PLUGIN's manifest, outside pack.json, so reading only
+	// the contributions would let a fetched tree arrive with code to run and nothing to
+	// approve.
+	//
+	// Not appended by hand here, and this is the one gate where that matters most: the union
+	// this prompt records into the lockfile must be the SAME union run.packMayAccessHost
+	// checks at launch, or approving is either insufficient (a claim the launch demands and
+	// this never showed) or vacuous (a claim this recorded and the launch never asks about).
+	// Two hand-built unions had already drifted once; hostaccessgates_test.go now fails if
+	// either site reaches for a producer directly.
+	want := p.HostAccessClaims()
 	if len(want) == 0 {
 		return nil, false // reads nothing from the host, runs nothing on it
 	}
