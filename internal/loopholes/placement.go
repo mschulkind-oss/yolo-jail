@@ -44,8 +44,29 @@ func (l *Loophole) PlacementProblems(workspace string) []string {
 // "<yolo-jail.jsonc:loopholes.name>" marker, which is not a path and must not be
 // resolved as one. Its `command` is checked by the config faces, which is where a
 // config entry belongs.
+//
+// A BUNDLED loophole is exempt, and the reason is the SELF-HOSTING case rather than
+// a trust concession. BundledLoopholesDir prefers the repo checkout when yolo runs
+// from its own source tree (loopholes.go's reporoot.Resolve branch), so in THIS repo's
+// own jail all three bundled loopholes resolve to /workspace/bundled_loopholes/* —
+// inside the tree the launch mounts :rw. Judging them refuses the broker, the audio
+// pass-through and host-processes on every launch of yolo's own development jail, which
+// a nested-jail smoke caught and no unit test could: the tests build module dirs in
+// t.TempDir(), so the one configuration where the paths coincide is the one nobody
+// constructs.
+//
+// It is also the right answer on the merits, not just the expedient one. The rule
+// exists because installed content in an agent-writable tree can be swapped between
+// launches by an actor with none of the authority that installed it
+// (docs/design/gate-placement-principle.md's two tests). A bundled loophole IS the
+// yolo binary's own content — the same artifact that implements the check — so an
+// agent that can rewrite it has already rewritten the checker. The gate protects
+// nothing it does not already presuppose, which is Test 1 exactly.
+//
+// PACK and USER loopholes stay judged: their content is not yolo's, and a pack whose
+// module dir sits in the workspace is the case the rule was written for.
 func (l *Loophole) moduleDirForPlacement() string {
-	if l.FromConfig() {
+	if l.FromConfig() || l.Source == SourceBundled {
 		return ""
 	}
 	return l.Path
