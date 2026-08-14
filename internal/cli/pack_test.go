@@ -890,6 +890,63 @@ func TestPackInstallRefusesPipedApproval(t *testing.T) {
 	}
 }
 
+// The same refusal driven by a REAL *os.File pipe — the `yes | yolo pack install`
+// shape byte for byte. The test above exercises the non-*os.File branch of
+// approvalStdinFrom (a strings.Reader cannot be a terminal by type); this one takes
+// the other branch, where the answer comes from the tty ioctl on a file descriptor
+// that has bytes waiting. Both branches must refuse, and only one of them was
+// automated.
+func TestPackInstallRefusesAnOSPipeWithBytesWaiting(t *testing.T) {
+	repo := gitHostAccessPackRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := "git+file://" + repo + "//hostpack?ref=main"
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"),
+		[]byte(`{"packs": [{"source": "`+src+`", "name": "hp"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	// A pipe full of consent, exactly as `yes` would supply it.
+	go func() {
+		defer w.Close()
+		for i := 0; i < 64; i++ {
+			if _, err := w.WriteString("y\n"); err != nil {
+				return
+			}
+		}
+	}()
+
+	var out, errw bytes.Buffer
+	rc := packMain([]string{"install"}, &out, &errw, false, r)
+	if rc == 0 {
+		t.Errorf("an os.Pipe with bytes waiting must still fail closed (rc=0):\n%s%s",
+			out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), "interactive terminal") {
+		t.Errorf("refusal must name the missing terminal:\n%s", out.String())
+	}
+	lock, err := packsrc.LoadLock(packsrc.LockPath(filepath.Join(cfgDir, "config.jsonc")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, ok := lock.Get("hp")
+	if !ok {
+		t.Fatalf("pack should still be locked (unapproved, not uninstalled): %+v", lock.Packs)
+	}
+	if len(e.ApprovedHostAccess) != 0 {
+		t.Errorf("a pipe must not record approvals: %v", e.ApprovedHostAccess)
+	}
+}
+
 // gitHostAccessPackRepo builds a real git repo containing a pack that CLAIMS host
 // access (a mount), so install's approval gate actually fires.
 func gitHostAccessPackRepo(t *testing.T) string {
