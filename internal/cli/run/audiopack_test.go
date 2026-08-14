@@ -389,3 +389,64 @@ func knownNames(known map[string]config.LoopholeInfo) []string {
 	sort.Strings(out)
 	return out
 }
+
+// THE R6 ASSERTION, at the only place it can be made in-jail: the CONTAINER ARGV.
+//
+// A nested-jail launch cannot select this pack from inside this jail — `packs` is user-scope
+// only and ~/.config/yolo-jail/config.jsonc is bind-mounted READ-ONLY into a jail — so the
+// argv the launch would emit is the closest verifiable thing, and it is the thing that
+// actually decides whether audio reaches the jail. RuntimeArgsFor is the exact function the
+// assembler calls (assemble.go's loopholesRuntimeArgs).
+//
+// It also pins the two facts a bare "does it appear" test would miss: the bind is emitted
+// with `:ro`, and the destination is the conf.d fragment rather than /etc/asound.conf — the
+// difference between an additive pack and a jail that will not start.
+//
+// YOLO_VERSION IS CLEARED, and the reason is a real behaviour worth recording rather than a
+// test convenience. Inside a jail, `RequirementsMet` short-circuits to `inJailActive`, which
+// asks whether the CONTAINER path already exists — i.e. "did my host wire this for me?" —
+// so this loophole reads as inactive in a jail that has no /etc/alsa/conf.d, and
+// `yolo loopholes list` says exactly that ("host-side wiring not visible in this jail").
+// That is correct for a report and wrong for building the HOST's argv, which is the role
+// this test is exercising.
+func TestShippedAudioPackEmitsAReadOnlyBindIntoTheContainerArgv(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	os.Unsetenv("YOLO_VERSION")
+
+	p := shippedAudioPack(t)
+	dir := packLoopholeDecls([]*packload.Pack{p})[0].Dir
+	lp, err := loopholes.LoadPackLoophole(dir)
+	if err != nil {
+		t.Fatalf("loading the shipped loophole: %v", err)
+	}
+	lp.Source = loopholes.SourcePack
+	if !lp.Active() {
+		t.Fatalf("the loophole must be ACTIVE on a host: enabled=%v supportedHere=%v "+
+			"requirementsMet=%v — it declares no `requires`, so the only way this fails is a "+
+			"platform mismatch", lp.Enabled, lp.SupportedHere(), lp.RequirementsMet())
+	}
+
+	args := loopholes.RuntimeArgsFor([]*loopholes.Loophole{lp}, "podman")
+	joined := strings.Join(args, " ")
+
+	// The bind: `-v <resolved module path>/asound.conf:/etc/alsa/conf.d/…:ro`. Built from
+	// the record rather than matched loosely, so a changed destination fails here.
+	want := lp.HostBindMount[0].Host + ":" + lp.HostBindMount[0].Container + ":ro"
+	if !strings.Contains(joined, want) {
+		t.Errorf("the container argv must carry the read-only bind %q; got:\n%s", want, joined)
+	}
+	if strings.Contains(joined, ":/etc/asound.conf") {
+		t.Error("the pack must NOT bind /etc/asound.conf — the bundled audio loophole claims " +
+			"that destination, and podman refuses two binds on one destination whose " +
+			"sources differ, so a jail with both would refuse to start")
+	}
+	// No device, no --add-host, no jail_env: this loophole crosses with one bind and
+	// nothing else, which is what makes it additive.
+	for _, unwanted := range []string{"--device", "--add-host", "PULSE_SERVER"} {
+		if strings.Contains(joined, unwanted) {
+			t.Errorf("the pack's loophole must not emit %s (the bundled loophole owns the "+
+				"device, and the env goes through the `env` contribution kind); got:\n%s",
+				unwanted, joined)
+		}
+	}
+}
