@@ -53,6 +53,75 @@ func loadManifest(modulePath string) (*Loophole, error) {
 	return lp, nil
 }
 
+// LoadPackLoophole loads a loophole a PACK ships: the same tolerant read discovery
+// uses, plus loopholedecl's pack-shipped subset (loophole-packaging.md §3.1, §2.1).
+//
+// TOLERANT and not strict, deliberately, and the two halves answer different
+// questions. Version skew is orthogonal to the subset: a manifest key only a newer
+// yolo knows must not make a pack's loophole VANISH (that is loadManifest's whole
+// argument, and it applies with more force to a pack, which crosses the version
+// boundary by construction), while a field a pack MAY NOT SHIP is refused whatever
+// build reads it. So an unknown key is skipped and reported, and `jail_env` is
+// refused. The strict-plus-subset pairing is the AUTHORING answer and lives in
+// loopholedecl.LoadDirPackShipped, where `yolo pack lint` reaches it.
+//
+// PACK-SHIPPEDNESS IS THE CALLER'S FACT, not the manifest's. It is expressed by
+// which loader you call rather than by a field or an option struct: a manifest
+// cannot declare that a pack shipped it (it would just lie), and every caller that
+// reads one already knows which of the four sources it came from. The returned
+// record's Source is whatever resolve() sets; the caller labels it, exactly as
+// loadFromDir does today.
+func LoadPackLoophole(modulePath string) (*Loophole, error) {
+	m, skipped, err := loopholedecl.LoadDirTolerant(modulePath)
+	if err != nil {
+		return nil, err
+	}
+	if perr := m.PackShippedError(loopholedecl.ManifestPath(modulePath)); perr != nil {
+		return nil, perr
+	}
+	lp := resolve(m, modulePath)
+	lp.SkewNotes = skipped
+	return lp, nil
+}
+
+// PackShippedProblems reports how THIS resolved loophole would exceed the
+// pack-shipped subset, for a caller holding a record rather than a manifest — the
+// footprint and the pre-flight, which decode once and then pass records around.
+//
+// It projects back through loopholedecl rather than reimplementing the rules: two
+// checkers over one subset is how a refusal and a report come to disagree about what
+// a pack may ship, and here the disagreement would be a field refused at load and
+// omitted from the consent string, or the reverse.
+//
+// One asymmetry to know: the projection carries the RESOLVED bind-mount hosts, so
+// `{loophole_dir}` has already become an absolute path by the time it is checked.
+// That is why the returned problems are for REPORTING, and LoadPackLoophole is the
+// gate — it runs the subset on the raw manifest, where a module-relative host still
+// looks module-relative.
+func (l *Loophole) PackShippedProblems() []string {
+	return l.subsetManifest().PackShippedProblems(loopholedecl.ManifestPath(l.Path))
+}
+
+// subsetManifest projects the record back onto the fields the subset reads.
+//
+// A three-field literal rather than a copy loop, because schema.go makes
+// loopholes.HostBindMount and loopholes.HostDaemon ALIASES of the loopholedecl
+// types — there is one HostDaemon type, not two that happen to match — so there is
+// nothing to convert. The slice and the pointers are SHARED, which is sound only
+// because everything downstream of here reads: PackShippedProblems formats messages
+// and mutates nothing.
+//
+// Deliberately partial: a field the subset does not read is not projected, so a
+// future subset rule over a field this leaves out fails loudly (an empty answer for
+// a declaration that is right there on the record) rather than quietly passing.
+func (l *Loophole) subsetManifest() *loopholedecl.Manifest {
+	return &loopholedecl.Manifest{
+		JailEnv:        l.JailEnv,
+		HostBindMounts: l.HostBindMount,
+		HostDaemon:     l.HostDaemon,
+	}
+}
+
 // resolve turns a decoded manifest into the runtime record, substituting the
 // module-dir tokens and resolving the CA path.
 //

@@ -208,12 +208,45 @@ type DoctorResult struct {
 }
 
 // RunDoctorChecks runs each loophole's doctor_cmd. timeout defaults to 10s when zero.
+//
+// A SourcePack record is NEVER EXECUTED here, whatever the caller intended: it comes back
+// with RC=nil and an explanation instead. That is the ungated door being nailed shut
+// rather than documented (docs/design/loophole-packaging.md §5.1 — "RunDoctorChecks must
+// take only loopholes whose origin gate has been evaluated").
+//
+// The reason it is enforced HERE, in the callee, is that two of the doctor call sites are
+// `yolo check` and `yolo loopholes status` — commands users and AGENTS.md treat as
+// READ-ONLY PREFLIGHT — and neither has pack resolution, a lockfile or packMayAccessHost
+// anywhere in reach. A rule they were merely asked to follow is a rule the next call site
+// does not know about; a slice carries no gate, so the only place the check cannot be
+// forgotten is inside the function that spawns the process. A caller that DID evaluate the
+// gate says so by going through Set.RunDoctorChecks below.
 func RunDoctorChecks(loopholes []*Loophole, timeout time.Duration) []DoctorResult {
+	return runDoctorChecks(loopholes, timeout, nil)
+}
+
+// RunDoctorChecks runs the doctor_cmd of each given record WITH THIS SET'S ORIGIN GATE
+// applied: a pack-contributed loophole runs only when the caller recorded that its pack's
+// host access is approved. Everything else behaves exactly as the package-level function.
+func (s Set) RunDoctorChecks(from []*Loophole, timeout time.Duration) []DoctorResult {
+	return runDoctorChecks(from, timeout, &s)
+}
+
+// runDoctorChecks is the shared body. gate nil means no gate was evaluated, which for a
+// SourcePack record means "refuse", never "allow".
+func runDoctorChecks(loopholes []*Loophole, timeout time.Duration, gate *Set) []DoctorResult {
 	if timeout == 0 {
 		timeout = 10 * time.Second
 	}
 	results := []DoctorResult{}
 	for _, m := range loopholes {
+		if m.Source == SourcePack && (gate == nil || !gate.MayRunHostCode(m)) {
+			results = append(results, DoctorResult{Loophole: m, RC: nil,
+				Output: "not run: a pack-shipped loophole's self-check is host execution, " +
+					"and this pack's host access is not approved for it " +
+					"(`yolo pack install` records the approval)"})
+			continue
+		}
 		if len(m.DoctorCmd) == 0 {
 			results = append(results, DoctorResult{Loophole: m, RC: nil, Output: ""})
 			continue

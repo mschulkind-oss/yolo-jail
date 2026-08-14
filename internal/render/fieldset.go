@@ -39,6 +39,23 @@ var refusalReasons = map[packdecl.Kind]string{
 	packdecl.KindMount:     "mount needs a mount namespace — unavailable without a container",
 	packdecl.KindReadsHost: "reads-host carries a host file INTO a jail — meaningless when there is no jail",
 	packdecl.KindState:     "state names a jail-writable home subtree — off-container the home simply is writable",
+	// `loophole` needs its own reason, and the reason is the INVERSE of the generic line.
+	// A loophole's effect IS on the host — it spawns a daemon there — so "not applicable at
+	// this confinement level" would be the single most confusing sentence in the command:
+	// it reads as obviously wrong to anyone who knows what a loophole does.
+	//
+	// The honest reason is that its COUNTERPARTY is missing, not its mechanism. With no jail
+	// there is no client for the daemon, no `--add-host` to write, no YOLO_JAIL_DAEMONS to
+	// populate, and nothing for the endpoint file to be mounted into.
+	//
+	// And the refusal is a FEATURE of the trust story rather than a limitation to fix later.
+	// `apply --host` is the one command that mutates the real machine, and it deliberately
+	// runs no pack `hook` for the same reason. A loophole refused here means "selecting this
+	// pack runs a daemon" is a statement about LAUNCHING A JAIL, not about applying a
+	// config — which keeps the blast radius attached to a command the user runs deliberately.
+	packdecl.KindLoophole: "a loophole is a host daemon whose only client is a container: " +
+		"with no jail there is no client, no --add-host, no YOLO_JAIL_DAEMONS, and nothing " +
+		"for its endpoint file to be mounted into. Launch a jail to run it",
 }
 
 // hostUnimplemented names the kinds a host target's FieldSet HONORS but whose renderer is
@@ -101,13 +118,41 @@ func HostUnimplemented(k packdecl.Kind) (string, bool) {
 	return r, ok
 }
 
-// JailFields is every kind: a jail honors the whole manifest.
+// JailFields is every kind a jail RENDERS, which is every kind except the ones rendered
+// by something other than the render path.
+//
+// Derived from packdecl.KnownKinds() minus jailRenderedElsewhere, so a new kind is honored
+// by default (a jail is the maximal target) and an exclusion has to be written down.
 func JailFields() FieldSet {
 	all := map[packdecl.Kind]bool{}
 	for _, k := range packdecl.KnownKinds() {
+		if jailRenderedElsewhere[k] {
+			continue
+		}
 		all[k] = true
 	}
 	return FieldSet{applies: all}
+}
+
+// jailRenderedElsewhere names the kinds whose jail-side effect exists but is NOT produced
+// by the render path this FieldSet describes. Excluded EXPLICITLY rather than by
+// derivation, because the census is supposed to be executable data and an entry it derives
+// from nothing is an assertion no code reads.
+//
+// `loophole` is the case. Its jail-side effects are real — `--add-host`, bind mounts,
+// devices, YOLO_JAIL_DAEMONS, an endpoint file — and every one of them is produced by
+// `startLoopholes` in the HOST CLI, before the container exists, not by
+// entrypoint.ConfigurePackSurfaces. Measured while designing the kind: `Target.Fields()`
+// has no production caller at all (the only consumer of a FieldSet is
+// `render.HostFields()`, at apply.go), so deriving `loophole: true` from KnownKinds()
+// would have made the census claim "the jail render honors this" — true of nothing.
+//
+// The honest census answer at `jail` is therefore "rendered elsewhere; its actor is the
+// run pipeline". A caller asking Honors() gets false and Refuse() gives the counterparty
+// reason (refusalReasons), which is the right answer for the jail target too: whatever
+// renders a loophole, it is not this.
+var jailRenderedElsewhere = map[packdecl.Kind]bool{
+	packdecl.KindLoophole: true,
 }
 
 // HostFields is the reduced set a host/guest target honors: the composed-config and

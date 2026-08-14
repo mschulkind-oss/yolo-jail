@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -37,8 +39,14 @@ func TestBothInertBackendsReportByName(t *testing.T) {
 			p := writeLoopholePack(t, "acme", "acme-proxy",
 				`{"name": "acme-proxy", "transport": "none"}`)
 			got := inertOutput(t, rt, p)
-			if !strings.Contains(got, loopholeInertLineMarker) {
-				t.Fatalf("backend %s printed no inert line:\n%s", rt, got)
+			// The EXACT line the report renders, built from the same inputs — so this cannot
+			// pass on a partial match, and cannot rot into matching nothing when either axis's
+			// wording changes (see inertLineFor).
+			want := inertLineFor("acme", loopholes.InertNote{
+				Name: "acme-proxy", Axis: loopholes.AxisBackend, Reason: backendInertReason(rt),
+			})
+			if !strings.Contains(got, want) {
+				t.Fatalf("backend %s did not print the inert line\n want: %s\n  got: %s", rt, want, got)
 			}
 			// BY NAME, both halves: which pack, and which loophole. A line naming neither is
 			// unactionable on a machine with several packs.
@@ -103,8 +111,18 @@ func TestPlatformUnsupportedUsesTheSameReport(t *testing.T) {
 	// A WORKING backend, so the only reason left is the platform — which is what proves the
 	// two axes share one mechanism rather than the backend answer covering for a missing one.
 	got := inertOutput(t, "podman", p)
-	if !strings.Contains(got, loopholeInertLineMarker) {
+	if !strings.Contains(got, "loophole acme-proxy is ") {
 		t.Fatalf("a platform-unsupported loophole printed no inert line:\n%s", got)
+	}
+	// The AXIS is carried as data, so a reader with two lines can tell "wrong machine" from
+	// "wrong backend" — and this asserts the platform producer's own note rather than a
+	// lookalike sentence assembled here.
+	want := inertLineFor("acme", loopholes.InertNote{
+		Name: "acme-proxy", Axis: loopholes.AxisPlatform,
+		Reason: loopholePlatformInertReason(packLoopholes(p)[0].Dir),
+	})
+	if !strings.Contains(got, want) {
+		t.Errorf("the platform line is not the shared rendering\n want: %s\n  got: %s", want, got)
 	}
 	if !strings.Contains(got, "acme-proxy") {
 		t.Errorf("the platform line does not name the loophole:\n%s", got)
@@ -139,7 +157,7 @@ func TestBackendReasonWinsOverPlatformReason(t *testing.T) {
 	p := writeLoopholePack(t, "acme", "acme-proxy",
 		`{"name": "acme-proxy", "transport": "none", "platforms": ["`+other+`"]}`)
 	got := inertOutput(t, "container", p)
-	if strings.Count(got, loopholeInertLineMarker) != 1 {
+	if strings.Count(got, "loophole acme-proxy is ") != 1 {
 		t.Errorf("want exactly one inert line when both axes apply:\n%s", got)
 	}
 	if !strings.Contains(got, "Apple Container") {

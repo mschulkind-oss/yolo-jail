@@ -36,6 +36,7 @@ import (
 	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -57,11 +58,12 @@ import (
 func backendInertReason(rt string) string {
 	switch rt {
 	case "container":
-		return "the Apple Container backend starts no loophole host services " +
-			"(no socket bind-mount there), so nothing it declares runs this launch"
+		return "inert on this backend — the Apple Container backend starts no loophole host " +
+			"services (no socket bind-mount there), so nothing it declares runs this launch"
 	case "macos-user":
-		return "the macos-user backend starts no loophole host services — a native process " +
-			"already reaches the host directly, so the whole mechanism is bypassed"
+		return "inert on this backend — the macos-user backend starts no loophole host " +
+			"services; a native process already reaches the host directly, so the whole " +
+			"mechanism is bypassed"
 	}
 	return ""
 }
@@ -84,20 +86,33 @@ func backendInertReason(rt string) string {
 // is how a report and a gate come to disagree. A manifest that will not parse prints
 // nothing — the discovery layer's contract is warn-and-continue and it already warns, and a
 // second complaint from the launch path about the same file would read as a second bug.
+//
+// It builds loopholes.InertNote VALUES and renders them through InertNote.Line, rather than
+// formatting its own sentence. That type is the mechanism's own shape — a producer hands back
+// notes, one caller renders — and it carries the AXIS, so a reader with two lines can tell
+// "wrong machine" from "wrong backend" without parsing prose. Formatting here instead would
+// be the second half-message §3.1 forbids, with the platform producer's rendering unused
+// beside it.
 func (o *Options) notePackLoopholesInert(rt string, packs []*packload.Pack) {
 	backend := backendInertReason(rt)
 	var lines []string
 	for _, p := range packs {
 		for _, lp := range packLoopholes(p) {
-			reason := backend
-			if reason == "" {
-				reason = loopholePlatformInertReason(lp.Dir)
+			note := loopholes.InertNote{Name: lp.Name, Axis: loopholes.AxisBackend, Reason: backend}
+			if backend == "" {
+				reason := loopholePlatformInertReason(lp.Dir)
+				if reason == "" {
+					continue
+				}
+				note = loopholes.InertNote{
+					Name: lp.Name, Axis: loopholes.AxisPlatform, Reason: reason,
+				}
 			}
-			if reason == "" {
-				continue
-			}
-			lines = append(lines, lp.Pack+": loophole "+lp.Name+" "+
-				loopholeInertLineMarker+" — "+reason)
+			// The pack name is prefixed here rather than folded into the note, because it is
+			// a fact about THIS report's context (which selected pack shipped it) and not
+			// about the loophole — `yolo loopholes list` renders the same note for a
+			// hand-placed loophole that has no pack at all.
+			lines = append(lines, inertLineFor(lp.Pack, note))
 		}
 	}
 	if len(lines) == 0 {
@@ -126,7 +141,15 @@ func loopholePlatformInertReason(dir string) string {
 	return m.PlatformsUnsupportedReason(runtime.GOOS, runtime.GOARCH)
 }
 
-// loopholeInertLineMarker is the substring every inert line carries, so a test (and a user
-// grepping a launch log) can find them without matching a whole sentence. Used by
-// notePackLoopholesInert itself, so the report and the marker cannot drift.
-const loopholeInertLineMarker = "is inert here"
+// inertLineFor renders what THIS report prints for one (pack, loophole, reason), so a test can
+// match a whole line rather than guess at a substring.
+//
+// A function rather than a marker constant, because after the convergence onto
+// loopholes.InertNote there is no single interesting substring left to key on: the two axes
+// share only Line's fixed "loophole <name> is " prefix, and a marker taken from either axis's
+// reason clause would silently stop matching the other — the drift the single rendering exists
+// to prevent. Producing the exact line from the same inputs the report uses cannot drift at
+// all.
+func inertLineFor(pack string, note loopholes.InertNote) string {
+	return pack + ": " + note.Line()
+}

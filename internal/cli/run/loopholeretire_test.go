@@ -319,13 +319,11 @@ func TestRetirementFailureDoesNotFailTheLaunch(t *testing.T) {
 // invocation including attach. A pass nothing calls is the shape of defect this whole item
 // exists to fix, so it is asserted from the real entry point rather than from the function.
 //
-// Driven through the RETIREMENT direction rather than the recording one, deliberately.
-// Recording requires a pack whose staged pack.json declares `{"kind": "loophole"}`, and that
-// kind is not decodable in this build yet (it lands with item 5) — so a recording-side
-// fixture would have to fail staging to reach the pass, which asserts nothing about the
-// wiring. A pre-existing record plus a config that no longer names its pack exercises the
-// same call site with inputs that exist today, and it is the direction where being unwired
-// costs the user something (a private key left behind).
+// Driven through the RETIREMENT direction rather than the recording one, deliberately: it is
+// the direction where being unwired costs the user something (a private key left behind on a
+// machine after the pack that put it there is gone), and it needs no pack to resolve, so it
+// cannot pass or fail for a staging reason. The recording direction is covered through the
+// real loader by TestOwnershipIsRecordedThroughTheRealLoader.
 func TestStageRunPacksRunsTheRetirementPass(t *testing.T) {
 	home := retireHome(t)
 	writeUserPacks(t, home, `[]`)
@@ -350,30 +348,46 @@ func TestStageRunPacksRunsTheRetirementPass(t *testing.T) {
 	}
 }
 
-// THE RECORDING SIDE IS INERT UNTIL THE `loophole` KIND DECODES, and that is a fact worth
-// pinning rather than discovering: packload.LoadDir is STRICT on the launch path, so a
-// pack.json declaring an unknown kind is a load PROBLEM and stagePacks is fail-closed (A12).
-// So no staged pack can carry a loophole contribution in this build.
+// THE RECORDING SIDE, END TO END THROUGH THE REAL LOADER. The `loophole` kind now decodes, so
+// a pack whose staged pack.json declares one loads and its ownership is recorded without any
+// hand-built manifest in the way.
 //
-// What this asserts is that the recording pass is nevertheless CORRECT the moment the kind
-// lands — it matches the contribution by VALUE, so nothing here needs editing — and that the
-// gap is the loader's, not this file's.
-func TestLoopholeContributionIsNotDecodableYet(t *testing.T) {
-	dir := t.TempDir()
-	body := `{"contributes":[{"kind":"` + packLoopholeKindName + `","from":"loopholes/acme-proxy"}]}`
-	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(body), 0o644); err != nil {
+// This replaces a placeholder that asserted the kind was NOT yet decodable (and skipped once it
+// was). What it pins is the seam that placeholder could not: the launch records ownership from
+// what packload produced, so the record is keyed the same way the STATE DIR is — by the module
+// directory's basename — with nothing in between deriving a name a second way.
+func TestOwnershipIsRecordedThroughTheRealLoader(t *testing.T) {
+	home := retireHome(t)
+	root := t.TempDir()
+	mod := filepath.Join(root, "loopholes", "acme-proxy")
+	if err := os.MkdirAll(mod, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, probs := packload.LoadDir(dir, "acme", true)
-	if len(probs) == 0 {
-		// The kind has landed. The recording pass then works through the real loader, and this
-		// test's reason for existing is gone — say so rather than passing quietly.
-		t.Skip("the `loophole` kind now decodes; recording works through the real loader")
+	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"),
+		[]byte(`{"name": "acme-proxy", "transport": "none"}`), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	joined := strings.Join(probs, "\n")
-	if !strings.Contains(joined, packLoopholeKindName) {
-		t.Errorf("the refusal does not name the kind, so this test is pinning the wrong "+
-			"thing:\n%s", joined)
+	if err := os.WriteFile(filepath.Join(root, "pack.json"),
+		[]byte(`{"contributes":[{"kind":"loophole","from":"loopholes/acme-proxy"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeUserPacks(t, home, `[{"name": "acme", "source": "file://`+root+`"}]`)
+
+	p, probs := packload.LoadDir(root, "acme", true)
+	if len(probs) > 0 {
+		t.Fatalf("a pack declaring the loophole kind does not load: %v", probs)
+	}
+
+	var out bytes.Buffer
+	retireOptions(t, &out).recordAndRetirePackLoopholes([]*packload.Pack{p})
+
+	rec, err := packstage.LoadLoopholeOwners(packLoopholeOwnersPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Owners["acme-proxy"] != "acme" {
+		t.Errorf("ownership record = %v, want acme-proxy owned by acme — keyed by the module "+
+			"basename, which is what the STATE DIR is keyed by", rec.Owners)
 	}
 }
 

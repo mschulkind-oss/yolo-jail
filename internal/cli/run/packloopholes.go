@@ -106,20 +106,55 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	packdecl.KindLaunch:        disclosureSkip,
 	packdecl.KindHook:          disclosureSkip,
 	packdecl.KindAutonomy:      disclosureSkip,
+
+	// loophole: the kind whose crossing can be HOST EXECUTION. Classified here so the
+	// exhaustiveness test is satisfied, but the read/exec split for a loophole is decided
+	// PER CLAIM, not per kind — see disclosureClassOfClaim. One contribution emits several
+	// claims (the daemon argv, each intercept, each bind, each device, each socket), and
+	// only some of them run code: a `transport: none` loophole declaring only `intercepts`
+	// runs nothing on the host and still installs a CA trusted by every TLS client in the
+	// jail. Reporting all of them as exec would cry wolf; reporting all as read would put
+	// the daemon argv after the spawn.
+	packdecl.KindLoophole: disclosureExec,
 }
 
-// disclosureClassOf classifies one kind, defaulting an UNKNOWN kind to disclosureExec.
+// disclosureClassOf classifies one KIND, defaulting an UNKNOWN kind to disclosureExec.
 //
 // FAIL-CLOSED IN THE ORDERING DIRECTION. The alternative defaults are both worse: skip
 // drops the kind silently (the defect this file exists to fix), and read prints it after
 // the spawn (the ordering defect §4.3 G4 measured). Announcing an unclassified kind before
 // anything runs costs a line that may be unnecessary; the other two cost a line that comes
 // too late or never.
+//
+// This is the KIND-level answer, which is what the exhaustiveness test checks. The answer a
+// printer needs is the CLAIM-level one below.
 func disclosureClassOf(k packdecl.Kind) disclosureClass {
 	if c, ok := disclosureClasses[k]; ok {
 		return c
 	}
 	return disclosureExec
+}
+
+// disclosureClassOfClaim classifies one CLAIM, which is the answer that decides when its line
+// prints.
+//
+// It defers to the claim's own RunsHostCode wherever the kind admits execution at all, because
+// that flag is the precise fact and the kind is only an approximation of it. `RunsHostCode` is
+// per-instance and deliberately narrow — HOST execution, not "code runs somewhere" (a
+// `program via installer` is curl-to-shell IN THE JAIL, a plugin hook runs in the agent's
+// sandbox) — so it is exactly the predicate "must this precede the spawn?" needs.
+//
+// A claim of an exec-capable kind that does NOT run host code degrades to READ rather than
+// disappearing. That is the case a kind-level answer gets wrong in both directions: an
+// intercept's CA, a `:ro` bind, a passed-through device all cross the boundary and belong in
+// the disclosure, but none of them is code about to execute, so putting them in the
+// pre-spawn block would dilute the one block whose whole value is that it is short.
+func disclosureClassOfClaim(c packload.Claim) disclosureClass {
+	class := disclosureClassOf(c.Kind)
+	if class == disclosureExec && !c.RunsHostCode {
+		return disclosureRead
+	}
+	return class
 }
 
 // disclosureLine is one claim rendered for the launch disclosure.
@@ -137,11 +172,15 @@ type disclosureLine struct{ pack, claim string }
 // `program via installer` and `briefing after host:` are, and that distinction lives on the
 // claim rather than the kind. env is the exception because every env claim is shown (it is
 // never gated and never review-worthy, and it is still what the agent sees).
+//
+// Classified per CLAIM (disclosureClassOfClaim), not per kind, so a loophole's several claims
+// land in the right block each: the daemon argv before the spawn, its CA and binds with the
+// rest of the environment.
 func disclosedClaims(packs []*packload.Pack, class disclosureClass) []disclosureLine {
 	var lines []disclosureLine
 	for _, p := range packs {
 		for _, c := range packload.FootprintOf(p).Claims {
-			if disclosureClassOf(c.Kind) != class {
+			if disclosureClassOfClaim(c) != class {
 				continue
 			}
 			if !c.ReviewWorthy && c.Kind != packdecl.KindEnv {
@@ -159,11 +198,14 @@ func disclosedClaims(packs []*packload.Pack, class disclosureClass) []disclosure
 
 // packHostExecClaims returns the host-EXECUTION claim lines for the loaded packs.
 //
-// A PACKAGE VAR, and the reason is the one thing a test cannot otherwise reach: the only
-// kind that produces an exec claim is `loophole`, which lands in a concurrent change, so
-// without a seam the ORDERING invariant §4.3 G4 asks for could not be pinned until after
-// the kind existed — i.e. exactly one batch too late, which is how the ordering defect
-// survived in the first place. Tests substitute a claim; production never touches it.
+// A PACKAGE VAR so the ORDERING test can drive it directly. It was introduced because the
+// only kind producing an exec claim (`loophole`) was landing in a concurrent change, and the
+// invariant could not otherwise be pinned until after the kind existed — one batch too late,
+// which is how the ordering defect survived in the first place. It is KEPT now that the kind
+// has landed, because the ordering test wants a claim without also needing a whole staged
+// pack tree whose manifest declares a real daemon: the assertion is about WHEN the line
+// prints, and building the argv to produce it would test the claim producer instead.
+// Production never touches it.
 var packHostExecClaims = func(packs []*packload.Pack) []disclosureLine {
 	return disclosedClaims(packs, disclosureExec)
 }

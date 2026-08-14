@@ -13,7 +13,7 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 	for _, k := range []Kind{
 		KindProgram, KindRequires, KindSkills, KindBriefing, KindFiles, KindConfig,
 		KindConfigOverlay, KindState, KindReadsHost, KindMount, KindEnv,
-		KindLaunch, KindHook, KindAutonomy,
+		KindLaunch, KindHook, KindAutonomy, KindLoophole,
 	} {
 		fp, ok := FootprintOf(k)
 		if !ok {
@@ -27,8 +27,8 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 			t.Errorf("kind %q has an empty Claims description", k)
 		}
 	}
-	if got := len(KnownKinds()); got != 14 {
-		t.Errorf("KnownKinds() has %d entries, want 14 — a kind was added/removed without updating the test", got)
+	if got := len(KnownKinds()); got != 15 {
+		t.Errorf("KnownKinds() has %d entries, want 15 — a kind was added/removed without updating the test", got)
 	}
 }
 
@@ -85,6 +85,12 @@ func TestCombineRulesMatchDesign(t *testing.T) {
 		KindEnv:      CombineMerge,
 		KindState:    CombineScoped,
 		KindHook:     CombinePerHook,
+		// loophole is EXCLUSIVE by loophole NAME (the module dir's basename), the same rule
+		// program has per bin — so one pack shipping three loopholes is ordinary and two
+		// packs shipping one name is not. Name-keyed exclusivity needs its own pass
+		// (packload.loopholeNameCollisions), because the claim TARGETS carry a
+		// discriminator and the generic loop compares those.
+		KindLoophole: CombineExclusive,
 	}
 	for k, c := range want {
 		fp, _ := FootprintOf(k)
@@ -97,7 +103,16 @@ func TestCombineRulesMatchDesign(t *testing.T) {
 // Only the kinds that can produce a review-worthy claim are marked so — the set
 // --footprint looks at for machine-scope state, host reads, and installer programs.
 func TestReviewWorthyKinds(t *testing.T) {
-	worthy := map[Kind]bool{KindProgram: true, KindState: true, KindReadsHost: true, KindMount: true}
+	worthy := map[Kind]bool{
+		KindProgram: true, KindState: true, KindReadsHost: true, KindMount: true,
+		// loophole is the only kind review-worthy in EVERY instance, not just some: its
+		// claims are enumerated one per boundary CROSSING (loophole-packaging.md §3.3), so a
+		// loophole claim that needed no review would be a contradiction. It is also the
+		// first kind whose crossing is host code EXECUTION rather than a host read — a
+		// distinction ReviewWorthy's single boolean cannot carry, so the claim's Detail
+		// spells out "RUNS … on your machine".
+		KindLoophole: true,
+	}
 	for _, k := range KnownKinds() {
 		fp, _ := FootprintOf(k)
 		if fp.MayBeReviewWorthy != worthy[k] {

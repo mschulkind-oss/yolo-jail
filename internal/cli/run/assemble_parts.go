@@ -419,14 +419,17 @@ func (o *Options) hostServicesMountArgs(rt, cname string, cfg *jsonx.OrderedMap)
 // brokerLoopholeActive reports whether this launch's broker loophole is enabled
 // and its requirements are met — Active(), the same predicate RuntimeArgsFor uses
 // to decide whether the in-jail terminator runs at all.
+//
+// Census site 2, through the converged set (loopholes.NewHostSet). The name it looks up is
+// RESERVED, so this lookup can only ever find yolo's own bundled record: a pack shipping
+// `loopholes/claude-oauth-broker` is refused by the launch pre-flight
+// (PackLoopholeNameConflicts) and never reaches discovery. That is what closes §5.1's
+// half-the-broker hazard — this function evaluating a PACK's Active() to decide the
+// terminator/CA/endpoint wiring while loopholesruntime.go special-cased the NAME and ran
+// yolo's own broker argv.
 func brokerLoopholeActive(cfg *jsonx.OrderedMap) bool {
-	for _, lp := range loopholes.Discover(loopholes.DiscoverOptions{
-		IncludeBundled:  true,
-		LoopholesConfig: cfgMap(cfg, "loopholes"),
-	}) {
-		if lp.Name == broker.BrokerLoopholeName {
-			return lp.Active()
-		}
+	if lp, ok := loopholes.NewHostSet(cfgMap(cfg, "loopholes")).Lookup(broker.BrokerLoopholeName); ok {
+		return lp.Active()
 	}
 	return false
 }
@@ -562,12 +565,13 @@ func (o *Options) userConfigMountArgs(rt, wsState string, mountTargets map[strin
 
 // loopholesRuntimeArgs builds the host-side loopholes runtime args:
 // --add-host, CA cert mounts, NODE_EXTRA_CA_CERTS.
+//
+// Census site 3, through the converged set. Enabled() rather than All() keeps the argv
+// byte-identical to what a hand-built Discover(IncludeDisabled:false) produced; the
+// distinction is moot for the output either way (RuntimeArgsFor's own loop skips anything
+// not Active()) and is kept because the ARGV is golden-tested.
 func (o *Options) loopholesRuntimeArgs(cfg *jsonx.OrderedMap, rt string) []string {
-	discovered := loopholes.Discover(loopholes.DiscoverOptions{
-		IncludeBundled:  true,
-		LoopholesConfig: cfgMap(cfg, "loopholes"),
-	})
-	return loopholes.RuntimeArgsFor(discovered, rt)
+	return loopholes.RuntimeArgsFor(loopholes.NewHostSet(cfgMap(cfg, "loopholes")).Enabled(), rt)
 }
 
 // hasKey reports whether m has key (present, even if the value is falsy).

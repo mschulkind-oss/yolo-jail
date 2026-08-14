@@ -534,6 +534,25 @@
                     {config:[surface...]} patching the managed layer of a surface THIS
                     pack owns, plus {launch:[{bin, flags}]}.  Either posture may be
                     empty (a permissive-by-default tool only needs `guarded`).
+      loophole      {from} — a loophole MODULE dir the pack ships, holding a
+                    manifest.jsonc (the same on-disk shape a bundled loophole has, so a
+                    loophole can be developed standalone and dropped into a pack).
+                    `from` is REQUIRED and there is no `into`: the host half runs on the
+                    host and the jail half mounts at a path core owns.  A `from` naming
+                    a dir the pack lacks is refused BY NAME, not skipped.  The loophole's
+                    NAME is that dir's basename and must match the manifest's own `name`;
+                    it is sole-owned, so two packs shipping one name is an error.
+                    THE SHARPEST KIND, and the only one whose claim is host code
+                    EXECUTION rather than a host read.  Every crossing the module
+                    declares is a SEPARATE claim you approve at `yolo pack install`:
+                    the daemon argv + doctor_cmd (one claim, raw and unelided, so a
+                    changed argv re-prompts), one per TLS intercept (a CA every client
+                    in the jail trusts — claimed even with no daemon), one per host bind
+                    mount, one per SOCKET bind as its own read-write host-IPC class (`:ro`
+                    is no boundary for an AF_UNIX socket — measured), and one per host
+                    device.  `state_files` needs no claim (it stays inside yolo's own
+                    state tree).  Refused at the host notch: a loophole is a host daemon
+                    whose only client is a container, so with no jail there is no client.
     NOTE (shipped behavior): a JAIL still reads briefing prose from a root AGENTS.md
     regardless of `from` (the host notch honors it); and two packs declaring a skills
     `into` at the SAME path fail the jail at boot.

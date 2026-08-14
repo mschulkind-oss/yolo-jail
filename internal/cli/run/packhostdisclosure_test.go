@@ -339,3 +339,147 @@ func itoaTest(n int) string {
 	}
 	return string(digits)
 }
+
+// --- convergence with the `loophole` kind's per-claim RunsHostCode ---
+
+// THE READ/EXEC SPLIT IS PER CLAIM, NOT PER KIND. One loophole contribution emits several
+// claims, and only some of them execute: the daemon argv runs code on the user's machine,
+// while an intercept's CA, a `:ro` bind and a passed-through device cross the boundary
+// without running anything.
+//
+// Both directions matter and they fail differently. Classifying every loophole claim as EXEC
+// would put a CA and a device in the block whose whole value is that it is short and every
+// line in it is about to run — crying wolf. Classifying them all as READ would print the
+// daemon argv AFTER the spawn, which is the ordering defect §4.3 G4 exists to fix.
+func TestLoopholeClaimsSplitByRunsHostCodeNotByKind(t *testing.T) {
+	p := writeRealLoopholePack(t, "acme", "acme-proxy", `{
+		"name": "acme-proxy",
+		"transport": "none",
+		"host_daemon": {"cmd": ["python3", "{loophole_dir}/acme-daemon.py", "--socket", "{socket}"]},
+		"intercepts": [{"host": "api.acme.test"}],
+		"host_devices": ["/dev/snd"]
+	}`)
+
+	execLines := renderLines(disclosedClaims([]*packload.Pack{p}, disclosureExec))
+	readLines := renderLines(disclosedClaims([]*packload.Pack{p}, disclosureRead))
+
+	// The daemon argv is EXEC, and it is the only exec claim here.
+	if !strings.Contains(execLines, "acme-daemon.py") {
+		t.Errorf("the daemon argv is not in the pre-spawn block:\n%s", execLines)
+	}
+	for _, mustNotExec := range []string{"api.acme.test", "/dev/snd"} {
+		if strings.Contains(execLines, mustNotExec) {
+			t.Errorf("%q is in the pre-spawn EXEC block but runs no host code — that block's "+
+				"value is that every line in it is about to run:\n%s", mustNotExec, execLines)
+		}
+	}
+	// The non-executing crossings are still DISCLOSED, in the read block.
+	for _, mustRead := range []string{"api.acme.test", "/dev/snd"} {
+		if !strings.Contains(readLines, mustRead) {
+			t.Errorf("%q crosses the boundary but is disclosed nowhere:\n%s", mustRead, readLines)
+		}
+	}
+	if strings.Contains(readLines, "acme-daemon.py") {
+		t.Errorf("the daemon argv is in the post-spawn READ block — after the spawn it is a "+
+			"notification that something already happened (§4.3 G4):\n%s", readLines)
+	}
+}
+
+// An UNREADABLE loophole declaration is disclosed as EXEC. The claim producer fails closed
+// there ("a manifest yolo cannot read may well declare a host daemon") and the disclosure has
+// to agree, or the one case where yolo cannot see what is about to run would be the one case
+// it announces too late.
+func TestUnreadableLoopholeDeclarationIsDisclosedAsExec(t *testing.T) {
+	p := writeRealLoopholePack(t, "acme", "acme-proxy", `{not json`)
+	got := renderLines(disclosedClaims([]*packload.Pack{p}, disclosureExec))
+	if !strings.Contains(got, "acme-proxy") {
+		t.Errorf("an unreadable loophole declaration is not disclosed before the spawn:\n%s", got)
+	}
+}
+
+// The real END-TO-END shape of §4.3 G4: a pack whose staged tree declares a real loophole
+// prints its daemon argv through the production path — no test seam — and prints it before the
+// spawn.
+func TestRealLoopholePackDisclosesItsDaemonBeforeTheSpawn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	emptyLoopholeDirs(t)
+
+	p := writeRealLoopholePack(t, "acme", "acme-proxy", `{
+		"name": "acme-proxy",
+		"transport": "none",
+		"host_daemon": {"cmd": ["python3", "{loophole_dir}/acme-daemon.py", "--socket", "{socket}"]}
+	}`)
+
+	cname := "yolo-e2e-disclose-" + t.Name()
+	socketsDir := hostServiceSocketsDir(cname, false)
+	t.Cleanup(func() { _ = os.RemoveAll(socketsDir) })
+	dirExistedAtPrint := true
+	seen := ""
+
+	var errBuf lineWatcher
+	errBuf.onWrite = func(s string) {
+		if strings.Contains(s, "acme-daemon.py") {
+			seen = s
+			_, err := os.Lstat(socketsDir)
+			dirExistedAtPrint = err == nil
+		}
+	}
+	o := &Options{}
+	fillDefaults(o)
+	o.Stderr = &errBuf
+	o.Stdout = discardBuf()
+	o.PathExists = func(string) bool { return false }
+	o.startLoopholesDisclosed(cname, "podman", newConfig(), []*packload.Pack{p})
+
+	if seen == "" {
+		t.Fatalf("the real production path never disclosed the daemon argv; wrote:\n%s", errBuf.all)
+	}
+	if dirExistedAtPrint {
+		t.Error("the daemon argv printed AFTER startLoopholes had begun — for an exec claim " +
+			"that is a notification, not a disclosure (§4.3 G4)")
+	}
+}
+
+// lineWatcher is an io.Writer that lets a test observe the WORLD at the moment a particular
+// line is written. That is what makes the ordering assertion above a reading of the real
+// pipeline rather than of a stub: the check runs inside the print, so nothing can reorder
+// between them.
+type lineWatcher struct {
+	all     string
+	onWrite func(string)
+}
+
+func (w *lineWatcher) Write(b []byte) (int, error) {
+	s := string(b)
+	w.all += s
+	if w.onWrite != nil {
+		w.onWrite(s)
+	}
+	return len(b), nil
+}
+
+// writeRealLoopholePack writes a pack whose pack.json declares the REAL `loophole` kind and
+// loads it through packload, so the claims come from the production producer rather than a
+// hand-built Manifest. This is the fixture that became possible once the kind landed.
+func writeRealLoopholePack(t *testing.T, packName, loopholeName, manifestBody string) *packload.Pack {
+	t.Helper()
+	root := t.TempDir()
+	mod := filepath.Join(root, "loopholes", loopholeName)
+	if err := os.MkdirAll(mod, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(manifestBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"contributes":[{"kind":"loophole","from":"loopholes/` + loopholeName + `"}]}`
+	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, probs := packload.LoadDir(root, packName, true)
+	if len(probs) > 0 {
+		t.Fatalf("the loophole pack fixture does not load: %v", probs)
+	}
+	return p
+}

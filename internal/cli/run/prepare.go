@@ -56,14 +56,8 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		}
 	}
 
-	// Enabled loopholes (name, description).
-	var loops []agents.Loophole
-	for _, lo := range loopholes.Discover(loopholes.DiscoverOptions{
-		IncludeBundled:  true,
-		LoopholesConfig: cfgMap(cfg, "loopholes"),
-	}) {
-		loops = append(loops, agents.Loophole{Name: lo.Name, Desc: lo.Description})
-	}
+	// ACTIVE loopholes (name, description) — census site 1, through the converged set.
+	loops := briefingLoopholes(cfgMap(cfg, "loopholes"))
 
 	// Source-tree gating: staged skills + the briefing's dev section both key
 	// off this. Derived from the stable workspace, so launch and attach agree.
@@ -130,6 +124,29 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	}
 	_ = rt
 	return staging, nil
+}
+
+// briefingLoopholes is the loophole list the jail's briefing advertises — census site 1
+// (docs/design/loophole-packaging.md §5.1), read through the converged set.
+//
+// ACTIVE(), NOT ENABLED(), and that is a bug fix. This filtered on `enabled` alone, so an
+// enabled-but-INACTIVE loophole — one whose `requires` is unmet on this host (no `claude` on
+// PATH, no PipeWire socket) — was advertised to the agent as a live capability. The briefing
+// is instructions the agent ACTS ON: telling it audio is available when the sockets never
+// crossed is how an agent comes to debug ALSA instead of reading one line saying the
+// loophole is inactive here. Every other consumer of this set already keyed on Active() —
+// the container argv (RuntimeArgsFor), the daemon spawn, the broker predicate. The briefing
+// was the one surface that did not, which is exactly the kind of divergence the
+// seven-surface convergence exists to remove.
+//
+// A FUNCTION rather than four inline lines, so the property is testable at the code the
+// launch runs: the same expression retyped in a test asserts nothing about this file.
+func briefingLoopholes(loopholesCfg *jsonx.OrderedMap) []agents.Loophole {
+	var out []agents.Loophole
+	for _, lo := range loopholes.NewHostSet(loopholesCfg).Active() {
+		out = append(out, agents.Loophole{Name: lo.Name, Desc: lo.Description})
+	}
+	return out
 }
 
 // blockedToolRecords converts NormalizeBlockedTools output (a []any of ordered

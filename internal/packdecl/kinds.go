@@ -109,6 +109,30 @@ const (
 	// per pack); it patches surfaces the same pack owns, so it never collides across
 	// packs the way a second config writer would.
 	KindAutonomy Kind = "autonomy"
+	// KindLoophole: a loophole MODULE the pack ships — a directory holding a
+	// `manifest.jsonc`, named by `from` (loophole-packaging.md §3).
+	//
+	// It POINTS AT the module rather than inlining the manifest, so the on-disk shape
+	// is the one a bundled or user loophole already has: one loader reads all four
+	// sources, and an author can develop a loophole standalone and then drop it into a
+	// pack unchanged.
+	//
+	// THE FIRST KIND WHOSE CLAIM IS HOST CODE EXECUTION rather than a host read, which
+	// is why its claims cannot be computed here. `from` names a directory; the daemon
+	// argv, the intercepts, the binds and the devices live in a file OUTSIDE pack.json,
+	// and this package has zero internal imports by design (see the file doc) and no
+	// pack root to resolve a relative path against. So the claim producer is
+	// packload.Pack.LoopholeHostAccessClaims, reading through internal/loopholedecl —
+	// the same layer, and for the same reason, as PluginHostAccessClaims
+	// (loophole-packaging.md §3.3). What this package owns is the DECLARATION: `from`
+	// is required and traversal-guarded like every other path-bearing field.
+	//
+	// Sole-owned by loophole NAME (the module directory's basename, which loadManifest
+	// already forces the manifest's own `name` to equal). Exclusivity is per NAME, not
+	// per pack, so a pack shipping three loopholes is ordinary — the rule `program` has
+	// per `bin`. A shadowed loophole name is a daemon nobody audited running under a
+	// name the user trusts.
+	KindLoophole Kind = "loophole"
 )
 
 // Combine names how two claims on the SAME target resolve — the conflict-rule
@@ -229,6 +253,16 @@ var footprints = map[Kind]Footprint{
 	KindAutonomy: {
 		Kind: KindAutonomy, Combine: CombineExclusive,
 		Claims: "the agent's autonomous/guarded permission postures (notch-selected)",
+	},
+	KindLoophole: {
+		// Exclusive by loophole NAME (the module dir's basename). MayBeReviewWorthy is
+		// true and, unlike every other kind, it is true of EVERY instance: §3.3's rule is
+		// that a claim-free loophole must be unrepresentable, so each declaration a
+		// loophole makes that crosses the boundary — the daemon argv, an intercept, a bind,
+		// a socket bind, a device — emits its own review-worthy claim. A loophole
+		// declaring none of them crosses nothing and is a manifest with no effect.
+		Kind: KindLoophole, Combine: CombineExclusive, MayBeReviewWorthy: true,
+		Claims: "a loophole module: a host daemon, TLS intercepts, host binds and devices",
 	},
 }
 

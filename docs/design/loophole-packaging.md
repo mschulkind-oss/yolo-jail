@@ -1063,6 +1063,16 @@ side effect** (the per-jail host-services dir), because asserting only that the 
 passes under the OLD ordering. Verified by deliberately reverting the two statements: the test
 fails.
 
+**The read/exec split is PER CLAIM, not per kind** — settled when the kind landed in the same
+batch and brought `Claim.RunsHostCode` with it. One `loophole` contribution emits several claims
+and only some execute, so a kind-level answer is wrong in both directions: all-exec would put a
+CA and a passed-through device in the block whose value is that every line in it is about to run,
+and all-read would print the daemon argv after the spawn. `RunsHostCode` is the precise fact
+(HOST execution, deliberately not "code runs somewhere"), so the disclosure defers to it and a
+non-executing loophole claim degrades to a READ rather than disappearing. An **unreadable**
+declaration is disclosed as exec, agreeing with the claim producer's own fail-closed reading —
+the one case where yolo cannot see what will run must not be the one case it announces late.
+
 ### 4.3a EVERY GATE GOVERNS A DECLARATION; NONE GOVERNS THE FILE — review, and it is the worst gap here
 
 *"The agent could change the loophole host binary if it lived in the workspace and that certainly
@@ -1581,6 +1591,13 @@ Two things the design must state rather than leave to discovery:
    different machine". An unreadable manifest prints nothing here, since the discovery layer's
    warn-and-continue contract already reports that same file and a second complaint would read as
    a second bug.
+   **"One mechanism" is now literal, not just intended.** The platform producer landed
+   independently in the same batch as a VALUE type (`loopholes.InertNote`, with `Axis` and a
+   single `Line()` rendering) and **zero callers** — it was built expecting a backend producer to
+   plug in. So the backend half constructs `InertNote{Axis: AxisBackend}` and renders through the
+   same `Line()`; nothing in the run pipeline formats its own inert sentence. Had each side kept
+   its own rendering, the result would have been exactly the two half-messages §3.1 forbids, with
+   one of them unreachable.
 
 ---
 
@@ -1881,11 +1898,13 @@ in revision 2 and are real work draft 1 priced at zero.
      typed themselves.
    - **5d.** The **seven-surface convergence** (§5.1) as one constructed value, with a test; and the
      inert-on-backend report for `container` and `macos-user` (§8).
-     — the **inert report is done 2026-08-14** (`run/loopholeinert.go`): one line per inert
-     loophole on both backends, and the §3.1 platform declaration feeds the SAME report through
-     `loopholedecl.PlatformsUnsupportedReason` — one mechanism, two axes, as §3.1 requires.
-     Backend beats platform when both apply, because the actionable line is "switch backends",
-     not "get a different machine". The seven-surface convergence is the outstanding half.
+     — **done 2026-08-14**, the two halves landed independently and then converged. The
+     **inert report** is `run/loopholeinert.go`: one line per inert loophole on both backends,
+     with the §3.1 platform declaration feeding the SAME report — and "same" is literal, since
+     the platform producer shipped as a VALUE (`loopholes.InertNote`, one `Line()` rendering)
+     with zero callers, and the backend half plugs into it as `AxisBackend` rather than
+     formatting a second sentence. Backend beats platform when both apply, because the
+     actionable line is "switch backends", not "get a different machine".
 6. **The approval invariants**: commit-anchored exec claims (§4.3 G2b, giving `ApprovedAt` its first
    reader), the raw-unelided claim-string rule (§4.3 G2a), one merged claim helper called at both
    gates (§3.3), and `notePackHostAccess` extended and moved **before** `startLoopholes` (§4.3 G4).
