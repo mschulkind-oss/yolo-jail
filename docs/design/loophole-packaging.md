@@ -3,8 +3,11 @@
 **Status:** DESIGN 2026-08-13; **the `loophole` kind LANDED 2026-08-14**, together with most of this
 design. Closes **OQ-CAP2** with option **(B)**. Per-section `**Landed**` markers below are the ledger;
 the landing order at the end of the doc is the summary. **Four things are NOT built:** the
-pack-shipped subset has no production caller (§3.1, §3.2), the install-gate approval invariants G2a
-and G2b (§4.3), `audio` as an official pack (§7), and OQ-LP9's three parts (§9).
+pack-shipped subset has no production caller (§3.1, §3.2), the install-gate invariant **G2b** (§4.3 —
+content-anchored exec approval, which is a maintainer decision under OQ-LP8 rather than pending
+work), `audio` as an official pack (§7), and OQ-LP9's three parts (§9). **G2a LANDED** — the claim
+string is the raw, unelided, placeholder-preserving argv, pinned by two tests in
+`packload/loopholesource_test.go`.
 
 > **Reading this to DECIDE rather than to build? Start with
 > [`loophole-packaging-overview.md`](loophole-packaging-overview.md)** — the same design at
@@ -2144,9 +2147,10 @@ consumer. **Resolved by:** a maintainer ruling; nothing in this design blocks ei
 Ordered, because the first three make the rest safe to read. Items **0**, **5b** and **5c** are new
 in revision 2 and are real work draft 1 priced at zero.
 
-**Ledger, 2026-08-14: items 0–8 are DONE; item 9 is not started.** Three residuals sit *inside* done
+**Ledger, 2026-08-14: items 0–8 are DONE; item 9 is not started.** TWO residuals sit *inside* done
 items and are the whole of what is left besides item 9 and OQ-LP9: the pack-shipped **subset** is
-built and unwired (item 5), and **G2a/G2b** are unbuilt (item 6).
+built and unwired (item 5), and **G2b** is unbuilt — deliberately, as a decision under OQ-LP8 rather
+than as pending work (item 6). **G2a landed** with the loophole claim producer.
 
 0. **Tolerate an unknown KIND under `TolerateSkew()`** (§3.3a), with a regression test that a
    manifest carrying one still boots a jail. **Before the kind exists**, or every pack that declares
@@ -2293,11 +2297,20 @@ built and unwired (item 5), and **G2a/G2b** are unbuilt (item 6).
    **The merged claim helper also landed 2026-08-14** (`497c76e`): `packload.Pack.HostAccessClaims`
    is the one union of all three producers, called by both gates, with a source-level test that fails
    if either gate reaches for a producer directly (§3.3).
-   **Still owed from item 6: G2a and G2b only** — the raw-unelided claim-string RULE holds in the
-   loophole producer by construction (nothing is elided, placeholders stay unexpanded, and the argv is
-   shell-quoted for injectivity), but it is not asserted for the other producers; and the
-   commit-anchored exec approval is unbuilt — `ApprovedAt` is written and **still has no reader**, so a
-   pack whose daemon file changes without its argv changing re-installs with no prompt.
+   **G2a LANDED too, 2026-08-14.** The rule is enforced where the only exec-bearing claim is
+   produced: the loophole producer renders the RAW manifest argv through `shquote.Join` — nothing
+   elided, `{loophole_dir}` unexpanded, injective — pinned by `TestClaimStringIsRawArgv` and
+   `TestDaemonArgvRenderingIsInjective`. Both halves are asserted because both fail
+   catastrophically rather than cosmetically: an elided argv collapses two different daemons onto
+   one approved claim, and an expanded one makes the approval machine-specific, so it re-prompts
+   forever and `promptYesNo` fails closed on a non-TTY. The rule is not separately asserted for the
+   read-only producers, where a claim string is a path and there is nothing to elide.
+   **Still owed from item 6: G2b ALONE, and it is a DECISION rather than pending work.**
+   `ApprovedAt` is written by `pack install` and read by nothing, and `HostAccessApproved` compares
+   claim STRINGS only — so a fetched pack at a mutable ref whose daemon FILE changes under an
+   unchanged argv re-installs with no prompt. Whether to close that is OQ-LP8: content-anchoring may
+   be redundant under §4.3a's ruling that the user-scope edit IS the confirmation, and the placement
+   rule (landed) closes the second-actor gap that argument leaves open. Not implemented on purpose.
 7. **`pack-system.md` §12's first invariant, sharpened** (R1) — in the same commit as the kind.
    — **done 2026-08-14**: the invariant now separates the cost of *looking* from the cost of
    *selecting*, and quotes the sentence it replaces so the change is legible.

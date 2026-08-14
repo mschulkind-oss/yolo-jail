@@ -51,8 +51,22 @@ type LockEntry struct {
 	//
 	// Stored sorted, so the JSON is stable and a superset check is a plain walk.
 	ApprovedHostAccess []string `json:"approvedHostAccess,omitempty"`
-	// ApprovedAt is the commit the approval was granted against, so `pack status` can
-	// say "approved at <sha>" and a moved pin is legible. Usually equals Commit.
+	// ApprovedAt is the commit the approval was granted against. Usually equals Commit.
+	//
+	// WRITE-ONLY TODAY, and that is worth knowing before relying on it: `pack install`
+	// records it and NOTHING READS IT (measured 2026-08-14 — the declaration, the writer
+	// and tests). This comment used to assert that `pack status` said "approved at <sha>";
+	// it does not, and never did. A doc comment claiming a reader that does not exist is
+	// worse than no comment: it makes the field look load-bearing, so the gap it marks
+	// reads as covered.
+	//
+	// The gap is docs/design/loophole-packaging.md §4.3 G2b: HostAccessApproved below
+	// compares claim STRINGS only, so a fetched pack at a mutable ref whose daemon FILE
+	// changes under an unchanged argv passes with no re-prompt. Anchoring an exec-bearing
+	// approval to this commit is what would give the field its first reader. Whether to do
+	// that is OQ-LP8, open on purpose — content-anchoring may be redundant under §4.3a's
+	// ruling that the user-scope edit IS the confirmation, and the placement rule (landed)
+	// closes the second-actor gap that argument leaves open.
 	ApprovedAt string `json:"approvedAt,omitempty"`
 }
 
@@ -61,6 +75,9 @@ type LockEntry struct {
 // nothing the user has not already granted. An empty `want` is trivially approved
 // (the pack reads nothing from the host). A claim in `want` absent from the approved
 // set means the footprint GAINED host access and the caller must re-prompt.
+//
+// IT DOES NOT CONSULT ApprovedAt, which is §4.3 G2b's open gap and is asserted as such by
+// TestHostAccessApprovedIgnoresApprovedAtToday rather than only described. See ApprovedAt.
 func (e LockEntry) HostAccessApproved(want []string) bool {
 	if len(want) == 0 {
 		return true

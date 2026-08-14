@@ -215,3 +215,32 @@ func TestApprovalFieldsRoundTrip(t *testing.T) {
 		t.Errorf("approval did not round-trip: %+v", e)
 	}
 }
+
+// HostAccessApproved IGNORES ApprovedAt, which is §4.3 G2b's open gap stated as a test
+// rather than as a comment.
+//
+// It is asserted because the field's doc comment claimed a reader it never had ("so
+// `pack status` can say approved at <sha>" — measured false), and a doc comment naming a
+// nonexistent reader makes the gap look covered. Two entries differing ONLY in ApprovedAt
+// answer identically, which is exactly the shape of the risk: a fetched pack at a mutable
+// ref whose daemon FILE changes under an unchanged argv passes with no re-prompt.
+//
+// This test is a STATEMENT OF CURRENT BEHAVIOUR, not a requirement. G2b is a maintainer
+// decision under OQ-LP8; when it lands, this test changes with it — deliberately, so the
+// change is visible rather than absorbed.
+func TestHostAccessApprovedIgnoresApprovedAtToday(t *testing.T) {
+	want := []string{"RUNS 'python3 {loophole_dir}/acme.py'"}
+	atOldCommit := LockEntry{Name: "acme", Commit: "def5678",
+		ApprovedHostAccess: want, ApprovedAt: "abc1234"}
+	atThisCommit := LockEntry{Name: "acme", Commit: "def5678",
+		ApprovedHostAccess: want, ApprovedAt: "def5678"}
+
+	if !atThisCommit.HostAccessApproved(want) {
+		t.Fatal("an approval recorded at THIS commit was not honored; the rest is vacuous")
+	}
+	if !atOldCommit.HostAccessApproved(want) {
+		t.Fatal("HostAccessApproved consults ApprovedAt now. That is G2b LANDING, which is " +
+			"welcome — update this test and the §4.3 ledger together, and give ApprovedAt's doc " +
+			"comment its first true reader")
+	}
+}
