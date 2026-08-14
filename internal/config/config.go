@@ -62,16 +62,23 @@ var journalModes = []string{"off", "user", "full"}
 var ephemeralStorageModes = []string{"volume", "tmpfs"}
 
 var (
-	knownNetworkKeys          = set("mode", "ports", "forward_host_ports")
-	knownSecurityKeys         = set("blocked_tools")
-	knownBlockedToolKeys      = set("name", "message", "suggestion", "block_flags")
-	knownHostProcessesKeys    = set("visible", "fields")
-	knownPackageKeys          = set("name", "nixpkgs", "version", "url", "hash", "outputs")
-	knownLSPServerKeys        = set("command", "args", "fileExtensions")
-	knownMCPServerKeys        = set("command", "args", "env", "requires_env")
-	knownDeviceKeys           = set("usb", "description", "cgroup_rule")
-	knownResourcesKeys        = set("memory", "cpus", "pids_limit")
-	knownHostServiceKeys      = set("command", "env", "jail_socket")
+	knownNetworkKeys       = set("mode", "ports", "forward_host_ports")
+	knownSecurityKeys      = set("blocked_tools")
+	knownBlockedToolKeys   = set("name", "message", "suggestion", "block_flags")
+	knownHostProcessesKeys = set("visible", "fields")
+	knownPackageKeys       = set("name", "nixpkgs", "version", "url", "hash", "outputs")
+	knownLSPServerKeys     = set("command", "args", "fileExtensions")
+	knownMCPServerKeys     = set("command", "args", "env", "requires_env")
+	knownDeviceKeys        = set("usb", "description", "cgroup_rule")
+	knownResourcesKeys     = set("memory", "cpus", "pids_limit")
+	// knownHostServiceKeys is the INLINE loophole entry's key census. It must
+	// cover every key the loader reads: `description` and `doctor_cmd` are read
+	// by discover.go's synthesizeConfigLoopholes, and `jail_endpoint` is the
+	// canonical form of the `jail_socket` alias that validateInlineService
+	// itself prefix-checks — all three used to be "unknown key" errors here
+	// while the rest of the machinery honored them (loophole-packaging.md R5).
+	knownHostServiceKeys = set("command", "env", "jail_socket", "jail_endpoint",
+		"doctor_cmd", "description")
 	knownLoopholeOverrideKeys = set("enabled", "env", "jail_env")
 	knownGPUKeys              = set(
 		"enabled", "devices", "capabilities", "vendor", "mode",
