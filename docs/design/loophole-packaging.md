@@ -290,7 +290,8 @@ cheaper to implement and is exactly the "works until it doesn't" shape this doc 
    surface and it is the honest ceiling. Per-request logging stays a property of daemons using
    `hostservice`'s helper ([`loophole-protocol.md`](loophole-protocol.md) §Access logging); anything
    richer is per-loophole, not framework. Say so in the server-side spec so nobody designs against
-   the withdrawn promise.
+   the withdrawn promise. **Said:** that doc's §Access logging now records the connection-level
+   ceiling, shipped 2026-08-13.
 
 ### 2.1c A daemon that starts and never becomes reachable is COMPLETELY silent
 
@@ -384,6 +385,9 @@ false, and the daemon is SIGKILLed after five seconds with a healthy-looking log
 existence is the health predicate everywhere; and `yolo check` dials `127.0.0.1` with the *published
 port* (`svcendpoint.DialLocal`), so the listener must accept on loopback regardless of what it
 advertised.
+
+**Landed:** [`loophole-protocol.md`](loophole-protocol.md) §"Writing a server from scratch" is that
+section, shipped 2026-08-13.
 
 **Keep the export available and additive.** `svcendpoint` and `frameproto` are stdlib-only leaf
 packages with zero internal imports (measured: `go list -deps ./internal/svcendpoint | rg yolo-jail`
