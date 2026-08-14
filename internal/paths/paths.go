@@ -53,6 +53,25 @@ const (
 	JournalSocketName = "journal.sock"
 )
 
+// BuiltinLoopholeNames is the reserved slice of the two service names yolo's OWN
+// in-process daemons answer to — the part of the reserved loophole namespace THIS
+// package owns.
+//
+// It exists because both constants were reserved in fact and enforced nowhere: the
+// config validator refused `loopholes.cgroup-delegate` by name and said nothing about
+// `journal`, and internal/loopholes never mentioned either one. A pack or user manifest
+// named `journal` therefore loaded, was discovered, had its daemon skipped without a
+// word, and still contributed its --add-host / ca_cert / --device / bind mounts /
+// jail_env to the argv — half a loophole, silently
+// (docs/design/loophole-packaging.md §3.1).
+//
+// It is deliberately NOT the whole reserved set: the full namespace also covers
+// internal/broker's loophole name and every bundled loophole directory, neither of
+// which this leaf package can see (broker imports paths, so paths cannot import
+// broker). loopholes.ReservedLoopholeNames composes the union ONCE and is the only
+// thing that should be refused against.
+var BuiltinLoopholeNames = []string{BuiltinCgroupLoopholeName, BuiltinJournalLoopholeName}
+
 // CgdSocketName MUST be "<BuiltinCgroupLoopholeName>.sock": the entrypoint
 // (baked into the image) and YOLO_SERVICE_CGROUP_DELEGATE_SOCKET both expect
 // /run/yolo-services/cgroup-delegate.sock. A refactor once kept the legacy
