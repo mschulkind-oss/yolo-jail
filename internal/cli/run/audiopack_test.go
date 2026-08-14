@@ -415,18 +415,30 @@ func TestShippedAudioPackEmitsAReadOnlyBindIntoTheContainerArgv(t *testing.T) {
 
 	p := shippedAudioPack(t)
 	dir := packLoopholeDecls([]*packload.Pack{p})[0].Dir
-	lp, err := loopholes.LoadPackLoophole(dir)
-	if err != nil {
-		t.Fatalf("loading the shipped loophole: %v", err)
+
+	// Through the GATED form, not the package-level one. A pack-shipped record hands its
+	// crossings to the argv only when the caller recorded that the pack's host access is
+	// approved — the origin gate is enforced INSIDE RuntimeArgsFor precisely because a
+	// slice carries no gate and a filter the caller must remember is a filter the next
+	// caller omits. audio is an EMBEDDED pack, so it is approved by origin (embedded and
+	// local packs are yolo's own code and the user's own files respectively); this test
+	// therefore has to say so, which is the same thing the run pipeline says at staging.
+	// NewSet, not SetOf: the gate is a map keyed by module path, built from PackModules —
+	// so SetOf (which carries no gate) would withhold every crossing and this test would
+	// assert the withholding rather than the argv. Building it the way the run pipeline
+	// does is also the only spelling that proves the pack's own module reaches the gate.
+	set := loopholes.NewSet(loopholes.DiscoverOptions{
+		PackModules: []loopholes.PackModule{{Dir: dir, HostExecApproved: true}},
+	})
+	lp, ok := set.Lookup("audio-alsa")
+	if !ok {
+		t.Fatalf("the shipped loophole was not discovered from its module dir %s", dir)
 	}
-	lp.Source = loopholes.SourcePack
 	if !lp.Active() {
 		t.Fatalf("the loophole must be ACTIVE on a host: enabled=%v supportedHere=%v "+
-			"requirementsMet=%v — it declares no `requires`, so the only way this fails is a "+
-			"platform mismatch", lp.Enabled, lp.SupportedHere(), lp.RequirementsMet())
+			"requirementsMet=%v", lp.Enabled, lp.SupportedHere(), lp.RequirementsMet())
 	}
-
-	args := loopholes.RuntimeArgsFor([]*loopholes.Loophole{lp}, "podman")
+	args := set.RuntimeArgsFor([]*loopholes.Loophole{lp}, "podman")
 	joined := strings.Join(args, " ")
 
 	// The bind: `-v <resolved module path>/asound.conf:/etc/alsa/conf.d/…:ro`. Built from

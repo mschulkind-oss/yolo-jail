@@ -408,12 +408,21 @@ func TestAudioShapedManifestIsRefusedByTheSubset(t *testing.T) {
 				want, joined)
 		}
 	}
-	// FIVE refusals, exactly: two $VAR hosts, two writable binds, one jail_env. Pinned as
-	// a count so a rule quietly narrowing (or widening) shows up here, in the test whose
-	// whole subject is how much the subset refuses.
-	if len(probs) != 5 {
-		t.Errorf("subset refusals = %d, want 5 (2 $VAR hosts + 2 writable binds + jail_env):\n%s",
-			len(probs), joined)
+	// SIX refusals, exactly: two $VAR hosts, two writable binds, one jail_env, and the
+	// $VAR in `requires.file_exists`. Pinned as a count so a rule quietly narrowing (or
+	// widening) shows up here, in the test whose whole subject is how much the subset
+	// refuses.
+	//
+	// It was FIVE when this test was written, and the sixth is not a regression: the
+	// path-scope rule was extended to `requires.file_exists` after a verifier measured
+	// that an unscoped value there is a host-filesystem probe WITH A READOUT — `yolo
+	// loopholes list` prints the resolved path beside the loophole's inactive reason, so
+	// a fetched pack could ask "does ~/.ssh/id_ed25519 exist" and read the answer. audio
+	// probes ${XDG_RUNTIME_DIR}/pulse/native, which is the legitimate shape of exactly
+	// that vocabulary, so it is refused for the same reason its bind hosts are.
+	if len(probs) != 6 {
+		t.Errorf("subset refusals = %d, want 6 (2 $VAR hosts + 2 writable binds + jail_env "+
+			"+ $VAR in requires.file_exists):\n%s", len(probs), joined)
 	}
 }
 
