@@ -1619,21 +1619,34 @@ boundary — `cache_relocations` targets and loophole socket paths that do not e
 scope is neither the effective config nor a designed subset. The raw bind already filters, by
 accident.
 
-**Design: a composed, per-key-filtered SNAPSHOT replaces the bind.** The launcher already computes
-the effective config, and `yolo config dump` (`configdrift.go:77-85`) already renders that
-computation canonically. Every key is classified once in a census with a drift test — *transfers*
-(`packages`, mise, `packs`), *stops* (`cache_relocations`, `host_files`), *host-only by policy*
-(secret-bearing) — the `HostFields()`/`JailFields()` question asked of config keys. The snapshot is
-launch-frozen, which is the jail's normal contract (env, image, relay wiring) finally applying to
-this file; `config drift` already covers "it moved under me".
+**DESIGN SETTLED — the maintainer's three-part split, which supersedes both of my proposals** (the
+one-big-filtered-snapshot AND `config.local.jsonc`): *"write the file 'yolo check and loopholes'
+needs, and put a comment saying that's the case; set whatever runtime is needed for jail-in-jail and
+mark that as why; and the yolo CLI has a CLI arg that allows a layered-in file like it was
+user-level."* Split by CONSUMER, not by key class:
 
-**Plus the jail-owned writable layer:** `config.local.jsonc` beside the inherited file, mirroring
-`yolo-jail.local.jsonc` (`config.go:34`). Precedence: inherited → jail-owned → workspace →
-workspace-local. **Recursion is the same mechanism applied again**: jail A composes inherited + its
-local layer, filters through the same census, and writes that as jail B's inherited file — one `:ro`
-inherited file plus one writable own file at every depth. The rejected alternative (riding the
-maintainer's `include_if_found: ["overrides.jsonc"]` line) mixes purposes and works by accident.
-**Resolved by:** a maintainer ruling on building it as specified.
+1. **The preflight file** — generated for the in-jail readers that exist (`yolo check`,
+   `yolo loopholes list`, `yolo pack`; census sites 5–7 in §5.1), carrying only keys they evaluate
+   meaningfully in-jail, header comment naming purpose/generator/launch time. Kills the false-error
+   class: `cache_relocations` is not in the file, so in-jail check never evaluates it.
+2. **The nested-launch input** — the keys an inner launcher composes a jail from (`packages`,
+   `packs`, mise), written ONLY where nesting is possible and marked as existing for that reason.
+   Non-nesting backends get nothing, by construction.
+3. **`--user-layer <file>`** (name TBD) — layer a file at user-level precedence, explicitly, per
+   invocation. Replaces `config.local.jsonc`, WITHDRAWN with cause: a conventionally-named
+   auto-merged file is the `include_if_found`/`overrides.jsonc` accident one notch more designed —
+   it activates because a file exists, invisibly. The arg is visible at the call site, testable,
+   inert unless passed. Safe everywhere by gate-placement Test 1 (passing an argv requires command
+   execution, which exceeds anything the arg grants). This is the nested-development path: the
+   in-jail agent writes a layer file in its own home and passes the arg.
+
+Both generated files are renders of the ONE computation `yolo config dump` (`configdrift.go:77-85`)
+already produces, so they cannot drift from the source; the census survives as two named
+per-consumer manifests with a drift test (a new key must be assigned to files or explicitly to
+neither). Launch-frozen, which is the jail's normal contract; `config drift` covers staleness.
+Testing (maintainer: *"tricky to test completely, but worth it"*): golden renders per file + one
+integration case per false-error class; the full nested matrix stays a by-hand per-release check.
+**Resolved by:** nothing — build it as specified.
 
 **OQ-LP13 — what stops an agent swapping the file a loophole runs? RULED: a placement rule, not
 hashing.** Raised in review (§4.3a): every gate governs a declaration, the file that executes is

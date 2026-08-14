@@ -737,7 +737,7 @@ requires is that the docs say it in one plain sentence, and that **tag pins are 
 for a pack carrying host execution**. Say the word if you would rather it re-prompt when the commit
 moves; that is the only variant left in this question.
 
-### OQ-LP9 — nested jails: the outer jail IS the user level for the inner one 🔴 REFRAMED, and it is a real gap
+### OQ-LP9 — nested jails: the outer jail IS the user level for the inner one ✅ DESIGN SETTLED by your three-part split
 
 **Your comment changes this question entirely, and for the better.** I had asked something small —
 does the scope error downgrade to a warning in-jail, the way the `agents` key does. You reframed it:
@@ -784,66 +784,60 @@ not survive the boundary**:
 from the current arrangement, deliberately: single-file delivery into a jail-owned directory is what
 makes writing *beside* the file jail-local, and that property must survive the change.
 
-### What replaces it: a composed, per-key-filtered snapshot
+### What replaces it — your three-part split, which is simpler than what I proposed
 
-The launcher already computes the effective config to launch at all, and `yolo config dump` already
-renders that computation as a canonical snapshot. The change is to write a **filtered** snapshot into
-the jail as its inherited user scope, where every key is classified once, in one census with a test:
+> *"Write the file 'yolo check and loopholes' needs, and put a comment saying that's the case; set
+> whatever runtime is needed for jail-in-jail and mark that as why; and the yolo CLI has a CLI arg
+> that allows a layered-in file like it was user-level so that privileged things can be futzed
+> with."*
 
-| Class | Meaning | Examples |
-|---|---|---|
-| **transfers** | means the same thing inside | `packages`, mise tools, `packs` |
-| **stops** | meaning does not survive the boundary | `cache_relocations`, `host_files` |
-| **host-only by policy** | could transfer, must not | anything secret-bearing |
+**Adopted, and it beats my one-big-snapshot design because it splits by CONSUMER instead of by key
+class.** I was building one file that had to be right for every reader at once, gated by a census
+answering the abstract question "does this key's meaning survive the boundary." Your split asks
+three concrete questions instead — *what does preflight read*, *what does a nested launch need*,
+*how does a human grant more* — and each has a checkable answer.
 
-This is a census the repo already knows how to run — it is the confinement-notch question
-(`HostFields()`/`JailFields()`) asked of config keys instead of contribution kinds, and it gets the
-same drift protection: a new key must declare its class or a test fails.
+**1. The preflight file.** Generated for exactly the in-jail readers that exist — `yolo check`,
+`yolo loopholes list`, `yolo pack` — containing only the keys they evaluate meaningfully in-jail,
+with a header comment naming its purpose, its generator, and its launch time. This is what stops the
+false errors: a key like `cache_relocations` simply is not in the file, so in-jail `yolo check`
+never evaluates a host path against a container that does not have it.
 
-**One behaviour change to name honestly: the snapshot is frozen at launch.** Today a host-side config
-edit is instantly visible in-jail through the live bind. Under composition it is visible at the next
-launch — which is not a regression so much as the jail's normal contract finally applying to this
-file too: the environment, the image, and the relay wiring are all launch-frozen, and this batch
-just shipped a fix for a bug caused by *forgetting* that. The live bind was the anomaly. `yolo
-config drift` already exists to tell a jail its config moved under it, and this file joins that
-story instead of bypassing it.
+**2. The nested-launch input.** Provided only where nesting is possible, marked in its header as
+existing for that reason — the keys an inner launcher composes a jail from (`packages`, `packs`,
+mise tools). On a backend that cannot nest it is simply not written, which answers the "excludes
+some setups" concern by construction: nothing is mounted that serves a capability the setup lacks.
 
-### The proposal: a separate jail-owned file, not a second purpose for yours
+**Both are renders of one computation, which is what keeps the split honest.** The launcher already
+composes the effective config and `yolo config dump` already renders it canonically. Each file is
+that computation through a per-consumer filter — so they cannot drift from the *source*, and the
+census I proposed does not disappear so much as shrink into two named manifests, each testable
+against its actual readers instead of against an abstraction.
 
-Your instinct — *"I don't want to mix purposes of that agent user level file"* — is right, and the
-alternative I sketched last round (an agent writing `overrides.jsonc`, which your config happens to
-`include_if_found`) is exactly the purpose-mixing you are refusing. It works by accident, through a
-line you wrote for your own machine-local secrets, and it would silently stop working if you removed
-that line.
+**3. The layer arg.** `yolo --user-layer <file>` (name yours to pick): layer this file in at
+user-level precedence, explicitly, at the invocation that wants it. This replaces my
+`config.local.jsonc` proposal, and I am dropping that one with cause — **a conventionally-named
+auto-merged file is the same mechanism as the `include_if_found`/`overrides.jsonc` accident I argued
+against**, one notch more designed. It activates because a file exists, invisibly at the call site.
+The arg is the opposite: visible in the command line, testable, inert unless passed.
 
-**Proposal: `config.local.jsonc`, beside `config.jsonc`, owned by whoever occupies this machine.**
+**Why the arg is safe everywhere, in one sentence from the principle doc:** passing an argument to
+`yolo` requires the ability to run commands, which already exceeds anything the argument grants —
+[`gate-placement-principle.md`](gate-placement-principle.md) Test 1, so no gate belongs on it, on
+the host or in a jail. And it is how the nested-development story actually works now: the in-jail
+agent writes a layer file in its own home, passes `--user-layer`, and installs a loophole whose
+blast radius is the container — Test 2.
 
-The repo already has this exact shape one layer down: `yolo-jail.local.jsonc` is an auto-merged
-sibling of the workspace config, kept out of git, for per-machine tweaks that do not belong in the
-tracked file. This is the same idea at user scope, and it needs no new vocabulary to explain.
+**Recursion stays by composition:** jail A composes inherited + any layer it was passed, renders
+the two files above for jail B. Every level sees the same shape at any depth.
 
-| | Where it comes from | Writable in the jail? | Purpose |
-|---|---|---|---|
-| `config.jsonc` | inherited, `:ro` bind | no | what the level above decided |
-| `config.local.jsonc` | this jail's own home | **yes** | what *this* occupant decides |
-
-Precedence is the existing one with a rung inserted: inherited → jail-owned → workspace →
-workspace-local.
-
-**Recursion works by composition rather than by stacking — the same mechanism as the snapshot
-above, applied again.** When jail A launches jail B, A does not pass down two files. It composes its
-**effective** user config — inherited plus its own local layer — filters it through the same census,
-and writes *that* as B's inherited `config.jsonc`. So every level sees exactly one read-only
-inherited file plus one writable file of its own, at any depth, with no rule that changes with
-nesting.
-
-**Why this is safe, in one sentence:** a jail's local layer only ever affects jails launched from
-inside it, so the actor and the blast radius are the same container — which is the whole of
-`gate-placement-principle.md`'s Test 2.
-
-**My read: build it.** It is small, it is the last thing between the design and the "develop
-loopholes in a nested jail" ruling being real, and the alternative — leaning on
-`include_if_found` — is an accident that reads as a feature.
+**On "tricky to test completely, but worth it" — the testable core.** Each generated file gets a
+golden-render test against its consumer list (a new config key fails the build until it is assigned
+to files or explicitly to neither, which is the census surviving as a drift test); plus one
+integration case per false-error class this exists to kill — in-jail `yolo check` over a config
+carrying `cache_relocations` must be silent about it. What stays genuinely hard is the full nested
+matrix, and that is the part worth doing by hand once per release rather than pretending a unit
+test covers it.
 
 ---
 
@@ -874,7 +868,7 @@ they added it.
    they belonged to.)*
 7. **`audio` as a real official pack** (LP11), which is both the end-to-end proof and the first step
    of the bundled-to-packs consolidation.
-8. **Nested-jail user scope** (LP9): `config.local.jsonc` beside the inherited `config.jsonc`, and
-   launch-time composition so each level sees one inherited file plus one of its own. The "develop
-   loopholes in a jail" ruling depends on it. (The host-side check I flagged last round is done —
-   the file is a `:ro` single-file bind, the directory is jail-local.)
+8. **Nested-jail user scope** (LP9), per your three-part split: the generated preflight file (kills
+   the false `yolo check` errors), the nesting-only launch input (written only where nesting
+   exists), and the `--user-layer` CLI arg (explicit privilege futzing; safe everywhere by
+   gate-placement Test 1). The "develop loopholes in a jail" ruling depends on it.
