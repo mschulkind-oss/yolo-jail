@@ -214,9 +214,10 @@ func retiredTransportHint(transport string) string {
 			"'ca_cert' exactly as they are; those are what wire the interception."
 	case retiredTransportUnixSocket:
 		return " — 'unix-socket' was retired (docs/design/loophole-transport.md §7.4):" +
-			" it cannot cross virtiofs on macOS + podman. Write 'loopback-tls'; the" +
-			" daemon must then publish an endpoint file at the path yolo substitutes" +
-			" into '{endpoint}' instead of binding a socket there."
+			" it cannot cross virtiofs on macOS + podman. Write 'loopback-tls' and add" +
+			" 'publishes': 'socket' to 'host_daemon': the daemon keeps binding its" +
+			" AF_UNIX socket at the path yolo substitutes into '{socket}', and yolo" +
+			" runs the TLS front over it and publishes the endpoint file for you."
 	}
 	return ""
 }

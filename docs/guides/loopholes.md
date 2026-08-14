@@ -154,17 +154,17 @@ no longer protects:
   a decision made in an agent-unwritable file. (`enabled: false` on an unknown
   name stays a harmless-no-op warning.)
 
-> **A config entry still gets a plain Unix socket, and it is the last thing that
-> does.** The retirement above is about the manifest vocabulary: `unix-socket` is
-> unwritable in a `manifest.jsonc` and unreachable from one. A `loopholes:` entry
-> is different, because its daemon is a program yolo did not write and cannot
-> re-link — `internal/hostservice` is `internal/`, so nothing yolo ships lets a
-> third-party daemon publish a `loopback-tls` endpoint file. Flipping the config
-> path would not migrate those daemons, it would kill them. `yolo loopholes list`
-> prints `config/unix-socket/spawned` for such an entry, which is the truth about
-> what it gets. This resolves when the two remaining built-in AF_UNIX clients
-> (`yolo-cglimit`, `yolo-journalctl`) are ported and the framework can offer an
-> external daemon a supported way to publish.
+> **A config entry's daemon keeps binding a plain Unix socket — and the jail now
+> gets a real loopback-TLS endpoint anyway.** The daemon is a program yolo did
+> not write and cannot re-link, so it binds an AF_UNIX socket at the path yolo
+> substitutes into `{socket}` (host-only, outside the mounted services dir).
+> yolo waits for that socket to accept, then runs its own TLS front over it and
+> publishes the endpoint file itself — so the entry gets the same
+> `YOLO_SERVICE_<NAME>_ENDPOINT` variable and mounted endpoint file a
+> `manifest.jsonc` loophole gets, with its argv unchanged. `yolo loopholes list`
+> prints `config/loopback-tls/spawned` for such an entry, which is the truth
+> about what its jail dials. (The two remaining built-in AF_UNIX clients,
+> `yolo-cglimit` and `yolo-journalctl`, are still ported in their own change.)
 
 The example above matches the bundled manifest — compare
 [`bundled_loopholes/host-processes/manifest.jsonc`](../../bundled_loopholes/host-processes/manifest.jsonc),

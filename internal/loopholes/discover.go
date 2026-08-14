@@ -12,20 +12,21 @@ import (
 // yolo-jail.jsonc loopholes: entries as Loophole records (lifecycle spawned,
 // source config).
 //
-// THE TRANSPORT HERE IS THE RETIRED unix-socket, AND THAT IS DELIBERATE. It is
-// the last place the value survives, and the reason it survives is that a config
-// entry's daemon is a THIRD-PARTY PROGRAM yolo did not write: it binds an AF_UNIX
-// socket at the path substituted into its `command`, and nothing yolo ships lets
-// it publish a loopback-TLS endpoint file instead (internal/hostservice is
-// internal/, so it is not importable from outside this module). Flipping this
-// line to loopback-tls would not migrate those daemons; it would make yolo wait
-// five seconds for an endpoint file that never appears and then kill each one.
+// A config entry's daemon is a THIRD-PARTY PROGRAM yolo did not write: it binds
+// an AF_UNIX socket at the path substituted into its `command`. That used to
+// force the retired unix-socket transport onto these records, because nothing
+// yolo shipped let such a daemon publish a loopback-TLS endpoint file
+// (internal/hostservice is internal/, unimportable from outside this module).
+// The FRONT dissolved that objection (loophole-packaging.md §2.2): the record
+// now says what is true of the daemon — Transport loopback-tls with
+// HostDaemon.Publishes = "socket" — and the run pipeline waits for the daemon's
+// socket by connect, runs the svcendpoint front over it, and publishes the
+// endpoint file itself. The argv is unchanged, the daemon's behaviour is
+// unchanged, and the jail gains a real endpoint (YOLO_SERVICE_<NAME>_ENDPOINT +
+// the mounted endpoint file) exactly like a manifest loophole's.
 //
-// So the value is retired from the MANIFEST vocabulary — validTransports has two
-// entries and loadManifest rejects this one by name — and stays here, where no
-// manifest can select it, until the framework can offer a third-party daemon a
-// supported way to publish an endpoint. Until then `yolo loopholes list` printing
-// `config/unix-socket/spawned` is the truth about what that daemon gets.
+// An entry with NO `command` runs no daemon, so it gets TransportNone — which
+// is what that value means — rather than advertising a transport nothing serves.
 func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
 	out := []*Loophole{}
 	if loopholesConfig == nil {
@@ -52,18 +53,32 @@ func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
 				doctorSet = true
 			}
 		}
+		transport := TransportNone
+		var hostDaemon *HostDaemon
+		if cv, ok := spec.Get("command"); ok {
+			if list, isList := cv.([]any); isList && len(list) > 0 && allStrings(list) {
+				hostDaemon = &HostDaemon{
+					Cmd:        toStringSlice(list),
+					Env:        NewEnvMap(),
+					Publishes:  PublishesSocket,
+					RequestEnd: RequestEndFramed,
+				}
+				transport = TransportLoopbackTLS
+			}
+		}
 		out = append(out, &Loophole{
 			Name:         name,
 			Description:  description,
 			Path:         "<yolo-jail.jsonc:loopholes." + name + ">",
 			Enabled:      enabled,
-			Transport:    retiredTransportUnixSocket,
+			Transport:    transport,
 			Lifecycle:    "spawned",
 			Intercepts:   []Intercept{},
 			BrokerIP:     DefaultBrokerIP,
 			JailEnv:      NewEnvMap(),
 			DoctorCmd:    doctorCmd,
 			DoctorCmdSet: doctorSet,
+			HostDaemon:   hostDaemon,
 			Source:       SourceConfig,
 		})
 	}

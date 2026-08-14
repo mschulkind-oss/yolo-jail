@@ -152,25 +152,58 @@ func TestHiddenDirsSkipped(t *testing.T) {
 
 func TestConfigSynthesizedAsLoopholes(t *testing.T) {
 	md := modsDir(t)
-	cfg := orderedFromPairs("journal", map[string]any{"description": "journalctl bridge"},
-		"cgroup-delegate", map[string]any{"description": "cgroup v2 delegate"})
+	cfg := orderedFromPairs(
+		"journal", map[string]any{"description": "journalctl bridge"},
+		"sockd", map[string]any{
+			"description": "third-party socket daemon",
+			"command":     []any{"sockd", "--socket", "{socket}"},
+		})
 	loaded := Discover(DiscoverOptions{Root: md, RootSet: true, LoopholesConfig: cfg})
-	got := names(loaded)
-	if !containsStr(got, "journal") || !containsStr(got, "cgroup-delegate") {
-		t.Fatalf("got %v", got)
-	}
-	// A config entry keeps the RETIRED transport on purpose: its daemon is a
-	// third-party program binding an AF_UNIX socket, and yolo ships nothing that
-	// would let such a program publish an endpoint file instead. Retirement here
-	// means "no manifest can select it" — pinned by
-	// TestValidTransportsIsLoopbackTLSAndNone — not "the socket path is gone".
+	byName := map[string]*Loophole{}
 	for _, m := range loaded {
-		if m.Transport != retiredTransportUnixSocket || m.Lifecycle != "spawned" || !m.FromConfig() {
+		byName[m.Name] = m
+		if m.Lifecycle != "spawned" || !m.FromConfig() {
 			t.Errorf("synthesized loophole shape wrong: %+v", m)
 		}
 	}
+	// A command-bearing entry is a third-party daemon binding a plain AF_UNIX
+	// socket at {socket}. The record says what is TRUE of it — loopback-tls
+	// behind yolo's front (publishes "socket") — with the argv unchanged. This
+	// is the discover.go flip loophole-packaging.md §2.2 costs at "nothing":
+	// the daemon is now WRAPPED rather than expected to publish.
+	s := byName["sockd"]
+	if s == nil {
+		t.Fatalf("sockd not synthesized: %v", names(loaded))
+	}
+	if s.Transport != TransportLoopbackTLS {
+		t.Errorf("sockd Transport = %q, want %q", s.Transport, TransportLoopbackTLS)
+	}
+	if s.HostDaemon == nil || s.HostDaemon.Publishes != PublishesSocket {
+		t.Errorf("sockd HostDaemon = %+v, want Publishes=%q", s.HostDaemon, PublishesSocket)
+	}
+	if s.HostDaemon != nil && !reflect.DeepEqual(s.HostDaemon.Cmd, []string{"sockd", "--socket", "{socket}"}) {
+		t.Errorf("sockd argv changed across synthesis: %v", s.HostDaemon.Cmd)
+	}
+	// A command-less entry runs no daemon, and TransportNone means exactly that
+	// — not a stub advertising a transport nothing serves.
+	j := byName["journal"]
+	if j == nil {
+		t.Fatalf("journal not synthesized: %v", names(loaded))
+	}
+	if j.Transport != TransportNone || j.HostDaemon != nil {
+		t.Errorf("command-less entry: Transport = %q, HostDaemon = %+v; want %q and nil",
+			j.Transport, j.HostDaemon, TransportNone)
+	}
+	// The retired value is gone from BOTH sides now: no manifest can declare it
+	// (pinned by TestValidTransportsIsLoopbackTLSAndNone) and no synthesized
+	// record carries it.
+	for _, m := range loaded {
+		if m.Transport == retiredTransportUnixSocket {
+			t.Errorf("%s still carries the retired transport", m.Name)
+		}
+	}
 	if containsStr(validTransports, retiredTransportUnixSocket) {
-		t.Error("a MANIFEST can still declare the value a config entry gets internally")
+		t.Error("a MANIFEST can declare the retired unix-socket value")
 	}
 }
 
@@ -522,9 +555,16 @@ func TestAbsentTransportDefaultsToLoopbackTLS(t *testing.T) {
 // that the loophole VANISHES. The rejection therefore has to name the replacement
 // — the bare enum error tells a reader what is wrong and not what to do about it.
 func TestRetiredTransportRejectedWithMigrationHint(t *testing.T) {
-	for _, tc := range []struct{ transport, wantSubstr string }{
-		{retiredTransportUnixSocket, "{endpoint}"},
-		{retiredTransportTLSIntercept, "intercepts"},
+	for _, tc := range []struct {
+		transport   string
+		wantSubstrs []string
+	}{
+		// The unix-socket hint must send a migrating author down the EASY path:
+		// keep binding the socket at {socket}, declare publishes:"socket", and
+		// yolo fronts it — not "publish an endpoint file yourself", which is the
+		// harder of the two supported shapes (loophole-packaging.md §2.2).
+		{retiredTransportUnixSocket, []string{"{socket}", "publishes"}},
+		{retiredTransportTLSIntercept, []string{"intercepts"}},
 	} {
 		t.Run(tc.transport, func(t *testing.T) {
 			md := modsDir(t)
@@ -540,8 +580,10 @@ func TestRetiredTransportRejectedWithMigrationHint(t *testing.T) {
 			if !contains(msg, TransportLoopbackTLS) {
 				t.Errorf("error does not name the replacement transport: %s", msg)
 			}
-			if !contains(msg, tc.wantSubstr) {
-				t.Errorf("error does not say what else to change (want %q): %s", tc.wantSubstr, msg)
+			for _, want := range tc.wantSubstrs {
+				if !contains(msg, want) {
+					t.Errorf("error does not say what else to change (want %q): %s", want, msg)
+				}
 			}
 			// And it really is gone from discovery, warned about rather than silent.
 			if got := discoverDir(md, true); len(got) != 0 {
