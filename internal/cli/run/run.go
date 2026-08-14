@@ -12,7 +12,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -217,31 +216,30 @@ func (o *Options) warnIfNoPacks() {
 	out.print("[yellow]" + config.NoPacksGuidance + "[/yellow]")
 }
 
-// notePackHostAccess prints, to stderr, what each loaded pack reads from the host
-// this launch — its mounts, host-file reads, and env vars. This is the transparency
-// half of the fetched-pack approval model: a pack (fetched or local) that touches
-// the host says so at every launch, not just once in a lockfile, so the effective
-// environment is always visible.
+// notePackHostAccess prints, to stderr, what each loaded pack READS from the host this
+// launch — its mounts, host-file reads, installer URLs, host-prepended briefings, and env
+// vars. This is the transparency half of the fetched-pack approval model: a pack (fetched or
+// local) that touches the host says so at every launch, not just once in a lockfile, so the
+// effective environment is always visible.
 //
-// It reads the FOOTPRINT, which already reflects the approval gate: an unapproved
-// fetched pack has MayAccessHost=false, so its host-read claims are absent from the
-// footprint and correctly do not appear here (they were refused). Env is always
-// shown (it is never gated). A pack that touches nothing prints nothing.
+// It reads the FOOTPRINT, which already reflects the approval gate: an unapproved fetched
+// pack has MayAccessHost=false, so its host-read claims are absent from the footprint and
+// correctly do not appear here (they were refused). A pack that touches nothing prints
+// nothing.
+//
+// WHICH KINDS ARE COVERED IS DATA, NOT A SWITCH HERE (packloopholes.go's
+// disclosureClasses). This function used to switch on a hardcoded `KindMount, KindReadsHost,
+// KindEnv` and DROP every other claim kind, with no test to catch it — so kinds that read
+// the host through a different declaration (`program via installer`, `briefing after
+// host:`) were never disclosed, and the next host-crossing kind would have been dropped the
+// same way (loophole-packaging.md §3.3, §4.3 G4). The classification is now exhaustive over
+// packdecl.KnownKinds() by test.
+//
+// Host EXECUTION does NOT print here. It prints at the spawn boundary, BEFORE
+// startLoopholes — see startLoopholesDisclosed. For a read, printing at the banner is
+// cosmetic; for an exec it would be a notification that something already happened.
 func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack) {
-	type line struct{ pack, claim string }
-	var lines []line
-	for _, p := range loadedPacks {
-		for _, c := range packload.FootprintOf(p).Claims {
-			switch c.Kind {
-			case packdecl.KindMount, packdecl.KindReadsHost, packdecl.KindEnv:
-				detail := c.Target
-				if c.Detail != "" {
-					detail += " " + c.Detail
-				}
-				lines = append(lines, line{p.Name, string(c.Kind) + " " + detail})
-			}
-		}
-	}
+	lines := disclosedClaims(loadedPacks, disclosureRead)
 	if len(lines) == 0 {
 		return
 	}
@@ -513,7 +511,15 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 
 	// Start host services (cgroup delegate + external) BEFORE the container,
 	// inserting each `-e VAR=<path>` pair at index(image).
-	hostServices := o.startLoopholes(cname, rt, cfg)
+	//
+	// Through startLoopholesDisclosed, never startLoopholes directly: the host-EXECUTION
+	// disclosure has to precede the spawn (§4.3 G4). It used to be an entire phase LOWER,
+	// down in the banner block — so a pack-shipped daemon was already running when its line
+	// printed, and the spawn is silent on success, which meant "a fetched pack's daemon could
+	// start on every launch for months with the only host-side record being a lockfile the
+	// user has to go read." The wrapper also carries the inert-backend report, so a backend
+	// that will start nothing says so instead of looking provisioned (B-0).
+	hostServices := o.startLoopholesDisclosed(cname, rt, cfg, loadedPacks)
 	imageRef := jailImageRef(rt)
 	for _, svc := range hostServices {
 		idx := indexOfSlice(runCmd, imageRef)
@@ -565,10 +571,14 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// starts. Printed any earlier it scrolls away behind the nix build.
 	o.warnIfNoPacks()
 
-	// Right behind that: what each loaded pack reads from the host this launch. A
-	// fetched pack CAN read the host now (with approval), so the effective host access
-	// must be visible every launch, not just recorded in a lockfile — the transparency
-	// half of the approval model.
+	// Right behind that: what each loaded pack READS from the host this launch. A fetched
+	// pack CAN read the host now (with approval), so the effective host access must be
+	// visible every launch, not just recorded in a lockfile — the transparency half of the
+	// approval model.
+	//
+	// The READ half only. Host EXECUTION was disclosed above, before startLoopholes, and
+	// deliberately not repeated here: this point in the pipeline is after the spawn, where
+	// the same line would be a notification rather than a disclosure (§4.3 G4).
 	o.notePackHostAccess(loadedPacks)
 
 	rc, runErr := runWithProxy(runCmd, onStarted, onTerminate)
