@@ -82,9 +82,9 @@ design over verified code paths, not over a working instance (**R2**).
 >    check with no path constraint, so "local" includes a directory the agent writes. **OQ-LP13**,
 >    which subsumes G2b and OQ-LP3 (§4.3a).
 >
-> **And a fourth round RULED three things**, which is why §4.3b exists and four open questions are
-> gone: **install is user-scope, enable is either** (§4.3b); **content-anchored confirmation is
-> adopted** (OQ-LP13); **the user loopholes dir is retired** (OQ-LP10). The development escape hatch
+> **And a fourth round RULED two things**, which is why §4.3b exists: **install is user-scope, enable
+> is either** (§4.3b), and **the user loopholes dir is retired** (OQ-LP10). The scope ruling dissolved
+> OQ-LP12 and folded OQ-LP3 (and probably OQ-LP8) into OQ-LP13, which is still open. The development escape hatch
 > §4.3a wanted is DELETED — *"you can develop a loophole in a jail with jail in jail if you need"*,
 > and measured, the loophole runtime has exactly ONE jail-aware branch (`runtime.go:143`, device
 > passthrough), so a nested jail is a real development environment and the friction belongs on the
@@ -1075,7 +1075,7 @@ This is the organizing decision for §4 and it resolves or dissolves four open q
 | Decides | that this code may run on this machine at all | whether an installed loophole is active for this jail |
 | Scope | **user only** | **user or workspace** |
 | Performable by | a human editing an agent-unwritable file | anyone who can edit `yolo-jail.jsonc`, including an agent |
-| Gate | content-anchored confirmation, every origin (§4.3a) | none required |
+| Gate | one confirmation, every origin — WHAT it checks is OQ-LP13, still open (§4.3a) | none required |
 
 **The line is drawn where the risk is.** The hazard was never *"a daemon runs"* — it is *"code
 nobody vetted runs"*. Install is the vetting point; enable is routing **within an already-vetted
@@ -1581,8 +1581,10 @@ confirmation, re-confirm on change; origin decides how loud the first confirmati
 there is one. Subsumes G2b's commit anchoring (a commit is a coarse digest) and most of OQ-LP3.
 Two limits belong in the ruling: the digest covers what yolo can NAME, not everything that runs; and
 a loophole under development re-confirms on every edit, which needs a per-path development escape in
-the **user** config rather than a prompt users learn to `y` through. **RULED: adopted** (2026-08-13). It lands at INSTALL, which §4.3b makes a user-scope act.
-The development escape is ruled against — develop in a nested jail.
+the **user** config rather than a prompt users learn to `y` through. **Resolved by:** a maintainer ruling, and it should be the next one — it decides whether
+G1 closes the hole or half of it. The SCOPE half is already settled: it lands at INSTALL, which
+§4.3b makes user-scope, so only *what install checks* is open. The development escape is separately
+RULED AGAINST — develop in a nested jail.
 
 **OQ-LP12 — how does a workspace get a loophole another workspace does not?** Raised in review
 (§4.3 G1). G1 removes the only mechanism and packs were never per-workspace, so this is a capability

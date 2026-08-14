@@ -403,7 +403,7 @@ model in one place — which is what the review asked for.
 | What it decides | that this code may run on your machine **at all** | whether an installed loophole is **active for this jail** |
 | Scope | **user only** | **user or workspace** |
 | Who can perform it | a human editing a file no agent can write | anyone who can edit the workspace config — including an agent |
-| The gate | **content-anchored confirmation, every origin** (§4.4) | none needed |
+| The gate | one confirmation, every origin — **what it checks is LP13**, still open (§4.4) | none needed |
 | Cost of getting it wrong | arbitrary host execution | a vetted daemon runs for a repo you did not intend |
 
 **Why the split is the right line.** The risk was never "a daemon runs" — it is "code you never
@@ -427,7 +427,8 @@ Origin then decides how loud the first confirmation is, never whether there is o
   install-shaped, so user-only. `enabled` is enable-shaped, so both scopes.
 - **OQ-LP3 dissolves.** `file://` stops being a trusted origin that skips the prompt; it becomes an
   origin whose first confirmation is quieter.
-- **OQ-LP13 gets its home.** Install is exactly where content confirmation belongs.
+- **OQ-LP13 gets its home** — still open, but no longer a question about *where*: install is the
+  confirmation point, so all that is left to decide is what it checks.
 
 **One thing the design had decided the other way, stated plainly.** §4.2's G1 required `enabled` to be
 user-scope-only for any daemon-bearing loophole, in **both** directions. This ruling overrides that:
@@ -551,34 +552,32 @@ parties will write even if only bundled loopholes are ever superseded.
 
 ## 8. What I need from you
 
-**Three are now RULED and are recorded here as answers, not questions:** the install/enable scope
-model (§4.5), content-anchored confirmation (**LP13**), and retiring the home directory (**LP10**).
-Those rulings dissolved two more — **LP12** and **LP3** — so what is left needs four decisions.
-
-> **One flag on LP10.** Your "yes, absolutely" highlighted LP10's recommendation, but the line anchor
-> had drifted onto LP13's heading, because the document changed under you while you were reading it.
-> I have recorded it as **LP10 ruled yes**, which is what the highlighted text says. If you meant
-> LP13, say so and I will move it — I would be glad to, since LP13 is the one I think matters most.
+**Two are RULED and are recorded here as answers, not questions:** the install/enable scope model
+(§4.5) and retiring the home directory (**LP10**). The scope model dissolved **LP12** outright, and
+folded **LP3** and probably **LP8** into LP13 — so five decisions are left, and **LP13 is the one I
+would take next**: it is a live hole rather than a design choice, and it is what decides whether G1
+closes the hole or half of it.
 
 The other four open questions live in the detailed doc (§9) and do not need you: one is a technical
 placement choice, one is a one-way door I am flagging rather than opening, one resolves itself when a
 real pack wants it, and one belongs to the `guest` notch work.
 
-### OQ-LP13 — content-anchored confirmation for host execution ✅ *(pending the flag above)*
+### OQ-LP13 🆕 — is everything a loophole runs on the host confirmed against CONTENT?
 
 **The question was:** every gate in this design governs a *declaration*; none governs the *file* the
 declaration names. A `file://` pack under a live-mounted workspace, or a config-block `command`
 naming a workspace path, is rewritable by the agent between launches with nothing to notice it. Do
 we hash what is about to execute and re-confirm when it changes — regardless of origin?
 
-**Answer: yes, and before the kind ships.** This is not a risk the 15th kind introduces; it exists
-today and G1 does not touch it, so it lands whether or not any of the rest happens. The shape is in
+**My read: yes, and before the kind ships.** This is not a risk the 15th kind introduces; it exists
+today and G1 does not touch it, so it is worth fixing whether or not any of the rest happens. The shape is in
 §4.4: hash the loophole's module directory plus any argv-named file outside it, record the digest
 with the confirmation, re-confirm on change. Origin decides how loud the first confirmation is, not
 whether there is one.
 
-**Where it lives:** at **install**, which §4.5's ruling makes a user-scope act. That is the whole of
-it — one confirmation point, one scope, every origin.
+**Where it would live:** at **install**, which §4.5's ruling already makes a user-scope act. So the
+scope half is settled and this question is only about *what install checks* — one confirmation
+point, one scope, every origin.
 
 **One limit to state rather than discover.** The digest covers what yolo can *name*, not everything
 that will *run* — a script can import, a binary can `dlopen`. So it is a tripwire against silent
@@ -689,10 +688,9 @@ are ever superseded.
 ### OQ-LP8 — how does an execution approval survive a moving pin without re-prompting forever?
 
 **My read: commit-anchor now, digest later if the friction is real** — the friction is visible and
-recoverable where content-blind approval is neither. **And LP13 being ruled probably collapses this question**: if
-confirmation is content-anchored for every origin, the digest is built anyway and the commit anchor
-is redundant. I would fold this into LP13's implementation and expect it to disappear; flag it if you
-want the commit anchor kept as a separate signal.
+recoverable where content-blind approval is neither. **LP13 probably collapses this question**: if confirmation
+becomes content-anchored for every origin, the digest is built anyway and the commit anchor is
+redundant. Decide LP13 and this one most likely disappears into it.
 
 ### OQ-LP9 — does the scope error downgrade in-jail?
 
