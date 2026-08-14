@@ -195,6 +195,55 @@ func TestPackShippedAllowsModuleDirAndStateCACerts(t *testing.T) {
 	}
 }
 
+// `requires.file_exists` is PATH-SCOPED for a pack, on the same axis as the bind host
+// and `ca_cert`, and this is the one of the three that is NOT a crossing.
+//
+// Nothing of it is mounted and nothing runs; it is a `stat` whose boolean decides
+// whether the loophole is Active. Left unscoped, a fetched pack could `stat` any
+// path on the machine — `$HOME/.ssh/id_ed25519`, a corporate VPN's socket — and read
+// the answer out of `yolo loopholes list`, which prints the RESOLVED absolute path
+// beside it. Scoping the field is the fix rather than hiding the message, because
+// hiding it would leave the probe intact (the active/inactive label still answers it)
+// while removing the diagnostic that makes an unmet requirement actionable.
+//
+// It is deliberately NOT given a host-access CLAIM: §3.3's rule is that a CROSSING
+// must claim, and a stat crosses nothing. A claim here would put a line in the
+// approval prompt for something that mounts nothing and runs nothing, which dilutes
+// the prompt whose value is that every line in it is a real capability.
+func TestPackShippedRefusesAnOutOfScopeFileExists(t *testing.T) {
+	for _, tc := range []struct{ path, fragment string }{
+		{"/home/someone/.ssh/id_ed25519", "is an absolute host path"},
+		{"${XDG_RUNTIME_DIR}/pulse/native", "expands an environment variable"},
+		{"../../etc/shadow", "contains a '..' segment"},
+	} {
+		problems := packProblems(t, `"requires": {"file_exists": "`+tc.path+`"}`)
+		wantOneProblemWith(t, problems,
+			"'requires.file_exists'",
+			tc.fragment,
+			"probes your host",
+			"loopholes list",
+			"command_on_path",
+			"has to be bundled with yolo",
+		)
+	}
+}
+
+// The shapes a pack MAY probe: its own content and the user's home. `command_on_path`
+// is untouched — it asks PATH a question about a program name, not the filesystem a
+// question about a path.
+func TestPackShippedAllowsInScopeRequires(t *testing.T) {
+	for _, body := range []string{
+		`"requires": {"file_exists": "{loophole_dir}/vendored/bin"}`,
+		`"requires": {"file_exists": ".acme/credentials"}`,
+		`"requires": {"command_on_path": "python3"}`,
+		`"requires": {}`,
+	} {
+		if problems := packProblems(t, body); len(problems) != 0 {
+			t.Errorf("body %s drew %v", body, problems)
+		}
+	}
+}
+
 // R3. readonly:false stays refused, and the message has to carry the MEASURED fact
 // about sockets — otherwise the next reader re-derives it, badly, in whichever
 // direction their intuition points.

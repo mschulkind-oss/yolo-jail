@@ -54,6 +54,7 @@ func (m *Manifest) PackShippedProblems(manifestPath string) []string {
 	out = append(out, m.packJailEnvProblems(manifestPath)...)
 	out = append(out, m.packBindMountProblems(manifestPath)...)
 	out = append(out, m.packCACertProblems(manifestPath)...)
+	out = append(out, m.packRequiresProblems(manifestPath)...)
 	out = append(out, m.packPublishesProblems(manifestPath)...)
 	return out
 }
@@ -269,6 +270,49 @@ func (m *Manifest) packCACertProblems(manifestPath string) []string {
 		" anything outside both, the loophole has to be bundled with yolo"+
 		" (loophole-packaging.md §3.1)",
 		manifestPath, pytext.Repr(m.CACert), clause, TokenState)}
+}
+
+// packRequiresProblems path-scopes a pack-shipped `requires.file_exists`.
+//
+// THE ONE SCOPED FIELD THAT IS NOT A CROSSING, and the asymmetry is deliberate. Nothing
+// of it is mounted and nothing runs: internal/loopholes expands `$VAR` references and
+// `stat`s the result, and the boolean decides whether the loophole is Active. So it gets
+// no host-access CLAIM — §3.3's rule is that a CROSSING must claim, and a line in the
+// approval prompt for something that mounts nothing and runs nothing dilutes a prompt
+// whose value is that every line in it is a real capability.
+//
+// It is scoped anyway, because the ANSWER leaks. `yolo loopholes list` prints the
+// inactive reason, which names the resolved absolute path — so an unscoped field is an
+// arbitrary host-filesystem probe with a readout: a fetched pack declares
+// `file_exists: "$HOME/.ssh/id_ed25519"` and the user's own `loopholes list` tells it
+// whether the key is there. (The active/inactive LABEL answers it even with the path
+// hidden, which is why the fix is the field rather than the message: hiding the resolved
+// path would remove the diagnostic that makes an unmet requirement actionable and leave
+// the probe working.)
+//
+// `command_on_path` is untouched: it asks PATH whether a PROGRAM NAME resolves, which is
+// a question about this machine's tooling rather than about the user's files, and the whole
+// point of the field is that the answer names something installable. A BUNDLED loophole
+// keeps the wider vocabulary — `audio` probes ${XDG_RUNTIME_DIR}/pulse/native, which no
+// home-relative path can reach.
+func (m *Manifest) packRequiresProblems(manifestPath string) []string {
+	if !m.Requires.FileExistsSet {
+		return nil
+	}
+	probe, _ := stripPathToken(m.Requires.FileExists, TokenLoopholeDir)
+	clause := packPathScopeClause(probe)
+	if clause == "" {
+		return nil
+	}
+	return []string{fmt.Sprintf("%s: 'requires.file_exists' = %s %s. A pack-shipped loophole"+
+		" may probe a path inside its own module dir ('%s/<file>') or one relative to your"+
+		" home ('.acme/credentials'). This value probes your host and the ANSWER IS"+
+		" READABLE: `yolo loopholes list` prints the resolved path beside the loophole's"+
+		" inactive reason, so an arbitrary path here is a filesystem probe with a readout."+
+		" To require a PROGRAM instead, use 'requires.command_on_path', which names"+
+		" something installable. For anything outside both, the loophole has to be bundled"+
+		" with yolo (loophole-packaging.md §3.1)",
+		manifestPath, pytext.Repr(m.Requires.FileExists), clause, TokenLoopholeDir)}
 }
 
 // stripPathToken removes a leading token and the '/' after it, reporting whether it was

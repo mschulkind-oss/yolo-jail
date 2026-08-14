@@ -370,11 +370,27 @@ func moduleClaims(mod LoopholeModule) []loopholeClaim {
 	// One per intercept, and it EXISTS EVEN WITH transport:"none" AND NO DAEMON: an
 	// intercept runs no host code and still installs a CA trusted by every TLS client in
 	// the jail, which is a standing capability over every hostname the jail dials.
+	//
+	// `broker_ip` IS FOLDED IN HERE rather than getting a claim of its own, because it is not
+	// a separate crossing — it is WHERE this intercept points. RuntimeArgsFor emits
+	// `--add-host <host>:<broker_ip>`, and with the address left out of the claim two
+	// manifests differing only in broker_ip produced the IDENTICAL approved string: approve an
+	// intercept against `host-gateway` (yolo's own front) and the author can later move the
+	// pin, silently redirecting that hostname to an arbitrary address inside a jail that now
+	// trusts their CA for it, with no re-prompt.
+	//
+	// The DEFAULT is spelled out rather than omitted when absent. Two reasons, both about the
+	// string being a comparison key: a reader of a lockfile cannot check "whatever yolo's
+	// default is", and an omitted default would make `broker_ip: "host-gateway"` and no
+	// broker_ip two different approvals for one declaration — a rule about spelling. The
+	// decoder already applies the default (Manifest.BrokerIP is never empty after a successful
+	// decode), so reading it here is reading what the manifest MEANS.
 	for _, ic := range m.Intercepts {
 		out = append(out, loopholeClaim{
 			target: name + ":intercept:" + ic.Host,
-			detail: "INTERCEPTS " + ic.Host + " — installs a CA trusted by every TLS client in the jail",
-			approval: "loophole " + name + " INTERCEPTS " + ic.Host +
+			detail: "INTERCEPTS " + ic.Host + " -> " + m.BrokerIP +
+				" — installs a CA trusted by every TLS client in the jail",
+			approval: "loophole " + name + " INTERCEPTS " + ic.Host + " -> " + m.BrokerIP +
 				" — installs a CA trusted by every TLS client in the jail",
 		})
 	}

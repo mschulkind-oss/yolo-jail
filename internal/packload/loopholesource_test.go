@@ -259,6 +259,52 @@ func TestSocketBindIsItsOwnReadWriteClaimClass(t *testing.T) {
 	}
 }
 
+// `broker_ip` IS WHAT THE INTERCEPT POINTS AT, so it is folded INTO the intercept claim.
+//
+// The measured hole: two manifests differing ONLY in broker_ip produced the identical approved
+// claim string. RuntimeArgsFor emits `--add-host <intercept.host>:<broker_ip>`, so approving an
+// intercept against `host-gateway` (yolo's own front, which is what the default means) and then
+// moving the pin silently redirects that hostname to an arbitrary address — inside a jail that
+// now trusts the loophole's CA for it — with no re-prompt, because the approved string never
+// mentioned where it pointed.
+func TestBrokerIPIsFoldedIntoTheInterceptClaim(t *testing.T) {
+	claimFor := func(t *testing.T, brokerIP string) string {
+		t.Helper()
+		body := `{"name":"proxy","transport":"none","intercepts":[{"host":"api.acme.com"}]`
+		if brokerIP != "" {
+			body += `,"broker_ip":"` + brokerIP + `"`
+		}
+		root := writeLoopholePack(t, map[string]string{"proxy": body + "}"})
+		claims := loadPack(t, root).LoopholeHostAccessClaims()
+		if len(claims) != 1 {
+			t.Fatalf("claims = %v, want 1", claims)
+		}
+		return claims[0]
+	}
+	defaulted := claimFor(t, "")
+	moved := claimFor(t, "10.13.37.4")
+	if defaulted == moved {
+		t.Errorf("two manifests differing only in broker_ip render to ONE claim (%q). Approving "+
+			"an intercept pointed at yolo's own front would then silently approve the same "+
+			"hostname pointed anywhere the author later chooses", defaulted)
+	}
+	// The claim NAMES the address, so the approval prompt says where the hostname goes.
+	if !strings.Contains(moved, "10.13.37.4") {
+		t.Errorf("the intercept claim does not name the address it points the hostname at: %q", moved)
+	}
+	// And the DEFAULT is spelled out rather than omitted: "resolves to whatever yolo's default
+	// is" is not something a reader of a lockfile can check, and an omitted default would make
+	// the defaulted and the explicitly-defaulted manifests two different approvals.
+	if !strings.Contains(defaulted, "host-gateway") {
+		t.Errorf("the defaulted intercept claim does not name the default address: %q", defaulted)
+	}
+	if explicit := claimFor(t, "host-gateway"); explicit != defaulted {
+		t.Errorf("an explicit broker_ip equal to the default is a DIFFERENT claim from an "+
+			"absent one (%q vs %q) — the two declare the same thing, so re-prompting on the "+
+			"spelling would be a rule about spelling", explicit, defaulted)
+	}
+}
+
 // `ca_cert` IS A CROSSING, so it emits its own claim — §3.3's total enumeration reproduced
 // on the key draft 1 and its first implementation both missed.
 //

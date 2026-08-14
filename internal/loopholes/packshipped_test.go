@@ -146,6 +146,36 @@ func TestLoadPackLoopholeAllowsModuleAndStateCACerts(t *testing.T) {
 	}
 }
 
+// R5. `requires.file_exists` is path-scoped, and the launch path refuses an out-of-scope
+// one — which is what closes the readout: the field is `$VAR`-expanded and `stat`ed on the
+// host, and InactiveReason PRINTS the resolved absolute path, so `yolo loopholes list` was
+// an arbitrary host-filesystem probe with an answer a fetched pack could read.
+//
+// Deliberately no host-access CLAIM: a stat crosses nothing, and a line in the approval
+// prompt for something that mounts nothing and runs nothing dilutes a prompt whose value is
+// that every line is a real capability. The scope refusal is the whole fix.
+func TestLoadPackLoopholeRefusesAnOutOfScopeFileExists(t *testing.T) {
+	mod := packMod(t, "prober", map[string]any{
+		"transport": "none",
+		"requires":  map[string]any{"file_exists": "${HOME}/.ssh/id_ed25519"},
+	})
+	_, err := LoadPackLoophole(mod)
+	if err == nil {
+		t.Fatal("a pack-shipped requires.file_exists probing an arbitrary host path loaded — " +
+			"`yolo loopholes list` prints the resolved path beside the inactive reason, so the " +
+			"pack learns whether the user's SSH key exists")
+	}
+	for _, want := range []string{"'requires.file_exists'", "probes your host", "command_on_path"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal does not carry %q: %v", want, err)
+		}
+	}
+	// The bundled vocabulary is untouched: `audio` probes ${XDG_RUNTIME_DIR}/pulse/native.
+	if _, err := LoadLoophole(mod); err != nil {
+		t.Errorf("the non-pack loader refused a requires.file_exists manifest: %v", err)
+	}
+}
+
 // The legal pack-shipped shape loads, and resolution still happens: the tokens are
 // substituted and the record is usable. A subset that refused the legal shape, or
 // admitted it un-resolved, would be worse than no subset.
