@@ -769,16 +769,10 @@ func (o *Options) relayEnsure(cname, socketsDir, advertiseHost string) {
 	if o.relayHealthy(pidFile, sockPath, endpointPath) {
 		return
 	}
-	// A jail launched by a PRE-UPGRADE yolo has a relay that works and no endpoint
-	// file, so relayHealthy says unhealthy and we would kill it — and the container
-	// could never reach the replacement, because its environment was frozen at
-	// launch naming YOLO_SERVICE_..._SOCKET at the legacy path. Killing it converts
-	// a working jail into a broken one MID-SESSION, recoverable only by relaunching.
-	//
-	// So: if the legacy relay is alive, leave it alone and say why. The upgrade
-	// completes when the jail is next relaunched, which is the only moment the
-	// container's environment can pick up the new variable.
-	if legacy := legacyRelaySocketFile(socketsDir); o.relayIsAlive(pidFile, legacy) {
+	// The upgrade spare: if a PRE-loopback-TLS relay is alive, leave it alone and say
+	// why. The decision is relaySpareLegacy's (a predicate over the four paths, so it
+	// is testable without spawning or flocking anything); this is where it is acted on.
+	if o.relaySpareLegacy(pidFile, sockPath, endpointPath, socketsDir) {
 		o.pr(o.Stdout).print("[yellow]This jail predates the loopback-TLS relay transport; " +
 			"leaving its existing relay running. Claude auth keeps working, and the jail " +
 			"picks up the new transport when you next relaunch it.[/yellow]")
@@ -846,6 +840,37 @@ func (o *Options) relayHealthy(pidFile, sockPath, endpointPath string) bool {
 		return false
 	}
 	return o.relayIsAlive(pidFile, sockPath)
+}
+
+// relaySpareLegacy is THE UPGRADE DECISION: leave a pre-loopback-TLS relay running rather
+// than reaping it.
+//
+// A jail launched by a PRE-UPGRADE yolo has a relay that works and publishes no endpoint
+// file, so relayHealthy says "unhealthy" and the reap path below it would kill the relay and
+// respawn on the new scheme — which THE CONTAINER CAN NEVER REACH, because its environment
+// was frozen at launch naming YOLO_SERVICE_..._SOCKET at the legacy path inside the mounted
+// host-services dir. That converts a working jail into a broken one MID-SESSION, recoverable
+// only by relaunching. The upgrade completes at the next relaunch, which is the only moment
+// the container's environment can pick up the new variable.
+//
+// EXTRACTED AS A PURE PREDICATE over the four paths, and that is the whole reason it exists
+// as a function: relayEnsure spawns processes and takes a flock, so nobody tested it — and
+// MEASURED, the five-line branch this replaces could be DELETED WHOLESALE with
+// `go test ./internal/cli/run/` still green. The regression the design calls "a working jail
+// converted into a broken one mid-session" was defended by inspection only. Its ingredients
+// were pinned (the legacy path, relayIsAlive on a real harness, the absent endpoint file);
+// the DECISION they feed was not, because there was no seam to ask.
+//
+// It is deliberately the whole condition, not just the legacy-liveness half: sparing depends
+// on the NEW relay being unhealthy as well, or a healthy current relay beside a stale legacy
+// socket file would take the spare path and never republish. relayEnsure reaches here only
+// after two relayHealthy checks, so this re-asks the cheap question rather than trusting call
+// position — which is what makes the predicate answerable in isolation at all.
+func (o *Options) relaySpareLegacy(pidFile, sockPath, endpointPath, socketsDir string) bool {
+	if o.relayHealthy(pidFile, sockPath, endpointPath) {
+		return false
+	}
+	return o.relayIsAlive(pidFile, legacyRelaySocketFile(socketsDir))
 }
 
 // retireStaleRelayFiles removes BOTH of a dead predecessor's artifacts before a
