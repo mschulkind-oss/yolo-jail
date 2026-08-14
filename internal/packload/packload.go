@@ -38,6 +38,15 @@ type Pack struct {
 	// MayAccessHost records whether this pack's origin permits host-reading
 	// declarations. Decided by the caller from config.PackEntry.MayGrantHostFiles.
 	MayAccessHost bool
+	// SkewNotes are the version-skew reports from a TOLERANT manifest read
+	// (TolerateSkew): one line per contribution skipped because this build does not
+	// know its kind, each naming the pack and the kind (loophole-packaging §3.3a).
+	// NOT problems — a problem fails the boot (A12), and surviving exactly that is
+	// why the skip exists — but never silent either: the boot path reports each one,
+	// so a degraded jail (a contribution the baked entrypoint cannot render) is
+	// visible. Always empty on the strict authoring path, where the same manifest is
+	// refused as a load problem instead.
+	SkewNotes []string
 }
 
 // Surfaces decodes the pack's surface declarations, resolving each one's host layer to
@@ -269,8 +278,9 @@ func (p *Pack) HonoredInstalls() (granted []packdecl.Install, refused []string) 
 
 // LoadDir reads a pack from a directory. A missing pack.json is fine and yields an
 // empty declaration.
-// tolerateUnknownFields makes LoadDir ignore manifest fields this build does not know,
-// instead of refusing the manifest. Set once, by the IN-JAIL entrypoint (TolerateSkew).
+// tolerateUnknownFields makes LoadDir ignore manifest fields — and skip contribution
+// kinds — this build does not know, instead of refusing the manifest. Set once, by the
+// IN-JAIL entrypoint (TolerateSkew).
 //
 // A package-level switch rather than a parameter because the choice is a property of WHERE
 // the code is running, not of any individual call: every read on the host is an authoring
@@ -286,19 +296,22 @@ func TolerateSkew() { tolerateUnknownFields = true }
 
 func LoadDir(root, name string, mayAccessHost bool) (*Pack, []string) {
 	decl := &packdecl.Manifest{}
-	var problems []string
+	var problems, skewNotes []string
 	data, err := os.ReadFile(filepath.Join(root, packdecl.ManifestName))
 	if err == nil {
-		decode := packdecl.Decode
 		if tolerateUnknownFields {
-			decode = packdecl.DecodeTolerant
+			decl, problems, skewNotes = packdecl.DecodeTolerant(data)
+		} else {
+			decl, problems = packdecl.Decode(data)
 		}
-		decl, problems = decode(data)
 		if decl == nil {
 			decl = &packdecl.Manifest{}
 		}
 		for i, prob := range problems {
 			problems[i] = "pack " + name + ": " + prob
+		}
+		for i, note := range skewNotes {
+			skewNotes[i] = "pack " + name + ": " + note
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, []string{"pack " + name + ": " + err.Error()}
@@ -309,7 +322,10 @@ func LoadDir(root, name string, mayAccessHost bool) (*Pack, []string) {
 	if name == "" {
 		name = filepath.Base(root)
 	}
-	return &Pack{Name: name, Root: root, Decl: decl, MayAccessHost: mayAccessHost}, problems
+	return &Pack{
+		Name: name, Root: root, Decl: decl, MayAccessHost: mayAccessHost,
+		SkewNotes: skewNotes,
+	}, problems
 }
 
 // MaterializeEmbedded copies the embedded official packs into dest and returns them.

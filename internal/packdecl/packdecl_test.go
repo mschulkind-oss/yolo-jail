@@ -30,9 +30,12 @@ func TestDecodeTolerantIgnoresUnknownFields(t *testing.T) {
 		"contributes":[{"kind":"skills","from":"skills","into":".acme/skills",
 		"futureField":"x"}]}`)
 
-	m, problems := DecodeTolerant(manifest)
+	m, problems, skipped := DecodeTolerant(manifest)
 	if len(problems) != 0 {
 		t.Fatalf("DecodeTolerant must ignore unknown fields, got %v", problems)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("an unknown FIELD is ignored, not a skipped contribution: %v", skipped)
 	}
 	if m.Name != "acme" {
 		t.Errorf("name = %q, want acme", m.Name)
@@ -79,7 +82,7 @@ func TestRetiredContributionTierIsAuthoringOnly(t *testing.T) {
 
 	// VERSION BOUNDARY: accepted, and the rest of the manifest still decodes. A jail must boot
 	// even when the two ends disagree about which fields exist.
-	m, tolerated := DecodeTolerant(manifest)
+	m, tolerated, _ := DecodeTolerant(manifest)
 	if len(tolerated) != 0 {
 		t.Errorf("DecodeTolerant refused a RETIRED field, which is a version-skew fact — an older "+
 			"baked entrypoint reading a newer staged manifest would refuse to start the jail: %v",
@@ -120,21 +123,101 @@ func TestDecodeStaysStrictForAuthors(t *testing.T) {
 	}
 }
 
-// Tolerance is about UNKNOWN fields only. A manifest that is malformed in a way BOTH builds
-// understand — an unknown kind, a missing required field — must still fail loudly, or the
-// tolerant path becomes a way to ship a broken pack into a jail.
+// Tolerance is about UNKNOWN declarations only. A manifest that is malformed in a way BOTH
+// builds understand — a missing "kind", a missing required field — must still fail loudly, or
+// the tolerant path becomes a way to ship a broken pack into a jail.
 func TestDecodeTolerantStillValidatesStructure(t *testing.T) {
 	// A RETIRED field is deliberately absent from this list — it is a version-skew fact rather
 	// than a structural one, which is the split TestRetiredContributionTierIsAuthoringOnly pins.
+	// An UNKNOWN KIND is absent too, and that is the §3.3a decision rather than an oversight:
+	// "a kind this build does not know" is only malformed to the OLDER of the two builds, so it
+	// is skew, not structure — TestUnknownKindIsAuthoringFatalAndSkewSkipped pins that split.
 	// `bad skills_tier` replaces the old `bad tier` case: a value NEITHER build understands is
 	// still malformed in a way both agree on, so it must fail at both decoders.
 	for name, manifest := range map[string]string{
-		"unknown kind":    `{"name":"a","contributes":[{"kind":"nonsense"}]}`,
+		"missing kind":    `{"name":"a","contributes":[{"into":"x"}]}`,
 		"missing field":   `{"name":"a","contributes":[{"kind":"skills","from":"skills"}]}`,
 		"bad skills_tier": `{"name":"a","skills_tier":"nope"}`,
 	} {
-		if _, problems := DecodeTolerant([]byte(manifest)); len(problems) == 0 {
+		if _, problems, _ := DecodeTolerant([]byte(manifest)); len(problems) == 0 {
 			t.Errorf("%s: DecodeTolerant must still report structural problems", name)
 		}
+	}
+}
+
+// AN UNKNOWN KIND IS FATAL WHERE A HUMAN IS AUTHORING AND SKIPPED-AND-REPORTED AT THE VERSION
+// BOUNDARY (design: loophole-packaging §3.3a). The two halves are one decision — the same
+// asymmetry the retired `tier` established: an author must hear that their declaration is
+// unknown, and a jail must boot when the two ends of the version boundary disagree about
+// which kinds exist.
+//
+// The A12 story this pins: the in-jail entrypoint reads manifests tolerantly (TolerateSkew)
+// but any load problem FAILS THE BOOT (A12). DecodeTolerant used to route an unknown kind
+// through Validate → ValidateKind, a hard problem — so the moment a newer host CLI staged a
+// pack declaring a kind the baked entrypoint did not know, every jail on the pre-`just load`
+// image refused to start, with no route to recovery when the pack is one yolo ships. The
+// `tier` incident, third time.
+func TestUnknownKindIsAuthoringFatalAndSkewSkipped(t *testing.T) {
+	manifest := []byte(`{"name":"acme","contributes":[
+		{"kind":"skills","from":"skills","into":".acme/skills"},
+		{"kind":"totally-unknown-kind","from":"x"},
+		{"kind":"env","vars":{"ACME":"1"}}]}`)
+
+	// AUTHORING: refused loudly, naming the kind. A typo'd kind that silently rendered
+	// nothing would be the worst outcome for a pack author.
+	_, problems := Decode(manifest)
+	if len(problems) == 0 {
+		t.Fatal("Decode must refuse an unknown kind at authoring time")
+	}
+	if joined := strings.Join(problems, "\n"); !strings.Contains(joined, `unknown kind "totally-unknown-kind"`) {
+		t.Errorf("the authoring refusal must name the kind:\n%s", joined)
+	}
+
+	// VERSION BOUNDARY: skipped, reported by name, and NOT a problem — a problem fails
+	// the boot (A12), which is exactly what this path exists to avoid.
+	m, tolerated, skipped := DecodeTolerant(manifest)
+	if len(tolerated) != 0 {
+		t.Errorf("DecodeTolerant treated an unknown KIND as a load problem — an older baked "+
+			"entrypoint reading a newer staged manifest would refuse to start the jail: %v",
+			tolerated)
+	}
+	if len(skipped) != 1 {
+		t.Fatalf("want exactly one skip note, got %v", skipped)
+	}
+	for _, want := range []string{`"totally-unknown-kind"`, "contributes[1]"} {
+		if !strings.Contains(skipped[0], want) {
+			t.Errorf("the skip note must name %s so the degradation is legible: %q", want, skipped[0])
+		}
+	}
+	// The unknown contribution is DROPPED from the loaded manifest, and its valid
+	// siblings are undisturbed — a skipped entry must not take the pack down with it.
+	cs := m.Contributions()
+	if len(cs) != 2 {
+		t.Fatalf("want the 2 valid siblings to survive, got %+v", cs)
+	}
+	if cs[0].Kind != KindSkills || cs[0].Into != ".acme/skills" {
+		t.Errorf("sibling before the skipped entry disturbed: %+v", cs[0])
+	}
+	if cs[1].Kind != KindEnv || cs[1].Vars["ACME"] != "1" {
+		t.Errorf("sibling after the skipped entry disturbed: %+v", cs[1])
+	}
+}
+
+// A skipped unknown kind must not shift the labels of its siblings' problems: an author
+// reading "contributes[2]" must find the offending entry at index 2 of THEIR pack.json,
+// not at index 2 of the filtered list the decoder kept.
+func TestSkewSkipKeepsOriginalIndicesInProblems(t *testing.T) {
+	manifest := []byte(`{"name":"acme","contributes":[
+		{"kind":"future-kind"},
+		{"kind":"skills","from":"skills","into":".acme/skills"},
+		{"kind":"launch"}]}`)
+	_, problems, skipped := DecodeTolerant(manifest)
+	if len(skipped) != 1 || !strings.Contains(skipped[0], "contributes[0]") {
+		t.Fatalf("want one skip note for contributes[0], got %v", skipped)
+	}
+	// launch with no bin is malformed in a way both builds understand — still loud, and
+	// still labeled with the index the author sees.
+	if len(problems) != 1 || !strings.Contains(problems[0], "contributes[2]") {
+		t.Errorf("the launch problem must keep its ORIGINAL index contributes[2]: %v", problems)
 	}
 }

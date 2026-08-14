@@ -653,18 +653,25 @@ func mergeSurfaceArrays(raws []json.RawMessage) json.RawMessage {
 func (m *Manifest) validateContributions() []string {
 	var problems []string
 	for i, c := range m.Contributes {
-		label := fmt.Sprintf("contributes[%d]", i)
-		if c.Kind == "" {
-			problems = append(problems, label+": missing \"kind\"")
-			continue
-		}
-		if msg := ValidateKind(c.Kind); msg != "" {
-			problems = append(problems, label+": "+msg)
-			continue
-		}
-		problems = append(problems, validateContribution(label, c)...)
+		problems = append(problems, validateContributionAt(i, c)...)
 	}
 	return problems
+}
+
+// validateContributionAt reports the structural problems of ONE contributes entry,
+// labeled with its index. Shared by the strict path (validateContributions, which
+// validates every entry) and the tolerant path (DecodeTolerant, which validates only
+// the entries it keeps but labels them by their ORIGINAL index — the position the
+// author sees in pack.json — so a skipped unknown kind never shifts a sibling's label).
+func validateContributionAt(i int, c Contribution) []string {
+	label := fmt.Sprintf("contributes[%d]", i)
+	if c.Kind == "" {
+		return []string{label + ": missing \"kind\""}
+	}
+	if msg := ValidateKind(c.Kind); msg != "" {
+		return []string{label + ": " + msg}
+	}
+	return validateContribution(label, c)
 }
 
 // validateContribution checks one entry's required fields for its kind, and

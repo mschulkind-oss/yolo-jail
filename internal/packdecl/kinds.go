@@ -8,8 +8,11 @@ package packdecl
 // core has to know each kind's FOOTPRINT (what it claims on the environment, and
 // how two claims on one target combine) to check it (pack-system.md §3). A kind
 // core cannot reason about is a kind whose collisions it cannot catch, which is
-// the whole good-citizen guarantee lost. So an unknown kind is a loud load error,
-// never a silent skip.
+// the whole good-citizen guarantee lost. So at AUTHORING time an unknown kind is
+// a loud load error, never a silent skip — while across the VERSION BOUNDARY
+// (DecodeTolerant, the in-jail read) it is skipped AND reported, because a kind
+// only a newer build knows is skew, not structure, and refusing it failed the
+// boot (loophole-packaging §3.3a: an author must hear; a jail must boot).
 //
 // The vocabulary lives here — dependency-free on the rest of the repo, beside the
 // Manifest it types — following the placement rule packdecl already follows (see

@@ -181,7 +181,8 @@ func (m *Manifest) retiredFieldProblems() []string {
 	return problems
 }
 
-// DecodeTolerant parses a manifest, IGNORING fields this build does not know.
+// DecodeTolerant parses a manifest, IGNORING fields — and SKIPPING contribution kinds —
+// this build does not know.
 //
 // The strictness in Decode is right for authoring — a misspelled key that silently does
 // nothing is the worst outcome for a pack author — but it is wrong across a VERSION
@@ -201,14 +202,42 @@ func (m *Manifest) retiredFieldProblems() []string {
 // degraded jail; a field it refuses to read is no jail at all. The first is recoverable and
 // the second is not, so the version boundary reads tolerantly.
 //
-// Structural validation still runs, so a manifest that is malformed in a way BOTH builds
-// understand (an unknown kind, a missing required field) still fails loudly here.
-func DecodeTolerant(data []byte) (*Manifest, []string) {
-	var m Manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, []string{ManifestName + ": " + err.Error()}
+// An unknown contribution KIND is the same class, one level up (loophole-packaging §3.3a —
+// the `tier` incident's shape, third time): a newer build's kind staged for an older baked
+// entrypoint is skew, not corruption, and validating it as structure made the jail refuse
+// to boot. So a contributes entry whose kind this build does not know is DROPPED from the
+// returned manifest and reported in `skipped`, one note per entry, naming the kind — never
+// returned as a problem, because the boot path treats any problem as fatal (A12). The
+// asymmetry is right in both directions: an author must hear that their declaration is
+// unknown (Decode → Validate still refuses it loudly), and a jail must boot when the two
+// ends of the version boundary disagree about which kinds exist.
+//
+// Structural validation still runs over what is KEPT, so a manifest that is malformed in a
+// way BOTH builds understand (a missing "kind", a missing required field) still fails
+// loudly here — with each problem labeled by the entry's ORIGINAL index, the one the
+// author sees in pack.json.
+func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
+	var man Manifest
+	if err := json.Unmarshal(data, &man); err != nil {
+		return nil, []string{ManifestName + ": " + err.Error()}, nil
 	}
-	return &m, m.Validate()
+	problems = man.validateSkillsTier()
+	kept := make([]Contribution, 0, len(man.Contributes))
+	for i, c := range man.Contributes {
+		if c.Kind != "" && !KnownKind(c.Kind) {
+			skipped = append(skipped, fmt.Sprintf(
+				"contributes[%d]: skipping unknown kind %q — this build does not know it, "+
+					"so the contribution is not rendered (version skew; a build that "+
+					"knows the kind will render it)", i, c.Kind))
+			continue
+		}
+		problems = append(problems, validateContributionAt(i, c)...)
+		kept = append(kept, c)
+	}
+	if len(skipped) > 0 {
+		man.Contributes = kept
+	}
+	return &man, problems, skipped
 }
 
 // Validate reports every structural problem — the pack-level fields, then per-kind over
