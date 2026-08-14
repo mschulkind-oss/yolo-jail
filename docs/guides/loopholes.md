@@ -392,20 +392,36 @@ else's source*. Each row is a rule with a reason, not a nervous restriction:
 | `readonly: false` **refused** | keeps a pack from asking for a writable host bind — **and note exactly what it does NOT cover: `:ro` is no boundary for a SOCKET.** Measured twice in this repo: a read-only bind of an AF_UNIX socket is fully connectable and bidirectional (the well-known `docker.sock:ro` result), because the kernel's read-only check exempts inodes that are not REG/DIR/LNK. So this rule only ever covers regular files and directories; binding a host socket `:ro` gives the jail unrestricted read-write access to whatever is behind it (a container socket, `ssh-agent`, `gpg-agent`, PipeWire) | omit the key, which defaults to `true`. If the bind IS a socket you lose nothing by the refusal — and gain nothing either; it is a no-op for sockets in *both* directions. Because of that measurement a socket bind is its own claim class, worded as host **IPC** rather than as a host read. If your pack genuinely has to WRITE a host file, declare a `host_daemon` that mediates it |
 | `host_daemon.publishes` **must be `"socket"`** — and the *default* is refused too | the transport is a property of the framework, not of the loophole. Under `"endpoint"` your daemon would implement the loopback-TLS server itself — endpoint file mode, key persistence, constant-time token compare, frame length cap — and **yolo cannot detect a violation of any of them.** Tolerable for something you hand-wrote on your own machine; a different proposition for an artifact distributed to strangers. Self-publishing stays available to loopholes yolo itself ships, which are yolo's own code minting yolo's own credential. An absent `publishes` decodes to `"endpoint"`, so saying nothing has declared the mode you may not have — and since the fix is identical either way, the message does not distinguish them | write `"publishes": "socket"`: bind a plain AF_UNIX socket at `{socket}` and yolo runs the audited front over it and publishes the endpoint file for you. Costs one splice hop and buys the inability to get the TLS properties wrong. Declare `request_end: "eof"` if your daemon reads its request to EOF, or it hangs behind the front |
 | **`platforms` declaration** (not a refusal — a field to use) | the front makes the *transport* portable; it does not make the *daemon* portable, and packs will ship native code. `requires` says *"the thing I need is present"* — a runtime probe — and cannot say *"I only exist for this platform."* Without the distinction, a compiled Linux daemon on macOS reads as an unmet requirement ("install the missing thing", advice that can never succeed) or fails five seconds later through a silent spawn path | declare the platforms (OS, and architecture where it matters) — see [`platforms`](#platforms--where-the-loophole-can-run-at-all) above. An unsupported loophole is reported **by name**, once, with the platforms it does support, through the *same one-line report* that names an inert backend: *"this loophole does nothing here, and here is why"* is one user-visible situation, not two |
+| `ca_cert` **module-relative or `{state}` only** — no absolute path, no `$VAR`, no `..`, no `:` | the sharpest of the path-bearing fields, not the mildest. The file is bind-mounted from your host AND its container path is joined into `NODE_EXTRA_CA_CERTS`, so an absolute value hands **every node client in the jail** a certificate authority the user never chose — and the resolver passes an absolute value through as-is (it deliberately discards the module dir, or `filepath.Join` would produce `<module>/<abs>`) | a certificate your pack SHIPS (`"ca.crt"`, which resolves inside your module dir) or one in your own state dir (`"{state}/ca.crt"` — name-keyed, so it survives restaging, which is what makes a pack-shipped CA possible at all: a CA regenerated on every launch would break every long-lived TLS client in the jail) |
+| `requires.file_exists` **module-relative or home-relative only** | the one scoped field that crosses NOTHING — no mount, no exec, just a `stat` whose boolean decides whether the loophole is active. It is scoped because the **answer leaks**: `yolo loopholes list` prints the resolved absolute path beside the inactive reason, so an unscoped field is an arbitrary host-filesystem probe with a readout — `"$HOME/.ssh/id_ed25519"`, and the pack reads the result out of the user's own command. (It gets no approval CLAIM, for the same reason: a claim is for a crossing, and a line in the prompt for a stat dilutes a prompt whose value is that every line is a real capability) | a path inside your module dir or relative to the user's home. To require a PROGRAM, use `requires.command_on_path`, which is untouched — it asks PATH about a name, and the answer names something installable |
 | **reserved names refused** | a shadowed loophole name means a daemon nobody audited running under a name the user trusts — and it would be *half* a loophole: yolo's own daemon runs while the manifest's binds, devices and `jail_env` still cross into the jail. The reserved set is larger than "the bundled three": `audio`, `claude-oauth-broker`, `host-processes`, plus `cgroup-delegate` and `journal`, which are built-in service names with no manifest at all | pick another name (the loophole's name is its directory basename, so rename the directory). Refused at launch, fatally, naming both sides — the same pre-flight that refuses two packs claiming one name |
 
-**Where each rule fires today, stated rather than assumed.** The reserved-name and
-name-exclusivity refusals are the launch pre-flight, and they are wired. The five
-schema-level rules above are implemented and tested in
-[`internal/loopholedecl`](../../internal/loopholedecl) (`PackShippedProblems`, plus
-`LoadDirPackShipped` for authoring and `loopholes.LoadPackLoophole` for discovery)
-and **neither loader has a production caller yet** — `yolo pack lint` reads the
-module manifest strictly but does not apply the subset, and discovery loads a pack
-module through the same tolerant path a bundled one takes. So today a pack-shipped
-`jail_env` or a `publishes: "endpoint"` daemon is accepted where the rules say it
-should be refused. Write to the rules — they are settled and they are what the
-loaders will apply — but do not read a clean `pack lint` as proof you are inside
-the subset.
+**Where each rule fires, and it is everywhere now.** The reserved-name and
+name-exclusivity refusals are the launch pre-flight. The schema-level rules above
+are implemented in [`internal/loopholedecl`](../../internal/loopholedecl)
+(`PackShippedProblems`) and applied at **three** places, all through that one
+predicate so none of them can be kinder than another:
+
+- **`yolo pack lint`** — the authoring seam. A subset violation is a lint failure
+  naming the field and the fix, so you hear it on your machine rather than from a
+  launch warning on somebody else's.
+- **discovery**, i.e. every launch. A pack module is loaded through
+  `loopholes.LoadPackLoophole` (the source label selects the loader), so a manifest
+  outside the subset is not discovered: no daemon, no binds, no devices, no
+  `jail_env` — and a warning naming the reason.
+- **`yolo check`** — its own walker reports the same violation as an invalid
+  manifest, before you launch.
+
+All three stay **tolerant of an unknown key**: a key only a newer yolo knows is
+version skew, not a violation, so it is skipped and reported rather than making
+your loophole vanish. That is deliberate and it is orthogonal to the subset — a
+field you MAY NOT ship is refused by every build; a field this build has never
+heard of is not.
+
+Until 2026-08-14 none of the three applied the subset (both loaders existed and
+had no production callers), so a `jail_env` or a `publishes: "endpoint"` manifest
+was accepted where the rules said it should be refused. If you wrote a pack
+against that behaviour, `yolo pack lint` now tells you exactly what to change.
 
 Two backends make the whole thing inert regardless of your manifest: Apple
 Container starts no loophole host services at all (a wider skip than the
@@ -430,12 +446,13 @@ What your manifest emits, exactly:
 | Declaration | Claim, one per | Reads as |
 |---|---|---|
 | `host_daemon.cmd` + `doctor_cmd` | one **base** claim per loophole | `RUNS <argv> and <argv> on your machine` — host EXECUTION. `doctor_cmd` folds in here rather than getting its own line because it is host execution too (`yolo check` and `yolo loopholes status` both run it), and one claim per program is the honest unit |
-| `intercepts[]` | one per host | `INTERCEPTS <host> — installs a CA trusted by every TLS client in the jail`. **This claim exists even with `transport: "none"` and no daemon:** an intercept runs no host code and still installs a standing capability over every hostname the jail dials |
+| `intercepts[]` + `broker_ip` | one per host | `INTERCEPTS <host> -> <broker_ip> — installs a CA trusted by every TLS client in the jail`. **This claim exists even with `transport: "none"` and no daemon:** an intercept runs no host code and still installs a standing capability over every hostname the jail dials. **`broker_ip` is folded in here rather than claimed separately** — it is not a second crossing, it is WHERE this intercept points, and leaving it out of the string made two manifests differing only in it compare as ONE approval: approve an intercept aimed at yolo's own front, and the address could later move with no re-prompt. The default is spelled out when the key is absent, so `"broker_ip": "host-gateway"` and no `broker_ip` are one approval rather than two |
+| `ca_cert` | one claim | `TRUSTS the CA in <path> — mounted from your host and trusted by every node client in the jail`. Keyed by the raw path, so two different certificates are two approvals. **It is a crossing in its own right, not a detail of the intercept claim:** the file is bind-mounted from the host and its container path is joined into `NODE_EXTRA_CA_CERTS`, so a module-relative `ca_cert` with no intercepts at all still installs a CA every node client in the jail trusts |
 | `host_bind_mounts[]` that looks like a **socket** | one per bind | `CONNECTS the jail to the host socket … — read-write host IPC`. Its own class because `:ro` is no boundary for a socket (measured — see the subset table) |
 | every other `host_bind_mounts[]` | one per bind | `MOUNTS <host> -> <container>`, carrying the socket caveat verbatim rather than claiming "read-only" and stopping |
 | `host_devices[]` | one per node | `PASSES THROUGH the host device <path> (reads and writes)`. Not weaker than a writable bind: `audio`'s own manifest describes `--device` as passing a node *so the cgroup device-allow rules permit reads/writes*, and the home-relative constraint does not reach a device node — which is precisely why it needs a claim |
 | a manifest yolo **cannot read** | one claim, fail-closed | `DECLARATION UNREADABLE at <from> — its claims cannot be enumerated`, treated as host execution, because a manifest this build cannot parse may well declare a daemon. An unreadable declaration is not "no claims" — that is the empty set the gate reads as consent |
-| `jail_daemon`, `state_files` | **none, deliberately** | a `jail_daemon` is a process inside the container, the one place a pack's code was always allowed to run; `state_files` resolves inside yolo's own state tree, not a path you would recognise as yours |
+| `jail_daemon`, `state_files`, `requires` | **none, deliberately** | a `jail_daemon` is a process inside the container, the one place a pack's code was always allowed to run; `state_files` resolves inside yolo's own state tree, not a path you would recognise as yours; and `requires` crosses nothing at all — it is a `stat`, so a claim for it would put a line in the approval prompt for something that neither mounts nor runs. It is **path-scoped** instead (see the subset table), because the answer is readable even though nothing crosses |
 
 **The socket class's discriminator is coarser than the design specified, and that is
 worth knowing when you author.** The design says "a socket bind is its own claim
@@ -472,13 +489,31 @@ gate: an embedded pack or one at a path you control is permitted; a pack fetched
 from a git URL must have every claim its *staged tree currently makes* approved in
 the lockfile, and a missing or corrupt lockfile approves **nothing**. Approval
 requires a real terminal — `yes | yolo pack install` is refused *before* the prompt
-is shown, so a pipe is never invited to answer it. An unapproved fetched pack's
-loophole is not discovered at all (and its `doctor_cmd` cannot run: `yolo check`
-and `yolo loopholes status` refuse to execute a pack loophole's self-check without
-a recorded approval) while the pack's other contributions still work. And the
-per-launch disclosure names the host access in effect *every* launch — the
+is shown, so a pipe is never invited to answer it.
+
+**What "unapproved" costs, precisely, and what it does not.** NOTHING of the
+loophole crosses: no host daemon, no bind mounts, no devices, no `--add-host`, no
+CA, no `jail_env`. Its `doctor_cmd` cannot run either — `yolo check` and
+`yolo loopholes status` refuse to execute a pack loophole's self-check without a
+recorded approval. The pack's OTHER contributions still work; the refusal is
+per-loophole, not per-pack. And you are **told**: the launch prints one line naming
+the loophole, saying it was refused, and pointing at `yolo pack install` — before
+that line existed, a pack whose whole purpose was a loophole silently did nothing,
+which looks exactly like a loophole that is broken.
+
+It is still **listed**. `yolo loopholes list` and `status` show it as `unapproved`
+rather than omitting it, because a missing entry is indistinguishable from a pack
+that failed to stage, and the route to approving it is not discoverable from an
+absence.
+
+And the per-launch disclosure names the host access in effect *every* launch — the
 execution lines print **before** anything spawns, because after the spawn a line is
-not a disclosure, it is a notification that something already happened.
+not a disclosure, it is a notification that something already happened. It prints
+only what will ACTUALLY happen: a refused loophole's daemon argv is not in that
+block, because the block's whole value is that every line in it is imminent, and a
+withheld daemon shown as pending would be false in the one place you read to decide
+whether to stop the launch. (`yolo pack footprint` still shows it — that command
+answers what a pack WANTS, which is the question you ask before trusting it.)
 
 **One thing the approval does not carry: the file's content.** Nothing compares
 what changed between commits — approval is a string match, so if you rewrite your
