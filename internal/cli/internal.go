@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostprocesses"
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -201,7 +202,12 @@ func runConfigDump(args []string) int {
 		fmt.Fprintln(os.Stderr, "config-dump:", err)
 		return 1
 	}
-	errs, warns := config.ValidateConfig(cfg, workspace, nil)
+	// A REAL resolver, like check.go's sectionMergedConfig and the launch
+	// preflight: with nil the known-loophole set is empty, so every name reads as
+	// uninstalled and the §4.3b enable-uninstalled rule fires a fatal for a config
+	// both other callers accept. An oracle that disagrees with the thing it is an
+	// oracle for is worse than no oracle.
+	errs, warns := config.ValidateConfig(cfg, workspace, loopholes.NewResolver())
 
 	out := jsonx.NewOrderedMap()
 	out.Set("config", cfg)
