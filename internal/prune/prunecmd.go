@@ -443,6 +443,42 @@ func Run(opts Options) int {
 		totalSaved += hostArchiveBytes
 	}
 
+	// --- Retired loophole state generations ---
+	// What a LAUNCH moves aside when a pack that shipped a loophole leaves `packs`
+	// (loophole-packaging.md §4.5). A separate section from the host-render archive above
+	// because it is a separate TREE and a separate writer: the render archive lives under
+	// GlobalStorage()/archive and is written by `apply --host` — the command §3.4 refuses
+	// the loophole kind at — while a loophole's state lives under GlobalStorage()/state and
+	// is retired on the launch path, the only place deselection is observed.
+	//
+	// Before this existed nothing here mentioned loopholes at all (measured: `rg -c loophole
+	// internal/prune/*.go` returned zero), so a deselected pack's state was either left
+	// forever or would have had to be deleted by the launch. Archiving on the launch and
+	// reclaiming here keeps prune the only verb that removes, and keeps the undo buffer
+	// bounded — the contents can be a CA private key, which is exactly why the launch must
+	// not delete it and why an age cutoff would be the wrong rule.
+	var loopholeStateBytes int64
+	var loopholeStateGens int
+	{
+		p.line("")
+		p.line("[bold]Retired loophole state[/bold]")
+		var names []string
+		loopholeStateBytes, loopholeStateGens, names = PruneRetiredLoopholeState(
+			joinPath(gs, "state"), hostArchiveKeep, apply)
+		if loopholeStateGens > 0 {
+			p.line(fmt.Sprintf("  %s: %s across %s generation(s)",
+				verb(apply, "would remove", "removed"), FmtBytes(loopholeStateBytes), fmtComma(loopholeStateGens)))
+			// NO SILENT CAPS, and named with the loopholes inside: "reclaimed 2 MB" tells a
+			// user nothing about whether the CA they were looking for just went.
+			for _, n := range names {
+				p.line("    [dim]" + n + "[/dim]")
+			}
+		} else {
+			p.line("  [dim]none[/dim]")
+		}
+		totalSaved += loopholeStateBytes
+	}
+
 	// --- Orphaned image GC roots ---
 	// The durable per-image roots (build/roots/<sha16>, storage-lifecycle §1) that
 	// keep a `nix-collect-garbage` from deleting a running jail's closure. Reap the
