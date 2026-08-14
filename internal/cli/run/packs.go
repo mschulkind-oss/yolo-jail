@@ -19,6 +19,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
@@ -274,9 +275,305 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 		}
 		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(msgs, "\npacks: "))
 	}
+	// The FOURTH bespoke pre-flight: a loophole NAME claimed twice, or claimed against a
+	// name yolo reserves (docs/design/loophole-packaging.md §3.1). Here, beside the other
+	// three, for the same reason all four are here — this is where the pack set becomes
+	// complete — and fatal for the reason none of the other three quite share: a shadowed
+	// loophole name means A DAEMON NOBODY AUDITED RUNNING UNDER A NAME THE USER TRUSTS.
+	//
+	// It is a fourth PASS rather than a row in packload.Collisions, and the design priced
+	// that at zero and was wrong in three measured ways:
+	//
+	//  1. packload.Collisions is NEVER consulted at launch. Its two callers are the `pack
+	//     footprint` report (internal/cli/pack.go) and internal/cli/check/packs.go, which
+	//     passes packload.Embedded() — embedded packs only. The launch pre-flight refuses
+	//     exactly the three things above, under the comment saying why widening it
+	//     wholesale would refuse launches that work today.
+	//  2. The generic Exclusive loop SKIPS single-pack groups (`if len(packSet) < 2`), so
+	//     ONE pack declaring both `a/acme` and `vendor/acme` — both basename `acme`, both
+	//     valid — collides with ITSELF and is not reported. That is the exact hole which
+	//     forced ConfigSurfaceCollisions to be its own exported pass.
+	//  3. Collisions takes []*packload.Pack, so bundled and reserved names are not
+	//     expressible there at all — they are not packs.
+	//
+	// And it cannot live in loopholes.Discover: that returns []*Loophole with no error
+	// channel, and internal/loopholes/resolver.go states the invariant every caller relies
+	// on ("Discovery never errors … so ok is always true"). The pre-flight is the home.
+	if conflicts := PackLoopholeNameConflicts(packLoopholeDecls(loaded)); len(conflicts) > 0 {
+		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(conflicts, "\npacks: "))
+	}
 
 	agents.SetPackSkillDirs(skillDirs)
+	// Record the pack-contributed loophole modules for every host-side consumer, with
+	// each one's origin gate already evaluated. THE convergence point
+	// (docs/design/loophole-packaging.md §5.1): the seven discovery surfaces used to
+	// assemble seven independent DiscoverOptions, and two of them execute host code.
+	// Sequencing is already right — stagePacks runs above the backend dispatch, well
+	// before assembleRunCmd and startLoopholes.
+	loopholes.SetPackModules(packLoopholeModules(loaded))
 	return stagingRoot, loaded, briefings, nil
+}
+
+// packLoopholeKind is the `loophole` contribution kind, spelled as a value rather than
+// referenced as a packdecl constant.
+//
+// Deliberate, and temporary: the kind lands in internal/packdecl separately, and matching
+// on the WIRE STRING lets the exclusivity pre-flight and the convergence be written,
+// tested and reviewed without either half blocking on the other. `packdecl.KindLoophole`
+// will equal this string by definition (a Kind IS its manifest spelling), so the switch to
+// the constant is a one-token edit here with no behaviour change — and until the kind
+// exists this adapter simply finds nothing, because packdecl.Decode refuses an unknown
+// kind before a contribution can reach here.
+const packLoopholeKind = packdecl.Kind("loophole")
+
+// PackLoopholeDecl is ONE `loophole` contribution, reduced to exactly what name
+// exclusivity needs.
+//
+// Per DECLARATION, not per pack, and that is the whole difference between this and
+// packload.Collisions' generic Exclusive loop: that loop groups by pack and skips a group
+// of one (`if len(packSet) < 2 { continue }`), so a single pack declaring `from: "a/acme"`
+// and `from: "vendor/acme"` — both basename `acme`, both individually valid — collides
+// with ITSELF and is invisible there. ConfigSurfaceCollisions is per declaration for the
+// identical reason.
+//
+// It carries the DECLARED `from` alongside the resolved dir because the refusal has to be
+// actionable: a user reading "two claims on `acme`" needs to see which two lines of which
+// manifests to edit, and two absolute paths inside a staging tree they have never looked
+// at do not tell them that.
+type PackLoopholeDecl struct {
+	// Pack is the pack that declared it.
+	Pack string
+	// From is the pack-relative source path exactly as declared.
+	From string
+	// Dir is the resolved absolute module directory.
+	Dir string
+	// Name is the loophole's name. It EQUALS the module directory's basename —
+	// loopholes' own loadManifest enforces name == basename, so the name is knowable
+	// without decoding the manifest, which is what lets this pre-flight run before any
+	// loophole is loaded.
+	Name string
+}
+
+// PackLoopholeNameConflicts is the FOURTH launch pre-flight: loophole-name exclusivity
+// across pack declarations AND against the names yolo reserves for itself.
+//
+// FATAL for both cases, and the message NAMES BOTH SOURCES in both — which is the point.
+// A collision here is not a shadowed config key or a duplicated mount: the loser's
+// manifest still contributes `--add-host`, `ca_cert`, `--device`, bind mounts and
+// `jail_env` to the argv while the winner's daemon is the one that runs. The user sees one
+// trusted name and gets a mixture, with nothing said. That is why the pack-vs-reserved
+// half exists at all: `startLoopholes` special-cases `claude-oauth-broker`, `journal` and
+// `cgroup-delegate` BY NAME, so a manifest claiming one of those names is not an override,
+// it is half a loophole (docs/design/loophole-packaging.md §3.1, §5.1).
+//
+// The reserved half is also why this cannot be a row in packload.Collisions: that takes
+// []*packload.Pack, and a bundled loophole is not a pack. It is here, in the run package,
+// rather than exported from packload for the second reason §3.2 measures — packload cannot
+// import internal/loopholes (loopholes → config → packload is a cycle), so the reserved
+// set is not nameable there.
+//
+// Returns one message per conflict, in a deterministic order (by name, then by pack), so
+// the launch refusal is stable and testable.
+func PackLoopholeNameConflicts(decls []PackLoopholeDecl) []string {
+	reserved := map[string]string{}
+	for _, r := range loopholes.ReservedLoopholeNames() {
+		reserved[r.Name] = r.Origin
+	}
+
+	byName := map[string][]PackLoopholeDecl{}
+	var order []string
+	for _, d := range decls {
+		if _, seen := byName[d.Name]; !seen {
+			order = append(order, d.Name)
+		}
+		byName[d.Name] = append(byName[d.Name], d)
+	}
+	sort.Strings(order)
+
+	var out []string
+	for _, name := range order {
+		group := byName[name]
+		sort.SliceStable(group, func(i, j int) bool {
+			if group[i].Pack != group[j].Pack {
+				return group[i].Pack < group[j].Pack
+			}
+			return group[i].From < group[j].From
+		})
+		// PACK-VS-RESERVED first: it is the stronger refusal, and reporting it as a
+		// pack-vs-pack clash as well would name the same mistake twice.
+		if origin, isReserved := reserved[name]; isReserved {
+			out = append(out, fmt.Sprintf(
+				"loophole %q is %s, and %s claims it (%s) — a pack cannot ship a loophole "+
+					"under a name yolo answers to itself: the launch would mount that "+
+					"manifest's binds, devices and jail_env while running yolo's own daemon "+
+					"under the same name. Rename the loophole's directory.",
+				name, origin, declSources(group), declFroms(group)))
+			continue
+		}
+		if len(group) < 2 {
+			continue
+		}
+		out = append(out, fmt.Sprintf(
+			"loophole %q is claimed by %s (%s) — a loophole name is sole-owned, and the "+
+				"loser's manifest would still contribute its bind mounts, devices and "+
+				"jail_env to this jail while the winner's daemon ran. Rename one of the "+
+				"module directories.",
+			name, declSources(group), declFroms(group)))
+	}
+	return out
+}
+
+// declSources renders a conflict group's PACKS as prose, deduplicated: "pack a and pack
+// b", or "pack a twice" for the self-collision the generic loop cannot see.
+func declSources(group []PackLoopholeDecl) string {
+	var names []string
+	seen := map[string]bool{}
+	for _, d := range group {
+		if seen[d.Pack] {
+			continue
+		}
+		seen[d.Pack] = true
+		names = append(names, "pack "+d.Pack)
+	}
+	if len(names) == 1 && len(group) > 1 {
+		return names[0] + " twice"
+	}
+	return strings.Join(names, " and ")
+}
+
+// declFroms renders the declared `from` values, which is what the user edits.
+func declFroms(group []PackLoopholeDecl) string {
+	var froms []string
+	for _, d := range group {
+		label := d.From
+		if label == "" {
+			label = d.Dir
+		}
+		froms = append(froms, d.Pack+": from "+label)
+	}
+	return strings.Join(froms, "; ")
+}
+
+// packLoopholeDecls projects the loaded pack set's `loophole` contributions into the
+// pre-flight's input.
+//
+// It resolves `from` against the STAGED tree (p.Root), so the dir checked is exactly the
+// one discovery would load — the same rule packSkillSourceDirs and packBriefingProse
+// follow, and the reason all three go through the staged root rather than the source: an
+// only/exclude filter that removed the module dir must be visible here, not as a loophole
+// that "does nothing".
+//
+// An EMPTY `from` contributes nothing: `loophole` has no conventional source directory
+// (unlike `skills` and `briefing`), so there is nothing to fall back to, and refusing it
+// is the pack LAYER's job — a pack.json error, decidable by `yolo pack lint` with no
+// loophole loaded (docs/design/loophole-packaging.md §3.1).
+func packLoopholeDecls(loaded []*packload.Pack) []PackLoopholeDecl {
+	var out []PackLoopholeDecl
+	for _, p := range loaded {
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind != packLoopholeKind || c.From == "" {
+				continue
+			}
+			dir := filepath.Join(p.Root, filepath.FromSlash(c.From))
+			out = append(out, PackLoopholeDecl{
+				Pack: p.Name,
+				From: c.From,
+				Dir:  dir,
+				Name: filepath.Base(dir),
+			})
+		}
+	}
+	return out
+}
+
+// packLoopholeModules is the pre-flight's input carried forward into the converged
+// discovery set, with each module's ORIGIN GATE evaluated here — where the answer is
+// known — rather than at the seven places that consume it.
+//
+// The gate is p.MayAccessHost, which packMayAccessHost already decided per pack: an
+// embedded or local pack always may (its origin carries the user's own authority); a
+// FETCHED pack only for the host-access claims the user approved at `yolo pack install`.
+// Reusing that decision is deliberate — a loophole's doctor_cmd and host_daemon are host
+// execution, which is strictly more than the host READS the gate was built for, so a pack
+// that may not read the host certainly may not run a daemon on it. It is the SAME gate,
+// not a second one that could disagree.
+func packLoopholeModules(loaded []*packload.Pack) []loopholes.PackModule {
+	byPack := map[string]bool{}
+	for _, p := range loaded {
+		byPack[p.Name] = p.MayAccessHost
+	}
+	var out []loopholes.PackModule
+	for _, d := range packLoopholeDecls(loaded) {
+		out = append(out, loopholes.PackModule{Dir: d.Dir, HostExecApproved: byPack[d.Pack]})
+	}
+	return out
+}
+
+// init registers the LAZY FALLBACK resolver with internal/loopholes, for the discovery
+// surfaces that never stage.
+//
+// Three of the seven census surfaces need it, and one of them needs it on the LAUNCH path:
+//
+//   - config.LoopholeResolver.Known() (site 6) is consulted by loadAndValidateConfig, which
+//     runs BEFORE stageRunPacks — so at that moment the staged record is still empty, and
+//     without this a `loopholes.<pack-loophole>.enabled` entry would take the unknown-name
+//     fallback and warn "no loophole named 'x' is installed on this machine" at EVERY
+//     launch. That is docs/design/loophole-packaging.md §5.2's prerequisite, and it is the
+//     same sentence a user gets when a pack genuinely failed to stage.
+//   - `yolo loopholes list`/`status` (site 5) and `yolo check` (site 7) never stage at all.
+//
+// AN init(), because the dependency runs the wrong way for a call: internal/loopholes cannot
+// import packload (loopholes → config → packload is a cycle, measured), so the resolution
+// has to be pushed IN from a package that can. internal/cli/run is linked into `yolo`
+// (internal/cli imports it), which is what makes one registration cover every subcommand.
+//
+// It resolves from the STORE and is strictly OFFLINE, like packRoot: a `yolo check` must not
+// depend on a reachable git server, and an unresolvable pack contributes nothing rather than
+// failing the command. The staged record supersedes it the moment staging runs, because
+// staging is the authoritative view — it is what the jail actually mounts, `only`/`exclude`
+// filters included.
+func init() {
+	loopholes.SetPackModuleResolver(resolvePackLoopholeModules)
+}
+
+// resolvePackLoopholeModules resolves the configured packs' loophole modules from the pack
+// STORE, with each one's origin gate evaluated against the same lockfile the launch uses.
+//
+// Every failure is SILENT-AND-EMPTY here, which is the opposite of stagePacks' fail-closed
+// contract and deliberately so: this runs behind read-only commands and behind a config
+// validator, where the honest answer to "I cannot resolve your packs" is "I know of no pack
+// loopholes" — not a refused preflight and not, ever, a loophole treated as approved. The
+// real diagnostics belong to the launch path, which fails loudly through stagePacks.
+func resolvePackLoopholeModules() []loopholes.PackModule {
+	entries, err := config.LoadPacks(func(string) {})
+	if err != nil {
+		return nil
+	}
+	lock, lockErr := packsrc.LoadLock(packsrc.LockPath(paths.UserConfigPath()))
+	if lockErr != nil {
+		lock = nil // fail-closed: a corrupt lock approves nothing
+	}
+	var out []loopholes.PackModule
+	for _, entry := range entries {
+		if entry.Embedded() {
+			// An embedded pack ships no loophole today, and its tree lives only in the
+			// binary's embed.FS until staging materializes it — so there is no store path to
+			// read here. Covered by the staged record on the launch path.
+			continue
+		}
+		root, rootErr := packRoot(entry)
+		if rootErr != nil {
+			continue // never fetched, moved remote, offline — not a deactivation signal
+		}
+		p, probs := packload.LoadDir(root, entry.Name, packMayAccessHost(entry, root, lock))
+		if len(probs) > 0 || p == nil {
+			continue
+		}
+		for _, d := range packLoopholeDecls([]*packload.Pack{p}) {
+			out = append(out, loopholes.PackModule{Dir: d.Dir, HostExecApproved: p.MayAccessHost})
+		}
+	}
+	return out
 }
 
 // packSkillSourceDirs is the pack's skills source dirs for THIS launch, honoring each
