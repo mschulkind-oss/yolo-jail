@@ -61,7 +61,7 @@ so a `managed` key overrides anything below it — including a value the user or
 `mode` is the pivot of §3 and §4: `rmw` and `stateful` are key-scoped writers, `computed` is
 not, and that difference decides whether two packs can share a file by accident.
 
-**`config-overlay`** — a contribution *kind* (one of fourteen; see `yolo config-ref`). Where
+**`config-overlay`** — a contribution *kind* (one of fifteen; see `yolo config-ref`). Where
 `config` **declares and owns** a surface, `config-overlay` **contributes keys to a surface
 another pack owns**, naming it by identity. It folds in at the `config-overlay` position above
 — below `managed`, so the owner still wins a genuine conflict — with per-key provenance so an

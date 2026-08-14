@@ -112,13 +112,14 @@ The `skills/` + `AGENTS.md` layout is the **zero-ceremony** path — it works wi
 
 If your pack should also carry composed config, set env vars, or install a tool, add a
 `pack.json` with a `contributes` list — one typed entry per effect, each with a `kind`
-from a closed set of fourteen:
+from a closed set of fifteen:
 
 | Kind | What it contributes |
 |---|---|
 | `program` | a tool on PATH that **yolo installs** (`via: npm`/`installer`) |
 | `requires` | a tool that must **already** be on PATH — asserted, never installed |
 | `skills` / `briefing` | a skills tree / prose (usually the zero-ceremony dir + `AGENTS.md`) |
+| `files` | an opaque tree the pack owns, bind-mounted `:ro` in the jail |
 | `config` | a composed config surface (e.g. `~/.claude/settings.json`) |
 | `config-overlay` | keys asserted onto *another* pack's surface |
 | `env` | static environment variables |
@@ -127,6 +128,12 @@ from a closed set of fourteen:
 | `launch` | flags injected after a binary |
 | `hook` | a named capability (`shared_credentials`, …) |
 | `autonomy` | the agent's autonomous/guarded permission postures (the notch selects which) |
+| `loophole` | a host-capability **loophole module** the pack ships (a dir with a `manifest.jsonc`) |
+
+`loophole` is the sharpest of the fifteen and the only one whose claim is host code
+**execution** rather than a host read: its module may declare a daemon that runs on your
+machine, TLS intercepts, host bind mounts and host devices, each approved separately at
+`yolo pack install`. See [Loopholes](loopholes.md).
 
 Example — a pack that carries your Claude settings as a **composed config surface** and a
 static env var:
