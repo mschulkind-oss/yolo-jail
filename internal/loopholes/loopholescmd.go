@@ -57,19 +57,68 @@ func RealDeps() Deps {
 // loopholesWithConfig discovers loopholes including host_services synthesized
 // from the merged user+workspace config `loopholes:` block: user then
 // workspace, later wins on key collision.
+//
+// Entries are VALIDATED before they are honored (loophole-packaging.md item
+// 1b): these commands used to read the config with no schema pass at all, so a
+// workspace entry `yolo check` rejects — e.g. a doctor_cmd with no command,
+// host execution from two read-only-looking commands — was still listed, and
+// Status executed it. An entry that fails validation is dropped with a printed
+// reason and never reaches RunDoctorChecks. The scope rules follow the launch
+// path's asymmetry: a workspace-scope violation refuses the entry on the host
+// and is only a warning in-jail, where the entry stays honored.
 func loopholesWithConfig(deps Deps, includeDisabled bool) []*Loophole {
+	// The same file-backed set config.ValidateConfig resolves names against.
+	known, _ := NewResolver().Known()
+
+	scopes := []struct {
+		cfg           *jsonx.OrderedMap
+		fromWorkspace bool
+		src           string
+	}{
+		{deps.LoadUserConfig(), false, paths.UserConfigPath()},
+		// The workspace block is the MERGE of yolo-jail.jsonc and
+		// yolo-jail.local.jsonc (deps.LoadWorkspaceConfig collapses them); the
+		// tracked file is named as the origin. The launch path's validator
+		// re-reads each file and names the exact one.
+		{deps.LoadWorkspaceConfig(deps.Cwd), true, filepath.Join(deps.Cwd, config.WorkspaceConfigName)},
+	}
+	userInline := map[string]bool{}
 	merged := jsonx.NewOrderedMap()
-	for _, cfg := range []*jsonx.OrderedMap{deps.LoadUserConfig(), deps.LoadWorkspaceConfig(deps.Cwd)} {
-		if cfg == nil {
+	for _, sc := range scopes {
+		if sc.cfg == nil {
 			continue
 		}
-		if v, ok := cfg.Get("loopholes"); ok {
-			if lh, ok := v.(*jsonx.OrderedMap); ok {
-				for _, k := range lh.Keys() {
-					val, _ := lh.Get(k)
-					merged.Set(k, val)
+		v, ok := sc.cfg.Get("loopholes")
+		if !ok {
+			continue
+		}
+		lh, ok := v.(*jsonx.OrderedMap)
+		if !ok {
+			continue
+		}
+		for _, k := range lh.Keys() {
+			val, _ := lh.Get(k)
+			var info *config.LoopholeInfo
+			if ki, isKnown := known[k]; isKnown {
+				kiCopy := ki
+				info = &kiCopy
+			}
+			problems := config.LoopholeEntryErrors(k, val, info, userInline[k], sc.fromWorkspace, deps.InJail, sc.src)
+			if len(problems) > 0 {
+				fmt.Fprintf(deps.Err, "Ignoring loopholes.%s (from %s):\n", k, sc.src)
+				for _, p := range problems {
+					fmt.Fprintf(deps.Err, "  • %s\n", p)
+				}
+				continue
+			}
+			if !sc.fromWorkspace {
+				if m, isMap := val.(*jsonx.OrderedMap); isMap {
+					if _, hasCmd := m.Get("command"); hasCmd {
+						userInline[k] = true
+					}
 				}
 			}
+			merged.Set(k, val)
 		}
 	}
 	// include_bundled defaults to true; the DiscoverOptions zero value is

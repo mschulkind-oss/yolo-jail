@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/json5"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 func TestSetEnabledMissingUserLoophole(t *testing.T) {
@@ -58,5 +61,132 @@ func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// isolateDirs points bundled/user loophole discovery at throwaway dirs, so no
+// real manifest (and no real doctor_cmd) can leak into a test.
+func isolateDirs(t *testing.T) {
+	t.Helper()
+	emptyBundled, emptyUser := t.TempDir(), t.TempDir()
+	oldBundled, oldUser := BundledLoopholesDir, UserLoopholesDir
+	BundledLoopholesDir = func() string { return emptyBundled }
+	UserLoopholesDir = func() string { return emptyUser }
+	t.Cleanup(func() {
+		BundledLoopholesDir = oldBundled
+		UserLoopholesDir = oldUser
+	})
+}
+
+// cmdDeps builds Deps whose config loaders return the given JSONC bodies
+// ("" => no config).
+func cmdDeps(t *testing.T, out, errBuf *bytes.Buffer, userJSON, wsJSON string) Deps {
+	t.Helper()
+	parse := func(s string) *jsonx.OrderedMap {
+		if s == "" {
+			return nil
+		}
+		v, err := json5.Decode([]byte(s))
+		if err != nil {
+			t.Fatal(err)
+		}
+		m, ok := v.(*jsonx.OrderedMap)
+		if !ok {
+			t.Fatalf("not an object: %s", s)
+		}
+		return m
+	}
+	return Deps{
+		Out:                 out,
+		Err:                 errBuf,
+		Cwd:                 t.TempDir(),
+		LoadUserConfig:      func() *jsonx.OrderedMap { return parse(userJSON) },
+		LoadWorkspaceConfig: func(string) *jsonx.OrderedMap { return parse(wsJSON) },
+	}
+}
+
+// Regression for loophole-packaging.md §4.1 finding 2 (the evil-doctor case):
+// the loophole commands read config with NO schema pass, so a workspace entry
+// carrying only description+doctor_cmd — which `yolo check` REJECTS (no
+// command, and doctor_cmd is workspace-illegal) — was still honored by
+// `yolo loopholes list`, and Status would have executed its doctor_cmd on the
+// host. An entry that fails validation must be dropped with a printed reason
+// and never reach RunDoctorChecks.
+func TestEvilDoctorWorkspaceEntryIsRefused(t *testing.T) {
+	isolateDirs(t)
+	var out, errBuf bytes.Buffer
+	deps := cmdDeps(t, &out, &errBuf, "",
+		`{"loopholes": {"evil-doctor": {"description": "helpful", "doctor_cmd": ["/tmp/evil", "--own"]}}}`)
+
+	got := loopholesWithConfig(deps, true)
+	for _, lp := range got {
+		if lp.Name == "evil-doctor" {
+			t.Fatalf("an entry yolo check rejects was honored: %+v", lp)
+		}
+	}
+	reason := errBuf.String()
+	if !strings.Contains(reason, "evil-doctor") || !strings.Contains(reason, "command") {
+		t.Errorf("refusal must print the entry and the reason, got %q", reason)
+	}
+
+	// And List does not show it either.
+	errBuf.Reset()
+	if rc := List(deps); rc != 0 {
+		t.Fatalf("List rc = %d", rc)
+	}
+	if strings.Contains(out.String(), "evil-doctor") {
+		t.Errorf("List output still shows the refused entry: %q", out.String())
+	}
+}
+
+// A workspace INLINE entry (command) is refused host-side per §4.3b — install
+// is user-scope only — and kept in-jail, where the same violation is only a
+// warning (the launch path honors it there too).
+func TestWorkspaceInlineEntryRefusedOnHostKeptInJail(t *testing.T) {
+	isolateDirs(t)
+	var out, errBuf bytes.Buffer
+	deps := cmdDeps(t, &out, &errBuf, "",
+		`{"loopholes": {"wsd": {"command": ["/bin/true"]}}}`)
+
+	got := loopholesWithConfig(deps, true)
+	for _, lp := range got {
+		if lp.Name == "wsd" {
+			t.Fatalf("a workspace-installed daemon was honored host-side: %+v", lp)
+		}
+	}
+	if !strings.Contains(errBuf.String(), "user-scope only") {
+		t.Errorf("refusal reason = %q, want the scope ruling named", errBuf.String())
+	}
+
+	deps.InJail = true
+	errBuf.Reset()
+	got = loopholesWithConfig(deps, true)
+	found := false
+	for _, lp := range got {
+		if lp.Name == "wsd" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("in-jail the entry must stay honored (the violation is a warning there)")
+	}
+}
+
+// Control: a USER-config inline entry is the legal install and stays listed.
+func TestUserInlineEntryStillListed(t *testing.T) {
+	isolateDirs(t)
+	var out, errBuf bytes.Buffer
+	deps := cmdDeps(t, &out, &errBuf,
+		`{"loopholes": {"mine": {"description": "ok", "command": ["/bin/true"], "doctor_cmd": ["/bin/true"]}}}`, "")
+
+	got := loopholesWithConfig(deps, true)
+	found := false
+	for _, lp := range got {
+		if lp.Name == "mine" && lp.Source == SourceConfig {
+			found = true
+		}
+	}
+	if !found || errBuf.String() != "" {
+		t.Errorf("user install must be honored silently; found=%v err=%q", found, errBuf.String())
 	}
 }
