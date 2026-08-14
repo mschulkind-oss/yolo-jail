@@ -11,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
 // warnf/infof are the package's log sinks.
@@ -272,7 +273,7 @@ func SetEnabled(modulePath string, enabled bool) error {
 	if !ok {
 		// Only a non-object manifest reaches here, which never occurs in
 		// practice.
-		return &LoopholeError{msg: manifestPath + ": manifest must be a JSON object"}
+		return loopholedecl.Errorf("%s: manifest must be a JSON object", manifestPath)
 	}
 	decoded.Set("enabled", enabled)
 	header := "// yolo-jail loophole manifest. See src/loopholes.py for schema.\n" +

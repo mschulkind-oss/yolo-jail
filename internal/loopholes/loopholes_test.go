@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
@@ -198,11 +199,11 @@ func TestConfigSynthesizedAsLoopholes(t *testing.T) {
 	// (pinned by TestValidTransportsIsLoopbackTLSAndNone) and no synthesized
 	// record carries it.
 	for _, m := range loaded {
-		if m.Transport == retiredTransportUnixSocket {
+		if m.Transport == loopholedecl.RetiredTransportUnixSocket {
 			t.Errorf("%s still carries the retired transport", m.Name)
 		}
 	}
-	if containsStr(validTransports, retiredTransportUnixSocket) {
+	if containsStr(loopholedecl.ValidTransports(), loopholedecl.RetiredTransportUnixSocket) {
 		t.Error("a MANIFEST can declare the retired unix-socket value")
 	}
 }
@@ -375,7 +376,7 @@ func TestExpandEnvUnit(t *testing.T) {
 
 // helpers ------------------------------------------------------------------
 
-func contains(s, sub string) bool { return indexOf(s, sub) >= 0 }
+func contains(s, sub string) bool { return strings.Contains(s, sub) }
 
 func containsStr(list []string, s string) bool {
 	for _, x := range list {
@@ -519,17 +520,17 @@ func TestLoopbackTLSIsAValidTransport(t *testing.T) {
 // reappears.
 func TestValidTransportsIsLoopbackTLSAndNone(t *testing.T) {
 	want := []string{TransportLoopbackTLS, TransportNone}
-	if len(validTransports) != len(want) {
-		t.Fatalf("validTransports = %v, want exactly %v", validTransports, want)
+	if len(loopholedecl.ValidTransports()) != len(want) {
+		t.Fatalf("loopholedecl.ValidTransports() = %v, want exactly %v", loopholedecl.ValidTransports(), want)
 	}
 	for _, w := range want {
-		if !containsStr(validTransports, w) {
-			t.Errorf("validTransports = %v, missing %q", validTransports, w)
+		if !containsStr(loopholedecl.ValidTransports(), w) {
+			t.Errorf("loopholedecl.ValidTransports() = %v, missing %q", loopholedecl.ValidTransports(), w)
 		}
 	}
-	for _, retired := range []string{retiredTransportUnixSocket, retiredTransportTLSIntercept} {
-		if containsStr(validTransports, retired) {
-			t.Errorf("validTransports still accepts the retired %q", retired)
+	for _, retired := range []string{loopholedecl.RetiredTransportUnixSocket, loopholedecl.RetiredTransportTLSIntercept} {
+		if containsStr(loopholedecl.ValidTransports(), retired) {
+			t.Errorf("loopholedecl.ValidTransports() still accepts the retired %q", retired)
 		}
 	}
 }
@@ -563,8 +564,8 @@ func TestRetiredTransportRejectedWithMigrationHint(t *testing.T) {
 		// keep binding the socket at {socket}, declare publishes:"socket", and
 		// yolo fronts it — not "publish an endpoint file yourself", which is the
 		// harder of the two supported shapes (loophole-packaging.md §2.2).
-		{retiredTransportUnixSocket, []string{"{socket}", "publishes"}},
-		{retiredTransportTLSIntercept, []string{"intercepts"}},
+		{loopholedecl.RetiredTransportUnixSocket, []string{"{socket}", "publishes"}},
+		{loopholedecl.RetiredTransportTLSIntercept, []string{"intercepts"}},
 	} {
 		t.Run(tc.transport, func(t *testing.T) {
 			md := modsDir(t)

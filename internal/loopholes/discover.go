@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
 // yolo-jail.jsonc loopholes: entries as Loophole records (lifecycle spawned,
@@ -39,26 +40,26 @@ func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
 			continue
 		}
 		description := ""
-		if dv, ok := spec.Get("description"); ok && pyTruthy(dv) {
-			description = pyStr(dv)
+		if dv, ok := spec.Get("description"); ok && loopholedecl.Truthy(dv) {
+			description = loopholedecl.Str(dv)
 		}
 		enabled := true
 		if ev, ok := spec.Get("enabled"); ok {
-			enabled = pyTruthy(ev)
+			enabled = loopholedecl.Truthy(ev)
 		}
 		doctorCmd, doctorSet := []string(nil), false
 		if dcv, ok := spec.Get("doctor_cmd"); ok {
-			if list, isList := dcv.([]any); isList && allStrings(list) {
-				doctorCmd = toStringSlice(list)
+			if list, isList := dcv.([]any); isList && loopholedecl.AllStrings(list) {
+				doctorCmd = loopholedecl.StringSlice(list)
 				doctorSet = true
 			}
 		}
 		transport := TransportNone
 		var hostDaemon *HostDaemon
 		if cv, ok := spec.Get("command"); ok {
-			if list, isList := cv.([]any); isList && len(list) > 0 && allStrings(list) {
+			if list, isList := cv.([]any); isList && len(list) > 0 && loopholedecl.AllStrings(list) {
 				hostDaemon = &HostDaemon{
-					Cmd:        toStringSlice(list),
+					Cmd:        loopholedecl.StringSlice(list),
 					Env:        NewEnvMap(),
 					Publishes:  PublishesSocket,
 					RequestEnd: RequestEndFramed,
@@ -106,24 +107,24 @@ func applyWorkspaceOverrides(existing map[string]*Loophole, loopholesConfig *jso
 			continue
 		}
 		if enabledV, ok := spec.Get("enabled"); ok {
-			target.Enabled = pyTruthy(enabledV)
+			target.Enabled = loopholedecl.Truthy(enabledV)
 		}
-		if envV, ok := spec.Get("env"); ok && pyTruthy(envV) {
+		if envV, ok := spec.Get("env"); ok && loopholedecl.Truthy(envV) {
 			if envMap, isMap := envV.(*jsonx.OrderedMap); isMap && target.HostDaemon != nil {
 				override := NewEnvMap()
 				for _, k := range envMap.Keys() {
 					v, _ := envMap.Get(k)
-					override.Set(k, pyStr(v))
+					override.Set(k, loopholedecl.Str(v))
 				}
 				target.HostDaemon.Env = target.HostDaemon.Env.MergedWith(override)
 			}
 		}
-		if jailEnvV, ok := spec.Get("jail_env"); ok && pyTruthy(jailEnvV) {
+		if jailEnvV, ok := spec.Get("jail_env"); ok && loopholedecl.Truthy(jailEnvV) {
 			if jailEnvMap, isMap := jailEnvV.(*jsonx.OrderedMap); isMap {
 				override := NewEnvMap()
 				for _, k := range jailEnvMap.Keys() {
 					v, _ := jailEnvMap.Get(k)
-					override.Set(k, pyStr(v))
+					override.Set(k, loopholedecl.Str(v))
 				}
 				target.JailEnv = target.JailEnv.MergedWith(override)
 			}
@@ -244,6 +245,15 @@ type ValidateEntry struct {
 }
 
 // loophole dir (bundled + user), reporting parse errors instead of skipping.
+//
+// It reads through loadManifest, so TOLERANTLY: unknown keys are ignored here
+// exactly as they are in discovery. That is deliberate for now — this function
+// answers "would this loophole load", and a stricter answer than the loader's own
+// would report a manifest as broken that the loader then happily uses. The strict
+// decoder (loopholedecl.Decode, which reports unknown keys) is the right engine for
+// an AUTHORING surface — `yolo pack lint` and the loophole-as-pack-kind lint — and
+// adopting it here is a behaviour change for `yolo check` that belongs with
+// whichever change makes unknown keys an author-visible error.
 func ValidateLoopholes(root string, rootSet, includeBundled bool) []ValidateEntry {
 	out := []ValidateEntry{}
 	type dirSource struct {
