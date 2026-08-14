@@ -153,12 +153,24 @@ type stagedPacks struct {
 // dispatch stays a straight line. FAIL-CLOSED (A12): a pack that cannot be staged ends
 // the launch — the same contract stagePacks has always had, now applied before any
 // backend runs rather than inside one of them.
+//
+// It also runs the loophole-state RETIREMENT pass, immediately after staging and its
+// staged-tree prune. That placement is the requirement, not a convenience: the launch is the
+// only thing that reads `packs`, compares it to what is staged, and prunes — so it is the only
+// place a DESELECTION is observed at all (loophole-packaging.md §4.5, and see
+// loopholeretire.go for why `apply --host` and the host-render archive sweep cannot see it).
+// Never fatal: a bookkeeping failure over the host state dir must not cost the user a jail.
+//
+// It runs on EVERY invocation, attach included, for the same reason the staged-tree prune
+// does: config says the pack is gone, and a state dir holding a CA private key should not
+// wait for the next fresh launch to be retired.
 func (o *Options) stageRunPacks(cname string) (stagedPacks, bool) {
 	root, packs, briefings, err := o.stagePacks(cname)
 	if err != nil {
 		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
 		return stagedPacks{}, false
 	}
+	o.recordAndRetirePackLoopholes(packs)
 	return stagedPacks{root: root, packs: packs, briefings: briefings}, true
 }
 
