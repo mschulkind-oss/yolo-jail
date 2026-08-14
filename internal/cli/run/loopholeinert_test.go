@@ -2,6 +2,7 @@ package run
 
 import (
 	"bytes"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -115,14 +116,18 @@ func TestPlatformUnsupportedUsesTheSameReport(t *testing.T) {
 		t.Fatalf("a platform-unsupported loophole printed no inert line:\n%s", got)
 	}
 	// The AXIS is carried as data, so a reader with two lines can tell "wrong machine" from
-	// "wrong backend" — and this asserts the platform producer's own note rather than a
-	// lookalike sentence assembled here.
-	want := inertLineFor("acme", loopholes.InertNote{
-		Name: "acme-proxy", Axis: loopholes.AxisPlatform,
-		Reason: loopholePlatformInertReason(packLoopholes(p)[0].Dir),
+	// "wrong backend" — and this asserts THE PRODUCER'S OWN NOTE, taken from
+	// loopholes.PlatformInertNotes over the same resolved record, rather than a lookalike
+	// sentence assembled here. Asking the producer is what makes "one mechanism" checkable: if
+	// the report ever re-derives its own reason again, this stops matching.
+	notes := loopholes.PlatformInertNotes([]*loopholes.Loophole{
+		resolveInertLoophole(packLoopholes(p)[0].Dir),
 	})
-	if !strings.Contains(got, want) {
-		t.Errorf("the platform line is not the shared rendering\n want: %s\n  got: %s", want, got)
+	if len(notes) != 1 {
+		t.Fatalf("the producer yielded %d notes for one unsupported loophole", len(notes))
+	}
+	if want := inertLineFor("acme", notes[0]); !strings.Contains(got, want) {
+		t.Errorf("the platform line is not the producer's own note\n want: %s\n  got: %s", want, got)
 	}
 	if !strings.Contains(got, "acme-proxy") {
 		t.Errorf("the platform line does not name the loophole:\n%s", got)
@@ -200,6 +205,107 @@ func TestBackendInertReasonCoversEveryShippedBackend(t *testing.T) {
 		if got := backendInertReason(rt) != ""; got != inert {
 			t.Errorf("backendInertReason(%q) inert=%v, want %v", rt, got, inert)
 		}
+	}
+}
+
+// --- ONE MECHANISM MEANS ONE SELECTION, NOT JUST ONE RENDERING ---
+//
+// §3.1/§8 require one mechanism for the two axes. The RENDERING converged on
+// InertNote.Line(); the SELECTION did not — this report walked pack loopholes itself and
+// called a private platform reader, while loopholes.PlatformInertNotes (whose doc comment
+// states the dedup and the disabled-skip as REQUIREMENTS) had zero production callers.
+//
+// The two tests below are the measured divergences. Both are about the platform axis, which
+// is the axis the producer owns.
+
+// DEDUP: PlatformInertNotes is "ONCE PER LOOPHOLE, by name … a duplicated line reads as two
+// problems". The launch report emitted TWO identical lines for one loophole declared twice —
+// which is not hypothetical: discovery merges four sources, and a pack declaring the same
+// module dir under two contributions is a config mistake whose report should be one line
+// about one loophole, not two about two.
+func TestOneLoopholeNamedTwiceProducesOneInertLine(t *testing.T) {
+	other := "darwin"
+	if runtime.GOOS == "darwin" {
+		other = "linux"
+	}
+	p := writeLoopholePack(t, "acme", "acme-proxy",
+		`{"name": "acme-proxy", "transport": "none", "platforms": ["`+other+`"]}`)
+	// The SAME module declared twice. The pack layer refuses this at staging by name; the
+	// report must not turn one mistake into two problems if it ever reaches here.
+	p.Decl.Contributes = append(p.Decl.Contributes, p.Decl.Contributes[0])
+
+	got := inertOutput(t, "podman", p)
+	if n := strings.Count(got, "loophole acme-proxy is "); n != 1 {
+		t.Errorf("the platform axis emitted %d lines for ONE loophole; PlatformInertNotes "+
+			"dedups by name precisely because 'a duplicated line reads as two problems', and "+
+			"routing the report through it is what makes that the same code rather than the "+
+			"same shape:\n%s", n, got)
+	}
+}
+
+// DISABLED IS SKIPPED: PlatformInertNotes deliberately emits nothing for a loophole the USER
+// turned off — "it is inert for a reason the user chose, already reported as 'disabled', and
+// telling them a switched-off loophole also has the wrong platform is noise". The launch
+// report printed the platform line anyway.
+func TestADisabledLoopholeDrawsNoPlatformInertLine(t *testing.T) {
+	other := "darwin"
+	if runtime.GOOS == "darwin" {
+		other = "linux"
+	}
+	p := writeLoopholePack(t, "acme", "acme-proxy",
+		`{"name": "acme-proxy", "transport": "none", "enabled": false, "platforms": ["`+other+`"]}`)
+	if got := inertOutput(t, "podman", p); got != "" {
+		t.Errorf("a DISABLED loophole drew a platform inert line. The producer skips it "+
+			"deliberately — the user chose this, hears 'disabled' already, and a second line "+
+			"saying it also has the wrong platform is noise:\n%s", got)
+	}
+}
+
+// The PRODUCER has a production caller — asserted over the SOURCE, because "a value with the
+// right shape and no callers" is the exact state the divergence above lived in for a batch,
+// and no runtime assertion can observe it. The producer's doc comment states the dedup and
+// the disabled-skip as REQUIREMENTS; a report that stops asking it silently re-acquires both
+// defects while every behavioural test still passes on whatever it does itself.
+func TestThePlatformInertProducerHasAProductionCaller(t *testing.T) {
+	files, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var callers []string
+	for _, f := range files {
+		name := f.Name()
+		if f.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		body, rerr := os.ReadFile(name)
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		if strings.Contains(string(body), "loopholes.PlatformInertNotes(") {
+			callers = append(callers, name)
+		}
+	}
+	if len(callers) == 0 {
+		t.Error("nothing in the run package calls loopholes.PlatformInertNotes. That is the " +
+			"state §3.1's 'one mechanism' requirement was in for a batch: the producer existed, " +
+			"documented its dedup and its disabled-skip as requirements, and had ZERO callers " +
+			"while this report re-derived the platform answer itself — and the two disagreed " +
+			"about a duplicate and about a disabled loophole. Route the report through it.")
+	}
+}
+
+// The BACKEND axis is unaffected by the disabled-skip, and that asymmetry is deliberate
+// rather than an oversight: an inert backend is a statement about the LAUNCH ("nothing this
+// pack declares runs here"), not about one loophole's own switch, and it is the line a user
+// can act on. Without this the fix above could quietly silence the backend report too.
+func TestADisabledLoopholeStillDrawsTheBackendInertLine(t *testing.T) {
+	p := writeLoopholePack(t, "acme", "acme-proxy",
+		`{"name": "acme-proxy", "transport": "none", "enabled": false}`)
+	got := inertOutput(t, "container", p)
+	if !strings.Contains(got, "loophole acme-proxy is ") {
+		t.Errorf("the backend axis went silent for a disabled loophole. The backend answer is "+
+			"about the launch, not about the switch — a pack whose whole purpose is a loophole "+
+			"must not look installed on a backend that ignores it (B-0):\n%s", got)
 	}
 }
 
