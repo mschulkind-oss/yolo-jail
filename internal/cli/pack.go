@@ -70,15 +70,21 @@ A zero-ceremony pack needs no manifest: a skills/ dir and an AGENTS.md at the pa
 root are staged as-is. A pack.json adds a "contributes" list, one typed entry per
 effect, with a "kind" from a closed set:
 
-  program        install a tool onto PATH        skills    merge a skills tree
-  requires       a tool that must already exist  briefing  prose for the briefing
-  config         a composed config surface       files     own a file tree
-  launch         inject launch flags             state     a persistent home dir
-  reads-host     read one host-home file :ro     hook      a named capability
-  env            set static env vars in the jail mount     mount a host-home dir :ro
-  autonomy       the agent's autonomous/guarded permission postures (notch-selected)
-  config-overlay keys on a config surface another pack owns
-  loophole       ship a host-capability loophole: a module dir with a manifest.jsonc
+  program          install a tool onto PATH
+  requires         a tool that must already exist
+  skills           merge a skills tree
+  briefing         prose for the briefing
+  files            own a file tree, bind-mounted :ro in the jail
+  config           a composed config surface
+  config-overlay   keys on a config surface another pack owns
+  state            a persistent home dir
+  reads-host       read one host-home file :ro
+  mount            mount a host-home dir :ro
+  env              set static env vars in the jail
+  launch           inject launch flags after a binary
+  hook             a named capability (shared_credentials, …)
+  autonomy         the agent's autonomous/guarded permission postures (notch-selected)
+  loophole         ship a host-capability loophole: a module dir with a manifest.jsonc
 
 loophole is the sharpest kind: its module may declare a daemon that runs ON YOUR MACHINE,
 TLS intercepts (a CA every client in the jail trusts), host bind mounts and host devices.
