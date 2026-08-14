@@ -1,11 +1,18 @@
 # Loopholes in packs — the system-level picture
 
-**Status:** DESIGN, 2026-08-13. **The `loophole` pack kind is not built** — that is what this doc
-describes. Several of its prerequisites HAVE shipped since (the loopback-TLS front for
-`publishes: "socket"` daemons, `request_end`, both `{loophole_dir}` tokens, unknown-kind skew
-tolerance, and the user-scope-only rule for the `loopholes` config block with its placement check);
-the detailed half carries dated *Landed* markers per section. This is the readable half of
-[`loophole-packaging.md`](loophole-packaging.md), written to be commented on.
+**Status:** DESIGN 2026-08-13; **the `loophole` kind LANDED 2026-08-14** and most of this design
+shipped with it. What is built: the kind itself (`packdecl.KnownKinds()` now returns **fifteen**),
+its total claim enumeration, the manifest schema as a leaf package (`internal/loopholedecl`, which
+resolves OQ-LP1 by extraction), the `platforms` declaration, the one-value inert report on both
+axes, the fourth launch pre-flight for name exclusivity, the seven-surface convergence as one
+constructed value, retirement-on-deselect with a `prune` sweeper, the disclosure fix (every
+crossing kind, execution printed **before** the spawn), the placement rule's manifest faces, and
+the earlier batch's front / `publishes` / `request_end` / `{loophole_dir}` tokens / unknown-kind
+skew tolerance / config-block scope model. **What is NOT built:** the pack-shipped SUBSET has no
+production caller (§3 note), the install-gate approval invariants G2a/G2b, `audio` as an official
+pack, and OQ-LP9's three parts. Section-by-section *Landed* markers are in
+[`loophole-packaging.md`](loophole-packaging.md); this is its readable half, written to be
+commented on.
 
 **What this doc is for.** The detailed design is written for whoever implements it — it cites line
 numbers, names functions, and argues from measured code. That is the right shape for building and
@@ -87,6 +94,12 @@ decision.
 blocks the 15th kind — the kind is what makes either one *possible*. The rest of this doc describes
 the world with all three channels intact, because that is the world the design was written against.
 
+**Landed 2026-08-14: there are now FOUR channels, not three.** The pack-shipped one exists, and it
+slots between bundled and the home directory in precedence: a hand-placed user directory still
+overrides a pack's loophole (it carries your own authority), and a pack claiming a *reserved* name
+never reaches an ordering at all — the launch pre-flight refuses it. Both retirements above are
+still owed; the kind that makes them possible is no longer the blocker.
+
 ---
 
 ## 2. The proposal
@@ -109,6 +122,13 @@ Four things fall out of that choice, and they are the substance of the design:
    something that exists for some platforms and backends and not others. §3.3.
 3. **Everything the loophole reaches on your host must become something you were asked about.** §4.
 4. **Turning it on must stay a decision you made.** §5.
+
+**Landed 2026-08-14.** The kind is in `packdecl`'s closed set — `{"kind": "loophole", "from": …}`,
+`from` required, Exclusive by loophole NAME — and all four of the above shipped with it except the
+install-gate half of (3), which is G2a/G2b in §4.2 and still owed. One thing the proposal did not
+say and the implementation had to: **the name is knowable without decoding the manifest**, because
+`name` must equal the module dir's basename. That is what lets the exclusivity pre-flight run
+before any loophole is loaded, and what lets a claim be keyed even when the manifest is unreadable.
 
 ---
 
@@ -221,6 +241,24 @@ being designed now. Declaring platform support is the field that makes such a lo
 later without a schema break, which is precisely the "design the extension point, not the
 implementation" rule from [`extension-point-principle.md`](extension-point-principle.md).
 
+**Landed 2026-08-14 as `platforms`, and the "one mechanism" is literal.** An entry is `<goos>` or
+`<goos>/<goarch>` spelled as **Go** spells them, both halves against a CLOSED list — because
+`["darwins"]` under an open list is a loophole supported nowhere, on every machine, forever, with no
+message, which is the silent-nothing shape the field exists to end. Omitting the key means every
+platform (so every pre-existing manifest keeps its meaning); an explicitly *empty* list is refused,
+since it declares support for nothing. Two implementation facts the requirement did not state.
+**(1)** The declaration is static and its *evaluation* is a pure function of `(GOOS, GOARCH)`, so
+the schema package never reads `runtime.GOOS` — a leaf that reads the world grows an import. **(2)**
+The platform and backend halves share one mechanism *in fact*, not just in intent: the platform
+producer shipped as a VALUE (`loopholes.InertNote`, carrying an `Axis` and exactly one `Line()`
+rendering) with **zero callers**, built expecting the backend half to plug in — which it then did,
+as `AxisBackend`. Nothing in the run pipeline formats its own inert sentence, so the two
+half-messages §3.3 forbids are unrepresentable rather than merely avoided. And **backend beats
+platform** when both apply: the actionable line is "switch backends", not "get a different machine".
+The skew direction is worth noting for whoever widens the lists — an unknown *key* is tolerated (so
+an older build treats every loophole as supported everywhere, i.e. today's behaviour), but a
+GOOS/GOARCH **value** is not, so a value only a newer Go knows is a refusal on an older build.
+
 ---
 
 ## 4. Trust: this is a widening, and the first draft got that wrong
@@ -292,6 +330,30 @@ draft audited (read-only versus read-write) was the wrong one; the axis that mat
 scope**, and a pack-shipped loophole is now confined to the same home-relative namespace the `mount`
 kind uses. And **host execution must read differently from a host read** in the prompt — the
 existing model has one severity, and "runs code as you" cannot share a line with "reads a file."
+
+**Landed 2026-08-14 — the enumeration is total, and one class came out coarser than specified.**
+G2's producer, G3's gate and G4's disclosure all read the same set now, through one merged helper
+(the drift they used to be able to have is a source-level test failure). Two things the design got
+slightly wrong, both worth correcting here rather than annotating:
+
+- **The socket class is discriminated by the MANIFEST, not by the inode**, and it could not have
+  been otherwise. Nothing in the claim producer may stat the host path: the value is raw
+  (`{loophole_dir}/x`, `${XDG_RUNTIME_DIR}/pulse/native`), and resolving it is exactly what makes an
+  approval string machine-specific and therefore permanently re-prompting; and a stat is a fact
+  about *this machine at this moment*, so the class would change when the socket happened to be
+  absent. The test is `readonly: false` — the manifest itself saying the bind is bidirectional,
+  which is what every socket bind in-tree declares — **or** a `.sock`/`.socket` basename. So a `:ro`
+  socket bind with a non-obvious name lands in the MOUNT class, which is why that class's text
+  carries the socket caveat verbatim instead of claiming "read-only" and stopping. Nothing is
+  understated; only the discriminator is coarse, and the named fix is a **declared socket bit** in
+  `internal/loopholedecl`, making the class a fact the author states rather than one yolo infers.
+- **An UNREADABLE declaration is a claim, not the absence of one.** The design's rule was about a
+  crossing that claims nothing; the same short-circuit applies when yolo cannot parse the manifest
+  at all, so that case emits one fail-closed claim ("declaration UNREADABLE at &lt;from&gt;") and is
+  treated as host execution — a manifest this build cannot read may well declare a daemon.
+
+And **`jail_daemon` gets no claim**, deliberately: it is a process inside the container, which is
+the one place a pack's code was always allowed to run.
 
 **The approval is content-blind, and permanent.** The draft celebrated that a changed daemon
 argument would re-prompt. True — but an attacker never needs to change the argument. Nothing ever
@@ -477,11 +539,17 @@ hole in the one gate that reads content, to serve a workflow that already had a 
   **withdrew** "not changing it" (§4.3a), because the check constrains the path in no way, so a
   directory an *agent* writes is equally "local". The ruled answer is a placement rule rather than
   content confirmation — installed content may not live where an agent writes — and it now covers the
-  two trees a launch hands over (**done 2026-08-14** for loophole argv and daemon spawns; the pack
-  module dir waits on the kind). Still **OQ-LP3** for the trees yolo cannot know about.
+  two trees a launch hands over (**done 2026-08-14** for loophole argv and daemon spawns, and for a
+  manifest's own **module dir**, `host_daemon.cmd` and `doctor_cmd` — a refused module dir suppresses
+  the argv refusals under it, since `{loophole_dir}` resolves to that dir and so a module dir in an
+  agent-writable tree means *every* host-side field names an agent-writable target, including the ones
+  no rule can see). Still **OQ-LP3** for the trees yolo cannot know about.
 - **Selection controls activation, not revocation.** Deselecting a pack stops the *next* launch from
-  starting its daemon. It does not stop a daemon that already ran — once arbitrary host execution
-  has happened once, persistence is available by means yolo has no view of. No packaging design
+  starting its daemon (and, since 2026-08-14, retires the state it left behind). It does not stop a
+  daemon that already ran — once arbitrary host execution has happened once, persistence is available
+  by means yolo has no view of. **Narrower than it was, and named precisely:** teardown now kills the
+  whole process *group*, so what survives is only what the daemon deliberately placed outside its own
+  group — a `~/.bashrc` line, a crontab entry, a double-forked reparented process. No packaging design
   changes that, and this one does not claim to.
 - **`yes | yolo pack install` grants approval.** A one-line hardening, independent of this design,
   worth doing in the same batch now that a `y` means "run this code." **Done 2026-08-13:** approval
@@ -491,6 +559,19 @@ hole in the one gate that reads content, to serve a workflow that already had a 
   deselected**. The design names the three artifacts needed; the awkward part is that the property
   making a pack-shipped CA possible (state keyed by loophole name, so it survives restaging) is the
   same property that makes it unattributable.
+
+  **Fixed 2026-08-14, and the unattributability was resolved by writing the attribution down**: a
+  pack→loophole-state ownership record at staging, a detector on the launch path (where deselection
+  is actually observed), and a `prune` sweeper. The state dir *and* its `host-service-<name>.log` are
+  **archived, not deleted** — dated generations, keep-newest-three, carrying a marker naming the pack
+  that owned them, because *"whose key is this?"* is the first question anyone asks of an archived
+  directory. Three refusals the design did not anticipate, each protecting a private key rather than
+  tidiness: **retire before record** (one config edit can drop a pack and select a different one
+  shipping the same loophole name — recording first would hand the new pack the old pack's CA), an
+  **unknown** configured-pack set retires nothing, and a **corrupt** record is neither acted on nor
+  overwritten. **One honest gap:** a pack still in `packs` that has *stopped declaring* a loophole is
+  not detected — that evidence is indistinguishable from a momentarily-unreadable pack tree, so
+  retirement keys only on the signal the user typed.
 
 ---
 
@@ -526,35 +607,59 @@ the draft's version, since it now exercises the approval path too. One honest li
 passthrough is skipped whenever the launcher is itself in a jail, and nested-jail verification is
 this repo's mandated loop, so the device half of that example is only observable off a jail host.
 
+**The count is now checkable against the shipped producer, and it holds — but the example is still
+not built.** `audio`'s three binds split two IPC (both declare `readonly: false`) and one MOUNT
+(`{loophole_dir}/asound.conf`), plus `/dev/snd`: four claims, no daemon, no intercepts. Two of its
+declarations would have to change to become a *pack-shipped* loophole, and both are subset rules
+rather than claim rules: its `jail_env` moves to the `env` kind and becomes unconditional (LP5), and
+its `${XDG_RUNTIME_DIR}` bind hosts are not home-relative, so the socket pass-through it exists for
+cannot be expressed by a pack at all. So the worked example, when it is written, is `audio`-*shaped*
+rather than `audio` — which is worth knowing before item 7 is started.
+
 ---
 
 ## 6. What can go wrong
 
-- **It bricks jails on a stale image, and this is the `tier` incident for the third time.** A pack
+Five of these six were **closed** by the batch that landed the kind; the markers say which.
+
+- ~~**It bricks jails on a stale image, and this is the `tier` incident for the third time.**~~ A pack
   declaring a kind the *baked entrypoint* does not know about fails the boot — unknown *fields* are
-  tolerated across a version skew, unknown *kinds* are not. So "tolerate an unknown kind" ships
+  tolerated across a version skew, unknown *kinds* were not. So "tolerate an unknown kind" had to ship
   **before** the kind exists, or the first pack to declare it bricks any jail running a pre-`just
   load` image. The alternative ("require a host reload first") is not a mechanism, it is a hope, and
-  it cannot be stated to a third-party author at all.
-- **It is a silent no-op on two shipped backends.** Apple Container skips every host daemon; the
-  macOS no-VM backend never reaches loophole startup at all. Both must say so by name rather than
-  looking provisioned and configuring nothing — and this is the same message as §3.3's
-  platform-support declaration, so they should be one mechanism.
-- **Seven different surfaces answer "what loopholes do I have,"** and two of them *execute host code*
-  (`yolo check` and `yolo loopholes status` both run a loophole's doctor command). Neither has the
-  origin gate anywhere in reach. So either they learn about packs and two read-only-looking preflight
-  commands run an unapproved pack's code, or they do not and three of this design's claims are
-  unimplementable. The requirement is that the pack-aware, lock-gated loophole set becomes **one
-  constructed value** produced once and passed to every consumer.
-- **A daemon that starts and never becomes reachable is completely silent today** — the printer was
-  plumbed in and the message was never written — and each one costs a full five seconds. That is the
-  failure a third-party daemon will actually hit, so it is a named deliverable.
+  it cannot be stated to a third-party author at all. **Closed 2026-08-13** — the tolerant decoder
+  skips an unknown kind and reports it by name, the boot warns each one so the degradation is
+  audible, and a regression test pins that such a manifest **boots** (2026-08-14). The kind then
+  landed on top of that, in the right order.
+- ~~**It is a silent no-op on two shipped backends.**~~ Apple Container starts no loophole host
+  services at all; the macOS no-VM backend never reaches loophole startup. **Closed 2026-08-14** —
+  one line per inert loophole, by name, on both backends, through the *same* value type as §3.3's
+  platform report rather than a second sentence.
+- ~~**Seven different surfaces answer "what loopholes do I have,"** and two of them execute host
+  code.~~ **Closed 2026-08-14** — the pack-aware, lock-gated set is now ONE constructed value
+  (`loopholes.NewHostSet`), and a consumer cannot assemble a different view, forget to include the
+  bundled set, or bypass the origin gate. The requirement was the value; the implementation added the
+  second half it needed, which is that the door is **nailed shut in the callee**: `RunDoctorChecks`
+  refuses to execute a pack-sourced record unless the caller recorded that its pack's host access was
+  approved, and a set assembled by hand carries no gate and so can execute nothing a pack shipped. A
+  rule the two read-only-looking preflight commands were merely *asked* to follow is a rule the next
+  call site does not know about.
+- ~~**A daemon that starts and never becomes reachable is completely silent today**~~ — the printer
+  was plumbed in and the message never written, and each one cost a full five seconds. **Closed
+  2026-08-13**: a yellow warning naming the loophole, the awaited path and the log, plus a real
+  `cmd.Wait()` replacing a dead `ProcessState` read so a crashed daemon is reported at once.
 - **The prompt gets longer, and a long prompt is a skimmed prompt.** Total enumeration means an
   audio-shaped pack emits four claims. That is honest and it is also the shape people click through.
   Nothing here solves it; grouping by loophole in the display while keeping per-claim strings in the
-  lockfile is the obvious mitigation.
-- **Nothing here has ever run.** No pack-shipped loophole exists. This is design over verified code
-  paths, not over a working instance.
+  lockfile is the obvious mitigation. **Still open** — the footprint does distinguish the severities
+  now (`⚠ RUNS CODE ON YOUR MACHINE` versus `⚠ review`, and the review tail counts executions first
+  and separately rather than saying "1 loophole"), which is a legibility improvement and not the
+  length fix.
+- **Nothing here has ever run.** **Still true in the sense that matters:** the kind, its claims, the
+  pre-flight, the convergence, the retirement and the inert report are all covered by unit tests, but
+  **no pack-shipped loophole exists** — no end-to-end instance has been selected, approved and
+  spawned. That is what item 7 of the landing order (`audio` as a real official pack) is for, and it
+  has not shipped.
 
 ---
 
@@ -562,7 +667,8 @@ this repo's mandated loop, so the device half of that example is only observable
 
 That doc is already rewritten to assume this one. The short version: **its central argument for why
 a pack cannot serve a capability was that none of the contribution kinds is a daemon — which is
-exactly what the 15th kind falsifies.** Its conclusion survives for a different and better reason.
+exactly what the 15th kind falsifies**, and as of 2026-08-14 it falsifies it in fact rather than in
+prospect. Its conclusion survives for a different and better reason.
 
 The bigger consequence is that **supersession shrinks to the bundled set**. If selection is how a
 pack-shipped loophole turns on and off, then "supersede a loophole" is only ever needed for
@@ -575,14 +681,20 @@ parties will write even if only bundled loopholes are ever superseded.
 
 ## 8. What I need from you
 
-**Almost everything here is now ruled.** The install/enable scope model (§4.5), **LP2**, **LP6**,
-**LP10**, **LP11** and **LP13** all have answers; **LP12** dissolved and **LP3** and **LP8** folded
-into LP13. What is left is **LP9**, which your last comment turned from a small question into a real
-gap — nested jails need the scope model to recurse, and today it cannot.
+**Almost everything here is now ruled, and most of it is now BUILT.** The install/enable scope model
+(§4.5), **LP2**, **LP6**, **LP10**, **LP11** and **LP13** all have answers; **LP12** dissolved and
+**LP3** and **LP8** folded into LP13. LP2 and LP13 have both **shipped** (2026-08-13 / 2026-08-14).
+What is left needing *you* is still **LP9**, which your last comment turned from a small question
+into a real gap — nested jails need the scope model to recurse, and today it cannot.
 
-The other four open questions live in the detailed doc (§9) and do not need you: one is a technical
-placement choice, one is a one-way door I am flagging rather than opening, one resolves itself when a
-real pack wants it, and one belongs to the `guest` notch work.
+The other four open questions live in the detailed doc (§9) and do not need you: **LP1 is resolved by
+extraction** — the schema now lives in `internal/loopholedecl` as a leaf, which was the recommended
+of the two options — one is a one-way door I am flagging rather than opening (LP4), one resolves
+itself when a real pack wants it (LP5, whose cost is now a *shipped* refusal message that states it),
+and one belongs to the `guest` notch work (LP7).
+
+**And LP10 / LP11 are now unblocked rather than merely ruled**: both were waiting on the kind, and the
+kind exists. Neither has been carried out.
 
 ### OQ-LP13 — what stops an agent swapping the file a loophole runs? ✅ RULED — and the answer is not hashing
 
@@ -605,6 +717,18 @@ hole in it, and it costs a path check instead of a digest, a lockfile field and 
 launching and the homes it manages, not that `~/code/other-project` is agent-writable in some other
 jail. It catches the shape that actually occurs — a daemon sitting in the repo being worked on — and
 the permission argument covers the rest.
+
+**Landed 2026-08-14, both faces.** The config faces (an inline entry's `command`/`doctor_cmd`, plus
+the spawn) and the manifest faces (the module dir, `host_daemon.cmd`, `doctor_cmd`) go through one
+tree comparison, because two comparisons is how the two faces would come to disagree about what
+"inside the workspace" means. Two things the ruling did not specify and the implementation decided:
+the **module dir is the face that subsumes the others** (`{loophole_dir}` resolves to it, so a module
+dir in an agent-writable tree means every host-side field names an agent-writable target — including
+the ones no rule can see, like a Python daemon's imports), which is why a refused module dir
+*suppresses* the argv refusals under it: one mistake, one message. And the check is deliberately
+conservative about what counts as a path (no whitespace, no shell metacharacters), because a false
+positive refuses a working loophole at *every* launch — so §4.4's "cannot be complete" limit now has
+a second, narrower edge to name.
 
 ### OQ-LP2 — do the config block's host-execution keys become user-scope-only? ✅ RULED YES
 
@@ -853,31 +977,48 @@ test covers it.
 ## 9. The order the work has to land in
 
 Not a task list — the *dependencies*. Rewritten after the rulings, which removed work as often as
-they added it.
+they added it. **Items 1–6 have LANDED**; 7 and 8 have not, and the two residuals under 5 and 6 are
+the whole of what is left inside the shipped items.
 
-1. **Tolerate an unknown kind** (§6, first bullet). Before the kind exists, or packs brick jails.
-2. **The config block's install-shaped keys go user-scope-only** (§4.1, LP2), with the
+1. ✅ **Tolerate an unknown kind** (§6, first bullet). Before the kind exists, or packs brick jails.
+   — **done 2026-08-13**, plus the boot regression test 2026-08-14.
+2. ✅ **The config block's install-shaped keys go user-scope-only** (§4.1, LP2), with the
    **fatal-error-plus-offer** migration: a workspace enabling an uninstalled loophole fails the
    launch, names the file that asked, and offers to install it at user level. Independent of
-   everything else; ship it regardless of whether the rest happens.
-   - **2a. The placement rule** (LP13): refuse installed content that resolves inside the mounted
+   everything else; ship it regardless of whether the rest happens. — **done 2026-08-13.**
+   - ✅ **2a. The placement rule** (LP13): refuse installed content that resolves inside the mounted
      workspace or a jail-home tree. A path check, not a digest — this is what makes item 2's
-     user-scope boundary sound instead of half-sound.
-3. **The front**, so a daemon can be written in any language, plus the loud-failure and
+     user-scope boundary sound instead of half-sound. — **config faces done 2026-08-14**, manifest
+     faces (module dir, `host_daemon.cmd`, `doctor_cmd`) **also 2026-08-14**.
+3. ✅ **The front**, so a daemon can be written in any language, plus the loud-failure and
    stale-socket fixes it needs to be trustworthy — then the config block's daemons migrate onto the
-   surviving transport for free.
-4. **The server-side spec**, labelled plainly as the *unsupervised* path — and reachable only by a
-   loophole yolo itself ships, since a pack-shipped one must take the front (§3.2).
-5. **The kind itself**, whose gating item is the **total claim enumeration** — nothing crosses
+   surviving transport for free. — **done 2026-08-13**, plus `request_end`, which this item did not
+   anticipate and hazard 2 needed.
+4. ✅ **The server-side spec**, labelled plainly as the *unsupervised* path — and reachable only by a
+   loophole yolo itself ships, since a pack-shipped one must take the front (§3.2). — **done
+   2026-08-13**, corrected 2026-08-14.
+5. ✅ **The kind itself**, whose gating item is the **total claim enumeration** — nothing crosses
    without a string you saw. Its **platform-support declaration** (§3.3) lands here too, sharing one
-   mechanism and one message with the inert-backend report.
-6. **The per-launch disclosure** moved to print *before* the daemon starts rather than a phase after
+   mechanism and one message with the inert-backend report. — **done 2026-08-14**, together with the
+   fourth name-exclusivity pre-flight, the reserved-name set composed once, the seven-surface
+   convergence, retirement-on-deselect and its `prune` sweeper, and the schema extracted as a leaf
+   (`internal/loopholedecl`, which is OQ-LP1 resolved by extraction). **One residual:** the
+   pack-shipped SUBSET (§3.2's `jail_env`/`publishes`/bind-mount rules) is implemented and tested in
+   that leaf and **has no production caller** — neither `pack lint` nor discovery applies it — so a
+   pack-shipped `jail_env` is accepted today where the rules say it is refused.
+6. ✅ **The per-launch disclosure** moved to print *before* the daemon starts rather than a phase after
    it. For a read, after is cosmetic; for an execution, after is a notification that something
    already happened. *(Commit-anchored claims are gone from this item — LP13 removed the mechanism
-   they belonged to.)*
+   they belonged to.)* — **done 2026-08-14**, and generalized past what the item asked for: the
+   covered set is DATA, exhaustive over the kind set by test, because the hardcoded set was already
+   wrong for **two shipped kinds** (`program via installer` and `briefing after host:` are host reads
+   that appeared at no launch). The read/exec split is per **claim**, not per kind. **One residual:**
+   the raw-unelided claim-string rule and the commit-anchored exec approval (G2a/G2b) belong to the
+   `pack install` gate and have not shipped — `ApprovedAt` is written and still has no reader.
 7. **`audio` as a real official pack** (LP11), which is both the end-to-end proof and the first step
-   of the bundled-to-packs consolidation.
+   of the bundled-to-packs consolidation. **Not started** — and it is the only item that would make
+   §6's last bullet ("nothing here has ever run") false.
 8. **Nested-jail user scope** (LP9), per your three-part split: the generated preflight file (kills
    the false `yolo check` errors), the nesting-only launch input (written only where nesting
    exists), and the `--user-layer` CLI arg (explicit privilege futzing; safe everywhere by
-   gate-placement Test 1). The "develop loopholes in a jail" ruling depends on it.
+   gate-placement Test 1). The "develop loopholes in a jail" ruling depends on it. **Not started.**
