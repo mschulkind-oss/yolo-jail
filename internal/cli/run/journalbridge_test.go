@@ -20,6 +20,13 @@ func TestMain(m *testing.M) {
 	if len(os.Args) >= 4 && os.Args[1] == "internal" && os.Args[2] == "daemon" && os.Args[3] == "journal" {
 		os.Exit(journald.Main(os.Args[4:]))
 	}
+	// `<test-binary> -front-upstream-child <mode> <socket>` is the daemon child
+	// for the publishes:"socket" tests: it binds a REAL AF_UNIX socket, which no
+	// portable sh one-liner can (precedent:
+	// internal/oauthbroker/singletontransport_test.go's TestMain hook).
+	if len(os.Args) >= 4 && os.Args[1] == "-front-upstream-child" {
+		os.Exit(frontUpstreamChildMain(os.Args[2], os.Args[3]))
+	}
 	os.Exit(m.Run())
 }
 

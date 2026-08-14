@@ -117,10 +117,16 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	// The TRANSPORT comes from the Loophole record, not from the config-shaped spec
 	// map, because it is the framework's decision and not a user-supplied key. A name
 	// absent here (a config loophole with only a `command`) takes the default in
-	// startExternalService.
+	// startExternalService. The parsed HostDaemon rides along for its
+	// publishes/request_end — the config-synthesized records carry one too, which
+	// is what puts a config entry's daemon behind the loopback-TLS front.
 	transportOf := map[string]string{}
+	daemonOf := map[string]*loopholes.HostDaemon{}
 	for _, lp := range discovered {
 		transportOf[lp.Name] = lp.Transport
+		if lp.HostDaemon != nil {
+			daemonOf[lp.Name] = lp.HostDaemon
+		}
 	}
 	external := map[string]*jsonx.OrderedMap{}
 	var order []string
@@ -157,7 +163,7 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 			o.brokerEnsure()
 			continue
 		}
-		if h, ok := o.startExternalService(name, external[name], socketsDir, transportOf[name], advertise); ok {
+		if h, ok := o.startExternalService(name, external[name], socketsDir, transportOf[name], advertise, daemonOf[name]); ok {
 			handles = append(handles, h)
 		}
 	}
@@ -213,15 +219,17 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 		}
 	}
 	// Reap the per-jail relay BEFORE the rmtree.
-	const prefix = "yolo-host-services-"
 	base := filepath.Base(socketsDir)
-	if strings.HasPrefix(base, prefix) {
-		shortHash := strings.TrimPrefix(base, prefix)
+	if strings.HasPrefix(base, hostServicesDirPrefix) {
+		shortHash := strings.TrimPrefix(base, hostServicesDirPrefix)
 		o.relayKill(relayPIDFile(shortHash))
 		// The relay's socket is host-only now, so the rmtree below no longer covers
 		// it. A SIGTERMed relay unlinks it itself (dev/ino-guarded); a SIGKILLed one
 		// cannot, and the file would then litter /tmp forever.
 		_ = os.Remove(relaySocketFile(shortHash))
+		// Fronted daemons' upstream sockets are host-only for the same reason,
+		// and their daemons never unlink after a SIGKILL either.
+		retireFrontSockets(shortHash)
 	}
 	if fileExists(socketsDir) {
 		_ = os.RemoveAll(socketsDir)
@@ -297,7 +305,7 @@ func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap) (loopho
 	// Still a plain socket: the in-image yolo-journalctl client is generated Python
 	// speaking AF_UNIX and is ported in its own change.
 	return o.startExternalService(paths.BuiltinJournalLoopholeName, spec, socketsDir,
-		transportLegacySocket, "")
+		transportLegacySocket, "", nil)
 }
 
 // killServiceGroup tears down a spawned host service's whole PROCESS GROUP.
@@ -399,27 +407,37 @@ const transportLegacySocket = "unix-socket"
 // path into the argv, expand ~, spawn, wait for the service to become REACHABLE.
 // Returns the handle on success.
 //
-// transport selects what the daemon publishes and how we wait for it:
+// transport (with hd's publishes) selects what the daemon brings up and how we
+// wait for it:
 //
-//   - loopback-tls — an endpoint FILE, and the wait predicate parses it
-//     (svcendpoint.Probe). Existence is not health there: a truncated or
-//     older-format file would otherwise read as healthy forever, so the daemon is
-//     never respawned and the jail can never reach it.
-//   - anything else — a unix socket, waited for by existence, exactly as before.
+//   - loopback-tls, publishes "endpoint" (the default) — an endpoint FILE, and
+//     the wait predicate parses it (svcendpoint.Probe). Existence is not health
+//     there: a truncated or older-format file would otherwise read as healthy
+//     forever, so the daemon is never respawned and the jail can never reach it.
+//   - loopback-tls, publishes "socket" — the daemon binds a plain AF_UNIX socket
+//     at a host-only upstream path (frontSocketFile), waited for by CONNECT with
+//     its own deadline; then yolo starts a svcendpoint front and publishes the
+//     endpoint file itself. The jail sees exactly what the first mode gives it.
+//   - anything else — a unix socket in the services dir, waited for by
+//     existence, exactly as before.
 //
-// The second branch is not dead and is not a safety net for a typo: it is the
-// live path for the two built-ins on transportLegacySocket and for a
-// yolo-jail.jsonc `loopholes:` entry, whose daemon is a third-party program that
-// binds a socket. An empty transport lands there too, which is the conservative
-// direction — the fallback keeps the path that works rather than assuming a
-// publication that never happens.
+// The third branch is not dead and is not a safety net for a typo: it is the
+// live path for the two built-ins on transportLegacySocket. An empty transport
+// lands there too, which is the conservative direction — the fallback keeps the
+// path that works rather than assuming a publication that never happens.
+//
+// hd is the loophole's parsed host_daemon (nil for the built-ins and for
+// anything else with no manifest-shaped daemon); only its Publishes/RequestEnd
+// are read here — the argv still arrives through spec's "command".
 func (o *Options) startExternalService(
 	name string, spec *jsonx.OrderedMap, socketsDir, transport, advertiseHost string,
+	hd *loopholes.HostDaemon,
 ) (loopholeDaemon, bool) {
 	if spec == nil {
 		return loopholeDaemon{}, false
 	}
 	loopbackTLS := transport == loopholes.TransportLoopbackTLS
+	fronted := loopbackTLS && hd != nil && hd.Publishes == loopholes.PublishesSocket
 	leaf := name + ".sock"
 	if loopbackTLS {
 		leaf = name + paths.ServiceEndpointExt
@@ -429,6 +447,19 @@ func (o *Options) startExternalService(
 	// below can succeed against a stale endpoint file naming a port nobody is on,
 	// and every client then dials a dead address.
 	_ = os.Remove(hostPath)
+	// daemonPath is what the DAEMON brings up. Under publishes:"endpoint" it is
+	// hostPath itself; under publishes:"socket" it is a host-only upstream socket
+	// OUTSIDE the :rw-mounted services dir (frontSocketFile says why), with
+	// yolo's front publishing hostPath in front of it.
+	daemonPath := hostPath
+	if fronted {
+		daemonPath = frontSocketFile(frontShortHash(socketsDir), name)
+		// Retire a dead predecessor's upstream socket BEFORE the spawn, for
+		// retireStaleRelayFiles' reasons: a leftover file would fail the fresh
+		// daemon's bind with EADDRINUSE, and would satisfy any existence-shaped
+		// wait instantly (the wait below is a connect for exactly that reason).
+		_ = os.Remove(daemonPath)
+	}
 	cmdTemplate := asAnyList(mapGet(spec, "command"))
 	if len(cmdTemplate) == 0 {
 		o.pr(o.Stdout).print("[red]Host service '" + name + "' has no command; skipping[/red]")
@@ -443,9 +474,13 @@ func (o *Options) startExternalService(
 		// {endpoint} is canonical; {socket} stays an accepted alias so a
 		// third-party manifest written against the older name keeps working. Both
 		// expand to the same host-side path — the framework decides what that path
-		// IS, which is the whole point of owning the transport.
-		s = strings.ReplaceAll(s, "{endpoint}", hostPath)
-		cmdArgs = append(cmdArgs, strings.ReplaceAll(s, "{socket}", hostPath))
+		// IS, which is the whole point of owning the transport. (Under
+		// publishes:"socket" that path is the upstream socket; a MANIFEST naming
+		// {endpoint} there was already refused at load, so the alias only ever
+		// fires for a config entry, whose daemon wants the socket path whichever
+		// spelling it used.)
+		s = strings.ReplaceAll(s, "{endpoint}", daemonPath)
+		cmdArgs = append(cmdArgs, strings.ReplaceAll(s, "{socket}", daemonPath))
 	}
 	// A manifest host_daemon.cmd of the form
 	// ["yolo","internal","daemon",<name>,"--socket",…] re-execs the running yolo
@@ -505,8 +540,18 @@ func (o *Options) startExternalService(
 	// Wait for the service to become reachable. Real wall clock inside,
 	// deliberately NOT o.Now() — see relayKill below.
 	reachable := func() bool { return fileExists(hostPath) }
+	awaited := hostPath
 	if loopbackTLS {
 		reachable = func() bool { return svcendpoint.Probe(hostPath) }
+	}
+	if fronted {
+		// The fronted daemon's own readiness is its socket ACCEPTING A CONNECT —
+		// never bare existence, which a leftover file would satisfy instantly
+		// (the same reason Probe rather than existence is the health predicate
+		// everywhere else), and never the endpoint file, which yolo itself
+		// publishes only after this wait succeeds.
+		reachable = func() bool { return socketConnectable(daemonPath, time.Second) }
+		awaited = daemonPath
 	}
 	if failure := o.waitServiceReady(reachable, exited, cmd); failure != "" {
 		// SIGKILL the GROUP (Setsid at spawn), not just the direct child: a
@@ -517,7 +562,7 @@ func (o *Options) startExternalService(
 		// silent until the agent hits it, so say so here and name the log that
 		// has the reason (mirrors relayEnsure's unpublished-endpoint warning).
 		o.pr(o.Stdout).print("[yellow]Warning: host service '" + name + "' " + failure +
-			" — the jail cannot reach it. Expected " + hostPath +
+			" — the jail cannot reach it. Expected " + awaited +
 			"; see " + logPath + "[/yellow]")
 		return loopholeDaemon{}, false
 	}
@@ -538,6 +583,40 @@ func (o *Options) startExternalService(
 		envVar = hostServiceEnvVar(name)
 	}
 	stop := func() { killServiceGroup(cmd, exited) }
+	if fronted {
+		// The daemon's socket accepts; now publish the jail-facing half. The
+		// front is started only AFTER the upstream wait on purpose: ServeFront
+		// publishes as soon as it binds, so starting it earlier would let the
+		// endpoint probe succeed while the daemon never came up, and every
+		// authenticated connection would then be silently dropped at the dial
+		// (loophole-packaging.md §2.1b hazard 1).
+		frontStop := make(chan struct{})
+		go func() {
+			_ = svcendpoint.ServeFrontWithOptions(hostPath, advertiseHost, daemonPath, frontStop,
+				svcendpoint.FrontOptions{
+					HalfCloseUpstream: hd.RequestEnd == loopholes.RequestEndEOF,
+				})
+		}()
+		if !waitForEndpoint(hostPath, o.serviceReadyTimeout()) {
+			close(frontStop)
+			killServiceGroup(cmd, exited)
+			_ = os.Remove(daemonPath)
+			// Same loudness contract as the daemon wait above: this is the state
+			// in which the daemon is healthy and the jail still cannot reach it.
+			o.pr(o.Stdout).print("[yellow]Warning: the front for host service '" + name +
+				"' did not publish " + hostPath + " — the jail cannot reach it. See " +
+				logPath + "[/yellow]")
+			return loopholeDaemon{}, false
+		}
+		stop = func() {
+			// Close the front FIRST — its listener's Close unlinks the endpoint
+			// file, retiring the jail's credential — then the daemon group, then
+			// the upstream socket, which a SIGKILLed daemon cannot unlink itself.
+			close(frontStop)
+			killServiceGroup(cmd, exited)
+			_ = os.Remove(daemonPath)
+		}
+	}
 	return loopholeDaemon{
 		name:       name,
 		hostPath:   hostPath,
@@ -691,6 +770,45 @@ func (o *Options) relayHealthy(pidFile, sockPath, endpointPath string) bool {
 func retireStaleRelayFiles(sockPath, endpointPath string) {
 	_ = os.Remove(sockPath)
 	_ = os.Remove(endpointPath)
+}
+
+// hostServicesDirPrefix names the per-jail host-services dir:
+// <prefix><8hex-of-cname>. See paths.HostServicesDirName.
+const hostServicesDirPrefix = "yolo-host-services-"
+
+// frontSocketFile is the upstream AF_UNIX socket a publishes:"socket" daemon
+// binds — HOST-ONLY, in /tmp beside the relay's socket and for the relay's
+// reasons (see relaySocketFile): leaving it in the :rw-mounted services dir
+// would keep the retired socket transport reachable from inside the jail —
+// which is what retiring it forbids — and would let the jail unlink the
+// daemon's own socket. That directory holds endpoint files and nothing else.
+func frontSocketFile(shortHash, name string) string {
+	return "/tmp/yolo-front-" + shortHash + "-" + name + ".sock"
+}
+
+// frontShortHash keys a fronted daemon's upstream socket to its jail. The
+// sockets dir is normally /tmp/yolo-host-services-<8hex>; reusing that hash
+// lets stopLoopholes find every front socket from the dir name alone. A dir
+// without the prefix (tests) hashes the whole path instead.
+func frontShortHash(socketsDir string) string {
+	base := filepath.Base(socketsDir)
+	if h := strings.TrimPrefix(base, hostServicesDirPrefix); h != base {
+		return h
+	}
+	return sha1Hex8(socketsDir)
+}
+
+// retireFrontSockets removes every fronted daemon's upstream socket for one
+// jail, beside the relay-socket removal it mirrors: a SIGTERMed daemon may
+// unlink its own socket, a SIGKILLed one cannot, and the leftover file would
+// make the next launch's fresh daemon fail its bind with EADDRINUSE (the
+// pre-spawn unlink in startExternalService covers relaunch; this covers a jail
+// that simply ends).
+func retireFrontSockets(shortHash string) {
+	matches, _ := filepath.Glob(frontSocketFile(shortHash, "*"))
+	for _, m := range matches {
+		_ = os.Remove(m)
+	}
 }
 
 // relaySocketFile is the relay's own Unix socket — HOST-ONLY, beside its pid and

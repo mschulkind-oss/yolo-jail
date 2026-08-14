@@ -1,6 +1,8 @@
 package run
 
 import (
+	"bufio"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -121,7 +123,7 @@ func startExternalServiceHarness(t *testing.T, socketsDir, script, transport str
 	o := &Options{}
 	fillDefaults(o)
 	o.Stdout = io.Discard
-	return o.startExternalService("fake-svc", spec, socketsDir, transport, "127.0.0.1")
+	return o.startExternalService("fake-svc", spec, socketsDir, transport, "127.0.0.1", nil)
 }
 
 // TestExternalServiceWaitsForCompleteEndpoint: a daemon that publishes an INCOMPLETE
@@ -250,7 +252,7 @@ func TestExternalServiceReportsCrashImmediately(t *testing.T) {
 	spec.Set("command", []any{"sh", "-c", "exit 3"})
 	start := time.Now()
 	_, ok := o.startExternalService("fake-svc", spec, socketsDir,
-		loopholes.TransportLoopbackTLS, "127.0.0.1")
+		loopholes.TransportLoopbackTLS, "127.0.0.1", nil)
 	elapsed := time.Since(start)
 	if ok {
 		t.Fatal("an instantly-exiting daemon produced a handle")
@@ -285,7 +287,7 @@ func TestExternalServiceWarnsOnReadinessTimeout(t *testing.T) {
 	spec := jsonx.NewOrderedMap()
 	spec.Set("command", []any{"sh", "-c", "sleep 30"})
 	h, ok := o.startExternalService("fake-svc", spec, socketsDir,
-		loopholes.TransportLoopbackTLS, "127.0.0.1")
+		loopholes.TransportLoopbackTLS, "127.0.0.1", nil)
 	if ok {
 		if h.stop != nil {
 			h.stop()
@@ -298,6 +300,214 @@ func TestExternalServiceWarnsOnReadinessTimeout(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("timeout warning missing %q; got %q", want, out)
 		}
+	}
+}
+
+// frontUpstreamChildMain is the publishes:"socket" daemon child (dispatched from
+// TestMain): it binds a REAL AF_UNIX socket at socketPath and serves a trivial
+// protocol. It deliberately does NOT unlink a pre-existing file first — the
+// framework owns stale-socket retirement (the pre-spawn unlink), so binding
+// fresh here also asserts that retirement happened.
+//
+// mode "line": read one newline-terminated request, answer "pong\n" to "ping".
+// mode "eof": read the request TO EOF (the request_end:"eof" daemon shape),
+// answer "got:<request>".
+func frontUpstreamChildMain(mode, socketPath string) int {
+	ln, err := net.Listen("unix", socketPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "front-upstream-child:", err)
+		return 1
+	}
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return 0
+		}
+		go func(c net.Conn) {
+			defer c.Close()
+			if mode == "eof" {
+				req, err := io.ReadAll(c)
+				if err != nil {
+					return
+				}
+				_, _ = c.Write(append([]byte("got:"), req...))
+				return
+			}
+			line, err := bufio.NewReader(c).ReadString('\n')
+			if err != nil {
+				return
+			}
+			if strings.TrimSpace(line) == "ping" {
+				_, _ = c.Write([]byte("pong\n"))
+			}
+		}(conn)
+	}
+}
+
+// TestFrontedServiceComesUpBehindFront: a daemon declaring publishes:"socket"
+// binds a plain unix socket, and yolo waits for it BY CONNECT, then runs the
+// svcendpoint front and publishes the endpoint file itself — so the jail sees
+// exactly what a self-publishing daemon gives it: the same env var name, the
+// same in-jail endpoint path, dialable with the same client
+// (loophole-packaging.md §2.1).
+func TestFrontedServiceComesUpBehindFront(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("spawns a host process")
+	}
+	socketsDir := t.TempDir()
+	if err := os.Chmod(socketsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var buf strings.Builder
+	o := &Options{}
+	fillDefaults(o)
+	o.Stdout = &buf
+	spec := jsonx.NewOrderedMap()
+	spec.Set("command", []any{os.Args[0], "-front-upstream-child", "line", "{socket}"})
+	hd := &loopholes.HostDaemon{
+		Publishes:  loopholes.PublishesSocket,
+		RequestEnd: loopholes.RequestEndFramed,
+	}
+	h, ok := o.startExternalService("fronted", spec, socketsDir,
+		loopholes.TransportLoopbackTLS, "127.0.0.1", hd)
+	if !ok {
+		t.Fatalf("fronted service failed to come up; output: %q", buf.String())
+	}
+	stopped := false
+	defer func() {
+		if !stopped {
+			h.stop()
+		}
+	}()
+
+	// The jail-facing shape is IDENTICAL to a self-publishing loopback-TLS
+	// daemon's: endpoint env var, endpoint jail path, endpoint file in the
+	// mounted services dir.
+	if h.envVarName != "YOLO_SERVICE_FRONTED_ENDPOINT" {
+		t.Errorf("envVarName = %q, want YOLO_SERVICE_FRONTED_ENDPOINT", h.envVarName)
+	}
+	if h.jailPath != hostServiceEndpointPath("fronted") {
+		t.Errorf("jailPath = %q, want %q", h.jailPath, hostServiceEndpointPath("fronted"))
+	}
+	wantEndpoint := filepath.Join(socketsDir, "fronted"+paths.ServiceEndpointExt)
+	if h.hostPath != wantEndpoint {
+		t.Errorf("hostPath = %q, want %q", h.hostPath, wantEndpoint)
+	}
+	// The upstream socket lives OUTSIDE the mounted services dir: the dir holds
+	// endpoint files and nothing else, or the retired socket transport would
+	// stay reachable from inside the jail.
+	upstream := frontSocketFile(frontShortHash(socketsDir), "fronted")
+	if !fileExists(upstream) {
+		t.Errorf("upstream socket %q missing while the service is up", upstream)
+	}
+	entries, err := os.ReadDir(socketsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".sock") {
+			t.Errorf("a socket %q leaked into the mounted services dir", e.Name())
+		}
+	}
+
+	// A request round-trips through the front: pinned TLS + token auth from the
+	// endpoint file, spliced to the daemon's plain socket.
+	conn, err := svcendpoint.DialLocal(h.hostPath, 5*time.Second)
+	if err != nil {
+		t.Fatalf("dial through the front: %v", err)
+	}
+	if _, err := conn.Write([]byte("ping\n")); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		t.Fatalf("read through the front: %v", err)
+	}
+	_ = conn.Close()
+	if strings.TrimSpace(reply) != "pong" {
+		t.Errorf("reply = %q, want pong", reply)
+	}
+
+	// Teardown retires all three artifacts: the endpoint file (the credential),
+	// the daemon group, and the upstream socket a SIGKILLed daemon cannot unlink.
+	h.stop()
+	stopped = true
+	if fileExists(h.hostPath) {
+		t.Error("endpoint file survived teardown")
+	}
+	if fileExists(upstream) {
+		t.Error("upstream socket survived teardown")
+	}
+}
+
+// TestFrontedServiceStaleUpstreamNeitherSatisfiesNorBlocks: the upstream wait is
+// a CONNECT with the stale file unlinked pre-spawn — a leftover from a SIGKILLed
+// predecessor must neither satisfy the wait instantly (the §2.1b hazard: front
+// publishes, Probe succeeds, jail authenticates, every request dropped at the
+// dial) nor fail the fresh daemon's bind with EADDRINUSE.
+func TestFrontedServiceStaleUpstreamNeitherSatisfiesNorBlocks(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("spawns a host process")
+	}
+	socketsDir := t.TempDir()
+	var buf strings.Builder
+	o := &Options{}
+	fillDefaults(o)
+	o.Stdout = &buf
+	o.ServiceReadyTimeout = 300 * time.Millisecond
+	upstream := frontSocketFile(frontShortHash(socketsDir), "fake-svc")
+	if err := os.WriteFile(upstream, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(upstream)
+	// The daemon never binds anything. If the wait were existence-based, the
+	// stale file would satisfy it instantly and we would get a handle.
+	spec := jsonx.NewOrderedMap()
+	spec.Set("command", []any{"sh", "-c", "sleep 30"})
+	hd := &loopholes.HostDaemon{Publishes: loopholes.PublishesSocket}
+	h, ok := o.startExternalService("fake-svc", spec, socketsDir,
+		loopholes.TransportLoopbackTLS, "127.0.0.1", hd)
+	if ok {
+		h.stop()
+		t.Fatal("a stale upstream file satisfied the readiness wait; it must be a CONNECT")
+	}
+	if fileExists(upstream) {
+		t.Error("the stale upstream file survived the spawn; it must be unlinked " +
+			"BEFORE the spawn or the fresh daemon's bind fails with EADDRINUSE")
+	}
+	out := buf.String()
+	for _, want := range []string{"Warning", "fake-svc", upstream, "host-service-fake-svc.log"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("upstream-wait warning missing %q; got %q", want, out)
+		}
+	}
+}
+
+// TestStopLoopholesRetiresFrontSockets: a jail that simply ENDS (no relaunch)
+// must not leave fronted daemons' upstream sockets in /tmp — stopLoopholes
+// covers them beside the relay's socket, which the sockets-dir rmtree no longer
+// reaches since both went host-only.
+func TestStopLoopholesRetiresFrontSockets(t *testing.T) {
+	shortHash := sha1Hex8(t.TempDir())
+	socketsDir := filepath.Join(t.TempDir(), hostServicesDirPrefix+shortHash)
+	if err := os.MkdirAll(socketsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sock := frontSocketFile(shortHash, "fake-svc")
+	if err := os.WriteFile(sock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(sock)
+	o := &Options{}
+	fillDefaults(o)
+	o.Stdout = io.Discard
+	o.PIDAlive = func(int) bool { return false }
+	o.stopLoopholes(nil, socketsDir, "", "podman")
+	if fileExists(sock) {
+		t.Errorf("front socket %q survived stopLoopholes", sock)
+	}
+	if fileExists(socketsDir) {
+		t.Errorf("sockets dir %q survived stopLoopholes", socketsDir)
 	}
 }
 
