@@ -89,7 +89,11 @@ pack with no `pack.json` behaves as an empty `contributes`.
 from a closed set core owns (§3), plus the fields that kind uses. The struct is a flat
 superset — a contribution carries only the fields its kind reads. Decoding is strict
 (`DisallowUnknownFields`) and reports *every* problem, not the first, so a typo in one
-contribution does not mask a second. An unknown `kind` is a loud load error.
+contribution does not mask a second. An unknown `kind` is a loud load error **at authoring**
+— every host-side read — and, across the version boundary only, a skipped-and-reported
+contribution instead: the in-jail load runs `packload.TolerateSkew()`, so a manifest using a
+kind a pre-`just load` entrypoint does not know still boots the jail, warning by name
+([`loophole-packaging.md`](loophole-packaging.md) §3.3a).
 
 **Every path is relative and points into `$HOME` or the pack.** Absolute paths, `..`
 segments, and `:` are rejected as a security property, not a style rule: a pack — especially
@@ -131,9 +135,10 @@ prepends a host file. The review flag is an invitation to look, not a refusal.
 > [`loophole-packaging.md`](loophole-packaging.md). It would let a pack ship a host daemon by
 > pointing at a module directory, and it is the first kind whose claim is **host code
 > execution** rather than a host read — so it carries its own trust story, its own claim
-> classes, and a hard prerequisite: an unknown kind is A12-fatal to a jail booting a
-> pre-`just load` image (that doc §3.3a), so the tolerance change lands *before* the kind.
-> Nothing in the table above changes until it does.
+> classes, and a hard prerequisite that has since been met: an unknown kind used to be
+> A12-fatal to a jail booting a pre-`just load` image (that doc §3.3a), so the tolerance
+> change had to land *before* the kind — and it did, ahead of it.
+> Nothing in the table above changes until the kind itself lands.
 
 The per-kind fields:
 
