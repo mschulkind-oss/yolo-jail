@@ -9,6 +9,7 @@ package loopholes
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -86,6 +87,61 @@ func TestLoadPackLoopholeRefusesSelfPublishing(t *testing.T) {
 	for _, want := range []string{`"publishes": "socket"`, "{socket}", "framework", "BUNDLED with yolo"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal does not carry %q: %v", want, err)
+		}
+	}
+}
+
+// R2b. `ca_cert` is path-scoped, and the refusal reaches the author through the loader
+// they actually call. An absolute one is the sharpest of the path-bearing fields: it is
+// bind-mounted from the host AND joined into NODE_EXTRA_CA_CERTS, so every node client
+// in the jail trusts it — and the resolver hands an absolute value through AS-IS.
+func TestLoadPackLoopholeRefusesAnOutOfScopeCACert(t *testing.T) {
+	for _, tc := range []struct {
+		what   string
+		caCert string
+		want   []string
+	}{
+		{"absolute", "/etc/ssl/certs/ca-certificates.crt",
+			[]string{"'ca_cert'", "absolute host path", "NODE_EXTRA_CA_CERTS"}},
+		{"env var", "${HOME}/.acme/ca.crt",
+			[]string{"expands an environment variable", "{state}/ca.crt"}},
+	} {
+		t.Run(tc.what, func(t *testing.T) {
+			mod := packMod(t, "acme", map[string]any{"ca_cert": tc.caCert})
+			_, err := LoadPackLoophole(mod)
+			if err == nil {
+				t.Fatalf("a pack-shipped ca_cert of %q loaded — the launch would bind-mount "+
+					"that path into the jail and have every node client trust it as a CA", tc.caCert)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("refusal does not carry %q: %v", want, err)
+				}
+			}
+			// The SAME manifest through the ordinary loader is fine: the subset is
+			// pack-scoped, and the bundled broker names {state}/ca.crt.
+			if _, err := LoadLoophole(mod); err != nil {
+				t.Errorf("the non-pack loader refused a ca_cert manifest: %v", err)
+			}
+		})
+	}
+}
+
+// And the two shapes a pack MAY ship load, resolved. A subset that refused these would
+// make a pack-shipped CA — the whole point of `{state}` being name-keyed — impossible.
+//
+// `{loophole_dir}` is deliberately not among them: that token is not substituted in
+// `ca_cert` at all (resolve() joins a relative value onto the module dir directly), so
+// offering it as a legal spelling would advertise a value that resolves to nothing.
+func TestLoadPackLoopholeAllowsModuleAndStateCACerts(t *testing.T) {
+	for _, caCert := range []string{"ca.crt", "certs/ca.crt", "{state}/ca.crt"} {
+		mod := packMod(t, "acme", map[string]any{"ca_cert": caCert})
+		lp, err := LoadPackLoophole(mod)
+		if err != nil {
+			t.Fatalf("ca_cert %q was refused: %v", caCert, err)
+		}
+		if strings.Contains(lp.CACert, "{") {
+			t.Errorf("ca_cert %q resolved to %q — the token survived", caCert, lp.CACert)
 		}
 	}
 }
@@ -170,5 +226,93 @@ func TestPackShippedProblemsOnARecordAgreesWithTheLoader(t *testing.T) {
 	}
 	if _, err := LoadPackLoophole(mod); err == nil {
 		t.Fatal("the loader admitted what the report refuses")
+	}
+}
+
+// The REPORTING face must see every field the record carries, which is the property the
+// three-field projection did not have — and its absence failed SILENTLY in the granting
+// direction: an unprojected `ca_cert` read as absent, so the field's own path-scope rule
+// found nothing to complain about and the report called the manifest clean.
+//
+// The concrete regression: a record whose ca_cert is an arbitrary absolute host path.
+func TestPackShippedProblemsSeeAnOutOfScopeCACertOnTheRecord(t *testing.T) {
+	mod := packMod(t, "acme", map[string]any{"ca_cert": "/etc/ssl/certs/ca-certificates.crt"})
+	lp, err := LoadLoophole(mod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probs := lp.PackShippedProblems()
+	if len(probs) != 1 || !strings.Contains(probs[0], "ca_cert") {
+		t.Fatalf("problems = %v, want the ca_cert refusal. A field the projection drops reads "+
+			"as ABSENT, so the subset rule over it finds nothing and the report says the "+
+			"manifest is clean — a partial projection fails silently, in the granting "+
+			"direction", probs)
+	}
+}
+
+// TestSubsetManifestProjectsEveryField is the STRUCTURAL half: every field the record and
+// the manifest share must be carried across, so the next field added to both cannot
+// quietly vanish from the report.
+//
+// Reflection over the field NAMES rather than a hand-listed set, because a hand-listed set
+// is the thing that drifted. A record field with no manifest counterpart (Path, Source,
+// SkewNotes) is excluded by name, with the reason: those are facts about WHERE the record
+// came from, which no manifest declares.
+func TestSubsetManifestProjectsEveryField(t *testing.T) {
+	notInTheManifest := map[string]string{
+		"Path":      "the module dir — a fact about where the record was found",
+		"Source":    "bundled/pack/user/config — the caller's label, never a manifest key",
+		"SkewNotes": "the tolerant read's report, not a declaration",
+	}
+	// A record with every field set to a DISTINGUISHABLE non-zero value, so a dropped
+	// field shows up as a zero on the projection.
+	rec := &Loophole{
+		Name: "acme", Description: "d", Path: "/mod", Enabled: true,
+		Transport: TransportNone, Lifecycle: "external",
+		Intercepts: []Intercept{{Host: "api.acme.test"}}, BrokerIP: "127.0.0.1",
+		CACert: "/ca.crt", CACertSet: true,
+		JailEnv:   NewEnvMap(),
+		DoctorCmd: []string{"/bin/true"}, DoctorCmdSet: true,
+		HostDaemon:    &HostDaemon{Cmd: []string{"/bin/true"}},
+		JailDaemon:    &JailDaemon{Cmd: []string{"/bin/true"}},
+		HostBindMount: []HostBindMount{{Host: "x", Container: "/x", Readonly: true}},
+		HostDevices:   []string{"/dev/acme"}, StateFiles: []string{"ca.crt"},
+		Requires:  Requires{CommandOnPath: "python3", CommandOnPathSet: true},
+		Platforms: []string{"linux"}, PlatformsSet: true,
+		Source: SourcePack, SkewNotes: []string{"note"},
+	}
+	rec.JailEnv.Set("A", "1")
+
+	projected := reflect.ValueOf(rec.subsetManifest()).Elem()
+	recV := reflect.ValueOf(rec).Elem()
+	recT := recV.Type()
+	projT := projected.Type()
+	for i := 0; i < recT.NumField(); i++ {
+		name := recT.Field(i).Name
+		if why, skip := notInTheManifest[name]; skip {
+			if _, exists := projT.FieldByName(name); exists {
+				t.Errorf("loopholedecl.Manifest now HAS a %s field (%s) — if it became a real "+
+					"declaration it must be projected, so remove it from the exclusion list",
+					name, why)
+			}
+			continue
+		}
+		// HostBindMount is spelled HostBindMounts on the manifest — the one rename.
+		projName := name
+		if name == "HostBindMount" {
+			projName = "HostBindMounts"
+		}
+		field := projected.FieldByName(projName)
+		if !field.IsValid() {
+			t.Errorf("record field %s has no counterpart on loopholedecl.Manifest and is not "+
+				"in the exclusion list — decide which it is", name)
+			continue
+		}
+		if field.IsZero() {
+			t.Errorf("subsetManifest drops %s: the projection carries the zero value while the "+
+				"record has %v. An unprojected field reads as ABSENT to every subset rule, so "+
+				"the report calls a violating manifest clean — silently, in the granting "+
+				"direction", name, recV.Field(i).Interface())
+		}
 	}
 }

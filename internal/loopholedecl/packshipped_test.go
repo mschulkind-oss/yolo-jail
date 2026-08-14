@@ -148,6 +148,53 @@ func TestPackShippedAllowsModuleDirAndHomeRelativeBindHosts(t *testing.T) {
 	}
 }
 
+// `ca_cert` IS PATH-SCOPED for a pack, on the same axis as a bind host and for a
+// sharper reason: the file is bind-mounted from the host AND joined into
+// NODE_EXTRA_CA_CERTS, so an absolute path would let a pack pick any file on the
+// machine and have every node client in the jail TRUST it as a certificate
+// authority. A BUNDLED loophole keeps the wider vocabulary (the broker's own
+// `{state}/ca.crt` is yolo's code publishing yolo's credential).
+func TestPackShippedRefusesAnAbsoluteOrEnvVarCACert(t *testing.T) {
+	for _, tc := range []struct{ caCert, fragment string }{
+		{"/etc/ssl/certs/ca-certificates.crt", "is an absolute host path"},
+		{"${HOME}/.acme/ca.crt", "expands an environment variable"},
+		{"../../etc/ssl/ca.crt", "contains a '..' segment"},
+		{"weird:name/ca.crt", "mount-option separator"},
+	} {
+		problems := packProblems(t, `"ca_cert": "`+tc.caCert+`"`)
+		wantOneProblemWith(t, problems,
+			"'ca_cert'",
+			tc.fragment,
+			"'ca.crt'",
+			"{state}/ca.crt",
+			"trusted by every node client in the jail",
+			"has to be bundled with yolo",
+		)
+	}
+}
+
+// A token is stripped as a PREFIX and the remainder still has to be in scope, so a
+// token cannot launder an escape: '{state}/../../etc/x' walks out of the state dir.
+func TestPackShippedRefusesAnEscapeAfterTheStateToken(t *testing.T) {
+	problems := packProblems(t, `"ca_cert": "{state}/../../etc/ssl/ca.crt"`)
+	wantOneProblemWith(t, problems, "'ca_cert'", "contains a '..' segment")
+}
+
+// The two shapes a pack MAY name for its CA: content it ships, and its own
+// name-keyed state dir (which yolo owns and which survives restaging — the thing
+// that makes a pack-shipped CA possible at all).
+func TestPackShippedAllowsModuleDirAndStateCACerts(t *testing.T) {
+	for _, caCert := range []string{
+		"{loophole_dir}/ca.crt",
+		"ca.crt", // module-relative, the same namespace
+		"{state}/ca.crt",
+	} {
+		if problems := packProblems(t, `"ca_cert": "`+caCert+`"`); len(problems) != 0 {
+			t.Errorf("ca_cert %q drew %v", caCert, problems)
+		}
+	}
+}
+
 // R3. readonly:false stays refused, and the message has to carry the MEASURED fact
 // about sockets — otherwise the next reader re-derives it, badly, in whichever
 // direction their intuition points.

@@ -17,6 +17,17 @@ const (
 	TokenJailLoopholeDir = "{jail_loophole_dir}"
 )
 
+// TokenState is the per-loophole STATE dir token, legal in `ca_cert`. It resolves
+// (in internal/loopholes) to StateDirFor(<name>) under yolo's own state tree, which
+// is name-keyed rather than staging-keyed and therefore survives a restage — the
+// property that makes a pack-shipped CA possible at all, since a CA regenerated on
+// every launch would break every long-lived TLS client in the jail.
+//
+// Named here for the same reason the two dir tokens are: the pack-shipped subset has
+// to recognize it (a '{state}/ca.crt' is in scope, an absolute path is not), and a
+// literal spelled in two packages is a literal that drifts.
+const TokenState = "{state}"
+
 // JailLoopholeDir returns the CONTAINER path where a loophole's module dir is
 // bind-mounted (RuntimeArgsFor emits the -v). It is what {jail_loophole_dir}
 // resolves to in jail_daemon.cmd, and it lives here because the refusal message

@@ -102,23 +102,59 @@ func (l *Loophole) PackShippedProblems() []string {
 	return l.subsetManifest().PackShippedProblems(loopholedecl.ManifestPath(l.Path))
 }
 
-// subsetManifest projects the record back onto the fields the subset reads.
+// subsetManifest projects the record back onto a manifest for the subset to read.
 //
-// A three-field literal rather than a copy loop, because schema.go makes
-// loopholes.HostBindMount and loopholes.HostDaemon ALIASES of the loopholedecl
-// types — there is one HostDaemon type, not two that happen to match — so there is
-// nothing to convert. The slice and the pointers are SHARED, which is sound only
-// because everything downstream of here reads: PackShippedProblems formats messages
-// and mutates nothing.
+// COMPLETE over every field the record carries, and that is a correction rather than
+// a widening. This used to be a three-field literal (jail_env, host_bind_mounts,
+// host_daemon) under a comment claiming the omissions were deliberate because "a
+// future subset rule over a field this leaves out fails loudly (an empty answer for a
+// declaration that is right there on the record)". THAT WAS EXACTLY BACKWARDS: an
+// unprojected field reads as ABSENT, so the rule over it finds nothing to complain
+// about and the report silently says the manifest is clean. It was measured on
+// `ca_cert` — the field's own path-scope rule returned no problems for a record whose
+// ca_cert was an arbitrary absolute host path, because the projection dropped it.
+// A partial projection fails SILENTLY, in the granting direction, which is the one
+// direction a subset report may never fail.
 //
-// Deliberately partial: a field the subset does not read is not projected, so a
-// future subset rule over a field this leaves out fails loudly (an empty answer for
-// a declaration that is right there on the record) rather than quietly passing.
+// So the rule is: project everything, and let a field the subset does not read cost
+// nothing (it does — PackShippedProblems only looks at what it looks at).
+// TestSubsetManifestProjectsEveryField pins the completeness, so the next field added
+// to both types fails a test instead of quietly disappearing from the report.
+//
+// Copies are structural, not deep: schema.go makes loopholes.HostBindMount,
+// HostDaemon, JailDaemon, Requires and EnvMap ALIASES of the loopholedecl types —
+// there is one HostDaemon type, not two that happen to match — so slices and pointers
+// are SHARED. Sound only because everything downstream reads: PackShippedProblems
+// formats messages and mutates nothing.
+//
+// ONE ASYMMETRY, named because it cannot be fixed here: the record carries RESOLVED
+// values, so `{loophole_dir}/ca.crt` and a module-relative bind host have already
+// become absolute paths by the time the path-scope rules see them. That makes this
+// projection OVER-report for a legal pack manifest, which is why its problems are for
+// REPORTING and LoadPackLoophole is the gate — the gate runs the subset on the raw
+// manifest, where a module-relative path still looks module-relative.
 func (l *Loophole) subsetManifest() *loopholedecl.Manifest {
 	return &loopholedecl.Manifest{
+		Name:           l.Name,
+		Description:    l.Description,
+		Enabled:        l.Enabled,
+		Transport:      l.Transport,
+		Lifecycle:      l.Lifecycle,
+		Intercepts:     l.Intercepts,
+		BrokerIP:       l.BrokerIP,
+		CACert:         l.CACert,
+		CACertSet:      l.CACertSet,
 		JailEnv:        l.JailEnv,
-		HostBindMounts: l.HostBindMount,
+		DoctorCmd:      l.DoctorCmd,
+		DoctorCmdSet:   l.DoctorCmdSet,
 		HostDaemon:     l.HostDaemon,
+		JailDaemon:     l.JailDaemon,
+		HostBindMounts: l.HostBindMount,
+		HostDevices:    l.HostDevices,
+		StateFiles:     l.StateFiles,
+		Requires:       l.Requires,
+		Platforms:      l.Platforms,
+		PlatformsSet:   l.PlatformsSet,
 	}
 }
 
@@ -138,8 +174,8 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 	caCert := ""
 	if m.CACertSet {
 		switch {
-		case strings.Contains(m.CACert, "{state}"):
-			caCert = strings.ReplaceAll(m.CACert, "{state}", StateDirFor(m.Name))
+		case strings.Contains(m.CACert, loopholedecl.TokenState):
+			caCert = strings.ReplaceAll(m.CACert, loopholedecl.TokenState, StateDirFor(m.Name))
 		case filepath.IsAbs(m.CACert):
 			// An absolute ca_cert must be used as-is, discarding module_path.
 			// filepath.Join would instead concatenate ("<module>/<abs>"), producing

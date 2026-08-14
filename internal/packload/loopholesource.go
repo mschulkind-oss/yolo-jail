@@ -191,6 +191,8 @@ func (p *Pack) LoopholeDeclProblems() []string {
 //
 //	host_daemon.cmd + doctor_cmd  → one base claim, keyed <name>       (host EXECUTION)
 //	intercepts[]                  → one per host,  keyed <name>:intercept:<host>
+//	ca_cert                       → one claim,     keyed <name>:ca:<path>
+//	                                                                 (a TRUSTED CA + a bind)
 //	host_bind_mounts[] (r/w or a  → one per bind,  keyed <name>:ipc:<container>
 //	  socket)                                                          (read-write IPC)
 //	host_bind_mounts[] (:ro)      → one per bind,  keyed <name>:mount:<container>
@@ -326,6 +328,34 @@ func moduleClaims(mod LoopholeModule) []loopholeClaim {
 			detail: "INTERCEPTS " + ic.Host + " — installs a CA trusted by every TLS client in the jail",
 			approval: "loophole " + name + " INTERCEPTS " + ic.Host +
 				" — installs a CA trusted by every TLS client in the jail",
+		})
+	}
+
+	// `ca_cert`, and it is A CROSSING IN ITS OWN RIGHT rather than a detail of the intercept
+	// claim next door — which is what the first implementation of this producer got wrong, in
+	// the one direction §3.3 forbids.
+	//
+	// TWO effects, and the second is the one the claim's words are about. RuntimeArgsFor
+	// bind-mounts the file from the host when nothing else already carries it
+	// (`-v <ca_cert>:<jail loophole dir>/ca.crt:ro`) AND joins the container-side path into
+	// `-e NODE_EXTRA_CA_CERTS`, which every node client in the jail reads. So a module-
+	// relative ca_cert with NO intercepts, no daemon and no binds still installs a
+	// certificate authority the jail's node clients trust — precisely the standing
+	// capability the intercept claim's text exists to disclose, reached without declaring an
+	// intercept at all. The claim therefore names the CAPABILITY, not the mount.
+	//
+	// Keyed by the RAW path, so two different certs are two different claims: for a read the
+	// path IS the risk-bearing fact, and a claim keyed on the loophole name alone would let
+	// an approval of the pack's own bundled cert carry forward to any other file it later
+	// names. Raw for G2a's reason as well — `{state}` and `{loophole_dir}` resolve to
+	// machine-specific absolute paths, and an expanded claim re-prompts forever.
+	if m.CACertSet {
+		out = append(out, loopholeClaim{
+			target: name + ":ca:" + m.CACert,
+			detail: "TRUSTS the CA in " + m.CACert +
+				" — mounted from your host and trusted by every node client in the jail",
+			approval: "loophole " + name + " TRUSTS the CA in " + m.CACert +
+				" — mounted from your host and trusted by every node client in the jail",
 		})
 	}
 

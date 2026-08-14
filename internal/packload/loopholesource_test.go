@@ -259,6 +259,85 @@ func TestSocketBindIsItsOwnReadWriteClaimClass(t *testing.T) {
 	}
 }
 
+// `ca_cert` IS A CROSSING, so it emits its own claim — §3.3's total enumeration reproduced
+// on the key draft 1 and its first implementation both missed.
+//
+// The measured hole: `ca_cert` appeared in NO claim while RuntimeArgsFor emitted
+// `-v <CACert>:<containerCA>:ro` for it and joined the container path into
+// `-e NODE_EXTRA_CA_CERTS`. So `{"transport":"none","ca_cert":"..."}` — no daemon, no
+// intercepts, no binds — produced ZERO claims, `packMayAccessHost` took its `len(want)==0`
+// branch ("the gate is moot") and a fetched pack bind-mounted an arbitrary host path into a
+// UID-0 jail AND had every node client in that jail trust it as a CA, with no prompt ever.
+func TestCACertEmitsItsOwnClaim(t *testing.T) {
+	root := writeLoopholePack(t, map[string]string{"cahole": `{
+	  "name": "cahole",
+	  "transport": "none",
+	  "ca_cert": "ca.crt"
+	}`})
+	claims := loadPack(t, root).LoopholeHostAccessClaims()
+	if len(claims) != 1 {
+		t.Fatalf("claims = %v (%d), want 1 — a ca_cert with nothing else declared is still a "+
+			"crossing: it is bind-mounted from the host and joined into NODE_EXTRA_CA_CERTS. "+
+			"With no claim, packMayAccessHost returns TRUE on the empty set", claims, len(claims))
+	}
+	c := claims[0]
+	// The CAPABILITY, not the file. A CA in NODE_EXTRA_CA_CERTS is trusted by every node
+	// client in the jail — the same standing capability the intercept claim's text exists to
+	// disclose — and it lands there even for a module-relative cert with no intercepts.
+	for _, want := range []string{"ca.crt", "TRUSTS", "every node client in the jail"} {
+		if !strings.Contains(c, want) {
+			t.Errorf("ca_cert claim %q is missing %q — the claim has to disclose the "+
+				"capability (a trusted CA), not merely name a path that gets mounted", c, want)
+		}
+	}
+	// And the FOOTPRINT target is separately keyed, like every other crossing, so it is
+	// separately approvable rather than folded onto the loophole's base claim.
+	fp := packload.FootprintOf(loadPack(t, root))
+	var targets []string
+	for _, cl := range fp.Claims {
+		if cl.Kind == "loophole" {
+			targets = append(targets, cl.Target)
+		}
+	}
+	if len(targets) != 1 || !strings.HasPrefix(targets[0], "cahole:ca:") {
+		t.Errorf("footprint targets = %v, want one keyed cahole:ca:<path> — every other "+
+			"crossing is <name>:<discriminator>", targets)
+	}
+	// RAW, like every other claim: an absolute or {state} path is carried verbatim, never
+	// resolved against this machine.
+	if strings.Contains(c, root) {
+		t.Errorf("ca_cert claim %q names the staging root — the approval must compare equal "+
+			"across machines", c)
+	}
+}
+
+// Two DIFFERENT ca_certs are two different claims. Approving one must not approve the other:
+// the path is the risk-bearing fact for a read, and the CA a pack installs is a read whose
+// target the user has to be able to recognize.
+func TestCACertClaimDistinguishesThePath(t *testing.T) {
+	claimFor := func(t *testing.T, caCert string) string {
+		t.Helper()
+		root := writeLoopholePack(t, map[string]string{"cahole": `{
+		  "name": "cahole", "transport": "none", "ca_cert": ` + caCert + `
+		}`})
+		claims := loadPack(t, root).LoopholeHostAccessClaims()
+		if len(claims) != 1 {
+			t.Fatalf("claims = %v, want 1", claims)
+		}
+		return claims[0]
+	}
+	mine := claimFor(t, `"{state}/ca.crt"`)
+	theirs := claimFor(t, `"{loophole_dir}/vendor-ca.crt"`)
+	if mine == theirs {
+		t.Errorf("two different ca_cert paths render to ONE claim (%q) — approving a pack's "+
+			"own bundled CA would silently approve any other file it later names", mine)
+	}
+	if !strings.Contains(mine, "{state}") {
+		t.Errorf("claim %q expanded {state} — a resolved path is machine-specific and would "+
+			"re-prompt forever", mine)
+	}
+}
+
 // state_files needs NO claim: it resolves under yolo's own state tree, not a path the user
 // would recognise as theirs. A jail_daemon likewise — it runs inside the container, which
 // is the one place a pack's code was always allowed to run.

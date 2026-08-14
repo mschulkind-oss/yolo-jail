@@ -53,6 +53,7 @@ func (m *Manifest) PackShippedProblems(manifestPath string) []string {
 	var out []string
 	out = append(out, m.packJailEnvProblems(manifestPath)...)
 	out = append(out, m.packBindMountProblems(manifestPath)...)
+	out = append(out, m.packCACertProblems(manifestPath)...)
 	out = append(out, m.packPublishesProblems(manifestPath)...)
 	return out
 }
@@ -183,30 +184,103 @@ func packBindHostProblem(manifestPath, field, host string) string {
 		" — the same namespace the `mount` contribution kind uses. For a host path" +
 		" outside both, the loophole has to be bundled with yolo, or declare a" +
 		" `host_daemon` that mediates the access (loophole-packaging.md §3.1)."
+	clause := packPathScopeClause(host)
+	if clause == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s: %s.host = %s %s.%s",
+		manifestPath, field, pytext.Repr(host), clause, fix)
+}
+
+// packPathScopeClause classifies one path-bearing value against the shapes a
+// pack-shipped loophole may name, returning the clause that says what is wrong (no
+// leading field, no trailing fix) or "" when the value is inside the namespace.
+//
+// SHARED between `host_bind_mounts[].host` and `ca_cert` deliberately: they are the
+// two fields whose value becomes a `-v <host>:...` argument, so one classifier is
+// what keeps them from disagreeing about whether "${HOME}/x" is absolute. The FIX
+// differs per field (the legal namespaces are not the same — a bind host may be
+// home-relative, a ca_cert may name '{state}') so the caller supplies that half.
+func packPathScopeClause(value string) string {
 	switch {
-	case strings.Contains(host, "$"):
-		return fmt.Sprintf("%s: %s.host = %s expands an environment variable, and a"+
-			" pack-shipped loophole may not: '${XDG_RUNTIME_DIR}' names an absolute host"+
-			" path one indirection later, so admitting the variable while refusing the"+
-			" literal would be a rule about spelling.%s",
-			manifestPath, field, pytext.Repr(host), fix)
-	case strings.HasPrefix(host, "/"):
-		return fmt.Sprintf("%s: %s.host = %s is an absolute host path, and a"+
-			" pack-shipped loophole may not name one.%s",
-			manifestPath, field, pytext.Repr(host), fix)
-	case hasDotDotSegment(host):
-		return fmt.Sprintf("%s: %s.host = %s contains a '..' segment, which walks out of"+
-			" the namespace it is relative to.%s",
-			manifestPath, field, pytext.Repr(host), fix)
-	case strings.Contains(host, ":"):
+	case strings.Contains(value, "$"):
+		return "expands an environment variable, and a pack-shipped loophole may not:" +
+			" '${XDG_RUNTIME_DIR}' names an absolute host path one indirection later, so" +
+			" admitting the variable while refusing the literal would be a rule about" +
+			" spelling"
+	case strings.HasPrefix(value, "/"):
+		return "is an absolute host path, and a pack-shipped loophole may not name one"
+	case hasDotDotSegment(value):
+		return "contains a '..' segment, which walks out of the namespace it is relative to"
+	case strings.Contains(value, ":"):
 		// The same reason packdecl refuses it: the container runtime parses a colon
 		// as the mount-option separator, so part of the path silently becomes a flag.
-		return fmt.Sprintf("%s: %s.host = %s contains ':', which the container runtime"+
-			" parses as the mount-option separator — part of the path would silently"+
-			" become a flag.%s",
-			manifestPath, field, pytext.Repr(host), fix)
+		return "contains ':', which the container runtime parses as the mount-option" +
+			" separator — part of the path would silently become a flag"
 	}
 	return ""
+}
+
+// packCACertProblems path-scopes a pack-shipped `ca_cert` (§3.1 requirement 1, on the
+// field draft 1's table and its first implementation both left out).
+//
+// IT IS THE SHARPEST OF THE PATH-BEARING FIELDS, not the mildest, which is why an
+// absolute one cannot be admitted while an absolute bind host is refused. A ca_cert
+// does everything a `:ro` bind does — internal/loopholes' RuntimeArgsFor emits
+// `-v <ca_cert>:<jail module dir>/ca.crt:ro` when nothing else already carries it —
+// and then one thing more: the container-side path is joined into
+// `-e NODE_EXTRA_CA_CERTS`, so every node client in the jail TRUSTS that file as a
+// certificate authority. An absolute value would let a pack name any file on the
+// machine, and the resolver hands it through as-is (an absolute ca_cert deliberately
+// discards module_path, or filepath.Join would produce '<module>/<abs>').
+//
+// The legal shapes are the pack's own content and its own state dir: a plain relative
+// path (which the resolver joins onto the staged module dir, and packstage vetted that
+// tree), or '{state}/x' — StateDirFor(<name>) under yolo's own state tree, which is
+// name-keyed and therefore survives restaging. That second one is what makes a
+// pack-shipped CA possible at all: a CA regenerated on every launch would break every
+// long-lived TLS client in the jail.
+//
+// A BUNDLED loophole keeps the wider vocabulary, and the broker needs it: it names
+// '{state}/ca.crt' (inside the subset anyway) while `audio` shows the general case.
+func (m *Manifest) packCACertProblems(manifestPath string) []string {
+	if !m.CACertSet {
+		return nil
+	}
+	// A LEADING '{state}' is a path yolo chooses, so the scope question is about the text
+	// AFTER it: '{state}/ca.crt' is in scope while '{state}/../../x' walks out of it.
+	// Stripped as a PREFIX only, so a token spelled mid-path cannot launder an otherwise
+	// absolute value. Note which token is NOT handled here: '{loophole_dir}' is not
+	// substituted in `ca_cert` at all (the resolver joins a relative value onto the module
+	// dir directly, and the token's legal fields are host_daemon.cmd, doctor_cmd and
+	// host_bind_mounts[].host), so it needs no special case — and the message deliberately
+	// offers a plain relative path rather than a spelling that resolves to nothing.
+	probe, _ := stripPathToken(m.CACert, TokenState)
+	clause := packPathScopeClause(probe)
+	if clause == "" {
+		return nil
+	}
+	return []string{fmt.Sprintf("%s: 'ca_cert' = %s %s. A pack-shipped loophole may name"+
+		" a certificate it SHIPS (a plain relative path like 'ca.crt', which resolves inside"+
+		" its own module dir) or one inside its own state dir ('%s/ca.crt', which yolo owns"+
+		" and which survives restaging). The file is bind-mounted from your host AND joined"+
+		" into NODE_EXTRA_CA_CERTS, so it is trusted by every node client in the jail —"+
+		" naming an arbitrary host path would hand the jail a CA you never chose. For"+
+		" anything outside both, the loophole has to be bundled with yolo"+
+		" (loophole-packaging.md §3.1)",
+		manifestPath, pytext.Repr(m.CACert), clause, TokenState)}
+}
+
+// stripPathToken removes a leading token and the '/' after it, reporting whether it was
+// there. Separate from a bare TrimPrefix because the remainder must not keep the
+// separator: '{state}/ca.crt' minus the token is '/ca.crt', which every absolute-path
+// check would then reject — and rejecting the one spelling the design requires is worse
+// than not checking at all.
+func stripPathToken(value, token string) (string, bool) {
+	if !strings.HasPrefix(value, token) {
+		return value, false
+	}
+	return strings.TrimPrefix(strings.TrimPrefix(value, token), "/"), true
 }
 
 // hasDotDotSegment reports a ".." PATH SEGMENT, not the substring: "..hidden" and
