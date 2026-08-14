@@ -34,7 +34,86 @@ var (
 
 // (podman) path; pass "container" for Apple Container (which skips any loophole
 // declaring `intercepts`). It is side-effect free and idempotent.
+//
+// A SourcePack record is NEVER HONORED here, whatever the caller intended: with no
+// origin gate in hand its declarations are dropped. Same door, same nail as
+// RunDoctorChecks below — see gateAdmitsCrossing. A caller that DID evaluate the gate
+// says so by going through Set.RuntimeArgsFor.
 func RuntimeArgsFor(loopholes []*Loophole, runtime string) []string {
+	return runtimeArgsFor(loopholes, runtime, nil)
+}
+
+// RuntimeArgsFor builds the container args for the given records WITH THIS SET'S ORIGIN
+// GATE applied: a pack-contributed loophole's binds, devices, intercepts, CA and jail_env
+// reach the argv only when the caller recorded that its pack's host access is approved.
+// Everything else behaves exactly as the package-level function.
+func (s Set) RuntimeArgsFor(from []*Loophole, runtime string) []string {
+	return runtimeArgsFor(from, runtime, &s)
+}
+
+// gateAdmitsCrossing is THE origin gate for a pack-shipped loophole's host crossings —
+// the enforcement half of docs/design/loophole-packaging.md §4.3 G3, which says an
+// unapproved fetched pack's loophole is "not discovered at all".
+//
+// # The gate was computed and then not enforced, which is the defect this closes
+//
+// `HostExecApproved` is decided per module in internal/cli/run (where the pack's origin
+// and the approval lockfile are reachable) and carried in on DiscoverOptions.PackModules.
+// It had exactly ONE production reader — runDoctorChecks. RuntimeArgsFor filtered on
+// FromConfig and Active; ManifestHostDaemonSpecs on FromConfig, HostDaemon and Active.
+// Neither consulted the gate, so an UNAPPROVED fetched pack's daemon entered the spawn
+// list and ran, and its bind mounts, devices, intercepts and CA reached the container argv
+// — while packMayAccessHost correctly answered false and the run package's comment said
+// the two were "the SAME gate, not a second one that could disagree". True of the
+// decision; false of its enforcement.
+//
+// # Why it is enforced in the CALLEE, and why the ungated entry points refuse
+//
+// The same argument RunDoctorChecks already makes: a SLICE CARRIES NO GATE, so the only
+// place the check cannot be forgotten is inside the function that acts on the records.
+// Both of these are exported and take a plain []*Loophole, so a caller assembling records
+// any other way (SetOf, ValidateLoopholes' entries, a hand-built slice) would otherwise
+// walk straight past the boundary. Making the unsafe call unrepresentable is worth more
+// than a rule the next call site has to know about.
+//
+// # Why a refused record is still DISCOVERED and LISTED
+//
+// G3's "not discovered at all" is about what CROSSES, and this is where the design's
+// wording and its visibility requirement are reconciled: nothing of the loophole reaches
+// the jail, while `yolo loopholes list`/`status` still show it — as `unapproved`, which is
+// the state a user has to be able to see. A pack loophole missing from the list is
+// indistinguishable from one that failed to stage, and the fix ("`yolo pack install`
+// records the approval") is not discoverable from an absence.
+//
+// # Who reports it
+//
+// A gate that evaluated FALSE is silent HERE, because the caller holding the gate is the
+// one that reports it once, with the reason and the fix (run.stagePacks' HonoredLoopholes
+// refusal — the loophole equivalent of HonoredMounts/HonoredInstalls). Duplicating it
+// here would print the same fact twice per launch.
+//
+// A gate that was NEVER EVALUATED is different and does warn: that is a caller which
+// reached a host crossing without an origin decision, which is a programming error rather
+// than a user's unapproved pack, and a silently-degraded jail is exactly how the original
+// defect stayed invisible.
+func gateAdmitsCrossing(m *Loophole, gate *Set, what string) bool {
+	if m.Source != SourcePack {
+		return true
+	}
+	if gate == nil {
+		warnf("loophole %s: %s withheld — this is a PACK-shipped loophole and the caller "+
+			"evaluated no origin gate, so its host access cannot be honored "+
+			"(use loopholes.NewHostSet / Set.%s)", m.Name, what, what)
+		return false
+	}
+	// MayRunHostCode is the one decision, and it governs the READS as well as the
+	// execution: it is p.MayAccessHost, which packMayAccessHost already decided for the
+	// whole pack. A pack that may not read the host certainly may not bind-mount one of
+	// its directories into a UID-0 jail.
+	return gate.MayRunHostCode(m)
+}
+
+func runtimeArgsFor(loopholes []*Loophole, runtime string, gate *Set) []string {
 	args := []string{}
 	trustedCAPaths := []string{}
 	jailDaemonsPayload := []any{}
@@ -44,6 +123,9 @@ func RuntimeArgsFor(loopholes []*Loophole, runtime string) []string {
 			continue
 		}
 		if !m.Active() {
+			continue
+		}
+		if !gateAdmitsCrossing(m, gate, "RuntimeArgsFor") {
 			continue
 		}
 		// Apple Container does not support --add-host (apple/container#673), so a
@@ -173,13 +255,31 @@ func RuntimeArgsFor(loopholes []*Loophole, runtime string) []string {
 // every active file-backed loophole with a host_daemon, shaped like the
 // loopholes: config block. Returned as an insertion-ordered map so it serializes
 // deterministically.
+//
+// A SourcePack record is NEVER ADMITTED here without an evaluated origin gate — this is
+// the list startLoopholes spawns from, so it is the sharpest of the three gated surfaces.
+// See gateAdmitsCrossing; Set.ManifestHostDaemonSpecs is the gated form.
 func ManifestHostDaemonSpecs(loopholes []*Loophole) *jsonx.OrderedMap {
+	return manifestHostDaemonSpecs(loopholes, nil)
+}
+
+// ManifestHostDaemonSpecs returns the daemon specs of the given records WITH THIS SET'S
+// ORIGIN GATE applied: a pack-contributed daemon is admitted only when the caller recorded
+// that its pack's host access is approved.
+func (s Set) ManifestHostDaemonSpecs(from []*Loophole) *jsonx.OrderedMap {
+	return manifestHostDaemonSpecs(from, &s)
+}
+
+func manifestHostDaemonSpecs(loopholes []*Loophole, gate *Set) *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
 	for _, m := range loopholes {
 		if m.FromConfig() || m.HostDaemon == nil {
 			continue
 		}
 		if !m.Active() {
+			continue
+		}
+		if !gateAdmitsCrossing(m, gate, "ManifestHostDaemonSpecs") {
 			continue
 		}
 		spec := jsonx.NewOrderedMap()

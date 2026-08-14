@@ -591,6 +591,34 @@ func (s Set) Active() []*Loophole {
 	return out
 }
 
+// Honored returns the records that are Active AND whose ORIGIN GATE admits them: what this
+// jail actually gets.
+//
+// The distinction from Active() is the one §4.3 G3 draws, and it is a third distinction
+// beside Enabled/Active rather than a synonym for either. `Enabled` is the user's switch,
+// `Active` adds "the machine can run it" (platform, `requires`), and this adds "the pack it
+// came from is approved to touch the host". A record can be perfectly Active and still cross
+// nothing, because the pack shipping it was never approved.
+//
+// It exists for the surfaces that DESCRIBE what crossed rather than perform it — the
+// briefing, above all, which is instructions the agent ACTS ON. Advertising an unapproved
+// pack's loophole there sends the agent to debug host wiring that was deliberately withheld,
+// which is the same failure mode Active() was introduced to fix one axis over (§5.1's shipped
+// bug: an enabled-but-inactive loophole advertised as live).
+//
+// The surfaces that PERFORM a crossing do not use this — RuntimeArgsFor and
+// ManifestHostDaemonSpecs enforce the gate inside themselves, because a slice carries no gate
+// and a filter the caller must remember to apply is a filter the next caller omits.
+func (s Set) Honored() []*Loophole {
+	out := []*Loophole{}
+	for _, lp := range s.all {
+		if lp.Active() && s.MayRunHostCode(lp) {
+			out = append(out, lp)
+		}
+	}
+	return out
+}
+
 // Lookup returns the record with this name, disabled ones included.
 func (s Set) Lookup(name string) (*Loophole, bool) {
 	for _, lp := range s.all {

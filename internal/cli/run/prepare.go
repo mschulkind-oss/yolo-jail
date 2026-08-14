@@ -139,11 +139,19 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 // was the one surface that did not, which is exactly the kind of divergence the
 // seven-surface convergence exists to remove.
 //
+// HONORED(), which is Active() plus the ORIGIN GATE, and the second half is the same bug fix
+// on a second axis (§4.3 G3). An UNAPPROVED fetched pack's loophole is perfectly Active — it
+// is enabled, the platform matches, its `requires` are met — and yet nothing of it crosses,
+// because the gate withheld it. Advertising it here tells the agent a capability is available
+// when the daemon never started and the binds never happened, which is the identical failure
+// to the one above with a different cause: the agent goes and debugs host wiring that was
+// deliberately refused.
+//
 // A FUNCTION rather than four inline lines, so the property is testable at the code the
 // launch runs: the same expression retyped in a test asserts nothing about this file.
 func briefingLoopholes(loopholesCfg *jsonx.OrderedMap) []agents.Loophole {
 	var out []agents.Loophole
-	for _, lo := range loopholes.NewHostSet(loopholesCfg).Active() {
+	for _, lo := range loopholes.NewHostSet(loopholesCfg).Honored() {
 		out = append(out, agents.Loophole{Name: lo.Name, Desc: lo.Description})
 	}
 	return out

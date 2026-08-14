@@ -112,8 +112,16 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 
 	// 2. External services from config.loopholes (+ manifest host_daemon specs).
 	//    Census site 4 — the host daemon SPAWN — through the converged set.
-	discovered := loopholes.NewHostSet(cfgMap(cfg, "loopholes")).Enabled()
-	manifestSpecs := loopholes.ManifestHostDaemonSpecs(discovered)
+	//
+	// THE SET's ManifestHostDaemonSpecs, not the package-level one. This is the list the
+	// spawn loop below walks, so it is where §4.3 G3's origin gate has to bite: an
+	// UNAPPROVED fetched pack's daemon used to enter this map and get started, because the
+	// gate had one reader (RunDoctorChecks) and this was not it. The package-level function
+	// now admits no pack record at all, and going through the Set is how this call site
+	// says it evaluated the gate.
+	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+	discovered := set.Enabled()
+	manifestSpecs := set.ManifestHostDaemonSpecs(discovered)
 	// The TRANSPORT comes from the Loophole record, not from the config-shaped spec
 	// map, because it is the framework's decision and not a user-supplied key. A name
 	// absent here (a config loophole with only a `command`) takes the default in

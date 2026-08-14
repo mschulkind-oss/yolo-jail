@@ -343,6 +343,68 @@ func TestPackageLevelRunDoctorChecksRefusesAPackRecord(t *testing.T) {
 	}
 }
 
+// The SAME door, on the two surfaces that carry a loophole's crossings into the jail: the
+// package-level RuntimeArgsFor and ManifestHostDaemonSpecs must honor NO SourcePack record,
+// because a slice carries no gate.
+//
+// This is the ungated-entry-point half of §4.3 G3, and the reason it is a refusal rather than
+// a documented rule is measured history: the gate was computed per module and then read by
+// exactly ONE function (runDoctorChecks). These two filtered on FromConfig/Active and let an
+// unapproved fetched pack's daemon into the spawn list and its binds, devices, intercepts and
+// CA into the container argv. A caller that genuinely evaluated the gate says so by going
+// through the Set.
+func TestPackageLevelRuntimeSurfacesHonorNoPackRecord(t *testing.T) {
+	unsetJail(t)
+	lp := &Loophole{
+		Name: "evil", Source: SourcePack, Enabled: true, Transport: TransportNone,
+		Intercepts: []Intercept{{Host: "api.evil.test"}}, BrokerIP: DefaultBrokerIP,
+		HostDevices: []string{"/dev/null"}, JailEnv: NewEnvMap(),
+		HostDaemon: &HostDaemon{Cmd: []string{"/bin/true"}, Env: NewEnvMap()},
+	}
+	lp.JailEnv.Set("EVIL", "1")
+
+	if args := RuntimeArgsFor([]*Loophole{lp}, "podman"); len(args) != 0 {
+		t.Errorf("the ungated RuntimeArgsFor emitted %v for a PACK record — with no gate in "+
+			"hand the only safe answer is nothing; a caller that evaluated the gate uses "+
+			"Set.RuntimeArgsFor", args)
+	}
+	if specs := ManifestHostDaemonSpecs([]*Loophole{lp}); specs.Len() != 0 {
+		t.Errorf("the ungated ManifestHostDaemonSpecs admitted a PACK record (%v) — that map is "+
+			"the list startLoopholes spawns from", specs.Keys())
+	}
+	// A GATED set with the record approved does honor it, or the refusal above is a ban.
+	approved := Set{all: []*Loophole{lp}, gate: map[string]bool{lp.Path: true}}
+	if args := approved.RuntimeArgsFor(approved.All(), "podman"); len(args) == 0 {
+		t.Error("an APPROVED pack record contributed nothing to the argv — the gate must be a " +
+			"gate, not a ban on the whole kind")
+	}
+	if specs := approved.ManifestHostDaemonSpecs(approved.All()); specs.Len() != 1 {
+		t.Error("an APPROVED pack record's daemon is missing from the spawn list")
+	}
+}
+
+// A BUNDLED/user/config record is unaffected by the ungated refusal above, which is what
+// keeps `audio` and the broker working through the package-level functions: they carry the
+// user's own authority by construction and need no origin decision.
+func TestPackageLevelRuntimeSurfacesStillHonorNonPackRecords(t *testing.T) {
+	unsetJail(t)
+	for _, source := range []string{SourceBundled, SourceUser} {
+		lp := &Loophole{
+			Name: "fine", Source: source, Enabled: true, Transport: TransportNone,
+			Intercepts: []Intercept{{Host: "api.fine.test"}}, BrokerIP: DefaultBrokerIP,
+			JailEnv:    NewEnvMap(),
+			HostDaemon: &HostDaemon{Cmd: []string{"/bin/true"}, Env: NewEnvMap()},
+		}
+		if args := RuntimeArgsFor([]*Loophole{lp}, "podman"); len(args) == 0 {
+			t.Errorf("a %s loophole contributed nothing to the argv — the origin gate is for "+
+				"PACK records only", source)
+		}
+		if specs := ManifestHostDaemonSpecs([]*Loophole{lp}); specs.Len() != 1 {
+			t.Errorf("a %s loophole's daemon was dropped from the spawn list", source)
+		}
+	}
+}
+
 // An APPROVED pack's doctor_cmd does run: the gate is a gate, not a ban. Without this the
 // fail-safe direction would be indistinguishable from the feature being broken.
 func TestApprovedPackDoctorCmdRuns(t *testing.T) {

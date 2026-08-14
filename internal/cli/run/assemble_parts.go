@@ -570,8 +570,14 @@ func (o *Options) userConfigMountArgs(rt, wsState string, mountTargets map[strin
 // byte-identical to what a hand-built Discover(IncludeDisabled:false) produced; the
 // distinction is moot for the output either way (RuntimeArgsFor's own loop skips anything
 // not Active()) and is kept because the ARGV is golden-tested.
+// THE SET'S RuntimeArgsFor, not the package-level one, and that is the origin gate's
+// enforcement half (§4.3 G3): the package function honors no SourcePack record at all,
+// because a slice carries no gate. Going through the Set is how this call site says it
+// evaluated one — an unapproved fetched pack's binds, devices, intercepts and CA are then
+// dropped here rather than reaching the container.
 func (o *Options) loopholesRuntimeArgs(cfg *jsonx.OrderedMap, rt string) []string {
-	return loopholes.RuntimeArgsFor(loopholes.NewHostSet(cfgMap(cfg, "loopholes")).Enabled(), rt)
+	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+	return set.RuntimeArgsFor(set.Enabled(), rt)
 }
 
 // hasKey reports whether m has key (present, even if the value is falsy).
