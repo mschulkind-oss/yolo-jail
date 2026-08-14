@@ -212,6 +212,19 @@ the top-level key names, the exit code, and the total bytes written
 across stdout+stderr frames. Enough to audit "what did jail X ask for"
 without hoarding payload data.
 
+**That per-request line is a property of daemons speaking the framed
+protocol through the `hostservice` helper — not of the transport.** For
+a daemon behind the front (`publishes: "socket"`), the front splices a
+byte stream it does not parse, and nothing constrains a loophole's
+protocol to be request-shaped — so for a fronted daemon yolo can record
+**connection-level facts only**: which loophole, when, which jail,
+bytes each way, duration. That is the honest audit ceiling. An earlier
+draft promised the front as "the natural home for the crossing audit
+log"; that claim is **withdrawn**
+([`loophole-packaging.md`](loophole-packaging.md) §2.1b hazard 3) — do
+not design against it. Anything richer than connection-level is
+per-loophole, not framework.
+
 ## Writing a client from scratch
 
 `cmd/yolo-ps` is the reference implementation. **This is no longer
