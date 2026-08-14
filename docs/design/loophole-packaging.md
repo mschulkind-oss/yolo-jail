@@ -1603,24 +1603,37 @@ is whatever scope owns the machine the daemon runs on, so inside jail A that is 
 owned by jail A's agent, because jail A is the blast radius. It is also **load-bearing**, since
 §4.3a's escape-hatch ruling sends loophole development into a nested jail.
 
-**Measured in-jail 2026-08-13, and the check I flagged is now DONE.** The file exists *for nested
-jails* by design — `userConfigMountArgs` (`assemble_parts.go:530-531`): *"builds the user-config
-mounts: config.jsonc (for nested jails) and config.lua."* It is **not generated**: it is a
-single-file `:ro` bind of the human's real config (`ROFileMountArg` at `:557`), while the containing
-directory is the jail's own writable home. So an agent cannot install by editing it, and cannot reach
-the host by writing beside it — the bad case is structurally absent, *because* single-file binds were
-used instead of mounting the directory.
+**Measured in-jail 2026-08-13, then REVISED on maintainer follow-up — the raw bind is the wrong
+method.** Facts first: the file is a single-file `:ro` bind of the human's real config
+(`userConfigMountArgs`, `assemble_parts.go:530-560`, `ROFileMountArg` at `:557`) into a jail-owned
+writable directory, so writing beside it is jail-local — keep that property. And it serves more than
+nesting: `yolo check`, `yolo loopholes list` (`loopholescmd.go:60-82`) and `yolo pack` read user
+scope in-jail on every setup.
 
-**Design, per the maintainer's "I don't want to mix purposes of that agent user level file":** add
-`config.local.jsonc` beside `config.jsonc`, jail-owned and writable, mirroring the shipped
-`yolo-jail.local.jsonc` sibling at workspace scope (`config.go:34`). Precedence gains one rung:
-inherited → jail-owned → workspace → workspace-local. **Recursion is by COMPOSITION, not stacking**:
-when jail A launches jail B, A composes its effective user config (inherited + its own local layer)
-and mounts *that* as B's `config.jsonc`, so every level sees exactly one inherited read-only file
-plus one writable file of its own, at any depth. The rejected alternative — an agent writing
-`overrides.jsonc`, which the maintainer's config happens to `include_if_found` — works by accident
-through a line written for machine-local secrets, and would vanish if that line did.
-**Resolved by:** a maintainer ruling on building it; the blocking fact is verified.
+**Why raw inheritance is wrong** (maintainer: *"mounts never work inside the jail, and other things
+won't apply — maybe some things will?"*): the bind carries keys whose meaning does not survive the
+boundary — `cache_relocations` targets and loophole socket paths that do not exist in the container
+(so in-jail `yolo check` evaluates a world with the referents absent), and `host_files`, whose
+"host home" silently rebinds to the jail's own. Worse, only `config.jsonc` + `config.lua` cross;
+`include_if_found` files do not (the loop at `:547` mounts exactly two names) — so the in-jail user
+scope is neither the effective config nor a designed subset. The raw bind already filters, by
+accident.
+
+**Design: a composed, per-key-filtered SNAPSHOT replaces the bind.** The launcher already computes
+the effective config, and `yolo config dump` (`configdrift.go:77-85`) already renders that
+computation canonically. Every key is classified once in a census with a drift test — *transfers*
+(`packages`, mise, `packs`), *stops* (`cache_relocations`, `host_files`), *host-only by policy*
+(secret-bearing) — the `HostFields()`/`JailFields()` question asked of config keys. The snapshot is
+launch-frozen, which is the jail's normal contract (env, image, relay wiring) finally applying to
+this file; `config drift` already covers "it moved under me".
+
+**Plus the jail-owned writable layer:** `config.local.jsonc` beside the inherited file, mirroring
+`yolo-jail.local.jsonc` (`config.go:34`). Precedence: inherited → jail-owned → workspace →
+workspace-local. **Recursion is the same mechanism applied again**: jail A composes inherited + its
+local layer, filters through the same census, and writes that as jail B's inherited file — one `:ro`
+inherited file plus one writable own file at every depth. The rejected alternative (riding the
+maintainer's `include_if_found: ["overrides.jsonc"]` line) mixes purposes and works by accident.
+**Resolved by:** a maintainer ruling on building it as specified.
 
 **OQ-LP13 — what stops an agent swapping the file a loophole runs? RULED: a placement rule, not
 hashing.** Raised in review (§4.3a): every gate governs a declaration, the file that executes is

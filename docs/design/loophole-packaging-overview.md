@@ -756,27 +756,57 @@ container you can throw away. Nothing about that reaches your real host.
 changes, and remember that "trusted" is a relationship between an actor and what it can destroy, not
 a property of a path.
 
-### Why that config file is there, and what it actually is
+### Why that config file is there — and your follow-up is right that the method is wrong
 
-You asked what `~/.config/yolo-jail/config.jsonc` is doing inside a jail at all. **It exists
-precisely for nested jails** — the mount helper says so in as many words: *"builds the user-config
-mounts: config.jsonc (for nested jails) and config.lua."* An inner `yolo` needs a user scope to
-read, so the launcher gives it one.
+**What it serves, corrected: not only nesting.** The mount comment says "for nested jails", but the
+readers say more — `yolo check --no-build` (which the jail briefing tells every agent to run),
+`yolo loopholes list`, and `yolo pack` all read user scope *inside* the jail. So the file matters on
+every setup, including ones that cannot nest; nesting is just the loudest consumer. Your "this only
+serves jail-in-jail-capable setups" concern lands on the *raw-bind method*, not on the file existing.
 
-**And it is not generated — it is your real config, bind-mounted read-only.** That is worth stating
-plainly because it answers the worry I raised last round and it changes the shape of the fix:
+**And the raw bind is the wrong method, for exactly the reason you gave.** It is not generated — it
+is a single-file `:ro` bind of your real config — which means it inherits **keys whose meaning does
+not survive the boundary**:
 
-- the **file** is a single-file `:ro` bind of your actual `~/.config/yolo-jail/config.jsonc`;
-- the **directory** around it is the jail's own writable home, not a bind of yours.
+- **Paths that do not exist in the container.** A cache relocation target on a big host disk, a
+  loophole config naming a host socket — in-jail `yolo check` evaluates these against a world where
+  their referents are simply absent, and warns about problems you do not have.
+- **Grants whose referent silently changes.** `host_files` means *your real home* when read on the
+  host. Read inside jail A, "the host home" is jail A's disposable home — same words, different
+  object.
+- **And what crosses is not even the whole config.** Only `config.jsonc` and `config.lua` are
+  mounted; `include_if_found` files are not. Your own config's first line proves it: the
+  `overrides.jsonc` it includes stays host-side, so the in-jail "user scope" is neither the full
+  effective config nor a designed subset — it is whatever happened to be in the top file. The
+  raw bind is already doing filtering; it is just doing it **by accident**.
 
-So writing into that directory is jail-local and cannot reach your machine — the bad case I flagged
-does not happen, and it does not happen *because* single-file binds were used rather than mounting
-the directory. Worth keeping that way deliberately.
+**So the answer to your original question flips: yes, it should be generated.** One thing to keep
+from the current arrangement, deliberately: single-file delivery into a jail-owned directory is what
+makes writing *beside* the file jail-local, and that property must survive the change.
 
-**Should it be jail-owned instead of inherited?** Not instead — inheritance is what makes a nested
-jail resemble the outer one, and AGENTS.md's whole nested-verification loop depends on it. The
-problem is that inheritance is the *only* thing there: it arrives read-only, so a jail has a user
-scope it can read and none it can write.
+### What replaces it: a composed, per-key-filtered snapshot
+
+The launcher already computes the effective config to launch at all, and `yolo config dump` already
+renders that computation as a canonical snapshot. The change is to write a **filtered** snapshot into
+the jail as its inherited user scope, where every key is classified once, in one census with a test:
+
+| Class | Meaning | Examples |
+|---|---|---|
+| **transfers** | means the same thing inside | `packages`, mise tools, `packs` |
+| **stops** | meaning does not survive the boundary | `cache_relocations`, `host_files` |
+| **host-only by policy** | could transfer, must not | anything secret-bearing |
+
+This is a census the repo already knows how to run — it is the confinement-notch question
+(`HostFields()`/`JailFields()`) asked of config keys instead of contribution kinds, and it gets the
+same drift protection: a new key must declare its class or a test fails.
+
+**One behaviour change to name honestly: the snapshot is frozen at launch.** Today a host-side config
+edit is instantly visible in-jail through the live bind. Under composition it is visible at the next
+launch — which is not a regression so much as the jail's normal contract finally applying to this
+file too: the environment, the image, and the relay wiring are all launch-frozen, and this batch
+just shipped a fix for a bug caused by *forgetting* that. The live bind was the anomaly. `yolo
+config drift` already exists to tell a jail its config moved under it, and this file joins that
+story instead of bypassing it.
 
 ### The proposal: a separate jail-owned file, not a second purpose for yours
 
@@ -800,9 +830,10 @@ tracked file. This is the same idea at user scope, and it needs no new vocabular
 Precedence is the existing one with a rung inserted: inherited → jail-owned → workspace →
 workspace-local.
 
-**Recursion works by composition rather than by stacking.** When jail A launches jail B, A does not
-pass down two files. It composes its **effective** user config — inherited plus its own local layer —
-and mounts *that* as B's inherited `config.jsonc`. So every level sees exactly one read-only
+**Recursion works by composition rather than by stacking — the same mechanism as the snapshot
+above, applied again.** When jail A launches jail B, A does not pass down two files. It composes its
+**effective** user config — inherited plus its own local layer — filters it through the same census,
+and writes *that* as B's inherited `config.jsonc`. So every level sees exactly one read-only
 inherited file plus one writable file of its own, at any depth, with no rule that changes with
 nesting.
 
