@@ -1045,6 +1045,24 @@ review-worthy kind is missing from it, and print the host-**execution** line **b
 `startLoopholes`. For a read, after is cosmetic; for an exec, after is a notification that something
 already happened.
 
+**Landed 2026-08-14**, with the fix generalized past "add the loophole kinds" — because the
+hardcoded set was **already wrong for two shipped kinds**, which is what the missing test was
+hiding. `program via installer` (a curl-to-shell URL) and `briefing after host:` are both host
+reads that `HostAccessClaims` produces an approval claim for, and neither appeared at any launch.
+So the covered set is now DATA (`run/packloopholes.go`'s `disclosureClasses`), exhaustive over
+`packdecl.KnownKinds()` **by test**, with an unclassified kind defaulting to **exec** — the only
+fail-closed direction, since `skip` reproduces the original defect and `read` reproduces the
+ordering one. A second test asserts every review-worthy kind is covered, with `state` and
+`skills` as *named* exclusions (a jail-home subtree and a plugin running code *in the jail* are
+not host access) so that reasoning has to be refuted rather than quietly changed.
+
+The ordering is structural, not positional: `startLoopholesDisclosed` is the **sole** call site of
+`startLoopholes` (pinned by a test that scans for a second one), so it cannot be broken by moving
+a line — which is exactly how it broke. And the ordering test reads the spawn side's own **first
+side effect** (the per-jail host-services dir), because asserting only that the line printed
+passes under the OLD ordering. Verified by deliberately reverting the two statements: the test
+fails.
+
 ### 4.3a EVERY GATE GOVERNS A DECLARATION; NONE GOVERNS THE FILE — review, and it is the worst gap here
 
 *"The agent could change the loophole host binary if it lived in the workspace and that certainly
@@ -1195,11 +1213,16 @@ redesign.
 
 ### 4.5 Nothing reaps a departed loophole's state — and the mechanism draft 1 cited does not exist
 
-Measured: `rg -c 'loophole' internal/prune/*.go` returns **zero**. So nothing prunes per-loophole
-state dirs (`~/.local/share/yolo-jail/state/<name>/`), `host-service-<name>.log` under
-`GlobalStorage()/logs`, or the materialized embed cache. For a hand-placed loophole that is untidy.
-For a pack-shipped **intercepting** loophole it is a CA private key left behind by a pack the user
-deselected.
+Measured **as of the finding**: `rg -c 'loophole' internal/prune/*.go` returned **zero**. So nothing
+pruned per-loophole state dirs (`~/.local/share/yolo-jail/state/<name>/`), `host-service-<name>.log`
+under `GlobalStorage()/logs`, or the materialized embed cache. For a hand-placed loophole that is
+untidy. For a pack-shipped **intercepting** loophole it is a CA private key left behind by a pack the
+user deselected.
+
+*(That count is no longer zero — see "Landed" below. The **materialized embed cache** is still
+unswept, and deliberately so: it is content-addressed, derived from the binary's `embed.FS`, and
+identical on every machine running that build, so it is regenerable cache rather than state anyone
+owns. It belongs with the cache-age sweep if it is ever worth reclaiming, not with retirement.)*
 
 Draft 1 said this should work *"the way `files` retires its host output"*. **Review showed there is
 no path from that precedent to here**, three times over:
@@ -1219,6 +1242,21 @@ at staging (the `files` ownership record is the model); a **detector on the laun
 deselection is actually observed (`stagePacks`' prune); and a **`prune` sweeper for the state tree**.
 Archived under the state dir rather than deleted, for the same reason it is archived there: the state
 may be the only copy of something the user wants back.
+
+**Landed 2026-08-14.** `internal/packstage/loopholeowners.go` (record + `RetireLoopholeState`),
+`run/loopholeretire.go` called from `stageRunPacks` (so it covers attach too), and
+`prune.PruneRetiredLoopholeState` with its own report section. The archive also takes
+`host-service-<name>.log`, which this section names beside the state dir, and carries a `.pack`
+marker: the record that named the pack is about to forget it, and *"whose key is this?"* is the
+first question a user asks of an archived directory. Three refusals the requirement did not
+list — **retire before record** (one edit can drop a pack and select a different one shipping the
+same loophole name; recording first would hand the new pack the old pack's CA), an **unknown**
+configured-pack set retires nothing, and a **corrupt** record is neither acted on nor overwritten.
+
+**One gap left open, and it is the same tension this section is about.** A pack still in `packs`
+that has STOPPED DECLARING a loophole is not detected. Its evidence is indistinguishable from a
+momentarily-unreadable pack tree, and the cost of being wrong here is a moved private key — so
+retirement keys only on the signal the user typed: the pack leaving `packs`.
 
 **Process teardown, scoped down deliberately.** Review noted that "do not select the pack" is not
 revocation: `loopholesruntime.go:388` sets `Setsid: true`, and teardown (`:456-467`) signals
@@ -1337,9 +1375,18 @@ true *"with no special case… there is no third party at all"* (`packs.go:253-2
 it to a distributable pack would drop the one fact that makes it safe.
 
 **And selection controls ACTIVATION, not REVOCATION.** Deselecting a pack stops the next launch from
-starting its daemon. It does not stop a daemon that already ran: the spawn is `Setsid`, teardown
-signals one PID (§4.5), and a process that has executed once can persist by means yolo has no view
-of. This design does not claim otherwise, and no packaging design could.
+starting its daemon, and (since 2026-08-14) retires the state that daemon left behind (§4.5). It does
+not stop a daemon that already ran, and a process that has executed once can persist by means yolo
+has no view of. This design does not claim otherwise, and no packaging design could.
+
+**Corrected 2026-08-14: teardown no longer "signals one PID".** That sentence described the code §4.5
+set out to fix, and the fix shipped — `killServiceGroup` SIGTERMs (then SIGKILLs) the whole process
+**group**, which the `Setsid` spawn makes reachable through a negative pid. So what survives
+deselection is narrower than this section used to say: not everything the daemon forked, but only
+what it deliberately placed outside its own group — a `~/.bashrc` line, a cron entry, a
+double-forked reparented process. The claim stays bounded rather than absolute, which is the point;
+the boundary is just in a different place, and the kill is now pinned by a test rather than left to
+inspection.
 
 ### 5.4 So how does the broker stay on by default?
 
@@ -1521,6 +1568,19 @@ Two things the design must state rather than leave to discovery:
    declaration**, which is the same situation on the other axis: platform (`darwin` vs `linux`) and
    backend (`container`, `macos-user`) both answer *this loophole does nothing here, and here is
    why*, and two half-messages for one user-visible situation is how B-0 happened in the first place.
+
+   **Landed 2026-08-14** — `run/loopholeinert.go`, one mechanism as required: the backend axis and
+   §3.1's `platforms` declaration render through one function, with the platform half read from
+   `loopholedecl.PlatformsUnsupportedReason` rather than re-matched (two matchers over one
+   declaration is how a report and a gate come to disagree). It hangs off the same spawn boundary
+   as §4.3 G4's exec disclosure — `startLoopholesDisclosed` — because everything a user must know
+   before host code runs, *or before concluding that it did*, belongs at one place.
+   **One rule the requirement did not state: backend beats platform when both apply.** An inert
+   backend starts no host service whatever the platform says, so the platform answer would be a
+   second reason for one outcome — and the actionable line is "switch backends", not "get a
+   different machine". An unreadable manifest prints nothing here, since the discovery layer's
+   warn-and-continue contract already reports that same file and a second complaint would read as
+   a second bug.
 
 ---
 
@@ -1801,11 +1861,46 @@ in revision 2 and are real work draft 1 priced at zero.
    - **5c.** The **retirement-on-deselect** artifacts (§4.5): a pack→state ownership record at
      staging, a detector on the launch path, and a `prune` sweeper for the state tree. Plus the
      process-**group** kill on teardown.
+     — **done 2026-08-14.** All three: `internal/packstage/loopholeowners.go` (the record, plus
+     `RetireLoopholeState`, which archives the state dir **and** `host-service-<name>.log` under
+     `<state>/.retired/<stamp>/<loophole>/` with a `.pack` marker); the detector in
+     `run/loopholeretire.go`, called from `stageRunPacks` — so it covers the attach path too;
+     `prune.PruneRetiredLoopholeState`, its own section in the report, keep-newest-3. The
+     process-group kill was verified still in place (`killServiceGroup`) and is now pinned by a
+     test rather than left to inspection.
+     **Three refusals the item did not list, each protecting a private key rather than
+     tidiness:** retire-before-record (one config edit can drop a pack and select a different one
+     shipping the same loophole name — recording first would hand the new pack the old pack's
+     CA); an **unknown** configured-pack set retires nothing (a malformed `packs` list read as
+     "no packs" would archive every loophole's state at once — `pruneDroppedPackOutput`'s own
+     guard); and a **corrupt** ownership record is neither acted on nor overwritten, since
+     overwriting turns unreadable into empty and orphans every existing state dir permanently.
+     **One honest gap:** a pack that is still configured but STOPPED DECLARING a loophole is not
+     detected. That evidence is indistinguishable from a momentarily-unreadable tree, and the
+     cost of being wrong is a moved private key — so retirement keys only on the signal the user
+     typed themselves.
    - **5d.** The **seven-surface convergence** (§5.1) as one constructed value, with a test; and the
      inert-on-backend report for `container` and `macos-user` (§8).
+     — the **inert report is done 2026-08-14** (`run/loopholeinert.go`): one line per inert
+     loophole on both backends, and the §3.1 platform declaration feeds the SAME report through
+     `loopholedecl.PlatformsUnsupportedReason` — one mechanism, two axes, as §3.1 requires.
+     Backend beats platform when both apply, because the actionable line is "switch backends",
+     not "get a different machine". The seven-surface convergence is the outstanding half.
 6. **The approval invariants**: commit-anchored exec claims (§4.3 G2b, giving `ApprovedAt` its first
    reader), the raw-unelided claim-string rule (§4.3 G2a), one merged claim helper called at both
    gates (§3.3), and `notePackHostAccess` extended and moved **before** `startLoopholes` (§4.3 G4).
+   — **G4 done 2026-08-14.** The kind coverage is no longer a hardcoded switch but DATA
+   (`run/packloopholes.go`'s `disclosureClasses`), exhaustive over `packdecl.KnownKinds()` **by
+   test** — which is the half that mattered, since the hardcoded set was wrong and nothing
+   noticed. **Two kinds it had been silently dropping, beyond the `loophole` kind the item
+   anticipated:** `program via installer` (a curl-to-shell script) and `briefing after host:`
+   both read the user's host and appeared at no launch. An unclassified kind now defaults to
+   **exec**, the only fail-closed direction. The ordering is enforced structurally rather than by
+   statement order: `startLoopholesDisclosed` is the sole call site of `startLoopholes` (pinned),
+   and the test reads the spawn side's own first side effect — asserting merely that the line
+   printed would pass under the OLD ordering, which is how it survived.
+   **Still owed from item 6:** G2a, G2b and the merged claim helper, all of which are about the
+   `pack install` gate rather than the launch.
 7. **`pack-system.md` §12's first invariant, sharpened** (R1) — in the same commit as the kind.
 8. **`pack-capabilities.md` rewritten per §6** — done 2026-08-13.
 9. **The `audio` example pack** (§7), as the end-to-end proof of discovery, selection, the footprint
