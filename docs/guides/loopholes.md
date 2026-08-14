@@ -26,7 +26,7 @@ Only `manifest.jsonc` is required. Everything else is up to the loophole.
 ```jsonc
 {
   "name": "my-loophole",          // required; must match directory name
-  "description": "…",             // required; one-line human summary
+  "description": "…",             // optional; one-line human summary
   "version": 1,                   // manifest format; currently 1
   "enabled": true,                // default true; toggle via CLI
   "transport": "loopback-tls",    // or "none"; DEFAULT is "loopback-tls"
@@ -38,9 +38,31 @@ Only `manifest.jsonc` is required. Everything else is up to the loophole.
   "ca_cert": "ca.crt",            // intercepts only; auto-mounted + trusted
   "state_files": ["ca.crt"],      // optional; narrows the state-dir mount
   "jail_env": {"FOO": "bar"},     // any transport
-  "doctor_cmd": ["bin", "--ok"]   // optional; run by `yolo doctor`
+  "doctor_cmd": ["bin", "--ok"],  // optional; run by `yolo check` and `yolo loopholes status`
+  "host_daemon": {                // optional; yolo spawns this ON THE HOST at jail startup
+    "cmd": ["my-daemon", "--endpoint", "{endpoint}"],
+    "env": {"FOO": "bar"}         // optional; the daemon's spawn environment
+  },
+  "jail_daemon": {                // optional; supervised INSIDE the jail by yolo-jaild
+    "cmd": ["my-agent"],
+    "restart": "on-failure"       // or "always" / "no"; default "on-failure"
+  },
+  "host_bind_mounts": [           // optional; host paths mounted into the jail
+    {"host": "{loophole_dir}/assets", "container": "/opt/thing", "readonly": true}
+  ],
+  "host_devices": ["/dev/snd"],   // optional; device nodes passed through
+  "requires": {                   // optional; unmet host prerequisites => loophole inactive
+    "command_on_path": "claude",
+    "file_exists": "$HOME/.config/pulse/cookie"
+  }
 }
 ```
+
+Note the second half of that census — `host_daemon`, `jail_daemon`,
+`host_bind_mounts`, `host_devices`, `requires` — is every key with a host-side
+effect: spawning a process on the host, mounting host paths, passing devices
+through. The loader source (`internal/loopholes/load.go`) is the authority on
+their exact shapes.
 
 **`transport` has exactly two values, and `unix-socket`/`tls-intercept` are
 GONE** — removed from the validator, not deprecated, so a manifest naming one is
@@ -76,16 +98,28 @@ What the loader does at each `yolo run`:
 1. Scans `~/.local/share/yolo-jail/loopholes/` for subdirectories with a valid `manifest.jsonc`.
 2. Skips any with `"enabled": false`.
 3. For loopholes declaring `intercepts`: emits `--add-host <host>:<broker_ip>` for each intercept, bind-mounts the CA cert into the jail at `/etc/yolo-jail/loopholes/<name>/ca.crt`, and sets `NODE_EXTRA_CA_CERTS` to all loophole CAs concatenated. **Note:** Apple Container (`runtime=container`) does not support `--add-host` ([apple/container#673](https://github.com/apple/container/issues/673)), so an intercepting loophole is skipped entirely on that runtime.
-4. For `loopback-tls` / `spawned` loopholes — either a bundled manifest with a `host_daemon`, or the `loopholes` shorthand in `yolo-jail.jsonc`; yolo handles spawning the daemon, bind-mounting its published path into the jail, and cleanup.
+4. For `loopback-tls` / `spawned` loopholes — either a bundled manifest with a `host_daemon`, or the `loopholes` shorthand in the user config (see below); yolo handles spawning the daemon, bind-mounting its published path into the jail, and cleanup.
 5. Merges `jail_env` into the container env.
 
 A manifest yolo cannot load produces a **warning naming the file and the reason**,
 and that loophole is absent for the rest of the run — no daemon, no endpoint, no
 injected env var. `yolo loopholes list` also surfaces the error.
 
-## `loopholes` in `yolo-jail.jsonc`
+## The `loopholes` config block
 
-The `loopholes` block is the workspace-scoped entry point. yolo spawns the daemon process at jail startup, bind-mounts its published path into the jail, and tears down on exit. Entries appear in `yolo loopholes list` alongside file-backed loopholes so the whole picture lives in one command.
+**Install is user-scope; enable is either scope** — the ruled model
+([`loophole-packaging.md`](../design/loophole-packaging.md) §4.3b). The
+install-shaped keys — `command`, `env`, `doctor_cmd` (plus `description`) —
+declare host execution, so they are legal only in the USER config,
+`~/.config/yolo-jail/config.jsonc`. A workspace `yolo-jail.jsonc` (or
+`yolo-jail.local.jsonc`) carrying any of them is a config ERROR host-side,
+naming the file and the fix; inside a jail the same violation downgrades to a
+warning, because the workspace is live-mounted and a hard error would refuse
+every nested launch. `enabled` and `jail_env` are legal at either scope.
+
+yolo spawns the daemon process at jail startup, bind-mounts its published path into the jail, and tears down on exit. Entries appear in `yolo loopholes list` alongside file-backed loopholes so the whole picture lives in one command.
+
+In `~/.config/yolo-jail/config.jsonc`:
 
 ```jsonc
 "loopholes": {
@@ -96,6 +130,29 @@ The `loopholes` block is the workspace-scoped entry point. yolo spawns the daemo
   }
 }
 ```
+
+A workspace `yolo-jail.jsonc` may then route within the installed set:
+
+```jsonc
+"loopholes": {
+  "host-processes": { "enabled": false },                  // disclosed at every launch
+  "audio":          { "jail_env": { "PULSE_LOG": "1" } }
+}
+```
+
+Because `enabled` stays workspace-writable, two disclosures replace what scope
+no longer protects:
+
+- A workspace `enabled: false` on an installed loophole prints one launch-time
+  line naming the loophole and the file that disabled it, and `yolo check`
+  **warns** instead of passing it green. This is the only protection left for
+  a default-on loophole like `claude-oauth-broker` — an agent committing one
+  line must not silently drop it.
+- A workspace `enabled: true` naming a loophole that is **not installed** is a
+  fatal config error that names the file and shows the user-config entry that
+  would install it. That error is the human-in-the-loop moment: installing is
+  a decision made in an agent-unwritable file. (`enabled: false` on an unknown
+  name stays a harmless-no-op warning.)
 
 > **A config entry still gets a plain Unix socket, and it is the last thing that
 > does.** The retirement above is about the manifest vocabulary: `unix-socket` is
@@ -124,10 +181,15 @@ helper package (see below).
 ```bash
 yolo loopholes list              # show every loophole, transport, enabled state
 yolo loopholes status            # run every doctor_cmd
-yolo loopholes enable <name>     # flip `enabled` → true (file-backed only)
+yolo loopholes enable <name>     # flip `enabled` → true (user-dir loopholes only)
 yolo loopholes disable <name>    # flip `enabled` → false
 yolo doctor                      # includes loophole self-checks in the combined report
 ```
+
+For bundled or config-inline loopholes the toggle is
+`loopholes.<name>.enabled` in the user config,
+`~/.config/yolo-jail/config.jsonc` (a workspace config can also set it — with
+the disclosures above).
 
 ## The `hostservice` helper package
 
