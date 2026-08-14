@@ -16,8 +16,9 @@ package run
 //     silent on success, so "a fetched pack's daemon could start on every launch for months
 //     with the only host-side record being a lockfile the user has to go read."
 //
-// The inert-on-backend report §8 asks for is a separate concern on a separate axis pair and
-// lands beside this in its own change.
+// The INERT REPORT the wrapper also calls is its own file (loopholeinert.go): it answers a
+// different question ("will this even run here?") on a different axis pair, and it is the one
+// half that has nothing to do with ordering.
 
 import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -198,11 +199,14 @@ func (o *Options) notePackHostExec(packs []*packload.Pack) {
 // Being a wrapper rather than two adjacent statements is deliberate: it makes
 // startLoopholes reachable through exactly one path that has already disclosed, so the
 // invariant cannot be broken by moving a line. TestStartLoopholesHasOneDisclosedCallSite
-// pins that there is no second call site. It is also where the inert-on-backend report will
-// hang, for the same reason: everything a user must know before host code runs (or before
-// they conclude it did) belongs at one boundary.
+// pins that there is no second call site. It is also where the inert-on-backend report hangs,
+// for the same reason: everything a user must know before host code runs (or before they
+// conclude it did) belongs at one boundary.
 func (o *Options) startLoopholesDisclosed(cname, rt string, cfg *jsonx.OrderedMap,
 	packs []*packload.Pack) []loopholeDaemon {
 	o.notePackHostExec(packs)
+	// The other half of the same honesty: on a backend that starts no host services at all,
+	// say so rather than printing an exec disclosure for a daemon that will never run.
+	o.notePackLoopholesInert(rt, packs)
 	return o.startLoopholes(cname, rt, cfg)
 }
