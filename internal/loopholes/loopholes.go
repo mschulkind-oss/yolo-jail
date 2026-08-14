@@ -149,6 +149,15 @@ var StateDirFor = func(name string) string {
 	return filepath.Join(paths.GlobalStorage(), "state", name)
 }
 
+// JailLoopholeDir returns the CONTAINER path where a loophole's module dir is
+// bind-mounted (RuntimeArgsFor emits the -v). It is what {jail_loophole_dir}
+// resolves to in jail_daemon.cmd — a separate token from the host-side
+// {loophole_dir} on purpose: one token with two resolutions is the kind of
+// asymmetry an author discovers by debugging.
+func JailLoopholeDir(name string) string {
+	return "/etc/yolo-jail/loopholes/" + name
+}
+
 type Intercept struct {
 	Host string
 }

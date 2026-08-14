@@ -58,7 +58,7 @@ func RuntimeArgsFor(loopholes []*Loophole, runtime string) []string {
 		if runtime == "container" && len(m.Intercepts) > 0 {
 			continue
 		}
-		containerDir := "/etc/yolo-jail/loopholes/" + m.Name
+		containerDir := JailLoopholeDir(m.Name)
 
 		for _, intercept := range m.Intercepts {
 			args = append(args, "--add-host", intercept.Host+":"+m.BrokerIP)

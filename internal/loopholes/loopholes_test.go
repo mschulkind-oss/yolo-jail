@@ -660,6 +660,113 @@ func TestPublishesSocketRefusesEndpointToken(t *testing.T) {
 	}
 }
 
+// TestLoopholeDirTokenSubstitutedInHostCmds: {loophole_dir} resolves to the
+// HOST-side absolute module dir in host_daemon.cmd and doctor_cmd. Before this,
+// the token was substituted in exactly one field (host_bind_mounts[].host) and
+// a daemon spawn would exec a literal "{loophole_dir}/srv.py"
+// (loophole-packaging.md §2.1a).
+func TestLoopholeDirTokenSubstitutedInHostCmds(t *testing.T) {
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "toked"))
+	writeManifest(t, mod, map[string]any{
+		"name": "toked", "description": "x",
+		"host_daemon": map[string]any{
+			"cmd": []any{"python3", "{loophole_dir}/srv.py", "--socket", "{socket}"},
+		},
+		"doctor_cmd": []any{"{loophole_dir}/doctor.sh", "--quick"},
+	})
+	lp, err := LoadLoophole(mod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDir := resolvePath(mod)
+	if got := lp.HostDaemon.Cmd[1]; got != wantDir+"/srv.py" {
+		t.Errorf("host_daemon.cmd[1] = %q, want %q", got, wantDir+"/srv.py")
+	}
+	if !filepath.IsAbs(lp.HostDaemon.Cmd[1]) {
+		t.Errorf("host_daemon.cmd[1] = %q is not absolute", lp.HostDaemon.Cmd[1])
+	}
+	if got := lp.DoctorCmd[0]; got != wantDir+"/doctor.sh" {
+		t.Errorf("doctor_cmd[0] = %q, want %q", got, wantDir+"/doctor.sh")
+	}
+	// {socket} is NOT load-time vocabulary — the run pipeline owns it.
+	if got := lp.HostDaemon.Cmd[3]; got != "{socket}" {
+		t.Errorf("host_daemon.cmd[3] = %q; the {socket} token must survive load", got)
+	}
+}
+
+// TestJailLoopholeDirTokenSubstitutedInJailDaemon: a jail_daemon runs in the
+// CONTAINER, where the module dir is bind-mounted at
+// /etc/yolo-jail/loopholes/<name> — so its token is {jail_loophole_dir}, a
+// different spelling on purpose: one token with two resolutions is the kind of
+// asymmetry an author discovers by debugging (loophole-packaging.md §2.1a).
+func TestJailLoopholeDirTokenSubstitutedInJailDaemon(t *testing.T) {
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "jailed"))
+	writeManifest(t, mod, map[string]any{
+		"name": "jailed", "description": "x",
+		"jail_daemon": map[string]any{
+			"cmd": []any{"{jail_loophole_dir}/agentd", "--config", "{jail_loophole_dir}/cfg.json"},
+		},
+	})
+	lp, err := LoadLoophole(mod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := JailLoopholeDir("jailed") + "/agentd"
+	if got := lp.JailDaemon.Cmd[0]; got != want {
+		t.Errorf("jail_daemon.cmd[0] = %q, want %q", got, want)
+	}
+	if !strings.HasPrefix(want, "/etc/yolo-jail/loopholes/") {
+		t.Errorf("JailLoopholeDir = %q; the container mount point moved", want)
+	}
+}
+
+// TestWrongHalfTokensRefusedAtLoad: using the host token in the jail half (or
+// vice versa) is refused at load with a message naming the right one — never
+// substituted to a path that is wrong on the side where it runs, and never
+// passed through as a literal brace token.
+func TestWrongHalfTokensRefusedAtLoad(t *testing.T) {
+	cases := []struct {
+		name     string
+		manifest map[string]any
+		wantHint string
+	}{
+		{"host-daemon-jail-token", map[string]any{
+			"host_daemon": map[string]any{"cmd": []any{"{jail_loophole_dir}/srv", "{socket}"}},
+		}, "{loophole_dir}"},
+		{"doctor-jail-token", map[string]any{
+			"doctor_cmd": []any{"{jail_loophole_dir}/doctor.sh"},
+		}, "{loophole_dir}"},
+		{"jail-daemon-host-token", map[string]any{
+			"jail_daemon": map[string]any{"cmd": []any{"{loophole_dir}/agentd"}},
+		}, "{jail_loophole_dir}"},
+		{"bind-mount-jail-token", map[string]any{
+			"host_bind_mounts": []any{
+				map[string]any{"host": "{jail_loophole_dir}/data", "container": "/ctx/d"},
+			},
+		}, "{loophole_dir}"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			md := modsDir(t)
+			mod := mkdir(t, filepath.Join(md, tc.name))
+			manifest := map[string]any{"name": tc.name, "description": "x"}
+			for k, v := range tc.manifest {
+				manifest[k] = v
+			}
+			writeManifest(t, mod, manifest)
+			_, err := LoadLoophole(mod)
+			if err == nil {
+				t.Fatal("a wrong-half token loaded")
+			}
+			if !contains(err.Error(), tc.wantHint) {
+				t.Errorf("refusal does not name the right token %q: %s", tc.wantHint, err.Error())
+			}
+		})
+	}
+}
+
 // TestListKeysInterceptsOnTheInterceptList: `yolo loopholes list` is the whole
 // answer to "is the active transport visible without asking" (loophole-transport
 // OQ-T2), so the `transport=` column has to print for every loophole that is not

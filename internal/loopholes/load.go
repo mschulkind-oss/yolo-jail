@@ -133,13 +133,17 @@ func loadManifest(modulePath string) (*Loophole, error) {
 		}
 		doctorCmd = toStringSlice(list)
 		doctorCmdSet = true
+		if err := refuseJailTokenInHostField(manifestPath, "'doctor_cmd'", doctorCmd); err != nil {
+			return nil, err
+		}
+		doctorCmd = substituteAll(doctorCmd, tokenLoopholeDir, resolvePath(modulePath))
 	}
 
-	hostDaemon, err := parseHostDaemon(manifestPath, getOrNil(data, "host_daemon"))
+	hostDaemon, err := parseHostDaemon(manifestPath, modulePath, getOrNil(data, "host_daemon"))
 	if err != nil {
 		return nil, err
 	}
-	jailDaemon, err := parseJailDaemon(manifestPath, getOrNil(data, "jail_daemon"))
+	jailDaemon, err := parseJailDaemon(manifestPath, name, getOrNil(data, "jail_daemon"))
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +303,11 @@ func parseHostBindMounts(manifestPath string, raw any) ([]HostBindMount, error) 
 			}
 			readonly = b
 		}
-		expanded := expandEnv(replaceAll(hostRaw, "{loophole_dir}", moduleDir))
+		if err := refuseJailTokenInHostField(manifestPath,
+			fmt.Sprintf("host_bind_mounts[%d].host", i), []string{hostRaw}); err != nil {
+			return nil, err
+		}
+		expanded := expandEnv(replaceAll(hostRaw, tokenLoopholeDir, moduleDir))
 		out = append(out, HostBindMount{
 			Host:      expanded,
 			Container: container,
@@ -365,7 +373,55 @@ func parseStateFiles(manifestPath string, raw any) ([]string, error) {
 	return out, nil
 }
 
-func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
+// Module-dir tokens. {loophole_dir} resolves to the HOST-side absolute module
+// dir and is legal in host_daemon.cmd, doctor_cmd and host_bind_mounts[].host;
+// {jail_loophole_dir} resolves to the module dir's CONTAINER mount point
+// (JailLoopholeDir) and is legal in jail_daemon.cmd. Two tokens on purpose —
+// one token with two resolutions is the asymmetry an author discovers by
+// debugging — and each is refused in the other half, at load, naming the fix.
+const (
+	tokenLoopholeDir     = "{loophole_dir}"
+	tokenJailLoopholeDir = "{jail_loophole_dir}"
+)
+
+// refuseJailTokenInHostField rejects {jail_loophole_dir} in a field that runs
+// (or resolves) on the HOST.
+func refuseJailTokenInHostField(manifestPath, field string, args []string) error {
+	for _, s := range args {
+		if containsSubstr(s, tokenJailLoopholeDir) {
+			return loopholeErrorf(
+				"%s: %s names '%s', the module dir's CONTAINER mount point — this field"+
+					" resolves on the HOST; write '%s'",
+				manifestPath, field, tokenJailLoopholeDir, tokenLoopholeDir)
+		}
+	}
+	return nil
+}
+
+// refuseHostTokenInJailField rejects {loophole_dir} in a field that runs inside
+// the container.
+func refuseHostTokenInJailField(manifestPath, field string, args []string) error {
+	for _, s := range args {
+		if containsSubstr(s, tokenLoopholeDir) {
+			return loopholeErrorf(
+				"%s: %s names '%s', the module dir's HOST path — this command runs inside"+
+					" the container, where the dir is mounted at %s; write '%s'",
+				manifestPath, field, tokenLoopholeDir, JailLoopholeDir("<name>"), tokenJailLoopholeDir)
+		}
+	}
+	return nil
+}
+
+// substituteAll replaces token with value in every element of args.
+func substituteAll(args []string, token, value string) []string {
+	out := make([]string, len(args))
+	for i, s := range args {
+		out[i] = replaceAll(s, token, value)
+	}
+	return out
+}
+
+func parseHostDaemon(manifestPath, modulePath string, raw any) (*HostDaemon, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -399,6 +455,10 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 			manifestPath, pytext.Repr(requestEnd), sortedListRepr(validRequestEnds))
 	}
 	cmd := toStringSlice(cmdList)
+	if err := refuseJailTokenInHostField(manifestPath, "'host_daemon.cmd'", cmd); err != nil {
+		return nil, err
+	}
+	cmd = substituteAll(cmd, tokenLoopholeDir, resolvePath(modulePath))
 	// Under publishes:"socket" the two tokens DIVERGE: {socket} is the upstream
 	// AF_UNIX path the daemon binds, {endpoint} is the file yolo's front
 	// publishes. An argv naming {endpoint} there would silently publish nothing
@@ -417,7 +477,7 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 	return &HostDaemon{Cmd: cmd, Env: env, Publishes: publishes, RequestEnd: requestEnd}, nil
 }
 
-func parseJailDaemon(manifestPath string, raw any) (*JailDaemon, error) {
+func parseJailDaemon(manifestPath, name string, raw any) (*JailDaemon, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -437,7 +497,12 @@ func parseJailDaemon(manifestPath string, raw any) (*JailDaemon, error) {
 	if !inList(restart, validRestarts) {
 		return nil, loopholeErrorf("%s: 'jail_daemon.restart' not in %s", manifestPath, sortedListRepr(validRestarts))
 	}
-	return &JailDaemon{Cmd: toStringSlice(cmdList), Restart: restart}, nil
+	cmd := toStringSlice(cmdList)
+	if err := refuseHostTokenInJailField(manifestPath, "'jail_daemon.cmd'", cmd); err != nil {
+		return nil, err
+	}
+	cmd = substituteAll(cmd, tokenJailLoopholeDir, JailLoopholeDir(name))
+	return &JailDaemon{Cmd: cmd, Restart: restart}, nil
 }
 
 // parseEnvMap builds an insertion-ordered EnvMap from a JSON object, coercing
