@@ -22,9 +22,19 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
-// Source labels, ordered weakest -> strongest: bundled < user < config.
+// Source labels, ordered weakest -> strongest: bundled < pack < user < config.
+//
+// SourcePack sits between bundled and user, and that placement is NOT a precedence
+// rule anybody may lean on for the bundled half: a pack loophole whose name collides
+// with a RESERVED name (bundled, or one of yolo's own in-process daemons) is refused
+// by the launch pre-flight (run.PackLoopholeNameConflicts) and therefore never reaches
+// an ordering at all. What the position expresses is the half that IS live — a
+// hand-placed user directory overrides a pack's loophole, and a config entry overrides
+// either — exactly as bundled/user/config already behaved
+// (docs/design/loophole-packaging.md §5.1, "Precedence — draft 1's line is DELETED").
 const (
 	SourceBundled = "bundled"
+	SourcePack    = "pack"
 	SourceUser    = "user"
 	SourceConfig  = "config"
 )
