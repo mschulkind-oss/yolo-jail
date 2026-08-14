@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -30,6 +31,255 @@ func TestInlineLoopholeKeysLoaderReadsAreKnown(t *testing.T) {
 	errs, _ := ValidateConfig(cfg, t.TempDir(), nil)
 	if len(errs) != 0 {
 		t.Errorf("errors = %v, want none — every key the loader reads must be a known inline key", errs)
+	}
+}
+
+// validateScoped writes the given workspace yolo-jail.jsonc, then runs
+// ValidateConfig over the merged map a real load would produce (user merged
+// under workspace). Host behavior is pinned via YOLO_VERSION="" — this project
+// develops inside its own jail, where the var is otherwise set.
+func validateScoped(t *testing.T, userJSON, wsJSON string, resolver LoopholeResolver) (ws string, errs, warns []string) {
+	t.Helper()
+	t.Setenv("YOLO_VERSION", "")
+	ws = t.TempDir()
+	if wsJSON == "" {
+		wsJSON = "{}"
+	} else {
+		write(t, filepath.Join(ws, WorkspaceConfigName), wsJSON)
+	}
+	if userJSON == "" {
+		userJSON = "{}"
+	}
+	merged := MergeConfig(decode(t, userJSON), decode(t, wsJSON))
+	errs, warns = ValidateConfig(merged, ws, resolver)
+	return ws, errs, warns
+}
+
+func containing(list []string, subs ...string) []string {
+	var out []string
+	for _, s := range list {
+		all := true
+		for _, sub := range subs {
+			if !strings.Contains(s, sub) {
+				all = false
+				break
+			}
+		}
+		if all {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// §4.3b (RULED): an inline entry — the `command` shape — is an INSTALL, legal
+// only in the user config. In a workspace file it is an error naming the
+// offending file and the exact fix.
+func TestWorkspaceInlineLoopholeIsError(t *testing.T) {
+	ws, errs, _ := validateScoped(t, "",
+		`{"loopholes": {"svc": {"command": ["/bin/true"]}}}`, nil)
+	hits := containing(errs, "config.loopholes.svc")
+	if len(hits) != 1 {
+		t.Fatalf("errors = %v, want exactly one for the inline entry", errs)
+	}
+	for _, want := range []string{
+		filepath.Join(ws, WorkspaceConfigName),
+		"user-scope only",
+		"~/.config/yolo-jail/config.jsonc",
+	} {
+		if !strings.Contains(hits[0], want) {
+			t.Errorf("error %q does not name %q", hits[0], want)
+		}
+	}
+}
+
+// The same entry in the USER config alone is legal (that IS the install).
+func TestUserInlineLoopholeIsClean(t *testing.T) {
+	_, errs, warns := validateScoped(t,
+		`{"loopholes": {"svc": {"command": ["/bin/true"]}}}`, "", nil)
+	if len(errs) != 0 {
+		t.Errorf("errors = %v, want none", errs)
+	}
+	if hits := containing(warns, "loopholes"); len(hits) != 0 {
+		t.Errorf("warnings = %v, want none about loopholes", hits)
+	}
+}
+
+// Override-shape `env` reaches a FIRST-PARTY daemon's spawn environment
+// (§4.1 finding 3 — LD_PRELOAD into the broker), so it is user-scope only too.
+func TestWorkspaceOverrideEnvIsError(t *testing.T) {
+	resolver := fakeResolver{"svc": {Name: "svc", HasHostDaemon: true}}
+	ws, errs, _ := validateScoped(t, "",
+		`{"loopholes": {"svc": {"env": {"LD_PRELOAD": "/tmp/evil.so"}}}}`, resolver)
+	hits := containing(errs, "config.loopholes.svc.env", "user-scope only")
+	if len(hits) != 1 || !strings.Contains(hits[0], filepath.Join(ws, WorkspaceConfigName)) {
+		t.Errorf("errors = %v, want one env scope error naming the workspace file", errs)
+	}
+
+	// The same override from the USER config is legal.
+	_, errs, _ = validateScoped(t,
+		`{"loopholes": {"svc": {"env": {"A": "b"}}}}`, "", resolver)
+	if hits := containing(errs, "user-scope only"); len(hits) != 0 {
+		t.Errorf("user-scope env drew a scope error: %v", hits)
+	}
+}
+
+// Override-shape `doctor_cmd` is a second host execution, run by two
+// read-only-looking commands (yolo check, yolo loopholes status) — user-only.
+func TestWorkspaceOverrideDoctorCmdIsError(t *testing.T) {
+	resolver := fakeResolver{"svc": {Name: "svc", HasHostDaemon: true}}
+	_, errs, _ := validateScoped(t, "",
+		`{"loopholes": {"svc": {"doctor_cmd": ["/tmp/evil", "--ok"]}}}`, resolver)
+	if hits := containing(errs, "config.loopholes.svc.doctor_cmd", "user-scope only"); len(hits) != 1 {
+		t.Errorf("errors = %v, want one doctor_cmd scope error", errs)
+	}
+}
+
+// `enabled` and `jail_env` stay legal at BOTH scopes — that is the ruling.
+func TestWorkspaceEnableAndJailEnvStayLegal(t *testing.T) {
+	resolver := fakeResolver{"svc": {Name: "svc", HasHostDaemon: true}}
+	_, errs, _ := validateScoped(t, "",
+		`{"loopholes": {"svc": {"enabled": true, "jail_env": {"FOO": "bar"}}}}`, resolver)
+	if len(errs) != 0 {
+		t.Errorf("errors = %v, want none — enabled/jail_env are legal at either scope", errs)
+	}
+}
+
+// RULED (OQ-LP2): a workspace enabling a loophole that is NOT installed is a
+// FATAL error naming the loophole, the file that asked, and the user-config
+// snippet that would install it — this error IS the human-in-the-loop moment.
+// It replaces the every-launch "treating the entry as an override" warning.
+func TestWorkspaceEnableUninstalledIsFatal(t *testing.T) {
+	ws, errs, warns := validateScoped(t, "",
+		`{"loopholes": {"ghost": {"enabled": true}}}`, nil)
+	hits := containing(errs, "config.loopholes.ghost")
+	if len(hits) != 1 {
+		t.Fatalf("errors = %v, want exactly one for the uninstalled enable", errs)
+	}
+	for _, want := range []string{
+		filepath.Join(ws, WorkspaceConfigName),
+		"not installed",
+		"~/.config/yolo-jail/config.jsonc",
+		`"loopholes": {"ghost": {"command": [`,
+	} {
+		if !strings.Contains(hits[0], want) {
+			t.Errorf("error %q does not carry %q", hits[0], want)
+		}
+	}
+	if leftover := containing(warns, "treating the entry as an override"); len(leftover) != 0 {
+		t.Errorf("the fallback warning must be REPLACED by the error, still got %v", leftover)
+	}
+}
+
+// enabled:false (or any other override key) naming an unknown loophole is a
+// harmless no-op and stays a warning, not an error.
+func TestWorkspaceEnableFalseUnknownStaysWarning(t *testing.T) {
+	_, errs, warns := validateScoped(t, "",
+		`{"loopholes": {"ghost": {"enabled": false}}}`, nil)
+	if hits := containing(errs, "config.loopholes.ghost"); len(hits) != 0 {
+		t.Errorf("errors = %v, want none — disabling an unknown loophole is a no-op", hits)
+	}
+	if hits := containing(warns, "treating the entry as an override"); len(hits) != 1 {
+		t.Errorf("warnings = %v, want the fallback override warning", warns)
+	}
+}
+
+// §4.3b consequence 2: after the ruling, scope no longer protects the OFF
+// direction, so a workspace-sourced enabled:false on an INSTALLED loophole
+// must print one launch-time line naming the loophole AND the file (the only
+// protection left for the broker default).
+func TestWorkspaceDisableInstalledIsDisclosed(t *testing.T) {
+	resolver := fakeResolver{"svc": {Name: "svc", HasHostDaemon: true}}
+	ws, errs, warns := validateScoped(t, "",
+		`{"loopholes": {"svc": {"enabled": false}}}`, resolver)
+	if len(errs) != 0 {
+		t.Errorf("errors = %v, want none — disabling is legal at workspace scope", errs)
+	}
+	hits := containing(warns, "config.loopholes.svc", "disabled by",
+		filepath.Join(ws, WorkspaceConfigName))
+	if len(hits) != 1 {
+		t.Errorf("warnings = %v, want one disclosure naming loophole and file", warns)
+	}
+}
+
+// The disclosure also covers a USER-CONFIG-inline install disabled by the
+// workspace: the user's entry is an install too.
+func TestWorkspaceDisableUserInlineIsDisclosed(t *testing.T) {
+	_, errs, warns := validateScoped(t,
+		`{"loopholes": {"svc": {"command": ["/bin/true"]}}}`,
+		`{"loopholes": {"svc": {"enabled": false}}}`, nil)
+	if hits := containing(errs, "user-scope only"); len(hits) != 0 {
+		t.Errorf("scope errors = %v, want none", hits)
+	}
+	if hits := containing(warns, "config.loopholes.svc", "disabled by"); len(hits) != 1 {
+		t.Errorf("warnings = %v, want the disable disclosure", warns)
+	}
+}
+
+// In a jail every scope violation DOWNGRADES to a warning — same asymmetry as
+// the retired `agents` key, for the same reason: /workspace is live-mounted,
+// so an in-jail hard error would refuse every nested launch mid-migration.
+func TestScopeViolationsDowngradeToWarningsInJail(t *testing.T) {
+	ws := t.TempDir()
+	write(t, filepath.Join(ws, WorkspaceConfigName),
+		`{"loopholes": {"svc": {"command": ["/bin/true"]}, "ghost": {"enabled": true}}}`)
+	merged := decode(t, `{"loopholes": {"svc": {"command": ["/bin/true"]}, "ghost": {"enabled": true}}}`)
+	t.Setenv("YOLO_VERSION", "9.9.9-test")
+	errs, warns := ValidateConfig(merged, ws, nil)
+	if hits := containing(errs, "config.loopholes"); len(hits) != 0 {
+		t.Errorf("in-jail errors = %v, want none (must not brick nested preflight)", hits)
+	}
+	if hits := containing(warns, "config.loopholes.svc", "user-scope only"); len(hits) != 1 {
+		t.Errorf("in-jail warnings = %v, want the downgraded inline violation", warns)
+	}
+	if hits := containing(warns, "config.loopholes.ghost", "not installed"); len(hits) != 1 {
+		t.Errorf("in-jail warnings = %v, want the downgraded uninstalled-enable violation", warns)
+	}
+}
+
+// The workspace-local file is workspace scope too (it lives in the workspace,
+// so it is exactly as agent-editable), and later files win for `enabled`.
+func TestWorkspaceLocalScopeAndEnablePrecedence(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	resolver := fakeResolver{"svc": {Name: "svc", HasHostDaemon: true}}
+	ws := t.TempDir()
+	write(t, filepath.Join(ws, WorkspaceConfigName), `{"loopholes": {"svc": {"enabled": false}}}`)
+	write(t, filepath.Join(ws, WorkspaceLocalConfigName), `{"loopholes": {"svc": {"enabled": true}}}`)
+	merged := decode(t, `{"loopholes": {"svc": {"enabled": true}}}`)
+	_, warns := ValidateConfig(merged, ws, resolver)
+	if hits := containing(warns, "disabled by"); len(hits) != 0 {
+		t.Errorf("warnings = %v — the local file re-enabled it, no disclosure due", hits)
+	}
+
+	// And the local file alone disabling it IS disclosed, naming the local file.
+	write(t, filepath.Join(ws, WorkspaceConfigName), `{}`)
+	write(t, filepath.Join(ws, WorkspaceLocalConfigName), `{"loopholes": {"svc": {"enabled": false}}}`)
+	merged = decode(t, `{"loopholes": {"svc": {"enabled": false}}}`)
+	_, warns = ValidateConfig(merged, ws, resolver)
+	if hits := containing(warns, "disabled by", WorkspaceLocalConfigName); len(hits) != 1 {
+		t.Errorf("warnings = %v, want the disclosure naming the local file", warns)
+	}
+}
+
+// WorkspaceDisabledLoopholes is the provenance seam `yolo check` uses to warn
+// on a workspace-scope disable instead of green-passing it.
+func TestWorkspaceDisabledLoopholesHelper(t *testing.T) {
+	ws := t.TempDir()
+	write(t, filepath.Join(ws, WorkspaceConfigName),
+		`{"loopholes": {"a": {"enabled": false}, "b": {"enabled": true}}}`)
+	write(t, filepath.Join(ws, WorkspaceLocalConfigName),
+		`{"loopholes": {"b": {"enabled": false}, "c": {"enabled": false}}}`)
+	got := WorkspaceDisabledLoopholes(ws)
+	if file := got["a"]; file != filepath.Join(ws, WorkspaceConfigName) {
+		t.Errorf("a: file = %q, want the tracked workspace config", file)
+	}
+	for _, name := range []string{"b", "c"} {
+		if file := got[name]; file != filepath.Join(ws, WorkspaceLocalConfigName) {
+			t.Errorf("%s: file = %q, want the local workspace config", name, file)
+		}
+	}
+	if len(got) != 3 {
+		t.Errorf("got = %v, want exactly a, b, c", got)
 	}
 }
 
