@@ -1,6 +1,10 @@
 # Loophole packaging — how a pack ships a loophole
 
-**Status:** DESIGN, 2026-08-13. Not built. Closes **OQ-CAP2** with option **(B)**.
+**Status:** DESIGN 2026-08-13; **the `loophole` kind LANDED 2026-08-14**, together with most of this
+design. Closes **OQ-CAP2** with option **(B)**. Per-section `**Landed**` markers below are the ledger;
+the landing order at the end of the doc is the summary. **Four things are NOT built:** the
+pack-shipped subset has no production caller (§3.1, §3.2), the install-gate approval invariants G2a
+and G2b (§4.3), `audio` as an official pack (§7), and OQ-LP9's three parts (§9).
 
 > **Reading this to DECIDE rather than to build? Start with
 > [`loophole-packaging-overview.md`](loophole-packaging-overview.md)** — the same design at
@@ -15,16 +19,19 @@ recommends deciding (B) **before** building (A). The maintainer ruled: write (B)
 doc has now been **rewritten** to match, not merely annotated.
 
 **Reads with:** [`gate-placement-principle.md`](gate-placement-principle.md) (why several gates in
-§4 are placed where they are — and why one was deleted), [`pack-system.md`](pack-system.md) (the 14 kinds and how a kind is defined),
+§4 are placed where they are — and why one was deleted), [`pack-system.md`](pack-system.md) (the kind set — **fifteen** since this one landed — and how a kind is defined),
 [`loophole-protocol.md`](loophole-protocol.md) (the wire contract),
 [`loophole-transport.md`](loophole-transport.md) (the transport unification, shipped 2026-08-13),
 [`pack-capabilities.md`](pack-capabilities.md) (what this narrows),
 [`extension-point-principle.md`](extension-point-principle.md) (why design it now).
 
-**What is verified and what is not.** Every code claim was read on HEAD; the import-cycle claim
-(§3.2), the `Discover` census (§5.1), the `Collisions` call sites (§3.1) and the `:ro` socket result
-(§3.1, §7) were **measured**, not inferred. **No pack-shipped loophole has ever run** — this is
-design over verified code paths, not over a working instance (**R2**).
+**What is verified and what is not.** Every code claim was read on HEAD as of the date it carries;
+the import-cycle claim (§3.2), the `Discover` census (§5.1), the `Collisions` call sites (§3.1) and
+the `:ro` socket result (§3.1, §7) were **measured**, not inferred. Measurements the implementation
+has since invalidated are marked in place rather than deleted, because a measurement that quietly
+becomes false is how the next reader is misled. **No pack-shipped loophole has ever run** — still
+true 2026-08-14: the kind and every mechanism around it are unit-tested, but no instance has been
+selected, approved and spawned end to end (**R2**, and item 9 of the landing order).
 
 > ### Revision 2 — what three adversarial passes changed
 >
@@ -466,6 +473,21 @@ load, be discovered, and have its daemon skipped **without a word** at `loophole
 message. And make the `loopholesruntime.go:152-155` skip **print** when the name did not come from
 the builtin.
 
+**Landed 2026-08-14.** The set is composed once in `loopholes.ReservedLoopholeNames()` — three
+contributors (`paths.BuiltinLoopholeNames`, `broker.BrokerLoopholeName`, and the bundled dir names
+read off the **same `embed.FS` the loader materializes**, so adding a bundled loophole extends the
+reservation with no second list to forget) — and refused fatally in the launch pre-flight, not in the
+loader: `Discover` has no error channel by contract (§3.1's own "fatality cannot be implemented inside
+`Discover`"). Composed rather than written as a literal *because a literal is the thing that drifted*:
+`journal` was in `paths.go` and in nobody's refusal. Each reserved name carries an ORIGIN string —
+prose, never a key — because the whole point of the rule is that the message names both sides.
+
+The `loopholesruntime.go` skip now prints too, and the message says the part that made the silence
+dangerous: the daemon is not started *but its bind mounts, devices and `jail_env` DID cross into this
+jail*. It fires only when the name did not come from yolo's own builtin — and a **pack** can no longer
+reach it at all (the pre-flight refuses the name at staging), which leaves the hand-placed user
+directory, the one case that is not refused and therefore the one that needs saying out loud.
+
 #### The pack-shipped subset of the manifest, corrected
 
 Draft 1 refused two fields. Review showed the second refusal audits the wrong axis, and measurement
@@ -529,6 +551,35 @@ audio-shaped loophole would set env even when inactive. That is the case that wo
 cross-kind collision pass, and it is purely additive — same claim model, one more pass beside the
 three bespoke ones already there (`footprint.go:311-352`, `:357-384`, `:419-453`).
 
+**Landed 2026-08-14 as a SCHEMA-level subset — and it has NO PRODUCTION CALLER, which is the one
+place this batch left a gap between the rules and the behaviour.** `internal/loopholedecl/packshipped.go`
+implements all three refusals (`jail_env`, the home-relative `host` constraint, `readonly: false`)
+plus §2.1's `publishes: "socket"`-only rule, each with the message naming what to write instead — and
+every problem is reported, not just the first, because these are four independent declarations rather
+than a parse. Two loaders pair it with a decoder: `loopholedecl.LoadDirPackShipped` (STRICT + subset,
+the authoring answer) and `loopholes.LoadPackLoophole` (TOLERANT + subset, the discovery answer, since
+version skew is orthogonal to the subset — an unknown key must not make a pack's loophole vanish while
+a field a pack may not ship is refused whatever build reads it).
+**Measured 2026-08-14: neither loader is called from anything but its tests.** `yolo pack lint` reads
+the module manifest strictly (`LoopholeDeclProblems`) but does not apply the subset; discovery loads a
+pack module through `loadModuleDirs` → `loadManifest`, the same tolerant path a bundled loophole takes.
+So a pack-shipped `jail_env`, an absolute bind `host`, a writable bind or a self-publishing daemon is
+**accepted today**. Wiring is two call sites and no new logic; the guide states the gap rather than
+implying the rules are enforced.
+
+Three implementation facts worth keeping, since they are decisions the requirements did not make.
+**(1) Pack-shippedness is the CALLER's fact, not the manifest's** — expressed by which loader you
+call, never by a field or an option struct, because a manifest cannot declare that a pack shipped it
+(it would simply lie) and every reader already knows which of the four sources it came from.
+**(2) The default `publishes` is refused too**: an absent key decodes to `endpoint`, so a daemon that
+says nothing about publication has declared the mode it may not have, and since the fix is identical
+either way the manifest needs no declared-versus-defaulted bit to carry a better message.
+**(3) `$VAR` is refused alongside absolute paths** in a bind `host`, because `"${XDG_RUNTIME_DIR}"`
+names an absolute path one indirection later — admitting the variable while refusing the literal would
+be a rule about spelling. And the reporting projection (`Loophole.PackShippedProblems`) goes back
+*through* `loopholedecl` rather than reimplementing the rules, because two checkers over one subset is
+how a refusal and a consent string come to disagree about what a pack may ship.
+
 #### A loophole must declare where it can run — REVIEW ADDITION
 
 The framework owning the wire (§2) makes the **transport** portable. It does not make the **daemon**
@@ -558,6 +609,40 @@ runtimes, which we should plan for I guess, but not truly design yet."* A platfo
 what makes such a loophole expressible later without a schema break —
 [`extension-point-principle.md`](extension-point-principle.md)'s rule exactly, and the cost of
 omitting it now is a migration for every manifest in existence at that point.
+
+**Landed 2026-08-14** (`f3f160c`) as `platforms`, in `internal/loopholedecl/platforms.go`. Four
+decisions the requirement left open, each with a reason the next reader would otherwise re-derive:
+
+- **The vocabulary is Go's, and CLOSED on both halves.** An entry is `<goos>` or `<goos>/<goarch>`
+  spelled as `go tool dist list` spells them. The closed list is the whole point: under an open one
+  `"platforms": ["darwins"]` is a loophole supported NOWHERE, on every machine, forever, with no
+  message — the exact silent-nothing shape this field exists to end. Go's own list rather than "the
+  platforms yolo runs on", because the field's units are GOOS/GOARCH: a manifest declaring `windows`
+  is honest and merely never supported, while coupling the enum to backend support would make
+  tomorrow's new backend a migration for every manifest in existence.
+- **Absent means every platform** (so every manifest written before the key keeps its meaning), and an
+  explicitly EMPTY list is an ERROR — honoring it literally makes the loophole inert everywhere,
+  honoring it loosely ignores what the author wrote, and neither is a good silence.
+- **The declaration is static; its EVALUATION is a pure function of `(GOOS, GOARCH)`.** The schema
+  package never reads `runtime.GOOS` — the platform of the machine is not a fact about the schema, and
+  a leaf that reads the world grows an import. `internal/loopholes` supplies the pair, which also
+  makes every combination testable from one process.
+- **The message says nothing is missing.** `PlatformsUnsupportedReason` ends *"Nothing is missing on
+  this machine and nothing can be installed to fix it"*, because the failure the field exists to fix is
+  a Linux-only daemon reported on macOS as an unmet `requires` — and a reader who is not told
+  otherwise spends the afternoon proving there is nothing to install.
+
+**The skew shape, both directions.** A build predating the key reads it tolerantly (unknown ⇒ skipped
+and reported), so it treats the loophole as supported everywhere — today's behaviour, which is why
+adding the key is safe. But **values are not tolerated**, so a GOOS/GOARCH only a newer Go knows is a
+refusal on an older build: that is the `tier` incident's shape, and it is why the lists live beside the
+enums they resemble.
+
+**And "one mechanism with the inert-backend report" is now literal rather than intended** — see §8's
+Landed note: the platform producer shipped as a VALUE (`loopholes.InertNote`, one `Line()` rendering)
+with zero callers, built expecting the backend half to plug in as a second `Axis`. Evaluated **before**
+the `requires` probes and before the in-jail branch, because that ordering is what makes the
+categorical answer win over the probe answer for a loophole that is both.
 
 #### The fatal-collision rule is NOT free, and cannot live in `Discover`
 
@@ -589,6 +674,21 @@ tested invariant across seven call sites.
 `stagePacks` beside the other three (`run/packs.go:248-276`), returning an error so the launch
 refuses. This is real work the design previously priced at zero, and it is now in the landing order.
 
+**Landed 2026-08-14** (`7fd8e8f`): `run.PackLoopholeNameConflicts`, per declaration, taking the
+reserved set as its second input, wired into `stageRunPacks` and returning an error so the launch
+refuses. Three details the requirement did not specify.
+**(1) It lives in `internal/cli/run`, not exported from `packload`**, for the same cycle §3.2 measures:
+`packload` cannot import `internal/loopholes`, so the reserved set is not *nameable* there.
+**(2) The declaration carries the DECLARED `from` beside the resolved dir**, because a user reading
+"two claims on `acme`" needs the two lines of the two manifests to edit — two absolute paths inside a
+staging tree they have never looked at do not tell them that. `from` is resolved against the **staged**
+root, so an `only`/`exclude` filter that removed the module dir is visible here rather than as a
+loophole that "does nothing".
+**(3) Pack-vs-reserved is reported INSTEAD of pack-vs-pack, not as well**, when both apply: it is the
+stronger refusal and reporting both would name one mistake twice. Both messages name both sides, and
+both spell out the consequence that makes the rule fatal rather than cosmetic — the loser's manifest
+would still contribute its binds, devices and `jail_env` while the winner's daemon ran.
+
 ### 3.2 Where the schema has to live — and this is a real blocker, not a case in a switch
 
 **`packload` cannot import `internal/loopholes`. It is a cycle, measured:**
@@ -618,6 +718,21 @@ The alternative — break the `loopholes` → `config` edge, which is only two f
 `loopholescmd.go:16`) — is cheaper in lines and worse in shape, because it leaves schema and runtime
 fused. Marked **OQ-LP1**; either resolves the cycle, and the doc's design does not depend on which.
 
+**Landed 2026-08-14 — OQ-LP1 RESOLVED BY EXTRACTION** (`f9c5990`, `dcd933e`): `internal/loopholedecl`
+is the schema as a leaf (decode + static validation, no `exec.LookPath`, no `os.Stat`, no predicate
+evaluation), and `internal/loopholes` reads the manifest **through** it. The recommended option, and
+the cycle is unchanged rather than broken.
+
+Two things the extraction had to decide, both of which keep "one vocabulary" true rather than merely
+claimed. **`internal/loopholes/schema.go` re-exports the schema as type ALIASES and one-line
+delegations, not new definitions** — twenty-odd call sites across `internal/cli` already spell
+`loopholes.TransportLoopbackTLS` and `*loopholes.HostDaemon`, and they are talking about the same
+things; two definitions would be two things a manifest could disagree with, which is the failure the
+extraction exists to *prevent*, not to relocate. And the split of responsibility is stated where a
+reader picks a package: reach for `loopholedecl` to READ a manifest (the footprint, `pack lint`, a
+host-side validator — none of which may import the runtime), and for `loopholes` to get a RESOLVED
+loophole (paths substituted, `requires` evaluated, container argv emitted).
+
 **The loader also needs the strict/tolerant split it does not have.** `loadManifest` is a hand-rolled
 `jsonx.OrderedMap` walk with **no unknown-key rejection at all** — `"version": 1` is declared by all
 three bundled manifests and documented as the schema version, and nothing reads it. Contrast
@@ -625,6 +740,19 @@ three bundled manifests and documented as the schema version, and nothing reads 
 `DecodeTolerant` for the version boundary (`packdecl.go:144`, `:206`). A pack-shipped loophole
 crosses that boundary — host CLI reads it, and a skewed baked entrypoint may too — so it needs both
 halves. Today it would tolerate skew and never tell an author about a typo.
+
+**Landed 2026-08-13/14** (`5ba8331`, `2ab713f`): `loopholedecl.Decode` refuses an unknown key,
+`DecodeTolerant` skips it and **reports it by name** in a `skipped` slice the caller surfaces as a
+warning. Both strictnesses phrase it for their own audience — *"unknown key … it declares nothing"*
+versus *"ignoring unknown key … a build that knows it will read it"* — and the key census is one
+vocabulary per object so the walk and the census cannot disagree about what is known. `jail_env` and
+`host_daemon.env` are deliberately excluded from the census: their keys are environment variable
+names, so every key in them is known by construction. `"version"` is now *recognized and read by
+nothing*, which is a different and better state than "declared and unnoticed"; it is not an enum yolo
+checks. One consequence to know: `yolo check`'s own walker still reads **tolerantly**, deliberately —
+a preflight answering "would this loophole load" must not report a manifest as broken that the loader
+then happily uses, so adopting the strict decoder there is a behaviour change that belongs with
+whichever change makes unknown keys an author-visible `check` error.
 
 **Sanitize at load, not at display.** Every field that feeds an approval claim (§4.3 G2) — the
 `host_daemon.cmd` strings, intercept hosts, bind-mount paths — must refuse **control characters and
@@ -637,6 +765,19 @@ pre-existing — the same shape applies to today's `mount` claims — but this d
 that prompt from *"may read a home file"* to *"may run code as you"*, so it must not inherit the
 weakness silently. Refusing at load is better than escaping at display: one gate, and the author
 hears about it.
+
+**Landed 2026-08-14** (`internal/loopholedecl/sanitize.go`): every claim-feeding value refuses C0
+controls (newline and tab included), DEL and the C1 range, plus invalid UTF-8 as a backstop —
+`host_daemon.cmd`, `doctor_cmd`, `jail_daemon.cmd`, intercept hosts, bind-mount host *and* container
+paths, device nodes, `ca_cert`, `state_files`, and the loophole's own name, which is every claim's
+target. The error names the rune and the byte offset and says *why*, so the author does not read it as
+prudishness about odd bytes. Two scope decisions worth keeping: it is deliberately **not** a general
+"no weird characters" rule — `description` and env keys/values are not sanitized, because they feed no
+claim target or detail today and widening the refusal to fields with no consumer rejects manifests for
+no reason (**a field that starts feeding a claim must join the list in the same change**) — and the
+invalid-UTF-8 branch is knowingly a backstop, since `json5.Decode` already substitutes U+FFFD, kept
+because "a value that reaches the approval prompt is text" must not depend on a decoder detail one
+layer down.
 
 ### 3.3 Footprint entry — one contribution, several claims, and the enumeration must be TOTAL
 
@@ -701,6 +842,49 @@ loophole  acme-proxy:dev:/dev/snd   PASSES THROUGH the host device /dev/snd     
 - **`state_files` needs no claim.** It resolves under `StateDirFor(name)` in yolo's own state tree
   (§8), not into a path the user would recognise as theirs.
 
+**Landed 2026-08-14** (`423c4af`) in `internal/packload/loopholesource.go`, with the table above as
+the spec. Three things the enumeration turned out to need that the design did not state, and one it
+stated in a form the implementation could not keep.
+
+**A `jail_daemon` gets no claim either**, for the reason `state_files` gets none: it is a process
+inside the container, which is the one place a pack's code was always allowed to run.
+
+**An UNREADABLE manifest is a claim, not the absence of one.** The rule was written about a crossing
+that claims nothing, and the same short-circuit fires when the manifest cannot be parsed at all — so a
+module whose manifest fails to load still yields a module record carrying one fail-closed claim
+(*"declaration UNREADABLE at &lt;from&gt; — its claims cannot be enumerated"*), marked as host
+execution, because a manifest this build cannot read may well declare a daemon. A REFUSED declaration
+(absent dir, name collision) yields no module and so no claim, which is right: nothing crosses,
+because nothing will be discovered, and the refusal is reported by the paths that act on it.
+
+**The claims are read TOLERANTLY, and that is the gate's choice rather than the author's.** A key only
+a newer build knows is skew; refusing the manifest at the claim producer would turn a working loophole
+into an unreadable one, re-prompt for approval, and — since the prompt fails closed on a non-TTY —
+refuse the loophole permanently. Tolerant enumerates exactly what THIS build understands, which is
+exactly what it will honor, so the claim set and the effect cannot disagree. The STRICT read is
+`pack lint`'s.
+
+**CORRECTION — the socket class's discriminator is coarser than this section specified, and it could
+not have been otherwise.** The design says *"treat a socket bind as its own claim class"*, which reads
+as a fact about the path. Nothing in the producer may stat it, for two independent reasons: the `host`
+value is **raw** (`{loophole_dir}/asound.conf`, `${XDG_RUNTIME_DIR}/pulse/native`), and resolving
+either is exactly what G2a forbids because it makes the claim machine-specific; and a stat is a fact
+about *this machine at this moment*, so a claim that changed class when the socket happened to be
+absent would re-prompt on the machine where it is missing. So the test is the only static evidence
+there is: **`readonly: false`** — the manifest itself saying the bind is bidirectional, which is what
+every socket bind in-tree declares and how this doc's own audio count reads them — **or a
+`.sock`/`.socket` basename**. A `:ro` bind of a socket with a non-obvious name therefore lands in the
+MOUNT class, which is why that class's text carries the socket caveat **verbatim** rather than claiming
+"read-only" and stopping: nothing is understated, only the discriminator is coarse. **The precise fix
+is a declared socket bit in `internal/loopholedecl`**, which makes the class a fact the author states
+rather than one yolo infers.
+
+One rendering decision, because it looks cosmetic and is not: the argv is joined with **shell
+quoting**, and that is about INJECTIVITY rather than about a shell. Nothing execs the string (the spawn
+reads the argv list), but a claim is a comparison key, and a bare space join is not injective —
+`["sh","-c","a b"]` and `["sh","-c","a","b"]` collapse onto one approved claim, which is the same
+failure an ellipsis would cause, arrived at by accident.
+
 **Where the claims are produced — NOT `packdecl`.** Draft 1's §4.3 G2 put them on
 `Manifest.HostAccessClaims()`. That method is a pure walk over decoded `pack.json` bytes
 (`contributes.go:607-623`); `packdecl` has **zero internal imports** by design (`kinds.go:13-17`),
@@ -719,6 +903,19 @@ with a comment at `packs.go:388-391` warning what happens when one is updated an
 A third makes it worse. **Requirement: one helper that merges all producers, called at both sites,
 with a test that fails if a site calls a producer directly.**
 
+**Landed 2026-08-14** (`497c76e`), both halves. `LoopholeHostAccessClaims()` lives on `*Pack`, reading
+through `internal/loopholedecl`, exactly as the precedent said; and `Pack.HostAccessClaims()`
+(`internal/packload/hostaccess.go`) is the merged union of all three producers, called by
+`resolveHostApproval` (which PROMPTS and records the lockfile) and by `packMayAccessHost` (which CHECKS
+it at launch), with `hostaccessgates_test.go` failing at the source level if either gate reaches for a
+producer directly. Two implementation notes: the union is **deduplicated**, because a set reached by
+two producers is one thing to approve and a duplicate would make the approved set's length depend on
+how the claim was derived; and it returns **nil** rather than an empty slice for no claims, because
+`len(want) == 0` is the gates' own "nothing to approve" test and both spellings must read the same
+there. The drift this closes is asymmetric and both directions are bad — a producer added to the
+prompt only honors an unapproved crossing, and one added to the launch only refuses a pack with no
+route to approving it.
+
 **Mechanical costs**, each enforced by an existing test that fails until updated: `kinds_test.go:30`
 hardcodes `14`; `kinds_test.go:99-107` hardcodes the review-worthy set; `applyhostcensus_test.go`
 fails by name until the kind appears in `apply --host` output — and note it builds its pack from
@@ -729,9 +926,26 @@ new kind needs a census entry whose `from` dir and `manifest.jsonc` the helper m
 (`:901-911`) duplicate the claim-formatting loop despite `:464-466` claiming they are shared "so
 their output does not drift" — a new marker has to be added twice or the two commands diverge.
 
+**All paid 2026-08-14.** `kinds_test.go` reads `15`; the review-worthy set includes `loophole`; the
+census pack gained a `loophole` contribution with a real module dir and manifest; both docs name the
+kind. The claim-formatting duplication was fixed rather than paid twice — one shared `printClaimLines`,
+so the comment that claimed they were shared is now true — and it carries **two** markers rather than
+one, because `ReviewWorthy` is a single boolean now carrying two very different propositions:
+`⚠ RUNS CODE ON YOUR MACHINE` for host execution and `⚠ review` for a host read. R4's complaint about
+`reviewSummary` is fixed in the same place: executions are counted separately and **first**, named for
+what they do, so a pack that runs a daemon no longer reads as *"1 loophole"*.
+
 **And one cost NO test catches:** `notePackHostAccess` (`run.go:230-243`) switches on
 `KindMount, KindReadsHost, KindEnv` and drops every other claim kind. Its own comment calls it
 *"the transparency half of the approval model"* — see §4.3 G4, which also fixes its ordering.
+
+**CORRECTION, found when that fix landed: this was never only about the `loophole` kind.** The
+sentence above implies the hardcoded set was correct for the kinds that existed and merely lacked the
+new one. It was **already wrong for two SHIPPED kinds** — `program via installer` (a curl-to-shell
+URL) and `briefing after host:` (which reads the host home) are both host reads that
+`HostAccessClaims` produces an approval claim for, and **neither appeared at any launch**. That is
+what the missing test was hiding, and it is why the fix is the general one (a data table, exhaustive
+over the kind set by test) rather than "add the loophole kinds". See §4.3 G4's Landed note.
 
 **Correction to draft 1's `pack footprint` requirement.** It asked that `pack footprint` *"say which
 side of the gate the claim is on"*. That command cannot report a fetched pack at all: `packFootprint`
@@ -739,6 +953,11 @@ handles a local/`file://` dir or an embedded pack NAME and errors otherwise (`pa
 the wants-versus-gets distinction has no surface there. It belongs at `yolo pack install`'s prompt
 (`pack.go:1089-1123`) and in the launch-time refusal lines (`run/packs.go:218-231`) — or
 `pack footprint` grows the ability to take a configured pack name, which is a separate, small item.
+**Still true 2026-08-14** (the command's argument handling is unchanged), and one deliberate decision
+about the footprint's loophole claims sits beside it: they are **not** gated on `MayAccessHost`, unlike
+`reads-host`/`mount`. Those two report what will be HONORED; a loophole claim reports what the pack
+**WANTS**, which is the question a footprint answers — hiding a fetched pack's daemon argv from the
+footprint would hide exactly the line the reader came for.
 
 ### 3.3a The kind is an A12-fatal boot break against a stale image — the `tier` incident, third time
 
@@ -812,6 +1031,13 @@ derivation as a correct default. Measured: `Target.Fields()` has **no production
 its actor is the run pipeline"**, not "honored automatically". If the FieldSet is to remain the
 census's executable form, `loophole` should be excluded from `JailFields()` explicitly rather than by
 derivation, so the census does not assert something no code reads.
+
+**Landed 2026-08-14, both halves as specified.** `refusalReasons` carries the inverse-reason sentence
+verbatim (*"a host daemon whose only client is a container"*), so the generic line is unreachable; and
+`loophole` is an explicit `JailFields()` **exclusion** rather than a derived `true`, with the comment
+recording why — its jail-side effects are real (`--add-host`, bind mounts, `jail_env`) but they are
+produced by `startLoopholes` in the host CLI **before the container exists**, so if anything renders a
+loophole in a jail, it is not the entrypoint's surface loop.
 
 **`guest` is the real question and this doc does not pre-answer it.** `Target.Fields()` funnels
 `KindGuest` into `HostFields()` today (`fieldset.go:171`). A guest is a real process on the real
@@ -1328,6 +1554,32 @@ slots in and is what `yolo loopholes list` prints (`loopholescmd.go:117`). Seque
 right: `stagePacks` runs at `run.go:158`, well before `assembleRunCmd` (`:486`) and `startLoopholes`
 (`:516`).
 
+**Landed 2026-08-14** (`7fea38e`, `e6987f0`, `ff32876`, `f764d73`): `loopholes.Set` is the constructed
+value and `loopholes.NewHostSet` is THE constructor — bundled + the pack modules this process recorded
++ the user dir + the given config block — so a consumer cannot assemble a different view, cannot forget
+`IncludeBundled` (whose zero value is `false`, which every old call site had to remember to set), and
+cannot bypass the origin gate. The convergence is asserted structurally: one test walks the census
+files, and another pins that the census is **seven over six files plus the walker** (`assemble_parts.go`
+carries two of the seven, which is why the counts differ).
+
+**The requirement's "until it exists" clause became permanent, and that is the load-bearing half.**
+`RunDoctorChecks` does not merely *take* gated loopholes — it **refuses to execute a pack-sourced
+record** unless the caller recorded that the pack's host access was approved, and a `Set` assembled by
+hand (`SetOf`) carries no gate at all, so `MayRunHostCode` is false for every pack record in it. The
+reason it is enforced in the callee is exactly the fork above: sites 5 and 7 have no pack resolution,
+no lockfile and no `packMayAccessHost` in reach, so a rule they were merely *asked* to follow is a rule
+the next call site does not know about — and a slice carries no gate. The refused record comes back
+with `RC=nil` and an explanation naming `yolo pack install`, rather than silently.
+
+Three more things the requirement did not list. **`PackModules()` is empty-is-fail-safe at every
+branch** — a process with neither a staged record nor a resolver sees no pack loopholes at all, because
+a pack loophole missing from `yolo loopholes list` is a visible omission while an unaudited daemon
+self-check executing under a read-only preflight would not be. **`ValidateLoopholes` (site 7) stays a
+walker rather than becoming a `Discover` call**, because its whole job is reporting bad manifests and
+`Discover` swallows per-manifest failures by contract; it reads the *same* recorded modules, and pairs
+with the gate through `ValidateSet` so a caller that both reports and executes gets both from one walk.
+And **the briefing bug §5.1 names below was fixed in the same change** — see there.
+
 **Precedence — draft 1's line is DELETED.** It said `bundled < pack < user < config-override`, with
 pack-vs-bundled collisions fatal. Those two sentences contradict each other, and under a
 warn-and-last-wins implementation the precedence line wins: a pack loophole named
@@ -1338,9 +1590,20 @@ the broker from one manifest, no message. **Corrected: pack-vs-reserved is refus
 pre-flight (§3.1) and therefore never reaches an ordering.** What remains is `user` overriding
 `pack`, and `config-override` on top, exactly as today.
 
+**Landed 2026-08-14 exactly as corrected:** pack modules sit between bundled and the user dir in
+`Discover`'s ordering, so a hand-placed user directory still overrides a pack's loophole (it carries the
+user's own authority), and a pack claiming a reserved name never reaches the ordering because the
+pre-flight refused it at staging. The broker lookup is additionally pinned unshadowable by a test.
+
 **One shipped bug to fix while here:** the briefing path (`prepare.go:61-66`) filters on `Enabled`
 only, not `Active()`. So an enabled-but-inactive loophole is advertised to the agent as a live
 capability. Pre-existing and orthogonal, but a pack-shipped loophole makes it more visible.
+**Fixed 2026-08-14**, and it belongs to the convergence rather than beside it: every other consumer of
+the set already keyed on `Active()` (the container argv, the daemon spawn, the broker predicate), so the
+briefing was the one surface that did not — which is precisely the divergence the convergence exists to
+remove. The concrete harm is that the briefing is *instructions the agent acts on*: telling it audio is
+available when the sockets never crossed is how an agent comes to debug ALSA instead of reading one line
+saying the loophole is inactive here.
 
 ### 5.2 `yolo loopholes enable/disable` and the pack-shipped case
 
@@ -1368,6 +1631,17 @@ a pack loophole's disabled state is recorded somewhere the validator already und
 Unifying *all four* sources on config-side enabled state would also delete `SetEnabled`'s
 comment-destroying RMW and is the better end state — but it changes behaviour for bundled and
 user-dir loopholes, so it is a separate decision.
+
+**Landed 2026-08-14 — the prerequisite is met by the FIRST of its two options.** The resolver joined
+the converged set (it reads `PackModules()`), so `loopholes.<name>.enabled` on a pack-shipped loophole
+now resolves to a real `LoopholeInfo` and takes the OVERRIDE path instead of the unknown-name fallback
+that printed *"no loophole named 'x' is installed on this machine"* at every launch. The second option
+was rejected for a reason worth keeping: recording a pack loophole's state somewhere else would give
+one name two homes. The CLI message was retargeted at the user config in the same batch as G1. **What
+did NOT change:** `CmdSetEnabled` still serves only the hand-placed user directory, because it
+read-modify-writes a `manifest.jsonc` and a pack's manifest lives in a staged tree — so the
+enable/disable unification above remains a separate, unmade decision. (It is also what OQ-LP10 would
+force, by leaving that command with no special case to serve.)
 
 ### 5.3 Defaults: a pack-shipped loophole is ALWAYS opt-in
 
@@ -1523,6 +1797,19 @@ matter more than the example does.**
    footprint claims, the approval prompt, the `:ro` binds and teardown **in a nested jail**, and the
    `--device` claim only on a non-jail host. Say that rather than claiming end-to-end proof.
 
+**NOT BUILT as of 2026-08-14, and a fourth correction is now checkable.** The claim count holds against
+the shipped producer: `audio`'s three binds split **two IPC** (both declare `readonly: false`) and
+**one MOUNT** (`{loophole_dir}/asound.conf`, which is `readonly: true` and not socket-named), plus
+`/dev/snd` — four claims, no daemon, no intercepts, exactly as item 1 says. But the example cannot be
+`audio` **as written**, for a reason that is a subset rule rather than a claim rule: its bind hosts are
+`${XDG_RUNTIME_DIR}/…`, and a pack-shipped loophole may not name an env-expanded or absolute host path
+(§3.1 requirement 1). So the socket pass-through the loophole exists for is **inexpressible by a pack**,
+and item 2's "the honest cost is the `jail_env` conditionality alone" is one cost short: the two costs
+are the `jail_env` conditionality *and* the home-relative constraint. The worked example, when it is
+written, is therefore `audio`-**shaped** — a `mount`-and-`env` pack demonstrating the same claim
+classes — rather than a copy of `audio`. Worth knowing before item 9 of the landing order is started,
+since it changes what "dogfood" proves.
+
 ---
 
 ## 8. Interception survives — and here is the (corrected) proof
@@ -1611,21 +1898,35 @@ claim readable without executing anything."* A declared argv **is** static data,
 stays literally true. But its spirit was "reading a manifest tells you everything and costs you
 nothing", and now: reading the claim is safe, *selecting* it is host execution. **That sentence must
 be sharpened in the same commit that adds the kind.** `program` already bends it in-jail; a loophole
-breaks it on the host.
+breaks it on the host. — **Done 2026-08-14**: sharpened in `pack-system.md` §12, which now says the
+cost of *looking* is unchanged and the cost of *selecting* is not, and records the old sentence so the
+change is legible rather than silent.
 
 **R2 — nothing here has run.** No pack-shipped loophole exists. The two places a first
 implementation is most likely to be wrong are still orderings rather than shapes: the **seven-surface
 discovery convergence** (§5.1) and the **publish-after-upstream** ordering (§2.1b) — and the second
 now has a second failure mode (stale socket) that draft 1's fix did not cover.
+**Still open 2026-08-14, and narrowed to the part that matters.** Both orderings have now shipped with
+tests (the convergence structurally, the readiness path with deadline-bounded round trips), so the
+risk is no longer "these two are probably wrong". What remains is the original sentence: **no
+pack-shipped loophole instance has ever been selected, approved and spawned**, so nothing here has
+been exercised end to end. Item 9 of the landing order is what would close it, and §7 now records that
+the intended example cannot be `audio` unchanged.
 
 **R3 — the front's limits are invisible to the daemon author.** No EOF propagation (§2.1b hazard 2)
 and no per-request access log (hazard 3). The first turns a working daemon into a hang; the second is
-an audit gap that only shows up when someone asks what a jail requested.
+an audit gap that only shows up when someone asks what a jail requested. — **Half closed 2026-08-13**:
+EOF propagation is now a declared `request_end`, so the hang is one manifest word away rather than
+invisible, and the guide says so. The audit gap stands at its honest ceiling (connection-level).
 
 **R4 — `pack footprint`'s review tail conveys nothing for this kind.** `reviewSummary`
 (`pack.go:945-960`) counts by kind, so a loophole reads `1 loophole`. For host execution the count is
 the least interesting fact. Either it special-cases or the summary changes shape. (And per §3.3, that
-command cannot see a fetched pack at all.)
+command cannot see a fetched pack at all.) — **Fixed 2026-08-14** by the first option: executions are
+counted separately from the by-kind tail and printed **first**, named for what they do
+(*"N RUNNING CODE ON YOUR MACHINE"*), because that outranks every read in the list. The per-claim lines
+carry two markers for the same reason (`⚠ RUNS CODE ON YOUR MACHINE` versus `⚠ review`). The
+fetched-pack half of the parenthesis is unchanged.
 
 **R5 — doc/code drift found while writing this, all pre-existing.** `docs/guides/loopholes.md`'s
 "Manifest schema (v1)" omits `host_daemon`, `jail_daemon`, `host_bind_mounts`, `host_devices` and
@@ -1638,20 +1939,42 @@ validation errors** (§4.3 explains why that mismatch is load-bearing rather tha
 unknown. And `runtime.go:278` still names a `src/loopholes.py` that no longer exists — `SetEnabled`
 writes that header into every manifest it toggles.
 
+**Status 2026-08-14, item by item, because they closed at different times.**
+
+- The five omitted keys: **fixed** — the guide's schema block carries all of them, plus `publishes`,
+  `request_end` and now `platforms`, and it names the second half of the census as *"every key with a
+  host-side effect"* so the omission cannot recur unnoticed.
+- `description` marked required: **fixed** — the guide states that only `name` is required.
+- `knownHostServiceKeys`: **fixed** — it is now
+  `set("command","env","jail_socket","jail_endpoint","doctor_cmd","description")`, so the canonical
+  validator and the loader agree about which keys exist. The `jail_endpoint` contradiction went with it
+  (`jail_endpoint` is the canonical override and `jail_socket` an accepted alias).
+- `src/loopholes.py`: **STILL PRESENT** — `internal/loopholes/runtime.go`'s `SetEnabled` writes
+  `// yolo-jail loophole manifest. See src/loopholes.py for schema.` into every manifest it toggles,
+  and that file has not existed since the Go port. The correct reference is now
+  `internal/loopholedecl`. It is a one-line fix in a `.go` file and is the last live row of R5.
+
 **R6 — the claim-count grows the prompt, and a long prompt is a skimmed prompt.** With the total
 enumeration (§3.3) an audio-shaped pack emits **four** claims (counted from
 `bundled_loopholes/audio/manifest.jsonc`: three `host_bind_mounts` — two of them sockets, so the IPC
 class — plus `/dev/snd`; no daemon and no intercepts) and a proxy-shaped one emits three or four.
 That is honest, and it is also the shape people click through. Nothing here solves it; grouping by
 loophole in the display while keeping per-claim strings in the lockfile is the obvious mitigation and
-is a display concern, not a model one.
+is a display concern, not a model one. — **Still open 2026-08-14**, and the count is now confirmed
+against the shipped producer (the two `readonly: false` binds land in the IPC class, `asound.conf` in
+MOUNT). What did improve is legibility rather than length: R4's two markers and the exec-first tail
+mean the *one* line that matters in a long list is the one that stands out.
 
 ### Open questions
 
-**OQ-LP1 — where does the loophole manifest schema live?** `packload` cannot import
-`internal/loopholes` (cycle, measured §3.2), and the footprint needs to read the daemon argv.
-Recommend extracting `internal/loopholedecl` as a stdlib+decoder leaf; the alternative is breaking
-the `loopholes` → `config` edge (two files). **Resolved by:** choosing one.
+**OQ-LP1 — where does the loophole manifest schema live? ✅ RESOLVED BY EXTRACTION, 2026-08-14.**
+`packload` cannot import `internal/loopholes` (cycle, measured §3.2), and the footprint needs to read
+the daemon argv. The recommendation was taken: `internal/loopholedecl` is the schema as a
+stdlib+decoder leaf (`json5`/`jsonx`/`pytext` only), `internal/loopholes` reads through it and
+re-exports the vocabulary as type ALIASES so there is one `HostDaemon` type rather than two that
+happen to match, and the `loopholes` → `config` edge is untouched. The payoff the recommendation
+predicted is what `packload.LoopholeHostAccessClaims` uses: the schema is readable by the footprint,
+by `pack lint` and by a host-side validator without dragging the runtime predicates along.
 
 **OQ-LP2 — do the `loopholes` block's host-exec keys become user-scope-only now? RULED: YES**, for the
 INSTALL-shaped keys (§4.3b's table: `command`, `doctor_cmd`, `env` in both shapes; `enabled` and
@@ -1821,6 +2144,10 @@ consumer. **Resolved by:** a maintainer ruling; nothing in this design blocks ei
 Ordered, because the first three make the rest safe to read. Items **0**, **5b** and **5c** are new
 in revision 2 and are real work draft 1 priced at zero.
 
+**Ledger, 2026-08-14: items 0–8 are DONE; item 9 is not started.** Three residuals sit *inside* done
+items and are the whole of what is left besides item 9 and OQ-LP9: the pack-shipped **subset** is
+built and unwired (item 5), and **G2a/G2b** are unbuilt (item 6).
+
 0. **Tolerate an unknown KIND under `TolerateSkew()`** (§3.3a), with a regression test that a
    manifest carrying one still boots a jail. **Before the kind exists**, or every pack that declares
    it bricks a jail running a pre-`just load` image. This is the `tier` incident's third appearance.
@@ -1844,11 +2171,26 @@ in revision 2 and are real work draft 1 priced at zero.
      `ValidateConfig` (so `yolo check` + the launch preflight), from `LoopholeEntryErrors` (so
      `loopholes list`/`status`, which executes `doctor_cmd`), and from `startExternalService` — the
      spawn face, which is the only one that also sees a MANIFEST's `host_daemon.cmd`.
-     **Still owed:** a manifest's own `doctor_cmd` (run by the doctor path, which carries no
-     workspace), loophole MODULE dirs, and the pack-shipped `loophole` kind's dir — the last two are
-     moot until item 5 exists. The check is deliberately conservative about what counts as a path
+     **The manifest faces then landed too, 2026-08-14** (`internal/loopholes/placement.go`, called at
+     the spawn): the module dir, `host_daemon.cmd` and `doctor_cmd`. The seam is a thin method
+     projecting onto the ONE tree comparison in `internal/config`, never a second copy of the rule —
+     the config faces and the manifest faces have to agree about what "inside the workspace" means, and
+     two comparisons is how they would come to disagree. It lives in `internal/loopholes` because two
+     of the three targets are RUNTIME resolutions (the module dir after symlinks, the argvs after
+     `{loophole_dir}` substitution) and a resolved record is the first place those exist; and it is
+     enforced at the SPAWN rather than at discovery for the reason a name collision cannot be enforced
+     in `Discover` either — no error channel, and the spawn is the last moment before the code runs. A
+     refused MODULE DIR **suppresses** the argv refusals under it, because `{loophole_dir}` resolves to
+     that dir, so a module dir in an agent-writable tree means every host-side field names an
+     agent-writable target — including the ones the rule cannot see (a Python daemon's imports, a
+     binary's `dlopen`) — and checking the dir is a statement about all of them at once: one mistake,
+     one message. A caller with no workspace (the doctor path) narrows the rule to the jail-home tree
+     rather than disabling it. The check is deliberately conservative about what counts as a path
      (no whitespace, no shell metacharacters), because a false positive refuses a working loophole at
      every launch; §4.3a's "cannot be complete" limit now has a second, narrower edge to name.
+     **Nothing is owed here now** — but note the rule reaches a pack's module dir only through the
+     resolved record, i.e. at the spawn, not at `pack install`, which is where §4.3a's *"refused at
+     install, by name"* wording pointed.
    - **1b.** Make `loopholesWithConfig` refuse (or drop) `loopholes` entries that fail
      `validateInlineService` — a command that executes what it reads must not read through a path
      that skips validation (§4.1). — **done 2026-08-13** (`3bf3a5e`); the refusal names the actual
@@ -1866,15 +2208,36 @@ in revision 2 and are real work draft 1 priced at zero.
    hazard 2 forbids — and still called the mechanism unbuilt. `publishes`/`request_end` are also in
    `docs/guides/loopholes.md`'s schema now, which is where hazard 2 asked for them.
 4. **`internal/loopholedecl`** (OQ-LP1), because the footprint depends on it.
+   — **done 2026-08-14** (`f9c5990`, `dcd933e`), by extraction rather than by breaking the
+   `loopholes` → `config` edge, plus the strict/tolerant split (`5ba8331`) the old loader did not have
+   at all. See §3.2.
 5. **The `loophole` kind** (§3): the `refusalReasons` entry and the explicit `JailFields()` exclusion
    (§3.4), the **total** claim enumeration (§3.3), the load-time control-character refusal (§3.2),
    the reserved-name refusal, the home-relative bind-mount constraint, the
    **`publishes: "socket"`-only rule for pack-shipped loopholes** (§2.1), and the
    **platform-support declaration** sharing one mechanism and one message with 5d's
    inert-on-backend report (§3.1, §8).
+   — **done 2026-08-14** (`423c4af` for the kind and the claims, `f3f160c` for `platforms`,
+   `a8474cc` for the subset, `c213f84` for the placement rule's manifest faces). `KnownKinds()`
+   returns fifteen; `from` is required and traversal-guarded; Exclusive by loophole NAME; the
+   `refusalReasons` entry and the `JailFields()` exclusion are both explicit; the control-character
+   refusal covers every claim-feeding field.
+   **ONE PART IS BUILT BUT NOT WIRED, and it is the pack-shipped SUBSET** — the `jail_env` refusal,
+   the home-relative bind constraint, the `readonly: false` refusal and the `publishes: "socket"`-only
+   rule are implemented and tested in `internal/loopholedecl/packshipped.go`, reachable through
+   `LoadDirPackShipped` (authoring) and `loopholes.LoadPackLoophole` (discovery), and **measured
+   2026-08-14: neither loader has a production caller.** `pack lint` reads the module manifest strictly
+   without the subset; discovery goes through `loadModuleDirs` → `loadManifest`, the bundled path. So
+   those four rules do not fire today. Two call sites, no new logic.
    - **5b.** The **fourth bespoke pre-flight** for loophole-name exclusivity, wired into `stagePacks`
      beside the other three (§3.1). `packload.Collisions` does not do this and is not called at
      launch.
+     — **done 2026-08-14** (`7fd8e8f`): `run.PackLoopholeNameConflicts`, per DECLARATION (so a single
+     pack declaring two same-basename module dirs is caught, which the generic loop's
+     `len(packSet) < 2` skip cannot see), taking the reserved set as its second input, returning an
+     error from `stageRunPacks`. It lives in `internal/cli/run` rather than `packload` because the
+     reserved set is not *nameable* there (the §3.2 cycle), and pack-vs-reserved is reported instead
+     of — not as well as — pack-vs-pack, so one mistake is named once.
    - **5c.** The **retirement-on-deselect** artifacts (§4.5): a pack→state ownership record at
      staging, a detector on the launch path, and a `prune` sweeper for the state tree. Plus the
      process-**group** kill on teardown.
@@ -1905,6 +2268,15 @@ in revision 2 and are real work draft 1 priced at zero.
      with zero callers, and the backend half plugs into it as `AxisBackend` rather than
      formatting a second sentence. Backend beats platform when both apply, because the
      actionable line is "switch backends", not "get a different machine".
+     The **convergence** is `loopholes.NewHostSet` (`7fea38e`, `e6987f0`), pinned by two tests: one
+     walks the census files, one asserts the census is seven over six files plus the walker. Its
+     load-bearing half is not the value but the **callee-enforced gate**: `RunDoctorChecks` refuses to
+     execute a pack-sourced record without a recorded approval, and a hand-assembled `Set` carries no
+     gate — so the two read-only-looking preflight commands cannot run an unapproved fetched pack's
+     `doctor_cmd` even by mistake, which a rule they were merely asked to follow could not guarantee.
+     It also fixed two silences the item did not list: the briefing advertising enabled-but-INACTIVE
+     loopholes to the agent (§5.1), and the builtin-name daemon skip that dropped a daemon without a
+     word while its binds and devices crossed (§3.1).
 6. **The approval invariants**: commit-anchored exec claims (§4.3 G2b, giving `ApprovedAt` its first
    reader), the raw-unelided claim-string rule (§4.3 G2a), one merged claim helper called at both
    gates (§3.3), and `notePackHostAccess` extended and moved **before** `startLoopholes` (§4.3 G4).
@@ -1918,10 +2290,22 @@ in revision 2 and are real work draft 1 priced at zero.
    statement order: `startLoopholesDisclosed` is the sole call site of `startLoopholes` (pinned),
    and the test reads the spawn side's own first side effect — asserting merely that the line
    printed would pass under the OLD ordering, which is how it survived.
-   **Still owed from item 6:** G2a, G2b and the merged claim helper, all of which are about the
-   `pack install` gate rather than the launch.
+   **The merged claim helper also landed 2026-08-14** (`497c76e`): `packload.Pack.HostAccessClaims`
+   is the one union of all three producers, called by both gates, with a source-level test that fails
+   if either gate reaches for a producer directly (§3.3).
+   **Still owed from item 6: G2a and G2b only** — the raw-unelided claim-string RULE holds in the
+   loophole producer by construction (nothing is elided, placeholders stay unexpanded, and the argv is
+   shell-quoted for injectivity), but it is not asserted for the other producers; and the
+   commit-anchored exec approval is unbuilt — `ApprovedAt` is written and **still has no reader**, so a
+   pack whose daemon file changes without its argv changing re-installs with no prompt.
 7. **`pack-system.md` §12's first invariant, sharpened** (R1) — in the same commit as the kind.
+   — **done 2026-08-14**: the invariant now separates the cost of *looking* from the cost of
+   *selecting*, and quotes the sentence it replaces so the change is legible.
 8. **`pack-capabilities.md` rewritten per §6** — done 2026-08-13.
 9. **The `audio` example pack** (§7), as the end-to-end proof of discovery, selection, the footprint
    claims, **the approval prompt**, the `:ro` binds and teardown — with `--device` observable only
    off a jail host.
+   — **NOT STARTED 2026-08-14**, and it is the only item left that would make R2's "nothing here has
+   ever run" false. §7 now records that it cannot be `audio` unchanged: two of `audio`'s own
+   declarations are outside the pack-shipped subset (`jail_env`, and `${XDG_RUNTIME_DIR}` bind hosts
+   that are not home-relative), so the example is `audio`-**shaped** rather than a copy.
