@@ -10,10 +10,15 @@ package run
 // packload is a cycle), and the inert report reads the backend.
 
 import (
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/json5"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -270,4 +275,117 @@ func TestShippedAudioPackResolvesItsModuleDirToken(t *testing.T) {
 		t.Error("the bind must be read-only — the subset refuses a writable one, so a false " +
 			"here means the record and the gate disagree")
 	}
+}
+
+// selectEmbeddedAudio points HOME at a scratch config selecting the embedded `audio` pack,
+// and clears the process-wide pack-module record so the LAZY resolver is what answers.
+//
+// Both halves are needed: without ResetPackModules a staged record from another test would
+// satisfy the lookups below and the assertion would pass without the resolver working at all.
+func selectEmbeddedAudio(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"),
+		[]byte(`{"packs": ["audio"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loopholes.ResetPackModules()
+	t.Cleanup(loopholes.ResetPackModules)
+}
+
+// THE LAZY RESOLVER MUST SEE AN EMBEDDED PACK'S LOOPHOLE — the regression test for a defect
+// this pack made reachable, found by running the shipped binary rather than by reading.
+//
+// resolvePackLoopholeModules skipped every embedded entry under the comment "an embedded pack
+// ships no loophole today". The `audio` pack is the first that does, and the resolver backs
+// the three census surfaces that never stage: config validation (which runs BEFORE
+// stageRunPacks on the launch path), `yolo loopholes list`/`status`, and `yolo check`.
+// Measured symptoms before the fix, with `packs: ["audio"]` selected:
+//
+//	$ yolo loopholes list          # audio-alsa absent entirely
+//	config.loopholes.audio-alsa: no loophole named 'audio-alsa' is installed on this machine
+//
+// That warning is the exact §5.2 prerequisite this resolver exists to satisfy, and it is the
+// same sentence a user gets when a pack genuinely failed to stage — so the one case it fired
+// on was the case where nothing was wrong.
+func TestLazyResolverSeesAnEmbeddedPackLoophole(t *testing.T) {
+	selectEmbeddedAudio(t)
+	mods := resolvePackLoopholeModules()
+	if len(mods) == 0 {
+		t.Fatal("the lazy resolver returned no modules for a selected EMBEDDED pack that " +
+			"ships a loophole — `yolo loopholes list` would omit it and config validation " +
+			"would warn that it is not installed, at every launch")
+	}
+	var dirs []string
+	for _, m := range mods {
+		dirs = append(dirs, m.Dir)
+		if !m.HostExecApproved {
+			t.Error("an embedded pack's loophole must be host-exec approved: its content " +
+				"shipped in the binary the user ran, and there is no lockfile entry that " +
+				"could ever record an approval for it")
+		}
+	}
+	found := false
+	for _, d := range dirs {
+		if filepath.Base(d) == "audio-alsa" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no module dir named audio-alsa among %v", dirs)
+	}
+}
+
+// The user-visible half of the same fix: `loopholes.audio-alsa.enabled` validates with NO
+// unknown-name warning while the pack is selected.
+//
+// Asserted through ValidateConfig — the surface `yolo check` and the launch preflight both
+// call — rather than through the resolver, because the warning is what a user actually reads
+// and it is what made the defect visible.
+func TestPackLoopholeNameValidatesWithoutAnUnknownNameWarning(t *testing.T) {
+	selectEmbeddedAudio(t)
+	raw, err := json5.Decode([]byte(
+		`{"packs": ["audio"], "loopholes": {"audio-alsa": {"enabled": false}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, ok := raw.(*jsonx.OrderedMap)
+	if !ok {
+		t.Fatal("config fixture did not decode to an object")
+	}
+	errs, warns := config.ValidateConfig(cfg, t.TempDir(), loopholes.NewResolver())
+	if len(errs) != 0 {
+		t.Errorf("disabling a pack-shipped loophole must be valid, got errors: %v", errs)
+	}
+	for _, w := range warns {
+		if strings.Contains(w, "no loophole named") {
+			t.Errorf("a SELECTED pack's loophole must resolve, so this entry takes the "+
+				"override path rather than the unknown-name fallback; got: %s", w)
+		}
+	}
+
+	// And the resolver reports it as KNOWN, which is the fact the warning is derived from.
+	known, _ := loopholes.NewResolver().Known()
+	if _, ok := known["audio-alsa"]; !ok {
+		t.Errorf("the resolver must know audio-alsa; knows: %v", knownNames(known))
+	}
+	// The bundled loophole is still known too — the pack is additive.
+	if _, ok := known["audio"]; !ok {
+		t.Error("the BUNDLED audio loophole must still be known")
+	}
+}
+
+// knownNames is a sorted name list for a failure message.
+func knownNames(known map[string]config.LoopholeInfo) []string {
+	var out []string
+	for n := range known {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
 }

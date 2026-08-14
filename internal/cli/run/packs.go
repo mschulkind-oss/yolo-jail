@@ -558,11 +558,35 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 		lock = nil // fail-closed: a corrupt lock approves nothing
 	}
 	var out []loopholes.PackModule
+	embedded := embeddedPacksByName()
 	for _, entry := range entries {
 		if entry.Embedded() {
-			// An embedded pack ships no loophole today, and its tree lives only in the
-			// binary's embed.FS until staging materializes it — so there is no store path to
-			// read here. Covered by the staged record on the launch path.
+			// AN EMBEDDED PACK CAN SHIP A LOOPHOLE, and this branch used to say it could
+			// not. The official `audio` pack (loophole-packaging.md §7) is the first, and
+			// the omission was measured rather than reasoned about: with `packs: ["audio"]`
+			// selected, a `loopholes.audio-alsa.enabled` entry warned "no loophole named
+			// 'audio-alsa' is installed on this machine" at EVERY launch — the same
+			// sentence a user gets when a pack genuinely failed to stage — and
+			// `yolo loopholes list` omitted it entirely. That is exactly the §5.2
+			// prerequisite this resolver exists to satisfy, failing for the one pack shape
+			// nobody had tried.
+			//
+			// The tree really does live only in the binary's embed.FS, which is what the
+			// old comment got right; the answer is that packload.Embedded() materializes it
+			// (once per process, cached), so there IS a path to read. Selection-gated here
+			// unlike the reservation lists, because this answers "what is active on this
+			// machine" rather than "what could any pack ever claim".
+			p, isEmbedded := embedded[entry.Name]
+			if !isEmbedded {
+				continue // named an embedded pack that this build does not carry
+			}
+			for _, d := range packLoopholeDecls([]*packload.Pack{p}) {
+				// Embedded content carries yolo's own authority, so no lockfile entry is
+				// consulted: an embedded pack's MayAccessHost is true by construction
+				// (MaterializeEmbedded), and gating it on an approval that can never be
+				// recorded would make its loophole permanently unapproved.
+				out = append(out, loopholes.PackModule{Dir: d.Dir, HostExecApproved: true})
+			}
 			continue
 		}
 		root, rootErr := packRoot(entry)
@@ -576,6 +600,22 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 		for _, d := range packLoopholeDecls([]*packload.Pack{p}) {
 			out = append(out, loopholes.PackModule{Dir: d.Dir, HostExecApproved: p.MayAccessHost})
 		}
+	}
+	return out
+}
+
+// embeddedPacksByName indexes the EMBEDDED packs by name, materialized out of the binary.
+//
+// Through packload.Embedded() rather than a fresh MaterializeEmbedded call: it caches once
+// per process, so the read-only commands behind this resolver (`yolo loopholes list`,
+// `yolo check`, config validation — each of which may consult it more than once) do not each
+// pay a tree copy. Its failure mode is an empty set, which matches this resolver's
+// silent-and-empty contract: the honest answer to "I cannot materialize the packs" is "I
+// know of no pack loopholes", never "approved".
+func embeddedPacksByName() map[string]*packload.Pack {
+	out := map[string]*packload.Pack{}
+	for _, p := range packload.Embedded() {
+		out[p.Name] = p
 	}
 	return out
 }
