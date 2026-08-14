@@ -24,9 +24,9 @@ without a TLS stack — is
 pack contribution kind, plus a yolo-run TLS **front** that lets a
 daemon bind a plain AF_UNIX socket and have yolo publish the
 endpoint file in front of it. Read it before writing a server; the
-"Writing a server from scratch" section this doc still lacks is one
-of its deliverables (§2.3 there), and it is explicit that the
-spec-only path is the **unsupervised** one.
+"Writing a server from scratch" section below is that doc's §2.3
+deliverable, and it is explicit that the spec-only path is the
+**unsupervised** one.
 
 ## Handshake
 
@@ -245,35 +245,115 @@ retired `unix-socket` transport a shell one-liner really was enough.
 Redo steps 1–4 on **every** connection. Caching the address, the
 certificate, or the token is what re-reading exists to avoid.
 
-## Writing a SERVER from scratch — and the easier path
+## Writing a server from scratch
 
-There is no server-side section here yet, and adding one is a
-deliverable of [`loophole-packaging.md`](loophole-packaging.md)
-§2.3. Two things a would-be daemon author should know before
-reaching for a TLS library:
+`internal/svcendpoint` is the reference implementation — `Listen` is
+the whole server half, and yolo's own daemons layer the framed
+protocol on top of it through `internal/hostservice`. **This is no
+longer implementable with a shell script** any more than the client
+is — steps 3–6 below need a TLS stack and a CSPRNG. Two boundaries
+before the steps, both blunter than anything in the client section:
 
-- **You probably do not need one.** Under that design a manifest
-  declares `host_daemon.publishes: "socket"`, the daemon binds a
-  plain AF_UNIX socket at `{socket}`, and yolo runs
-  `svcendpoint.ServeFront` in front of it — so anything that can
-  bind AF_UNIX and read a 4-byte length prefix works: Python, Node,
-  Rust, a shell script with `socat`. The `nc`-era simplicity this
-  doc mourns above is restored on the *server* side, behind the
-  front. One behaviour change is invisible from inside the daemon
-  and worth stating twice: the front **never propagates the
-  client's EOF upstream**, so a daemon that reads its request *to
-  EOF* works on a bare socket and hangs forever behind the front.
-  Read to the length prefix.
-- **Implementing the transport yourself is the unsupervised path.**
-  Every security-critical property of the server half — the
-  endpoint file's `0600`, the publication directory's `0700`, the
-  private key never touching disk, a constant-time token compare, a
-  frame-length cap checked before allocation — is enforced by the
-  daemon and is **undetectable by yolo**. A daemon on that path is
-  trusted to the degree its author is. Three couplings will
-  otherwise kill it with a misleading symptom: the token must be
-  exactly 64 lowercase hex or the file parses fine and probes
-  false; `Probe`, not file existence, is the health predicate
-  everywhere; and `yolo check` dials `127.0.0.1` with the
-  *published* port, so the listener must accept on loopback
-  whatever it advertised.
+- **This is the UNSUPERVISED path.** Every security-critical
+  property below — the endpoint file's `0600` mode, the publication
+  directory's `0700`, the private key never touching disk, the
+  constant-time token compare, the frame-length cap checked before
+  allocation — is enforced by the daemon itself, and yolo cannot
+  verify any of it from outside. A daemon on this path is trusted
+  to the degree its author is.
+- **It is reachable only by a loophole yolo itself ships.** Under
+  [`loophole-packaging.md`](loophole-packaging.md) (§2.1, §2.3;
+  designed, not yet built) a pack-shipped loophole may not implement
+  this section: its manifest declares
+  `host_daemon.publishes: "socket"`, the daemon binds a plain
+  AF_UNIX socket at `{socket}`, and yolo runs the one audited
+  implementation of everything below in front of it —
+  `svcendpoint.ServeFront`, which already fronts the broker relay
+  today. Behind the front, anything that can bind AF_UNIX and read a
+  4-byte length prefix works: Python, Node, Rust, a shell script
+  with `socat`. The `nc`-era simplicity this doc mourns above is
+  restored on the *server* side. One behaviour change is invisible
+  from inside the daemon and worth stating twice: the front **never
+  propagates the client's EOF upstream**, so a daemon that reads its
+  request *to EOF* works on a bare socket and hangs forever behind
+  the front. Read to the length prefix. This section exists so the
+  front can be understood and audited, not so a pack can opt out of
+  it.
+
+The steps, in an order that is load-bearing — publish last, so a
+published file always names a live listener:
+
+1. **Verify the publication directory before anything else.** The
+   endpoint path arrives substituted into your argv as `{endpoint}`.
+   Its directory must be a real directory (`lstat`, not `stat` — a
+   symlink is a refusal), owned by your uid, with no group or world
+   permission bits. Fail closed on any mismatch: `mkdir -p`
+   semantics succeed on an already-existing attacker-owned directory
+   without changing its owner or mode, and publishing there hands
+   your credential to whoever owns it.
+2. **Bind `127.0.0.1:0`** and let the kernel assign the port.
+   Loopback keeps you off the LAN; kernel assignment means there is
+   no probe-then-rebind window in which another local process could
+   squat the port. Never take the port as configuration — the
+   address is published, not passed in.
+3. **Mint a throwaway TLS certificate** whose CommonName and sole
+   SAN are `yolo-host-service`, and whose **private key never leaves
+   your process's memory** — not marshaled, not PEM-encoded, never
+   written to disk. A fresh certificate per process is correct, not
+   a compromise, because clients re-read the endpoint file on every
+   dial. Serve TLS 1.2 or newer. Interop note: mark the self-signed
+   leaf `CA:TRUE` — OpenSSL-family verifiers require the trust
+   anchor to carry it even for a one-certificate chain.
+4. **Mint the token: 32 bytes from a CSPRNG, rendered as exactly 64
+   lowercase hex characters.** No other format — see the couplings
+   below for how anything else kills the daemon.
+5. **Publish after a successful bind**: one line —
+   `<advertised-host:port> <base64 cert DER> <token>\n`, three
+   whitespace-separated fields — written to a temp file in the
+   **same** directory, chmod `0600`, then renamed onto `{endpoint}`.
+   Atomic-rename because clients re-read the file on every dial, and
+   a torn read hands them a truncated token. The advertised host is
+   `$YOLO_SVC_ADVERTISE_HOST` when set and non-empty, else
+   `host.containers.internal`: bind loopback, advertise the gateway
+   name the jail resolves — reverse the two and the jail dials its
+   own loopback.
+6. **Authenticate every connection before reading anything else.**
+   Read a 4-byte big-endian length; **check it against a cap before
+   allocating** (the reference cap is 4096 — without it a garbage
+   prefix from an unauthenticated caller allocates gigabytes
+   pre-auth); read that many bytes; compare against the token **in
+   constant time** (`crypto/subtle` or your language's equivalent,
+   never `==`). On success write the single byte `0x01` and clear
+   the read deadline; on any failure write **nothing** and close, so
+   a port scanner learns only that it was hung up on. Authenticate
+   each connection concurrently — one stalled pre-auth connection
+   must not block the rest for the handshake timeout.
+7. **Then speak the framed protocol** ("## Request" onward).
+8. **On shutdown, unlink the endpoint file** — retiring the listener
+   retires its credential in the same step. Republishing (rewrite +
+   rename) is how rotation works: the next dial picks it up, no
+   restart on either side.
+
+And three couplings that are enforced by yolo's **health** code
+rather than by the wire — get one wrong and a conforming-looking
+daemon dies with a misleading symptom:
+
+- **The token must be exactly 64 lowercase hex**
+  (`svcendpoint.IsToken`). Publish anything else — base64, uppercase
+  hex, 16 bytes — and the endpoint file *parses* fine, but `Probe`
+  returns false, the readiness wait times out, and the daemon is
+  **SIGKILLed after five seconds** with a log that looks perfectly
+  healthy: it bound, minted, published, and was then killed without
+  a word.
+- **`Probe` — a content check, never file existence — is THE health
+  predicate**, at startup readiness and everywhere else. It
+  re-parses the published file on every call: exactly three fields,
+  a splittable `host:port`, a certificate that parses, a well-formed
+  token. A file that merely *exists* proves nothing and is treated
+  as proving nothing; never design a health story around existence.
+- **`yolo check` dials `127.0.0.1` at the published port**
+  (`svcendpoint.DialLocal` keeps the port and substitutes the
+  loopback address, because the host generally cannot resolve the
+  advertised gateway name). The listener must therefore accept on
+  loopback regardless of what it advertised — which step 2 gives you
+  for free, and any deviation from step 2 takes away.
