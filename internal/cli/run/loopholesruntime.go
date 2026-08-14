@@ -158,8 +158,25 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	// manifest/pack sources are interesting; a config entry claiming a builtin name is
 	// already refused by internal/config/validate_loopholes.go.
 	sourceOf := map[string]string{}
+	// placementRefused: a loophole whose MANIFEST names host code living where an agent
+	// can rewrite it (§4.3a's placement rule, landing item 1a's manifest faces). The
+	// config faces are refused earlier, at validation; a manifest's own host_daemon.cmd
+	// and doctor_cmd could not be, because two of the three targets are RUNTIME
+	// resolutions — the module dir after symlinks, the argv after {loophole_dir}
+	// substitution — and a resolved record is the first place they exist.
+	//
+	// Refused HERE rather than at discovery for the same reason discovery cannot refuse
+	// a name collision: Discover has no error channel by contract, and the spawn is the
+	// last moment before the code actually runs. A refused loophole keeps its non-exec
+	// declarations (they were already emitted into the argv) — this gate covers the one
+	// face that executes.
+	placementRefused := map[string]bool{}
 	for _, lp := range discovered {
 		sourceOf[lp.Name] = lp.Source
+		for _, problem := range lp.PlacementProblems(o.Workspace) {
+			placementRefused[lp.Name] = true
+			o.pr(o.Stdout).print("[red]Refusing to start loophole " + lp.Name + ": " + problem + "[/red]")
+		}
 	}
 	for _, name := range order {
 		if isBuiltinLoopholeName(name) {
@@ -186,6 +203,9 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 		if name == broker.BrokerLoopholeName {
 			// Host-wide singleton — ensure it, but no per-jail handle.
 			o.brokerEnsure()
+			continue
+		}
+		if placementRefused[name] {
 			continue
 		}
 		if h, ok := o.startExternalService(name, external[name], socketsDir, transportOf[name], advertise, daemonOf[name]); ok {
