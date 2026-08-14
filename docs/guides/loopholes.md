@@ -41,7 +41,9 @@ Only `manifest.jsonc` is required. Everything else is up to the loophole.
   "doctor_cmd": ["bin", "--ok"],  // optional; run by `yolo check` and `yolo loopholes status`
   "host_daemon": {                // optional; yolo spawns this ON THE HOST at jail startup
     "cmd": ["my-daemon", "--endpoint", "{endpoint}"],
-    "env": {"FOO": "bar"}         // optional; the daemon's spawn environment
+    "env": {"FOO": "bar"},        // optional; the daemon's spawn environment
+    "publishes": "endpoint",      // or "socket" (yolo fronts it); default "endpoint"
+    "request_end": "framed"       // or "eof"; default "framed"; socket-mode only
   },
   "jail_daemon": {                // optional; supervised INSIDE the jail by yolo-jaild
     "cmd": ["my-agent"],
@@ -76,6 +78,38 @@ rejected and the loophole does not load (the error names its replacement). See
   accepted as aliases for `{endpoint}` and `jail_endpoint`.
 - **`none`**: no daemon at all. `audio` is the shipped example — it is only
   `host_bind_mounts` and a `requires` predicate.
+
+### `host_daemon.publishes` — who implements the TLS server
+
+- **`"endpoint"`** (the default): your daemon implements the whole loopback-TLS
+  server itself — bind, certificate, token, atomic publish, constant-time compare.
+  That is the unsupervised path, and
+  [`loophole-protocol.md`](../design/loophole-protocol.md) spells out every step
+  it must get right.
+- **`"socket"`**: your daemon binds a plain AF_UNIX socket at `{socket}` and
+  nothing else. yolo waits for that socket to accept, runs its own audited TLS
+  front over it, and publishes the endpoint file itself — so the jail sees exactly
+  what it would see from an `"endpoint"` daemon (same `YOLO_SERVICE_<NAME>_ENDPOINT`
+  variable, same mounted endpoint file). Anything that can bind AF_UNIX qualifies:
+  Python, Node, a `socat` script. Under `"socket"` the two tokens **diverge** —
+  `{socket}` is your upstream path, `{endpoint}` is what yolo publishes in front of
+  it — so a `cmd` naming `{endpoint}` here is refused at load with the fix, rather
+  than publishing nothing while yolo publishes over it.
+
+### `host_daemon.request_end` — how your request ends, behind the front
+
+Socket-mode only, and **declare it if your daemon reads its request to EOF**:
+
+- **`"framed"`** (the default): your protocol is length-prefixed, or otherwise
+  knows where a request ends. The front does **not** propagate the client's EOF to
+  your socket.
+- **`"eof"`**: your daemon reads until EOF and then answers. The front half-closes
+  the upstream socket the moment the request direction ends, so that read returns.
+
+Getting this wrong is invisible from inside the daemon: a to-EOF daemon that works
+perfectly on a bare socket **hangs forever** behind a `framed` front, because its
+read never returns. The default cannot be `"eof"` — the broker relay's teardown
+parity depends on the EOF not propagating — so it is one word in your manifest.
 
 **Interception is not a transport.** It is declared by `intercepts` (plus
 `broker_ip` and `ca_cert`) on any transport, and that list is what emits the
@@ -182,6 +216,11 @@ no longer protects:
 > prints `config/loopback-tls/spawned` for such an entry, which is the truth
 > about what its jail dials. (The two remaining built-in AF_UNIX clients,
 > `yolo-cglimit` and `yolo-journalctl`, are still ported in their own change.)
+>
+> The config block has no `request_end` key, so such a daemon is always fronted in
+> `framed` mode: **a config-entry daemon that reads its request to EOF hangs behind
+> the front** (see `request_end` above). A daemon of that shape needs a
+> `manifest.jsonc`, where the field exists.
 
 The example above matches the bundled manifest — compare
 [`bundled_loopholes/host-processes/manifest.jsonc`](../../bundled_loopholes/host-processes/manifest.jsonc),

@@ -264,7 +264,9 @@ certificate, or the token is what re-reading exists to avoid.
 the whole server half, and yolo's own daemons layer the framed
 protocol on top of it through `internal/hostservice`. **This is no
 longer implementable with a shell script** any more than the client
-is — steps 3–6 below need a TLS stack and a CSPRNG. Two boundaries
+is — steps 3, 4 and 6 below need a TLS stack, a CSPRNG and a
+constant-time compare (step 5 is a temp file, a chmod and a rename;
+it is the steps around it that raise the bar). Two boundaries
 before the steps, both blunter than anything in the client section:
 
 - **This is the UNSUPERVISED path.** Every security-critical
@@ -275,23 +277,32 @@ before the steps, both blunter than anything in the client section:
   verify any of it from outside. A daemon on this path is trusted
   to the degree its author is.
 - **It is reachable only by a loophole yolo itself ships.** Under
-  [`loophole-packaging.md`](loophole-packaging.md) (§2.1, §2.3;
-  designed, not yet built) a pack-shipped loophole may not implement
-  this section: its manifest declares
-  `host_daemon.publishes: "socket"`, the daemon binds a plain
-  AF_UNIX socket at `{socket}`, and yolo runs the one audited
+  [`loophole-packaging.md`](loophole-packaging.md) (§2.1, §2.3) a
+  pack-shipped loophole may not implement this section: its manifest
+  declares `host_daemon.publishes: "socket"`, the daemon binds a
+  plain AF_UNIX socket at `{socket}`, and yolo runs the one audited
   implementation of everything below in front of it —
-  `svcendpoint.ServeFront`, which already fronts the broker relay
-  today. Behind the front, anything that can bind AF_UNIX and read a
-  4-byte length prefix works: Python, Node, Rust, a shell script
-  with `socat`. The `nc`-era simplicity this doc mourns above is
-  restored on the *server* side. One behaviour change is invisible
-  from inside the daemon and worth stating twice: the front **never
-  propagates the client's EOF upstream**, so a daemon that reads its
-  request *to EOF* works on a bare socket and hangs forever behind
-  the front. Read to the length prefix. This section exists so the
-  front can be understood and audited, not so a pack can opt out of
-  it.
+  `svcendpoint.ServeFront`, which fronts the broker relay and, since
+  the front landed, every `publishes: "socket"` host daemon
+  (`internal/cli/run/loopholesruntime.go`). The one piece still
+  unbuilt is the pack contribution `kind: "loophole"` (§3), so today
+  the manifest lives in the loopholes dir rather than inside a pack.
+  Behind the front, anything that can bind AF_UNIX and read a 4-byte
+  length prefix works: Python, Node, Rust, a shell script with
+  `socat`. The `nc`-era simplicity this doc mourns above is restored
+  on the *server* side. One behaviour is worth stating twice because
+  it is invisible from inside the daemon: **by default
+  (`request_end: "framed"`) the front does not propagate the
+  client's EOF upstream**, so a daemon that reads its request *to
+  EOF* works on a bare socket and hangs forever behind the front.
+  Two ways out, and the second is one field: read to the length
+  prefix, or declare `request_end: "eof"` beside
+  `publishes: "socket"` and the front half-closes the upstream
+  socket when the request direction ends
+  (`svcendpoint.FrontOptions.HalfCloseUpstream`). The default stays
+  `framed` because the broker relay's teardown parity depends on the
+  EOF *not* propagating. This section exists so the front can be
+  understood and audited, not so a pack can opt out of it.
 
 The steps, in an order that is load-bearing — publish last, so a
 published file always names a live listener:
