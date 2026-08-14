@@ -21,6 +21,10 @@ func eofSocketDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	// Already /tmp-rooted, so this passes today. Asserted anyway: the guard is what turns a
+	// future overrun into a message naming the limit and the fix, instead of a bare
+	// "bind: invalid argument" from net.Listen forty lines below.
+	assertSockPathFits(t, filepath.Join(dir, "up.sock"))
 	return dir
 }
 

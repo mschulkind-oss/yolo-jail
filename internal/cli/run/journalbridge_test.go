@@ -76,7 +76,14 @@ func TestStartJournalStartsBridge(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("journal bridge is Linux-only (journalctl forwarder)")
 	}
-	socketsDir := t.TempDir()
+	// shortSocketDir, not t.TempDir(): the daemon BINDS journal.sock in here, and a
+	// TMPDIR-rooted path had 3 bytes of headroom against sun_path's 103 — so it passed on
+	// Linux and at darwin's real 44-byte TMPDIR while one longer test name would tip it.
+	// Worse, the symptom would not have been a bind error here: the daemon is a SPAWNED
+	// child, so its bind failure surfaces as "the bridge never spawned" and points at the
+	// spawn rather than at the path. (Verified: TMPDIR=/tmp/<63 chars> reproduced exactly
+	// that.)
+	socketsDir := shortSocketDir(t)
 	cfg := jsonx.NewOrderedMap()
 	cfg.Set("journal", "user")
 
@@ -93,6 +100,7 @@ func TestStartJournalStartsBridge(t *testing.T) {
 		t.Errorf("handle name = %q, want journal", h.name)
 	}
 	wantSock := filepath.Join(socketsDir, "journal.sock")
+	assertSockPathFits(t, wantSock)
 	if h.hostPath != wantSock {
 		t.Errorf("hostPath = %q, want %q", h.hostPath, wantSock)
 	}

@@ -39,6 +39,10 @@ import (
 // SO WILL THE RUN PIPELINE: the three MkdirAll(…, 0o755) sites that create the
 // per-jail host-services dir have to become 0700 or Listen will fail closed there
 // exactly as it does here.
+//
+// It is t.TempDir()-rooted, which is fine for an ENDPOINT FILE (an ordinary file, no
+// path limit) and NOT fine for an AF_UNIX socket. A test that binds one wants
+// privateSocketDir below.
 func privateDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -46,6 +50,75 @@ func privateDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+// sunPathMax is the longest AF_UNIX path that binds on the tighter of the two platforms:
+// darwin's sun_path is 104 bytes INCLUDING the NUL, Linux's is 108.
+const sunPathMax = 103
+
+// assertSockPathFits fails with the actionable message instead of letting the bind return a
+// bare "invalid argument", which names neither the limit nor the fix.
+//
+// This package had no such guard, and the margin was 12 bytes: a t.TempDir()-rooted socket
+// path in TestNoUnixFallbackExists came to 91 bytes against the 103-byte limit, so it passed
+// on Linux and at darwin's real 44-byte TMPDIR — and one longer test name, one more nesting
+// level, or a `/private` prefix tips it. When it tipped, the only symptom would have been
+// `bind: invalid argument` from net.Listen, naming neither the limit nor the remedy. (Verified
+// tippable: `TMPDIR=/tmp/<63 chars> go test ./internal/svcendpoint/` reproduced it exactly.)
+func assertSockPathFits(t *testing.T, path string) {
+	t.Helper()
+	if len(path) > sunPathMax {
+		t.Fatalf("socket path is %d bytes, over the %d-byte darwin sun_path limit:\n  %s\n"+
+			"use privateSocketDir(t) — t.TempDir() is rooted at TMPDIR, which on macOS is "+
+			"/var/folders/<2>/<26>/T/ (~49 bytes) before the test name is even appended",
+			len(path), sunPathMax, path)
+	}
+}
+
+// privateSocketDir is privateDir for a test that BINDS a socket: 0700, and rooted at /tmp
+// rather than TMPDIR so the path is short enough for sun_path.
+//
+// The same shape internal/cli/run's shortSocketDir has, for the same measured reason — two
+// tests in the loopback-TLS batch used t.TempDir(), went green on Linux, and failed only on
+// check-macos with "bind: invalid argument".
+func privateSocketDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "yj-svc-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+// TestPrivateSocketDirIgnoresALongTMPDIR reproduces darwin's long TMPDIR on any platform,
+// proves the reproduction is real, and proves the helper is immune to it — the permanent
+// regression test for the latent overrun this guard closes.
+func TestPrivateSocketDirIgnoresALongTMPDIR(t *testing.T) {
+	long := filepath.Join("/tmp", "yj-svc-tmpdir-"+strings.Repeat("x", 60))
+	if err := os.MkdirAll(long, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(long) })
+	t.Setenv("TMPDIR", long)
+
+	// The control. Without it this test would still pass if sunPathMax were raised to
+	// something no path can exceed, proving nothing.
+	if p := filepath.Join(privateDir(t), "svc.sock"); len(p) <= sunPathMax {
+		t.Fatalf("the control did not reproduce the failure — %d bytes is under the limit, so "+
+			"the assertion below is vacuous: %s", len(p), p)
+	}
+	// The fix: unaffected by TMPDIR, and actually bindable.
+	p := filepath.Join(privateSocketDir(t), "svc.sock")
+	assertSockPathFits(t, p)
+	ln, err := net.Listen("unix", p)
+	if err != nil {
+		t.Fatalf("the short socket dir did not yield a bindable path: %v", err)
+	}
+	_ = ln.Close()
 }
 
 // testServer is a frameproto daemon behind a real Listener. calls counts HANDLER
@@ -988,8 +1061,13 @@ func TestPrivateKeyNeverTouchesDisk(t *testing.T) {
 // unix path any more, so pointing Dial at an actual socket must FAIL rather than
 // silently connect to it.
 func TestNoUnixFallbackExists(t *testing.T) {
-	dir := privateDir(t)
+	// privateSocketDir, not privateDir: this test BINDS a socket, and a t.TempDir()-rooted
+	// path came to 91 bytes against sun_path's 103 — 12 bytes of headroom, so it passed here
+	// and at darwin's real TMPDIR while one longer test name would have tipped it into a bare
+	// "bind: invalid argument".
+	dir := privateSocketDir(t)
 	sock := filepath.Join(dir, "svc.sock")
+	assertSockPathFits(t, sock)
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
