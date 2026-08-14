@@ -198,6 +198,20 @@ type Manifest struct {
 	StateFiles []string
 	// Requires is the activation precondition, unevaluated.
 	Requires Requires
+	// Platforms is WHERE this loophole can run at all: `<goos>` or
+	// `<goos>/<goarch>` entries, exactly as Go spells them, validated statically
+	// (platforms.go) and evaluated host-side by SupportsPlatform.
+	//
+	// Distinct from Requires, which is a runtime probe ("the thing I need is
+	// present"). A compiled Linux daemon on macOS is not a missing prerequisite —
+	// there is nothing to install — and reporting it as one sends the reader after
+	// a fix that cannot exist (loophole-packaging.md §3.1).
+	Platforms []string
+	// PlatformsSet is false when `platforms` was absent, which means EVERY
+	// platform. It has to be a separate bit rather than len()==0: an empty
+	// declared list is refused at load precisely because "supports nothing" and
+	// "supports everything" must not share a representation.
+	PlatformsSet bool
 }
 
 // Decode parses and validates manifest bytes STRICTLY: an unknown key is
@@ -447,6 +461,10 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	if err != nil {
 		return nil, err
 	}
+	platforms, platformsSet, err := platformsFrom(manifestPath, data)
+	if err != nil {
+		return nil, err
+	}
 
 	enabled := true
 	if ev, ok := data.Get(keyEnabled); ok {
@@ -479,6 +497,8 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 		HostDevices:    hostDevices,
 		StateFiles:     stateFiles,
 		Requires:       requires,
+		Platforms:      platforms,
+		PlatformsSet:   platformsSet,
 	}, nil
 }
 

@@ -102,7 +102,14 @@ type Loophole struct {
 	// key rode the whole-dir mount into every jail, where nothing reads it).
 	StateFiles []string
 	Requires   Requires
-	Source     string
+	// Platforms / PlatformsSet carry the manifest's `platforms` declaration
+	// verbatim — WHERE this loophole can run at all, which `requires` cannot say
+	// (loophole-packaging.md §3.1). Evaluated by SupportedHere (load.go); absent
+	// (PlatformsSet false) means every platform, so every manifest written before
+	// the key existed keeps its meaning.
+	Platforms    []string
+	PlatformsSet bool
+	Source       string
 	// SkewNotes are the version-skew reports from the TOLERANT manifest read: one
 	// line per manifest key this build does not know, so the declaration is not
 	// honored. NOT errors — a manifest key only a newer yolo knows must not make
@@ -136,6 +143,10 @@ func inJail() bool {
 	return ok
 }
 
+// RequirementsMet evaluates `requires` — the PROBE half of activation ("the thing
+// I need is present"). It deliberately does NOT fold in the `platforms`
+// declaration: the two answers have different fixes (install it vs. nothing you
+// can do), and Active() below is where they meet.
 func (l *Loophole) RequirementsMet() bool {
 	if inJail() {
 		return l.inJailActive()
@@ -167,12 +178,26 @@ func (l *Loophole) inJailActive() bool {
 	return false
 }
 
-func (l *Loophole) Active() bool { return l.Enabled && l.RequirementsMet() }
+// Active is the one predicate RuntimeArgsFor and the run pipeline gate on.
+//
+// SupportedHere comes FIRST because it is the cheapest and the most categorical:
+// an unsupported platform is not a state that a probe could change, so probing on
+// top of it would be work in service of a message we are not going to print.
+func (l *Loophole) Active() bool {
+	return l.Enabled && l.SupportedHere() && l.RequirementsMet()
+}
 
 // Returns "" for None.
 func (l *Loophole) InactiveReason() (string, bool) {
 	if !l.Enabled {
 		return "disabled", true
+	}
+	// Before the `requires` probes, and before the in-jail branch, for the reason
+	// the field exists: an unsupported platform reported as an unmet requirement
+	// reads as "install the missing thing", and on a Linux-only daemon under macOS
+	// that advice can never succeed.
+	if reason, ok := l.UnsupportedHereReason(); ok {
+		return reason, true
 	}
 	if inJail() {
 		if len(l.HostBindMount) > 0 && !l.inJailActive() {

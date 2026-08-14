@@ -16,6 +16,7 @@ package loopholes
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
@@ -136,8 +137,70 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		HostDevices:   m.HostDevices,
 		StateFiles:    m.StateFiles,
 		Requires:      m.Requires,
+		Platforms:     m.Platforms,
+		PlatformsSet:  m.PlatformsSet,
 		Source:        SourceUser,
 	}
+}
+
+// SupportedHere evaluates the manifest's `platforms` declaration against THIS
+// machine (loophole-packaging.md §3.1). A loophole with no declaration is
+// supported everywhere, so this is safe to call unconditionally.
+//
+// It is a separate predicate from RequirementsMet, and that separation is the
+// point. `requires` answers "is the thing I need present" — a probe with a fix
+// ("install it"). This answers "does this loophole exist for this machine at all",
+// which has no fix. Collapsing them is precisely the misattribution the field was
+// added to end: a compiled Linux daemon reported on macOS as an unmet prerequisite
+// sends the reader after something to install, and there is nothing to install.
+//
+// EVALUATED AGAINST runtime.GOOS/GOARCH UNCONDITIONALLY, in-jail included, and
+// that is deliberate rather than an oversight of the inJail() branch next door.
+// The question is "what will the machine that spawns the host daemon be", and
+// inside a jail that machine IS the container — a nested launch spawns host
+// daemons, binds mounts and publishes endpoints identically (§4.3a: runtime.go's
+// device skip is the only jail-aware branch in the runtime), and §4.3a rules the
+// nested jail THE development environment for a loophole. Skipping the check there
+// would let the development environment spawn exactly the binary the field exists
+// to refuse.
+//
+// The residual, named rather than discovered: `yolo loopholes list` INSIDE a jail
+// on a macOS host evaluates a `platforms: ["darwin"]` loophole against the
+// container's linux and calls it unsupported, while the host did cross its wiring.
+// That answer is wrong for the listing and right for the spawn, one distinction
+// short of correct (host-role vs nested-host-role is not a distinction this
+// codebase draws anywhere), and it costs a misleading line in a report where the
+// alternative costs a daemon that cannot run.
+func (l *Loophole) SupportedHere() bool {
+	return l.supportsPlatform(runtime.GOOS, runtime.GOARCH)
+}
+
+// UnsupportedHereReason is SupportedHere's message half: the by-name report §3.1
+// asks for — what this machine is, what the loophole supports, and that nothing is
+// missing — or ("", false) when the platform is supported.
+func (l *Loophole) UnsupportedHereReason() (string, bool) {
+	return l.platformUnsupportedReason(runtime.GOOS, runtime.GOARCH)
+}
+
+// supportsPlatform / platformUnsupportedReason take the pair explicitly so every
+// OS/arch combination is testable from one process, the same reason
+// loopholedecl.Manifest.SupportsPlatform does. They delegate to the schema package
+// rather than reimplementing the match: two matchers over one declaration is how a
+// report and a gate come to disagree.
+func (l *Loophole) supportsPlatform(goos, goarch string) bool {
+	return l.platformManifest().SupportsPlatform(goos, goarch)
+}
+
+func (l *Loophole) platformUnsupportedReason(goos, goarch string) (string, bool) {
+	reason := l.platformManifest().PlatformsUnsupportedReason(goos, goarch)
+	return reason, reason != ""
+}
+
+// platformManifest is the shim that lets the schema package own the matching. The
+// declaration is carried on the record verbatim (Platforms/PlatformsSet), so this
+// is a projection, not a re-decode.
+func (l *Loophole) platformManifest() *loopholedecl.Manifest {
+	return &loopholedecl.Manifest{Platforms: l.Platforms, PlatformsSet: l.PlatformsSet}
 }
 
 // substituteAll replaces token with value in every element of args, returning a
