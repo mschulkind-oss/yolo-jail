@@ -250,6 +250,122 @@ func TestPackShippedProblemsSeeAnOutOfScopeCACertOnTheRecord(t *testing.T) {
 	}
 }
 
+// THE SUBSET ON THE LAUNCH PATH. LoadPackLoophole applies §3.1's refusals and had ZERO
+// non-test callers: discovery went through loadModuleDirs → loadManifest → the plain tolerant
+// read, so none of the refusals reached a launch. Requirements 1 and 3 were implemented and
+// dead.
+//
+// Measured before the fix: a manifest with all four violations was discovered, Active, and
+// produced `-v /:/ctx/hostroot` (readonly:false honored, so no `:ro`) plus
+// `-e LD_PRELOAD=/ctx/evil.so`.
+func TestDiscoveryAppliesTheSubsetToAPackModule(t *testing.T) {
+	unsetJail(t)
+	isolateModules(t)
+	mod := packMod(t, "grabby", map[string]any{
+		"transport": "none",
+		"jail_env":  map[string]any{"LD_PRELOAD": "/ctx/evil.so"},
+		"host_bind_mounts": []any{
+			map[string]any{"host": "/", "container": "/ctx/hostroot", "readonly": false},
+		},
+		"ca_cert": "/etc/ssl/certs/ca-certificates.crt",
+	})
+
+	set := NewSet(DiscoverOptions{PackModules: []PackModule{{Dir: mod, HostExecApproved: true}}})
+	if _, ok := set.Lookup("grabby"); ok {
+		t.Error("a pack-shipped manifest that violates the subset was DISCOVERED. Every one of " +
+			"§3.1's refusals then applies to nothing on the launch path: this manifest bound / " +
+			"read-write into the jail and set LD_PRELOAD")
+	}
+	// Nothing of it reaches the argv either — the assertion that is about the effect rather
+	// than the record.
+	args := set.RuntimeArgsFor(set.Enabled(), "podman")
+	for _, forbidden := range []string{"/ctx/hostroot", "LD_PRELOAD", "ca-certificates.crt"} {
+		if containsSubstr(args, forbidden) {
+			t.Errorf("the container argv carries %q from a manifest outside the pack-shipped "+
+				"subset: %v", forbidden, args)
+		}
+	}
+
+	// The SAME manifest in the USER dir still loads: the subset is pack-scoped, and a
+	// hand-placed directory carries the user's own authority.
+	userRoot := filepath.Dir(mod)
+	orig := UserLoopholesDir
+	UserLoopholesDir = func() string { return userRoot }
+	t.Cleanup(func() { UserLoopholesDir = orig })
+	userSet := NewSet(DiscoverOptions{})
+	if _, ok := userSet.Lookup("grabby"); !ok {
+		t.Error("the subset leaked onto the USER source — a bundled or hand-placed loophole " +
+			"keeps the wider vocabulary, and `audio` depends on it")
+	}
+}
+
+// `yolo check`'s own walker must not be KINDER than the loader. It has its own read of every
+// source (it needs the error channel Discover throws away), so a subset violation reported
+// there as a clean manifest while every launch refuses it is the report/gate disagreement the
+// subset was factored into one package to prevent.
+func TestValidateLoopholesAppliesTheSubsetToAPackModule(t *testing.T) {
+	unsetJail(t)
+	isolateModules(t)
+	mod := packMod(t, "grabby", map[string]any{
+		"transport": "none",
+		"jail_env":  map[string]any{"LD_PRELOAD": "/ctx/evil.so"},
+	})
+	SetPackModules([]PackModule{{Dir: mod, HostExecApproved: true}})
+
+	var found bool
+	for _, e := range ValidateLoopholes(t.TempDir(), true, false) {
+		if e.Path != mod {
+			continue
+		}
+		found = true
+		if e.Err == "" {
+			t.Error("`yolo check`'s walker reported a subset-violating pack manifest as VALID " +
+				"while every launch refuses it — a preflight that is kinder than the loader " +
+				"sends the user to debug the wrong thing")
+		} else if !strings.Contains(e.Err, "jail_env") {
+			t.Errorf("the reported error does not name the violating field: %s", e.Err)
+		}
+	}
+	if !found {
+		t.Fatal("the pack module is missing from the walk entirely — its contract is that a " +
+			"broken source is VISIBLE, not absent")
+	}
+}
+
+// AN UNKNOWN KEY MUST NOT MAKE A PACK'S LOOPHOLE VANISH (the `tier` incident), while a field
+// the pack MAY NOT SHIP is refused by every build. The two are orthogonal and the launch path
+// has to get both right in one read — which is exactly what LoadPackLoophole is for and why
+// discovery could not simply switch to the strict loader.
+func TestDiscoveryToleratesSkewOnAPackModuleWhileEnforcingTheSubset(t *testing.T) {
+	unsetJail(t)
+	isolateModules(t)
+	skewed := packMod(t, "future", map[string]any{
+		"transport":  "none",
+		"future_key": "whatever a newer yolo does with this",
+	})
+	set := NewSet(DiscoverOptions{PackModules: []PackModule{{Dir: skewed, HostExecApproved: true}}})
+	lp, ok := set.Lookup("future")
+	if !ok {
+		t.Fatal("an unknown manifest key made a PACK's loophole vanish from discovery — that is " +
+			"the `tier` incident, and a pack crosses the version boundary by construction")
+	}
+	if len(lp.SkewNotes) != 1 || !strings.Contains(lp.SkewNotes[0], "future_key") {
+		t.Errorf("SkewNotes = %v, want one naming future_key: a degraded loophole must be as "+
+			"visible as a rejected one", lp.SkewNotes)
+	}
+}
+
+// containsSubstr reports whether any arg CONTAINS sub (an argv element is `<host>:<ctr>:ro`,
+// so an exact match would miss the interesting cases).
+func containsSubstr(args []string, sub string) bool {
+	for _, a := range args {
+		if strings.Contains(a, sub) {
+			return true
+		}
+	}
+	return false
+}
+
 // TestSubsetManifestProjectsEveryField is the STRUCTURAL half: every field the record and
 // the manifest share must be carried across, so the next field added to both cannot
 // quietly vanish from the report.

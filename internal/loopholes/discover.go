@@ -204,18 +204,40 @@ func loadFromDir(dirPath, source string) (map[string]*Loophole, []string) {
 // warns about a manifest it cannot parse. That split is deliberate
 // (docs/design/loophole-packaging.md §3.1): the pack layer refuses, the discovery layer
 // warns.
+//
+// THE SOURCE LABEL SELECTS THE LOADER, which is how §3.1's pack-shipped subset reaches the
+// launch path at all. LoadPackLoophole applies the subset and had ZERO non-test callers: every
+// discovery read went through the plain loadManifest, so `jail_env`, an absolute or `$VAR`
+// bind host, a writable bind and a self-publishing daemon were all refused in a package
+// nothing on this path called. Measured: a manifest with all four violations was discovered,
+// Active, and produced `-v /:/ctx/hostroot` (readonly:false honored) plus
+// `-e LD_PRELOAD=/ctx/evil.so`.
+//
+// Pack-shippedness is the CALLER's fact (load.go says why it cannot be a manifest field), and
+// this function is the caller that knows it — its `source` parameter IS that fact. Bundled and
+// user sources keep the wider vocabulary, which `audio` requires (${XDG_RUNTIME_DIR},
+// readonly:false, jail_env) and the broker requires (publishes: endpoint).
 func loadModuleDirs(dirs []string, source string) (map[string]*Loophole, []string) {
 	out := map[string]*Loophole{}
 	var order []string
+	load := loaderFor(source)
 	for _, dir := range dirs {
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 			warnf("loophole module dir %s is not a directory, so that loophole is NOT active", dir)
 			continue
 		}
-		loophole, err := loadManifest(dir)
+		loophole, err := load(dir)
 		if err != nil {
 			warnf("loophole manifest %s failed to load, so that loophole is NOT active: %v", dir, err)
 			continue
+		}
+		// A pack's loophole carries SKEW NOTES for the same reason the other sources do, and
+		// with more force: a pack crosses the version boundary by construction, so a key only
+		// a newer yolo knows is the expected case rather than an anomaly. Warned, never
+		// refused — a degraded loophole whose symptom names something else is the failure mode
+		// this package keeps paying for (the `tier` incident).
+		for _, note := range loophole.SkewNotes {
+			warnf("loophole %s: %s", loophole.Name, note)
 		}
 		loophole.Source = source
 		if _, seen := out[loophole.Name]; !seen {
@@ -224,6 +246,20 @@ func loadModuleDirs(dirs []string, source string) (map[string]*Loophole, []strin
 		out[loophole.Name] = loophole
 	}
 	return out, order
+}
+
+// loaderFor picks the manifest loader a SOURCE gets: the pack-shipped subset for a pack, the
+// full vocabulary for everything else.
+//
+// A function of the source rather than an `if` at each read, because the mapping is the whole
+// security property and it should be stated once. Both loaders are TOLERANT — the subset is
+// orthogonal to version skew, and conflating them is how a pack's loophole would vanish over a
+// key only a newer build knows (see LoadPackLoophole's own doc).
+func loaderFor(source string) func(string) (*Loophole, error) {
+	if source == SourcePack {
+		return LoadPackLoophole
+	}
+	return loadManifest
 }
 
 // ReservedName is one reserved loophole name and where the reservation comes from.
@@ -764,13 +800,20 @@ func ValidateLoopholes(root string, rootSet, includeBundled bool) []ValidateEntr
 	// skipped: this function's contract is that a broken source is visible, and the pack
 	// layer's own refusal (a `from` naming a directory the pack does not contain) does
 	// not cover a tree that vanished after staging.
+	//
+	// Through THE SAME LOADER discovery uses for a pack module (loaderFor(SourcePack), i.e.
+	// the pack-shipped subset), because this walker's answer must not be kinder than the
+	// loader's: `yolo check` reporting a manifest as fine while every launch refuses it is
+	// the report/gate disagreement the whole subset was factored to avoid. A subset
+	// violation therefore lands in Err, where this function already puts a broken source —
+	// which is also the only surface that names it before the user launches.
 	for _, mod := range PackModules() {
 		if fi, err := os.Stat(mod.Dir); err != nil || !fi.IsDir() {
 			out = append(out, ValidateEntry{Path: mod.Dir, Loophole: nil,
 				Err: "pack-contributed loophole module dir is missing or not a directory"})
 			continue
 		}
-		loophole, err := loadManifest(mod.Dir)
+		loophole, err := loaderFor(SourcePack)(mod.Dir)
 		if err != nil {
 			out = append(out, ValidateEntry{Path: mod.Dir, Loophole: nil, Err: err.Error()})
 			continue
