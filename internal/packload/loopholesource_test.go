@@ -191,6 +191,33 @@ func TestClaimStringIsRawArgv(t *testing.T) {
 	}
 }
 
+// The argv rendering is INJECTIVE: two different argvs must never produce one claim
+// string. Nothing execs the claim (the spawn reads the argv list), so this is not about a
+// shell — it is about the claim being a comparison key. A bare space join collapses
+// ["sh","-c","a b"] onto ["sh","-c","a","b"], which is the same failure an ellipsis
+// causes, reached by accident instead of by decision.
+func TestDaemonArgvRenderingIsInjective(t *testing.T) {
+	claimFor := func(t *testing.T, cmdJSON string) string {
+		t.Helper()
+		root := writeLoopholePack(t, map[string]string{"acme": `{
+		  "name": "acme",
+		  "host_daemon": {"cmd": ` + cmdJSON + `, "publishes": "socket"}
+		}`})
+		claims := loadPack(t, root).LoopholeHostAccessClaims()
+		if len(claims) != 1 {
+			t.Fatalf("claims = %v, want 1", claims)
+		}
+		return claims[0]
+	}
+	oneArg := claimFor(t, `["sh", "-c", "a b"]`)
+	twoArgs := claimFor(t, `["sh", "-c", "a", "b"]`)
+	if oneArg == twoArgs {
+		t.Errorf("two different argvs render to the SAME claim (%q) — approving one would "+
+			"silently approve the other, which is what makes the claim a comparison key "+
+			"rather than a sentence", oneArg)
+	}
+}
+
 // A socket bind is its OWN claim class, distinct from a file/dir mount, and it says
 // read-write. `:ro` is no boundary for an AF_UNIX socket — measured twice in this repo (the
 // well-known docker.sock:ro result) — so a claim calling it read-only would be false.

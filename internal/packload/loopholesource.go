@@ -292,6 +292,15 @@ func moduleClaims(mod LoopholeModule) []loopholeClaim {
 	// following pluginClaimDetail's "RUNS CODE" precedent. ReviewWorthy is one boolean —
 	// one severity — and it currently means "reads ~/.claude.json"; host execution has to
 	// read differently from a host read, and the words are what does that.
+	//
+	// The argv is rendered with shquote.Join, and that is about INJECTIVITY rather than
+	// about a shell: nothing execs this string (the spawn reads the argv list), but a
+	// claim is a comparison key, so two DIFFERENT argvs must never render to one claim.
+	// A bare space join is not injective — ["sh","-c","a b"] and ["sh","-c","a","b"]
+	// collapse — which is the same failure an ellipsis would cause, arrived at by
+	// accident. Quoting also keeps a whitespace-bearing argument legible in the prompt.
+	// It is applied to the RAW argv, so the tokens survive: {loophole_dir} has no unsafe
+	// bytes in shlex's set apart from the braces, and comes out `'{loophole_dir}/x.py'`.
 	var runs []string
 	if m.HostDaemon != nil && len(m.HostDaemon.Cmd) > 0 {
 		runs = append(runs, shquote.Join(m.HostDaemon.Cmd))
