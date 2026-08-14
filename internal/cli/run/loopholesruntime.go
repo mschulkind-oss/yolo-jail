@@ -1,6 +1,7 @@
 package run
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -110,10 +111,8 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	}
 
 	// 2. External services from config.loopholes (+ manifest host_daemon specs).
-	discovered := loopholes.Discover(loopholes.DiscoverOptions{
-		IncludeBundled:  true,
-		LoopholesConfig: cfgMap(cfg, "loopholes"),
-	})
+	//    Census site 4 — the host daemon SPAWN — through the converged set.
+	discovered := loopholes.NewHostSet(cfgMap(cfg, "loopholes")).Enabled()
 	manifestSpecs := loopholes.ManifestHostDaemonSpecs(discovered)
 	// The TRANSPORT comes from the Loophole record, not from the config-shaped spec
 	// map, because it is the framework's decision and not a user-supplied key. A name
@@ -155,8 +154,33 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 			}
 		}
 	}
+	// sourceOf lets the builtin-name skip below say WHERE the name came from. Only the
+	// manifest/pack sources are interesting; a config entry claiming a builtin name is
+	// already refused by internal/config/validate_loopholes.go.
+	sourceOf := map[string]string{}
+	for _, lp := range discovered {
+		sourceOf[lp.Name] = lp.Source
+	}
 	for _, name := range order {
-		if name == paths.BuiltinCgroupLoopholeName || name == paths.BuiltinJournalLoopholeName {
+		if isBuiltinLoopholeName(name) {
+			// PRINTED, not silent, when the name did NOT come from yolo's own builtin
+			// (docs/design/loophole-packaging.md §3.1). This skip used to be bare: a
+			// manifest named `journal` or `cgroup-delegate` loaded, was discovered, had its
+			// daemon dropped here without a word — while RuntimeArgsFor had ALREADY emitted
+			// its --add-host, ca_cert, --device, bind mounts and jail_env into the argv.
+			// Half a loophole, silently, and the visible half is the half that changes what
+			// crosses into the jail.
+			//
+			// A pack cannot reach here any more (PackLoopholeNameConflicts refuses the name
+			// at staging), which leaves the USER loophole dir — a hand-placed directory, so
+			// it is not refused, and it is exactly the case that needs saying out loud.
+			if src := sourceOf[name]; src != "" && src != loopholes.SourceConfig {
+				o.pr(o.Stdout).print(fmt.Sprintf(
+					"[yellow]Warning: loophole %q (%s) shares a name with yolo's own built-in "+
+						"service, so its host daemon is NOT started — but its bind mounts, "+
+						"devices and jail_env DID cross into this jail. Rename its directory.[/yellow]",
+					name, src))
+			}
 			continue
 		}
 		if name == broker.BrokerLoopholeName {
@@ -169,6 +193,19 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 		}
 	}
 	return handles
+}
+
+// isBuiltinLoopholeName reports whether name is one of the two service names yolo's own
+// in-process daemons answer to. Reads paths.BuiltinLoopholeNames rather than comparing the
+// two constants inline, so a third builtin cannot be added without this skip seeing it —
+// which is precisely how `journal` came to be reserved in paths.go and enforced nowhere.
+func isBuiltinLoopholeName(name string) bool {
+	for _, builtin := range paths.BuiltinLoopholeNames {
+		if name == builtin {
+			return true
+		}
+	}
+	return false
 }
 
 // stopLoopholes tears down handles WITH THE FROZEN GUARD STACK (do not
