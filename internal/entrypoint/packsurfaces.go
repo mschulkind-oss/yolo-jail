@@ -90,6 +90,12 @@ func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
 			if len(problems) > 0 {
 				return nil, fmt.Errorf("pack %s: %s", ent.Name(), problems[0])
 			}
+			// A contribution whose KIND this build does not know was skipped, not
+			// fatal (loophole-packaging §3.3a): a jail must boot under version skew.
+			// Warn each skip by name so the degradation is visible, never silent.
+			for _, note := range p.SkewNotes {
+				e.warn(note)
+			}
 			packs = append(packs, p)
 		}
 	}
