@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -131,6 +132,62 @@ func TestCheckLoopbackTLSServiceNamesTheLayer(t *testing.T) {
 			t.Errorf("a live listener did not pass: passed=%d failed=%d out=%q", r.passed, r.failed, out)
 		}
 	})
+}
+
+// TestCheckLoopholesWarnsOnWorkspaceDisable: §4.3b of loophole-packaging.md
+// leaves `enabled` writable at workspace scope, so the DISCLOSURE is the only
+// protection left for a default-on loophole: a workspace-sourced disable must
+// WARN and name the file, never render as a green "disabled" line. A disable
+// from the loophole's own manifest stays a green ok.
+func TestCheckLoopholesWarnsOnWorkspaceDisable(t *testing.T) {
+	// Isolate discovery: an empty bundled dir (so no real bundled loophole's
+	// doctor_cmd can ever run from a test) and a user dir with two manifests.
+	emptyDir := t.TempDir()
+	userDir := t.TempDir()
+	oldBundled, oldUser := loopholes.BundledLoopholesDir, loopholes.UserLoopholesDir
+	loopholes.BundledLoopholesDir = func() string { return emptyDir }
+	loopholes.UserLoopholesDir = func() string { return userDir }
+	t.Cleanup(func() {
+		loopholes.BundledLoopholesDir = oldBundled
+		loopholes.UserLoopholesDir = oldUser
+	})
+	writeManifest := func(name, body string) {
+		dir := filepath.Join(userDir, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "manifest.jsonc"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeManifest("wsoff", `{"name": "wsoff", "transport": "none", "enabled": true}`)
+	writeManifest("selfoff", `{"name": "selfoff", "transport": "none", "enabled": false}`)
+
+	ws := t.TempDir()
+	wsCfg := filepath.Join(ws, "yolo-jail.jsonc")
+	if err := os.WriteFile(wsCfg, []byte(`{"loopholes": {"wsoff": {"enabled": false}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	r := newReporter(&buf, false)
+	o := &Options{Workspace: ws, Getenv: func(string) string { return "" }}
+	fillDefaults(o)
+	o.checkLoopholes(r)
+	out := buf.String()
+
+	if r.warned != 1 || !strings.Contains(out, "wsoff") ||
+		!strings.Contains(out, "disabled by "+wsCfg) {
+		t.Errorf("warned=%d out=%q — a workspace-scope disable must WARN and name the file",
+			r.warned, out)
+	}
+	// The manifest's own disable stays a green ok line.
+	if !strings.Contains(out, "loophole selfoff: disabled") {
+		t.Errorf("out=%q — a manifest-level disable should still render", out)
+	}
+	if r.failed != 0 {
+		t.Errorf("failed=%d out=%q — disclosures are warnings, not failures", r.failed, out)
+	}
 }
 
 // brokerRelayProbeOnce runs the broker-relay probe with the in-jail visibility

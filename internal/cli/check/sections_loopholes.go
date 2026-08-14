@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -25,12 +26,24 @@ func (o *Options) checkLoopholes(r *reporter) {
 		r.ok(fmt.Sprintf("No loopholes installed (%s)", loopholes.UserLoopholesDir()))
 		return
 	}
+	// `enabled` is writable at workspace scope (loophole-packaging.md §4.3b), so
+	// the disclosure is the only protection left for a default-on loophole: a
+	// workspace-sourced disable must WARN and name the file, never render as a
+	// green line. Only a disable from the loophole's own manifest is an ok.
+	wsDisabled := config.WorkspaceDisabledLoopholes(o.Workspace)
 	for _, e := range entries {
 		if e.Err != "" {
 			r.warn("loophole "+filepath.Base(e.Path)+": invalid manifest", e.Err)
 			continue
 		}
 		lp := e.Loophole
+		if file, ok := wsDisabled[lp.Name]; ok {
+			r.warn("loophole "+lp.Name+": disabled by "+file+" (workspace scope)",
+				"An agent-editable file turned an installed loophole off; jails "+
+					"launched from this workspace run without it. Re-enable it there, "+
+					"or move the override to "+paths.UserConfigPath()+".")
+			continue
+		}
 		if !lp.Enabled {
 			r.ok("loophole " + lp.Name + ": disabled")
 			continue
