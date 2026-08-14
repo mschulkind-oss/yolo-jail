@@ -4,9 +4,13 @@
 // DumpsSnapshot — the config-snapshot bytes), and internal/pytext (repr
 // for the {x!r} bits of validation error strings).
 // The snapshot writer bytes, the merge/dedup semantics, and every validation
-// error/warning string are emitted in a fixed order that is a frozen contract
-// (must not drift — the differential oracle in config_parity_test.go verifies
-// it). Non-obvious edge-case behavior is PRESERVED and noted, never "fixed".
+// error/warning string are emitted in a fixed order that is a frozen contract:
+// callers diff snapshots, and `yolo internal config-dump` prints the errors and
+// warnings as data. No oracle pins the ORDER any more — the differential
+// config_parity_test.go this comment used to cite went away with the Python
+// implementation it compared against — so the freeze is a convention the tests
+// around each rule uphold, not a checked invariant.
+// Non-obvious edge-case behavior is PRESERVED and noted, never "fixed".
 // Config data flows through *jsonx.OrderedMap everywhere (never a plain Go map):
 // key order is load-bearing for the snapshot bytes.
 package config

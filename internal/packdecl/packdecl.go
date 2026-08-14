@@ -253,6 +253,14 @@ func (m *Manifest) Validate() []string {
 // one more the move makes sharper: this is now a PACK-level declaration, so reading it as flat
 // would unnamespace every skill the pack ships at every destination — and the author's only
 // symptom would be collisions they did not cause.
+//
+// THE ENUM IS SKEW-SENSITIVE, and this check runs unconditionally on the TOLERANT path too.
+// That is right while there are exactly two values (a third spelling is a typo both ends of
+// the version boundary agree about), and it becomes the `tier` incident a FOURTH time the day
+// a third tier VALUE ships: a newer host staging it bricks every jail on a pre-`just load`
+// image, exactly as an unknown contribution kind used to (loophole-packaging.md §3.3a).
+// Whoever adds a value extends the tolerance first — unknown values skipped-and-reported
+// under DecodeTolerant, refused loudly under Decode — and only then the value.
 func (m *Manifest) validateSkillsTier() []string {
 	switch m.SkillsTier {
 	case "", "flat", "namespaced":
