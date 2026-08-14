@@ -440,6 +440,197 @@ func TestFrontedServiceComesUpBehindFront(t *testing.T) {
 	}
 }
 
+// TestConfigLoopholeComesUpBehindFront is the end-to-end proof of the
+// discover.go flip (loophole-packaging.md §2.2): a yolo-jail.jsonc `loopholes:`
+// entry whose daemon binds a plain unix socket, driven through the REAL
+// pipeline — Discover synthesis, startLoopholes' spec/transport/daemon plumbing,
+// the fronted spawn — comes up with a published endpoint file, dialable via
+// svcendpoint, request round-tripping. And it gets its env var + endpoint file
+// exactly like a manifest loophole: the generic handle emission is what mounts
+// and advertises it, so the handle's fields ARE the contract (R11).
+func TestConfigLoopholeComesUpBehindFront(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("spawns a host process")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	emptyLoopholeDirs(t)
+
+	loopCfg := jsonx.NewOrderedMap()
+	entry := jsonx.NewOrderedMap()
+	entry.Set("description", "echo daemon on a plain unix socket")
+	entry.Set("command", []any{os.Args[0], "-front-upstream-child", "line", "{socket}"})
+	loopCfg.Set("echoer", entry)
+	cfg := newConfig("loopholes", loopCfg)
+
+	o := &Options{}
+	fillDefaults(o)
+	var buf strings.Builder
+	o.Stdout = &buf
+	// No cgroup delegate (its gate is a PathExists probe), no containers to
+	// enumerate (Ran:false), no journal (absent key).
+	o.PathExists = func(string) bool { return false }
+	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{} }
+
+	cname := "yolo-e2e-" + sha1Hex8(home)
+	socketsDir := hostServiceSocketsDir(cname, false)
+	handles := o.startLoopholes(cname, "podman", cfg)
+	stopped := false
+	stopAll := func() {
+		if !stopped {
+			stopped = true
+			o.stopLoopholes(handles, socketsDir, cname, "podman")
+		}
+	}
+	defer stopAll()
+
+	var h *loopholeDaemon
+	for i := range handles {
+		if handles[i].name == "echoer" {
+			h = &handles[i]
+		}
+	}
+	if h == nil {
+		t.Fatalf("no handle for the config loophole; handles=%v output=%q", handles, buf.String())
+	}
+
+	// R11: the jail-facing contract is IDENTICAL to a manifest loophole's — the
+	// endpoint env var (run.go inserts `-e envVarName=jailPath` generically for
+	// every handle), the in-jail endpoint path, and the endpoint file inside the
+	// mounted services dir.
+	if h.envVarName != "YOLO_SERVICE_ECHOER_ENDPOINT" {
+		t.Errorf("envVarName = %q, want YOLO_SERVICE_ECHOER_ENDPOINT", h.envVarName)
+	}
+	if h.jailPath != hostServiceEndpointPath("echoer") {
+		t.Errorf("jailPath = %q, want %q", h.jailPath, hostServiceEndpointPath("echoer"))
+	}
+	wantEndpoint := filepath.Join(socketsDir, "echoer"+paths.ServiceEndpointExt)
+	if h.hostPath != wantEndpoint {
+		t.Errorf("hostPath = %q, want %q (inside the mounted services dir)", h.hostPath, wantEndpoint)
+	}
+	if !svcendpoint.Probe(h.hostPath) {
+		t.Fatalf("endpoint file %q not published/complete", h.hostPath)
+	}
+
+	// The request round-trips through the front to the daemon's plain socket.
+	conn, err := svcendpoint.DialLocal(h.hostPath, 5*time.Second)
+	if err != nil {
+		t.Fatalf("dial through the front: %v", err)
+	}
+	if _, err := conn.Write([]byte("ping\n")); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := bufio.NewReader(conn).ReadString('\n')
+	_ = conn.Close()
+	if err != nil {
+		t.Fatalf("read through the front: %v", err)
+	}
+	if strings.TrimSpace(reply) != "pong" {
+		t.Errorf("reply = %q, want pong", reply)
+	}
+
+	upstream := frontSocketFile(frontShortHash(socketsDir), "echoer")
+	if !fileExists(upstream) {
+		t.Errorf("upstream socket %q missing while the service is up", upstream)
+	}
+	stopAll()
+	if fileExists(h.hostPath) {
+		t.Error("endpoint file survived teardown")
+	}
+	if fileExists(upstream) {
+		t.Error("upstream socket survived teardown")
+	}
+	if fileExists(socketsDir) {
+		t.Error("sockets dir survived teardown")
+	}
+}
+
+// TestManifestEOFDaemonRoundTripsBehindFront: a MANIFEST loophole declaring
+// publishes:"socket" + request_end:"eof" — loaded through the real loader, so
+// the enum parsing, the {socket} survival, and the FrontOptions wiring are all
+// on the path — serves a daemon that reads its request TO EOF. Without the
+// half-close mapping this daemon works on a bare socket and hangs forever
+// behind the front (loophole-packaging.md §2.1b hazard 2).
+func TestManifestEOFDaemonRoundTripsBehindFront(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("spawns a host process")
+	}
+	userDir := t.TempDir()
+	mod := filepath.Join(userDir, "eofd")
+	if err := os.MkdirAll(mod, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{
+  "name": "eofd",
+  "description": "reads its request to EOF",
+  "host_daemon": {
+    "cmd": [` + fmt.Sprintf("%q", os.Args[0]) + `, "-front-upstream-child", "eof", "{socket}"],
+    "publishes": "socket",
+    "request_end": "eof"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	discovered := loopholes.Discover(loopholes.DiscoverOptions{
+		Root: userDir, RootSet: true, IncludeBundled: false,
+	})
+	if len(discovered) != 1 || discovered[0].HostDaemon == nil {
+		t.Fatalf("discovered %+v, want the one eofd loophole", discovered)
+	}
+	lp := discovered[0]
+
+	socketsDir := t.TempDir()
+	if err := os.Chmod(socketsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	spec := jsonx.NewOrderedMap()
+	spec.Set("command", toAnyList(lp.HostDaemon.Cmd))
+	o := &Options{}
+	fillDefaults(o)
+	var buf strings.Builder
+	o.Stdout = &buf
+	h, ok := o.startExternalService("eofd", spec, socketsDir,
+		lp.Transport, "127.0.0.1", lp.HostDaemon)
+	if !ok {
+		t.Fatalf("eof daemon failed to come up; output: %q", buf.String())
+	}
+	defer h.stop()
+
+	conn, err := svcendpoint.DialLocal(h.hostPath, 5*time.Second)
+	if err != nil {
+		t.Fatalf("dial through the front: %v", err)
+	}
+	if _, err := conn.Write([]byte("payload")); err != nil {
+		t.Fatal(err)
+	}
+	// End the request direction; the eof front must half-close upstream so the
+	// daemon's read-to-EOF returns and the response flows back.
+	type closeWriter interface{ CloseWrite() error }
+	if err := conn.(closeWriter).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := io.ReadAll(conn)
+	_ = conn.Close()
+	if err != nil {
+		t.Fatalf("read through the front: %v", err)
+	}
+	if got := string(resp); got != "got:payload" {
+		t.Errorf("response = %q, want %q", got, "got:payload")
+	}
+}
+
+// toAnyList converts a string slice into the []any shape a decoded config
+// carries.
+func toAnyList(ss []string) []any {
+	out := make([]any, len(ss))
+	for i, s := range ss {
+		out[i] = s
+	}
+	return out
+}
+
 // TestFrontedServiceStaleUpstreamNeitherSatisfiesNorBlocks: the upstream wait is
 // a CONNECT with the stale file unlinked pre-spawn — a leftover from a SIGKILLed
 // predecessor must neither satisfy the wait instantly (the §2.1b hazard: front
