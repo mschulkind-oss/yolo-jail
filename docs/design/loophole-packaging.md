@@ -542,10 +542,28 @@ for each.
 2. Treat a socket bind as **its own claim class**: it is host IPC, not a host read, and the claim
    string must say so (§3.3).
 3. Keep the `readonly: false` refusal, and say what it actually covers.
+4. **Added 2026-08-14, from verification: `ca_cert` and `requires.file_exists` are path-scoped on
+   the same axis, through the same classifier.** Both were listed under "everything else is allowed"
+   below and both name a HOST PATH that a pack could set to anything.
+   `ca_cert` is the SHARPEST of the three, not the mildest: it is bind-mounted from the host *and*
+   its container path is joined into `NODE_EXTRA_CA_CERTS`, so an absolute value hands every node
+   client in the jail a certificate authority the user never chose — and the resolver deliberately
+   passes an absolute value through as-is. Legal for a pack: a relative path it ships, or `{state}/x`
+   (name-keyed, survives restaging, which is what makes a pack-shipped CA possible at all).
+   `requires.file_exists` is the one scoped field that crosses NOTHING — no mount, no exec, just a
+   `stat` — and it is scoped because the ANSWER leaks: `InactiveReason` prints the resolved absolute
+   path, so `yolo loopholes list` turned an unscoped field into a host-filesystem probe with a
+   readout (`$HOME/.ssh/id_ed25519`). It gets no claim for the same reason: §3.3's rule is that a
+   CROSSING must claim, and a line in the approval prompt for a stat dilutes a prompt whose value is
+   that every line is a real capability. `command_on_path` is untouched — it asks PATH about a
+   program name, and the answer names something installable.
 
 **Everything else is allowed — and every one of them is CLAIMED (§3.3):** `host_daemon`,
 `jail_daemon`, `intercepts` + `broker_ip` + `ca_cert`, `host_bind_mounts` (`:ro`), `host_devices`,
-`state_files`, `requires`, `doctor_cmd`, `serves`.
+`state_files`, `requires`, `doctor_cmd`, `serves`. Two qualifications learned by verifying the landed
+kind: `broker_ip` is claimed *inside* the intercept claim rather than on its own (it is not a separate
+crossing — it is WHERE the intercept points, and leaving it out made two manifests differing only in
+it compare as one approval), and `requires` is claimed by nothing (see requirement 4).
 
 **The `jail_env` refusal has a real cost, stated rather than hidden.** A loophole's `jail_env` is
 *conditional on the loophole being active*; the `env` kind is unconditional. `audio` relies on
@@ -816,13 +834,29 @@ unrepresentable.** Every declaration that crosses the boundary emits its own cla
 ```
 loophole  acme-proxy                RUNS `python3 {loophole_dir}/acme-daemon.py --socket {socket}`
                                     on your machine                                        ⚠ review
-loophole  acme-proxy:api.acme.com   INTERCEPTS api.acme.com — installs a CA trusted by every
-                                    TLS client in the jail                                 ⚠ review
+loophole  acme-proxy:api.acme.com   INTERCEPTS api.acme.com -> host-gateway — installs a CA
+                                    trusted by every TLS client in the jail                ⚠ review
+loophole  acme-proxy:ca:{state}/…   TRUSTS the CA in {state}/ca.crt — mounted from your host
+                                    and trusted by every node client in the jail           ⚠ review
 loophole  acme-proxy:mount:/ctx/x   MOUNTS ~/x -> /ctx/x (read-only)                       ⚠ review
 loophole  acme-proxy:ipc:/ctx/s     CONNECTS the jail to the host socket ~/s — read-write
                                     regardless of `:ro` (measured)                         ⚠ review
 loophole  acme-proxy:dev:/dev/snd   PASSES THROUGH the host device /dev/snd                ⚠ review
 ```
+
+Two rows above are corrections from verifying the landed producer, not from draft 1:
+
+- **the `ca:` row exists at all.** `ca_cert` was in neither claim class and IS a crossing —
+  bind-mounted from the host, then joined into `NODE_EXTRA_CA_CERTS`. With no claim, a
+  `transport: none` loophole declaring only `ca_cert` reached `packMayAccessHost` with an EMPTY set
+  and was granted. Its text names the CAPABILITY (a trusted CA) rather than the mount, because the
+  capability is what an intercept's own claim exists to disclose and a module-relative `ca_cert`
+  reaches it without declaring an intercept.
+- **the intercept row carries `-> <broker_ip>`.** Without it, two manifests differing only in
+  `broker_ip` produced the identical approved string, so an approval of an intercept pointed at
+  yolo's own front silently covered the same hostname pointed anywhere. The default is spelled out
+  when absent, so `broker_ip: "host-gateway"` and no `broker_ip` are ONE approval — the alternative
+  is a rule about spelling.
 
 - **Target** is the loophole name for the base claim, `<name>:<discriminator>` for each other. So a
   pack with three bind mounts emits three separately-approvable strings.
@@ -844,6 +878,13 @@ loophole  acme-proxy:dev:/dev/snd   PASSES THROUGH the host device /dev/snd     
   the claim.
 - **`state_files` needs no claim.** It resolves under `StateDirFor(name)` in yolo's own state tree
   (§8), not into a path the user would recognise as theirs.
+- **`requires` needs no claim either — added 2026-08-14, and it is the boundary of the rule.** The
+  rule is "a CROSSING must claim". `requires.file_exists` crosses nothing: no mount, no exec, just a
+  `stat` whose boolean decides `Active`. Claiming it would put a line in the approval prompt for
+  something that neither mounts nor runs, diluting a prompt whose whole value is that every line in it
+  is a real capability. It is nonetheless **path-scoped** for a pack (§3.1 requirement 4), because the
+  ANSWER leaks through `InactiveReason` into `yolo loopholes list` — the enumeration governs
+  crossings, and a readable probe is a different problem with a different fix.
 
 **Landed 2026-08-14** (`423c4af`) in `internal/packload/loopholesource.go`, with the table above as
 the spec. Three things the enumeration turned out to need that the design did not state, and one it
@@ -1260,6 +1301,41 @@ unapproved has its loophole **not discovered at all** while its other contributi
 same shape `mount` has today, refusals printed per-claim (`packs.go:218-231`). With §3.3's total
 enumeration, `len(want) == 0` is now only reachable for a pack that genuinely crosses nothing.
 
+**LANDED 2026-08-14, and the enforcement had to be built — the DECISION alone shipped first.** The
+per-module gate (`loopholes.PackModule.HostExecApproved`, set from `p.MayAccessHost` in
+`run.packLoopholeModules`) was correct and had exactly ONE production reader, `RunDoctorChecks`.
+`ManifestHostDaemonSpecs` filtered on `FromConfig`/`HostDaemon`/`Active` and `RuntimeArgsFor` on
+`FromConfig`/`Active`; neither consulted it. So an unapproved fetched pack's daemon entered the spawn
+list and RAN, and its binds, devices, intercepts and CA reached the container argv — while
+`packMayAccessHost` answered false and `run/packs.go`'s own comment said the two were *"the SAME gate,
+not a second one that could disagree"*. True of the decision, false of its enforcement.
+
+Three parts, and the shape of each is the argument:
+
+- **Enforced in the CALLEE.** Both functions now honor NO `SourcePack` record without a gate, and the
+  gated forms are `Set` methods — the shape `RunDoctorChecks` already had, for its stated reason: A
+  SLICE CARRIES NO GATE, so the only place the check cannot be forgotten is inside the function that
+  acts on the records. Both are exported and take `[]*Loophole`, so any caller assembling records
+  another way would otherwise walk past the boundary. The ungated path also WARNS: a caller reaching a
+  host crossing with no origin decision is a programming error, and a silently-degraded jail is how
+  this stayed invisible.
+- **A fourth surface: the BRIEFING.** It advertised an unapproved loophole as a live capability, which
+  is `Active()`'s answer — an unapproved loophole is enabled, on the right platform, requirements met,
+  and crosses nothing. So `Set.Honored()` (Active + the gate) is a third predicate beside
+  Enabled/Active, and the briefing reads it. Identical failure mode to §5.1's shipped bug one axis
+  over: the agent goes and debugs host wiring that was deliberately withheld.
+- **Discovery is UNCHANGED**, which is how "not discovered at all" and §5.1's visibility requirement
+  are reconciled. Nothing of the loophole crosses; `yolo loopholes list`/`status` still show it, as
+  `unapproved`. A missing entry is indistinguishable from a pack that failed to stage, and the fix
+  ("`yolo pack install` records the approval") is not discoverable from an absence.
+
+**And "refusals printed per-claim" was unimplemented — there was no `HonoredLoopholes`.** The
+withholding shipped silently, which is worse than the `mount` case it cites: a missing mount is a
+missing directory, a missing loophole looks like a broken one. Added beside the three shipped
+`Honored*` reporters, PER MODULE rather than per claim — claims are the right unit for approval (each
+separately approvable) and the wrong unit for a refusal, since the gate is per pack and the fix is one
+action, so claim-granularity prints five identical lines about one decision.
+
 **G4 — the per-launch disclosure, which today would not mention this kind and prints too late.**
 `notePackHostAccess` (`run.go:230-243`) is the *"transparency half of the approval model"* by its own
 comment (`:568-571`: *"the effective host access must be visible every launch, not just recorded in a
@@ -1301,6 +1377,21 @@ and all-read would print the daemon argv after the spawn. `RunsHostCode` is the 
 non-executing loophole claim degrades to a READ rather than disappearing. An **unreadable**
 declaration is disclosed as exec, agreeing with the claim producer's own fail-closed reading —
 the one case where yolo cannot see what will run must not be the one case it announces late.
+
+**A BANNER THAT SHOWS A REFUSED DAEMON AS PENDING IS WORSE THAN SILENCE — fixed 2026-08-14, and
+the two reports' questions are what the fix rests on.** The disclosure printed an UNAPPROVED
+pack's daemon argv under *"This launch runs pack code on your machine"*, because `FootprintOf`
+deliberately does not gate a loophole claim on `MayAccessHost` — which is right for
+`pack footprint`, whose own doc says the point is to see what a pack WANTS before trusting it.
+The launch asks a different question (what is ABOUT TO HAPPEN), and the pre-spawn block's whole
+value is that every line in it is imminent, so a withheld daemon shown as pending is false in the
+one place a user reads to decide whether to hit ctrl-c — and it teaches them the block cannot be
+trusted. Subtracted at the DISCLOSURE (`claimWillHappen`), never at the footprint. Written as a
+rule over host-crossing classes rather than a special case for `loophole`, because
+`program via installer` and `briefing after host:` are ungated in the footprint too (their gates
+apply where they are HONORED), so they had the same latent defect. `env` is the one named
+exception: literal strings from `pack.json`, origin-gated nowhere, so a refused pack still gets
+them and the launch must still say so.
 
 ### 4.3a EVERY GATE GOVERNS A DECLARATION; NONE GOVERNS THE FILE — review, and it is the worst gap here
 
@@ -2147,10 +2238,65 @@ consumer. **Resolved by:** a maintainer ruling; nothing in this design blocks ei
 Ordered, because the first three make the rest safe to read. Items **0**, **5b** and **5c** are new
 in revision 2 and are real work draft 1 priced at zero.
 
-**Ledger, 2026-08-14: items 0–8 are DONE; item 9 is not started.** TWO residuals sit *inside* done
-items and are the whole of what is left besides item 9 and OQ-LP9: the pack-shipped **subset** is
-built and unwired (item 5), and **G2b** is unbuilt — deliberately, as a decision under OQ-LP8 rather
-than as pending work (item 6). **G2a landed** with the loophole claim producer.
+**Ledger, 2026-08-14: items 0–8 are DONE; item 9 is not started.** ONE residual sits *inside* a done
+item and is the whole of what is left besides item 9 and OQ-LP9: **G2b** is unbuilt — deliberately, as
+a decision under OQ-LP8 rather than as pending work (item 6). **G2a landed** with the loophole claim
+producer. The pack-shipped **subset is now wired at both seams** (item 5).
+
+**Five defects found by adversarial verification of the landed kind, all fixed 2026-08-14.** Every one
+had the same shape — *the security decision was computed correctly and then not enforced* — which is
+worth recording as a pattern rather than five incidents:
+
+1. **`ca_cert` was a crossing with no claim** (§3.3, on a key draft 1's table listed under "everything
+   else is allowed"). `RuntimeArgsFor` bind-mounts it and joins the container path into
+   `NODE_EXTRA_CA_CERTS`; the producer never mentioned it. So `{"transport":"none","ca_cert":"/abs"}`
+   yielded ZERO claims, `packMayAccessHost` took its `len(want) == 0` branch, and a fetched pack got an
+   arbitrary host path mounted into a UID-0 jail AND trusted as a CA by every node client in it, with
+   no prompt. Now claimed (keyed by the raw path, naming the CAPABILITY rather than the mount) and
+   path-scoped for a pack. Also: `Loophole.subsetManifest` projected three fields under a comment
+   claiming the omissions would "fail loudly" — they fail SILENTLY, in the granting direction, which is
+   how the field's own scope rule reported a violating record as clean. It projects everything now,
+   pinned by reflection.
+2. **The origin gate was computed and ignored at the spawn** (§4.3 G3). `HostExecApproved` had ONE
+   production reader (`RunDoctorChecks`); `ManifestHostDaemonSpecs` and `RuntimeArgsFor` never
+   consulted it, so an unapproved fetched pack's daemon RAN and its binds/devices/intercepts/CA reached
+   the argv. `run/packs.go`'s comment — *"the SAME gate, not a second one that could disagree"* — was
+   true of the decision and false of its enforcement. Both functions now refuse a `SourcePack` record
+   outright and the gated forms are `Set` methods, which is `RunDoctorChecks`' own shape and for its
+   argument: a slice carries no gate. A FOURTH surface had it too — the briefing advertised an
+   unapproved loophole as a live capability (`Active()` is true for one), so it reads `Set.Honored()`.
+   Discovery is unchanged, which is how "not discovered at all" and §5.1's visibility requirement are
+   reconciled: nothing crosses, `loopholes list` still says `unapproved`.
+3. **No refusal was printed, and the disclosure lied.** There was no `HonoredLoopholes` beside the
+   three shipped `Honored*` reporters, so the withholding in item 2 was SILENT — worse than the `mount`
+   case it was modelled on, since a missing mount is a missing directory while a missing loophole looks
+   like a broken one. And the pre-spawn block printed the withheld daemon's argv under *"This launch
+   runs pack code on your machine"*, because the footprint deliberately keeps that claim (it answers
+   what a pack WANTS). Fixed at the disclosure, as a rule over host-crossing classes rather than a
+   special case: `program via installer` and `briefing after host:` had the same latent defect.
+4. **The subset was enforced NOWHERE.** `LoadPackLoophole` and `LoadDirPackShipped` had zero production
+   callers — measured in the ledger below and left as a residual. Now the SOURCE LABEL selects the
+   loader (`loaderFor`), and `pack lint` applies the subset too: it had printed "pack ok" for a
+   manifest every launch refuses.
+5. **Two unclaimed fields.** `broker_ip` produced `--add-host <host>:<ip>` and appeared in no claim, so
+   two manifests differing only in it had IDENTICAL approvals — approve an intercept at
+   `host-gateway`, then move the pin and redirect the hostname anywhere, no re-prompt. Folded into the
+   intercept claim (it is not a separate crossing; it is where the intercept points). And
+   `requires.file_exists` was an unscoped `$VAR`-expanded `stat` whose ANSWER is readable —
+   `InactiveReason` prints the resolved path in `loopholes list` — so a fetched pack could probe
+   `$HOME/.ssh/id_ed25519` and read the result. RULED: path-scope the field, do NOT claim it (a stat
+   crosses nothing, and §3.3's rule is about crossings), and keep printing the path (the active/inactive
+   label answers the probe anyway, so hiding it would remove the diagnostic and leave the probe).
+
+**And one test hole, closed by a second mechanism rather than a stronger AST rule.**
+`packload/hostaccessgates_test.go` pins that each gate CALLS the merged claim helper. It cannot see a
+POST-HOC FILTER — a loop dropping every `loophole ` claim after the call left the scan satisfied and
+the whole `-short` suite green. Seeing that needs dataflow, and any rule crude enough for an AST walk
+would forbid ordinary code in a security-critical function. So the invariant's other half is
+BEHAVIOURAL and per producer (`run/hostaccessgateeffect_test.go`): a fetched pack whose only claim
+comes from producer X is refused without approval and granted with it. The refusal case is what
+catches a filter, because a dropped claim makes the gate GRANT (`len(want) == 0` reads as "moot")
+rather than refuse.
 
 0. **Tolerate an unknown KIND under `TolerateSkew()`** (§3.3a), with a regression test that a
    manifest carrying one still boots a jail. **Before the kind exists**, or every pack that declares
@@ -2226,13 +2372,25 @@ than as pending work (item 6). **G2a landed** with the loophole claim producer.
    returns fifteen; `from` is required and traversal-guarded; Exclusive by loophole NAME; the
    `refusalReasons` entry and the `JailFields()` exclusion are both explicit; the control-character
    refusal covers every claim-feeding field.
-   **ONE PART IS BUILT BUT NOT WIRED, and it is the pack-shipped SUBSET** — the `jail_env` refusal,
-   the home-relative bind constraint, the `readonly: false` refusal and the `publishes: "socket"`-only
-   rule are implemented and tested in `internal/loopholedecl/packshipped.go`, reachable through
-   `LoadDirPackShipped` (authoring) and `loopholes.LoadPackLoophole` (discovery), and **measured
-   2026-08-14: neither loader has a production caller.** `pack lint` reads the module manifest strictly
-   without the subset; discovery goes through `loadModuleDirs` → `loadManifest`, the bundled path. So
-   those four rules do not fire today. Two call sites, no new logic.
+   **THE PACK-SHIPPED SUBSET IS NOW WIRED AT BOTH SEAMS — 2026-08-14.** It had been built and
+   unreachable: the `jail_env` refusal, the home-relative bind constraint, the `readonly: false`
+   refusal and the `publishes: "socket"`-only rule were implemented and tested in
+   `internal/loopholedecl/packshipped.go`, and **neither `LoadDirPackShipped` (authoring) nor
+   `loopholes.LoadPackLoophole` (discovery) had a production caller** — so §3.1's requirements 1 and 3
+   applied to nothing. Measured then: a pack manifest with all four violations was discovered, Active,
+   and produced `-v /:/ctx/hostroot` (readonly:false honored, so no `:ro`) plus
+   `-e LD_PRELOAD=/ctx/evil.so`; and `yolo pack lint` printed "pack ok" for it.
+   Now the **SOURCE LABEL selects the loader** in `loadModuleDirs` (`loaderFor`), which is the right
+   seam because pack-shippedness is the CALLER's fact — a manifest cannot declare it without lying,
+   and that function's `source` parameter already IS the fact. `ValidateLoopholes` (`yolo check`'s own
+   walker) and `LoopholeDeclProblems` (`pack lint`) go through the same predicate, because a preflight
+   or an authoring tool that is KINDER than the loader produces exactly the report/gate disagreement
+   the subset was factored into one package to prevent — in `lint`'s case, an author told their
+   loophole is fine who learns otherwise from a launch warning on a stranger's machine.
+   Both loaders stay TOLERANT: the subset is orthogonal to version skew, so an unknown key is skipped
+   and reported while a forbidden field is refused, in one read. Two more fields joined the subset with
+   the wiring — `ca_cert` and `requires.file_exists`, both path-scoped through the same classifier as
+   the bind host (see the five-defect note above).
    - **5b.** The **fourth bespoke pre-flight** for loophole-name exclusivity, wired into `stagePacks`
      beside the other three (§3.1). `packload.Collisions` does not do this and is not called at
      launch.
