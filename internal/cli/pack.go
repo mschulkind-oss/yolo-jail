@@ -608,7 +608,14 @@ func stagedContent(staged []string, pack *packload.Pack, skillRoots []string) (c
 	sources = append(sources, "AGENTS.md", "CLAUDE.md")
 	for _, c := range pack.Decl.Contributions() {
 		switch c.Kind {
-		case packdecl.KindFiles, packdecl.KindBriefing:
+		// KindLoophole is here for the same reason as the other two: its `from` names a
+		// DIRECTORY of content a reader picks up — internal/loopholes loads
+		// <from>/manifest.jsonc, and everything the manifest references ({loophole_dir}/x)
+		// resolves inside that dir. Omitted, `pack lint` rejected every pack whose only
+		// contribution is a loophole ("stages N file(s) nothing reads", naming the manifest
+		// the whole pack exists to deliver), which is the accepted-and-ignored shape this
+		// check was rewritten to stop producing.
+		case packdecl.KindFiles, packdecl.KindBriefing, packdecl.KindLoophole:
 			if c.From != "" {
 				sources = append(sources, c.From)
 			}

@@ -21,17 +21,18 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
-// writeLoopholeModulePack scaffolds a pack whose pack.json ships one loophole module,
-// returning the pack dir. `pack init` supplies the surrounding content so lint's
-// "stages files nothing reads" rules are satisfied by the same scaffold every other test
-// uses.
+// writeLoopholeModulePack scaffolds a pack whose ONLY contribution is one loophole module,
+// returning the pack dir.
+//
+// LOOPHOLE-ONLY, deliberately, and it used to carry `skills` + `briefing` contributions it did
+// not need. That was a CRUTCH, not a fixture detail: `stagedContent` built its claimed-paths set
+// from KindFiles/KindBriefing/skill roots only, so a loophole's `from` claimed nothing and lint
+// rejected every loophole-only pack with "stages N file(s) nothing reads" — naming the manifest
+// the pack exists to deliver. The extra contributions hid that by making other paths claimed.
+// The shape a real loophole pack has is this one, so the fixture is this one.
 func writeLoopholeModulePack(t *testing.T, manifest string) string {
 	t.Helper()
 	dir := t.TempDir()
-	var out, errw bytes.Buffer
-	if rc := packMain([]string{"init", dir}, &out, &errw, false, nil); rc != 0 {
-		t.Fatalf("init rc = %d: %s", rc, errw.String())
-	}
 	mod := filepath.Join(dir, "loopholes", "acme-proxy")
 	if err := os.MkdirAll(mod, 0o755); err != nil {
 		t.Fatal(err)
@@ -39,13 +40,68 @@ func writeLoopholeModulePack(t *testing.T, manifest string) string {
 	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pj := `{"contributes":[{"kind":"loophole","from":"loopholes/acme-proxy"},` +
-		`{"kind":"skills","from":"skills","into":".acme/skills"},` +
-		`{"kind":"briefing","from":"AGENTS.md","into":".acme/AGENTS.md"}]}`
+	pj := `{"contributes":[{"kind":"loophole","from":"loopholes/acme-proxy"}]}`
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(pj), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+// A pack whose ONLY contribution is a loophole LINTS CLEAN. That is the shape a real
+// loophole-shipping pack has, and lint rejected all of them: `stagedContent`'s sources came from
+// KindFiles/KindBriefing/skill roots and never KindLoophole, so the module dir was unclaimed and
+// the manifest read as "staged, and read by nothing" — a declaration yolo accepts and then tells
+// the author is dead, which is the exact failure the check was rewritten to stop producing.
+func TestLoopholeOnlyPackLintsClean(t *testing.T) {
+	dir := writeLoopholeModulePack(t, `{
+	  "name": "acme-proxy",
+	  "description": "a loophole and nothing else",
+	  "transport": "none"
+	}`)
+	var out, errw bytes.Buffer
+	rc := packMain([]string{"lint", dir}, &out, &errw, false, nil)
+	if rc != 0 {
+		t.Fatalf("a pack whose only contribution is a loophole failed lint (rc=%d):\n%s%s",
+			rc, out.String(), errw.String())
+	}
+	if strings.Contains(out.String(), "nothing reads") {
+		t.Errorf("lint calls the loophole module's manifest unread content:\n%s", out.String())
+	}
+}
+
+// And the check still FIRES for a loophole pack that stages content nothing names — the fix must
+// widen the claimed set, not silence the rule.
+func TestLoopholePackStillFlagsUnclaimedContent(t *testing.T) {
+	dir := t.TempDir()
+	mod := filepath.Join(dir, "loopholes", "acme-proxy")
+	if err := os.MkdirAll(mod, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"),
+		[]byte(`{"name":"acme-proxy","transport":"none"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A stray tree OUTSIDE the module dir: named by no contribution and in no conventional
+	// location. The rule fires only when NOT ONE content file is claimed, so the loophole
+	// contribution has to name a dir that is not there.
+	if err := os.MkdirAll(filepath.Join(dir, "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes", "stray.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pj := `{"contributes":[{"kind":"loophole","from":"loopholes/other"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(pj), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+		t.Fatalf("lint accepted a pack whose loophole `from` names nothing it contains:\n%s",
+			out.String())
+	}
+	if !strings.Contains(out.String(), "loopholes/other") {
+		t.Errorf("the refusal does not name the missing module dir:\n%s", out.String())
+	}
 }
 
 const daemonManifest = `{
