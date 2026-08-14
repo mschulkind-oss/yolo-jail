@@ -82,9 +82,15 @@ design over verified code paths, not over a working instance (**R2**).
 >    check with no path constraint, so "local" includes a directory the agent writes. **OQ-LP13**,
 >    which subsumes G2b and OQ-LP3 (§4.3a).
 >
-> **And a fourth round RULED two things**, which is why §4.3b exists: **install is user-scope, enable
-> is either** (§4.3b), and **the user loopholes dir is retired** (OQ-LP10). The scope ruling dissolved
-> OQ-LP12 and folded OQ-LP3 (and probably OQ-LP8) into OQ-LP13, which is still open. The development escape hatch
+> **And later rounds RULED almost all of it.** §4.3b is the organizing decision: **install is
+> user-scope, enable is either**. On top of it: **OQ-LP10** (retire the user loopholes dir),
+> **OQ-LP2** (install-shaped keys user-scope-only, with a FATAL error plus an install offer rather
+> than warn-then-error), **OQ-LP6** (build the capability system), **OQ-LP11** (bundled become
+> official packs, `audio` shipping IN this batch), and **OQ-LP13 — ruled AGAINST hashing**: *"if you
+> can edit user-level files, you have all the perms already"*, so the user-scope edit IS the
+> confirmation and all that survives is a PLACEMENT rule (§4.3a). OQ-LP12 dissolved, OQ-LP3 folded,
+> OQ-LP8 is all but closed. **Only OQ-LP9 is properly open**, and it grew: nested jails need the
+> scope model to RECURSE, and measurement says it cannot today. The development escape hatch
 > §4.3a wanted is DELETED — *"you can develop a loophole in a jail with jail in jail if you need"*,
 > and measured, the loophole runtime has exactly ONE jail-aware branch (`runtime.go:143`, device
 > passthrough), so a nested jail is a real development environment and the friction belongs on the
@@ -1040,18 +1046,30 @@ execution, and void when the "local" directory is one an agent writes.
 | a `file://` pack under a workspace | the same, with **no approval at any point** to be stale against |
 | a config-block `command` naming a workspace path | the same, and **G1 does not touch it**: it gates the declaration, not the target |
 
-**Requirement: confirmation is anchored to CONTENT, for every origin.** yolo digests what it is about
-to execute — the loophole module dir, plus any argv-named file outside it — records that digest with
-the confirmation, and re-confirms on change. Origin then decides how loud the FIRST confirmation is,
-not whether one exists. This subsumes G2b (a commit is a coarse digest) and subsumes OQ-LP3, which
-was heading for a special case.
+**RULED: not content confirmation — a PLACEMENT rule.** Draft 4 required digesting everything a
+loophole would execute. The maintainer refused it: *"not sure there's even any confirmation needed —
+if you can edit user-level files, you have all the perms already."* Correct, and it dissolves the
+mechanism: writing the user config already demands host access as the user, who could equally use
+`~/.bashrc` or cron, so a dialog guarding it protects nothing. **The user-scope edit IS the
+confirmation** (§4.3b).
+
+What the permission argument does NOT cover is the second actor. It speaks for the human who writes
+the declaration; the agent that rewrites the named FILE has none of those permissions. So:
+**installed content may not live where an agent writes** — refused at install, by name, when a
+loophole's module dir or argv target resolves inside the workspace being mounted or inside
+`paths.GlobalHome()`'s jail-home tree. A path check replaces a digest, a lockfile field and a
+re-prompt loop, and it makes user-scope install a sound boundary rather than a holed one.
+
+**Limit:** the rule cannot be complete — yolo knows the workspace it is launching and the homes it
+manages, not that `~/code/other-project` is agent-writable in some other jail. It catches the shape
+that occurs (a daemon in the repo being worked on); the permission argument covers the rest.
 
 **Two limits to state rather than discover.** (1) The digest covers what yolo can NAME, not
 everything that will run: a Python daemon imports, a binary `dlopen`s. It is a tripwire against
 silent substitution, not a boundary — and `state_files`/`{state}` content is deliberately outside it,
-or every CA regeneration would re-prompt. (2) The friction is worse than OQ-LP8's: a loophole under
-development changes on every edit. Draft 3 wanted a per-path development escape in the user config;
-**RULED AGAINST — develop the loophole in a jail instead.** Measured: `runtime.go:143` is the ONLY
+or every CA regeneration would re-prompt. (2) The development-friction question is moot now that there is
+no re-confirmation loop — and the escape hatch draft 3 wanted was separately **RULED AGAINST:
+develop the loophole in a jail instead.** Measured: `runtime.go:143` is the ONLY
 jail-aware branch in the loophole runtime (it skips device passthrough), so a nested jail spawns host
 daemons, binds mounts, publishes endpoints and installs intercepts identically. The nested jail IS
 the development environment, its "host" is a container that can be thrown away, and re-confirmation
@@ -1526,7 +1544,14 @@ is a display concern, not a model one.
 Recommend extracting `internal/loopholedecl` as a stdlib+decoder leaf; the alternative is breaking
 the `loopholes` → `config` edge (two files). **Resolved by:** choosing one.
 
-**OQ-LP2 — do the `loopholes` block's host-exec keys become user-scope-only now?** My read: **yes**,
+**OQ-LP2 — do the `loopholes` block's host-exec keys become user-scope-only now? RULED: YES**, for the
+INSTALL-shaped keys (§4.3b's table: `command`, `doctor_cmd`, `env` in both shapes; `enabled` and
+`jail_env` stay at either scope). **And the migration is ruled too: a FATAL error, not warn-then-error**
+— a workspace enabling an uninstalled loophole fails the launch, names the file that asked, and
+OFFERS to install it at user level, which is where the human-in-the-loop moment now lives. That also
+replaces today's every-launch "treating the entry as an override" warning, which neither works nor
+stops. The offer must require a TTY and fail closed without one, or a workspace could drive its own
+promotion. Draft note: **yes**,
 independent of this kind, and it is the largest single risk reduction here (§4.3 G1). Note it is
 larger than draft 1 said: it covers `command`, `env` (both shapes), `doctor_cmd`, and `enabled` for
 daemon-bearing loopholes, and it needs the migration in §4.3 because the shipped guide teaches the
@@ -1551,7 +1576,9 @@ cross-kind collision pass, at the cost of conditional env — a cost now visible
 (§7), which is the *only* remaining cost of that example. The alternative is that pass, which is
 purely additive. **Resolved by:** the first real pack that wants conditional env.
 
-**OQ-LP6 — is A6 still worth building for three bundled loopholes?** With selection as the mechanism,
+**OQ-LP6 — is A6 still worth building for three bundled loopholes? RULED: YES, build it.** The
+extension-point argument carries it — a loophole manifest is a public surface regardless, so `serves`
+is a field third parties will write, and designing it once now beats retrofitting it later. With selection as the mechanism,
 `pack-capabilities.md` applies only to the bundled set (§6). **Resolved by:** a maintainer ruling.
 
 **OQ-LP7 — the `guest` notch.** A loophole is coherent at `guest` and incoherent at `host`, but
@@ -1567,24 +1594,31 @@ precise, more machinery), or document tag-pinning as the supported shape for exe
 read: **commit anchoring now, digest later if the friction is real** — the friction is visible and
 recoverable, and content-blind approval is neither. **Resolved by:** a maintainer ruling.
 
-**OQ-LP9 — does G1's scope error downgrade in-jail?** `agents` deliberately hard-errors on the host
-and warns in-jail, because the in-jail config is a generated snapshot (AGENTS.md). A `loopholes`
-scope error refuses the whole launch (§4.3), and `/workspace` is live-mounted, so in-jail `yolo` and
-nested jails break identically. **Resolved by:** a maintainer ruling, alongside OQ-LP2.
+**OQ-LP9 — NESTED JAILS NEED THE SCOPE MODEL TO RECURSE. The only properly open question, and review
+grew it.** The original form was small (does the scope error downgrade in-jail, the way `agents`
+does). Reframed: *"for jail in jail, the outer jail is essentially 'user level' for the inner jail —
+we need to support this somehow."* That is §4.3b applied recursively, and it is right: "user level"
+is whatever scope owns the machine the daemon runs on, so inside jail A that is jail A's own config,
+owned by jail A's agent, because jail A is the blast radius. It is also **load-bearing**, since
+§4.3a's escape-hatch ruling sends loophole development into a nested jail.
 
-**OQ-LP13 — is host execution confirmed against CONTENT, for every origin?** Raised in review
-(§4.3a) and the most serious item in this document. Every gate governs a declaration; the file that
-executes is unread, and `file://` imposes no path constraint, so a live-mounted workspace is "local"
-and prompts nothing ever. **My read: yes, and it is independent of the kind — it is a live gap
-today.** Digest the loophole module dir plus any argv-named file outside it, record it with the
-confirmation, re-confirm on change; origin decides how loud the first confirmation is, not whether
-there is one. Subsumes G2b's commit anchoring (a commit is a coarse digest) and most of OQ-LP3.
-Two limits belong in the ruling: the digest covers what yolo can NAME, not everything that runs; and
-a loophole under development re-confirms on every edit, which needs a per-path development escape in
-the **user** config rather than a prompt users learn to `y` through. **Resolved by:** a maintainer ruling, and it should be the next one — it decides whether
-G1 closes the hole or half of it. The SCOPE half is already settled: it lands at INSTALL, which
-§4.3b makes user-scope, so only *what install checks* is open. The development escape is separately
-RULED AGAINST — develop in a nested jail.
+**Measured in-jail 2026-08-13, and today it does not work:**
+`~/.config/yolo-jail/config.jsonc` is a **read-only** bind (`/proc/mounts`), so an agent cannot
+install by editing it; but the containing directory IS writable and the config declares
+`include_if_found: ["overrides.jsonc"]`. So a seam plausibly exists and is undesigned. **One fact to
+verify before anyone leans on it:** where that directory resolves host-side. It must be the jail's
+own home tree — if it were ever the human's real `~/.config/yolo-jail/`, an agent writing
+`overrides.jsonc` would be editing the host's config, which is a worse bug than the one this asks
+about. **Resolved by:** a maintainer ruling on supporting it, after that check.
+
+**OQ-LP13 — what stops an agent swapping the file a loophole runs? RULED: a placement rule, not
+hashing.** Raised in review (§4.3a): every gate governs a declaration, the file that executes is
+unread, and `file://` imposes no path constraint. Draft 4 proposed content digests; the maintainer
+ruled against — *"if you can edit user-level files, you have all the perms already"* — so the
+user-scope edit IS the confirmation, and what survives is: **installed content may not resolve inside
+the mounted workspace or a jail-home tree**, refused at install by name. Cheaper than a digest and it
+closes the actor gap the permission argument leaves open. Incomplete by construction (§4.3a), and
+that is stated rather than hidden. **Also subsumes OQ-LP3 and all but one row of OQ-LP8.**
 
 **OQ-LP12 — how does a workspace get a loophole another workspace does not?** Raised in review
 (§4.3 G1). G1 removes the only mechanism and packs were never per-workspace, so this is a capability
@@ -1618,7 +1652,9 @@ so retirement does NOT fix the no-selection-step objection above — what improv
 pack-shipped loophole emits claims and reaches `notePackHostAccess`, where the home directory prints
 nothing. Visibility, not gating; say so rather than overclaiming.
 
-**OQ-LP11 — do BUNDLED loopholes become official packs?** Raised in review: *"why not a real pack? it
+**OQ-LP11 — do BUNDLED loopholes become official packs? RULED: YES, and `audio` ships IN this
+batch** rather than after it — §7's example is promoted from a doc artifact to a deliverable, which
+costs a relabel and buys the consolidation immediately. The broker still waits on its stated blocker. Raised in review: *"why not a real pack? it
 can still come from a built in shipped namespace or whatever."* §5.4 re-grades draft 2's three
 reasons and only one survives — the broker's manifest is not what runs, so packaging it is ceremony
 over a thing that ignores the package. The `host-processes` reason was simply wrong (an official pack
