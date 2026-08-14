@@ -21,6 +21,13 @@ Examples:
 
 Only `manifest.jsonc` is required. Everything else is up to the loophole.
 
+**That directory shape is the same wherever the loophole comes from** — bundled
+under `bundled_loopholes/<name>/`, hand-placed in your home as above, or (designed,
+not built) shipped by a pack as `{ "kind": "loophole", "from": "loopholes/<name>" }`.
+One loader reads all of them, which is what makes a loophole developable standalone
+and then droppable into a pack unchanged. See
+[Shipping a loophole inside a pack](#shipping-a-loophole-inside-a-pack).
+
 ## Manifest schema (v1)
 
 ```jsonc
@@ -40,13 +47,13 @@ Only `manifest.jsonc` is required. Everything else is up to the loophole.
   "jail_env": {"FOO": "bar"},     // any transport
   "doctor_cmd": ["bin", "--ok"],  // optional; run by `yolo check` and `yolo loopholes status`
   "host_daemon": {                // optional; yolo spawns this ON THE HOST at jail startup
-    "cmd": ["my-daemon", "--endpoint", "{endpoint}"],
+    "cmd": ["python3", "{loophole_dir}/my-daemon.py", "--socket", "{socket}"],
     "env": {"FOO": "bar"},        // optional; the daemon's spawn environment
-    "publishes": "endpoint",      // or "socket" (yolo fronts it); default "endpoint"
+    "publishes": "socket",        // or "endpoint" (you publish); default "endpoint"
     "request_end": "framed"       // or "eof"; default "framed"; socket-mode only
   },
   "jail_daemon": {                // optional; supervised INSIDE the jail by yolo-jaild
-    "cmd": ["my-agent"],
+    "cmd": ["{jail_loophole_dir}/my-agent"],
     "restart": "on-failure"       // or "always" / "no"; default "on-failure"
   },
   "host_bind_mounts": [           // optional; host paths mounted into the jail
@@ -63,8 +70,41 @@ Only `manifest.jsonc` is required. Everything else is up to the loophole.
 Note the second half of that census — `host_daemon`, `jail_daemon`,
 `host_bind_mounts`, `host_devices`, `requires` — is every key with a host-side
 effect: spawning a process on the host, mounting host paths, passing devices
-through. The loader source (`internal/loopholes/load.go`) is the authority on
-their exact shapes.
+through. [`internal/loopholedecl`](../../internal/loopholedecl) is the authority
+on their exact shapes: it is the manifest SCHEMA as a leaf package — decode plus
+static validation, no `exec.LookPath`, no `os.Stat`, no predicate evaluation — so
+a tool can read what a manifest declares without dragging the runtime along.
+`internal/loopholes` keeps everything the schema cannot decide on its own
+(resolving `{loophole_dir}`/`{state}` against real paths, evaluating `requires`,
+discovery order, the container argv).
+
+**A key the schema does not know is reported, not dropped.** Two strictnesses,
+deliberately: an authoring read (`loopholedecl.Decode`) refuses an unknown key,
+because a typo is otherwise a declaration that silently does nothing; discovery
+reads TOLERANTLY (`LoadDirTolerant`) and prints one warning per unknown key
+naming it, because a key only a newer build knows is version skew and refusing
+it would take the whole loophole down. Either way you hear about it — a
+half-configured loophole whose symptom names something else is the failure mode
+this package keeps paying for. `"version"` is recognized and read by nothing; it
+is not an enum yolo checks.
+
+### The two module-dir tokens
+
+A manifest can name files that ship beside it, and the module directory has **two
+paths** — one on the host, one inside the jail (it is bind-mounted at
+`/etc/yolo-jail/loopholes/<name>/`). One token with two resolutions is the kind of
+asymmetry an author discovers by debugging, so there are two tokens and each is
+refused in the wrong half at load:
+
+| Token | Resolves to | Legal in |
+|---|---|---|
+| `{loophole_dir}` | the module dir **on the host** | `host_daemon.cmd`, `doctor_cmd`, `host_bind_mounts[].host` |
+| `{jail_loophole_dir}` | `/etc/yolo-jail/loopholes/<name>` | `jail_daemon.cmd` |
+
+Two more, both host-side: `{endpoint}` is where your daemon publishes (or, under
+`publishes: "socket"`, where **yolo** publishes in front of you) and `{socket}` is
+your own upstream socket path; `{state}` in `ca_cert` resolves to this loophole's
+state dir. Under `publishes: "socket"` the first two **diverge** — see below.
 
 **`transport` has exactly two values, and `unix-socket`/`tls-intercept` are
 GONE** — removed from the validator, not deprecated, so a manifest naming one is
@@ -232,6 +272,107 @@ Third-party daemons are any executable on the host's PATH.
 Writing the daemon: use the [`internal/hostservice`](../../internal/hostservice)
 helper package (see below).
 
+## Shipping a loophole inside a pack
+
+> **DESIGNED, NOT BUILT.** The `loophole` contribution kind does not exist yet —
+> `packdecl.KnownKinds()` has fourteen entries and `loophole` is not one of them, so
+> a `pack.json` declaring it is refused at authoring time today. This section is
+> here because the *rules* below are settled rulings a manifest author is affected
+> by now (they decide what your standalone loophole can contain if you ever want to
+> ship it), and because the trust story is the part people get wrong. The authority
+> is [`loophole-packaging.md`](../design/loophole-packaging.md);
+> [`loophole-packaging-overview.md`](../design/loophole-packaging-overview.md) is
+> its readable half.
+
+A pack contributes a loophole by **pointing at a directory**, not by inlining a
+manifest:
+
+```jsonc
+// pack.json
+{ "contributes": [ { "kind": "loophole", "from": "loopholes/acme-proxy" } ] }
+```
+
+`from` is a pack-relative path to a directory holding a `manifest.jsonc` — the
+**exact on-disk shape** a bundled loophole under `bundled_loopholes/` or a
+hand-placed one under `~/.local/share/yolo-jail/loopholes/` already has. That is
+deliberate and it is the whole ergonomic point: develop the loophole standalone
+(drop the directory in your home, `yolo loopholes list`, iterate until it works),
+then drop that same directory into a pack **unchanged**. One loader reads every
+source, so there is no pack-flavoured manifest dialect to port to.
+
+**The loophole's `name` must equal the directory basename.** Already enforced
+wherever a manifest is read (`loopholedecl`: *"name='x' disagrees with directory
+'y' — they must match"*), which is what lets tooling name the loophole without
+decoding its manifest.
+
+**Selecting the pack is what activates the loophole; deselecting it is what stops
+the loophole starting next launch.** There is no second switch to throw — no
+`loopholes.<name>.enabled: true` needed, and no default-on: *nothing pack-shipped
+is ever active by default*, because for this kind "active by default" would mean
+yolo running a daemon on your machine that you did not ask for. Read the next
+section before relying on the deselect half.
+
+### The pack-shipped SUBSET, and why each rule exists
+
+A pack-shipped loophole may declare less than a bundled one. Each row is a rule
+with a reason, not a nervous restriction:
+
+| Rule | Why | What to use instead |
+|---|---|---|
+| `jail_env` **refused** | it emits `-e K=V` into the container, which is the `env` kind's target namespace; collision detection keys on `{kind, target}`, so two different kinds claiming one variable could never be reported as a collision | the `env` kind — **and the honest cost is that it becomes unconditional.** A loophole's `jail_env` is set only while the loophole is *active*; an `env` contribution is set always. An audio-shaped pack would export `PULSE_SERVER` even on a machine where the sockets never crossed |
+| `host_bind_mounts[].host` **home-relative only** — no absolute path, no `..`, no `$VAR` | this is the axis that matters. The `mount` kind is already home-relative-only and origin-gated; a loophole's `host` field accepts *any* string, so leaving it wide would make `host_bind_mounts` a back door around `mount` — `{"host": "/", "container": "/ctx/root"}` in a jail whose agent runs as UID 0 | `mount` for an ordinary read; a `host_daemon` when the jail needs something mediated rather than handed over. (A **bundled** loophole keeps the wider vocabulary — `audio` names `/run/user/<uid>/pulse`) |
+| `readonly: false` **refused** | keeps a pack from handing the jail a writable host tree — **and note exactly what it does not cover: `:ro` is no boundary for a SOCKET.** Measured twice: a read-only bind of an AF_UNIX socket is fully connectable and bidirectional (the well-known `docker.sock:ro` result), because the kernel's read-only check exempts non-regular inodes. So binding a host socket `:ro` gives the jail unrestricted read-write access to whatever is behind it | nothing — and because of that measurement, a socket bind is its own claim class, worded as host **IPC** rather than a host read |
+| `host_daemon.publishes` **must be `"socket"`** | the transport is a property of the framework, not of the loophole. Under `"endpoint"` your daemon would implement the loopback-TLS server itself — file mode, key persistence, constant-time token compare, frame length cap — and **yolo cannot detect a violation of any of them.** Tolerable for something you hand-wrote on your own machine; not for an artifact distributed to strangers. Self-publishing stays available to loopholes yolo itself ships, which are yolo's own code minting yolo's own credential | `publishes: "socket"`: bind a plain AF_UNIX socket, yolo runs the audited front in front of it. Costs one splice hop and buys the inability to get the TLS properties wrong. Declare `request_end: "eof"` if your daemon reads its request to EOF |
+| **platform declaration** | the front makes the *transport* portable; it does not make the *daemon* portable, and packs will ship native code. `requires` says *"the thing I need is present"* — a runtime probe — and cannot say *"I only exist for this platform."* Without the distinction, a compiled Linux daemon on macOS reads as an unmet requirement ("install the missing thing") or fails five seconds later through a silent spawn path | declare the platforms (OS, and architecture where it matters); an unsupported loophole is reported **by name**, once, with the platforms it does support — one mechanism and one message with the inert-on-backend report, because *"this loophole does nothing here, and here is why"* is one user-visible situation |
+| **reserved names refused** | a shadowed loophole name means a daemon nobody audited running under a name the user trusts. The reserved set is larger than "the bundled three": `audio`, `claude-oauth-broker`, `host-processes`, plus `cgroup-delegate` and `journal`, which are built-in service names with no manifest at all | pick another name. A collision between two packs is fatal too, naming both sources |
+
+Two backends make the whole thing inert regardless of your manifest: Apple
+Container skips host daemons, and the macOS no-VM backend never reaches loophole
+startup at all. Both are required to say so by name rather than looking
+provisioned and configuring nothing.
+
+### The trust story a pack author has to understand
+
+**Every declaration that crosses the boundary becomes a claim string the user is
+shown at install.** Not a summary of your pack — one approvable string per
+crossing: the daemon argv it runs, each host it intercepts, each path it mounts,
+each socket it connects the jail to, each device it passes through. A loophole
+that crosses the boundary and claims nothing is meant to be *unrepresentable*,
+because the origin gate treats "claims nothing" as "nothing to approve" — which is
+how a draft of this design would have let a fetched pack bind `~/.ssh` into a jail
+with no prompt at all.
+
+**Host EXECUTION reads differently from a host read**, and it has to. "Reads a
+file in your home" and "runs this argv as you" cannot share a line in a prompt, so
+the claim spells out that it *runs* something *on your machine* — the same way a
+wrapped plugin's claims spell out "RUNS CODE". Practical consequence for you: the
+claim carries the **raw** argv from your manifest, placeholders unexpanded and
+nothing elided, because it is a lockfile comparison key and not display text. Two
+daemons must not collapse to one approved string.
+
+**A fetched pack needs approval where a local one does not.** Origin bounds the
+gate: an embedded pack or one at a path you control is permitted; a pack fetched
+from a git URL must have every claim its *staged tree currently makes* approved in
+the lockfile, and a missing or corrupt lockfile approves **nothing**. An
+unapproved fetched pack's loophole is not discovered at all while the pack's other
+contributions still work. And the per-launch disclosure names the host access in
+effect *every* launch, so an approval is not something recorded once in a file
+nobody re-reads.
+
+**Selection controls ACTIVATION, not REVOCATION.** Deselecting your pack stops the
+*next* launch from starting your daemon. It does not stop a daemon that already
+ran: the spawn is `setsid`, and a process that has executed once on someone's host
+can persist by means yolo has no view of — `~/.bashrc`, a crontab, a forked child.
+No packaging design changes that, and this one does not claim to. The same
+asymmetry is why the gate that matters is the **install**-time one: the risk was
+never "a daemon runs", it is "code nobody vetted runs".
+
+One more limit worth stating rather than discovering: yolo can refuse installed
+content that lives where an agent writes — the workspace it is about to bind-mount
+`:rw`, or the jail-home tree it manages — but it cannot know that
+`~/code/other-project` is agent-writable in some *other* jail. That check is a
+tripwire on the shape that actually occurs, not a boundary.
+
 ## CLI
 
 ```bash
@@ -341,11 +482,13 @@ Keeps the briefing tight and prevents drift when loopholes come and go.
 
 - [`docs/design/loophole-protocol.md`](../design/loophole-protocol.md) — wire protocol spec.
 - [`bundled_loopholes/claude-oauth-broker/`](../../bundled_loopholes/claude-oauth-broker/) — reference intercepting loophole (`loopback-tls` + `intercepts`).
-- [`internal/loopholes/`](../../internal/loopholes) — loader source (`loopholes.go`'s package doc has the canonical schema).
+- [`internal/loopholedecl/`](../../internal/loopholedecl) — the manifest schema itself: decode + static validation, no filesystem, no predicates. The authority on every key's shape.
+- [`internal/loopholes/`](../../internal/loopholes) — the host-side registry: token resolution, `requires` evaluation, discovery order, runtime argv.
 - [`internal/hostservice/`](../../internal/hostservice) — helper package.
 - [`internal/hostprocesses/`](../../internal/hostprocesses) — reference `loopback-tls` consumer of the helper, reachable as `yolo internal daemon host-processes`.
 - [`internal/svcendpoint/`](../../internal/svcendpoint) — the transport itself: endpoint file, cert pinning, token frame. Both halves in one package on purpose.
 - [`docs/design/loophole-transport.md`](../design/loophole-transport.md) — why there is one transport and what it defends against.
+- [`docs/design/loophole-packaging.md`](../design/loophole-packaging.md) — the `loophole` pack kind (designed, not built): the subset rules, the claim enumeration, the install/enable scope model. [`loophole-packaging-overview.md`](../design/loophole-packaging-overview.md) is its readable half.
 - [`internal/frameproto/`](../../internal/frameproto) — reference codec for the wire format.
 - [`bundled_loopholes/claude-oauth-broker/README.md`](../../bundled_loopholes/claude-oauth-broker/README.md) — the broker architecture that shaped this (the older mitm-proxy design notes are in git history).
 - [`docs/research/claude-token-logouts.md`](../research/claude-token-logouts.md) — operational triage for Claude logouts; the broker loophole is Step 3's fix.
