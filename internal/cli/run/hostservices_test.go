@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -298,6 +299,75 @@ func TestExternalServiceWarnsOnReadinessTimeout(t *testing.T) {
 			t.Errorf("timeout warning missing %q; got %q", want, out)
 		}
 	}
+}
+
+// TestExternalServiceTeardownKillsProcessGroup: stop() must signal the daemon's
+// whole PROCESS GROUP, not just the direct child.
+//
+// The spawn sets Setsid, so the daemon leads its own group — and the old
+// teardown signalled cmd.Process alone, so anything the daemon forked survived
+// deselection, the lockfile entry, and `yolo loopholes list` knowing the name
+// (loophole-packaging.md §4.5).
+func TestExternalServiceTeardownKillsProcessGroup(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("spawns a host process")
+	}
+	socketsDir := t.TempDir()
+	real := filepath.Join(t.TempDir(), "seed")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	seed := filepath.Join(real, "seed.endpoint")
+	ln, err := svcendpoint.Listen(seed, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	pidFile := filepath.Join(t.TempDir(), "forked.pid")
+	// The daemon FORKS a sleeper, records its pid, publishes, and keeps running.
+	h, ok := startExternalServiceHarness(t, socketsDir,
+		`sleep 300 & echo $! > `+pidFile+`; cp `+seed+` "$1"; exec sleep 300`,
+		loopholes.TransportLoopbackTLS)
+	if !ok {
+		t.Fatal("the harness daemon never became ready")
+	}
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatalf("the daemon never recorded its forked child: %v", err)
+	}
+	forked, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.stop()
+	// The forked child must be dead (or a zombie awaiting its reaper — its
+	// parent died with the group, so /proc state Z is as dead as it gets here).
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		state, alive := procState(forked)
+		if !alive || state == "Z" {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	state, _ := procState(forked)
+	t.Fatalf("forked child %d still alive (state %q) after teardown; "+
+		"stop() must kill the process GROUP", forked, state)
+}
+
+// procState reads /proc/<pid>/stat's state field; alive=false when the process
+// is gone entirely.
+func procState(pid int) (state string, alive bool) {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return "", false
+	}
+	// The state is the first field after the parenthesised comm.
+	s := string(data)
+	if i := strings.LastIndexByte(s, ')'); i >= 0 && i+2 < len(s) {
+		return string(s[i+2]), true
+	}
+	return "?", true
 }
 
 // TestNoTokenInLaunchArgv: no bearer token ever crosses the container launch argv

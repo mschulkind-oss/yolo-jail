@@ -300,6 +300,31 @@ func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap) (loopho
 		transportLegacySocket, "")
 }
 
+// killServiceGroup tears down a spawned host service's whole PROCESS GROUP.
+//
+// The spawn set Setsid, so the daemon leads its own session and group and a
+// negative pid reaches everything it forked. Signalling only the direct child —
+// what this replaces — left forked grandchildren running after deselection, the
+// lockfile entry, and `yolo loopholes list` all forgot the loophole
+// (loophole-packaging.md §4.5 accepted exactly this fix).
+//
+// exited is the channel the spawn-side cmd.Wait() goroutine closes; waiting on
+// it rather than calling Wait here keeps the child reaped in exactly one place.
+// The straggler SIGKILL also goes to the group: a daemon that ignored SIGTERM
+// usually shields its children the same way.
+func killServiceGroup(cmd *exec.Cmd, exited <-chan struct{}) {
+	if cmd.Process == nil {
+		return
+	}
+	pgid := cmd.Process.Pid // Setsid: the child is its own group leader
+	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	}
+}
+
 // serviceReadyTimeoutDefault is the production readiness deadline for a spawned
 // host service. Tests shrink it via Options.ServiceReadyTimeout to avoid real
 // multi-second sleeps.
@@ -484,7 +509,9 @@ func (o *Options) startExternalService(
 		reachable = func() bool { return svcendpoint.Probe(hostPath) }
 	}
 	if failure := o.waitServiceReady(reachable, exited, cmd); failure != "" {
-		_ = cmd.Process.Kill()
+		// SIGKILL the GROUP (Setsid at spawn), not just the direct child: a
+		// daemon that failed readiness may still have forked something.
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		// Not fatal — the jail still starts. But it IS the state in which every
 		// in-jail client of this loophole fails, and the failure is otherwise
 		// silent until the agent hits it, so say so here and name the log that
@@ -510,18 +537,7 @@ func (o *Options) startExternalService(
 	if loopbackTLS {
 		envVar = hostServiceEnvVar(name)
 	}
-	stop := func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Signal(syscall.SIGTERM)
-			done := make(chan struct{})
-			go func() { _, _ = cmd.Process.Wait(); close(done) }()
-			select {
-			case <-done:
-			case <-time.After(5 * time.Second):
-				_ = cmd.Process.Kill()
-			}
-		}
-	}
+	stop := func() { killServiceGroup(cmd, exited) }
 	return loopholeDaemon{
 		name:       name,
 		hostPath:   hostPath,
