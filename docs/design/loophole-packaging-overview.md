@@ -1,6 +1,10 @@
 # Loopholes in packs — the system-level picture
 
-**Status:** DESIGN, 2026-08-13. Not built. This is the readable half of
+**Status:** DESIGN, 2026-08-13. **The `loophole` pack kind is not built** — that is what this doc
+describes. Several of its prerequisites HAVE shipped since (the loopback-TLS front for
+`publishes: "socket"` daemons, `request_end`, both `{loophole_dir}` tokens, unknown-kind skew
+tolerance, and the user-scope-only rule for the `loopholes` config block with its placement check);
+the detailed half carries dated *Landed* markers per section. This is the readable half of
 [`loophole-packaging.md`](loophole-packaging.md), written to be commented on.
 
 **What this doc is for.** The detailed design is written for whoever implements it — it cites line
@@ -468,15 +472,20 @@ hole in the one gate that reads content, to serve a workflow that already had a 
 
 ### 4.6 Things the design names rather than solves
 
-- **A `file://` pack is trusted unconditionally and forever** — no approval, no re-approval. Not
-  changing it: the origin model's whole claim is that a directory you control carries your own
-  authority. It is the largest residual risk here, and it is **OQ-LP3**.
+- **A `file://` pack is trusted unconditionally and forever** — no approval, no re-approval. The
+  origin model's claim is that a directory you control carries your own authority; the detailed half
+  **withdrew** "not changing it" (§4.3a), because the check constrains the path in no way, so a
+  directory an *agent* writes is equally "local". The ruled answer is a placement rule rather than
+  content confirmation — installed content may not live where an agent writes — and it now covers the
+  two trees a launch hands over (**done 2026-08-14** for loophole argv and daemon spawns; the pack
+  module dir waits on the kind). Still **OQ-LP3** for the trees yolo cannot know about.
 - **Selection controls activation, not revocation.** Deselecting a pack stops the *next* launch from
   starting its daemon. It does not stop a daemon that already ran — once arbitrary host execution
   has happened once, persistence is available by means yolo has no view of. No packaging design
   changes that, and this one does not claim to.
 - **`yes | yolo pack install` grants approval.** A one-line hardening, independent of this design,
-  worth doing in the same batch now that a `y` means "run this code."
+  worth doing in the same batch now that a `y` means "run this code." **Done 2026-08-13:** approval
+  needs a terminal, and a pipe is refused before the prompt is shown rather than after it answers.
 - **Nothing reaps a departed loophole's state.** For a hand-placed loophole that is untidy. For a
   pack-shipped *intercepting* loophole it is a **CA private key left behind by a pack you
   deselected**. The design names the three artifacts needed; the awkward part is that the property

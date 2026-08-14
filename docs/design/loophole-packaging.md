@@ -228,6 +228,10 @@ verbatim) would each exec a literal `{loophole_dir}/acme-daemon.py`.
 
 **Requirement:** extend substitution to `host_daemon.cmd`, `doctor_cmd`, and `jail_daemon.cmd`.
 
+**Landed 2026-08-13** (`716d19b`): `{loophole_dir}` reaches `host_daemon.cmd` and `doctor_cmd`,
+`{jail_loophole_dir}` reaches `jail_daemon.cmd`, each refused in the wrong half at load
+(`internal/loopholes/load.go`). The measurement above is history.
+
 **And the token resolves to two different paths, which the manifest must make visible.** On the
 host side it is the pack's **staged module dir**; on the jail side the module dir is bind-mounted at
 `/etc/yolo-jail/loopholes/<name>` (`runtime.go:60`, `:72`), so a `jail_daemon.cmd` naming
@@ -318,6 +322,13 @@ at `:385`); and fix the dead `ProcessState` check so an instantly-exiting daemon
 immediately rather than after 5 s. The same applies to §2.1's new wait-for-upstream step, which
 needs its own timeout and its own message.
 
+**Landed 2026-08-13** (`50293dd`, teardown group-kill in `9ad0209`): the timeout prints the yellow
+warning naming the loophole, the awaited path and the log; a real `cmd.Wait()` in a goroutine
+replaced the dead `ProcessState` read, so a crashed daemon is reported at once. The measurements
+above are history. One refinement the requirement did not anticipate: a status-**0** pre-readiness
+exit keeps polling to the deadline, because a daemonizing wrapper forks the server and exits — both
+halves pinned 2026-08-14.
+
 ### 2.2 What flipping `discover.go:60` costs: nothing, plus one message rewrite
 
 A config-block daemon binding a socket at `{socket}` becomes
@@ -334,6 +345,11 @@ yolo substitutes into `{endpoint}` instead of binding a socket there"*, which un
 sends them down the harder of two supported paths. `loopholes_test.go:526` pins `{endpoint}` as a
 required substring, so the stale text is **test-enforced**. The hint rewrite and its test land with
 `publishes`, not after it.
+
+**Landed 2026-08-13** (`66d4091`, `dd364d6`, `44966e1`, `ba43bfb`): `publishes`/`request_end` parse,
+the front runs in front of every `publishes: "socket"` daemon, `discover.go` is flipped, and the hint
+now sends a migrating author at `publishes: "socket"` with the pin updated to match
+(`load.go:215-220`, `loopholes_test.go:566`). Both stale-text measurements are history.
 
 ### 2.3 Why not export `internal/svcendpoint`, and why not "just publish the spec"
 
@@ -756,6 +772,13 @@ exist. Skipping is the right degradation here specifically because a `loophole` 
 anyway. It needs a regression test that a manifest with an unknown kind **boots a jail**, and
 AGENTS.md's `git add`-before-nix trap applies to verifying it.
 
+**Landed 2026-08-13** (`2e38115`, `254e778`): `DecodeTolerant` drops an unknown kind and reports it in
+`skipped`; `packload` carries the notes as `SkewNotes`; `LoadJailPacks` warns each one so the
+degradation is audible, never silent. The brick above is history. The regression test asked for here
+arrived 2026-08-14 at the LoadJailPacks seam (`internal/entrypoint/packskew_test.go`) — err == nil is
+the boot decision, and the note on Stderr is the audibility half; a container was not needed for
+either, and no integration test is outstanding.
+
 The alternative — "require a host `just load` before any pack may declare it" — is not a mechanism,
 it is a hope, and it cannot be stated to a third-party pack author at all.
 
@@ -1160,6 +1183,10 @@ redesign.
    stdin or EOF, but the call site always passes `os.Stdin` with **no TTY check**. A one-line
    hardening, independent of this design, worth doing in the same batch — and more worth it once a
    `y` means "run this code" rather than "read this file".
+   **Landed 2026-08-13** (`b8c0339`): approval requires a terminal the tty ioctl confirms, refused
+   BEFORE the prompt is shown so a pipe is never invited to answer it, and the claims still print so
+   a CI log shows what is waiting on a human. Both branches of the predicate are pinned (a non-file
+   reader, and a real `os.Pipe` with bytes waiting — the second added 2026-08-14).
 4. **`apply --host` silently drops every fetched pack today.** `packForCheckDeps`
    (`checkdeps.go:135-137`) returns nil for anything not embedded and not `file://`, and the printed
    reason blames offline resolution. So the G3 gate is untested at that command. Pre-existing.
@@ -1720,12 +1747,16 @@ in revision 2 and are real work draft 1 priced at zero.
 0. **Tolerate an unknown KIND under `TolerateSkew()`** (§3.3a), with a regression test that a
    manifest carrying one still boots a jail. **Before the kind exists**, or every pack that declares
    it bricks a jail running a pre-`just load` image. This is the `tier` incident's third appearance.
+   — **done 2026-08-13** (tolerance + boot audibility), regression test **2026-08-14**.
 1. **The `loopholes` block's host-exec surface goes user-scope-only** (§4.3 G1) — over entry
    *shapes*, including `doctor_cmd` and `enabled` for daemon-bearing loopholes, with the warn-then-
    error migration and the `docs/guides/loopholes.md:88` fix in the same commit. Fix
    `knownHostServiceKeys` first (§4.3). Independent of everything else and the biggest reduction in
    **who may declare** host execution. **Ship first** — but it closes half a hole, not the hole
    (§4.3a), and the migration needs OQ-LP12 decided so the warning has somewhere to point.
+   — **done 2026-08-13**; two follow-ups **2026-08-14**: override `doctor_cmd` is refused once, at
+   either scope, instead of pointing at a user config that also refuses it; and `config-dump` got the
+   real loophole resolver, without which its enable-uninstalled verdict disagreed with `yolo check`.
    - **1a. Content-anchored confirmation for host execution, every origin** (§4.3a, OQ-LP13). Also
      independent of the kind, also pre-existing, and it is what makes item 1 add up to a closed hole
      rather than a narrowed one. Subsumes item 6's commit anchoring.
@@ -1743,12 +1774,20 @@ in revision 2 and are real work draft 1 priced at zero.
      every launch; §4.3a's "cannot be complete" limit now has a second, narrower edge to name.
    - **1b.** Make `loopholesWithConfig` refuse (or drop) `loopholes` entries that fail
      `validateInlineService` — a command that executes what it reads must not read through a path
-     that skips validation (§4.1).
+     that skips validation (§4.1). — **done 2026-08-13** (`3bf3a5e`); the refusal names the actual
+     origin file, `yolo-jail.local.jsonc` included, since **2026-08-14**.
 2. **The front + `publishes` + both `{loophole_dir}` tokens** (§2.1, §2.1a), the stale-socket unlink
    on both ends (§2.1b), the loud readiness-failure warning and the dead `ProcessState` fix (§2.1c),
    then flip `discover.go:60` **and rewrite `retiredTransportHint` with its pinned test** (§2.2).
+   — **done 2026-08-13**, plus `request_end` (hazard 2's one field) which the item did not list.
+   **2026-08-14:** the EOF round-trip tests are deadline-bounded (one hung a whole package for ten
+   minutes), the clean-exit readiness branch is pinned, and a fronted `stop()` now waits for the
+   front's listener Close rather than racing it.
 3. **The server-side spec** in [`loophole-protocol.md`](loophole-protocol.md) (§2.3), labelled the
-   unsupervised path.
+   unsupervised path. — **done 2026-08-13**; corrected **2026-08-14**, where it still described the
+   front's EOF non-propagation as an inherent limit ("read to the length prefix") — the framing §2.1b
+   hazard 2 forbids — and still called the mechanism unbuilt. `publishes`/`request_end` are also in
+   `docs/guides/loopholes.md`'s schema now, which is where hazard 2 asked for them.
 4. **`internal/loopholedecl`** (OQ-LP1), because the footprint depends on it.
 5. **The `loophole` kind** (§3): the `refusalReasons` entry and the explicit `JailFields()` exclusion
    (§3.4), the **total** claim enumeration (§3.3), the load-time control-character refusal (§3.2),
