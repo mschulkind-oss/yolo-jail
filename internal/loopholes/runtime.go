@@ -214,6 +214,10 @@ type DoctorResult struct {
 // rather than documented (docs/design/loophole-packaging.md §5.1 — "RunDoctorChecks must
 // take only loopholes whose origin gate has been evaluated").
 //
+// Neither is a loophole whose doctor_cmd or module dir lives where an AGENT writes: §4.3a's
+// PLACEMENT rule applies at this face too, narrowed to the jail-home tree because no doctor
+// caller carries a workspace. See runDoctorChecks for why both gates are in the callee.
+//
 // The reason it is enforced HERE, in the callee, is that two of the doctor call sites are
 // `yolo check` and `yolo loopholes status` — commands users and AGENTS.md treat as
 // READ-ONLY PREFLIGHT — and neither has pack resolution, a lockfile or packMayAccessHost
@@ -227,13 +231,24 @@ func RunDoctorChecks(loopholes []*Loophole, timeout time.Duration) []DoctorResul
 
 // RunDoctorChecks runs the doctor_cmd of each given record WITH THIS SET'S ORIGIN GATE
 // applied: a pack-contributed loophole runs only when the caller recorded that its pack's
-// host access is approved. Everything else behaves exactly as the package-level function.
+// host access is approved. Everything else behaves exactly as the package-level function —
+// the §4.3a PLACEMENT rule included, since both entry points share one body.
 func (s Set) RunDoctorChecks(from []*Loophole, timeout time.Duration) []DoctorResult {
 	return runDoctorChecks(from, timeout, &s)
 }
 
 // runDoctorChecks is the shared body. gate nil means no gate was evaluated, which for a
 // SourcePack record means "refuse", never "allow".
+//
+// TWO GATES, BOTH IN THE CALLEE, for one reason: a doctor_cmd is host execution and two of
+// the three call sites (`yolo check`, `yolo loopholes status`) are commands users and
+// AGENTS.md treat as READ-ONLY PREFLIGHT. The ORIGIN gate asks who shipped the code; the
+// PLACEMENT gate (§4.3a) asks whether the named file lives where an agent rewrites it. They
+// are independent — an embedded pack's own loophole passes the first and can fail the
+// second — and both live here rather than at the call sites because a slice carries no
+// judgement: a rule a caller is merely asked to apply is a rule the next call site does not
+// know about. Measured before this gate existed: a hand-placed manifest whose doctor_cmd
+// named a script an agent writes was EXECUTED by both preflight commands.
 func runDoctorChecks(loopholes []*Loophole, timeout time.Duration, gate *Set) []DoctorResult {
 	if timeout == 0 {
 		timeout = 10 * time.Second
@@ -245,6 +260,16 @@ func runDoctorChecks(loopholes []*Loophole, timeout time.Duration, gate *Set) []
 				Output: "not run: a pack-shipped loophole's self-check is host execution, " +
 					"and this pack's host access is not approved for it " +
 					"(`yolo pack install` records the approval)"})
+			continue
+		}
+		// The PLACEMENT rule, at the doctor face. workspace is "" because no doctor caller
+		// has one in hand (`yolo loopholes status` takes no workspace), which NARROWS the
+		// rule to the jail-home tree rather than disabling it — a narrower answer beats no
+		// answer, and refusing to check without a workspace is how the spawn face came to
+		// be the rule's only caller for a batch.
+		if probs := m.PlacementProblems(""); len(probs) > 0 {
+			results = append(results, DoctorResult{Loophole: m, RC: nil,
+				Output: "not run: " + strings.Join(probs, "\n")})
 			continue
 		}
 		if len(m.DoctorCmd) == 0 {
