@@ -54,6 +54,11 @@ type Options struct {
 	// drain always waits the real wall clock, so 3s of real sleep otherwise
 	// dominates the unit suite); production always uses the default.
 	RelayKillGrace time.Duration
+	// ServiceReadyTimeout bounds each spawned host service's readiness wait
+	// (endpoint publish / socket bind). 0 => serviceReadyTimeoutDefault (5s).
+	// Injectable ONLY to shrink it in tests, for the same wall-clock reason as
+	// RelayKillGrace; production always uses the default.
+	ServiceReadyTimeout time.Duration
 	// Getenv reads environment variables. nil => os.Getenv.
 	Getenv func(string) string
 	// LookPath resolves an executable on PATH (shutil.which). nil => real.

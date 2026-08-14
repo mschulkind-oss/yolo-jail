@@ -95,7 +95,6 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 		return nil
 	}
 
-	out := o.pr(o.Stdout)
 	advertise := o.advertiseHostFor(rt, cfg)
 	var handles []loopholeDaemon
 
@@ -160,8 +159,6 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 		}
 		if h, ok := o.startExternalService(name, external[name], socketsDir, transportOf[name], advertise); ok {
 			handles = append(handles, h)
-		} else {
-			_ = out
 		}
 	}
 	return handles
@@ -303,6 +300,60 @@ func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap) (loopho
 		transportLegacySocket, "")
 }
 
+// serviceReadyTimeoutDefault is the production readiness deadline for a spawned
+// host service. Tests shrink it via Options.ServiceReadyTimeout to avoid real
+// multi-second sleeps.
+const serviceReadyTimeoutDefault = 5 * time.Second
+
+func (o *Options) serviceReadyTimeout() time.Duration {
+	if o.ServiceReadyTimeout > 0 {
+		return o.ServiceReadyTimeout
+	}
+	return serviceReadyTimeoutDefault
+}
+
+// waitServiceReady polls reachable() until it reports true, the readiness
+// deadline passes, or the daemon crashes — whichever comes first. It returns ""
+// on success and a human-readable failure clause otherwise.
+//
+// A daemon that CRASHES (non-zero exit) is reported immediately, with its exit
+// status. A CLEAN exit keeps polling until the deadline instead: a daemonizing
+// wrapper exits 0 while its detached child comes up shortly after, and failing
+// on the wrapper's exit would break every daemon of that shape.
+func (o *Options) waitServiceReady(reachable func() bool, exited <-chan struct{}, cmd *exec.Cmd) string {
+	// Real wall clock, deliberately NOT o.Now() — see relayKill below.
+	deadline := time.Now().Add(o.serviceReadyTimeout())
+	for {
+		if reachable() {
+			return ""
+		}
+		if !time.Now().Before(deadline) {
+			return "did not become reachable within " + o.serviceReadyTimeout().String()
+		}
+		select {
+		case <-exited:
+			// One more look before judging: the daemon may have published and
+			// then exited deliberately.
+			if reachable() {
+				return ""
+			}
+			if st := cmd.ProcessState; st != nil && !st.Success() {
+				return "exited at startup (" + st.String() + ")"
+			}
+			// Clean exit: poll WITHOUT the exited channel — closed, it would
+			// win every select and turn this loop busy.
+			for time.Now().Before(deadline) {
+				if reachable() {
+					return ""
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			return "exited (status 0) and its service never became reachable"
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
 // transportLegacySocket is this pipeline's label for a host service still
 // published as an AF_UNIX socket.
 //
@@ -381,8 +432,9 @@ func (o *Options) startExternalService(
 	cmdArgs = execx.SelfExecArgv(cmdArgs)
 	logDir := filepath.Join(paths.GlobalStorage(), "logs")
 	_ = os.MkdirAll(logDir, 0o755)
+	logPath := filepath.Join(logDir, "host-service-"+name+".log")
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
-	if lf, err := os.OpenFile(filepath.Join(logDir, "host-service-"+name+".log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+	if lf, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 		cmd.Stdout, cmd.Stderr = lf, lf
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
@@ -417,24 +469,29 @@ func (o *Options) startExternalService(
 		o.pr(o.Stdout).print("[red]Failed to launch host service '" + name + "': " + err.Error() + "[/red]")
 		return loopholeDaemon{}, false
 	}
-	// Wait for the service to become reachable (5s). Real wall clock, deliberately
-	// NOT o.Now() — see relayKill below.
+	// Reap the child from a goroutine so the readiness wait can see an exit the
+	// moment it happens. The check this replaces read cmd.ProcessState inline,
+	// which only cmd.Wait() populates — and nothing called it — so the check was
+	// dead code and an instantly-crashing daemon silently burned the whole
+	// readiness deadline, serially, one per daemon.
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+
+	// Wait for the service to become reachable. Real wall clock inside,
+	// deliberately NOT o.Now() — see relayKill below.
 	reachable := func() bool { return fileExists(hostPath) }
 	if loopbackTLS {
 		reachable = func() bool { return svcendpoint.Probe(hostPath) }
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if reachable() {
-			break
-		}
-		if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
-			return loopholeDaemon{}, false
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if !reachable() {
+	if failure := o.waitServiceReady(reachable, exited, cmd); failure != "" {
 		_ = cmd.Process.Kill()
+		// Not fatal — the jail still starts. But it IS the state in which every
+		// in-jail client of this loophole fails, and the failure is otherwise
+		// silent until the agent hits it, so say so here and name the log that
+		// has the reason (mirrors relayEnsure's unpublished-endpoint warning).
+		o.pr(o.Stdout).print("[yellow]Warning: host service '" + name + "' " + failure +
+			" — the jail cannot reach it. Expected " + hostPath +
+			"; see " + logPath + "[/yellow]")
 		return loopholeDaemon{}, false
 	}
 	// jail_endpoint is canonical; jail_socket stays an accepted alias, for the same

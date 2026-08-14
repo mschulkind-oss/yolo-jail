@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -225,6 +226,77 @@ func TestExternalServiceRemovesStaleEndpoint(t *testing.T) {
 	}
 	if _, err := os.Stat(stale); err == nil {
 		t.Error("the stale endpoint file still exists after the spawn attempt")
+	}
+}
+
+// TestExternalServiceReportsCrashImmediately: a daemon that exits non-zero at
+// startup is reported the moment it dies, with its exit status — not after the
+// full readiness deadline.
+//
+// The old early-exit check read cmd.ProcessState, which only cmd.Wait() populates
+// and nothing called, so it was dead code: every crashed daemon silently burned
+// the whole 5s deadline, serially, one per daemon.
+func TestExternalServiceReportsCrashImmediately(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("spawns a host process")
+	}
+	socketsDir := t.TempDir()
+	var buf strings.Builder
+	o := &Options{}
+	fillDefaults(o)
+	o.Stdout = &buf
+	spec := jsonx.NewOrderedMap()
+	spec.Set("command", []any{"sh", "-c", "exit 3"})
+	start := time.Now()
+	_, ok := o.startExternalService("fake-svc", spec, socketsDir,
+		loopholes.TransportLoopbackTLS, "127.0.0.1")
+	elapsed := time.Since(start)
+	if ok {
+		t.Fatal("an instantly-exiting daemon produced a handle")
+	}
+	if elapsed >= 4*time.Second {
+		t.Errorf("failure took %v; a crashed daemon must be reported immediately, "+
+			"not after the readiness deadline", elapsed)
+	}
+	out := buf.String()
+	for _, want := range []string{"fake-svc", "host-service-fake-svc.log", "exit status 3"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("crash warning missing %q; got %q", want, out)
+		}
+	}
+}
+
+// TestExternalServiceWarnsOnReadinessTimeout: a daemon that starts and never
+// publishes must produce a WARNING naming the loophole, the awaited path, and its
+// log file. Before this existed the timeout branch returned false with no output
+// at all — the printer was plumbed to the call site and discarded — so the
+// failure was completely silent until the agent hit it in-jail.
+func TestExternalServiceWarnsOnReadinessTimeout(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("spawns a host process")
+	}
+	socketsDir := t.TempDir()
+	var buf strings.Builder
+	o := &Options{}
+	fillDefaults(o)
+	o.Stdout = &buf
+	o.ServiceReadyTimeout = 300 * time.Millisecond
+	spec := jsonx.NewOrderedMap()
+	spec.Set("command", []any{"sh", "-c", "sleep 30"})
+	h, ok := o.startExternalService("fake-svc", spec, socketsDir,
+		loopholes.TransportLoopbackTLS, "127.0.0.1")
+	if ok {
+		if h.stop != nil {
+			h.stop()
+		}
+		t.Fatal("a daemon that never published satisfied the wait")
+	}
+	out := buf.String()
+	wantPath := filepath.Join(socketsDir, "fake-svc"+paths.ServiceEndpointExt)
+	for _, want := range []string{"Warning", "fake-svc", wantPath, "host-service-fake-svc.log"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("timeout warning missing %q; got %q", want, out)
+		}
 	}
 }
 
