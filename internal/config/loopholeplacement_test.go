@@ -6,6 +6,7 @@ package config
 // the declaration; nothing looked at the target. These tests pin the target check.
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -155,5 +156,133 @@ func TestPlacementRuleSkipsAnOverride(t *testing.T) {
 	}
 	if hits := containing(errs, "§4.3a"); len(hits) != 0 {
 		t.Errorf("an override installs nothing; placement added %v", hits)
+	}
+}
+
+// --- The MANIFEST faces (§4.3a landing item 1a, "still owed"): a manifest's own
+// host_daemon.cmd and doctor_cmd, and the module DIR.
+
+// The dir face. A module dir inside the mounted workspace is refused BY NAME, and
+// the message has to say the refusal covers the whole module — otherwise the reader
+// moves the one script the argv named and believes they are done.
+func TestManifestModuleDirInsideTheWorkspaceIsRefused(t *testing.T) {
+	ws := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	mod := filepath.Join(ws, "loopholes/acme")
+	probs := LoopholeManifestPlacementProblems(LoopholeManifestPlacement{
+		Name:          "acme",
+		ModuleDir:     mod,
+		HostDaemonCmd: []string{"python3", filepath.Join(mod, "srv.py")},
+	}, ws)
+	if len(probs) != 1 {
+		t.Fatalf("problems = %v, want exactly one (the dir refusal subsumes the argv)", probs)
+	}
+	for _, want := range []string{
+		"loophole 'acme'", "module dir " + mod, "bind-mounts :rw",
+		"WHOLE module", "{loophole_dir}", "dlopen",
+		"Install the loophole outside that tree", "§4.3a",
+	} {
+		if !strings.Contains(probs[0], want) {
+			t.Errorf("refusal does not carry %q:\n  %s", want, probs[0])
+		}
+	}
+}
+
+// The jail home tree is the other tree, and it is the one that matters WITHOUT a
+// workspace: the doctor path carries none, so "" must narrow the rule rather than
+// disable it. A check that silently passes when it has no workspace is how the
+// manifest faces stayed missing for a batch.
+func TestManifestModuleDirInsideTheJailHomeIsRefusedWithNoWorkspace(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mod := filepath.Join(home, ".local/share/yolo-jail/home", "loopholes/acme")
+	probs := LoopholeManifestPlacementProblems(LoopholeManifestPlacement{
+		Name: "acme", ModuleDir: mod,
+	}, "")
+	if hits := containing(probs, "jail home tree", "module dir"); len(hits) != 1 {
+		t.Fatalf("problems = %v, want one refusal naming the jail home tree", probs)
+	}
+}
+
+// A SYMLINKED module dir pointing into the workspace is refused. The trees are not
+// symlink-resolved (deliberately), so the dir has to be tested in both spellings or
+// the answer depends on which side happened to be canonical.
+func TestManifestModuleDirThroughASymlinkIsRefused(t *testing.T) {
+	ws := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	real := filepath.Join(ws, "loopholes/acme")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "acme")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	probs := LoopholeManifestPlacementProblems(LoopholeManifestPlacement{
+		Name: "acme", ModuleDir: link,
+	}, ws)
+	if hits := containing(probs, "module dir", "bind-mounts :rw"); len(hits) != 1 {
+		t.Fatalf("problems = %v, want the symlink target refused", probs)
+	}
+}
+
+// With the module dir outside both trees, the argv faces still apply on their own:
+// a manifest whose daemon lives safely but whose doctor_cmd reaches into the
+// workspace is the mixed case, and BOTH argvs are named separately because they have
+// separate fixes.
+func TestManifestArgvFacesApplyWhenTheModuleDirIsFine(t *testing.T) {
+	ws := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	mod := filepath.Join(t.TempDir(), "acme")
+	probs := LoopholeManifestPlacementProblems(LoopholeManifestPlacement{
+		Name:          "acme",
+		ModuleDir:     mod,
+		HostDaemonCmd: []string{"python3", filepath.Join(mod, "srv.py"), "--socket", "{socket}"},
+		DoctorCmd:     []string{"python3", filepath.Join(ws, "check.py")},
+	}, ws)
+	if hits := containing(probs, "doctor_cmd[1]", filepath.Join(ws, "check.py")); len(hits) != 1 {
+		t.Fatalf("problems = %v, want the doctor_cmd refusal", probs)
+	}
+	if hits := containing(probs, "host_daemon.cmd"); len(hits) != 0 {
+		t.Errorf("the daemon lives outside both trees; got %v", hits)
+	}
+	if hits := containing(probs, "loophole 'acme'"); len(hits) != 1 {
+		t.Errorf("every manifest-face message must name the loophole: %v", probs)
+	}
+}
+
+// A daemon argv reaching into the workspace from a legitimately-placed module dir is
+// the other half of the mixed case.
+func TestManifestHostDaemonCmdInsideTheWorkspaceIsRefused(t *testing.T) {
+	ws := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	probs := LoopholeManifestPlacementProblems(LoopholeManifestPlacement{
+		Name:          "acme",
+		ModuleDir:     filepath.Join(t.TempDir(), "acme"),
+		HostDaemonCmd: []string{"python3", filepath.Join(ws, "tool.py")},
+	}, ws)
+	if hits := containing(probs, "host_daemon.cmd[1]", "Move the program outside that tree"); len(hits) != 1 {
+		t.Fatalf("problems = %v, want the host_daemon.cmd refusal", probs)
+	}
+}
+
+// The shapes that must stay clean, because a false positive refuses a working
+// loophole at every launch: a bundled-shaped manifest, an empty manifest, and a
+// module dir under the user's own home but outside the jail-home tree.
+func TestManifestPlacementLeavesLegitimateLoopholesAlone(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ws := t.TempDir()
+	for _, p := range []LoopholeManifestPlacement{
+		{Name: "host-processes",
+			ModuleDir:     filepath.Join(home, "tools/loopholes/host-processes"),
+			HostDaemonCmd: []string{"yolo", "internal", "daemon", "host-processes", "--endpoint", "{endpoint}"},
+			DoctorCmd:     []string{"yolo", "internal", "daemon", "host-processes", "--self-check"}},
+		{Name: "acme"},
+		{},
+	} {
+		if probs := LoopholeManifestPlacementProblems(p, ws); len(probs) != 0 {
+			t.Errorf("%+v drew %v", p, probs)
+		}
 	}
 }
