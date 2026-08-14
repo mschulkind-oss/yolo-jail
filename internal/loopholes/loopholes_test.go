@@ -471,6 +471,51 @@ func TestRejectedManifestIsReportedNotVanished(t *testing.T) {
 	}
 }
 
+// TestUnknownManifestKeyDegradesRatherThanVanishes pins the other half of the
+// strict/tolerant split, from discovery's side.
+//
+// Discovery reads TOLERANTLY, so a manifest key only a newer yolo knows must NOT
+// take the loophole down with it — that is the `tier` incident's shape, and the
+// recovery for a manifest yolo itself ships is "rebuild the image". But it must
+// not be silent either, for the same reason the rejection above is not: everything
+// the unknown key would have declared is missing, and a degraded loophole whose
+// symptom names something else is exactly what costs an afternoon.
+func TestUnknownManifestKeyDegradesRatherThanVanishes(t *testing.T) {
+	warnings := captureWarnings(t)
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "from-the-future"))
+	writeManifest(t, mod, map[string]any{
+		"name": "from-the-future", "description": "x",
+		"host_teleporter": map[string]any{"cmd": []any{"beam"}},
+	})
+
+	loaded := discoverDir(md, true)
+	if len(loaded) != 1 || loaded[0].Name != "from-the-future" {
+		t.Fatalf("discovery = %v, want the loophole to survive an unknown key", names(loaded))
+	}
+	if len(loaded[0].SkewNotes) != 1 || !contains(loaded[0].SkewNotes[0], "host_teleporter") {
+		t.Errorf("SkewNotes = %v, want one note naming the unknown key", loaded[0].SkewNotes)
+	}
+	var found string
+	for _, w := range *warnings {
+		if contains(w, "host_teleporter") {
+			found = w
+		}
+	}
+	if found == "" {
+		t.Fatalf("no warning named the unknown key; got %v", *warnings)
+	}
+	if !contains(found, "from-the-future") {
+		t.Errorf("warning %q does not name the loophole it degrades", found)
+	}
+
+	// The AUTHOR-facing path is the strict one, and it refuses the same manifest —
+	// the asymmetry that makes both halves right.
+	if _, err := loopholedecl.LoadDir(mod); err == nil {
+		t.Error("the strict decoder accepted an unknown key; an author must hear about a typo")
+	}
+}
+
 // TestWarnSinkIsNotSilentByDefault: the sink above is only meaningful if the
 // SHIPPED default actually goes somewhere. warnf was a no-op "for callers that
 // install a sink" and nothing in the tree ever installed one, so every warning

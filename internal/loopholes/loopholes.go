@@ -103,6 +103,15 @@ type Loophole struct {
 	StateFiles []string
 	Requires   Requires
 	Source     string
+	// SkewNotes are the version-skew reports from the TOLERANT manifest read: one
+	// line per manifest key this build does not know, so the declaration is not
+	// honored. NOT errors — a manifest key only a newer yolo knows must not make
+	// the loophole vanish, which is exactly what the tolerant read exists for — but
+	// never silent either: loadFromDir warns each one, so a DEGRADED loophole (a
+	// key this build cannot act on) is as visible as a rejected one. Always empty
+	// on the strict authoring path, where the same manifest is refused outright.
+	// Mirrors packload.Pack.SkewNotes.
+	SkewNotes []string
 }
 
 // FromConfig reports whether this loophole came from a yolo-jail.jsonc

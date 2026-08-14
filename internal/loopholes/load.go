@@ -43,11 +43,13 @@ func LoadLoophole(modulePath string) (*Loophole, error) {
 // skipped rather than refused. The STRICT decoder (loopholedecl.Decode) is for
 // authoring tools, where an author must hear about a typo.
 func loadManifest(modulePath string) (*Loophole, error) {
-	m, _, err := loopholedecl.LoadDirTolerant(modulePath)
+	m, skipped, err := loopholedecl.LoadDirTolerant(modulePath)
 	if err != nil {
 		return nil, err
 	}
-	return resolve(m, modulePath), nil
+	lp := resolve(m, modulePath)
+	lp.SkewNotes = skipped
+	return lp, nil
 }
 
 // resolve turns a decoded manifest into the runtime record, substituting the

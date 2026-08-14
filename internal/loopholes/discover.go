@@ -174,6 +174,13 @@ func loadFromDir(dirPath, source string) (map[string]*Loophole, []string) {
 			warnf("loophole manifest %s failed to load, so that loophole is NOT active: %v", child, err)
 			continue
 		}
+		// A key this build does not know is SKEW, not a failure: the loophole loads
+		// and everything the key would have declared is missing. Reported for the
+		// same reason the rejection above is — a degraded loophole whose symptom
+		// names something else is the failure mode this package keeps paying for.
+		for _, note := range loophole.SkewNotes {
+			warnf("loophole %s: %s", loophole.Name, note)
+		}
 		loophole.Source = source
 		if _, seen := out[loophole.Name]; !seen {
 			order = append(order, loophole.Name)
