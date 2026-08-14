@@ -216,10 +216,17 @@ type Manifest struct {
 // (<dir>/manifest.jsonc) and the basename `name` must equal; Decode never
 // touches the filesystem, so dir is read purely as a string.
 //
-// Unknown keys are reported ALL AT ONCE (one problem per key). The structural
-// half stops at the first problem — inherited from the loader this replaced, and
-// a narrower contract than packdecl.Decode's every-problem promise; see the
-// package's landing notes.
+// On any problem the manifest is nil and err (an *Error) carries the lot: either
+// a valid manifest or a refusal, so no caller has to decide whether a
+// half-validated one is usable.
+//
+// Unknown keys are reported ALL AT ONCE, one problem per key, which is the
+// authoring win — a reader fixing three typos should not need three
+// edit-check cycles. The STRUCTURAL half still stops at the first problem, which
+// is inherited from the loader this replaced and is narrower than
+// packdecl.Decode's every-problem contract; widening it means restructuring the
+// walk, and doing that in the same change as the extraction would have made
+// "behaviour is identical" unverifiable.
 func Decode(data []byte, dir string) (*Manifest, error) {
 	m, unknown, err := decode(data, dir, true)
 	if err != nil {
