@@ -14,7 +14,8 @@ recommends deciding (B) **before** building (A). The maintainer ruled: write (B)
 §6 below is the specific list of what survives in `pack-capabilities.md` and what died — and that
 doc has now been **rewritten** to match, not merely annotated.
 
-**Reads with:** [`pack-system.md`](pack-system.md) (the 14 kinds and how a kind is defined),
+**Reads with:** [`gate-placement-principle.md`](gate-placement-principle.md) (why several gates in
+§4 are placed where they are — and why one was deleted), [`pack-system.md`](pack-system.md) (the 14 kinds and how a kind is defined),
 [`loophole-protocol.md`](loophole-protocol.md) (the wire contract),
 [`loophole-transport.md`](loophole-transport.md) (the transport unification, shipped 2026-08-13),
 [`pack-capabilities.md`](pack-capabilities.md) (what this narrows),
@@ -1602,14 +1603,24 @@ is whatever scope owns the machine the daemon runs on, so inside jail A that is 
 owned by jail A's agent, because jail A is the blast radius. It is also **load-bearing**, since
 §4.3a's escape-hatch ruling sends loophole development into a nested jail.
 
-**Measured in-jail 2026-08-13, and today it does not work:**
-`~/.config/yolo-jail/config.jsonc` is a **read-only** bind (`/proc/mounts`), so an agent cannot
-install by editing it; but the containing directory IS writable and the config declares
-`include_if_found: ["overrides.jsonc"]`. So a seam plausibly exists and is undesigned. **One fact to
-verify before anyone leans on it:** where that directory resolves host-side. It must be the jail's
-own home tree — if it were ever the human's real `~/.config/yolo-jail/`, an agent writing
-`overrides.jsonc` would be editing the host's config, which is a worse bug than the one this asks
-about. **Resolved by:** a maintainer ruling on supporting it, after that check.
+**Measured in-jail 2026-08-13, and the check I flagged is now DONE.** The file exists *for nested
+jails* by design — `userConfigMountArgs` (`assemble_parts.go:530-531`): *"builds the user-config
+mounts: config.jsonc (for nested jails) and config.lua."* It is **not generated**: it is a
+single-file `:ro` bind of the human's real config (`ROFileMountArg` at `:557`), while the containing
+directory is the jail's own writable home. So an agent cannot install by editing it, and cannot reach
+the host by writing beside it — the bad case is structurally absent, *because* single-file binds were
+used instead of mounting the directory.
+
+**Design, per the maintainer's "I don't want to mix purposes of that agent user level file":** add
+`config.local.jsonc` beside `config.jsonc`, jail-owned and writable, mirroring the shipped
+`yolo-jail.local.jsonc` sibling at workspace scope (`config.go:34`). Precedence gains one rung:
+inherited → jail-owned → workspace → workspace-local. **Recursion is by COMPOSITION, not stacking**:
+when jail A launches jail B, A composes its effective user config (inherited + its own local layer)
+and mounts *that* as B's `config.jsonc`, so every level sees exactly one inherited read-only file
+plus one writable file of its own, at any depth. The rejected alternative — an agent writing
+`overrides.jsonc`, which the maintainer's config happens to `include_if_found` — works by accident
+through a line written for machine-local secrets, and would vanish if that line did.
+**Resolved by:** a maintainer ruling on building it; the blocking fact is verified.
 
 **OQ-LP13 — what stops an agent swapping the file a loophole runs? RULED: a placement rule, not
 hashing.** Raised in review (§4.3a): every gate governs a declaration, the file that executes is

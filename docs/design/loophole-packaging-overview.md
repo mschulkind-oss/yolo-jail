@@ -393,7 +393,8 @@ sound trust boundary, exactly as your argument says, because nothing reachable f
 agent-writable. Refuse — at install, by name — a loophole whose module directory or argv target
 resolves inside the workspace being mounted or inside yolo's own jail-home tree.
 
-**One honest limit.** The rule cannot be complete: yolo knows the workspace it is launching and the
+**One honest limit** (and the general form of this reasoning is now
+[`gate-placement-principle.md`](gate-placement-principle.md)). The rule cannot be complete: yolo knows the workspace it is launching and the
 home trees it manages, but not that `~/code/other-project` is somewhere an agent writes in a
 *different* jail. So it catches the case that actually happens — content sitting in the repo you are
 working in — and your permission argument covers the rest. A tripwire on the common shape, not a
@@ -750,26 +751,68 @@ laptop that is your config. Inside jail A, the machine a loophole runs on **is j
 own config is the user level, and jail A's agent legitimately owns it — because the blast radius is a
 container you can throw away. Nothing about that reaches your real host.
 
-**And it is load-bearing now, not a nicety.** The escape-hatch ruling — *"you can develop a loophole
-in a jail with jail in jail if you need"* — assumes this works. If nested jails cannot install
-loopholes, that ruling has nowhere to send anyone.
+**This is now written up as a principle**, since it generalises well past loopholes:
+[`gate-placement-principle.md`](gate-placement-principle.md) — put the gate where the *authority*
+changes, and remember that "trusted" is a relationship between an actor and what it can destroy, not
+a property of a path.
 
-**Measured, and today it does not work.** In this jail right now:
+### Why that config file is there, and what it actually is
 
-- `~/.config/yolo-jail/config.jsonc` is a **read-only** bind mount. An agent cannot install anything
-  by editing it — the write fails at the kernel.
-- its **directory is writable**, and that config declares `include_if_found: ["overrides.jsonc"]`.
+You asked what `~/.config/yolo-jail/config.jsonc` is doing inside a jail at all. **It exists
+precisely for nested jails** — the mount helper says so in as many words: *"builds the user-config
+mounts: config.jsonc (for nested jails) and config.lua."* An inner `yolo` needs a user scope to
+read, so the launcher gives it one.
 
-So the seam very likely already exists — an inner-jail user scope could be an `overrides.jsonc` the
-outer jail's agent writes — but it is undesigned, unverified, and **one fact has to be checked before
-anyone leans on it**: where that directory lives host-side. It must resolve into the jail's *own*
-home tree. If it were ever the human's real `~/.config/yolo-jail/`, an agent writing `overrides.jsonc`
-would be editing your machine's config, which would be a far worse bug than the one this question is
-about.
+**And it is not generated — it is your real config, bind-mounted read-only.** That is worth stating
+plainly because it answers the worry I raised last round and it changes the shape of the fix:
 
-**My read: support it, and check that fact first.** The original question dissolves on the way past —
-it was never about downgrading an error, it was about the scope model having a root that depends on
-where you are standing.
+- the **file** is a single-file `:ro` bind of your actual `~/.config/yolo-jail/config.jsonc`;
+- the **directory** around it is the jail's own writable home, not a bind of yours.
+
+So writing into that directory is jail-local and cannot reach your machine — the bad case I flagged
+does not happen, and it does not happen *because* single-file binds were used rather than mounting
+the directory. Worth keeping that way deliberately.
+
+**Should it be jail-owned instead of inherited?** Not instead — inheritance is what makes a nested
+jail resemble the outer one, and AGENTS.md's whole nested-verification loop depends on it. The
+problem is that inheritance is the *only* thing there: it arrives read-only, so a jail has a user
+scope it can read and none it can write.
+
+### The proposal: a separate jail-owned file, not a second purpose for yours
+
+Your instinct — *"I don't want to mix purposes of that agent user level file"* — is right, and the
+alternative I sketched last round (an agent writing `overrides.jsonc`, which your config happens to
+`include_if_found`) is exactly the purpose-mixing you are refusing. It works by accident, through a
+line you wrote for your own machine-local secrets, and it would silently stop working if you removed
+that line.
+
+**Proposal: `config.local.jsonc`, beside `config.jsonc`, owned by whoever occupies this machine.**
+
+The repo already has this exact shape one layer down: `yolo-jail.local.jsonc` is an auto-merged
+sibling of the workspace config, kept out of git, for per-machine tweaks that do not belong in the
+tracked file. This is the same idea at user scope, and it needs no new vocabulary to explain.
+
+| | Where it comes from | Writable in the jail? | Purpose |
+|---|---|---|---|
+| `config.jsonc` | inherited, `:ro` bind | no | what the level above decided |
+| `config.local.jsonc` | this jail's own home | **yes** | what *this* occupant decides |
+
+Precedence is the existing one with a rung inserted: inherited → jail-owned → workspace →
+workspace-local.
+
+**Recursion works by composition rather than by stacking.** When jail A launches jail B, A does not
+pass down two files. It composes its **effective** user config — inherited plus its own local layer —
+and mounts *that* as B's inherited `config.jsonc`. So every level sees exactly one read-only
+inherited file plus one writable file of its own, at any depth, with no rule that changes with
+nesting.
+
+**Why this is safe, in one sentence:** a jail's local layer only ever affects jails launched from
+inside it, so the actor and the blast radius are the same container — which is the whole of
+`gate-placement-principle.md`'s Test 2.
+
+**My read: build it.** It is small, it is the last thing between the design and the "develop
+loopholes in a nested jail" ruling being real, and the alternative — leaning on
+`include_if_found` — is an accident that reads as a feature.
 
 ---
 
@@ -800,5 +843,7 @@ they added it.
    they belonged to.)*
 7. **`audio` as a real official pack** (LP11), which is both the end-to-end proof and the first step
    of the bundled-to-packs consolidation.
-8. **Nested-jail user scope** (LP9), on which the "develop loopholes in a jail" ruling depends —
-   after checking where the in-jail config directory resolves host-side.
+8. **Nested-jail user scope** (LP9): `config.local.jsonc` beside the inherited `config.jsonc`, and
+   launch-time composition so each level sees one inherited file plus one of its own. The "develop
+   loopholes in a jail" ruling depends on it. (The host-side check I flagged last round is done —
+   the file is a `:ro` single-file bind, the directory is jail-local.)

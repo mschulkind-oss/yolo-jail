@@ -4,6 +4,11 @@
 or a "how do I do X on platform Y" answer to yolo-jail. Read this before
 adding a second way to do something.
 
+**Sibling principles:** [`extension-point-principle.md`](extension-point-principle.md)
+(who designs an extension point) and
+[`gate-placement-principle.md`](gate-placement-principle.md) (put the gate
+where the authority changes).
+
 ## The principle
 
 For any capability, pick **one** happy-path tool that works across the whole

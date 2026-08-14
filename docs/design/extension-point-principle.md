@@ -4,8 +4,10 @@
 manifest field, a loophole manifest field, a contribution kind, a config key, a hook name. Read this
 before deciding that one use case is too few to design for.
 
-**Sibling principle:** [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix, don't
-support every tool). That one is about *breadth*; this one is about *who does the designing*.
+**Sibling principles:** [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix, don't
+support every tool) and [`gate-placement-principle.md`](gate-placement-principle.md) (put the gate
+where the authority changes). The first is about *breadth*, the second about *what not to build*;
+this one is about *who does the designing*.
 
 ---
 
