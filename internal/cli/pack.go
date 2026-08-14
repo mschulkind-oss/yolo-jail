@@ -36,6 +36,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 // packUsage is what `yolo pack --help` prints, and it is also the destination the
@@ -139,9 +140,10 @@ func runPack(args []string) int {
 }
 
 // packMain dispatches a pack subcommand. stdin is the reader the install-time
-// host-access approval prompt uses; a nil stdin (tests, or a non-interactive run)
-// means "no approval given", so a fetched pack's host access stays refused rather
-// than being granted without a human — fail-closed on the credential boundary.
+// host-access approval prompt uses; anything that is not a real terminal — nil
+// (tests), a pipe, a redirect — means "no approval given", so a fetched pack's host
+// access stays refused rather than being granted without a human — fail-closed on
+// the credential boundary (see approvalStdinFrom).
 func packMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
 	if len(args) == 0 {
 		fmt.Fprintln(out, packUsage)
@@ -1042,7 +1044,8 @@ func packInstall(out, errw io.Writer, color bool, stdin io.Reader) int {
 		// installer, host-briefing) only with explicit consent, recorded per-commit in
 		// the lockfile. Carry a prior approval forward when the pack asks for nothing
 		// new; prompt when it declares a host-access claim the user has not approved.
-		approved, denied := resolveHostApproval(e.Name, treeRoot, prev, hadPrev, pr, stdin, out)
+		approved, denied := resolveHostApproval(e.Name, treeRoot, prev, hadPrev, pr,
+			approvalStdinFrom(stdin), out)
 		if denied {
 			// The user declined (or a non-interactive run cannot ask). The pack is still
 			// installed and its non-host contributions work; its host claims will be
@@ -1071,23 +1074,52 @@ func packInstall(out, errw io.Writer, color bool, stdin io.Reader) int {
 	return rc
 }
 
+// approvalStdin is the interactive channel the install-time host-access approval
+// prompt reads. reader answers the prompt; isTerminal reports whether that reader is
+// a real terminal, and is a seam so tests can drive both branches. A nil isTerminal
+// (or one answering false) fails closed: the approval this prompt grants means "this
+// pack may read my host or run code on it", and that consent must come from a human
+// at a keyboard — `yes | yolo pack install` is not consent (design §4.4 item 3).
+type approvalStdin struct {
+	reader     io.Reader
+	isTerminal func() bool
+}
+
+// terminal reports whether the reader is a real terminal; a nil seam fails closed.
+func (in approvalStdin) terminal() bool { return in.isTerminal != nil && in.isTerminal() }
+
+// approvalStdinFrom wraps pack install's stdin for the approval gate: isTerminal is
+// true only for an *os.File the tty ioctl confirms is a terminal. A pipe or redirect
+// (`yes |`, a heredoc, CI) has bytes to offer but no human behind them, and any
+// non-File reader cannot be a terminal at all.
+func approvalStdinFrom(stdin io.Reader) approvalStdin {
+	f, ok := stdin.(*os.File)
+	return approvalStdin{
+		reader:     stdin,
+		isTerminal: func() bool { return ok && tty.IsTerminalFile(f) },
+	}
+}
+
 // resolveHostApproval decides which host-access claims are approved for a freshly
 // materialized fetched pack, prompting the user only when the pack declares a claim
 // they have not already approved.
 //
 // treeRoot is the materialized pack tree. prev/hadPrev are the pack's previous
 // lockfile entry. Returns the approved claim set to record, and denied=true when the
-// pack WANTS host access the user did not grant (declined, or no stdin to ask).
+// pack WANTS host access the user did not grant (declined, or no terminal to ask at).
 //
 //   - No host-access claims → approve nothing, denied=false (a pack that reads
 //     nothing from the host needs no consent).
 //   - Every claim already approved (prev.HostAccessApproved) → carry the prior
 //     approval forward silently. This is the "unchanged or narrowed pin" case.
+//   - A claim not previously approved with stdin NOT a terminal → refuse without
+//     reading a byte (denied=true). Piped input must not be able to answer the one
+//     prompt that grants a pack the host.
 //   - A claim not previously approved → show the full claim set and prompt y/N. On
-//     yes, approve the current set (so a later narrowing is remembered too); on no or
-//     no-tty, keep the prior approvals but do NOT add the new ones (denied=true).
+//     yes, approve the current set (so a later narrowing is remembered too); on no,
+//     keep the prior approvals but do NOT add the new ones (denied=true).
 func resolveHostApproval(name, treeRoot string, prev packsrc.LockEntry, hadPrev bool,
-	pr richtext.Printer, stdin io.Reader, out io.Writer) (approved []string, denied bool) {
+	pr richtext.Printer, stdin approvalStdin, out io.Writer) (approved []string, denied bool) {
 	p, _ := packload.LoadDir(treeRoot, name, true)
 	if p == nil {
 		return prevApproved(prev, hadPrev), false
@@ -1114,7 +1146,16 @@ func resolveHostApproval(name, treeRoot string, prev packsrc.LockEntry, hadPrev 
 	for _, c := range want {
 		pr.Printf("      [yellow]%s[/yellow]", c)
 	}
-	if !promptYesNo(out, stdin, "  Approve host access for "+name+"? [y/N] ") {
+	if !stdin.terminal() {
+		// Refuse BEFORE reading a byte: showing the y/N prompt to a pipe invites the
+		// pipe to answer it, and `yes(1)` would. The claims above still print, so a CI
+		// log shows exactly what is waiting on a human.
+		pr.Printf("  [red]host access NOT approved — approval requires an interactive "+
+			"terminal, and stdin is not one; rerun `yolo pack install` from a terminal "+
+			"to approve %s's claims[/red]", name)
+		return prevApproved(prev, hadPrev), true
+	}
+	if !promptYesNo(out, stdin.reader, "  Approve host access for "+name+"? [y/N] ") {
 		pr.Printf("  [red]host access NOT approved — %s's host claims will be refused at "+
 			"launch until you run `yolo pack install` and approve[/red]", name)
 		return prevApproved(prev, hadPrev), true
@@ -1142,8 +1183,11 @@ func approvedAtFor(approved []string, commit string) string {
 }
 
 // promptYesNo writes a prompt and reads a single line from stdin, returning true
-// only for an explicit yes. A nil stdin (non-interactive, or a test) is a NO — the
-// credential boundary fails closed: host access is never granted without a human.
+// only for an explicit yes. A nil stdin (non-interactive, or a test) is a NO — every
+// caller's confirmation fails closed. It does NOT check that stdin is a terminal:
+// the apply-side confirmations accept a scripted answer by contract, while the
+// host-access approval gate requires a real terminal and enforces that BEFORE
+// calling here (resolveHostApproval / approvalStdin).
 func promptYesNo(out io.Writer, stdin io.Reader, prompt string) bool {
 	if stdin == nil {
 		return false

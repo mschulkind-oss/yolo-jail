@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -753,9 +754,13 @@ func TestPackInstallPrunesRemovedPacks(t *testing.T) {
 }
 
 // resolveHostApproval is the install-time consent gate. These cases pin: a pack
-// reading nothing needs no prompt; a "yes" records the current claim set; a "no" (or
-// no stdin) records nothing new; and an unchanged pin carries the prior approval
-// forward without prompting.
+// reading nothing needs no prompt; a "yes" from a TERMINAL records the current claim
+// set; a "no" (or no stdin) records nothing new; and an unchanged pin carries the
+// prior approval forward without prompting.
+//
+// Every case that reaches the prompt must set the isTerminal seam EXPLICITLY: a bare
+// buffer is exactly the piped-stdin shape the gate exists to refuse, so a test that
+// wants the prompt answered has to say "pretend this is a terminal" out loud.
 func TestResolveHostApproval(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"),
@@ -764,34 +769,157 @@ func TestResolveHostApproval(t *testing.T) {
 	}
 	claim := "mount refs -> /ctx/refs"
 	pr := richtext.Printer{W: &bytes.Buffer{}}
+	terminal := func(r io.Reader) approvalStdin {
+		return approvalStdin{reader: r, isTerminal: func() bool { return true }}
+	}
 
-	// Fresh install, user answers yes → the current claim is approved.
+	// Fresh install, user answers yes at a terminal → the current claim is approved.
 	approved, denied := resolveHostApproval("acme", dir, packsrc.LockEntry{}, false, pr,
-		strings.NewReader("y\n"), &bytes.Buffer{})
+		terminal(strings.NewReader("y\n")), &bytes.Buffer{})
 	if denied || len(approved) != 1 || approved[0] != claim {
 		t.Errorf("yes should approve the claim: approved=%v denied=%v", approved, denied)
 	}
 
 	// Fresh install, user answers no → nothing approved, denied.
 	approved, denied = resolveHostApproval("acme", dir, packsrc.LockEntry{}, false, pr,
-		strings.NewReader("n\n"), &bytes.Buffer{})
+		terminal(strings.NewReader("n\n")), &bytes.Buffer{})
 	if !denied || len(approved) != 0 {
 		t.Errorf("no should approve nothing and deny: approved=%v denied=%v", approved, denied)
 	}
 
 	// No stdin (non-interactive) → fail closed, same as no.
-	approved, denied = resolveHostApproval("acme", dir, packsrc.LockEntry{}, false, pr, nil, &bytes.Buffer{})
+	approved, denied = resolveHostApproval("acme", dir, packsrc.LockEntry{}, false, pr,
+		approvalStdin{}, &bytes.Buffer{})
 	if !denied || len(approved) != 0 {
 		t.Errorf("nil stdin must fail closed: approved=%v denied=%v", approved, denied)
 	}
 
-	// Unchanged pin: the claim is already approved → carried forward, NO prompt (an
-	// empty stdin would fail the prompt, so reaching approved proves it never asked).
+	// Unchanged pin: the claim is already approved → carried forward, NO prompt (a
+	// non-terminal empty stdin would be refused at the gate, so reaching approved
+	// proves it never asked).
 	prev := packsrc.LockEntry{Name: "acme", ApprovedHostAccess: []string{claim}}
-	approved, denied = resolveHostApproval("acme", dir, prev, true, pr, strings.NewReader(""), &bytes.Buffer{})
+	approved, denied = resolveHostApproval("acme", dir, prev, true, pr,
+		approvalStdin{reader: strings.NewReader("")}, &bytes.Buffer{})
 	if denied || len(approved) != 1 || approved[0] != claim {
 		t.Errorf("an already-approved claim must carry forward without prompting: approved=%v denied=%v", approved, denied)
 	}
+}
+
+// The host-access approval prompt is the one `y` that means "this pack may read my
+// host or run code on it", so it must not be answerable by a pipe: `yes | yolo pack
+// install` is not consent (design §4.4 item 3). A stdin with bytes available but no
+// terminal behind it is REFUSED before a byte is read — fail closed, with a message
+// that says approval needs an interactive terminal and names the command to rerun.
+func TestResolveHostApprovalRefusesNonTerminalStdin(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"),
+		[]byte(`{"contributes":[{"kind":"mount","host":"refs","into":"refs"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both non-terminal shapes: a nil seam (nothing claimed terminal-ness) and a seam
+	// that answers false (a real pipe probed and found wanting).
+	for name, in := range map[string]approvalStdin{
+		"nil seam":   {reader: strings.NewReader("y\n")},
+		"false seam": {reader: strings.NewReader("y\n"), isTerminal: func() bool { return false }},
+	} {
+		var report, out bytes.Buffer
+		pr := richtext.Printer{W: &report}
+		approved, denied := resolveHostApproval("acme", dir, packsrc.LockEntry{}, false, pr, in, &out)
+		if !denied || len(approved) != 0 {
+			t.Errorf("%s: a piped 'y' must not grant approval: approved=%v denied=%v",
+				name, approved, denied)
+		}
+		if !strings.Contains(report.String(), "interactive terminal") {
+			t.Errorf("%s: refusal must say approval requires an interactive terminal:\n%s",
+				name, report.String())
+		}
+		if !strings.Contains(report.String(), "yolo pack install") {
+			t.Errorf("%s: refusal must name the command to rerun interactively:\n%s",
+				name, report.String())
+		}
+		// Refused BEFORE prompting: the y/N prompt must never have been written, or a
+		// scripted caller would see a question it was not allowed to answer.
+		if strings.Contains(out.String(), "[y/N]") {
+			t.Errorf("%s: the prompt must not be shown to a non-terminal stdin:\n%s",
+				name, out.String())
+		}
+	}
+}
+
+// End to end through `pack install`: the production seam derives terminal-ness from
+// stdin itself, so a buffer full of "y" (the pipe shape) is refused, the install
+// exits non-zero, and the lockfile records NO host-access approval.
+func TestPackInstallRefusesPipedApproval(t *testing.T) {
+	repo := gitHostAccessPackRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := "git+file://" + repo + "//hostpack?ref=main"
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"),
+		[]byte(`{"packs": [{"source": "`+src+`", "name": "hp"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errw bytes.Buffer
+	// strings.Reader is the piped shape: bytes available, no terminal behind them.
+	rc := packMain([]string{"install"}, &out, &errw, false, strings.NewReader("y\n"))
+	if rc == 0 {
+		t.Errorf("piped approval must fail closed (rc=0):\n%s%s", out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), "interactive terminal") ||
+		!strings.Contains(out.String(), "yolo pack install") {
+		t.Errorf("refusal must say approval needs an interactive terminal and name the rerun command:\n%s",
+			out.String())
+	}
+
+	// The pack still installs — only its host claims stay unapproved.
+	lock, err := packsrc.LoadLock(packsrc.LockPath(filepath.Join(cfgDir, "config.jsonc")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, ok := lock.Get("hp")
+	if !ok {
+		t.Fatalf("pack should still be locked (unapproved, not uninstalled): %+v", lock.Packs)
+	}
+	if len(e.ApprovedHostAccess) != 0 {
+		t.Errorf("piped stdin must not record approvals: %v", e.ApprovedHostAccess)
+	}
+}
+
+// gitHostAccessPackRepo builds a real git repo containing a pack that CLAIMS host
+// access (a mount), so install's approval gate actually fires.
+func gitHostAccessPackRepo(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "hostpack")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "pack.json"),
+		[]byte(`{"contributes":[{"kind":"mount","host":"refs","into":"refs"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	run("add", "-A")
+	run("commit", "-qm", "pack")
+	return dir
 }
 
 // lint must read the skills source the manifest DECLARES, not a hardcoded skills/. The
