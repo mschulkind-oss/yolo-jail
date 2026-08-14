@@ -16,9 +16,15 @@
 // FLAKE TRAP: packs/ must also be listed in the goSrc fileset in flake.nix. The image
 // build is hermetic and only sees the paths that fileset names, so a pack dir missing
 // from it VANISHES from the image while `go build` stays green.
+//
+// NOT EVERY OFFICIAL PACK IS AN AGENT. `audio` ships a LOOPHOLE (the 15th contribution
+// kind) and installs no CLI at all — it is the dogfood for
+// docs/design/loophole-packaging.md §7 / OQ-LP11, whose prize is that "AGENTS ARE PACKS"
+// becomes true of loopholes too. Anything here that reasons about "the six agent packs"
+// (a comment, a test's name list) is describing the agent SUBSET, not this list.
 package packs
 
 import "embed"
 
-//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy
+//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:audio
 var FS embed.FS

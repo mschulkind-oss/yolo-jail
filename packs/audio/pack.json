@@ -1,0 +1,16 @@
+{
+  "contributes": [
+    {
+      "from": "loopholes/audio-alsa",
+      "kind": "loophole"
+    },
+    {
+      "kind": "env",
+      "vars": {
+        "PIPEWIRE_REMOTE": "/run/pipewire/pipewire-0",
+        "PULSE_SERVER": "unix:/run/pulse/native"
+      }
+    }
+  ],
+  "name": "audio"
+}
