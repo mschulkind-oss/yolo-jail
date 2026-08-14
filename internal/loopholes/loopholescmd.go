@@ -137,7 +137,9 @@ func List(deps Deps) int {
 		fmt.Fprintln(deps.Out, "No loopholes installed.")
 		fmt.Fprintf(deps.Out, "  • bundled: %s\n", BundledLoopholesDir())
 		fmt.Fprintf(deps.Out, "  • user: %s\n", UserLoopholesDir())
-		fmt.Fprintln(deps.Out, "  • workspace: yolo-jail.jsonc loopholes: block")
+		fmt.Fprintf(deps.Out, "  • config: loopholes: block in %s "+
+			"(install-shaped keys are user-scope only; a workspace "+
+			"yolo-jail.jsonc may set enabled/jail_env)\n", paths.UserConfigPath())
 		return 0
 	}
 	for _, lh := range all {
@@ -211,13 +213,20 @@ func Status(deps Deps) int {
 // CmdSetEnabled runs `yolo loopholes enable|disable <name>`. Only
 // user-installed loopholes are toggleable (a missing user manifest → the exact
 // stderr message + exit 1).
+//
+// The fallback instruction points at the USER config (loophole-packaging.md
+// §5.2): it used to direct people at the workspace yolo-jail.jsonc — the
+// weaker, agent-editable scope, and the one whose install-shaped keys are now
+// refused. `enabled` is honored from either scope, but the command should
+// never steer a human toward the file this design distrusts.
 func CmdSetEnabled(deps Deps, name string, enabled bool) int {
 	path := filepath.Join(UserLoopholesDir(), name)
 	if fi, err := os.Stat(filepath.Join(path, "manifest.jsonc")); err != nil || fi.IsDir() {
 		fmt.Fprintf(deps.Err,
 			"No user-installed loophole at %s.\n"+
-				"For bundled or workspace-inline loopholes, edit the workspace "+
-				"yolo-jail.jsonc (loopholes.<name>.enabled).\n", path)
+				"For bundled or config-inline loopholes, set "+
+				"loopholes.%s.enabled in the user config (%s).\n",
+			path, name, paths.UserConfigPath())
 		return 1
 	}
 	if err := SetEnabled(path, enabled); err != nil {

@@ -23,6 +23,15 @@ func TestSetEnabledMissingUserLoophole(t *testing.T) {
 	if !strings.Contains(errBuf.String(), "No user-installed loophole at") {
 		t.Errorf("err = %q", errBuf.String())
 	}
+	// §5.2: the fallback instruction must point at the USER config — today's
+	// CLI used to direct people at the weaker, agent-editable workspace scope.
+	if !strings.Contains(errBuf.String(), "user config") ||
+		!strings.Contains(errBuf.String(), "config.jsonc") {
+		t.Errorf("err = %q, want the USER config named as the place to toggle", errBuf.String())
+	}
+	if strings.Contains(errBuf.String(), "workspace") {
+		t.Errorf("err = %q still points at the workspace config", errBuf.String())
+	}
 }
 
 func TestSetEnabledRoundTrip(t *testing.T) {
