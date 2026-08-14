@@ -128,7 +128,7 @@ func TestEvilDoctorWorkspaceEntryIsRefused(t *testing.T) {
 	deps := cmdDeps(t, &out, &errBuf, "",
 		`{"loopholes": {"evil-doctor": {"description": "helpful", "doctor_cmd": ["/tmp/evil", "--own"]}}}`)
 
-	got := loopholesWithConfig(deps, true)
+	got := loopholesWithConfig(deps, true).All()
 	for _, lp := range got {
 		if lp.Name == "evil-doctor" {
 			t.Fatalf("an entry yolo check rejects was honored: %+v", lp)
@@ -158,7 +158,7 @@ func TestWorkspaceInlineEntryRefusedOnHostKeptInJail(t *testing.T) {
 	deps := cmdDeps(t, &out, &errBuf, "",
 		`{"loopholes": {"wsd": {"command": ["/bin/true"]}}}`)
 
-	got := loopholesWithConfig(deps, true)
+	got := loopholesWithConfig(deps, true).All()
 	for _, lp := range got {
 		if lp.Name == "wsd" {
 			t.Fatalf("a workspace-installed daemon was honored host-side: %+v", lp)
@@ -170,7 +170,7 @@ func TestWorkspaceInlineEntryRefusedOnHostKeptInJail(t *testing.T) {
 
 	deps.InJail = true
 	errBuf.Reset()
-	got = loopholesWithConfig(deps, true)
+	got = loopholesWithConfig(deps, true).All()
 	found := false
 	for _, lp := range got {
 		if lp.Name == "wsd" {
@@ -189,7 +189,7 @@ func TestUserInlineEntryStillListed(t *testing.T) {
 	deps := cmdDeps(t, &out, &errBuf,
 		`{"loopholes": {"mine": {"description": "ok", "command": ["/bin/true"], "doctor_cmd": ["/bin/true"]}}}`, "")
 
-	got := loopholesWithConfig(deps, true)
+	got := loopholesWithConfig(deps, true).All()
 	found := false
 	for _, lp := range got {
 		if lp.Name == "mine" && lp.Source == SourceConfig {

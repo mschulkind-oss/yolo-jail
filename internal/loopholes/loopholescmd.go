@@ -66,7 +66,13 @@ func RealDeps() Deps {
 // reason and never reaches RunDoctorChecks. The scope rules follow the launch
 // path's asymmetry: a workspace-scope violation refuses the entry on the host
 // and is only a warning in-jail, where the entry stays honored.
-func loopholesWithConfig(deps Deps, includeDisabled bool) []*Loophole {
+// It returns a Set rather than a slice, so the doctor path downstream gets the ORIGIN
+// GATE with the records (census site 5, docs/design/loophole-packaging.md §5.1): `status`
+// executes each loophole's doctor_cmd, and this command has no pack resolution of its own
+// — it reads what the process recorded through NewHostSet. On a `yolo loopholes` process
+// nothing records anything, so a pack loophole is absent rather than executed, which is
+// the fail-safe direction and is stated on packModules.
+func loopholesWithConfig(deps Deps, includeDisabled bool) Set {
 	// The same file-backed set config.ValidateConfig resolves names against.
 	known, _ := NewResolver().Known()
 
@@ -137,18 +143,20 @@ func loopholesWithConfig(deps Deps, includeDisabled bool) []*Loophole {
 			merged.Set(k, val)
 		}
 	}
-	// include_bundled defaults to true; the DiscoverOptions zero value is
-	// false, so set it explicitly (matches NewResolver, which does the same).
-	return Discover(DiscoverOptions{
-		IncludeDisabled: includeDisabled,
-		IncludeBundled:  true,
-		LoopholesConfig: merged,
-	})
+	// NewHostSet, not a hand-built DiscoverOptions: it is the one constructor that
+	// composes bundled + pack + user + config, so this command cannot come to disagree
+	// with the launch path about what this machine has. It always builds the
+	// include-disabled superset; includeDisabled selects the VIEW below.
+	set := NewHostSet(merged)
+	if includeDisabled {
+		return set
+	}
+	return SetOf(set.Enabled()).withGate(set)
 }
 
 // List runs `yolo loopholes list`.
 func List(deps Deps) int {
-	all := loopholesWithConfig(deps, true)
+	all := loopholesWithConfig(deps, true).All()
 	if len(all) == 0 {
 		fmt.Fprintln(deps.Out, "No loopholes installed.")
 		fmt.Fprintf(deps.Out, "  • bundled: %s\n", BundledLoopholesDir())
@@ -197,16 +205,25 @@ func Status(deps Deps) int {
 		fmt.Fprintln(deps.Out, "Inside jail — doctor checks are host-side.  From the host: yolo loopholes status")
 		return 0
 	}
-	all := loopholesWithConfig(deps, true)
+	set := loopholesWithConfig(deps, true)
+	all := set.All()
 	if len(all) == 0 {
 		fmt.Fprintln(deps.Out, "No loopholes installed.")
 		return 0
 	}
-	for _, r := range RunDoctorChecks(all, 10*time.Second) {
+	// THE SET's doctor runner, not the package-level one. `status` runs each loophole's
+	// doctor_cmd — host code — and this command is one users treat as read-only preflight,
+	// so a pack-shipped record runs only when the origin gate was evaluated AND passed
+	// (docs/design/loophole-packaging.md §5.1). A withheld one is REPORTED, with the
+	// reason, rather than skipped: a skip is indistinguishable from `no-check`, which
+	// would read as "this loophole declares no self-check" — the wrong story entirely.
+	for _, r := range set.RunDoctorChecks(all, 10*time.Second) {
 		var prefix string
 		switch {
 		case !r.Loophole.Enabled:
 			prefix = "disabled"
+		case !set.MayRunHostCode(r.Loophole):
+			prefix = "unapproved"
 		case !r.Loophole.RequirementsMet():
 			prefix = "inactive"
 		case r.RC != nil && *r.RC == 0:
