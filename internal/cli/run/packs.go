@@ -314,17 +314,13 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 	return stagingRoot, loaded, briefings, nil
 }
 
-// packLoopholeKind is the `loophole` contribution kind, spelled as a value rather than
-// referenced as a packdecl constant.
+// packLoopholeKind is the `loophole` contribution kind.
 //
-// Deliberate, and temporary: the kind lands in internal/packdecl separately, and matching
-// on the WIRE STRING lets the exclusivity pre-flight and the convergence be written,
-// tested and reviewed without either half blocking on the other. `packdecl.KindLoophole`
-// will equal this string by definition (a Kind IS its manifest spelling), so the switch to
-// the constant is a one-token edit here with no behaviour change — and until the kind
-// exists this adapter simply finds nothing, because packdecl.Decode refuses an unknown
-// kind before a contribution can reach here.
-const packLoopholeKind = packdecl.Kind("loophole")
+// It was a wire-string literal while the kind itself was landing in a separate change —
+// matching the spelling let the exclusivity pre-flight and the convergence be written and
+// tested without either half blocking on the other. The kind now exists, so this is the
+// constant, and packdecl owns the spelling again (a Kind IS its manifest spelling).
+const packLoopholeKind = packdecl.KindLoophole
 
 // PackLoopholeDecl is ONE `loophole` contribution, reduced to exactly what name
 // exclusivity needs.

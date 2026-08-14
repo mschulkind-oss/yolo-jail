@@ -48,6 +48,14 @@ func TestEveryDiscoverCallSiteIsConverged(t *testing.T) {
 			switch d.Name() {
 			case "vendor", ".git", "dist-go", "node_modules", "bin":
 				return filepath.SkipDir
+			// .claude holds agent WORKTREES — other checkouts of this same repo,
+			// at other commits. Walking them reports their copies of these files as
+			// offenders here, which is both wrong (they are not this tree's source)
+			// and unfixable from this tree. Without this the test fails on any
+			// machine that has ever run a worktree-isolated agent, and the failure
+			// text looks exactly like a real convergence regression.
+			case ".claude":
+				return filepath.SkipDir
 			}
 			return nil
 		}
