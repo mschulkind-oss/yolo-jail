@@ -124,14 +124,65 @@ func TestWorkspaceOverrideEnvIsError(t *testing.T) {
 	}
 }
 
-// Override-shape `doctor_cmd` is a second host execution, run by two
-// read-only-looking commands (yolo check, yolo loopholes status) — user-only.
-func TestWorkspaceOverrideDoctorCmdIsError(t *testing.T) {
+// Override-shape `doctor_cmd` on a manifest-backed loophole is not a SCOPE
+// problem at all — it is refused at every scope, because a manifest loophole's
+// doctor_cmd is fixed by its manifest and applyWorkspaceOverrides honors only
+// enabled/env/jail_env. Saying "user-scope only — move this key to the user
+// config" sent the reader to a dead end: the same key there answered "unknown
+// key". One mistake, one message, and the message has to be actionable.
+func TestOverrideDoctorCmdIsRefusedAtEitherScopeWithOneMessage(t *testing.T) {
 	resolver := fakeResolver{"svc": {Name: "svc", HasHostDaemon: true}}
+	for _, tc := range []struct{ what, user, ws string }{
+		{"workspace", "", `{"loopholes": {"svc": {"doctor_cmd": ["/tmp/evil", "--ok"]}}}`},
+		{"user", `{"loopholes": {"svc": {"doctor_cmd": ["/tmp/evil", "--ok"]}}}`, ""},
+	} {
+		_, errs, _ := validateScoped(t, tc.user, tc.ws, resolver)
+		hits := containing(errs, "config.loopholes.svc.doctor_cmd")
+		if len(hits) != 1 {
+			t.Fatalf("%s scope: errors = %v, want exactly one doctor_cmd error "+
+				"(one mistake reported twice is the defect)", tc.what, errs)
+		}
+		if !strings.Contains(hits[0], "not overridable") {
+			t.Errorf("%s scope: error %q must say the key is not overridable", tc.what, hits[0])
+		}
+		// The old advice, which did not work: moving the key to the user config
+		// only changed which error you got.
+		for _, dead := range []string{"user-scope only", "Move this key to"} {
+			if strings.Contains(hits[0], dead) {
+				t.Errorf("%s scope: error %q still gives the dead-end advice %q",
+					tc.what, hits[0], dead)
+			}
+		}
+		if strings.Contains(hits[0], "unknown key") {
+			t.Errorf("%s scope: error %q is the generic unknown-key message, not the "+
+				"explanation", tc.what, hits[0])
+		}
+	}
+}
+
+// The doctor_cmd of an INLINE service is a different key in a different shape:
+// legal user-side (it is part of the install), and in a workspace file it draws
+// the scope error whose fix — move the whole entry — does work.
+func TestInlineDoctorCmdKeepsTheScopeError(t *testing.T) {
+	ws, errs, _ := validateScoped(t, "",
+		`{"loopholes": {"svc": {"command": ["/bin/true"], "doctor_cmd": ["/tmp/evil"]}}}`, nil)
+	hits := containing(errs, "config.loopholes.svc", "user-scope only")
+	if len(hits) != 1 || !strings.Contains(hits[0], filepath.Join(ws, WorkspaceConfigName)) {
+		t.Fatalf("errors = %v, want the one install-scope error naming the workspace file", errs)
+	}
+	if !strings.Contains(hits[0], loopholeUserConfigHint) {
+		t.Errorf("the install-scope error must still point at the user config: %q", hits[0])
+	}
+}
+
+// A workspace doctor_cmd for a name that is NOT a manifest loophole keeps the
+// move-it advice, because there the fix really is the user config: an inline
+// entry with a command and a doctor_cmd is a legal install.
+func TestWorkspaceDoctorCmdForUnknownNameStillSaysMoveIt(t *testing.T) {
 	_, errs, _ := validateScoped(t, "",
-		`{"loopholes": {"svc": {"doctor_cmd": ["/tmp/evil", "--ok"]}}}`, resolver)
-	if hits := containing(errs, "config.loopholes.svc.doctor_cmd", "user-scope only"); len(hits) != 1 {
-		t.Errorf("errors = %v, want one doctor_cmd scope error", errs)
+		`{"loopholes": {"ghost": {"doctor_cmd": ["/tmp/evil"]}}}`, nil)
+	if hits := containing(errs, "config.loopholes.ghost.doctor_cmd", "user-scope only"); len(hits) != 1 {
+		t.Errorf("errors = %v, want the scope error for an unknown name's doctor_cmd", errs)
 	}
 }
 

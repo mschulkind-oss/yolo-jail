@@ -20,6 +20,15 @@ import (
 //	enabled            enable   either     — routes within the vetted set
 //	jail_env           —        either     — container-side only
 //
+// The doctor_cmd row is about the INLINE shape, where the key is part of the
+// install and the user config is a real destination for it. On a MANIFEST-backed
+// loophole the same key is not a scope question: the manifest fixes doctor_cmd
+// and applyWorkspaceOverrides honors only enabled/env/jail_env, so the key is
+// refused at every scope by validateLoopholeOverride and the scope pass stays
+// quiet about it. Telling that reader "move this key to the user config" was a
+// dead end — the same key there answered "unknown key" — and it reported one
+// mistake twice, which is the thing validateAgentsRetired's comment warns about.
+//
 // The violation is an ERROR on the host and a WARNING inside a jail — the same
 // asymmetry as validateAgentsRetired, for the same reason: /workspace is
 // live-mounted, so in-jail `yolo` and nested jails would break identically on a
@@ -93,7 +102,7 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 				if e.spec == nil {
 					continue
 				}
-				for _, viol := range loopholeScopeKeyViolations(name, e.spec, e.file) {
+				for _, viol := range loopholeScopeKeyViolations(name, e.spec, e.file, infoPtr != nil) {
 					scoped(viol)
 				}
 			}
@@ -163,7 +172,10 @@ func validateLoopholeEntryShape(name string, specV any, info *LoopholeInfo, supp
 // loopholeScopeKeyViolations applies the install-shaped-key rows of the §4.3b
 // table to ONE workspace file's contribution to a `loopholes.<name>` entry.
 // The returned messages are host-side errors (the caller downgrades in-jail).
-func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile string) []string {
+//
+// manifestBacked says the name resolves to a file-backed loophole, which changes
+// what is true of doctor_cmd: see the doctor_cmd note at the top of this file.
+func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile string, manifestBacked bool) []string {
 	path := "config.loopholes." + name
 	if hasKey(spec, "command") {
 		// The whole entry is an install; one message covers it (its env and
@@ -178,7 +190,12 @@ func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile str
 			"spawn environment, and "+srcFile+" is agent-editable. Move this key to "+
 			loopholeUserConfigHint+".")
 	}
-	if hasKey(spec, "doctor_cmd") {
+	// On a manifest-backed loophole this entry is an OVERRIDE, and doctor_cmd is
+	// not overridable at any scope — validateLoopholeOverride refuses it with the
+	// only advice that works (remove it). Adding a scope error here would send the
+	// reader to a user config that answers "unknown key", and would report the one
+	// mistake twice.
+	if hasKey(spec, "doctor_cmd") && !manifestBacked {
 		out = append(out, path+".doctor_cmd: user-scope only — 'doctor_cmd' is a host "+
 			"command run by `yolo check` and `yolo loopholes status`, and "+srcFile+
 			" is agent-editable. Move this key to "+loopholeUserConfigHint+".")
@@ -348,7 +365,7 @@ func LoopholeEntryErrors(name string, specV any, info *LoopholeInfo, userInstall
 	if fromWorkspace && !inJail {
 		if spec, ok := asMap(specV); ok && hostServiceName.MatchString(name) &&
 			name != paths.BuiltinCgroupLoopholeName {
-			*errs = append(*errs, loopholeScopeKeyViolations(name, spec, srcFile)...)
+			*errs = append(*errs, loopholeScopeKeyViolations(name, spec, srcFile, info != nil)...)
 			installed := info != nil || userInstalledInline
 			entry := []wsLoopholeEntry{{file: srcFile, spec: spec}}
 			if violation, _ := loopholeScopeEnableProblems(name, entry, installed); violation != "" {
@@ -368,8 +385,18 @@ func validateLoopholeOverride(name string, spec *jsonx.OrderedMap, path string, 
 			"loophole whose command is fixed by its manifest; only "+
 			"'enabled', 'env', and 'jail_env' may be overridden")
 	}
-	// "command" is allowed through here (it gets its own dedicated error above).
-	allowed := set("enabled", "env", "jail_env", "command")
+	if hasKey(spec, "doctor_cmd") {
+		// Not a scope rule: nothing reads doctor_cmd off an override
+		// (applyWorkspaceOverrides honors enabled/env/jail_env only), so the key
+		// is inert wherever it is written. The generic "unknown key" left the
+		// reader with the wrong theory — that it belonged somewhere else.
+		add(errs, path+".doctor_cmd: not overridable — "+pytext.Repr(name)+" is an existing "+
+			"loophole whose doctor_cmd is fixed by its manifest; only "+
+			"'enabled', 'env', and 'jail_env' may be overridden, so remove this key")
+	}
+	// "command" and "doctor_cmd" are allowed through here (each gets its own
+	// dedicated error above).
+	allowed := set("enabled", "env", "jail_env", "command", "doctor_cmd")
 	reportUnknownKeys(spec, allowed, path, errs)
 	if enabledV, ok := spec.Get("enabled"); ok && !isBool(enabledV) {
 		add(errs, path+".enabled: expected a boolean (got "+pyReprValue(enabledV)+")")

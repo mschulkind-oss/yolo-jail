@@ -117,6 +117,12 @@ naming the file and the fix; inside a jail the same violation downgrades to a
 warning, because the workspace is live-mounted and a hard error would refuse
 every nested launch. `enabled` and `jail_env` are legal at either scope.
 
+One key is not a scope question at all: `doctor_cmd` on an entry that OVERRIDES a
+manifest-backed loophole. The manifest fixes that loophole's `doctor_cmd`, and an
+override only ever carries `enabled`, `env`, `jail_env` — so the key is refused in
+the user config too, with "not overridable … remove this key". `doctor_cmd` is
+user-scope-only in the INLINE shape, where it is part of the install.
+
 yolo spawns the daemon process at jail startup, bind-mounts its published path into the jail, and tears down on exit. Entries appear in `yolo loopholes list` alongside file-backed loopholes so the whole picture lives in one command.
 
 In `~/.config/yolo-jail/config.jsonc`:
