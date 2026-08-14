@@ -89,6 +89,20 @@ func TestValidateContributes(t *testing.T) {
 		{"good env", Contribution{Kind: KindEnv, Vars: map[string]string{"ACME_MODE": "fast"}}, ""},
 		{"env empty map", Contribution{Kind: KindEnv}, "non-empty \"vars\""},
 		{"env empty key", Contribution{Kind: KindEnv, Vars: map[string]string{"": "x"}}, "empty variable name"},
+		// `loophole` points at a module dir. `from` is REQUIRED (there is no conventional
+		// location to fall back to, and the dir's basename IS the loophole's name), it runs
+		// through the same traversal guard every path-bearing field gets, and `into` is
+		// refused BY NAME rather than accepted-and-ignored.
+		{"good loophole", Contribution{Kind: KindLoophole, From: "loopholes/acme"}, ""},
+		{"loophole no from", Contribution{Kind: KindLoophole}, "needs \"from\""},
+		{"loophole absolute from", Contribution{Kind: KindLoophole, From: "/etc/loopholes/acme"},
+			"must be relative"},
+		{"loophole escaping from", Contribution{Kind: KindLoophole, From: "../../etc"},
+			"must not contain"},
+		{"loophole colon in from", Contribution{Kind: KindLoophole, From: "loopholes/a:b"},
+			"must not contain"},
+		{"loophole with into", Contribution{Kind: KindLoophole, From: "loopholes/acme", Into: ".acme"},
+			"does not take \"into\""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -160,6 +174,40 @@ func TestHostAccessClaims(t *testing.T) {
 	}}
 	if c := none.HostAccessClaims(); len(c) != 0 {
 		t.Errorf("a pack reading nothing from the host should have no claims, got %v", c)
+	}
+
+	// A `loophole` contributes NOTHING here, and that absence is the design rather than an
+	// omission: its claims live in a manifest.jsonc outside pack.json, so this package —
+	// which has no pack root and no internal imports — cannot enumerate them. Producing a
+	// bare "loophole acme" here would be WORSE than producing nothing: it is a claim string
+	// that never changes no matter what the daemon becomes, i.e. content-blind consent that
+	// looks like consent. The real producer is packload.Pack.LoopholeHostAccessClaims.
+	lp := &Manifest{Contributes: []Contribution{{Kind: KindLoophole, From: "loopholes/acme"}}}
+	if c := lp.HostAccessClaims(); len(c) != 0 {
+		t.Errorf("packdecl must not emit a loophole claim (%v) — it cannot read the module "+
+			"manifest, so any string it produced would be a consent key blind to the daemon "+
+			"it approves", c)
+	}
+	// What it DOES own is the pointer.
+	if got := lp.LoopholeSources(); len(got) != 1 || got[0] != "loopholes/acme" {
+		t.Errorf("LoopholeSources() = %v, want the declared module dir", got)
+	}
+}
+
+// LoopholeSources dedupes a repeated `from` (one module named twice is one loophole) and
+// skips a contribution with no `from` (already reported as a validation problem, and there
+// is no name to derive from an empty path).
+func TestLoopholeSourcesDedupes(t *testing.T) {
+	m := &Manifest{Contributes: []Contribution{
+		{Kind: KindLoophole, From: "loopholes/a"},
+		{Kind: KindLoophole, From: "loopholes/b"},
+		{Kind: KindLoophole, From: "loopholes/a"},
+		{Kind: KindLoophole}, // invalid; must not yield an empty source
+		{Kind: KindSkills, From: "skills", Into: ".x/skills"},
+	}}
+	got := m.LoopholeSources()
+	if len(got) != 2 || got[0] != "loopholes/a" || got[1] != "loopholes/b" {
+		t.Errorf("LoopholeSources() = %v, want [loopholes/a loopholes/b] in declaration order", got)
 	}
 }
 

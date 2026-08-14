@@ -41,6 +41,19 @@ type Claim struct {
 	// boundary), or an installer URL (curl-to-shell). Per-instance, unlike the
 	// kind's MayBeReviewWorthy flag.
 	ReviewWorthy bool
+	// RunsHostCode marks a claim whose crossing is EXECUTION ON THE USER'S MACHINE, as
+	// opposed to a read of it. Strictly narrower than ReviewWorthy, which it implies.
+	//
+	// It exists because ReviewWorthy is ONE boolean — one severity — and it has always
+	// meant "reads ~/.claude.json". A loophole's `host_daemon`/`doctor_cmd` claim is a
+	// different proposition, and a reader scanning a footprint should not have to notice
+	// that one of a dozen identically-flagged lines happens to say RUNS.
+	//
+	// HOST code, deliberately narrow. A `program` via installer is a curl-to-shell IN THE
+	// JAIL, and a wrapped plugin's hook runs inside the agent's sandbox — both are
+	// review-worthy and neither is the user's machine. Widening this to them would make the
+	// marker mean "code runs somewhere", which is true of nearly every pack.
+	RunsHostCode bool
 }
 
 // Footprint is every claim one pack makes, in declaration order.
@@ -133,7 +146,33 @@ func FootprintOf(p *Pack) Footprint {
 			add(packdecl.KindAutonomy, p.Name, detail, false)
 		}
 		// KindConfig / KindConfigOverlay claims come from the decoded surfaces
-		// below, where the surface identity (agent/name) is available.
+		// below, where the surface identity (agent/name) is available. KindLoophole
+		// likewise: its claims come from the MODULE MANIFEST, a file outside pack.json,
+		// so the contribution carries only a pointer at it.
+	}
+
+	// loophole → SEVERAL claims per contribution, one for every declaration that crosses
+	// the host boundary (loophole-packaging.md §3.3). The enumeration is TOTAL by rule: a
+	// claim-free crossing must be unrepresentable, because the origin gate reads an empty
+	// claim set as consent. See LoopholeHostAccessClaims for the table and the reasons.
+	//
+	// EVERY one is ReviewWorthy, which no other kind can say of all its instances. That is
+	// not severity inflation: the enumeration only emits a claim for something that
+	// crosses, so an unreviewable loophole claim would be a contradiction. Host EXECUTION
+	// is distinguished from a host read inside the Detail — "RUNS … on your machine",
+	// following pluginClaimDetail's "RUNS CODE" — because ReviewWorthy is one boolean and
+	// this kind needed two severities' worth of meaning out of it.
+	//
+	// NOT gated on p.MayAccessHost, unlike reads-host/mount. Those two report what WILL be
+	// honored; a loophole claim reports what the pack WANTS, which is the question a
+	// footprint answers (`pack footprint`'s own doc: "the point of showing a footprint is to
+	// see what a pack WANTS before trusting it"). Hiding a fetched pack's daemon argv from
+	// the footprint would hide exactly the line the reader came for.
+	for _, lc := range p.loopholeClaims() {
+		fp.Claims = append(fp.Claims, Claim{
+			Kind: packdecl.KindLoophole, Target: lc.target, Pack: p.Name,
+			Detail: lc.detail, ReviewWorthy: true, RunsHostCode: lc.runsHostCode,
+		})
 	}
 
 	// A WRAPPED PLUGIN is a claim in its own right, and one the contributions cannot
@@ -296,6 +335,15 @@ func Collisions(packs []*Pack) []Collision {
 	// Two `config` declarations of one surface identity — the R1 hazard, finally enforced.
 	out = append(out, ConfigSurfaceCollisions(packs)...)
 
+	// Two packs shipping one loophole NAME. Its own pass for the reason plugin names need
+	// one: the kind is Exclusive, but its claim TARGETS carry a discriminator
+	// (`acme:device:/dev/snd`), so the generic loop above compares two packs' bind mounts
+	// rather than their loophole names — and two packs shipping `acme` with different
+	// crossings would collide on nothing while resolving to one name, one state dir, and one
+	// endpoint. Keyed on the name alone, which is available without decoding anything (it is
+	// the module dir's basename).
+	out = append(out, LoopholeNameCollisions(packs)...)
+
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Kind != out[j].Kind {
 			return out[i].Kind < out[j].Kind
@@ -378,6 +426,56 @@ func pluginNameCollisions(packs []*Pack) []Collision {
 			Reason: "two packs wrap a plugin named " + name +
 				"; a plugin is delivered as one directory under its own name, so one would " +
 				"overwrite the other — rename one plugin",
+		})
+	}
+	return out
+}
+
+// LoopholeNameCollisions finds one loophole NAME shipped by two different packs.
+//
+// Fatal-shaped rather than merge-shaped, and more so than any other exclusive kind: a
+// shadowed loophole name is a daemon nobody audited running under a name the user trusts,
+// and everything downstream keys on the name — the state dir (StateDirFor), the endpoint
+// file, the `--add-host`, the `enabled` toggle in config, the approval claim strings. Two
+// claimants mean the user's approval of one pack's `acme` silently covers the other's.
+//
+// It is per DECLARATION, like ConfigSurfaceCollisions and unlike the generic loop, so the
+// report names the pack-relative `from` of each side. A pack colliding with ITSELF (two
+// module dirs, one basename) is caught earlier, in LoopholeModules, where both
+// declarations are in hand.
+//
+// EXPORTED for the same reason ConfigSurfaceCollisions is: the launch pre-flight refuses
+// THIS collision specifically rather than Collisions() wholesale (a `launch` clash, for
+// instance, is documented later-wins there). That pre-flight — and the RESERVED-name half
+// it also needs, which cannot be expressed over []*Pack because a bundled loophole is not
+// a Pack — is loophole-packaging.md's item 5b and is not wired here. Until it is,
+// `pack footprint` and `pack lint` are the only readers: a collision between two packs is
+// reported and not yet fatal at launch.
+func LoopholeNameCollisions(packs []*Pack) []Collision {
+	byName := map[string]map[string]struct{}{}
+	var order []string
+	for _, p := range packs {
+		mods, _, _ := p.LoopholeModules()
+		for _, mod := range mods {
+			if byName[mod.Name] == nil {
+				byName[mod.Name] = map[string]struct{}{}
+				order = append(order, mod.Name)
+			}
+			byName[mod.Name][p.Name] = struct{}{}
+		}
+	}
+	var out []Collision
+	for _, name := range order {
+		if len(byName[name]) < 2 {
+			continue
+		}
+		out = append(out, Collision{
+			Kind: packdecl.KindLoophole, Target: name,
+			Packs: sortedPackNames(byName[name]),
+			Reason: "two packs ship a loophole named " + name +
+				"; a loophole's name is its identity everywhere — its state dir, its endpoint, " +
+				"its `enabled` toggle and the host-access claim you approved — so one would run " +
+				"under the other's approval. Rename one module directory",
 		})
 	}
 	return out

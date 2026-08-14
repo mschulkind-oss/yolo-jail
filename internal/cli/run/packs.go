@@ -386,17 +386,21 @@ func packMayAccessHost(entry config.PackEntry, dest string, lock *packsrc.Lock) 
 		return false
 	}
 	// EVERY producer's claims, through the ONE merged helper (packload.Pack.HostAccessClaims):
-	// pack.json's contributions plus a wrapped plugin's code-running components. Both ends of
-	// the approval must compute the same union or the gate disagrees with the prompt —
-	// `pack install` approves what the helper returns, so checking a hand-built subset here
-	// would grant a fetched plugin's hooks on the strength of an approval that never
-	// mentioned them. hostaccessgates_test.go fails if this line reaches for a producer
-	// directly.
+	// pack.json's contributions, a wrapped plugin's code-running components, and a shipped
+	// loophole's daemon/intercepts/binds/devices. Both ends of the approval must compute the
+	// same union or the gate disagrees with the prompt — `pack install` approves what the
+	// helper returns, so checking a hand-built subset here would grant a fetched pack's
+	// plugin hooks (or its host daemon) on the strength of an approval that never mentioned
+	// them. hostaccessgates_test.go fails if this line reaches for a producer directly.
 	want := p.HostAccessClaims()
 	if len(want) == 0 {
 		// Reads nothing from the host, runs nothing on it; the gate is moot. Note what this
 		// branch demands of every producer: a crossing that emits NO claim arrives here and is
-		// granted, so "the enumeration is total" is a precondition of this line, not a nicety.
+		// GRANTED, so "the enumeration is total" is a precondition of this line rather than a
+		// nicety. It was violated once — the `loophole` kind's first draft attached claims to
+		// the daemon argv and the intercepts only, so a loophole declaring just
+		// host_bind_mounts + host_devices landed here and put an arbitrary absolute host path
+		// into a UID-0 jail with no prompt (loophole-packaging.md §3.3).
 		return true
 	}
 	if lock == nil {

@@ -414,6 +414,36 @@ func (c Contribution) BriefingCandidates() []string {
 	return append([]string{c.From}, DefaultBriefingFiles()...)
 }
 
+// LoopholeSources returns the pack-relative module directory of every `loophole`
+// contribution, in declaration order, deduplicated.
+//
+// THE accessor for the kind, and deliberately the ONLY thing this package offers for it:
+// what a loophole DOES lives in <from>/manifest.jsonc, which is outside pack.json and
+// therefore outside this package's reach (it has no pack root and no internal imports —
+// kinds.go). Everything else — the footprint claims, the approval strings, discovery —
+// goes through packload, which has a Root and may import internal/loopholedecl.
+//
+// Deduplicated because two contributions naming one module are one loophole; the exclusivity
+// rule is per NAME, and the same `from` twice is a repeat of one declaration rather than a
+// self-collision. (Two DIFFERENT `from` paths with the same basename IS a self-collision, and
+// it is not detectable here — a basename is not the loophole name until the manifest's own
+// `name` has been read and agreed with it. That check belongs to the launch pre-flight.)
+func (m *Manifest) LoopholeSources() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range m.Contributions() {
+		if c.Kind != KindLoophole || c.From == "" {
+			continue
+		}
+		if seen[c.From] {
+			continue
+		}
+		seen[c.From] = true
+		out = append(out, c.From)
+	}
+	return out
+}
+
 // HostFileContributions returns the reads-host contributions as legacy HostFiles.
 func (m *Manifest) HostFileContributions() []HostFile {
 	var out []HostFile
@@ -782,6 +812,25 @@ func validateContribution(label string, c Contribution) []string {
 		}
 		problems = append(problems, validateAutonomyPosture(label+".autonomous", c.Autonomous)...)
 		problems = append(problems, validateAutonomyPosture(label+".guarded", c.Guarded)...)
+	case KindLoophole:
+		// `from` is REQUIRED, unlike skills/briefing and like files: a loophole module has
+		// no conventional location to fall back to, and the whole contribution is the
+		// pointer. It is also the only thing that can name the loophole, since the module
+		// dir's basename IS the loophole's name (loadManifest enforces the agreement), so a
+		// missing `from` is not a defaultable omission — it is a claim with no target.
+		req("from", c.From)
+		problems = appendPathProblems(problems, label+".from", c.From)
+		// `into` is deliberately NOT required and NOT accepted-and-ignored: a loophole
+		// module is not delivered to a home-relative destination at all. Its host half is
+		// spawned by the run pipeline and its jail half is bind-mounted at a path core
+		// owns (/etc/yolo-jail/loopholes/<name>), so there is no destination for a pack to
+		// name. A declared one would be a field that silently does nothing, which is the
+		// defect `skills`' ignored `from` already cost this repo once.
+		if c.Into != "" {
+			problems = append(problems, label+": loophole does not take \"into\" — a loophole "+
+				"module is not staged to a home-relative path; its host half runs on the host and "+
+				"its jail half is mounted at /etc/yolo-jail/loopholes/<name>, which core owns")
+		}
 	}
 	return problems
 }

@@ -68,7 +68,11 @@ func TestApplyHostAccountsForEveryDeclaredKind(t *testing.T) {
 // automatically instead of being quietly untested.
 func writeCensusPack(t *testing.T, dir string) {
 	t.Helper()
-	for _, sub := range []string{"skills/censusskill", "files", "prompts"} {
+	for _, sub := range []string{"skills/censusskill", "files", "prompts",
+		// A `loophole` contribution POINTS AT a module dir holding a manifest.jsonc, and a
+		// `from` naming a dir the pack does not contain is refused BY NAME — so the census
+		// pack has to actually ship one, unlike the kinds whose bodies are self-contained.
+		"loopholes/censushole"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -81,6 +85,15 @@ func writeCensusPack(t *testing.T, dir string) {
 	write("AGENTS.md", "# census pack\n\nprose\n")
 	write("skills/censusskill/SKILL.md", "---\nname: censusskill\ndescription: d\n---\nbody\n")
 	write("files/marker.txt", "marker\n")
+	// The loophole module the `loophole` contribution names. `name` MUST equal the
+	// directory basename (the schema enforces the agreement), and every crossing declared
+	// here becomes its own approval claim — so this manifest deliberately declares none:
+	// the census asks whether the KIND produces an output line, not what its claims read
+	// like, and a host daemon in a fixture would be a claim a test approves on nobody's
+	// behalf.
+	write("loopholes/censushole/manifest.jsonc",
+		"{\n  \"name\": \"censushole\",\n  \"description\": \"census\",\n"+
+			"  \"transport\": \"none\"\n}\n")
 
 	// One contribution per kind. The bodies are minimal-but-valid: what matters is that
 	// each kind is DECLARED, so apply --host has to account for it.
@@ -104,6 +117,7 @@ func writeCensusPack(t *testing.T, dir string) {
 		packdecl.KindHook:      `{"kind":"hook","hook":"per_jail_history","from":".census/history"}`,
 		packdecl.KindAutonomy: `{"kind":"autonomy","autonomous":{"launch":[{"bin":"censusbin",` +
 			`"flags":["--yolo"]}]},"guarded":{"launch":[{"bin":"censusbin"}]}}`,
+		packdecl.KindLoophole: `{"kind":"loophole","from":"loopholes/censushole"}`,
 	}
 
 	var entries []string

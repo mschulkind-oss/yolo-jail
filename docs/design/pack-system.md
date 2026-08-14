@@ -123,6 +123,7 @@ target combine:
 | `launch` | flags for a binary | **Exclusive** — by `bin` |
 | `hook` | a named imperative capability from core's closed set | **PerHook** |
 | `autonomy` | the agent's autonomous/guarded permission postures, notch-selected | **Exclusive** — one per pack |
+| `loophole` | a loophole MODULE dir: a host daemon, TLS intercepts, host binds and devices | **Exclusive** — by loophole NAME (the dir's basename) |
 
 The **footprint** is this table applied to a concrete set of packs: the union of every
 claim, plus the collisions where an Exclusive/Scoped target is claimed twice. `yolo pack
@@ -131,14 +132,32 @@ because they widen the trust surface — machine-scope state (it leaks across wo
 `reads-host` grant, a `mount` of a host directory, an installer URL, a briefing that
 prepends a host file. The review flag is an invitation to look, not a refusal.
 
-> **A 15th kind, `loophole`, is DESIGNED and not built:**
-> [`loophole-packaging.md`](loophole-packaging.md). It would let a pack ship a host daemon by
-> pointing at a module directory, and it is the first kind whose claim is **host code
-> execution** rather than a host read — so it carries its own trust story, its own claim
-> classes, and a hard prerequisite that has since been met: an unknown kind used to be
-> A12-fatal to a jail booting a pre-`just load` image (that doc §3.3a), so the tolerance
-> change had to land *before* the kind — and it did, ahead of it.
-> Nothing in the table above changes until the kind itself lands.
+> **`loophole` is the 15th kind and it LANDED** (design:
+> [`loophole-packaging.md`](loophole-packaging.md) §3). A pack ships a host daemon by
+> pointing at a module directory holding a `manifest.jsonc` — the same on-disk shape a
+> bundled loophole has — and it is the first kind whose claim is **host code execution**
+> rather than a host read, so it carries its own trust story and its own claim classes:
+>
+> - Its claims come from a file OUTSIDE `pack.json`, so they are produced at the
+>   `packload` layer (`Pack.LoopholeHostAccessClaims`), not in `packdecl`, which has no pack
+>   root and no internal imports. Same layer and same reason as a wrapped plugin's claims.
+> - The enumeration is **TOTAL**: every declaration that crosses the boundary emits its own
+>   separately-approvable claim (the daemon argv + `doctor_cmd`, one per intercept, one per
+>   bind, one per SOCKET bind as read-write host IPC, one per device). `state_files` needs
+>   none. This is load-bearing rather than thorough — the origin gate returns **true on an
+>   empty claim set**, so a crossing with no claim is a crossing nobody is asked about.
+> - The three producers of a pack's host-access claims are merged by **one helper**
+>   (`packload.Pack.HostAccessClaims`) called at both gates, with a source-level test that
+>   fails if either reaches for a producer directly.
+> - Refused at the **host** render target with the counterparty reason, and excluded from
+>   `JailFields()` explicitly: its jail-side effects are produced by the run pipeline before
+>   the container exists, not by the render path (§3.4 of that doc).
+>
+> Its hard prerequisite was met first: an unknown kind used to be A12-fatal to a jail
+> booting a pre-`just load` image (that doc §3.3a), so the tolerance change landed *ahead*
+> of the kind. Still outstanding there: the launch pre-flight that makes a name collision
+> FATAL (`packload.LoopholeNameCollisions` exists and is reported by `pack footprint`;
+> nothing refuses a launch on it yet), and the reserved-name refusal.
 
 The per-kind fields:
 
@@ -429,6 +448,53 @@ effect code in a fetched pack). New behavior means a new named hook in core.
 ```json
 { "kind": "hook", "hook": "shared_credentials", "from": ".claude/.credentials.json", "at": ".claude-shared-credentials" }
 ```
+
+### `loophole`
+A loophole MODULE the pack ships: `from` names a pack-relative directory holding a
+`manifest.jsonc`. The contribution **points at** the module rather than inlining the
+manifest, so the on-disk shape is the one a bundled or user loophole already has — one
+loader reads all four sources, and an author can develop a loophole standalone and then drop
+it into a pack unchanged.
+- `from` (**required** — there is no conventional location to fall back to, and the
+  directory's basename *is* the loophole's name). No `into`: the host half runs on the host
+  and the jail half is mounted at a path core owns, so there is no destination for a pack to
+  name, and one is refused by name rather than accepted and ignored.
+
+```json
+{ "kind": "loophole", "from": "loopholes/acme-proxy" }
+```
+
+**The sharpest kind, and the only one whose claim is host code EXECUTION.** Four things
+follow, and none of them is optional:
+
+1. **Its claims come from outside `pack.json`**, so they are produced at the `packload`
+   layer (`Pack.LoopholeHostAccessClaims`) — the same layer, and for the same reason, as a
+   wrapped plugin's. `packdecl` has no pack root and no internal imports, so a claim
+   computed there could only be a bare `loophole <name>`: a consent key blind to the daemon
+   it approves.
+2. **The enumeration is TOTAL.** One separately-approvable claim per crossing: the daemon
+   argv (with `doctor_cmd` folded in — it is host execution too), one per intercept (which
+   claims even with no daemon: it installs a CA every TLS client in the jail trusts), one per
+   bind mount, one per **socket** bind as its own read-write host-IPC class (`:ro` is no
+   boundary for an AF_UNIX socket — measured), and one per device. `state_files` needs none:
+   it stays inside yolo's own state tree.
+3. **The claim string is the raw argv** — placeholders unexpanded, nothing elided. It is a
+   lockfile comparison key, not display text: an ellipsis collapses two daemons onto one
+   approved claim, and an expanded `{loophole_dir}` is machine-specific, so it never matches
+   and re-prompts forever (and the prompt fails closed on a non-TTY, which would refuse the
+   loophole permanently). The footprint's *Detail* may abbreviate; the two are deliberately
+   different strings.
+4. **Exclusive by NAME**, not per pack — one pack shipping three loopholes is ordinary, the
+   same rule `program` has per `bin`. A shadowed loophole name is a daemon nobody audited
+   running under a name the user trusts, and everything downstream keys on the name: the
+   state dir, the endpoint, the `enabled` toggle, the approved claim.
+
+Refused at the **host** notch, and the reason is the inverse of the generic one: a loophole
+is a host daemon whose only client is a container, so with no jail there is no client, no
+`--add-host`, no `YOLO_JAIL_DAEMONS`, and nothing for its endpoint file to be mounted into.
+Refused because its **counterparty** is missing, not its mechanism — which also keeps
+"selecting this pack runs a daemon" a statement about launching a jail rather than about
+applying a config.
 
 ---
 
@@ -781,20 +847,33 @@ dir.
 
 ## 12. Invariants
 
-- The manifest stays static data — every claim readable without executing anything.
+- **Reading a manifest is inert; SELECTING one is not.** Every claim a pack makes is static
+  data — readable, diffable, and printable without running any of it, which is what makes
+  `yolo pack footprint`, `pack lint` and the install prompt possible at all. What that
+  guarantee does **not** extend to is honoring the claim: `program` installs a tool in the
+  jail, and `loophole` starts a process **on your machine**. So the cost of *looking* is
+  zero and the cost of *choosing* is exactly what the claim says it is — which is why a
+  claim must name its target precisely (the raw argv, the exact path) rather than
+  summarize, and why the two gates below exist.
+
+  The sentence this replaces read *"the manifest stays static data — every claim readable
+  without executing anything"*. Still literally true, and it stopped saying the thing it
+  was written to mean: its spirit was "reading a manifest tells you everything and costs
+  you nothing", and with a loophole reading the claim is safe while selecting it is host
+  execution ([`loophole-packaging.md`](loophole-packaging.md) R1). Sharpened in the commit
+  that added the kind, as that doc required.
 - The credential boundary holds — a fetched pack reads the host only for claims the user
   approved at install, and a pin that gains access re-prompts; a fetched pack never reads the
   host silently.
 
-> **Both of the above are stressed by the designed `loophole` kind**
-> ([`loophole-packaging.md`](loophole-packaging.md)), and the first must be **sharpened in the
-> same commit that adds it** (that doc, R1). A declared argv is static data, so the sentence
-> stays literally true — but its spirit was "reading a manifest costs you nothing", and with a
-> loophole, reading the claim is safe while *selecting* it is host execution. The second
-> invariant is the one the design's own first draft violated: a loophole declaring only
-> `host_bind_mounts` produced no approval claims at all, and the gate returns true on an empty
-> claim set. Read that doc's §3.3 before adding any kind whose claims come from a file outside
-> `pack.json`.
+  **The gate returns TRUE on an EMPTY claim set** ("reads nothing, runs nothing; the gate is
+  moot"), which makes this invariant conditional on the enumeration being total. It was
+  violated exactly once, by the `loophole` kind's own first draft: a loophole declaring only
+  `host_bind_mounts` + `host_devices` produced no claims, so a fetched pack got an arbitrary
+  absolute host path into a UID-0 jail with no prompt. Read
+  [`loophole-packaging.md`](loophole-packaging.md) §3.3 before adding any kind whose claims
+  come from a file outside `pack.json` — and emit a claim for every crossing, or the
+  crossing arrives through that branch.
 - Packs stay user scope — a workspace config cannot name one.
 - The source set for `derive` stays closed and core-owned — a pack projects, never invents.
 - `derive` is deterministic.
@@ -983,7 +1062,7 @@ Resolved sharp edges (kept because the reasoning is the interesting part):
 | The `packs` config key, precedence, entry schema | `yolo config-ref` |
 | The composition engine internals | `internal/agentcfg` |
 | Bringing host files INTO a jail as a user (the `host_files` key) | `docs/plans/host-file-staging.md` |
-| A pack shipping a LOOPHOLE (host daemon) — the designed 15th kind | `docs/design/loophole-packaging-overview.md` to decide, `docs/design/loophole-packaging.md` to build |
+| A pack shipping a LOOPHOLE (host daemon) — the `loophole` kind, §3 above | `docs/design/loophole-packaging-overview.md` to decide, `docs/design/loophole-packaging.md` for the trust model and what is still outstanding |
 | Rendering a pack OUT to the host (the invert-the-flow design) | `docs/design/host-render-target.md` |
 | The credential/identity boundary a pack respects | `docs/design/agent-credentials.md`, `docs/design/identity-prism-decision.md` |
 | Composed-file read/write posture, in depth | `docs/design/composed-file-permissions.md` |

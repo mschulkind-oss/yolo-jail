@@ -175,13 +175,29 @@ func TestJailProvenanceStaysInTheSidecarTree(t *testing.T) {
 	}
 }
 
-// A jail honors every kind; a host/guest target honors the reduced census set and
-// refuses the provisioning kinds BY NAME.
+// A jail honors every kind IT RENDERS; a host/guest target honors the reduced census set
+// and refuses the provisioning kinds BY NAME.
 func TestFieldSetCensus(t *testing.T) {
 	jail := Jail("/h", "/workspace", nil).Fields()
 	for _, k := range packdecl.KnownKinds() {
+		if jailRenderedElsewhere[k] {
+			// Explicitly excluded, not honored-and-unbuilt: the kind's jail-side effect is
+			// produced by something other than the render path (for `loophole`, by
+			// startLoopholes in the host CLI before the container exists). The census is
+			// meant to be executable data, so it must not assert a render nothing performs.
+			// The exclusion still gets a REASON, checked below.
+			if jail.Honors(k) {
+				t.Errorf("kind %q is listed as rendered elsewhere but the jail FieldSet "+
+					"honors it — one of the two is wrong", k)
+			}
+			if jail.Refuse(k) == "" {
+				t.Errorf("jail.Refuse(%q) is empty — a kind excluded from the jail set must "+
+					"still say why, or it is a silent skip", k)
+			}
+			continue
+		}
 		if !jail.Honors(k) {
-			t.Errorf("jail must honor every kind; does not honor %q", k)
+			t.Errorf("jail must honor every kind it renders; does not honor %q", k)
 		}
 	}
 
@@ -206,11 +222,12 @@ func TestFieldSetCensus(t *testing.T) {
 			t.Errorf("host must honor %q (target-independent)", k)
 		}
 	}
-	// The provisioning kinds are refused, and the refusal names why. These three are
-	// genuinely container-shaped: two are mounts of host content INTO a jail, and the third
-	// names a subtree that needs making writable only because a jail home is not.
+	// The provisioning kinds are refused, and the refusal names why. Three are genuinely
+	// container-shaped: two are mounts of host content INTO a jail, and the third names a
+	// subtree that needs making writable only because a jail home is not. `loophole` is
+	// refused for the INVERSE reason (see TestLoopholeRefusalNamesTheMissingCounterparty).
 	for _, k := range []packdecl.Kind{
-		packdecl.KindMount, packdecl.KindReadsHost, packdecl.KindState,
+		packdecl.KindMount, packdecl.KindReadsHost, packdecl.KindState, packdecl.KindLoophole,
 	} {
 		if host.Honors(k) {
 			t.Errorf("host must NOT honor provisioning kind %q", k)
@@ -222,6 +239,70 @@ func TestFieldSetCensus(t *testing.T) {
 	// program is honored by the FieldSet (confirm-gated by the caller, not refused here).
 	if !host.Honors(packdecl.KindProgram) {
 		t.Error("host FieldSet should honor program (the caller confirm-gates it, OQ-6/7)")
+	}
+}
+
+// `loophole`'s refusal must name the missing COUNTERPARTY, not the generic
+// "not applicable at this confinement level".
+//
+// This is the one kind for which the generic line is actively misleading rather than merely
+// vague: a loophole's effect IS on the host — it spawns a daemon there — so "not applicable
+// off-container" reads as obviously wrong to anyone who knows what a loophole does, and
+// would be the single most confusing sentence in the command. The honest reason is the
+// inverse: with no jail there is no CLIENT for the daemon.
+func TestLoopholeRefusalNamesTheMissingCounterparty(t *testing.T) {
+	host := Host("/home/me", nil).Fields()
+	reason := host.Refuse(packdecl.KindLoophole)
+	if reason == "" {
+		t.Fatal("host.Refuse(loophole) is empty — the kind must be refused BY NAME")
+	}
+	if strings.Contains(reason, "not applicable at this confinement level") {
+		t.Fatalf("loophole fell through to Refuse's generic line (%q). A loophole's effect IS "+
+			"on the host, so that sentence reads as obviously wrong; the reason must be that "+
+			"its counterparty — a container to serve — is missing", reason)
+	}
+	// The counterparty, named. Each token is a concrete thing that has no meaning with no
+	// jail, which is what makes the sentence checkable rather than merely different.
+	for _, want := range []string{"client", "container"} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("refusal %q does not mention %q — the reason is the missing counterparty, "+
+				"so it has to say what is missing", reason, want)
+		}
+	}
+	// And it must NOT claim the mechanism is unavailable, which is the backwards reading.
+	if strings.Contains(reason, "needs a mount namespace") {
+		t.Errorf("refusal %q blames the mechanism; a loophole's mechanism (spawning a host "+
+			"process) works fine off-container — its client does not exist", reason)
+	}
+}
+
+// `loophole` is excluded from the JAIL set EXPLICITLY, via jailRenderedElsewhere, rather
+// than by derivation from KnownKinds().
+//
+// The census is supposed to be executable data, and `loophole` is the case where derivation
+// would make it assert something no code reads: `Target.Fields()` has no production caller,
+// and a loophole's jail-side effects (--add-host, binds, devices, YOLO_JAIL_DAEMONS, the
+// endpoint file) are all produced by startLoopholes in the HOST CLI before the container
+// exists — not by the render path this FieldSet describes.
+func TestLoopholeIsExcludedFromTheJailSetExplicitly(t *testing.T) {
+	if !jailRenderedElsewhere[packdecl.KindLoophole] {
+		t.Fatal("loophole is not in jailRenderedElsewhere — the exclusion has to be written " +
+			"down, not derived, or the census claims the jail render honors a kind it never sees")
+	}
+	if JailFields().Honors(packdecl.KindLoophole) {
+		t.Error("JailFields() honors loophole — its jail-side effect is produced by the run " +
+			"pipeline, so the render census must not claim it")
+	}
+	// Every OTHER kind is still honored: the jail is the maximal target, so a new kind is
+	// honored by default and an exclusion is a deliberate entry.
+	for _, k := range packdecl.KnownKinds() {
+		if k == packdecl.KindLoophole {
+			continue
+		}
+		if !JailFields().Honors(k) {
+			t.Errorf("JailFields() stopped honoring %q — only kinds listed in "+
+				"jailRenderedElsewhere may be excluded", k)
+		}
 	}
 }
 

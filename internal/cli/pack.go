@@ -78,6 +78,12 @@ effect, with a "kind" from a closed set:
   env            set static env vars in the jail mount     mount a host-home dir :ro
   autonomy       the agent's autonomous/guarded permission postures (notch-selected)
   config-overlay keys on a config surface another pack owns
+  loophole       ship a host-capability loophole: a module dir with a manifest.jsonc
+
+loophole is the sharpest kind: its module may declare a daemon that runs ON YOUR MACHINE,
+TLS intercepts (a CA every client in the jail trusts), host bind mounts and host devices.
+Every one of those is a separate claim you approve, and the daemon claim carries its raw
+argv — so a pack whose daemon changes re-prompts.
 
 program vs requires is install-vs-presence: program means yolo installs the tool (a lazy
 launcher, last on PATH), requires means it must already be there and yolo installs
@@ -332,6 +338,17 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	pack, manifestProblems := packload.LoadDir(tmp, filepath.Base(dir), true)
 	problems = append(problems, manifestProblems...)
 
+	// A `loophole` contribution points at a module dir, so validating the pack.json entry is
+	// only half of it: the manifest INSIDE that dir is the half that declares what runs on
+	// the host, and it is read by a decoder pack.json's does not reach. Read STRICTLY here
+	// (LoopholeDeclProblems), which is the whole reason lint exists for this kind — a
+	// misspelled `host_deamon` otherwise reads as a loophole with no daemon, and the symptom
+	// surfaces much later as a missing endpoint.
+	//
+	// Against the STAGED tree, like the manifest check above, so a module filtered out by
+	// only/exclude is reported as absent rather than linted as if it shipped.
+	problems = append(problems, pack.LoopholeDeclProblems()...)
+
 	// The skills SOURCE dirs this pack actually delivers from, pack-relative. Every
 	// `skills` contribution's `from`, or the conventional dir when the manifest names none.
 	skillRoots := pack.Decl.SkillsSources()
@@ -471,9 +488,28 @@ func printPackFootprint(pr richtext.Printer, p *packload.Pack) {
 		return
 	}
 	pr.Printf("[dim]declares %d claim(s):[/dim]", len(fp.Claims))
-	for _, c := range fp.Claims {
+	printClaimLines(pr, fp.Claims)
+	reportShippedSurfaceClash(pr, p)
+}
+
+// printClaimLines renders one claim per line, with the review marker.
+//
+// ONE function, called by both `pack lint` (printPackFootprint) and `pack footprint`
+// (reportFootprint), because until now the two INLINED the same loop under a comment
+// claiming they were shared "so their output does not drift" — which made the claim false
+// in the one place it was written down, and meant a new marker had to be added twice or the
+// two commands would diverge. It is now shared in fact.
+func printClaimLines(pr richtext.Printer, claims []packload.Claim) {
+	for _, c := range claims {
+		// TWO markers, not one, because ReviewWorthy is a single boolean carrying two very
+		// different propositions since the `loophole` kind: "yolo will read a file of yours"
+		// and "yolo will execute this argv on your machine". A reader scanning a dozen
+		// identically-flagged lines should not have to notice which is which.
 		flag := ""
-		if c.ReviewWorthy {
+		switch {
+		case c.RunsHostCode:
+			flag = " [bold red]⚠ RUNS CODE ON YOUR MACHINE[/bold red]"
+		case c.ReviewWorthy:
 			flag = " [yellow]⚠ review[/yellow]"
 		}
 		detail := ""
@@ -482,7 +518,6 @@ func printPackFootprint(pr richtext.Printer, p *packload.Pack) {
 		}
 		pr.Printf("  [cyan]%-14s[/cyan] %s%s%s", string(c.Kind), c.Target, detail, flag)
 	}
-	reportShippedSurfaceClash(pr, p)
 }
 
 // reportShippedSurfaceClash warns when the pack under inspection declares a `config`
@@ -899,17 +934,7 @@ func reportFootprint(packs []*packload.Pack, pr richtext.Printer) int {
 			pr.Printf("  [dim](no declared claims)[/dim]")
 			continue
 		}
-		for _, c := range fp.Claims {
-			flag := ""
-			if c.ReviewWorthy {
-				flag = " [yellow]⚠ review[/yellow]"
-			}
-			detail := ""
-			if c.Detail != "" {
-				detail = "  [dim]" + c.Detail + "[/dim]"
-			}
-			pr.Printf("  [cyan]%-14s[/cyan] %s%s%s", string(c.Kind), c.Target, detail, flag)
-		}
+		printClaimLines(pr, fp.Claims)
 	}
 	// A ONE-PACK report cannot see a cross-pack collision, and the most likely one — a
 	// surface a shipped pack already owns — is refused at launch. So the single-pack case
@@ -943,17 +968,31 @@ func reportFootprint(packs []*packload.Pack, pr richtext.Printer) int {
 // reviewSummary renders the one-line "N claims worth review" tail: a compact
 // count-by-kind so the reader sees the shape (1 machine-wide state, 1 host read,
 // …) without re-listing every claim.
+//
+// A count-by-kind is the wrong unit for a HOST-EXECUTION claim — "1 loophole" is the least
+// interesting true thing that can be said about a pack that runs a daemon as you — so those
+// are counted separately and named for what they do, not for their kind. Everything else
+// keeps the compact by-kind shape, which is right for reads.
 func reviewSummary(claims []packload.Claim) string {
 	byKind := map[string]int{}
 	var order []string
+	execs := 0
 	for _, c := range claims {
+		if c.RunsHostCode {
+			execs++
+			continue
+		}
 		k := string(c.Kind)
 		if byKind[k] == 0 {
 			order = append(order, k)
 		}
 		byKind[k]++
 	}
-	parts := make([]string, 0, len(order))
+	parts := make([]string, 0, len(order)+1)
+	if execs > 0 {
+		// FIRST, because it outranks every read in the list.
+		parts = append(parts, fmt.Sprintf("%d RUNNING CODE ON YOUR MACHINE", execs))
+	}
 	for _, k := range order {
 		parts = append(parts, fmt.Sprintf("%d %s", byKind[k], k))
 	}
@@ -1124,10 +1163,10 @@ func resolveHostApproval(name, treeRoot string, prev packsrc.LockEntry, hadPrev 
 		return prevApproved(prev, hadPrev), false
 	}
 	// EVERY producer's claims, through the ONE merged helper (packload.Pack.HostAccessClaims).
-	// pack.json's contributions are only one of them: a WRAPPED PLUGIN's code-running
-	// components are declared in the PLUGIN's manifest, outside pack.json, so reading only
-	// the contributions would let a fetched tree arrive with code to run and nothing to
-	// approve.
+	// pack.json's contributions are only one of three: a WRAPPED PLUGIN's code-running
+	// components and a SHIPPED LOOPHOLE's daemon/intercepts/binds/devices are declared in
+	// files outside pack.json, so reading only the contributions would let a fetched tree
+	// arrive with code to run and nothing to approve.
 	//
 	// Not appended by hand here, and this is the one gate where that matters most: the union
 	// this prompt records into the lockfile must be the SAME union run.packMayAccessHost

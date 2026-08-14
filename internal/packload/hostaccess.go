@@ -24,10 +24,10 @@ package packload
 //   - a producer added to the LAUNCH gate only → the launch demands approval for a claim
 //     `pack install` never showed, so the pack is refused with no route to approving it.
 //
-// There are two producers today and a third is coming — the `loophole` kind, whose claim is
-// host code EXECUTION, which is where the cost of that drift stops being a config read.
-// Hence: one function, both gates call it, and a source-level test
-// (hostaccessgates_test.go) fails if either gate reaches for a producer directly.
+// The `loophole` kind is a THIRD producer, and it is the first whose claim is host code
+// EXECUTION, so the cost of that drift stops being a config read. Hence: one function,
+// both gates call it, and a source-level test (hostaccessgates_test.go) fails if either
+// gate reaches for a producer directly.
 
 import "sort"
 
@@ -36,6 +36,7 @@ import "sort"
 //
 //	p.Decl.HostAccessClaims()      pack.json's own: reads-host, mount, installer, briefing
 //	p.PluginHostAccessClaims()     a wrapped agent plugin's code-running components
+//	p.LoopholeHostAccessClaims()   a shipped loophole's daemon, intercepts, binds, devices
 //
 // It is what a user approves at `yolo pack install` and what the launch gate checks
 // against the lockfile, so the two ends compare the same strings by construction rather
@@ -52,6 +53,7 @@ func (p *Pack) HostAccessClaims() []string {
 	var out []string
 	out = append(out, p.Decl.HostAccessClaims()...)
 	out = append(out, p.PluginHostAccessClaims()...)
+	out = append(out, p.LoopholeHostAccessClaims()...)
 	sort.Strings(out)
 	return dedupeSorted(out)
 }

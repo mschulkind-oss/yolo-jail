@@ -19,8 +19,8 @@ package packload_test
 //	want := append(p.Decl.HostAccessClaims(), p.PluginHostAccessClaims()...)
 //
 // was inlined at both sites, and the SECOND producer (plugins) had to be added to both by
-// hand. A third is coming — the `loophole` kind, whose claims are host code EXECUTION —
-// which makes the cost of missing one stop being a config read:
+// hand. A third — the `loophole` kind, whose claims are host code EXECUTION — makes the
+// cost of missing one stop being a config read:
 //
 //   - added to the PROMPT only → the user approves a claim the launch gate never asks
 //     about, so an unapproved crossing is honored;
@@ -47,8 +47,9 @@ import (
 // hostAccessProducers are the methods that each produce PART of a pack's host-access claim
 // set. Every one is legitimate INSIDE the merged helper and forbidden at a gate.
 var hostAccessProducers = []string{
-	"HostAccessClaims",       // pack.json's own contributions (packdecl.Manifest)
-	"PluginHostAccessClaims", // a wrapped agent plugin's code-running components
+	"HostAccessClaims",         // pack.json's own contributions (packdecl.Manifest)
+	"PluginHostAccessClaims",   // a wrapped agent plugin's code-running components
+	"LoopholeHostAccessClaims", // a shipped loophole's daemon, intercepts, binds, devices
 }
 
 // The gates, and the function in each that must call the merged helper. Named individually
@@ -189,6 +190,7 @@ func TestHostAccessProducersExist(t *testing.T) {
 	sources := []string{
 		filepath.Join(root, "internal", "packdecl", "contributes.go"),
 		filepath.Join(root, "internal", "packload", "plugins.go"),
+		filepath.Join(root, "internal", "packload", "loopholesource.go"),
 		filepath.Join(root, "internal", "packload", "hostaccess.go"),
 	}
 	var all strings.Builder
