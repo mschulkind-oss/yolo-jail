@@ -423,6 +423,20 @@ had no production callers), so a `jail_env` or a `publishes: "endpoint"` manifes
 was accepted where the rules said it should be refused. If you wrote a pack
 against that behaviour, `yolo pack lint` now tells you exactly what to change.
 
+**A KNOWN LIMIT of the bind-host rule, so you do not spend an afternoon looking for
+a spelling that does not exist.** There is **no way for a pack to name a socket in
+your session's runtime dir** — `${XDG_RUNTIME_DIR}/pulse/native` is refused as a
+`$VAR`, the literal `/run/user/<uid>/pulse/native` is refused as absolute, and it is
+not under `$HOME`, so home-relative cannot reach it either. That is not an oversight
+in your manifest; it is a gap in the vocabulary, and it is why the official `audio`
+pack ships only the **ALSA half** of audio while the bundled `audio` loophole keeps
+doing the sockets (`packs/audio/README.md` has the measurements). The table's
+suggested alternative — *"a `host_daemon` that mediates"* — is a poor fit here: for a
+PipeWire socket it means writing an audio proxy, i.e. asking for arbitrary host
+execution in order to get a read-only bind. Tracked as **OQ-LP14** in
+[`loophole-packaging.md`](../design/loophole-packaging.md) §3.1; until it is decided,
+runtime-dir IPC is a bundled-only capability.
+
 Two backends make the whole thing inert regardless of your manifest: Apple
 Container starts no loophole host services at all (a wider skip than the
 `--add-host` one), and the macOS no-VM backend returns before loophole startup is
@@ -533,7 +547,14 @@ And those are two different actors: the human who wrote
 agent that rewrites `tool.py` afterwards has none of them. So a loophole whose
 module dir, `host_daemon.cmd` target or `doctor_cmd` target resolves inside the
 workspace being mounted `:rw`, or inside the jail-home tree yolo manages, is
-refused by name. A refused **module dir** suppresses the argv refusals under it:
+refused by name. **One exemption: a BUNDLED loophole's module dir is not judged** —
+it is the yolo binary's own content, the same artifact performing this check, so an
+agent that could rewrite it has already rewritten the checker (and it matters in
+practice: a yolo running from its own source tree reads `bundled_loopholes/` out of
+the very workspace it mounts `:rw`, which refused the broker, audio and
+host-processes on every launch until the exemption landed). Pack-shipped and
+hand-placed loopholes are judged, which is the case the rule was written for.
+A refused **module dir** suppresses the argv refusals under it:
 `{loophole_dir}` resolves to that dir, so a module dir in an agent-writable tree
 means every host-side field names an agent-writable target — including the ones no
 rule can see (a Python daemon's imports, a binary's `dlopen`). Keep your daemon
@@ -676,6 +697,7 @@ Keeps the briefing tight and prevents drift when loopholes come and go.
 
 - [`docs/design/loophole-protocol.md`](../design/loophole-protocol.md) — wire protocol spec.
 - [`bundled_loopholes/claude-oauth-broker/`](../../bundled_loopholes/claude-oauth-broker/) — reference intercepting loophole (`loopback-tls` + `intercepts`).
+- [`packs/audio/`](../../packs/audio) — the **shipped example of a pack carrying a loophole**: one `loophole` contribution plus one `env` contribution, and a README recording why it is `audio-alsa` rather than `audio`, why it binds a `conf.d` fragment, and the one thing the pack-shipped subset cannot express.
 - [`internal/loopholedecl/`](../../internal/loopholedecl) — the manifest schema itself: decode + static validation, no filesystem, no predicates. The authority on every key's shape.
 - [`internal/loopholes/`](../../internal/loopholes) — the host-side registry: token resolution, `requires` evaluation, discovery order, runtime argv.
 - [`internal/hostservice/`](../../internal/hostservice) — helper package.

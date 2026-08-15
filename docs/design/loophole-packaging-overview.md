@@ -1,18 +1,26 @@
 # Loopholes in packs — the system-level picture
 
-**Status:** DESIGN 2026-08-13; **the `loophole` kind LANDED 2026-08-14** and most of this design
-shipped with it. What is built: the kind itself (`packdecl.KnownKinds()` now returns **fifteen**),
-its total claim enumeration, the manifest schema as a leaf package (`internal/loopholedecl`, which
-resolves OQ-LP1 by extraction), the `platforms` declaration, the one-value inert report on both
-axes, the fourth launch pre-flight for name exclusivity, the seven-surface convergence as one
-constructed value, retirement-on-deselect with a `prune` sweeper, the disclosure fix (every
-crossing kind, execution printed **before** the spawn), the placement rule's manifest faces, and
-the earlier batch's front / `publishes` / `request_end` / `{loophole_dir}` tokens / unknown-kind
-skew tolerance / config-block scope model. **What is NOT built:** the pack-shipped SUBSET has no
-production caller (§3 note), the install-gate approval invariants G2a/G2b, `audio` as an official
-pack, and OQ-LP9's three parts. Section-by-section *Landed* markers are in
-[`loophole-packaging.md`](loophole-packaging.md); this is its readable half, written to be
-commented on.
+**Status:** DESIGN 2026-08-13; **the `loophole` kind LANDED 2026-08-14, and so did the rest of the
+plan** — every item in the landing order, OQ-LP9 included. What is built: the kind itself
+(`packdecl.KnownKinds()` now returns **fifteen**), its total claim enumeration, the manifest schema as
+a leaf package (`internal/loopholedecl`, which resolves OQ-LP1 by extraction), the `platforms`
+declaration, the one-value inert report on both axes, the fourth launch pre-flight for name
+exclusivity, the seven-surface convergence as one constructed value, retirement-on-deselect with a
+`prune` sweeper, the disclosure fix (every crossing kind, execution printed **before** the spawn), the
+placement rule's config *and* manifest faces, the pack-shipped **subset wired at three seams**, **G2a**,
+**`audio` as an official pack**, **OQ-LP9's three parts** (the inner-scope census, the two generated
+per-consumer files, and the global `--user-layer` flag), and the earlier batch's front / `publishes` /
+`request_end` / `{loophole_dir}` tokens / unknown-kind skew tolerance / config-block scope model.
+**What is NOT built: one thing, deliberately** — **G2b**, the content-anchored exec approval, which is
+a maintainer decision under OQ-LP8 rather than pending work.
+
+**And the last two batches produced two findings that are about the DESIGN rather than the
+implementation**, which is why they are stated here rather than filed as bugs. (1) **The pack-shipped
+subset cannot express `audio`'s reason to exist** — see §5, which is the one place this doc says the
+design is incomplete. (2) **The placement rule must exempt yolo's own bundled loopholes**, or yolo's
+own development jail refuses all three of them on every launch (§4.4). Section-by-section *Landed*
+markers are in [`loophole-packaging.md`](loophole-packaging.md); this is its readable half, written to
+be commented on.
 
 **What this doc is for.** The detailed design is written for whoever implements it — it cites line
 numbers, names functions, and argues from measured code. That is the right shape for building and
@@ -35,13 +43,15 @@ Claude OAuth broker, the host-process view. It is the only extension point that 
 your real machine — which is what makes it the most useful one and the one that has never been
 distributable.
 
-There are three ways a loophole gets onto a machine, and only one was ever open to a third party:
+There were three ways a loophole got onto a machine, and only one was ever open to a third party.
+*(This is the state the section was written against; a fourth channel landed 2026-08-14 — see the note
+at the end of §1.1.)*
 
 | Channel | Who it is for | State |
 |---|---|---|
 | bundled in the yolo binary | yolo's own three | fine — **but see §1.1** |
 | a hand-placed directory in your home | one local loophole, yours | works; no fetch, no version, no approval, no manifest travelling with the code — **and see §1.1** |
-| the `loopholes` block in a config file | **the only third-party path** | **degraded, and now dead** |
+| the `loopholes` block in a config file | **the only third-party path** | **was degraded and dead; the front revived it** (§3.1) |
 
 The transport unification retired the old `unix-socket` transport outright rather than deprecating
 it, on the principle that a value which still validates is a value someone will use. Third-party
@@ -94,11 +104,20 @@ decision.
 blocks the 15th kind — the kind is what makes either one *possible*. The rest of this doc describes
 the world with all three channels intact, because that is the world the design was written against.
 
-**Landed 2026-08-14: there are now FOUR channels, not three.** The pack-shipped one exists, and it
-slots between bundled and the home directory in precedence: a hand-placed user directory still
-overrides a pack's loophole (it carries your own authority), and a pack claiming a *reserved* name
-never reaches an ordering at all — the launch pre-flight refuses it. Both retirements above are
-still owed; the kind that makes them possible is no longer the blocker.
+**Landed 2026-08-14: there are now FOUR channels, not three — and the fourth has its first
+inhabitant.** The pack-shipped channel exists and slots between bundled and the home directory in
+precedence: a hand-placed user directory still overrides a pack's loophole (it carries your own
+authority), and a pack claiming a *reserved* name never reaches an ordering at all — the launch
+pre-flight refuses it, fatally. The official `audio` pack (§5, OQ-LP11) is the first loophole to
+arrive that way.
+
+**But the consolidation this section argues for got HARDER to finish, not easier, and that is the
+honest reading.** Shipping `audio` as a pack established that a pack **cannot express** the sockets the
+bundled `audio` exists for (§5), so the pack sits *beside* the bundled copy rather than replacing it —
+one more channel populated, none retired. **OQ-LP10** (retire the home directory) is unaffected and
+still owed. **OQ-LP11**'s remaining half — bundled loopholes *becoming* packs — now depends on
+**OQ-LP14**, the missing vocabulary, because you cannot delete a bundled loophole whose capability no
+pack can declare.
 
 ---
 
@@ -124,11 +143,12 @@ Four things fall out of that choice, and they are the substance of the design:
 4. **Turning it on must stay a decision you made.** §5.
 
 **Landed 2026-08-14.** The kind is in `packdecl`'s closed set — `{"kind": "loophole", "from": …}`,
-`from` required, Exclusive by loophole NAME — and all four of the above shipped with it except the
-install-gate half of (3), which is G2a/G2b in §4.2 and still owed. One thing the proposal did not
-say and the implementation had to: **the name is knowable without decoding the manifest**, because
-`name` must equal the module dir's basename. That is what lets the exclusivity pre-flight run
-before any loophole is loaded, and what lets a claim be keyed even when the manifest is unreadable.
+`from` required, Exclusive by loophole NAME — and all four of the above shipped with it, including
+G2a; the only unbuilt piece of (3) is **G2b** (§4.2), and that is a decision rather than pending work.
+One thing the proposal did not say and the implementation had to: **the name is knowable without
+decoding the manifest**, because `name` must equal the module dir's basename. That is what lets the
+exclusivity pre-flight run before any loophole is loaded, and what lets a claim be keyed even when the
+manifest is unreadable.
 
 ---
 
@@ -466,6 +486,27 @@ home trees it manages, but not that `~/code/other-project` is somewhere an agent
 working in — and your permission argument covers the rest. A tripwire on the common shape, not a
 boundary, and it should be described that way.
 
+**A SECOND LIMIT, discovered by shipping it: the rule must NOT judge yolo's own bundled content —
+fixed 2026-08-14.** As first landed it refused all three bundled loopholes on **every launch of yolo's
+own development jail**, telling the user to *"install the loophole outside that tree"* about content
+they did not install — and taking out the OAuth broker, the audio pass-through and `host-processes`
+together. The cause is the self-hosting case: yolo running from its own source tree prefers the repo's
+`bundled_loopholes/`, which is inside the very workspace the launch mounts `:rw`.
+
+The exemption is the rule's own reasoning rather than a carve-out. The rule exists because installed
+content in an agent-writable tree can be swapped by an actor with **none of the authority that
+installed it**; a bundled loophole is the yolo binary's own content — *the same artifact that performs
+this check* — so an agent that can rewrite it has already rewritten the checker. The gate would protect
+nothing it does not already presuppose, which is
+[`gate-placement-principle.md`](gate-placement-principle.md)'s **Test 1** exactly. Pack and user
+loopholes stay judged, and the regression pins that the *same path* is still refused for both.
+
+**The reusable part is about verification, not loopholes:** no unit test could have caught this,
+because every placement test builds its module dir under `t.TempDir()` — so the one configuration where
+the two real paths coincide is the one nobody constructs. **A rule about how two real paths relate
+cannot be verified by a test that invents both of them.** The `-short` suite was green throughout; the
+mandated nested-jail smoke is what found it.
+
 **This is OQ-LP13, now much smaller than when it was filed.** It also changes what "ship G1 first"
 means: G1 remains the biggest reduction in *who can declare* host execution, but it should stop being
 described as closing the hole on its own.
@@ -592,7 +633,7 @@ token race. Where that default *lives* is OQ-LP11; that it exists is not in ques
 |---|---|---|
 | `claude-oauth-broker` | stays where it is | it must auto-activate; and its manifest **is not what runs** — the real spawn is reconstructed in Go and its per-jail relay has no manifest vocabulary at all. That second reason is the one that would survive becoming a pack |
 | `host-processes` | stays where it is | its client is a binary baked into the image. Note this rules out a *third-party* pack, not an official one (§1.1) |
-| `audio` | stays, **becomes the worked example** | no daemon, no host execution: the one a pack could carry with zero new vocabulary |
+| `audio` | stays — and an **additive official pack ships beside it** | no daemon, no host execution: the one a pack could carry with zero new vocabulary. **Half true, measured:** the claim classes needed no new vocabulary, the host PATHS did — see the finding below |
 
 **But "it stays bundled" does not keep the default safe** — that was the draft's third refuted
 claim. Staying bundled protects the broker from being *deselected*, which was never the threat. The
@@ -607,20 +648,73 @@ the draft's version, since it now exercises the approval path too. One honest li
 passthrough is skipped whenever the launcher is itself in a jail, and nested-jail verification is
 this repo's mandated loop, so the device half of that example is only observable off a jail host.
 
-**The count is now checkable against the shipped producer, and it holds — but the example is still
-not built.** `audio`'s three binds split two IPC (both declare `readonly: false`) and one MOUNT
-(`{loophole_dir}/asound.conf`), plus `/dev/snd`: four claims, no daemon, no intercepts. Two of its
-declarations would have to change to become a *pack-shipped* loophole, and both are subset rules
-rather than claim rules: its `jail_env` moves to the `env` kind and becomes unconditional (LP5), and
-its `${XDG_RUNTIME_DIR}` bind hosts are not home-relative, so the socket pass-through it exists for
-cannot be expressed by a pack at all. So the worked example, when it is written, is `audio`-*shaped*
-rather than `audio` — which is worth knowing before item 7 is started.
+**The count holds against the shipped producer, and its composition was wrong.** Four claims, yes —
+but *two* IPC (the two binds declaring `readonly: false`), *one* MOUNT
+(`{loophole_dir}/asound.conf`, a `readonly: true` regular file), and one device. The draft called them
+*"three socket/dir binds and `/dev/snd`"*; only two of the three binds are socket-class. The
+distinction earns its keep: the MOUNT class's text carries the socket caveat verbatim precisely
+*because* the classes are separate, and collapsing them would make that caveat say nothing.
+
+### 5.1 THE FINDING: the pack-shipped subset is TOO TIGHT — and this is the design being incomplete, not the code
+
+**Landed 2026-08-14 as `packs/audio`, an official embedded pack** (one `loophole` contribution, one
+`env` contribution). Writing it produced the only finding in this batch that says **the design is
+unfinished** rather than that an implementation was:
+
+> **`audio`'s reason to exist is inexpressible for a pack.** The loophole exists to pass through two
+> host sockets, `${XDG_RUNTIME_DIR}/pulse/native` and `${XDG_RUNTIME_DIR}/pipewire-0`. A pack-shipped
+> loophole's bind hosts must be inside its own module dir or relative to `$HOME`. The `$VAR` spelling
+> is refused; the literal `/run/user/<uid>/pulse/native` is refused as absolute; and the path is not
+> under `$HOME`, so home-relative cannot reach it. **There is no third spelling.** The socket half of
+> the very loophole this design nominated as its own dogfood cannot be declared by a pack at all.
+
+**The rule is right and the vocabulary is missing** — those are different things, and reading this as
+"loosen the rule" would be the wrong lesson. Admitting `${XDG_RUNTIME_DIR}` admits `${HOME}/.ssh` and
+`${XDG_RUNTIME_DIR}/../../etc` with it; the refusal is doing real work. What the finding says is that
+a **runtime-dir socket** — the ordinary shape of host IPC on Linux, and something a third-party
+loophole will certainly want — has no way to be said.
+
+**And the design's own suggested workaround does not survive contact with the case.** §4's subset
+table offers *"or a `host_daemon` that mediates the access"*. Spelled out here, that means: to bind the
+PipeWire socket **the user's own desktop session already exposes**, write an audio proxy — a host
+daemon speaking the PipeWire protocol, shipped in a pack, forwarding frames — and thereby swap one
+`:ro` bind for **arbitrary host execution plus a claim that says so**. That is not a mitigation; it is
+a strictly larger grant reached by a much longer road, and it would be the *only* route to working
+audio. A rule whose escape hatch is "run code on the host instead" is pushing authors toward the
+sharpest capability in the system in order to obtain the mildest one. The proportionate answer is a
+**declared, enumerated runtime-socket vocabulary** (yolo resolves the runtime dir; the manifest names
+only the socket; the claim is emitted in the host-IPC class that already exists) — recorded as
+**OQ-LP14**, named and not designed.
+
+**So the shipped pack is ADDITIVE, and two of its shapes were forced rather than chosen.** The bundled
+`audio` is kept and untouched — do nothing and nothing changes. The pack's loophole is named
+`audio-alsa`, because `audio` is a **reserved** name and a pack claiming one refuses the launch
+*fatally*; and it binds `/etc/alsa/conf.d/50-yolo-audio-alsa.conf` rather than `/etc/asound.conf`,
+because podman refuses two binds on one destination — a jail with both the bundled loophole and this
+pack would **refuse to start**. alsa-lib reads `conf.d` first, so the fragment routes identically;
+verified with `sox` in all three cases (unrouted, fragment-only, both).
+
+**The second cost was named in advance and is now paid by a shipped pack:** `jail_env` is refused for a
+pack, so `PULSE_SERVER`/`PIPEWIRE_REMOTE` are declared through the `env` kind and become
+**unconditional** — set on every launch that selects the pack, even where no socket crossed. That is
+LP5's cost, and it moved from a prediction to a behaviour someone can observe.
+
+**What the pack proved, and what it did not.** It closes §6's *"nothing here has ever run"* at the
+level that mattered: a real instance goes through discovery, selection, the subset loader, the claim
+enumeration, the name pre-flight, the inert report, the container argv and teardown — and building it
+surfaced two live defects nothing else had (the lazy loophole resolver skipped **every embedded pack**,
+so a selected `audio` was absent from `yolo loopholes list` and warned *"no loophole named 'audio-alsa'
+is installed"* at every launch — the same sentence a genuine staging failure prints, fired on the one
+case where nothing was wrong). It does **not** exercise the approval prompt or a host-daemon spawn: the
+pack declares no daemon, and an embedded pack carries yolo's own authority, so its approval is true by
+construction and never reaches a prompt.
 
 ---
 
 ## 6. What can go wrong
 
-Five of these six were **closed** by the batch that landed the kind; the markers say which.
+Five of these six were **closed** by the batch that landed the kind, and the sixth by the batch that
+shipped the `audio` pack; the markers say which. Only the prompt-length one is still open.
 
 - ~~**It bricks jails on a stale image, and this is the `tier` incident for the third time.**~~ A pack
   declaring a kind the *baked entrypoint* does not know about fails the boot — unknown *fields* are
@@ -655,11 +749,14 @@ Five of these six were **closed** by the batch that landed the kind; the markers
   now (`⚠ RUNS CODE ON YOUR MACHINE` versus `⚠ review`, and the review tail counts executions first
   and separately rather than saying "1 loophole"), which is a legibility improvement and not the
   length fix.
-- **Nothing here has ever run.** **Still true in the sense that matters:** the kind, its claims, the
-  pre-flight, the convergence, the retirement and the inert report are all covered by unit tests, but
-  **no pack-shipped loophole exists** — no end-to-end instance has been selected, approved and
-  spawned. That is what item 7 of the landing order (`audio` as a real official pack) is for, and it
-  has not shipped.
+- ~~**Nothing here has ever run.**~~ **Closed 2026-08-14 at the level that mattered:** a pack-shipped
+  loophole now EXISTS — the official `audio` pack (§5.1) — so a real instance goes through discovery,
+  selection, the subset loader, the claim enumeration, the name pre-flight, the inert report, the
+  container argv and teardown. Building it found two defects nothing else had (a lazy resolver that
+  skipped every embedded pack, and the subset finding), which is the whole argument for dogfood.
+  **The residual, stated precisely:** the pack declares no host daemon, and an embedded pack carries
+  yolo's own authority — so the **approval prompt** and a **host-daemon spawn** are still unexercised
+  end to end. That needs a *fetched* pack with a daemon, which is a fixture rather than a design.
 
 ---
 
@@ -681,20 +778,28 @@ parties will write even if only bundled loopholes are ever superseded.
 
 ## 8. What I need from you
 
-**Almost everything here is now ruled, and most of it is now BUILT.** The install/enable scope model
+**Everything here is now ruled, and everything ruled is now BUILT.** The install/enable scope model
 (§4.5), **LP2**, **LP6**, **LP10**, **LP11** and **LP13** all have answers; **LP12** dissolved and
-**LP3** and **LP8** folded into LP13. LP2 and LP13 have both **shipped** (2026-08-13 / 2026-08-14).
-What is left needing *you* is still **LP9**, which your last comment turned from a small question
-into a real gap — nested jails need the scope model to recurse, and today it cannot.
+**LP3** and **LP8** folded into LP13. LP2 and LP13 have both **shipped**, and **LP9 — the last thing
+that needed you — is now BUILT too** (2026-08-14), as the inner-scope census, the two generated
+per-consumer files and the global `--user-layer` flag. Its entry below records the four corrections the
+implementation forced.
 
-The other four open questions live in the detailed doc (§9) and do not need you: **LP1 is resolved by
+**So there is exactly ONE new thing that needs you, and it came from shipping rather than from
+reviewing: OQ-LP14** — the pack-shipped subset has no vocabulary for a runtime-dir socket, which is why
+the `audio` pack ships only half of `audio` (§5.1). It needs a ruling; nothing shipped is blocked on it.
+
+The remaining open questions live in the detailed doc (§9) and do not need you: **LP1 is resolved by
 extraction** — the schema now lives in `internal/loopholedecl` as a leaf, which was the recommended
-of the two options — one is a one-way door I am flagging rather than opening (LP4), one resolves
-itself when a real pack wants it (LP5, whose cost is now a *shipped* refusal message that states it),
-and one belongs to the `guest` notch work (LP7).
+of the two options — one is a one-way door I am flagging rather than opening (LP4), one is now a cost a
+shipped pack actually PAYS rather than a prediction (LP5 — `audio`'s env is unconditional), and one
+belongs to the `guest` notch work (LP7).
 
-**And LP10 / LP11 are now unblocked rather than merely ruled**: both were waiting on the kind, and the
-kind exists. Neither has been carried out.
+**LP11's first step is DONE and its second is now blocked on LP14.** `audio` ships as an official pack
+carrying a loophole. But it is **additive** — the bundled copy is kept, because a pack cannot express
+the sockets — so no channel has been retired and the consolidation LP11 is really about cannot finish
+until LP14 is answered. **LP10** (retire the hand-placed loopholes directory) is unblocked, unaffected,
+and still not carried out.
 
 ### OQ-LP13 — what stops an agent swapping the file a loophole runs? ✅ RULED — and the answer is not hashing
 
@@ -819,21 +924,55 @@ unchanged and is a real simplification: it leaves
 `loopholes enable/disable` with no special case to serve, forcing enable/disable state into config
 for every source, which the design already wants and currently defers.
 
-### OQ-LP11 — do bundled loopholes become official packs? ✅ RULED YES, and it ships with this change
+### OQ-LP11 — do bundled loopholes become official packs? ✅ RULED YES; FIRST STEP SHIPPED 2026-08-14
 
 `AGENTS.md` opens with *"AGENTS ARE PACKS. Core does not know what an agent is."* A loophole
 registry plus a magic directory plus a config block is the world before that move.
 
-**Ruled: yes, and it ships in this batch rather than after it** — which upgrades §7's `audio`
+**Ruled: yes, and it ships in this batch rather than after it** — which upgrades §5's `audio`
 example from "a doc example someone might build later" to a deliverable. That is a good trade: it
 was already the plan to build `audio` as the end-to-end proof, so shipping it as a real official pack
 costs a relabel and buys the consolidation immediately.
+
+**Shipped — and "costs a relabel" was wrong.** `packs/audio` exists and carries a loophole, which is
+the first half. What it does *not* do is consolidate anything: it is **additive**, sitting beside a
+bundled copy that is deliberately KEPT. Three measurements forced that (§5.1): the plain name `audio`
+is **reserved** and claiming it refuses the launch fatally; podman refuses two binds on one
+destination, so binding `/etc/asound.conf` like the bundled one would make a jail with both **refuse to
+start**; and — the load-bearing one — **a pack cannot express the two sockets `audio` exists for at
+all**. So the honest pack ships the ALSA half under the name `audio-alsa`.
+
+**That reorders this question's remaining half.** Retiring a bundled loophole means a pack can do what
+it did; for `audio` that is now known to be false, and the fix is **OQ-LP14**'s runtime-socket
+vocabulary. LP11's consolidation therefore *depends on LP14*, where before it looked independent of
+everything except the kind.
 
 **The broker still waits, on a stated blocker rather than caution:** its manifest is not what runs —
 the spawn is reconstructed in Go and the per-jail relay has no manifest vocabulary at all — so
 packaging it would be ceremony over a thing that ignores the package. It moves when those two have
 vocabulary, and `host-processes` can move whenever, since an official pack is embedded in the same
 binary as its client.
+
+### OQ-LP14 — the subset cannot say "a socket in this session's runtime dir" ❓ NEW, and it needs you
+
+**Raised by building the thing, not by reviewing it.** A pack-shipped loophole's bind hosts must be
+inside its own module dir or relative to `$HOME`. `${XDG_RUNTIME_DIR}/pulse/native` is neither, in every
+spelling: the variable form is refused (it names an absolute path one indirection later), the literal
+`/run/user/<uid>/…` is refused as absolute, and the path is not under `$HOME`. So the socket half of
+`audio` — the loophole this design chose as its own dogfood — **cannot be declared by a pack** (§5.1).
+
+**The rule is right; the vocabulary is missing.** Widening the path rule would admit `${HOME}/.ssh` and
+`${XDG_RUNTIME_DIR}/../../etc` with it. And the design's own named fallback — *"a `host_daemon` that
+mediates"* — means writing an **audio proxy** to reach a socket the user's session already exposes,
+i.e. reaching for arbitrary host execution in order to obtain a read-only bind. That inverts the risk
+ordering the whole design rests on, so it cannot be the answer.
+
+**My read: a declared, enumerated runtime-socket vocabulary.** yolo resolves the session runtime dir;
+the manifest names only the socket inside it; the claim is emitted in the **host IPC** class the
+producer already has, so the approval string stays machine-independent (what is approved is the
+declaration, not the resolved path). Say the word if you would rather leave the subset as it is and
+accept that runtime-dir IPC is bundled-only — that is a coherent answer too, and it is what ships
+today. **Nothing is blocked on this**; it decides whether LP11's consolidation can ever finish.
 
 ### OQ-LP3 — a `file://` pack runs a host daemon with no prompt, ever ✅ DISSOLVED
 
@@ -870,9 +1009,13 @@ requires is that the docs say it in one plain sentence, and that **tag pins are 
 for a pack carrying host execution**. Say the word if you would rather it re-prompt when the commit
 moves; that is the only variant left in this question.
 
-### OQ-LP9 — nested jails: the outer jail IS the user level for the inner one ✅ DESIGN SETTLED by your three-part split
+### OQ-LP9 — nested jails: the outer jail IS the user level for the inner one ✅ BUILT 2026-08-14
 
-**Your comment changes this question entirely, and for the better.** I had asked something small —
+**Design settled by your three-part split; all three parts have now shipped, with four corrections the
+implementation forced — they are at the end of this entry, and one of them says this doc's own named
+example was the wrong one.**
+
+**Your comment changed this question entirely, and for the better.** I had asked something small —
 does the scope error downgrade to a warning in-jail, the way the `agents` key does. You reframed it:
 
 > *"For jail in jail, the outer jail is essentially 'user level' for the inner jail. We need to
@@ -933,8 +1076,10 @@ three concrete questions instead — *what does preflight read*, *what does a ne
 **1. The preflight file.** Generated for exactly the in-jail readers that exist — `yolo check`,
 `yolo loopholes list`, `yolo pack` — containing only the keys they evaluate meaningfully in-jail,
 with a header comment naming its purpose, its generator, and its launch time. This is what stops the
-false errors: a key like `cache_relocations` simply is not in the file, so in-jail `yolo check`
-never evaluates a host path against a container that does not have it.
+false errors: a key like `gpu` simply is not in the file, so in-jail `yolo check` never evaluates a
+host driver against a container that does not have it. *(This paragraph originally named
+`cache_relocations`, which turned out to be the one example that was already fixed by hand — see the
+Landed note's correction 1.)*
 
 **2. The nested-launch input.** Provided only where nesting is possible, marked in its header as
 existing for that reason — the keys an inner launcher composes a jail from (`packages`, `packs`,
@@ -968,17 +1113,90 @@ the two files above for jail B. Every level sees the same shape at any depth.
 golden-render test against its consumer list (a new config key fails the build until it is assigned
 to files or explicitly to neither, which is the census surviving as a drift test); plus one
 integration case per false-error class this exists to kill — in-jail `yolo check` over a config
-carrying `cache_relocations` must be silent about it. What stays genuinely hard is the full nested
+carrying a host-referent key must be silent about it. What stays genuinely hard is the full nested
 matrix, and that is the part worth doing by hand once per release rather than pretending a unit
 test covers it.
+
+### LANDED 2026-08-14 — and four things the split got wrong or left open
+
+**1. `cache_relocations` was the WRONG example for the false-error class, and this doc used it twice.**
+It is the key the design kept naming, and measured with a real in-jail `yolo check --no-build` it was
+**already silent** — it and `host_files` had each been hand-patched with an in-jail guard, one at a
+time, over the feature's life. What was *actually* still producing false errors, and what nobody had
+noticed:
+
+| key | what an in-jail check actually printed |
+|---|---|
+| `gpu` | **four fails** — nvidia-smi / nvidia-ctk / runc "not found", "No CDI spec" — about a host GPU you configured correctly |
+| `mounts` | one warning per entry: *"host path does not exist and will be skipped"* |
+| `env_sources` | *"env_sources file not found, skipping"* per host dotenv |
+
+**This strengthens the ruling rather than weakening it**, which is why the sentences above were
+corrected instead of annotated: a hand-added guard fixes the incident someone complained about, and a
+census fixes the pattern. Two keys guarded, three louder classes unguarded, is exactly the shape of
+maintenance the generated file replaces. The two pre-guarded keys are now covered by the same test as
+**regressions**, so a future refactor that reasonably deletes a redundant guard cannot revive the false
+error — and each live class has a control asserting the check *does* report it when the key is present,
+so the silence is provably the filter's doing.
+
+**2. Five keys earn BOTH memberships, measured rather than judged.** The first pass classified
+`security`, `mise_tools`, `mcp_servers`, `mcp_presets` and `lsp_servers` as preflight-only from the
+shape of the key. Measured against the code instead: `yolo check`'s entrypoint dry-run feeds exactly
+these into a temp home and runs the **real generators** over them, while the run pipeline feeds the same
+five to a **real container**. One consumer validates, the other composes — both memberships are earned,
+and a nested launch that dropped them would silently lose your MCP servers and your blocked-tool shims.
+Same for `journal` and `host_processes`. The lesson for the split: "in one file" must not be allowed to
+collapse into "in both" by default, so the distinctness assertion moved to a key that is genuinely
+preflight-only.
+
+**3. A defect only the real nested run caught: the host wrote the nested-launch file and NOTHING READ
+IT.** Part 2's file was generated correctly and consumed nowhere, so `packages`, `env_sources`,
+`resources` and `network` reached a jail and stopped there. Measured across two real nesting levels: at
+**depth 2 the file had lost `packages` and `env_sources`**, because depth 1's effective config never
+contained them — precisely the "a rule changes with nesting" failure the recursion-by-composition
+property forbids, and it made the whole file decoration. After the fix (the inherited file is folded
+into the user-scope read, *under* the jail's own config) both files are byte-identical at depth 1 and
+depth 2. **Two unit tests passed while this was broken.** It is the second time in this batch that a
+thing was built and not wired — the first was the origin gate computed and ignored at the spawn — and
+the shared shape is worth naming: *the value was computed correctly and then not consumed.*
+
+**4. The layer arg is GLOBAL.** Not a `run` flag: **four** commands read user scope in-jail (`run`,
+`check`, `loopholes`, `pack`), so a flag reaching only `run` would change a launch but not the command
+you verify it with — which sends an agent hunting for a bug in the feature instead of noticing the flag
+it forgot to pass. It is consumed in `Main` before argv rewriting, and it stops at `--` so an inner
+command's own `--user-layer` is left alone.
+
+**And the nested-development path (part 3's whole purpose) is VERIFIED end to end in a real nested
+container:** an in-jail agent wrote a pack shipping a loophole, wrote a layer naming it, and
+`pack install`, `loopholes list`, `check` and a nested launch all saw it. **One constraint you need:**
+the jail's home ROOT is `:ro`, so `mkdir ~/mypack` fails — the pack has to live under
+`~/.local/share/…` or in the workspace. The layer file itself lands fine because `~/.config` is
+writable, which is the single-file-delivery property doing its job. `yolo config-ref` carries the
+copy-pasteable sequence.
+
+**One thing that could not be built as asked: `config drift` cannot be TAUGHT user-half drift.** There
+is no host file in a jail to diff against — the user scope in here is a generated render, so the
+comparison has no second side. So the command **names the scope it cannot compare**, in-jail only, on
+both the in-sync and the drifted path (the limit is a property of the command, not of the result), with
+exit codes 0/3/4 untouched so an agent keying on them keeps working. Silence there would invite a
+reader to take "In sync" as "nothing changed anywhere" and then debug a stale `packs` list as a code
+problem.
+
+**And one gain the split did not promise:** `include_if_found` **content** now crosses. The old raw bind
+mounted exactly two filenames, so an included file stayed host-side — the accident this doc complained
+about. Rendering from the effective config fixes it for free, since the includes are merged before the
+filter runs. The directive itself is deliberately *not* emitted: re-resolving a host-relative sibling
+path inside a jail would hunt for a file that is not there.
 
 ---
 
 ## 9. The order the work has to land in
 
 Not a task list — the *dependencies*. Rewritten after the rulings, which removed work as often as
-they added it. **Items 1–6 have LANDED**; 7 and 8 have not, and the two residuals under 5 and 6 are
-the whole of what is left inside the shipped items.
+they added it. **ALL EIGHT ITEMS HAVE LANDED** (2026-08-14). One residual sits inside item 6 — **G2b**,
+and it is a decision rather than pending work. The two things this list does *not* contain, because
+neither is an item, are the batch's design findings: **OQ-LP14** (the subset cannot express a
+runtime-dir socket, §5.1) and the placement rule's **bundled exemption** (§4.4).
 
 1. ✅ **Tolerate an unknown kind** (§6, first bullet). Before the kind exists, or packs brick jails.
    — **done 2026-08-13**, plus the boot regression test 2026-08-14.
@@ -989,7 +1207,11 @@ the whole of what is left inside the shipped items.
    - ✅ **2a. The placement rule** (LP13): refuse installed content that resolves inside the mounted
      workspace or a jail-home tree. A path check, not a digest — this is what makes item 2's
      user-scope boundary sound instead of half-sound. — **config faces done 2026-08-14**, manifest
-     faces (module dir, `host_daemon.cmd`, `doctor_cmd`) **also 2026-08-14**.
+     faces (module dir, `host_daemon.cmd`, `doctor_cmd`) **also 2026-08-14**, and the **bundled
+     exemption** the same day: as first shipped the rule refused all three bundled loopholes on every
+     launch of yolo's own development jail, because a self-hosting yolo reads them out of the `:rw`
+     workspace. Exempting them is the rule's own Test-1 reasoning, not a carve-out — and no unit test
+     could have caught it (§4.4).
 3. ✅ **The front**, so a daemon can be written in any language, plus the loud-failure and
    stale-socket fixes it needs to be trustworthy — then the config block's daemons migrate onto the
    surviving transport for free. — **done 2026-08-13**, plus `request_end`, which this item did not
@@ -1002,23 +1224,40 @@ the whole of what is left inside the shipped items.
    mechanism and one message with the inert-backend report. — **done 2026-08-14**, together with the
    fourth name-exclusivity pre-flight, the reserved-name set composed once, the seven-surface
    convergence, retirement-on-deselect and its `prune` sweeper, and the schema extracted as a leaf
-   (`internal/loopholedecl`, which is OQ-LP1 resolved by extraction). **One residual:** the
-   pack-shipped SUBSET (§3.2's `jail_env`/`publishes`/bind-mount rules) is implemented and tested in
-   that leaf and **has no production caller** — neither `pack lint` nor discovery applies it — so a
-   pack-shipped `jail_env` is accepted today where the rules say it is refused.
+   (`internal/loopholedecl`, which is OQ-LP1 resolved by extraction). **The pack-shipped SUBSET is
+   now WIRED at three seams** (discovery, `pack lint`, `yolo check`'s walker) — it had a window where
+   it was implemented, tested and reachable from nothing, during which a manifest with all four
+   violations was discovered, Active, and produced `-v /:/ctx/hostroot` plus
+   `-e LD_PRELOAD=/ctx/evil.so` while `pack lint` printed "pack ok". Wiring it then exposed the
+   rules' own limit: they have no spelling for a runtime-dir socket (**OQ-LP14**, §5.1).
 6. ✅ **The per-launch disclosure** moved to print *before* the daemon starts rather than a phase after
    it. For a read, after is cosmetic; for an execution, after is a notification that something
    already happened. *(Commit-anchored claims are gone from this item — LP13 removed the mechanism
    they belonged to.)* — **done 2026-08-14**, and generalized past what the item asked for: the
    covered set is DATA, exhaustive over the kind set by test, because the hardcoded set was already
    wrong for **two shipped kinds** (`program via installer` and `briefing after host:` are host reads
-   that appeared at no launch). The read/exec split is per **claim**, not per kind. **One residual:**
-   the raw-unelided claim-string rule and the commit-anchored exec approval (G2a/G2b) belong to the
-   `pack install` gate and have not shipped — `ApprovedAt` is written and still has no reader.
-7. **`audio` as a real official pack** (LP11), which is both the end-to-end proof and the first step
-   of the bundled-to-packs consolidation. **Not started** — and it is the only item that would make
-   §6's last bullet ("nothing here has ever run") false.
-8. **Nested-jail user scope** (LP9), per your three-part split: the generated preflight file (kills
+   that appeared at no launch). The read/exec split is per **claim**, not per kind. **G2a landed too**
+   — the claim string is the raw, unelided, placeholder-preserving argv, pinned by two tests, because
+   an elided argv collapses two different daemons onto one approval and an expanded one makes the
+   approval machine-specific. **One residual, and it is a DECISION: G2b** — `ApprovedAt` is written and
+   read by nothing, so a fetched pack at a mutable ref whose daemon *file* changes under an unchanged
+   argv re-installs with no prompt. Whether to close it is OQ-LP8; not implemented on purpose.
+7. ✅ **`audio` as a real official pack** (LP11), which is both the end-to-end proof and the first step
+   of the bundled-to-packs consolidation. — **done 2026-08-14** as `packs/audio`, and it makes §6's
+   last bullet false: a pack-shipped loophole now exists and runs. **Two framings this item had were
+   wrong.** It is not a "first step of consolidation" in the sense of *replacing* anything — the pack
+   is **additive** and the bundled copy is deliberately kept, because the name is reserved, podman
+   refuses a duplicate bind destination, and above all **a pack cannot express `audio`'s sockets at
+   all**. And it is not the full end-to-end proof: the pack ships no daemon, and an embedded pack's
+   approval is true by construction, so the prompt and the spawn remain unexercised. What it did prove
+   is the value of dogfood — it surfaced two live defects and the design finding now filed as
+   **OQ-LP14** (§5.1).
+8. ✅ **Nested-jail user scope** (LP9), per your three-part split: the generated preflight file (kills
    the false `yolo check` errors), the nesting-only launch input (written only where nesting
    exists), and the `--user-layer` CLI arg (explicit privilege futzing; safe everywhere by
-   gate-placement Test 1). The "develop loopholes in a jail" ruling depends on it. **Not started.**
+   gate-placement Test 1). The "develop loopholes in a jail" ruling depends on it. — **done
+   2026-08-14**, with four corrections in §8's OQ-LP9 Landed note: the false-error example this doc
+   named was already fixed while three louder classes were not, five keys earn both memberships,
+   the nested-launch file was written and never read (found by two real nesting levels, missed by two
+   unit tests), and the arg had to be GLOBAL rather than a `run` flag. The development path it exists
+   to enable is verified in a real nested container.
