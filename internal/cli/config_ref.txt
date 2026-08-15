@@ -48,6 +48,22 @@
   deliberately no conventionally-named auto-merged file: a file that takes effect
   because it exists is invisible at the call site.
 
+  Developing a loophole inside a jail, end to end:
+
+    mkdir -p ~/.local/share/mypack/loopholes/mine   # NOT ~/mypack — the home
+                                                    # ROOT is read-only
+    ...write pack.json and loopholes/mine/manifest.jsonc...
+    cat > ~/.config/yolo-jail/my-layer.jsonc <<'EOF'
+    { "packs": [ { "source": "file:///home/agent/.local/share/mypack" } ] }
+    EOF
+    yolo --user-layer ~/.config/yolo-jail/my-layer.jsonc pack install
+    yolo --user-layer ~/.config/yolo-jail/my-layer.jsonc loopholes list
+    yolo --user-layer ~/.config/yolo-jail/my-layer.jsonc -- bash
+
+  The layer lands beside the read-only inherited config because ~/.config is the
+  jail's own writable dir — that is why the inherited file is delivered as a
+  single file rather than by mounting the directory.
+
 [bold cyan]FIELDS[/bold cyan]
 
   [bold]confinement[/bold] (string): How confined the environment is — the dial, separate

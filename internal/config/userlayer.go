@@ -28,6 +28,18 @@ package config
 // The single-file delivery of the inherited scope (run/inheritscope.go) is the other half:
 // the DIRECTORY the inherited file sits in is the jail's own, so writing beside it is
 // jail-local by construction.
+//
+// VERIFIED END TO END in a real nested container, 2026-08-14, and it works: an in-jail agent
+// wrote a pack shipping a loophole, wrote a layer naming it, and `pack install`,
+// `loopholes list` (dev-probe active, pack/none), `check` ("devpack: 2 file(s) stage") and a
+// NESTED launch all saw it.
+//
+// ONE CONSTRAINT worth knowing, because it is the first thing an agent will trip over: the
+// jail's home ROOT is mounted :ro, so `mkdir ~/mypack` fails. The pack has to go somewhere
+// writable — `~/.local/share/...` is the natural home (it is one of the rw anchors), or the
+// workspace. That is jail-home policy (docs/design/jail-home.md), not a limit of this flag,
+// and the layer file itself lands fine because ~/.config is writable — which is exactly the
+// R8 property doing its job.
 
 import (
 	"os"
