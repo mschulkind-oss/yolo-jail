@@ -82,7 +82,7 @@
       "kind": "autonomy"
     },
     {
-      "at": ".gemini/antigravity-cli",
+      "at": ".gemini",
       "kind": "state",
       "scope": "workspace"
     }
