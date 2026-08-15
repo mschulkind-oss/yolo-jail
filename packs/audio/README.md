@@ -80,8 +80,11 @@ consequence is absolute:
 > home-relative cannot reach it. The socket half of `audio` is **unexpressible for a pack**.
 
 So the honest pack ships the ALSA half only. Pinned by test in both directions:
-`TestAudioShapedManifestIsRefusedByTheSubset` asserts the real audio shape draws **five**
-subset refusals (two `$VAR` hosts, two writable binds, one `jail_env`), and
+`TestAudioShapedManifestIsRefusedByTheSubset` asserts the real audio shape draws **six**
+subset refusals (two `$VAR` hosts, two writable binds, one `jail_env`, and the `$VAR` in
+`requires.file_exists`) — the sixth arrived after this README was written, when the
+path-scope rule was extended to `requires.file_exists` because an unscoped value there is
+a host-filesystem probe whose answer `yolo loopholes list` prints back. And
 `TestBundledAudioIsOutsideThePackShippedSubset` (in `internal/loopholedecl`) asserts the
 bundled manifests stay outside the subset.
 

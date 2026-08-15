@@ -434,7 +434,12 @@ func SetEnabled(modulePath string, enabled bool) error {
 		return loopholedecl.Errorf("%s: manifest must be a JSON object", manifestPath)
 	}
 	decoded.Set("enabled", enabled)
-	header := "// yolo-jail loophole manifest. See src/loopholes.py for schema.\n" +
+	// The schema reference names internal/loopholedecl, and that matters more than it
+	// looks: SetEnabled REWRITES the user's manifest, so a wrong pointer here is stamped
+	// into every file this command touches. It said `src/loopholes.py` — a path that has
+	// not existed since the Go port — which is the last live row of the design doc's R5
+	// doc/code-drift list.
+	header := "// yolo-jail loophole manifest. Schema: internal/loopholedecl.\n" +
 		"// 'enabled' toggled via `yolo loopholes {enable,disable}`.\n"
 	body, err := jsonx.DumpsIndent(decoded, 2)
 	if err != nil {
