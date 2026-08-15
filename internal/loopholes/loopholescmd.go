@@ -171,12 +171,22 @@ func List(deps Deps) int {
 	}
 	for _, lh := range all {
 		var label string
-		if !lh.Enabled {
+		switch {
+		case !lh.Enabled:
 			label = "disabled"
-		} else if reason, ok := lh.InactiveReason(); ok {
-			label = "inactive (" + reason + ")"
-		} else {
-			label = "active"
+		case lh.Superseded():
+			// The SHORT label, with the who and the why on their own continuation lines
+			// below. The full sentence names a pack, a capability and a free-text reason,
+			// which would blow the %-36s column and push every other line's name out of
+			// alignment — and the reason is the part a reader most needs to be able to
+			// read, so it gets a line of its own rather than a truncated column.
+			label = "inactive (superseded)"
+		default:
+			if reason, ok := lh.InactiveReason(); ok {
+				label = "inactive (" + reason + ")"
+			} else {
+				label = "active"
+			}
 		}
 		// Interception is a property of the intercept list, not of the transport
 		// string — see RuntimeArgsFor. The `transport=` fallback still prints for
@@ -197,7 +207,21 @@ func List(deps Deps) int {
 		if lh.Description != "" {
 			fmt.Fprintf(deps.Out, "      %s\n", lh.Description)
 		}
+		// ANYTHING THAT TURNS SOMETHING OFF MUST NAME WHO DID IT AND WHY
+		// (docs/design/pack-capabilities.md §5). An unexplained disappearance is the
+		// failure mode the whole mechanism exists to avoid, and `loopholes list` is the
+		// command a user runs to find out what happened — so the pack, the capability and
+		// the pack author's own `because` are printed here, one line per claim.
+		for _, s := range lh.SupersededBy {
+			fmt.Fprintf(deps.Out, "      %s\n", s.Line())
+		}
 	}
+	// A claim that matched no served capability is NOT reprinted here: Discover already
+	// warned it to stderr while applying the claims, which covers this command and every
+	// other discovery surface at once. Reprinting would put the same fact on stderr twice
+	// for one `loopholes list`, the same objection gateAdmitsCrossing makes about its own
+	// silent branch. Set.SupersessionProblems() is the value-shaped seam for a surface
+	// that wants to render it differently.
 	return 0
 }
 
@@ -225,6 +249,12 @@ func Status(deps Deps) int {
 		switch {
 		case !r.Loophole.Enabled:
 			prefix = "disabled"
+		// Between `disabled` and `unapproved`, mirroring Active()/InactiveReason(): a
+		// superseded loophole is off for a reason the user's own pack selection chose,
+		// which outranks every machine fact below it. Reporting it as `inactive` would
+		// send the reader after an unmet requirement that is not why it is off.
+		case r.Loophole.Superseded():
+			prefix = "superseded"
 		case !set.MayRunHostCode(r.Loophole):
 			prefix = "unapproved"
 		case !r.Loophole.RequirementsMet():
@@ -237,6 +267,12 @@ func Status(deps Deps) int {
 			prefix = "fail"
 		}
 		fmt.Fprintf(deps.Out, "  [%s] %s  rc=%s\n", prefix, r.Loophole.Name, rcStr(r.RC))
+		// The who and the why, for the same reason `loopholes list` carries them: a
+		// loophole a pack turned off must never be an unexplained absence, and `status` is
+		// the other command a user reaches for when one is not working.
+		for _, s := range r.Loophole.SupersededBy {
+			fmt.Fprintf(deps.Out, "      %s\n", s.Line())
+		}
 		if r.Output != "" {
 			for _, line := range strings.Split(r.Output, "\n") {
 				fmt.Fprintf(deps.Out, "      %s\n", line)

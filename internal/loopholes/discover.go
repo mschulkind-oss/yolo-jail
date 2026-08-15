@@ -365,6 +365,19 @@ type DiscoverOptions struct {
 	// Each is loaded individually rather than by scanning a parent, because a pack's
 	// contributions can point anywhere inside its staged tree.
 	PackModules []PackModule
+	// PackSupersessions are the selected packs' `supersedes` claims — a capability
+	// name, the pack that claimed it, and the mandatory reason
+	// (docs/design/pack-capabilities.md). STRINGS, not packs, for the same cycle
+	// reason PackModules is paths-and-a-bool.
+	//
+	// It is a SEPARATE list from PackModules, not a field on it, because the two sets
+	// are genuinely different: the motivating pack (Bedrock auth) supersedes the
+	// bundled broker while shipping no loophole module at all, so keying one off the
+	// other would make the case this exists for unrepresentable.
+	//
+	// EMPTY means nothing is superseded, which is the safe direction: a caller that
+	// never resolved packs cannot silently turn a loophole off.
+	PackSupersessions []PackSupersession
 }
 
 // PackModule is one externally-contributed loophole module dir plus the ORIGIN GATE
@@ -516,6 +529,11 @@ func ResetPackModules() {
 // filesystem — and so the two can never be built from different inputs.
 type Set struct {
 	all []*Loophole
+	// supersessions are the claims this Set was built from, kept so
+	// SupersessionProblems can answer "which claim matched nothing" without a second
+	// walk of the filesystem. The EFFECT of the claims is already stamped on the
+	// records (Loophole.SupersededBy); this is only the reporting half.
+	supersessions []PackSupersession
 	// gate maps a pack-contributed module dir to whether its origin gate PASSED.
 	// Absent means the record did not come from a pack module (bundled, user dir,
 	// config) and needs no origin decision — those three carry the user's own
@@ -559,7 +577,23 @@ func (s Set) MayRunHostCode(lp *Loophole) bool {
 // `loopholes list`.
 func NewSet(opts DiscoverOptions) Set {
 	opts.IncludeDisabled = true
-	return Set{all: Discover(opts), gate: gateOf(opts.PackModules)}
+	return Set{
+		all:           Discover(opts),
+		supersessions: append([]PackSupersession(nil), opts.PackSupersessions...),
+		gate:          gateOf(opts.PackModules),
+	}
+}
+
+// SupersessionProblems reports every `supersedes` claim in this Set that matched no
+// served capability — the typo case (docs/design/pack-capabilities.md §5).
+//
+// PURE: it recomputes from the records and the claims rather than caching what
+// Discover warned about, so a caller may ask more than once without a duplicate
+// line. Discover itself warns each problem to stderr as it applies the claims; this
+// is the value-shaped seam for a surface that wants to render them (`yolo check`'s
+// loophole section is the obvious next reader).
+func (s Set) SupersessionProblems() []string {
+	return unmatchedSupersessions(s.all, s.supersessions)
 }
 
 // NewHostSet is THE constructor every host-side consumer uses: bundled + the packs this
@@ -572,9 +606,10 @@ func NewSet(opts DiscoverOptions) Set {
 // six call sites happening to pass the same struct literal.
 func NewHostSet(loopholesConfig *jsonx.OrderedMap) Set {
 	return NewSet(DiscoverOptions{
-		IncludeBundled:  true,
-		LoopholesConfig: loopholesConfig,
-		PackModules:     PackModules(),
+		IncludeBundled:    true,
+		LoopholesConfig:   loopholesConfig,
+		PackModules:       PackModules(),
+		PackSupersessions: PackSupersessions(),
 	})
 }
 
@@ -587,12 +622,18 @@ func NewHostSet(loopholesConfig *jsonx.OrderedMap) Set {
 // through NewSet.
 func SetOf(all []*Loophole) Set { return Set{all: all} }
 
-// withGate copies src's gate onto s, for narrowing a Set to a subset of its own records
-// without dropping the origin decisions. Unexported: it is only ever safe between a Set
-// and a view OF that same Set, which is a property the caller can see and a parameter
-// cannot express.
+// withGate copies src's origin gate AND its supersession claims onto s, for narrowing a
+// Set to a subset of its own records without dropping either. Unexported: it is only ever
+// safe between a Set and a view OF that same Set, which is a property the caller can see
+// and a parameter cannot express.
+//
+// The claims ride along for the same reason the gate does — a narrowed view that answered
+// SupersessionProblems from an empty claim list would report "no problems" for a set whose
+// claims simply were not copied, which is a silent false negative in exactly the direction
+// this report exists to avoid.
 func (s Set) withGate(src Set) Set {
 	s.gate = src.gate
+	s.supersessions = src.supersessions
 	return s
 }
 
@@ -703,15 +744,27 @@ func Discover(opts DiscoverOptions) []*Loophole {
 
 	inline := applyWorkspaceOverrides(byName, opts.LoopholesConfig)
 
-	out := []*Loophole{}
+	// Supersession is applied over the WHOLE resolved set, before the enabled filter,
+	// because the claims are matched against `serves` — a declaration a disabled
+	// loophole still carries, and one a caller asking for the include-disabled view
+	// (`yolo loopholes list`) has to be able to see the consequence of.
+	//
+	// An unmatched claim is WARNED rather than refused; unmatchedSupersessions says at
+	// length why "refused at load" cannot hold for the match half. Warning here rather
+	// than at each consumer follows loadFromDir's precedent: discovery is the one place
+	// that knows a declaration did nothing.
+	all := make([]*Loophole, 0, len(order)+len(inline))
 	for _, name := range order {
-		m := byName[name]
-		if !opts.IncludeDisabled && !m.Enabled {
-			continue
-		}
-		out = append(out, m)
+		all = append(all, byName[name])
 	}
-	for _, m := range inline {
+	all = append(all, inline...)
+	applySupersessions(all, opts.PackSupersessions)
+	for _, problem := range unmatchedSupersessions(all, opts.PackSupersessions) {
+		warnf("%s", problem)
+	}
+
+	out := []*Loophole{}
+	for _, m := range all {
 		if !opts.IncludeDisabled && !m.Enabled {
 			continue
 		}
@@ -839,5 +892,12 @@ func ValidateSet(root string, rootSet, includeBundled bool) ([]ValidateEntry, Se
 			loaded = append(loaded, e.Loophole)
 		}
 	}
-	return entries, Set{all: loaded, gate: gateOf(PackModules())}
+	// ValidateLoopholes walks the directories itself rather than going through Discover
+	// (it needs the error channel Discover throws away), so the supersession pass has to
+	// be applied HERE too or `yolo check` would be the one census site that reports a
+	// superseded loophole as live. Same claims, same function — the convergence Set
+	// exists for is only real if every construction path runs it.
+	claims := PackSupersessions()
+	applySupersessions(loaded, claims)
+	return entries, Set{all: loaded, supersessions: claims, gate: gateOf(PackModules())}
 }

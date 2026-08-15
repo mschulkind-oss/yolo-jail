@@ -155,6 +155,7 @@ func (l *Loophole) subsetManifest() *loopholedecl.Manifest {
 		Requires:       l.Requires,
 		Platforms:      l.Platforms,
 		PlatformsSet:   l.PlatformsSet,
+		Serves:         l.Serves,
 	}
 }
 
@@ -244,6 +245,7 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		Requires:      m.Requires,
 		Platforms:     m.Platforms,
 		PlatformsSet:  m.PlatformsSet,
+		Serves:        m.Serves,
 		Source:        SourceUser,
 	}
 }

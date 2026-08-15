@@ -119,6 +119,17 @@ type Loophole struct {
 	// the key existed keeps its meaning.
 	Platforms    []string
 	PlatformsSet bool
+	// Serves carries the manifest's `serves` declaration verbatim: the CAPABILITIES —
+	// named jobs — this loophole implements (docs/design/pack-capabilities.md). Nil or
+	// empty means "not participating", which is what makes this mechanism unable to
+	// change the behaviour of any manifest that does not opt in.
+	Serves []string
+	// SupersededBy is the claims that retired every capability this loophole serves —
+	// set at DISCOVERY, where the selected packs' claims and the loophole records are
+	// both in hand. Never a manifest declaration: the same manifest is superseded under
+	// one pack selection and not under another, so it is a fact about the resolved set.
+	// See supersede.go.
+	SupersededBy []PackSupersession
 	Source       string
 	// SkewNotes are the version-skew reports from the TOLERANT manifest read: one
 	// line per manifest key this build does not know, so the declaration is not
@@ -190,17 +201,42 @@ func (l *Loophole) inJailActive() bool {
 
 // Active is the one predicate RuntimeArgsFor and the run pipeline gate on.
 //
-// SupportedHere comes FIRST because it is the cheapest and the most categorical:
-// an unsupported platform is not a state that a probe could change, so probing on
-// top of it would be work in service of a message we are not going to print.
+// FOUR gates, ordered cheapest-and-most-categorical first, so no gate does work in
+// service of a message a later one would have replaced:
+//
+//	Enabled          the user's switch
+//	!Superseded()    a selected pack says the job no longer needs doing — a field
+//	                 read, decided once at discovery (supersede.go)
+//	SupportedHere()  the machine cannot run it at all; nothing is installable
+//	RequirementsMet()the probe half, and the only one that touches the world
+//	                 (exec.LookPath, os.Stat)
+//
+// Superseded() sits second rather than third because it is the cheapest of the
+// three added gates AND because it belongs with `Enabled`: both are decisions a
+// user's configuration made, where the two below are facts about the machine. The
+// order here matches InactiveReason's branch order exactly, which is what stops the
+// gate and the explanation from disagreeing about WHY something is off.
+//
+// (The design doc writes the rule as `Enabled && RequirementsMet() && !Superseded()`
+// and calls supersession "a third gate". That was written against a two-gate
+// Active(); SupportedHere() had already landed, so it is the FOURTH — and the
+// relative order of the two it does not mention is what the paragraph above
+// settles.)
 func (l *Loophole) Active() bool {
-	return l.Enabled && l.SupportedHere() && l.RequirementsMet()
+	return l.Enabled && !l.Superseded() && l.SupportedHere() && l.RequirementsMet()
 }
 
 // Returns "" for None.
 func (l *Loophole) InactiveReason() (string, bool) {
 	if !l.Enabled {
 		return "disabled", true
+	}
+	// Supersession, before every machine fact, because an unexplained disappearance is
+	// the failure mode this whole design exists to avoid: a loophole a pack turned off
+	// must say WHICH pack and WHY, not "'claude' not on PATH" (which may also be true
+	// and is not the answer the reader needs). Same position as in Active().
+	if reason, ok := l.SupersessionReason(); ok {
+		return reason, true
 	}
 	// Before the `requires` probes, and before the in-jail branch, for the reason
 	// the field exists: an unsupported platform reported as an unmet requirement

@@ -409,6 +409,9 @@ func TestSubsetManifestProjectsEveryField(t *testing.T) {
 		"Path":      "the module dir — a fact about where the record was found",
 		"Source":    "bundled/pack/user/config — the caller's label, never a manifest key",
 		"SkewNotes": "the tolerant read's report, not a declaration",
+		"SupersededBy": "which selected packs retired this loophole's capabilities — a fact " +
+			"about the RESOLVED SET (the same manifest is superseded under one pack " +
+			"selection and not under another), stamped at discovery, never declared",
 	}
 	// A record with every field set to a DISTINGUISHABLE non-zero value, so a dropped
 	// field shows up as a zero on the projection.
@@ -425,7 +428,9 @@ func TestSubsetManifestProjectsEveryField(t *testing.T) {
 		HostDevices:   []string{"/dev/acme"}, StateFiles: []string{"ca.crt"},
 		Requires:  Requires{CommandOnPath: "python3", CommandOnPathSet: true},
 		Platforms: []string{"linux"}, PlatformsSet: true,
+		Serves: []string{"acme-capability"},
 		Source: SourcePack, SkewNotes: []string{"note"},
+		SupersededBy: []PackSupersession{{Pack: "p", Capability: "acme-capability", Because: "b"}},
 	}
 	rec.JailEnv.Set("A", "1")
 
