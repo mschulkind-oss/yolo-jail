@@ -190,9 +190,7 @@ func generateAll(t *testing.T, e *Env) {
 	for _, name := range EmbeddedPackNames() {
 		must(ConfigurePackByName(e, name))
 	}
-	must(GenerateCglimitScript(e))
-	must(GenerateJournalctlScript(e))
-	must(GenerateYoloWrapper(e))
+	must(RemoveStaleGeneratedClients(e))
 }
 
 func checkShellScripts(t *testing.T, bash, home string) {

@@ -166,7 +166,9 @@ CONTAINER (untrusted)
   ├── entrypoint.py
   │     ├── Generate shims, bashrc, MCP/LSP configs
   │     ├── Bootstrap script (install tools)
-  │     └── yolo-cglimit (Python socket client)
+  │     └── Unlink stale generated clients
+  │
+  ├── yolo-cglimit (baked Go socket client at /bin)
   │
   └── Agent (claude, copilot, gemini, user commands)
         ├── Full workspace read/write

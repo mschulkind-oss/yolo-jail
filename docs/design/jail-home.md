@@ -363,8 +363,11 @@ File classes:
 - `~/.config/mise/config.toml` — created with base tools or surgically healed
   in place; written only when changed (mise.go:37-145).
 - MCP wrappers `~/.local/bin/mcp-wrappers/{node,npx}` etc.
-  (mcp_wrappers.go:7-15); `~/.local/bin/yolo-cglimit`, `yolo-journalctl`
-  (scripts.go:10-17).
+  (mcp_wrappers.go:7-15). `yolo-cglimit` and `yolo-journalctl` are NO LONGER
+  generated here — the image bakes them as Go binaries at `/bin`
+  (flake.nix `shippedBinaries`), and scripts.go now only UNLINKS the scripts an
+  older entrypoint left in `~/.local/bin`, which precedes `/bin` on PATH and
+  would otherwise shadow them forever.
 - Agent configs — read-modify-write with forced jail-managed keys:
   `~/.claude/settings.json` (three-way host merge then forced keys,
   claude.go:29-97), `~/.claude.json` (claude.go:99-114), gemini/opencode/codex

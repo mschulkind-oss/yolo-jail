@@ -493,11 +493,11 @@ func Main(args []string) error {
 
 	setupCgroupDelegation(os.Stderr)
 	p.mark("cgroup_delegation")
-	genStep(e, "generate_cglimit_script", func() error { return GenerateCglimitScript(e) })
-	p.mark("cglimit_script")
-	genStep(e, "generate_journalctl_script", func() error { return GenerateJournalctlScript(e) })
-	p.mark("journalctl_script")
-	genStep(e, "cleanup_stale_wrappers", func() error { return GenerateYoloWrapper(e) })
+	// No generate step for yolo-cglimit / yolo-journalctl any more: the image
+	// bakes both (flake.nix shippedBinaries). All that is left is unlinking the
+	// scripts an older entrypoint wrote into ~/.local/bin, which PRECEDES /bin on
+	// PATH and would otherwise shadow the binaries forever.
+	genStep(e, "cleanup_stale_wrappers", func() error { return RemoveStaleGeneratedClients(e) })
 	p.mark("cleanup_stale_wrappers")
 
 	// Per-container runtime plumbing.
@@ -558,7 +558,7 @@ func genFailuresError(e *Env) error {
 //
 // This is not a licence to route optional inputs through here: a generator must
 // return nil when its input is legitimately ABSENT (InstallYoloLog with no script,
-// WriteLoginRC with no login path, GenerateYoloWrapper finding no stale files all
+// WriteLoginRC with no login path, RemoveStaleGeneratedClients finding no stale files all
 // do exactly that). Only a real failure — an unwritable path, a malformed value,
 // an unreadable declared file — reaches this.
 func genStep(e *Env, label string, fn func() error) {

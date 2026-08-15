@@ -163,3 +163,91 @@ func TestLoopholeClientsAreBaked(t *testing.T) {
 }
 
 func shipEnumerated(set map[string]bool, name string) bool { return set[name] }
+
+// TestStaleGeneratedClientsAreUnlinked is the PATH-shadow cutover test.
+//
+// The jail's PATH puts $HOME/.local/bin BEFORE /bin, and the jail home persists
+// across launches and image upgrades. A yolo-cglimit script written by a
+// previous boot therefore keeps winning over the baked binary forever — and
+// once the run pipeline publishes an endpoint file instead of a socket, that
+// surviving script reports "not available" in a jail where the loophole is
+// running fine. Deleting the generator is NOT enough; the file it already wrote
+// has to go.
+func TestStaleGeneratedClientsAreUnlinked(t *testing.T) {
+	home := t.TempDir()
+	e := &Env{Home: home, Vars: map[string]string{}}
+	if err := os.MkdirAll(e.LocalBin(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(e.ShimDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Everything an older entrypoint could have left behind, plus one file it
+	// never wrote — a name-scoped removal must not sweep a user's own script.
+	for _, name := range append(append([]string{}, staleGeneratedClients...), "my-own-tool") {
+		if err := os.WriteFile(filepath.Join(e.LocalBin(), name), []byte("#!/usr/bin/env python3\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range staleShimFiles {
+		if err := os.WriteFile(filepath.Join(e.ShimDir(), name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := RemoveStaleGeneratedClients(e); err != nil {
+		t.Fatalf("RemoveStaleGeneratedClients: %v", err)
+	}
+
+	for _, name := range staleGeneratedClients {
+		if _, err := os.Stat(filepath.Join(e.LocalBin(), name)); err == nil {
+			t.Errorf("~/.local/bin/%s survived — it shadows /bin/%s on PATH", name, name)
+		}
+	}
+	for _, name := range staleShimFiles {
+		if _, err := os.Stat(filepath.Join(e.ShimDir(), name)); err == nil {
+			t.Errorf("stale shim %s survived", name)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(e.LocalBin(), "my-own-tool")); err != nil {
+		t.Errorf("a file yolo never generated was removed: %v", err)
+	}
+	// The anchor dirs themselves must survive: both are bind-mount anchors
+	// elsewhere in the boot path, so removing one replaces the mounted inode.
+	for _, dir := range []string{e.LocalBin(), e.ShimDir()} {
+		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+			t.Errorf("%s was removed or is no longer a directory (%v)", dir, err)
+		}
+	}
+}
+
+// TestRemoveStaleGeneratedClientsIsIdempotent: it runs on every boot, and the
+// steady state (nothing stale to remove) must be a clean nil, not an error that
+// aborts the boot — genStep treats a returned error as fatal.
+func TestRemoveStaleGeneratedClientsIsIdempotent(t *testing.T) {
+	e := &Env{Home: t.TempDir(), Vars: map[string]string{}}
+	for i := 0; i < 2; i++ {
+		if err := RemoveStaleGeneratedClients(e); err != nil {
+			t.Fatalf("run %d on an empty home returned %v — a boot would abort", i, err)
+		}
+	}
+}
+
+// TestNoGeneratedPythonClientsRemain is the anti-regression guard for the whole
+// row: two implementations of one client is exactly the drift the transport
+// unification exists to end. If a generator for either client comes back, the
+// baked binary is shadowed and the second implementation is the one that runs.
+func TestNoGeneratedPythonClientsRemain(t *testing.T) {
+	root := repoRoot(t)
+	body, err := os.ReadFile(filepath.Join(root, "internal", "entrypoint", "scripts.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, banned := range []string{"CGD_SOCKET", "YOLO_SERVICE_JOURNAL_SOCKET", "python3"} {
+		if strings.Contains(string(body), banned) {
+			t.Errorf("scripts.go mentions %q again — a generated client came back, and "+
+				"~/.local/bin beats /bin on PATH, so it would shadow the baked one", banned)
+		}
+	}
+}
