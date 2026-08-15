@@ -62,6 +62,28 @@ type Footprint struct {
 	Claims []Claim
 }
 
+// SupersedesClaimKind is the Claim.Kind a `supersedes` entry is reported under.
+//
+// A DISPLAY LABEL, deliberately NOT a packdecl.Kind in the closed registry, and the
+// absence is doing three jobs rather than saving a line:
+//
+//   - `kind: "supersedes"` inside `contributes[]` stays an UNKNOWN KIND, refused by
+//     ValidateKind with the real list. Supersession is a top-level manifest key
+//     (packdecl/supersedes.go says why), so an author who writes it as a contribution
+//     hears about it.
+//   - packload.Collisions looks the kind up in the registry and SKIPS what it does not
+//     find, so two packs superseding one capability is not reported as a conflict —
+//     which is the design's rule (§5: any supersession wins, deliberately no `needs`),
+//     achieved by the shape rather than by a special case in the collision pass.
+//   - the per-kind exhaustiveness tests (the disclosure classifier, the host-render
+//     target census, the kind-docs test) enumerate packdecl.KnownKinds(), so a
+//     non-kind needs no entry in four places that describe contributions.
+//
+// It still renders: printClaimLines formats string(c.Kind) generically, so
+// `yolo pack footprint` and `yolo pack lint` print it beside every other claim with no
+// change to either command.
+const SupersedesClaimKind = packdecl.Kind("supersedes")
+
 // FootprintOf reads a pack's typed contributions (via packdecl.Contributions())
 // and returns its claims, dispatching on each contribution's kind.
 //
@@ -172,6 +194,23 @@ func FootprintOf(p *Pack) Footprint {
 		fp.Claims = append(fp.Claims, Claim{
 			Kind: packdecl.KindLoophole, Target: lc.target, Pack: p.Name,
 			Detail: lc.detail, ReviewWorthy: true, RunsHostCode: lc.runsHostCode,
+		})
+	}
+
+	// supersedes → one claim per entry, keyed by the CAPABILITY. It is a claim about the
+	// ENVIRONMENT — "this job will not be done here" — which is exactly what a footprint
+	// enumerates, and it is the only way a reader learns before selecting a pack that it
+	// will retire a loophole they rely on. The `because` is the Detail, so the
+	// justification travels with the consequence on this surface too.
+	//
+	// NOT ReviewWorthy and NOT RunsHostCode. Both flags mark a claim that WIDENS what the
+	// pack may do to your machine; this narrows it, and there is nothing to approve — see
+	// supersede.go for the full argument and for why it is absent from HostAccessClaims.
+	// The line prints unconditionally regardless, because every claim does.
+	for _, s := range p.Supersessions() {
+		fp.Claims = append(fp.Claims, Claim{
+			Kind: SupersedesClaimKind, Target: s.Capability, Pack: p.Name,
+			Detail: "retires the loophole serving it — " + s.Because,
 		})
 	}
 

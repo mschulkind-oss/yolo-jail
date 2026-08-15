@@ -49,6 +49,11 @@ import "sort"
 // Deduplicated because a union is a set — the same claim reached by two producers is one
 // thing to approve, and a duplicate would make the approved set's length depend on how
 // the claim was derived.
+//
+// ONE MANIFEST DECLARATION IS DELIBERATELY NOT A PRODUCER HERE: `supersedes`. It is a
+// footprint claim and not a host-access claim, because every string in this set GRANTS the
+// pack something it may not otherwise have, while a supersession relinquishes — see
+// supersede.go for the four reasons and for the trigger that would reopen it.
 func (p *Pack) HostAccessClaims() []string {
 	var out []string
 	out = append(out, p.Decl.HostAccessClaims()...)
