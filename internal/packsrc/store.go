@@ -88,6 +88,42 @@ func (s *Store) timeout() time.Duration {
 	return 2 * time.Minute
 }
 
+// gitStateEnv are the environment variables git sets for its own subprocesses
+// (hooks, aliases, filters). They are RELATIVE to the invoking repository and
+// must not leak into a git run against a DIFFERENT repo: a leaked
+// GIT_INDEX_FILE=.git/index from a host `git commit` hook makes a bare mirror's
+// `--work-tree` checkout try to write <tree>/.git/index.lock, which does not
+// exist, so every checkout fails. Strip them and let git re-derive its own
+// git-dir/work-tree/index from the arguments.
+var gitStateEnv = []string{
+	"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE",
+	"GIT_PREFIX", "GIT_CEILING_DIRECTORIES",
+}
+
+// cleanGitEnv drops gitStateEnv keys from env so a git run against one repo
+// cannot be redirected by state git set for another.
+func cleanGitEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		key := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			key = kv[:i]
+		}
+		drop := false
+		for _, g := range gitStateEnv {
+			if key == g {
+				drop = true
+				break
+			}
+		}
+		if !drop {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
 // run executes git with the store's timeout, returning combined output on failure so
 // the caller can surface git's own diagnosis rather than a bare exit code.
 func (s *Store) run(dir string, args ...string) (string, error) {
@@ -100,7 +136,7 @@ func (s *Store) run(dir string, args ...string) (string, error) {
 	if env == nil {
 		env = os.Environ()
 	}
-	cmd.Env = append(append([]string{}, env...),
+	cmd.Env = append(cleanGitEnv(env),
 		"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=")
 
 	done := make(chan struct{})

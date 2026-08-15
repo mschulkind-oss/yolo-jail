@@ -43,6 +43,31 @@ func gitRepo(t *testing.T, files map[string]string) string {
 	return dir
 }
 
+// A `git commit` hook inherits GIT_INDEX_FILE=.git/index (relative) from the
+// committing repo. If that leaks into a Store's git subprocess, a bare mirror's
+// `--work-tree` checkout resolves the relative index against the WORK-TREE and
+// tries to write <tree>/.git/index.lock, which does not exist — every checkout
+// fails. The store must strip git's own state vars so a run against one repo
+// cannot be redirected by state git set for another.
+func TestMaterializeIgnoresInheritedGitStateEnv(t *testing.T) {
+	repo := gitRepo(t, map[string]string{"AGENTS.md": "x\n"})
+	store := &Store{
+		Dir: t.TempDir(),
+		Env: append(os.Environ(), "GIT_INDEX_FILE=.git/index"),
+	}
+	a, err := Parse("git+file://" + repo + "?ref=main")
+	if err != nil {
+		t.Skipf("grammar does not accept a local git transport: %v", err)
+	}
+	commit, err := store.Sync(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Materialize(a, commit); err != nil {
+		t.Fatalf("Materialize with inherited git state env: %v", err)
+	}
+}
+
 func TestSyncAndMaterializeSubdirectory(t *testing.T) {
 	repo := gitRepo(t, map[string]string{
 		"tools/agent-pack/AGENTS.md":         "pack prose\n",
