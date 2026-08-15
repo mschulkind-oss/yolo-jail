@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/crossaudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
@@ -26,6 +27,18 @@ import (
 // program name). It returns the process exit code.
 func Main(argv []string) int {
 	args := argv[1:]
+
+	// ONE install for every host process that can carry a jail↔host crossing:
+	// `yolo run` hosts the fronts for `publishes: "socket"` daemons and each
+	// `yolo internal daemon <name>` hosts its own listener, and both are this
+	// binary. Here rather than at each listener so a new daemon is audited by
+	// existing and no call site can forget.
+	//
+	// Costs nothing on an invocation that crosses nothing: the sink opens its
+	// file on the FIRST crossing, so `yolo --version` and every command below
+	// create no log and no directory. Audit-only throughout — see
+	// internal/crossaudit.
+	crossaudit.Install()
 
 	if cwd := InvocationCWD(); cwd != "" {
 		_ = os.Chdir(cwd)
