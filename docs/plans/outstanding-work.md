@@ -13,24 +13,24 @@ gets re-proposed.
 
 | | Means |
 |---|---|
-| 🟡 | **needs you** — a decision or an answer. Nothing here is blocked on work. |
-| 🟢 | **ready to build** — designed, questions answered, no blockers. |
-| 🔵 | **in progress** |
-| 🟠 | **waiting** — on a machine or an external dependency. Code is done or paused, not broken. |
-| 🔴 | **broken** — actively failing, needs investigation. |
-| ⚪ | **icebox** — acknowledged, deliberately not this cycle. |
+| 💬 | **needs you** — a decision or an answer. Nothing here is blocked on work. |
+| 🔋 | **ready to build** — designed, questions answered, no blockers. |
+| 🏗️ | **in progress** |
+| 🔒 | **waiting** — on a machine or an external dependency. Code is done or paused, not broken. |
+| 🛑 | **broken** — actively failing, needs investigation. |
+| 🧊 | **icebox** — acknowledged, deliberately not this cycle. |
 
 ---
 
-# 🟡 Attention required
+# 💬 Attention required
 
 If you read one section, read this one. Each carries my recommendation, so a bare *"go with your
-read"* clears it. **🟡❓ marks the two where I genuinely have none** — subjective product calls where
+read"* clears it. **💬🤷 marks the two where I genuinely have none** — subjective product calls where
 manufacturing a recommendation would be worse than admitting the gap.
 
 ## The one that decides a design, not a task
 
-### 🟡 OQ-LP14 — a pack cannot express a runtime-dir socket
+### 💬 OQ-LP14 — a pack cannot express a runtime-dir socket
 
 - **The gap.** A pack-shipped loophole's `host_bind_mounts[].host` must sit inside its own module
   dir or under `$HOME`. `${XDG_RUNTIME_DIR}/pulse/native` is **neither, in any spelling**:
@@ -64,7 +64,7 @@ manufacturing a recommendation would be worse than admitting the gap.
 
 ## Security and correctness
 
-### 🟡 OQ-LP8 / G2b — anchor an execution approval to CONTENT?
+### 💬 OQ-LP8 / G2b — anchor an execution approval to CONTENT?
 
 - **Today:** `ApprovedAt` is written and read by nothing, so a fetched pack at a mutable ref whose
   daemon *file* changes under an unchanged argv re-installs with no prompt.
@@ -74,7 +74,7 @@ manufacturing a recommendation would be worse than admitting the gap.
 - **My read:** leave it; revisit if a fetched exec-bearing pack ever ships.
 - 📄 [`loophole-packaging.md`](../design/loophole-packaging.md) §4.3 G2b
 
-### 🟡 OQ-D1 — the config-approval snapshot is agent-writable
+### 💬 OQ-D1 — the config-approval snapshot is agent-writable
 
 - **The bypass.** `.yolo/config-snapshot.json` is mode `664` in a `:rw` workspace. An agent that
   edits `yolo-jail.jsonc` **and** matches the snapshot makes the launch-time diff prompt vanish —
@@ -85,7 +85,7 @@ manufacturing a recommendation would be worse than admitting the gap.
   detecting it. **Accept-and-document is the current state and is only defensible written down.**
 - **Why it is yours:** it trades workspace portability against a security property.
 
-### 🟡 S5 — a jail resolves a skill-name collision silently
+### 💬 S5 — a jail resolves a skill-name collision silently
 
 - The only place that silent loss survives. Refusing at *apply* time already ships.
 - **Three options ascending:** a launch **warning** naming both packs · a **`yolo check` failure** ·
@@ -93,7 +93,7 @@ manufacturing a recommendation would be worse than admitting the gap.
 - **My read:** warn now. The cheap half is worth doing regardless — the destinations are already
   computed and `hostskills.Collisions` is a pure function of them.
 
-### 🟡 OQ-S4 — does a skills `into` declaration NARROW delivery, or only ADD to it?
+### 💬 OQ-S4 — does a skills `into` declaration NARROW delivery, or only ADD to it?
 
 - **Measured asymmetry.** In a jail, every loaded pack's skills reach every declared destination.
   At `apply --host`, a pack reaches only the destinations it declared.
@@ -103,7 +103,7 @@ manufacturing a recommendation would be worse than admitting the gap.
   today it reaches everything. Arguably correct, arguably a regression.
 - **Worth doing either way:** say the fan-out out loud in `yolo pack footprint`.
 
-### 🟡 OQ-CO — should two packs writing the same `config-overlay` key be LOUD?
+### 💬 OQ-CO — should two packs writing the same `config-overlay` key be LOUD?
 
 - Silent last-one-wins today.
 - **My read:** refuse and name both packs — the same shape as the `config` exclusivity collision
@@ -113,7 +113,7 @@ manufacturing a recommendation would be worse than admitting the gap.
 
 ## Scope and direction
 
-### 🟡 N3 — non-container nix
+### 💬 N3 — non-container nix
 
 - **Options:** stop here (`install_hints` prints a remedy) · `yolo --at host -- <cmd>` · a
   yolo-owned `nix profile` as a confirm-gated remedy.
@@ -121,19 +121,19 @@ manufacturing a recommendation would be worse than admitting the gap.
   that motivated it.
 - 📄 [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §8
 
-### 🟡 OQ-B1b — vendor unYOLO's policy engine, or re-derive it?
+### 💬 OQ-B1b — vendor unYOLO's policy engine, or re-derive it?
 
 - Adopt-vs-build is settled (**build**); this is the one piece where copying may beat writing.
 - **My read:** vendor at a pinned SHA — MIT, verified stdlib-only, ~2,100 lines, zero new module
   dependencies.
 - 📄 [`boundary-broker.md`](../design/boundary-broker.md) §10.6
 
-### 🟡 OQ-B/E — approval grants: reusable, and where does the human answer?
+### 💬 OQ-B/E — approval grants: reusable, and where does the human answer?
 
 - **My read:** take the two-bound **narrowing-only** grants and the separate operator listener.
 - 📄 [`boundary-broker.md`](../design/boundary-broker.md) §9–§10.3
 
-### 🟡 OQ-E4 — do `stateful` surfaces get comment preservation?
+### 💬 OQ-E4 — do `stateful` surfaces get comment preservation?
 
 - `rmw` shipped. `computed` is provably vacuous. `stateful` is the remaining mode, and it is a
   different problem wearing the same words: the file is composed from layers, so a comment can only
@@ -146,35 +146,35 @@ manufacturing a recommendation would be worse than admitting the gap.
 
 All from [`agent-auth-modes.md`](../design/agent-auth-modes.md) §10, §12.4.
 
-- 🟡 **OQ-6 — auth packs shipped or fetched?** *Gates building `claude-bedrock`.*
+- 💬 **OQ-6 — auth packs shipped or fetched?** *Gates building `claude-bedrock`.*
   → **fetched**; shipping breaks the "six official packs" tests and embeds a personal auth choice in
   the binary.
 
-- 🟡 **OQ-2 — does the Bedrock bundle stay in `env_sources`, or become declared?**
+- 💬 **OQ-2 — does the Bedrock bundle stay in `env_sources`, or become declared?**
   → **declared**; it is what lets `describe`/`check` report the active mode.
 
-- 🟡 **OQ-4 — should `check` verify the selected mode's credential is live?**
+- 💬 **OQ-4 — should `check` verify the selected mode's credential is live?**
   → **yes**; refresh tokens hard-expire, so a stale overflow account fails exactly when needed.
 
-- 🟡 **OQ-3 — what happens on a mode switch mid-session?**
+- 💬 **OQ-3 — what happens on a mode switch mid-session?**
   → **require a restart and say so**; a half-applied switch is the dishonest option.
 
-- 🟡 **OQ-1 — is per-jail auth selection enough, or is dynamic switching required?**
+- 💬 **OQ-1 — is per-jail auth selection enough, or is dynamic switching required?**
   → per-jail is probably enough.
 
-- 🟡❓ **OQ-7 — does the Teams pack own the model IDs, or the base `claude` pack?**
+- 💬🤷 **OQ-7 — does the Teams pack own the model IDs, or the base `claude` pack?**
   → no recommendation; this is a preference about which pack owns a surface.
 
-- 🟡❓ **OQ-9 — is `env_sources` still the right home for the AWS keys?**
+- 💬🤷 **OQ-9 — is `env_sources` still the right home for the AWS keys?**
   → no recommendation; it trades hygiene against convenience and both readings are defensible.
 
 ---
 
-# 🟢 Up next
+# 🔋 Up next
 
 Prioritised. Nothing here needs an answer first.
 
-- 🟢 **The image staging/baking doc — asked for, not delivered.**
+- 🔋 **The image staging/baking doc — asked for, not delivered.**
 
   What can be *delivered at launch* instead of *baked into the nix image*, so a config change stops
   forcing a rebuild and a reload. Research was scoped (build path, load path, existing launch-time
@@ -183,26 +183,26 @@ Prioritised. Nothing here needs an answer first.
   and real closure sizes decide which candidates deserve space — and must cover the silent-fallback
   defect below, because staging changes are worthless if a failure to stage is invisible.
 
-- 🟢 **Make a failed image build fail as itself.**
+- 🔋 **Make a failed image build fail as itself.**
 
   When the build fails, `autoload.go` prints `Using existing <image> image.` and proceeds on stale
   code — so two macOS integration tests fail with a **lib-farm assertion** two layers from the
   cause, and the build's stderr is swallowed. A check that reports the wrong layer is worse than no
   check.
 
-- 🟢 **A6 — capability supersession**, so a Bedrock pack retires the OAuth broker instead of leaving
+- 🔋 **A6 — capability supersession**, so a Bedrock pack retires the OAuth broker instead of leaving
   a known-broken TLS-intercept stack starting under it.
   📄 [`pack-capabilities.md`](../design/pack-capabilities.md) ·
   [`extension-point-principle.md`](../design/extension-point-principle.md).
   *Option 0 (a hand-written `enabled: false`) needs no code and ships today.*
 
-- 🟢 **OQ-LP10 — retire the hand-placed loopholes dir.** Ruled yes, unblocked, not carried out.
+- 🔋 **OQ-LP10 — retire the hand-placed loopholes dir.** Ruled yes, unblocked, not carried out.
 
   It is the one channel that starts a host daemon with **no selection step**, and retiring it forces
   `loopholes enable/disable` off its single special case — it serves only that dir today — into
   config state for every source.
 
-- 🟢 **T2 — finish the transport retirement.**
+- 🔋 **T2 — finish the transport retirement.**
 
   Two AF_UNIX clients remain, both **generated Python** baked into the image: `yolo-cglimit`
   (hardcodes `CGD_SOCKET`) and `yolo-journalctl` (reads `YOLO_SERVICE_JOURNAL_SOCKET`). Neither
@@ -210,15 +210,15 @@ Prioritised. Nothing here needs an answer first.
   `svcendpoint.Dial`. **Not** a second TLS implementation in generated Python.
   *Trap: a new `cmd/` binary not added to `flake.nix`'s `installPrefix` vanishes from the image.*
 
-- 🟢 **B1 — audit-only log of every jail↔host boundary crossing.**
+- 🔋 **B1 — audit-only log of every jail↔host boundary crossing.**
 
   Small and additive ([`boundary-broker.md`](../design/boundary-broker.md) step 1). Note the honest
   ceiling: for a fronted daemon yolo can log **connection**-level facts only, because the front
   splices a byte stream it does not parse.
 
-- 🟢 **E3 — capture on terminate** (the `yolo config capture` half shipped).
+- 🔋 **E3 — capture on terminate** (the `yolo config capture` half shipped).
 
-- 🟢 **`yolo run --help` prints no help.**
+- 🔋 **`yolo run --help` prints no help.**
 
   It loads config, launches a jail, and runs `--help` as the command inside it (exit 127). So help
   is unavailable for `run`, and unavailable *at all* when config fails to load — which is how an
@@ -226,13 +226,13 @@ Prioritised. Nothing here needs an answer first.
 
 ---
 
-# 🟠 Waiting
+# 🔒 Waiting
 
 Code is done or paused. Nothing here is broken; each needs a machine.
 
 ### On a Mac
 
-- 🟠 **B-0 — macos-user renders ZERO pack surfaces.**
+- 🔒 **B-0 — macos-user renders ZERO pack surfaces.**
 
   The Go fix landed 2026-08-12: staging moved above backend dispatch, the tree is root-owned at
   `/var/yolo-jail/packs/<session>`, and three `PlanInvariants` refuse a plan that stages a tree
@@ -246,7 +246,7 @@ Code is done or paused. Nothing here is broken; each needs a machine.
   *Separately unclaimed:* skills and briefings do not reach a macos-user home at all — they cross
   into a container as bind mounts, and this backend has none.
 
-- 🟠 **B-1 — four more macos-user defects, none fixed.**
+- 🔒 **B-1 — four more macos-user defects, none fixed.**
 
   - Claude's credentials symlink **dangles** — blocks the auth thread's Teams half on macOS.
   - The OAuth broker is **unwired**; `EndpointGrantCommands` has zero call sites.
@@ -255,21 +255,21 @@ Code is done or paused. Nothing here is broken; each needs a machine.
     they reach the launch argv but not the bootstrap argv, so MCP `${VAR}` gating silently drops
     every secret-gated server.
 
-- 🟠 **T1 + D4 + #31 — confirmation only.** The unified `loopback-tls` transport and the
+- 🔒 **T1 + D4 + #31 — confirmation only.** The unified `loopback-tls` transport and the
   `host-processes` fix both shipped and are green on Linux. **macOS + podman, Apple Container and
   macos-user were never executed** — and that is the platform the headline claim is about.
 
-- 🟠 **B-3 — the `guest` notch.** `render.KindGuest` exists with no behaviour. Needs B-0 first, same
+- 🔒 **B-3 — the `guest` notch.** `render.KindGuest` exists with no behaviour. Needs B-0 first, same
   abstraction.
 
-- 🟠 **B-4 — three one-shot confirmations:** Cachix (one real download proof) · the first nightly
+- 🔒 **B-4 — three one-shot confirmations:** Cachix (one real download proof) · the first nightly
   after a release · one real cross-filesystem `cache_relocations` move.
 
 ---
 
-# 🔴 Broken
+# 🛑 Broken
 
-- 🔴 **The macOS nightly cannot build an image.**
+- 🛑 **The macOS nightly cannot build an image.**
 
   `TestImageSkewOracleAnswers` fails on `nix eval .#installPrefix failed: exit status 1`, and the two
   lib-farm tests fail because the build failed and the run **silently fell back to a stale image**.
@@ -283,12 +283,12 @@ Code is done or paused. Nothing here is broken; each needs a machine.
 
 ---
 
-# ⚪ Icebox
+# 🧊 Icebox
 
-- ⚪ **E5 — `managed`/`defaults` array-append pinning.** Do not build speculatively.
-- ⚪ **`requires_pack` / pack→pack composition.** No demonstrated need left.
+- 🧊 **E5 — `managed`/`defaults` array-append pinning.** Do not build speculatively.
+- 🧊 **`requires_pack` / pack→pack composition.** No demonstrated need left.
   📄 [`retired-decisions.md`](../design/retired-decisions.md)
-- ⚪ **E1+E2 — `host_files` modes 4→3, `readonly` as a real `:ro` mount.** A behaviour change on a
+- 🧊 **E1+E2 — `host_files` modes 4→3, `readonly` as a real `:ro` mount.** A behaviour change on a
   shipped key; wants a design pass before it is worth queuing.
 
 ---
