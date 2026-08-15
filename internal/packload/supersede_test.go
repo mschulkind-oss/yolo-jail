@@ -112,7 +112,7 @@ func TestCapabilityNameRulesAgree(t *testing.T) {
 	for _, name := range []string{
 		"", "claude-oauth-refresh", "audio.playback", "a_b/c-2", "x",
 		"has space", "has\ttab", "trailing ", "\nlead", "line\nbreak", "esc\x1b[2K",
-		" nbsp", "-c1", "unicode-é",
+		"\u00a0nbsp", "\u009b-c1", "unicode-\u00e9",
 	} {
 		lp := loopholedecl.CapabilityNameProblem(name)
 		pd := packdecl.CapabilityNameProblem(name)
