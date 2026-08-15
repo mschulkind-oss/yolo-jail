@@ -232,6 +232,100 @@ func TestUserLayerBeatsTheInJailSnapshotShortCircuit(t *testing.T) {
 	}
 }
 
+// THE DEFECT TWO REAL NESTING LEVELS FOUND (OQ-LP9 R2/R6). The host writes the
+// nested-launch file, and for a while NOTHING READ IT — so `packages`, `env_sources`,
+// `resources` and `network` reached a jail and stopped there. Measured in a real two-level
+// nested run: the file at depth 2 had LOST `packages` and `env_sources` relative to depth 1,
+// because depth 1's effective config never contained them. That is exactly the "a rule
+// changes with nesting" failure R6 forbids, and it made R2's file inert.
+//
+// This is the unit regression: with an inherited-launch file present, its keys must be in
+// the user scope, and re-filtering must therefore preserve them at the next level.
+func TestInheritedLaunchFileIsActuallyRead(t *testing.T) {
+	home := layerHome(t, `{"packs": ["claude"]}`)
+	t.Setenv(UserLayerEnv, "")
+	t.Setenv("YOLO_VERSION", "9.9.9-test") // the file only exists inside a jail
+	if err := os.WriteFile(
+		filepath.Join(home, ".config", "yolo-jail", "inherited-launch.jsonc"),
+		[]byte(`{"packages": ["hello"], "env_sources": ["~/.x.env"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := UserScopeConfig(false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"packages", "env_sources"} {
+		if _, present := cfg.Get(want); !present {
+			t.Errorf("%q from the inherited-launch file did not reach the user scope — the "+
+				"file the host generated for nesting would be inert, and the next level down "+
+				"would silently lose the key", want)
+		}
+	}
+	// And the round trip: re-filtering the effective config must still carry them, which is
+	// what makes depth N identical to depth 1.
+	filtered, _ := FilterInherit(cfg, InheritNested)
+	for _, want := range []string{"packages", "env_sources", "packs"} {
+		if _, present := filtered.Get(want); !present {
+			t.Errorf("%q was lost when re-filtering for the next nesting level", want)
+		}
+	}
+}
+
+// The inherited file sits UNDER the jail's own config.jsonc: what the outer scope handed
+// down loses to the more local statement, the same direction as user-under-workspace one
+// level up. Otherwise an in-jail edit could never override anything it inherited.
+func TestInheritedLaunchFileLosesToTheJailsOwnConfig(t *testing.T) {
+	home := layerHome(t, `{"packages": ["local-wins"]}`)
+	t.Setenv(UserLayerEnv, "")
+	t.Setenv("YOLO_VERSION", "9.9.9-test")
+	if err := os.WriteFile(
+		filepath.Join(home, ".config", "yolo-jail", "inherited-launch.jsonc"),
+		[]byte(`{"resources": {"memory": "8g"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := UserScopeConfig(false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The inherited-only key survives...
+	if _, present := cfg.Get("resources"); !present {
+		t.Error("an inherited-only key was dropped")
+	}
+	// ...and the local file's own value is present (list keys union-merge by
+	// MergeConfig's contract, so the assertion is presence of the local entry).
+	pkgs, _ := cfg.Get("packages")
+	list, ok := pkgs.([]any)
+	if !ok || len(list) == 0 || list[0] != "local-wins" {
+		t.Errorf("packages = %v — the jail's own config must lead over what it inherited", pkgs)
+	}
+}
+
+// Outside a jail there is no inherited-launch file, and yolo must not go looking for one:
+// inventing a second host-side user-config location is exactly the accident this design
+// rejected for `config.local.jsonc`.
+func TestInheritedLaunchIsJailOnly(t *testing.T) {
+	home := layerHome(t, `{"packs": ["claude"]}`)
+	t.Setenv("YOLO_VERSION", "")
+	if err := os.WriteFile(
+		filepath.Join(home, ".config", "yolo-jail", "inherited-launch.jsonc"),
+		[]byte(`{"packages": ["should-not-be-read"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := InheritedLaunchPath(); got != "" {
+		t.Errorf("InheritedLaunchPath() = %q on the host, want \"\"", got)
+	}
+	cfg, err := UserScopeConfig(false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := cfg.Get("packages"); present {
+		t.Error("an inherited-launch file was read on the HOST — that file is a jail artifact, " +
+			"and reading it off-container would invent a second user-config location")
+	}
+}
+
 // ValidateUserLayer accepts a relative path (resolved against the cwd), because that is how
 // an agent will type it: it writes ./layer.jsonc in its own home and passes what it typed.
 func TestValidateUserLayerAcceptsARelativePath(t *testing.T) {

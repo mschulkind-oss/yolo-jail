@@ -120,19 +120,61 @@ func UserScopeConfig(strict bool, warn Warn) (*jsonx.OrderedMap, error) {
 	return loadUserScopeConfig(p, p, strict, warn)
 }
 
-// loadUserScopeConfig is THE user-scope read: config.jsonc plus its includes, plus any
-// --user-layer, in that precedence.
+// loadUserScopeConfig is THE user-scope read: config.jsonc plus its includes, plus the
+// inherited nested-launch file, plus any --user-layer, in that precedence.
 //
-// Every user-scope reader goes through this, which is the invariant that makes the flag
-// trustworthy. The direct-read boundary those callers depend on is preserved exactly: this
-// still reads paths.UserConfigPath() and never the merged or workspace config, so workspace
-// scope stays inexpressible by construction for `packs`, `host_files` and
-// `cache_relocations`. The layer is not a workspace-reachable channel — it is an argv, and
-// an argv is not the repo.
+// Every user-scope reader goes through this, which is the invariant that makes both the flag
+// and the inherited scope trustworthy. The direct-read boundary those callers depend on is
+// preserved exactly: this still reads paths.UserConfigPath() and never the merged or
+// workspace config, so workspace scope stays inexpressible by construction for `packs`,
+// `host_files` and `cache_relocations`. Neither addition is a workspace-reachable channel —
+// one is an argv, the other is a file the HOST generated and mounted :ro.
 func loadUserScopeConfig(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
 	cfg, err := LoadJSONCWithIncludes(path, label, strict, warn, nil)
 	if err != nil {
 		return nil, err
 	}
-	return applyUserLayer(cfg), nil
+	return applyUserLayer(applyInheritedLaunch(cfg)), nil
+}
+
+// InheritedLaunchPath is the nested-launch file a jail's host wrote beside its user config:
+// $HOME/.config/yolo-jail/inherited-launch.jsonc. Empty outside a jail — the file only ever
+// exists inside one, and looking for it on the host would invent a config location.
+//
+// Kept beside the layer logic because the two are the same shape of thing: an ADDITIONAL
+// user-level input that the ordinary user-scope read has to fold in, or the readers that
+// bypass the merged config would never see it.
+func InheritedLaunchPath() string {
+	if !inJail() {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(paths.UserConfigPath()), "inherited-launch.jsonc")
+}
+
+// applyInheritedLaunch merges the inherited nested-launch file UNDER config.jsonc.
+//
+// WHY THIS EXISTS, and it was a real defect caught by running two real nesting levels: the
+// host writes this file (run/inheritscope.go) but nothing read it, so its keys —
+// `packages`, `env_sources`, `resources`, `network`, and the rest of the launch composition —
+// reached a jail and stopped there. Measured: at depth 2 the nested file had LOST `packages`
+// and `env_sources` relative to depth 1, because depth 1's effective config never contained
+// them. That is precisely the "a rule changes with nesting" failure R6 forbids, and it made
+// R2's whole file inert.
+//
+// PRECEDENCE: UNDER config.jsonc, not over it. The inherited file is what the OUTER scope
+// handed down; a jail's own config.jsonc (and any --user-layer on top) is the more local
+// statement and must win — the same direction as user-under-workspace one level up.
+func applyInheritedLaunch(base *jsonx.OrderedMap) *jsonx.OrderedMap {
+	path := InheritedLaunchPath()
+	if path == "" {
+		return base
+	}
+	inherited, err := LoadJSONCFile(path, "inherited launch config", false, func(string) {})
+	if err != nil || inherited == nil || inherited.Len() == 0 {
+		return base
+	}
+	if base == nil {
+		return inherited
+	}
+	return MergeConfig(inherited, base)
 }
