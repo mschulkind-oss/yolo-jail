@@ -13,6 +13,31 @@
 //
 // Frame wire format lives in internal/frameproto (the frozen contract);
 // this package is the request-parsing + response-emitting harness around it.
+//
+// # Two audit tiers, and one cannot cover the other
+//
+// The access log this package writes is TIER 2 of the boundary audit: one
+// structured line per REQUEST (see handleOne). It exists here and only here,
+// because only here is there a parsed request to describe.
+//
+// TIER 1 is svcendpoint's connection-level Crossing record (its crossing.go):
+// which service, which jail, when, how long, bytes each way, and whether the
+// connection authenticated. It is emitted by the transport, so it covers every
+// daemon that rides it — including the ones this package never sees, the
+// `publishes: "socket"` daemons behind svcendpoint.ServeFront.
+//
+// THERE IS NO TIER 2 FOR A FRONTED DAEMON AND THERE CANNOT BE. The front splices
+// a byte stream it does not parse, and nothing constrains a loophole's protocol
+// to be request-shaped — it may be framed, a raw stream, audio, video. So the two
+// tiers are not a fallback and a better version of one thing: a daemon here
+// produces BOTH (one connection record, plus one request line per request), and a
+// fronted daemon produces only the first. Do not paper that seam over by
+// promising the front something it cannot deliver.
+//
+// One consequence worth knowing when reading the two together: tier 2's `jail=`
+// is the value the CLIENT sent (`jail_id`, which the protocol says daemons must
+// not trust), while tier 1's is derived host-side from the path yolo published
+// at. When they disagree, tier 1 is the one that means something.
 package hostservice
 
 import (
@@ -254,6 +279,11 @@ func ServeUnix(handler Handler, socketPath string, stop <-chan struct{}) error {
 // unlinks the file, so the token dies with the listener and there is no second
 // artifact to reap. Nothing here persists a key or a token: the TLS private key
 // lives only in this process's memory.
+//
+// Because this is the jail-facing transport, every connection it accepts is a
+// boundary crossing and gets svcendpoint's tier-1 connection record in addition
+// to this package's per-request line. ServeUnix's do not: both of its ends are
+// host processes, so nothing crosses.
 func ServeEndpoint(handler Handler, endpointPath string, stop <-chan struct{}) error {
 	ln, err := svcendpoint.Listen(endpointPath, "")
 	if err != nil {
@@ -294,6 +324,17 @@ func serveListener(handler Handler, ln net.Listener, stop <-chan struct{}) error
 }
 
 // handleOne receives one request, invokes the handler, logs the summary.
+//
+// THE ACCESS LINE IS TIER 2 (see the package comment). It is deliberately
+// PAYLOAD-FREE — the request's top-level key NAMES, never its values, plus the
+// exit code, the elapsed time and the total bytes written. Same rule svcendpoint
+// logs under: a length, never a value. Enough to audit "what did jail X ask for"
+// without hoarding request bodies, which can be large or sensitive.
+//
+// Unchanged by the arrival of tier 1, on purpose. The connection-level record
+// says a crossing happened and how big it was; this says what was asked. Deleting
+// either in favour of the other loses information that the other cannot
+// reconstruct.
 func handleOne(handler Handler, conn net.Conn) {
 	start := time.Now()
 	jailID := "unknown"
