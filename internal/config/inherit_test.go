@@ -178,6 +178,40 @@ func TestInheritNeverEmitsIncludeIfFound(t *testing.T) {
 	}
 }
 
+// INCLUDE CONTENT NOW CROSSES, which is the third of the three defects OQ-LP9 names in the
+// old raw bind and the only one that was a straight LOSS rather than a false error.
+//
+// The old mount loop named exactly two files (config.jsonc, config.lua), so a user whose
+// config's first line is `include_if_found: ["overrides.jsonc"]` had the included half stay
+// host-side — the in-jail "user scope" was neither the effective config nor a designed
+// subset. Rendering from the EFFECTIVE config fixes it for free, because the includes are
+// already merged in by the time the filter runs. Verified against the real CLI 2026-08-14:
+// an `mcp_servers` block living in overrides.jsonc appears in `yolo config dump`.
+//
+// This is the unit pin: the include's CONTENT survives while the include DIRECTIVE does not.
+func TestIncludedContentCrossesEvenThoughTheDirectiveDoesNot(t *testing.T) {
+	// The effective config as LoadConfig produces it: includes already merged, the
+	// directive itself consumed by LoadJSONCWithIncludes... except when a caller hands us a
+	// map that still carries it, which is why FilterInherit drops the key explicitly.
+	effective := jsonx.NewOrderedMap()
+	effective.Set("include_if_found", []any{"overrides.jsonc"})
+	effective.Set("mcp_servers", mapOf(t, "tavily", mapOf(t, "command", "npx"))) // from the include
+	effective.Set("packs", []any{"claude"})
+
+	got, unknown := FilterInherit(effective, InheritPreflight)
+	if len(unknown) > 0 {
+		t.Fatalf("unknown keys: %v", unknown)
+	}
+	if _, present := got.Get("mcp_servers"); !present {
+		t.Error("content that arrived via include_if_found did not cross — the in-jail user " +
+			"scope is again \"whatever happened to be in the top file\", which is the third " +
+			"defect OQ-LP9 names in the raw bind")
+	}
+	if _, present := got.Get("include_if_found"); present {
+		t.Error("the include DIRECTIVE crossed; only its merged content may")
+	}
+}
+
 // An UNCLASSIFIED key is dropped AND NAMED. Silently passing it through would defeat the
 // census (a host-shaped key would reach a jail unreviewed); silently dropping it would hide
 // a schema addition. This is the same all-or-nothing-plus-report contract loopholedecl.Decode
