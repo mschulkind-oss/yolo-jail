@@ -1106,7 +1106,6 @@ func packInstall(out, errw io.Writer, color bool, stdin io.Reader) int {
 		lock.Set(packsrc.LockEntry{
 			Name: e.Name, Source: e.Source, Commit: commit, Ref: addr.Ref,
 			ApprovedHostAccess: approved,
-			ApprovedAt:         approvedAtFor(approved, commit),
 		})
 	}
 
@@ -1227,16 +1226,6 @@ func prevApproved(prev packsrc.LockEntry, hadPrev bool) []string {
 		return nil
 	}
 	return prev.ApprovedHostAccess
-}
-
-// approvedAtFor records the commit an approval was granted against, but only when
-// something was actually approved — an empty set (a pack that reads nothing, or a
-// declined prompt that carried nothing forward) records no anchor.
-func approvedAtFor(approved []string, commit string) string {
-	if len(approved) == 0 {
-		return ""
-	}
-	return commit
 }
 
 // promptYesNo writes a prompt and reads a single line from stdin, returning true

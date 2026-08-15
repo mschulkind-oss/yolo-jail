@@ -200,7 +200,7 @@ func TestApprovalFieldsRoundTrip(t *testing.T) {
 	l := &Lock{Schema: LockSchema, Packs: map[string]LockEntry{}}
 	l.Set(LockEntry{
 		Name: "acme", Source: "git+ssh://h/o/r//p?ref=v1", Commit: "abc123", Ref: "v1",
-		ApprovedHostAccess: []string{"mount refs -> /ctx/refs"}, ApprovedAt: "abc123",
+		ApprovedHostAccess: []string{"mount refs -> /ctx/refs"},
 	})
 	if err := l.Save(path); err != nil {
 		t.Fatal(err)
@@ -210,37 +210,39 @@ func TestApprovalFieldsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	e, ok := got.Get("acme")
-	if !ok || e.ApprovedAt != "abc123" || len(e.ApprovedHostAccess) != 1 ||
+	if !ok || len(e.ApprovedHostAccess) != 1 ||
 		e.ApprovedHostAccess[0] != "mount refs -> /ctx/refs" {
 		t.Errorf("approval did not round-trip: %+v", e)
 	}
 }
 
-// HostAccessApproved IGNORES ApprovedAt, which is §4.3 G2b's open gap stated as a test
-// rather than as a comment.
+// HostAccessApproved compares CLAIM STRINGS ONLY — never the commit an approval was
+// granted against. That is §4.3 G2b's open gap, stated as a test rather than as a comment.
 //
-// It is asserted because the field's doc comment claimed a reader it never had ("so
-// `pack status` can say approved at <sha>" — measured false), and a doc comment naming a
-// nonexistent reader makes the gap look covered. Two entries differing ONLY in ApprovedAt
-// answer identically, which is exactly the shape of the risk: a fetched pack at a mutable
-// ref whose daemon FILE changes under an unchanged argv passes with no re-prompt.
+// It is asserted rather than described because the codebase used to carry an `ApprovedAt`
+// field for exactly this: written on every install, read by nothing, and named as though
+// the anchoring existed. A persisted field in a trust file is read as a fact about the
+// system, so the gap looked covered (docs/design/gate-placement-principle.md, "The artifact
+// form"). The field is gone; the gap is here, where it fails if the behaviour changes.
 //
-// This test is a STATEMENT OF CURRENT BEHAVIOUR, not a requirement. G2b is a maintainer
-// decision under OQ-LP8; when it lands, this test changes with it — deliberately, so the
-// change is visible rather than absorbed.
-func TestHostAccessApprovedIgnoresApprovedAtToday(t *testing.T) {
+// The risk it records: a fetched pack at a mutable ref whose daemon FILE changes under an
+// unchanged argv passes with no re-prompt.
+//
+// This is a STATEMENT OF CURRENT BEHAVIOUR, not a requirement. G2b is a maintainer decision
+// under OQ-LP8; when it lands, this test changes with it — deliberately, so the change is
+// visible rather than absorbed.
+func TestHostAccessApprovedComparesClaimStringsOnly(t *testing.T) {
 	want := []string{"RUNS 'python3 {loophole_dir}/acme.py'"}
-	atOldCommit := LockEntry{Name: "acme", Commit: "def5678",
-		ApprovedHostAccess: want, ApprovedAt: "abc1234"}
-	atThisCommit := LockEntry{Name: "acme", Commit: "def5678",
-		ApprovedHostAccess: want, ApprovedAt: "def5678"}
+	sameClaims := LockEntry{Name: "acme", Commit: "def5678", ApprovedHostAccess: want}
+	// The SAME claims recorded against a pack now pinned at a DIFFERENT commit.
+	movedPin := LockEntry{Name: "acme", Commit: "abc1234", ApprovedHostAccess: want}
 
-	if !atThisCommit.HostAccessApproved(want) {
-		t.Fatal("an approval recorded at THIS commit was not honored; the rest is vacuous")
+	if !sameClaims.HostAccessApproved(want) {
+		t.Fatal("an approval with matching claims was not honored; the rest is vacuous")
 	}
-	if !atOldCommit.HostAccessApproved(want) {
-		t.Fatal("HostAccessApproved consults ApprovedAt now. That is G2b LANDING, which is " +
-			"welcome — update this test and the §4.3 ledger together, and give ApprovedAt's doc " +
-			"comment its first true reader")
+	if !movedPin.HostAccessApproved(want) {
+		t.Fatal("HostAccessApproved now depends on the commit. That is G2b LANDING, which is " +
+			"welcome — update this test and the §4.3 ledger together, and record what the new " +
+			"anchor is where the next reader will look")
 	}
 }

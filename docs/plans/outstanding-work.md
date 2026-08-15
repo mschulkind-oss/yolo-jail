@@ -1,6 +1,6 @@
 # Ongoing work
 
-**Status: 17 attention required · 9 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
+**Status: 17 attention required · 8 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
 
 Last updated 2026-08-15. Counts tallied from this file, not asserted.
 
@@ -61,14 +61,32 @@ whether the rule should exist in its current form at all — and by this repo's 
   `/run/user/1000/…` hardcodes a uid. But `${XDG_RUNTIME_DIR}` is *more* portable as a raw string,
   and the rule refuses both — a portability rule that refuses the portable spelling.
 
-- **My read, revised:** narrow the rule to what it can honestly justify — **refuse what cannot be
-  claimed honestly**, not what a user might not want. A raw `${XDG_RUNTIME_DIR}/…` renders a
-  machine-independent claim, so let it through and let the approval do its job. That is smaller than
-  the enumerated-vocabulary answer I proposed before, and it drops a rule rather than adding one.
+- **I over-corrected last round, and the correction is withdrawn.** I wrote "drop the path rule and
+  let the approval do its job". Two facts checked since say that is wrong:
 
-- **The counter-argument, so it is on the table:** *"a fetched pack should never even be able to ASK
-  for a host socket"* is coherent, and defence-in-depth is real. But it has to be argued as policy —
-  what a pack may ever request — rather than as a boundary, because it is not one.
+  - **The `mount` kind refuses absolute paths too** (`appendPathProblems`: *"must be relative, not
+    absolute"*). So the loophole bind rule is CONSISTENT with the existing declarative kind, not a
+    patch over an inconsistency. Dropping it would make loophole binds the one declarative kind that
+    can name any host path.
+  - The inconsistency that remains is narrower and real: **declarative binds are confined to `$HOME`,
+    while the `host_daemon` the same subset permits is not confined at all.** The rule can never be a
+    boundary while that is true — but it is still the right DEFAULT, because most packs declare no
+    daemon, and for those it holds.
+
+- **Answering the specific proposal — "disallow hardcoded, require the var":** that is the version
+  with false positives, and it is the one to avoid. `${HOME}/.ssh` is also a `$VAR`, so a
+  *require-interpolation* rule admits exactly what the path rule exists to refuse. Interpolation is
+  not evidence of anything; it is a spelling.
+
+- **My read, restored and sharpened: a CLOSED, yolo-resolved list of runtime sockets.** The manifest
+  names a member of the list (`pulse`, `pipewire`, …) rather than a path; yolo resolves the session
+  runtime dir; the claim is emitted in the host-IPC class that already exists.
+
+  - **No false positives by construction** — the list is closed, so nothing unintended is admitted.
+  - Its failure mode is a false *negative* (a runtime socket nobody enumerated), which is fixed by
+    adding a name, not by loosening a rule.
+  - The approval string stays machine-independent, because what is approved is the declaration, not
+    the resolved path.
 
 - 📄 [`loophole-packaging.md`](../design/loophole-packaging.md) §3.1, §7 ·
   [overview](../design/loophole-packaging-overview.md) §5.1 ·
@@ -96,7 +114,8 @@ half-built artifact still there".**
   extension *surfaces* from YAGNI. This is not one — it is a half-finished implementation with no
   reader, no documented contract for third parties, and no caller waiting on it.
 
-- **My read: remove it.** Queued as ready work below. The gap it gestures at is real but is already
+- **DONE 2026-08-15: removed.** The field is gone and the gap is recorded as an assertion
+  (`TestHostAccessApprovedComparesClaimStringsOnly`). The gap it gestures at is real but is already
   pinned by a test (`TestHostAccessApprovedIgnoresApprovedAtToday`), which is the honest way to
   record a known hole — a failing-if-it-changes assertion rather than a field that implies it is
   handled. If a fetched exec-bearing pack ever ships, decide content-anchoring then, on evidence.
@@ -111,15 +130,33 @@ half-built artifact still there".**
   the exact bypass [`config-safety.md`](../design/config-safety.md) exists to prevent, and
   undiscussed there.
 - **Four options:** move it to host state · per-file `:ro` mount · HMAC it · accept and document.
-- **My read:** the `:ro` mount if practical, else move it. Both remove the bypass rather than
-  detecting it. **Accept-and-document is the current state and is only defensible written down.**
-- **Why it is yours:** it trades workspace portability against a security property.
+- **My read, corrected on review: MOVE IT to host state.** The `:ro` mount was my first choice and it
+  is **podman-only** — Apple Container cannot bind-mount a single file (hence the `acMaterialize`
+  workaround), and `macos-user` has no bind mounts at all. A security property that holds on one of
+  three backends is not a security property; it is a coverage gap with a good story. Moving the
+  snapshot into `paths.GlobalStorage()`, keyed by workspace path, removes the bypass on every
+  backend and needs no mount at all.
+- **What moving it costs, so the trade is visible:** the snapshot stops sitting next to the config it
+  describes, and a workspace copied to another machine loses its approval state — which is arguably
+  correct, since approval was granted on the machine that granted it.
+- **Accept-and-document is the current state and is only defensible written down.**
 
 ### 💬 S5 — a jail resolves a skill-name collision silently
 
-- The only place that silent loss survives. Refusing at *apply* time already ships.
+- **What happens elsewhere, measured.** At `apply --host` a collision is **refused by name and
+  nothing is composed** — `reportSkillCollisions` prints one red line per collision and the whole
+  skills surface is skipped. Deliberately a refusal rather than a crash: its own comment says *"a
+  fatal error the user cannot act on is worse than the silent loss it replaces."*
+- **In a jail it is silently resolved.** `internal/agents/skills.go` has **no collision concept at
+  all** — no mention of the word — so the packs are copied in order and the last writer wins.
+- **Is it an accident? Half.** S1's ruling was explicit that the collision is fatal *at apply time*,
+  and the jail path was simply never given the concept. So it is a scope boundary that hardened into
+  an inconsistency — not an oversight, but never a decision either. That is why it is a question
+  rather than a bug.
 - **Three options ascending:** a launch **warning** naming both packs · a **`yolo check` failure** ·
-  a **boot refusal**.
+  a **boot refusal**. Note the apply-side precedent argues against the third: refusing to START a
+  jail is much heavier than refusing to write a real home, and the existing comment already rejects
+  "fatal the user cannot act on" for the lighter case.
 - **My read:** warn now. The cheap half is worth doing regardless — the destinations are already
   computed and `hostskills.Collisions` is a pure function of them.
 
@@ -249,13 +286,6 @@ the 🛑 nightly below cannot be diagnosed without it, and the small independent
   Small and additive ([`boundary-broker.md`](../design/boundary-broker.md) step 1). Note the honest
   ceiling: for a fronted daemon yolo can log **connection**-level facts only, because the front
   splices a byte stream it does not parse.
-
-- 📦 **Delete `ApprovedAt`.** It is written into the lockfile and read by nothing, and its name
-  states a guarantee the code does not deliver (see OQ-LP8 above). Removing it is
-  backward-compatible — lock decoding does not reject unknown keys, so existing lockfiles keep a
-  stray key nothing reads. Keep `TestHostAccessApprovedIgnoresApprovedAtToday`, renamed to describe
-  what is actually true, so the known gap stays pinned by an assertion rather than by a field that
-  implies it is closed.
 
 - 📦 **E3 — capture on terminate** (the `yolo config capture` half shipped).
 
