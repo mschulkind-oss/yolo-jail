@@ -113,21 +113,29 @@ var inheritCensus = map[string]keyDisposition{
 	// resolved BEFORE the render — see FilterInherit, which consumes it exactly as
 	// LoadJSONCWithIncludes does. Listed for the census, never emitted.
 	"include_if_found": {reason: "already resolved into the rendered config; emitting it would re-resolve host-relative paths against the jail"},
+	// `journal` and `host_processes` are the two RESERVED loophole names carried as their
+	// own top-level keys. Both consumers: `yolo loopholes` reports the mode/visible-list
+	// in-jail, and an inner launcher starts the daemon (journalBridge / the host-processes
+	// endpoint) from the same value.
+	"journal":        {preflight: true, nested: true, reason: "a reserved loophole `yolo loopholes` reports and an inner launcher starts"},
+	"host_processes": {preflight: true, nested: true, reason: "a reserved loophole whose visible-list is reported in-jail and enforced by the launcher's daemon"},
+	// THE IN-JAIL-PROVISIONING KEYS, all five in BOTH — and the preflight half is MEASURED,
+	// not judged. `yolo check`'s entrypoint dry-run (check/entrypoint.go) feeds exactly
+	// these into a temp home as YOLO_BLOCK_CONFIG / YOLO_MISE_TOOLS / YOLO_LSP_SERVERS /
+	// YOLO_MCP_SERVERS / YOLO_MCP_PRESETS and runs the real generators over them, so an
+	// in-jail check genuinely evaluates each; and the run pipeline feeds the same five to a
+	// real container. One consumer VALIDATES, the other COMPOSES — which is why "in one
+	// file" must not be allowed to mean "in both" by default: these earn both memberships.
+	//
+	// They are also the key class the raw bind got RIGHT, and the reason the filter is not
+	// "drop anything host-shaped": every referent here is inside the jail.
+	"security":    {preflight: true, nested: true, reason: "blocked_tools decides this jail's shims; the check dry-run generates them and a launcher passes them on"},
+	"mise_tools":  {preflight: true, nested: true, reason: "the check dry-run runs ConfigureMisePrism over it; an inner launcher installs from it"},
+	"mcp_servers": {preflight: true, nested: true, reason: "MCP processes run in the jail; the check dry-run renders their wrappers and a launcher passes them on"},
+	"mcp_presets": {preflight: true, nested: true, reason: "MCP presets the check dry-run resolves and an inner launcher passes on"},
+	"lsp_servers": {preflight: true, nested: true, reason: "LSP servers installed in the jail; the check dry-run renders their config"},
 
 	// ---- Preflight only ---------------------------------------------------------
-	// `journal` and `host_processes` are read by the loophole surfaces in-jail: both name
-	// reserved loophole names whose visibility/args the in-jail commands report.
-	"journal":        {preflight: true, reason: "a reserved loophole whose mode `yolo loopholes` reports"},
-	"host_processes": {preflight: true, reason: "a reserved loophole whose visible-list `yolo loopholes` reports"},
-	// `security.blocked_tools` decides which shims exist, and an in-jail agent hitting a
-	// blocked tool asks `yolo check` why. Judgeable in here: the shims ARE in here.
-	"security": {preflight: true, reason: "blocked_tools decides the shims that exist in this jail"},
-	// `mcp_servers`/`mcp_presets`/`lsp_servers` configure processes that run INSIDE the
-	// jail, so an in-jail check judges them against the right machine. This is also the
-	// key class the raw bind got RIGHT and the reason not to filter by "host-shaped".
-	"mcp_servers": {preflight: true, reason: "configures MCP processes that run in this jail"},
-	"mcp_presets": {preflight: true, reason: "configures MCP processes that run in this jail"},
-	"lsp_servers": {preflight: true, reason: "configures LSP servers installed in this jail"},
 	// `agents_md_extra` is briefing prose rendered into this jail's own AGENTS.md.
 	"agents_md_extra": {preflight: true, reason: "prose rendered into this jail's briefing"},
 	// `writable_home_dirs` names paths under /home/agent — in-jail referents, and the
@@ -142,10 +150,9 @@ var inheritCensus = map[string]keyDisposition{
 	// in-jail `yolo check --no-build` skips the image section entirely, measured); an
 	// inner launcher BAKES them. So they are the nested file's core and are absent from
 	// preflight, where they would only invite a judgement about a host image.
-	"packages":   {nested: true, reason: "baked into the image an inner launcher builds"},
-	"mise_tools": {nested: true, reason: "installed into the jail an inner launcher starts"},
-	"resources":  {nested: true, reason: "memory/cpu limits an inner launcher applies to its container"},
-	"network":    {nested: true, reason: "the network mode an inner launcher gives its container"},
+	"packages":  {nested: true, reason: "baked into the image an inner launcher builds"},
+	"resources": {nested: true, reason: "memory/cpu limits an inner launcher applies to its container"},
+	"network":   {nested: true, reason: "the network mode an inner launcher gives its container"},
 	// `env_sources` is nested-only for a measured reason, not a judgement: its string
 	// entries are HOST FILE PATHS, and resolving them in-jail emits "env_sources file not
 	// found, skipping" on every in-jail check (measured 2026-08-14). An inner launcher

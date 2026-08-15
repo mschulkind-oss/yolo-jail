@@ -129,7 +129,9 @@ func TestNestedFilterCarriesTheLaunchComposition(t *testing.T) {
 	effective.Set("packs", []any{"claude"})
 	effective.Set("resources", mapOf(t, "memory", "8g"))
 	effective.Set("cache_relocations", mapOf(t, "npm", "/mnt/bigdisk/npm"))
-	effective.Set("mcp_servers", mapOf(t, "tavily", jsonx.NewOrderedMap()))
+	// agents_md_extra is genuinely preflight-only: it is prose rendered into THIS jail's
+	// briefing, and an inner launcher composes its child's briefing from its own config.
+	effective.Set("agents_md_extra", "## a note for this jail's agents\n")
 
 	got, unknown := FilterInherit(effective, InheritNested)
 	if len(unknown) > 0 {
@@ -149,9 +151,12 @@ func TestNestedFilterCarriesTheLaunchComposition(t *testing.T) {
 			"and its target is absent from the container an inner launcher runs in")
 	}
 	// A preflight-only key must not leak into the nested file: the two are separate
-	// consumers, so "in one" must not silently mean "in both".
-	if _, present := got.Get("mcp_servers"); present {
-		t.Error("mcp_servers is preflight-only (it configures processes in THIS jail); " +
+	// consumers, so "in one" must not silently mean "in both". This is the assertion that
+	// keeps the split real — several keys legitimately earn BOTH memberships (security,
+	// mise_tools, the MCP/LSP trio, measured against check's entrypoint dry-run), and
+	// without a case like this one nothing would notice the filters collapsing into one.
+	if _, present := got.Get("agents_md_extra"); present {
+		t.Error("agents_md_extra is preflight-only (prose for THIS jail's briefing); " +
 			"finding it in the nested file means the two filters are not distinct")
 	}
 }
