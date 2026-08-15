@@ -308,19 +308,35 @@ func InheritHeader(scope InheritScope, launchedAt string) string {
 	return b.String()
 }
 
-// RenderInherit returns the full bytes of a generated inner-scope file: the header
-// comment followed by the filtered config as canonical snapshot JSON.
+// FilterInheritErr is FilterInherit with an error return, for callers that want the
+// filtered map itself (e.g. to ask whether it is empty before rendering a file for it).
+// The error is always nil today and exists so a future filter that can fail — a value-level
+// rewrite rather than a key-level projection — does not change every call site.
+func FilterInheritErr(effective *jsonx.OrderedMap, scope InheritScope) (*jsonx.OrderedMap, []string, error) {
+	out, unknown := FilterInherit(effective, scope)
+	return out, unknown, nil
+}
+
+// RenderFiltered renders an ALREADY-FILTERED map as a generated inner-scope file: the
+// header comment followed by canonical snapshot JSON.
 //
 // Canonical JSON (not a pretty-printed JSONC) because the whole point is that this is a
 // RENDER of the one computation `yolo config dump` already serializes: same sorted keys,
 // same escaping, same stable bytes. JSONC is a superset of JSON, so the file parses
 // through the ordinary config loader with no special case, and the leading `//` comments
 // ride along.
-func RenderInherit(effective *jsonx.OrderedMap, scope InheritScope, launchedAt string) (string, []string, error) {
-	filtered, unknown := FilterInherit(effective, scope)
+func RenderFiltered(filtered *jsonx.OrderedMap, scope InheritScope, launchedAt string) (string, error) {
 	body, err := SnapshotJSON(filtered)
 	if err != nil {
-		return "", unknown, err
+		return "", err
 	}
-	return InheritHeader(scope, launchedAt) + body + "\n", unknown, nil
+	return InheritHeader(scope, launchedAt) + body + "\n", nil
+}
+
+// RenderInherit filters and renders in one step — the whole-file form, for callers with no
+// reason to inspect the filtered map.
+func RenderInherit(effective *jsonx.OrderedMap, scope InheritScope, launchedAt string) (string, []string, error) {
+	filtered, unknown := FilterInherit(effective, scope)
+	out, err := RenderFiltered(filtered, scope, launchedAt)
+	return out, unknown, err
 }

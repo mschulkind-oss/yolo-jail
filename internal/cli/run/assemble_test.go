@@ -515,22 +515,24 @@ func podmanLinuxGolden(home string) []string {
 // $HOME/.config/yolo-jail/config.lua and the CLI docs advertise it as auto-loaded,
 // but only config.jsonc was ever mounted — so the user half of the documented
 // "user then workspace" transform pair silently did nothing.
-func TestUserConfigMountIncludesConfigLua(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	cfgDir := filepath.Join(home, ".config", "yolo-jail")
-	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+//
+// Both halves of the old pair now live in inheritscope_test.go, because OQ-LP9 split them:
+// config.jsonc is GENERATED per consumer (TestInheritedPreflightFileDropsHostOnlyKeys and
+// friends), while config.lua still crosses as the host's own file
+// (TestConfigLuaStillCrossesUnfiltered / TestAbsentConfigLuaAddsNoArgv). Kept here as a
+// COVERAGE POINTER rather than deleted: the A13 regression must stay findable from the file
+// that used to own it, and the two tests it names are the permanent home of the assertion.
+//
+// This one keeps the half the old test proved that the new ones would otherwise only prove
+// separately: that BOTH files reach the jail from one call.
+func TestUserConfigMountDeliversBothTheGeneratedConfigAndConfigLua(t *testing.T) {
+	home, wsState := inheritHome(t, `{"packs": ["claude"]}`)
+	if err := os.WriteFile(
+		filepath.Join(home, ".config", "yolo-jail", "config.lua"), []byte("-- t\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, n := range []string{"config.jsonc", "config.lua"} {
-		if err := os.WriteFile(filepath.Join(cfgDir, n), []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	o := &Options{}
-	args := o.userConfigMountArgs("podman", t.TempDir(), map[string]struct{}{})
-	joined := strings.Join(args, " ")
+	o := inheritOptions(t)
+	joined := strings.Join(o.userConfigMountArgs("podman", wsState, map[string]struct{}{}), " ")
 	for _, want := range []string{
 		"/home/agent/.config/yolo-jail/config.jsonc",
 		"/home/agent/.config/yolo-jail/config.lua",
@@ -538,25 +540,6 @@ func TestUserConfigMountIncludesConfigLua(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("mount args missing %s:\n%s", want, joined)
 		}
-	}
-}
-
-// A user with no config.lua must add no argv — the golden argv of a jail without
-// a transform stays byte-identical.
-func TestUserConfigMountOmitsAbsentConfigLua(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	cfgDir := filepath.Join(home, ".config", "yolo-jail")
-	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	o := &Options{}
-	args := o.userConfigMountArgs("podman", t.TempDir(), map[string]struct{}{})
-	if strings.Contains(strings.Join(args, " "), "config.lua") {
-		t.Errorf("absent config.lua must not be mounted: %v", args)
 	}
 }
 
