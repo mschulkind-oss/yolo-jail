@@ -241,25 +241,29 @@ All from [`agent-auth-modes.md`](../design/agent-auth-modes.md) §10, §12.4.
 
 Nothing here needs an answer first.
 
-**Ordered by:** what I owe you · then what unblocks something else in this file · then descending
-value-for-cost. So the undelivered doc leads, the swallowed-build-failure fix comes second because
-the 🛑 nightly below cannot be diagnosed without it, and the small independent items trail.
-
-- 📦 **The image staging/baking doc — asked for, not delivered.**
-
-  What can be *delivered at launch* instead of *baked into the nix image*, so a config change stops
-  forcing a rebuild and a reload. Research was scoped (build path, load path, existing launch-time
-  delivery, cost model, prior art, measurements); the run was killed on a quota limit before
-  writing. **Owed, not started.** It should lead with the cost model — the git-history rebuild rate
-  and real closure sizes decide which candidates deserve space — and must cover the silent-fallback
-  defect below, because staging changes are worthless if a failure to stage is invisible.
+**Ordered by:** what unblocks something else in this file · then descending value-for-cost. So the
+swallowed-build-failure fix leads — the 🛑 nightly below cannot be diagnosed without it, and
+[`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) ranks it ahead of every
+staging change it proposes — and the small independent items trail.
 
 - 📦 **Make a failed image build fail as itself.**
 
   When the build fails, `autoload.go` prints `Using existing <image> image.` and proceeds on stale
   code — so two macOS integration tests fail with a **lib-farm assertion** two layers from the
   cause, and the build's stderr is swallowed. A check that reports the wrong layer is worse than no
-  check.
+  check. The minimal fix is specified (not implemented) in
+  📄 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §7: `buildTail` is already
+  captured at `autoload.go:169` and dropped on the floor at `:184-191`; only the call site is
+  missing. **OQ-2 there** — whether the fallback should still return `true` after a failed build —
+  needs a ruling before the behavior half lands.
+
+- 📦 **Pass `--accept-flake-config` on the three image `nix` invocations.**
+
+  `autoload.go:319-323`, `build.go:44-49`, `check/sections_nix.go:19-20` do not pass it, so nix
+  prints *"ignoring untrusted flake configuration setting 'extra-substituters'"* and never consults
+  `yolo-jail.cachix.org` — the exact failure `darwinpkg.go:80-87` documents and guards against on
+  the *other* nix path. Two-character change; makes a "build failed" on macOS mean something.
+  📄 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §6.
 
 - 📦 **A6 — capability supersession**, so a Bedrock pack retires the OAuth broker instead of leaving
   a known-broken TLS-intercept stack starting under it.
@@ -351,7 +355,9 @@ Code is done or paused. Nothing here is broken; each needs a machine.
 
   **Plausibly one root cause, not three:** nix is broken on that runner. Not in our tree, so a
   re-trigger reproduces it. The next useful step is the swallowed `nix build` stderr, not another
-  run.
+  run. 📄 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §7 traces the
+  fallback exactly and names the missing call site; note the second 📦 item above — the runner may
+  simply never have been allowed to reach the binary cache.
 
   *The multi-arch builder-index theory was tested and **refuted** — the arch warning is gone and the
   failures are identical. Recorded so it is not retried.*

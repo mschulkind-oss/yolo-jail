@@ -255,6 +255,7 @@ there is no sync step.
 | Loopholes (`audio`, `claude-oauth-broker`, `host-processes`) | `docs/guides/loopholes.md`, `docs/design/loophole-protocol.md` |
 | Config-change confirmation flow | `docs/design/config-safety.md` |
 | Storage paths and state separation | `docs/design/storage-and-config.md` |
+| What the image must bake vs. what a launch delivers; the rebuild/reload cost model | `docs/design/image-staging-vs-baking.md` |
 | Cgroup delegate security model | `docs/design/security-shim.md` |
 | macOS backends | `docs/guides/macos.md` |
 | macos-user nix integration + disabled-feature surface | `docs/design/macos-user-nix-and-features.md` |
