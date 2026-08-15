@@ -11,6 +11,18 @@ import (
 // --impure image rebuild), so these are the slowest tests in the suite; they are
 // gated by requireJail(t) like every other container test.
 //
+// THAT PER-WORKSPACE BUILD IS WHY THESE TWO TESTS LIE WHEN THEY FAIL — or did,
+// until the guard below existed. Every assertion in this file is of the form
+// "the library I asked for is in the image", so ANY reason the image is not the
+// one this config asked for reads as a lib-farm bug. On 2026-08-15 the macOS
+// nightly's build failed, the CLI silently fell back to the already-loaded
+// image, and both tests reported `libzbar.so.0 not linked into /lib` for what
+// was a nix error. The fix is not here: runCommand now aborts with the build's
+// own output whenever the CLI reports a failed build, so the failure arrives at
+// its cause (see imagebuildfailure_test.go). Keep new assertions in this file
+// written as if the image is correct — checking for a stale image per-test is
+// the harness's job, and duplicating it here would drift.
+//
 // The in-jail `python3 -c 'ctypes.CDLL(...)'` probes are kept verbatim from the
 // Python era on purpose: they exercise the *jail image's* python3 + ctypes (a
 // product feature of the image — the lib farm exists so image python3 and other

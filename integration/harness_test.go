@@ -370,7 +370,13 @@ func runCommand(t *testing.T, dir string, args []string, opts ...runOption) resu
 			t.Fatalf("yolo failed to start (yolo %s): %v", strings.Join(args, " "), err)
 		}
 	}
-	return result{rc: rc, stdout: stdout.String(), stderr: stderr.String()}
+	res := result{rc: rc, stdout: stdout.String(), stderr: stderr.String()}
+	// Attribute a failed image build to the image build, right here, before the
+	// caller asserts anything about a jail that was never built from this source
+	// tree (see imagebuildfailure_test.go for why this cannot live in TestMain's
+	// skew check). Every run* helper funnels through here, so no test opts in.
+	failIfImageBuildFailed(t, args, res)
+	return res
 }
 
 // runYolo runs a shell script inside the jail via a login shell:
