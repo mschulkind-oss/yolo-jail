@@ -1,6 +1,6 @@
 # Ongoing work
 
-**Status: 17 attention required · 7 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
+**Status: 17 attention required · 6 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
 
 Last updated 2026-08-15. Counts tallied from this file, not asserted.
 
@@ -274,19 +274,24 @@ staging change it proposes — and the small independent items trail.
   `svcendpoint.Dial`. **Not** a second TLS implementation in generated Python.
   *Trap: a new `cmd/` binary not added to `flake.nix`'s `installPrefix` vanishes from the image.*
 
+- 📦 **`--help` is unanswered on eight more subcommands, and one of them writes a file.**
+
+  Surveyed while fixing `run`: `pack`, `config`, `apply`, `describe` and `check-deps` answer
+  before config load. **`check`, `prune`, `ps`, `init`, `init-user-config`, `config-ref` and the
+  `macos-*` commands do the work instead** — `check --help` runs a full check including a nix
+  build, `prune --help` prints a full disk report, and **`init --help` scaffolds a
+  `yolo-jail.jsonc`**. `loopholes` and `broker` do print usage, but to stderr with exit 1.
+
+  Deliberately not fixed with `run`: the same-shape fix needs a usage const per command, which is
+  new CLI text rather than the one-line change `run` needed. **`init --help` writing a file is the
+  one worth doing first** — asking a command what it does should never change your project.
+
 - 📦 **B1 — audit-only log of every jail↔host boundary crossing.**
 
   Small and additive ([`boundary-broker.md`](../design/boundary-broker.md) step 1). Note the honest
   ceiling: for a fronted daemon yolo can log **connection**-level facts only, because the front
   splices a byte stream it does not parse.
 
-- 📦 **E3 — capture on terminate** (the `yolo config capture` half shipped).
-
-- 📦 **`yolo run --help` prints no help.**
-
-  It loads config, launches a jail, and runs `--help` as the command inside it (exit 127). So help
-  is unavailable for `run`, and unavailable *at all* when config fails to load — which is how an
-  unrelated blocker first presented itself.
 
 ---
 
