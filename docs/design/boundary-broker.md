@@ -274,6 +274,15 @@ and deliberately does **not** log bodies. An approval broker wants the opposite 
 — the human needs the body to decide — which is a real tension worth resolving deliberately rather
 than by default.
 
+> **Half of this shipped 2026-08-15 (§7 step 1), and the shipped half is narrower than the
+> sentence above.** `crossings.log` records that jail X *connected to service Y*, with byte counts
+> — not that it "asked to post a PR comment", which is per-request content the front cannot see.
+> So the audit tells you which loopholes get used, how much, by whom, and how often a connection
+> is rejected. It does not yet tell you what people *ask for*, which is what this step was
+> supposed to inform later decisions with. **The tension in the last sentence is therefore
+> undischarged, and now has a sharper edge**: the audit log is payload-free by rule, the approval
+> queue needs the payload, and they cannot be the same artifact.
+
 **6.5 Do not let this become a general RPC.** The moment `action` accepts arbitrary argv, the
 boundary is gone and yolo has shipped a remote-execution service that happens to prompt. The
 `exec_allowlisted` precedent is the guardrail: **server-owned allowlist, validated args, no argv
@@ -285,10 +294,24 @@ from the jail, ever.** This is the invariant most likely to erode under "just on
 
 Each step is independently useful, which is the property that makes this safe to start.
 
-1. **Audit-only crossing log.** Every boundary request logged with enough context for the human to
-   review after the fact. No queue, no prompt, no new protocol — it is mostly already there.
-   Establishes what people actually ask for, which should inform every later decision. **Cheapest
-   thing with real value.**
+1. ~~**Audit-only crossing log.**~~ **BUILT 2026-08-15.** Every boundary CONNECTION is logged with
+   enough context to review after the fact. No queue, no prompt, no new protocol.
+   `internal/svcendpoint` emits one record per jail↔host connection — accepted *or* rejected —
+   and `internal/crossaudit` appends it to `GLOBAL_STORAGE/logs/crossings.log`, one bounded file
+   per host. Fields and the argument for per-host are in
+   [`loophole-protocol.md`](loophole-protocol.md) §Access logging (tier 1).
+
+   **Two corrections this step made to the sketch above.** (a) "Every boundary REQUEST" was the
+   wrong unit and is not available: for a fronted daemon the front splices a byte stream it does
+   not parse, so *connection* is the honest ceiling and *request* remains a second tier that only
+   framed daemons have (`internal/hostservice`). (b) "It is mostly already there" was optimistic —
+   the per-request line existed, but nothing recorded a **rejected** crossing at all, and a
+   rejection is the single most interesting line in an audit log. That is now its own outcome,
+   alongside `unreachable` for a connection that authenticated and found its daemon gone.
+
+   What it does NOT do, deliberately: it records that a crossing happened and how big it was, not
+   what was asked. §6.4's tension ("an approval broker wants the opposite for the ask itself") is
+   untouched and still has to be resolved when step 3 arrives.
 2. **The injecting proxy for git** (§5). No human, no queue, no new protocol beyond a credential
    helper — and it satisfies the "action crosses, credential does not" rule outright. This is the
    step that most likely *removes* the need for step 3 in the motivating case.

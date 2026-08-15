@@ -201,6 +201,12 @@ Concretely:
 
 ## Access logging
 
+**There are TWO tiers, and neither can cover the other.** Tier 2 is
+per-request and exists only for framed daemons; tier 1 is
+per-connection and covers everything. A framed daemon produces both.
+
+### Tier 2 — one line per REQUEST (framed daemons only)
+
 The helper library logs one structured line per request:
 
 ```
@@ -210,7 +216,9 @@ INFO host_service: jail=<id> keys=<sorted-req-keys> rc=<code> elapsed_ms=<n> byt
 Full request bodies are not logged (could be large or sensitive); just
 the top-level key names, the exit code, and the total bytes written
 across stdout+stderr frames. Enough to audit "what did jail X ask for"
-without hoarding payload data.
+without hoarding payload data. It goes to `hostservice.Logger`
+(stderr), which the supervisor redirects into
+`GLOBAL_STORAGE/logs/host-service-<name>.log`.
 
 **That per-request line is a property of daemons speaking the framed
 protocol through the `hostservice` helper — not of the transport.** For
@@ -224,6 +232,44 @@ log"; that claim is **withdrawn**
 ([`loophole-packaging.md`](loophole-packaging.md) §2.1b hazard 3) — do
 not design against it. Anything richer than connection-level is
 per-loophole, not framework.
+
+### Tier 1 — one line per CONNECTION (every daemon, uniformly)
+
+Built 2026-08-15, [`boundary-broker.md`](boundary-broker.md) §7 step 1.
+`internal/svcendpoint` emits one record per jail↔host connection —
+accepted *or* rejected — and `internal/crossaudit` appends it to
+**`GLOBAL_STORAGE/logs/crossings.log`**, one file per host:
+
+```
+2026-08-15T12:00:00Z crossing jail=yolo-host-services-a1b2c3d4 service=host-processes \
+  via=front outcome=accepted reason=- bytes_in=41 bytes_out=4096 elapsed_ms=1500
+```
+
+| Field | Meaning |
+|---|---|
+| `jail` | the per-jail publication directory's name — **derived host-side** from the path yolo published at, never the client's `jail_id` |
+| `service` | the loophole / host-service name, from the same path |
+| `via` | `front` (spliced, no tier 2 exists) or `endpoint` (served directly, tier 2 also present) |
+| `outcome` | `accepted`, `rejected` (auth failed), or `unreachable` (authenticated, upstream daemon gone) |
+| `reason` | `token-mismatch`, `bad-token-frame`, `handshake-incomplete`, `upstream-dial-failed`, or `-` |
+| `bytes_in` / `bytes_out` | plaintext byte COUNTS each way — a length, never a value |
+| `elapsed_ms` | accept→close, or the length of a failed pre-auth exchange |
+
+Three properties worth knowing:
+
+- **Per HOST, not per jail.** The question is "what crossed today",
+  which is cross-jail by nature; the narrower question is a `rg jail=`
+  away, and a per-jail file would also sit where `yolo prune` sweeps.
+- **Bounded**: 4 MiB active plus exactly one archived `crossings.log.1`,
+  rotated by rename. 8 MiB ceiling, no reaper.
+- **AUDIT ONLY.** It opens lazily, warns once on any failure and then
+  goes silent, and a panicking sink is recovered and uninstalled. A
+  crossing never fails, blocks or slows because of it — and when the
+  log cannot be opened at all, crossings simply are not recorded.
+
+**When tier 1 and tier 2 disagree about `jail=`, tier 1 is the one
+that means something**: tier 2 records what the client said, which this
+document elsewhere tells daemons not to trust.
 
 ## Writing a client from scratch
 
