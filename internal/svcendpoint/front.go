@@ -40,7 +40,10 @@ type FrontOptions struct {
 
 // ServeFrontWithOptions is ServeFront with per-daemon knobs; see FrontOptions.
 func ServeFrontWithOptions(publishPath, advertiseHost, upstreamUnixPath string, stop <-chan struct{}, opts FrontOptions) error {
-	ln, err := Listen(publishPath, advertiseHost)
+	// listenWith, not Listen: the only difference is the audit label these
+	// connections carry (crossing.go). CrossingViaFront is also the marker that
+	// NO per-request tier exists for them — splice does not parse the stream.
+	ln, err := listenWith(publishPath, advertiseHost, CrossingViaFront)
 	if err != nil {
 		return err
 	}
@@ -80,6 +83,15 @@ func splice(client net.Conn, upstreamUnixPath string, halfCloseUpstream bool) {
 	up, err := net.Dial("unix", upstreamUnixPath)
 	if err != nil {
 		Logger.Printf("front: dial upstream %s failed: %v", upstreamUnixPath, err)
+		// AUDIT ONLY, and additive by construction: this changes what the tier-1
+		// record SAYS about a connection that was already being dropped, and
+		// nothing about when or how it is dropped. The deferred Close above still
+		// runs and still emits the record — with CrossingUnreachable instead of
+		// CrossingAccepted, because "authenticated, then the daemon was gone" is
+		// its own fact.
+		if cc, ok := client.(*countingConn); ok {
+			cc.mark(CrossingUnreachable, CrossingReasonUpstreamDial)
+		}
 		return
 	}
 	defer func() { _ = up.Close() }()

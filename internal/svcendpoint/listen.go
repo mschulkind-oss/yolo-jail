@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 )
 
 // Logger is where this package's diagnostics go. Matching internal/hostservice and
@@ -54,6 +55,12 @@ type Listener struct {
 	publishPath string
 	token       string
 
+	// Connection-level audit identity, derived ONCE from publishPath at bind and
+	// never mutated after acceptLoop starts (which is why via is a listenWith
+	// parameter rather than a field ServeFront assigns afterwards — that would
+	// race the accept loop). See crossing.go.
+	service, jail, via string
+
 	// ready carries authenticated conns from the accept loop to Accept. It is
 	// never closed: pending auth goroutines still hold a send on it.
 	ready chan net.Conn
@@ -91,6 +98,13 @@ type Listener struct {
 //  8. publish AFTER a successful bind, so a published file always names a live
 //     listener — which is what makes a Probe-based health check meaningful.
 func Listen(publishPath, advertiseHost string) (*Listener, error) {
+	return listenWith(publishPath, advertiseHost, CrossingViaEndpoint)
+}
+
+// listenWith is Listen plus the audit's "how was this served" label. Unexported
+// because it is not a transport choice — there is one transport — only which
+// server shape sits behind it, which ServeFront knows and a daemon does not.
+func listenWith(publishPath, advertiseHost, via string) (*Listener, error) {
 	if advertiseHost == "" {
 		advertiseHost = AdvertiseHost()
 	}
@@ -121,11 +135,15 @@ func Listen(publishPath, advertiseHost string) (*Listener, error) {
 		_ = tlsLn.Close()
 		return nil, err
 	}
+	service, jailName := crossingIdentity(publishPath)
 	l := &Listener{
 		raw:         raw,
 		tlsLn:       tlsLn,
 		publishPath: publishPath,
 		token:       token,
+		service:     service,
+		jail:        jailName,
+		via:         via,
 		ready:       make(chan net.Conn),
 		closed:      make(chan struct{}),
 	}
@@ -155,16 +173,29 @@ func (l *Listener) acceptLoop() {
 }
 
 func (l *Listener) authenticate(conn net.Conn) {
+	start := time.Now()
 	if err := verifyTokenFrame(conn, l.token); err != nil {
 		// A missing, oversized, zero-length or mismatched token drops the
 		// connection. verifyTokenFrame already logged, payload-free.
 		_ = conn.Close()
+		// AUDIT (tier 1, crossing.go). A REJECTED crossing is at least as
+		// interesting as an accepted one — it is the only record that a jail, or
+		// something wearing one's address, tried and failed to get through — so
+		// it is recorded here rather than left as a silent drop. Byte counts are
+		// zero by construction: nothing but the pre-auth handshake happened, and
+		// the wrapper that counts is not installed until after this point.
+		recordCrossing(Crossing{
+			Service: l.service, Jail: l.jail, Via: l.via,
+			Outcome: CrossingRejected, Reason: crossingRejectReason(err),
+			At: start, Duration: time.Since(start),
+		})
 		return
 	}
+	cc := newCountingConn(conn, l.service, l.jail, l.via, start)
 	select {
-	case l.ready <- conn:
+	case l.ready <- cc:
 	case <-l.closed:
-		_ = conn.Close()
+		_ = cc.Close()
 	}
 }
 
@@ -182,6 +213,13 @@ func (l *Listener) shutdown(err error) {
 
 // Accept returns the next AUTHENTICATED connection. It never returns a connection
 // that failed the token check, and it never returns one before the ack was sent.
+//
+// The returned net.Conn is a *countingConn wrapping the *tls.Conn (crossing.go):
+// it forwards every method by embedding, counts bytes each way, and emits this
+// connection's tier-1 audit record when it is CLOSED. Callers must therefore keep
+// closing what they accept — they already do — and must not type-assert an
+// accepted connection to a concrete transport type. Nothing in this repo does;
+// the one server-side assertion is on the front's UPSTREAM socket.
 func (l *Listener) Accept() (net.Conn, error) {
 	select {
 	case conn := <-l.ready:
