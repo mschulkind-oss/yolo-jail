@@ -309,43 +309,18 @@ func psRunCmd(argv []string) (string, bool) {
 // token wherever it appears, parse flags until `--`, and take everything after
 // `--` as the command (ctx.args).
 func runRun(args []string) int {
+	// `--help`/`-h` is RUN'S OWN flag, and it is answered here — first, before any
+	// config load and before the remainder is treated as a command to execute.
+	// Both halves matter: without it `yolo run --help` launched a whole jail and
+	// ran `--help` in it (exit 127), and help stayed unreachable exactly when
+	// yolo-jail.jsonc would not parse. See runcmd.go for why the fix belongs here
+	// rather than in wantsTopLevelHelp.
+	if runHelp(args, os.Stdout) {
+		return 0
+	}
 	opts := run.NewDefaultOptions()
 	opts.Color = true
-	afterDashDash := false
-	sawRun := false
-	var cmdArgs []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if afterDashDash {
-			cmdArgs = append(cmdArgs, a)
-			continue
-		}
-		switch {
-		case a == "--":
-			afterDashDash = true
-		case a == "run" && !sawRun:
-			sawRun = true // the injected/leading subcommand token
-		case a == "--new":
-			opts.New = true
-		case a == "--profile":
-			opts.Profile = true
-		case a == "--dry-run":
-			opts.DryRun = true
-		case a == "--network":
-			if i+1 < len(args) {
-				i++
-				opts.Network = args[i]
-			}
-		case len(a) > len("--network=") && a[:len("--network=")] == "--network=":
-			opts.Network = a[len("--network="):]
-		default:
-			// An unrecognized bare token before `--` starts the command (typer
-			// would error, but the front door already classified this as run).
-			cmdArgs = append(cmdArgs, a)
-			afterDashDash = true
-		}
-	}
-	opts.Args = cmdArgs
+	parseRunArgs(args, &opts)
 	// Wire the macos-user native branch. run stays free of the macosuser +
 	// darwinpkg deps; the front door injects the handler.
 	opts.MacosUserRun = macosUserRun
