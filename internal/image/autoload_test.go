@@ -59,6 +59,11 @@ func TestAutoLoadImageFreshLoad(t *testing.T) {
 	if !strings.Contains(out.String(), "Done: loaded image") {
 		t.Errorf("expected done message, got %q", out.String())
 	}
+	// A build that SUCCEEDED must say nothing about build failures. The
+	// loud-failure report is worthless if it also fires on the happy path.
+	if strings.Contains(out.String(), BuildFailedMarker) {
+		t.Errorf("successful build reported a build failure: %q", out.String())
+	}
 }
 
 func TestAutoLoadImageAlreadyLoaded(t *testing.T) {
@@ -91,6 +96,9 @@ func TestAutoLoadImageAlreadyLoaded(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "Image load needed") {
 		t.Errorf("unexpected load-needed message: %q", out.String())
+	}
+	if strings.Contains(out.String(), BuildFailedMarker) {
+		t.Errorf("successful build reported a build failure: %q", out.String())
 	}
 }
 
@@ -204,7 +212,9 @@ func TestAutoLoadImageRegistersRoot(t *testing.T) {
 		t.Errorf("fresh load rooted %v, want [/nix/store/abc-image]", rooted)
 	}
 
-	// (b) build fails, existing image present → NO root (store path unknown).
+	// (b) build fails but the operator opted into a stale launch, existing image
+	// present → NO root (store path unknown). The escape hatch is what keeps this
+	// branch reachable at all now that a failed build is otherwise fatal.
 	withBuildDir(t)
 	rooted = nil
 	optsExisting := AutoLoadOptions{
@@ -213,6 +223,7 @@ func TestAutoLoadImageRegistersRoot(t *testing.T) {
 		BuildStorePath: func(string, []any, string) (string, []string) { return "", []string{"boom"} },
 		Run:            func(argv []string) (int, bool) { return 0, true }, // inspect present
 		RegisterRoot:   func(p string) { rooted = append(rooted, p) },
+		LookupEnv:      allowStaleEnv,
 	}
 	if !AutoLoadImage(optsExisting) {
 		t.Fatal("using-existing = false")
@@ -222,22 +233,109 @@ func TestAutoLoadImageRegistersRoot(t *testing.T) {
 	}
 }
 
-func TestAutoLoadImageBuildFailsUsesExisting(t *testing.T) {
+// allowStaleEnv / denyStaleEnv are the LookupEnv seam's two answers, so a test's
+// intent about the escape hatch is visible at the call site.
+func allowStaleEnv(key string) (string, bool) {
+	if key == StaleImageEnv {
+		return "1", true
+	}
+	return "", false
+}
+
+func denyStaleEnv(string) (string, bool) { return "", false }
+
+// TestAutoLoadImageBuildFailureIsFatalEvenWithAnExistingImage is THE regression
+// for this defect. A build ran, it failed, and an image happens to be sitting in
+// the runtime — the old code printed "Using existing yolo-jail:latest image."
+// and returned true, handing the developer a working-looking jail running code
+// that was not theirs, with nix's error discarded. That silent fallback is what
+// made a nix failure surface, two layers away, as a lib-farm assertion.
+func TestAutoLoadImageBuildFailureIsFatalEvenWithAnExistingImage(t *testing.T) {
 	withBuildDir(t)
 	var out bytes.Buffer
 	opts := AutoLoadOptions{
 		Runtime: "podman",
 		Out:     &out,
 		BuildStorePath: func(string, []any, string) (string, []string) {
-			return "", []string{"boom"}
+			return "", []string{"error: builder for '/nix/store/aaa.drv' failed"}
 		},
-		Run: func(argv []string) (int, bool) { return 0, true }, // inspect present
+		Run:       func(argv []string) (int, bool) { return 0, true }, // inspect: image IS present
+		LookupEnv: denyStaleEnv,
+	}
+	if AutoLoadImage(opts) {
+		t.Fatalf("AutoLoadImage = true after a FAILED build; a run must not look "+
+			"successful while silently stale\n%s", out.String())
+	}
+	s := out.String()
+	if !strings.Contains(s, BuildFailedMarker) {
+		t.Errorf("failed build was not announced: %q", s)
+	}
+	if !strings.Contains(s, "error: builder for '/nix/store/aaa.drv' failed") {
+		t.Errorf("nix's own output never reached the human: %q", s)
+	}
+	if strings.Contains(s, "Using existing") {
+		t.Errorf("still falling back to the existing image: %q", s)
+	}
+}
+
+// TestAutoLoadImageBuildFailureEscapeHatchIsLoud: with the escape hatch set the
+// launch proceeds on the existing image (offline, out of disk, bisecting a
+// host-side-only change) — but it must STILL report the failure and state the
+// staleness. Opting in buys continuation, never silence.
+func TestAutoLoadImageBuildFailureEscapeHatchIsLoud(t *testing.T) {
+	withBuildDir(t)
+	var out bytes.Buffer
+	opts := AutoLoadOptions{
+		Runtime: "podman",
+		Out:     &out,
+		BuildStorePath: func(string, []any, string) (string, []string) {
+			return "", []string{"error: connection to cache.nixos.org timed out"}
+		},
+		Run:       func(argv []string) (int, bool) { return 0, true }, // inspect present
+		LookupEnv: allowStaleEnv,
 	}
 	if !AutoLoadImage(opts) {
-		t.Fatalf("AutoLoadImage = false; want true (existing image)")
+		t.Fatalf("AutoLoadImage = false; the escape hatch must allow the launch\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "Using existing") {
-		t.Errorf("expected using-existing message, got %q", out.String())
+	s := out.String()
+	if !strings.Contains(s, BuildFailedMarker) {
+		t.Errorf("escape hatch went SILENT — the exact defect: %q", s)
+	}
+	if !strings.Contains(s, "error: connection to cache.nixos.org timed out") {
+		t.Errorf("nix's own output never reached the human: %q", s)
+	}
+	if !strings.Contains(s, "STALE") {
+		t.Errorf("continuing without stating the staleness: %q", s)
+	}
+	if !strings.Contains(s, "Using existing") {
+		t.Errorf("expected the fallback to still happen: %q", s)
+	}
+}
+
+// TestAutoLoadImageBuildFailureFatalWithNoImageAtAll: nothing to fall back to
+// either. The report is still emitted (nix's words are the point), and the
+// return is false as before.
+func TestAutoLoadImageBuildFailureEscapeHatchWithNothingCached(t *testing.T) {
+	withBuildDir(t)
+	var out bytes.Buffer
+	opts := AutoLoadOptions{
+		Runtime: "podman",
+		Out:     &out,
+		BuildStorePath: func(string, []any, string) (string, []string) {
+			return "", []string{"error: out of disk space"}
+		},
+		Run:       func(argv []string) (int, bool) { return 1, true }, // inspect: absent
+		LookupEnv: allowStaleEnv,
+	}
+	if AutoLoadImage(opts) {
+		t.Fatal("AutoLoadImage = true with no image anywhere")
+	}
+	s := out.String()
+	if !strings.Contains(s, BuildFailedMarker) {
+		t.Errorf("failed build was not announced: %q", s)
+	}
+	if !strings.Contains(s, "Cannot start jail") {
+		t.Errorf("expected a cannot-start line, got %q", s)
 	}
 }
 
@@ -295,6 +393,7 @@ func TestAutoLoadOffloadSkippedOnLinux(t *testing.T) {
 		},
 		Run:             func(argv []string) (int, bool) { return 1, true },
 		DiagnoseFailure: func([]string) (string, string) { return "t", "r" },
+		LookupEnv:       denyStaleEnv,
 	}
 	if AutoLoadImage(opts) {
 		t.Fatal("AutoLoadImage = true; want false on Linux (no offload)")
@@ -317,6 +416,7 @@ func TestAutoLoadImageBuildFailsNoImage(t *testing.T) {
 		DiagnoseFailure: func(tail []string) (string, string) {
 			return "needs a Linux builder", "do the thing"
 		},
+		LookupEnv: denyStaleEnv,
 	}
 	if AutoLoadImage(opts) {
 		t.Fatal("AutoLoadImage = true; want false (no image, can't build)")
@@ -327,6 +427,12 @@ func TestAutoLoadImageBuildFailsNoImage(t *testing.T) {
 	}
 	if !strings.Contains(s, "do the thing") {
 		t.Errorf("missing remedy: %q", s)
+	}
+	if !strings.Contains(s, BuildFailedMarker) {
+		t.Errorf("missing the failed-build marker: %q", s)
+	}
+	if !strings.Contains(s, "nix: dependency failed") {
+		t.Errorf("nix's own output never reached the human: %q", s)
 	}
 }
 
@@ -357,6 +463,11 @@ func TestAutoLoadSkipBuildUsesExisting(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Using existing") {
 		t.Errorf("expected using-existing message, got %q", out.String())
+	}
+	// SkipBuild STAYS QUIET. A build that was never attempted has not failed, and
+	// a warning here would train the reader to ignore the one that matters.
+	if strings.Contains(out.String(), BuildFailedMarker) {
+		t.Errorf("SkipBuild reported a build failure though no build ran: %q", out.String())
 	}
 }
 
@@ -426,5 +537,10 @@ func TestAutoLoadSkipBuildNoImageFails(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Cannot start jail") {
 		t.Errorf("expected a cannot-start diagnosis, got %q", out.String())
+	}
+	// Still quiet about build failures: none was attempted, so the degraded
+	// diagnosis is the whole truth here.
+	if strings.Contains(out.String(), BuildFailedMarker) {
+		t.Errorf("SkipBuild reported a build failure though no build ran: %q", out.String())
 	}
 }

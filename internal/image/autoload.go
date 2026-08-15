@@ -80,6 +80,14 @@ type AutoLoadOptions struct {
 	// the real image.RegisterImageRoot ONLY when !inJail and a no-op otherwise.
 	// nil => a no-op (tests, and any caller that cannot root host-side).
 	RegisterRoot func(storePath string)
+	// LookupEnv resolves the StaleImageEnv escape hatch (see the fatality
+	// argument on the currentPath=="" branch). nil => os.LookupEnv.
+	//
+	// It is a seam rather than a bare os.Getenv because the FATALITY of a failed
+	// build is now behavior worth pinning in both directions, and a test that has
+	// to mutate the process environment to pin it would also silently change
+	// meaning on a developer machine that happens to export the variable.
+	LookupEnv func(key string) (string, bool)
 }
 
 func (o *AutoLoadOptions) fill() {
@@ -136,6 +144,18 @@ func (o *AutoLoadOptions) fill() {
 	if o.RegisterRoot == nil {
 		o.RegisterRoot = func(string) {} // no-op: no host-side rooting available
 	}
+	if o.LookupEnv == nil {
+		o.LookupEnv = os.LookupEnv
+	}
+}
+
+// staleImageAllowed reports whether the operator has EXPLICITLY consented to
+// launching on an image this invocation could not rebuild. Any non-empty value
+// counts (the repo's existing YOLO_BYPASS_SHIMS / YOLO_TEST_REBUILD_IMAGE
+// idiom); consent is about intent, not about the token.
+func (o *AutoLoadOptions) staleImageAllowed() bool {
+	v, _ := o.LookupEnv(StaleImageEnv)
+	return strings.TrimSpace(v) != ""
 }
 
 // AutoLoadImage ports auto_load_image: ensure the nix jail image is built +
@@ -143,6 +163,13 @@ func (o *AutoLoadOptions) fill() {
 // (freshly loaded, already loaded, or a cached/existing image is usable), false
 // when none could be made available (the caller MUST NOT launch the jail on
 // false — the actionable reason was already printed).
+//
+// A build that RAN AND FAILED is fatal by default: it is reported in full (the
+// classification AND nix's own stderr) and returns false rather than quietly
+// running the jail on whatever image happens to be loaded. Set
+// YOLO_ALLOW_STALE_IMAGE=1 to proceed on the stale image anyway — the report is
+// printed either way, so a run can never look successful while silently stale.
+// The argument for that default lives on the currentPath=="" branch below.
 //
 // The macOS from-source build-offload is wired (J3): when the plain build fails
 // on macOS, BuildOffload starts a Linux builder container and retries the build
@@ -165,6 +192,22 @@ func AutoLoadImage(opts AutoLoadOptions) bool {
 
 	var currentPath string
 	var buildTail []string
+	// buildFailed is the DISTINCTION the fallback branch below could not previously
+	// make: currentPath ends up empty for two unrelated reasons, and they deserve
+	// opposite treatment.
+	//
+	//   - SkipBuild suppressed the build. Nothing ran, nothing failed; the
+	//     cached-image fallback IS the plan (D2's degraded launch). Stay quiet.
+	//   - A build RAN and returned "". BuildStorePath's contract is explicit that
+	//     an empty store path means failure (see buildImageStorePathArgs: every
+	//     early return pairs "" with a stderr tail), so inside the !SkipBuild
+	//     block an empty currentPath is a failed build and nothing else — including
+	//     the "nix command not found" case, which is a failure the human very much
+	//     needs to hear about.
+	//
+	// It is deliberately set INSIDE the block and AFTER the macOS offload, so an
+	// offload that rescued the build is not reported as a failure.
+	buildFailed := false
 	if !o.SkipBuild {
 		currentPath, buildTail = o.BuildStorePath(o.RepoRoot, o.ExtraPackages, outLink)
 
@@ -179,11 +222,51 @@ func AutoLoadImage(opts AutoLoadOptions) bool {
 				buildTail = offTail
 			}
 		}
+		buildFailed = currentPath == ""
 	}
 
 	if currentPath == "" {
-		// No fresh build (it failed, or SkipBuild suppressed it). If the image
-		// already exists in the runtime, proceed.
+		// IS A FAILED BUILD FATAL? Yes by default, with an explicit escape hatch.
+		//
+		// The alternatives, and why they lose:
+		//
+		//   (a) Loud but always continuing. Attractive because a jail that will
+		//       not start when the cache holds a perfectly good image is worse for
+		//       a developer who is offline or out of disk. It fails on the second
+		//       consumer: nothing reads a warning it did not ask for. The macOS
+		//       nightly printed its way through this exact failure and the humans
+		//       still spent the morning on the lib farm. A warning is a hint; the
+		//       problem is that the run went on to produce CONFIDENT wrong results.
+		//   (b) Fatal, no way past it. Turns a transient cache timeout into "you
+		//       cannot work today", with no remedy on a plane or a full disk.
+		//   (c) THIS: fatal when a build was expected and failed; a one-token
+		//       opt-in to proceed anyway, which still prints the whole report and
+		//       states the staleness.
+		//
+		// (c) is the only one where a stale run is impossible to obtain by
+		// accident. The escape hatch is not a weakening of the rule — it is what
+		// makes the rule affordable, because the developer who takes it has SAID
+		// the image is stale, which is precisely the knowledge whose absence
+		// caused the bug. Note the asymmetry that makes this safe to default:
+		// refusing costs a rerun with one env var, while continuing costs an
+		// investigation into the wrong layer.
+		//
+		// SkipBuild is untouched by all of this: no build was attempted, so there
+		// is no failure to report and the pre-existing degraded path runs as
+		// before. Warning there would train the reader to ignore the warning.
+		if buildFailed {
+			title, remedy := o.DiagnoseFailure(buildTail)
+			staleOK := o.staleImageAllowed()
+			fmt.Fprint(out, buildFailureReport(title, remedy, buildTail, staleOK))
+			if !staleOK {
+				_ = os.Remove(outLink)
+				return false
+			}
+		}
+
+		// Either SkipBuild (nothing was attempted) or a failed build the operator
+		// explicitly opted to ignore. If the image already exists in the runtime,
+		// proceed.
 		imageName := JailImage(o.Runtime)
 		if rc, ran := o.Run(ImageInspectCmd(o.Runtime, imageName)); ran && rc == 0 {
 			fmt.Fprintln(out, "Using existing "+imageName+" image.")
@@ -215,11 +298,12 @@ func AutoLoadImage(opts AutoLoadOptions) bool {
 				"`YOLO_REPO_ROOT`) to build + cache the image.")
 			return false
 		}
-		title, remedy := o.DiagnoseFailure(buildTail)
-		fmt.Fprintln(out, "Cannot start jail: "+title+".")
-		if remedy != "" {
-			fmt.Fprintln(out, remedy)
-		}
+		// Only reachable with buildFailed && the stale escape hatch set: the build
+		// failure was already reported in full above (title, remedy and nix's
+		// stderr), so repeating the diagnosis here would just bury the one new
+		// fact — that the fallback the operator opted into does not exist either.
+		fmt.Fprintln(out, "Cannot start jail: the image build failed (reported above) and "+
+			"there is no loaded or cached image to fall back on.")
 		return false
 	}
 
