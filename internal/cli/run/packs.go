@@ -319,6 +319,10 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 	// Sequencing is already right — stagePacks runs above the backend dispatch, well
 	// before assembleRunCmd and startLoopholes.
 	loopholes.SetPackModules(packLoopholeModules(loaded))
+	// And the supersession claims, from the same staged set and for the same reason: a
+	// capability a selected pack says needs no doing is a fact about THIS launch, so it
+	// has to come from what actually staged rather than from what config named.
+	loopholes.SetPackSupersessions(packSupersessions(loaded))
 	return stagingRoot, loaded, briefings, nil
 }
 
@@ -538,6 +542,7 @@ func packLoopholeModules(loaded []*packload.Pack) []loopholes.PackModule {
 // filters included.
 func init() {
 	loopholes.SetPackModuleResolver(resolvePackLoopholeModules)
+	loopholes.SetPackSupersessionResolver(resolvePackSupersessions)
 }
 
 // resolvePackLoopholeModules resolves the configured packs' loophole modules from the pack
@@ -616,6 +621,66 @@ func embeddedPacksByName() map[string]*packload.Pack {
 	out := map[string]*packload.Pack{}
 	for _, p := range packload.Embedded() {
 		out[p.Name] = p
+	}
+	return out
+}
+
+// packSupersessions flattens the loaded packs' supersession claims into the record
+// internal/loopholes consults.
+//
+// Loaded packs, not configured ones: a claim from a pack that failed to stage is not a fact
+// about this launch, and letting it through would let an unstageable pack silently retire a
+// working loophole — the failure mode the whole design exists to avoid, arrived at from the
+// other side.
+func packSupersessions(packs []*packload.Pack) []loopholes.PackSupersession {
+	out := []loopholes.PackSupersession{}
+	for _, p := range packs {
+		for _, sup := range p.Supersessions() {
+			out = append(out, loopholes.PackSupersession{
+				Pack: p.Name, Capability: sup.Capability, Because: sup.Because,
+			})
+		}
+	}
+	return out
+}
+
+// resolvePackSupersessions is the LAZY FALLBACK, mirroring resolvePackLoopholeModules: the
+// read-only surfaces (`yolo loopholes list`, `yolo check`, config validation) run before
+// staging or without it, and a superseded loophole that reports itself active there would
+// contradict the launch it is describing.
+//
+// NO ORIGIN GATE, and that asymmetry is deliberate. A module dir is gated because honoring it
+// RUNS the pack's code; a supersession only ever withholds yolo's own loophole. An unapproved
+// pack that turns something OFF grants itself nothing, and refusing to read the claim would
+// mean `list` disagreeing with the launch about what is active. Offline and silent-and-empty
+// like its sibling — the honest answer to "I cannot read the packs" is "I know of no
+// supersessions", which leaves every loophole running.
+func resolvePackSupersessions() []loopholes.PackSupersession {
+	entries, err := config.LoadPacks(func(string) {})
+	if err != nil {
+		return nil
+	}
+	var out []loopholes.PackSupersession
+	embedded := embeddedPacksByName()
+	for _, entry := range entries {
+		var p *packload.Pack
+		if entry.Embedded() {
+			var ok bool
+			if p, ok = embedded[entry.Name]; !ok {
+				continue
+			}
+		} else {
+			root, rootErr := packRoot(entry)
+			if rootErr != nil {
+				continue
+			}
+			loaded, probs := packload.LoadDir(root, entry.Name, false)
+			if len(probs) > 0 || loaded == nil {
+				continue
+			}
+			p = loaded
+		}
+		out = append(out, packSupersessions([]*packload.Pack{p})...)
 	}
 	return out
 }
