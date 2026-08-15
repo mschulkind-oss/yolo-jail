@@ -1,6 +1,6 @@
 # Ongoing work
 
-**Status: 17 attention required · 4 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
+**Status: 18 attention required · 3 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
 
 Last updated 2026-08-15. Counts tallied from this file, not asserted.
 
