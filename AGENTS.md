@@ -45,9 +45,11 @@ not restate usage or config reference material — see "Where things live" below
 
 ## Architecture
 
-Five commands in `cmd/`, ~43 packages (`go list ./...`). Everything is Go; the
-only bash/Python is generated *content* (shims, `.bashrc`, `yolo-cglimit`)
-emitted by `internal/entrypoint`.
+Seven commands in `cmd/`, ~43 packages (`go list ./...`). Everything is Go; the
+only bash/Python left is generated *content* (shims, `.bashrc`) emitted by
+`internal/entrypoint` — **no generated in-jail CLIENT survives**, because two
+implementations of one client is the drift the transport unification exists to
+end (`docs/design/loophole-transport.md` §8.4).
 
 | Binary | Runs where | Role |
 |---|---|---|
@@ -55,7 +57,15 @@ emitted by `internal/entrypoint`.
 | `yolo-entrypoint` | container PID 1-ish | provisions the jail at startup |
 | `yolo-jaild` | container | in-jail daemons |
 | `yolo-ps` | container | host-process view (the `host-processes` loophole) |
+| `yolo-cglimit` | container | cgroup-delegate client (the one AF_UNIX consumer left) |
+| `yolo-journalctl` | container | journal-bridge client (loopback-TLS) |
 | `goprobe` | nowhere | deployment tripwire; excluded from runtime PATH |
+
+**A new `cmd/` binary must be added to `flake.nix`'s `shippedBinaries` AND to
+`scripts/stage-source-bundle.sh`'s `SHIPPED_BINARIES`** or it silently vanishes
+from the image (source build) or from a shipped bundle's image, while
+`go build ./...` stays green. `internal/entrypoint/shippedclients_test.go` pins
+all three spellings together; `goprobe` is the one declared exemption.
 
 **Host ship set is just `{yolo}`** — `just install` runs `go install ./cmd/yolo`
 and nothing else. The other four are image-side only.

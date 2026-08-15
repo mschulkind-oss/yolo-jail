@@ -260,13 +260,37 @@ staging change it proposes — and the small independent items trail.
   `loopholes enable/disable` off its single special case — it serves only that dir today — into
   config state for every source.
 
-- 📦 **T2 — finish the transport retirement.**
+- 💬 **T2 is shipped except for one service that cannot follow it — and the blocker is not a client.**
 
-  Two AF_UNIX clients remain, both **generated Python** baked into the image: `yolo-cglimit`
-  (hardcodes `CGD_SOCKET`) and `yolo-journalctl` (reads `YOLO_SERVICE_JOURNAL_SOCKET`). Neither
-  speaks `frameproto`. Port each to a `cmd/` Go binary at parity first, then flip to
-  `svcendpoint.Dial`. **Not** a second TLS implementation in generated Python.
-  *Trap: a new `cmd/` binary not added to `flake.nix`'s `installPrefix` vanishes from the image.*
+  **Shipped.** Both generated-Python clients are gone: `cmd/yolo-cglimit` and `cmd/yolo-journalctl`
+  are Go binaries baked into the image, the generator is retired *and unlinks what it already wrote*
+  (`~/.local/bin` PRECEDES `/bin` on PATH, so deleting the generator alone would have left the
+  scripts shadowing the binaries forever), and the journal bridge is on `loopback-tls` end to end.
+  `unix-socket` is now unreachable from the run pipeline as well as unwritable in a manifest — the
+  private `transportLegacySocket` constant is deleted.
+
+  **The `cgroup-delegate` cannot move at all, for a reason no port fixes.** Its security model is
+  kernel-attested identity: `create_and_join` writes the peer's HOST-NAMESPACE pid, read off the
+  connection by `SO_PEERCRED`, into `cgroup.procs`, and *that write* is what moves the caller into
+  the cgroup ([`security-shim.md`](../design/security-shim.md) §2). TCP carries no peer credential,
+  and a loopback-TLS **front** is worse than nothing — `SO_PEERCRED` on the upstream socket would
+  attest *yolo's own* pid, so the delegate would move the `yolo run` process into the jail's job
+  cgroup. A client-supplied PID fails twice over: caller-asserted where the current value is
+  kernel-attested, and namespaced to the container where the host needs one in its own namespace.
+
+  **The cost of leaving it:** the delegate stays broken on macOS + podman, for exactly the virtiofs
+  reason the unification exists to fix.
+
+  **My read:** don't bundle this into a transport row. It is a *credential* question — can the
+  transport carry a kernel-attested caller identity (NSpid translation host-side, or an
+  `SCM_CREDENTIALS`-equivalent), or does the delegate stay a Linux-local AF_UNIX service by
+  design? Either answer is defensible; picking one sizes the work. *"Leave it AF_UNIX, per-job
+  cgroup limits are a Linux-host feature" is coherent and is what ships today.*
+
+  *Trap, confirmed the hard way: the ship set is spelled TWICE — `flake.nix`'s `shippedBinaries` and
+  `scripts/stage-source-bundle.sh`'s `SHIPPED_BINARIES`. A binary missing from the first vanishes
+  from a source-built image; missing from the second it vanishes only from a SHIPPED-bundle image,
+  which no dev jail ever builds. `internal/entrypoint/shippedclients_test.go` pins both to `cmd/*`.*
 
 - 📦 **`--help` is unanswered on eight more subcommands, and one of them writes a file.**
 

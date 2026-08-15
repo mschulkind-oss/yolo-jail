@@ -787,10 +787,8 @@ CLI→singleton are still host→host Unix; the host broker singleton daemon.
 
 **Still owed:**
 
-- **`yolo-cglimit` and `yolo-journalctl` are still `AF_UNIX` Python clients**, so those two
-  built-ins still publish sockets. Porting them to Go and pointing them at `svcendpoint.Dial` is the
-  remaining work. One dialer, four clients — a second TLS implementation in generated Python would
-  be exactly the "two security models that drift" this unification exists to prevent.
+- ~~**`yolo-cglimit` and `yolo-journalctl` are still `AF_UNIX` Python clients**~~ — **DONE
+  2026-08-15, with one service left behind on purpose. See §8.6.**
 - **A `loopholes:` config entry still gets a plain socket**, and this is the one place the retired
   value survives. `internal/hostservice` is `internal/`, so nothing yolo ships lets a third-party
   daemon publish an endpoint file; flipping that path would kill those daemons rather than migrate
@@ -829,3 +827,99 @@ four failure layers distinguishable, and token rotation picked up with no restar
 > host-wide singleton is invisible stale state, and every liveness gate in the system is designed to
 > be satisfied by it. Restart it first (`yolo broker restart`, or a temp `YOLO_BROKER_STATE_DIR` plus
 > a spawn of the real argv) or the verification measures the previous binary.
+
+### 8.6 The last two clients — as built, 2026-08-15
+
+§8.4 owed a port of `yolo-cglimit` and `yolo-journalctl` off generated Python. Both are ported.
+**Only one of the two services followed them onto the transport**, and the reason the other did not
+is the most useful thing in this section.
+
+#### 8.6.1 What shipped
+
+- **`cmd/yolo-cglimit` and `cmd/yolo-journalctl` are Go binaries baked into the image**
+  (`flake.nix` `shippedBinaries`). The generators in `internal/entrypoint/scripts.go` are gone.
+- **The journal bridge is on `loopback-tls`.** `journald.ServeEndpoint` publishes its own endpoint
+  file via `svcendpoint.Listen`; the client dials it with `svcendpoint.Dial`.
+  `YOLO_SERVICE_JOURNAL_SOCKET` became `..._ENDPOINT`, with **no dual emission and no client-side
+  fallback** — §8.3's argument, applied again.
+- **`unix-socket` is now unreachable, not merely unwritable.** The run pipeline carried its own
+  private `transportLegacySocket = "unix-socket"` for the two built-ins; it is deleted.
+  `loopholedecl.RetiredTransportUnixSocket` survives with exactly one production reader,
+  `retiredTransportHint` — i.e. **only as a migration hint for manifest authors**, which is what its
+  doc comment already claims. Nothing to change there; the claim became unqualifiedly true only now.
+
+#### 8.6.2 The journal bridge took `Listen`, not a front
+
+`publishes: "socket"` exists for a daemon whose core is typed on `*net.UnixConn` and cannot swap its
+listener. `journald`'s was — but only incidentally: `handleConn` and `readHeaderCapped` used nothing
+a `net.Conn` lacks, so widening the two signatures was the entire server-side change. `front.go`'s
+own guidance decides it: *"Every daemon that CAN take Listen directly should"* — a splice would mean
+two listeners and a host-only socket for no benefit. `Serve` (AF_UNIX) stays for host-to-host use,
+and its existing test suite still pins the protocol **with its assertions unchanged**, which is the
+same mechanical proof §8.1 records for `hostservice.Serve`.
+
+#### 8.6.3 The `cgroup-delegate` cannot move, and the blocker is not its client
+
+This is the correction worth carrying forward, because §7.4 and §8.2 both frame the remaining work
+as *"the clients are Python."* For the journal bridge that was the whole story. For the cgroup
+delegate it is **not the story at all**: `cmd/yolo-cglimit` is a baked Go binary and the delegate
+still cannot move.
+
+**`SO_PEERCRED` is what does not survive the hop.** The delegate's security model is kernel-attested
+identity ([`security-shim.md`](security-shim.md) §2, *"we never trust the container to identify
+itself"*): `create_and_join` writes the peer's **host-namespace** pid — read off the connection by
+the kernel, never sent by the caller — into the job cgroup's `cgroup.procs`, and that write *is* the
+mechanism that moves the caller into the cgroup.
+
+| Option | Why it fails |
+|---|---|
+| `svcendpoint.Listen` directly | a TCP connection carries no peer credential at all; `peerPID` would be 0 and every `create_and_join` would fail |
+| `publishes: "socket"` (a TLS front) | **worse than failing** — `SO_PEERCRED` on the upstream Unix socket attests the FRONT's pid, i.e. yolo's own, so the delegate would move the `yolo run` process into the jail's job cgroup |
+| the client sends its own PID | caller-**asserted** where the current value is kernel-**attested**, and it is a PID in the container's namespace where the host needs one in its own |
+
+Closing the gap means giving the transport a way to carry a kernel-attested caller identity (host-side
+`NSpid` translation, or an `SCM_CREDENTIALS` equivalent) — **a credential decision with its own
+design, not a transport swap.** Deliberately left out of this row rather than improvised inside it.
+
+**The consequence is honest and unpleasant:** `cgroup-delegate` is still an AF_UNIX service, so it is
+still broken on macOS + podman for the virtiofs reason this whole document exists to fix. The
+unification is complete for every service that *can* be unified; one cannot, and it is now the one
+place `unix-socket` still describes reality. The argument lives above `startCgroupDelegate` so the
+next reader meets it before reaching for `publishes: "socket"`.
+
+#### 8.6.4 The scope was larger than "two consumers", again
+
+§7.4 predicted two consumers; §8.2 corrected it to four. The port found a fifth thing, of a different
+kind: **the ship set is spelled twice.** `flake.nix`'s `shippedBinaries` filters what a
+source-checkout image installs, and `scripts/stage-source-bundle.sh`'s `SHIPPED_BINARIES` filters
+what a *shipped bundle* carries as prebuilt artifacts — which `flake.nix`'s prebuilt short-circuit
+then consumes with `[ -e "$src" ] || continue`. A binary missing from the second is silently absent
+from a bundle-built image and present in a source-built one, and **no dev jail ever takes the bundle
+path**, so the divergence is invisible from inside. `internal/entrypoint/shippedclients_test.go` now
+pins `cmd/*`, both lists, and the single declared exemption (`goprobe`) together.
+
+#### 8.6.5 Verified
+
+Nested jail, freshly built `yolo` run **by path**, against a scratch `HOME` (this development jail's
+own user config names three `file:///home/matt/.dotfiles/packs/*` packs that do not exist in-jail, so
+a plain nested launch dies before any container starts):
+
+- `nix eval .#installPrefix.outPath` and the loaded image's `readlink /bin/yolo-entrypoint`,
+  `/bin/yolo-cglimit`, `/bin/yolo-journalctl` all resolve to the **same** store path — no stale-image
+  fallback, and `installPrefix` picked up both new binaries;
+- both clients are ELF at `/bin`, with **nothing** left in `~/.local/bin`;
+- `/run/yolo-services/` holds `journal.endpoint` (`-rw-------`) and `cgroup-delegate.sock`
+  (`srwxrwxrwx`) — and **no `journal.sock`**;
+- the jail's environment carries `YOLO_SERVICE_JOURNAL_ENDPOINT` and
+  `YOLO_SERVICE_CGROUP_DELEGATE_SOCKET`, and no `YOLO_SERVICE_JOURNAL_SOCKET`;
+- `yolo-journalctl -n 3` returns the daemon's **own** `journalctl not found on host` stderr frame and
+  exit code **127**, through dial → cert pin → token → accept ack → newline-JSON request → stream-2
+  frame → stream-3 exit frame. The host is a container with no systemd, so 127 is the correct answer
+  and it is a full-stack proof;
+- `yolo-cglimit --cpu 50` returns the daemon's own `Failed to set up agent cgroup hierarchy` and exit
+  1 — a nested jail's cgroup filesystem is read-only (the integration suite's `skipIfCgroupReadonly`
+  exists for this), so the round trip is proven and the privileged write is the part the environment
+  cannot supply.
+
+**Not verified, same as §8.5:** macOS + podman, Apple Container and `macos-user`. Everything above ran
+on Linux.
