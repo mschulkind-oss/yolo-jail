@@ -1,6 +1,6 @@
 # Ongoing work
 
-**Status: 17 attention required · 6 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
+**Status: 17 attention required · 4 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
 
 Last updated 2026-08-15. Counts tallied from this file, not asserted.
 
@@ -254,12 +254,6 @@ staging change it proposes — and the small independent items trail.
   the *other* nix path. Two-character change; makes a "build failed" on macOS mean something.
   📄 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §6.
 
-- 📦 **A6 — capability supersession**, so a Bedrock pack retires the OAuth broker instead of leaving
-  a known-broken TLS-intercept stack starting under it.
-  📄 [`pack-capabilities.md`](../design/pack-capabilities.md) ·
-  [`extension-point-principle.md`](../design/extension-point-principle.md).
-  *Option 0 (a hand-written `enabled: false`) needs no code and ships today.*
-
 - 📦 **OQ-LP10 — retire the hand-placed loopholes dir.** Ruled yes, unblocked, not carried out.
 
   It is the one channel that starts a host daemon with **no selection step**, and retiring it forces
@@ -285,12 +279,6 @@ staging change it proposes — and the small independent items trail.
   Deliberately not fixed with `run`: the same-shape fix needs a usage const per command, which is
   new CLI text rather than the one-line change `run` needed. **`init --help` writing a file is the
   one worth doing first** — asking a command what it does should never change your project.
-
-- 📦 **B1 — audit-only log of every jail↔host boundary crossing.**
-
-  Small and additive ([`boundary-broker.md`](../design/boundary-broker.md) step 1). Note the honest
-  ceiling: for a fronted daemon yolo can log **connection**-level facts only, because the front
-  splices a byte stream it does not parse.
 
 
 ---
