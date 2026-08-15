@@ -1,6 +1,6 @@
 # Ongoing work
 
-**Status: 17 attention required · 8 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
+**Status: 17 attention required · 9 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
 
 Last updated 2026-08-15. Counts tallied from this file, not asserted.
 
@@ -30,33 +30,45 @@ manufacturing a recommendation would be worse than admitting the gap.
 
 ## The one that decides a design, not a task
 
-### 💬 OQ-LP14 — a pack cannot express a runtime-dir socket
+### 💬 OQ-LP14 — the pack bind-host path rule is a halfway measure
 
-- **The gap.** A pack-shipped loophole's `host_bind_mounts[].host` must sit inside its own module
-  dir or under `$HOME`. `${XDG_RUNTIME_DIR}/pulse/native` is **neither, in any spelling**:
+**Reframed on review.** This was filed as *"the vocabulary is missing"*. The sharper question is
+whether the rule should exist in its current form at all — and by this repo's own
+[gate-placement principle](../design/gate-placement-principle.md), it mostly should not.
 
-  - the `$VAR` form is refused — it names an absolute path one indirection later;
-  - the literal `/run/user/<uid>/…` is refused as absolute;
-  - and it is not under `$HOME`.
+- **What the rule does.** A pack-shipped loophole's `host_bind_mounts[].host` must sit inside its own
+  module dir or under `$HOME`. `${XDG_RUNTIME_DIR}/pulse/native` is neither in any spelling, so the
+  socket half of `audio` is inexpressible for a pack.
 
-- **What it costs.** The socket half of `audio` — the loophole this design nominated as its own
-  dogfood — is inexpressible for a pack. The shipped pack carries only the ALSA half.
+- **Why it is halfway — measured.** The pack-shipped subset does **not** refuse `host_daemon`; it
+  constrains only its `publishes` value. So the same pack may declare an arbitrary host argv that
+  opens the very socket the bind rule refused. The rule blocks the **declarative** form of a
+  capability while permitting the **imperative** form of it.
 
-- **The rule is right; the vocabulary is missing.** Those are different problems. Widening the path
-  rule would admit `${HOME}/.ssh` and `${XDG_RUNTIME_DIR}/../../etc` along with the socket.
+- **Test 1 says that is theatre.** The gate is aimed at an actor who already has the authority it
+  protects. And the effect is worse than neutral: it pushes an author toward **arbitrary host
+  execution** to obtain a read-only bind — the sharpest capability in the system to get the mildest.
 
-- **The design's own fallback does not survive the case.** *"A `host_daemon` that mediates"* means
-  writing an audio proxy to reach a socket the user's own session already exposes — trading a `:ro`
-  bind for arbitrary host execution. A rule whose escape hatch is "run code on the host instead"
-  pushes authors toward the sharpest capability in the system to obtain the mildest one.
+- **The real gate is already there, and it is the claim.** Enumeration is total, so a bind emits an
+  approvable string and a fetched pack cannot cross without the user seeing it. The path rule sits
+  *on top of* that and refuses what a user could knowingly approve.
 
-- **My read:** a declared, enumerated runtime-socket vocabulary. yolo resolves the session runtime
-  dir; the manifest names only the socket inside it; the claim lands in the host-IPC class the
-  producer already has, so the approval string stays machine-independent.
-  *"Leave it, runtime-dir IPC is bundled-only" is coherent too, and is what ships today.*
+- **It also misfires on origin.** The subset applies to every pack-shipped loophole, so a `file://`
+  pack — content in a directory you control, trusted unconditionally everywhere else — is refused a
+  bind it could trivially write into the config block instead.
 
-- **Blocks nothing** — but it decides whether the bundled→packs consolidation can ever finish, since
-  a bundled loophole cannot be retired while no pack can declare its capability.
+- **What it does buy, honestly:** a claim string must be machine-independent (G2a). A literal
+  `/run/user/1000/…` hardcodes a uid. But `${XDG_RUNTIME_DIR}` is *more* portable as a raw string,
+  and the rule refuses both — a portability rule that refuses the portable spelling.
+
+- **My read, revised:** narrow the rule to what it can honestly justify — **refuse what cannot be
+  claimed honestly**, not what a user might not want. A raw `${XDG_RUNTIME_DIR}/…` renders a
+  machine-independent claim, so let it through and let the approval do its job. That is smaller than
+  the enumerated-vocabulary answer I proposed before, and it drops a rule rather than adding one.
+
+- **The counter-argument, so it is on the table:** *"a fetched pack should never even be able to ASK
+  for a host socket"* is coherent, and defence-in-depth is real. But it has to be argued as policy —
+  what a pack may ever request — rather than as a boundary, because it is not one.
 
 - 📄 [`loophole-packaging.md`](../design/loophole-packaging.md) §3.1, §7 ·
   [overview](../design/loophole-packaging-overview.md) §5.1 ·
@@ -64,15 +76,33 @@ manufacturing a recommendation would be worse than admitting the gap.
 
 ## Security and correctness
 
-### 💬 OQ-LP8 / G2b — anchor an execution approval to CONTENT?
+### 💬 OQ-LP8 / G2b — `ApprovedAt` names a guarantee it does not deliver
 
-- **Today:** `ApprovedAt` is written and read by nothing, so a fetched pack at a mutable ref whose
-  daemon *file* changes under an unchanged argv re-installs with no prompt.
-- **Deliberately unbuilt.** Content-anchoring may be redundant under the ruling that the user-scope
-  edit **is** the confirmation, and the landed placement rule closes the second-actor gap that
-  argument leaves open. The gap is pinned by a test rather than a comment.
-- **My read:** leave it; revisit if a fetched exec-bearing pack ever ships.
-- 📄 [`loophole-packaging.md`](../design/loophole-packaging.md) §4.3 G2b
+**Reframed on review: the question is not "should we build content-anchoring" but "why is the
+half-built artifact still there".**
+
+- **Measured.** `ApprovedAt` is written into the lockfile by `internal/cli/pack.go` as
+  `"approvedAt"`, and read by **nothing** in production. `HostAccessApproved` compares claim strings
+  only.
+
+- **Why that is worse than absent.** It is a persisted, user-visible field in a *trust* file whose
+  name states that the approval is anchored to a commit. Anyone reading that lockfile — or writing
+  the next gate against it — would reasonably believe it is. That is the artifact form of the thing
+  [gate-placement](../design/gate-placement-principle.md) Test 1 forbids: *it looks like protection
+  while the real gap stays open, and a reviewer sees it and stops looking.*
+
+- **YAGNI applies, and the extension-point exception does not rescue it.**
+  [`extension-point-principle.md`](../design/extension-point-principle.md) protects designed
+  extension *surfaces* from YAGNI. This is not one — it is a half-finished implementation with no
+  reader, no documented contract for third parties, and no caller waiting on it.
+
+- **My read: remove it.** Queued as ready work below. The gap it gestures at is real but is already
+  pinned by a test (`TestHostAccessApprovedIgnoresApprovedAtToday`), which is the honest way to
+  record a known hole — a failing-if-it-changes assertion rather than a field that implies it is
+  handled. If a fetched exec-bearing pack ever ships, decide content-anchoring then, on evidence.
+
+- **What still needs you:** whether to build content-anchoring *at all*, later. Removing the field
+  does not answer that; it only stops the codebase claiming an answer it does not have.
 
 ### 💬 OQ-D1 — the config-approval snapshot is agent-writable
 
@@ -219,6 +249,13 @@ the 🛑 nightly below cannot be diagnosed without it, and the small independent
   Small and additive ([`boundary-broker.md`](../design/boundary-broker.md) step 1). Note the honest
   ceiling: for a fronted daemon yolo can log **connection**-level facts only, because the front
   splices a byte stream it does not parse.
+
+- 📦 **Delete `ApprovedAt`.** It is written into the lockfile and read by nothing, and its name
+  states a guarantee the code does not deliver (see OQ-LP8 above). Removing it is
+  backward-compatible — lock decoding does not reject unknown keys, so existing lockfiles keep a
+  stray key nothing reads. Keep `TestHostAccessApprovedIgnoresApprovedAtToday`, renamed to describe
+  what is actually true, so the known gap stays pinned by an assertion rather than by a field that
+  implies it is closed.
 
 - 📦 **E3 — capture on terminate** (the `yolo config capture` half shipped).
 

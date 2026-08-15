@@ -93,6 +93,34 @@ jail is what an inner-jail loophole can damage. Its agent may legitimately own t
 agent must not touch the human's. This is Test 2 in its purest form, and it is why the scope model
 recurses instead of pointing at a fixed path.
 
+## The artifact form: a name that states a guarantee
+
+A gate is not the only thing that can be theatre. **A persisted field, a file name, or a config key
+can assert a property nothing enforces**, and it fails the same way — a reader sees it and stops
+looking.
+
+The worked example is `ApprovedAt` in the pack lockfile. It is written on every install and read by
+nothing; the approval check compares claim strings and never consults it. But it lives in a *trust*
+file and its name says the approval is anchored to a commit, so anyone reading that lockfile — or
+building the next gate against it — would reasonably conclude the anchoring exists.
+
+**The test is the same one, applied to the artifact instead of the code path:** does the name assert
+something the system enforces? If not, the honest options are to enforce it or to delete it. There is
+no third option where it stays as documentation, because a field is not read as documentation — it is
+read as a fact about the system.
+
+**Pin the gap with an assertion, not a placeholder.** Where a hole is known and deliberately not
+closed, a test that fails if the behaviour changes records it *and* stays true. A half-built field
+records it and lies. `TestHostAccessApprovedIgnoresApprovedAtToday` is the shape to copy: it names
+the gap, it is checkable, and nothing about it suggests the gap is handled.
+
+**This is where YAGNI and the extension-point principle divide cleanly.**
+[`extension-point-principle.md`](extension-point-principle.md) protects designed extension
+*surfaces* from YAGNI — a manifest field a third party will write, whose semantics we must own
+before someone else invents them. It does not protect a half-finished implementation with no reader,
+no third-party contract, and no caller waiting on it. When in doubt, ask who would be stuck if it
+were absent: a stranger who cannot express something, or nobody.
+
 ## What this principle does NOT say
 
 **It is not an argument against defence in depth.** Two gates against the *same* actor can both be
