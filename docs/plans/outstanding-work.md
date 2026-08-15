@@ -1,21 +1,23 @@
 # Ongoing work
 
-**Status: 17 decisions waiting on you, 8 items ready to build, 5 blocked on a Mac, 1 on a broken
-CI runner.** Nothing is in progress. Last updated 2026-08-15.
+**Status: 17 attention required · 8 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
 
-**What this is.** The forward plan and nothing else. Completed work leaves this file — it moves to
-[`shipped-2026-08-12.md`](shipped-2026-08-12.md) (this fortnight, plus the settled reasoning behind
-retired threads) and [`shipped-2026-08-pack-batch.md`](shipped-2026-08-pack-batch.md) (the earlier
-batch). **If it is in this file, it is not done.**
+Last updated 2026-08-15. Counts tallied from this file, not asserted.
 
-Every claim was checked against the code on the date it carries, not against a status marker.
+**What this is.** The forward plan and nothing else. **If it is in this file, it is not done.**
+
+Work that shipped leaves immediately — the record is the commit history and
+[`shipped-2026-08-12.md`](shipped-2026-08-12.md). Decisions to *not* build something leave too, to
+[`retired-decisions.md`](../design/retired-decisions.md), because a rejected design with no record
+gets re-proposed.
 
 | | Means |
 |---|---|
-| 🟡 | **needs you** — a decision, an approval, or an answer. Nothing here is blocked on work. |
+| 🟡 | **needs you** — a decision or an answer. Nothing here is blocked on work. |
 | 🟢 | **ready to build** — designed, questions answered, no blockers. |
 | 🔵 | **in progress** |
-| 🔴 | **blocked** — on a machine, an upstream, or a failing thing that needs a different approach. |
+| 🟠 | **waiting** — on a machine or an external dependency. Code is done or paused, not broken. |
+| 🔴 | **broken** — actively failing, needs investigation. |
 | ⚪ | **icebox** — acknowledged, deliberately not this cycle. |
 
 ---
@@ -23,89 +25,148 @@ Every claim was checked against the code on the date it carries, not against a s
 # 🟡 Attention required
 
 If you read one section, read this one. Each carries my recommendation, so a bare *"go with your
-read"* clears it. **❓ marks the two where I genuinely have none.**
+read"* clears it. **🟡❓ marks the two where I genuinely have none** — subjective product calls where
+manufacturing a recommendation would be worse than admitting the gap.
 
-### The one that decides a design, not a task
+## The one that decides a design, not a task
 
-- 🟡 **OQ-LP14 — the pack-shipped loophole subset cannot express a runtime-dir socket.**
-  A pack's `host_bind_mounts[].host` must sit in its own module dir or under `$HOME`.
-  `${XDG_RUNTIME_DIR}/pulse/native` is neither, **in any spelling** — the `$VAR` form names an
-  absolute path one indirection later, the literal `/run/user/<uid>/…` is absolute, and it is not
-  under `$HOME`. So the socket half of `audio` — the loophole this design nominated as its own
-  dogfood — is inexpressible for a pack, which is why the shipped pack carries only the ALSA half.
-  **The rule is right and the vocabulary is missing**, and widening the path rule would admit
-  `${HOME}/.ssh` with it. The design's own fallback (*"a `host_daemon` that mediates"*) means writing
-  an audio proxy to reach a socket the user's session already exposes — trading a `:ro` bind for
-  arbitrary host execution, which inverts the risk ordering the whole design rests on.
-  → *My read: a declared, enumerated runtime-socket vocabulary — yolo resolves the session runtime
-  dir, the manifest names only the socket inside it, and the claim lands in the host-IPC class that
-  already exists, so the approval string stays machine-independent. "Leave it, runtime-dir IPC is
-  bundled-only" is coherent too, and is what ships today.*
-  **Nothing is blocked on it, but it decides whether the bundled→packs consolidation can ever finish.**
-  [`loophole-packaging.md`](../design/loophole-packaging.md) §3.1, §7 · [overview](../design/loophole-packaging-overview.md) §5.1 · [`packs/audio/README.md`](../../packs/audio/README.md) has the measurements
+### 🟡 OQ-LP14 — a pack cannot express a runtime-dir socket
 
-### Security and correctness
+- **The gap.** A pack-shipped loophole's `host_bind_mounts[].host` must sit inside its own module
+  dir or under `$HOME`. `${XDG_RUNTIME_DIR}/pulse/native` is **neither, in any spelling**:
 
-- 🟡 **OQ-LP8 / G2b — should an execution approval be anchored to CONTENT?** Today `ApprovedAt` is
-  written and read by nothing, so a fetched pack at a mutable ref whose daemon *file* changes under an
-  unchanged argv re-installs with no prompt. Deliberately unbuilt: content-anchoring may be redundant
-  under the ruling that the user-scope edit **is** the confirmation, and the landed placement rule
-  closes the second-actor gap that argument leaves open. The gap is pinned by a test rather than a
-  comment. → *My read: leave it; revisit if a fetched exec-bearing pack ever ships.*
-  [`loophole-packaging.md`](../design/loophole-packaging.md) §4.3 G2b
-- 🟡 **OQ-D1 — the config-approval snapshot is agent-writable.** `.yolo/config-snapshot.json` is mode
-  `664` in a `:rw` workspace, so an agent that edits `yolo-jail.jsonc` **and** matches the snapshot
-  makes the launch-time diff prompt vanish — the exact bypass [`config-safety.md`](../design/config-safety.md)
-  exists to prevent, and undiscussed there. Four options: move it to host state, per-file `:ro` mount,
-  HMAC it, or accept-and-document. → *My read: the `:ro` mount if practical, else move it. **Option 4
-  is the current state and is only defensible written down.*** Trades workspace portability against a
-  security property, which makes it a product call.
-- 🟡 **S5 — a jail resolves a skill-name collision silently.** The only place that silent loss
-  survives; refusing at *apply* time already ships. Three options ascending: a launch **warning**
-  naming both packs, a **`yolo check` failure**, a **boot refusal**. → *My read: warn now. The cheap
-  half is worth doing regardless — the destinations are already computed and `hostskills.Collisions`
-  is a pure function of them.*
-- 🟡 **OQ-S4 — does a skills `into` declaration NARROW delivery or only ADD to it?** In a jail every
-  loaded pack's skills reach every declared destination; at `apply --host` a pack reaches only what it
-  declared. → *My read: run `ResolveDestinations` on the jail path too, so both notches answer from one
-  inference. The honest fallback — say the fan-out out loud in the footprint — is worth doing either
-  way.* The trade: a content pack declaring a unique path becomes inert where today it reaches
-  everything.
-- 🟡 **OQ-CO — should two packs writing the same `config-overlay` key be LOUD?** Silent last-one-wins
-  today. → *My read: refuse and name both packs, same shape as the `config` exclusivity collision that
-  already ships.* Nothing is blocked on it — with one auth pack there is no second writer.
-  [`pack-config-collaboration.md`](../design/pack-config-collaboration.md)
+  - the `$VAR` form is refused — it names an absolute path one indirection later;
+  - the literal `/run/user/<uid>/…` is refused as absolute;
+  - and it is not under `$HOME`.
 
-### Scope and direction
+- **What it costs.** The socket half of `audio` — the loophole this design nominated as its own
+  dogfood — is inexpressible for a pack. The shipped pack carries only the ALSA half.
 
-- 🟡 **N3 — non-container nix: stop here, `yolo --at host -- <cmd>`, or a yolo-owned `nix profile`?**
-  → *My read: option 2, and it is no longer urgent* — the auth thread routed around the `env` refusal.
-  [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §8
-- 🟡 **OQ-B1b — vendor unYOLO's policy engine, or re-derive it?** Adopt-vs-build is settled (build);
-  this is the one piece where copying may beat writing. → *My read: vendor at a pinned SHA — MIT,
-  verified stdlib-only, ~2,100 lines, zero new module deps.*
-  [`boundary-broker.md`](../design/boundary-broker.md) §10.6
-- 🟡 **OQ-B/E — approval grants: reusable, and where does the human answer?** → *My read: §10 answers
-  both — two-bound narrowing-only grants, and a separate operator listener.*
-- 🟡 **OQ-E4 — do `stateful` surfaces get comment preservation?** `rmw` shipped; `computed` is provably
-  vacuous. → *My read: leave it, then build it when something needs it — no shipped `stateful` surface
-  has a commented host source.* What would change it: a `stateful` surface whose host source is a
-  commented `.toml` a user maintains.
+- **The rule is right; the vocabulary is missing.** Those are different problems. Widening the path
+  rule would admit `${HOME}/.ssh` and `${XDG_RUNTIME_DIR}/../../etc` along with the socket.
 
-### Auth mode (all from [`agent-auth-modes.md`](../design/agent-auth-modes.md) §10, §12.4)
+- **The design's own fallback does not survive the case.** *"A `host_daemon` that mediates"* means
+  writing an audio proxy to reach a socket the user's own session already exposes — trading a `:ro`
+  bind for arbitrary host execution. A rule whose escape hatch is "run code on the host instead"
+  pushes authors toward the sharpest capability in the system to obtain the mildest one.
 
-- 🟡 **OQ-6 — auth packs shipped or fetched?** *Gates building `claude-bedrock`.* → *fetched — shipping
-  breaks the "six official packs" tests and embeds a personal auth choice in the binary.*
-- 🟡 **OQ-2 — does the Bedrock bundle stay in `env_sources` or become declared?** → *declared; it is
-  what lets `describe`/`check` report the active mode.*
-- 🟡 **OQ-4 — should `check` verify the selected mode's credential is live?** → *yes — refresh tokens
-  hard-expire, so a stale overflow account fails exactly when needed.*
-- 🟡 **OQ-3 — what happens on a mode switch mid-session?** → *require a restart and say so; a
-  half-applied switch is the dishonest option.*
-- 🟡 **OQ-1 — is per-jail auth selection enough, or is dynamic switching required?** → *per-jail is
-  probably enough.*
-- 🟡 **OQ-7** ❓ — does the Teams pack own the model IDs, or the base `claude` pack? → *no recommendation.*
-- 🟡 **OQ-9** ❓ — is `env_sources` still the right home for the AWS keys? → *no recommendation.*
+- **My read:** a declared, enumerated runtime-socket vocabulary. yolo resolves the session runtime
+  dir; the manifest names only the socket inside it; the claim lands in the host-IPC class the
+  producer already has, so the approval string stays machine-independent.
+  *"Leave it, runtime-dir IPC is bundled-only" is coherent too, and is what ships today.*
+
+- **Blocks nothing** — but it decides whether the bundled→packs consolidation can ever finish, since
+  a bundled loophole cannot be retired while no pack can declare its capability.
+
+- 📄 [`loophole-packaging.md`](../design/loophole-packaging.md) §3.1, §7 ·
+  [overview](../design/loophole-packaging-overview.md) §5.1 ·
+  [`packs/audio/README.md`](../../packs/audio/README.md) has the measurements
+
+## Security and correctness
+
+### 🟡 OQ-LP8 / G2b — anchor an execution approval to CONTENT?
+
+- **Today:** `ApprovedAt` is written and read by nothing, so a fetched pack at a mutable ref whose
+  daemon *file* changes under an unchanged argv re-installs with no prompt.
+- **Deliberately unbuilt.** Content-anchoring may be redundant under the ruling that the user-scope
+  edit **is** the confirmation, and the landed placement rule closes the second-actor gap that
+  argument leaves open. The gap is pinned by a test rather than a comment.
+- **My read:** leave it; revisit if a fetched exec-bearing pack ever ships.
+- 📄 [`loophole-packaging.md`](../design/loophole-packaging.md) §4.3 G2b
+
+### 🟡 OQ-D1 — the config-approval snapshot is agent-writable
+
+- **The bypass.** `.yolo/config-snapshot.json` is mode `664` in a `:rw` workspace. An agent that
+  edits `yolo-jail.jsonc` **and** matches the snapshot makes the launch-time diff prompt vanish —
+  the exact bypass [`config-safety.md`](../design/config-safety.md) exists to prevent, and
+  undiscussed there.
+- **Four options:** move it to host state · per-file `:ro` mount · HMAC it · accept and document.
+- **My read:** the `:ro` mount if practical, else move it. Both remove the bypass rather than
+  detecting it. **Accept-and-document is the current state and is only defensible written down.**
+- **Why it is yours:** it trades workspace portability against a security property.
+
+### 🟡 S5 — a jail resolves a skill-name collision silently
+
+- The only place that silent loss survives. Refusing at *apply* time already ships.
+- **Three options ascending:** a launch **warning** naming both packs · a **`yolo check` failure** ·
+  a **boot refusal**.
+- **My read:** warn now. The cheap half is worth doing regardless — the destinations are already
+  computed and `hostskills.Collisions` is a pure function of them.
+
+### 🟡 OQ-S4 — does a skills `into` declaration NARROW delivery, or only ADD to it?
+
+- **Measured asymmetry.** In a jail, every loaded pack's skills reach every declared destination.
+  At `apply --host`, a pack reaches only the destinations it declared.
+- **My read:** run `ResolveDestinations` on the jail path too, so both notches answer from one
+  inference and `into` means what it says.
+- **The trade to weigh:** under that rule a content pack declaring a unique path becomes inert where
+  today it reaches everything. Arguably correct, arguably a regression.
+- **Worth doing either way:** say the fan-out out loud in `yolo pack footprint`.
+
+### 🟡 OQ-CO — should two packs writing the same `config-overlay` key be LOUD?
+
+- Silent last-one-wins today.
+- **My read:** refuse and name both packs — the same shape as the `config` exclusivity collision
+  that already ships.
+- **Blocks nothing:** with one auth pack there is no second writer.
+- 📄 [`pack-config-collaboration.md`](../design/pack-config-collaboration.md)
+
+## Scope and direction
+
+### 🟡 N3 — non-container nix
+
+- **Options:** stop here (`install_hints` prints a remedy) · `yolo --at host -- <cmd>` · a
+  yolo-owned `nix profile` as a confirm-gated remedy.
+- **My read:** option 2, and **no longer urgent** — the auth thread routed around the `env` refusal
+  that motivated it.
+- 📄 [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §8
+
+### 🟡 OQ-B1b — vendor unYOLO's policy engine, or re-derive it?
+
+- Adopt-vs-build is settled (**build**); this is the one piece where copying may beat writing.
+- **My read:** vendor at a pinned SHA — MIT, verified stdlib-only, ~2,100 lines, zero new module
+  dependencies.
+- 📄 [`boundary-broker.md`](../design/boundary-broker.md) §10.6
+
+### 🟡 OQ-B/E — approval grants: reusable, and where does the human answer?
+
+- **My read:** take the two-bound **narrowing-only** grants and the separate operator listener.
+- 📄 [`boundary-broker.md`](../design/boundary-broker.md) §9–§10.3
+
+### 🟡 OQ-E4 — do `stateful` surfaces get comment preservation?
+
+- `rmw` shipped. `computed` is provably vacuous. `stateful` is the remaining mode, and it is a
+  different problem wearing the same words: the file is composed from layers, so a comment can only
+  come from the `host` layer and emitting it is a *projection*, not an in-place edit.
+- **My read:** leave it, then build it when something needs it.
+- **What would change that:** a `stateful` surface whose host source is a commented `.toml` a user
+  actually maintains. Today there is none.
+
+## Auth mode
+
+All from [`agent-auth-modes.md`](../design/agent-auth-modes.md) §10, §12.4.
+
+- 🟡 **OQ-6 — auth packs shipped or fetched?** *Gates building `claude-bedrock`.*
+  → **fetched**; shipping breaks the "six official packs" tests and embeds a personal auth choice in
+  the binary.
+
+- 🟡 **OQ-2 — does the Bedrock bundle stay in `env_sources`, or become declared?**
+  → **declared**; it is what lets `describe`/`check` report the active mode.
+
+- 🟡 **OQ-4 — should `check` verify the selected mode's credential is live?**
+  → **yes**; refresh tokens hard-expire, so a stale overflow account fails exactly when needed.
+
+- 🟡 **OQ-3 — what happens on a mode switch mid-session?**
+  → **require a restart and say so**; a half-applied switch is the dishonest option.
+
+- 🟡 **OQ-1 — is per-jail auth selection enough, or is dynamic switching required?**
+  → per-jail is probably enough.
+
+- 🟡❓ **OQ-7 — does the Teams pack own the model IDs, or the base `claude` pack?**
+  → no recommendation; this is a preference about which pack owns a surface.
+
+- 🟡❓ **OQ-9 — is `env_sources` still the right home for the AWS keys?**
+  → no recommendation; it trades hygiene against convenience and both readings are defensible.
 
 ---
 
@@ -113,89 +174,122 @@ read"* clears it. **❓ marks the two where I genuinely have none.**
 
 Prioritised. Nothing here needs an answer first.
 
-- 🟢 **The image staging/baking doc — you asked for it and I have not delivered it.** What can be
-  *delivered at launch* instead of *baked into the nix image*, so a config change stops forcing a
-  rebuild and a reload. Research was scoped (build path, load path, existing launch-time delivery,
-  cost model, prior art, measurements) and the run was killed on a quota limit before writing.
-  **Owed, not started.** It should lead with the cost model — the git-history rebuild rate and real
-  closure sizes decide which candidates deserve space — and it must cover the silent-fallback defect
-  below, because staging changes are worthless if a failure to stage is invisible.
-- 🟢 **The macOS nightly reports the wrong layer.** When the image build fails, `autoload.go` prints
-  `Using existing <image> image.` and proceeds on stale code, so `TestExtraPackageLibFarm` and
-  `TestDevPackageLinksRuntimeLib` fail with a **lib-farm assertion** two layers from the cause. The
-  build's stderr is swallowed. Make the test fail with *"the image build failed, here is why"*.
-  A check that reports the wrong layer is worse than no check.
-- 🟢 **A6 — capability supersession**, so a Bedrock pack retires the OAuth broker rather than leaving
-  a known-broken TLS-intercept stack starting under it. Designed;
-  [`pack-capabilities.md`](../design/pack-capabilities.md), principle in
-  [`extension-point-principle.md`](../design/extension-point-principle.md). Option 0 (hand-written
-  `enabled: false`) needs no code at all and ships today.
-- 🟢 **OQ-LP10 — retire the hand-placed loopholes dir.** Ruled yes, unblocked, not carried out. It is
-  the one channel that starts a host daemon with **no selection step**, and retiring it forces
-  `loopholes enable/disable` off its single special case (it serves only that dir today) into config
-  state for every source.
-- 🟢 **T2 — finish the transport retirement.** Two AF_UNIX clients remain, both **generated Python**
-  baked into the image: `yolo-cglimit` (hardcodes `CGD_SOCKET`) and `yolo-journalctl` (reads
-  `YOLO_SERVICE_JOURNAL_SOCKET`); neither speaks `frameproto`. Port each to a `cmd/` Go binary at
-  parity first, then flip to `svcendpoint.Dial`. **Not** a second TLS implementation in generated
-  Python. Watch `flake.nix`'s `installPrefix` — a new `cmd/` binary not installed there vanishes from
-  the image.
-- 🟢 **B1 — audit-only log of every jail↔host boundary crossing.** Small and additive;
-  [`boundary-broker.md`](../design/boundary-broker.md) step 1. Note the honest ceiling: for a fronted
-  daemon yolo can log **connection**-level facts only, because the front splices a byte stream it does
-  not parse.
+- 🟢 **The image staging/baking doc — asked for, not delivered.**
+
+  What can be *delivered at launch* instead of *baked into the nix image*, so a config change stops
+  forcing a rebuild and a reload. Research was scoped (build path, load path, existing launch-time
+  delivery, cost model, prior art, measurements); the run was killed on a quota limit before
+  writing. **Owed, not started.** It should lead with the cost model — the git-history rebuild rate
+  and real closure sizes decide which candidates deserve space — and must cover the silent-fallback
+  defect below, because staging changes are worthless if a failure to stage is invisible.
+
+- 🟢 **Make a failed image build fail as itself.**
+
+  When the build fails, `autoload.go` prints `Using existing <image> image.` and proceeds on stale
+  code — so two macOS integration tests fail with a **lib-farm assertion** two layers from the
+  cause, and the build's stderr is swallowed. A check that reports the wrong layer is worse than no
+  check.
+
+- 🟢 **A6 — capability supersession**, so a Bedrock pack retires the OAuth broker instead of leaving
+  a known-broken TLS-intercept stack starting under it.
+  📄 [`pack-capabilities.md`](../design/pack-capabilities.md) ·
+  [`extension-point-principle.md`](../design/extension-point-principle.md).
+  *Option 0 (a hand-written `enabled: false`) needs no code and ships today.*
+
+- 🟢 **OQ-LP10 — retire the hand-placed loopholes dir.** Ruled yes, unblocked, not carried out.
+
+  It is the one channel that starts a host daemon with **no selection step**, and retiring it forces
+  `loopholes enable/disable` off its single special case — it serves only that dir today — into
+  config state for every source.
+
+- 🟢 **T2 — finish the transport retirement.**
+
+  Two AF_UNIX clients remain, both **generated Python** baked into the image: `yolo-cglimit`
+  (hardcodes `CGD_SOCKET`) and `yolo-journalctl` (reads `YOLO_SERVICE_JOURNAL_SOCKET`). Neither
+  speaks `frameproto`. Port each to a `cmd/` Go binary at parity first, then flip to
+  `svcendpoint.Dial`. **Not** a second TLS implementation in generated Python.
+  *Trap: a new `cmd/` binary not added to `flake.nix`'s `installPrefix` vanishes from the image.*
+
+- 🟢 **B1 — audit-only log of every jail↔host boundary crossing.**
+
+  Small and additive ([`boundary-broker.md`](../design/boundary-broker.md) step 1). Note the honest
+  ceiling: for a fronted daemon yolo can log **connection**-level facts only, because the front
+  splices a byte stream it does not parse.
+
 - 🟢 **E3 — capture on terminate** (the `yolo config capture` half shipped).
-- 🟢 **`yolo run --help` prints no help.** It loads config, launches a jail, and runs `--help` as the
-  command inside it (`exit 127`). So help is unavailable for `run`, and unavailable *at all* when
-  config fails to load — which is how an unrelated blocker first presented itself.
+
+- 🟢 **`yolo run --help` prints no help.**
+
+  It loads config, launches a jail, and runs `--help` as the command inside it (exit 127). So help
+  is unavailable for `run`, and unavailable *at all* when config fails to load — which is how an
+  unrelated blocker first presented itself.
 
 ---
 
-# 🔴 Blocked
+# 🟠 Waiting
 
-### On a Mac — nothing moves until one runs
+Code is done or paused. Nothing here is broken; each needs a machine.
 
-- 🔴 **B-0 — macos-user renders ZERO pack surfaces.** The Go fix landed 2026-08-12 (staging moved
-  above backend dispatch; the tree is root-owned at `/var/yolo-jail/packs/<session>`; three
-  `PlanInvariants` refuse a plan that stages a tree nobody names). The whole decision surface is
-  unit-tested on Linux. **No Mac has executed the sudo stage commands**, so whether `_yolojail` can
-  read the staged tree, whether surfaces land in the sandbox home, and whether hooks run are all
-  unknown. **Do not mark this done on the strength of the Linux suite.** One `--dry-run` shows the
-  plan; one real launch closes it. *Separately unclaimed: skills and briefings do not reach a
-  macos-user home at all — they cross into a container as bind mounts and this backend has none.*
-- 🔴 **B-1 — four more macos-user defects, none fixed.** Claude's credentials symlink dangles (blocks
-  the auth thread's Teams half on macOS); the OAuth broker is unwired (`EndpointGrantCommands` has
-  zero call sites); Bedrock creds ride `/ctx/host-claude`, which does not exist there (blocks the
-  other half); and `env_sources` secrets sit on the process argv, visible in `ps` to every user on the
-  Mac — reaching the launch argv but not the bootstrap argv, so MCP `${VAR}` gating silently drops
-  every secret-gated server.
-- 🔴 **T1 + D4 + #31 — confirmation only.** The unified `loopback-tls` transport and the
-  `host-processes` fix both shipped and are green on Linux; **macOS + podman, Apple Container and
-  macos-user were never executed**, and that is the platform the headline claim is about.
-- 🔴 **B-3 — the `guest` notch.** `render.KindGuest` exists with no behaviour. Needs B-0 first, same
+### On a Mac
+
+- 🟠 **B-0 — macos-user renders ZERO pack surfaces.**
+
+  The Go fix landed 2026-08-12: staging moved above backend dispatch, the tree is root-owned at
+  `/var/yolo-jail/packs/<session>`, and three `PlanInvariants` refuse a plan that stages a tree
+  nobody names. The whole decision surface is unit-tested on Linux.
+
+  **No Mac has executed the sudo stage commands**, so whether `_yolojail` can read the staged tree,
+  whether surfaces land in the sandbox home, and whether hooks run are all unknown. **Do not mark
+  this done on the strength of the Linux suite.** One `--dry-run` shows the plan; one real launch
+  closes it.
+
+  *Separately unclaimed:* skills and briefings do not reach a macos-user home at all — they cross
+  into a container as bind mounts, and this backend has none.
+
+- 🟠 **B-1 — four more macos-user defects, none fixed.**
+
+  - Claude's credentials symlink **dangles** — blocks the auth thread's Teams half on macOS.
+  - The OAuth broker is **unwired**; `EndpointGrantCommands` has zero call sites.
+  - Bedrock creds ride `/ctx/host-claude`, which does not exist there — blocks the other half.
+  - `env_sources` secrets sit on the process argv, visible in `ps` to every user on the Mac — and
+    they reach the launch argv but not the bootstrap argv, so MCP `${VAR}` gating silently drops
+    every secret-gated server.
+
+- 🟠 **T1 + D4 + #31 — confirmation only.** The unified `loopback-tls` transport and the
+  `host-processes` fix both shipped and are green on Linux. **macOS + podman, Apple Container and
+  macos-user were never executed** — and that is the platform the headline claim is about.
+
+- 🟠 **B-3 — the `guest` notch.** `render.KindGuest` exists with no behaviour. Needs B-0 first, same
   abstraction.
-- 🔴 **B-4 — Cachix (one real download proof), the first nightly after a release, and one real
-  cross-filesystem `cache_relocations` move.**
 
-### On an upstream
+- 🟠 **B-4 — three one-shot confirmations:** Cachix (one real download proof) · the first nightly
+  after a release · one real cross-filesystem `cache_relocations` move.
 
-- 🔴 **The macOS nightly cannot build an image.** `TestImageSkewOracleAnswers` fails on
-  `nix eval .#installPrefix failed: exit status 1`, and the two lib-farm tests fail because the build
-  failed and the run fell back to a stale image — **plausibly one root cause, not three**: nix is
-  broken on that runner. Not in our tree; a re-trigger reproduces it. The next useful step is the
-  swallowed `nix build` stderr, not another run. *(The multi-arch builder-index theory was tested and
-  refuted — the arch warning is gone and the failures are identical.)*
+---
+
+# 🔴 Broken
+
+- 🔴 **The macOS nightly cannot build an image.**
+
+  `TestImageSkewOracleAnswers` fails on `nix eval .#installPrefix failed: exit status 1`, and the two
+  lib-farm tests fail because the build failed and the run **silently fell back to a stale image**.
+
+  **Plausibly one root cause, not three:** nix is broken on that runner. Not in our tree, so a
+  re-trigger reproduces it. The next useful step is the swallowed `nix build` stderr, not another
+  run.
+
+  *The multi-arch builder-index theory was tested and **refuted** — the arch warning is gone and the
+  failures are identical. Recorded so it is not retried.*
 
 ---
 
 # ⚪ Icebox
 
 - ⚪ **E5 — `managed`/`defaults` array-append pinning.** Do not build speculatively.
-- ⚪ **`requires_pack` / pack→pack composition.** No demonstrated need left; its motivating case was
-  two auth packs excluding each other, and there is only one. Build it when something breaks without
-  it. *(Reasoning archived in [`shipped-2026-08-12.md`](shipped-2026-08-12.md).)*
+- ⚪ **`requires_pack` / pack→pack composition.** No demonstrated need left.
+  📄 [`retired-decisions.md`](../design/retired-decisions.md)
 - ⚪ **E1+E2 — `host_files` modes 4→3, `readonly` as a real `:ro` mount.** A behaviour change on a
-  shipped key; wants a design pass (E2 first) before it is worth queuing.
+  shipped key; wants a design pass before it is worth queuing.
 
 ---
 
@@ -204,32 +298,40 @@ Prioritised. Nothing here needs an answer first.
 ### Loophole packaging — shipped, one question open
 
 The 15th contribution kind and everything in its landing order landed 2026-08-13/14, verified with
-`just done`, `build-go` and a nested-jail launch. What remains is **OQ-LP14** above (a design gap) and
-**OQ-LP8/G2b** (a decision). Read [`loophole-packaging-overview.md`](../design/loophole-packaging-overview.md)
-— its status header is the ledger; [`loophole-packaging.md`](../design/loophole-packaging.md) is the
-implementation authority with dated markers per section.
+`just done`, `build-go` and a nested-jail launch.
 
-**Two things are unexercised rather than unbuilt**, and both are fixtures rather than design gaps: no
-*fetched* pack's loophole has been approved at a real prompt and spawned as a host daemon (the `audio`
-pack declares no daemon, and an embedded pack's approval is true by construction); and the
-bundled→packs consolidation is blocked on OQ-LP14, since a bundled loophole cannot be retired while no
-pack can declare its capability.
+**What remains:** OQ-LP14 (a design gap) and OQ-LP8/G2b (a decision), both above.
+
+**Two things are unexercised rather than unbuilt**, and both are fixtures rather than design gaps:
+
+- no *fetched* pack's loophole has been approved at a real prompt and spawned as a host daemon — the
+  `audio` pack declares no daemon, and an embedded pack's approval is true by construction;
+- the bundled→packs consolidation is blocked on OQ-LP14.
+
+📄 [`loophole-packaging-overview.md`](../design/loophole-packaging-overview.md) — its status header
+is the ledger · [`loophole-packaging.md`](../design/loophole-packaging.md) is the implementation
+authority, with dated markers per section.
 
 ### Claude auth — one pack left to build
 
 **`claude-bedrock`**: a `config-overlay` carrying `CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION` and the
 Bedrock-shaped model IDs, with AWS keys in `env_sources` so it stays secret-free and shareable.
-**Gated on OQ-6** (shipped or fetched). Then: `check`/`describe` should report the *effective* auth
-mode, which is OQ-2's payoff. There is deliberately **no** Teams pack — the base `claude` pack already
-is one; reasoning archived in [`shipped-2026-08-12.md`](shipped-2026-08-12.md).
+**Gated on OQ-6.** Then `check`/`describe` should report the *effective* auth mode, which is OQ-2's
+payoff.
+
+There is deliberately **no** Teams pack — the base `claude` pack already is one
+([why](../design/retired-decisions.md)).
 
 **Still unrun and decisive for the ambitious version:** does Claude Code send a subscription OAuth
 bearer to a non-Anthropic `ANTHROPIC_BASE_URL`? If yes, a proxy gives no-restart switching; if no,
-pack-swapping is the ceiling. ~5 minutes ([`agent-auth-modes.md`](../design/agent-auth-modes.md) §6).
+pack-swapping is the ceiling. ~5 minutes
+([`agent-auth-modes.md`](../design/agent-auth-modes.md) §6).
 
 ### Boundary broker — designed, not started
 
 **B1b** (credential-injecting git proxy — host injects after egress, jail holds nothing) and **B2**
 (approval-gated host credentials, one allowlisted verb, synchronous) are both settled as *builds*
-rather than adoptions. B1b carries OQ-B1b; B2 waits on N3/OQ-1.
-[`boundary-broker.md`](../design/boundary-broker.md) §10.
+rather than adoptions.
+
+B1b carries OQ-B1b; B2 waits on N3 and OQ-1.
+📄 [`boundary-broker.md`](../design/boundary-broker.md) §10.
