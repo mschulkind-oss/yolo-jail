@@ -64,6 +64,13 @@ type Manifest struct {
 	// guessing on the pack's behalf is the thing being removed.
 	SkillsTier string `json:"skills_tier,omitempty"`
 
+	// Supersedes is the pack's claim that some capability's job no longer needs doing,
+	// so whichever loophole SERVES it can stop (docs/design/pack-capabilities.md §2).
+	// Each entry carries a MANDATORY `because` — see supersedes.go for why it is a
+	// top-level key rather than a 16th contribution kind, and why the asymmetry with
+	// `serves` is enforced rather than merely recommended.
+	Supersedes []Supersession `json:"supersedes,omitempty"`
+
 	// Contributes is the pack's effects: one list of typed contributions, each with
 	// an explicit `kind` from the closed set (see contributes.go / kinds.go). It
 	// each with an explicit kind from the closed core-owned set
@@ -221,7 +228,7 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 	if err := json.Unmarshal(data, &man); err != nil {
 		return nil, []string{ManifestName + ": " + err.Error()}, nil
 	}
-	problems = man.validateSkillsTier()
+	problems = append(man.validateSkillsTier(), man.validateSupersedes()...)
 	kept := make([]Contribution, 0, len(man.Contributes))
 	for i, c := range man.Contributes {
 		if c.Kind != "" && !KnownKind(c.Kind) {
@@ -244,6 +251,7 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 // contributes[].
 func (m *Manifest) Validate() []string {
 	problems := m.validateSkillsTier()
+	problems = append(problems, m.validateSupersedes()...)
 	return append(problems, m.validateContributions()...)
 }
 
