@@ -41,9 +41,11 @@ Google Antigravity is Google's agentic AI coding platform. The **AGY CLI** (`agy
 
 * **Binary:** Native Go binary (`ELF 64-bit x86-64`, dynamic link). Self-contained, lightweight execution (no Node.js/npm runtime needed for the binary core).
 * **Installer:** Native shell installer script (`curl -fsSL ... | bash`) installing to `~/.local/bin/agy`.
-* **State & Config Path:** `~/.gemini/antigravity-cli/`
-  * `config/settings.json` (Global settings, theme, permission policies)
-  * `mcp_config.json` (Model Context Protocol server configuration)
+* **State & Config Path:** `~/.gemini/` (the whole vendor dir is the writable
+  overlay; see §2.A for the correction).
+  * `antigravity-cli/` — yolo-managed config (`settings.json`, `mcp_config.json`)
+  * `config/projects` — the CLI's own runtime project state (added by agy 1.1.13;
+    not in this plan's original layout, which is why the overlay had to widen)
   * `brain/` (Conversation logs and artifact storage)
 * **YOLO Posture:** `--dangerously-skip-permissions` (bypasses tool execution approval prompts).
 * **Briefing Target:** `AGENTS.md` (or `.gemini/antigravity-cli/AGENTS.md`).
@@ -58,6 +60,17 @@ Google Antigravity is Google's agentic AI coding platform. The **AGY CLI** (`agy
 * **`agy`** uses state directory: `~/.gemini/antigravity-cli`
 
 To ensure full isolation and zero path collisions, `agy`'s overlay directory is explicitly specified as `.gemini/antigravity-cli`.
+
+> [!NOTE]
+> **Corrected (2026-08-14):** the overlay is now `.gemini`, not
+> `.gemini/antigravity-cli`. agy 1.1.13 writes its runtime project state to
+> `~/.gemini/config/projects` — a *sibling* of the yolo-managed
+> `antigravity-cli/`, not a child of it. The original `.gemini/antigravity-cli`
+> scope left `~/.gemini/config` read-only, so the CLI failed at boot with
+> `mkdir /home/agent/.gemini/config: read-only file system`. The isolation
+> concern above is moot: the `gemini` agent is retired (no `gemini` spec
+> remains; `validate_test.go` asserts `["gemini"]` is an unknown agent), so
+> `.gemini` is now agy's alone.
 
 ### B. Installation Model
 In `internal/agents/agents.go`, `agy` will be registered with `Kind: "native"` (similar to Claude):
