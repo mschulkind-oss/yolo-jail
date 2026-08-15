@@ -677,7 +677,24 @@
         # degrades to a warning (soft), never a boot brick (hard). This is pure
         # upside — os.Executable still resolves to the store path either way, so
         # ../share/yolo-jail resolution is unaffected.
-        shippedBinaries = [ "yolo" "yolo-entrypoint" "yolo-jaild" "yolo-ps" ];
+        #
+        # THIS LIST IS THE FILTER, and a `cmd/` binary missing from it VANISHES
+        # from the image while `go build ./...` stays green — the same silent
+        # class as the goSrc fileset trap above, one layer down. goBinaries
+        # compiles every cmd/*/ directory; only the names here are copied out,
+        # /bin-linked and put on PATH. goprobe is the deliberate omission (a
+        # dev-only deployment tripwire that must never reach the runtime PATH),
+        # which is exactly why an accidental omission looks identical to it.
+        # Check with `nix eval .#installPrefix.outPath` — cheap, never a build —
+        # and by looking for the binary next to the others in /bin.
+        #
+        # yolo-cglimit and yolo-journalctl are the in-jail loophole clients that
+        # used to be Python generated into ~/.local/bin at boot
+        # (docs/design/loophole-transport.md §8.4). ~/.local/bin PRECEDES /bin on
+        # PATH, so a leftover script shadows the binary named here — retiring the
+        # generator has to also unlink the file it used to write, which
+        # entrypoint's stale-wrapper cleanup does.
+        shippedBinaries = [ "yolo" "yolo-entrypoint" "yolo-jaild" "yolo-ps" "yolo-cglimit" "yolo-journalctl" ];
         installPrefix = pkgs.runCommand "yolo-jail-install-prefix" { } ''
           mkdir -p $out/opt/yolo-jail/bin \
                    $out/opt/yolo-jail/share/yolo-jail/bin/linux-${goArch} \

@@ -80,9 +80,16 @@ if [ -e "$DEST" ]; then
   fi
 fi
 
-# The image bakes exactly these four (flake.nix:shippedBinaries). goprobe is
+# The image bakes exactly these (flake.nix:shippedBinaries). goprobe is
 # intentionally absent.
-SHIPPED_BINARIES=(yolo yolo-entrypoint yolo-jaild yolo-ps)
+#
+# THIS LIST MUST TRACK flake.nix's. It is not a convenience copy: a bundle
+# staged here IS the source flake.nix's prebuilt short-circuit input, and that
+# loop does `[ -e "$src" ] || continue` — so a binary missing HERE is silently
+# skipped THERE and vanishes from any image built from a shipped bundle, while
+# an image built from a source checkout still has it. The two lists are pinned
+# together by internal/entrypoint/shippedclients_test.go.
+SHIPPED_BINARIES=(yolo yolo-entrypoint yolo-jaild yolo-ps yolo-cglimit yolo-journalctl)
 
 # Arches to build. Default is BOTH (the arch-agnostic shipped bundle); a local
 # install narrows this to the native arch via YOLO_BUNDLE_ARCHES to avoid a cold
