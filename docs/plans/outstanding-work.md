@@ -1,6 +1,6 @@
 # Ongoing work
 
-**Status: 17 attention required · 8 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
+**Status: 17 attention required · 7 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
 
 Last updated 2026-08-15. Counts tallied from this file, not asserted.
 
@@ -245,17 +245,6 @@ Nothing here needs an answer first.
 swallowed-build-failure fix leads — the 🛑 nightly below cannot be diagnosed without it, and
 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) ranks it ahead of every
 staging change it proposes — and the small independent items trail.
-
-- 📦 **Make a failed image build fail as itself.**
-
-  When the build fails, `autoload.go` prints `Using existing <image> image.` and proceeds on stale
-  code — so two macOS integration tests fail with a **lib-farm assertion** two layers from the
-  cause, and the build's stderr is swallowed. A check that reports the wrong layer is worse than no
-  check. The minimal fix is specified (not implemented) in
-  📄 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §7: `buildTail` is already
-  captured at `autoload.go:169` and dropped on the floor at `:184-191`; only the call site is
-  missing. **OQ-2 there** — whether the fallback should still return `true` after a failed build —
-  needs a ruling before the behavior half lands.
 
 - 📦 **Pass `--accept-flake-config` on the three image `nix` invocations.**
 
