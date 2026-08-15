@@ -1,7 +1,54 @@
 # Capabilities — naming the job, so a pack can say a bundled loophole is unnecessary
 
-**Status:** DESIGN, 2026-08-13. Not built. Queue row **A6**. **Rewritten 2026-08-13** against
-[`loophole-packaging.md`](loophole-packaging.md), which is its prerequisite.
+**Status:** **LANDED 2026-08-15** (queue row **A6**). Designed 2026-08-13, rewritten the same day
+against [`loophole-packaging.md`](loophole-packaging.md), which is its prerequisite.
+
+> ### LANDED — what shipped, and where this document is now wrong
+>
+> `serves` is `internal/loopholedecl` (capabilities.go); `supersedes` is `internal/packdecl`
+> (supersedes.go, a top-level key per OQ-CAP); the gate and the report are
+> `internal/loopholes/supersede.go`. `bundled_loopholes/claude-oauth-broker` declares
+> `serves: ["claude-oauth-refresh"]`, which on its own changes nothing. No `claude-bedrock`
+> pack was built (OQ-6 is a maintainer call).
+>
+> **Four corrections, in the order they matter:**
+>
+> 1. **§4 calls supersession "a third gate" — it is the FOURTH.** `Active()` was
+>    `Enabled && SupportedHere() && RequirementsMet()` before this change, not
+>    `Enabled && RequirementsMet()`; the `platforms` declaration had already landed. The
+>    shipped order is `Enabled && !Superseded() && SupportedHere() && RequirementsMet()`,
+>    with supersession SECOND rather than last: it is a field read (cheapest), and it belongs
+>    beside `Enabled` because both are decisions a user's configuration made, where the two
+>    below are facts about the machine. `InactiveReason()` branches in the same order, which
+>    is what stops the gate and the explanation from disagreeing.
+> 2. **§5's "REFUSED AT LOAD" holds for the STRUCTURE and not for the MATCH.** An empty
+>    `capability`, a missing `because`, a duplicate, a control character: all refused at load,
+>    in `packdecl`, on both the strict and tolerant paths, because every one is
+>    version-invariant. A capability matching no `serves` is REPORTED, loudly, with the
+>    did-you-mean and the served list — not refused. Three reasons: the claim is decodable
+>    long before the loopholes are (`pack lint` and the in-jail entrypoint have no loophole
+>    set, and cannot get one — the `loopholes → config → packload` cycle); a pack superseding
+>    a capability served only by a newer bundled manifest would brick every jail on a
+>    pre-`just load` image, which is the `tier` incident a fourth time; and the failure
+>    direction of a warning is safe — an unmatched claim leaves the loophole running, while a
+>    refusal would take down `yolo loopholes list`, the command a user runs to find out what
+>    happened.
+> 3. **The footprint claim is DISPLAY-ONLY and deliberately NOT in `HostAccessClaims`.** §5
+>    says `pack footprint` "carries the same line", and it does — as a `Claim` whose Kind is
+>    the display label `supersedes`, deliberately absent from `packdecl`'s closed kind
+>    registry, so two packs superseding one capability cannot be reported as a collision (§5's
+>    own rule) and no per-kind exhaustiveness test acquires a non-contribution. It is not an
+>    approval key: every string in that set GRANTS the pack something, while a supersession
+>    relinquishes; keying an approval on `capability` alone would be content-blind, and
+>    keying it on the `because` too would re-prompt on every reword — which, since
+>    `promptYesNo` fails closed on a non-TTY, permanently refuses the pack.
+>    `internal/packload/supersede.go` records the trigger that would reopen it.
+> 4. **One wire is left for the run lane, and it is the only inert part.** `internal/loopholes`
+>    takes the claims as data (`SetPackSupersessions` / `SetPackSupersessionResolver`,
+>    mirroring `SetPackModules`) because it cannot import `packload`. The two calls that fill
+>    the record live in `internal/cli/run/packs.go`, which this change did not own. Until they
+>    land the record is empty — and empty is the SAFE direction: nothing is superseded and
+>    every loophole behaves exactly as it does today.
 
 > ### PREREQUISITE — read [`loophole-packaging.md`](loophole-packaging.md) first
 >
