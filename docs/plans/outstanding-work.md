@@ -14,7 +14,7 @@ gets re-proposed.
 | | Means |
 |---|---|
 | 💬 | **needs you** — a decision or an answer. Nothing here is blocked on work. |
-| 🔋 | **ready to build** — designed, questions answered, no blockers. |
+| 📦 | **ready to build** — designed, questions answered, no blockers. |
 | 🏗️ | **in progress** |
 | 🔒 | **waiting** — on a machine or an external dependency. Code is done or paused, not broken. |
 | 🛑 | **broken** — actively failing, needs investigation. |
@@ -170,11 +170,15 @@ All from [`agent-auth-modes.md`](../design/agent-auth-modes.md) §10, §12.4.
 
 ---
 
-# 🔋 Up next
+# 📦 Up next
 
-Prioritised. Nothing here needs an answer first.
+Nothing here needs an answer first.
 
-- 🔋 **The image staging/baking doc — asked for, not delivered.**
+**Ordered by:** what I owe you · then what unblocks something else in this file · then descending
+value-for-cost. So the undelivered doc leads, the swallowed-build-failure fix comes second because
+the 🛑 nightly below cannot be diagnosed without it, and the small independent items trail.
+
+- 📦 **The image staging/baking doc — asked for, not delivered.**
 
   What can be *delivered at launch* instead of *baked into the nix image*, so a config change stops
   forcing a rebuild and a reload. Research was scoped (build path, load path, existing launch-time
@@ -183,26 +187,26 @@ Prioritised. Nothing here needs an answer first.
   and real closure sizes decide which candidates deserve space — and must cover the silent-fallback
   defect below, because staging changes are worthless if a failure to stage is invisible.
 
-- 🔋 **Make a failed image build fail as itself.**
+- 📦 **Make a failed image build fail as itself.**
 
   When the build fails, `autoload.go` prints `Using existing <image> image.` and proceeds on stale
   code — so two macOS integration tests fail with a **lib-farm assertion** two layers from the
   cause, and the build's stderr is swallowed. A check that reports the wrong layer is worse than no
   check.
 
-- 🔋 **A6 — capability supersession**, so a Bedrock pack retires the OAuth broker instead of leaving
+- 📦 **A6 — capability supersession**, so a Bedrock pack retires the OAuth broker instead of leaving
   a known-broken TLS-intercept stack starting under it.
   📄 [`pack-capabilities.md`](../design/pack-capabilities.md) ·
   [`extension-point-principle.md`](../design/extension-point-principle.md).
   *Option 0 (a hand-written `enabled: false`) needs no code and ships today.*
 
-- 🔋 **OQ-LP10 — retire the hand-placed loopholes dir.** Ruled yes, unblocked, not carried out.
+- 📦 **OQ-LP10 — retire the hand-placed loopholes dir.** Ruled yes, unblocked, not carried out.
 
   It is the one channel that starts a host daemon with **no selection step**, and retiring it forces
   `loopholes enable/disable` off its single special case — it serves only that dir today — into
   config state for every source.
 
-- 🔋 **T2 — finish the transport retirement.**
+- 📦 **T2 — finish the transport retirement.**
 
   Two AF_UNIX clients remain, both **generated Python** baked into the image: `yolo-cglimit`
   (hardcodes `CGD_SOCKET`) and `yolo-journalctl` (reads `YOLO_SERVICE_JOURNAL_SOCKET`). Neither
@@ -210,15 +214,15 @@ Prioritised. Nothing here needs an answer first.
   `svcendpoint.Dial`. **Not** a second TLS implementation in generated Python.
   *Trap: a new `cmd/` binary not added to `flake.nix`'s `installPrefix` vanishes from the image.*
 
-- 🔋 **B1 — audit-only log of every jail↔host boundary crossing.**
+- 📦 **B1 — audit-only log of every jail↔host boundary crossing.**
 
   Small and additive ([`boundary-broker.md`](../design/boundary-broker.md) step 1). Note the honest
   ceiling: for a fronted daemon yolo can log **connection**-level facts only, because the front
   splices a byte stream it does not parse.
 
-- 🔋 **E3 — capture on terminate** (the `yolo config capture` half shipped).
+- 📦 **E3 — capture on terminate** (the `yolo config capture` half shipped).
 
-- 🔋 **`yolo run --help` prints no help.**
+- 📦 **`yolo run --help` prints no help.**
 
   It loads config, launches a jail, and runs `--help` as the command inside it (exit 127). So help
   is unavailable for `run`, and unavailable *at all* when config fails to load — which is how an
@@ -242,6 +246,10 @@ Code is done or paused. Nothing here is broken; each needs a machine.
   whether surfaces land in the sandbox home, and whether hooks run are all unknown. **Do not mark
   this done on the strength of the Linux suite.** One `--dry-run` shows the plan; one real launch
   closes it.
+
+  *Why 🔒 and not 📦, since the code is written:* the status is genuinely ambiguous here, so it takes
+  the reading that fails safe. Calling built-but-unverified work "ready" is how a Linux suite gets
+  mistaken for a confirmation on the platform it never ran.
 
   *Separately unclaimed:* skills and briefings do not reach a macos-user home at all — they cross
   into a container as bind mounts, and this backend has none.
