@@ -239,7 +239,14 @@ func hostFileLayers(e config.HostFileEntry) []string {
 // lines, whose overlay is a whole-file scalar or list) 1 when it carries anything
 // at all — a file with no keys has exactly one "key", itself.
 func overlayKeyCount(agent, name string) int {
-	data, err := os.ReadFile(prismOverlayPath(agent, name))
+	return overlayKeyCountAt(prismOverlayPath(agent, name))
+}
+
+// overlayKeyCountAt is overlayKeyCount over an explicit sidecar path — what
+// capture-on-terminate needs, since it resolves the sidecar dir from the
+// workspace it is tearing down rather than from the cwd.
+func overlayKeyCountAt(path string) int {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0
 	}

@@ -379,6 +379,10 @@
                 FOREVER (the sidecar never ages out), so implicit capture would
                 silently fork a host-mirrored file the first time a tool
                 rewrote its own config (`npm config set`, any CLI's first run).
+                Captured at jail TERMINATE as well as at boot, so `yolo config
+                diff` describes the session that just ended, not the one before
+                it.  The two folds are the same operation over the same baseline,
+                so the earlier one cannot record a key the boot render would not.
     Note 0444 is DAC, not kernel enforcement: an agent running as root (Claude
     YOLO does) bypasses the mode bits.  It is a strong signal and a speed bump,
     not a sandbox — use `mounts` for a kernel-enforced read-only file.

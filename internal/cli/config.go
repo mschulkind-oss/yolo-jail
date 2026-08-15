@@ -43,9 +43,10 @@ Subcommands:
   reset <agent> [flags]    Discard those captured edits, so the surface returns
                            to what its layers produce on the next launch.
   capture <agent> [flags]  Record the CURRENT on-disk edits into the overlay now,
-                           instead of waiting for the next launch. Nothing is lost
-                           without it (the next boot captures normally) — this is
-                           so 'diff' reflects edits made this session.
+                           without waiting. Nothing is lost without it — a jail
+                           captures on TERMINATE, and the next boot captures again
+                           — so this is for reading 'diff' mid-session, while the
+                           jail that made the edits is still running.
   drift                    Show whether the WORKSPACE config (yolo-jail.jsonc) on
                            disk differs from the one this jail was started with —
                            i.e. whether a restart is needed to apply an edit. Exit

@@ -120,6 +120,36 @@ type Options struct {
 	// this backend running with no pack root at all: making it an argument means a
 	// backend cannot be dispatched without one being decided.
 	MacosUserRun func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot, packRoot string, dryRun bool) int
+	// CaptureOnTerminate folds this session's in-jail edits to capture-mode surfaces
+	// into their overlay sidecars once the jail is down (E3). It receives the
+	// workspace and the resolved runtime, and reads only HOST-side dirs — by
+	// teardown the container may be gone. nil => no capture, which is a legitimate
+	// state rather than a broken one: the fold is idempotent with the one the next
+	// boot render performs, so skipping it costs visibility, never data.
+	//
+	// A seam because the capture engine lives in internal/cli (the parent package),
+	// which imports this one — the front door injects it, exactly as it does
+	// MacosUserRun.
+	CaptureOnTerminate func(workspace, runtime string)
+}
+
+// captureConfigOnTerminate runs the injected E3 capture for a jail that has just
+// been torn down.
+//
+// It swallows everything. The hook already warns-and-proceeds internally; this is
+// the second guard, for the case where the hook itself is what fails. A teardown
+// that could be blocked by an observability fold would be a worse bug than the
+// stale `yolo config diff` the fold exists to fix.
+//
+// Idempotent, so calling it from both teardown paths (the signal/window-close
+// onTerminate and the normal exit tail, which both run when a session is
+// interrupted) folds the same edits against the same baseline and converges.
+func (o *Options) captureConfigOnTerminate(rt string) {
+	if o.CaptureOnTerminate == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	o.CaptureOnTerminate(o.Workspace, rt)
 }
 
 func fillDefaults(o *Options) {

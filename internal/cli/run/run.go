@@ -571,6 +571,8 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		cleanupPortForwarding(socatProcs, portSocketDir)
 		lock.Close()
 		o.stopLoopholes(hostServices, socketsDir, cname, rt)
+		// E3, after stopJail so the jail is not still writing the surfaces we read.
+		o.captureConfigOnTerminate(rt)
 	}
 
 	// Fresh-launch startup banner (with resource parts) to stderr for log
@@ -609,6 +611,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// Normal exit teardown.
 	cleanupPortForwarding(socatProcs, portSocketDir)
 	o.stopLoopholes(hostServices, socketsDir, cname, rt)
+	// E3: the container is `--rm` and now gone, so fold this session's in-jail config
+	// edits into their overlay sidecars from the host side, before anyone can ask
+	// `yolo config diff` and get last session's answer.
+	o.captureConfigOnTerminate(rt)
 	clearOwnerPID(cname)
 	o.maybeWarnAboutOOMKiller(rc, rt)
 

@@ -324,6 +324,15 @@ func runRun(args []string) int {
 	// Wire the macos-user native branch. run stays free of the macosuser +
 	// darwinpkg deps; the front door injects the handler.
 	opts.MacosUserRun = macosUserRun
+	// Wire E3's capture-on-terminate. Same injection shape and same reason: the
+	// capture engine lives in THIS package, which imports run, so run cannot call it
+	// directly. Warnings go to stderr — the capture is an observability aid, and its
+	// failures must not pollute a command's contract-stable stdout.
+	opts.CaptureOnTerminate = func(workspace, rt string) {
+		captureOnTerminate(workspace, rt, func(msg string) {
+			fmt.Fprintln(os.Stderr, "Warning: "+msg)
+		})
+	}
 	// Set the tmux/kitty jail indicator around the run, restoring on exit.
 	restore := SetupJailIndicator()
 	if restore != nil {

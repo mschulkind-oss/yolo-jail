@@ -879,22 +879,51 @@ func configCapture(args []string, out, errw io.Writer, color bool) int {
 	return 0
 }
 
+// captureLocation is where ONE capture reads and writes: the surface file itself
+// plus its two sidecars, as absolute paths.
+//
+// It exists because capture has two callers that resolve those three paths
+// differently, and only differently. `yolo config capture` runs inside the jail
+// that owns the workspace, so `~` is the jail's home and the sidecar dir is the
+// cwd's — the local case. Capture-on-terminate runs on the HOST after the
+// container is gone, where `~` is the invoking human's real home and reading it
+// would be the G2 privacy defect refuseHostSideWrite exists to stop; it resolves
+// the same three files against the workspace's host-side backing dirs instead.
+// Making the paths a parameter is what lets the second caller reuse the engine
+// call below rather than grow a second capture implementation that would be free
+// to disagree with it.
+type captureLocation struct {
+	surface    string // the composed file the agent reads and may have edited
+	lastRender string // yolo's own last output, the baseline an edit is measured against
+	overlay    string // the accumulated captured edits (written)
+}
+
 // captureSurface folds one surface's on-disk state into its overlay, returning the
 // resulting overlay key count, or -1 when there is no baseline to diff against.
+// LOCAL resolution: the process home and the cwd's workspace.
 func captureSurface(s manifest.Surface) (int, error) {
-	path := expandHome(s.Path)
-	current, err := os.ReadFile(path)
+	return captureSurfaceAt(s, captureLocation{
+		surface:    expandHome(s.Path),
+		lastRender: prismLastRenderPath(s.Agent, s.Name),
+		overlay:    prismOverlayPath(s.Agent, s.Name),
+	})
+}
+
+// captureSurfaceAt is the capture itself, over explicit paths. Both callers land
+// here, so there is exactly one definition of what capturing means.
+func captureSurfaceAt(s manifest.Surface, at captureLocation) (int, error) {
+	current, err := os.ReadFile(at.surface)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return -1, nil
 		}
 		return 0, err
 	}
-	lastRender, err := os.ReadFile(prismLastRenderPath(s.Agent, s.Name))
+	lastRender, err := os.ReadFile(at.lastRender)
 	if err != nil {
 		return -1, nil // no baseline: cannot tell an edit from yolo's own output
 	}
-	overlayJSON, _ := os.ReadFile(prismOverlayPath(s.Agent, s.Name))
+	overlayJSON, _ := os.ReadFile(at.overlay)
 
 	// Reuse the ENGINE's capture path rather than reimplementing the diff: a second
 	// implementation would be free to disagree with the boot render, which is the one
@@ -909,9 +938,8 @@ func captureSurface(s manifest.Surface) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if err := os.WriteFile(prismOverlayPath(s.Agent, s.Name),
-		append(out.OverlayJSON, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(at.overlay, append(out.OverlayJSON, '\n'), 0o644); err != nil {
 		return 0, err
 	}
-	return overlayKeyCount(s.Agent, s.Name), nil
+	return overlayKeyCountAt(at.overlay), nil
 }
