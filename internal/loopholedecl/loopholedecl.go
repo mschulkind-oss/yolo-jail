@@ -212,6 +212,22 @@ type Manifest struct {
 	// declared list is refused at load precisely because "supports nothing" and
 	// "supports everything" must not share a representation.
 	PlatformsSet bool
+	// Serves is the list of CAPABILITIES this loophole implements — named jobs, not
+	// names for the thing doing the job (docs/design/pack-capabilities.md §1). A pack
+	// that supersedes every capability a loophole serves retires it; see
+	// internal/loopholes' supersede.go for the rule and capabilities.go here for the
+	// schema.
+	//
+	// A statement about ITSELF, so it is a bare string list and needs no
+	// justification. The other verb is `supersedes` on a PACK manifest
+	// (internal/packdecl), which is a claim about somebody else's component and
+	// therefore costs a mandatory `because`.
+	//
+	// NIL AND EMPTY MEAN THE SAME THING — not participating. There is deliberately no
+	// ServesSet bit: silence must never read as a default claim, so a manifest without
+	// the key (every third-party one written before it existed) behaves exactly as it
+	// did.
+	Serves []string
 }
 
 // Decode parses and validates manifest bytes STRICTLY: an unknown key is
@@ -465,6 +481,10 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	if err != nil {
 		return nil, err
 	}
+	serves, err := parseServes(manifestPath, getOrNil(data, keyServes))
+	if err != nil {
+		return nil, err
+	}
 
 	enabled := true
 	if ev, ok := data.Get(keyEnabled); ok {
@@ -499,6 +519,7 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 		Requires:       requires,
 		Platforms:      platforms,
 		PlatformsSet:   platformsSet,
+		Serves:         serves,
 	}, nil
 }
 

@@ -39,6 +39,7 @@ const (
 	keyStateFiles     = "state_files"
 	keyRequires       = "requires"
 	keyPlatforms      = "platforms"
+	keyServes         = "serves"
 
 	keyCmd           = "cmd"
 	keyEnv           = "env"
@@ -60,7 +61,7 @@ var (
 		keyName, keyDescription, keyVersion, keyEnabled, keyTransport, keyLifecycle,
 		keyIntercepts, keyBrokerIP, keyCACert, keyJailEnv, keyDoctorCmd, keyHostDaemon,
 		keyJailDaemon, keyHostBindMounts, keyHostDevices, keyStateFiles, keyRequires,
-		keyPlatforms,
+		keyPlatforms, keyServes,
 	}
 	hostDaemonKeys    = []string{keyCmd, keyEnv, keyPublishes, keyRequestEnd}
 	jailDaemonKeys    = []string{keyCmd, keyRestart}

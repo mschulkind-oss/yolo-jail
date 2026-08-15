@@ -13,6 +13,17 @@
   "requires": {
     "command_on_path": "claude"
   },
+  // The named JOB this loophole implements — "serializing OAuth token refreshes so
+  // concurrent consumers do not burn a single-use refresh token"
+  // (docs/design/pack-capabilities.md).  A capability is the job, not a name for
+  // the thing doing it, so a different implementation would serve the same one.
+  //
+  // ON ITS OWN THIS CHANGES NOTHING.  It becomes load-bearing only when a selected
+  // pack declares `supersedes` for this capability with a reason — e.g. a Bedrock
+  // auth pack, under which no OAuth token is ever refreshed, so the job does not
+  // exist rather than being done differently.  Until then this loophole activates
+  // exactly as before, `requires` and all.
+  "serves": ["claude-oauth-refresh"],
   // The transport is the hop a JAIL dials, which is the per-jail relay's
   // loopback-TLS front (see host_daemon below).  This used to say
   // "tls-intercept", which named the in-jail TLS terminator instead — hop A, the
