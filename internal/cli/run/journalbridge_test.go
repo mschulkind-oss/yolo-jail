@@ -8,6 +8,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
 // TestMain lets startJournal's self-exec'd `yolo internal daemon journal`
@@ -64,9 +65,14 @@ func TestResolveJournalMode(t *testing.T) {
 
 // TestStartJournalStartsBridge is the regression guard for the "declared but
 // never spawned" class: with journal:"user" the bridge must actually spawn,
-// bind /…/journal.sock, and return a handle named "journal" carrying the jail
-// mount path + env var. Before the fix, startLoopholes had no journal step at
-// all and this handle never existed.
+// PUBLISH /…/journal.endpoint, and return a handle named "journal" carrying the
+// jail mount path + env var. Before the fix, startLoopholes had no journal step
+// at all and this handle never existed.
+//
+// The bridge is on loopback-tls now (docs/design/loophole-transport.md §8.4), so
+// what it brings up is an endpoint FILE published by journald.ServeEndpoint —
+// not a socket, and not a front over one: its handler was already net.Conn-based,
+// and svcendpoint's own guidance is that such a daemon takes Listen directly.
 func TestStartJournalStartsBridge(t *testing.T) {
 	// The journal bridge is Linux/podman-only: it forwards `journalctl`, which
 	// has no macOS host analog, and startLoopholes never reaches startJournal on
@@ -76,13 +82,12 @@ func TestStartJournalStartsBridge(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("journal bridge is Linux-only (journalctl forwarder)")
 	}
-	// shortSocketDir, not t.TempDir(): the daemon BINDS journal.sock in here, and a
-	// TMPDIR-rooted path had 3 bytes of headroom against sun_path's 103 — so it passed on
-	// Linux and at darwin's real 44-byte TMPDIR while one longer test name would tip it.
-	// Worse, the symptom would not have been a bind error here: the daemon is a SPAWNED
-	// child, so its bind failure surfaces as "the bridge never spawned" and points at the
-	// spawn rather than at the path. (Verified: TMPDIR=/tmp/<63 chars> reproduced exactly
-	// that.)
+	// shortSocketDir, not t.TempDir(). The endpoint file itself has no sun_path
+	// limit, but the helper is kept for a second reason that outlived the socket:
+	// svcendpoint REFUSES to publish into a group/world-accessible directory
+	// (the file carries a bearer token), and MkdirTemp creates 0700 while a
+	// hand-rolled MkdirAll would not. The short path also keeps this test honest
+	// if the bridge ever regains a socket.
 	socketsDir := shortSocketDir(t)
 	cfg := jsonx.NewOrderedMap()
 	cfg.Set("journal", "user")
@@ -90,7 +95,7 @@ func TestStartJournalStartsBridge(t *testing.T) {
 	o := &Options{}
 	fillDefaults(o)
 
-	h, ok := o.startJournal(socketsDir, cfg)
+	h, ok := o.startJournal(socketsDir, cfg, "127.0.0.1")
 	if !ok {
 		t.Fatal(`startJournal returned ok=false for journal:"user"; the bridge never spawned`)
 	}
@@ -99,23 +104,36 @@ func TestStartJournalStartsBridge(t *testing.T) {
 	if h.name != "journal" {
 		t.Errorf("handle name = %q, want journal", h.name)
 	}
-	wantSock := filepath.Join(socketsDir, "journal.sock")
-	assertSockPathFits(t, wantSock)
-	if h.hostPath != wantSock {
-		t.Errorf("hostPath = %q, want %q", h.hostPath, wantSock)
+	wantEndpoint := filepath.Join(socketsDir, "journal.endpoint")
+	if h.hostPath != wantEndpoint {
+		t.Errorf("hostPath = %q, want %q", h.hostPath, wantEndpoint)
 	}
-	if h.jailPath != "/run/yolo-services/journal.sock" {
-		t.Errorf("jailPath = %q, want /run/yolo-services/journal.sock", h.jailPath)
+	if h.jailPath != "/run/yolo-services/journal.endpoint" {
+		t.Errorf("jailPath = %q, want /run/yolo-services/journal.endpoint", h.jailPath)
 	}
-	// Still the _SOCKET spelling, and that is the point: the journal bridge is a
-	// unix-socket service until its generated-Python client is ported, and the env
-	// var must describe the VALUE. A rename here would advertise an endpoint file
-	// where a socket path is.
-	if h.envVarName != "YOLO_SERVICE_JOURNAL_SOCKET" {
-		t.Errorf("envVarName = %q, want YOLO_SERVICE_JOURNAL_SOCKET", h.envVarName)
+	// The _ENDPOINT spelling, and the rename is the point: the variable must
+	// describe the VALUE. The retired _SOCKET name is deliberately NOT also
+	// emitted — a stale baked client reading an ABSENT variable hits its own
+	// clean "not wired up in this jail" exit, where one reading a same-named
+	// variable whose value is now an endpoint file would dial a regular file and
+	// report something obscure.
+	if h.envVarName != "YOLO_SERVICE_JOURNAL_ENDPOINT" {
+		t.Errorf("envVarName = %q, want YOLO_SERVICE_JOURNAL_ENDPOINT", h.envVarName)
 	}
-	if !fileExists(wantSock) {
-		t.Errorf("journal socket %q never bound", wantSock)
+	// Probe, not existence: a truncated or older-format file would otherwise read
+	// as healthy forever, so the daemon would never be respawned and the jail
+	// could never reach it.
+	if !svcendpoint.Probe(wantEndpoint) {
+		t.Errorf("journal endpoint %q was never published in a usable form", wantEndpoint)
+	}
+	if fi, err := os.Stat(wantEndpoint); err != nil {
+		t.Errorf("stat endpoint: %v", err)
+	} else if fi.Mode().Perm() != 0o600 {
+		t.Errorf("endpoint mode = %04o, want 0600 — the file carries this jail's bearer token",
+			fi.Mode().Perm())
+	}
+	if fileExists(filepath.Join(socketsDir, "journal.sock")) {
+		t.Error("the retired journal.sock is still being bound — the flip is half-applied")
 	}
 }
 
@@ -128,7 +146,7 @@ func TestStartJournalSkipsWhenOff(t *testing.T) {
 	o := &Options{}
 	fillDefaults(o)
 
-	if _, ok := o.startJournal(socketsDir, cfg); ok {
+	if _, ok := o.startJournal(socketsDir, cfg, "127.0.0.1"); ok {
 		t.Fatal("startJournal returned a handle with journal unset; expected skip")
 	}
 }

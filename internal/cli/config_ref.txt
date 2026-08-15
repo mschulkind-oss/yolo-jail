@@ -236,8 +236,12 @@
       • "off"  (default) — no daemon, no shim
       • "user" — daemon forces [cyan]--user[/cyan] on every invocation (recommended)
       • "full" — args pass through unchanged (requires host journal read access)
-    Socket: /run/yolo-services/journal.sock
-    Env var: YOLO_SERVICE_JOURNAL_SOCKET
+    Endpoint file: /run/yolo-services/journal.endpoint
+    Env var: YOLO_SERVICE_JOURNAL_ENDPOINT
+    The value is a PATH to the endpoint file, not an address: the bridge is on
+    the loopback-TLS transport, so the address lives inside the file and a
+    restarted daemon is picked up without relaunching the jail.  The file also
+    carries this jail's bearer token, which is why it is 0600.
     "journal" is reserved as a loopholes name — you cannot shadow it.
 
   [bold]env_sources[/bold] (array): Environment variables set inside the jail.

@@ -79,10 +79,44 @@ func TestHostServiceEnvVarIsEndpoint(t *testing.T) {
 		}
 	}
 	// The retiring spelling still exists, and still says SOCKET — a service whose
-	// value is a socket path must not advertise an endpoint file. It disappears with
-	// the last unix-socket service; until then the two names must not be one.
-	if got := hostServiceSocketEnvVar("journal"); got != "YOLO_SERVICE_JOURNAL_SOCKET" {
-		t.Errorf("hostServiceSocketEnvVar(journal) = %q", got)
+	// value is a socket path must not advertise an endpoint file. Exactly ONE
+	// service still uses it: the cgroup delegate, and NOT because its client is
+	// unported (cmd/yolo-cglimit is a baked Go binary). SO_PEERCRED is what does
+	// not survive the hop; see startCgroupDelegate.
+	if got := hostServiceSocketEnvVar(paths.BuiltinCgroupLoopholeName); got != "YOLO_SERVICE_CGROUP_DELEGATE_SOCKET" {
+		t.Errorf("hostServiceSocketEnvVar(cgroup-delegate) = %q", got)
+	}
+}
+
+// TestOnlyTheCgroupDelegateStillPublishesASocket is the guard on the ONE
+// remaining AF_UNIX service.
+//
+// It is a naming test on purpose: the delegate is an in-process goroutine that
+// needs cgroup v2 to start, so a behavioural test would skip on most machines —
+// and a skip here would turn "the flip half-applied" into invisible
+// non-coverage. What it pins is the pair of decisions that make the delegate the
+// exception: its jail-side value is a SOCKET path, and the variable naming it
+// says so.
+//
+// If a future change makes the delegate reachable over loopback-tls, this test
+// must be DELETED rather than adjusted, and deleting it should force reading
+// the SO_PEERCRED argument above startCgroupDelegate first: a TCP hop carries no
+// peer credential, and a front would attest yolo's own pid, moving the yolo run
+// process into the jail's job cgroup.
+func TestOnlyTheCgroupDelegateStillPublishesASocket(t *testing.T) {
+	if !strings.HasSuffix(paths.CgdSocketName, ".sock") {
+		t.Errorf("CgdSocketName = %q, want a .sock name", paths.CgdSocketName)
+	}
+	// Every OTHER built-in service name is on loopback-tls and must therefore
+	// advertise an endpoint file.
+	for _, name := range paths.BuiltinLoopholeNames {
+		if name == paths.BuiltinCgroupLoopholeName {
+			continue
+		}
+		if got := hostServiceEnvVar(name); !strings.HasSuffix(got, "_ENDPOINT") {
+			t.Errorf("built-in %q advertises %q — every service but the cgroup "+
+				"delegate is on loopback-tls now", name, got)
+		}
 	}
 }
 

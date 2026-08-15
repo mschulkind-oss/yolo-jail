@@ -106,7 +106,7 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	}
 
 	// 1.5. Built-in journal bridge (opt-in via top-level `journal` key).
-	if h, ok := o.startJournal(socketsDir, cfg); ok {
+	if h, ok := o.startJournal(socketsDir, cfg, advertise); ok {
 		handles = append(handles, h)
 	}
 
@@ -306,6 +306,33 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 // goroutine (no external binary), bound to <sockets_dir>/cgroup-delegate.sock.
 // Skipped on macOS and non-cgroup-v2 Linux. The container cgroup is resolved
 // lazily on the first request. See startCgroupDelegateInProc.
+//
+// # THE LAST AF_UNIX SERVICE, and it is not waiting on a client
+//
+// Every other host service is on loopback-tls (docs/design/loophole-transport.md
+// §8.4). The obvious reading of why this one is not — "its in-image client is
+// still generated Python" — was true for the journal bridge and is FALSE here:
+// cmd/yolo-cglimit is a baked Go binary. What does not survive the hop is
+// SO_PEERCRED.
+//
+// The delegate's whole security model is kernel-attested identity
+// (docs/design/security-shim.md §2, "we never trust the container to identify
+// itself"). `create_and_join` writes the peer's HOST-NAMESPACE PID — read off
+// the connection by the kernel, never sent by the caller — into the job
+// cgroup's cgroup.procs, and that write is what moves the caller into the
+// cgroup. A TCP connection carries no peer credential at all, and a
+// loopback-TLS FRONT is worse than nothing: SO_PEERCRED on the upstream Unix
+// socket would then attest YOLO'S OWN pid, so the delegate would move the yolo
+// run process into the jail's job cgroup.
+//
+// A client-supplied PID is not a substitute twice over: it is caller-asserted
+// where the current value is kernel-attested, and it is a PID in the
+// container's namespace where the host needs one in its own. Crossing that gap
+// (NSpid translation, or a credential the transport can carry) is a security
+// decision with its own design, not a transport swap — so it is deliberately
+// NOT bundled into the transport retirement. This service stays on AF_UNIX
+// until that decision is made, and on macOS + podman it is therefore still
+// broken for the virtiofs reason the unification exists to fix.
 func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDaemon, bool) {
 	sockPath := filepath.Join(socketsDir, paths.CgdSocketName)
 	stop, ok := o.startCgroupDelegateInProc(cname, rt, sockPath)
@@ -316,8 +343,8 @@ func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDae
 		name:     paths.BuiltinCgroupLoopholeName,
 		hostPath: sockPath,
 		jailPath: paths.JailHostServicesDir + "/" + paths.CgdSocketName,
-		// Still unix-socket: the in-image client hardcodes CGD_SOCKET and is
-		// ported in its own change.
+		// The _SOCKET spelling, because the VALUE is a socket path. See the
+		// SO_PEERCRED argument above the function.
 		envVarName: hostServiceSocketEnvVar(paths.BuiltinCgroupLoopholeName),
 		stop:       stop,
 	}, true
@@ -358,7 +385,7 @@ func resolveJournalMode(cfg *jsonx.OrderedMap) string {
 // Linux/podman only — the macOS unified-logging analog lives in
 // internal/entrypoint/darwin.go and is out of scope here (rt=="container"
 // already returned before startLoopholes reached this point).
-func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap) (loopholeDaemon, bool) {
+func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap, advertiseHost string) (loopholeDaemon, bool) {
 	mode := resolveJournalMode(cfg)
 	if mode == "off" {
 		return loopholeDaemon{}, false
@@ -366,12 +393,16 @@ func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap) (loopho
 	spec := jsonx.NewOrderedMap()
 	spec.Set("command", []any{
 		"yolo", "internal", "daemon", paths.BuiltinJournalLoopholeName,
-		"--socket", "{socket}", "--mode", mode,
+		"--endpoint", "{endpoint}", "--mode", mode,
 	})
-	// Still a plain socket: the in-image yolo-journalctl client is generated Python
-	// speaking AF_UNIX and is ported in its own change.
+	// loopback-tls, publishing its OWN endpoint file (journald.ServeEndpoint) —
+	// no front, because its handler was already net.Conn-based and svcendpoint's
+	// own guidance is that a daemon which CAN take Listen directly should
+	// (front.go: a splice would mean two listeners and a host-only socket for no
+	// benefit). The jail-side client is cmd/yolo-journalctl, a Go binary baked
+	// into the image, which is what made this flip possible at all.
 	return o.startExternalService(paths.BuiltinJournalLoopholeName, spec, socketsDir,
-		transportLegacySocket, "", nil)
+		loopholes.TransportLoopbackTLS, advertiseHost, nil)
 }
 
 // killServiceGroup tears down a spawned host service's whole PROCESS GROUP.
@@ -453,21 +484,21 @@ func (o *Options) waitServiceReady(reachable func() bool, exited <-chan struct{}
 	}
 }
 
-// transportLegacySocket is this pipeline's label for a host service still
-// published as an AF_UNIX socket.
+// transportLegacySocket is GONE, and its absence is the fact worth recording.
 //
-// It is NOT a manifest transport. `unix-socket` was REMOVED from
-// loopholes.validTransports rather than deprecated (loophole-transport.md §7.4),
-// so no manifest can select this and loadManifest rejects the value by name. It
-// is spelled here, in the run pipeline, because the pipeline is the only thing
-// that still needs it, and it needs it for exactly two built-ins whose in-image
-// clients are generated Python speaking AF_UNIX: the cgroup delegate (whose
-// client hardcodes CGD_SOCKET) and this journal bridge. Porting those two clients
-// to Go deletes this constant with them.
+// It was this pipeline's private label for a host service still published as an
+// AF_UNIX socket, needed because `unix-socket` was REMOVED from
+// loopholes.validTransports rather than deprecated (loophole-transport.md §7.4)
+// and no manifest can name it. Two built-ins used it. The journal bridge moved
+// to loopback-tls; the cgroup delegate is IN-PROCESS and never reaches
+// startExternalService at all (see startCgroupDelegate for why it stays on a
+// socket, and it is not the client). Nothing passes a legacy transport to
+// startExternalService any more, so the constant went unused — leaving it
+// spelled would be an invitation.
 //
-// Its VALUE is only ever compared against loopback-tls, never parsed, so nothing
-// depends on it matching the string internal/loopholes uses for the same idea.
-const transportLegacySocket = "unix-socket"
+// The socket branch in startExternalService below did NOT go with it: an empty
+// transport still lands there, which is the live path for a `loopholes:` config
+// entry that declares only a `command`.
 
 // startExternalService is the common host-service path: substitute the host-side
 // path into the argv, expand ~, spawn, wait for the service to become REACHABLE.
@@ -488,9 +519,13 @@ const transportLegacySocket = "unix-socket"
 //     existence, exactly as before.
 //
 // The third branch is not dead and is not a safety net for a typo: it is the
-// live path for the two built-ins on transportLegacySocket. An empty transport
-// lands there too, which is the conservative direction — the fallback keeps the
-// path that works rather than assuming a publication that never happens.
+// live path for a `loopholes:` config entry that declares only a `command` and
+// therefore carries no transport at all. (It used to also carry the two
+// built-ins on the retired socket transport; the journal bridge has moved to
+// loopback-tls and the cgroup delegate is in-process, so an EMPTY transport is
+// all that reaches it now.) An empty transport landing here is the conservative
+// direction — the fallback keeps the path that works rather than assuming a
+// publication that never happens.
 //
 // hd is the loophole's parsed host_daemon (nil for the built-ins and for
 // anything else with no manifest-shaped daemon); only its Publishes/RequestEnd

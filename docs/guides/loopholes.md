@@ -286,8 +286,11 @@ no longer protects:
 > `YOLO_SERVICE_<NAME>_ENDPOINT` variable and mounted endpoint file a
 > `manifest.jsonc` loophole gets, with its argv unchanged. `yolo loopholes list`
 > prints `config/loopback-tls/spawned` for such an entry, which is the truth
-> about what its jail dials. (The two remaining built-in AF_UNIX clients,
-> `yolo-cglimit` and `yolo-journalctl`, are still ported in their own change.)
+> about what its jail dials. (`yolo-journalctl` is on loopback-TLS too, as a Go
+> binary baked into the image. `yolo-cglimit` is the ONE remaining AF_UNIX
+> client, and not because it is unported: the cgroup delegate identifies its
+> caller by `SO_PEERCRED`, which a TCP hop cannot carry — see
+> [`../design/loophole-transport.md`](../design/loophole-transport.md) §8.4.)
 >
 > The config block has no `request_end` key, so such a daemon is always fronted in
 > `framed` mode: **a config-entry daemon that reads its request to EOF hangs behind

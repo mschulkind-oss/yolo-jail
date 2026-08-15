@@ -14,22 +14,32 @@
 // deliberately 1=stdout, 2=stderr, 3=exit, where frameproto v1 uses 0/1/2. The
 // daemon side says so too (internal/journald); do not conflate them.
 //
-// PARITY IS THE CONTRACT for this step: same socket path, same newline-JSON
-// request, same messages, same exit codes as the script it replaces.
+// TRANSPORT: loopback-TLS (internal/svcendpoint). The bridge publishes an
+// endpoint FILE, not an address — the address lives inside it, so a restarted
+// daemon is picked up without relaunching the jail, whose environment is frozen
+// at container start. That file also carries this jail's bearer token, which is
+// why nothing here ever prints its contents.
 package main
 
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
+
+// dialTimeout bounds the TCP+TLS dial and the accept ack, and NOTHING ELSE.
+// svcendpoint.Dial sets no deadline on the returned conn, deliberately: a
+// whole-session deadline would abort `yolo-journalctl -f`, whose entire job is
+// to stream for as long as the user leaves it running.
+const dialTimeout = 30 * time.Second
 
 // The journal bridge's stream IDs. They are DELIBERATELY 1/2/3 where frameproto
 // v1 uses 0/1/2 — see the package comment.
@@ -59,14 +69,15 @@ const usage = "yolo-journalctl — Run journalctl on the host via the yolo-jail 
 	"  yolo-journalctl --user -f\n" +
 	"  yolo-journalctl -p err --since \"1 hour ago\"\n"
 
-// defaultSocket is the fallback when the env var naming the bridge is absent —
-// the retired script's DEFAULT_SOCKET, kept so a jail whose environment was
-// frozen before the variable existed still finds the bridge.
-var defaultSocket = paths.JailHostServicesDir + "/" + paths.JournalSocketName
-
-// socketEnv names the variable the run pipeline emits for a service still
-// published as a plain AF_UNIX socket.
-const socketEnv = "YOLO_SERVICE_JOURNAL_SOCKET"
+// endpointEnv names the variable the run pipeline emits for a loopback-TLS
+// service. Its value is always a PATH to the endpoint file, never an address.
+//
+// THERE IS NO _SOCKET FALLBACK, and its absence is load-bearing. The retired
+// spelling is deliberately not emitted alongside it (internal/paths): a jail
+// where this variable is missing is a jail where the bridge is off, and hitting
+// the clean "not wired up" message is exactly right. A fallback to the old
+// socket path would instead make an off bridge look like a broken one.
+const endpointEnv = "YOLO_SERVICE_JOURNAL_ENDPOINT"
 
 // passthroughHelpEnv, when set, forwards -h/--help to the host journalctl
 // instead of printing ours.
@@ -88,36 +99,62 @@ func main() {
 
 // run is main's testable body: argv in, streams out, exit code back.
 func run(args []string, stdout, stderr io.Writer) int {
-	socket := os.Getenv(socketEnv)
-	if socket == "" {
-		socket = defaultSocket
-	}
+	endpoint := os.Getenv(endpointEnv)
 
 	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") && os.Getenv(passthroughHelpEnv) == "" {
 		// -h/--help without the env override prints our own doc, not
 		// journalctl's. Only as the FIRST argument, matching the script: a
 		// `-u foo --help` is a journalctl invocation and is forwarded.
 		fmt.Fprint(stdout, usage+"\n")
-		fmt.Fprintf(stdout, "Socket: %s\n", socket)
+		fmt.Fprintf(stdout, "Endpoint: %s\n", endpointOrNone(endpoint))
 		return 0
 	}
 
-	if _, err := os.Stat(socket); err != nil {
+	if endpoint == "" {
 		fmt.Fprint(stderr, "yolo-journalctl: host journal bridge is not available.\n")
-		fmt.Fprintf(stderr, "  expected socket: %s\n", socket)
+		fmt.Fprintf(stderr, "  %s is not set in this jail\n", endpointEnv)
 		fmt.Fprint(stderr, "  enable it by setting `journal: \"user\"` (or \"full\") in yolo-jail.jsonc\n")
 		fmt.Fprint(stderr, "  or in ~/.config/yolo-jail/config.jsonc, then restart the jail.\n")
 		return 1
 	}
 
-	conn, err := net.Dial("unix", socket)
+	conn, err := svcendpoint.Dial(endpoint, dialTimeout)
 	if err != nil {
-		fmt.Fprintf(stderr, "yolo-journalctl: connect failed: %v\n", err)
+		// Attribution: four faults, four different fixes. Nothing printed here
+		// carries the endpoint file's CONTENTS — that file holds this jail's
+		// bearer token, and a diagnostic is not a place for it.
+		switch {
+		case errors.Is(err, svcendpoint.ErrEndpointMissing):
+			fmt.Fprintf(stderr,
+				"yolo-journalctl: no endpoint published at %s.  The host-side bridge "+
+					"never started or its dir was removed; relaunch the jail.\n", endpoint)
+		case errors.Is(err, svcendpoint.ErrEndpointMalformed):
+			fmt.Fprintf(stderr,
+				"yolo-journalctl: endpoint file %s is incomplete.  It was truncated or "+
+					"written by an older yolo; relaunch the jail to republish it.\n", endpoint)
+		case errors.Is(err, svcendpoint.ErrAuthRejected):
+			fmt.Fprintf(stderr,
+				"yolo-journalctl: the journal bridge rejected this jail's token.  The "+
+					"endpoint file %s is stale relative to the running daemon; relaunch "+
+					"the jail.\n", endpoint)
+		default:
+			fmt.Fprintf(stderr,
+				"yolo-journalctl: cannot reach the journal bridge named by %s: %v\n", endpoint, err)
+		}
 		return 1
 	}
 	defer conn.Close()
 
 	return converse(conn, args, stdout, stderr)
+}
+
+// endpointOrNone renders the endpoint for --help, saying so when it is unset
+// rather than printing an empty value that reads like a path.
+func endpointOrNone(endpoint string) string {
+	if endpoint == "" {
+		return "(not set — the journal bridge is off in this jail)"
+	}
+	return endpoint
 }
 
 // converse sends the request header and streams the framed reply until the exit

@@ -5,13 +5,14 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
 // shortSocketDir returns a scratch dir directly under /tmp.
@@ -163,14 +164,14 @@ func TestStreamEndingWithoutAnExitFrameIsAFailure(t *testing.T) {
 // is a journalctl invocation and is forwarded, which is what keeps
 // `journalctl -u foo --help` reachable at all.
 func TestHelpIsOursOnlyAsTheFirstArg(t *testing.T) {
-	t.Setenv(socketEnv, filepath.Join(shortSocketDir(t), "absent.sock"))
+	t.Setenv(endpointEnv, filepath.Join(shortSocketDir(t), "absent.endpoint"))
 
 	for _, arg := range []string{"-h", "--help"} {
 		var out, errOut bytes.Buffer
 		if rc := run([]string{arg}, &out, &errOut); rc != 0 {
 			t.Fatalf("run(%s) = %d, want 0 (stderr %q)", arg, rc, errOut.String())
 		}
-		for _, want := range []string{"yolo-journalctl", "journal bridge", "Socket: "} {
+		for _, want := range []string{"yolo-journalctl", "journal bridge", "Endpoint: "} {
 			if !strings.Contains(out.String(), want) {
 				t.Errorf("run(%s) help is missing %q:\n%s", arg, want, out.String())
 			}
@@ -190,7 +191,7 @@ func TestHelpIsOursOnlyAsTheFirstArg(t *testing.T) {
 // TestHelpPassthroughEnvForwardsIt: with the override set, even a leading -h
 // goes to the host journalctl.
 func TestHelpPassthroughEnvForwardsIt(t *testing.T) {
-	t.Setenv(socketEnv, filepath.Join(shortSocketDir(t), "absent.sock"))
+	t.Setenv(endpointEnv, filepath.Join(shortSocketDir(t), "absent.endpoint"))
 	t.Setenv(passthroughHelpEnv, "1")
 
 	var out, errOut bytes.Buffer
@@ -202,12 +203,16 @@ func TestHelpPassthroughEnvForwardsIt(t *testing.T) {
 	}
 }
 
-// TestMissingBridgeExplainsHowToEnableIt. The bridge is opt-in, so "not
-// available" is the EXPECTED state for most jails and the message has to carry
-// the config key that turns it on.
-func TestMissingBridgeExplainsHowToEnableIt(t *testing.T) {
-	socket := filepath.Join(shortSocketDir(t), "absent.sock")
-	t.Setenv(socketEnv, socket)
+// TestUnsetEndpointExplainsHowToEnableIt. The bridge is opt-in, so an absent
+// variable is the EXPECTED state for most jails — not a fault — and the message
+// has to carry the config key that turns it on.
+//
+// THERE IS NO FALLBACK TO THE RETIRED SOCKET PATH, and that is the point of the
+// rename (internal/paths): a client that fell back would dial a path nothing
+// binds and report a connection failure, making an OFF bridge look like a
+// BROKEN one.
+func TestUnsetEndpointExplainsHowToEnableIt(t *testing.T) {
+	t.Setenv(endpointEnv, "")
 
 	var out, errOut bytes.Buffer
 	if rc := run([]string{"-n", "5"}, &out, &errOut); rc != 1 {
@@ -215,7 +220,7 @@ func TestMissingBridgeExplainsHowToEnableIt(t *testing.T) {
 	}
 	for _, want := range []string{
 		"host journal bridge is not available",
-		socket,
+		endpointEnv,
 		`journal: "user"`,
 		"yolo-jail.jsonc",
 		"config.jsonc",
@@ -224,39 +229,98 @@ func TestMissingBridgeExplainsHowToEnableIt(t *testing.T) {
 			t.Errorf("stderr is missing %q:\n%s", want, errOut.String())
 		}
 	}
+	if strings.Contains(errOut.String(), ".sock") {
+		t.Errorf("the client still mentions a socket path — the fallback is back: %q", errOut.String())
+	}
 }
 
-// TestEndToEndOverAUnixSocket drives the whole client against a real AF_UNIX
-// listener speaking the bridge's protocol — the transport the parity step is
-// pinned to. Unit-testing converse alone would not catch a wrong socket path,
-// a wrong env var, or a dial that never happens.
-func TestEndToEndOverAUnixSocket(t *testing.T) {
-	socket := filepath.Join(shortSocketDir(t), "journal.sock")
-	ln, err := net.Listen("unix", socket)
-	if err != nil {
-		t.Fatalf("bind %s: %v", socket, err)
-	}
-	t.Cleanup(func() { _ = ln.Close() })
+// TestEndpointFaultsAreAttributed: four distinct failures with four distinct
+// fixes, and none of them may print the endpoint file's CONTENTS — that file
+// carries this jail's bearer token, and a diagnostic is not a place for it.
+func TestEndpointFaultsAreAttributed(t *testing.T) {
+	dir := shortSocketDir(t)
 
-	got := make(chan string, 1)
-	go func() {
-		conn, aerr := ln.Accept()
-		if aerr != nil {
-			return
+	t.Run("missing", func(t *testing.T) {
+		t.Setenv(endpointEnv, filepath.Join(dir, "absent.endpoint"))
+		var out, errOut bytes.Buffer
+		if rc := run([]string{"-n", "5"}, &out, &errOut); rc != 1 {
+			t.Fatalf("rc = %d, want 1", rc)
 		}
-		defer conn.Close()
-		buf := make([]byte, 4096)
-		n, _ := conn.Read(buf)
-		got <- string(buf[:n])
-		_, _ = conn.Write(frame(frameStdout, []byte("Jan 01 boot\n")))
-		_, _ = conn.Write(frame(frameStderr, []byte("-- warning --\n")))
-		_, _ = conn.Write(exitFrame(3))
-	}()
+		if !strings.Contains(errOut.String(), "no endpoint published at") {
+			t.Errorf("stderr = %q, want the missing-endpoint attribution", errOut.String())
+		}
+	})
 
-	t.Setenv(socketEnv, socket)
+	t.Run("malformed", func(t *testing.T) {
+		path := filepath.Join(dir, "truncated.endpoint")
+		if err := os.WriteFile(path, []byte("127.0.0.1:1\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(endpointEnv, path)
+		var out, errOut bytes.Buffer
+		if rc := run([]string{"-n", "5"}, &out, &errOut); rc != 1 {
+			t.Fatalf("rc = %d, want 1", rc)
+		}
+		if !strings.Contains(errOut.String(), "is incomplete") {
+			t.Errorf("stderr = %q, want the malformed-endpoint attribution", errOut.String())
+		}
+	})
+}
+
+// TestEndToEndOverLoopbackTLS drives the WHOLE stack: this client, over the
+// framework's real transport (pinned cert + token + accept ack), into the REAL
+// journal daemon (journald.ServeEndpoint), which execs a fake journalctl and
+// streams its output back framed.
+//
+// The converse tests above are transport-agnostic by construction, so they
+// would still pass if the dialer were wrong; only this one catches a wrong env
+// var, an unpublished endpoint, or a daemon that never authenticates. It also
+// proves the flip changed the DIALER and nothing else: the framing assertions
+// are the same ones the AF_UNIX version made.
+func TestEndToEndOverLoopbackTLS(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns a process (fake journalctl); -short")
+	}
+	dir := shortSocketDir(t)
+
+	// A fake journalctl on PATH: the daemon resolves the name against this
+	// process's environment, and a real one must never be invoked from a test.
+	fake := filepath.Join(dir, "journalctl")
+	script := "#!/bin/sh\nprintf 'Jan 01 boot\\n'\nprintf -- '-- warning --\\n' >&2\nexit 3\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+
+	// The daemon publishes the ADVERTISED host, which is the container gateway
+	// name a jail resolves and this test process does not. Loopback is what the
+	// listener actually binds, so point the advertisement at it.
+	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
+
+	endpoint := filepath.Join(dir, "journal.endpoint")
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := journald.ServeEndpoint(endpoint, "full", stop); err != nil {
+			t.Errorf("ServeEndpoint: %v", err)
+		}
+	}()
+	t.Cleanup(func() { close(stop); <-done })
+
+	deadline := time.Now().Add(10 * time.Second)
+	for !svcendpoint.Probe(endpoint) {
+		if time.Now().After(deadline) {
+			t.Fatal("the daemon never published a usable endpoint file")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Setenv(endpointEnv, endpoint)
 	var out, errOut bytes.Buffer
 	if rc := run([]string{"-u", "nginx"}, &out, &errOut); rc != 3 {
-		t.Fatalf("rc = %d, want 3 (the daemon's own code)", rc)
+		t.Fatalf("rc = %d, want 3 (journalctl's own code, round-tripped as a signed exit frame).\nstdout %q\nstderr %q",
+			rc, out.String(), errOut.String())
 	}
 	if out.String() != "Jan 01 boot\n" {
 		t.Errorf("stdout = %q", out.String())
@@ -264,23 +328,43 @@ func TestEndToEndOverAUnixSocket(t *testing.T) {
 	if errOut.String() != "-- warning --\n" {
 		t.Errorf("stderr = %q", errOut.String())
 	}
-	if req := <-got; !strings.Contains(req, `"args":["-u","nginx"]`) {
-		t.Errorf("daemon received %q", req)
-	}
 }
 
-// TestDefaultSocketIsTheContractPath: with no env var the client falls back to
-// the path the run pipeline binds. Producer and consumer are spelled once, in
-// internal/paths, because a drift here is silent.
-func TestDefaultSocketIsTheContractPath(t *testing.T) {
-	if want := "/run/yolo-services/journal.sock"; defaultSocket != want {
-		t.Fatalf("defaultSocket = %q, want %q", defaultSocket, want)
+// TestEndpointFileContentsNeverReachTheUser. The file carries this jail's
+// bearer token; a diagnostic that echoed it would write a live credential into
+// terminals, logs and transcripts.
+func TestEndpointFileContentsNeverReachTheUser(t *testing.T) {
+	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
+	dir := shortSocketDir(t)
+	endpoint := filepath.Join(dir, "journal.endpoint")
+
+	ln, err := svcendpoint.Listen(endpoint, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
 	}
-	t.Setenv(socketEnv, "")
+	published, err := os.ReadFile(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Close the listener but leave the file: every dial now fails, which is the
+	// state most likely to tempt a diagnostic into dumping the file.
+	_ = ln.Close()
+	if err := os.WriteFile(endpoint, published, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv(endpointEnv, endpoint)
 	var out, errOut bytes.Buffer
-	run([]string{"-h"}, &out, &errOut)
-	if !strings.Contains(out.String(), "Socket: "+defaultSocket) {
-		t.Fatalf("help did not report the default socket:\n%s", out.String())
+	run([]string{"-n", "5"}, &out, &errOut)
+
+	for _, field := range strings.Fields(string(published)) {
+		if len(field) < 16 { // the host:port is short and is not a secret
+			continue
+		}
+		if strings.Contains(out.String()+errOut.String(), field) {
+			t.Fatalf("a diagnostic echoed %d bytes of the endpoint file, which carries "+
+				"this jail's bearer token", len(field))
+		}
 	}
 }
 

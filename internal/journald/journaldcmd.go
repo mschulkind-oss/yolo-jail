@@ -12,22 +12,36 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
-// Main is the builtin journal-bridge daemon entry point. It listens on a Unix
-// socket, reads a newline-terminated JSON request, validates the journalctl
-// args, execs journalctl, and streams stdout/stderr/exit back as ">BI" frames
-// with stream IDs 1/2/3.
+// Main is the builtin journal-bridge daemon entry point. It accepts
+// connections, reads a newline-terminated JSON request, validates the
+// journalctl args, execs journalctl, and streams stdout/stderr/exit back as
+// ">BI" frames with stream IDs 1/2/3.
 //
-// CLI contract: --socket (required), --mode ("user"|"full"), --log-file.
+// CLI contract: exactly one of --endpoint (jail-facing loopback-TLS) or
+// --socket (host-to-host AF_UNIX), plus --mode ("user"|"full") and --log-file.
+//
+// TWO TRANSPORTS, NAMED BY THE CALLER, never guessed from the path. The same
+// split hostservice draws between ServeEndpoint and ServeUnix, and for the same
+// reason: a daemon that inferred its transport would be one refactor away from
+// publishing a bearer-token file where a socket was meant, or binding a socket
+// no jail can cross (docs/design/loophole-transport.md §2).
 func Main(argv []string) int {
 	fs := flag.NewFlagSet("yolo-journald", flag.ExitOnError)
-	socket := fs.String("socket", "", "Unix socket to bind")
+	socket := fs.String("socket", "", "AF_UNIX socket to bind (host-to-host)")
+	endpoint := fs.String("endpoint", "", "loopback-TLS endpoint file to publish (jail-facing)")
 	mode := fs.String("mode", "user", `"user" or "full"`)
 	logFile := fs.String("log-file", "", "append per-request audit log here (default: stderr)")
 	_ = fs.Parse(argv)
-	if *socket == "" {
-		fmt.Fprintln(os.Stderr, "yolo-journald: --socket is required")
+	switch {
+	case *socket == "" && *endpoint == "":
+		fmt.Fprintln(os.Stderr, "yolo-journald: one of --endpoint or --socket is required")
+		return 2
+	case *socket != "" && *endpoint != "":
+		fmt.Fprintln(os.Stderr, "yolo-journald: --endpoint and --socket are mutually exclusive")
 		return 2
 	}
 	setupLog(*logFile)
@@ -37,11 +51,41 @@ func Main(argv []string) int {
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	go func() { <-sigCh; close(stop) }()
 
-	if err := Serve(*socket, *mode, stop); err != nil {
+	serve := func() error { return Serve(*socket, *mode, stop) }
+	if *endpoint != "" {
+		serve = func() error { return ServeEndpoint(*endpoint, *mode, stop) }
+	}
+	if err := serve(); err != nil {
 		fmt.Fprintln(os.Stderr, "yolo-journald:", err)
 		return 1
 	}
 	return 0
+}
+
+// ServeEndpoint publishes a loopback-TLS endpoint at endpointPath and serves it
+// until stop is closed. svcendpoint.Listen's Accept returns ONLY connections
+// that presented the right token, so this daemon cannot forget to
+// authenticate — the failure is unrepresentable rather than handled.
+//
+// Nothing below the accept loop differs from Serve: handleConn is net.Conn-based
+// and never learns which transport carried its bytes. That is the whole point
+// (docs/design/loophole-transport.md §8.1), and it is why Serve's own test suite
+// still pins the protocol with its assertions unchanged.
+func ServeEndpoint(endpointPath, mode string, stop <-chan struct{}) error {
+	ln, err := svcendpoint.Listen(endpointPath, "")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = ln.Close() }()
+	go func() { <-stop; _ = ln.Close() }()
+
+	for {
+		conn, aerr := ln.Accept()
+		if aerr != nil {
+			return nil // listener closed on stop, or the accept loop ended
+		}
+		go handleConn(conn, mode)
+	}
 }
 
 // Serve binds the Unix socket, accepts connections, and serves each journal
@@ -70,7 +114,7 @@ func Serve(socket, mode string, stop <-chan struct{}) error {
 	return nil
 }
 
-func handleConn(conn *net.UnixConn, mode string) {
+func handleConn(conn net.Conn, mode string) {
 	defer conn.Close()
 
 	// Read the JSON request header up to the first newline, capped at the
@@ -174,7 +218,7 @@ func exitCode(err error) int {
 // newline, foundNewline). A cap hit without a newline returns foundNewline=false
 // (the caller frames the malformed-request error), mirroring the Python daemon
 // stopping accumulation at JOURNAL_MAX_HEADER.
-func readHeaderCapped(conn *net.UnixConn, cap int) ([]byte, bool) {
+func readHeaderCapped(conn io.Reader, cap int) ([]byte, bool) {
 	buf := make([]byte, 0, 256)
 	one := make([]byte, 1)
 	for len(buf) < cap {
