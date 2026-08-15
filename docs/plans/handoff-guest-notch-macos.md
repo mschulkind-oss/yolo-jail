@@ -162,7 +162,7 @@ From `AGENTS.md`, plus what this session learned:
   `nix eval .#installPrefix.outPath` to `readlink /bin/yolo-entrypoint` in the loaded image.
   On darwin this auto-downgrades to `warn`, because a Linux-runner-built image can never match
   a darwin eval — so **on a Mac you do not get that protection**; check by hand.
-- **A failed nix build does not stop the jail.** `AutoLoadImage` silently falls back to the
+- **A failed nix build STOPS the jail** (fatal since 2026-08-15). `AutoLoadImage` used to fall back silently to the
   loaded image, so a broken flake looks like a working jail on stale code. Watch the build
   output.
 

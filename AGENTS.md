@@ -107,10 +107,11 @@ there is no sync step.
   time the flake changes; it only prints "loaded image from cache" when the
   store path is unchanged from a prior build. "Building yolo-jail-…" + "Image
   load needed: nix store path changed" is the fresh-build path.)
-  - Two real caveats remain. (1) **A failed nix build does not stop the jail** —
-    `AutoLoadImage` silently falls back to the loaded/cached image, so a broken
-    flake looks like a working jail on **stale** code (see the bullet below);
-    watch the build output, don't just trust that the jail came up. (2) The
+  - Two real caveats remain. (1) **A failed nix build now STOPS the jail** —
+    fatal by default since 2026-08-15, printing nix's own stderr; it used to fall
+    back silently to the loaded/cached image, so a broken flake looked like a
+    working jail on **stale** code (see the bullet below). `YOLO_ALLOW_STALE_IMAGE=1`
+    opts back into continuing, and says so loudly. (2) The
     *host's own* jails keep running the host-loaded image until a host `just
     load` — so host-gating is real for **shipping** a flake change to the
     maintainer's day-to-day jails, not for **validating** it.
@@ -122,10 +123,16 @@ there is no sync step.
   by hand. `bundled_loopholes/` is the live example of an explicit entry;
   `tools/` and `integration/` are excluded on purpose (nothing in `cmd/` imports
   them).
-- **A failed nix build does not stop the jail.** `AutoLoadImage` falls back to
-  the already-loaded image, then to the newest cached tar. So a broken build
-  looks like a working jail running **stale** code. Only a real nested-jail run
-  catches this.
+- **A failed nix build stops the jail** (fatal since 2026-08-15). `AutoLoadImage`
+  prints nix's own stderr plus a classification, then exits — it does NOT fall
+  back to the already-loaded image or the newest cached tar. It used to, and a
+  broken build then looked like a working jail running **stale** code, reported
+  two layers from its cause: a macOS nightly failed on a lib-farm assertion
+  (`libzbar.so.0 not linked into /lib`) when the real fault was that the image was
+  never rebuilt. `YOLO_ALLOW_STALE_IMAGE=1` restores the old behaviour for the
+  case it was right for — an offline or disk-starved machine with a good cached
+  image — and still prints the whole report. **`SkipBuild` is untouched:** no
+  build ran, so nothing failed.
 - `vendor/` is committed and the nix build is hermetic (`-mod=vendor`, no
   network). A new dependency needs `go mod vendor` committed, or the image build
   breaks while `go test` still passes.
@@ -261,7 +268,7 @@ Agent logs, for debugging: `~/.copilot/logs/`,
 1. Image change → edit `flake.nix`, then verify end-to-end in a nested jail
    (`yolo -- bash`): the nested run rebuilds the flake and runs the NEW image, so
    runtime behavior is observable in-jail (see "Build & deploy"). Watch the build
-   output — a failed build silently falls back to stale code. A host `just load`
+   output — a failed build is now fatal and prints nix's stderr. A host `just load`
    is only needed to ship the change to the maintainer's own jails, not to
    validate it.
 2. Logic change → edit `cmd/`/`internal/`, `just build-go`, verify by running

@@ -18,7 +18,7 @@ nested jail** (`yolo -- bash` rebuilds the flake and runs the new image —
 runtime behavior included; verified 2026-07-22, see AGENTS.md "Build & deploy").
 A host `just load` is only needed to ship it to the maintainer's own day-to-day
 jails, not to prove it works. Watch the build output: a failed nix build
-silently falls back to the stale image.
+silently fell back to the stale image (fatal since 2026-08-15; see AGENTS.md).
 
 **Design + empirical validation:**
 [../design/mise-node-dynamic-linking.md](../design/mise-node-dynamic-linking.md)
