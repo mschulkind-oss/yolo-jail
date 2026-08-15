@@ -50,6 +50,10 @@ Subcommands:
                            disk differs from the one this jail was started with —
                            i.e. whether a restart is needed to apply an edit. Exit
                            0 in sync, 3 drifted (prints the diff), 4 no baseline.
+                           WORKSPACE ONLY: the user-level config reaches a jail as a
+                           generated snapshot taken at launch, so an edit to it is
+                           not visible in here and not detectable as drift. In a jail
+                           the output says so rather than implying both were checked.
   dump                     Print the full COMPUTED config as canonical JSON (sorted
                            keys) — the effective merged config this jail runs under,
                            the same form the startup config-change diff validates.

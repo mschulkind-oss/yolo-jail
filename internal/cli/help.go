@@ -55,6 +55,21 @@ func usageText() string {
 	for _, c := range commandHelp {
 		b.WriteString("  [cyan]" + c.name + "[/cyan]" + strings.Repeat(" ", width-len(c.name)+2) + c.blurb + "\n")
 	}
+	// GLOBAL flags, listed after the commands because they apply to all of them. Only
+	// --user-layer is here: it is the one flag consumed before subcommand routing, so it is
+	// the one a reader cannot discover from any single subcommand's help.
+	b.WriteString("\n[bold]Global options:[/bold]\n")
+	b.WriteString("  [cyan]--user-layer <file>[/cyan]  Layer a JSONC config in at USER-LEVEL " +
+		"precedence for this\n")
+	b.WriteString("                       invocation only. Inert unless passed; a workspace " +
+		"config still\n")
+	b.WriteString("                       wins over it. Reaches every command that reads user " +
+		"scope, so\n")
+	b.WriteString("                       `pack`/`loopholes`/`check` agree with what a launch " +
+		"would compose.\n")
+	b.WriteString("                       Inside a jail this is how you install a loophole for " +
+		"a nested\n")
+	b.WriteString("                       jail: write the layer in your own home and pass it.\n")
 	b.WriteString("\nRun '[cyan]yolo <subcommand> --help[/cyan]' where supported, or see '[cyan]yolo config-ref[/cyan]'.\n")
 	return b.String()
 }

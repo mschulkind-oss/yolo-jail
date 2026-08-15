@@ -18,6 +18,36 @@
   `yolo check` before restarting or asking a human to restart the jail.
   Use `yolo check --no-build` inside a running jail for a faster preflight.
 
+[bold cyan]USER SCOPE INSIDE A JAIL[/bold cyan]
+
+  What a jail sees as `~/.config/yolo-jail/config.jsonc` is [bold]GENERATED[/bold] at
+  launch — not your real file. It is your effective config filtered down to the
+  keys the commands in a jail can actually judge, with a header saying so.
+
+  Two consequences worth knowing:
+
+  • [bold]Keys are missing on purpose.[/bold] Anything whose referent does not exist in
+    a container (`gpu`, `devices`, `kvm`, `mounts`, `cache_relocations`) or whose
+    meaning would change (`host_files` — "the host home" is the jail's own home in
+    there) is filtered out. Evaluating them in a jail reported problems you do not
+    have. Your host config is untouched.
+  • [bold]It is frozen at launch.[/bold] Editing your user config on the host applies to
+    the NEXT jail, not the running one. `yolo config drift` covers the workspace
+    config and says so; `yolo config dump` prints the effective config a jail is
+    actually running under.
+
+  A jail that can nest also gets `inherited-launch.jsonc` beside it: the keys an
+  inner `yolo` composes a nested jail from (`packages`, `packs`, mise tools,
+  resources). On a backend that cannot nest, that file is simply not written.
+
+  [bold]--user-layer <file>[/bold] (a global CLI flag, not a config key) layers a JSONC
+  file in at user-level precedence for one invocation. It is inert unless passed,
+  and a workspace config still wins over it. Inside a jail it is how you grant
+  yourself more than you inherited — e.g. add a `packs` entry naming a pack that
+  ships a loophole, then `yolo pack install` and launch a nested jail. There is
+  deliberately no conventionally-named auto-merged file: a file that takes effect
+  because it exists is invisible at the call site.
+
 [bold cyan]FIELDS[/bold cyan]
 
   [bold]confinement[/bold] (string): How confined the environment is — the dial, separate

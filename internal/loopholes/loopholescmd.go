@@ -38,7 +38,10 @@ func RealDeps() Deps {
 		Cwd:    cwd,
 		InJail: os.Getenv("YOLO_VERSION") != "",
 		LoadUserConfig: func() *jsonx.OrderedMap {
-			m, err := config.LoadJSONCFile(paths.UserConfigPath(), "user config", false, nil)
+			// UserScopeConfig, not LoadJSONCFile: it carries the includes AND any
+			// --user-layer, which is what lets an in-jail agent install a loophole and
+			// see it in `yolo loopholes list` in the same invocation (OQ-LP9 R5).
+			m, err := config.UserScopeConfig(false, nil)
 			if err != nil {
 				return nil
 			}

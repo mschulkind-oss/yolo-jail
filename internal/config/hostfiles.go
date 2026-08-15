@@ -273,7 +273,7 @@ func LoadHostFiles(merged *jsonx.OrderedMap, warn Warn, probeSource bool) ([]Hos
 	// strict=true: a malformed user config is an error, never a silently empty
 	// list. Silently dropping a host_files entry looks exactly like the feature
 	// not working, which is the failure this whole key's plumbing exists to avoid.
-	userCfg, err := LoadJSONCWithIncludes(userPath, userPath, true, warn, nil)
+	userCfg, err := loadUserScopeConfig(userPath, userPath, true, warn)
 	if err != nil {
 		return nil, err
 	}

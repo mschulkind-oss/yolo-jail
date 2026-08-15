@@ -362,7 +362,10 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	userPath := paths.UserConfigPath()
 	failed := false
 
-	userConfig, err := config.LoadJSONCWithIncludes(userPath, userPath, true, func(string) {}, nil)
+	// UserScopeConfig carries the includes AND any --user-layer, so `yolo check` validates
+	// the same user scope a launch would compose — a flag that changed the launch but not
+	// the preflight would leave the agent no way to verify what it just did.
+	userConfig, err := config.UserScopeConfig(true, func(string) {})
 	if err != nil {
 		userConfig = jsonx.NewOrderedMap()
 		r.fail(err.Error(), "")

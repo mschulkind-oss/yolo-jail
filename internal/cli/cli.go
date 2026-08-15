@@ -54,6 +54,17 @@ func Main(argv []string) int {
 		return 0
 	}
 
+	// `--user-layer <file>` is GLOBAL and is consumed here, before subcommand resolution,
+	// so it reaches run/check/loopholes/pack alike (see userlayer.go for why one place
+	// rather than four flag parsers). It must run AFTER the help branch — `yolo --help`
+	// answers without touching config — and BEFORE RewriteArgv, so the flag never looks
+	// like a leading positional that would make `yolo --user-layer x.jsonc -- bash`
+	// resolve as an unknown command.
+	args, ok := applyUserLayerFlag(args, os.Stderr)
+	if !ok {
+		return 1
+	}
+
 	args = RewriteArgv(args)
 	sub := Subcommand(args)
 

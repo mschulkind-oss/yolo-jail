@@ -190,7 +190,11 @@ func LoadPacks(warn Warn) ([]PackEntry, error) {
 		warn = func(string) {}
 	}
 	userPath := paths.UserConfigPath()
-	userCfg, err := LoadJSONCWithIncludes(userPath, userPath, true, warn, nil)
+	// loadUserScopeConfig, not LoadJSONCWithIncludes: the same direct read of the user file
+	// (so workspace scope stays inexpressible — see the file header) PLUS any
+	// --user-layer. `packs` is the key the layer exists for, since installing a loophole
+	// from inside a jail means naming the pack that carries it.
+	userCfg, err := loadUserScopeConfig(userPath, userPath, true, warn)
 	if err != nil {
 		return nil, err
 	}
@@ -468,7 +472,7 @@ func checkPackName(name, itemPath string) string {
 // feature.
 func validatePacks(workspace string, errs *[]string) {
 	userPath := paths.UserConfigPath()
-	if userCfg, err := LoadJSONCWithIncludes(userPath, userPath, false, func(string) {}, nil); err == nil && userCfg != nil {
+	if userCfg, err := loadUserScopeConfig(userPath, userPath, false, func(string) {}); err == nil && userCfg != nil {
 		if v, present := userCfg.Get(packsKey); present && v != nil {
 			_, problems := checkPacks(v)
 			for _, p := range problems {

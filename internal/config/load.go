@@ -258,13 +258,23 @@ func LoadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, er
 	// short-circuit) — reading it back recovers no host-only override, it only
 	// substitutes a staler copy of what assembling produces now. The ping-pong cannot
 	// arise either: that snapshot has no host writer to disagree with.
-	if inJail() && jailOwnWorkspace(workspace) {
+	//
+	// The --user-layer carve-out is load-bearing, not defensive. The snapshot is a FROZEN
+	// artifact of a previous launch, so it cannot contain a layer passed to THIS invocation
+	// — returning it would make `yolo --user-layer x.jsonc check` silently ignore the file
+	// the caller explicitly named, which is exactly the invisibility the flag exists to
+	// avoid (a silently-ignored explicit argument is worse than no flag). With a layer set
+	// we fall through and assemble, then merge it in; the ping-pong the short-circuit
+	// guards against does not arise because the layer path never writes a snapshot.
+	if inJail() && jailOwnWorkspace(workspace) && UserLayerPath() == "" {
 		if snap, ok := loadAssembledSnapshot(workspace); ok {
 			return snap, nil
 		}
 	}
-	userCfg, err := LoadJSONCWithIncludes(
-		paths.UserConfigPath(), paths.UserConfigPath(), strict, warn, nil)
+	// The user half goes through loadUserScopeConfig so a --user-layer lands at user-level
+	// precedence (a workspace config still wins over it — see userlayer.go).
+	userCfg, err := loadUserScopeConfig(
+		paths.UserConfigPath(), paths.UserConfigPath(), strict, warn)
 	if err != nil {
 		return nil, err
 	}

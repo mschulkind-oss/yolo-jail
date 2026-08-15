@@ -273,6 +273,65 @@ func TestConfigDriftExitCodes(t *testing.T) {
 	}
 }
 
+// OQ-LP9 R7: `config drift` must NAME the scope it does not compare.
+//
+// The inherited user scope is launch-frozen — a generated, filtered render taken at launch —
+// so a host-side user-config edit is invisible in-jail and undetectable as drift. Before
+// OQ-LP9 the host's real config.jsonc was bind-mounted live, so the question never arose.
+// Saying "In sync" with no qualifier would now let an agent conclude that nothing changed
+// ANYWHERE, and go debug a stale `packs` list as a code problem.
+//
+// The exit codes are deliberately unchanged: the limit is not itself drift, and an agent
+// branching on 0/3/4 must keep working. So this asserts the OUTPUT gained a note while
+// TestConfigDriftExitCodes keeps pinning the interface.
+func TestConfigDriftNamesTheUserScopeItCannotCompare(t *testing.T) {
+	_, repo := withHomeAndCwd(t)
+	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude"]}`)
+	writeFile(t, filepath.Join(repo, ".yolo", "config-boot.json"), canonicalWS(t, repo))
+
+	// On the HOST the user config is right there and live — no note, nothing to disclose.
+	//
+	// YOLO_VERSION must be cleared EXPLICITLY: this suite runs inside a jail, so the var is
+	// genuinely set in the environment and a "host" case that did not unset it would be
+	// testing the in-jail branch under a host label. (Caught by this test on its first run.)
+	t.Setenv("YOLO_VERSION", "")
+	var hostOut, hostErr bytes.Buffer
+	if rc := configRunW([]string{"drift"}, &hostOut, &hostErr); rc != 0 {
+		t.Fatalf("host: want exit 0, got %d\n%s%s", rc, hostOut.String(), hostErr.String())
+	}
+	if strings.Contains(hostOut.String(), "not visible in here") {
+		t.Errorf("the in-jail-only note appeared on the HOST, where the user config is live:\n%s",
+			hostOut.String())
+	}
+
+	// IN A JAIL the note must appear, on the in-sync path...
+	t.Setenv("YOLO_VERSION", "9.9.9-test")
+	var out, errw bytes.Buffer
+	rc := configRunW([]string{"drift"}, &out, &errw)
+	if rc != 0 {
+		t.Fatalf("in-jail in-sync: want exit 0 (the note must not change the interface), got %d\n%s%s",
+			rc, out.String(), errw.String())
+	}
+	for _, want := range []string{"WORKSPACE config only", "next launch", "config dump"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("in-sync output is missing %q — an agent reading \"In sync\" would "+
+				"conclude the user half was checked too:\n%s", want, out.String())
+		}
+	}
+
+	// ...and on the DRIFTED path, because the limit is a property of the command, not of
+	// the result.
+	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude","codex"]}`)
+	out.Reset()
+	errw.Reset()
+	if rc := configRunW([]string{"drift"}, &out, &errw); rc != 3 {
+		t.Fatalf("in-jail drifted: want exit 3, got %d\n%s%s", rc, out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), "WORKSPACE config only") {
+		t.Errorf("the drifted path lost the note:\n%s", out.String())
+	}
+}
+
 // `config dump` prints canonical JSON (sorted keys) of the effective config and
 // exits 0.
 func TestConfigDumpCanonical(t *testing.T) {

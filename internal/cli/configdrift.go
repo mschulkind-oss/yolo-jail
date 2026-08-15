@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -24,6 +25,20 @@ import (
 // Drift compares the CANONICAL form of each config (sorted keys, stable formatting),
 // so reordering keys or reformatting the source file is not drift; only a real
 // value or structure change is.
+//
+// WORKSPACE-ONLY, AND SINCE OQ-LP9 THAT LIMIT HAS TO BE SAID OUT LOUD. The user half of the
+// config is not comparable from inside a jail, and the reason is structural rather than
+// missing work: what a jail sees as user scope is a GENERATED, FILTERED render of the host's
+// effective config (internal/config/inherit.go), so there is no host file in here to diff
+// against — and diffing the generated file against itself would answer a question nobody
+// asked. Before OQ-LP9 the host's real config.jsonc was bind-mounted live, so a user-half
+// edit was visible instantly and drift never came up; now it is LAUNCH-FROZEN like every
+// other jail input (env, image, relay wiring).
+//
+// So this command reports what it can compare and NAMES what it cannot, rather than saying
+// "in sync" and letting the reader conclude the user half was checked. That over-claim is
+// exactly the shape of bug this batch already shipped a fix for elsewhere — a surface that
+// answered confidently about a scope it had never looked at.
 func configDrift(args []string, out, errw io.Writer, color bool) int {
 	if len(args) > 0 {
 		if isHelpToken(args[0]) {
@@ -52,6 +67,7 @@ func configDrift(args []string, out, errw io.Writer, color bool) int {
 	if !hasDrift {
 		pr.Printf("[green]In sync[/green] — the workspace config on disk matches the one that " +
 			"started this jail. No restart needed for config reasons.")
+		printUserScopeDriftLimit(pr)
 		return 0
 	}
 	pr.Printf("[bold yellow]Workspace config has drifted since this jail started.[/bold yellow]")
@@ -71,7 +87,32 @@ func configDrift(args []string, out, errw io.Writer, color bool) int {
 			pr.Print(line)
 		}
 	}
+	printUserScopeDriftLimit(pr)
 	return 3
+}
+
+// printUserScopeDriftLimit names the scope this command does NOT compare — in a jail only.
+//
+// OQ-LP9 R7: the inherited user scope is launch-frozen, so a host-side user-config edit is
+// invisible until the next launch and this command cannot detect it (there is no host file in
+// here to diff — the jail's user scope is a generated render). Saying so is the whole point:
+// an agent that reads "In sync" and concludes nothing changed anywhere would go on to debug
+// a stale `packs` list or a missing loophole as if it were a code problem.
+//
+// Printed on BOTH the in-sync and drifted paths, because the limit is a property of the
+// command rather than of the result. Not printed on the host, where the user config is right
+// there and live. Exit codes are untouched: the limit is not itself drift, and an agent keying
+// on 0/3/4 must keep working.
+func printUserScopeDriftLimit(pr richtext.Printer) {
+	if os.Getenv("YOLO_VERSION") == "" {
+		return
+	}
+	pr.Printf("")
+	pr.Printf("[dim]Note: this compares the WORKSPACE config only. Your user-level config " +
+		"(~/.config/yolo-jail/config.jsonc on the host) reaches this jail as a generated, " +
+		"filtered snapshot taken at launch, so an edit to it is not visible in here and not " +
+		"detectable as drift — it applies on the next launch. `yolo config dump` shows the " +
+		"effective config this jail is actually running under.[/dim]")
 }
 
 // configDump prints the full COMPUTED config as canonical snapshot JSON — the same

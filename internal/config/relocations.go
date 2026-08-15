@@ -74,7 +74,7 @@ func LoadCacheRelocations(warn Warn) ([]CacheRelocation, error) {
 	// strict=true: a malformed user config is an error, never a silent empty
 	// map — silently losing a relocation sends 185 GiB back onto the root
 	// filesystem, which is the exact failure this feature exists to prevent.
-	userCfg, err := LoadJSONCWithIncludes(path, path, true, warn, nil)
+	userCfg, err := loadUserScopeConfig(path, path, true, warn)
 	if err != nil {
 		return nil, err
 	}
