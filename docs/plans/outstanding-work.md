@@ -192,9 +192,9 @@ unexercised.
 
 **Three of the six are answered, and they set a sprint goal rather than a task:** the broker move and
 the pack-shipped binary capability **ship together** (BP1); **`bundled_loopholes/` is empty at the
-end of this sprint** (BP4); and **yolo prepends its own identity frame to every
+end of this sprint** (BP4); and **yolo prepends its own connection preamble to every
 authenticated connection and never parses a daemon's payload** (BP2, design doc §5.5) —
-`identity_frame: false` opts a dumb pipe out. I recommended against all
+`preamble: false` opts a dumb pipe out. I recommended against all
 three; recorded here because the consequences need planning, not because they need re-arguing.
 
 **BP4 is the one with a dependency: it makes OQ-LP14 above a hard blocker**, because `audio` cannot
@@ -205,7 +205,7 @@ on it.
 
 1. **`host-processes` → pack** — 📦 below, ready to implement.
 2. The identity rule (§5.5): one framework-owned frame prepended on the accepted connection,
-   `identity_frame` defaulting to true. Built as part of step 1, which is what makes step 1 the
+   `preamble` defaulting to true. Built as part of step 1, which is what makes step 1 the
    proving ground. It **deletes** `readFirstMessage`/`stampJailID` rather than relocating them.
 3. Rule OQ-LP14, then `audio` → pack, retiring the bundled copy the official pack sits beside.
 4. Broker → pack: fold the relay, flip to `publishes: "socket"`.
@@ -317,7 +317,7 @@ staging change it proposes — and the small independent items trail.
 
   Design settled in [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) §12, which lists the five
   changes and what each proves. In short: the daemon moves from `ServeEndpoint`/`{endpoint}` to
-  `ServeUnix`/`{socket}` behind the framework front; a framework-owned **identity frame** is
+  `ServeUnix`/`{socket}` behind the framework front; a framework-owned **connection preamble** is
   prepended on the accepted-connection wrapper (`listen.go:194`, where the host-derived identity is
   already attached), so one implementation serves both server shapes and yolo never parses a payload;
   `yolo-ps` stops self-reporting a `jail_id` nobody trusted; and the manifest moves into an official
