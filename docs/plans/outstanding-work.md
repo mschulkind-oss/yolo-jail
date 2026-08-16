@@ -1,6 +1,6 @@
 # Ongoing work
 
-**Status: 18 attention required · 3 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
+**Status: 19 attention required · 3 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
 
 Last updated 2026-08-15. Counts tallied from this file, not asserted.
 
@@ -177,6 +177,35 @@ half-built artifact still there".**
   that already ships.
 - **Blocks nothing:** with one auth pack there is no second writer.
 - 📄 [`pack-config-collaboration.md`](../design/pack-config-collaboration.md)
+
+### 💬 OQ-PS2/PS3 — what rule replaces the claude-shaped credential harvest?
+
+[`pack-code-separation.md`](../design/pack-code-separation.md) diagnoses the claude-shaped Go still
+in core and asks four questions. **Two are ready to sign, two are not** — a review pass annotated
+the doc in place (every `> **REVIEW —**` block).
+
+- **Sign as written:** OQ-1 (broker stays bundled) and OQ-4 (a bundled loophole with a baked daemon
+  is fine for yolo's *own* code). The review adds a third blocker to shipping the broker externally —
+  `check`'s `checkBrokerCredsFreshness` parses `claudeAiOauth` too — which only strengthens both.
+
+- **OQ-3 — the harvest rule.** The doc proposes deleting the `claudeAiOauth` merge from
+  `shared_credentials` and accepting the loss. **My read: replace it, don't drop it** —
+  `local.mtime > shared.mtime → copy` is ~5 lines, carries no schema knowledge, and is *strictly
+  better than what agy has today*, where the proposed rule silently reverts a fresh login at the
+  next boot. Whatever lands must also keep the **unconditional** `subscriptionType` /
+  `rateLimitTier` copy, which [`agent-auth-modes.md`](../design/agent-auth-modes.md) §3 shows is
+  load-bearing (Claude ≥ 2.1.200 reads a token-trio-only file as *not logged in*).
+
+- **OQ-2 — where the claude schema knowledge lives.** The doc says "move it into
+  `internal/oauthbroker`". That package is **host-side only**; `internal/entrypoint` is the
+  jail-side binary, and the harvest cannot run in the broker at all — it is per-jail and
+  boot-time. **My read: neither option — extract `internal/claudecreds`**, a leaf package the hook,
+  the broker and `check` all import. There are three copies of that schema in the tree today.
+
+- **Evidence gathered during review, so it is not re-litigated:** `~/.claude/.credentials.json` is
+  still a symlink after ten days and many boots while its target turned over today — which *supports*
+  the author's "migration edge" reading. Untested: a host where the broker is inactive, and the agy
+  path, which has **never run** (the pack staged in a live jail predates ab39897).
 
 ## Scope and direction
 
@@ -413,6 +442,27 @@ There is deliberately **no** Teams pack — the base `claude` pack already is on
 bearer to a non-Anthropic `ANTHROPIC_BASE_URL`? If yes, a proxy gives no-restart switching; if no,
 pack-swapping is the ceiling. ~5 minutes
 ([`agent-auth-modes.md`](../design/agent-auth-modes.md) §6).
+
+### Claude-shaped code in core — diagnosed and reviewed, nothing built
+
+[`pack-code-separation.md`](../design/pack-code-separation.md) inventories the imperative Go that is
+still claude-shaped despite *"core does not know what an agent is"*: the OAuth broker's baked
+daemons, the `shared_credentials` harvest, and storage-migration residue. A review pass annotated it
+in place — every `> **REVIEW —**` block — and the diagnosis holds up.
+
+**Settled by the review; no decision needed, and too small to queue separately.** Fold these into
+whichever commit acts on the decision:
+
+- `internal/agents` is **not** worth renaming — one claude mention in non-test code (`skills.go:52`),
+  and the other citation is the filename `CLAUDE.md`. `hostclaude.go` → `hostfiles.go` is the one
+  rename that pays for itself.
+- `packhooks.go:6` still says the three hooks are *"all currently claude's"* — stale since ab39897.
+- [`agent-credentials.md`](../design/agent-credentials.md) and [`jail-home.md`](../design/jail-home.md)
+  §4.2 cite `claude.go:161-209` / `273-299` / `350-378` in a file that is now 199 lines.
+
+**What it waits on:** OQ-PS2/PS3 above. Then: observe the link on a broker-inactive host → settle the
+harvest rule → extract `internal/claudecreds` → the one rename. The broker stays bundled throughout,
+and jail-daemon-as-binary stays unbuilt until a second consumer exists.
 
 ### Boundary broker — designed, not started
 
