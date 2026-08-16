@@ -185,6 +185,14 @@ func TestConfigSynthesizedAsLoopholes(t *testing.T) {
 	if s.HostDaemon != nil && !reflect.DeepEqual(s.HostDaemon.Cmd, []string{"sockd", "--socket", "{socket}"}) {
 		t.Errorf("sockd argv changed across synthesis: %v", s.HostDaemon.Cmd)
 	}
+	// "the argv is unchanged, the daemon's behaviour is unchanged" is the whole
+	// promise of the flip, and the connection preamble is the one thing that
+	// could break it — sockd's protocol has no room for a frame it never asked
+	// for. So a config entry's default is OFF, the opposite of a manifest's.
+	if s.HostDaemon != nil && s.HostDaemon.Preamble {
+		t.Error("a config-declared daemon defaulted to receiving a preamble; " +
+			"it is a third-party program that never saw the key")
+	}
 	// A command-less entry runs no daemon, and TransportNone means exactly that
 	// — not a stub advertising a transport nothing serves.
 	j := byName["journal"]
@@ -205,6 +213,25 @@ func TestConfigSynthesizedAsLoopholes(t *testing.T) {
 	}
 	if containsStr(loopholedecl.ValidTransports(), loopholedecl.RetiredTransportUnixSocket) {
 		t.Error("a MANIFEST can declare the retired unix-socket value")
+	}
+}
+
+// TestConfigLoopholePreambleOptIn: OFF by default is a conservative default, not
+// a ceiling. A user who knows their daemon speaks yolo's transport — or who
+// wrote it — says so with one key, and gets the same host-asserted jail identity
+// a manifest loophole gets.
+func TestConfigLoopholePreambleOptIn(t *testing.T) {
+	md := modsDir(t)
+	cfg := orderedFromPairs("mine", map[string]any{
+		"command":  []any{"mine", "--socket", "{socket}"},
+		"preamble": true,
+	})
+	loaded := Discover(DiscoverOptions{Root: md, RootSet: true, LoopholesConfig: cfg})
+	if len(loaded) != 1 || loaded[0].HostDaemon == nil {
+		t.Fatalf("got %+v", loaded)
+	}
+	if !loaded[0].HostDaemon.Preamble {
+		t.Error("'preamble': true on a config entry did not opt in")
 	}
 }
 
@@ -687,6 +714,50 @@ func TestHostDaemonPublishesDefaults(t *testing.T) {
 	}
 	if lp.HostDaemon.RequestEnd != RequestEndFramed {
 		t.Errorf("default RequestEnd = %q, want %q", lp.HostDaemon.RequestEnd, RequestEndFramed)
+	}
+}
+
+// TestManifestPreambleDefaultSurvivesLoad is the SILENT-DROP tripwire, and it is
+// about resolve() rather than about the schema — loopholedecl already pins the
+// decoder's default. resolve builds a NEW HostDaemon field by field, so a field
+// nobody listed there arrives as its zero value with no error anywhere. For
+// `Preamble` that zero value is FALSE, i.e. the opposite of what every manifest
+// that says nothing asked for, and the symptom is not a crash: it is a daemon
+// quietly served a preamble-free connection whose audit line goes back to
+// carrying whatever the client claimed. This is the ca_cert drop (see
+// subsetManifest in load.go) one type down, and it is why the field is spelled
+// `Preamble` and not `NoPreamble` — with the inversion, the drop would land on
+// the SAFE value and no test could see it.
+func TestManifestPreambleDefaultSurvivesLoad(t *testing.T) {
+	cases := []struct {
+		name   string
+		daemon map[string]any
+		want   bool
+	}{
+		{"silent-default", map[string]any{"cmd": []any{"d", "{socket}"}, "publishes": "socket"}, true},
+		{"declared-off", map[string]any{
+			"cmd": []any{"d", "{socket}"}, "publishes": "socket", "preamble": false,
+		}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			md := modsDir(t)
+			mod := mkdir(t, filepath.Join(md, tc.name))
+			writeManifest(t, mod, map[string]any{
+				"name": tc.name, "description": "x", "host_daemon": tc.daemon,
+			})
+			lp, err := LoadLoophole(mod)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if lp.HostDaemon == nil {
+				t.Fatal("no host daemon on the record")
+			}
+			if lp.HostDaemon.Preamble != tc.want {
+				t.Errorf("Preamble = %v after load, want %v — resolve() must carry the field",
+					lp.HostDaemon.Preamble, tc.want)
+			}
+		})
 	}
 }
 

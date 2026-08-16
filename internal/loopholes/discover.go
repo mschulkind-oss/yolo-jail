@@ -62,11 +62,26 @@ func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
 		var hostDaemon *HostDaemon
 		if cv, ok := spec.Get("command"); ok {
 			if list, isList := cv.([]any); isList && len(list) > 0 && loopholedecl.AllStrings(list) {
+				// The preamble defaults OFF here and ON for a manifest, and the
+				// asymmetry is the point rather than an oversight. A manifest is
+				// a declaration written against yolo's transport, so its author
+				// can be asked to say `"preamble": false` if the daemon is a dumb
+				// pipe. A config entry is not: it is an argv for a THIRD-PARTY
+				// PROGRAM (see the note at the top of this file) that is already
+				// running for somebody, with a protocol that has no room for a
+				// frame it never asked for. Defaulting ON would prepend bytes to
+				// a working setup on the strength of a key its author never saw.
+				// `"preamble": true` is the opt-in.
+				preamble := false
+				if pv, ok := spec.Get("preamble"); ok {
+					preamble = loopholedecl.Truthy(pv)
+				}
 				hostDaemon = &HostDaemon{
 					Cmd:        loopholedecl.StringSlice(list),
 					Env:        NewEnvMap(),
 					Publishes:  PublishesSocket,
 					RequestEnd: RequestEndFramed,
+					Preamble:   preamble,
 				}
 				transport = TransportLoopbackTLS
 			}

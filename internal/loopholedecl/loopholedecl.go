@@ -117,6 +117,26 @@ type HostDaemon struct {
 	// client's request direction ends). Always one of the two after a successful
 	// decode.
 	RequestEnd string
+	// Preamble says whether yolo prepends the CONNECTION PREAMBLE — one framed
+	// JSON object naming the jail and the service — to every connection it
+	// carries to this daemon. DEFAULTS TO TRUE, so a manifest that says nothing
+	// gets the framework's own transport, which is what makes the jail identity
+	// on the daemon's audit line host-asserted rather than client-claimed.
+	//
+	// `false` is the DUMB PIPE opt-out: a daemon whose protocol has no room for
+	// a frame it never asked for. It is only enforceable under
+	// PublishesSocket — under PublishesEndpoint the listener lives inside the
+	// daemon's own process, which never reads this manifest, so there is no
+	// channel for the flag but argv or env. That is acceptable because
+	// packshipped.go forbids a PACK from publishing endpoints, leaving yolo's
+	// own daemons as the only endpoint-shaped ones.
+	//
+	// Spelled positively rather than as `NoPreamble` on purpose: every struct
+	// that copies a HostDaemon field-by-field (internal/loopholes' resolve) drops
+	// an unlisted bool to its zero value, and for a default-TRUE field that drop
+	// is a silent DOWNGRADE. A test pins the round trip; an inverted spelling
+	// would have made the drop the safe direction and the bug invisible.
+	Preamble bool
 }
 
 // HostBindMount is one host path made visible in the container. Readonly
@@ -717,6 +737,14 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 		return nil, Errorf("%s: 'host_daemon.publishes' = %s not in %s",
 			manifestPath, pytext.Repr(publishes), sortedListRepr(validPublishes))
 	}
+	// Defaulted HERE, in the decoder, rather than at any of the places that read
+	// it: that is what makes "no manifest declares anything to keep working"
+	// literally true — every already-shipped manifest decodes with the preamble
+	// ON, and the only way to get it off is to say so.
+	preamble := true
+	if pv, ok := m.Get(keyPreamble); ok {
+		preamble = Truthy(pv)
+	}
 	requestEnd := RequestEndFramed
 	if rv, ok := m.Get(keyRequestEnd); ok {
 		requestEnd = Str(rv)
@@ -747,7 +775,9 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 			}
 		}
 	}
-	return &HostDaemon{Cmd: cmd, Env: env, Publishes: publishes, RequestEnd: requestEnd}, nil
+	return &HostDaemon{
+		Cmd: cmd, Env: env, Publishes: publishes, RequestEnd: requestEnd, Preamble: preamble,
+	}, nil
 }
 
 func parseJailDaemon(manifestPath string, raw any) (*JailDaemon, error) {

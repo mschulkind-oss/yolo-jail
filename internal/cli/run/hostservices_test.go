@@ -596,13 +596,21 @@ func TestManifestEOFDaemonRoundTripsBehindFront(t *testing.T) {
 	if err := os.MkdirAll(mod, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// `preamble: false` is load-bearing, and this test is the in-tree coverage of
+	// the key: the child at frontUpstreamChildMain is a genuine DUMB PIPE — it
+	// io.ReadAlls the connection and echoes `got:<everything>` — so with the
+	// manifest default (preamble ON) the framework's own frame would arrive as
+	// part of the request body and the response would come back as
+	// `got:<preamble>payload`. That is exactly the third-party-daemon failure the
+	// opt-out exists for, reproduced end to end through the real loader.
 	manifest := `{
   "name": "eofd",
   "description": "reads its request to EOF",
   "host_daemon": {
     "cmd": [` + fmt.Sprintf("%q", os.Args[0]) + `, "-front-upstream-child", "eof", "{socket}"],
     "publishes": "socket",
-    "request_end": "eof"
+    "request_end": "eof",
+    "preamble": false
   }
 }`
 	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
@@ -615,6 +623,10 @@ func TestManifestEOFDaemonRoundTripsBehindFront(t *testing.T) {
 		t.Fatalf("discovered %+v, want the one eofd loophole", discovered)
 	}
 	lp := discovered[0]
+	if lp.HostDaemon.Preamble {
+		t.Fatal("the manifest's 'preamble': false did not survive load — the front " +
+			"below would then prepend a frame to a daemon that reads to EOF")
+	}
 
 	socketsDir := t.TempDir()
 	if err := os.Chmod(socketsDir, 0o700); err != nil {

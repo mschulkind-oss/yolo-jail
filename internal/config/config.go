@@ -81,8 +81,15 @@ var (
 	// canonical form of the `jail_socket` alias that validateInlineService
 	// itself prefix-checks — all three used to be "unknown key" errors here
 	// while the rest of the machinery honored them (loophole-packaging.md R5).
+	//
+	// `preamble` is the same rule applied on arrival rather than in arrears:
+	// synthesizeConfigLoopholes reads it (defaulting FALSE, the opposite of a
+	// manifest's), so it validates. It belongs to the INLINE census and not to
+	// knownLoopholeOverrideKeys, because applyWorkspaceOverrides does not read
+	// it — on an override the key would be inert, which is precisely what the
+	// doctor_cmd refusal in validateLoopholeOverride exists to prevent.
 	knownHostServiceKeys = set("command", "env", "jail_socket", "jail_endpoint",
-		"doctor_cmd", "description")
+		"doctor_cmd", "description", "preamble")
 	knownLoopholeOverrideKeys = set("enabled", "env", "jail_env")
 	knownGPUKeys              = set(
 		"enabled", "devices", "capabilities", "vendor", "mode",

@@ -26,6 +26,7 @@ func TestInlineLoopholeKeysLoaderReadsAreKnown(t *testing.T) {
 		"command": ["/bin/true"],
 		"env": {"A": "b"},
 		"doctor_cmd": ["/bin/true", "--ok"],
+		"preamble": true,
 		"jail_endpoint": "`+paths.JailHostServicesDir+`/svc.endpoint"
 	}}}`)
 	errs, _ := ValidateConfig(cfg, t.TempDir(), nil)
@@ -351,5 +352,36 @@ func TestInlineJailEndpointStillPrefixChecked(t *testing.T) {
 	}
 	if len(hit) != 1 || !strings.Contains(hit[0], "must start with "+paths.JailHostServicesDir+"/") {
 		t.Errorf("jail_endpoint errors = %v, want exactly the prefix error (not an unknown-key error)", hit)
+	}
+}
+
+// TestInlineLoopholePreambleMustBeBoolean: `preamble` is read through the
+// schema's TRUTHINESS, where `"false"` — a non-empty string — is true. That is
+// the one wrong value a human writes while believing they turned the key off,
+// and it would be honored silently, so the type check refuses it here.
+func TestInlineLoopholePreambleMustBeBoolean(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	cfg := decode(t, `{"loopholes": {"svc": {
+		"command": ["/bin/true"],
+		"preamble": "false"
+	}}}`)
+	errs, _ := ValidateConfig(cfg, t.TempDir(), nil)
+	if len(containing(errs, "preamble", "boolean")) == 0 {
+		t.Errorf("errors = %v, want one naming preamble and 'boolean'", errs)
+	}
+}
+
+// TestPreambleIsNotAnOverrideKey: `preamble` describes the connection yolo
+// serves in front of a daemon the entry INSTALLS, and applyWorkspaceOverrides
+// does not read it — so on an override of a manifest-backed loophole the key
+// would declare nothing. That is the doctor_cmd failure mode, and the census
+// answers it the same way: unknown here.
+func TestPreambleIsNotAnOverrideKey(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	cfg := decode(t, `{"loopholes": {"known-one": {"preamble": false}}}`)
+	resolver := fakeResolver{"known-one": {HasHostDaemon: true}}
+	errs, _ := ValidateConfig(cfg, t.TempDir(), resolver)
+	if len(containing(errs, "preamble")) == 0 {
+		t.Errorf("errors = %v, want the key refused on an override", errs)
 	}
 }

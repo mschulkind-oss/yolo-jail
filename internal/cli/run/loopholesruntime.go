@@ -720,22 +720,18 @@ func (o *Options) startExternalService(
 			_ = svcendpoint.ServeFrontWithOptions(hostPath, advertiseHost, daemonPath, frontStop,
 				svcendpoint.FrontOptions{
 					HalfCloseUpstream: hd.RequestEnd == loopholes.RequestEndEOF,
-					// NoPreamble, UNCONDITIONALLY, UNTIL THE MANIFEST CAN SAY
-					// OTHERWISE. svcendpoint's default is preamble-on, and that is
-					// right for a daemon yolo wrote. Every daemon reachable through
-					// THIS call site is one it did not: a manifest's host_daemon or
-					// a yolo-jail.jsonc `loopholes:` entry, i.e. a third-party
-					// program whose protocol has no room for a frame it never asked
-					// for. Prepending bytes to a working setup on the strength of a
-					// declaration that does not exist yet is not a default, it is a
-					// silent break — the config-loophole case is a dumb pipe BY
-					// CONSTRUCTION (discover.go hands every one of them
-					// publishes:"socket").
-					//
-					// REMOVAL TRIGGER: the `preamble` manifest key. This becomes
-					// `NoPreamble: !hd.Preamble`, defaulting true for manifests and
-					// false for Source == SourceConfig, and the comment goes with it.
-					NoPreamble: true,
+					// The daemon's own declaration decides, and the two ways to
+					// declare one default OPPOSITE ways on purpose. A MANIFEST is
+					// written against yolo's transport, so its default is
+					// preamble-on and a dumb pipe says `"preamble": false`
+					// (loopholedecl.HostDaemon.Preamble). A yolo-jail.jsonc
+					// `loopholes:` entry is an argv for a third-party program that
+					// is already running for somebody, so discover.go defaults it
+					// OFF and `"preamble": true` is the opt-in. Either way the
+					// answer arrives here as one bool on the record — this call
+					// site does not know which kind of declaration produced it,
+					// and must not.
+					NoPreamble: !hd.Preamble,
 				})
 		}()
 		if !waitForEndpoint(hostPath, o.serviceReadyTimeout()) {

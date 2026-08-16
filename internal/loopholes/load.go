@@ -193,6 +193,14 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		doctorCmd = substituteAll(m.DoctorCmd, loopholedecl.TokenLoopholeDir, hostDir)
 	}
 
+	// EVERY field, listed. This literal is the same shape as subsetManifest's, and
+	// the same trap: it builds a NEW struct field by field, so a field left out
+	// here does not survive load — it arrives as its ZERO value with nothing
+	// anywhere reporting a problem. `Preamble` is where that bites hardest,
+	// because its default is TRUE, so the drop is a silent DOWNGRADE to a
+	// preamble-free connection rather than an obvious nil. It is the ca_cert drop
+	// (see subsetManifest above) one type down.
+	// TestManifestPreambleDefaultSurvivesLoad pins the round trip.
 	var hostDaemon *HostDaemon
 	if m.HostDaemon != nil {
 		hostDaemon = &HostDaemon{
@@ -200,6 +208,7 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 			Env:        m.HostDaemon.Env,
 			Publishes:  m.HostDaemon.Publishes,
 			RequestEnd: m.HostDaemon.RequestEnd,
+			Preamble:   m.HostDaemon.Preamble,
 		}
 	}
 

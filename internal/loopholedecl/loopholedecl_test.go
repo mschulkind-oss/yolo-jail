@@ -544,3 +544,64 @@ func TestWrongHalfTokensRefused(t *testing.T) {
 		})
 	}
 }
+
+// TestHostDaemonPreambleDefaultsOn: `preamble` is the one host_daemon key whose
+// default is TRUE, and the default is what carries every manifest that already
+// shipped — none of them declares the key, and all of them must come out of the
+// decoder asking for yolo's own transport. The opt-out has to be WRITTEN.
+func TestHostDaemonPreambleDefaultsOn(t *testing.T) {
+	cases := []struct {
+		name   string
+		daemon map[string]any
+		want   bool
+	}{
+		{"absent", map[string]any{"cmd": []any{"d", "{socket}"}}, true},
+		{"opt-out", map[string]any{"cmd": []any{"d", "{socket}"}, "preamble": false}, false},
+		{"explicit-true", map[string]any{"cmd": []any{"d", "{socket}"}, "preamble": true}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := decodeMap(t, "pre", map[string]any{
+				"name": "pre", "description": "x", "host_daemon": tc.daemon,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if m.HostDaemon.Preamble != tc.want {
+				t.Errorf("Preamble = %v, want %v", m.HostDaemon.Preamble, tc.want)
+			}
+		})
+	}
+}
+
+// TestHostDaemonPreambleTypoIsUnknown: the key is only worth having if a
+// misspelling is loud. `"preambel": false` is an author who believes the
+// preamble is off and a daemon that will be sent one — the single most
+// expensive way to get this key wrong, and the reason it went into
+// hostDaemonKeys rather than being read opportunistically.
+func TestHostDaemonPreambleTypoIsUnknown(t *testing.T) {
+	manifest := map[string]any{
+		"name": "typo-pre", "description": "x",
+		"host_daemon": map[string]any{"cmd": []any{"d", "{socket}"}, "preambel": false},
+	}
+	_, err := decodeMap(t, "typo-pre", manifest)
+	if err == nil {
+		t.Fatal("strict decode accepted host_daemon.preambel")
+	}
+	if !strings.Contains(err.Error(), "host_daemon.preambel") {
+		t.Errorf("error does not name the key: %s", err.Error())
+	}
+	// Tolerant decode still boots the jail, on the DEFAULT — a skew note, not a
+	// refusal, and certainly not a silent opt-out.
+	m, skipped, terr := loopholedecl.DecodeTolerant(
+		manifestBytes(t, manifest), filepath.Join("/loopholes", "typo-pre"))
+	if terr != nil {
+		t.Fatalf("tolerant decode refused an unknown key: %v", terr)
+	}
+	if len(skipped) != 1 || !strings.Contains(skipped[0], "preambel") {
+		t.Errorf("skipped = %v, want one note naming the typo", skipped)
+	}
+	if !m.HostDaemon.Preamble {
+		t.Error("a typo'd opt-out turned the preamble off; it must fall to the default")
+	}
+}

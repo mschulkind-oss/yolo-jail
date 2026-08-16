@@ -508,6 +508,13 @@ func validateInlineService(spec *jsonx.OrderedMap, path string, errs *[]string) 
 	if dV, present := spec.Get("description"); present && dV != nil && !isStr(dV) {
 		add(errs, path+".description: expected a string")
 	}
+	// Type-checked rather than left to the loader's truthiness, because for THIS
+	// key truthiness gets the answer backwards in the one way a human is likely
+	// to write it: `"preamble": "false"` is a non-empty string, hence true, hence
+	// the preamble the author was trying to turn OFF.
+	if pV, present := spec.Get("preamble"); present && pV != nil && !isBool(pV) {
+		add(errs, path+".preamble: expected a boolean (got "+pyReprValue(pV)+")")
+	}
 	// jail_endpoint is the canonical override; jail_socket stays an ACCEPTED ALIAS.
 	// Retiring the older key rather than aliasing it would make a third-party
 	// loophole's override silently vanish over a rename, which is the same class of

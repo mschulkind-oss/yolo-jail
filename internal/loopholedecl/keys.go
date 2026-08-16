@@ -45,6 +45,7 @@ const (
 	keyEnv           = "env"
 	keyPublishes     = "publishes"
 	keyRequestEnd    = "request_end"
+	keyPreamble      = "preamble"
 	keyRestart       = "restart"
 	keyHost          = "host"
 	keyContainer     = "container"
@@ -63,7 +64,12 @@ var (
 		keyJailDaemon, keyHostBindMounts, keyHostDevices, keyStateFiles, keyRequires,
 		keyPlatforms, keyServes,
 	}
-	hostDaemonKeys    = []string{keyCmd, keyEnv, keyPublishes, keyRequestEnd}
+	// `preamble` is a host_daemon key and DELIBERATELY not a top-level one: it
+	// describes the connection yolo serves in FRONT of a daemon, so it says
+	// nothing for a transport:"none" loophole and nothing for a manifest with no
+	// host_daemon at all. A top-level spelling would be a key an author could
+	// write in a place where it silently declares nothing.
+	hostDaemonKeys    = []string{keyCmd, keyEnv, keyPublishes, keyRequestEnd, keyPreamble}
 	jailDaemonKeys    = []string{keyCmd, keyRestart}
 	interceptKeys     = []string{keyHost}
 	hostBindMountKeys = []string{keyHost, keyContainer, keyReadonly}
