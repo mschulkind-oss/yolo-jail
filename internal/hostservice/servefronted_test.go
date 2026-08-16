@@ -1,7 +1,6 @@
 package hostservice
 
 import (
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -78,16 +77,6 @@ func waitForSocket(t *testing.T, path string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("ServeFrontedUnix never bound %s", path)
-}
-
-// captureLog redirects the package Logger for one test and returns the buffer.
-func captureLog(t *testing.T) *syncBuf {
-	t.Helper()
-	prev := Logger
-	logs := &syncBuf{}
-	Logger = log.New(logs, "", 0)
-	t.Cleanup(func() { Logger = prev })
-	return logs
 }
 
 // TestServeFrontedUnixRoundTripsAndTheHostNamesTheJail is the step's point: a

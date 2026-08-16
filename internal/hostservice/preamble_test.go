@@ -3,7 +3,6 @@ package hostservice
 import (
 	"encoding/binary"
 	"encoding/json"
-	"log"
 	"net"
 	"strings"
 	"sync/atomic"
@@ -25,10 +24,7 @@ import (
 // serveListener pins the behaviour now instead of when that entry point lands.
 func startPreambleListener(t *testing.T, readPreamble bool) (addr string, calls *atomic.Int64, logs *syncBuf) {
 	t.Helper()
-	prevLogger := Logger
-	logs = &syncBuf{}
-	Logger = log.New(logs, "", 0)
-	t.Cleanup(func() { Logger = prevLogger })
+	logs = captureLog(t)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

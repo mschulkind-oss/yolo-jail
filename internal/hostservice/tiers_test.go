@@ -1,6 +1,7 @@
 package hostservice
 
 import (
+	"io"
 	"log"
 	"net"
 	"os"
@@ -33,6 +34,57 @@ func (s *syncBuf) String() string {
 	return s.b.String()
 }
 
+// logRouter is the package Logger's ONE destination for the whole test binary,
+// and captureLog swaps what it points AT rather than swapping Logger itself.
+//
+// THAT DISTINCTION IS THE WHOLE POINT, and it is a real data race the obvious
+// version has. handleOne writes its tier-2 access line from a DEFERRED func on a
+// connection goroutine, and serveListener does not join those goroutines before
+// it returns — closing the listener only ends the accept loop. So a test that
+// stops its daemon and then restores `Logger = prev` is racing any handler still
+// inside that defer, and `go test -race ./internal/hostservice/` says so. Waiting
+// for the last access line hides it only for as long as every test remembers to
+// wait for EVERY connection's line, including a probe's, which is not a property
+// a test file can keep.
+//
+// Routing removes the class instead: Logger is assigned exactly once, by init
+// below, before any goroutine exists, and every redirect after that is a
+// mutex-guarded field write that a late writer serializes against.
+type logRouter struct {
+	mu  sync.Mutex
+	dst io.Writer
+}
+
+func (r *logRouter) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.dst.Write(p)
+}
+
+func (r *logRouter) to(w io.Writer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.dst = w
+}
+
+var testLogRouter = &logRouter{dst: os.Stderr}
+
+// init installs the router as the package Logger's writer, once, for every test
+// in this binary. Flags are dropped so a captured buffer holds the lines exactly
+// as handleOne wrote them.
+func init() { Logger = log.New(testLogRouter, "", 0) }
+
+// captureLog redirects the package Logger to a fresh buffer for one test and
+// returns it. Safe to call from a test whose daemon goroutines outlive it — see
+// logRouter.
+func captureLog(t *testing.T) *syncBuf {
+	t.Helper()
+	logs := &syncBuf{}
+	testLogRouter.to(logs)
+	t.Cleanup(func() { testLogRouter.to(os.Stderr) })
+	return logs
+}
+
 // TestFramedDaemonProducesBothTiers pins the relationship between the two audit
 // tiers, which is the thing most likely to be papered over later.
 //
@@ -60,10 +112,7 @@ func (s *syncBuf) String() string {
 func TestFramedDaemonProducesBothTiers(t *testing.T) {
 	advertiseLoopback(t)
 
-	prevLogger := Logger
-	logs := &syncBuf{}
-	Logger = log.New(logs, "", 0)
-	t.Cleanup(func() { Logger = prevLogger })
+	logs := captureLog(t)
 
 	prevSink := svcendpoint.CrossingSink()
 	var mu sync.Mutex
@@ -168,10 +217,7 @@ func TestFramedDaemonProducesBothTiers(t *testing.T) {
 // a relay that stamps jail_id INTO the payload and opts out of the preamble until
 // it is deleted — so removing the fallback would blank every broker access line.
 func TestServeUnixKeepsTheClientSuppliedJailID(t *testing.T) {
-	prevLogger := Logger
-	logs := &syncBuf{}
-	Logger = log.New(logs, "", 0)
-	t.Cleanup(func() { Logger = prevLogger })
+	logs := captureLog(t)
 
 	dir, err := os.MkdirTemp("/tmp", "yj-unixjail-")
 	if err != nil {
