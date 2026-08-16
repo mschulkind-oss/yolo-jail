@@ -91,9 +91,13 @@ func writeInheritedUserConfig(t *testing.T, home, hostConfig string) {
 // existed. normHome() cannot do the job — os.UserHomeDir() reads a cached value that
 // t.Setenv does not move, and the repo-root temp dir is not under HOME at all.
 func maskTempPaths(s string) string {
+	// os.TempDir() already ends in a trailing slash on macOS (TMPDIR is
+	// /var/folders/.../T/), so appending "/" there yields a double-slash prefix
+	// that never matches and the subtest name leaks through the temp path.
+	tmp := strings.TrimRight(os.TempDir(), "/") + "/"
 	var b strings.Builder
 	for i := 0; i < len(s); {
-		if strings.HasPrefix(s[i:], os.TempDir()+"/") {
+		if strings.HasPrefix(s[i:], tmp) {
 			b.WriteString("<tmp>")
 			for i < len(s) && s[i] != ' ' && s[i] != '\n' {
 				i++
