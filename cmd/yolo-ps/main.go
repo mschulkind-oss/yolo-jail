@@ -5,8 +5,24 @@
 // CLI contract: -t/--tree, --pid, --endpoint. The endpoint resolves from
 // $YOLO_SERVICE_HOST_PROCESSES_ENDPOINT and names a FILE, not an address: the
 // address lives inside it so a restarted daemon is picked up without relaunching
-// the jail, whose environment is frozen at container start. jail_id from
-// $YOLO_JAIL_ID or $HOSTNAME (default "unknown").
+// the jail, whose environment is frozen at container start.
+//
+// # This client no longer names its own jail
+//
+// It used to: every request carried a jail_id read from $YOLO_JAIL_ID, else
+// $HOSTNAME, else the literal "unknown", and the daemon's access log printed
+// whatever it was told. That was always the wrong end of the connection to ask.
+// The HOST knows which jail it handed an endpoint to, and it now says so itself
+// — yolo prepends a connection preamble carrying the jail's identity, derived
+// host-side from the path it published at (internal/svcendpoint/preamble.go),
+// and hostservice prefers it over anything in the request. So the field is not
+// removed to save bytes: it is removed because a value a client asserts about
+// itself cannot be audit evidence, and leaving it on the wire invites someone to
+// start trusting it again.
+//
+// It was also WRONG in a real configuration, not merely redundant: nothing in
+// this repo sets $YOLO_JAIL_ID, so the value was always $HOSTNAME — and a nested
+// jail is forced onto --net=host, where $HOSTNAME is the HOST's hostname.
 package main
 
 import (
@@ -52,25 +68,46 @@ func run() int {
 		return 2
 	}
 
-	// Build the request. --pid takes priority over --tree over the list default.
-	req := map[string]any{}
+	// --pid is detected by PRESENCE, not by value: `--pid 0` is a query about
+	// pid 0, not an absent flag.
 	pidSet := false
 	flag.Visit(func(f *flag.Flag) {
 		if f.Name == "pid" {
 			pidSet = true
 		}
 	})
+
+	return call(ep, buildRequest(pidSet, *pid, *tree))
+}
+
+// buildRequest maps the selector flags to the daemon's request object: --pid
+// takes priority over --tree, which takes priority over the list default. The
+// daemon dispatches on "mode" and reads "pid" and nothing else
+// (internal/hostprocesses.BuildHandler).
+//
+// Split out of run so a test can pin the request WITHOUT a daemon, because the
+// property worth pinning is an absence — see requestBody.
+func buildRequest(pidSet bool, pid int, tree bool) map[string]any {
 	switch {
 	case pidSet:
-		req["mode"] = "pid"
-		req["pid"] = *pid
-	case *tree:
-		req["mode"] = "tree"
+		return map[string]any{"mode": "pid", "pid": pid}
+	case tree:
+		return map[string]any{"mode": "tree"}
 	default:
-		req["mode"] = "list"
+		return map[string]any{"mode": "list"}
 	}
+}
 
-	return call(ep, req)
+// requestBody renders the request exactly as it goes on the wire: the object
+// buildRequest returned, and nothing else.
+//
+// It is a named function for one reason — "and nothing else" is testable here
+// and nowhere else. This is the site where a jail_id used to be merged in ahead
+// of the caller's fields, so this is where a regression would land.
+func requestBody(request map[string]any) []byte {
+	// A map of strings and ints; json.Marshal cannot fail on it.
+	body, _ := json.Marshal(request)
+	return body
 }
 
 // call performs one request/response round trip, returning the daemon exit code.
@@ -111,20 +148,7 @@ func call(endpointPath string, request map[string]any) int {
 	}
 	defer conn.Close()
 
-	jailID := os.Getenv("YOLO_JAIL_ID")
-	if jailID == "" {
-		jailID = os.Getenv("HOSTNAME")
-	}
-	if jailID == "" {
-		jailID = "unknown"
-	}
-	// {"jail_id": ..., **request} — jail_id first, then the request fields.
-	full := map[string]any{"jail_id": jailID}
-	for k, v := range request {
-		full[k] = v
-	}
-	body, _ := json.Marshal(full)
-	if err := frameproto.WriteRequest(conn, body); err != nil {
+	if err := frameproto.WriteRequest(conn, requestBody(request)); err != nil {
 		return 1
 	}
 

@@ -2,8 +2,11 @@ package hostprocesses
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -162,6 +165,56 @@ func query(t *testing.T, endpoint string, req map[string]any) ([]byte, []byte, i
 	}
 }
 
+// accessLog redirects hostservice's package Logger into a buffer for the
+// duration of one test, so the TIER-2 access line — the daemon's own record of
+// what was asked and by whom — can be asserted on. Restored on cleanup; the
+// tests in this file are sequential, and nothing here may run in parallel while
+// a global logger is swapped.
+type accessLog struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (a *accessLog) Write(p []byte) (int, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.b.Write(p)
+}
+
+func (a *accessLog) String() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.b.String()
+}
+
+func captureAccessLog(t *testing.T) *accessLog {
+	t.Helper()
+	buf := &accessLog{}
+	prev := hostservice.Logger
+	hostservice.Logger = log.New(buf, "", 0)
+	t.Cleanup(func() { hostservice.Logger = prev })
+	return buf
+}
+
+// accessLine waits for the request line and returns it. The line is written by
+// the connection goroutine's deferred summary, which runs AFTER the exit frame
+// the client already read — so reading the buffer straight after query() is a
+// race, and this poll is the fix.
+func accessLine(t *testing.T, buf *accessLog) string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, line := range strings.Split(buf.String(), "\n") {
+			if strings.HasPrefix(line, "jail=") {
+				return line
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("no access line was written within 5s; log was:\n%s", buf.String())
+	return ""
+}
+
 func writeConfig(t *testing.T, dir, content string) string {
 	t.Helper()
 	p := filepath.Join(dir, "yolo-jail.jsonc")
@@ -232,6 +285,87 @@ func TestBlackboxFrontedListModeIsIdentical(t *testing.T) {
 	if string(out) != "ARGS: -o pid,comm -C sway -C waykeeper\n" {
 		t.Errorf("fronted list argv = %q (endpoint shape gives %q)", out,
 			"ARGS: -o pid,comm -C sway -C waykeeper\n")
+	}
+}
+
+// TestBlackboxAccessLineIsHostAttributed is the client-side half of the
+// preamble work, seen from the daemon: yolo-ps no longer sends a jail_id, and
+// the access line is not the poorer for it.
+//
+// Two things are asserted and both are observable ONLY here, in the daemon's own
+// log:
+//
+//   - keys= now reads "mode" rather than "jail_id,mode". keys= is the sorted
+//     list of the request's top-level key NAMES, so it is the direct readout of
+//     what the client put on the wire — the one place a re-added field would
+//     show up without anything else changing.
+//   - jail= is still populated, and with the publication directory's name. The
+//     value did not move when the client stopped supplying it, because the host
+//     had already taken over asserting it in the connection preamble. That is
+//     what makes this deletion a no-op for operators and not a lost column.
+func TestBlackboxAccessLineIsHostAttributed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns ps; -short")
+	}
+	logs := captureAccessLog(t)
+	cfgDir := t.TempDir()
+	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"],"fields":["pid","comm"]}}`)
+	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
+	ep, stop := startFrontedDaemon(t, cfg, ps)
+	defer stop()
+
+	// EXACTLY what cmd/yolo-ps now sends for the list default: a mode, and
+	// nothing that names the caller.
+	if _, _, rc := query(t, ep, map[string]any{"mode": "list"}); rc != 0 {
+		t.Fatalf("list rc=%d, want 0", rc)
+	}
+
+	line := accessLine(t, logs)
+	if !strings.Contains(line, "keys=mode ") {
+		t.Errorf("access line keys= is not the bare mode: %q", line)
+	}
+	if strings.Contains(line, "keys=jail_id,mode") {
+		t.Errorf("the client sent a jail_id; it must not name its own jail: %q", line)
+	}
+	wantJail := filepath.Base(filepath.Dir(ep))
+	if !strings.Contains(line, "jail="+wantJail+" ") {
+		t.Errorf("access line jail= is not the host's assertion (want %q): %q", wantJail, line)
+	}
+}
+
+// TestBlackboxSpoofedJailIDIsOverridden is the NEGATIVE case, and it is kept
+// rather than deleted alongside the client's jail_id: yolo-ps is not the only
+// thing that can open this connection, and the guarantee is about the DAEMON,
+// not about one well-behaved client. A request that names its own jail is
+// attributed to the jail the host handed the endpoint to, and the lie survives
+// only as a key NAME in keys= — visible as a thing that was asked, never adopted
+// as a thing that is true.
+func TestBlackboxSpoofedJailIDIsOverridden(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns ps; -short")
+	}
+	logs := captureAccessLog(t)
+	cfgDir := t.TempDir()
+	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"],"fields":["pid","comm"]}}`)
+	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
+	ep, stop := startFrontedDaemon(t, cfg, ps)
+	defer stop()
+
+	if _, _, rc := query(t, ep, map[string]any{"jail_id": "i-said-so", "mode": "list"}); rc != 0 {
+		t.Fatalf("list rc=%d, want 0 (an unknown extra key is not an error)", rc)
+	}
+
+	line := accessLine(t, logs)
+	if strings.Contains(line, "jail=i-said-so") {
+		t.Errorf("the daemon took the client's word for its identity: %q", line)
+	}
+	wantJail := filepath.Base(filepath.Dir(ep))
+	if !strings.Contains(line, "jail="+wantJail+" ") {
+		t.Errorf("access line jail= is not the host's assertion (want %q): %q", wantJail, line)
+	}
+	if !strings.Contains(line, "keys=jail_id,mode") {
+		t.Errorf("keys= must still report the spoofed field's NAME — the line "+
+			"describes what was asked: %q", line)
 	}
 }
 
