@@ -160,9 +160,18 @@ func TestBundledBrokerFields(t *testing.T) {
 	}
 }
 
-// TestBundledHostProcessesFields pins the third manifest: a host daemon whose argv
-// names {endpoint} (legal, because it publishes the endpoint file itself) and no
-// intercepts at all.
+// TestBundledHostProcessesFields pins the third manifest: a host daemon that binds
+// a plain AF_UNIX socket and lets yolo publish the endpoint file in front of it,
+// and no intercepts at all.
+//
+// The {socket}/publishes pair is asserted TOGETHER because the two halves are one
+// fact: parseHostDaemon REFUSES a {endpoint} argv under publishes:"socket", and a
+// refused manifest does not surface as an error at launch — the loophole simply
+// goes missing. So a half-applied edit here is silent everywhere except this test.
+//
+// `preamble` is asserted at its DEFAULT rather than declared in the manifest: the
+// decoder is where the default lives, and this daemon is yolo's own code reading
+// the preamble through hostservice.ServeFrontedUnix.
 func TestBundledHostProcessesFields(t *testing.T) {
 	m, err := loopholedecl.Decode(bundledManifest(t, "host-processes"), "/loopholes/host-processes")
 	if err != nil {
@@ -177,9 +186,21 @@ func TestBundledHostProcessesFields(t *testing.T) {
 	if m.BrokerIP != loopholedecl.DefaultBrokerIP {
 		t.Errorf("broker_ip = %q, want the default %q", m.BrokerIP, loopholedecl.DefaultBrokerIP)
 	}
-	wantCmd := []string{"yolo", "internal", "daemon", "host-processes", "--endpoint", "{endpoint}"}
+	wantCmd := []string{"yolo", "internal", "daemon", "host-processes", "--socket", "{socket}"}
 	if m.HostDaemon == nil || !reflect.DeepEqual(m.HostDaemon.Cmd, wantCmd) {
 		t.Fatalf("host_daemon = %+v, want cmd %v", m.HostDaemon, wantCmd)
+	}
+	if m.HostDaemon.Publishes != loopholedecl.PublishesSocket {
+		t.Errorf("publishes = %q, want %q — the daemon binds the socket and yolo fronts it",
+			m.HostDaemon.Publishes, loopholedecl.PublishesSocket)
+	}
+	if !m.HostDaemon.Preamble {
+		t.Errorf("preamble = false; this manifest declares nothing, so it must decode to the " +
+			"default ON — the daemon reads the preamble and the access line's jail= depends on it")
+	}
+	if m.HostDaemon.RequestEnd != loopholedecl.RequestEndFramed {
+		t.Errorf("request_end = %q, want the default %q — hostservice reads exactly one frame "+
+			"and never to EOF", m.HostDaemon.RequestEnd, loopholedecl.RequestEndFramed)
 	}
 	if m.CACertSet || m.JailDaemon != nil || len(m.StateFiles) != 0 {
 		t.Errorf("unexpected extras: ca=%v jail=%+v state=%v", m.CACertSet, m.JailDaemon, m.StateFiles)

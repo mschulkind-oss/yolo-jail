@@ -19,8 +19,34 @@
   // YOLO_SERVICE_HOST_PROCESSES_ENDPOINT and then dials the pinned,
   // token-authenticated loopback listener the file describes.  There is
   // no token env var: the token lives in that file and nowhere else.
+  //
+  // ``publishes: "socket"`` — the daemon binds a plain AF_UNIX socket at
+  // the path yolo substitutes into ``{socket}`` and yolo runs the front
+  // over it, so the endpoint file's mode, its key persistence, its
+  // constant-time token compare and its length cap are the framework's
+  // code rather than this daemon's.  NOTHING JAIL-FACING MOVES: the env
+  // var is still YOLO_SERVICE_HOST_PROCESSES_ENDPOINT and the in-jail
+  // path is still /run/yolo-services/host-processes.endpoint, because
+  // both are functions of the loophole NAME and the transport alone.
+  // What moves is upstream and host-only — the socket is bound outside
+  // the :rw-mounted services dir, so the retired socket transport stays
+  // unreachable from inside the jail.
+  //
+  // ``preamble`` is left at its manifest default (ON), which is the
+  // point of the flip: every connection yolo splices to that socket
+  // carries the framework's connection preamble, and
+  // hostservice.ServeFrontedUnix reads it — so the tier-1 crossing
+  // record and the tier-2 access line name the same jail BY
+  // CONSTRUCTION rather than by whatever the client claimed
+  // (broker-as-a-pack.md §5.5).
+  //
+  // ``request_end`` is likewise left at its default ("framed"), and that
+  // is not an oversight: hostservice reads exactly one 4+N-byte frame
+  // and never to EOF, so "eof" would half-close the upstream for no
+  // benefit.
   "host_daemon": {
-    "cmd": ["yolo", "internal", "daemon", "host-processes", "--endpoint", "{endpoint}"]
+    "cmd": ["yolo", "internal", "daemon", "host-processes", "--socket", "{socket}"],
+    "publishes": "socket"
   },
   "doctor_cmd": ["yolo", "internal", "daemon", "host-processes", "--self-check"]
 }

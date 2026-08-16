@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostprocesses"
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
@@ -20,6 +21,15 @@ import (
 func TestMain(m *testing.M) {
 	if len(os.Args) >= 4 && os.Args[1] == "internal" && os.Args[2] == "daemon" && os.Args[3] == "journal" {
 		os.Exit(journald.Main(os.Args[4:]))
+	}
+	// The same dispatch for the bundled host-processes daemon, so
+	// TestBundledHostProcessesRunsBehindTheFront can drive the REAL bundled
+	// record — argv and all — instead of a stand-in: its manifest cmd is
+	// ["yolo","internal","daemon","host-processes","--socket","{socket}"], and
+	// SelfExecArgv rewrites that leading "yolo" to this test binary.
+	if len(os.Args) >= 4 && os.Args[1] == "internal" && os.Args[2] == "daemon" &&
+		os.Args[3] == "host-processes" {
+		os.Exit(hostprocesses.Main(os.Args[4:]))
 	}
 	// `<test-binary> -front-upstream-child <mode> <socket>` is the daemon child
 	// for the publishes:"socket" tests: it binds a REAL AF_UNIX socket, which no

@@ -2,6 +2,7 @@ package run
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -473,6 +475,181 @@ func TestFrontedServiceComesUpBehindFront(t *testing.T) {
 	if fileExists(upstream) {
 		t.Error("upstream socket survived teardown")
 	}
+}
+
+// TestBundledHostProcessesRunsBehindTheFront drives the REAL bundled
+// host-processes record — DISCOVERED, not hand-built, so the manifest's own argv
+// and its publishes/preamble values are on the path — through the spawn, and
+// pins the compatibility claim the flip rests on rather than arguing it.
+//
+// WHAT THE CLAIM IS: nothing jail-facing moves. The env var name, the in-jail
+// path, the endpoint leaf in the mounted services dir and therefore cmd/yolo-ps
+// are functions of the loophole NAME and the transport alone; `fronted` enters
+// only the upstream socket path and the front. So the flip needed no client
+// change, and this test says so with a running daemon instead of by reading
+// loopholesruntime.go.
+//
+// The `bogus` query at the end is the PREAMBLE DISCRIMINATOR, and it is why the
+// request is not simply `mode: list`. If ServeFrontedUnix ever stopped consuming
+// the framework's preamble, the daemon would read that frame AS the request —
+// and the preamble carries no `mode`, which the handler treats as `list`. A
+// list-shaped request would therefore answer identically whether the preamble
+// was consumed or not; a mode the handler must REJECT cannot.
+func TestBundledHostProcessesRunsBehindTheFront(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("spawns a host process")
+	}
+	var lp *loopholes.Loophole
+	for _, cand := range loopholes.Discover(loopholes.DiscoverOptions{
+		IncludeBundled:  true,
+		IncludeDisabled: true,
+		Root:            t.TempDir(), // an empty user dir, so only bundled contributes
+		RootSet:         true,
+	}) {
+		if cand.Name == "host-processes" {
+			lp = cand
+		}
+	}
+	if lp == nil || lp.HostDaemon == nil {
+		t.Fatal("the bundled host-processes loophole did not discover with a host_daemon")
+	}
+	if lp.HostDaemon.Publishes != loopholes.PublishesSocket {
+		t.Fatalf("publishes = %q; the manifest flip did not survive load", lp.HostDaemon.Publishes)
+	}
+	if !lp.HostDaemon.Preamble {
+		t.Fatal("preamble = false — the manifest declares nothing, so the decoder's default ON " +
+			"must survive internal/loopholes' field-by-field resolve (the ca_cert silent-drop class)")
+	}
+
+	// The daemon resolves its allowlist from $YOLO_HOST_PROCESSES_CONFIG, and the
+	// spawn's `env` is per-child — no process-wide Setenv, so nothing here depends
+	// on this test binary's own cwd or environment. A visible list that matches no
+	// real process keeps the `ps` exec deterministic; PATH carries a fake one so it
+	// does not run at all on a host whose `ps` prints something else.
+	cfgDir := t.TempDir()
+	cfgPath := filepath.Join(cfgDir, "yolo-jail.jsonc")
+	if err := os.WriteFile(cfgPath,
+		[]byte(`{"host_processes":{"visible":["yolo-fake-proc"],"fields":["pid","comm"]}}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	psDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(psDir, "ps"),
+		[]byte("#!/bin/sh\necho \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	socketsDir := t.TempDir()
+	if err := os.Chmod(socketsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	env := jsonx.NewOrderedMap()
+	env.Set("YOLO_HOST_PROCESSES_CONFIG", cfgPath)
+	env.Set("PATH", psDir+":"+os.Getenv("PATH"))
+	spec := jsonx.NewOrderedMap()
+	spec.Set("command", toAnyList(lp.HostDaemon.Cmd))
+	spec.Set("env", env)
+	o := &Options{}
+	fillDefaults(o)
+	var buf strings.Builder
+	o.Stdout = &buf
+	h, ok := o.startExternalService("host-processes", spec, socketsDir,
+		lp.Transport, "127.0.0.1", lp.HostDaemon)
+	if !ok {
+		t.Fatalf("the bundled host-processes daemon failed to come up; output: %q", buf.String())
+	}
+	defer h.stop()
+
+	// The three values cmd/yolo-ps depends on, spelled out rather than derived:
+	// yolo-ps reads YOLO_SERVICE_HOST_PROCESSES_ENDPOINT (cmd/yolo-ps/main.go) and
+	// dials the file it names, which the container mounts at the jail path below.
+	if h.envVarName != "YOLO_SERVICE_HOST_PROCESSES_ENDPOINT" {
+		t.Errorf("envVarName = %q, want YOLO_SERVICE_HOST_PROCESSES_ENDPOINT — the flip must "+
+			"not move what yolo-ps reads", h.envVarName)
+	}
+	if h.jailPath != "/run/yolo-services/host-processes.endpoint" {
+		t.Errorf("jailPath = %q, want /run/yolo-services/host-processes.endpoint", h.jailPath)
+	}
+	wantEndpoint := filepath.Join(socketsDir, "host-processes"+paths.ServiceEndpointExt)
+	if h.hostPath != wantEndpoint {
+		t.Errorf("hostPath = %q, want %q", h.hostPath, wantEndpoint)
+	}
+	// The upstream socket is host-only, outside the :rw-mounted services dir.
+	upstream := frontSocketFile(frontShortHash(socketsDir), "host-processes")
+	if !fileExists(upstream) {
+		t.Errorf("upstream socket %q missing while the service is up", upstream)
+	}
+	for _, e := range mustReadDir(t, socketsDir) {
+		if strings.HasSuffix(e, ".sock") {
+			t.Errorf("a socket %q leaked into the mounted services dir", e)
+		}
+	}
+
+	// A real request round-trips: through the front's pinned TLS + token auth,
+	// across the preamble, into the daemon's allowlisted exec and back as frames.
+	stdout, stderr, rc := queryThroughFront(t, h.hostPath, map[string]any{"mode": "list"})
+	if rc != 0 {
+		t.Fatalf("list mode rc = %d, stderr = %q", rc, stderr)
+	}
+	if got := strings.TrimSpace(string(stdout)); got != "-o pid,comm -C yolo-fake-proc" {
+		t.Errorf("list mode stdout = %q, want the allowlisted ps argv", got)
+	}
+
+	// The discriminator (see the doc comment): a mode the handler must reject.
+	_, stderr, rc = queryThroughFront(t, h.hostPath, map[string]any{"mode": "bogus"})
+	if rc != 2 || !strings.Contains(string(stderr), "unknown mode") {
+		t.Errorf("bogus mode gave rc=%d stderr=%q, want rc=2 and 'unknown mode' — a rc=0 "+
+			"list-shaped answer here means the daemon consumed the framework's PREAMBLE as "+
+			"the request and this one never reached the handler", rc, stderr)
+	}
+}
+
+// queryThroughFront is the yolo-ps client shape, minus yolo-ps: dial the endpoint
+// file, write one framed request, drain the reply frames until the exit frame.
+func queryThroughFront(t *testing.T, endpoint string, req map[string]any) (stdout, stderr []byte, rc int) {
+	t.Helper()
+	conn, err := svcendpoint.DialLocal(endpoint, 5*time.Second)
+	if err != nil {
+		t.Fatalf("dial through the front: %v", err)
+	}
+	defer conn.Close()
+	boundConn(t, conn)
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := frameproto.WriteRequest(conn, body); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		f, err := frameproto.ReadFrame(conn)
+		if err != nil {
+			t.Fatalf("reading the reply: %v (stdout=%q stderr=%q)", err, stdout, stderr)
+		}
+		switch f.StreamID {
+		case frameproto.StreamStdout:
+			stdout = append(stdout, f.Payload...)
+		case frameproto.StreamStderr:
+			stderr = append(stderr, f.Payload...)
+		case frameproto.StreamExit:
+			rc, _ = frameproto.ExitCode(f.Payload)
+			return stdout, stderr, rc
+		}
+	}
+}
+
+// mustReadDir returns the entry names of dir.
+func mustReadDir(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
 }
 
 // TestConfigLoopholeComesUpBehindFront is the end-to-end proof of the

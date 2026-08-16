@@ -370,13 +370,16 @@ func TestPackShippedErrorCarriesTheProblems(t *testing.T) {
 	}
 }
 
-// THE ASYMMETRY IS THE POINT: all three BUNDLED manifests violate the subset, and
-// must keep working. `audio` names /run/user/<uid>/pulse through ${XDG_RUNTIME_DIR}
-// with readonly:false and sets jail_env; the two daemon-bearing ones publish their
-// own endpoint. If a future change applied the subset unconditionally, this test is
-// what says so.
+// THE ASYMMETRY IS THE POINT: these BUNDLED manifests violate the subset, and must
+// keep working. `audio` names /run/user/<uid>/pulse through ${XDG_RUNTIME_DIR} with
+// readonly:false and sets jail_env; the broker publishes its own endpoint. If a
+// future change applied the subset unconditionally, this test is what says so.
+//
+// `host-processes` USED TO BE IN THIS LIST and deliberately is not any more — see
+// TestBundledHostProcessesIsInsideThePackShippedSubset below. It left the list by
+// declaring publishes:"socket", which was its only violation.
 func TestBundledManifestsAreOutsideThePackShippedSubset(t *testing.T) {
-	for _, name := range []string{"audio", "claude-oauth-broker", "host-processes"} {
+	for _, name := range []string{"audio", "claude-oauth-broker"} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join("/loopholes", name)
 			m, err := loopholedecl.Decode(bundledManifest(t, name), dir)
@@ -389,6 +392,35 @@ func TestBundledManifestsAreOutsideThePackShippedSubset(t *testing.T) {
 					" test should assert it deliberately rather than by accident", name)
 			}
 		})
+	}
+}
+
+// TestBundledHostProcessesIsInsideThePackShippedSubset is the deliberate positive
+// the comment above asks for, rather than a name quietly dropped from a loop.
+//
+// The flip to publishes:"socket" removed this manifest's ONE subset violation, so
+// it is now shippable by a pack unchanged. Nothing here selects or moves it — it is
+// still bundled and still active by default — but the property is what a later move
+// to packs/ depends on, and it is worth one assertion now so that move is a file
+// rename rather than a redesign.
+//
+// `requires.command_on_path: "ps"` is part of what is being asserted: the subset
+// scopes `requires.file_exists` and leaves `command_on_path` alone, because it asks
+// PATH whether a PROGRAM NAME resolves rather than probing the user's files.
+func TestBundledHostProcessesIsInsideThePackShippedSubset(t *testing.T) {
+	dir := filepath.Join("/loopholes", "host-processes")
+	m, err := loopholedecl.Decode(bundledManifest(t, "host-processes"), dir)
+	if err != nil {
+		t.Fatalf("strict decode: %v", err)
+	}
+	if problems := m.PackShippedProblems(loopholedecl.ManifestPath(dir)); len(problems) != 0 {
+		t.Errorf("host-processes draws %v; after the publishes:\"socket\" flip it must draw none",
+			problems)
+	}
+	if !m.Requires.CommandOnPathSet || m.Requires.CommandOnPath != "ps" {
+		t.Errorf("requires.command_on_path = %q (set=%v), want \"ps\" — the subset does not"+
+			" scope it, and the gate must survive the flip",
+			m.Requires.CommandOnPath, m.Requires.CommandOnPathSet)
 	}
 }
 
