@@ -231,7 +231,7 @@ func crossingName(s string) string {
 // address method intact.
 //
 // IT IS ALSO THE ONLY PLACE THE CONNECTION PREAMBLE CAN LIVE, and the reason is
-// front.go:92: splice type-asserts the accepted connection back to *countingConn
+// splice (front.go): it type-asserts the accepted connection back to *countingConn
 // to downgrade an undeliverable crossing to CrossingUnreachable. Wrapping this
 // type in an OUTER prefixing reader compiles, passes every test, and silently
 // deletes that audit outcome, because the comma-ok assertion just stops matching.
