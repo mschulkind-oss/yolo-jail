@@ -178,18 +178,19 @@ half-built artifact still there".**
 - **Blocks nothing:** with one auth pack there is no second writer.
 - 📄 [`pack-config-collaboration.md`](../design/pack-config-collaboration.md)
 
-### 💬 OQ-BP1/2/3 — shipping the OAuth broker as a pack
+### 💬 OQ-BP1–BP6 — shipping the OAuth broker as a pack
 
 Decided *that* it ships ([`pack-code-separation.md`](../design/pack-code-separation.md) OQ-1);
 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) designs *how*, and found the job smaller than
 the parent doc estimated — jail-daemon-as-binary turns out to be already expressible and merely
-unexercised. Three questions, and the first two decide the size:
+unexercised. Five questions; the first two decide the size of the broker move, the last two design a
+capability beyond it:
 
-- **OQ-BP1 — may an official pack's loophole keep a *baked* daemon?** If yes, the broker move is a
-  manifest relocation plus one stamp, with no build-and-distribution story at all. If no, yolo's
-  release process starts producing per-platform binaries carried inside a pack.
-  **My read: yes** — accountability is about who wrote the code, and requiring binaries makes the
-  strictest packaging demand of the one author who least needs constraining.
+- **OQ-BP1 — does the broker wait for the pack-shipped binary capability, or move on a baked daemon
+  and adopt it later?** *(Restated: whether the capability is wanted is settled — it is.)*
+  **My read: move now, adopt later** — an official pack may keep a baked daemon on the same
+  accountability argument the overview already ruled for a baked *client*, and the binary work then
+  lands with a real consumer to convert rather than a synthetic one.
 
 - **OQ-BP2 — does the front gain a *declared* protocol-aware parse, or does `jail_id` attribution
   change shape?** The relay stamps a host-asserted `jail_id`; the front is designed never to parse
@@ -200,6 +201,16 @@ unexercised. Three questions, and the first two decide the size:
 - **OQ-BP3 — pair it with OQ-LP14, or proceed beside it?** **My read: beside.** I wrote the opposite
   in this file yesterday and it was wrong: OQ-LP14 needs a new host-crossing claim class, and this
   needs none.
+
+- **OQ-BP5/BP6 — the pack-shipped binary capability**, now wanted as a general thing (per-arch
+  selection, dynamic download from a release URL). **BP5:** download-with-digest only, or also a
+  declared build step? *My read: download only* — a `sha256` in the manifest is what keeps "pinned
+  pack" honest, since the lockfile's commit pins the tree and a release asset is not in the tree; a
+  build step cannot be pinned at all and is the same risk class as `installerUrl`. **BP6:** may a
+  *fetched* pack ship a **host-side** binary? *My read: allow it behind the existing host-execution
+  approval* — a fetched pack can already declare an arbitrary `host_daemon.cmd`, so refusing the
+  declarative form while permitting the imperative one repeats OQ-LP14's halfway shape. Neither
+  blocks the broker.
 
 ## Scope and direction
 
