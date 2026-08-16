@@ -1,6 +1,6 @@
 # Ongoing work
 
-**Status: 19 attention required · 6 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
+**Status: 19 attention required · 7 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
 
 Last updated 2026-08-15. Counts tallied from this file, not asserted.
 
@@ -183,51 +183,40 @@ half-built artifact still there".**
 - **Blocks nothing:** with one auth pack there is no second writer.
 - 📄 [`pack-config-collaboration.md`](../design/pack-config-collaboration.md)
 
-### 💬 OQ-BP2/BP5/BP6 — emptying `bundled_loopholes` (broker included)
+### 💬 OQ-BP5/BP6 — emptying `bundled_loopholes` (broker included)
 
 Decided *that* it ships ([`pack-code-separation.md`](../design/pack-code-separation.md) OQ-1);
 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) designs *how*, and found the job smaller than
 the parent doc estimated — jail-daemon-as-binary turns out to be already expressible and merely
 unexercised.
 
-**Two of the five are answered, and they set a sprint goal rather than a task:** the broker move and
-the pack-shipped binary capability **ship together** (BP1), and **`bundled_loopholes/` is empty at
-the end of this sprint** (BP4). That second one is the big one — it is OQ-LP11's finish line, it
-means three conversions rather than one, and **it makes OQ-LP14 above a hard dependency**, because
-`audio` cannot be expressed as a pack until the runtime-socket vocabulary is ruled. I recommended
-against both couplings; recorded here because the consequences need planning, not because they need
-re-arguing.
+**Three of the six are answered, and they set a sprint goal rather than a task:** the broker move and
+the pack-shipped binary capability **ship together** (BP1); **`bundled_loopholes/` is empty at the
+end of this sprint** (BP4); and **every loophole daemon gets a host-asserted `jail_id` by default,
+with a declared opt-out for a pure byte pipe** (BP2, design doc §5.5). I recommended against all
+three; recorded here because the consequences need planning, not because they need re-arguing.
 
-**What the sprint contains**, in the order I would run it — `host-processes` first because it
-exercises the whole conversion path (subset validation, official-pack staging, the front,
-`doctor_cmd`) with none of the broker's complexity:
+**BP4 is the one with a dependency: it makes OQ-LP14 above a hard blocker**, because `audio` cannot
+be expressed as a pack until the runtime-socket vocabulary is ruled. Nothing else in the sprint waits
+on it.
 
-1. `host-processes` → pack. Its only blocker is `publishes: "socket"`; no relay, no stamp.
-2. Rule OQ-LP14, then `audio` → pack, retiring the bundled copy the official pack currently sits beside.
-3. Broker → pack: fold the relay, answer BP2, flip to `publishes: "socket"`.
-4. The binary capability (§3.1 of the design doc), whose slowest piece — a release matrix producing
+**What the sprint contains**, in the order I would run it:
+
+1. **`host-processes` → pack** — 📦 below, ready to implement.
+2. The identity rule (§5.5): the stamp lands on the accepted connection, `payload: "framed"` default,
+   `"raw"` opt-out. Built as part of step 1, which is what makes step 1 the proving ground.
+3. Rule OQ-LP14, then `audio` → pack, retiring the bundled copy the official pack sits beside.
+4. Broker → pack: fold the relay, flip to `publishes: "socket"`.
+5. The binary capability (design doc §3.1), whose slowest piece — a release matrix producing
    per-platform artifacts — should start early, not last.
-5. Delete `bundled_loopholes/`.
+6. Delete `bundled_loopholes/`.
 
 **One rule worth stating up front:** all three bundled loopholes currently default to
 `publishes: "endpoint"`, which the pack-shipped subset refuses. That is not a rule that is too
 strict — it exists so a pack-shipped daemon cannot get TLS, tokens or endpoint permissions wrong —
 it is a rule the three predate.
 
-**Still open — one question, and it is the only thing between here and deleting
-`internal/brokerrelay`:**
-
-- **OQ-BP2 — is a daemon-visible, host-asserted `jail_id` worth any mechanism at all?** The relay
-  stamps one into every request; the framework front does not. **My read: drop the field.** yolo can
-  record the same identity in its own audit line from the token it already validated, and
-  `yolo-ps` **already** self-reports its `jail_id` from inside the jail — recorded verbatim and
-  untrusted — so dropping it makes the broker consistent with the loophole beside it rather than
-  uniquely strict. If you want it trustworthy *inside* the daemon, the front gains a small declared
-  parse; that is cheap, not forbidden (the front already frames-and-reads the bearer token the same
-  way).
-
-- ~~**OQ-BP3 — pair it with OQ-LP14, or proceed beside it?**~~ **Answered by BP4:** the broker needs
-  nothing from LP14, but emptying the channel does, so they are coupled after all.
+**Still open, and neither blocks anything above:**
 
 - **OQ-BP5/BP6 — the pack-shipped binary capability**, now wanted as a general thing (per-arch
   selection, dynamic download from a release URL). **BP5:** download-with-digest only, or also a
@@ -320,6 +309,25 @@ staging change it proposes — and the small independent items trail.
   It is the one channel that starts a host daemon with **no selection step**, and retiring it forces
   `loopholes enable/disable` off its single special case — it serves only that dir today — into
   config state for every source.
+
+- 📦 **`host-processes` → an official pack, carrying the new identity rule.** *(Sprint step 1 — the
+  proving ground for emptying `bundled_loopholes/`.)*
+
+  Design settled in [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) §12, which lists the five
+  changes and what each proves. In short: the daemon moves from `ServeEndpoint`/`{endpoint}` to
+  `ServeUnix`/`{socket}` behind the framework front; the `jail_id` stamp lands on the
+  accepted-connection wrapper (`listen.go:194`, where the host-derived identity is already attached),
+  so one implementation serves both server shapes; `yolo-ps` stops self-reporting a `jail_id` nobody
+  trusted; and the manifest moves into an official pack with the bundled copy deleted.
+
+  **Nothing blocks it** — no runtime-dir sockets (so OQ-LP14 is irrelevant here), no shipped binary
+  (so BP5/BP6 are too — `yolo-ps` stays baked, which an official pack may do). **Build the stamp
+  first**, while the relay still stamps too: the insert is idempotent, so the transition is not a
+  flag-day.
+
+  **Done looks like:** `yolo-ps` output unchanged from inside a jail · tier-1 and tier-2 audit lines
+  agree on `jail=` · a spoofed client `jail_id` is overridden in both · `yolo check` still reports the
+  doctor result · nothing in core names `host-processes`.
 
 - 📦 **Delete the credential harvest — the shared file always wins.** *(PS step 1; all four
   [`pack-code-separation.md`](../design/pack-code-separation.md) questions are answered.)*
