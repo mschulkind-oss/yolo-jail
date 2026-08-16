@@ -46,9 +46,12 @@ func (s *syncBuf) String() string {
 //     names and the handler's exit code. Available ONLY here, because only here
 //     is there a parsed request to describe.
 //
-// A FRONTED daemon (`publishes: "socket"`) still gets tier 1 and no tier 2: the
-// front splices a byte stream it does not parse, so there is no request to
-// describe. That ceiling has not moved. What DID move is the sentence this
+// A fronted daemon (`publishes: "socket"`) that speaks its OWN protocol still
+// gets tier 1 and no tier 2: the front splices a byte stream it does not parse,
+// so there is no request for it to describe. That ceiling has not moved — but it
+// is the FRONT's ceiling, not the shape's, and ServeFrontedUnix is where the two
+// came apart: a fronted daemon built on THIS package writes its own request lines
+// because the parsing happens here (servefronted_test.go). What DID move is the sentence this
 // comment used to carry — that tier 2's `jail=` is the client's own claim
 // "forever". It is not: on a preamble-bearing connection yolo asserts the jail
 // host-side, from the same derivation tier 1 uses, so the two tiers now AGREE by

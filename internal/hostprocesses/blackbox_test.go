@@ -54,6 +54,71 @@ func startDaemon(t *testing.T, configPath, fakePSDir string) (endpoint string, s
 	}
 }
 
+// startFrontedDaemon is startDaemon's OTHER shape, and the pair is the point.
+//
+// Here the daemon publishes NOTHING: it binds a plain AF_UNIX socket
+// (hostservice.ServeFrontedUnix) and yolo's own front (svcendpoint.ServeFront)
+// owns the jail-facing endpoint, authenticates, prepends the connection preamble
+// and splices. This is what `publishes: "socket"` looks like in production.
+//
+// The client below is the SAME query() the endpoint suite uses, unchanged. That
+// is the demonstration: neither the daemon nor its client learns which of the two
+// shapes carried the bytes.
+func startFrontedDaemon(t *testing.T, configPath, fakePSDir string) (endpoint string, stop func()) {
+	t.Helper()
+	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
+	// 0700, as svcendpoint requires of a directory it publishes a credential into.
+	dir, err := os.MkdirTemp("/tmp", "yj-hp-front-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(dir, "hp.sock")
+	endpoint = filepath.Join(dir, "hp.endpoint")
+
+	oldPath := os.Getenv("PATH")
+	os.Setenv("PATH", fakePSDir+":"+oldPath)
+
+	daemonStop := make(chan struct{})
+	daemonDone := make(chan struct{})
+	go func() {
+		_ = hostservice.ServeFrontedUnix(BuildHandler(configPath), sock, daemonStop)
+		close(daemonDone)
+	}()
+	waitSocket(t, sock)
+
+	frontStop := make(chan struct{})
+	frontDone := make(chan struct{})
+	go func() {
+		_ = svcendpoint.ServeFront(endpoint, "127.0.0.1", sock, frontStop)
+		close(frontDone)
+	}()
+	waitEndpoint(t, endpoint)
+
+	return endpoint, func() {
+		os.Setenv("PATH", oldPath)
+		close(frontStop)
+		<-frontDone
+		close(daemonStop)
+		<-daemonDone
+		os.RemoveAll(dir)
+	}
+}
+
+// waitSocket waits for the daemon's bind by TYPE, never by dialing: a
+// connect-and-close poll is yolo's readiness-probe shape and would leave
+// "conn closed without a request" lines behind it.
+func waitSocket(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSocket != 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the daemon never bound its socket")
+}
+
 // waitEndpoint waits for a COMPLETE, USABLE endpoint file — Probe, not existence.
 func waitEndpoint(t *testing.T, endpoint string) {
 	t.Helper()
@@ -139,6 +204,34 @@ func TestBlackboxListMode(t *testing.T) {
 	// sorted comms, -C per comm.
 	if string(out) != "ARGS: -o pid,comm -C sway -C waykeeper\n" {
 		t.Errorf("list argv = %q", out)
+	}
+}
+
+// TestBlackboxFrontedListModeIsIdentical is TestBlackboxListMode's twin, run
+// behind yolo's front instead of on a self-published endpoint — same config, same
+// fake ps, same query, and the assertion is that the answer is BYTE-IDENTICAL.
+//
+// Kept beside the endpoint suite rather than replacing it: one of them alone
+// proves the daemon works over one transport, and only the PAIR proves the thing
+// this file's header claims, that the daemon never learns which transport carried
+// its bytes.
+func TestBlackboxFrontedListModeIsIdentical(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns ps; -short")
+	}
+	cfgDir := t.TempDir()
+	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway","waykeeper"],"fields":["pid","comm"]}}`)
+	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
+	ep, stop := startFrontedDaemon(t, cfg, ps)
+	defer stop()
+
+	out, _, rc := query(t, ep, map[string]any{"mode": "list"})
+	if rc != 0 {
+		t.Fatalf("fronted list rc=%d, want 0", rc)
+	}
+	if string(out) != "ARGS: -o pid,comm -C sway -C waykeeper\n" {
+		t.Errorf("fronted list argv = %q (endpoint shape gives %q)", out,
+			"ARGS: -o pid,comm -C sway -C waykeeper\n")
 	}
 }
 

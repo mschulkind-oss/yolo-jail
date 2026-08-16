@@ -3,13 +3,15 @@
 // command-injection-guarded exec helper, so each daemon shrinks to a handler plus
 // its allowlist.
 //
-// It does NOT own a transport — it owns two, and each caller names the one it
-// wants: ServeUnix (host-to-host) or ServeEndpoint (jail-facing loopback-TLS via
-// internal/svcendpoint, cert-pinned and token-authenticated, whose Accept returns
-// only authenticated connections). There is deliberately no `Serve`; see the note
-// above ServeUnix for the outage that name caused. Neither transport reaches the
-// code below: Session and handleOne are net.Conn-based, which is why the accept
-// loop is shared and nothing here learns which transport carried its bytes.
+// It does NOT own a transport — it owns three, and each caller names the one it
+// wants: ServeUnix (host-to-host), ServeFrontedUnix (an AF_UNIX socket only
+// yolo's own front dials, for a `publishes: "socket"` daemon) or ServeEndpoint
+// (jail-facing loopback-TLS via internal/svcendpoint, cert-pinned and
+// token-authenticated, whose Accept returns only authenticated connections).
+// There is deliberately no `Serve`; see the note above ServeUnix for the outage
+// that name caused. None of the three reaches the code below: Session and
+// handleOne are net.Conn-based, which is why the accept loop is shared and
+// nothing here learns which transport carried its bytes.
 //
 // Frame wire format lives in internal/frameproto (the frozen contract);
 // this package is the request-parsing + response-emitting harness around it.
@@ -24,22 +26,28 @@
 // which service, which jail, when, how long, bytes each way, and whether the
 // connection authenticated. It is emitted by the transport, so it covers every
 // daemon that rides it — including the ones this package never sees, the
-// `publishes: "socket"` daemons behind svcendpoint.ServeFront.
+// `publishes: "socket"` daemons that speak their own protocol behind
+// svcendpoint.ServeFront.
 //
-// THERE IS NO TIER 2 FOR A FRONTED DAEMON AND THERE CANNOT BE. The front splices
-// a byte stream it does not parse, and nothing constrains a loophole's protocol
-// to be request-shaped — it may be framed, a raw stream, audio, video. So the two
-// tiers are not a fallback and a better version of one thing: a daemon here
-// produces BOTH (one connection record, plus one request line per request), and a
-// fronted daemon produces only the first. Do not paper that seam over by
-// promising the front something it cannot deliver.
+// THE FRONT CANNOT PRODUCE A TIER 2 LINE, and nothing should be built as if it
+// could. It splices a byte stream it does not parse, and nothing constrains a
+// loophole's protocol to be request-shaped — it may be framed, a raw stream,
+// audio, video. So the two tiers are not a fallback and a better version of one
+// thing: tier 2 comes from the DAEMON, or from nowhere. Do not paper that seam
+// over by promising the front something it cannot deliver.
+//
+// Which is why "fronted" and "no tier 2" are not the same statement, though they
+// coincided until ServeFrontedUnix existed. A `publishes: "socket"` daemon built
+// on THIS package sits behind the front and still writes one request line per
+// request, because the parsing happens here rather than in the splice. A fronted
+// daemon yolo did not write gets tier 1 and only tier 1.
 //
 // One consequence worth knowing when reading the two together: WHICH `jail=` a
 // tier-2 line carries now depends on the transport that delivered the request,
 // and the split is the point rather than an inconsistency.
 //
-//   - On a PREAMBLE-BEARING connection (ServeEndpoint, and any future fronted
-//     entry point), `jail=` is the value yolo asserted in the connection preamble
+//   - On a PREAMBLE-BEARING connection (ServeEndpoint and ServeFrontedUnix),
+//     `jail=` is the value yolo asserted in the connection preamble
 //     — derived host-side from the path it published at, the SAME derivation
 //     tier 1 uses. The two tiers then agree by construction, and a client that
 //     sends a spoofed `jail_id` sees it overridden in both.
@@ -267,24 +275,84 @@ type Handler func(*Session)
 // opinion about. Callers of this socket write their request first, as they
 // always have.
 func ServeUnix(handler Handler, socketPath string, stop <-chan struct{}) error {
+	ln, err := bindUnixSocket(socketPath)
+	if err != nil {
+		return err
+	}
+	Logger.Printf("listening on %s (protocol v%d)", socketPath, frameproto.ProtocolVersion)
+	return serveListener(handler, ln, stop, false)
+}
+
+// ServeFrontedUnix serves a plain AF_UNIX socket at socketPath for a daemon that
+// yolo puts BEHIND ITS OWN FRONT (`publishes: "socket"`): svcendpoint.ServeFront
+// holds the jail-facing loopback-TLS listener, authenticates, and splices each
+// accepted connection to this socket. Same bind as ServeUnix, and one goroutine
+// per connection as always.
+//
+// So every connection accepted here arrived through the front and carries the
+// CONNECTION PREAMBLE, which is read before the request exactly as ServeEndpoint
+// does. That is the whole difference between the two socket entry points: who
+// owns the listener, and therefore what is on the wire before the first request.
+// The handler still never learns which of the three carried its bytes.
+//
+// THE THIRD NAME EXISTS SO ServeUnix's DOC STAYS TRUE. ServeUnix says both ends
+// are host processes and no jail boundary is crossed — a fronted socket
+// falsifies that sentence while looking identical from the filesystem. Adding a
+// `preamble bool` to ServeUnix instead would have been exactly the
+// signature-preserving change to a shared helper that the note above it records
+// an outage for.
+//
+// THE ONE MISMATCH NOTHING IN THIS TREE CAN DETECT: a manifest declaring
+// `host_daemon.preamble: false` whose daemon calls THIS function blocks forever
+// on a frame yolo agreed not to send. It blocks inside the daemon, on a
+// connection both ends believe is healthy, so no readiness probe, no access line
+// and no test reports it — the failure is a jail request that never answers. The
+// opposite pairing (`preamble: true` reaching a ServeUnix daemon) is the
+// silent-CORRUPTION direction: the preamble is consumed as the client's request.
+// An official pack should therefore never write `preamble: false`; teaching
+// `yolo pack lint` to refuse it on a PublishesSocket daemon is where enforcement
+// belongs (internal/loopholedecl/packshipped.go holds the strict decode). See
+// loopholedecl.HostDaemon.Preamble for why the flag is only enforceable under
+// `publishes: "socket"` in the first place.
+func ServeFrontedUnix(handler Handler, socketPath string, stop <-chan struct{}) error {
+	ln, err := bindUnixSocket(socketPath)
+	if err != nil {
+		return err
+	}
+	Logger.Printf("listening on %s (protocol v%d, behind yolo's front)", socketPath, frameproto.ProtocolVersion)
+	return serveListener(handler, ln, stop, true)
+}
+
+// bindUnixSocket binds the AF_UNIX listener both socket entry points want, with
+// the conventions this package has always applied: a stale socket left by a
+// crashed predecessor is removed so it cannot wedge its successor, the parent
+// directory is created, the socket is born 0600 under a 0o077 umask (and chmod'd
+// after, so the mode does not depend on the umask taking effect), and
+// UnlinkOnClose is OFF so a graceful shutdown cannot delete a path a successor
+// has already re-bound.
+//
+// Sharing the BIND is safe in a way that sharing the SERVE would not be, and the
+// distinction is the lesson of the note above ServeUnix: this helper produces a
+// listener and decides nothing about what arrives on it. The preamble decision
+// stays in the exported function the daemon named, where a future refactor
+// cannot move it without changing a signature someone has to read.
+func bindUnixSocket(socketPath string) (*net.UnixListener, error) {
 	if _, err := os.Stat(socketPath); err == nil {
 		_ = os.Remove(socketPath)
 	}
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
-		return err
+		return nil, err
 	}
 
 	old := syscall.Umask(0o077)
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketPath, Net: "unix"})
 	syscall.Umask(old)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ln.SetUnlinkOnClose(false)
 	_ = os.Chmod(socketPath, 0o600)
-
-	Logger.Printf("listening on %s (protocol v%d)", socketPath, frameproto.ProtocolVersion)
-	return serveListener(handler, ln, stop, false)
+	return ln, nil
 }
 
 // ServeEndpoint publishes a loopback-TLS endpoint at endpointPath and serves it
