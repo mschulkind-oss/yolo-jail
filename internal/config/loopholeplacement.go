@@ -213,7 +213,12 @@ func loopholeModuleDirProblem(name, moduleDir, workspace string) string {
 	trees := agentWritableTrees(workspace)
 	for _, dir := range []string{filepath.Clean(moduleDir), resolvePlacementPath(moduleDir)} {
 		for _, tree := range trees {
-			if !underTree(dir, tree.dir) {
+			// Compare the resolved spelling against the RESOLVED tree too. On macOS
+			// /var and /tmp are themselves symlinks (/private/var, /private/tmp), so a
+			// resolved module dir under /private/var/... would otherwise never match a
+			// lexically-spelled tree under /var/... — and a symlinked module dir pointing
+			// into a workspace under /tmp would slip the tripwire.
+			if !underTree(dir, tree.dir) && !underTree(dir, resolvePlacementPath(tree.dir)) {
 				continue
 			}
 			return "loophole " + pytext.Repr(name) + ": module dir " + dir + " is inside " +

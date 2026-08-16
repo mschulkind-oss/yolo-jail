@@ -12,6 +12,7 @@ package run
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -410,6 +411,13 @@ func knownNames(known map[string]config.LoopholeInfo) []string {
 // That is correct for a report and wrong for building the HOST's argv, which is the role
 // this test is exercising.
 func TestShippedAudioPackEmitsAReadOnlyBindIntoTheContainerArgv(t *testing.T) {
+	// The audio-alsa loophole is declared platforms: ["linux"] (ALSA is a Linux
+	// kernel interface), so on darwin it is correctly inert and there is no host
+	// argv to assert. The argv this test pins only exists on Linux.
+	if runtime.GOOS != "linux" {
+		t.Skipf("audio-alsa is declared platforms: [linux]; no host argv on %s", runtime.GOOS)
+	}
+
 	t.Setenv("YOLO_VERSION", "")
 	os.Unsetenv("YOLO_VERSION")
 
