@@ -1,6 +1,6 @@
 # Ongoing work
 
-**Status: 19 attention required · 3 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
+**Status: 18 attention required · 6 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
 
 Last updated 2026-08-15. Counts tallied from this file, not asserted.
 
@@ -178,35 +178,6 @@ half-built artifact still there".**
 - **Blocks nothing:** with one auth pack there is no second writer.
 - 📄 [`pack-config-collaboration.md`](../design/pack-config-collaboration.md)
 
-### 💬 OQ-PS2/PS3 — what rule replaces the claude-shaped credential harvest?
-
-[`pack-code-separation.md`](../design/pack-code-separation.md) diagnoses the claude-shaped Go still
-in core and asks four questions. **Two are ready to sign, two are not** — a review pass annotated
-the doc in place (every `> **REVIEW —**` block).
-
-- **Sign as written:** OQ-1 (broker stays bundled) and OQ-4 (a bundled loophole with a baked daemon
-  is fine for yolo's *own* code). The review adds a third blocker to shipping the broker externally —
-  `check`'s `checkBrokerCredsFreshness` parses `claudeAiOauth` too — which only strengthens both.
-
-- **OQ-3 — the harvest rule.** The doc proposes deleting the `claudeAiOauth` merge from
-  `shared_credentials` and accepting the loss. **My read: replace it, don't drop it** —
-  `local.mtime > shared.mtime → copy` is ~5 lines, carries no schema knowledge, and is *strictly
-  better than what agy has today*, where the proposed rule silently reverts a fresh login at the
-  next boot. Whatever lands must also keep the **unconditional** `subscriptionType` /
-  `rateLimitTier` copy, which [`agent-auth-modes.md`](../design/agent-auth-modes.md) §3 shows is
-  load-bearing (Claude ≥ 2.1.200 reads a token-trio-only file as *not logged in*).
-
-- **OQ-2 — where the claude schema knowledge lives.** The doc says "move it into
-  `internal/oauthbroker`". That package is **host-side only**; `internal/entrypoint` is the
-  jail-side binary, and the harvest cannot run in the broker at all — it is per-jail and
-  boot-time. **My read: neither option — extract `internal/claudecreds`**, a leaf package the hook,
-  the broker and `check` all import. There are three copies of that schema in the tree today.
-
-- **Evidence gathered during review, so it is not re-litigated:** `~/.claude/.credentials.json` is
-  still a symlink after ten days and many boots while its target turned over today — which *supports*
-  the author's "migration edge" reading. Untested: a host where the broker is inactive, and the agy
-  path, which has **never run** (the pack staged in a live jail predates ab39897).
-
 ## Scope and direction
 
 ### 💬 N3 — non-container nix
@@ -288,6 +259,36 @@ staging change it proposes — and the small independent items trail.
   It is the one channel that starts a host daemon with **no selection step**, and retiring it forces
   `loopholes enable/disable` off its single special case — it serves only that dir today — into
   config state for every source.
+
+- 📦 **Delete the credential harvest — the shared file always wins.** *(PS step 1; all four
+  [`pack-code-separation.md`](../design/pack-code-separation.md) questions are answered.)*
+
+  `harvestCredentialsFile` + `expiresAtMs` go (~135 lines), leaving `linkThroughShared` as
+  symlink → copy-if-empty → discard-local. That removes the entrypoint's only `claudeAiOauth`
+  knowledge and its one sanctioned tmp+rename. Two deliverables beyond the deletion: a doc comment
+  naming the accepted failure mode (a revoked shared credential reverts a fresh login at the next
+  boot; the exit is `rm`), and a regression test pinning `subscriptionType`/`rateLimitTier` survival
+  across a broker refresh — [`agent-auth-modes.md`](../design/agent-auth-modes.md) §3 depends on it.
+
+- 📦 **Move the broker's freshness check behind the `doctor_cmd` it already declares.** *(PS step 2.)*
+
+  `check`'s `checkBrokerCredsFreshness` + `parseCredsExpiresAt` re-implement in Go a check the
+  loophole extension point already covers: `doctor_cmd` is a manifest field, `RunDoctorChecks` runs
+  it behind the origin and placement gates, `yolo check` already calls it
+  (`check/sections_loopholes.go:60`), and the broker declares
+  `["yolo","internal","daemon","claude-oauth-broker","--self-check"]`. Deletes a claude-specific
+  section from `check`. **One decision inside it:** `DoctorResult` grades pass/fail while the current
+  check prints remaining lifetime — either enrich the result shape or leave the reporting in `check`
+  and move only the parsing.
+
+- 📦 **Rename the claude names out of core.** *(PS step 3; mechanical, no behavior.)*
+
+  `internal/agents` (the package name), `hostclaude.go` → `hostfiles.go`, the `skills.go:52` comment,
+  and a ruling on `packdecl.DefaultBriefingFiles()` — which hardcodes `["AGENTS.md","CLAUDE.md"]` as
+  the fallback pair for *every* pack's briefing. Fold in the stale `claude.go` line refs in
+  [`agent-credentials.md`](../design/agent-credentials.md) and
+  [`jail-home.md`](../design/jail-home.md) §4.2, which point past the end of a 199-line file and
+  which step 1 invalidates again.
 
 - 💬 **T2 is shipped except for one service that cannot follow it — and the blocker is not a client.**
 
@@ -443,26 +444,37 @@ bearer to a non-Anthropic `ANTHROPIC_BASE_URL`? If yes, a proxy gives no-restart
 pack-swapping is the ceiling. ~5 minutes
 ([`agent-auth-modes.md`](../design/agent-auth-modes.md) §6).
 
-### Claude-shaped code in core — diagnosed and reviewed, nothing built
+### Claude-shaped code in core — all four questions answered, three steps queued, one to design
 
 [`pack-code-separation.md`](../design/pack-code-separation.md) inventories the imperative Go that is
-still claude-shaped despite *"core does not know what an agent is"*: the OAuth broker's baked
-daemons, the `shared_credentials` harvest, and storage-migration residue. A review pass annotated it
-in place — every `> **REVIEW —**` block — and the diagnosis holds up.
+still claude-shaped despite *"core does not know what an agent is"*. Reviewed and **decided**
+2026-08-15; the doc carries the rulings inline as `> **DECIDED —**` blocks, with the superseded
+leanings struck rather than deleted.
 
-**Settled by the review; no decision needed, and too small to queue separately.** Fold these into
-whichever commit acts on the decision:
+**The three landable steps are in 📦 above.** What remains here is the fourth, which is a
+workstream, not a queue item:
 
-- `internal/agents` is **not** worth renaming — one claude mention in non-test code (`skills.go:52`),
-  and the other citation is the filename `CLAUDE.md`. `hostclaude.go` → `hostfiles.go` is the one
-  rename that pays for itself.
-- `packhooks.go:6` still says the three hooks are *"all currently claude's"* — stale since ab39897.
-- [`agent-credentials.md`](../design/agent-credentials.md) and [`jail-home.md`](../design/jail-home.md)
-  §4.2 cite `claude.go:161-209` / `273-299` / `350-378` in a file that is now 199 lines.
+- **Make the broker shippable** — build jail-daemon-as-binary, fold `internal/brokerrelay` into
+  the framework-owned front, then move the broker onto both. This was the "leave it bundled" option
+  in the design; it was decided the other way, so the broker stops being the standing exception to
+  *agents are packs*. It is a **net subtraction** from core — the folding deletes the relay rather
+  than relocating it.
 
-**What it waits on:** OQ-PS2/PS3 above. Then: observe the link on a broker-inactive host → settle the
-harvest rule → extract `internal/claudecreds` → the one rename. The broker stays bundled throughout,
-and jail-daemon-as-binary stays unbuilt until a second consumer exists.
+  **Next step is design, not code:** §4 names the two vocabulary additions but does not design
+  either, and the first one lands right next to **OQ-LP14** at the top of this file — both are about
+  what a pack-shipped loophole may declare. Design them together, or the second will re-open the
+  first.
+
+**Two things the review settled without needing a decision**, small enough to fold into any commit
+that touches the area: `packhooks.go:6` still says the three hooks are *"all currently claude's"*
+(stale since ab39897), and the storage migrations (§3.4) predate packs but migrate **storage
+layouts**, not a builtin→pack transition — the pack reform changed no on-disk path, so their
+delete-by date is "no live workspace carries the old layout".
+
+**Runtime evidence gathered during the review, so it is not re-derived:**
+`~/.claude/.credentials.json` was still a symlink after ten days and many boots while its target
+turned over the same day. Untested: a host where the broker is inactive, and the agy path, which has
+**never run** — the pack staged into a live jail predates ab39897.
 
 ### Boundary broker — designed, not started
 
