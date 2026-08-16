@@ -49,7 +49,7 @@ func (e *Env) linkThroughShared(link, shared, target string) error {
 			if fi, err := os.Stat(shared); err != nil || fi.Size() == 0 {
 				if data, rerr := os.ReadFile(link); rerr == nil {
 					_ = os.MkdirAll(filepath.Dir(shared), 0o755)
-					_ = os.WriteFile(shared, data, 0o644)
+					_ = os.WriteFile(shared, data, 0o600)
 				}
 			}
 		}

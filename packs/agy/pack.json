@@ -85,6 +85,18 @@
       "at": ".gemini",
       "kind": "state",
       "scope": "workspace"
+    },
+    {
+      "at": ".gemini-shared-credentials",
+      "because": "identity/credential state shared across workspaces",
+      "kind": "state",
+      "scope": "machine"
+    },
+    {
+      "at": ".gemini-shared-credentials",
+      "from": ".gemini/antigravity-cli/antigravity-oauth-token",
+      "hook": "shared_credentials",
+      "kind": "hook"
     }
   ],
   "name": "agy"

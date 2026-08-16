@@ -29,19 +29,25 @@ func loadAll(t *testing.T) []*packload.Pack {
 }
 
 // TestMachineGlobalTierStaysNarrow: anything in sharedDirs leaks between workspaces BY
-// DESIGN, so a new entry must be a conscious decision rather than drift. One entry exists
-// (claude's credential dir), and the test names the consequence so a future author adding a
-// second has to confirm they mean it.
+// DESIGN, so a new entry must be a conscious decision rather than drift. Two entries exist
+// (claude's and agy's credential dirs), and the test names the consequence so a future author
+// adding a third has to confirm they mean it.
 //
 // Ported from TestSharedDirsForIsClaudeOnlyAndSelectionGated. Its selection-gating half is
 // gone with the concept: sharedDirs are now mounted for the packs actually loaded, which is
 // the same gate expressed structurally.
 func TestMachineGlobalTierStaysNarrow(t *testing.T) {
 	got := packload.SharedDirs(loadAll(t))
-	if len(got) != 1 || got[0] != ".claude-shared-credentials" {
-		t.Errorf("sharedDirs across every shipped pack = %v; each entry leaks state "+
+	want := []string{".claude-shared-credentials", ".gemini-shared-credentials"}
+	if len(got) != len(want) {
+		t.Errorf("sharedDirs across every shipped pack = %v, want %v; each entry leaks state "+
 			"between workspaces by design — confirm that is intended, then update this "+
-			"test", got)
+			"test", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("sharedDirs[%d] = %q, want %q (full set %v)", i, got[i], want[i], got)
+		}
 	}
 }
 

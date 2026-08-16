@@ -51,8 +51,8 @@ func EnsureGlobalStorage(migrate func()) error {
 
 	// Per-agent overlay dirs (UNION across all known agents) + shared dirs.
 	overlaySubdirs := append([]string{}, packload.EmbeddedWritableDirs()...)
+	overlaySubdirs = append(overlaySubdirs, packload.EmbeddedSharedDirs()...)
 	overlaySubdirs = append(overlaySubdirs,
-		".claude-shared-credentials",
 		filepath.Join(".config", "git"),
 		".npm-global",
 		".local",

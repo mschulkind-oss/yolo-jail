@@ -53,7 +53,7 @@ func WritableHomeDirs(cfg *jsonx.OrderedMap) []string {
 // Authority: podmanBaseMounts in internal/cli/run + storage.EnsureGlobalStorage.
 var reservedHomeDirRoots = []string{
 	".npm-global", ".local", "go", ".yolo-shims", ".yolo-launchers",
-	".config", ".cache", ".ssh", ".claude-shared-credentials",
+	".config", ".cache", ".ssh",
 }
 
 // reservedHomeFiles are the home-relative paths yolo owns as SINGLE FILES: the
@@ -109,11 +109,14 @@ var reservedHomeSubtrees = []string{
 // dirs, as a set. Kept as a function (not a package var) so it always reflects
 // the current agent set.
 func reservedHomeDirs() map[string]struct{} {
-	dirs := make(map[string]struct{}, len(reservedHomeDirRoots)+len(packload.EmbeddedWritableDirs()))
+	dirs := make(map[string]struct{}, len(reservedHomeDirRoots)+len(packload.EmbeddedWritableDirs())+len(packload.EmbeddedSharedDirs()))
 	for _, d := range reservedHomeDirRoots {
 		dirs[d] = struct{}{}
 	}
 	for _, d := range packload.EmbeddedWritableDirs() {
+		dirs[d] = struct{}{}
+	}
+	for _, d := range packload.EmbeddedSharedDirs() {
 		dirs[d] = struct{}{}
 	}
 	return dirs
@@ -133,7 +136,7 @@ func reservedHomeDirs() map[string]struct{} {
 // is its central use case, so that guard matches exact paths instead; see
 // checkHostFileDest.
 func reservedHomeSegments() map[string]struct{} {
-	segs := make(map[string]struct{}, len(reservedHomeDirRoots)+len(reservedHomeFiles)+len(packload.EmbeddedWritableDirs()))
+	segs := make(map[string]struct{}, len(reservedHomeDirRoots)+len(reservedHomeFiles)+len(packload.EmbeddedWritableDirs())+len(packload.EmbeddedSharedDirs()))
 	for d := range reservedHomeDirs() {
 		segs[firstHomeSegment(d)] = struct{}{}
 	}
