@@ -88,6 +88,11 @@ whether the rule should exist in its current form at all — and by this repo's 
   - The approval string stays machine-independent, because what is approved is the declaration, not
     the resolved path.
 
+- **It stopped being unblocking, 2026-08-15.** *"No bundled loopholes at the end of this sprint"*
+  (OQ-BP4 below) cannot be reached without it: `audio` is the one bundled loophole that no pack can
+  express, so the channel cannot be emptied until this is ruled. It was "nothing is blocked on this"
+  when it was filed; it is now the gate on the sprint goal.
+
 - 📄 [`loophole-packaging.md`](../design/loophole-packaging.md) §3.1, §7 ·
   [overview](../design/loophole-packaging-overview.md) §5.1 ·
   [`packs/audio/README.md`](../../packs/audio/README.md) has the measurements
@@ -178,29 +183,51 @@ half-built artifact still there".**
 - **Blocks nothing:** with one auth pack there is no second writer.
 - 📄 [`pack-config-collaboration.md`](../design/pack-config-collaboration.md)
 
-### 💬 OQ-BP1–BP6 — shipping the OAuth broker as a pack
+### 💬 OQ-BP2/BP5/BP6 — emptying `bundled_loopholes` (broker included)
 
 Decided *that* it ships ([`pack-code-separation.md`](../design/pack-code-separation.md) OQ-1);
 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) designs *how*, and found the job smaller than
 the parent doc estimated — jail-daemon-as-binary turns out to be already expressible and merely
-unexercised. Five questions; the first two decide the size of the broker move, the last two design a
-capability beyond it:
+unexercised.
 
-- **OQ-BP1 — does the broker wait for the pack-shipped binary capability, or move on a baked daemon
-  and adopt it later?** *(Restated: whether the capability is wanted is settled — it is.)*
-  **My read: move now, adopt later** — an official pack may keep a baked daemon on the same
-  accountability argument the overview already ruled for a baked *client*, and the binary work then
-  lands with a real consumer to convert rather than a synthetic one.
+**Two of the five are answered, and they set a sprint goal rather than a task:** the broker move and
+the pack-shipped binary capability **ship together** (BP1), and **`bundled_loopholes/` is empty at
+the end of this sprint** (BP4). That second one is the big one — it is OQ-LP11's finish line, it
+means three conversions rather than one, and **it makes OQ-LP14 above a hard dependency**, because
+`audio` cannot be expressed as a pack until the runtime-socket vocabulary is ruled. I recommended
+against both couplings; recorded here because the consequences need planning, not because they need
+re-arguing.
 
-- **OQ-BP2 — does the front gain a *declared* protocol-aware parse, or does `jail_id` attribution
-  change shape?** The relay stamps a host-asserted `jail_id`; the front is designed never to parse
-  the stream. **My read: ask the narrower question first** — the front already knows which jail it
-  authenticated, so if `jail_id` is purely diagnostic (it appears nowhere in `internal/oauthbroker`),
-  the framework can record it in its own audit line and never parse anything.
+**What the sprint contains**, in the order I would run it — `host-processes` first because it
+exercises the whole conversion path (subset validation, official-pack staging, the front,
+`doctor_cmd`) with none of the broker's complexity:
 
-- **OQ-BP3 — pair it with OQ-LP14, or proceed beside it?** **My read: beside.** I wrote the opposite
-  in this file yesterday and it was wrong: OQ-LP14 needs a new host-crossing claim class, and this
-  needs none.
+1. `host-processes` → pack. Its only blocker is `publishes: "socket"`; no relay, no stamp.
+2. Rule OQ-LP14, then `audio` → pack, retiring the bundled copy the official pack currently sits beside.
+3. Broker → pack: fold the relay, answer BP2, flip to `publishes: "socket"`.
+4. The binary capability (§3.1 of the design doc), whose slowest piece — a release matrix producing
+   per-platform artifacts — should start early, not last.
+5. Delete `bundled_loopholes/`.
+
+**One rule worth stating up front:** all three bundled loopholes currently default to
+`publishes: "endpoint"`, which the pack-shipped subset refuses. That is not a rule that is too
+strict — it exists so a pack-shipped daemon cannot get TLS, tokens or endpoint permissions wrong —
+it is a rule the three predate.
+
+**Still open — one question, and it is the only thing between here and deleting
+`internal/brokerrelay`:**
+
+- **OQ-BP2 — is a daemon-visible, host-asserted `jail_id` worth any mechanism at all?** The relay
+  stamps one into every request; the framework front does not. **My read: drop the field.** yolo can
+  record the same identity in its own audit line from the token it already validated, and
+  `yolo-ps` **already** self-reports its `jail_id` from inside the jail — recorded verbatim and
+  untrusted — so dropping it makes the broker consistent with the loophole beside it rather than
+  uniquely strict. If you want it trustworthy *inside* the daemon, the front gains a small declared
+  parse; that is cheap, not forbidden (the front already frames-and-reads the bearer token the same
+  way).
+
+- ~~**OQ-BP3 — pair it with OQ-LP14, or proceed beside it?**~~ **Answered by BP4:** the broker needs
+  nothing from LP14, but emptying the channel does, so they are coupled after all.
 
 - **OQ-BP5/BP6 — the pack-shipped binary capability**, now wanted as a general thing (per-arch
   selection, dynamic download from a release URL). **BP5:** download-with-digest only, or also a
