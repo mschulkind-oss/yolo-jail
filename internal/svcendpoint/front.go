@@ -129,11 +129,59 @@ func splice(client net.Conn, upstreamUnixPath string, halfCloseUpstream bool) {
 	defer func() { _ = up.Close() }()
 	go func() { // request direction, UNWAITED
 		_, _ = io.Copy(up, client)
-		if halfCloseUpstream {
+		// EOF is signalled upstream in exactly two cases, and the second is not an
+		// optimization — without it a probe leaks this goroutine, the
+		// response-direction copy below, and both fds, FOREVER.
+		//
+		//   halfCloseUpstream — the daemon reads its request to EOF and is waiting
+		//     for one (request_end: "eof").
+		//
+		//   the client sent NOTHING — it connected and closed without writing a
+		//     byte. yolo's own readiness probe does exactly this
+		//     (socketConnectable), and so does `yolo check` on every run. A FRAMED
+		//     daemon then sits in its request read forever: nothing closes `up`, so
+		//     the response copy below never returns, so neither deferred Close runs
+		//     — which also means countingConn.Close never fires and the connection
+		//     produces NO tier-1 crossing record at all. Measured at 2 goroutines
+		//     and 2 fds per probe against a real fronted daemon, and pinned by
+		//     front_probe_test.go.
+		//
+		// Signalling EOF here CANNOT cut a response short, which is what the warning
+		// above this function is about: a client that wrote zero bytes has no request
+		// upstream and therefore no response in flight. That is why the condition is
+		// "sent nothing" rather than "is done sending" — the latter would tear down
+		// the broker relay mid-reply, since its core closes both sockets on either
+		// EOF.
+		//
+		// RESIDUE, stated rather than hidden: a client that writes a PARTIAL frame
+		// and then closes still hangs its daemon. That is pre-existing, is not what
+		// any prober does, and wants a daemon-side read deadline rather than
+		// anything this function can see.
+		if halfCloseUpstream || clientWroteNothing(client) {
 			if uc, ok := up.(*net.UnixConn); ok {
 				_ = uc.CloseWrite()
 			}
 		}
 	}()
 	_, _ = io.Copy(client, up) // wait ONLY on the response
+}
+
+// clientWroteNothing reports whether the jail sent zero PAYLOAD bytes on this
+// connection — the connect-and-close shape of a readiness probe.
+//
+// countingConn's in-counter is the right source precisely because the connection
+// preamble is excluded from it by construction (crossing.go: the prefix branch
+// returns before c.in.Add). So this means the JAIL wrote nothing, not "no bytes
+// crossed the socket" — yolo's own preamble always did.
+//
+// Safe to read without synchronisation despite the counter being shared: this
+// runs on the request-direction goroutine, which is the only writer of c.in, and
+// only after that direction's io.Copy has returned.
+//
+// A non-countingConn client (a test splicing a bare net.Conn) reports false,
+// which preserves the pre-existing behaviour for anything not accepted through a
+// Listener.
+func clientWroteNothing(client net.Conn) bool {
+	cc, ok := client.(*countingConn)
+	return ok && cc.in.Load() == 0
 }
