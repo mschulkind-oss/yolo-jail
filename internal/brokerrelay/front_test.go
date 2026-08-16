@@ -162,10 +162,16 @@ func TestRelayFrontPreservesJailIDStamp(t *testing.T) {
 // (svcendpoint/preamble.go). This relay must not receive one, because it is not a
 // dumb pipe — handle → readFirstMessage consumes the FIRST framed message and
 // stampJailID rewrites it. With a preamble in front, that first message is yolo's
-// own frame: the relay stamps and forwards THAT, the broker answers it, and the
-// terminator's refresh request is answered by nobody. Every jail's Claude OAuth
-// refresh fails, and a burned single-use refresh token logs the user out of all of
-// them, so this is the most expensive silent failure this transport can produce.
+// own frame: the relay stamps and forwards THAT, and the terminator's real request
+// sits behind it, discarded (the broker reads exactly one request per connection).
+//
+// AND THE BROKER DOES NOT REJECT IT. The preamble carries no "action", and
+// oauthbroker.BuildHandler DEFAULTS a missing action to "refresh" — so every
+// connection a jail opens would trigger an unsolicited DoRefresh, spending the
+// single-use refresh token that this broker exists to stop several jails from
+// spending at once, and answering a `proxy` or `cached` request with a token
+// response. That is the most expensive silent failure this transport can produce,
+// which is why the opt-out gets a test of its own rather than a comment.
 //
 // A RAW upstream rather than the framed fakeBroker, deliberately: "nothing was
 // prepended" is a claim about BYTES, and a JSON-level double can be satisfied by
