@@ -116,6 +116,15 @@ func framedRoundtripFront(t *testing.T, endpointPath string, request map[string]
 // This is the whole point of splicing rather than re-typing the relay core: the
 // stamp, the per-connection dial and the failure semantics all live below the
 // transport and must not notice it.
+//
+// THE `action` ASSERTION IS NOT DECORATION. Every other check here is satisfied by
+// the wrong message: if yolo's connection preamble were prepended to this front,
+// the relay would read THE PREAMBLE as its first frame, stamp jail_id onto it
+// (it is a JSON object, so the stamp succeeds) and forward that — and the broker
+// would answer `pong` with `jail_id_seen: "jail-tcp"` while the terminator's real
+// request sat behind it. MEASURED: with brokerrelay's NoPreamble opt-out removed,
+// this whole package stayed green until this line existed. Naming the request the
+// broker received is what makes the test's title true.
 func TestRelayFrontPreservesJailIDStamp(t *testing.T) {
 	d := privateShortDir(t)
 	brokerPath := filepath.Join(d, "broker.sock")
@@ -130,12 +139,78 @@ func TestRelayFrontPreservesJailIDStamp(t *testing.T) {
 	if reply["pong"] != true {
 		t.Errorf("pong = %v", reply["pong"])
 	}
+	if got := fake.lastRequest()["action"]; got != "ping" {
+		t.Errorf("the broker's first framed message was %v, want the terminator's own "+
+			"request (action=ping) — something is being written to the broker ahead of it",
+			fake.lastRequest())
+	}
 	if got := fake.lastRequest()["jail_id"]; got != "jail-tcp" {
 		t.Errorf("stamped jail_id = %v, want jail-tcp", got)
 	}
 	reply = framedRoundtripFront(t, endpointPath, map[string]any{"action": "ping", "jail_id": "spoofed"})
 	if reply["jail_id_seen"] != "jail-tcp" {
 		t.Errorf("jail_id_seen = %v, want jail-tcp (client value must be overridden)", reply["jail_id_seen"])
+	}
+}
+
+// TestRelayFrontPrependsNothingToTheBrokerStream is the tripwire for the ONE
+// deliberate NoPreamble opt-out in the tree (brokerrelay.go), stated at the byte
+// level because it sits on the credential path.
+//
+// svcendpoint's front prepends a CONNECTION PREAMBLE to every connection it
+// carries: one 4-byte-BE-framed JSON object, host→daemon, at connection open
+// (svcendpoint/preamble.go). This relay must not receive one, because it is not a
+// dumb pipe — handle → readFirstMessage consumes the FIRST framed message and
+// stampJailID rewrites it. With a preamble in front, that first message is yolo's
+// own frame: the relay stamps and forwards THAT, the broker answers it, and the
+// terminator's refresh request is answered by nobody. Every jail's Claude OAuth
+// refresh fails, and a burned single-use refresh token logs the user out of all of
+// them, so this is the most expensive silent failure this transport can produce.
+//
+// A RAW upstream rather than the framed fakeBroker, deliberately: "nothing was
+// prepended" is a claim about BYTES, and a JSON-level double can be satisfied by
+// the wrong object — which is exactly how the preamble bug hid until
+// TestRelayFrontPreservesJailIDStamp learned to name the request it expects.
+//
+// Mutation-verified: dropping `NoPreamble: true` from brokerrelay.Serve's
+// ServeFrontWithOptions call left `go test -short ./...` entirely green before this
+// test and TestRelayFrontPreservesJailIDStamp's action assertion existed.
+func TestRelayFrontPrependsNothingToTheBrokerStream(t *testing.T) {
+	// Deliberately NOT a framed JSON request: an unparseable first message takes
+	// readFirstMessage's verbatim downgrade, so what the upstream receives is
+	// exactly what crossed the transport — no stamp re-serialization in between to
+	// explain a difference away.
+	garbage := []byte("NOT A FRAME AT ALL")
+	d := privateShortDir(t)
+	brokerPath := filepath.Join(d, "broker.sock")
+	relayPath := filepath.Join(d, "relay.sock")
+	endpointPath := filepath.Join(d, "relay.endpoint")
+	up := startRawUpstream(t, brokerPath, len(garbage))
+	defer up.stop()
+	stop := startRelayWithFront(t, relayPath, brokerPath, "jail-raw", endpointPath)
+	defer stop()
+
+	c, err := svcendpoint.DialLocal(endpointPath, 5*time.Second)
+	if err != nil {
+		t.Fatalf("dial front: %v", err)
+	}
+	defer c.Close()
+	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := c.Write(garbage); err != nil {
+		t.Fatal(err)
+	}
+	resp := make([]byte, 4)
+	if _, err := io.ReadFull(c, resp); err != nil {
+		t.Fatalf("upstream never replied: %v", err)
+	}
+	if string(resp) != "PONG" {
+		t.Errorf("resp = %q, want PONG", resp)
+	}
+	if got := up.got(); string(got) != string(garbage) {
+		t.Errorf("the broker received %q, want %q verbatim.\nAnything ahead of the client's "+
+			"own bytes is yolo's connection preamble, which this relay would stamp and forward "+
+			"in place of the terminator's request — restore FrontOptions{NoPreamble: true} in "+
+			"brokerrelay.Serve.", got, garbage)
 	}
 }
 
