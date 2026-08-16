@@ -199,7 +199,18 @@ func TestPreambleClearsTheReadDeadlineOnEveryPath(t *testing.T) {
 // Compressed to milliseconds by deadlineRecorder rather than sleeping past the
 // real five seconds.
 func TestPreambleLeavesTheStreamWithoutADeadline(t *testing.T) {
-	const window = 20 * time.Millisecond
+	// THE WINDOW IS ALSO THIS TEST'S OWN BUDGET, so it is generous rather than
+	// snappy. deadlineRecorder compresses ReadPreamble's five seconds down to
+	// this, and net.Pipe is unbuffered — so the preamble below is only delivered
+	// once the writer goroutine is SCHEDULED, and if that takes longer than the
+	// window the read this test is about fails with "read pipe: i/o timeout"
+	// before it ever gets to the property under test. At 20ms that was a real
+	// flake on a loaded runner (`go test -short ./...` with several packages
+	// compiling and running at once), and a timing-flaky test here is worse than
+	// a slow one: the assertion it fails is on the byte-accounting/deadline path
+	// where the tempting "fix" is to loosen the assertion. 200ms keeps the whole
+	// test under a second and leaves a 10x margin.
+	const window = 200 * time.Millisecond
 
 	client, server := net.Pipe()
 	defer func() { _ = client.Close(); _ = server.Close() }()
