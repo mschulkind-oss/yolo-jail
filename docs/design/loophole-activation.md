@@ -1,7 +1,9 @@
 # Nothing reaches your host because it happened to be there — loophole activation
 
-**Status:** RULED 2026-08-15, nothing built. Six rulings; three of five open questions answered in
-review the same day, two more raised BY that review (OQ-A4, OQ-A5). Taken during the `host-processes` conversion; this doc records them and works
+**Status:** RULED 2026-08-15, nothing built. Six rulings; **eight open questions**, three answered in
+review the same day and five raised BY it. The doc grew that way on purpose — every question below
+came from asking "what else reaches the host, and why is it on?", and the answer kept being
+"something different each time". Taken during the `host-processes` conversion; this doc records them and works
 out what they cost.
 
 **The short version.** A loophole is active today because it was *present* and something it named
@@ -11,6 +13,10 @@ default state, that declaration defaults to **disabled**, config overrides it at
 the `requires.command_on_path` sniff is **deleted** rather than fixed — it is the mechanism, not a
 bug in the mechanism. The principle behind it, in the maintainer's words: *"we don't give host
 access by default."*
+
+**The most important section is §1.3** — the six-row table of everything that reaches your host and
+why it is currently on. No two rows agree, and that is the whole argument. §1.4 is the finding that
+should worry you most: core's config schema names two loopholes by hand.
 
 **Reads with:** [`broker-as-a-pack.md`](broker-as-a-pack.md) (the sprint this came out of; §5.5 is
 the connection preamble, §12 the `host-processes` conversion),
@@ -91,6 +97,56 @@ platform allows — *"Linux only, cgroup v2 only"* (`loopholesruntime.go:104-107
 all. That is precisely the shape R1 deletes, in a host-side daemon, and the first draft did not
 mention it. Whether it should be exempt is OQ-A4; that it needs an explicit answer is not in doubt.
 
+### 1.3 Everything that reaches your host, and how it turns on
+
+*Added on review — "this is getting to be a lot" is the correct reaction, and the reason is that
+five things reach the host through four different channels with four different switches. The table
+is the argument for unifying them.*
+
+| | channel | on today because… | its config key | after the rulings |
+|---|---|---|---|---|
+| **broker** | bundled loophole | manifest `enabled: true` **and** host `claude` on PATH | `loopholes.claude-oauth-broker.enabled` | inside `packs/claude`, `default_enabled: true` |
+| **host-processes** | bundled loophole | manifest `enabled: true` **and** host `ps` | `loopholes.host-processes.enabled` **plus** top-level `host_processes.visible` | own pack, `default_enabled: false` |
+| **audio** | bundled loophole *and* an official pack beside it | manifest `enabled: true` **and** the pulse socket exists | `loopholes.audio.enabled` | own pack, `default_enabled: false` |
+| **journal** | **builtin service**, hardcoded in the run pipeline | the top-level `journal` key says so | top-level `journal` | **undecided — OQ-A6** |
+| **cgroup-delegate** | **builtin service**, hardcoded | Linux + cgroup v2. No key exists. | *none* | **undecided — OQ-A4** |
+| a user's own | `loopholes:` config block | `enabled` defaults true | `loopholes.<name>.*` | unchanged |
+
+Read down the "on today because…" column and the diagnosis writes itself: **no two of these turn on
+the same way**, and only one of the five was ever a decision the user made deliberately.
+
+### 1.4 The finding that undercuts the conversion — core hardcodes two loopholes by name
+
+Chasing "how would a workspace enable this?" turns up something worse than a missing feature.
+
+**Two loopholes have their own top-level keys in yolo's config schema.** `config.go:59` lists
+`"loopholes", "host_processes", "journal"` together; `validate.go:557-570` validates
+`host_processes.visible` against `knownHostProcessesKeys`; `inherit.go:116-121` classifies both as
+*"RESERVED loophole names carried as their own top-level keys"*. So core's config schema names two
+specific loopholes.
+
+**That is exactly the residue [`pack-code-separation.md`](pack-code-separation.md) exists to
+delete**, recurring one layer down: core does not know what an *agent* is any more, but it very much
+knows what `host_processes` is. Converting the loophole to a pack while leaving `host_processes` in
+`knownTopLevelConfigKeys` would move the manifest out of core and leave core's schema naming it —
+the *appearance* of the separation with none of the substance.
+
+**And no pack can declare a config key.** Of the fifteen contribution kinds (`packdecl/kinds.go`),
+`config` and `config-overlay` write **agent** config files inside the jail — `settings.json` and its
+kin. Nothing writes into yolo's own schema. So a pack-shipped loophole that needs settings has
+nowhere to put them.
+
+Three ways out, and this needs an answer before `host-processes` can honestly leave core (OQ-A8):
+
+1. **Leave `host_processes` in core.** Honest about the coupling, but it is the residue, and the
+   next loophole that wants settings faces the same wall.
+2. **Widen the per-loophole config block.** Its key set is closed today at
+   `{enabled, env, jail_env, command, doctor_cmd}`. Add an opaque `settings` map:
+   `loopholes.host-processes.settings.visible: [...]`, passed to the daemon untouched. Core
+   validates that it is an object and nothing more — it never learns what `visible` means.
+3. **A sixteenth kind** that lets a pack declare config keys with a schema. The most general and by
+   far the most machinery.
+
 ---
 
 ## 2. The rulings
@@ -154,6 +210,34 @@ costs no warning surface here: there is nothing left to warn about.
 a simplification, not a loss — but the "loophole silently inactive" reports it used to produce were
 at least *diagnosable*, and a missing program now surfaces as a daemon that fails to spawn. Worth
 checking that failure reads well before shipping.
+
+---
+
+## 5. The structural questions this opened
+
+*Three questions from review that are bigger than the rulings and should not be answered inside
+them. Each gets an OQ; this section is the context they share.*
+
+**Is "builtin service" a channel worth keeping?** `journal` and `cgroup-delegate` are not loopholes
+in the manifest sense at all — they are Go functions called from the run pipeline
+(`loopholesruntime.go:104-112`), with reserved names in `paths.go` and bespoke switches. Everything
+this doc argues for — one activation model, one place to read what reaches your host, one gate — is
+easier if they are manifests like everything else. Against: they are yolo's own code with no
+distribution problem to solve, and a manifest for something that is compiled in anyway is ceremony.
+**The asymmetry is the real evidence**: one of the two is opt-in and the other cannot be turned off,
+and nobody decided that — it is just where each landed. **OQ-A6.**
+
+**Are official packs installed by default?** Terms first, because the question hides an ambiguity:
+an official pack is **embedded in the binary** (always present — `packs/embed.go` carries seven) but
+never **selected** (`packs.go:69`: *"a bare `packs: ["claude"]` entry selects one; nothing is on by
+default"*). So "installed" is already free; what costs a line is selection. Which makes the sharper
+question: **does a loophole-only pack need selecting at all?** For `claude`, selection means
+something — install this agent. For `host-processes`, whose entire content is one loophole,
+selection and enablement are the same intent expressed twice, which is the ceremony OQ-A5 names.
+**OQ-A7.**
+
+**Where do a loophole's own settings live?** §1.4. `host_processes.visible` is the concrete case and
+the answer decides whether the conversion actually separates anything. **OQ-A8.**
 
 ---
 
@@ -235,6 +319,9 @@ checking that failure reads well before shipping.
    ("we don't give host access by default") is genuinely weaker here — but "weaker" is not "absent",
    and R1 is about the *mechanism*, not the severity.
 
+   *Overlaps OQ-A6, which asks the structural version of this — whether both builtins become
+   manifests. A4 is the narrow question: whatever channel it lives in, does it keep starting itself?*
+
    _Leaning:_ **make it opt-in, same as everything else.** An exception costs more than the
    convenience: the moment one builtin is presence-activated, "presence never activates" stops being
    a rule anyone can rely on when reading the code. The natural gate already exists in spirit — a
@@ -274,3 +361,67 @@ checking that failure reads well before shipping.
    **Answer:**
    > **Yes, unrestricted.** No origin test on `default_enabled`. What a fetched pack may *do* is
    > already decided by the origin gate at `Honored`; a declaration about a default cannot widen it.
+
+6. **OQ-A6 — do `journal` and `cgroup-delegate` become manifest loopholes, or stay builtin with a
+   uniform gate?**
+
+   Raised in review: *"shouldn't cgroups and journalctl be similar?"* They are not, and the
+   difference was never decided — `journal` is opt-in via its own top-level key, `cgroup-delegate`
+   has no key at all (§1.3). Whatever else happens, those two should stop disagreeing.
+
+   What it decides: whether "one activation model for everything that reaches your host" is literally
+   true or true-with-two-exceptions. It also decides whether §1.4's `journal` top-level key survives.
+
+   _Leaning:_ **make them manifests, but AFTER this sprint.** The unification is right — a reader
+   should be able to answer "what can reach my host and why is it on" from one place — and being
+   yolo's own code is not a reason to be a special case, since that argument is exactly what
+   `bundled_loopholes/` is being emptied to refute. But converting them is not needed to empty the
+   channel, and this sprint is already carrying a preamble, a pack conversion, a schema change and a
+   deletion. File it, do not fold it in.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+7. **OQ-A7 — does a loophole-only pack need selecting, or is enabling enough?**
+
+   Official packs are embedded and always present; selection is a separate line
+   (`packs.go:69`). For an agent pack, selection means something. For `host-processes` — one pack,
+   one loophole, no other surface — selecting *and* enabling is one intent written twice.
+
+   Options: (a) keep both, uniform and dumb; (b) let an **embedded** pack whose only contribution is
+   a loophole be reachable by `loopholes.<name>.enabled` alone, with selection implied; (c) make all
+   embedded packs default-selected and rely on enablement as the only gate — which contradicts
+   AGENTS.md's *"nothing is active by default"* for every other kind a pack can ship.
+
+   _Leaning:_ **(b), and only for embedded packs.** It is the option where the ceremony disappears
+   without the safety doing so: an embedded pack carries yolo's own authority, and a loophole-only
+   pack has nothing else to stage, so "selected" carries no information that "enabled" does not.
+   (c) is too broad — it would let a pack's skills, config and briefing land because it happened to
+   be compiled in, which is presence-activation for the surfaces rather than the daemon.
+
+   _Resolved by:_ deciding whether `packs` means "what may be used" or "what is used" — the whole
+   question is downstream of that.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+8. **OQ-A8 — where do a pack-shipped loophole's own settings live?**
+
+   §1.4's three options: leave `host_processes` in core; widen the per-loophole config block with an
+   opaque `settings` map; or add a sixteenth contribution kind for config keys. This is the question
+   that decides whether the `host-processes` conversion separates anything real or just moves a file
+   while core keeps naming it.
+
+   _Leaning:_ **the opaque `settings` map.** It needs no new kind and no new validator: core checks
+   that it is an object and hands it to the daemon, which is the only party that knows what
+   `visible` means. It is scoped by construction — a loophole can only be configured under its own
+   name — and it composes with what that block already does for `env` and `jail_env`. The sixteenth
+   kind is the right answer only if a pack ever needs to add a key *outside* its own loophole's
+   namespace, and nothing does.
+
+   _Note:_ this makes `host_processes.visible` a **deprecated alias** for
+   `loopholes.host-processes.settings.visible`, so it needs a migration and a removal date, not just
+   a rename. That is the real cost and it should be priced before choosing.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
