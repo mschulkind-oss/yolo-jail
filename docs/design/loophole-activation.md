@@ -1,7 +1,7 @@
 # Nothing reaches your host because it happened to be there — loophole activation
 
-**Status:** RULED 2026-08-15, nothing built. Six rulings; **eight open questions**, three answered in
-review the same day and five raised BY it. The doc grew that way on purpose — every question below
+**Status:** RULED 2026-08-15, nothing built. Six rulings; **thirteen open questions**, three answered
+in review and ten raised by review or by the completeness sweep (§6). The doc grew that way on purpose — every question below
 came from asking "what else reaches the host, and why is it on?", and the answer kept being
 "something different each time". Taken during the `host-processes` conversion; this doc records them and works
 out what they cost.
@@ -14,7 +14,10 @@ the `requires.command_on_path` sniff is **deleted** rather than fixed — it is 
 bug in the mechanism. The principle behind it, in the maintainer's words: *"we don't give host
 access by default."*
 
-**The most important section is §1.3** — the six-row table of everything that reaches your host and
+**If you read two sections: §1.3** (the inventory) **and OQ-A9** (the one real gap the sweep found —
+`default_enabled` collides with a live `enabled` key and the design never says which wins).
+
+**§1.3** — the six-row table of everything that reaches your host and
 why it is currently on. No two rows agree, and that is the whole argument. §1.4 is the finding that
 should worry you most: core's config schema names two loopholes by hand.
 
@@ -34,12 +37,19 @@ Three layers already exist and are well-named (`internal/loopholes/discover.go:6
 | | today | meaning |
 |---|---|---|
 | `Enabled` | defaults **true** from the manifest; config may override | *"the user's switch"* |
-| `Active` | `Enabled` **and** `requires`/`platforms` are satisfied | *"the machine can run it"* |
+| `Active` | `Enabled` **and** not superseded **and** `platforms`/`requires` are satisfied | *"the machine can run it"* |
 | `Honored` | `Active` **and** the origin gate admits it | *"the pack it came from may touch the host"* |
 
-The layering is right. What is wrong is what feeds the first one: `enabled` defaults to **true** in
-the manifest (`discover.go:50`), and every bundled manifest sets it. So a loophole is on the moment
-it is *present*, and presence was never a decision the user made.
+The layering is right. What is wrong is what feeds the first one: `enabled` defaults to **true** when
+a manifest omits it (`loopholedecl.go:509-511`), and **all four shipped manifests set it explicitly
+anyway** — the three bundled ones and the official audio pack's. So a loophole is on the moment it is
+*present*, and presence was never a decision the user made.
+
+*(Two corrections from the completeness sweep, §6. `Active` also requires `!Superseded()`
+(`loopholes.go:230-232`) — a capability another pack has taken over is inactive however enabled it
+is, and the code carries a note that a design doc already got this table wrong once. And the default
+above was first cited as `discover.go:50`, which is the **config-block** synthesis path, not the
+manifest decoder.)*
 
 ### 1.1 The sniff, and the bug it is causing right now
 
@@ -51,13 +61,27 @@ Two manifests use it:
 - `host-processes` requires `ps`, which its own manifest comment admits is a POSIX staple and a
   formality.
 
-**The broker's use is a live bug.** yolo-jail exists to run agents *inside jails*, and agent CLIs
+**The broker's use is a live bug — and the sweep found my first description of it was wrong in a way
+that makes it worse, not better.** yolo-jail exists to run agents *inside jails*, and agent CLIs
 install lazily in the jail (`~/.yolo-launchers/`). A user who only ever runs `claude` in a jail has
-no host `claude`, so **the broker never activates** — silently — and that user gets exactly the
-concurrent single-use-refresh-token race the broker exists to prevent
-([`agent-credentials.md`](agent-credentials.md) §2.5). It works on the maintainer's machine because
-that host has claude installed. A predicate that is true for the author and false for the product's
-core use case is the worst shape a default can have.
+no host `claude`. I wrote that "the broker never activates". What actually happens is **both halves
+fail, in opposite directions**:
+
+- **The daemon runs regardless.** `run.go:392-398` calls `brokerEnsure()` and `ensureBrokerRelay()`
+  on every launch with **no loophole lookup at all**, and `broker.BrokerSpawn`
+  (`brokerlifecycle.go:272-306`) contains no enablement check of any kind. So the host singleton and
+  one relay per jail run for *everybody* — including a user with `packs: []` who has never heard of
+  claude.
+- **The jail is not wired to it.** What `requires` actually gates is `brokerLoopholeActive`
+  (`assemble_parts.go:408-435`), which decides the endpoint env var, the CA mount and the in-jail
+  terminator. Without host `claude`, none of those land, so the jail's own claude refreshes directly
+  against Anthropic — unserialized, which is exactly the concurrent single-use-refresh-token race the
+  broker exists to prevent ([`agent-credentials.md`](agent-credentials.md) §2.5).
+
+So the user gets a host daemon they never asked for *and* no protection from it. It works on the
+maintainer's machine because that host has claude installed. A predicate that is true for the author
+and false for the product's core use case is the worst shape a default can have — and **R1 already
+has a counterexample sitting in the run pipeline**, which R6 does not by itself remove (OQ-A11).
 
 **The dependency it was approximating is structural, not observational.** "Is there anything to
 refresh for" is really "is the claude pack selected" — which the pack system can express directly,
@@ -105,15 +129,24 @@ is the argument for unifying them.*
 
 | | channel | on today because… | its config key | after the rulings |
 |---|---|---|---|---|
-| **broker** | bundled loophole | manifest `enabled: true` **and** host `claude` on PATH | `loopholes.claude-oauth-broker.enabled` | inside `packs/claude`, `default_enabled: true` |
+| **broker daemon + relay** | *not gated at all* | `run.go:392-398` spawns them every launch, no lookup | *none* | **undecided — OQ-A11** |
+| **broker jail wiring** | bundled loophole | manifest `enabled: true` **and** host `claude` on PATH | `loopholes.claude-oauth-broker.enabled` | inside `packs/claude`, `default_enabled: true` |
 | **host-processes** | bundled loophole | manifest `enabled: true` **and** host `ps` | `loopholes.host-processes.enabled` **plus** top-level `host_processes.visible` | own pack, `default_enabled: false` |
 | **audio** | bundled loophole *and* an official pack beside it | manifest `enabled: true` **and** the pulse socket exists | `loopholes.audio.enabled` | own pack, `default_enabled: false` |
 | **journal** | **builtin service**, hardcoded in the run pipeline | the top-level `journal` key says so | top-level `journal` | **undecided — OQ-A6** |
 | **cgroup-delegate** | **builtin service**, hardcoded | Linux + cgroup v2. No key exists. | *none* | **undecided — OQ-A4** |
+| **host nix daemon** | mounted by the run pipeline | the socket exists on the host | *none* | **undecided — OQ-A11** |
 | a user's own | `loopholes:` config block | `enabled` defaults true | `loopholes.<name>.*` | unchanged |
 
 Read down the "on today because…" column and the diagnosis writes itself: **no two of these turn on
-the same way**, and only one of the five was ever a decision the user made deliberately.
+the same way**, and only one of them was ever a decision the user made deliberately.
+
+*Two rows were added by the completeness sweep (§6) and both matter. The broker splits in half — the
+daemon is ungated, only the jail wiring is — and the **host nix daemon socket** is mounted into jails
+because it exists, with no key anywhere. A writable socket to the host's nix-daemon builds and
+realises store paths on the host's behalf, which is a strictly larger crossing than `audio`'s pulse
+socket. This table is the doc's central argument, so a reader finding a sixth row five minutes later
+would sink it.*
 
 ### 1.4 The finding that undercuts the conversion — core hardcodes two loopholes by name
 
@@ -189,6 +222,14 @@ regression, because the sniff was standing in for exactly this.
   depends on another pack.
 - **Not** a change to the three-layer model. `Enabled`/`Active`/`Honored` are right; only what feeds
   `Enabled` changes.
+- **Not** a licence to "fix" `inJailActive`. Inside a jail, `requires` is answered by whether the
+  bind mount landed (`loopholes.go:188-198`) — presence deciding activation, deliberately, because
+  **the mount IS the host's decision made visible**. Someone implementing R1 by grepping for
+  presence checks will read this as a violation and break every jail-side `Active()` evaluation.
+- **Not** a change to per-mount presence skipping. A declared bind mount or device whose host path
+  is absent is skipped with a warning (`runtime.go:214-236`). That is adaptation *inside* a
+  capability the user already consented to, and it is warned rather than silent — the same
+  reasoning that keeps `requires.file_exists`.
 
 ---
 
@@ -210,6 +251,15 @@ costs no warning surface here: there is nothing left to warn about.
 a simplification, not a loss — but the "loophole silently inactive" reports it used to produce were
 at least *diagnosable*, and a missing program now surfaces as a daemon that fails to spawn. Worth
 checking that failure reads well before shipping.
+
+**And R3 is a silent WIDENING for manifests we do not ship — priced wrong above.** The sweep's
+sharpest small finding: deleting a key that *grants* is not symmetric with deleting one that
+*restricts*. A hand-placed or third-party manifest that wrote
+`requires: {command_on_path: "acme-agent"}` meaning *"only run my host daemon when acme is
+installed"* loses the condition on upgrade and **spawns everywhere** — announced, if at all, by an
+unknown-key skew note whose wording tells the reader a *newer* build knows the key, which is the
+exact opposite of the truth for a removed one. R3 needs a refusal that names the removal, not a
+tolerance that shrugs at it.
 
 ---
 
@@ -238,6 +288,47 @@ selection and enablement are the same intent expressed twice, which is the cerem
 
 **Where do a loophole's own settings live?** §1.4. `host_processes.visible` is the concrete case and
 the answer decides whether the conversion actually separates anything. **OQ-A8.**
+
+---
+
+## 6. What the completeness sweep found
+
+Six angles swept the codebase for what this design had not considered — other host-reaching
+surfaces, every other presence-activated behaviour, the agent-facing surfaces, prior rulings that
+might contradict these, config/migration, and an adversarial read. Verdict: **substantially complete
+on its own terms, with the gap concentrated in one place** — R2 introduces `default_enabled` onto a
+schema that already has a live `enabled` key with the opposite default, and never says which wins.
+
+It corrected three of this doc's own claims (§1's table, §1.1's mechanism, §1.3's inventory) and
+raised five questions, OQ-A9 through OQ-A13.
+
+**Refuted on inspection — recorded so they are not re-raised.** Each of these sounded like a problem
+and is not:
+
+- **"R5+R6 give the broker a silent off switch."** The disable path is real but **not silent**:
+  `validate_loopholes.go:258-261` discloses it at launch by name and file, and
+  `sections_loopholes.go:39-45` turns the same condition into a `yolo check` **warning that never
+  passes green**.
+- **"`default_enabled: true` lets a fetched pack buy host access."** It cannot. `Honored()` applies
+  the origin gate independently of `Active()`, and `moduleClaims` enumerates every host crossing for
+  the install prompt. §3's defence holds and OQ-A3's answer stands. What remains is a question about
+  the *moment of consent*, which is OQ-A13 — not about access.
+- **"`inJailActive` violates R1."** By construction and correctly — see §3.
+- **"`yolo check` reports a fully-dark jail as all-green."** Each line is individually true, and a
+  fresh install having nothing enabled *is* the ruling working. The real defect underneath is
+  OQ-A12.
+- **"The pack-shipped subset refuses R4/R6 and nobody priced it."** Priced already:
+  [`broker-as-a-pack.md`](broker-as-a-pack.md) §11 names `publishes: "socket"` as the common blocker
+  for all three conversions.
+
+**Worth knowing, changing no decision:** `yolo loopholes enable` works for **zero** shipped loopholes
+(it stats the user-loopholes dir and writes into a *manifest file*, which for a pack is a staged
+copy) · `yolo loopholes status` and `yolo check` disagree about whether a disabled loophole's
+`doctor_cmd` runs · the briefing has **no zero-state**: it is built from `Honored()` and two built-in
+skills point at `yolo loopholes list` unconditionally, so a fully-dark jail tells the agent nothing
+while its skills still promise the feature · disabling the broker degrades to *shared-and-
+unserialized* credentials, not to per-jail ones, because the shared dir is a separate `state`
+contribution.
 
 ---
 
@@ -412,6 +503,14 @@ the answer decides whether the conversion actually separates anything. **OQ-A8.*
    that decides whether the `host-processes` conversion separates anything real or just moves a file
    while core keeps naming it.
 
+   > **⚠ The leaning below was priced wrong, and the sweep caught it.** "Hands it to the daemon"
+   > assumes a channel that does not exist: core never tells the host-processes daemon anything, and
+   > the only reason `host_processes.visible` works at all is that **the daemon opens the workspace
+   > file itself, per request**. Making `loopholes.host-processes.settings.visible` real means either
+   > serializing the map into the spawn — which ends a per-request re-read the package treats as a
+   > frozen contract — or teaching the daemon config merging. Still my preference, but it is not the
+   > free option the next paragraph claims.
+
    _Leaning:_ **the opaque `settings` map.** It needs no new kind and no new validator: core checks
    that it is an object and hands it to the daemon, which is the only party that knows what
    `visible` means. It is scoped by construction — a loophole can only be configured under its own
@@ -425,3 +524,114 @@ the answer decides whether the conversion actually separates anything. **OQ-A8.*
 
    **Answer:**
    > _(empty — fill in when decided)_
+
+9. **OQ-A9 — does `default_enabled` REPLACE `enabled`, or sit beside it — and which manifest sources
+   does it govern?**
+
+   *The sweep's headline finding, and the one place the design has a real gap.* `enabled` is a live
+   top-level manifest key (`keys.go:27`, in the closed `topKeys` census), it defaults to **true** when
+   absent (`loopholedecl.go:509-511`), **all four shipped manifests set it explicitly**, and
+   `SetEnabled` (`runtime.go:420`) writes it back into the manifest file. `default_enabled` exists
+   nowhere but this document.
+
+   Both readings break something. If `enabled` keeps winning, R2 is a **no-op for every manifest that
+   exists** — including the official audio pack's, which would violate R4 on day one. If
+   `default_enabled` wins, an author's explicit `enabled: true` is silently ignored and `SetEnabled`
+   writes a key nothing reads. And R2 is phrased as *"a **pack** declares…"* while R4's target
+   (`audio`) is a **bundled** manifest and the user-loopholes dir is a third source — so if
+   `default_enabled` is pack-only, **R4 has no mechanism at all**.
+
+   _Leaning:_ **one key, renamed, governing all four sources.** `default_enabled` *is* `enabled` with
+   the default flipped; `enabled` becomes a recognized-and-refused key whose error names the rename,
+   `SetEnabled` is fixed to write config rather than a manifest, and the four shipped manifests are
+   updated in the same commit. Two booleans over one state would give the manifest, `loopholes list`
+   and `SetEnabled` three ways to disagree.
+
+   _Price this in the answer:_ **reverse skew.** An *older* yolo reading a *newer* manifest ignores
+   `default_enabled` and falls back to enabled-defaults-true — so `audio` ships default-off and an
+   older build runs it on. Deletion-shaped schema changes need a refusal, not a tolerance (§4).
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+10. **OQ-A10 — is the broker's loophole a contribution of `packs/claude`, or its own official pack?**
+
+    R6 says *"inside `packs/claude/`"*. [`broker-as-a-pack.md`](broker-as-a-pack.md) §6 designs a
+    **separate** pack, `packs/claude-oauth-broker/`. Two docs in one sprint, two answers, and the
+    difference is user-visible: can a Bedrock user drop the broker without dropping claude?
+
+    **The trap underneath is worse than either doc says.** The reserved name is appended
+    **unconditionally** (`discover.go:322-325`) — it is *not* derived from the bundled directory —
+    and a pack claiming a reserved name fails the **whole launch** (`packs.go:310-311`). So deleting
+    `bundled_loopholes/claude-oauth-broker/` does **not** free the name: the first commit adding the
+    loophole contribution breaks every launch for every claude user until the reservation *and* the
+    name special-case at `loopholesruntime.go:211-214` die in the same change. `audio` escaped this
+    by renaming itself `audio-alsa`; the broker cannot, because `loopholes.claude-oauth-broker.enabled`
+    is a user-visible config key.
+
+    _Leaning:_ **inside `packs/claude`, and fix §6 rather than leaving two answers standing.** R6's
+    whole argument is that the dependency is structural; a separate pack reinstates the second
+    selection step R6 deletes. A Bedrock user's escape is `supersedes` on the `claude-oauth-refresh`
+    capability — already built, already declared — not deselection.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+11. **OQ-A11 — do the ungated host daemons get gated: the broker singleton, the per-jail relay, and
+    the host nix-daemon socket?**
+
+    §1.1 and §1.3: `run.go:392-398` spawns the broker singleton and a relay **every launch with no
+    lookup**, and the host nix-daemon socket is mounted because it exists. Both are host crossings
+    that no key controls, so **R1 has counterexamples in the run pipeline today** — and R6 by itself
+    does not remove them: after the move, a jail that does not select the claude pack has no broker
+    in any surface (`loopholes list` will not name it, the briefing will not mention it) while yolo
+    keeps spawning the singleton on that host at every launch. A daemon none of yolo's own surfaces
+    name is worse than one that is merely on.
+
+    _Leaning:_ **gate the broker daemons on the loophole record; leave nix for now and say why.** The
+    broker is squarely in scope — it is the loophole R6 is already moving, and the fix is to route
+    `brokerEnsure` through the same record everything else uses. Nix is a different animal: it is
+    infrastructure the *image* depends on rather than a capability a jail reaches for, and gating it
+    is a `--no-nix`-shaped feature, not an activation ruling. But §1.3 must carry the row either way
+    — the table's credibility is the argument.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+12. **OQ-A12 — `yolo check` cannot see pack-shipped loopholes; does that get fixed in this sprint?**
+
+    The health section reads only the non-pack sources, so today it costs nothing: the only
+    pack-shipped loophole is `audio-alsa`, which has no `doctor_cmd`. **This sprint moves the only
+    two loopholes that have one** — the broker and host-processes — out of the surface that reports
+    their health. On the day the conversion lands, `yolo check` prints a cheerful "no loopholes
+    installed" while the broker's cert freshness, liveness and self-check go unreported.
+
+    _Leaning:_ **fix it in the sprint, as part of the conversion rather than after it.** §4 already
+    worries that R3 costs diagnosability; landing this in the same sprint would compound it on
+    exactly the command a user reaches for when a loophole is silently off. It is also the honest
+    completion of [`pack-code-separation.md`](pack-code-separation.md)'s doctor ruling, which said
+    `check` should read loophole health through the manifest surface rather than hand-rolled Go.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+13. **OQ-A13 — enabling is now the dangerous direction, and nothing discloses it. Does it need a
+    surface?**
+
+    Today `enabled: true` in an agent-editable workspace file is **inert** — the manifest default is
+    already true — so the only meaningful workspace power is turning things **off**, which is
+    precisely the direction yolo discloses at launch and warns about in `yolo check`. R2 makes
+    `enabled: true` **the activation verb** and R5 keeps it available at workspace scope. That path
+    produces no violation, no disclosure, no launch line and no warning.
+
+    The lockfile half is the same shape one surface over: a fetched pack the user reviewed, approved
+    and deliberately never enabled can flip `default_enabled: false → true` in a later commit with a
+    byte-identical claim set, so the approval check still passes.
+
+    _Leaning:_ **yes — mirror the existing disclosure, do not invent a new one.** The machinery is
+    already there for the opposite direction; pointing it at the new dangerous direction is a small
+    change and keeps one vocabulary. The lockfile half is the sharper question and may belong with
+    OQ-LP8's content-anchoring rather than here.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
