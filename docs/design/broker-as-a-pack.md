@@ -1,12 +1,16 @@
-# Shipping the OAuth broker as a pack — smaller than it looks, and the last question is whether one audit field is worth keeping
+# Emptying `bundled_loopholes/` — the broker, the identity rule, and the proving ground
 
-**Status:** DESIGN SKETCH, 2026-08-15. Nothing built. All code claims verified against the tree on that date.
+**Status:** DESIGN SETTLED, 2026-08-15. Nothing built; **`host-processes` is ready to implement** (§12). All code claims verified against the tree on that date.
 
-**Two review rounds, same day.** Round 0: §3.1 grew from a deferral into a design — pack-shipped binaries are wanted as a general capability, with per-arch selection and dynamic download — and §5.2 was added, a from-scratch explanation of what the front is and what "the stamp" means on the wire. Round 1 **retracted this doc's central claim** (§5.2a): the front is *not* a component that never parses, and the stamp is not the hard thing the first two versions said it was. The title changed with it.
+**Three review rounds, same day.** Round 0: §3.1 grew from a deferral into a design — pack-shipped binaries are wanted as a general capability, with per-arch selection and dynamic download — and §5.2 was added, a from-scratch explanation of what the front is and what "the stamp" means on the wire. Round 1 **retracted this doc's central claim** (§5.2a): the front is *not* a component that never parses. Round 2 ruled the identity question (§5.5) and, in doing so, rejected the *unconditional* version of it — which produced a better answer than anything on the table. The title has changed twice; the scope grew from one loophole to the channel.
 
-**Two rulings from round 1 that set the scope, both of which overrule a leaning of mine:**
+**Three rulings, each of which overrules a leaning of mine:**
 
-> **The broker move and the pack-shipped binary capability ship TOGETHER**, not one then the other (OQ-BP1). And **`bundled_loopholes/` has no inhabitants at the end of this work sprint** (OQ-BP4) — the goal is the channel's retirement, not one fewer entry in it.
+> 1. **The broker move and the pack-shipped binary capability ship TOGETHER**, not one then the other (OQ-BP1).
+> 2. **`bundled_loopholes/` has no inhabitants at the end of this work sprint** (OQ-BP4) — the goal is the channel's retirement, not one fewer entry in it.
+> 3. **Every loophole daemon receives a host-asserted `jail_id` by default, and a pure byte pipe may decline it** (OQ-BP2, §5.5). Breaking changes are in scope.
+
+**All open questions that gate implementation are now answered.** What remains open (OQ-BP5, OQ-BP6) belongs to the binary capability and blocks nothing in §12.
 
 **Scope note.** That second ruling makes this doc one of three conversions rather than a self-contained change, and the other two are not designed here: `host-processes` needs the same `publishes` change with none of the relay complexity, and `audio` cannot become a pack at all until **OQ-LP14** is answered. §11 states what each needs and what is genuinely blocking; the work belongs to the sprint, not to this document.
 
@@ -253,6 +257,29 @@ That reframes the question from *"how does the front learn the jail?"* (it alrea
 
 **The cost of D, restated after §5.2a:** smaller than first claimed. The front already frames-and-reads for auth, and yolo owns `frameproto`, so the honest cost is the verbatim-fallback paths and the fact that the parse must be *declared* rather than universal. One property does still need protecting: **I2 — a stamping front still emits exactly one connection-level audit record.** The opt-in buys a payload edit, not a per-request audit tier; those are separate things and the manifest key must not quietly enable the second.
 
+### 5.5 RULED — identity is delivered by default, and a pure proxy may decline it
+
+**The ruling, 2026-08-15:** every loophole daemon receives a host-asserted `jail_id` — **default on, not opt-in** — but a loophole may turn it off. Breaking changes are acceptable to get there.
+
+**The objection that shaped it, and it was correct.** The first version of this ruling was "mandatory, no exceptions", and the reviewer pushed back: *"are we prescribing a wire format for an otherwise straight-up proxy? that seems wrong."* It is wrong, and the repo already says so — `hostservice.go:30-36`: *"nothing constrains a loophole's protocol to be request-shaped — it may be framed, a raw stream, audio, video … Do not paper that seam over by promising the front something it cannot deliver."* An unconditional payload stamp would have made framed JSON the price of admission for a byte pipe.
+
+**So the framework stops assuming and starts asking.** A loophole declares its connection shape:
+
+| | `payload: "framed"` (**default**) | `payload: "raw"` |
+|---|---|---|
+| what it means | the client's opening message is `<4-byte BE length><UTF-8 JSON object>` | an opaque byte stream; yolo has no idea what is in it |
+| what yolo does | inserts `jail_id` into that opening object, host-side, overriding any client value | splices it untouched |
+| audit | connection record **plus** meaningful per-request lines | connection record only |
+| who it is for | every jail-facing daemon that exists today | an audio/video/socket pass-through — the case `hostservice.go` reserved and nothing has yet used |
+
+**Why this is not the prescription it replaces.** Today the framework *guesses*: `hostservice` maintains two audit tiers precisely because it cannot tell which shape a connection is, and the honest consequence is that tier 2's `jail=` is whatever the client claimed. Making the daemon **declare** its shape removes the guess. A raw proxy is not being told what to speak; it is being given a way to say "I am a pipe, leave my bytes alone" — which it cannot say today.
+
+**What "default on" buys, and it is the part worth having:** the default is the safe one. A loophole author who declares nothing gets host-asserted identity and truthful per-request auditing; opting out is a visible line in a manifest, so a daemon whose `jail=` is *not* trustworthy is a thing you can grep for rather than a thing you have to know.
+
+**Delivery, settled by the opt-out:** with `raw` available, the payload stamp (option D) is the mechanism — it reuses `brokerrelay`'s proven `readFirstMessage` + `stampJailID`, and the transport preamble considered in review buys nothing once a pipe can decline. **P5: the stamp lives on the accepted connection, not in the front.** `listen.go:194` already wraps every authenticated connection as `newCountingConn(conn, l.service, l.jail, …)` with the host-derived jail identity attached, and both server shapes read through that wrapper — so one implementation covers fronted daemons *and* endpoint-publishing ones, which is what makes this a single rule rather than two that can drift.
+
+**And one property holds regardless of the declaration — this is option G, kept:** yolo's own tier-1 connection record derives `jail=` from the published endpoint path (`crossingIdentity`, `crossing.go:196-201`), so **your** audit log is host-asserted for `framed` and `raw` alike. The declaration decides what the *daemon* sees, never what yolo records. That is the property I1 was really protecting.
+
 ---
 
 ## 6. What the pack looks like
@@ -264,9 +291,10 @@ packs/claude-oauth-broker/           # an OFFICIAL pack, embedded in the binary
   pack.json                          # { "kind": "loophole", "from": "loophole/broker" }
   loophole/broker/
     manifest.jsonc                   # unchanged from bundled_loopholes/, except:
-                                     #   host_daemon.publishes: "socket"      (new)
-                                     #   host_daemon.stamps: "jail_id"        (new, §5.4-D)
+                                     #   host_daemon.publishes: "socket"      (new, required of packs)
                                      #   platforms: [...]                     (if a binary ships)
+                                     # payload: "framed" is the DEFAULT (§5.5) —
+                                     # nothing to declare; only a byte pipe writes "raw"
 ```
 
 Everything else in the manifest — `serves`, `intercepts`, `broker_ip`, `ca_cert`, `state_files`, `requires`, `doctor_cmd` — is already correct and moves unchanged. The `{state}` token is explicitly designed to survive a restage (`loopholedecl/tokens.go:20-28`), which is what makes a pack-shipped CA possible at all.
@@ -298,7 +326,8 @@ Everything else in the manifest — `serves`, `intercepts`, `broker_ip`, `ca_cer
 
 | Risk | Mitigation |
 |---|---|
-| The opt-in parse in the front becomes the place every future protocol feature gets bolted on | Keep it a **closed set of stamp names** in the schema, the same discipline `packdecl.KnownHooks` uses for the imperative hooks; one name today |
+| The stamp becomes the place every future protocol feature gets bolted on | Keep the inserted set **closed and tiny** — one key, `jail_id` — the same discipline `packdecl.KnownHooks` uses for the imperative hooks. `payload: "framed"` is a declaration about shape, not a request for services |
+| `payload: "raw"` becomes the way to dodge auditing | It cannot: tier-1's `jail=` is derived from the published endpoint path regardless of the declaration (§5.5). `raw` costs a daemon its per-request lines; it buys no privacy from yolo |
 | Deleting the relay loses the bounded-drain behaviour that makes a dial failure a clean EOF | It is not lost — `front.go`'s splice already distinguishes the case and marks `CrossingUnreachable`; the drain semantics must be **pinned by a test** before the relay is deleted, not after |
 | A fronted broker socket is reachable by something on the host that the host-only relay socket excluded | The socket path stays where it is (`/tmp`, host-only, 0600); the front is an additional listener, not a relocation |
 | The unexercised jail-binary path (§3) turns out to have a real defect once something uses it | Prove it with a throwaway pack shipping a two-line binary **before** committing to the broker move — it is the cheapest possible test of P1 |
@@ -343,7 +372,37 @@ Three things follow, and the first is the one to notice:
 - **The `publishes` subset rule is the common blocker, and it is load-bearing rather than accidental.** It exists so a pack-shipped daemon cannot get TLS, token handling or endpoint permissions wrong; converting all three onto the framework front is the same work as honoring it. Worth stating because "all three bundled loopholes violate the pack-shipped subset" sounds like a rule that is too strict, and it is not — it is a rule they predate.
 - **`host-processes` is the cheap one and should go first.** It exercises the whole conversion path — subset validation, official-pack staging, the front, `doctor_cmd` — with none of the broker's complexity. If something structural is wrong with converting a bundled loophole, it will show up there for a fraction of the cost.
 
-**And one finding that lands in this doc's favour:** `yolo-ps` already sends its own `jail_id` from inside the jail (`cmd/yolo-ps/main.go:121-122`), which `hostservice` records verbatim as untrusted. So yolo *already ships* a loophole whose `jail_id` is client-asserted, and has done without complaint. That is the strongest evidence for option **G** in §5.4 — dropping the daemon-visible field rather than building a mechanism to keep it trustworthy — because it makes the broker consistent with the loophole beside it instead of uniquely strict.
+**And one finding worth carrying into §12:** `yolo-ps` already sends its own `jail_id` from inside the jail (`cmd/yolo-ps/main.go:121-122`), which `hostservice` records verbatim as untrusted. So the loophole chosen as the proving ground is *exactly* the one whose attribution the §5.5 ruling fixes — it stops being a client's claim and becomes yolo's assertion.
+
+---
+
+## 12. `host-processes` as the proving ground
+
+**Why this one.** It exercises the entire conversion path — pack-shipped subset validation, official-pack staging, `publishes: "socket"`, the framework front, `doctor_cmd`, and the new identity rule — while having none of the broker's complexity: no relay, no CA, no intercept, no credential file, no single-use token to burn if it goes wrong. If something structural is wrong with converting a bundled loophole, it surfaces here for a fraction of the cost. **Nothing about it is blocked**: it needs no answer from OQ-LP14 (no runtime-dir sockets), OQ-BP5 or OQ-BP6 (no shipped binary — `yolo-ps` stays baked, which an official pack may do).
+
+**What it is today.** `bundled_loopholes/host-processes/manifest.jsonc` declares `requires.command_on_path: ps`, `transport: loopback-tls`, a `host_daemon` whose cmd is `["yolo","internal","daemon","host-processes","--endpoint","{endpoint}"]`, and a `doctor_cmd`. The daemon publishes its own endpoint via `hostservice.ServeEndpoint` → `svcendpoint.Listen` (`hostservice.go:288`). The jail-side client is the baked `cmd/yolo-ps`, which reads `YOLO_SERVICE_HOST_PROCESSES_ENDPOINT` and self-reports a `jail_id` nobody trusts.
+
+**The five changes, and what each one proves:**
+
+| # | Change | What it proves |
+|---|---|---|
+| 1 | Daemon moves from `ServeEndpoint`/`{endpoint}` to `ServeUnix`/`{socket}`, with `publishes: "socket"` in the manifest | the framework front can carry a real daemon — the same flip the broker needs, without the relay |
+| 2 | The identity stamp lands on the accepted connection (**P5**), `payload` defaults to `framed` | the §5.5 rule works for an endpoint-shaped daemon *and* a fronted one, from one implementation |
+| 3 | `yolo-ps` stops self-reporting `jail_id` | the field's only source is now the host — and tier 2's `jail=` becomes as trustworthy as tier 1's |
+| 4 | Manifest moves to `packs/host-processes/loophole/host-processes/`, an official pack; bundled copy deleted | a bundled loophole can become a pack at all — staging, selection, exclusivity pre-flight, `doctor_cmd` |
+| 5 | `requires.command_on_path: ps` and the workspace `host_processes.visible` list keep working | the pack-shipped subset's `requires` rule accepts a real manifest unchanged |
+
+**Settled decisions this rests on**, so implementation does not have to re-litigate them:
+
+- **The stamp's home is the accepted-connection wrapper**, not `ServeFront` (§5.5, P5) — one implementation for both server shapes.
+- **`payload` defaults to `framed`**, so neither this manifest nor any existing one has to declare anything to keep working; `raw` exists for a future pipe.
+- **`publishes: "socket"` for every converted loophole**, because the pack-shipped subset requires it (`packshipped.go:371-405`) — the three bundled loopholes predate that rule rather than disproving it (§11).
+- **A baked client binary is fine for an official pack** — `yolo-ps` does not become a shipped artifact, so §3.1's binary work stays off this critical path.
+- **`{endpoint}` survives** for yolo's own non-loophole services (the journal bridge still publishes its own, `journaldcmd.go:75`). Whether the *manifest key* `publishes: "endpoint"` should be retired once its last loophole user is gone is a genuine follow-on — it is not needed to finish the sprint, and OQ-BP4's end state makes it a two-line deletion.
+
+**The order to build it in:** change 2 first, while the relay still exists and still does its own stamping (the insert is idempotent, so a double stamp is the same value twice — which is what makes the transition safe rather than flag-day). Then 1 and 3 together, since 3 is only correct once 2 is in. Then 4, which is the part that either works immediately or teaches us something. Change 5 is a verification, not an edit.
+
+**What "it worked" looks like:** `yolo-ps` returns the same output from inside a jail; the tier-1 connection record and the tier-2 request line agree on `jail=`; a client that sends a *spoofed* `jail_id` sees it overridden in both; `yolo check` still reports the loophole's doctor result; and `bundled_loopholes/` has one fewer directory with nothing in core mentioning `host-processes` by name.
 
 ---
 
@@ -369,7 +428,9 @@ Three things follow, and the first is the one to notice:
    _Resolved by:_ grepping the broker's decision paths for any per-jail behaviour, then a maintainer ruling on whether daemon-visible `jail_id` must remain trustworthy.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Yes — and for every loophole daemon, on by default, with a declared opt-out.** Full design in §5.5. The short form: a loophole declares `payload: "framed"` (default) and yolo inserts a host-asserted `jail_id` into the opening request; a pure byte pipe declares `payload: "raw"` and is spliced untouched. Either way yolo's own connection record carries a host-derived `jail=`, so the declaration decides what the *daemon* sees, never what the audit log says.
+   >
+   > *Two of my recommendations were overruled and both were wrong in the same direction — I kept proposing opt-in mechanisms for something that should be the default.* The reviewer's objection to the first "mandatory, no exceptions" draft is what produced the `framed`/`raw` declaration, which is better than either: it stops the framework guessing a connection's shape, which is the actual root of today's two-tier audit split.
 
 3. **OQ-BP3 — does this wait for OQ-LP14, or proceed beside it?**
 
