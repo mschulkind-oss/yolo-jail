@@ -1,6 +1,6 @@
 # Ongoing work
 
-**Status: 18 attention required · 6 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
+**Status: 19 attention required · 6 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
 
 Last updated 2026-08-15. Counts tallied from this file, not asserted.
 
@@ -177,6 +177,29 @@ half-built artifact still there".**
   that already ships.
 - **Blocks nothing:** with one auth pack there is no second writer.
 - 📄 [`pack-config-collaboration.md`](../design/pack-config-collaboration.md)
+
+### 💬 OQ-BP1/2/3 — shipping the OAuth broker as a pack
+
+Decided *that* it ships ([`pack-code-separation.md`](../design/pack-code-separation.md) OQ-1);
+[`broker-as-a-pack.md`](../design/broker-as-a-pack.md) designs *how*, and found the job smaller than
+the parent doc estimated — jail-daemon-as-binary turns out to be already expressible and merely
+unexercised. Three questions, and the first two decide the size:
+
+- **OQ-BP1 — may an official pack's loophole keep a *baked* daemon?** If yes, the broker move is a
+  manifest relocation plus one stamp, with no build-and-distribution story at all. If no, yolo's
+  release process starts producing per-platform binaries carried inside a pack.
+  **My read: yes** — accountability is about who wrote the code, and requiring binaries makes the
+  strictest packaging demand of the one author who least needs constraining.
+
+- **OQ-BP2 — does the front gain a *declared* protocol-aware parse, or does `jail_id` attribution
+  change shape?** The relay stamps a host-asserted `jail_id`; the front is designed never to parse
+  the stream. **My read: ask the narrower question first** — the front already knows which jail it
+  authenticated, so if `jail_id` is purely diagnostic (it appears nowhere in `internal/oauthbroker`),
+  the framework can record it in its own audit line and never parse anything.
+
+- **OQ-BP3 — pair it with OQ-LP14, or proceed beside it?** **My read: beside.** I wrote the opposite
+  in this file yesterday and it was wrong: OQ-LP14 needs a new host-crossing claim class, and this
+  needs none.
 
 ## Scope and direction
 
@@ -454,16 +477,19 @@ leanings struck rather than deleted.
 **The three landable steps are in 📦 above.** What remains here is the fourth, which is a
 workstream, not a queue item:
 
-- **Make the broker shippable** — build jail-daemon-as-binary, fold `internal/brokerrelay` into
-  the framework-owned front, then move the broker onto both. This was the "leave it bundled" option
-  in the design; it was decided the other way, so the broker stops being the standing exception to
-  *agents are packs*. It is a **net subtraction** from core — the folding deletes the relay rather
-  than relocating it.
+- **Make the broker shippable** — now designed in
+  [`broker-as-a-pack.md`](../design/broker-as-a-pack.md), and **the design shrank the job**. Two
+  corrections to what §4 assumed: jail-daemon-as-binary is *already expressible* (the
+  `{jail_loophole_dir}` token, an exec-capable `:ro` module-dir mount, and nix-ld all exist — the
+  path is unexercised, not missing), and three of the relay's four jobs are already the
+  framework-owned front's. The whole design reduces to one conflict: the relay stamps a trustworthy
+  `jail_id` and the front is built never to parse the stream.
 
-  **Next step is design, not code:** §4 names the two vocabulary additions but does not design
-  either, and the first one lands right next to **OQ-LP14** at the top of this file — both are about
-  what a pack-shipped loophole may declare. Design them together, or the second will re-open the
-  first.
+  It is still a **net subtraction** from core — `internal/brokerrelay` is deleted, not relocated.
+
+  **Its three questions are in 💬 above.** And a correction to what this entry said yesterday:
+  **do not pair it with OQ-LP14.** That one needs a new host-crossing claim class; this one needs
+  none, so coupling them would delay the cheaper change behind the harder one.
 
 **Two things the review settled without needing a decision**, small enough to fold into any commit
 that touches the area: `packhooks.go:6` still says the three hooks are *"all currently claude's"*
