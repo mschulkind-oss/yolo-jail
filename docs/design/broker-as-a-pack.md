@@ -8,13 +8,13 @@
 
 > 1. **The broker move and the pack-shipped binary capability ship TOGETHER**, not one then the other (OQ-BP1).
 > 2. **`bundled_loopholes/` has no inhabitants at the end of this work sprint** (OQ-BP4) — the goal is the channel's retirement, not one fewer entry in it.
-> 3. **Every connection stays raw and yolo prepends its own identity frame** — default on, `identity_frame: false` for a dumb pipe (OQ-BP2, §5.5). yolo never parses a daemon's payload. Breaking changes are in scope.
+> 3. **Every connection stays raw and yolo prepends its own connection preamble** — default on, `preamble: false` for a dumb pipe (OQ-BP2, §5.5). yolo never parses a daemon's payload. Breaking changes are in scope.
 
 **All open questions that gate implementation are now answered.** What remains open (OQ-BP5, OQ-BP6) belongs to the binary capability and blocks nothing in §12.
 
 **Scope note.** That second ruling makes this doc one of three conversions rather than a self-contained change, and the other two are not designed here: `host-processes` needs the same `publishes` change with none of the relay complexity, and `audio` cannot become a pack at all until **OQ-LP14** is answered. §11 states what each needs and what is genuinely blocking; the work belongs to the sprint, not to this document.
 
-**The short version.** [`pack-code-separation.md`](pack-code-separation.md) §4 named two things that must be true before the `claude-oauth-broker` can ship as a pack: a **jail-side daemon shippable as a binary**, and the **per-jail relay** becoming expressible. The first is essentially already built — the container mount, the manifest token, the loader and the pack-shipped subset all already permit it, and nobody noticed because nothing has tried. The second reduces to three of four jobs the framework-owned front *already does*, plus one it does not: the relay decodes each request to stamp a host-asserted `jail_id` into it. **That job is now deleted rather than moved.** yolo prepends its own **identity frame** to every authenticated connection and never inspects a payload byte again — which removes the relay's reason to exist, removes the framework's only obligation to re-serialize someone else's JSON byte-identically, and gives every daemon, in any language, one uniform thing to read. `internal/brokerrelay` goes; nothing replaces it.
+**The short version.** [`pack-code-separation.md`](pack-code-separation.md) §4 named two things that must be true before the `claude-oauth-broker` can ship as a pack: a **jail-side daemon shippable as a binary**, and the **per-jail relay** becoming expressible. The first is essentially already built — the container mount, the manifest token, the loader and the pack-shipped subset all already permit it, and nobody noticed because nothing has tried. The second reduces to three of four jobs the framework-owned front *already does*, plus one it does not: the relay decodes each request to stamp a host-asserted `jail_id` into it. **That job is now deleted rather than moved.** yolo prepends its own **connection preamble** to every authenticated connection and never inspects a payload byte again — which removes the relay's reason to exist, removes the framework's only obligation to re-serialize someone else's JSON byte-identically, and gives every daemon, in any language, one uniform thing to read. `internal/brokerrelay` goes; nothing replaces it.
 
 **The most important section is §5.5** — everything else is inventory and consequence.
 
@@ -30,7 +30,7 @@ Three claims, each argued below:
 
 - **P1. Jail-daemon-as-binary is not a missing mechanism.** `{jail_loophole_dir}` already resolves to a container path, the module dir is already bind-mounted there `:ro` **without `noexec`**, `nix-ld` already runs non-nix dynamically-linked binaries, and the pack-shipped subset does not restrict `jail_daemon` at all. What is missing is *selection, delivery and trust* for the binary — designed in §3.1 on review request, and **not on the broker's critical path**, because an official pack may keep a baked daemon. (§3)
 - **P2. The relay is 3/4 redundant with the front.** Per-connection upstream dial, TLS termination, endpoint publication, and layer-attributable failure are all in `svcendpoint` already. (§4)
-- **P3. The relay's last job is replaced by something smaller than itself.** Ruled in §5.5: yolo never parses a daemon's payload, and instead prepends one **identity frame** to every authenticated connection — so `readFirstMessage`, `stampJailID` and their fallbacks are deleted rather than relocated, and the framework stops re-serializing someone else's JSON to keep a frozen wire contract. (§5)
+- **P3. The relay's last job is replaced by something smaller than itself.** Ruled in §5.5: yolo never parses a daemon's payload, and instead prepends one **connection preamble** to every authenticated connection — so `readFirstMessage`, `stampJailID` and their fallbacks are deleted rather than relocated, and the framework stops re-serializing someone else's JSON to keep a frozen wire contract. (§5)
 
 **What I would not do:** treat this as a prerequisite for the rest of `pack-code-separation.md`. Its steps 1–3 are independent and should land first regardless of how this goes.
 
@@ -255,26 +255,26 @@ That reframes the question from *"how does the front learn the jail?"* (it alrea
 
 ~~**Recommendation: G, with D as the fallback.**~~ **Superseded by §5.5 — the answer is B.** Recording the path, because I recommended three different options across three rounds and each was rejected for the same reason: I kept optimizing for *not disturbing existing daemons*, and the ruling each time was that disturbing them uniformly is cheaper than any mechanism that avoids it. D and G both survive as descriptions of roads not taken; neither is the design.
 
-**I2 survives the change and gets simpler:** a connection still emits exactly one connection-level audit record. The identity frame is not a request and does not create a per-request tier — it is one frame at connection open, in the host→daemon direction only.
+**I2 survives the change and gets simpler:** a connection still emits exactly one connection-level audit record. The connection preamble is not a request and does not create a per-request tier — it is one frame at connection open, in the host→daemon direction only.
 
-### 5.5 RULED — every connection is raw; yolo prepends an identity frame
+### 5.5 RULED — every connection is raw; yolo prepends a connection preamble
 
 **The ruling, 2026-08-15, after two rejected drafts of mine.** Draft one: mandatory payload stamp. Draft two: a `framed`/`raw` declaration, stamping the framed case. Both were rejected on the same ground, and the ground is right:
 
 > *"I don't even want framed in here. Just raw. We can still send a formatted preamble of JSON or whatever, even a frame — but then it's just raw, that's it. And you can turn off that frame if you need a dumb pipe implementation."*
 
-**The design that falls out.** yolo **never decodes the daemon's bytes**. Every connection is an opaque stream. What yolo adds is one **identity frame** of its own, ahead of the stream, and then it gets out of the way:
+**The design that falls out.** yolo **never decodes the daemon's bytes**. Every connection is an opaque stream. What yolo adds is one **connection preamble** of its own, ahead of the stream, and then it gets out of the way:
 
 ```
 daemon reads:  [4B BE len][{"jail_id":"yolo-…-7f3a","service":"host-processes","v":1}]  ← yolo's, always first
                [ ...the client's bytes, byte-for-byte untouched, forever... ]           ← never inspected
 ```
 
-The declaration is no longer about the payload's shape — yolo has no opinion on that — it is one bit about whether the frame is sent at all: **`identity_frame: true` (default) · `false` for a dumb pipe.**
+The declaration is no longer about the payload's shape — yolo has no opinion on that — it is one bit about whether the frame is sent at all: **`preamble: true` (default) · `false` for a dumb pipe.**
 
 **Why this is better than both drafts, concretely.** It is not a compromise; it is smaller:
 
-| | payload stamp (rejected) | identity frame (ruled) |
+| | payload stamp (rejected) | connection preamble (ruled) |
 |---|---|---|
 | yolo parses the daemon's protocol | yes, frame #1 | **never** |
 | code needed in the framework | decode, insert, re-encode byte-identically (`jsonx` Python-parity), recompute length, plus verbatim fallbacks for oversize / timeout / non-object | **write N bytes, then splice** |
@@ -286,11 +286,15 @@ That last row is the one that decides it. The relay's protocol-aware trick does 
 
 **Where it goes (P5, revised).** On the accepted-connection wrapper, `listen.go:194`, where `newCountingConn(conn, l.service, l.jail, …)` already attaches the host-derived identity. The wrapper now **prefixes the read stream** instead of transforming it, which is a smaller change than either draft: no parser, no writer, no fallbacks. One implementation covers both server shapes — a fronted daemon reads it through the front's `io.Copy`, an endpoint-publishing daemon reads it directly — so the Go server library and a third-party daemon do exactly the same thing, which is the property that keeps them from drifting.
 
-**What the frame carries**, and the set stays closed: `jail_id` (host-derived, the whole point), `service` (which loophole this listener is), `v` (so the frame can grow without a guessing game). It is host→daemon only, exactly once, at connection open. It never appears in the response direction, and the jail-side client never sees it — a client cannot forge, suppress, or even observe it.
+**What it carries today** — `jail_id` (host-derived, the reason it exists), `service` (which loophole this listener is), and `v` (the envelope version). It is host→daemon only, exactly once, at connection open; it never appears in the response direction, and the jail-side client never sees it, so a client cannot forge, suppress, or even observe it.
 
-**What it costs, stated plainly.** Every existing daemon's read path changes once — that is the breaking change, and it is in scope. All three affected daemons are yolo's own (`hostservice`, the journal bridge, the broker), and `hostservice` reading it once covers every Go daemon written since. A daemon that declares `identity_frame: false` gets a genuinely dumb pipe and, in exchange, no identity at all.
+**On the name.** It is *not* called an identity frame, deliberately: identity is what it carries first, not what it is. The frame is the framework's channel for anything it needs to tell a daemon **about the connection** before the connection's own bytes start — and naming it for today's single field would make the second field look like a violation instead of an addition. `v` is what keeps that honest.
 
-**And the property that holds either way:** yolo's tier-1 connection record derives `jail=` from the published endpoint path (`crossingIdentity`, `crossing.go:196-201`) regardless of the declaration. Turning the frame off costs the daemon its identity, never yolo its audit trail — so `identity_frame: false` is not a privacy switch, and cannot be used as one.
+**One disambiguation for whoever implements it:** `svcendpoint` now has two length-prefixed frames on one connection, and they are opposites. The **token frame** is client→server, pre-auth, consumed and discarded (`token.go:97-125`). The **preamble** is host→daemon, post-auth, and is the only thing yolo ever *adds* to a stream. Neither is part of the daemon's own protocol.
+
+**What it costs, stated plainly.** Every existing daemon's read path changes once — that is the breaking change, and it is in scope. All three affected daemons are yolo's own (`hostservice`, the journal bridge, the broker), and `hostservice` reading it once covers every Go daemon written since. A daemon that declares `preamble: false` gets a genuinely dumb pipe and, in exchange, nothing the preamble carries — no identity today, and none of whatever it carries later. That is the trade, and it should be the reason to think twice before setting it.
+
+**And the property that holds either way:** yolo's tier-1 connection record derives `jail=` from the published endpoint path (`crossingIdentity`, `crossing.go:196-201`) regardless of the declaration. Turning the frame off costs the daemon its identity, never yolo its audit trail — so `preamble: false` is not a privacy switch, and cannot be used as one.
 
 **Downstream deletions this unlocks:** `frameproto`'s `jail_id` request field becomes vestigial (`hostservice.JailID` reads the frame instead of `Request["jail_id"]`), `yolo-ps` stops self-reporting one, and `hostservice`'s two-tier asymmetry loses its cause — tier 2's `jail=` becomes as host-asserted as tier 1's, which is what the comment at `hostservice.go:37-40` currently has to warn readers about.
 
@@ -307,7 +311,7 @@ packs/claude-oauth-broker/           # an OFFICIAL pack, embedded in the binary
     manifest.jsonc                   # unchanged from bundled_loopholes/, except:
                                      #   host_daemon.publishes: "socket"      (new, required of packs)
                                      #   platforms: [...]                     (if a binary ships)
-                                     # identity_frame defaults to true (§5.5) —
+                                     # preamble defaults to true (§5.5) —
                                      # nothing to declare; only a dumb pipe writes false
 ```
 
@@ -340,8 +344,8 @@ Everything else in the manifest — `serves`, `intercepts`, `broker_ip`, `ca_cer
 
 | Risk | Mitigation |
 |---|---|
-| The identity frame becomes the place every future protocol feature gets bolted on | Keep its keys a **closed, tiny set** — `jail_id`, `service`, `v` — the same discipline `packdecl.KnownHooks` uses for the imperative hooks. It carries identity, not services, and `v` is what lets that hold without a guessing game |
-| `identity_frame: false` becomes the way to dodge auditing | It cannot: tier-1's `jail=` is derived from the published endpoint path regardless of the declaration (§5.5). Turning the frame off costs the daemon its identity, never yolo its audit trail |
+| The preamble accretes fields until it is a second protocol | It is **meant** to grow — that is why it is not named for today's contents — so the discipline is not "keep it empty" but "keep it a versioned envelope": `v` is mandatory, the key set is closed *per version* and reviewed as a schema change, and a daemon that does not recognize a version fails loudly rather than guessing. Growth is a decision each time, not a slope |
+| `preamble: false` becomes the way to dodge auditing | It cannot: tier-1's `jail=` is derived from the published endpoint path regardless of the declaration (§5.5). Turning the frame off costs the daemon its identity, never yolo its audit trail |
 | The frame silently breaks a daemon nobody remembered to update | It is a **breaking change on purpose** and the blast radius is three in-tree daemons; the migration test is that a daemon which does NOT read the frame fails loudly at its first request rather than misparsing one — the frame is length-prefixed, so a naive reader sees a length it cannot use, not a plausible-looking request |
 | Deleting the relay loses the bounded-drain behaviour that makes a dial failure a clean EOF | It is not lost — `front.go`'s splice already distinguishes the case and marks `CrossingUnreachable`; the drain semantics must be **pinned by a test** before the relay is deleted, not after |
 | A fronted broker socket is reachable by something on the host that the host-only relay socket excluded | The socket path stays where it is (`/tmp`, host-only, 0600); the front is an additional listener, not a relocation |
@@ -402,20 +406,20 @@ Three things follow, and the first is the one to notice:
 | # | Change | What it proves |
 |---|---|---|
 | 1 | Daemon moves from `ServeEndpoint`/`{endpoint}` to `ServeUnix`/`{socket}`, with `publishes: "socket"` in the manifest | the framework front can carry a real daemon — the same flip the broker needs, without the relay |
-| 2 | The identity frame is prepended on the accepted connection (**P5**), `identity_frame` defaulting to true | the §5.5 rule works for an endpoint-shaped daemon *and* a fronted one, from one implementation — and `hostservice` reading it once covers every Go daemon |
+| 2 | The connection preamble is prepended on the accepted connection (**P5**), `preamble` defaulting to true | the §5.5 rule works for an endpoint-shaped daemon *and* a fronted one, from one implementation — and `hostservice` reading it once covers every Go daemon |
 | 3 | `yolo-ps` stops self-reporting `jail_id` | the field's only source is now the host — and tier 2's `jail=` becomes as trustworthy as tier 1's |
 | 4 | Manifest moves to `packs/host-processes/loophole/host-processes/`, an official pack; bundled copy deleted | a bundled loophole can become a pack at all — staging, selection, exclusivity pre-flight, `doctor_cmd` |
 | 5 | `requires.command_on_path: ps` and the workspace `host_processes.visible` list keep working | the pack-shipped subset's `requires` rule accepts a real manifest unchanged |
 
 **Settled decisions this rests on**, so implementation does not have to re-litigate them:
 
-- **The identity frame's home is the accepted-connection wrapper**, not `ServeFront` (§5.5, P5) — one implementation for both server shapes, and a prefix rather than a parse.
-- **`identity_frame` defaults to true**, so no manifest declares anything to keep working; `false` exists for a dumb pipe, of which there are none today.
+- **The connection preamble's home is the accepted-connection wrapper**, not `ServeFront` (§5.5, P5) — one implementation for both server shapes, and a prefix rather than a parse.
+- **`preamble` defaults to true**, so no manifest declares anything to keep working; `false` exists for a dumb pipe, of which there are none today.
 - **`publishes: "socket"` for every converted loophole**, because the pack-shipped subset requires it (`packshipped.go:371-405`) — the three bundled loopholes predate that rule rather than disproving it (§11).
 - **A baked client binary is fine for an official pack** — `yolo-ps` does not become a shipped artifact, so §3.1's binary work stays off this critical path.
 - **`{endpoint}` survives** for yolo's own non-loophole services (the journal bridge still publishes its own, `journaldcmd.go:75`). Whether the *manifest key* `publishes: "endpoint"` should be retired once its last loophole user is gone is a genuine follow-on — it is not needed to finish the sprint, and OQ-BP4's end state makes it a two-line deletion.
 
-**The order to build it in:** change 2 first, while the relay still exists and still stamps. The two coexist without a flag-day because the identity frame is **additive** — a daemon that has been taught to read it sees `[identity frame][request]`, and the relay's redundant in-payload `jail_id` is simply ignored rather than conflicting. Then 1 and 3 together, since 3 is only correct once 2 is in. Then 4, which is the part that either works immediately or teaches us something. Change 5 is a verification, not an edit.
+**The order to build it in:** change 2 first, while the relay still exists and still stamps. The two coexist without a flag-day because the connection preamble is **additive** — a daemon that has been taught to read it sees `[connection preamble][request]`, and the relay's redundant in-payload `jail_id` is simply ignored rather than conflicting. Then 1 and 3 together, since 3 is only correct once 2 is in. Then 4, which is the part that either works immediately or teaches us something. Change 5 is a verification, not an edit.
 
 **What "it worked" looks like:** `yolo-ps` returns the same output from inside a jail; the tier-1 connection record and the tier-2 request line agree on `jail=`; a client that sends a *spoofed* `jail_id` sees it overridden in both; `yolo check` still reports the loophole's doctor result; and `bundled_loopholes/` has one fewer directory with nothing in core mentioning `host-processes` by name.
 
