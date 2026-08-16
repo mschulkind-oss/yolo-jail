@@ -1,6 +1,6 @@
 # Ongoing work
 
-**Status: 19 attention required · 7 ready · 0 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
+**Status: 19 attention required · 6 ready · 1 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
 
 Last updated 2026-08-15. Counts tallied from this file, not asserted.
 
@@ -312,25 +312,34 @@ staging change it proposes — and the small independent items trail.
   `loopholes enable/disable` off its single special case — it serves only that dir today — into
   config state for every source.
 
-- 📦 **`host-processes` → an official pack, carrying the new identity rule.** *(Sprint step 1 — the
-  proving ground for emptying `bundled_loopholes/`.)*
+- 🏗️ **`host-processes` — steps 1-6 of 7 LANDED; the pack move is blocked.** *(Sprint step 1.)*
 
-  Design settled in [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) §12, which lists the five
-  changes and what each proves. In short: the daemon moves from `ServeEndpoint`/`{endpoint}` to
-  `ServeUnix`/`{socket}` behind the framework front; a framework-owned **connection preamble** is
-  prepended on the accepted-connection wrapper (`listen.go:194`, where the host-derived identity is
-  already attached), so one implementation serves both server shapes and yolo never parses a payload;
-  `yolo-ps` stops self-reporting a `jail_id` nobody trusted; and the manifest moves into an official
-  pack with the bundled copy deleted.
+  Built 2026-08-15/16 via [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) §12. What is in:
+  the **connection preamble** end to end (codec, prefixed on the accepted connection where the
+  host-derived identity already lives, read once by `hostservice` so every Go daemon inherits it),
+  the `preamble` manifest key defaulting on, `ServeFrontedUnix`, host-processes running behind the
+  framework front on `publishes: "socket"`, and `yolo-ps` no longer self-reporting a `jail_id`
+  nobody trusted. `just done` green, tree clean.
 
-  **Nothing blocks it** — no runtime-dir sockets (so OQ-LP14 is irrelevant here), no shipped binary
-  (so BP5/BP6 are too — `yolo-ps` stays baked, which an official pack may do). **Build the stamp
-  first**, while the relay still stamps too: the insert is idempotent, so the transition is not a
-  flag-day.
+  **What remains is step 7 — the official pack — and it is BLOCKED on the activation decisions**
+  (OQ-A9's `enabled`/`default_enabled` collision decides what the pack's manifest even says, and
+  OQ-A7 decides whether it needs selecting). Everything before it is independently shipped.
 
-  **Done looks like:** `yolo-ps` output unchanged from inside a jail · tier-1 and tier-2 audit lines
-  agree on `jail=` · a spoofed client `jail_id` is overridden in both · `yolo check` still reports the
-  doctor result · nothing in core names `host-processes`.
+  **Three defects the adversarial pass caught, all fixed and pinned:**
+  - The relay's `NoPreamble` opt-out — the guard standing between this work and every jail's Claude
+    auth — had **no test that failed when it was removed**. The plan named an existing test as the
+    tripwire; it passed without the opt-out. Now genuinely pinned (verified by mutation).
+  - `preamble: "false"` (a quoted boolean) coerced to **true** through `Truthy` — the dumb-pipe
+    opt-out silently did the opposite of what its author wrote. Now refused rather than coerced.
+  - A connect-and-close probe against a fronted **framed** daemon leaked two goroutines and two fds
+    **forever** and emitted no tier-1 record. `yolo check` does exactly that shape on every run.
+    Fixed by signalling EOF upstream only when the client wrote zero payload bytes — the one
+    condition that cannot cut a response short, and therefore cannot touch the relay.
+
+  **One trap recorded for whoever writes step 7:** the plan's own recommended "mirror refusal"
+  (refuse `{socket}` when `publishes` defaults to `endpoint`) would have refused the **shipped
+  broker manifest** and taken down every jail's Claude auth. Correctly not implemented; it must stay
+  that way or be written to exempt that shape.
 
 - 📦 **Delete the credential harvest — the shared file always wins.** *(PS step 1; all four
   [`pack-code-separation.md`](../design/pack-code-separation.md) questions are answered.)*
