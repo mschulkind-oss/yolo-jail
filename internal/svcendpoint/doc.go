@@ -52,6 +52,24 @@
 // the leanest baked clients (cmd/yolo-ps is "a pure frameproto client — no config,
 // no json5") can import it without dragging the CLI in.
 //
+// # Two length-prefixed frames on one connection, and they are OPPOSITES
+//
+// Both are 4-byte big-endian length then a body, so they look alike and are not:
+//
+//   - the TOKEN frame (token.go:97-127) is CLIENT→SERVER, pre-auth, and is
+//     consumed and DISCARDED — its bytes never become part of the payload;
+//   - the connection PREAMBLE (preamble.go, docs/design/broker-as-a-pack.md §5.5)
+//     is HOST→DAEMON, post-auth, written once at connection open, and is the only
+//     thing yolo ever ADDS to a stream.
+//
+// Neither is part of the daemon's own protocol. yolo never decodes a daemon's
+// bytes: the preamble replaces the relay's parse-and-restamp with a prefix, which
+// is why the framework has no opinion about what follows it and works the same
+// for audio, HTTP or a database socket as for frameproto.
+//
 // This layer sits BENEATH the wire protocol. internal/frameproto is unchanged and
-// unaware; a daemon behind Listen never learns which transport carried its bytes.
+// unaware; a daemon behind Listen never learns which transport carried its bytes —
+// one implementation of the preamble covers both server shapes, so a fronted
+// daemon reads it through the front's io.Copy and an endpoint-publishing one reads
+// it directly off its own accepted connection.
 package svcendpoint
