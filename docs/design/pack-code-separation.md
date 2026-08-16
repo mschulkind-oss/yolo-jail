@@ -2,6 +2,8 @@
 
 **Status:** DESIGN SKETCH, 2026-08-15. Nothing built; this doc is the diagnosis and the open questions.
 
+**Review annotations, 2026-08-15 (second agent).** Every block below that begins `> **REVIEW —**` is a reviewer's comment, not part of the original design; the author's text is untouched. Tags: **AGREE** · **DISAGREE** · **GAP** (something true and absent) · **NIT**. Two are marked **BLOCKING**: §5/OQ-3 rests on an empirical claim that had not been measured (I measured half of it during review — the result partly *supports* the author, see §5), and OQ-2's relocation target sits on the wrong side of the host/jail boundary. Everything else is small. Verdict on the whole: the diagnosis is right and well-evidenced, §4 and OQ-1/OQ-4 should be signed as written, and §5 + OQ-2 + OQ-3 need the rework described below.
+
 **The short version.** "Core does not know what an agent is" is true of the assembly layer — packs declare paths/kinds/hooks/surfaces and core renders them with no switch on a tool name. It is *not* true of a small stratum of imperative Go that is still claude-shaped: the OAuth broker's daemons are baked into `yolo`/`yolo-jaild`, the `shared_credentials` hook's harvest body hardcodes `claudeAiOauth`, and a few storage/migration helpers are named for and keyed on claude. This doc inventories that residue, proposes how each piece either becomes generic or moves into claude's own pack, and — for the broker — sketches the extension point that would let it ship externally.
 
 **Reads with:** [`loophole-packaging-overview.md`](loophole-packaging-overview.md) (the `loophole` kind and the framework-owned wire — the extension point this doc leans on), [`loophole-packaging.md`](loophole-packaging.md) (the detailed design, OQ-LP10/OQ-LP11/OQ-LP14), [`pack-capabilities.md`](pack-capabilities.md) (the `serves`/`supersedes` vocabulary the broker already uses), [`agent-credentials.md`](agent-credentials.md) (what crosses the boundary today).
@@ -30,6 +32,8 @@ The claim is real and is the dominant design. Verified against the code 2026-08-
 The boundary is the **imperative residue**: the things a pack needs done that are *not* surface content and therefore cannot be declared as layers. `internal/entrypoint/packhooks.go:3-26` is honest about this — it names three hooks and says "all currently claude's." The hooks are a **closed set** (`packdecl.KnownHooks`), and a third-party pack cannot ship a new side effect. That closed set is the design's own admission that "no agent in core" stops at the point where a side effect is tool-specific.
 
 So the accurate framing is: **the assembly layer achieved it; the imperative layer has not, because only one tool ever needed those side effects.** The work is to finish the imperative layer — either by generalizing what is genuinely generic, or by relocating what is genuinely claude-specific.
+
+> **REVIEW — NIT, and this doc's own thesis in miniature.** `packhooks.go:6` says the three hooks are "all currently claude's". That went stale one commit *before* this doc (ab39897): `packs/agy/pack.json:98` declares `shared_credentials`. The comment is quoted approvingly here rather than corrected. One line to fix, and it is the exact seam §3.2 is about.
 
 ---
 
@@ -63,9 +67,17 @@ agy's token is `{"token":{access_token,refresh_token,expiry},"auth_method":"cons
 
 There is also `claude_plugins` (`packhooks.go:55`), which is *named* for the tool and shells out to `claude plugins install/uninstall` — the doc comment admits it deliberately (`packhooks.go:49-54`).
 
+> **REVIEW — GAP.** The agy fall-through is described accurately, but its consequence is not named, and it is a defect rather than a curiosity. With `harvestCredentialsFile` returning false and the shared file already populated, `linkThroughShared` (`claude.go:46-58`) takes *neither* branch: it does not copy, then it **removes the local file** and symlinks to the shared one. So a fresh `agy` login performed in one jail works for that session and is silently reverted at the next boot, while claude's `expiresAt` merge saves the identical case.
+>
+> This is conditional on the same unverified premise §5 leans on — that a tool ever leaves a real file where the symlink was — which is *why* the observation in the §5 comment matters: one check settles both the cost of §5 and whether agy can lose logins.
+>
+> **Second, and worth stating plainly: the agy path has never run.** The pack staged into this jail (`/ctx/packs/_official/agy/pack.json`, from the baked binary's embed.FS) carries no `shared_credentials` hook — the commit that added it (ab39897, 21:39 today) postdates this jail's boot (14:52). Consistently, `~/.gemini-shared-credentials/` does not exist and no `antigravity-oauth-token` symlink was created, though the hook `MkdirAll`s both parents unconditionally (`packhooks.go:120-125`). So "a second tool consumed the hook" is a **code-reading** result, not an observed one, and the first agy login in a jail booted after ab39897 is the moment to watch. That is not a criticism of the analysis — it is right — but it means nothing has exercised the fall-through, and §5 would be rewriting a path with zero runtime evidence behind it.
+
 ### 3.3 `internal/agents` (already generic in body)
 
 `internal/agents/agents.go` is now only skills staging, briefing composition, loophole descriptions, and the source-tree probe — "the stuff that was never per-agent." The claude references are in comments (`agentsmd.go:3`, `skills.go:52`) and tests (`skills_test.go`), not in a claude-specific switch. This is a **rename**, not a redesign.
+
+> **REVIEW — NIT, in the doc's favour.** Weaker than stated. Non-test `internal/agents` has exactly **one** claude mention (`skills.go:52`); the other citation, `agentsmd.go:3`, is "CLAUDE.md" — a *filename* that several tools read, not a claude-agent reference. So there is essentially nothing here to rename, and renaming the package costs every import site. `hostclaude.go` → `hostfiles.go` (§3.5) is the one rename that pays for itself.
 
 ### 3.4 Storage migration / back-compat (claude-keyed)
 
@@ -112,6 +124,8 @@ Two things have to be true before that is more than a sketch, and both are the *
 
 The alternative — and my current leaning — is that **the broker stays bundled, but the seam is made explicit**: the claude-specific merge (§3.2) moves *into* `internal/oauthbroker` (where the shared creds file is already owned), and the generic `shared_credentials` hook keeps only the symlink+copy-if-empty. "Bundled" is not the sin; "claude-specific logic living in a generically-named hook" is.
 
+> **REVIEW — AGREE, with one addition.** This is the strongest section in the doc; OQ-1 and OQ-4 should be signed as written. The addition: the "what has to be true to ship externally" list is one item short. `check`'s `checkBrokerCredsFreshness` (`internal/cli/check/sections_misc.go:19-99`) parses `claudeAiOauth` *and* hardcodes the broker's own error strings, so an externally-shipped broker would also have to deliver its own doctor surface through some manifest vocabulary that does not exist. That is a third reason to keep it bundled — and more evidence for the leaf package proposed in the OQ-2 comment, since it is a third copy of the schema knowledge.
+
 ---
 
 ## 5. `shared_credentials` — generic, or moved
@@ -125,11 +139,21 @@ Proposal, in two moves:
 
 The cost of (1): claude loses the boot-time merge of a *stale* local file into a *fresher* shared file. That case only arises when a jail holds a real (non-symlink) credential file while the shared file is already populated — a migration edge, not steady state, and the broker's flock already serializes the refresh that matters.
 
+> **REVIEW — DISAGREE (BLOCKING).** That cost estimate rests on an empirical claim nobody has verified: *a real (non-symlink) file at `link` only appears on a migration edge.* Nothing in the repo establishes it. Every doc phrases it as a **pre-existing** regular file ([`jail-home.md`](jail-home.md) §4.2, [`agent-credentials.md`](agent-credentials.md)'s code map) — which is the first-boot story — but `jail-home.md` §4.1 also records that Claude atomic-renames `~/.claude.json`, and a rename over `~/.claude/.credentials.json` would replace the symlink with a real file **in steady state**. `docs/research/claude-oauth-refresh-mechanics.md:44` lists "Claude itself after a successful refresh" as a writer of that file and does not say which write mode it uses. Nobody has checked.
+>
+> **The observation that settles it, and the part of it I made.** Measured in this jail, 2026-08-15: `~/.claude/.credentials.json` is **still a symlink**, `lrwxrwxrwx … -> ../.claude-shared-credentials/.credentials.json`, with an mtime of **2026-08-05 21:39** — while its target was rewritten **today at 21:06** (555 bytes). So across ten days and many boots, with tokens visibly turning over, nothing has replaced the link with a regular file. That is real evidence **for** the author's position.
+>
+> **What it does not settle**, and this is the part left to check: with the broker active, the host daemon writes the *shared* path directly (`oauthbroker.WriteTokens` does tmp+rename on the shared file, never on the link), so this observation cannot isolate whether *Claude itself* ever rewrites the link. `claude-oauth-refresh-mechanics.md` §6.4 says Claude's own refresh path is deliberately retained. The case that matters is therefore a machine where the broker is **inactive** — its `requires.command_on_path: claude` is false, so a host without Claude Code installed runs no broker — or any refresh Claude performs itself. Watch the same `ls -l` there before deleting the harvest.
+>
+> **And I would flip the leaning regardless of how it lands.** The doc treats a schema-agnostic merge as the weaker option (OQ-3). It is not, once you compare against what agy has *today*: the rule proposed here — *real file + populated shared → leave shared* — is precisely the rule that discards a fresh agy login. A `local.mtime > shared.mtime → copy local` rule is ~5 lines, carries no schema knowledge, is **strictly better than agy's current behaviour**, and is weaker than claude's `expiresAt` comparison only under clock skew. It also makes the hook's contract — "harvest, don't clobber" — true for tool #3, which is what this doc is otherwise arguing for.
+
 ---
 
 ## 6. `internal/agents` — what's actually left
 
 Nothing claude-specific in *body* remains. The package is a home for "content agents read" (briefing, skills staging, loophole descriptions, source probe). The fix is cosmetic: the package name and a handful of comments/tests still say "claude" where they mean "the briefing/skills targets." This is a rename-and-comment pass, not a design decision — it does not need an open question, only a decision to do it.
+
+> **REVIEW — NIT.** See the §3.3 comment: "a handful of comments" is one comment, and it is not this. My read is that the right decision is *don't* — leave the package name alone and fix `skills.go:52` in whatever commit next touches it.
 
 ---
 
@@ -141,6 +165,8 @@ The user flagged these as "not totally sure what this is." Concretely:
 - **#5 (host helpers)** is `hostclaude.go`, which is **already generic** — it reads pack declarations. It is a stale filename, nothing more.
 
 So #4 and #5 are the *least* interesting parts of the residue: one is migration debt with a delete-by date, the other is a rename.
+
+> **REVIEW — NIT, and a reason to hurry.** This doc's own code references check out (`claude.go:20-21` and `65-141`, `hostclaude.go:21-47`, `internal.go:122-127`, `prepare.go:259-268` all verified 2026-08-15). The docs it inherits from do not: [`agent-credentials.md`](agent-credentials.md)'s code map points at `claude.go:161-209`, and [`jail-home.md`](jail-home.md) §4.2 at `claude.go:273-299` and `350-378` — in a file that is now 199 lines total. Whichever commit acts on §5 should fix those two references, since it will invalidate them again.
 
 ---
 
@@ -158,6 +184,8 @@ So #4 and #5 are the *least* interesting parts of the residue: one is migration 
 - Making the broker externally shippable is a real piece of work (jail-daemon-as-binary + relay/front folding), and it is **not** free: it touches the read-only image story and the transport. My leaning is to *name* the extension point and *not* build it until a second consumer appears — which is the same "closed set until a second case" discipline `packhooks.go` already states.
 
 **Forecloses:** nothing irreversible. The hook generalization is reversible; the broker stays bundled either way until the extension point is built.
+
+> **REVIEW — GAP.** One cost is missing, and it is not the merge. [`agent-auth-modes.md`](agent-auth-modes.md) §3 records that the repo **depends** on `oauthMetadataKeys` preserving `subscriptionType` / `rateLimitTier`, because Claude ≥ 2.1.200 treats a creds file carrying only the token trio as *not logged in*. In `claude.go:98-102` that metadata copy is **unconditional** — it runs on a different code path from the `expiresAt` comparison, so it fires even when the local token is older. Deleting `harvestCredentialsFile` from the generic path deletes it too. Whatever survives §5 must keep it; this section should say so, and a regression test should pin it.
 
 ---
 
@@ -179,6 +207,14 @@ So #4 and #5 are the *least* interesting parts of the residue: one is migration 
 3. **Rename** `internal/agents` and `hostclaude.go` (cosmetic; no behavior).
 4. **Leave the broker bundled**, but write the extension point down (§4) so a second consumer can pick it up. Do **not** build jail-daemon-as-binary now.
 
+> **REVIEW — DISAGREE.** Backwards at the front, padded at the back. Step 1 is gated on OQ-3, which is gated on an observation nobody has made, so that observation is **step 0** (§5 comment) — it is five minutes and it may well delete step 1 as written. Step 3 (the renames) should drop to a footnote per the §3.3/§6 comments. The order I would run:
+>
+> 0. Observe whether the credentials symlink survives a refresh and a `/login`.
+> 1. Decide the harvest rule on that evidence — my recommendation is mtime-newest-wins, keeping the unconditional metadata copy (§8 comment).
+> 2. Extract `internal/claudecreds` (OQ-2 comment) and point the hook, the broker and `check` at it.
+> 3. `hostclaude.go` → `hostfiles.go`. Leave `internal/agents` alone.
+> 4. Unchanged: leave the broker bundled, write the extension point down.
+
 ---
 
 ## Open Questions
@@ -189,6 +225,8 @@ So #4 and #5 are the *least* interesting parts of the residue: one is migration 
 
    _Leaning:_ Keep bundled, document the seam. There is exactly one consumer, and the "closed set until a second case" discipline has served this repo well. Build the extension point when a second tool needs a jail-side daemon.
 
+   > **REVIEW — AGREE.** Sign it as written. The §4 comment adds a third blocker (`check`'s doctor surface) that strengthens the same conclusion.
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -197,6 +235,10 @@ So #4 and #5 are the *least* interesting parts of the residue: one is migration 
    Determines whether `shared_credentials` becomes fully generic or gains a claude-specific sibling. Moving it into `oauthbroker` co-locates it with the file's owner; keeping it as a hook preserves the "hooks are the imperative residue" shape but re-introduces a claude-named hook.
 
    _Leaning:_ Move into `internal/oauthbroker`. The merge is about the *shared creds file*, which the broker owns; a hook should not carry schema knowledge.
+
+   > **REVIEW — DISAGREE (BLOCKING).** The second half of that leaning is right and the destination is wrong. `internal/oauthbroker` is **host-side only** — its non-test importers are `internal/cli/internal.go`, `internal/hostservice`, `internal/svcendpoint` and `internal/loopholes/runtime.go` — while `internal/entrypoint` is the **jail-side** binary (`cmd/yolo-entrypoint`). Moving the harvest there makes the jail entrypoint import the host daemon package, and the harvest cannot actually *run* there: it is jail-boot-time and per-jail, whereas the host broker only ever sees the shared file, never a given jail's local one.
+   >
+   > **Neither option offered is the right one; a third is.** Extract a leaf package — `internal/claudecreds` — holding the `claudeAiOauth` schema and the merge rules, imported by the hook path *and* the broker *and* `check`. That is worth doing on its own evidence: the tree already carries **three** copies of that schema knowledge — `claude.go:78-110`, `NormalizeOAuth` (`oauthbroker.go:186-224`, previous-preserving), and `parseCredsExpiresAt` (`check/sections_misc.go:81-99`) — which is exactly the duplication this doc set out to name. It satisfies "a hook should not carry schema knowledge" without inverting the layering.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -207,6 +249,8 @@ So #4 and #5 are the *least* interesting parts of the residue: one is migration 
 
    _Leaning:_ Accept the drop. The merge only fires on a migration edge, and the broker's flock already serializes the refresh that matters.
 
+   > **REVIEW — DISAGREE (BLOCKING).** Full argument in the §5 comment. Two things: (a) "only fires on a migration edge" was asserted, not measured — I have since measured half of it (the link survives ten days of broker-side turnover, which supports the leaning) and the other half, a broker-inactive host, is still open; (b) even if it holds completely, the schema-agnostic rule is not the weaker option, because the alternative on offer leaves agy with *no* freshness rule at all and a silent login revert (§3.2 comment). **Recommended answer:** mtime-newest-wins in the generic hook, plus the unconditional metadata copy that §8's comment shows is load-bearing.
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -215,6 +259,8 @@ So #4 and #5 are the *least* interesting parts of the residue: one is migration 
    This is the meta-question behind OQ-1. If the answer is "no, packs must be truly separate even for yolo's own code," then the broker *must* become shippable, and OQ-1 is decided the other way.
 
    _Leaning:_ Yes, acceptable for yolo's own code. The principle is about *third-party* packs not being able to smuggle host code; yolo's own code is already trusted.
+
+   > **REVIEW — AGREE.** Sign it. This is the same argument [`loophole-packaging-overview.md`](loophole-packaging-overview.md) already reached from the other direction ("a baked client is fine for an official pack"), so answering it yes costs nothing and closes OQ-1 with it.
 
    **Answer:**
    > _(empty — fill in when decided)_
