@@ -68,6 +68,12 @@ func renderFingerprintAt(t *testing.T, ws string) (map[string]string, []string) 
 		if !d.Type().IsRegular() {
 			return nil
 		}
+		// The shared_credentials hook also writes a diagnostic log (sharedCredsLog); like
+		// the symlink, it is a hook artifact, not rendered surface content, so it is out of
+		// scope for the render byte-gate.
+		if d.Name() == sharedCredsLog {
+			return nil
+		}
 		data, rerr := os.ReadFile(p)
 		if rerr != nil {
 			return rerr

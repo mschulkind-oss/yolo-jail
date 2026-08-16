@@ -26,9 +26,11 @@ package entrypoint
 // inventing a general mechanism before then would be speculation.
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -128,7 +130,31 @@ func (e *Env) linkSharedCredential(p *packload.Pack, h packdecl.Hook) error {
 	if err != nil {
 		return err
 	}
-	return e.linkThroughShared(link, shared, target)
+	decision, err := e.linkThroughShared(link, shared, target)
+	e.logSharedCreds(p.Name, h.File, h.SharedDir, decision)
+	return err
+}
+
+// sharedCredsLog is the persistent per-jail log of shared_credentials hook decisions, so a
+// cross-workspace login problem is diagnosable from inside the jail after the fact. It is a
+// hook side effect, not a rendered surface, so it is out of scope for the render byte-gate
+// (renderfingerprint_test.go skips it by name).
+const sharedCredsLog = ".yolo-shared-creds.log"
+
+// logSharedCreds records a shared_credentials hook decision to stderr and to the persistent
+// sharedCredsLog, so a cross-workspace login problem is diagnosable from inside the jail
+// after the fact. The entrypoint's stderr is discarded under podman's --log-driver none, so
+// stderr alone would leave no trace for the common non-TTY launch; the file is what survives.
+func (e *Env) logSharedCreds(pack, file, sharedDir, decision string) {
+	line := fmt.Sprintf("shared_credentials[%s]: %s -> %s: %s", pack, file, sharedDir, decision)
+	e.warn(line)
+	logPath := filepath.Join(e.Home, sharedCredsLog)
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().Format("2006-01-02 15:04:05"), line)
+	_ = f.Close()
 }
 
 // isolateHistoryFile points a history file at a per-workspace file, keyed by the host

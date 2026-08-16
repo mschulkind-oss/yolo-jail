@@ -36,28 +36,45 @@ var oauthMetadataKeys = []string{"scopes", "subscriptionType", "rateLimitTier"}
 // Reached by the shared_credentials HOOK (packhooks.go), which is how a pack asks for this
 // without core switching on a tool name. It was ensureCredentialsSymlink, with claude's
 // three paths baked in as constants.
-func (e *Env) linkThroughShared(link, shared, target string) error {
+//
+// The returned string is a human-readable account of what happened (already-linked,
+// merged, copied-into-empty, discarded-local, or no-local-file), which the caller logs so a
+// cross-workspace login problem is diagnosable after the fact.
+func (e *Env) linkThroughShared(link, shared, target string) (string, error) {
 	if cur, err := os.Readlink(link); err == nil {
 		// It's a symlink.
 		if cur == target {
-			return nil
+			return "already symlinked to shared", nil
 		}
 		_ = os.Remove(link)
 	} else if pathExists(link) {
 		// A regular file: harvest or legacy-copy, then re-link.
-		if !e.harvestCredentialsFile(link, shared) {
+		harvested := e.harvestCredentialsFile(link, shared)
+		copied := false
+		if !harvested {
 			if fi, err := os.Stat(shared); err != nil || fi.Size() == 0 {
 				if data, rerr := os.ReadFile(link); rerr == nil {
 					_ = os.MkdirAll(filepath.Dir(shared), 0o755)
 					_ = os.WriteFile(shared, data, 0o600)
+					copied = true
 				}
 			}
 		}
 		if err := os.Remove(link); err != nil {
-			return nil // can't remove — leave as-is (still works via fallback write)
+			return "local file left in place (could not remove)", nil
 		}
+		var decision string
+		switch {
+		case harvested:
+			decision = "merged local credential into shared"
+		case copied:
+			decision = "shared empty; copied local credential into shared"
+		default:
+			decision = "shared already populated; discarded local credential (a fresh login here is lost)"
+		}
+		return decision, os.Symlink(target, link)
 	}
-	return os.Symlink(target, link)
+	return "no local credential file; symlinked to shared", os.Symlink(target, link)
 }
 
 // Returns false when the local file has no claudeAiOauth dict (caller falls

@@ -1,6 +1,9 @@
 package entrypoint
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -97,5 +100,71 @@ func TestSharedCredentialsHookLinksADeclaredDir(t *testing.T) {
 	}
 	if err := e.linkSharedCredential(p, hook); err != nil {
 		t.Fatalf("linking a declared shared dir: %v", err)
+	}
+}
+
+// TestSharedCredentialsHookLogsDiscardDecision pins the agy defect's observable behavior:
+// when the shared file is already populated (a prior login in another workspace) and this
+// workspace holds a fresh real credential file, the hook must DISCARD the local file (shared
+// always wins) and record that decision in the persistent ~/.yolo-shared-creds.log. Without
+// the log, this is the "I logged in and it silently reverted next boot" case with no trace.
+func TestSharedCredentialsHookLogsDiscardDecision(t *testing.T) {
+	p, err := embeddedPack("agy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hook packdecl.Hook
+	for _, h := range p.Decl.HookContributions() {
+		if h.Name == HookSharedCredentials {
+			hook = h
+		}
+	}
+	if hook.Name == "" {
+		t.Fatal("agy pack no longer requests shared_credentials")
+	}
+
+	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{}}
+	link := filepath.Join(e.Home, filepath.FromSlash(hook.File))
+	sharedDir := filepath.Join(e.Home, filepath.FromSlash(hook.SharedDir))
+	shared := filepath.Join(sharedDir, filepath.Base(hook.File))
+
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shared, []byte("shared-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(link, []byte("fresh-local-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := e.linkSharedCredential(p, hook); err != nil {
+		t.Fatalf("linkSharedCredential: %v", err)
+	}
+
+	// The shared file is untouched — the fresh local login was discarded.
+	if got, err := os.ReadFile(shared); err != nil {
+		t.Fatal(err)
+	} else if string(got) != "shared-token" {
+		t.Errorf("shared file = %q, want untouched %q", got, "shared-token")
+	}
+
+	// link is now a symlink into the shared dir.
+	if target, err := os.Readlink(link); err != nil {
+		t.Errorf("link is not a symlink: %v", err)
+	} else if !strings.Contains(target, filepath.Base(hook.File)) {
+		t.Errorf("link target = %q, want it to point at the shared file", target)
+	}
+
+	// The decision must be recorded in the persistent log.
+	logData, err := os.ReadFile(filepath.Join(e.Home, ".yolo-shared-creds.log"))
+	if err != nil {
+		t.Fatalf("no shared-creds log written: %v", err)
+	}
+	if !strings.Contains(string(logData), "discarded local credential") {
+		t.Errorf("log does not record the discard: %q", logData)
 	}
 }
