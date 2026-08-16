@@ -192,8 +192,9 @@ unexercised.
 
 **Three of the six are answered, and they set a sprint goal rather than a task:** the broker move and
 the pack-shipped binary capability **ship together** (BP1); **`bundled_loopholes/` is empty at the
-end of this sprint** (BP4); and **every loophole daemon gets a host-asserted `jail_id` by default,
-with a declared opt-out for a pure byte pipe** (BP2, design doc §5.5). I recommended against all
+end of this sprint** (BP4); and **yolo prepends its own identity frame to every
+authenticated connection and never parses a daemon's payload** (BP2, design doc §5.5) —
+`identity_frame: false` opts a dumb pipe out. I recommended against all
 three; recorded here because the consequences need planning, not because they need re-arguing.
 
 **BP4 is the one with a dependency: it makes OQ-LP14 above a hard blocker**, because `audio` cannot
@@ -203,8 +204,9 @@ on it.
 **What the sprint contains**, in the order I would run it:
 
 1. **`host-processes` → pack** — 📦 below, ready to implement.
-2. The identity rule (§5.5): the stamp lands on the accepted connection, `payload: "framed"` default,
-   `"raw"` opt-out. Built as part of step 1, which is what makes step 1 the proving ground.
+2. The identity rule (§5.5): one framework-owned frame prepended on the accepted connection,
+   `identity_frame` defaulting to true. Built as part of step 1, which is what makes step 1 the
+   proving ground. It **deletes** `readFirstMessage`/`stampJailID` rather than relocating them.
 3. Rule OQ-LP14, then `audio` → pack, retiring the bundled copy the official pack sits beside.
 4. Broker → pack: fold the relay, flip to `publishes: "socket"`.
 5. The binary capability (design doc §3.1), whose slowest piece — a release matrix producing
@@ -315,10 +317,11 @@ staging change it proposes — and the small independent items trail.
 
   Design settled in [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) §12, which lists the five
   changes and what each proves. In short: the daemon moves from `ServeEndpoint`/`{endpoint}` to
-  `ServeUnix`/`{socket}` behind the framework front; the `jail_id` stamp lands on the
-  accepted-connection wrapper (`listen.go:194`, where the host-derived identity is already attached),
-  so one implementation serves both server shapes; `yolo-ps` stops self-reporting a `jail_id` nobody
-  trusted; and the manifest moves into an official pack with the bundled copy deleted.
+  `ServeUnix`/`{socket}` behind the framework front; a framework-owned **identity frame** is
+  prepended on the accepted-connection wrapper (`listen.go:194`, where the host-derived identity is
+  already attached), so one implementation serves both server shapes and yolo never parses a payload;
+  `yolo-ps` stops self-reporting a `jail_id` nobody trusted; and the manifest moves into an official
+  pack with the bundled copy deleted.
 
   **Nothing blocks it** — no runtime-dir sockets (so OQ-LP14 is irrelevant here), no shipped binary
   (so BP5/BP6 are too — `yolo-ps` stays baked, which an official pack may do). **Build the stamp
