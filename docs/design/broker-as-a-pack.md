@@ -1,10 +1,16 @@
-# Shipping the OAuth broker as a pack — the blocker is one protocol-aware trick, not two missing mechanisms
+# Shipping the OAuth broker as a pack — smaller than it looks, and the last question is whether one audit field is worth keeping
 
 **Status:** DESIGN SKETCH, 2026-08-15. Nothing built. All code claims verified against the tree on that date.
 
-**Review round 0, same day:** §3.1 grew from a deferral into a design — pack-shipped binaries are wanted as a general capability, with per-arch selection and dynamic download — and §5.2 was added, a from-scratch explanation of what the front is and what "the stamp" actually means on the wire. Two new questions (OQ-BP5, OQ-BP6) came out of the first; OQ-BP1 is restated as a sequencing question rather than a capability one.
+**Two review rounds, same day.** Round 0: §3.1 grew from a deferral into a design — pack-shipped binaries are wanted as a general capability, with per-arch selection and dynamic download — and §5.2 was added, a from-scratch explanation of what the front is and what "the stamp" means on the wire. Round 1 **retracted this doc's central claim** (§5.2a): the front is *not* a component that never parses, and the stamp is not the hard thing the first two versions said it was. The title changed with it.
 
-**The short version.** [`pack-code-separation.md`](pack-code-separation.md) §4 named two things that must be true before the `claude-oauth-broker` can ship as a pack: a **jail-side daemon shippable as a binary**, and the **per-jail relay** becoming expressible. The first is essentially already built — the container mount, the manifest token, the loader and the pack-shipped subset all already permit it, and nobody noticed because nothing has tried. The second is real, but three of the relay's four jobs are *already done by the framework-owned front*. What is left is exactly one thing: the relay stamps a **trustworthy `jail_id`** into the request, and the front is designed never to parse the stream. **That single conflict is this document.**
+**Two rulings from round 1 that set the scope, both of which overrule a leaning of mine:**
+
+> **The broker move and the pack-shipped binary capability ship TOGETHER**, not one then the other (OQ-BP1). And **`bundled_loopholes/` has no inhabitants at the end of this work sprint** (OQ-BP4) — the goal is the channel's retirement, not one fewer entry in it.
+
+**Scope note.** That second ruling makes this doc one of three conversions rather than a self-contained change, and the other two are not designed here: `host-processes` needs the same `publishes` change with none of the relay complexity, and `audio` cannot become a pack at all until **OQ-LP14** is answered. §11 states what each needs and what is genuinely blocking; the work belongs to the sprint, not to this document.
+
+**The short version.** [`pack-code-separation.md`](pack-code-separation.md) §4 named two things that must be true before the `claude-oauth-broker` can ship as a pack: a **jail-side daemon shippable as a binary**, and the **per-jail relay** becoming expressible. The first is essentially already built — the container mount, the manifest token, the loader and the pack-shipped subset all already permit it, and nobody noticed because nothing has tried. The second reduces to three of four jobs the framework-owned front *already does*, plus one it does not: the relay stamps a **host-asserted `jail_id`** into the request. Round 1 established that adding that to the front is a modest, mechanical change rather than a violation of anything. **So the real question is no longer "how do we keep the stamp" but "is a daemon-visible `jail_id` worth any mechanism at all"** — it appears nowhere in the broker, and yolo could record the same identity in its own audit line without touching a payload byte. That is OQ-BP2, and it is the only thing standing between here and deleting `internal/brokerrelay`.
 
 **The most important section is §5** — everything else is inventory and consequence.
 
@@ -20,7 +26,7 @@ Three claims, each argued below:
 
 - **P1. Jail-daemon-as-binary is not a missing mechanism.** `{jail_loophole_dir}` already resolves to a container path, the module dir is already bind-mounted there `:ro` **without `noexec`**, `nix-ld` already runs non-nix dynamically-linked binaries, and the pack-shipped subset does not restrict `jail_daemon` at all. What is missing is *selection, delivery and trust* for the binary — designed in §3.1 on review request, and **not on the broker's critical path**, because an official pack may keep a baked daemon. (§3)
 - **P2. The relay is 3/4 redundant with the front.** Per-connection upstream dial, TLS termination, endpoint publication, and layer-attributable failure are all in `svcendpoint` already. (§4)
-- **P3. The whole design reduces to: who stamps `jail_id`, and how does the daemon come to trust it.** The relay does it by parsing the first frame; the front refuses to parse anything, deliberately and in writing. Resolving that is the design decision. (§5)
+- **P3. The whole design reduces to one question about one audit field: is a daemon-visible, host-asserted `jail_id` worth keeping?** If yes, the front gains a small declared parse (cheap — see §5.2a). If no, the relay's last job disappears and nothing replaces it. Either way the relay goes; the question decides whether anything takes its place. (§5)
 
 **What I would not do:** treat this as a prerequisite for the rest of `pack-code-separation.md`. Its steps 1–3 are independent and should land first regardless of how this goes.
 
@@ -148,7 +154,7 @@ Three of those four are already the framework's, for every `publishes: "socket"`
 | TLS + token + publish endpoint | `listenWith(publishPath, advertiseHost, CrossingViaFront)` | `svcendpoint/front.go:42-48` |
 | per-connection upstream dial | `splice` dials inside the accept-loop goroutine | `svcendpoint/front.go:56-85` |
 | layer-attributable failure | `CrossingUnreachable` + `CrossingReasonUpstreamDial` on the audit record | `svcendpoint/crossing.go:61-92`, `front.go:85-97` |
-| **stamp `jail_id`** | **none, deliberately** | `front.go:44-46`: *"splice does not parse the stream"*; `crossing.go:194`: parsing the request "is both unavailable at the front" |
+| **stamp `jail_id`** | **none today** — but see §5.2a, this is a gap in the code, not a principle | `front.go:44-46`: *"splice does not parse the stream"*; `crossing.go:194`: parsing the request "is both unavailable at the front" |
 
 So the folding is not "reimplement the relay in the front". It is: **switch the broker's `host_daemon` to `publishes: "socket"`, let the existing front serve it, and delete `internal/brokerrelay` — except for job 3.**
 
@@ -190,12 +196,40 @@ So the invariant to preserve is narrow and worth naming:
 | | Where | What it is | Sees the payload? |
 |---|---|---|---|
 | **terminator** | in the jail | pretends to be `platform.claude.com` on `127.0.0.1:443` so `claude`'s own HTTPS call is intercepted; forwards the result over loopback-TLS | yes — it builds the request |
-| **front** | on the host | a ~90-line TLS listener (`svcendpoint/front.go`) that accepts the jail's connection, checks its bearer token, and then runs two `io.Copy` loops — client→daemon and daemon→client | **no, by design** |
+| **front** | on the host | a ~90-line TLS listener (`svcendpoint/front.go`) that accepts the jail's connection, checks its bearer token, and then runs two `io.Copy` loops — client→daemon and daemon→client | **not today** — though it already frames-and-reads the token off the same stream (§5.2a) |
 | **daemon** | on the host | the broker singleton: flock, upstream refresh, writes the shared creds file | yes — it parses the request |
 
-So "the front" is not a component with opinions; it is the framework's TLS front door, and its whole contract is *"authenticate the jail, then copy bytes."* It never decodes a frame — `front.go:44-46` says so in a comment, and `crossing.go:194` repeats it as the reason fronted connections carry no per-request audit tier.
+So "the front" is not a component with opinions; it is the framework's TLS front door, and its whole contract is *"authenticate the jail, then copy bytes."*
 
-**Why that makes the stamp awkward.** To insert one key, a byte-copier has to stop being a byte-copier: read exactly 4 bytes, read exactly N more, JSON-decode preserving key order, set `jail_id`, re-encode byte-identically (`jsonx`, because the wire format is frozen Python-parity), recompute the length prefix, write the new frame, and only then degrade to copying the rest — plus bounded fallbacks for every way that can fail (oversized length, slow client, non-object body), each of which must forward the original bytes verbatim rather than error. That is `internal/brokerrelay`'s `readFirstMessage` + `stampJailID` + `handle`, and it is most of why the relay is a separate process at all.
+### 5.2a ⚠ Retracted: "the front never parses, deliberately"
+
+**Raised in review round 1, and the objection is correct.** Both earlier versions of this doc leaned on the front being a component that decodes nothing — `front.go:44-46` ("splice does not parse the stream") and `crossing.go:194` were cited as if they stated a principle the design must protect. The reviewer's question — *"it never decodes anything, except when it decodes the jail's bearer token?"* — dissolves that, and checking the code confirms it.
+
+**The front already reads a length-prefixed frame off the same stream, before any splicing.** `verifyTokenFrame` (`svcendpoint/token.go:97-125`) does:
+
+```
+read 4 bytes  →  BigEndian.Uint32  →  cap at tokenFrameMax (4096, "CAP BEFORE
+ALLOCATING")  →  read N bytes  →  subtle.ConstantTimeCompare  →  write authAck
+```
+
+under a 5-second `handshakeTimeout`, which it then clears to preserve the no-session-deadline contract. Compare `brokerrelay.readFirstMessage`: read 4 bytes, `BigEndian.Uint32`, cap at `firstMsgMax`, read N bytes, under a 5-second `firstMsgTimeout`. **These are the same operation.** The framework is not protocol-blind; it is protocol-blind *after* its own handshake, which is a description of where the splice loop starts, not a property anyone designed to defend.
+
+Two supporting arguments I also had backwards:
+
+- **"The payload format belongs to the daemon."** It does not. `internal/frameproto` is yolo's own package and its doc comment calls it *"the frame protocol v1 spoken between a jail-side client and a host-side loophole daemon … a frozen interop contract."* yolo owns the transport **and** the payload framing. A front that reads frame #1 is reading its own format, not reaching into someone else's.
+- **"No per-request audit tier exists for fronted connections."** True, and it is a *consequence* of the splice not parsing — not a reason for it. Citing it as justification was circular.
+
+**What actually differs, and it is the honest residue:**
+
+| | Token frame | The stamp |
+|---|---|---|
+| bytes are | **consumed and discarded** — never part of the payload | **transformed and forwarded** — must come out the other side |
+| a malformed read means | drop the connection (it failed auth) | **forward the original bytes verbatim** and carry on — an unparseable request is not an error, it is a request |
+| applies to | every fronted connection, by construction | only daemons speaking `frameproto` — so it must be declared, not unconditional |
+
+That is a difference in **complexity, not in kind**: transform-and-forward needs the verbatim-fallback paths that read-and-discard does not, which is `stampJailID` plus its three fallbacks — order-preserving decode, byte-identical `jsonx` re-encode, recomputed length prefix. Roughly a hundred lines, all of which already exist and work in `internal/brokerrelay`.
+
+**What this changes downstream:** option D in §5.4 gets substantially cheaper, and invariant **I2** stops being a warning about a slippery slope and becomes an ordinary scoping rule. It also moves the weight of OQ-BP2 off "is parsing acceptable" and onto the question that was always the better one — **whether a daemon-visible `jail_id` earns any mechanism at all**, given that nothing in `internal/oauthbroker` reads it.
 
 ### 5.3 The pivot nobody has used yet
 
@@ -210,13 +244,14 @@ That reframes the question from *"how does the front learn the jail?"* (it alrea
 | A | **Per-jail upstream socket** | the front dials a different Unix path per jail; the daemon infers identity from which socket the connection arrived on | ❌ **Rejected.** The broker is a host singleton by design (one flock, one creds file); giving it N listeners re-creates per-jail state in the one component that must not have it |
 | B | **Framework preamble frame** | the front writes a small, framework-owned metadata frame on the upstream Unix connection before splicing | ⚠️ **Viable, but it changes the daemon-side contract for *every* fronted daemon** — `audio`, `host-processes` and any third party would have to skip a frame they never asked for. Only acceptable if gated by an opt-in manifest key |
 | C | **`SO_PEERCRED`-style side channel** | identity carried out-of-band on the socket itself | ❌ **Rejected.** Peer credentials identify the *front* process, which is the same process for every jail |
-| D | **Declared protocol-aware stamp** | manifest opts in: `stamps: "jail_id"`; the front parses frame #1 for daemons that ask, and only for them | ✅ **Recommended.** It keeps "the front does not parse" true by default, makes the exception *declared and readable in the manifest*, and confines the loophole-protocol knowledge to the framework that already owns the wire format |
+| D | **Declared protocol-aware stamp** | manifest opts in: `stamps: "jail_id"`; the front parses frame #1 for daemons that ask, and only for them | ✅ **Viable and cheap** — cheaper than the first two versions of this doc claimed, since the front already frames-and-reads for auth and yolo owns `frameproto` too (§5.2a). Declared rather than unconditional, because not every fronted daemon speaks the framed protocol |
 | E | **Drop the stamp; let the daemon self-report** | broker logs whatever the client says | ❌ **Rejected.** Violates I1 for a field whose entire value is that it is trustworthy |
 | F | **Keep a relay-shaped shim in the pack** | the pack ships its own per-jail relay binary | ❌ **Rejected.** `host_daemon` is host-wide and keyed by loophole name; there is no per-jail daemon vocabulary, so this needs a *new* mechanism to avoid a smaller one |
+| **G** | **Drop the daemon-visible field; yolo records the identity itself** | no stamp, no parse; the front writes `jail=<id>` into its own audit record from the token it already validated, and the daemon simply never sees a `jail_id` | ✅ **Now my recommendation.** It preserves the property that actually matters — a jail cannot forge another jail's identity into *your* logs — with **zero** new mechanism, and it is available precisely because nothing in `internal/oauthbroker` reads the field. Its cost is honest and small: a daemon's own logs lose the field, so a third-party daemon wanting per-jail behaviour would need D after all |
 
-**Recommendation: D.** It is the smallest change that preserves I1, and it is the shape this repo already prefers — an opt-in declaration in the manifest rather than a behaviour every daemon inherits. It also matches the existing precedent that the framework, not the loophole, owns the wire ([`loophole-packaging-overview.md`](loophole-packaging-overview.md) §3).
+**Recommendation: G, with D as the fallback.** *(This was "D" in the first two versions; §5.2a and §11 both moved it.)* G preserves the property I1 exists for — a jail cannot forge another jail's identity into **your** audit log — while building nothing at all, and `yolo-ps` is precedent that a client-asserted `jail_id` inside a daemon is already acceptable here (§11). D remains the right answer the moment a fronted daemon needs the field to be *trustworthy inside the daemon*, and §5.2a shows that is a modest change rather than a violation — so this is a "not yet", not a "no".
 
-**The cost of D, stated plainly:** the front stops being *unconditionally* protocol-blind, and `crossing.go`'s "nothing parses the stream" becomes "nothing parses the stream unless the manifest asked". That sentence is load-bearing today — it is why fronted connections carry no per-request tier — so the opt-in must not silently enable per-request auditing along with the stamp. **I2: a stamping front still emits exactly one connection-level record; the stamp changes the payload, not the audit tier.**
+**The cost of D, restated after §5.2a:** smaller than first claimed. The front already frames-and-reads for auth, and yolo owns `frameproto`, so the honest cost is the verbatim-fallback paths and the fact that the parse must be *declared* rather than universal. One property does still need protecting: **I2 — a stamping front still emits exactly one connection-level audit record.** The opt-in buys a payload edit, not a per-request audit tier; those are separate things and the manifest key must not quietly enable the second.
 
 ---
 
@@ -252,7 +287,7 @@ Everything else in the manifest — `serves`, `intercepts`, `broker_ip`, `ca_cer
 
 - **Not** a general per-jail daemon mechanism. Option F is rejected precisely to avoid inventing one for a single consumer.
 - **Not** a change to the transport. Loopback-TLS stays the only hop; this is about what sits behind the front.
-- **Not** a widening of the pack-shipped subset. This design needs no new host-crossing vocabulary, which is what distinguishes it from **OQ-LP14** — that one is blocked on a *new* claim class, this one is not.
+- **Not** a widening of the pack-shipped subset *for the broker*. This loophole needs no new host-crossing vocabulary. **But the sprint goal does** — retiring the bundled channel means converting `audio` too, and that is blocked on **OQ-LP14** (§11). The distinction to hold: the broker does not depend on LP14; "no bundled loopholes" does.
 - **Not** a fetched-pack broker. Everything about *this* loophole assumes an **official** pack. §3.1 designs the pack-shipped binary capability in general, but whether a **fetched** pack may ship a *host-side* binary is left open (OQ-BP6) and is not needed here.
 - **Not** a general artifact-caching or dependency system. §3.1's download is one verified file per platform per loophole, fetched at install and keyed by digest — it is not a package manager, and it should not grow into one.
 - **Not** a change to how credentials are merged, harvested or written. That is [`pack-code-separation.md`](pack-code-separation.md) §5, decided separately and landing first.
@@ -267,7 +302,8 @@ Everything else in the manifest — `serves`, `intercepts`, `broker_ip`, `ca_cer
 | Deleting the relay loses the bounded-drain behaviour that makes a dial failure a clean EOF | It is not lost — `front.go`'s splice already distinguishes the case and marks `CrossingUnreachable`; the drain semantics must be **pinned by a test** before the relay is deleted, not after |
 | A fronted broker socket is reachable by something on the host that the host-only relay socket excluded | The socket path stays where it is (`/tmp`, host-only, 0600); the front is an additional listener, not a relocation |
 | The unexercised jail-binary path (§3) turns out to have a real defect once something uses it | Prove it with a throwaway pack shipping a two-line binary **before** committing to the broker move — it is the cheapest possible test of P1 |
-| `platforms` forces the pack to enumerate arches yolo's own release does not build | Only bites once a binary ships; OQ-BP1's "move on the baked daemon" sequencing keeps it off the broker's path |
+| `platforms` forces the pack to enumerate arches yolo's own release does not build | Now on the critical path, since the two ship together (OQ-BP1): the release process must produce the matrix the manifest declares, or `platforms` must narrow to what it actually builds. Declaring more than you build is the failure mode — it turns "unsupported here" into "supported, missing" |
+| **Shipping both at once means the sprint fails together** — a stalled binary capability holds a finished broker move hostage | Keep them separable *in the tree* even though they land in one sprint: the broker's manifest works on a baked daemon, so the binary work can slip to a follow-up commit without reverting anything. The ruling is about the sprint's end state, not about coupling the commits |
 | A declared download turns `pack install` into a network-dependent step that can fail | Fetch at install only, never at launch (§3.1), so a failure lands where the user is already waiting on the network — and a verified artifact is cached by digest, so a reinstall of the same pin is offline |
 | A digest mismatch is treated as a transient error and retried past | It is an **integrity failure**, not a fetch failure: refuse the install, name both digests, and do not fall back to the cached copy — the whole point of P4 is that the bytes are the pin |
 
@@ -287,7 +323,27 @@ What I would build, in order.
 
 **Fifth, move the manifest into an official pack** and retire the bundled copy. This is also the step where OQ-LP11's consolidation finally gets one channel emptier, which it has been owed since 2026-08-14.
 
-**And a separate track, deliberately not in that chain:** the pack-shipped binary capability (§3.1) — selection convention, then download-with-digest, then the two gates. It has no dependency on any of the five steps above and they have none on it, provided OQ-BP1 lands on "move on the baked daemon". Building it *after* the broker is a pack means it lands with a real consumer to convert rather than a synthetic one, which is the same argument this repo used for waiting on a second hook consumer before generalizing a hook.
+**And the binary capability (§3.1) runs alongside, not after** — OQ-BP1 was ruled *ship both at once*, overruling my "adopt it later". Its own order is unchanged: selection convention, then download-with-digest, then the two gates. What the ruling changes is that it must be *finished* in this sprint rather than queued behind a working broker, so its slowest piece — the release matrix producing per-platform artifacts — should start early rather than last. The one thing I would preserve from the rejected sequencing is **separability in the tree**: the broker's manifest is correct on a baked daemon, so the two can land as independent commits inside one sprint without either blocking the other's review.
+
+---
+
+## 11. What "no bundled loopholes" additionally requires
+
+The second ruling is the larger one: `bundled_loopholes/` should be **empty** at the end of the sprint, not shorter. That is three conversions, and only one of them is this document.
+
+| Loophole | What blocks it becoming a pack | Size |
+|---|---|---|
+| **claude-oauth-broker** | `publishes` defaults to `endpoint`; the pack-shipped subset accepts **only `socket`** (`packshipped.go:371-405`). Plus the relay and the stamp question | this doc |
+| **host-processes** | The same `publishes` problem and nothing else: its `host_daemon.cmd` passes `{endpoint}` and publishes for itself, so it converts to `{socket}` + the framework front with no relay, no stamp, no per-jail anything | small |
+| **audio** | **OQ-LP14.** Its `host_bind_mounts` and `requires.file_exists` both name `${XDG_RUNTIME_DIR}/pulse/native` and `pipewire-0`, which the pack-shipped path rule refuses in every spelling. The official `audio` pack today therefore sits *beside* the bundled copy rather than replacing it | blocked on a ruling |
+
+Three things follow, and the first is the one to notice:
+
+- **OQ-LP14 stops being adjacent and becomes a hard dependency of the sprint goal.** I recommended the opposite one message ago (OQ-BP3: "proceed beside it"), and that recommendation is **withdrawn for the sprint** while remaining correct for the broker in isolation. The roadmap already carries a leaning for LP14 — a closed, yolo-resolved list of runtime sockets — so this is a ruling to make, not a design to invent.
+- **The `publishes` subset rule is the common blocker, and it is load-bearing rather than accidental.** It exists so a pack-shipped daemon cannot get TLS, token handling or endpoint permissions wrong; converting all three onto the framework front is the same work as honoring it. Worth stating because "all three bundled loopholes violate the pack-shipped subset" sounds like a rule that is too strict, and it is not — it is a rule they predate.
+- **`host-processes` is the cheap one and should go first.** It exercises the whole conversion path — subset validation, official-pack staging, the front, `doctor_cmd` — with none of the broker's complexity. If something structural is wrong with converting a bundled loophole, it will show up there for a fraction of the cost.
+
+**And one finding that lands in this doc's favour:** `yolo-ps` already sends its own `jail_id` from inside the jail (`cmd/yolo-ps/main.go:121-122`), which `hostservice` records verbatim as untrusted. So yolo *already ships* a loophole whose `jail_id` is client-asserted, and has done without complaint. That is the strongest evidence for option **G** in §5.4 — dropping the daemon-visible field rather than building a mechanism to keep it trustworthy — because it makes the broker consistent with the loophole beside it instead of uniquely strict.
 
 ---
 
@@ -300,13 +356,15 @@ What I would build, in order.
    _Leaning:_ **Move on the baked daemon; adopt binaries after.** [`loophole-packaging-overview.md`](loophole-packaging-overview.md) §1.1 already rules a baked client fine for an official pack, and the same argument covers a daemon: what matters is who is accountable for the code. Coupling them would put a build-and-download matrix in front of a change that is otherwise a manifest move — and the binary capability then lands with a *real* consumer available to test it rather than only a synthetic one.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Both at once — ship them together, not one before the other.** *(My leaning was the opposite and is recorded above because the decision has consequences to plan for: the release matrix that produces per-platform artifacts is now on the critical path, and `platforms` must not declare more than the release actually builds — see §9.)* The practical shape: the broker's manifest is correct on a baked daemon either way, so the two can still land as **separate commits inside one sprint**, which keeps a stalled binary capability from holding a finished broker move hostage.
 
 2. **OQ-BP2 — does the front gain a declared protocol-aware stamp (§5.4-D), or does `jail_id` attribution change shape?**
 
    This is the one genuinely new mechanism in the design. Option D keeps invariant I1 (host-asserted identity) at the cost of making the front's "never parses the stream" property conditional. The alternative worth weighing is not any of A/C/E/F but a **narrower I1**: accept that a fronted daemon's audit record carries the *connection's* jail identity — which the front already knows from the token — recorded by the framework in its own audit line, and stop stamping the payload at all. That preserves trustworthy attribution in yolo's logs while letting the daemon's own view of `jail_id` become untrusted.
 
    _Leaning:_ **D, but ask this question first**, because the narrower-I1 variant is strictly simpler and may be sufficient. What decides it: does anything in the broker *behave* differently per jail, or is `jail_id` purely diagnostic? Today's reading of `internal/oauthbroker` is that it is purely diagnostic — no `jail_id` reference exists in the package — in which case the narrow variant wins and the front never parses anything.
+
+   _Strengthened by §11:_ `yolo-ps` already self-reports its `jail_id` from inside the jail and `hostservice` records it verbatim as untrusted, so **yolo already ships a loophole with a client-asserted `jail_id`**. Option **G** — yolo records the identity in its own audit line, the daemon never sees the field — makes the broker consistent with the loophole beside it rather than uniquely strict, and needs no new mechanism at all. That is now my recommendation over D.
 
    _Resolved by:_ grepping the broker's decision paths for any per-jail behaviour, then a maintainer ruling on whether daemon-visible `jail_id` must remain trustworthy.
 
@@ -319,8 +377,10 @@ What I would build, in order.
 
    _Leaning:_ **Proceed beside it.** Coupling them delays a change that needs no new claim vocabulary behind one that does. I am flagging it because it contradicts what I wrote in the roadmap yesterday.
 
+   > **Withdrawn for the sprint by OQ-BP4's answer, and the distinction is worth keeping.** The *broker* still needs nothing from OQ-LP14 — that part of the leaning stands. But **"no bundled loopholes" does**, through `audio` (§11), so LP14 moves from adjacent question to sprint blocker. The question is left open rather than deleted because it becomes live again the moment the sprint goal is anything smaller than emptying the channel.
+
    **Answer:**
-   > _(empty — fill in when decided)_
+   > _(superseded by OQ-BP4 — LP14 is a dependency of the sprint, not of this loophole)_
 
 4. **OQ-BP4 — after the move, does `bundled_loopholes/` have any inhabitants left worth keeping as a channel?**
 
@@ -329,7 +389,7 @@ What I would build, in order.
    _Leaning:_ **Do not bundle it into this project.** It is a genuine follow-on, it is OQ-LP11's actual finish line, and attaching it here would make a bounded change unbounded. Worth filing the moment step 5 lands.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **No inhabitants at the end of this work sprint — retire the channel.** *(Again overruling my leaning, and this one changes more than the broker: it is OQ-LP11's finish line, so it is worth having wanted.)* Consequences, in §11: three conversions rather than one, `publishes: "socket"` as the common blocker all three predate, **`host-processes` first** as the cheap end-to-end proof, and — the one that needs your attention — **OQ-LP14 becomes a hard dependency**, because `audio` cannot be expressed as a pack until the runtime-socket vocabulary is ruled. That contradicts OQ-BP3's leaning below, which is withdrawn for the sprint.
 
 5. **OQ-BP5 — download-with-digest only, or also a declared build step?**
 
