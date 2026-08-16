@@ -741,9 +741,33 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 	// it: that is what makes "no manifest declares anything to keep working"
 	// literally true — every already-shipped manifest decodes with the preamble
 	// ON, and the only way to get it off is to say so.
+	//
+	// TYPE-CHECKED, NOT COERCED WITH Truthy, and the asymmetry with `enabled` is
+	// deliberate rather than an oversight. Truthy("false") is TRUE (a non-empty
+	// string), so `"preamble": "false"` — the one slip a human writing this key is
+	// actually likely to make, and the one internal/config's validateInlineService
+	// already guards the config spelling against — would turn the OPT-OUT into the
+	// opt-in. There is no diagnostic anywhere downstream for that: `yolo pack
+	// lint`'s strict decode reports unknown KEYS, not wrong types, and the
+	// consequence lands inside a third-party daemon as a frame it never asked for
+	// (for the common one-frame-per-request shape, its first read consumes the
+	// preamble AS the request and it then blocks forever on a request already
+	// spent — see hostservice.ServeFrontedUnix's "the one mismatch nothing in this
+	// tree can detect"). host_bind_mounts.readonly above is the precedent: a
+	// default-TRUE bool whose wrong value is silent gets a type check.
+	//
+	// Tightening is free here and only here: `preamble` is new in this change, so
+	// no shipped manifest can be relying on the loose coercion. `enabled` cannot
+	// be given the same treatment for exactly that reason.
 	preamble := true
 	if pv, ok := m.Get(keyPreamble); ok {
-		preamble = Truthy(pv)
+		b, isBool := pv.(bool)
+		if !isBool {
+			return nil, Errorf("%s: 'host_daemon.preamble' must be a boolean — write "+
+				"false (not %s) to opt a dumb-pipe daemon out of the connection preamble",
+				manifestPath, pytext.Repr(Str(pv)))
+		}
+		preamble = b
 	}
 	requestEnd := RequestEndFramed
 	if rv, ok := m.Get(keyRequestEnd); ok {
