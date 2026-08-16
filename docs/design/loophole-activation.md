@@ -1,7 +1,7 @@
 # Nothing reaches your host because it happened to be there — loophole activation
 
-**Status:** RULED 2026-08-15, nothing built. Six rulings plus all three open questions answered in
-review the same day. Taken during the `host-processes` conversion; this doc records them and works
+**Status:** RULED 2026-08-15, nothing built. Six rulings; three of five open questions answered in
+review the same day, two more raised BY that review (OQ-A4, OQ-A5). Taken during the `host-processes` conversion; this doc records them and works
 out what they cost.
 
 **The short version.** A loophole is active today because it was *present* and something it named
@@ -56,6 +56,40 @@ core use case is the worst shape a default can have.
 **The dependency it was approximating is structural, not observational.** "Is there anything to
 refresh for" is really "is the claude pack selected" — which the pack system can express directly,
 and which no `PATH` lookup can answer correctly.
+
+### 1.2 The three things this doc first ignored — raised in review, and one is a real hole
+
+*This section exists because the first draft scoped itself to manifest-declared loopholes, and the
+reviewer asked the obvious question: don't you already have to enable `yolo-ps` somehow? And what
+about journalctl? Both answers change the picture.*
+
+**(a) `yolo-ps` already has a per-workspace gate, and it is not `enabled`.** `host_processes.visible`
+is an allowlist of process names read from the workspace config, and it defaults to **empty** —
+`LoadConfig`'s own comment calls that *"feature effectively disabled"*
+(`internal/hostprocesses/hostprocesses.go:30-33`), and the daemon's self-check reports
+*"config … has no `host_processes.visible` entries"* (`selfcheck.go:35`). So today the loophole
+activates automatically but the capability is **empty until the workspace opts in**, name by name.
+
+That is R5's shape — user-scope install, workspace-scope opt-in — invented ad hoc for one loophole
+before the general rule existed. Two consequences:
+
+- **The upgrade population is much smaller and far better identified than §4 said.** `yolo-ps` only
+  "goes dark" for someone who *already* wrote a non-empty `host_processes.visible`. That is also a
+  precise trigger for OQ-A2's notice: a workspace with entries but no selected pack is exactly the
+  case worth printing a line for, and it costs nothing to detect.
+- **After the ruling there are three gates for one feature** — select the pack, enable the loophole,
+  list the processes. Two of them are genuinely different questions (is the daemon running vs. what
+  may it show) but the ceremony is real, and it is worth deciding deliberately rather than
+  discovering. See OQ-A5.
+
+**(b) The journal bridge is already opt-in, and it is the precedent.** It starts only when the
+top-level `journal` key says so (`internal/cli/run/loopholesruntime.go:89-90, 108`). So R1 is not a
+new idea in this codebase — it is one service's local practice, and this doc generalizes it.
+
+**(c) The cgroup delegate is presence-activated, and nothing gates it.** It starts whenever the
+platform allows — *"Linux only, cgroup v2 only"* (`loopholesruntime.go:104-107`), no config key at
+all. That is precisely the shape R1 deletes, in a host-side daemon, and the first draft did not
+mention it. Whether it should be exempt is OQ-A4; that it needs an explicit answer is not in doubt.
 
 ---
 
@@ -169,14 +203,19 @@ checking that failure reads well before shipping.
    | | today | after | user action needed |
    |---|---|---|---|
    | **broker** | on iff host `claude` is on PATH — *silently off for a jail-only user* (§1.1) | on whenever the claude pack is selected (OQ-A1) | **none**, and it starts working for people it was silently failing |
-   | **`yolo-ps`** | on, always (`requires: ps` is a formality) | install `host-processes` in user config, then enable it | **two lines** |
+   | **`yolo-ps`** | daemon on always, but **shows nothing** until the workspace writes `host_processes.visible` (§1.2a) | install `host-processes` in user config, then enable it — `visible` unchanged | **two lines, and only for someone who already wrote `visible`** |
    | **audio** | on iff the pulse socket exists | install the audio pack, then enable it (R4) | **two lines** |
 
-   So "goes dark" means exactly two things — `yolo-ps` and `audio` — for users who never had to
-   write anything to get them. That is the ruling working, not a bug; the question is only whether
-   the moment is legible.
+   So "goes dark" means exactly two things — `yolo-ps` and `audio` — and §1.2a narrows even that:
+   `yolo-ps` was already inert for anyone who had not written `host_processes.visible`, so the
+   affected population is *users with a non-empty `visible` list*, which is a condition yolo can
+   detect exactly. That is the ruling working, not a bug; the question is only whether the moment is
+   legible.
 
-   _Leaning:_ **a one-time launch notice** naming what was active and the exact lines to restore it.
+   _Leaning:_ **a one-time launch notice** naming what was active and the exact lines to restore it —
+   and, for `host-processes` specifically, **trigger it on the detectable condition**: a workspace
+   with a non-empty `host_processes.visible` and no selected pack is a user who demonstrably wanted
+   this and will otherwise file a bug.
    The alternative worth naming is a migration that writes the currently-active set into user config
    as explicit `enabled: true` entries — but that makes the ruling a no-op for precisely the people
    who already have host daemons running, which is backwards. Silence is cheap for us and expensive
@@ -185,7 +224,43 @@ checking that failure reads well before shipping.
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. **OQ-A3 — does `default_enabled: true` stay available to *fetched* packs?**
+3. **OQ-A4 — does the cgroup delegate become opt-in too?**
+
+   Raised in review (§1.2c). It is the one host-side daemon that still starts purely because the
+   platform allows it — Linux + cgroup v2, no key. R1 says presence never activates, and it is
+   presence-activated, so either it is an exception with a stated reason or it gets a gate.
+
+   What it decides: whether `yolo-cglimit` keeps working out of the box. The delegate hands a jail
+   control of **its own** cgroup rather than reading host state, so the R4 argument for `audio`
+   ("we don't give host access by default") is genuinely weaker here — but "weaker" is not "absent",
+   and R1 is about the *mechanism*, not the severity.
+
+   _Leaning:_ **make it opt-in, same as everything else.** An exception costs more than the
+   convenience: the moment one builtin is presence-activated, "presence never activates" stops being
+   a rule anyone can rely on when reading the code. The natural gate already exists in spirit — a
+   jail that never calls `yolo-cglimit` does not need the delegate, and a jail that does is one whose
+   config already talks about `resources`.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+4. **OQ-A5 — three gates for `yolo-ps`: is that the intended shape?**
+
+   After the ruling, showing a host process takes: select the pack (user scope), enable the loophole
+   (either scope), and list the process names (workspace scope). The first two are new; the third
+   already existed (§1.2a).
+
+   _Leaning:_ **keep all three, and do nothing clever.** They answer different questions — is it
+   installed, is it running, what may it show — and collapsing them would mean a non-empty `visible`
+   list silently starting a host daemon, which is the presence-activation this whole doc deletes,
+   wearing a different hat. The ceremony is the price of the rule being true. Where it should be
+   softened is the *message*, not the mechanism: OQ-A2's notice makes the two-step discoverable at
+   exactly the moment someone hits it.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+5. **OQ-A3 — does `default_enabled: true` stay available to *fetched* packs?**
 
    §3 argues no extra gate is needed, because the origin gate already stands between a fetched pack
    and the host. But "a pack I fetched can declare itself on" is a sentence worth reading twice
