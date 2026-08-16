@@ -110,6 +110,37 @@ func requestBody(request map[string]any) []byte {
 	return body
 }
 
+// unansweredMsg attributes a connection that AUTHENTICATED and then produced no
+// exit frame.
+//
+// IT EXISTS BECAUSE THE DAEMON MOVED BEHIND YOLO'S FRONT. While host-processes
+// published its own endpoint file, a dead daemon was a DIAL failure — the file
+// was unlinked with its listener, or named a port nobody was on — so the switch
+// in call() attributed it and returned 2. Under `publishes: "socket"` yolo owns
+// the listener and the daemon is upstream of it, so the front authenticates this
+// jail from a perfectly valid file, fails to reach the daemon, and hangs up. The
+// dial SUCCEEDS and the stream ends silently.
+//
+// Without this the whole failure was `yolo-ps` exiting 1 with no output at all,
+// which from inside the jail is indistinguishable from a query that matched
+// nothing. The exit code is left at 1 rather than moved to the 2 the dial
+// failures use: 1 is what an interrupted stream has always returned, and the
+// daemon's own exit codes ride this same channel.
+//
+// The endpoint's PATH is named and its CONTENTS never are — that file carries
+// this jail's bearer token, and the rule holds for every diagnostic in this file.
+func unansweredMsg(endpointPath string, partial bool) string {
+	what := "never answered"
+	if partial {
+		what = "stopped answering mid-response"
+	}
+	return fmt.Sprintf("yolo-ps: the host-processes daemon %s.  The endpoint at %s "+
+		"authenticated, so yolo's front is up and the daemon behind it is not — it "+
+		"crashed or was killed on the host.  Relaunch the jail; the reason is in the "+
+		"host's ~/.local/share/yolo-jail/logs/host-service-host-processes.log.\n",
+		what, endpointPath)
+}
+
 // call performs one request/response round trip, returning the daemon exit code.
 // stream stdout/stderr, return the exit-frame code.
 func call(endpointPath string, request map[string]any) int {
@@ -149,15 +180,19 @@ func call(endpointPath string, request map[string]any) int {
 	defer conn.Close()
 
 	if err := frameproto.WriteRequest(conn, requestBody(request)); err != nil {
+		fmt.Fprint(os.Stderr, unansweredMsg(endpointPath, false))
 		return 1
 	}
 
 	// Stream framed response: stdout/stderr to our fds, exit frame -> rc.
+	answered := false
 	for {
 		f, err := frameproto.ReadFrame(conn)
 		if err != nil {
+			fmt.Fprint(os.Stderr, unansweredMsg(endpointPath, answered))
 			return 1 // EOF before an exit frame
 		}
+		answered = true
 		switch f.StreamID {
 		case frameproto.StreamStdout:
 			os.Stdout.Write(f.Payload)
