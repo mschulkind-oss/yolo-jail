@@ -359,6 +359,13 @@ func startEchoFront(t *testing.T) string {
 			}
 			go func() {
 				defer func() { _ = conn.Close() }()
+				// The connection preamble first (svcendpoint §5.5). A daemon that
+				// skipped it would echo yolo's frame back with the request glued
+				// behind it — which is exactly what this echo did before, and what
+				// makes "a prefix is not a concatenation" concrete.
+				if _, err := svcendpoint.ReadPreamble(conn); err != nil {
+					return
+				}
 				buf := make([]byte, 64)
 				n, err := conn.Read(buf)
 				if err != nil {

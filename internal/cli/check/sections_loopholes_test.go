@@ -304,6 +304,13 @@ func TestCheckBrokerRelayProbesTheHopTheJailUses(t *testing.T) {
 
 // serveBrokerPong answers the check's framed {"action":"ping"} with {"pong":true}
 // + exit 0, standing in for the singleton behind the relay.
+//
+// The preamble read is NOT optional bookkeeping, and skipping it is the SILENT
+// half of this change: a double that read one framed message and answered would
+// still answer — it would just be answering yolo's connection preamble instead of
+// the probe's ping, and every assertion here would stay green while the double
+// stopped resembling anything. Consuming it is what keeps "the check's ping
+// reached a daemon" the fact this test reports.
 func serveBrokerPong(ln *svcendpoint.Listener) {
 	for {
 		c, err := ln.Accept()
@@ -312,11 +319,22 @@ func serveBrokerPong(ln *svcendpoint.Listener) {
 		}
 		go func(c net.Conn) {
 			defer c.Close()
+			if _, err := svcendpoint.ReadPreamble(c); err != nil {
+				return
+			}
 			hdr := make([]byte, 4)
 			if _, err := io.ReadFull(c, hdr); err != nil {
 				return
 			}
-			if _, err := io.ReadFull(c, make([]byte, binary.BigEndian.Uint32(hdr))); err != nil {
+			req := make([]byte, binary.BigEndian.Uint32(hdr))
+			if _, err := io.ReadFull(c, req); err != nil {
+				return
+			}
+			// ANSWER ONLY A REAL PING. Without this the double would pong at
+			// whatever arrived first, which is precisely how the preamble bug
+			// above would have hidden: a hung-up connection makes the probe fail
+			// and the caller's assertion say so, out loud.
+			if !bytes.Contains(req, []byte(`"action"`)) {
 				return
 			}
 			body := []byte(`{"pong": true}`)

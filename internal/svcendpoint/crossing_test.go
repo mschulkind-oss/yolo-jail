@@ -1,6 +1,8 @@
 package svcendpoint
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"io"
 	"net"
@@ -58,9 +60,80 @@ func (r *crossingRecorder) await(t *testing.T, n int) []Crossing {
 	return nil
 }
 
+// upstreamLog records, per upstream connection, the RAW connection-preamble bytes
+// the daemon behind the front was handed. Raw rather than decoded on purpose: the
+// "one implementation, both server shapes" claim is a claim about BYTES, and a
+// decode-then-compare would hide an encoding difference between the two shapes.
+type upstreamLog struct {
+	mu   sync.Mutex
+	pre  [][]byte
+	conn int
+}
+
+func (u *upstreamLog) add(raw []byte) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.pre = append(u.pre, raw)
+}
+
+func (u *upstreamLog) connected() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.conn++
+}
+
+func (u *upstreamLog) conns() int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.conn
+}
+
+// await polls until at least n preambles have been recorded, and returns them.
+func (u *upstreamLog) await(t *testing.T, n int) [][]byte {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		u.mu.Lock()
+		got := append([][]byte(nil), u.pre...)
+		u.mu.Unlock()
+		if len(got) >= n {
+			return got
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("upstream saw %d preambles, want at least %d", len(u.pre), n)
+	return nil
+}
+
+// readRawPreamble reads one preamble frame off c and returns it VERBATIM, header
+// included. io.ReadFull twice, never one big Read: the preamble is a PREFIX on
+// the read stream, not a concatenation, so a single Read is not guaranteed to
+// span into (or stop before) the client's own bytes.
+func readRawPreamble(c net.Conn) ([]byte, error) {
+	hdr := make([]byte, 4)
+	if _, err := io.ReadFull(c, hdr); err != nil {
+		return nil, err
+	}
+	n := binary.BigEndian.Uint32(hdr)
+	if n == 0 || n > preambleMax {
+		return nil, errors.New("not a preamble frame")
+	}
+	body := make([]byte, n)
+	if _, err := io.ReadFull(c, body); err != nil {
+		return nil, err
+	}
+	return append(hdr, body...), nil
+}
+
 // startEchoFront stands up a real front: an upstream AF_UNIX daemon that echoes
-// one message, and a ServeFront in front of it. Returns the endpoint path.
-func startEchoFront(t *testing.T) string {
+// one message, and a ServeFront in front of it. Returns the endpoint path and the
+// log of what the daemon behind the front actually received.
+//
+// The daemon reads the connection preamble FIRST, which is what every daemon
+// behind this transport must now do — and it is the reason the echo below can
+// still be one 64-byte Read: ReadPreamble/readRawPreamble consume exactly their
+// frame, so the next Read starts on the client's first byte.
+func startEchoFront(t *testing.T) (string, *upstreamLog) {
 	t.Helper()
 	dir := privateSocketDir(t)
 	upstream := filepath.Join(dir, "up.sock")
@@ -72,14 +145,21 @@ func startEchoFront(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ln.Close() })
+	seen := &upstreamLog{}
 	go func() {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
 				return
 			}
+			seen.connected()
 			go func() {
 				defer func() { _ = conn.Close() }()
+				raw, err := readRawPreamble(conn)
+				if err != nil {
+					return
+				}
+				seen.add(raw)
 				buf := make([]byte, 64)
 				n, err := conn.Read(buf)
 				if err != nil {
@@ -94,7 +174,7 @@ func startEchoFront(t *testing.T) string {
 	t.Cleanup(func() { close(stop) })
 	go func() { _ = ServeFront(endpoint, "127.0.0.1", upstream, stop) }()
 	waitProbe(t, endpoint)
-	return endpoint
+	return endpoint, seen
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +186,7 @@ func startEchoFront(t *testing.T) string {
 // carrying which service, which jail, both byte counts and a duration.
 func TestFrontRecordsAcceptedCrossing(t *testing.T) {
 	rec := captureCrossings(t)
-	endpoint := startEchoFront(t)
+	endpoint, _ := startEchoFront(t)
 
 	conn, err := Dial(endpoint, 5*time.Second)
 	if err != nil {
@@ -136,11 +216,15 @@ func TestFrontRecordsAcceptedCrossing(t *testing.T) {
 	if want := filepath.Base(filepath.Dir(endpoint)); got.Jail != want {
 		t.Errorf("Jail = %q, want %q", got.Jail, want)
 	}
-	if got.BytesIn < 4 {
-		t.Errorf("BytesIn = %d, want at least the 4 request bytes", got.BytesIn)
+	// EXACT, not `>=`. The bounds these replaced passed whether or not the byte
+	// accounting was corrupted, which made them blind to the single
+	// highest-consequence bug in this feature — see
+	// TestPreambleIsNotCountedAsJailTraffic.
+	if got.BytesIn != 4 {
+		t.Errorf("BytesIn = %d, want exactly the 4 request bytes the jail sent", got.BytesIn)
 	}
-	if got.BytesOut < 8 {
-		t.Errorf("BytesOut = %d, want at least the 8 response bytes", got.BytesOut)
+	if got.BytesOut != 8 {
+		t.Errorf("BytesOut = %d, want exactly the 8 response bytes", got.BytesOut)
 	}
 	if got.At.IsZero() {
 		t.Error("At is the zero time; a crossing with no timestamp audits nothing")
@@ -244,6 +328,256 @@ func TestUnreachableUpstreamRecorded(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// The connection preamble (docs/design/broker-as-a-pack.md §5.5)
+// ---------------------------------------------------------------------------
+
+// TestPreambleIsNotCountedAsJailTraffic is THE test for the highest-consequence
+// silent failure in this feature.
+//
+// BytesIn is defined as "how many PLAINTEXT bytes the JAIL sent host-ward"
+// (crossing.go) and surfaces verbatim as bytes_in= in internal/crossaudit. The
+// natural-looking implementation of a read-stream prefix —
+// io.MultiReader(bytes.NewReader(pre), c.Conn) with the counter left on the
+// composite read — inflates EVERY tier-1 record by the preamble's length,
+// silently, on the one field an auditor reads as volume. Nothing else in this
+// package can see that: the assertion it broke used to be `BytesIn >= 4`.
+//
+// So this test is exact on both sides, and both halves are load-bearing: the
+// preamble the daemon actually received is measured (not assumed), which is what
+// keeps the count assertion from passing vacuously in a build where no preamble
+// is sent at all.
+func TestPreambleIsNotCountedAsJailTraffic(t *testing.T) {
+	rec := captureCrossings(t)
+	endpoint, seen := startEchoFront(t)
+
+	const payload = "ping"
+	conn, err := Dial(endpoint, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Write([]byte(payload)); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 64)
+	n, err := conn.Read(buf)
+	if err != nil || string(buf[:n]) != "got:"+payload {
+		t.Fatalf("response = %q, %v", buf[:n], err)
+	}
+	_ = conn.Close()
+
+	// ANTI-VACUITY: the daemon really was handed a preamble, and a non-trivial
+	// one. Without this the count assertion below would also pass on a build that
+	// sends nothing.
+	pre := seen.await(t, 1)[0]
+	if len(pre) < 5 {
+		t.Fatalf("upstream received a %d-byte preamble; nothing to exclude from the count", len(pre))
+	}
+
+	got := rec.await(t, 1)[0]
+	if got.BytesIn != int64(len(payload)) {
+		t.Errorf("BytesIn = %d, want exactly %d.\nThe preamble is %d bytes and %d is what the "+
+			"count would be if it were included — the tier-1 record must describe what the "+
+			"JAIL sent, not what yolo prepended for the daemon.",
+			got.BytesIn, len(payload), len(pre), len(payload)+len(pre))
+	}
+}
+
+// TestPreambleNeverAppearsInTheResponseDirection: the preamble is host→daemon
+// only, exactly once, at connection open. §5.5's "the jail-side client never sees
+// it, so a client cannot forge, suppress, or even observe it" is a property of
+// countingConn.Write being untouched, and this is what says so out loud.
+func TestPreambleNeverAppearsInTheResponseDirection(t *testing.T) {
+	rec := captureCrossings(t)
+	endpoint, seen := startEchoFront(t)
+
+	conn, err := Dial(endpoint, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	resp, err := io.ReadAll(conn)
+	if err != nil {
+		t.Fatalf("read the whole response: %v", err)
+	}
+	_ = conn.Close()
+
+	// Byte-for-byte the daemon's answer: nothing before it, nothing after it.
+	if string(resp) != "got:ping" {
+		t.Errorf("client saw %q, want %q — something was prepended to the RESPONSE", resp, "got:ping")
+	}
+	pre := seen.await(t, 1)[0]
+	if bytes.Contains(resp, pre) {
+		t.Error("the connection preamble came back to the client in the response direction")
+	}
+	if bytes.Contains(resp, []byte(`"jail_id"`)) {
+		t.Errorf("the response carries a jail_id envelope: %q", resp)
+	}
+	// And the byte count agrees: 8 out, not 8 plus a preamble.
+	if got := rec.await(t, 1)[0]; got.BytesOut != int64(len("got:ping")) {
+		t.Errorf("BytesOut = %d, want exactly 8", got.BytesOut)
+	}
+}
+
+// TestBothServerShapesSeeTheSamePreambleBytes is §5.5's "one implementation
+// covers both server shapes" claim, measured rather than argued: a daemon behind
+// the FRONT and a daemon served DIRECTLY by Listen must receive byte-identical
+// preambles for the same identity, or the Go server library and a third-party
+// daemon are already two implementations.
+//
+// The two listeners share a directory and a service basename — crossingIdentity
+// strips the extension, so "echo.endpoint" and "echo.ep" are the same service in
+// the same jail — which is what makes a byte comparison meaningful instead of a
+// field-by-field one.
+func TestBothServerShapesSeeTheSamePreambleBytes(t *testing.T) {
+	dir := privateSocketDir(t)
+	upstream := filepath.Join(dir, "up.sock")
+	assertSockPathFits(t, upstream)
+
+	// Shape 1: fronted. A dumb upstream that records its preamble and hangs up.
+	fronted := make(chan []byte, 1)
+	uln, err := net.Listen("unix", upstream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = uln.Close() })
+	go func() {
+		for {
+			c, err := uln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = c.Close() }()
+				if raw, err := readRawPreamble(c); err == nil {
+					select {
+					case fronted <- raw:
+					default:
+					}
+				}
+			}()
+		}
+	}()
+	frontPath := filepath.Join(dir, "echo.endpoint")
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go func() { _ = ServeFront(frontPath, "127.0.0.1", upstream, stop) }()
+	waitProbe(t, frontPath)
+
+	// Shape 2: endpoint-published. The daemon's own accept loop, no front.
+	direct := make(chan []byte, 1)
+	directPath := filepath.Join(dir, "echo.ep")
+	dln, err := Listen(directPath, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = dln.Close() })
+	go func() {
+		for {
+			c, err := dln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = c.Close() }()
+				if raw, err := readRawPreamble(c); err == nil {
+					select {
+					case direct <- raw:
+					default:
+					}
+				}
+			}()
+		}
+	}()
+
+	for _, p := range []string{frontPath, directPath} {
+		conn, err := Dial(p, 5*time.Second)
+		if err != nil {
+			t.Fatalf("dial %s: %v", filepath.Base(p), err)
+		}
+		// DELIVERY IS LAZY ON THE READ PATH, so the two shapes are reached
+		// differently and both must be exercised: the front dials upstream eagerly
+		// and copies unconditionally, while an endpoint-published daemon sees the
+		// preamble only when it reads. Neither is given a client byte here, which
+		// is the point — a preamble that needed one would not arrive at all.
+		t.Cleanup(func() { _ = conn.Close() })
+	}
+
+	var got [2][]byte
+	for i, ch := range []chan []byte{fronted, direct} {
+		select {
+		case got[i] = <-ch:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("shape %d never received a preamble", i)
+		}
+	}
+	want := encodePreamble(Preamble{
+		JailID:  filepath.Base(dir),
+		Service: "echo",
+		V:       PreambleVersion,
+	})
+	if !bytes.Equal(got[0], got[1]) {
+		t.Errorf("the two server shapes received different preambles:\n front %q\ndirect %q",
+			got[0], got[1])
+	}
+	if !bytes.Equal(got[0], want) {
+		t.Errorf("fronted preamble = %q, want %q", got[0], want)
+	}
+	if !bytes.Equal(got[1], want) {
+		t.Errorf("endpoint preamble = %q, want %q", got[1], want)
+	}
+}
+
+// TestRejectedConnectionNeverReachesADaemon: authentication precedes the wrapper
+// that carries the preamble (listen.go), so a connection that failed the token
+// check produces no preamble because it produces no connection — the daemon never
+// hears about it at all.
+//
+// This is what keeps internal/hostservice/transport_test.go's case-2 reasoning
+// intact: a rejected client cannot get yolo to assert an identity for it, and
+// cannot get a daemon to read anything it wrote.
+func TestRejectedConnectionNeverReachesADaemon(t *testing.T) {
+	rec := captureCrossings(t)
+	endpoint, seen := startEchoFront(t)
+
+	ep, err := Read(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrong, err := NewToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := filepath.Join(privateDir(t), "wrongtoken.endpoint")
+	if err := Publish(bad, Endpoint{HostPort: ep.HostPort, CertDER: ep.CertDER, Token: wrong}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Dial(bad, 5*time.Second); !errors.Is(err, ErrAuthRejected) {
+		t.Fatalf("Dial with the wrong token: %v, want ErrAuthRejected", err)
+	}
+	if got := rec.await(t, 1)[0]; got.Outcome != CrossingRejected {
+		t.Fatalf("Outcome = %q, want %q", got.Outcome, CrossingRejected)
+	}
+	if n := seen.conns(); n != 0 {
+		t.Errorf("the upstream daemon was reached %d times by a REJECTED connection", n)
+	}
+
+	// Anti-vacuity on the same fixture: the correct token does reach the daemon,
+	// so the zero above is the rejection and not a broken front.
+	conn, err := Dial(endpoint, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	seen.await(t, 1)
+	if n := seen.conns(); n != 1 {
+		t.Errorf("upstream connections = %d, want exactly the one authenticated crossing", n)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // R4 — AUDIT-ONLY: the audit path cannot break the data path
 // ---------------------------------------------------------------------------
 
@@ -260,7 +594,7 @@ func TestSinkPanicCannotBreakTheDataPath(t *testing.T) {
 	t.Cleanup(func() { SetCrossingSink(prev) })
 	SetCrossingSink(func(Crossing) { panic("sink exploded") })
 
-	endpoint := startEchoFront(t)
+	endpoint, _ := startEchoFront(t)
 
 	for i, want := range []string{"got:one", "got:two"} {
 		conn, err := Dial(endpoint, 5*time.Second)
@@ -295,7 +629,7 @@ func TestNoSinkIsTheDefault(t *testing.T) {
 	SetCrossingSink(nil)
 	t.Cleanup(func() { SetCrossingSink(prev) })
 
-	endpoint := startEchoFront(t)
+	endpoint, _ := startEchoFront(t)
 	conn, err := Dial(endpoint, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -321,7 +655,7 @@ func TestNoSinkIsTheDefault(t *testing.T) {
 // in any field of any record.
 func TestCrossingCarriesNoSecret(t *testing.T) {
 	rec := captureCrossings(t)
-	endpoint := startEchoFront(t)
+	endpoint, _ := startEchoFront(t)
 	ep, err := Read(endpoint)
 	if err != nil {
 		t.Fatal(err)

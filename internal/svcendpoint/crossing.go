@@ -49,6 +49,14 @@ import (
 // land in a file under ~/.local/share/yolo-jail/logs/ and in any transcript that
 // quotes it, and CI's secret scan runs --only-verified, so a leak here would not
 // be caught.
+//
+// That rule covers the CONNECTION PREAMBLE too (preamble.go), which this file's
+// countingConn is the delivery point for: NO Crossing field ever carries preamble
+// content, and none ever will. The preamble is a versioned envelope meant to
+// grow, so a record that quoted it today would be quoting whatever it carries
+// tomorrow. Jail is derived from the publication path by crossingIdentity — the
+// SAME derivation the preamble's jail_id is built from — so tier 1 already says
+// everything the preamble could tell it, without reading a byte of the stream.
 
 // Crossing outcomes. A fixed vocabulary, because an audit log people grep is a
 // schema whether or not anyone writes it down.
@@ -220,13 +228,35 @@ func crossingName(s string) string {
 // "cannot break the data path" claim quietly stops being true.
 //
 // Embedding net.Conn rather than re-implementing it keeps every deadline and
-// address method intact. The only server-side type assertion in this package is
-// on the front's UPSTREAM Unix socket (front.go), never on the client, so the
-// wrap is invisible to callers.
+// address method intact.
+//
+// IT IS ALSO THE ONLY PLACE THE CONNECTION PREAMBLE CAN LIVE, and the reason is
+// front.go:92: splice type-asserts the accepted connection back to *countingConn
+// to downgrade an undeliverable crossing to CrossingUnreachable. Wrapping this
+// type in an OUTER prefixing reader compiles, passes every test, and silently
+// deletes that audit outcome, because the comma-ok assertion just stops matching.
+// So the prefix goes INSIDE, on Read. (The claim that used to stand here — "the
+// only server-side type assertion in this package is on the front's UPSTREAM Unix
+// socket" — was already false when it was written; front.go asserts on the
+// CLIENT too. Do not restore it.)
 type countingConn struct {
 	net.Conn
 	service, jail, via string
 	start              time.Time
+
+	// pre is the connection preamble still owed to whoever reads this connection
+	// (preamble.go, docs/design/broker-as-a-pack.md §5.5), or nil for a listener
+	// that does not send one. It is a window onto the Listener's ONE shared,
+	// never-mutated frame: only this slice header moves, so a preamble costs a
+	// reslice per connection rather than a marshal.
+	//
+	// NOT an atomic and NOT guarded, unlike in/out below, and the asymmetry is
+	// deliberate: in/out are written from two goroutines because splice reads and
+	// writes concurrently, but Read itself runs on exactly ONE goroutine in both
+	// server shapes — splice's request-direction copy, or the daemon's own
+	// per-connection handler. A mutex here would suggest a race that cannot
+	// happen and would sit on the data path forever.
+	pre []byte
 
 	// atomics: splice reads and writes on two different goroutines.
 	in, out atomic.Int64
@@ -237,14 +267,31 @@ type countingConn struct {
 	closeOnce sync.Once
 }
 
-func newCountingConn(conn net.Conn, service, jail, via string, start time.Time) *countingConn {
+func newCountingConn(conn net.Conn, service, jail, via string, start time.Time, pre []byte) *countingConn {
 	return &countingConn{
 		Conn: conn, service: service, jail: jail, via: via,
-		start: start, outcome: CrossingAccepted,
+		start: start, pre: pre, outcome: CrossingAccepted,
 	}
 }
 
 func (c *countingConn) Read(p []byte) (int, error) {
+	// THE PREAMBLE IS YOLO'S OWN BYTES, SO IT RETURNS BEFORE THE COUNTER.
+	//
+	// BytesIn is defined as "how many PLAINTEXT bytes the JAIL sent host-ward"
+	// and surfaces verbatim as bytes_in= in internal/crossaudit. Serving the
+	// prefix through the counter — which is exactly what an io.MultiReader-shaped
+	// implementation would do — inflates every tier-1 record by the preamble's
+	// length, silently, on the one field an auditor reads as volume. So this
+	// branch returns before c.in.Add and before c.Conn.Read.
+	//
+	// A PREFIX IS NOT A CONCATENATION: one Read here yields ONLY preamble bytes,
+	// never the first of the client's. A daemon that treats one Read as one
+	// message must read the preamble with ReadPreamble (io.ReadFull-based) first.
+	if len(c.pre) > 0 {
+		n := copy(p, c.pre)
+		c.pre = c.pre[n:]
+		return n, nil
+	}
 	n, err := c.Conn.Read(p)
 	c.in.Add(int64(n))
 	return n, err

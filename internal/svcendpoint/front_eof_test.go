@@ -54,6 +54,15 @@ func TestFrontEOFModeHalfClosesUpstream(t *testing.T) {
 			return
 		}
 		defer conn.Close()
+		// The connection preamble first, as every daemon behind this transport
+		// now must. It matters MORE for a read-to-EOF daemon than for a framed
+		// one: io.ReadAll below would otherwise fold yolo's frame into the
+		// request body and the echo would come back with a JSON object glued to
+		// the front of it.
+		if _, err := ReadPreamble(conn); err != nil {
+			daemonErr <- err
+			return
+		}
 		// BOUNDED: this read returns only when the front half-closes upstream, so a
 		// regression here used to block both ends until go test's package-wide
 		// 10-minute timeout panic — a failure mode that names no cause and truncates
@@ -131,6 +140,9 @@ func TestServeFrontDefaultHasNoHalfClose(t *testing.T) {
 			return
 		}
 		defer conn.Close()
+		if _, err := ReadPreamble(conn); err != nil {
+			return
+		}
 		buf := make([]byte, 64)
 		n, err := conn.Read(buf)
 		if err != nil {

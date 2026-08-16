@@ -71,6 +71,11 @@ func Main(argv []string) int {
 // and never learns which transport carried its bytes. That is the whole point
 // (docs/design/loophole-transport.md §8.1), and it is why Serve's own test suite
 // still pins the protocol with its assertions unchanged.
+//
+// The ONE thing that does differ is above the accept loop: a jail-facing
+// connection carries yolo's CONNECTION PREAMBLE (svcendpoint/preamble.go) and
+// this daemon has to consume it before handleConn reads a byte. Serve's AF_UNIX
+// path has no preamble and is untouched — both ends there are host processes.
 func ServeEndpoint(endpointPath, mode string, stop <-chan struct{}) error {
 	ln, err := svcendpoint.Listen(endpointPath, "")
 	if err != nil {
@@ -84,7 +89,27 @@ func ServeEndpoint(endpointPath, mode string, stop <-chan struct{}) error {
 		if aerr != nil {
 			return nil // listener closed on stop, or the accept loop ended
 		}
-		go handleConn(conn, mode)
+		go func(conn net.Conn) {
+			// INSIDE THE GOROUTINE, NEVER IN THE ACCEPT LOOP: reading in the loop
+			// would let one client that connects and never writes stall every
+			// other client for the handshake timeout — the denial of service
+			// svcendpoint's own accept loop is structured to avoid.
+			//
+			// AND ON THE RAW conn, never through a bufio.Reader: readHeaderCapped
+			// reads the request one byte at a time, so a buffered read here would
+			// swallow the head of the client's header into a buffer handleConn
+			// never sees. ReadPreamble is io.ReadFull-based and consumes exactly
+			// the frame, which is what makes the raw read safe.
+			if _, perr := svcendpoint.ReadPreamble(conn); perr != nil {
+				// Drop the connection; never re-read these bytes as a request.
+				// A bare connect-and-close probe lands here and must not be
+				// louder than it is. Payload-free by classification.
+				logf("[journal] connection preamble rejected; connection dropped")
+				_ = conn.Close()
+				return
+			}
+			handleConn(conn, mode)
+		}(conn)
 	}
 }
 

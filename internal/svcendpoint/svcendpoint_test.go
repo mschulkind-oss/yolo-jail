@@ -160,8 +160,17 @@ func (s *testServer) serve() {
 	}
 }
 
+// handle is a real daemon's read path in miniature, and the FIRST thing it does
+// is what every daemon behind this transport now has to do: consume the
+// connection preamble (preamble.go) before frameproto sees a byte. Without this
+// the request parse would eat yolo's frame instead — which is exactly the failure
+// mode the version check exists to make loud, and pinning it here (one fix, ~20
+// call sites) is what keeps the rest of this file about the transport.
 func (s *testServer) handle(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
+	if _, err := ReadPreamble(conn); err != nil {
+		return
+	}
 	body, err := frameproto.ReadRequestBytes(conn)
 	if err != nil {
 		return

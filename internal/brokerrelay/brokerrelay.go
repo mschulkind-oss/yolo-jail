@@ -267,9 +267,24 @@ func Serve(cfg Config, stop <-chan struct{}) error {
 	// would report a publication problem as "the relay is dead" — a worse diagnosis
 	// of the same fact. The host-side health gate (relayHealthy) sees the absent
 	// endpoint and respawns, and `yolo check` names it.
+	//
+	// NoPreamble: THE ONE DELIBERATE OPT-OUT IN THE TREE, and it is on the
+	// credential path. The relay is not a dumb pipe — handle -> readFirstMessage
+	// reads the FIRST length-prefixed frame off this connection and stampJailID
+	// rewrites it. A connection preamble (svcendpoint/preamble.go) is framed
+	// identically, so with one in front the relay would stamp THE PREAMBLE, write
+	// that to the broker, and leave the terminator's real request sitting unread
+	// behind it: every jail's Claude OAuth refresh fails. The design doc called
+	// this change "additive"; it is not, and this line is the whole correction
+	// (docs/design/broker-as-a-pack.md §12, retraction).
+	//
+	// REMOVAL TRIGGER: the broker conversion, which deletes readFirstMessage and
+	// stampJailID outright — the preamble is what replaces them. When this
+	// function goes, so does the opt-out; until then nothing else may set it.
 	if cfg.EndpointPath != "" {
 		go func() {
-			if err := svcendpoint.ServeFront(cfg.EndpointPath, cfg.AdvertiseHost, socketPath, stop); err != nil {
+			if err := svcendpoint.ServeFrontWithOptions(cfg.EndpointPath, cfg.AdvertiseHost, socketPath, stop,
+				svcendpoint.FrontOptions{NoPreamble: true}); err != nil {
 				Logger.Printf("front: %s not published (%v) — this jail cannot reach the relay",
 					cfg.EndpointPath, err)
 			}

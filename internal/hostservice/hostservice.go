@@ -34,14 +34,27 @@
 // fronted daemon produces only the first. Do not paper that seam over by
 // promising the front something it cannot deliver.
 //
-// One consequence worth knowing when reading the two together: tier 2's `jail=`
-// is the value the CLIENT sent (`jail_id`, which the protocol says daemons must
-// not trust), while tier 1's is derived host-side from the path yolo published
-// at. When they disagree, tier 1 is the one that means something.
+// One consequence worth knowing when reading the two together: WHICH `jail=` a
+// tier-2 line carries now depends on the transport that delivered the request,
+// and the split is the point rather than an inconsistency.
+//
+//   - On a PREAMBLE-BEARING connection (ServeEndpoint, and any future fronted
+//     entry point), `jail=` is the value yolo asserted in the connection preamble
+//     — derived host-side from the path it published at, the SAME derivation
+//     tier 1 uses. The two tiers then agree by construction, and a client that
+//     sends a spoofed `jail_id` sees it overridden in both.
+//   - On a bare ServeUnix connection there is no preamble, so `jail=` falls back
+//     to the CLIENT's `jail_id` exactly as it always did — which the protocol
+//     says daemons must not trust. That fallback is still load-bearing: the
+//     broker singleton is reached through the relay, which stamps the field
+//     in-payload and opts out of the preamble until it is deleted.
+//
+// When the two disagree, tier 1 is still the one that means something.
 package hostservice
 
 import (
 	"errors"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -70,7 +83,10 @@ var Logger = log.New(os.Stderr, "", log.LstdFlags)
 type Session struct {
 	// Request is the parsed JSON the client sent, order-preserving.
 	Request *jsonx.OrderedMap
-	// JailID is Request["jail_id"] or "unknown".
+	// JailID is the jail this request came from, in descending order of trust:
+	// the HOST-ASSERTED jail_id from the connection preamble when the transport
+	// carried one, else the client's own Request["jail_id"], else "unknown".
+	// See the package comment for why the fallback survives.
 	JailID string
 
 	conn     net.Conn
@@ -245,6 +261,11 @@ type Handler func(*Session)
 // loopback-TLS transport has to reconstruct with a token (svcendpoint's whole
 // reason to exist). The socket is 0600 via umask, and a stale one is removed
 // first so a crashed daemon does not wedge its successor.
+//
+// NO CONNECTION PREAMBLE, for the same reason: a preamble is yolo introducing a
+// JAIL to a daemon, and nothing here crossed a boundary for yolo to have an
+// opinion about. Callers of this socket write their request first, as they
+// always have.
 func ServeUnix(handler Handler, socketPath string, stop <-chan struct{}) error {
 	if _, err := os.Stat(socketPath); err == nil {
 		_ = os.Remove(socketPath)
@@ -263,7 +284,7 @@ func ServeUnix(handler Handler, socketPath string, stop <-chan struct{}) error {
 	_ = os.Chmod(socketPath, 0o600)
 
 	Logger.Printf("listening on %s (protocol v%d)", socketPath, frameproto.ProtocolVersion)
-	return serveListener(handler, ln, stop)
+	return serveListener(handler, ln, stop, false)
 }
 
 // ServeEndpoint publishes a loopback-TLS endpoint at endpointPath and serves it
@@ -284,12 +305,16 @@ func ServeUnix(handler Handler, socketPath string, stop <-chan struct{}) error {
 // boundary crossing and gets svcendpoint's tier-1 connection record in addition
 // to this package's per-request line. ServeUnix's do not: both of its ends are
 // host processes, so nothing crosses.
+//
+// And because it crosses, every connection here carries a CONNECTION PREAMBLE
+// (svcendpoint/preamble.go): yolo's host-asserted statement of which jail is on
+// the other end, read below before the request and never confused with one.
 func ServeEndpoint(handler Handler, endpointPath string, stop <-chan struct{}) error {
 	ln, err := svcendpoint.Listen(endpointPath, "")
 	if err != nil {
 		return err
 	}
-	return serveListener(handler, ln, stop)
+	return serveListener(handler, ln, stop, true)
 }
 
 // serveListener is the transport-agnostic half: shutdown wiring plus the accept
@@ -298,7 +323,14 @@ func ServeEndpoint(handler Handler, endpointPath string, stop <-chan struct{}) e
 //
 // ln.Accept MUST return only authenticated connections. svcendpoint.Listener does;
 // that guarantee is what lets handleOne stay unchanged.
-func serveListener(handler Handler, ln net.Listener, stop <-chan struct{}) error {
+//
+// readPreamble is a PROPERTY OF THE LISTENER, named by whichever Serve* bound it,
+// never inferred per connection. It cannot be inferred: a preamble and a
+// frameproto request are byte-identical in shape (4-byte BE length then a JSON
+// object), so sniffing would be guessing, and guessing on this path is how the
+// broker's transport was silently re-pointed once already (see the note above
+// ServeUnix).
+func serveListener(handler Handler, ln net.Listener, stop <-chan struct{}, readPreamble bool) error {
 	Logger.Printf("serving frame protocol v%d", frameproto.ProtocolVersion)
 
 	// stop channel (explicit) OR signals (when run as a real daemon).
@@ -318,7 +350,7 @@ func serveListener(handler Handler, ln net.Listener, stop <-chan struct{}) error
 		if err != nil {
 			break
 		}
-		go handleOne(handler, conn)
+		go handleOne(handler, conn, readPreamble)
 	}
 	return nil
 }
@@ -335,9 +367,24 @@ func serveListener(handler Handler, ln net.Listener, stop <-chan struct{}) error
 // says a crossing happened and how big it was; this says what was asked. Deleting
 // either in favour of the other loses information that the other cannot
 // reconstruct.
-func handleOne(handler Handler, conn net.Conn) {
+//
+// THE PREAMBLE IS READ FIRST AND IS NEVER FALLEN BACK ON. When readPreamble is
+// set, svcendpoint.ReadPreamble consumes exactly one frame off the raw conn
+// before frameproto sees a byte, and a failure DROPS the connection — it does not
+// retry the same bytes as a request. A fallback would reinstate the framing
+// coincidence transport_test.go's case 2 documents (a 64-byte token frame that
+// "failed JSON decode anyway"), this time on the auditing path, where the payoff
+// for guessing right is a request attributed to the wrong jail.
+//
+// It also must not be FATAL to the daemon: yolo's own readiness probe for a
+// fronted service is a bare connect-and-close that bypasses the front and
+// therefore sends nothing at all, so "closed before a preamble" degrades exactly
+// as "closed before a request" already does — one log line, one closed
+// connection, the accept loop untouched.
+func handleOne(handler Handler, conn net.Conn, readPreamble bool) {
 	start := time.Now()
 	jailID := "unknown"
+	hostAsserted := false
 	var reqKeys []string
 	var rcForLog *int
 	var sess *Session
@@ -355,6 +402,38 @@ func handleOne(handler Handler, conn net.Conn) {
 		Logger.Print(frameproto.AccessLogLine(jailID, keys, rcForLog, elapsedMs, bytesOut))
 		_ = conn.Close()
 	}()
+
+	if readPreamble {
+		p, perr := svcendpoint.ReadPreamble(conn)
+		if perr != nil {
+			// PAYLOAD-FREE by classification, not by formatting: perr wraps a
+			// json decode error that can quote a byte of the frame, and the
+			// preamble is a versioned envelope meant to grow. Name the fault,
+			// never the bytes.
+			switch {
+			case errors.Is(perr, io.EOF), errors.Is(perr, io.ErrUnexpectedEOF):
+				Logger.Printf("conn closed without a request")
+			case errors.Is(perr, svcendpoint.ErrPreambleVersion):
+				Logger.Printf("connection preamble rejected: unrecognized version")
+			case errors.Is(perr, svcendpoint.ErrBadPreambleFrame):
+				Logger.Printf("connection preamble rejected: malformed frame")
+			default:
+				Logger.Printf("connection preamble unreadable")
+			}
+			return
+		}
+		// HOST-ASSERTED, so it outranks anything the request says. Recorded now
+		// rather than after the request parse, so a client that opens a
+		// preamble-bearing connection and then sends nothing is still attributed.
+		//
+		// An EMPTY jail_id is not an assertion. yolo cannot produce one today
+		// (crossingName normalizes a degenerate path to "unknown"), but treating
+		// "" as authoritative would turn a future encoding slip into a silently
+		// blank audit column instead of a fall back to what is known.
+		if p.JailID != "" {
+			jailID, hostAsserted = p.JailID, true
+		}
+	}
 
 	body, err := frameproto.ReadRequestBytes(conn)
 	if err != nil {
@@ -374,10 +453,15 @@ func handleOne(handler Handler, conn net.Conn) {
 		return
 	}
 	reqKeys = req.Keys()
-	jailID = "unknown"
-	if v, ok := req.Get("jail_id"); ok {
-		if s, ok := v.(string); ok && s != "" {
-			jailID = s
+	// The client's own claim is consulted ONLY when the transport asserted
+	// nothing. On a preamble-bearing connection a spoofed jail_id is still
+	// visible in keys= and is still ignored here — which is the whole point.
+	if !hostAsserted {
+		jailID = "unknown"
+		if v, ok := req.Get("jail_id"); ok {
+			if s, ok := v.(string); ok && s != "" {
+				jailID = s
+			}
 		}
 	}
 	sess = &Session{Request: req, JailID: jailID, conn: conn}

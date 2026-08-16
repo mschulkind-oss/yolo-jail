@@ -720,6 +720,22 @@ func (o *Options) startExternalService(
 			_ = svcendpoint.ServeFrontWithOptions(hostPath, advertiseHost, daemonPath, frontStop,
 				svcendpoint.FrontOptions{
 					HalfCloseUpstream: hd.RequestEnd == loopholes.RequestEndEOF,
+					// NoPreamble, UNCONDITIONALLY, UNTIL THE MANIFEST CAN SAY
+					// OTHERWISE. svcendpoint's default is preamble-on, and that is
+					// right for a daemon yolo wrote. Every daemon reachable through
+					// THIS call site is one it did not: a manifest's host_daemon or
+					// a yolo-jail.jsonc `loopholes:` entry, i.e. a third-party
+					// program whose protocol has no room for a frame it never asked
+					// for. Prepending bytes to a working setup on the strength of a
+					// declaration that does not exist yet is not a default, it is a
+					// silent break — the config-loophole case is a dumb pipe BY
+					// CONSTRUCTION (discover.go hands every one of them
+					// publishes:"socket").
+					//
+					// REMOVAL TRIGGER: the `preamble` manifest key. This becomes
+					// `NoPreamble: !hd.Preamble`, defaulting true for manifests and
+					// false for Source == SourceConfig, and the comment goes with it.
+					NoPreamble: true,
 				})
 		}()
 		if !waitForEndpoint(hostPath, o.serviceReadyTimeout()) {

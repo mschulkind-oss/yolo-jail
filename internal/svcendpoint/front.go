@@ -27,7 +27,9 @@ func ServeFront(publishPath, advertiseHost, upstreamUnixPath string, stop <-chan
 }
 
 // FrontOptions tunes ServeFrontWithOptions. The zero value is ServeFront's
-// behaviour exactly — the relay's frozen semantics, bit-identical.
+// behaviour exactly, and every field is named so that the zero value is the
+// FRAMEWORK DEFAULT rather than the absence of one — which is why the preamble
+// knob below is spelled NoPreamble.
 type FrontOptions struct {
 	// HalfCloseUpstream makes the front CloseWrite the upstream Unix socket when
 	// the client's request direction ends, so a daemon that reads its request TO
@@ -36,14 +38,33 @@ type FrontOptions struct {
 	// (frozen parity), so half-closing there would cut short a response still in
 	// flight — which is exactly why splice runs the request direction unwaited.
 	HalfCloseUpstream bool
+
+	// NoPreamble suppresses the connection preamble (preamble.go,
+	// docs/design/broker-as-a-pack.md §5.5) for daemons behind this front.
+	//
+	// THE ZERO VALUE IS ON — do not invert this field. §5.5's default is
+	// `preamble: true`, so that no manifest has to declare anything to keep
+	// working, and a knob whose zero value meant "off" would put a silent-off
+	// default back in the one place the whole design exists to remove it from.
+	//
+	// It exists for a genuinely dumb pipe: a daemon yolo did not write, whose
+	// protocol has no room for a frame it never asked for. Setting it costs that
+	// daemon its identity — no jail_id today, and nothing the preamble grows to
+	// carry later — which is meant to be the reason to think twice. It costs
+	// yolo NOTHING in audit: tier 1's jail= is derived from the publication path
+	// either way (crossing.go), so this is not a privacy switch and cannot be
+	// used as one.
+	NoPreamble bool
 }
 
 // ServeFrontWithOptions is ServeFront with per-daemon knobs; see FrontOptions.
 func ServeFrontWithOptions(publishPath, advertiseHost, upstreamUnixPath string, stop <-chan struct{}, opts FrontOptions) error {
-	// listenWith, not Listen: the only difference is the audit label these
-	// connections carry (crossing.go). CrossingViaFront is also the marker that
-	// NO per-request tier exists for them — splice does not parse the stream.
-	ln, err := listenWith(publishPath, advertiseHost, CrossingViaFront)
+	// listenWith, not Listen: the audit label these connections carry
+	// (crossing.go) plus the preamble switch. CrossingViaFront is also the marker
+	// that NO per-request tier exists for them — splice does not parse the
+	// stream, and the preamble is the one thing yolo ADDS to it, never something
+	// it reads back.
+	ln, err := listenWith(publishPath, advertiseHost, CrossingViaFront, !opts.NoPreamble)
 	if err != nil {
 		return err
 	}
@@ -78,6 +99,17 @@ func ServeFrontWithOptions(publishPath, advertiseHost, upstreamUnixPath string, 
 // to EOF: when the request direction ends, the upstream Unix socket is
 // CloseWrite'd (the dial below is net.Dial("unix", …), so the assertion holds),
 // while the response direction stays open for the reply.
+//
+// THE CONNECTION PREAMBLE NEEDS NOTHING FROM THIS FUNCTION, deliberately. It is
+// prefixed onto the client's READ stream inside countingConn (crossing.go), so the
+// request-direction io.Copy below carries it upstream as its first write —
+// which is also why the copy is started UNCONDITIONALLY and the upstream is
+// dialled EAGERLY: a fronted daemon receives the preamble at connection open,
+// without waiting for a byte from the jail. Neither io.Copy can shortcut past
+// countingConn.Read either: *net.UnixConn implements neither io.ReaderFrom nor
+// io.WriterTo (its ReadFrom/WriteTo are the PacketConn signatures), and
+// countingConn embeds the net.Conn INTERFACE so no WriteTo is promoted from the
+// *tls.Conn. Both copies therefore run the generic buffer loop.
 func splice(client net.Conn, upstreamUnixPath string, halfCloseUpstream bool) {
 	defer func() { _ = client.Close() }()
 	up, err := net.Dial("unix", upstreamUnixPath)

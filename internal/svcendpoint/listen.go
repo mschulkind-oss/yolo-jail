@@ -61,6 +61,12 @@ type Listener struct {
 	// race the accept loop). See crossing.go.
 	service, jail, via string
 
+	// pre is the connection preamble every accepted connection is handed, built
+	// ONCE at bind from service/jail above, or nil when this listener sends none
+	// (FrontOptions.NoPreamble). READ-ONLY after bind and SHARED by every
+	// connection: countingConn only reslices its own view of it.
+	pre []byte
+
 	// ready carries authenticated conns from the accept loop to Accept. It is
 	// never closed: pending auth goroutines still hold a send on it.
 	ready chan net.Conn
@@ -98,13 +104,20 @@ type Listener struct {
 //  8. publish AFTER a successful bind, so a published file always names a live
 //     listener — which is what makes a Probe-based health check meaningful.
 func Listen(publishPath, advertiseHost string) (*Listener, error) {
-	return listenWith(publishPath, advertiseHost, CrossingViaEndpoint)
+	return listenWith(publishPath, advertiseHost, CrossingViaEndpoint, true)
 }
 
-// listenWith is Listen plus the audit's "how was this served" label. Unexported
-// because it is not a transport choice — there is one transport — only which
-// server shape sits behind it, which ServeFront knows and a daemon does not.
-func listenWith(publishPath, advertiseHost, via string) (*Listener, error) {
+// listenWith is Listen plus the audit's "how was this served" label and the
+// connection-preamble switch. Unexported because neither is a transport choice —
+// there is one transport — only which server shape sits behind it and whether
+// yolo introduces itself to the daemon on the way in, both of which the caller
+// knows and a daemon does not.
+//
+// preamble is TRUE for Listen, so the framework default is ON everywhere and a
+// daemon that is taught to read one never has to ask which shape delivered it.
+// The single opt-out in the tree is the broker relay's front (brokerrelay.go),
+// which consumes the first frame off the wire itself.
+func listenWith(publishPath, advertiseHost, via string, preamble bool) (*Listener, error) {
 	if advertiseHost == "" {
 		advertiseHost = AdvertiseHost()
 	}
@@ -136,6 +149,15 @@ func listenWith(publishPath, advertiseHost, via string) (*Listener, error) {
 		return nil, err
 	}
 	service, jailName := crossingIdentity(publishPath)
+	// The preamble is encoded ONCE, here, from the SAME derivation tier 1 uses —
+	// which is what makes "the connection record and the daemon's idea of the
+	// jail agree" true by construction rather than by two derivations that have
+	// to be kept in step. Nothing per-connection recomputes it; countingConn
+	// reslices this array (crossing.go).
+	var pre []byte
+	if preamble {
+		pre = encodePreamble(Preamble{JailID: jailName, Service: service, V: PreambleVersion})
+	}
 	l := &Listener{
 		raw:         raw,
 		tlsLn:       tlsLn,
@@ -144,6 +166,7 @@ func listenWith(publishPath, advertiseHost, via string) (*Listener, error) {
 		service:     service,
 		jail:        jailName,
 		via:         via,
+		pre:         pre,
 		ready:       make(chan net.Conn),
 		closed:      make(chan struct{}),
 	}
@@ -191,7 +214,10 @@ func (l *Listener) authenticate(conn net.Conn) {
 		})
 		return
 	}
-	cc := newCountingConn(conn, l.service, l.jail, l.via, start)
+	// AUTHENTICATION PRECEDES THE WRAPPER, so it precedes the preamble: a
+	// connection that failed the token check returned above and no daemon ever
+	// sees it, let alone yolo's assertion about which jail it came from.
+	cc := newCountingConn(conn, l.service, l.jail, l.via, start, l.pre)
 	select {
 	case l.ready <- cc:
 	case <-l.closed:
@@ -218,8 +244,15 @@ func (l *Listener) shutdown(err error) {
 // it forwards every method by embedding, counts bytes each way, and emits this
 // connection's tier-1 audit record when it is CLOSED. Callers must therefore keep
 // closing what they accept — they already do — and must not type-assert an
-// accepted connection to a concrete transport type. Nothing in this repo does;
-// the one server-side assertion is on the front's UPSTREAM socket.
+// accepted connection to a concrete transport type.
+//
+// AND ITS READ STREAM BEGINS WITH THE CONNECTION PREAMBLE unless this listener
+// was built with preamble=false: 4-byte BE length then a JSON object, once, at
+// connection open (preamble.go). It is a PREFIX, not a concatenation — the first
+// Read returns preamble bytes and no more — so a caller that reads it must use
+// ReadPreamble, and a caller that does not must never be handed this connection.
+// Nothing is added to the write direction, so the client neither sees the
+// preamble nor can suppress it.
 func (l *Listener) Accept() (net.Conn, error) {
 	select {
 	case conn := <-l.ready:

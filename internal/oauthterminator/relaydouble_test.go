@@ -43,6 +43,19 @@ type relayDouble struct {
 // with handle. Accept returns only conns that already presented the right token, so
 // a handler here sees the frame protocol and nothing else — which is the property
 // the daemon side is supposed to have.
+//
+// It consumes the CONNECTION PREAMBLE (svcendpoint §5.5) before handle runs, so
+// every double in this package can stay "read one framed request" — one fix
+// rather than one per double, including the doubles that read nothing at all.
+//
+// One honest difference from production, worth knowing when reading these tests:
+// the REAL per-jail relay's front opts OUT of the preamble (brokerrelay.go), so
+// this double is a preamble-bearing listener where production has a
+// preamble-free one. It costs these tests nothing, and the reason is the property
+// they exist to check: the preamble is host→daemon only, so the CLIENT — which is
+// all of this package — cannot see, forge or suppress it either way. The
+// terminator needed no change for it, and that is exactly what "unchanged in
+// assertion" below means.
 func startRelayDouble(t *testing.T, handle func(net.Conn)) *relayDouble {
 	t.Helper()
 	endpointPath := filepath.Join(privateDir(t), "claude-oauth-broker.endpoint")
@@ -59,6 +72,9 @@ func startRelayDouble(t *testing.T, handle func(net.Conn)) *relayDouble {
 			}
 			go func(c net.Conn) {
 				defer c.Close()
+				if _, err := svcendpoint.ReadPreamble(c); err != nil {
+					return
+				}
 				handle(c)
 			}(conn)
 		}
