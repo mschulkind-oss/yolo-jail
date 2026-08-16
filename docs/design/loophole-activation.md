@@ -1,7 +1,8 @@
 # Nothing reaches your host because it happened to be there — loophole activation
 
-**Status:** RULED 2026-08-15, nothing built. The rulings are the maintainer's, taken during the
-`host-processes` conversion; this doc records them and works out what they cost.
+**Status:** RULED 2026-08-15, nothing built. Six rulings plus all three open questions answered in
+review the same day. Taken during the `host-processes` conversion; this doc records them and works
+out what they cost.
 
 **The short version.** A loophole is active today because it was *present* and something it named
 happened to exist on the host — bundled, plus a `requires` predicate that sniffs `PATH`. That is
@@ -109,10 +110,11 @@ silent behaviour change for anyone already relying on `yolo-ps` or `audio`, and 
 worth fixing: a one-time launch notice naming what *was* active and the exact line to restore it
 costs little and turns a mystery into a decision. **Open — see OQ-A2.**
 
-**The broker gains a way to be silently off.** Off by default with no host claude was already the
-status quo (§1.1) — the difference is that after R6 it is off because you did not select the claude
-pack, which is at least legible. If it ends up default-disabled *inside* the claude pack (OQ-A1),
-the failure mode is a burned refresh token, and `requires` is gone as a place to warn from.
+**The broker does NOT gain a way to be silently off** — settled by OQ-A1. It ships
+`default_enabled: true` inside `packs/claude`, so selecting the claude pack is what turns it on, and
+the only way to end up without it is to not be running claude. That is strictly better than the
+status quo, where a jail-only user is silently unprotected (§1.1). Deleting `requires` therefore
+costs no warning surface here: there is nothing left to warn about.
 
 **`Active` gets thinner.** With `command_on_path` deleted, `requires` is just `file_exists`. That is
 a simplification, not a loss — but the "loophole silently inactive" reports it used to produce were
@@ -141,18 +143,44 @@ checking that failure reads well before shipping.
    do*.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Enabled, inside the claude pack — that was the point of moving it there.** So R6 and OQ-A1
+   > are one decision, not two: the broker stops being reachable by a `PATH` sniff and becomes part
+   > of what the claude pack *is*. R4 is unbroken because nothing here reaches for a host resource
+   > the user did not select — and this is the case that shows R4 was never about host-ness per se,
+   > which is the same observation that says the broker could just as well run in a container.
 
 2. **OQ-A2 — does the upgrade say anything, or is it a silent clean break?**
 
-   Everyone's active loopholes go dark. Options: silent; a one-time launch notice naming them with
-   the enable line; or a migration that writes the current set into user config as explicit
-   `enabled: true` entries (preserving behaviour, at the cost of the ruling not actually applying to
-   existing users).
+   *Rewritten after review: "everyone's loopholes go dark" was too abstract to act on. Concretely —*
 
-   _Leaning:_ **the one-time notice.** A migration that re-enables everything makes the ruling a
-   no-op for exactly the people who already have host daemons running, which is backwards. Silence
-   is cheap for us and expensive for them.
+   **Two independent things change, and it is worth separating them because only one is about packs.**
+
+   - **Packs.** `host-processes` and `audio` become packs, and `packs` is read from the **user
+     config only**, so they must be *installed* by name where today they are simply present in the
+     binary. The broker does not move channels this way — it moves *inside* `packs/claude`, so
+     anyone already running claude keeps it.
+   - **Keys.** `loopholes.<name>.enabled` is unchanged: same key, same two scopes, same meaning.
+     What changes is the **default when nobody writes it**. Today every manifest ships
+     `"enabled": true` and `discover.go:50` defaults to true anyway, so a loophole is on unless you
+     turn it off. After R2 the default is off unless the pack declares `default_enabled: true`.
+
+   **So, per loophole:**
+
+   | | today | after | user action needed |
+   |---|---|---|---|
+   | **broker** | on iff host `claude` is on PATH — *silently off for a jail-only user* (§1.1) | on whenever the claude pack is selected (OQ-A1) | **none**, and it starts working for people it was silently failing |
+   | **`yolo-ps`** | on, always (`requires: ps` is a formality) | install `host-processes` in user config, then enable it | **two lines** |
+   | **audio** | on iff the pulse socket exists | install the audio pack, then enable it (R4) | **two lines** |
+
+   So "goes dark" means exactly two things — `yolo-ps` and `audio` — for users who never had to
+   write anything to get them. That is the ruling working, not a bug; the question is only whether
+   the moment is legible.
+
+   _Leaning:_ **a one-time launch notice** naming what was active and the exact lines to restore it.
+   The alternative worth naming is a migration that writes the currently-active set into user config
+   as explicit `enabled: true` entries — but that makes the ruling a no-op for precisely the people
+   who already have host daemons running, which is backwards. Silence is cheap for us and expensive
+   for them, and the population is small enough that the notice can name the loopholes literally.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -169,4 +197,5 @@ checking that failure reads well before shipping.
    changes nothing until someone installs you deliberately.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Yes, unrestricted.** No origin test on `default_enabled`. What a fetched pack may *do* is
+   > already decided by the origin gate at `Honored`; a declaration about a default cannot widen it.
