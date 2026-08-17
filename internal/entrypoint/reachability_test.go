@@ -306,6 +306,167 @@ func TestReachabilityProbeAlwaysDialsAtLeastOnce(t *testing.T) {
 	}
 }
 
+// TestReachabilityProbeNeverAbortsTheBoot is the WARN-MODE contract, asserted
+// through the exact gate that would enforce the other one.
+//
+// Main calls ProbeServiceReachability immediately above genFailuresError, and
+// reachability.go's own TODO names e.genFailure as where OQ-R2's flip plugs in.
+// That proximity is deliberate and it is also the hazard: the difference between
+// "a jail that warns" and "a jail that will not start" is one call, added to a
+// function whose every other failure path is fatal by convention. So the guard is
+// spelled against genFailuresError rather than against the slice — that is the
+// value Main actually branches on, and a probe that learned to fail the boot would
+// have to make it non-nil.
+//
+// The two services below cover BOTH fault classes the probe can produce from a
+// real host (an address that does not answer, and an endpoint the host half never
+// published), because a flip could plausibly be written to escalate only one.
+func TestReachabilityProbeNeverAbortsTheBoot(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	dir := servicesDir(t)
+	dead := deadEndpoint(t, dir, "claude-oauth-broker")
+	unpublished := filepath.Join(dir, "host-processes"+paths.ServiceEndpointExt)
+
+	var out strings.Builder
+	e := NewEnv(map[string]string{
+		"JAIL_HOME": t.TempDir(),
+		paths.ServiceEnvVarPrefix + "CLAUDE_OAUTH_BROKER" + paths.ServiceEnvVarSuffix: dead,
+		paths.ServiceEnvVarPrefix + "HOST_PROCESSES" + paths.ServiceEnvVarSuffix:      unpublished,
+	})
+	e.Stderr = &out
+	ProbeServiceReachability(e)
+
+	// Guard the guard: if this ever stops warning, the assertions below pass for
+	// the wrong reason and the test silently stops covering anything.
+	if out.String() == "" {
+		t.Fatal("the fixture is meant to be broken; the probe said nothing")
+	}
+	if fails := e.GenFailures(); len(fails) != 0 {
+		t.Errorf("the witness is in WARN mode (OQ-R2) and must record no generator failure, got: %v", fails)
+	}
+	if err := genFailuresError(e); err != nil {
+		t.Errorf("an unreachable host service must not abort the boot while the witness is a "+
+			"warning; genFailuresError returned: %v", err)
+	}
+}
+
+// TestReachabilityProbeSurvivesAnUnwritableStderr. Every warning this file
+// produces goes through e.warn, which no-ops on a nil Stderr — but a probe is the
+// kind of code that grows a direct fmt.Fprintln, and the boot path constructs the
+// Env before it assigns Stderr. A nil write here is a panic in PID 1's boot, which
+// is a jail that does not start, reported as an entrypoint crash with no mention
+// of networking.
+func TestReachabilityProbeSurvivesAnUnwritableStderr(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	dir := servicesDir(t)
+	dead := deadEndpoint(t, dir, "journal")
+
+	e := NewEnv(map[string]string{
+		"JAIL_HOME": t.TempDir(),
+		paths.ServiceEnvVarPrefix + "JOURNAL" + paths.ServiceEnvVarSuffix: dead,
+	})
+	e.Stderr = nil // as Main has it until boot.go assigns os.Stderr
+	ProbeServiceReachability(e)
+}
+
+// TestReachabilityProbeSurvivesAMalformedEndpointFile. Each service is dialled on
+// its OWN GOROUTINE, and a panic in a goroutine is not recoverable by the caller:
+// it takes down the entrypoint process, which is a jail that never starts. Nothing
+// in the boot wraps this call. So every shape the probe can be handed by a
+// half-written, truncated or squatted endpoint path has to end in a warning.
+//
+// These are not hypothetical shapes. The endpoint file is published by a rename,
+// but the PATH comes from a launcher-set environment variable that a `jail_endpoint`
+// override in a third-party loophole manifest can point anywhere, including at a
+// directory or at a file the host half is still writing.
+func TestReachabilityProbeSurvivesAMalformedEndpointFile(t *testing.T) {
+	shrinkReachabilityBudget(t)
+
+	cases := []struct {
+		name  string
+		write func(t *testing.T, path string)
+	}{
+		{"empty file", func(t *testing.T, p string) { writeEndpointRaw(t, p, "") }},
+		{"one field", func(t *testing.T, p string) { writeEndpointRaw(t, p, "127.0.0.1:1\n") }},
+		{"cert is not base64", func(t *testing.T, p string) {
+			writeEndpointRaw(t, p, "127.0.0.1:1 not-base64!!! "+strings.Repeat("a", 64)+"\n")
+		}},
+		{"cert is base64 but not a certificate", func(t *testing.T, p string) {
+			writeEndpointRaw(t, p, "127.0.0.1:1 aGVsbG8= "+strings.Repeat("a", 64)+"\n")
+		}},
+		{"address does not split", func(t *testing.T, p string) {
+			writeEndpointRaw(t, p, "not-a-host-port aGVsbG8= "+strings.Repeat("a", 64)+"\n")
+		}},
+		{"a directory sits where the endpoint should be", func(t *testing.T, p string) {
+			if err := os.MkdirAll(p, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := servicesDir(t)
+			path := filepath.Join(dir, "host-processes"+paths.ServiceEndpointExt)
+			tc.write(t, path)
+
+			got := probeWarnings(t, map[string]string{
+				"JAIL_HOME": t.TempDir(),
+				paths.ServiceEnvVarPrefix + "HOST_PROCESSES" + paths.ServiceEnvVarSuffix: path,
+			})
+			if got == "" {
+				t.Fatal("a service the probe cannot even read must still be reported")
+			}
+			if !strings.Contains(got, "host-processes") {
+				t.Errorf("the warning must name the service, got:\n%s", got)
+			}
+		})
+	}
+}
+
+// writeEndpointRaw drops arbitrary bytes at path, bypassing svcendpoint.Publish —
+// which is the point: Publish only ever writes well-formed files, and the shapes
+// under test are the ones a reader can be handed anyway.
+func writeEndpointRaw(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestReachabilityProbeIgnoresLookalikeVariables. "A jail with no loopholes prints
+// nothing" is only true if the ENDPOINT filter is exact, and the environment a
+// jail boots with is not a curated list — env_sources hydration and the user's own
+// shell put arbitrary names in it. Every variable below names a path that does not
+// exist, so anything the filter lets through warns loudly and the silence is proof
+// rather than an artefact of an empty matrix.
+func TestReachabilityProbeIgnoresLookalikeVariables(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	const absent = "/nonexistent/yolo-services/whatever.endpoint"
+
+	got := probeWarnings(t, map[string]string{
+		"JAIL_HOME": t.TempDir(),
+		// The retiring AF_UNIX spelling — a bind-mounted socket with no
+		// forwarding hop to get wrong.
+		paths.ServiceEnvVarPrefix + "CGROUP_DELEGATE_SOCKET": absent,
+		// Right prefix, no suffix at all.
+		paths.ServiceEnvVarPrefix + "HOST_PROCESSES": absent,
+		// Right suffix, wrong prefix.
+		"MY_APP" + paths.ServiceEnvVarSuffix: absent,
+		// Both affixes, but EMPTY — the launcher never wires a service without an
+		// address, so an empty value is somebody else's variable, not a service
+		// this jail is expected to reach.
+		paths.ServiceEnvVarPrefix + "HOST_PROCESSES" + paths.ServiceEnvVarSuffix: "",
+		// Ordinary jail environment, for good measure.
+		"YOLO_VERSION": "9.9.9-test",
+		"PATH":         "/bin",
+	})
+	if got != "" {
+		t.Errorf("only YOLO_SERVICE_<NAME>_ENDPOINT with a value names a jail-facing service; "+
+			"the probe spoke about something else:\n%s", got)
+	}
+}
+
 // TestReachabilityProbeStaysWithinItsBudget. The budget is the thing that makes
 // the eventual fatal survivable, so it must actually bound the probe — including
 // when nothing answers and the retry loop is the only thing stopping it. A blocked

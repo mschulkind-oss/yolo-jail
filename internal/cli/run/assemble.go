@@ -88,8 +88,16 @@ func (in *assembleInput) storePruneEnv() []string {
 // It is a pure function of (o, in) EXCEPT for the ws_state dir/file touches and
 // venv-shadow backing mkdirs performed inline while building the argv — those
 // side effects are preserved (they are part of the launch, not the argv), so
-// callers pass a prepared ws_state. The final internal command and the
-// host-service -e insertion are handled by the lifecycle phase.
+// callers pass a prepared ws_state — and EXCEPT for the host probes it runs
+// through the o.Exec / o.LookPath / o.PathExists seams: git identity, the GPU
+// availability probe, and (since the host-loopback fix) `podman info` plus
+// `<rootless-network-stack> --help`. Those are why every caller in the test suite
+// goes through goldenOptions: a test that leaves the seams at their fillDefaults
+// values shells out to the host and gets an argv that depends on which machine ran
+// it — which is how TestAssembleRunCmdPodmanLinuxGolden once started failing on the
+// macOS runner.
+// The final internal command and the host-service -e insertion are handled by the
+// lifecycle phase.
 // The argv this returns ends at the image ref + "yolo-entrypoint"; the
 // final_internal_cmd is appended after inserting host-service env at
 // index(image); see runContainer for that tail.
