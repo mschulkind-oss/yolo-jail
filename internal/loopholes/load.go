@@ -255,7 +255,19 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		Platforms:     m.Platforms,
 		PlatformsSet:  m.PlatformsSet,
 		Serves:        m.Serves,
-		Source:        SourceUser,
+		// SOURCE IS THE CALLER'S FACT and this is only the fail-safe default. A
+		// manifest cannot say who shipped it (it would just lie), so every discovery
+		// path relabels the record immediately — loadFromDir, loadModuleDirs and
+		// ValidateLoopholes each assign the source they walked.
+		//
+		// It defaults to SourcePack because that is the LEAST-PRIVILEGED of the three
+		// labels, on both axes that read it: MayRunHostCode refuses a SourcePack record
+		// whose module dir carries no recorded gate decision, and moduleDirForPlacement
+		// judges it rather than exempting it the way SourceBundled is exempted. So a
+		// record that somehow reached a consumer unlabelled crosses nothing, instead of
+		// inheriting the trust of yolo's own bundled content. It used to default to the
+		// now-retired `user` label, which was the opposite direction.
+		Source: SourcePack,
 	}
 }
 

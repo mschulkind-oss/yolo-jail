@@ -22,20 +22,26 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
-// Source labels, ordered weakest -> strongest: bundled < pack < user < config.
+// Source labels, ordered weakest -> strongest: bundled < pack < config.
 //
-// SourcePack sits between bundled and user, and that placement is NOT a precedence
+// THERE USED TO BE A FOURTH, `user`, for a manifest hand-placed in
+// RetiredUserLoopholesDir. It is gone with the channel (OQ-LP10) and must not come
+// back under another name: it was the one source that started a host daemon with no
+// selection step at all — drop a directory in and every launch discovered it — which
+// contradicts AGENTS.md's "nothing is active by default" in the one place it matters
+// most. A pack (the conventional local one included) carries the same manifest with
+// the same loader, and reaches the per-launch disclosure on the way.
+//
+// SourcePack sits between bundled and config, and that placement is NOT a precedence
 // rule anybody may lean on for the bundled half: a pack loophole whose name collides
 // with a RESERVED name (bundled, or one of yolo's own in-process daemons) is refused
 // by the launch pre-flight (run.PackLoopholeNameConflicts) and therefore never reaches
-// an ordering at all. What the position expresses is the half that IS live — a
-// hand-placed user directory overrides a pack's loophole, and a config entry overrides
-// either — exactly as bundled/user/config already behaved
+// an ordering at all. What the position expresses is the half that IS live — a config
+// entry overrides a pack's loophole, exactly as bundled/config already behaved
 // (docs/design/loophole-packaging.md §5.1, "Precedence — draft 1's line is DELETED").
 const (
 	SourceBundled = "bundled"
 	SourcePack    = "pack"
-	SourceUser    = "user"
 	SourceConfig  = "config"
 )
 
@@ -72,9 +78,15 @@ var BundledLoopholesDir = func() string {
 	return "bundled_loopholes"
 }
 
-// UserLoopholesDir returns the third-party loopholes dir (overrides bundled on
-// name collision).
-var UserLoopholesDir = func() string {
+// RetiredUserLoopholesDir returns the hand-placed loopholes directory that yolo
+// used to DISCOVER from and no longer reads at all (OQ-LP10, ruled yes in
+// docs/design/loophole-packaging.md §8). It survives as a path only so the
+// migration notice can name it — see retired.go.
+//
+// Package var so tests can point it somewhere empty: a developer's real machine
+// may well still have the directory, and a test that let the notice fire off it
+// would pass or fail depending on whose home it ran in.
+var RetiredUserLoopholesDir = func() string {
 	return filepath.Join(paths.GlobalStorage(), "loopholes")
 }
 

@@ -31,21 +31,24 @@ func servingLoophole(t *testing.T, root, name string, serves []string) {
 }
 
 func discoverWith(root string, claims []PackSupersession) Set {
-	return NewSet(DiscoverOptions{Root: root, RootSet: true, PackSupersessions: claims})
+	defer withBundledDir(root)()
+	return NewSet(DiscoverOptions{IncludeBundled: true, PackSupersessions: claims})
 }
 
-// withoutBundled points BundledLoopholesDir at an empty tree.
+// onlyBundled points BundledLoopholesDir at a tree the caller controls, and returns it.
 //
-// The command tests below go through NewHostSet, which always includes the bundled
-// set — and `yolo loopholes status` EXECUTES each record's doctor_cmd, so without this
-// the broker's `yolo internal daemon claude-oauth-broker --self-check` would really
-// run, twice, under a 10s timeout. A unit test must not spawn yolo's own daemons.
-func withoutBundled(t *testing.T) {
+// It does BOTH halves of what these command tests need. The command tests go through
+// NewHostSet, which always includes the bundled set — and `yolo loopholes status`
+// EXECUTES each record's doctor_cmd, so against the REAL bundled tree the broker's
+// `yolo internal daemon claude-oauth-broker --self-check` would really run, twice,
+// under a 10s timeout. A unit test must not spawn yolo's own daemons. And since
+// OQ-LP10 retired the hand-placed user dir, bundled is also the only remaining source
+// that reads a manifest a test can write.
+func onlyBundled(t *testing.T) string {
 	t.Helper()
-	empty := t.TempDir()
-	orig := BundledLoopholesDir
-	BundledLoopholesDir = func() string { return empty }
-	t.Cleanup(func() { BundledLoopholesDir = orig })
+	root := modsDir(t)
+	t.Cleanup(withBundledDir(root))
+	return root
 }
 
 // ---------------------------------------------------------------------------
@@ -399,9 +402,8 @@ func TestListNamesThePackAndTheReason(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Cleanup(ResetPackSupersessions)
 	captureWarnings(t)
-	withoutBundled(t)
 
-	servingLoophole(t, mkdir(t, UserLoopholesDir()), "broker-like",
+	servingLoophole(t, onlyBundled(t), "broker-like",
 		[]string{"claude-oauth-refresh"})
 	SetPackSupersessions([]PackSupersession{bedrock()})
 
@@ -430,9 +432,8 @@ func TestStatusLabelsSuperseded(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Cleanup(ResetPackSupersessions)
 	captureWarnings(t)
-	withoutBundled(t)
 
-	servingLoophole(t, mkdir(t, UserLoopholesDir()), "broker-like",
+	servingLoophole(t, onlyBundled(t), "broker-like",
 		[]string{"claude-oauth-refresh"})
 	SetPackSupersessions([]PackSupersession{bedrock()})
 
@@ -461,11 +462,10 @@ func TestValidateSetAppliesSupersession(t *testing.T) {
 	unsetJail(t)
 	t.Cleanup(ResetPackSupersessions)
 	captureWarnings(t)
-	root := modsDir(t)
-	servingLoophole(t, root, "broker-like", []string{"claude-oauth-refresh"})
+	servingLoophole(t, onlyBundled(t), "broker-like", []string{"claude-oauth-refresh"})
 	SetPackSupersessions([]PackSupersession{bedrock()})
 
-	_, set := ValidateSet(root, true, false)
+	_, set := ValidateSet(true)
 	lp, ok := set.Lookup("broker-like")
 	if !ok {
 		t.Fatal("loophole not in the validate set")

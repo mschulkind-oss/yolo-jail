@@ -42,8 +42,40 @@ func modsDir(t *testing.T) string {
 	return mkdir(t, filepath.Join(t.TempDir(), "loopholes"))
 }
 
+// discoverDir runs discovery over ONE directory of loophole modules, by pointing
+// the BUNDLED root at it.
+//
+// It used to point DiscoverOptions.Root at it — the hand-placed user loopholes dir,
+// retired with OQ-LP10 (retired.go). Bundled is the substitute rather than a pack
+// module because these tests exercise the FULL manifest vocabulary (`jail_env`,
+// absolute bind hosts, `publishes: "endpoint"`), and the pack loader refuses exactly
+// those under the pack-shipped subset. Routing them through it would silently turn
+// "does the loader read this key" into "does the subset permit it".
 func discoverDir(root string, includeDisabled bool) []*Loophole {
-	return Discover(DiscoverOptions{Root: root, RootSet: true, IncludeDisabled: includeDisabled, IncludeBundled: false})
+	return discoverWithConfig(root, includeDisabled, nil)
+}
+
+// discoverWithConfig is discoverDir plus a `loopholes:` config block.
+func discoverWithConfig(root string, includeDisabled bool, cfg *jsonx.OrderedMap) []*Loophole {
+	defer withBundledDir(root)()
+	return Discover(DiscoverOptions{
+		IncludeDisabled: includeDisabled,
+		IncludeBundled:  true,
+		LoopholesConfig: cfg,
+	})
+}
+
+// validateDir is `yolo check`'s walker over ONE directory, same substitution.
+func validateDir(root string) []ValidateEntry {
+	defer withBundledDir(root)()
+	return ValidateLoopholes(true)
+}
+
+// withBundledDir points BundledLoopholesDir at root and returns the restore func.
+func withBundledDir(root string) func() {
+	prev := BundledLoopholesDir
+	BundledLoopholesDir = func() string { return root }
+	return func() { BundledLoopholesDir = prev }
 }
 
 func names(loaded []*Loophole) []string {
@@ -88,7 +120,7 @@ func TestNameMustMatchDirectory(t *testing.T) {
 	if got := discoverDir(md, false); len(got) != 0 {
 		t.Errorf("should skip mismatched name: %v", names(got))
 	}
-	entries := ValidateLoopholes(md, true, false)
+	entries := validateDir(md)
 	if len(entries) != 1 || entries[0].Loophole != nil {
 		t.Fatalf("expected 1 error entry, got %+v", entries)
 	}
@@ -116,7 +148,7 @@ func TestInvalidTransportAndLifecycleRejected(t *testing.T) {
 	writeManifest(t, bt, map[string]any{"name": "bad-transport", "description": "x", "transport": "carrier-pigeon"})
 	bl := mkdir(t, filepath.Join(md, "bad-lifecycle"))
 	writeManifest(t, bl, map[string]any{"name": "bad-lifecycle", "description": "x", "lifecycle": "orbiting"})
-	entries := ValidateLoopholes(md, true, false)
+	entries := validateDir(md)
 	byName := map[string]ValidateEntry{}
 	for _, e := range entries {
 		byName[filepath.Base(e.Path)] = e
@@ -159,7 +191,7 @@ func TestConfigSynthesizedAsLoopholes(t *testing.T) {
 			"description": "third-party socket daemon",
 			"command":     []any{"sockd", "--socket", "{socket}"},
 		})
-	loaded := Discover(DiscoverOptions{Root: md, RootSet: true, LoopholesConfig: cfg})
+	loaded := discoverWithConfig(md, false, cfg)
 	byName := map[string]*Loophole{}
 	for _, m := range loaded {
 		byName[m.Name] = m
@@ -226,7 +258,7 @@ func TestConfigLoopholePreambleOptIn(t *testing.T) {
 		"command":  []any{"mine", "--socket", "{socket}"},
 		"preamble": true,
 	})
-	loaded := Discover(DiscoverOptions{Root: md, RootSet: true, LoopholesConfig: cfg})
+	loaded := discoverWithConfig(md, false, cfg)
 	if len(loaded) != 1 || loaded[0].HostDaemon == nil {
 		t.Fatalf("got %+v", loaded)
 	}
@@ -240,8 +272,8 @@ func TestWorkspaceOverrideMergesEnabled(t *testing.T) {
 	mod := mkdir(t, filepath.Join(md, "bundled-like"))
 	writeManifest(t, mod, map[string]any{"name": "bundled-like", "description": "x", "enabled": false})
 	cfg := orderedFromPairs("bundled-like", map[string]any{"enabled": true})
-	loaded := Discover(DiscoverOptions{Root: md, RootSet: true, IncludeDisabled: true, LoopholesConfig: cfg})
-	if len(loaded) != 1 || loaded[0].Name != "bundled-like" || !loaded[0].Enabled || loaded[0].Source != SourceUser {
+	loaded := discoverWithConfig(md, true, cfg)
+	if len(loaded) != 1 || loaded[0].Name != "bundled-like" || !loaded[0].Enabled || loaded[0].Source != SourceBundled {
 		t.Errorf("override merge wrong: %+v", loaded)
 	}
 }
@@ -254,7 +286,7 @@ func TestWorkspaceOverrideMergesHostDaemonEnv(t *testing.T) {
 		"host_daemon": map[string]any{"cmd": []any{"some-daemon", "--socket", "{socket}"}, "env": map[string]any{"DEFAULT_KEY": "default"}},
 	})
 	cfg := orderedFromPairs("swaymsg-like", map[string]any{"env": map[string]any{"SWAYSOCK": "/run/user/1000/sway.sock"}})
-	loaded := Discover(DiscoverOptions{Root: md, RootSet: true, LoopholesConfig: cfg})
+	loaded := discoverWithConfig(md, false, cfg)
 	if len(loaded) != 1 || loaded[0].HostDaemon == nil {
 		t.Fatalf("got %+v", loaded)
 	}
@@ -270,50 +302,9 @@ func TestWorkspaceOverrideMergesHostDaemonEnv(t *testing.T) {
 func TestWorkspaceInlineWhenNoMatchingManifest(t *testing.T) {
 	md := modsDir(t)
 	cfg := orderedFromPairs("pure-workspace", map[string]any{"description": "new inline"})
-	loaded := Discover(DiscoverOptions{Root: md, RootSet: true, LoopholesConfig: cfg})
+	loaded := discoverWithConfig(md, false, cfg)
 	if len(loaded) != 1 || loaded[0].Name != "pure-workspace" || !loaded[0].FromConfig() || loaded[0].Source != SourceConfig {
 		t.Errorf("inline synthesis wrong: %+v", loaded)
-	}
-}
-
-func TestSetEnabledRoundtrip(t *testing.T) {
-	md := modsDir(t)
-	mod := mkdir(t, filepath.Join(md, "togg"))
-	writeManifest(t, mod, map[string]any{"name": "togg", "description": "x", "enabled": true})
-	if err := SetEnabled(mod, false); err != nil {
-		t.Fatal(err)
-	}
-	if got := discoverDir(md, false); len(got) != 0 {
-		t.Errorf("after disable: %v", names(got))
-	}
-	if got := discoverDir(md, true); len(got) != 1 {
-		t.Errorf("include_disabled after disable: %v", names(got))
-	}
-	if err := SetEnabled(mod, true); err != nil {
-		t.Fatal(err)
-	}
-	got := discoverDir(md, false)
-	if len(got) != 1 || !got[0].Enabled {
-		t.Errorf("after re-enable: %+v", got)
-	}
-}
-
-func TestSetEnabledDropsComments(t *testing.T) {
-	md := modsDir(t)
-	mod := mkdir(t, filepath.Join(md, "commented"))
-	body := "// a leading comment\n{\n  \"name\": \"commented\", // inline\n  \"description\": \"x\",\n  \"enabled\": true\n}\n"
-	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := SetEnabled(mod, false); err != nil {
-		t.Fatal(err)
-	}
-	out, _ := os.ReadFile(filepath.Join(mod, "manifest.jsonc"))
-	if contains(string(out), "leading comment") || contains(string(out), "inline") {
-		t.Errorf("comments should be dropped, got:\n%s", out)
-	}
-	if !contains(string(out), "// yolo-jail loophole manifest.") {
-		t.Errorf("header missing:\n%s", out)
 	}
 }
 
@@ -944,11 +935,7 @@ func TestListKeysInterceptsOnTheInterceptList(t *testing.T) {
 		"intercepts": []any{map[string]any{"host": "example.test"}},
 	})
 
-	empty := mkdir(t, filepath.Join(t.TempDir(), "none"))
-	origB, origU := BundledLoopholesDir, UserLoopholesDir
-	BundledLoopholesDir = func() string { return empty }
-	UserLoopholesDir = func() string { return md }
-	t.Cleanup(func() { BundledLoopholesDir, UserLoopholesDir = origB, origU })
+	t.Cleanup(withBundledDir(md))
 
 	var out strings.Builder
 	nilCfg := func() *jsonx.OrderedMap { return nil }

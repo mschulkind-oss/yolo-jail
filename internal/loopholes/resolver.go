@@ -3,22 +3,18 @@ package loopholes
 import "github.com/mschulkind-oss/yolo-jail/internal/config"
 
 // Resolver implements config.LoopholeResolver, backing _validate_config's
-// _known_loopholes() with real file-backed discovery (bundled + user dir,
-// include_disabled=True). config.ValidateConfig consults only Name +
+// _known_loopholes() with real file-backed discovery (bundled + the recorded pack
+// modules, include_disabled=True). config.ValidateConfig consults only Name +
 // HasHostDaemon per loophole.
 // This is the integration seam config declared as a stage-14 placeholder: the
 // config package owns the interface, this package supplies the implementation.
 type Resolver struct {
-	// Root overrides the user loopholes dir
-	// argument). Empty => UserLoopholesDir().
-	Root string
 	// IncludeBundled toggles the bundled dir (default: true).
 	IncludeBundled bool
 }
 
 // NewResolver returns a Resolver matching _known_loopholes()'s call:
-// discover_loopholes(include_disabled=True) with bundled included and the
-// default user dir.
+// discover_loopholes(include_disabled=True) with bundled included.
 func NewResolver() *Resolver {
 	return &Resolver{IncludeBundled: true}
 }
@@ -44,8 +40,6 @@ func NewResolver() *Resolver {
 // somewhere else — would give the same name two homes.
 func (r *Resolver) Known() (map[string]config.LoopholeInfo, bool) {
 	loaded := Discover(DiscoverOptions{
-		Root:            r.Root,
-		RootSet:         r.Root != "",
 		IncludeDisabled: true,
 		IncludeBundled:  r.IncludeBundled,
 		PackModules:     PackModules(),

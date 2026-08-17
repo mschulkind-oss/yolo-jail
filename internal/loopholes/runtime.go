@@ -9,9 +9,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
-	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
 // warnf/infof are the package's log sinks.
@@ -414,39 +412,14 @@ func runOne(argv []string, timeout time.Duration) (*int, string) {
 	}
 }
 
-// through a JSON round-trip. This deliberately DROPS JSONC comments (the parse
-// via json5 -> re-serialize as plain JSON degradation documented in the module
-// map) — do NOT "fix" this; the round-trip behavior is intentional.
-func SetEnabled(modulePath string, enabled bool) error {
-	manifestPath := filepath.Join(modulePath, "manifest.jsonc")
-	text, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return err
-	}
-	decodedAny, err := json5.Decode(text)
-	if err != nil {
-		return err
-	}
-	decoded, ok := decodedAny.(*jsonx.OrderedMap)
-	if !ok {
-		// Only a non-object manifest reaches here, which never occurs in
-		// practice.
-		return loopholedecl.Errorf("%s: manifest must be a JSON object", manifestPath)
-	}
-	decoded.Set("enabled", enabled)
-	// The schema reference names internal/loopholedecl, and that matters more than it
-	// looks: SetEnabled REWRITES the user's manifest, so a wrong pointer here is stamped
-	// into every file this command touches. It said `src/loopholes.py` — a path that has
-	// not existed since the Go port — which is the last live row of the design doc's R5
-	// doc/code-drift list.
-	header := "// yolo-jail loophole manifest. Schema: internal/loopholedecl.\n" +
-		"// 'enabled' toggled via `yolo loopholes {enable,disable}`.\n"
-	body, err := jsonx.DumpsIndent(decoded, 2)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(manifestPath, []byte(header+body+"\n"), 0o644)
-}
+// SetEnabled IS GONE, and nothing replaces it in this package. It rewrote `enabled`
+// in a manifest under the hand-placed user loopholes dir — the only file yolo ever
+// wrote on a user's behalf here, and the only source `yolo loopholes enable|disable`
+// could serve. With that directory retired (retired.go, OQ-LP10) it had nothing left
+// to write: a BUNDLED manifest is the binary's own content (and go:embed'd, so on an
+// installed binary there is no file at all), and a PACK's manifest belongs to the
+// pack, where a local rewrite would be silently reverted by the next `pack install`.
+// Enable/disable state moves into config for every source; see CmdSetEnabled.
 
 func toAnySlice(ss []string) []any {
 	out := make([]any, len(ss))

@@ -8,8 +8,7 @@ import (
 )
 
 func argsFor(root string, runtime string) []string {
-	loaded := Discover(DiscoverOptions{Root: root, RootSet: true, IncludeBundled: false})
-	return RuntimeArgsFor(loaded, runtime)
+	return RuntimeArgsFor(discoverDir(root, false), runtime)
 }
 
 func joinArgs(args []string) string { return strings.Join(args, " ") }
@@ -160,7 +159,7 @@ func TestRuntimeArgsSkipConfigBacked(t *testing.T) {
 	unsetJail(t)
 	md := modsDir(t)
 	cfg := orderedFromPairs("journal", map[string]any{"description": "x"})
-	loaded := Discover(DiscoverOptions{Root: filepath.Join(md, "empty"), RootSet: true, LoopholesConfig: cfg})
+	loaded := discoverWithConfig(filepath.Join(md, "empty"), false, cfg)
 	if got := RuntimeArgsFor(loaded, ""); len(got) != 0 {
 		t.Errorf("config-backed should emit nothing, got %v", got)
 	}
@@ -440,7 +439,7 @@ func TestStateFilesRejectsEscapes(t *testing.T) {
 			"name": "bad-state", "description": "x",
 			"state_files": []any{bad},
 		})
-		entries := ValidateLoopholes(md, true, false)
+		entries := validateDir(md)
 		if len(entries) != 1 || entries[0].Loophole != nil || !contains(entries[0].Err, "state_files[0]") {
 			t.Errorf("state_files entry %q should be rejected, got %+v", bad, entries)
 		}
@@ -519,7 +518,7 @@ func TestHostDevicesMustBeNonEmptyStrings(t *testing.T) {
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "bad-devs"))
 	writeManifest(t, mod, map[string]any{"name": "bad-devs", "description": "x", "host_devices": []any{""}})
-	entries := ValidateLoopholes(md, true, false)
+	entries := validateDir(md)
 	if len(entries) != 1 || entries[0].Loophole != nil || !contains(entries[0].Err, "host_devices[0]") {
 		t.Errorf("expected host_devices[0] error, got %+v", entries)
 	}
@@ -538,7 +537,7 @@ func TestHostDevicesSkippedInJail(t *testing.T) {
 		"host_bind_mounts": []any{map[string]any{"host": sock, "container": "/tmp", "readonly": false}},
 		"jail_env":         map[string]any{"PULSE_SERVER": "unix:/run/pulse/native"},
 	})
-	loaded := Discover(DiscoverOptions{Root: md, RootSet: true, IncludeBundled: false})
+	loaded := discoverDir(md, false)
 	if !loaded[0].Active() {
 		t.Fatalf("should be active in-jail (container path /tmp exists)")
 	}
@@ -578,7 +577,7 @@ func TestManifestHostDaemonSpecs(t *testing.T) {
 		"name": "with-hd", "description": "the broker host daemon",
 		"host_daemon": map[string]any{"cmd": []any{"daemon", "--socket", "{socket}"}},
 	})
-	loaded := Discover(DiscoverOptions{Root: md, RootSet: true, IncludeBundled: false})
+	loaded := discoverDir(md, false)
 	specs := ManifestHostDaemonSpecs(loaded)
 	if specs.Len() != 1 {
 		t.Fatalf("want 1 spec, got %d", specs.Len())
@@ -606,7 +605,7 @@ func TestDoctorChecks(t *testing.T) {
 	mkAndWrite("falsecmd", map[string]any{"doctor_cmd": []any{"false"}})
 	mkAndWrite("missing", map[string]any{"doctor_cmd": []any{"/no/such/binary/anywhere"}})
 
-	loaded := Discover(DiscoverOptions{Root: md, RootSet: true, IncludeBundled: false})
+	loaded := discoverDir(md, false)
 	results := RunDoctorChecks(loaded, 0)
 	byName := map[string]DoctorResult{}
 	for _, r := range results {

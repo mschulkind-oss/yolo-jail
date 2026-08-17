@@ -79,6 +79,11 @@ func TestDoctorRefusesADoctorCmdInsideTheJailHomeTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A BUNDLED record, so the ungated RunDoctorChecks will actually attempt it (it
+	// refuses a SourcePack record outright, which is LoadLoophole's fail-safe default) —
+	// and the ARGV face is judged for every source. Only the MODULE DIR face is exempt
+	// for bundled content, which is the next test's subject.
+	lp.Source = SourceBundled
 
 	results := RunDoctorChecks([]*Loophole{lp}, 5*time.Second)
 	if len(results) != 1 {
@@ -118,11 +123,19 @@ func TestDoctorRefusesAModuleDirInsideTheJailHomeTree(t *testing.T) {
 	mod := writeDoctorModule(t, agentTree, "insidehole", "{loophole_dir}/evil-doctor.sh")
 	touchScript(t, mod, sentinel)
 
-	lp, err := LoadLoophole(mod)
-	if err != nil {
-		t.Fatal(err)
+	// THROUGH THE PACK PATH, with the ORIGIN gate deliberately OPEN, because after
+	// OQ-LP10 a pack is the only source whose module dir is judged at all: bundled
+	// content is exempt (it IS yolo's own artifact — placement.go's Test-1 reasoning)
+	// and a config entry has no module dir. The hand-placed `user` source this test used
+	// to ride is retired. HostExecApproved:true is what keeps the two gates
+	// distinguishable — the only thing left that can withhold this is placement.
+	isolateModules(t)
+	set := NewSet(DiscoverOptions{PackModules: []PackModule{{Dir: mod, HostExecApproved: true}}})
+	lp, ok := set.Lookup("insidehole")
+	if !ok {
+		t.Fatal("the module was not discovered")
 	}
-	results := RunDoctorChecks([]*Loophole{lp}, 5*time.Second)
+	results := set.RunDoctorChecks([]*Loophole{lp}, 5*time.Second)
 	if _, statErr := os.Stat(sentinel); statErr == nil {
 		t.Fatal("a module dir inside the jail-home tree had its doctor_cmd EXECUTED — the dir " +
 			"face is the one that covers what no path check can see")
@@ -153,6 +166,7 @@ func TestDoctorStillRunsALegitimatelyPlacedLoophole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	lp.Source = SourceBundled // see the argv-face test above
 	results := RunDoctorChecks([]*Loophole{lp}, 5*time.Second)
 	if results[0].RC == nil || *results[0].RC != 0 {
 		t.Fatalf("a legitimately-placed doctor_cmd must run and report: rc=%v out=%q",

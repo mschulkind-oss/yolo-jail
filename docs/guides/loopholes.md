@@ -12,7 +12,7 @@ Examples:
 ## Anatomy of a file-backed loophole
 
 ```
-~/.local/share/yolo-jail/loopholes/<name>/
+~/.config/yolo-jail/local/loopholes/<name>/
 ├── manifest.jsonc          # required
 ├── ca.crt                  # optional; auto-trusted in the jail
 ├── <your-daemon>.service   # optional; loophole owns its own lifecycle
@@ -22,11 +22,19 @@ Examples:
 Only `manifest.jsonc` is required. Everything else is up to the loophole.
 
 **That directory shape is the same wherever the loophole comes from** — bundled
-under `bundled_loopholes/<name>/`, hand-placed in your home as above, or shipped by
-a pack as `{ "kind": "loophole", "from": "loopholes/<name>" }`. One loader reads all
-four sources, which is what makes a loophole developable standalone and then
-droppable into a pack unchanged. See
+under `bundled_loopholes/<name>/`, or shipped by a pack as
+`{ "kind": "loophole", "from": "loopholes/<name>" }`. One loader reads all three
+sources, which is what makes a loophole developable standalone and then droppable
+into another pack unchanged. See
 [Shipping a loophole inside a pack](#shipping-a-loophole-inside-a-pack).
+
+> **`~/.local/share/yolo-jail/loopholes/` is RETIRED and is no longer read** (OQ-LP10).
+> It was the one channel that started a host daemon with **no selection step at all** —
+> drop a directory in and every launch discovered it — which contradicts *"nothing is
+> active by default"*. Move each module into the conventional local pack shown above
+> (`~/.config/yolo-jail/local/`), which is selected implicitly when it exists, and add
+> a `loophole` contribution per module to its `pack.json`. `yolo check` and every
+> launch print the exact commands while anything is still sitting there.
 
 ## Manifest schema (v1)
 
@@ -201,7 +209,7 @@ Declare it whenever your state dir holds anything the jail does not read.
 
 What the loader does at each `yolo run`:
 
-1. Scans `~/.local/share/yolo-jail/loopholes/` for subdirectories with a valid `manifest.jsonc`.
+1. Scans `bundled_loopholes/` and each selected pack's `loophole` contributions for subdirectories with a valid `manifest.jsonc`.
 2. Skips any with `"enabled": false`.
 3. For loopholes declaring `intercepts`: emits `--add-host <host>:<broker_ip>` for each intercept, bind-mounts the CA cert into the jail at `/etc/yolo-jail/loopholes/<name>/ca.crt`, and sets `NODE_EXTRA_CA_CERTS` to all loophole CAs concatenated. **Note:** Apple Container (`runtime=container`) does not support `--add-host` ([apple/container#673](https://github.com/apple/container/issues/673)), so an intercepting loophole is skipped entirely on that runtime.
 4. For `loopback-tls` / `spawned` loopholes — either a bundled manifest with a `host_daemon`, or the `loopholes` shorthand in the user config (see below); yolo handles spawning the daemon, bind-mounting its published path into the jail, and cleanup.
@@ -333,12 +341,12 @@ back to. There is no `into`: the host half runs on the host and the jail half
 mounts at a path core owns (`/etc/yolo-jail/loopholes/<name>/`).
 
 The directory `from` points at holds a `manifest.jsonc` — the **exact on-disk
-shape** a bundled loophole under `bundled_loopholes/` or a hand-placed one under
-`~/.local/share/yolo-jail/loopholes/` already has. That is deliberate and it is the
-whole ergonomic point: develop the loophole standalone (drop the directory in your
-home, `yolo loopholes list`, iterate until it works), then drop that same directory
-into a pack **unchanged**. One loader reads all four sources, so there is no
-pack-flavoured manifest dialect to port to.
+shape** a bundled loophole under `bundled_loopholes/` already has. That is deliberate
+and it is the whole ergonomic point: develop the loophole in your **local** pack
+(`~/.config/yolo-jail/local/loopholes/<name>/`, implicitly selected, `yolo loopholes
+list`, iterate until it works), then move that same directory into a shareable pack
+**unchanged**. One loader reads every source, so there is no pack-flavoured manifest
+dialect to port to.
 
 **The loophole's `name` must equal the directory basename.** Enforced wherever a
 manifest is read (`loopholedecl`: *"name='x' disagrees with directory 'y' — they
@@ -555,8 +563,9 @@ it is the yolo binary's own content, the same artifact performing this check, so
 agent that could rewrite it has already rewritten the checker (and it matters in
 practice: a yolo running from its own source tree reads `bundled_loopholes/` out of
 the very workspace it mounts `:rw`, which refused the broker, audio and
-host-processes on every launch until the exemption landed). Pack-shipped and
-hand-placed loopholes are judged, which is the case the rule was written for.
+host-processes on every launch until the exemption landed). Pack-shipped loopholes
+are judged, which is the case the rule was written for — and since the hand-placed
+directory was retired they are the only module dirs the rule has left to judge.
 A refused **module dir** suppresses the argv refusals under it:
 `{loophole_dir}` resolves to that dir, so a module dir in an agent-writable tree
 means every host-side field names an agent-writable target — including the ones no
@@ -588,23 +597,26 @@ that matters is the **install**-time one: the risk was never "a daemon runs", it
 ```bash
 yolo loopholes list              # show every loophole, transport, enabled state
 yolo loopholes status            # run every doctor_cmd
-yolo loopholes enable <name>     # flip `enabled` → true (user-dir loopholes only)
-yolo loopholes disable <name>    # flip `enabled` → false
+yolo loopholes enable <name>     # prints the config key to write; writes nothing (see below)
+yolo loopholes disable <name>    # same
 yolo doctor                      # includes loophole self-checks in the combined report
 ```
 
-For bundled, pack-shipped or config-inline loopholes the toggle is
-`loopholes.<name>.enabled` in the user config,
-`~/.config/yolo-jail/config.jsonc` (a workspace config can also set it — with
-the disclosures above). `enable`/`disable` rewrite a `manifest.jsonc` in place, so
-they only serve the hand-placed user directory; every other source is refused with
-that instruction. A pack-shipped loophole named in `loopholes.<name>.enabled`
-resolves to a real installed loophole — so it takes the override path rather than
-the every-launch *"no loophole named 'x' is installed"* warning it would once have
-produced.
+**The toggle is config, for every source:** `loopholes.<name>.enabled` in the user
+config, `~/.config/yolo-jail/config.jsonc` (a workspace config can also set it — with
+the disclosures above). `enable`/`disable` used to rewrite a `manifest.jsonc` in
+place, which only ever served the hand-placed user directory; with that directory
+retired they have nothing to write to, so they print the exact key, the exact file
+and exit non-zero rather than silently doing nothing. Writing the key for you is
+tracked separately — it means yolo editing a hand-commented `config.jsonc`, which is
+a decision, not a typing job.
+
+A pack-shipped loophole named in `loopholes.<name>.enabled` resolves to a real
+installed loophole — so it takes the override path rather than the every-launch
+*"no loophole named 'x' is installed"* warning it would once have produced.
 
 `yolo loopholes list` prints each loophole's source, so a pack-shipped one shows
-`pack/<transport>/<lifecycle>` beside the `bundled`, `user` and `config` rows.
+`pack/<transport>/<lifecycle>` beside the `bundled` and `config` rows.
 
 ## The `hostservice` helper package
 
@@ -672,8 +684,8 @@ The package is `internal/`, so it isn't importable from outside the module. An e
 ## Example: adding a minimal smoke-test loophole
 
 ```bash
-mkdir -p ~/.local/share/yolo-jail/loopholes/hello
-cat > ~/.local/share/yolo-jail/loopholes/hello/manifest.jsonc <<'EOF'
+mkdir -p ~/.config/yolo-jail/local/loopholes/hello
+cat > ~/.config/yolo-jail/local/loopholes/hello/manifest.jsonc <<'EOF'
 {
   "name": "hello",
   "description": "Smoke test — injects HELLO=world into every jail",
@@ -682,11 +694,22 @@ cat > ~/.local/share/yolo-jail/loopholes/hello/manifest.jsonc <<'EOF'
   "jail_env": {"HELLO": "world"}
 }
 EOF
-yolo loopholes list                # => enabled  hello  (none/external)
+cat > ~/.config/yolo-jail/local/pack.json <<'EOF'
+{"name": "local", "contributes": [{"kind": "loophole", "from": "loopholes/hello"}]}
+EOF
+yolo loopholes list                # => active  hello  (pack/none/external)
 yolo -- bash -c 'echo $HELLO'     # => world
 ```
 
-Remove the directory to uninstall. No state lives outside it.
+The local pack is selected implicitly, so there is no `packs` config line to add.
+Remove the directory and its `contributes` entry to uninstall; no state lives
+outside it.
+
+Note the one thing this example would NOT survive as a **fetched** pack: `jail_env`
+is outside the pack-shipped subset, so a shareable pack declares those variables with
+an `env` contribution instead. The subset applies to every pack including the local
+one, so `jail_env` here is refused with that instruction — swap it for
+`{"kind": "env", "vars": {"HELLO": "world"}}` in `pack.json`.
 
 ## Discovery from inside the jail
 

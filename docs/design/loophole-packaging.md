@@ -128,13 +128,15 @@ loophole has been approved at a prompt and spawned as a host daemon.
 ## 1. The gap, and why it got acute this week
 
 Loopholes had three distribution channels and only one of them was third-party — the state this
-section was written against. **There are FOUR now: the pack-shipped channel landed 2026-08-14, and
-`packs/audio` (§7) is its first inhabitant.** Neither retirement below has happened.
+section was written against. **There are THREE now, and the membership changed twice.** The
+pack-shipped channel landed 2026-08-14 (`packs/audio`, §7, is its first inhabitant), taking the count
+to four; then **OQ-LP10 was carried out and the hand-placed user directory was retired**, taking it
+back to three. The bundled retirement (OQ-LP11) has still not happened.
 
 | Source | Constant / entry | Who it is for | State |
 |---|---|---|---|
 | `bundled_loopholes/`, embedded in the binary | `BundledLoopholesDir` (`internal/loopholes/loopholes.go:89`) | yolo's own three | fine — but **why not an official pack?** OQ-LP11. All three are still here, and `audio` cannot be retired at all until OQ-LP14 |
-| a user loophole dir | `UserLoopholesDir` → `~/.local/share/yolo-jail/loopholes` (`loopholes.go:110`) | one hand-placed local loophole | no fetch, no version, no approval, no manifest travelling with the code — and **a `file://` pack subsumes it**, OQ-LP10 (ruled retire, not yet carried out) |
+| ~~a user loophole dir~~ | ~~`UserLoopholesDir` → `~/.local/share/yolo-jail/loopholes`~~ | ~~one hand-placed local loophole~~ | **RETIRED (OQ-LP10, carried out).** No fetch, no version, no approval, no manifest travelling with the code — and a `file://` pack subsumes it. Discovery no longer reads it and the `SourceUser` label is deleted; what survives is `RetiredUserLoopholesDir` + a migration notice (`internal/loopholes/retired.go`) that names every stranded module and the `mv` into `~/.config/yolo-jail/local/` |
 | the `loopholes` block in `yolo-jail.jsonc` | `synthesizeConfigLoopholes` (`discover.go:29`) | **was the only third-party path** | revived by the front (§2.2) and scoped by the ruled install/enable model (§4.3b) |
 | **a pack, `{"kind": "loophole", "from": …}`** | `loaderFor(SourcePack)` (`discover.go`) | **the third-party path now** | landed 2026-08-14; subset-constrained, claim-enumerated, origin-gated |
 
@@ -1794,6 +1796,9 @@ pre-flight (§3.1) and therefore never reaches an ordering.** What remains is `u
 user's own authority), and a pack claiming a reserved name never reaches the ordering because the
 pre-flight refused it at staging. The broker lookup is additionally pinned unshadowable by a test.
 
+**Superseded in part by OQ-LP10's retirement:** there is no user dir to override anything any more, so
+the live ordering is bundled < pack < config. The reserved-name half is unchanged.
+
 **One shipped bug to fix while here:** the briefing path (`prepare.go:61-66`) filters on `Enabled`
 only, not `Active()`. So an enabled-but-inactive loophole is advertised to the agent as a live
 capability. Pre-existing and orthogonal, but a pack-shipped loophole makes it more visible.
@@ -1807,12 +1812,13 @@ saying the loophole is inactive here.
 ### 5.2 `yolo loopholes enable/disable` and the pack-shipped case
 
 **Correction to draft 1's premise.** It claimed the toggle *"would appear to work and silently
-evaporate on the next launch"* because `SetEnabled` (`runtime.go:261-285`) read-modify-writes the
-manifest inside the staged tree. Measured: `CmdSetEnabled` (`loopholescmd.go:165-172`) never reaches
-`SetEnabled` for a non-user-dir loophole — it stats `UserLoopholesDir()/<name>/manifest.jsonc` and
-exits 1 with *"For bundled or workspace-inline loopholes, edit the workspace yolo-jail.jsonc"*. So
-today it **refuses outright**; the failure is a wrong instruction, not a silent evaporation. (And
-that instruction now points at the **weaker** scope, which G1 changes.)
+evaporate on the next launch"* because `SetEnabled` read-modify-wrote the manifest inside the staged
+tree. Measured: `CmdSetEnabled` never reached `SetEnabled` for a non-user-dir loophole — it stat'd
+`UserLoopholesDir()/<name>/manifest.jsonc` and exited 1 with *"For bundled or workspace-inline
+loopholes, edit the workspace yolo-jail.jsonc"*. So it **refused outright**; the failure was a wrong
+instruction, not a silent evaporation. (And that instruction pointed at the **weaker** scope, which G1
+changed.) *Both functions are described in the past tense because `SetEnabled` is now deleted — see
+the ledger at the end of this section.*
 
 **Decision stands, with a new prerequisite: for a pack-shipped loophole the toggle writes
 `loopholes.<name>.enabled` in the USER config**, which `applyWorkspaceOverrides` already honors
@@ -1827,7 +1833,7 @@ treating the entry as an override … If the loophole was removed, this entry is
 to stage. So the toggle would be self-warning. Either the resolver joins the converged set (§5.1), or
 a pack loophole's disabled state is recorded somewhere the validator already understands.
 
-Unifying *all four* sources on config-side enabled state would also delete `SetEnabled`'s
+Unifying *all* sources on config-side enabled state would also delete `SetEnabled`'s
 comment-destroying RMW and is the better end state — but it changes behaviour for bundled and
 user-dir loopholes, so it is a separate decision.
 
@@ -1836,11 +1842,23 @@ the converged set (it reads `PackModules()`), so `loopholes.<name>.enabled` on a
 now resolves to a real `LoopholeInfo` and takes the OVERRIDE path instead of the unknown-name fallback
 that printed *"no loophole named 'x' is installed on this machine"* at every launch. The second option
 was rejected for a reason worth keeping: recording a pack loophole's state somewhere else would give
-one name two homes. The CLI message was retargeted at the user config in the same batch as G1. **What
-did NOT change:** `CmdSetEnabled` still serves only the hand-placed user directory, because it
-read-modify-writes a `manifest.jsonc` and a pack's manifest lives in a staged tree — so the
-enable/disable unification above remains a separate, unmade decision. (It is also what OQ-LP10 would
-force, by leaving that command with no special case to serve.)
+one name two homes. The CLI message was retargeted at the user config in the same batch as G1.
+
+**Then OQ-LP10 landed and forced the rest of the way — half of it.** `SetEnabled` is DELETED: with the
+hand-placed directory retired it had nothing left to write, since a bundled manifest is the binary's
+own content (go:embed'd, so on an installed binary there is no file at all) and a pack's manifest is a
+staged copy the next `pack install` overwrites. `CmdSetEnabled` therefore serves no source at all
+today: it PRINTS `loopholes.<name>.enabled`, the user config path and the value, and exits 1.
+
+**Why it prints rather than writes, and this is the open half.** The write is a read-modify-write of
+`~/.config/yolo-jail/config.jsonc` — a hand-written, commented file nothing in yolo writes today — and
+the json5 → `jsonx.DumpsIndent` round trip drops every comment in it. That degradation was documented
+and accepted for a yolo-GENERATED manifest; it is a different proposition for a file the human wrote.
+The obvious dodge is already refused by this codebase: a conventionally-named auto-merged state file
+beside the config is **withdrawn with cause** in `internal/config/userlayer.go`'s header ("it activates
+because a file EXISTS, invisibly at the call site"). So the remaining work is a comment-preserving
+JSONC edit (or a ruling that comment loss is acceptable here), and it is tracked as its own item
+rather than smuggled in with the retirement.
 
 ### 5.3 Defaults: a pack-shipped loophole is ALWAYS opt-in
 
@@ -2469,8 +2487,8 @@ requester, and `three-decisions.md`'s deletion of `pack_requests` does not cover
 already lay out its own files; it cannot already run host code). **Resolved by:** a maintainer
 ruling, alongside OQ-LP2 — G1's warn-then-error migration needs somewhere to point people.
 
-**OQ-LP10 — retire the USER LOOPHOLE DIRECTORY once a pack can carry one? RULED: YES**, after the
-kind ships so there is somewhere to go. Raised in review: *"what's
+**OQ-LP10 — retire the USER LOOPHOLE DIRECTORY once a pack can carry one? RULED: YES — ✅ CARRIED
+OUT.** After the kind ships so there is somewhere to go. Raised in review: *"what's
 the argument for keeping this? we can easily have local packs."* There is no good one. §3.1 justifies
 the directory's last-wins overwrite as *"a hand-placed directory carries the user's own authority —
 the same reason a `file://` pack does"* — i.e. **the same sentence justifies both mechanisms**. And
@@ -2483,6 +2501,31 @@ works *only* for user-dir loopholes and refuses every other source, so retiring 
 that command with no special case and forces enable/disable state into config for all sources —
 which §5.2 already calls the better end state and defers as a separate decision. And it removes one
 of the four sources `Discover` merges, shrinking §5.1's convergence problem rather than growing it.
+
+**SHIPPED.** `Discover` and `ValidateLoopholes` no longer walk the directory, the `SourceUser`
+constant is deleted (ordering is now bundled < pack < config), and `SetEnabled` — the manifest
+rewriter that existed only to serve it — is deleted with it. `resolve()`'s default source label moved
+from the permissive `user` to the FAIL-SAFE `pack`: an unlabelled record now cannot run host code
+without a recorded origin gate, and is judged rather than exempted by the placement rule.
+
+**Migration is loud, because it has to be.** Whatever sat there was running a host daemon until the
+upgrade that removed the channel, so a silent drop was never acceptable. A populated directory
+produces one stderr notice per process from discovery, plus a graded `yolo check` row, both naming the
+directory, every stranded module, and the exact `mv` + `pack.json` for the conventional local pack
+(`~/.config/yolo-jail/local/`, implicitly selected). The notice also states the one thing that can
+still fail after a correct move: a pack's loophole is held to the pack-shipped subset, so `jail_env`,
+an absolute or writable bind host, and `publishes: "endpoint"` are refused at load.
+
+**One consequence worth recording, since it was not obvious before doing it.** `user` was the only
+source label that was BOTH trusted to run host code AND judged by the placement rule. With it gone,
+the module-dir face of the placement rule applies to PACK loopholes only — bundled content is exempt
+(§4.3a's Test-1 reasoning) and a config entry has no module dir. That is not a weakening: the retired
+directory's manifests are not read at all now, which is strictly stronger than judging where they sat.
+
+**The first payoff below is only HALF collected, and deliberately so** — see §5.2's ledger.
+`CmdSetEnabled` no longer has a special case, but it PRINTS the config key rather than writing it,
+because writing it means a comment-destroying read-modify-write of the user's hand-written
+`config.jsonc`.
 
 **Cost, corrected — review asked "isn't this de facto the local pack now shipping a loophole?" and
 the answer is yes**, which makes the migration cheaper than draft 3 priced it: the conventional local

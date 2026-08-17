@@ -17,19 +17,24 @@ import (
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
-// emptyLoopholeDirs points BundledLoopholesDir + UserLoopholesDir at empty temp
-// dirs so the golden argv is hermetic (no bundled-loophole runtime args). Real
-// production discovers the bundled loopholes; the loophole runtime-args builder
-// is exercised by internal/loopholes' own tests.
+// emptyLoopholeDirs points BundledLoopholesDir at an empty temp dir so the golden argv
+// is hermetic (no bundled-loophole runtime args). Real production discovers the bundled
+// loopholes; the loophole runtime-args builder is exercised by internal/loopholes' own
+// tests.
+//
+// It also points the RETIRED hand-placed dir (OQ-LP10) at the same empty tree. That
+// directory contributes no loopholes any more, but it does produce a one-off migration
+// WARNING when it is populated — and a developer whose real home still has one would
+// otherwise see that line inside these tests.
 func emptyLoopholeDirs(t *testing.T) {
 	t.Helper()
 	empty := t.TempDir()
-	origB, origU := loopholes.BundledLoopholesDir, loopholes.UserLoopholesDir
+	origB, origR := loopholes.BundledLoopholesDir, loopholes.RetiredUserLoopholesDir
 	loopholes.BundledLoopholesDir = func() string { return empty }
-	loopholes.UserLoopholesDir = func() string { return empty }
+	loopholes.RetiredUserLoopholesDir = func() string { return empty }
 	t.Cleanup(func() {
 		loopholes.BundledLoopholesDir = origB
-		loopholes.UserLoopholesDir = origU
+		loopholes.RetiredUserLoopholesDir = origR
 	})
 }
 

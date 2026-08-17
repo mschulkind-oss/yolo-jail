@@ -360,9 +360,12 @@ func bundledLoopholeNames() []string {
 
 // DiscoverOptions carries the discovery parameters. The zero value uses the
 // defaults, with IncludeBundled defaulting true via the Discover entry point.
+//
+// There is no Root any more. It named the hand-placed user loopholes dir, which is
+// retired (OQ-LP10, retired.go) — and while it lived, every caller that did NOT want
+// that channel had to remember to point Root at an empty temp dir, which is the
+// shape of an option nobody should have had to pass.
 type DiscoverOptions struct {
-	Root            string // "" => UserLoopholesDir()
-	RootSet         bool
 	IncludeDisabled bool
 	LoopholesConfig *jsonx.OrderedMap
 	IncludeBundled  bool
@@ -723,10 +726,11 @@ func (s Set) Lookup(name string) (*Loophole, bool) {
 
 // (include_bundled=True) should set IncludeBundled=true.
 func Discover(opts DiscoverOptions) []*Loophole {
-	root := opts.Root
-	if !opts.RootSet || root == "" {
-		root = UserLoopholesDir()
-	}
+	// The retired hand-placed directory is not a source; it is only ever a thing to
+	// tell its owner about (retired.go). Warned HERE, at the one function every
+	// discovery surface funnels through, so the notice reaches a plain `yolo run` and
+	// not only the commands somebody remembered to wire it into.
+	warnRetiredUserLoopholes()
 
 	byName := map[string]*Loophole{}
 	var order []string
@@ -742,8 +746,7 @@ func Discover(opts DiscoverOptions) []*Loophole {
 		bm, bk := loadFromDir(BundledLoopholesDir(), SourceBundled)
 		appendOrdered(bm, bk)
 	}
-	// Pack-contributed module dirs sit BETWEEN bundled and user: a hand-placed user
-	// directory still overrides them (it carries the user's own authority), and a
+	// Pack-contributed module dirs sit ABOVE bundled and below the config block. A
 	// pack-vs-reserved collision never reaches here at all — the launch pre-flight
 	// refused it (docs/design/loophole-packaging.md §5.1).
 	if len(opts.PackModules) > 0 {
@@ -754,8 +757,6 @@ func Discover(opts DiscoverOptions) []*Loophole {
 		pm, pk := loadModuleDirs(dirs, SourcePack)
 		appendOrdered(pm, pk)
 	}
-	um, uk := loadFromDir(root, SourceUser)
-	appendOrdered(um, uk)
 
 	inline := applyWorkspaceOverrides(byName, opts.LoopholesConfig)
 
@@ -796,7 +797,7 @@ type ValidateEntry struct {
 	Err      string
 }
 
-// loophole dir (bundled + PACK + user), reporting parse errors instead of skipping.
+// loophole dir (bundled + PACK), reporting parse errors instead of skipping.
 //
 // It is `yolo check`'s independent walker — census site 7
 // (docs/design/loophole-packaging.md §5.1) — and the reason it is a walker at all rather
@@ -817,7 +818,13 @@ type ValidateEntry struct {
 // reports unknown keys) is the right engine for an AUTHORING surface — `yolo pack lint` and
 // the loophole kind's lint — and adopting it here is a behaviour change for `yolo check`
 // that belongs with whichever change makes unknown keys an author-visible error.
-func ValidateLoopholes(root string, rootSet, includeBundled bool) []ValidateEntry {
+func ValidateLoopholes(includeBundled bool) []ValidateEntry {
+	// Same reason Discover warns: this walker backs `yolo check`, which is the command
+	// a user runs when a loophole stopped working — precisely the symptom the retired
+	// directory now produces. `yolo check` also renders the notice through its own
+	// reporter; this covers every other caller of the walker.
+	warnRetiredUserLoopholes()
+
 	out := []ValidateEntry{}
 	type dirSource struct {
 		dir    string
@@ -827,11 +834,6 @@ func ValidateLoopholes(root string, rootSet, includeBundled bool) []ValidateEntr
 	if includeBundled {
 		dirs = append(dirs, dirSource{BundledLoopholesDir(), SourceBundled})
 	}
-	userRoot := root
-	if !rootSet || userRoot == "" {
-		userRoot = UserLoopholesDir()
-	}
-	dirs = append(dirs, dirSource{userRoot, SourceUser})
 
 	for _, ds := range dirs {
 		fi, err := os.Stat(ds.dir)
@@ -899,8 +901,8 @@ func ValidateLoopholes(root string, rootSet, includeBundled bool) []ValidateEntr
 // channel Discover throws away, and the execution needs the gate a ValidateEntry cannot
 // carry. Returning the pair from one function is what stops `yolo check` from having to
 // re-derive either.
-func ValidateSet(root string, rootSet, includeBundled bool) ([]ValidateEntry, Set) {
-	entries := ValidateLoopholes(root, rootSet, includeBundled)
+func ValidateSet(includeBundled bool) ([]ValidateEntry, Set) {
+	entries := ValidateLoopholes(includeBundled)
 	var loaded []*Loophole
 	for _, e := range entries {
 		if e.Loophole != nil && e.Err == "" {

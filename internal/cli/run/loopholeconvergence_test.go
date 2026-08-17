@@ -168,16 +168,15 @@ func TestBrokerLookupIsUnshadowable(t *testing.T) {
 func TestBuiltinNameSkipIsAudible(t *testing.T) {
 	os.Unsetenv("YOLO_VERSION")
 	isolatePackModules(t)
-	fakeBundled(t)
-	// A user-dir loophole named `journal`. A PACK cannot get here any more (the pre-flight
-	// refuses the name at staging), which leaves the hand-placed user directory — not
-	// refused, because it carries the user's own authority, and therefore exactly the case
-	// that has to be said out loud.
-	userRoot := t.TempDir()
-	orig := loopholes.UserLoopholesDir
-	loopholes.UserLoopholesDir = func() string { return userRoot }
-	t.Cleanup(func() { loopholes.UserLoopholesDir = orig })
-	writeHostDaemonModule(t, userRoot, paths.BuiltinJournalLoopholeName)
+	// A manifest named `journal` reaching discovery. A PACK cannot get here (the launch
+	// pre-flight refuses the name at staging) and the hand-placed user directory is
+	// retired (OQ-LP10), so what remains is a BUNDLED manifest claiming the name — yolo
+	// shipping its own collision, or version skew between the reservation list and the
+	// bundled tree. Rarer than the case this test was written for, and the branch still
+	// has to be audible: the daemon is skipped while the manifest's binds/devices/jail_env
+	// already crossed.
+	bundledRoot := fakeBundled(t)
+	writeHostDaemonModule(t, bundledRoot, paths.BuiltinJournalLoopholeName)
 
 	var out bytes.Buffer
 	o := goldenOptions(t.TempDir(), t.TempDir())
@@ -205,10 +204,6 @@ func TestBuiltinNameSkipIsSilentForYolosOwn(t *testing.T) {
 	os.Unsetenv("YOLO_VERSION")
 	isolatePackModules(t)
 	fakeBundled(t)
-	userRoot := t.TempDir()
-	orig := loopholes.UserLoopholesDir
-	loopholes.UserLoopholesDir = func() string { return userRoot }
-	t.Cleanup(func() { loopholes.UserLoopholesDir = orig })
 
 	var out bytes.Buffer
 	o := goldenOptions(t.TempDir(), t.TempDir())

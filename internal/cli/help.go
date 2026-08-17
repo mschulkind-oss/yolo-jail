@@ -13,7 +13,7 @@ var commandHelp = []struct{ name, blurb string }{
 	{"ps", "List running yolo-* jails and their workspaces"},
 	{"prune", "Reclaim disk: stale containers, images, caches (dry-run unless --apply)"},
 	{"broker", "Manage the Claude OAuth broker (status|stop|restart|logs)"},
-	{"loopholes", "List/enable/disable host-capability loopholes"},
+	{"loopholes", "List and self-check host-capability loopholes"},
 	{"init", "Scaffold yolo-jail.jsonc in the current workspace"},
 	{"init-user-config", "Write user-level defaults at ~/.config/yolo-jail/config.jsonc"},
 	{"config", "Inspect generated config: 'config ls' (every composed file), 'render', 'diff', 'reset'"},

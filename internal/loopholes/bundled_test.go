@@ -70,6 +70,10 @@ func TestBundledBrokerNeverMountsItsPrivateKey(t *testing.T) {
 	// The shipped manifest requires `claude` on PATH; the MOUNT SHAPE is what is
 	// under test, and it must hold on any host, CI included.
 	lp.Requires = Requires{}
+	// LABEL IT, because LoadLoophole is the raw loader and its default source is the
+	// fail-safe SourcePack (load.go) — which the ungated RuntimeArgsFor refuses. This IS
+	// the bundled broker; discovery would label it the same way.
+	lp.Source = SourceBundled
 
 	args := RuntimeArgsFor([]*Loophole{lp}, "podman")
 	joined := strings.Join(args, " ")

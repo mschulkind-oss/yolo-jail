@@ -180,14 +180,9 @@ func brokerFixtureDirs(t *testing.T, enabled bool) {
 	if err := os.WriteFile(filepath.Join(lp, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	empty := t.TempDir()
-	origB, origU := loopholes.BundledLoopholesDir, loopholes.UserLoopholesDir
+	origB := loopholes.BundledLoopholesDir
 	loopholes.BundledLoopholesDir = func() string { return dir }
-	loopholes.UserLoopholesDir = func() string { return empty }
-	t.Cleanup(func() {
-		loopholes.BundledLoopholesDir = origB
-		loopholes.UserLoopholesDir = origU
-	})
+	t.Cleanup(func() { loopholes.BundledLoopholesDir = origB })
 }
 
 // TestBrokerEnvEmittedWhenLoopholeActive: the broker's endpoint env is emitted

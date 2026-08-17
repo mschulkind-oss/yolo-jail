@@ -60,16 +60,19 @@ func TestBundledLoopholeInTheWorkspaceIsNotRefused(t *testing.T) {
 		t.Errorf("the refusal must name the loophole:\n  %s", strings.Join(probs, "\n  "))
 	}
 
-	// And a USER-dir loophole in the workspace is refused too: a hand-placed directory
-	// carries the user's authority, but the FILE it names is still agent-rewritable.
-	user := &Loophole{
-		Name:       "handplaced",
-		Source:     SourceUser,
+	// And an UNLABELLED record is refused too. That is the fail-safe default resolve()
+	// assigns (SourcePack — see load.go), which matters because the label is the only
+	// thing standing between "yolo's own content" and "content the exemption must not
+	// cover". It used to default to the now-retired `user` label, which was also judged;
+	// this pins that the retirement did not flip the default to the exempt side.
+	unlabelled := &Loophole{
+		Name:       "unlabelled",
 		Enabled:    true,
-		Path:       filepath.Join(ws, "loopholes", "handplaced"),
+		Path:       filepath.Join(ws, "loopholes", "unlabelled"),
 		HostDaemon: &HostDaemon{Cmd: []string{"python3", "srv.py"}},
 	}
-	if probs := user.PlacementProblems(ws); len(probs) == 0 {
-		t.Error("a USER-dir loophole inside the mounted workspace must still be refused")
+	if probs := unlabelled.PlacementProblems(ws); len(probs) == 0 {
+		t.Error("a record with no source label inside the mounted workspace must still be " +
+			"refused — only SourceBundled is exempt, and only because it IS yolo's own content")
 	}
 }

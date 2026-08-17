@@ -163,7 +163,8 @@ func List(deps Deps) int {
 	if len(all) == 0 {
 		fmt.Fprintln(deps.Out, "No loopholes installed.")
 		fmt.Fprintf(deps.Out, "  • bundled: %s\n", BundledLoopholesDir())
-		fmt.Fprintf(deps.Out, "  • user: %s\n", UserLoopholesDir())
+		fmt.Fprintf(deps.Out, "  • pack: a `loophole` contribution from a selected pack; "+
+			"%s is selected implicitly when it exists\n", paths.LocalPackDir())
 		fmt.Fprintf(deps.Out, "  • config: loopholes: block in %s "+
 			"(install-shaped keys are user-scope only; a workspace "+
 			"yolo-jail.jsonc may set enabled/jail_env)\n", paths.UserConfigPath())
@@ -282,35 +283,54 @@ func Status(deps Deps) int {
 	return 0
 }
 
-// CmdSetEnabled runs `yolo loopholes enable|disable <name>`. Only
-// user-installed loopholes are toggleable (a missing user manifest → the exact
-// stderr message + exit 1).
+// CmdSetEnabled runs `yolo loopholes enable|disable <name>`. It TOGGLES NOTHING
+// today: it prints the config key to write, names the file to write it in, and
+// exits 1.
 //
-// The fallback instruction points at the USER config (loophole-packaging.md
-// §5.2): it used to direct people at the workspace yolo-jail.jsonc — the
-// weaker, agent-editable scope, and the one whose install-shaped keys are now
-// refused. `enabled` is honored from either scope, but the command should
-// never steer a human toward the file this design distrusts.
+// THAT IS A DELIBERATE INTERIM STATE, not a half-finished edit, and here is the
+// whole of why. The command only ever had one mechanism: rewrite `enabled` in a
+// manifest under the hand-placed user loopholes directory, refusing every other
+// source. That directory is retired (retired.go, OQ-LP10), so the mechanism has
+// nothing left to write to — and OQ-LP10's second payoff is exactly this: with the
+// special case gone, enable/disable state belongs in CONFIG, for every source
+// (docs/design/loophole-packaging.md §5.2, which already calls that the better end
+// state).
+//
+// Writing it is a separate change because it is a separate DECISION, not more typing.
+// `loopholes.<name>.enabled` lives in ~/.config/yolo-jail/config.jsonc, a hand-written
+// commented file that nothing in yolo writes today; a read-modify-write through
+// json5 → jsonx.DumpsIndent drops every comment in it (the degradation SetEnabled used
+// to accept for a yolo-generated manifest, which is a very different file). And the
+// obvious dodge — a conventionally-named auto-merged state file beside it — is
+// WITHDRAWN WITH CAUSE in this codebase already (internal/config/userlayer.go's header:
+// it activates because a file exists, invisibly at the call site). So the honest
+// interim is a command that tells you precisely what to write, rather than one that
+// silently does nothing or quietly reformats your config.
+//
+// The instruction points at the USER config (loophole-packaging.md §5.2): it used to
+// direct people at the workspace yolo-jail.jsonc — the weaker, agent-editable scope,
+// and the one whose install-shaped keys are now refused. `enabled` is honored from
+// either scope, but the command should never steer a human toward the file this
+// design distrusts.
 func CmdSetEnabled(deps Deps, name string, enabled bool) int {
-	path := filepath.Join(UserLoopholesDir(), name)
-	if fi, err := os.Stat(filepath.Join(path, "manifest.jsonc")); err != nil || fi.IsDir() {
-		fmt.Fprintf(deps.Err,
-			"No user-installed loophole at %s.\n"+
-				"For bundled or config-inline loopholes, set "+
-				"loopholes.%s.enabled in the user config (%s).\n",
-			path, name, paths.UserConfigPath())
-		return 1
+	fmt.Fprintf(deps.Err,
+		"yolo loopholes %s cannot write this yet — set it in config instead.\n"+
+			"In %s add:\n"+
+			"  \"loopholes\": { %q: { \"enabled\": %t } }\n"+
+			"That key works for every source (bundled, pack-shipped, config-inline); "+
+			"it is also honored from a workspace yolo-jail.jsonc, which is the "+
+			"agent-editable scope and therefore the weaker place to put it.\n",
+		verbFor(enabled), paths.UserConfigPath(), name, enabled)
+	return 1
+}
+
+// verbFor names the subcommand the user actually typed, so the refusal echoes their
+// own word back rather than a generic one.
+func verbFor(enabled bool) string {
+	if enabled {
+		return "enable"
 	}
-	if err := SetEnabled(path, enabled); err != nil {
-		fmt.Fprintf(deps.Err, "%v\n", err)
-		return 1
-	}
-	word := "enabled"
-	if !enabled {
-		word = "disabled"
-	}
-	fmt.Fprintf(deps.Out, "%s %s\n", word, name)
-	return 0
+	return "disable"
 }
 
 // rcStr renders an *int rc as the int, or "None" when nil.

@@ -306,11 +306,31 @@ staging change it proposes — and the small independent items trail.
   the *other* nix path. Two-character change; makes a "build failed" on macOS mean something.
   📄 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §6.
 
-- 📦 **OQ-LP10 — retire the hand-placed loopholes dir.** Ruled yes, unblocked, not carried out.
+- 📦 **`yolo loopholes enable|disable` writes nothing — the config-write is unbuilt.** *(The
+  second half of OQ-LP10, which retired the directory that command served.)*
 
-  It is the one channel that starts a host daemon with **no selection step**, and retiring it forces
-  `loopholes enable/disable` off its single special case — it serves only that dir today — into
-  config state for every source.
+  `CmdSetEnabled` now PRINTS `loopholes.<name>.enabled`, the user config path and the value, and
+  exits 1. Writing it means a read-modify-write of `~/.config/yolo-jail/config.jsonc` — a
+  hand-written commented file nothing in yolo writes today — and the json5 → `jsonx.DumpsIndent`
+  round trip drops every comment in it. That degradation was accepted for a yolo-GENERATED manifest
+  and is a different proposition for the human's own file, so it is a **decision**, not typing. The
+  obvious dodge is already refused: a conventionally-named auto-merged state file beside the config
+  is withdrawn with cause in `internal/config/userlayer.go`'s header. Needs either a
+  comment-preserving JSONC editor or a ruling that comment loss is acceptable here.
+  📄 [`loophole-packaging.md`](../design/loophole-packaging.md) §5.2.
+
+- ✅ **OQ-LP10 — the hand-placed loopholes dir is RETIRED.** *(Landed 2026-08-17.)*
+
+  It was the one channel that started a host daemon with **no selection step**. `Discover` and
+  `ValidateLoopholes` no longer read `~/.local/share/yolo-jail/loopholes`, the `SourceUser` label is
+  deleted (ordering is bundled < pack < config), and `SetEnabled` — the manifest rewriter that
+  existed only to serve it — is gone. A populated directory is **reported, never silently dropped**:
+  one stderr notice per process from discovery plus a graded `yolo check` row, both naming every
+  stranded module and the exact `mv` + `pack.json` for the implicitly-selected local pack. Two
+  consequences worth knowing: `resolve()`'s default source label moved to the fail-safe `SourcePack`
+  (no host code without a recorded gate, judged rather than exempted by the placement rule), and the
+  module-dir face of the placement rule now applies to PACK loopholes only, since `user` was the one
+  label that was both trusted and judged.
 
 - 🏗️ **`host-processes` — steps 1-6 of 7 LANDED; the pack move is blocked.** *(Sprint step 1.)*
 

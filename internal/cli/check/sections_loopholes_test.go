@@ -140,19 +140,16 @@ func TestCheckLoopbackTLSServiceNamesTheLayer(t *testing.T) {
 // WARN and name the file, never render as a green "disabled" line. A disable
 // from the loophole's own manifest stays a green ok.
 func TestCheckLoopholesWarnsOnWorkspaceDisable(t *testing.T) {
-	// Isolate discovery: an empty bundled dir (so no real bundled loophole's
-	// doctor_cmd can ever run from a test) and a user dir with two manifests.
-	emptyDir := t.TempDir()
-	userDir := t.TempDir()
-	oldBundled, oldUser := loopholes.BundledLoopholesDir, loopholes.UserLoopholesDir
-	loopholes.BundledLoopholesDir = func() string { return emptyDir }
-	loopholes.UserLoopholesDir = func() string { return userDir }
-	t.Cleanup(func() {
-		loopholes.BundledLoopholesDir = oldBundled
-		loopholes.UserLoopholesDir = oldUser
-	})
+	// Isolate discovery: a FAKE bundled dir holding this test's two manifests, so no
+	// real bundled loophole's doctor_cmd can ever run from a test. (It used to be an
+	// empty bundled dir plus a hand-placed user dir; that channel is retired — OQ-LP10.)
+	fakeBundled := t.TempDir()
+	oldBundled := loopholes.BundledLoopholesDir
+	loopholes.BundledLoopholesDir = func() string { return fakeBundled }
+	t.Cleanup(func() { loopholes.BundledLoopholesDir = oldBundled })
+	retiredLoopholeDir(t) // absent, so the migration row cannot add a second warning
 	writeManifest := func(name, body string) {
-		dir := filepath.Join(userDir, name)
+		dir := filepath.Join(fakeBundled, name)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -375,5 +372,65 @@ func TestJailEndpointProbeUsesTestF(t *testing.T) {
 	}
 	if !strings.Contains(joined, "/run/yolo-services/claude-oauth-broker.endpoint") {
 		t.Errorf("probe does not name the in-jail endpoint file: %q", joined)
+	}
+}
+
+// retiredLoopholeDir points the RETIRED hand-placed loopholes dir (OQ-LP10) at a fresh
+// temp dir and returns it. Empty by default, which is what an isolated test wants: a
+// developer whose real home still holds one would otherwise get an extra warning row in
+// every loophole test here.
+func retiredLoopholeDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	orig := loopholes.RetiredUserLoopholesDir
+	loopholes.RetiredUserLoopholesDir = func() string { return dir }
+	t.Cleanup(func() { loopholes.RetiredUserLoopholesDir = orig })
+	return dir
+}
+
+// TestCheckLoopholesReportsTheRetiredDirectory: whatever sat in the hand-placed
+// loopholes directory was running a HOST DAEMON until the upgrade that retired the
+// channel (OQ-LP10). `yolo check` is the command someone runs when a loophole stops
+// working, so the migration has to be a graded row there — not only a stderr line from
+// discovery, which scrolls past.
+func TestCheckLoopholesReportsTheRetiredDirectory(t *testing.T) {
+	fakeBundled := t.TempDir()
+	oldBundled := loopholes.BundledLoopholesDir
+	loopholes.BundledLoopholesDir = func() string { return fakeBundled }
+	t.Cleanup(func() { loopholes.BundledLoopholesDir = oldBundled })
+
+	retired := retiredLoopholeDir(t)
+	mod := filepath.Join(retired, "leftover")
+	if err := os.MkdirAll(mod, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"),
+		[]byte(`{"name": "leftover", "transport": "none"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	r := newReporter(&buf, false)
+	o := &Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}
+	fillDefaults(o)
+	o.checkLoopholes(r)
+	out := buf.String()
+
+	if r.warned != 1 {
+		t.Errorf("warned=%d, want 1 — a retired directory that still holds a loophole is a "+
+			"capability that silently stopped, and silence is the failure mode here:\n%s",
+			r.warned, out)
+	}
+	for _, want := range []string{"leftover", retired, "local"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report does not mention %q:\n%s", want, out)
+		}
+	}
+	if r.failed != 0 {
+		t.Errorf("failed=%d — a migration notice is a warning, not a failure:\n%s", r.failed, out)
+	}
+	// And the manifest sitting there is NOT loaded: reporting it must not resurrect it.
+	if strings.Contains(out, "loophole leftover:") {
+		t.Errorf("the retired directory's manifest was walked as a live loophole:\n%s", out)
 	}
 }

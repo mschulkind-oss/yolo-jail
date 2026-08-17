@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -21,9 +22,20 @@ func (o *Options) checkLoopholes(r *reporter) {
 		r.ok("Inside jail — loophole checks skipped (managed by host)")
 		return
 	}
-	entries := loopholes.ValidateLoopholes("", false, true)
+	// FIRST, before any loophole is reported: a still-populated retired directory
+	// (OQ-LP10) means loopholes that WERE running host daemons are now inert. `yolo
+	// check` is the command someone runs when that happens, and the discovery-time
+	// stderr line is easy to scroll past — so it gets a graded row of its own, with the
+	// whole migration instruction as the detail.
+	if stranded := loopholes.RetiredUserLoopholes(); len(stranded) > 0 {
+		r.warn("retired loopholes directory still holds "+
+			fmt.Sprintf("%d module(s): %s", len(stranded), strings.Join(stranded, ", ")),
+			loopholes.RetiredUserLoopholeNotice())
+	}
+	entries := loopholes.ValidateLoopholes(true)
 	if len(entries) == 0 {
-		r.ok(fmt.Sprintf("No loopholes installed (%s)", loopholes.UserLoopholesDir()))
+		r.ok(fmt.Sprintf("No loopholes installed (install one as a pack; %s is "+
+			"selected implicitly when it exists)", paths.LocalPackDir()))
 		return
 	}
 	// `enabled` is writable at workspace scope (loophole-packaging.md §4.3b), so
@@ -214,7 +226,7 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 	if o.inJail() {
 		return // inside jail — host sockets aren't reachable
 	}
-	entries := loopholes.ValidateLoopholes("", false, true)
+	entries := loopholes.ValidateLoopholes(true)
 	var externals []*loopholes.Loophole
 	for _, e := range entries {
 		lp := e.Loophole

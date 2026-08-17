@@ -99,25 +99,43 @@ command has no special case left to serve, which forces the enable/disable state
 sources — which the detailed design already calls the better end state and defers as a separate
 decision.
 
-**Both became questions in §8, and one is now settled: OQ-LP10** (retire the home directory) is
-**ruled yes**, and **OQ-LP11** (bundled loopholes become official packs) is still open. Neither
-blocks the 15th kind — the kind is what makes either one *possible*. The rest of this doc describes
-the world with all three channels intact, because that is the world the design was written against.
+**Both became questions in §8, and one is now settled and SHIPPED: OQ-LP10** (retire the home
+directory) is **ruled yes and carried out**, and **OQ-LP11** (bundled loopholes become official packs)
+is still open. Neither blocks the 15th kind — the kind is what makes either one *possible*. The rest of
+this doc describes the world with all three channels intact, because that is the world the design was
+written against; read every mention of the home directory below as historical.
 
 **Landed 2026-08-14: there are now FOUR channels, not three — and the fourth has its first
 inhabitant.** The pack-shipped channel exists and slots between bundled and the home directory in
 precedence: a hand-placed user directory still overrides a pack's loophole (it carries your own
 authority), and a pack claiming a *reserved* name never reaches an ordering at all — the launch
 pre-flight refuses it, fatally. The official `audio` pack (§5, OQ-LP11) is the first loophole to
-arrive that way.
+arrive that way. *(Superseded below: the home directory has since been retired, so the count is three
+again and the precedence sentence about it no longer applies.)*
 
 **But the consolidation this section argues for got HARDER to finish, not easier, and that is the
 honest reading.** Shipping `audio` as a pack established that a pack **cannot express** the sockets the
 bundled `audio` exists for (§5), so the pack sits *beside* the bundled copy rather than replacing it —
-one more channel populated, none retired. **OQ-LP10** (retire the home directory) is unaffected and
-still owed. **OQ-LP11**'s remaining half — bundled loopholes *becoming* packs — now depends on
-**OQ-LP14**, the missing vocabulary, because you cannot delete a bundled loophole whose capability no
-pack can declare.
+one more channel populated, none retired. **OQ-LP11**'s remaining half — bundled loopholes *becoming*
+packs — now depends on **OQ-LP14**, the missing vocabulary, because you cannot delete a bundled
+loophole whose capability no pack can declare.
+
+**Landed: OQ-LP10 is CARRIED OUT — the home directory is retired, and the count is back to three.**
+`~/.local/share/yolo-jail/loopholes/` is no longer read by discovery, by `yolo check`'s walker, or by
+anything else; the `user` source label is deleted along with it, so the ordering is bundled < pack <
+config. A directory still sitting there is **reported, never silently dropped** — discovery warns once
+per process and `yolo check` renders a graded row, both naming every stranded module and the exact
+commands to move it into the conventional local pack (`~/.config/yolo-jail/local/`, implicitly
+selected). One migration caveat is stated in the notice itself: a pack's loophole is held to the
+pack-shipped subset, so a manifest using `jail_env`, an absolute or writable bind host, or
+`publishes: "endpoint"` is refused with the reason at load.
+
+**What did NOT come with it, deliberately: the enable/disable rework.** Retiring the directory left
+`yolo loopholes enable|disable` with no manifest to write, which is the second payoff this section
+promised — but the replacement is a read-modify-write of a hand-commented `~/.config/yolo-jail/config.jsonc`,
+and that drops every comment in the file through the json5 → re-serialize round trip. That is a
+decision, not typing. The interim is a command that PRINTS the exact key, the exact file and the exact
+value and exits non-zero, rather than one that silently does nothing.
 
 ---
 
@@ -905,7 +923,7 @@ Residual worth knowing: a workspace can enable **any** installed loophole, not o
 that repo in mind for. That is bounded by install-time vetting, and the per-launch disclosure naming
 what is active is what makes it visible.
 
-### OQ-LP10 — retire the hand-placed loophole directory in your home? ✅ RULED YES
+### OQ-LP10 — retire the hand-placed loophole directory in your home? ✅ RULED YES; CARRIED OUT
 
 **Answering your question directly: yes, the local pack is exactly what it becomes**, and that makes
 this cheaper than I implied. The conventional local pack (`~/.config/yolo-jail/local/`) is
@@ -923,6 +941,22 @@ gating.
 unchanged and is a real simplification: it leaves
 `loopholes enable/disable` with no special case to serve, forcing enable/disable state into config
 for every source, which the design already wants and currently defers.
+
+**DONE.** Discovery, `yolo check`'s walker and the `user` source label are all gone; a populated
+directory produces a migration notice (discovery stderr, once per process, plus a graded `yolo check`
+row) naming every stranded module and the `mv` + `pack.json` to write. The `SourceUser` constant is
+deleted, so the ordering is bundled < pack < config, and `resolve()`'s default label moved to the
+FAIL-SAFE end (`SourcePack`: refused host code without a recorded gate, and judged rather than
+exempted by the placement rule) — it used to be the permissive `user`.
+
+**The second payoff is NOT yet collected, and that is deliberate.** `enable`/`disable` now print the
+config key rather than writing it. Writing it means yolo performing a read-modify-write on the user's
+hand-commented `config.jsonc`, which loses every comment through the json5 → `jsonx.DumpsIndent` round
+trip — a degradation that was acceptable for a yolo-generated manifest and is not for a file the human
+wrote. The obvious dodge, a conventionally-named auto-merged state file beside it, is already
+**withdrawn with cause** in this codebase (`internal/config/userlayer.go`'s header: it activates
+because a file exists, invisibly at the call site). So the config-write is a separate decision and a
+separate change.
 
 ### OQ-LP11 — do bundled loopholes become official packs? ✅ RULED YES; FIRST STEP SHIPPED 2026-08-14
 

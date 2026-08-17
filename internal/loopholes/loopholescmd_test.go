@@ -12,58 +12,39 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-func TestSetEnabledMissingUserLoophole(t *testing.T) {
+// TestSetEnabledRefusesAndNamesTheConfigKey: after OQ-LP10 the command has no manifest
+// to write (the hand-placed dir it served is retired), and the config-write rework is a
+// separate change. What it must NOT do is silently succeed or silently no-op — it exits
+// non-zero and prints the exact key, the exact file, and the exact value.
+func TestSetEnabledRefusesAndNamesTheConfigKey(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	var out, errBuf bytes.Buffer
-	deps := Deps{Out: &out, Err: &errBuf, Cwd: home}
-	rc := CmdSetEnabled(deps, "nonexistent", true)
-	if rc != 1 {
-		t.Errorf("rc = %d, want 1", rc)
-	}
-	if !strings.Contains(errBuf.String(), "No user-installed loophole at") {
-		t.Errorf("err = %q", errBuf.String())
-	}
-	// §5.2: the fallback instruction must point at the USER config — today's
-	// CLI used to direct people at the weaker, agent-editable workspace scope.
-	if !strings.Contains(errBuf.String(), "user config") ||
-		!strings.Contains(errBuf.String(), "config.jsonc") {
-		t.Errorf("err = %q, want the USER config named as the place to toggle", errBuf.String())
-	}
-	if strings.Contains(errBuf.String(), "workspace") {
-		t.Errorf("err = %q still points at the workspace config", errBuf.String())
-	}
-}
-
-func TestSetEnabledRoundTrip(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	// Create a user-installed loophole manifest.
-	userDir := UserLoopholesDir()
-	lhDir := filepath.Join(userDir, "myhole")
-	must(t, os.MkdirAll(lhDir, 0o755))
-	must(t, os.WriteFile(filepath.Join(lhDir, "manifest.jsonc"),
-		[]byte(`{"name": "myhole", "description": "test", "transport": "none", "enabled": true}`), 0o644))
-
-	var out, errBuf bytes.Buffer
-	deps := Deps{Out: &out, Err: &errBuf, Cwd: home}
-	if rc := CmdSetEnabled(deps, "myhole", false); rc != 0 {
-		t.Fatalf("disable rc = %d, err=%q", rc, errBuf.String())
-	}
-	if out.String() != "disabled myhole\n" {
-		t.Errorf("disable output = %q", out.String())
-	}
-	// Manifest now has enabled:false.
-	data, _ := os.ReadFile(filepath.Join(lhDir, "manifest.jsonc"))
-	if !strings.Contains(string(data), "false") {
-		t.Errorf("manifest not updated: %s", data)
-	}
-	out.Reset()
-	if rc := CmdSetEnabled(deps, "myhole", true); rc != 0 {
-		t.Fatalf("enable rc = %d", rc)
-	}
-	if out.String() != "enabled myhole\n" {
-		t.Errorf("enable output = %q", out.String())
+	for _, tc := range []struct {
+		enabled bool
+		verb    string
+		value   string
+	}{{true, "enable", "true"}, {false, "disable", "false"}} {
+		var out, errBuf bytes.Buffer
+		deps := Deps{Out: &out, Err: &errBuf, Cwd: home}
+		rc := CmdSetEnabled(deps, "myhole", tc.enabled)
+		if rc != 1 {
+			t.Errorf("%s rc = %d, want 1 — the command did not do what was asked", tc.verb, rc)
+		}
+		got := errBuf.String()
+		for _, want := range []string{tc.verb, "loopholes", "myhole", "enabled", tc.value, "config.jsonc"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s: message does not mention %q:\n%s", tc.verb, want, got)
+			}
+		}
+		// §5.2: the instruction must point at the USER config. It used to direct people
+		// at the weaker, agent-editable workspace scope; the workspace may still be
+		// MENTIONED, but only as the weaker option.
+		if !strings.Contains(got, filepath.Join(".config", "yolo-jail", "config.jsonc")) {
+			t.Errorf("%s: the USER config is not named as the place to write it:\n%s", tc.verb, got)
+		}
+		if out.Len() != 0 {
+			t.Errorf("%s: wrote %q to stdout — a refusal belongs on stderr", tc.verb, out.String())
+		}
 	}
 }
 
@@ -74,18 +55,11 @@ func must(t *testing.T, err error) {
 	}
 }
 
-// isolateDirs points bundled/user loophole discovery at throwaway dirs, so no
-// real manifest (and no real doctor_cmd) can leak into a test.
+// isolateDirs points bundled loophole discovery at a throwaway dir, so no real
+// manifest (and no real doctor_cmd) can leak into a test.
 func isolateDirs(t *testing.T) {
 	t.Helper()
-	emptyBundled, emptyUser := t.TempDir(), t.TempDir()
-	oldBundled, oldUser := BundledLoopholesDir, UserLoopholesDir
-	BundledLoopholesDir = func() string { return emptyBundled }
-	UserLoopholesDir = func() string { return emptyUser }
-	t.Cleanup(func() {
-		BundledLoopholesDir = oldBundled
-		UserLoopholesDir = oldUser
-	})
+	t.Cleanup(withBundledDir(t.TempDir()))
 }
 
 // cmdDeps builds Deps whose config loaders return the given JSONC bodies

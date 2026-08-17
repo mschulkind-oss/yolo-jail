@@ -98,14 +98,12 @@ func TestShippedAudioPackCoexistsWithTheBundledLoophole(t *testing.T) {
 	}
 
 	// Discovery with BOTH sources present yields both names, with neither shadowing the
-	// other. Pack modules sit BETWEEN bundled and user in precedence, so a name collision
-	// here would silently drop one — which is exactly what the distinct names prevent.
+	// other. Pack modules sit ABOVE bundled in precedence, so a name collision here would
+	// silently drop one — which is exactly what the distinct names prevent.
 	found := map[string]string{}
 	for _, lp := range loopholes.Discover(loopholes.DiscoverOptions{
 		IncludeBundled:  true,
 		IncludeDisabled: true,
-		Root:            t.TempDir(), // an empty user dir, so only bundled + pack contribute
-		RootSet:         true,
 		PackModules:     mods,
 	}) {
 		found[lp.Name] = lp.Source

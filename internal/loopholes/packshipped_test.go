@@ -316,16 +316,15 @@ func TestDiscoveryAppliesTheSubsetToAPackModule(t *testing.T) {
 		}
 	}
 
-	// The SAME manifest in the USER dir still loads: the subset is pack-scoped, and a
-	// hand-placed directory carries the user's own authority.
-	userRoot := filepath.Dir(mod)
-	orig := UserLoopholesDir
-	UserLoopholesDir = func() string { return userRoot }
-	t.Cleanup(func() { UserLoopholesDir = orig })
-	userSet := NewSet(DiscoverOptions{})
-	if _, ok := userSet.Lookup("grabby"); !ok {
-		t.Error("the subset leaked onto the USER source — a bundled or hand-placed loophole " +
-			"keeps the wider vocabulary, and `audio` depends on it")
+	// The SAME manifest as a BUNDLED loophole still loads: the subset is pack-scoped, and
+	// yolo's own content keeps the wider vocabulary — `audio` depends on it. (This used to
+	// be asserted through the hand-placed user dir, retired with OQ-LP10; bundled is the
+	// remaining non-pack source that reads a manifest off disk.)
+	defer withBundledDir(filepath.Dir(mod))()
+	bundledSet := NewSet(DiscoverOptions{IncludeBundled: true})
+	if _, ok := bundledSet.Lookup("grabby"); !ok {
+		t.Error("the subset leaked onto the BUNDLED source — a bundled loophole keeps the " +
+			"wider vocabulary, and `audio` depends on it")
 	}
 }
 
@@ -343,7 +342,7 @@ func TestValidateLoopholesAppliesTheSubsetToAPackModule(t *testing.T) {
 	SetPackModules([]PackModule{{Dir: mod, HostExecApproved: true}})
 
 	var found bool
-	for _, e := range ValidateLoopholes(t.TempDir(), true, false) {
+	for _, e := range ValidateLoopholes(false) {
 		if e.Path != mod {
 			continue
 		}

@@ -321,9 +321,9 @@ and is not:
   [`broker-as-a-pack.md`](broker-as-a-pack.md) §11 names `publishes: "socket"` as the common blocker
   for all three conversions.
 
-**Worth knowing, changing no decision:** `yolo loopholes enable` works for **zero** shipped loopholes
-(it stats the user-loopholes dir and writes into a *manifest file*, which for a pack is a staged
-copy) · `yolo loopholes status` and `yolo check` disagree about whether a disabled loophole's
+**Worth knowing, changing no decision:** `yolo loopholes enable` works for **zero** loopholes — it
+used to stat the user-loopholes dir and write into a *manifest file*, and since OQ-LP10 retired that
+dir it writes nothing at all and prints the `loopholes.<name>.enabled` config key instead · `yolo loopholes status` and `yolo check` disagree about whether a disabled loophole's
 `doctor_cmd` runs · the briefing has **no zero-state**: it is built from `Honored()` and two built-in
 skills point at `yolo loopholes list` unconditionally, so a fully-dark jail tells the agent nothing
 while its skills still promise the feature · disabling the broker degrades to *shared-and-

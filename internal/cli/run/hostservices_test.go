@@ -503,8 +503,6 @@ func TestBundledHostProcessesRunsBehindTheFront(t *testing.T) {
 	for _, cand := range loopholes.Discover(loopholes.DiscoverOptions{
 		IncludeBundled:  true,
 		IncludeDisabled: true,
-		Root:            t.TempDir(), // an empty user dir, so only bundled contributes
-		RootSet:         true,
 	}) {
 		if cand.Name == "host-processes" {
 			lp = cand
@@ -768,8 +766,15 @@ func TestManifestEOFDaemonRoundTripsBehindFront(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("spawns a host process")
 	}
-	userDir := t.TempDir()
-	mod := filepath.Join(userDir, "eofd")
+	// Through the BUNDLED root: it is the remaining on-disk source that reads a manifest
+	// with the full vocabulary (the hand-placed user dir is retired, OQ-LP10, and the
+	// pack-shipped subset would refuse `publishes: "socket"`'s sibling keys elsewhere).
+	// The loophole is discovered by the REAL loader either way, which is the point.
+	bundledDir := t.TempDir()
+	origB := loopholes.BundledLoopholesDir
+	loopholes.BundledLoopholesDir = func() string { return bundledDir }
+	t.Cleanup(func() { loopholes.BundledLoopholesDir = origB })
+	mod := filepath.Join(bundledDir, "eofd")
 	if err := os.MkdirAll(mod, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -793,9 +798,7 @@ func TestManifestEOFDaemonRoundTripsBehindFront(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	discovered := loopholes.Discover(loopholes.DiscoverOptions{
-		Root: userDir, RootSet: true, IncludeBundled: false,
-	})
+	discovered := loopholes.Discover(loopholes.DiscoverOptions{IncludeBundled: true})
 	if len(discovered) != 1 || discovered[0].HostDaemon == nil {
 		t.Fatalf("discovered %+v, want the one eofd loophole", discovered)
 	}

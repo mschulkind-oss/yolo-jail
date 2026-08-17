@@ -63,8 +63,12 @@ func (l *Loophole) PlacementProblems(workspace string) []string {
 // agent that can rewrite it has already rewritten the checker. The gate protects
 // nothing it does not already presuppose, which is Test 1 exactly.
 //
-// PACK and USER loopholes stay judged: their content is not yolo's, and a pack whose
-// module dir sits in the workspace is the case the rule was written for.
+// PACK loopholes stay judged: their content is not yolo's, and a pack whose module dir
+// sits in the workspace is the case the rule was written for. Since OQ-LP10 retired the
+// hand-placed user directory, PACK is the ONLY source this face applies to — bundled is
+// exempt above and a config entry has no module dir. That is not a narrowing of the rule:
+// the retired directory's manifests are not read at all any more, which is strictly
+// stronger than judging where they sat.
 func (l *Loophole) moduleDirForPlacement() string {
 	if l.FromConfig() || l.Source == SourceBundled {
 		return ""

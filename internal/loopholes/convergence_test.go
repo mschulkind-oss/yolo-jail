@@ -163,28 +163,36 @@ func TestPackModuleIsDiscoveredAsSourcePack(t *testing.T) {
 	}
 }
 
-// PRECEDENCE, exactly as §5.1 corrects it: `user` overrides `pack`, and nothing here
-// reintroduces draft 1's deleted "bundled < pack" line — a pack-vs-reserved clash is
-// refused by the launch pre-flight and never reaches an ordering at all.
-func TestUserDirOverridesPackModule(t *testing.T) {
+// PRECEDENCE, after OQ-LP10: there is no `user` source left to override anything.
+//
+// This test used to pin the opposite — a hand-placed user directory beating a pack's
+// module, "the same reason a file:// pack does". The retirement (retired.go) does not
+// demote that channel, it DELETES it, so the module in the old directory contributes
+// nothing at any precedence and the pack's record is what a launch gets. Pinned here,
+// in the census file, because "which source wins" is the question this file exists to
+// answer and a silently-restored user dir would answer it differently.
+func TestRetiredUserDirDoesNotShadowAPackModule(t *testing.T) {
 	unsetJail(t)
 	isolateModules(t)
-	staged, userRoot := t.TempDir(), t.TempDir()
+	staged, retired := t.TempDir(), t.TempDir()
 	mod := writeModule(t, staged, "shared", nil)
-	writeModule(t, userRoot, "shared", nil)
+	writeModule(t, retired, "shared", nil)
+	t.Cleanup(withRetiredDir(retired))
 
 	set := NewSet(DiscoverOptions{
-		Root: userRoot, RootSet: true,
 		PackModules: []PackModule{{Dir: mod, HostExecApproved: true}},
 	})
 	lp, ok := set.Lookup("shared")
 	if !ok {
 		t.Fatal("shared not discovered")
 	}
-	if lp.Source != SourceUser {
-		t.Errorf("Source = %q, want %q — a HAND-PLACED user directory carries the user's own "+
-			"authority, the same reason a file:// pack does, so it keeps its last-wins override",
-			lp.Source, SourceUser)
+	if lp.Source != SourcePack {
+		t.Errorf("Source = %q, want %q — the retired hand-placed directory is not a source",
+			lp.Source, SourcePack)
+	}
+	if lp.Path != mod {
+		t.Errorf("Path = %q, want the STAGED pack module %q — a record loaded out of the "+
+			"retired directory would carry its path", lp.Path, mod)
 	}
 }
 
@@ -225,7 +233,7 @@ func TestResolverKnowsPackModules(t *testing.T) {
 	mod := writeModule(t, t.TempDir(), "acme-proxy", nil)
 	SetPackModules([]PackModule{{Dir: mod, HostExecApproved: true}})
 
-	known, ok := (&Resolver{Root: t.TempDir()}).Known()
+	known, ok := NewResolver().Known()
 	if !ok {
 		t.Fatal("Known() must never report failure — resolver.go's invariant, relied on at " +
 			"every call site, and adding a source must not reverse it")
@@ -247,7 +255,7 @@ func TestValidateLoopholesSeesPackModules(t *testing.T) {
 	mod := writeModule(t, t.TempDir(), "acme-proxy", nil)
 	SetPackModules([]PackModule{{Dir: mod, HostExecApproved: true}})
 
-	entries := ValidateLoopholes(t.TempDir(), true, false)
+	entries := ValidateLoopholes(false)
 	var found *ValidateEntry
 	for i := range entries {
 		if entries[i].Loophole != nil && entries[i].Loophole.Name == "acme-proxy" {
@@ -271,7 +279,7 @@ func TestValidateLoopholesReportsAMissingPackModule(t *testing.T) {
 	isolateModules(t)
 	SetPackModules([]PackModule{{Dir: filepath.Join(t.TempDir(), "gone"), HostExecApproved: true}})
 
-	entries := ValidateLoopholes(t.TempDir(), true, false)
+	entries := ValidateLoopholes(false)
 	found := false
 	for _, e := range entries {
 		if strings.HasSuffix(e.Path, "gone") && e.Err != "" {
@@ -383,12 +391,15 @@ func TestPackageLevelRuntimeSurfacesHonorNoPackRecord(t *testing.T) {
 	}
 }
 
-// A BUNDLED/user/config record is unaffected by the ungated refusal above, which is what
+// A BUNDLED/config record is unaffected by the ungated refusal above, which is what
 // keeps `audio` and the broker working through the package-level functions: they carry the
 // user's own authority by construction and need no origin decision.
 func TestPackageLevelRuntimeSurfacesStillHonorNonPackRecords(t *testing.T) {
 	unsetJail(t)
-	for _, source := range []string{SourceBundled, SourceUser} {
+	// SourceBundled is the whole non-pack, non-config population now: `user` is retired
+	// (OQ-LP10) and a SourceConfig record deliberately contributes no runtime args at all
+	// (TestRuntimeArgsSkipConfigBacked), so it cannot stand in for this assertion.
+	for _, source := range []string{SourceBundled} {
 		lp := &Loophole{
 			Name: "fine", Source: source, Enabled: true, Transport: TransportNone,
 			Intercepts: []Intercept{{Host: "api.fine.test"}}, BrokerIP: DefaultBrokerIP,
@@ -421,14 +432,13 @@ func TestApprovedPackDoctorCmdRuns(t *testing.T) {
 	}
 }
 
-// A bundled/user/config record needs no origin decision (all three carry the user's own
-// authority by construction), so the gate must not accidentally withhold them — which
-// would break every bundled loophole's self-check.
+// A bundled/config record needs no origin decision (both carry the user's own authority
+// by construction), so the gate must not accidentally withhold them — which would break
+// every bundled loophole's self-check.
 func TestNonPackRecordsAreAlwaysAllowedToRunHostCode(t *testing.T) {
 	unsetJail(t)
 	set := SetOf([]*Loophole{
 		{Name: "b", Source: SourceBundled},
-		{Name: "u", Source: SourceUser},
 		{Name: "c", Source: SourceConfig},
 		{Name: "p", Source: SourcePack},
 	})
@@ -456,7 +466,8 @@ func TestActiveExcludesEnabledButUnmetRequirements(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	set := NewSet(DiscoverOptions{Root: dir, RootSet: true})
+	defer withBundledDir(dir)()
+	set := NewSet(DiscoverOptions{IncludeBundled: true})
 	if len(set.Enabled()) != 1 {
 		t.Fatalf("Enabled() = %d records, want 1", len(set.Enabled()))
 	}
@@ -510,7 +521,8 @@ func TestSetHoldsTheDisabledSupersetAndOffersNarrowViews(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	set := NewSet(DiscoverOptions{Root: dir, RootSet: true})
+	defer withBundledDir(dir)()
+	set := NewSet(DiscoverOptions{IncludeBundled: true})
 	if len(set.All()) != 2 {
 		t.Fatalf("All() = %d, want both records (list has to show the disabled one)", len(set.All()))
 	}
