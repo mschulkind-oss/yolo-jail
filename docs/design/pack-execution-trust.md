@@ -8,7 +8,21 @@ summary: "The gate names mechanisms — curl|sh refused, npm install -g permitte
 
 # What a fetched pack may execute, and what you are agreeing to
 
-**Status:** DESIGN, 2026-08-17. Nothing built. Written from a review challenge that turned out to be
+**Status:** SUPERSEDED IN PART, 2026-08-17. Nothing built.
+
+> [!CAUTION]
+> **This document's central premise is FALSE, established by the inventory it provoked.** §3 says the
+> commit pin "is the rule already applied one level up". It is applied **nowhere**:
+> `LockEntry.Commit` has four readers, all display-only, and the launch path re-resolves the
+> *config's* ref against the local mirror instead. Read
+> [`trust-paths.md`](./trust-paths.md) first — it enumerates all 25 paths, finds that pinning changes
+> an outcome in **three** of them, and surfaces a verified hole that outranks this proposal entirely:
+> the origin gate this document generalizes **is not enforced in the jail**.
+>
+> What survives here is the *shape* of P1 — content-addressing is the only answer to "is this the
+> same code I looked at" — plus §6's readable-approval ruling, which is unaffected. The permit/refuse
+> table in §4 does not survive: its top row is not even expressible, because the launcher appends
+> `@latest` to the package string. Written from a review challenge that turned out to be
 right: *"a fetched pack can't introduce an installer — that means you couldn't use a pack in git to
 install an agent? don't we allow native binary downloads? why disallow an installer at that point?"*
 
