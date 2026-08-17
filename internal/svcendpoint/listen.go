@@ -46,6 +46,32 @@ func AdvertiseHost() string {
 	return DefaultAdvertiseHost
 }
 
+// BindHostEnv names the environment variable that overrides the address the
+// listener BINDS to. Like AdvertiseHostEnv, it is read from a HOST child
+// process's environment, never from inside a jail, so it carries no inheritance
+// problem.
+//
+// One definition, here, on purpose — the same reasoning as AdvertiseHostEnv: a
+// per-daemon flag would have to be added to every daemon's flag set.
+const BindHostEnv = "YOLO_SVC_BIND_HOST"
+
+// DefaultBindHost is the loopback address the listener binds by default: off the
+// LAN, and correct wherever the runtime forwards host.containers.internal to
+// loopback (slirp4netns, macOS podman-machine). netavark does NOT forward, so
+// the launcher overrides this with the bridge gateway address — reachable from
+// the jail, not routable from the LAN.
+const DefaultBindHost = "127.0.0.1"
+
+// BindHost resolves the address to bind: BindHostEnv when set and non-empty,
+// else DefaultBindHost. Daemons should call this rather than re-reading the
+// variable, so the name and its default cannot be spelled twice.
+func BindHost() string {
+	if v := os.Getenv(BindHostEnv); v != "" {
+		return v
+	}
+	return DefaultBindHost
+}
+
 // Listener is an authenticated loopback-TLS listener. Accept returns ONLY
 // connections that presented the right token, so a daemon cannot forget to
 // authenticate — the failure is unrepresentable rather than handled.
@@ -82,29 +108,30 @@ type Listener struct {
 	closeErr  error
 }
 
-// Listen binds 127.0.0.1 on a kernel-assigned port, mints a certificate and a
+// Listen binds bindHost on a kernel-assigned port, mints a certificate and a
 // token, and publishes them to publishPath. An empty advertiseHost resolves via
-// AdvertiseHost().
+// AdvertiseHost(); an empty bindHost resolves via BindHost().
 //
 // THE ORDER BELOW IS LOAD-BEARING:
 //
 //  1. verify the publication directory FIRST, so a bad directory fails before a
 //     port is bound and before a key exists;
-//  2. bind 127.0.0.1:0 and let the KERNEL assign the port — nothing probes a port
-//     for us to re-bind, so there is no window for another local process to squat
-//     it, and this is exactly why the address must be PUBLISHED rather than
-//     passed in;
+//  2. bind <BindHost()>:0 and let the KERNEL assign the port — nothing probes a
+//     port for us to re-bind, so there is no window for another local process to
+//     squat it, and this is exactly why the address must be PUBLISHED rather
+//     than passed in;
 //  3. mint the cert (private key: memory only);
 //  4. mint the token (crypto/rand, memory only);
 //  5. wrap in TLS;
 //  6. read the port from the RAW listener, after bind;
-//  7. join the ADVERTISED host to the LOCAL port. Bind 127.0.0.1 (off the LAN),
-//     advertise the gateway name the jail resolves. Reverse these two and the
-//     jail dials its own loopback;
+//  7. join the ADVERTISED host to the LOCAL port. Bind off the LAN (loopback by
+//     default, or the bridge gateway address the launcher overrides it to under
+//     netavark), advertise the gateway name the jail resolves. Reverse these two
+//     and the jail dials its own loopback;
 //  8. publish AFTER a successful bind, so a published file always names a live
 //     listener — which is what makes a Probe-based health check meaningful.
-func Listen(publishPath, advertiseHost string) (*Listener, error) {
-	return listenWith(publishPath, advertiseHost, CrossingViaEndpoint, true)
+func Listen(publishPath, advertiseHost, bindHost string) (*Listener, error) {
+	return listenWith(publishPath, advertiseHost, bindHost, CrossingViaEndpoint, true)
 }
 
 // listenWith is Listen plus the audit's "how was this served" label and the
@@ -117,14 +144,17 @@ func Listen(publishPath, advertiseHost string) (*Listener, error) {
 // daemon that is taught to read one never has to ask which shape delivered it.
 // The single opt-out in the tree is the broker relay's front (brokerrelay.go),
 // which consumes the first frame off the wire itself.
-func listenWith(publishPath, advertiseHost, via string, preamble bool) (*Listener, error) {
+func listenWith(publishPath, advertiseHost, bindHost, via string, preamble bool) (*Listener, error) {
 	if advertiseHost == "" {
 		advertiseHost = AdvertiseHost()
+	}
+	if bindHost == "" {
+		bindHost = BindHost()
 	}
 	if err := ensurePrivateDir(filepath.Dir(publishPath)); err != nil {
 		return nil, err
 	}
-	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	raw, err := net.Listen("tcp", net.JoinHostPort(bindHost, "0"))
 	if err != nil {
 		return nil, err
 	}
@@ -171,8 +201,8 @@ func listenWith(publishPath, advertiseHost, via string, preamble bool) (*Listene
 		closed:      make(chan struct{}),
 	}
 	go l.acceptLoop()
-	Logger.Printf("listening on 127.0.0.1:%d (advertised %s, cert-pinned, token-authenticated) -> %s",
-		port, hostport, publishPath)
+	Logger.Printf("listening on %s (advertised %s, cert-pinned, token-authenticated) -> %s",
+		raw.Addr().String(), hostport, publishPath)
 	return l, nil
 }
 
@@ -268,8 +298,8 @@ func (l *Listener) Accept() (net.Conn, error) {
 	}
 }
 
-// Addr returns the REAL bound address (127.0.0.1:<kernel-assigned port>), not the
-// advertised host:port that was published.
+// Addr returns the REAL bound address (<bindHost>:<kernel-assigned port>), not
+// the advertised host:port that was published.
 func (l *Listener) Addr() net.Addr { return l.raw.Addr() }
 
 // Close stops accepting and UNLINKS the published endpoint file, so retiring the

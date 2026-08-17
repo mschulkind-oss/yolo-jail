@@ -63,7 +63,7 @@ func TestEndpointDaemonMayWriteBeforeItReads(t *testing.T) {
 	rec := captureCrossings(t)
 	dir := privateDir(t)
 	path := filepath.Join(dir, "greeter.endpoint")
-	ln, err := Listen(path, "127.0.0.1")
+	ln, err := Listen(path, "127.0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestFrontedDaemonMayWriteBeforeItReads(t *testing.T) {
 
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
-	go func() { _ = ServeFront(endpoint, "127.0.0.1", upstream, stop) }()
+	go func() { _ = ServeFront(endpoint, "127.0.0.1", "", upstream, stop) }()
 	waitProbe(t, endpoint)
 
 	conn, err := Dial(endpoint, 5*time.Second)

@@ -76,6 +76,65 @@ func (o *Options) advertiseHostFor(rt string, cfg *jsonx.OrderedMap) string {
 	return ""
 }
 
+// bindHostFor returns the address a loopback-TLS daemon should BIND to, which is
+// not always loopback. It mirrors advertiseHostFor's namespace reasoning but
+// answers the bind side:
+//
+//   - SHARED namespace — `--net=host`, forced for podman-in-podman and selectable
+//     as `network.mode: "host"`. The jail's 127.0.0.1 IS the listener's, so
+//     127.0.0.1 is the only correct bind.
+//   - SEPARATE namespace — the normal bridge case. slirp4netns forwards
+//     host.containers.internal to the host's loopback, so loopback works there;
+//     netavark does NOT forward, so a loopback-only bind is unreachable from the
+//     jail. There the daemon must bind the bridge gateway address instead —
+//     reachable from the jail, not routable from the LAN, so the "off the LAN"
+//     property is preserved.
+//
+// Empty means "leave it to svcendpoint's default", which is loopback.
+func (o *Options) bindHostFor(rt string, cfg *jsonx.OrderedMap) string {
+	if rt == "container" {
+		return ""
+	}
+	if o.resolveNetMode(cfg) == "host" || (rt == "podman" && o.inContainer()) {
+		return "127.0.0.1"
+	}
+	if rt == "podman" {
+		return o.bridgeGateway(rt)
+	}
+	return ""
+}
+
+// bridgeGateway returns the bridge gateway address a netavark jail reaches the
+// host through — the address the loopback-TLS daemon must bind so the jail can
+// dial it without the runtime forwarding to loopback. It asks podman for the
+// default network's name (netavark's "podman", CNI's "bridge" — not hardcoded)
+// and then that network's gateway; "" on any failure, which falls back to the
+// loopback bind (the slirp4netns/macOS behaviour).
+func (o *Options) bridgeGateway(rt string) string {
+	if o.Exec == nil {
+		return ""
+	}
+	nameRes := o.Exec([]string{rt, "info", "--format",
+		"{{.Host.NetworkBackendInfo.DefaultNetwork}}"}, "", nil, 3*time.Second)
+	if !nameRes.Ran || nameRes.RC != 0 {
+		return ""
+	}
+	name := strings.TrimSpace(nameRes.Stdout)
+	if name == "" {
+		return ""
+	}
+	res := o.Exec([]string{rt, "network", "inspect", name,
+		"--format", "{{(index .Subnets 0).Gateway}}"}, "", nil, 3*time.Second)
+	if !res.Ran || res.RC != 0 {
+		return ""
+	}
+	gw := strings.TrimSpace(res.Stdout)
+	if net.ParseIP(gw) == nil {
+		return ""
+	}
+	return gw
+}
+
 // inContainer reports whether THIS process is already inside a container — the same
 // probe the assembler uses to decide `--net=host`. The two must agree: if the
 // assembler shares the namespace and this says otherwise, every loopback-TLS daemon
@@ -98,6 +157,7 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	}
 
 	advertise := o.advertiseHostFor(rt, cfg)
+	bind := o.bindHostFor(rt, cfg)
 	var handles []loopholeDaemon
 
 	// 1. Built-in cgroup delegate (Linux only, cgroup v2 only).
@@ -106,7 +166,7 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	}
 
 	// 1.5. Built-in journal bridge (opt-in via top-level `journal` key).
-	if h, ok := o.startJournal(socketsDir, cfg, advertise); ok {
+	if h, ok := o.startJournal(socketsDir, cfg, advertise, bind); ok {
 		handles = append(handles, h)
 	}
 
@@ -216,7 +276,7 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 		if placementRefused[name] {
 			continue
 		}
-		if h, ok := o.startExternalService(name, external[name], socketsDir, transportOf[name], advertise, daemonOf[name]); ok {
+		if h, ok := o.startExternalService(name, external[name], socketsDir, transportOf[name], advertise, bind, daemonOf[name]); ok {
 			handles = append(handles, h)
 		}
 	}
@@ -385,7 +445,7 @@ func resolveJournalMode(cfg *jsonx.OrderedMap) string {
 // Linux/podman only — the macOS unified-logging analog lives in
 // internal/entrypoint/darwin.go and is out of scope here (rt=="container"
 // already returned before startLoopholes reached this point).
-func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap, advertiseHost string) (loopholeDaemon, bool) {
+func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap, advertiseHost, bindHost string) (loopholeDaemon, bool) {
 	mode := resolveJournalMode(cfg)
 	if mode == "off" {
 		return loopholeDaemon{}, false
@@ -402,7 +462,7 @@ func (o *Options) startJournal(socketsDir string, cfg *jsonx.OrderedMap, adverti
 	// benefit). The jail-side client is cmd/yolo-journalctl, a Go binary baked
 	// into the image, which is what made this flip possible at all.
 	return o.startExternalService(paths.BuiltinJournalLoopholeName, spec, socketsDir,
-		loopholes.TransportLoopbackTLS, advertiseHost, nil)
+		loopholes.TransportLoopbackTLS, advertiseHost, bindHost, nil)
 }
 
 // killServiceGroup tears down a spawned host service's whole PROCESS GROUP.
@@ -531,7 +591,7 @@ func (o *Options) waitServiceReady(reachable func() bool, exited <-chan struct{}
 // anything else with no manifest-shaped daemon); only its Publishes/RequestEnd
 // are read here — the argv still arrives through spec's "command".
 func (o *Options) startExternalService(
-	name string, spec *jsonx.OrderedMap, socketsDir, transport, advertiseHost string,
+	name string, spec *jsonx.OrderedMap, socketsDir, transport, advertiseHost, bindHost string,
 	hd *loopholes.HostDaemon,
 ) (loopholeDaemon, bool) {
 	if spec == nil {
@@ -629,6 +689,10 @@ func (o *Options) startExternalService(
 		env = append(env, svcendpoint.AdvertiseHostEnv+"="+advertiseHost)
 		envSet = true
 	}
+	if loopbackTLS && bindHost != "" {
+		env = append(env, svcendpoint.BindHostEnv+"="+bindHost)
+		envSet = true
+	}
 	if e := cfgMap(spec, "env"); e != nil {
 		for _, k := range e.Keys() {
 			if v, ok := mapGet(e, k).(string); ok {
@@ -717,7 +781,7 @@ func (o *Options) startExternalService(
 		frontDone := make(chan struct{})
 		go func() {
 			defer close(frontDone)
-			_ = svcendpoint.ServeFrontWithOptions(hostPath, advertiseHost, daemonPath, frontStop,
+			_ = svcendpoint.ServeFrontWithOptions(hostPath, advertiseHost, bindHost, daemonPath, frontStop,
 				svcendpoint.FrontOptions{
 					HalfCloseUpstream: hd.RequestEnd == loopholes.RequestEndEOF,
 					// The daemon's own declaration decides, and the two ways to
@@ -796,13 +860,13 @@ func (o *Options) ensureBrokerRelay(cname, rt string, cfg *jsonx.OrderedMap) {
 		return
 	}
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
-	o.relayEnsure(cname, socketsDir, o.advertiseHostFor(rt, cfg))
+	o.relayEnsure(cname, socketsDir, o.advertiseHostFor(rt, cfg), o.bindHostFor(rt, cfg))
 }
 
 // relayEnsure is idempotent per-jail relay supervision under a
 // flock. Spawns the self-exec'd `yolo internal daemon broker-relay` (see
 // relaySpawnArgv).
-func (o *Options) relayEnsure(cname, socketsDir, advertiseHost string) {
+func (o *Options) relayEnsure(cname, socketsDir, advertiseHost, bindHost string) {
 	shortHash := relayShortHash(cname)
 	pidFile := relayPIDFile(shortHash)
 	sockPath := relaySocketFile(shortHash)
@@ -860,6 +924,9 @@ func (o *Options) relayEnsure(cname, socketsDir, advertiseHost string) {
 	// keeps the token out of any environment.
 	if advertiseHost != "" {
 		cmd.Env = append(os.Environ(), svcendpoint.AdvertiseHostEnv+"="+advertiseHost)
+	}
+	if bindHost != "" {
+		cmd.Env = append(os.Environ(), svcendpoint.BindHostEnv+"="+bindHost)
 	}
 	if err := cmd.Start(); err != nil {
 		return

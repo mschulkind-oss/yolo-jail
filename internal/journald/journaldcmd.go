@@ -77,7 +77,7 @@ func Main(argv []string) int {
 // this daemon has to consume it before handleConn reads a byte. Serve's AF_UNIX
 // path has no preamble and is untouched — both ends there are host processes.
 func ServeEndpoint(endpointPath, mode string, stop <-chan struct{}) error {
-	ln, err := svcendpoint.Listen(endpointPath, "")
+	ln, err := svcendpoint.Listen(endpointPath, "", "")
 	if err != nil {
 		return err
 	}

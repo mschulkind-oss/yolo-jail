@@ -56,7 +56,7 @@ func startFramedFront(t *testing.T) string {
 
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
-	go func() { _ = ServeFront(endpoint, "127.0.0.1", upstream, stop) }()
+	go func() { _ = ServeFront(endpoint, "127.0.0.1", "", upstream, stop) }()
 	waitProbe(t, endpoint)
 	return endpoint
 }

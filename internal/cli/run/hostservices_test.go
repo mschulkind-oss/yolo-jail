@@ -159,7 +159,7 @@ func startExternalServiceHarness(t *testing.T, socketsDir, script, transport str
 	o := &Options{}
 	fillDefaults(o)
 	o.Stdout = io.Discard
-	return o.startExternalService("fake-svc", spec, socketsDir, transport, "127.0.0.1", nil)
+	return o.startExternalService("fake-svc", spec, socketsDir, transport, "127.0.0.1", "", nil)
 }
 
 // TestExternalServiceWaitsForCompleteEndpoint: a daemon that publishes an INCOMPLETE
@@ -199,7 +199,7 @@ func TestExternalServiceAcceptsCompleteEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	seed := filepath.Join(real, "seed.endpoint")
-	ln, err := svcendpoint.Listen(seed, "127.0.0.1")
+	ln, err := svcendpoint.Listen(seed, "127.0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestExternalServiceRemovesStaleEndpoint(t *testing.T) {
 	stale := filepath.Join(socketsDir, "fake-svc"+paths.ServiceEndpointExt)
 	// A COMPLETE-looking predecessor: a real listener's publication, then the
 	// listener is closed so the port is dead.
-	dead, err := svcendpoint.Listen(stale, "127.0.0.1")
+	dead, err := svcendpoint.Listen(stale, "127.0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestExternalServiceReportsCrashImmediately(t *testing.T) {
 	spec.Set("command", []any{"sh", "-c", "exit 3"})
 	start := time.Now()
 	_, ok := o.startExternalService("fake-svc", spec, socketsDir,
-		loopholes.TransportLoopbackTLS, "127.0.0.1", nil)
+		loopholes.TransportLoopbackTLS, "127.0.0.1", "", nil)
 	elapsed := time.Since(start)
 	if ok {
 		t.Fatal("an instantly-exiting daemon produced a handle")
@@ -323,7 +323,7 @@ func TestExternalServiceWarnsOnReadinessTimeout(t *testing.T) {
 	spec := jsonx.NewOrderedMap()
 	spec.Set("command", []any{"sh", "-c", "sleep 30"})
 	h, ok := o.startExternalService("fake-svc", spec, socketsDir,
-		loopholes.TransportLoopbackTLS, "127.0.0.1", nil)
+		loopholes.TransportLoopbackTLS, "127.0.0.1", "", nil)
 	if ok {
 		if h.stop != nil {
 			h.stop()
@@ -405,7 +405,7 @@ func TestFrontedServiceComesUpBehindFront(t *testing.T) {
 		RequestEnd: loopholes.RequestEndFramed,
 	}
 	h, ok := o.startExternalService("fronted", spec, socketsDir,
-		loopholes.TransportLoopbackTLS, "127.0.0.1", hd)
+		loopholes.TransportLoopbackTLS, "127.0.0.1", "", hd)
 	if !ok {
 		t.Fatalf("fronted service failed to come up; output: %q", buf.String())
 	}
@@ -554,7 +554,7 @@ func TestBundledHostProcessesRunsBehindTheFront(t *testing.T) {
 	var buf strings.Builder
 	o.Stdout = &buf
 	h, ok := o.startExternalService("host-processes", spec, socketsDir,
-		lp.Transport, "127.0.0.1", lp.HostDaemon)
+		lp.Transport, "127.0.0.1", "", lp.HostDaemon)
 	if !ok {
 		t.Fatalf("the bundled host-processes daemon failed to come up; output: %q", buf.String())
 	}
@@ -816,7 +816,7 @@ func TestManifestEOFDaemonRoundTripsBehindFront(t *testing.T) {
 	var buf strings.Builder
 	o.Stdout = &buf
 	h, ok := o.startExternalService("eofd", spec, socketsDir,
-		lp.Transport, "127.0.0.1", lp.HostDaemon)
+		lp.Transport, "127.0.0.1", "", lp.HostDaemon)
 	if !ok {
 		t.Fatalf("eof daemon failed to come up; output: %q", buf.String())
 	}
@@ -907,7 +907,7 @@ func TestFrontedServiceStaleUpstreamNeitherSatisfiesNorBlocks(t *testing.T) {
 	spec.Set("command", []any{"sh", "-c", "sleep 30"})
 	hd := &loopholes.HostDaemon{Publishes: loopholes.PublishesSocket}
 	h, ok := o.startExternalService("fake-svc", spec, socketsDir,
-		loopholes.TransportLoopbackTLS, "127.0.0.1", hd)
+		loopholes.TransportLoopbackTLS, "127.0.0.1", "", hd)
 	if ok {
 		h.stop()
 		t.Fatal("a stale upstream file satisfied the readiness wait; it must be a CONNECT")
@@ -969,7 +969,7 @@ func TestExternalServiceTeardownKillsProcessGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	seed := filepath.Join(real, "seed.endpoint")
-	ln, err := svcendpoint.Listen(seed, "127.0.0.1")
+	ln, err := svcendpoint.Listen(seed, "127.0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1113,6 +1113,71 @@ func TestAdvertiseHostFollowsTheNetworkNamespace(t *testing.T) {
 	}
 }
 
+// TestBindHostFollowsTheNetworkNamespace: what a loopback-TLS daemon BINDS must
+// match whether the jail shares the launcher's network namespace AND which
+// network backend forwards to loopback. Shared namespace → loopback (the jail's
+// loopback is ours); bridge on netavark → the bridge gateway address (netavark
+// does not forward host.containers.internal to loopback, so a loopback bind is
+// unreachable); bridge on a backend that forwards → loopback default.
+func TestBindHostFollowsTheNetworkNamespace(t *testing.T) {
+	bridge := jsonx.NewOrderedMap()
+	hostNet := jsonx.NewOrderedMap()
+	netSec := jsonx.NewOrderedMap()
+	netSec.Set("mode", "host")
+	hostNet.Set("network", netSec)
+
+	// The bridge case shells out to `podman info` (default network name) then
+	// `podman network inspect` (that network's gateway). fakeExec answers the
+	// info call with a fixed default network and the inspect call with gw.
+	fakeExec := func(gw string, rc int, ran bool) func([]string, string, []string, time.Duration) ExecResult {
+		return func(argv []string, dir string, env []string, timeout time.Duration) ExecResult {
+			if len(argv) > 1 && argv[1] == "info" {
+				return ExecResult{Stdout: "podman\n", RC: 0, Ran: true}
+			}
+			return ExecResult{Stdout: gw, RC: rc, Ran: ran}
+		}
+	}
+	// infoFail answers the info call with a failure, so the gateway is never
+	// looked up.
+	infoFail := func(argv []string, dir string, env []string, timeout time.Duration) ExecResult {
+		return ExecResult{Stdout: "", RC: 1, Ran: true}
+	}
+
+	cases := []struct {
+		name        string
+		rt          string
+		cfg         *jsonx.OrderedMap
+		inContainer bool
+		exec        func([]string, string, []string, time.Duration) ExecResult
+		want        string
+	}{
+		// Shared namespace: the jail's loopback IS ours.
+		{"podman nested (net=host forced)", "podman", bridge, true, nil, "127.0.0.1"},
+		{"network.mode host", "podman", hostNet, false, nil, "127.0.0.1"},
+		// Apple Container gets no host services at all.
+		{"apple container", "container", bridge, false, nil, ""},
+		// Bridge on a real host: netavark gateway, so bind the gateway address.
+		{"podman bridge (netavark gateway)", "podman", bridge, false, fakeExec("10.88.0.1\n", 0, true), "10.88.0.1"},
+		// Bridge but the default-network lookup failed: fall back to loopback.
+		{"podman bridge (info failed)", "podman", bridge, false, infoFail, ""},
+		// Bridge but inspect failed: fall back to the loopback default.
+		{"podman bridge (inspect failed)", "podman", bridge, false, fakeExec("", 1, true), ""},
+		// Bridge but inspect returned garbage: fall back to the loopback default.
+		{"podman bridge (garbage gateway)", "podman", bridge, false, fakeExec("not-an-ip\n", 0, true), ""},
+	}
+	for _, tc := range cases {
+		o := &Options{}
+		fillDefaults(o)
+		o.IsMacOS = false
+		o.Network = "bridge"
+		o.PathExists = func(string) bool { return tc.inContainer }
+		o.Exec = tc.exec
+		if got := o.bindHostFor(tc.rt, tc.cfg); got != tc.want {
+			t.Errorf("%s: bindHostFor = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 // The §4.3a placement rule at the SPAWN: a daemon program inside the workspace
 // this launch mounts :rw is one the agent rewrites, so it is refused instead of
 // started. This is the face config validation cannot cover — a manifest's
@@ -1131,7 +1196,7 @@ func TestExternalServiceRefusesADaemonInsideTheWorkspace(t *testing.T) {
 	spec.Set("command", []any{daemon, "--socket", "{socket}"})
 
 	if _, ok := o.startExternalService("wsdaemon", spec, t.TempDir(),
-		loopholes.TransportLoopbackTLS, "127.0.0.1", nil); ok {
+		loopholes.TransportLoopbackTLS, "127.0.0.1", "", nil); ok {
 		t.Fatal("a daemon inside the mounted workspace must not be spawned")
 	}
 	for _, want := range []string{"wsdaemon", daemon, "§4.3a"} {
@@ -1164,7 +1229,7 @@ func TestExternalServiceStartsADaemonOutsideTheWorkspace(t *testing.T) {
 		RequestEnd: loopholes.RequestEndFramed,
 	}
 	h, ok := o.startExternalService("outside", spec, socketsDir,
-		loopholes.TransportLoopbackTLS, "127.0.0.1", hd)
+		loopholes.TransportLoopbackTLS, "127.0.0.1", "", hd)
 	if !ok {
 		t.Fatalf("a daemon outside the workspace must still start; output: %q", buf.String())
 	}
@@ -1187,7 +1252,7 @@ func TestExternalServiceAcceptsADaemonizingWrapper(t *testing.T) {
 		t.Fatal(err)
 	}
 	seed := filepath.Join(real, "seed.endpoint")
-	ln, err := svcendpoint.Listen(seed, "127.0.0.1")
+	ln, err := svcendpoint.Listen(seed, "127.0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1220,7 +1285,7 @@ func TestExternalServiceReportsCleanExitWithNoService(t *testing.T) {
 	spec := jsonx.NewOrderedMap()
 	spec.Set("command", []any{"sh", "-c", "exit 0"})
 	if _, ok := o.startExternalService("quiet-svc", spec, socketsDir,
-		loopholes.TransportLoopbackTLS, "127.0.0.1", nil); ok {
+		loopholes.TransportLoopbackTLS, "127.0.0.1", "", nil); ok {
 		t.Fatal("a daemon that published nothing produced a handle")
 	}
 	for _, want := range []string{"quiet-svc", "exited (status 0)", "never became reachable"} {

@@ -89,7 +89,7 @@ func TestRelayHealthyRequiresPublishedEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sockLn.Close()
-	ln, err := svcendpoint.Listen(endpointPath, "127.0.0.1")
+	ln, err := svcendpoint.Listen(endpointPath, "127.0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TestRetireStaleRelayFilesRemovesBoth(t *testing.T) {
 
 	// A COMPLETE-looking predecessor publication: a real listener's file, kept after
 	// the listener died, which is exactly what a crashed relay leaves behind.
-	dead, err := svcendpoint.Listen(endpointPath, "127.0.0.1")
+	dead, err := svcendpoint.Listen(endpointPath, "127.0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}

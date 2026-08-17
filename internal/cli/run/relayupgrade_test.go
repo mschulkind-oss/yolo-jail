@@ -132,7 +132,7 @@ func TestRelaySpareLegacyIsFalseForAHealthyCurrentRelay(t *testing.T) {
 	}
 	defer sockLn.Close()
 	endpoint := filepath.Join(dir, broker.BrokerLoopholeName+".endpoint")
-	epLn, err := svcendpoint.Listen(endpoint, "127.0.0.1")
+	epLn, err := svcendpoint.Listen(endpoint, "127.0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}

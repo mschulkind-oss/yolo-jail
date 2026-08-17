@@ -172,7 +172,7 @@ func startEchoFront(t *testing.T) (string, *upstreamLog) {
 
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
-	go func() { _ = ServeFront(endpoint, "127.0.0.1", upstream, stop) }()
+	go func() { _ = ServeFront(endpoint, "127.0.0.1", "", upstream, stop) }()
 	waitProbe(t, endpoint)
 	return endpoint, seen
 }
@@ -305,7 +305,7 @@ func TestUnreachableUpstreamRecorded(t *testing.T) {
 
 	stop := make(chan struct{})
 	defer close(stop)
-	go func() { _ = ServeFront(endpoint, "127.0.0.1", upstream, stop) }()
+	go func() { _ = ServeFront(endpoint, "127.0.0.1", "", upstream, stop) }()
 	waitProbe(t, endpoint)
 
 	conn, err := Dial(endpoint, 5*time.Second)
@@ -463,13 +463,13 @@ func TestBothServerShapesSeeTheSamePreambleBytes(t *testing.T) {
 	frontPath := filepath.Join(dir, "echo.endpoint")
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
-	go func() { _ = ServeFront(frontPath, "127.0.0.1", upstream, stop) }()
+	go func() { _ = ServeFront(frontPath, "127.0.0.1", "", upstream, stop) }()
 	waitProbe(t, frontPath)
 
 	// Shape 2: endpoint-published. The daemon's own accept loop, no front.
 	direct := make(chan []byte, 1)
 	directPath := filepath.Join(dir, "echo.ep")
-	dln, err := Listen(directPath, "127.0.0.1")
+	dln, err := Listen(directPath, "127.0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}

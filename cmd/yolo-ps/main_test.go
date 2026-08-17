@@ -140,7 +140,7 @@ func TestDeadDaemonBehindALiveFrontIsAttributed(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = svcendpoint.ServeFront(endpoint, "127.0.0.1", upstream, stop)
+		_ = svcendpoint.ServeFront(endpoint, "127.0.0.1", "", upstream, stop)
 	}()
 	t.Cleanup(func() { close(stop); <-done })
 	deadline := time.Now().Add(10 * time.Second)

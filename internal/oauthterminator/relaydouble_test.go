@@ -59,7 +59,7 @@ type relayDouble struct {
 func startRelayDouble(t *testing.T, handle func(net.Conn)) *relayDouble {
 	t.Helper()
 	endpointPath := filepath.Join(privateDir(t), "claude-oauth-broker.endpoint")
-	ln, err := svcendpoint.Listen(endpointPath, "127.0.0.1")
+	ln, err := svcendpoint.Listen(endpointPath, "127.0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -378,7 +378,7 @@ func bindUnixSocket(socketPath string) (*net.UnixListener, error) {
 // (svcendpoint/preamble.go): yolo's host-asserted statement of which jail is on
 // the other end, read below before the request and never confused with one.
 func ServeEndpoint(handler Handler, endpointPath string, stop <-chan struct{}) error {
-	ln, err := svcendpoint.Listen(endpointPath, "")
+	ln, err := svcendpoint.Listen(endpointPath, "", "")
 	if err != nil {
 		return err
 	}

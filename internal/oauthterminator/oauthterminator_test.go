@@ -68,7 +68,7 @@ func TestAskHostBrokerMissingEndpointIsRelayLayer(t *testing.T) {
 // sends the reader to the file rather than to the process.
 func TestAskHostBrokerDeadListenerIsRelayLayer(t *testing.T) {
 	path := filepath.Join(privateDir(t), "claude-oauth-broker.endpoint")
-	ln, err := svcendpoint.Listen(path, "127.0.0.1")
+	ln, err := svcendpoint.Listen(path, "127.0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}

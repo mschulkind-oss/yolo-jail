@@ -50,7 +50,7 @@ func startFronted(t *testing.T, handler Handler) (endpoint, sock string) {
 	frontStop := make(chan struct{})
 	frontDone := make(chan struct{})
 	go func() {
-		_ = svcendpoint.ServeFront(endpoint, "127.0.0.1", sock, frontStop)
+		_ = svcendpoint.ServeFront(endpoint, "127.0.0.1", "", sock, frontStop)
 		close(frontDone)
 	}()
 	waitForEndpoint(t, endpoint)
