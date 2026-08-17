@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/containerbuilder"
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
 )
@@ -15,10 +16,7 @@ import (
 // nixdiag.ParseDryRunWillBuild. extraPackages is JSON-encoded into
 // YOLO_EXTRA_PACKAGES for the child.
 func (o *Options) nixDryRunWillBuild(repoRoot string, extraPackages []any) (nixdiag.WillBuild, []string) {
-	argv := []string{
-		"nix", "--extra-experimental-features", "nix-command flakes",
-		"build", ".#ociImage", "--impure", "--dry-run",
-	}
+	argv := nixDryRunArgv()
 	var env []string
 	if len(extraPackages) > 0 {
 		if pkgJSON, err := jsonx.DumpsCompact(extraPackages); err == nil {
@@ -30,6 +28,19 @@ func (o *Options) nixDryRunWillBuild(repoRoot string, extraPackages []any) (nixd
 		return nixdiag.WillBuildUnknown, nil
 	}
 	return nixdiag.ParseDryRunWillBuild(res.RC, res.Stderr, true)
+}
+
+// nixDryRunArgv returns the argv for the dry-run cache probe. It carries
+// image.NixFlakeFlags() — the SAME flags the real build runs with — because the
+// probe's whole job is to predict what that build will do: without
+// --accept-flake-config the dry run ignores the flake's own substituter and
+// reports "will build from source" for a closure the real build (which does
+// pass it) would have substituted, and on macOS that mispredicts a working
+// build as a doomed one needing a Linux builder.
+func nixDryRunArgv() []string {
+	argv := []string{"nix"}
+	argv = append(argv, image.NixFlakeFlags()...)
+	return append(argv, "build", ".#ociImage", "--impure", "--dry-run")
 }
 
 // hasLinuxBuilder reports whether a usable builder for THIS host's Linux system is

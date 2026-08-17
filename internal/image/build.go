@@ -42,13 +42,7 @@ func BuildOCIImage(repoRoot string, extraPackages []any) (string, []string) {
 		}
 	}
 
-	argv := []string{
-		"nix",
-		"--extra-experimental-features", "nix-command flakes",
-		"build", ".#ociImage", "--impure",
-		"--out-link", outPath,
-		"--print-build-logs",
-	}
+	argv := ociBuildArgv(outPath, nil)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = repoRoot
 	cmd.Env = buildEnv

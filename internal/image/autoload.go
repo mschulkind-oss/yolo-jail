@@ -400,12 +400,7 @@ func buildImageStorePathArgs(repoRoot string, extra []any, outLink string, out i
 		}
 	}
 	buildEnv = append(buildEnv, extraEnv...)
-	argv := []string{
-		"nix", "--extra-experimental-features", "nix-command flakes",
-		"build", ".#ociImage", "--impure",
-		"--out-link", outLink, "--print-build-logs",
-	}
-	argv = append(argv, extraArgs...)
+	argv := ociBuildArgv(outLink, extraArgs)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = repoRoot
 	cmd.Env = buildEnv
