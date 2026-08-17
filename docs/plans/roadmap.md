@@ -498,9 +498,9 @@ Code is done or paused. Nothing here is broken; each needs a machine.
   nested podman is forced onto `--net=host` — so AGENTS.md's verification instruction is misleading
   here and needs a carve-out, plus the integration coverage that does not exist.
 
-  📄 [`handoff-loopback-tls-pasta.md`](handoff-loopback-tls-pasta.md) — the original report plus my
-  triage addendum, which answers its blocking open question and kills the first two rows of its own
-  fix table.
+  📄 [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) — the design doc.
+  §2-§3 spell out every networking mode and where each one actually delivers a packet; §5 shows why
+  "bind somewhere else" has nowhere to go; the three live decisions are **OQ-R1/R2/R3** at its end.
 
 - 🛑 **The macOS nightly cannot build an image.**
 
