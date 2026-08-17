@@ -351,17 +351,6 @@ staging change it proposes — and the small independent items trail.
   boot; the exit is `rm`), and a regression test pinning `subscriptionType`/`rateLimitTier` survival
   across a broker refresh — [`agent-auth-modes.md`](../design/agent-auth-modes.md) §3 depends on it.
 
-- 📦 **Move the broker's freshness check behind the `doctor_cmd` it already declares.** *(PS step 2.)*
-
-  `check`'s `checkBrokerCredsFreshness` + `parseCredsExpiresAt` re-implement in Go a check the
-  loophole extension point already covers: `doctor_cmd` is a manifest field, `RunDoctorChecks` runs
-  it behind the origin and placement gates, `yolo check` already calls it
-  (`check/sections_loopholes.go:60`), and the broker declares
-  `["yolo","internal","daemon","claude-oauth-broker","--self-check"]`. Deletes a claude-specific
-  section from `check`. **One decision inside it:** `DoctorResult` grades pass/fail while the current
-  check prints remaining lifetime — either enrich the result shape or leave the reporting in `check`
-  and move only the parsing.
-
 - 📦 **Rename the claude names out of core.** *(PS step 3; mechanical, no behavior.)*
 
   `internal/agents` (the package name), `hostclaude.go` → `hostfiles.go`, the `skills.go:52` comment,
@@ -575,8 +564,17 @@ still claude-shaped despite *"core does not know what an agent is"*. Reviewed an
 2026-08-15; the doc carries the rulings inline as `> **DECIDED —**` blocks, with the superseded
 leanings struck rather than deleted.
 
-**The three landable steps are in 📦 above.** What remains here is the fourth, which is a
-workstream, not a queue item:
+**Step 2 shipped 2026-08-17** — the freshness grading is `oauthbroker.gradeSharedCreds`, behind the
+broker's own `--self-check`, and `check` no longer knows what `claudeAiOauth` is. Its one open
+decision resolved *against* the shapes it offered: `DoctorResult` already carried `Output`, so
+nothing needed enriching — the loss was that `check` discarded that output on the rc=0 path and
+parsed only `FAIL:` lines on the other. `nixdiag.SplitSelfCheckLines` now reads the whole
+`FAIL:`/`NOTE:`/`OK:` protocol, so the remaining-lifetime number arrives as text through the seam
+every loophole already has (`pack-code-separation.md` §9, RESOLVED).
+
+**Steps 1 and 3 are in 📦 above** — though step 1's entry there is stale: its code landed in
+`eb12125` + `cbf63d3`. What remains beyond them is the fourth, which is a workstream, not a queue
+item:
 
 - **Make the broker shippable** — now designed in
   [`broker-as-a-pack.md`](../design/broker-as-a-pack.md), and **the design shrank the job**. Two
