@@ -15,31 +15,10 @@ func sha256Hex(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// truthy bool(v) for decoded JSON values: "" / 0 / 0.0 /
-// [] / {} / false / null are falsy; everything else truthy.
-func truthy(v any) bool {
-	switch t := v.(type) {
-	case nil:
-		return false
-	case bool:
-		return t
-	case string:
-		return t != ""
-	case float64:
-		return t != 0
-	case []any:
-		return len(t) > 0
-	case *jsonx.OrderedMap:
-		return t.Len() > 0
-	default:
-		// jsonInt literal: falsy iff it equals 0.
-		s, err := jsonx.DumpsCompact(v)
-		if err != nil {
-			return true
-		}
-		return s != "0"
-	}
-}
+// truthy — Python-style bool(v) for decoded JSON values — lived here until the credential
+// harvest was deleted (pack-code-separation.md §5) took its last caller in this package. Two
+// independent copies survive where they are still used, in internal/config and
+// internal/storage; this one is not a shared helper anyone is missing.
 
 // writeExecutable writes content to path (truncate-in-place via WriteInPlace
 // to preserve inodes for bind-mounted files, per docs/design/agent-briefings.md)

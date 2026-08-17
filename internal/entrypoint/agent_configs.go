@@ -1,8 +1,6 @@
 package entrypoint
 
 import (
-	"os"
-
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -13,30 +11,16 @@ func dumpJSONIndent2(v any) string {
 	return s + "\n"
 }
 
-// loadObject reads path and decodes it as a JSON object, returning an empty
-// OrderedMap when the file is missing, unreadable, unparseable, or not an
-// object. This unifies the "read a JSON object, defaulting to {}" pattern used
-// across the writers. (A file that is valid JSON but not an object never occurs
-// in real agent configs or the test corpus, so that edge writes nothing.)
-func loadObject(path string) *jsonx.OrderedMap {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return jsonx.NewOrderedMap()
-	}
-	decoded, err := jsonx.Decode(raw)
-	if err != nil {
-		return jsonx.NewOrderedMap()
-	}
-	m, ok := decoded.(*jsonx.OrderedMap)
-	if !ok {
-		return jsonx.NewOrderedMap()
-	}
-	return m
-}
+// loadObject — the "read a JSON object, defaulting to {}" reader — lived here until the
+// credential harvest was deleted (pack-code-separation.md §5) took its last caller. The
+// comments elsewhere in this package that say "it used to read via loadObject" are describing
+// a JSON-unconditional read that surfacecodec.go replaced with codec dispatch, which is why
+// nothing wants it back: silently yielding {} for anything unparseable is the behavior those
+// comments exist to warn about.
 
 // object: returns the existing value if it is an OrderedMap, otherwise sets and
 // returns a new empty OrderedMap. (A non-object at the key never occurs in
-// practice — see loadObject.)
+// practice.)
 func setDefaultMap(m *jsonx.OrderedMap, key string) *jsonx.OrderedMap {
 	if v, ok := m.Get(key); ok {
 		if om, isMap := v.(*jsonx.OrderedMap); isMap {
@@ -55,12 +39,4 @@ func setDefault(m *jsonx.OrderedMap, key string, def any) any {
 	}
 	m.Set(key, def)
 	return def
-}
-
-// order), set it in m (existing key keeps position, new key appended).
-func updateFrom(m, other *jsonx.OrderedMap) {
-	for _, k := range other.Keys() {
-		v, _ := other.Get(k)
-		m.Set(k, v)
-	}
 }
