@@ -1,6 +1,6 @@
 # Ongoing work
 
-**Status: 19 attention required · 6 ready · 1 in progress · 5 waiting on a Mac · 1 broken · 3 icebox.**
+**Status: 19 attention required · 6 ready · 1 in progress · 5 waiting on a Mac · 2 broken · 3 icebox.**
 
 Last updated 2026-08-15. Counts tallied from this file, not asserted.
 
@@ -464,6 +464,43 @@ Code is done or paused. Nothing here is broken; each needs a machine.
 ---
 
 # 🛑 Broken
+
+- 🛑 **Every loopback-TLS service is unreachable from every jail on this host — since 2026-08-13.**
+  *Owned by me; three decisions below before I start.*
+
+  `yolo-ps`, `yolo-journalctl` and the **Claude OAuth broker** all fail with
+  `dial tcp 169.254.1.2:<port>: connect: connection refused`. The broker log carries **24** real
+  refresh failures. Verified live: an AF_UNIX connect to `cgroup-delegate.sock` succeeds while both
+  loopback-TLS endpoints *in the same directory* are refused — the only host service still working
+  is the one that stayed on the retired transport.
+
+  **Cause, verified rather than assumed.** `58ce9ee` (2026-08-13) hardcoded a `127.0.0.1` bind
+  advertised as `host.containers.internal`, on the premise that the runtime forwards that name to the
+  host's loopback. True for slirp4netns; **false for pasta**, which podman has defaulted to since 5.0.
+  Differential probe settled where it actually forwards: the host's **global** address. **The
+  in-flight preamble/pack sprint is innocent** — `git log -L` on the bind line returns `58ce9ee` plus
+  the two commits that cancel out, and `ECONNREFUSED` at `connect(2)` means no preamble byte is ever
+  written.
+
+  **It fails CLOSED**, which is the one piece of good news and it is load-bearing: `/etc/hosts` pins
+  `platform.claude.com` to `127.0.0.1`, so a jail cannot silently mint its own refresh instead. The
+  single-use-token race stays prevented. Availability is lost, not safety.
+
+  **Fix: change the runtime's forwarding, not the bind** — `--network=pasta:--map-host-loopback,<addr>`
+  when podman reports `rootlessNetworkCmd=pasta`. `internal/svcendpoint` stays untouched, so the
+  loopback bind, cert pinning, the per-jail token and the single-transport decision all survive.
+  Note this means yolo starts emitting a network option on the **default** `bridge` path, where
+  `assemble.go:252-259` deliberately emits nothing today — that is decision 1.
+
+  **Two companion pieces, both non-optional:** `yolo check` reports **PASS during the outage**,
+  because its probe substitutes `127.0.0.1` for the advertised host (`dial.go:15`), so it dials the
+  one address a jail cannot use. And **nested-jail verification cannot reproduce this at all** —
+  nested podman is forced onto `--net=host` — so AGENTS.md's verification instruction is misleading
+  here and needs a carve-out, plus the integration coverage that does not exist.
+
+  📄 [`handoff-loopback-tls-pasta.md`](handoff-loopback-tls-pasta.md) — the original report plus my
+  triage addendum, which answers its blocking open question and kills the first two rows of its own
+  fix table.
 
 - 🛑 **The macOS nightly cannot build an image.**
 
