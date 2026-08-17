@@ -23,7 +23,7 @@ dead helpers are deleted, and `agy` was born directly on the prism. The obsolete
 snapshot/managed-MCP sidecars are cleaned up on each surface's first-migration
 boot. Remaining non-agent surfaces (mise, MCP/LSP standalone, git identity)
 still have bespoke generators; folding them onto the prism is tracked separately
-in §8 / [ROADMAP.md](ROADMAP.md). The `host_*_files` config keys also survived
+in §8 / [sequencing-2026-07.md](sequencing-2026-07.md). The `host_*_files` config keys also survived
 the cutover — the prism host layer reads *through* them rather than replacing
 them; fully retiring them (the original Phase-B goal for pi) turns out to need
 more than a key deletion. The approach is now **decided in §10**: yolo declares

@@ -68,7 +68,7 @@ against [`loophole-packaging.md`](loophole-packaging.md), which is its prerequis
 > file is the live document.
 
 **Why this is still a design doc and not three lines in a queue row.** The immediate need is one pack
-turning off one loophole ([`../plans/outstanding-work.md`](../plans/outstanding-work.md) A6:
+turning off one loophole ([`../plans/roadmap.md`](../plans/roadmap.md) A6:
 selecting Bedrock makes the OAuth broker pointless, and on macOS it leaves a known-broken TLS stack
 starting for nothing). That could be solved with a hardcoded name in an afternoon. It is designed
 instead because **a loophole manifest is a public surface** — see

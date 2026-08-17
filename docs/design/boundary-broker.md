@@ -35,7 +35,7 @@ constraint the two share.
 [`agent-credentials.md`](agent-credentials.md) (what crosses the boundary today and why),
 [`agent-auth-modes.md`](agent-auth-modes.md) (the split-out sibling),
 [`../guides/loopholes.md`](../guides/loopholes.md) (the three shipped loopholes),
-[`../plans/outstanding-work.md`](../plans/outstanding-work.md) (rows B1/B2).
+[`../plans/roadmap.md`](../plans/roadmap.md) (rows B1/B2).
 
 ---
 
@@ -346,7 +346,7 @@ make HTTP a thin local proxy, or the approver and the approved share a channel.
 
 Asked for explicitly, so stated plainly rather than hedged.
 
-**Below everything currently in [`outstanding-work.md`](../plans/outstanding-work.md), except
+**Below everything currently in [`roadmap.md`](../plans/roadmap.md), except
 possibly step 1.** The reasons:
 
 - **The queue's remaining items are defects and rulings; this is a new capability.** S1 (skills
@@ -680,7 +680,7 @@ test file, and drop into `vendor/` with **no new module requirements** and no ch
 fileset. Given §10.4's no-compatibility policy, copying at a pinned SHA is strictly safer than a
 module dependency, and it is the one piece where copying plausibly beats re-deriving. **This is a
 genuine fork in the road and it is the maintainer's call — see the B1b row in
-[`outstanding-work.md`](../plans/outstanding-work.md).**
+[`roadmap.md`](../plans/roadmap.md).**
 
 **What survives from the website pass unchanged:** the convergence itself. Two designs reached the
 same shape without contact, and that is still the most useful signal in this section.
@@ -700,7 +700,7 @@ same shape without contact, and that is still the most useful signal in this sec
   the same admission as *do not let this become a general RPC* — and `sudo-broker` is exactly the
   product shaped like that risk. Still worth reading before writing any yolo verb that shells out.
 - **The threat model does not address prompt injection** or distinguish a malicious agent from a
-  confused one — the same gap `ROADMAP.md` §4e names for yolo. **The HN thread's one real critique
+  confused one — the same gap `sequencing-2026-07.md` §4e names for yolo. **The HN thread's one real critique
   (§10.5) is precisely this**, and it went unanswered. Neither project has an answer.
 
 ### 10.8 What this changes in the plan

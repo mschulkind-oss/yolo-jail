@@ -14,7 +14,7 @@ spec), [`../design/macos-user-nix-and-features.md`](../design/macos-user-nix-and
 [`../guides/macos.md`](../guides/macos.md) (usage),
 [`../design/noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §5
 and §8 (Option 1 is a **prerequisite** for 7.2 — see §5 below), and
-[`outstanding-work.md`](outstanding-work.md) — which now holds N1 (the unrooted nix profile, a live
+[`roadmap.md`](roadmap.md) — which now holds N1 (the unrooted nix profile, a live
 defect) and N2 (the rename that is this handoff's §5 prerequisite).
 
 ---
@@ -47,7 +47,7 @@ What was wrong: `internal/cli/run/run.go`'s `rt == "macos-user"` branch returned
 `RunDarwinBootstrap`'s `LoadJailPacks` / `ConfigurePackSurfaces` / `RunPackHooks` loops each
 ran over an empty list. A backend that looked provisioned and configured nothing.
 
-What is there now (full detail in [`outstanding-work.md`](outstanding-work.md) B-0):
+What is there now (full detail in [`roadmap.md`](roadmap.md) B-0):
 
 - pack staging runs **above the backend dispatch**, so no backend is reachable without one;
 - the staged tree is copied to `/var/yolo-jail/packs/<session>` (root-owned, `a+rX`) — the

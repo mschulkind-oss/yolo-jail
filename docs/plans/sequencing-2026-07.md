@@ -1,4 +1,16 @@
-# ROADMAP — sequencing the active plans
+# Sequencing snapshot, 2026-07-22 — SUPERSEDED
+
+> [!IMPORTANT]
+> **This is a historical snapshot, not the forward plan.** It was renamed out of `ROADMAP.md` on
+> 2026-08-17 when [`roadmap.md`](roadmap.md) took that role — partly because two roadmap-shaped docs
+> in one directory is one too many, and partly because `ROADMAP.md` and `roadmap.md` are the **same
+> path** on macOS, which this repo supports.
+>
+> It had already handed off its forward-looking half: see the ✅ 7 row below, which says so in its own
+> words. What survives here is the **dependency ordering and the shipped record** as of 2026-07-22 —
+> useful for "why was this done in that order", not for "what is next".
+>
+> **For what is left, read [`roadmap.md`](roadmap.md).**
 
 **Date:** 2026-07-22. **Purpose:** one ordering for everything under
 `docs/plans/`, so "what do I work on next?" has a single answer. Every
@@ -18,7 +30,7 @@ lane order:
 | 1 | **config-composition — non-agent surface ports** (mise, standalone MCP/LSP, git identity onto the prism, then delete their bespoke generators) | jail-side | none — the main remaining agent-completable thread |
 | 2 | **D4 Cachix** (one Mac download proof) | hardware-gated | substituter enabled + account/cache/CI-push all done (2026-07-22); needs only a real Mac to prove the download path |
 | 3 | **composed-file follow-ups** — the deferred tail of `host_files` + two pre-existing prism defects (see below) | jail-side | none; each item is independently shippable |
-| ✅ 7 | ~~the queued pack batch~~ — **ALL TEN SHIPPED 2026-08-04** ([shipped-2026-08-pack-batch.md](shipped-2026-08-pack-batch.md)). What remains across the whole project now lives in [outstanding-work.md](outstanding-work.md) | — | — |
+| ✅ 7 | ~~the queued pack batch~~ — **ALL TEN SHIPPED 2026-08-04** ([shipped-2026-08-pack-batch.md](shipped-2026-08-pack-batch.md)). What remains across the whole project now lives in [roadmap.md](roadmap.md) | — | — |
 | 4 | **agent auth — capture the model, fix the asymmetry** (Claude broker rationale, the five un-investigated agents, macos-user parity, 4 verified defects) | jail-side (macos-user half is Mac-gated) | none for the audit/docs half; the macos-user fixes need a Mac to verify |
 | 5 | **agent config packs** — share skills/AGENTS.md prose across agents by `(repo, path, branch)`, no PR ([agent-config-packs.md](agent-config-packs.md)) | jail-side | none; Phase 0 is local-only and fixes a standalone `pi`/`codex` skills gap |
 | ✅ 6 | ~~pack first-contact fixes~~ — **ALL SEVEN CLOSED** (F7, a regression against the batch, fixed 2026-08-05) ([feedback-real-pack-adoption.md](feedback-real-pack-adoption.md)) | — | — |

@@ -4,7 +4,7 @@
 for the REASONING and for the nine defects that surfaced only by running the lifecycle — those are
 the reusable part, and several of them corrected the design they came from.
 
-**For what is left to do, see [`outstanding-work.md`](outstanding-work.md).** Do not read this file
+**For what is left to do, see [`roadmap.md`](roadmap.md).** Do not read this file
 looking for open work; the only forward-looking rows it still contains are cross-referenced there.
 
 **How the batch went, since the numbers are the argument for how it was run.** 16 agents, ~40
@@ -34,7 +34,7 @@ The rulings, the audit, and what running each one found.
 
 > **The parked items (E1–E5) and the non-container nix study used to live here.** They were
 > never part of this batch — they are still open, so they moved to
-> [`outstanding-work.md`](outstanding-work.md) where a reader looking for work will find them.
+> [`roadmap.md`](roadmap.md) where a reader looking for work will find them.
 
 ---
 

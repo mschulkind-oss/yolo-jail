@@ -326,7 +326,7 @@ in the agent's process env and are inherited by every Bash tool call.
 > its non-secret half there via `config-overlay`. The old sentence described the
 > correct mechanism before anything used it.
 >
-> **Secrets-hygiene cost, tracked as open in `ROADMAP.md` §4e:** `env_sources` values
+> **Secrets-hygiene cost, tracked as open in `sequencing-2026-07.md` §4e:** `env_sources` values
 > land cleartext at 0644 in several agent config files and a prism `last_render`
 > sidecar, and on macos-user they ride the process argv (`env -i K=V…`), visible in
 > `ps`. Choosing it as the secret channel is a decision, not a default.

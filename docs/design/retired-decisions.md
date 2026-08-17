@@ -7,7 +7,7 @@ instead, and *why*, so a future reader (or a future agent) can tell "we never th
 
 **This is not a changelog.** Work that shipped is recorded in
 [`../plans/shipped-2026-08-12.md`](../plans/shipped-2026-08-12.md) and its siblings, or in the commit
-history. Open work is in [`../plans/outstanding-work.md`](../plans/outstanding-work.md). **Nothing in
+history. Open work is in [`../plans/roadmap.md`](../plans/roadmap.md). **Nothing in
 this file is pending.**
 
 **Adding an entry.** Move it here the moment the decision is made, not later — the reasoning is

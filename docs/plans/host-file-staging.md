@@ -72,7 +72,7 @@ outright with a validation error, or documented as a known limit in
 validates and then does not behave, that is a bug in this table, not a feature gap.
 
 Out-of-scope items are tracked as **ROADMAP open item #3, "composed-file follow-ups"**
-([ROADMAP.md](ROADMAP.md)), which is where they get sequenced. This doc stays the
+([sequencing-2026-07.md](sequencing-2026-07.md)), which is where they get sequenced. This doc stays the
 design of record for the `host_files` key itself and is **closed** to new scope.
 
 ### In — shipped and supported

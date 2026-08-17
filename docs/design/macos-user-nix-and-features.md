@@ -183,7 +183,7 @@ pure functions of `*Env`. So the per-workspace config surface is preserved:
 > a backend that rendered **zero** pack surfaces on every launch. The machinery in
 > `RunDarwinBootstrap` was real, but the run pipeline returned at the macos-user branch
 > *before* pack staging, so `LoadJailPacks` / `ConfigurePackSurfaces` / `RunPackHooks` each
-> looped over an empty list — no error, no warning (`outstanding-work.md` B-0).
+> looped over an empty list — no error, no warning (`roadmap.md` B-0).
 >
 > The ordering is fixed: staging now happens above the backend dispatch, the tree is copied
 > into the root-owned state dir (`/var/yolo-jail/packs/<session>`, the analogue of the

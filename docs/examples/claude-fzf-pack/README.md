@@ -5,9 +5,9 @@ completion with a custom `fd | fzf --filter` finder, at **both** the jail notch
 and the host notch, from one declaration.
 
 This is the concrete deliverable the pack/host-render work
-([`../plans/pack-host-management-plan.md`](../plans/pack-host-management-plan.md))
+([`../plans/pack-host-management-plan.md`](../../plans/pack-host-management-plan.md))
 existed to enable, and the worked example behind
-[`../design/pack-config-collaboration.md`](../design/pack-config-collaboration.md).
+[`../design/pack-config-collaboration.md`](../../design/pack-config-collaboration.md).
 
 **It is an EXAMPLE, not something yolo ships.** It deliberately does not live in
 `packs/` — that directory holds the six official packs baked into the binary, and
@@ -184,7 +184,7 @@ $ yolo config ls claude | grep settings
 #### This pack used to declare `config`, and that is worth knowing
 
 Until 2026-08-02 it declared `agent: claude, name: settings` itself — Layout B in
-[`../design/pack-config-collaboration.md`](../design/pack-config-collaboration.md).
+[`../design/pack-config-collaboration.md`](../../design/pack-config-collaboration.md).
 That worked, by accident: two declarations of one surface identity resolved
 *last-writer-wins, whole* (`manifest.Merge`), so the survivor brought its own
 `mode`, `path`, `codec` and `defaults` with it. Adding `mode: "rmw"` would have

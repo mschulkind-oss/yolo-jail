@@ -10,7 +10,7 @@ its blockers: the broker waits on N3/OQ-1, this waits on nothing.
 
 **Reads with:** [`agent-credentials.md`](agent-credentials.md) (what crosses the boundary
 today — and see §2, which corrects its §3), [`pack-system.md`](pack-system.md) (the `autonomy`
-kind, which is the structural precedent), [`../plans/outstanding-work.md`](../plans/outstanding-work.md)
+kind, which is the structural precedent), [`../plans/roadmap.md`](../plans/roadmap.md)
 (row B3).
 
 ---
@@ -101,7 +101,7 @@ deliberately, because Claude ≥ 2.1.200 treats a creds file carrying only the t
 logged in*.) Putting a subscription through the key slot would mean paying for the seat and
 billing tokens separately.
 
-**This answers a live open question.** `ROADMAP.md` §4e asks: *"Keep the TLS-MITM architecture,
+**This answers a live open question.** `sequencing-2026-07.md` §4e asks: *"Keep the TLS-MITM architecture,
 or revisit `apiKeyHelper`?"* — noting a working `apiKeyHelper` broker exists on an abandoned
 fork (−4406/+129 lines) with no recorded rejection rationale in `main`. The rationale is now
 recorded: **`apiKeyHelper` cannot carry an OAuth subscription, so it is not a substitute for the
@@ -220,7 +220,7 @@ both.
 cleartext at 0644 in five agent config files and a prism `last_render` sidecar; on macos-user
 they are placed **on the process argv** (`env -i K=V…`), visible in `ps` to every user on the
 Mac. A design that leans harder on `env_sources` for the Bedrock bundle raises the stakes on
-both. Neither is introduced here, and neither should be silently inherited — `ROADMAP.md` §4e's
+both. Neither is introduced here, and neither should be silently inherited — `sequencing-2026-07.md` §4e's
 "should env_sources secrets be redactable?" is upstream of this row.
 
 **7.5 macos-user's credential symlink dangles.** A confirmed defect: `ensureCredentialsSymlink`
@@ -260,7 +260,7 @@ state belongs in the **same** daemon as the refresh serialization rather than be
 Anthropic's refresh token is single-use, and two jails switching to `subscription` concurrently,
 or a switch racing a refresh, is the same token-burning race the broker already exists to
 prevent (`RefreshLockPath`). Putting auth state in a second daemon would create a racer the
-existing flock cannot reach — which is precisely the failure mode `ROADMAP.md` documents from
+existing flock cannot reach — which is precisely the failure mode `sequencing-2026-07.md` documents from
 the host-Claude case, where a native refresher never took the lock.
 
 ---
@@ -459,7 +459,7 @@ and is a larger project than merging #32.
 **Also worth carrying:** #32's own "why not reuse the broker CA" section documents that the broker
 CA's **private key is mounted `:ro` into every jail**, so a malicious jail could sign a relay cert
 and MITM a sibling. It works around that rather than fixing it — and it is the same confirmed
-defect `ROADMAP.md` §4d records. Merging #32 does not fix it and should not be read as having done
+defect `sequencing-2026-07.md` §4d records. Merging #32 does not fix it and should not be read as having done
 so.
 
 ### 12.4 Open questions from §11–§12

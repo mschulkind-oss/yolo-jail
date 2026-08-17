@@ -565,7 +565,7 @@ M1). Everything in the DONE row has landed.
    `linux-builder` remains a valid orthogonal escape hatch (their nix config, not
    ours to install) — removal is of *our* VM-builder machinery, not of the user's
    ability to point nix at any remote builder. Tracked on the
-   [ROADMAP](ROADMAP.md). **DONE 2026-07-23:** `internal/builder` + the `yolo
+   [sequencing-2026-07](sequencing-2026-07.md). **DONE 2026-07-23:** `internal/builder` + the `yolo
    builder {setup,start,stop,status}` commands are deleted; `yolo check`'s Image
    Build section and the run-path failure remedy (`nixdiag.LinuxBuilderRemedy`)
    are rewired onto the container builder; user-facing docs reconciled.

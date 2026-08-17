@@ -13,7 +13,7 @@ framework's transport?
 **Reads with:** [`loophole-protocol.md`](loophole-protocol.md) (the wire format — unchanged by
 anything here), [`../guides/loopholes.md`](../guides/loopholes.md) (the three shipped loopholes),
 [`boundary-broker.md`](boundary-broker.md) §10.3 (the client-auth convergence),
-[`../plans/outstanding-work.md`](../plans/outstanding-work.md) Thread C.
+[`../plans/roadmap.md`](../plans/roadmap.md) Thread C.
 
 ---
 
@@ -540,8 +540,8 @@ liability.
 ### 5.2 Why it was not acted on — and what else was not
 
 Fair question, and the answer is not flattering: **the audit that found it produced findings, not
-work items.** `ROADMAP.md` §4d recorded four verified defects on ~2026-08-02 and none of them was
-carried into the queue in [`../plans/outstanding-work.md`](../plans/outstanding-work.md), so
+work items.** `sequencing-2026-07.md` §4d recorded four verified defects on ~2026-08-02 and none of them was
+carried into the queue in [`../plans/roadmap.md`](../plans/roadmap.md), so
 subsequent planning simply did not see them. The pack batch that followed was scoped from the
 queue.
 
@@ -585,7 +585,7 @@ platform, and the framework question should not hold it hostage.
 **Also worth filing, and not in any queue before this doc:** `host-processes` is silently broken on
 macOS + podman. Nobody has reported it because `yolo-ps` failing is quiet, but it means the
 `host-processes` loophole is Linux-only in practice while being advertised as available. Tracked as
-**D4** in [`../plans/outstanding-work.md`](../plans/outstanding-work.md).
+**D4** in [`../plans/roadmap.md`](../plans/roadmap.md).
 
 ---
 
@@ -598,7 +598,7 @@ is recorded as decided, with the reasoning, so nothing looks quietly dropped.
 
 **All of §7 is now settled.** OQ-T1 (§7.2) and OQ-T8 (§7.3) closed 2026-08-13; OQ-T9 (§7.4)
 the same day. Nothing in this design is waiting on a decision — the remaining work is execution,
-tracked as row **T1** in [`../plans/outstanding-work.md`](../plans/outstanding-work.md).
+tracked as row **T1** in [`../plans/roadmap.md`](../plans/roadmap.md).
 
 | Was | Answer | Why it did not need a ruling |
 |---|---|---|
@@ -782,7 +782,7 @@ CLI→singleton are still host→host Unix; the host broker singleton daemon.
 > three sites dial with `net.Dial("unix", …)`. §3.2's first consequence — the file must never land in
 > a shared directory — is the only reason this fails closed rather than writing a bearer token into a
 > world-readable `/tmp`. Tracked as row **T3** in
-> [`../plans/outstanding-work.md`](../plans/outstanding-work.md); the fix direction is this
+> [`../plans/roadmap.md`](../plans/roadmap.md); the fix direction is this
 > paragraph, not a new decision (the accept loop is already transport-neutral — `serveListener`).
 
 **Still owed:**

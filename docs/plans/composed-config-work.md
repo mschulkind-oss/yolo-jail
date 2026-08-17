@@ -59,7 +59,7 @@ Google is deprecating Gemini CLI. Do this first because it is *subtractive*: it 
 rows from the tables every other item edits, so doing it later means doing that work twice.
 
 Blast radius, coupling analysis and the migration note are in
-[ROADMAP item 0](ROADMAP.md). The one scary-looking dependency is settled: **`agy` already
+[ROADMAP item 0](sequencing-2026-07.md). The one scary-looking dependency is settled: **`agy` already
 runs with `gemini` unselected in this very jail** (probed — `~/.gemini/antigravity-cli` is
 rw while its parent `~/.gemini` is ro), so removal is safe for it.
 
@@ -176,7 +176,7 @@ Proposed, following that policy:
 | `plans/composed-config-work.md` *(this)* | **keep (B)** — the single work list |
 | `plans/host-file-staging.md` | **keep (B)**, already marked SHIPPED and closed to new scope; its "Scope: the line" is the authority on `host_files` in/out |
 | `plans/agent-settings-composition.md` | **keep (A-hybrid)** — the engine design of record. Stop adding status to it |
-| `plans/ROADMAP.md` | **keep (B)** — sequencing only; item 3/4 sub-tables now point here |
+| `plans/sequencing-2026-07.md` | **keep (B)** — sequencing only; item 3/4 sub-tables now point here |
 | `design/config-migration-to-prism.md` | **candidate C** — the cutover it describes completed 2026-07-22. Keep only if the §3.2/§3.3 sidecar state machine is not documented elsewhere |
 | `design/agent-credentials.md`, `design/jail-home.md` | **keep (A)** — different questions (what crosses the boundary; how the home is built) |
 

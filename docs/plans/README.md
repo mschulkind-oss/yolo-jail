@@ -6,10 +6,13 @@ implementing or still discussing. Reference docs (how live systems work) live in
 working docs are archived in git history (see [`doc-triage.md`](doc-triage.md)
 for the classification and `git log --follow` to recover any).
 
-> **Where to start:** [`ROADMAP.md`](ROADMAP.md) sequences every plan below into
-> one order (jail-side / host-gated / hardware-gated lanes) so "what's next?"
-> has a single answer. It's a meta-doc — the individual plans stay the source of
-> truth for their own work items.
+> **Where to start:** [`roadmap.md`](roadmap.md) — the living forward plan, and the
+> only doc here that answers "what is left?". Everything else in this directory is
+> either a design/handoff for one piece of work or a historical record.
+>
+> [`sequencing-2026-07.md`](sequencing-2026-07.md) is the retired predecessor: a
+> 2026-07-22 snapshot of the dependency ordering, kept for "why was this done in
+> that order" rather than "what is next".
 >
 > **For the composed-config / packs cluster specifically**, start at
 > [`BACKLOG.md`](BACKLOG.md): that cluster's design spans 8 docs, and BACKLOG is the
@@ -20,7 +23,7 @@ for the classification and `git log --follow` to recover any).
 
 | Doc | What it is | Status |
 |---|---|---|
-| [outstanding-work.md](outstanding-work.md) | **THE forward plan.** Everything still to do and nothing else — 14 items, each checked against the code 2026-08-05, with a suggested order. One row is a decision for the maintainer (N3); one is a live defect (N1, an unrooted nix profile). | **Start here for "what is left?"** |
+| [roadmap.md](roadmap.md) | **THE forward plan.** Everything still to do and nothing else — 14 items, each checked against the code 2026-08-05, with a suggested order. One row is a decision for the maintainer (N3); one is a live defect (N1, an unrooted nix profile). | **Start here for "what is left?"** |
 | [shipped-2026-08-pack-batch.md](shipped-2026-08-pack-batch.md) | HISTORY of the ten-item pack batch: the rulings, the notch-divergence audit, and the NINE defects that surfaced only by running the lifecycle. Kept for the reasoning, not for planning. | ✅ done 2026-08-04 |
 | [handoff-guest-notch-macos.md](handoff-guest-notch-macos.md) | The `guest` notch (env-manager Phase 7) plus every other Mac-gated item, in one place so one trip to a Mac can close all of it. Starts with the still-live G3 bug: macos-user renders ZERO pack surfaces, silently. | **Handoff** — Phase 7 not built; host/Mac-gated, not design-blocked. |
 | [macos-revival-and-distribution-plan.md](macos-revival-and-distribution-plan.md) | The macOS-backend revival + source-distribution roadmap (Tracks J/D/M). | **In progress** — J1.1–J1.4, D1, D2, D3, J2, J3 landed; Track M M0/M1/M2 verified on real HW 2026-07-21; only D4's human-gated push/download proof remains. |
@@ -59,7 +62,7 @@ here:
 
 [`runbooks/`](runbooks/) holds the Mac hardware verification procedures — they
 are the revival plan's Track M gates, not user-facing reference (they moved here
-from `docs/guides/runbooks/`). See the [ROADMAP](ROADMAP.md#runbooks) for their
+from `docs/guides/runbooks/`). See the [sequencing-2026-07](sequencing-2026-07.md#runbooks) for their
 status:
 
 | Doc | What it is | Status |

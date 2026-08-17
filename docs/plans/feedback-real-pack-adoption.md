@@ -6,7 +6,7 @@
 dissolved by rulings rather than patched, F7 (a regression this doc caught against the batch
 itself) fixed 2026-08-05. Kept as the record of what real adoption found — the *diagnosis* in the
 last section is the reusable part. Nothing here is open; for open work see
-[`outstanding-work.md`](outstanding-work.md).
+[`roadmap.md`](roadmap.md).
 
 **What this is:** field notes from converting a real hand-tuned agent config into three
 packs and applying them to a real `$HOME` — not a jail, not a `/tmp` fixture. Everything
@@ -195,7 +195,7 @@ autonomy posture)`. Cheap, and it turns a silent loss into a documented policy.
 ## F5 — ✅ FIXED 2026-08-04 — `pack lint` refused a pure-`files` pack, with wrong reasoning
 
 A `files` + `config-overlay` pack now lints clean; see
-[`outstanding-work.md`](outstanding-work.md) §7 for what shipped. The report below is the
+[`roadmap.md`](roadmap.md) §7 for what shipped. The report below is the
 original finding.
 
 ```
@@ -321,7 +321,7 @@ its cause, as proposed.
 ### F5 — the same rule an independent audit hit, and the rule asks the wrong question
 
 Reported independently as the `pack lint` finding in
-[`outstanding-work.md`](outstanding-work.md) §7, where the full probe table and the
+[`roadmap.md`](roadmap.md) §7, where the full probe table and the
 recommended rewrite live. Short version: the rule asks *"did this pack stage `skills/` or
 `AGENTS.md`?"* as a proxy for *"does anything read this pack?"* — true when a pack could only
 ship content, false now that a pack contributes any of 14 kinds. A pack with **zero
@@ -413,7 +413,7 @@ case too: a user's edit to a yolo-written file is still archived and recoverable
 pack source still renders. Mutation-tested in both directions.
 
 The `archive/skills/` path wart this finding also noted is real and is tracked as V3 in
-[`outstanding-work.md`](outstanding-work.md) — renaming it orphans existing archives from
+[`roadmap.md`](roadmap.md) — renaming it orphans existing archives from
 `yolo prune`, so it needs a migration rather than a rename.
 
 **Expected:** `files` compares content first, renders nothing and archives nothing when the

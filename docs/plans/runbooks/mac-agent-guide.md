@@ -9,7 +9,7 @@ this doc says *what order to run them in, what each one now verifies, which
 landed code it exercises, and the pass/fail signal*. Follow the links for the
 actual commands.
 
-Roadmap context: [../ROADMAP.md](../ROADMAP.md) "What unblocks the gated lanes"
+Roadmap context: [../sequencing-2026-07.md](../sequencing-2026-07.md) "What unblocks the gated lanes"
 and [../macos-revival-and-distribution-plan.md](../macos-revival-and-distribution-plan.md)
 Track M (M0 → M1 → M2).
 

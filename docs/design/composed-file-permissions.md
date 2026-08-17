@@ -206,7 +206,7 @@ at boot; one is dead.** 8 of the 11 write capture sidecars.
 |---|---|---|---|---|---|
 | `claude/settings` | `~/.claude/settings.json` | stateful | ✅ | `/ctx/host-claude` | **YES** — proven |
 | `pi/settings` | `~/.pi/agent/settings.json` | stateful | ✅ | `/ctx/host-pi` | no evidence |
-| ~~`gemini/settings`~~ | `~/.gemini/settings.json` | stateful | ✅ | — | **YES** — proven, but **being removed**: see [ROADMAP item 0](../plans/ROADMAP.md) (Google is deprecating Gemini CLI). Out of design consideration. |
+| ~~`gemini/settings`~~ | `~/.gemini/settings.json` | stateful | ✅ | — | **YES** — proven, but **being removed**: see [ROADMAP item 0](../plans/sequencing-2026-07.md) (Google is deprecating Gemini CLI). Out of design consideration. |
 | `copilot/config` | `~/.copilot/config.json` | stateful | ✅ | — | **YES** — credentials |
 | `opencode/config` | `~/.config/opencode/opencode.json` | stateful | ✅ | — | no evidence |
 | `codex/config` | `~/.codex/config.toml` | stateful | ✅ | — | no evidence |
@@ -399,7 +399,7 @@ Yes — and this is item 1 on the ROADMAP, but with a correction worth recording
 **mise is already a prism surface and the roadmap says it is not.**
 `ConfigureMisePrism` renders it statefully (`prism_mise.go:82`) and
 `yolo config render mise` works — verified. Both
-[ROADMAP.md](../plans/ROADMAP.md) and
+[sequencing-2026-07.md](../plans/sequencing-2026-07.md) and
 [agent-settings-composition.md](../plans/agent-settings-composition.md) still claim
 `config render mise` reports "no surfaces"; that is stale. The genuinely unported
 non-agent surfaces are **MCP, LSP and identity** (`config render mcp|lsp|identity` →
@@ -952,7 +952,7 @@ These are the surfaces where the maintainer's read-only instinct applies cleanly
 `claude/settings`, `mise/config`, `copilot/config`, and — until evidence says
 otherwise — `pi/settings`, `codex/config`, `opencode/config`, `agy/settings`.
 (`gemini/settings` belonged here too and is being removed — [ROADMAP item
-0](../plans/ROADMAP.md).) These stay `0o644` in a rw overlay with capture, plus the three
+0](../plans/sequencing-2026-07.md).) These stay `0o644` in a rw overlay with capture, plus the three
 things capture is missing:
 
 1. **`yolo config ls`** — one row per surface: path, codec, posture, contributing
