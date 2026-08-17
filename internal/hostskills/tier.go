@@ -36,7 +36,7 @@
 // declaration that does not hold up is downgraded rather than trusted.
 //
 // UNNAMESPACED IS THE DEFAULT AND A COLLISION IS FATAL (maintainer ruling 2026-08-05,
-// outstanding-work.md S1). Tier A is now a PACK's positive opt-in (packdecl's SkillsTier),
+// roadmap.md S1). Tier A is now a PACK's positive opt-in (packdecl's SkillsTier),
 // not a fact yolo resolves per destination — so two packs shipping one skill NAME at the
 // same unnamespaced destination is refused by name (Collisions) instead of being resolved.
 // Before the ruling, flat tier picked a winner and said nothing while namespaced invented a

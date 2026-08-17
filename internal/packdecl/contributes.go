@@ -397,7 +397,7 @@ func DefaultBriefingFiles() []string { return []string{"AGENTS.md", "CLAUDE.md"}
 // readers go through packload.BriefingProseFor, which calls this. Before that they each inlined
 // the pair — hostBriefingProse `from`-first-then-convention, run.readPackBriefing
 // convention-only, ignoring `from` — and a pack whose prose lived elsewhere briefed at the host
-// notch and not in a jail (outstanding-work.md §6a-4). SkillsSource is the precedent this
+// notch and not in a jail (roadmap.md §6a-4). SkillsSource is the precedent this
 // followed.
 //
 // A FALLBACK CHAIN is the contract, not a single choice, and that is the one place `briefing`

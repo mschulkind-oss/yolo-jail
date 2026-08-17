@@ -1,7 +1,7 @@
 package config
 
 // localpack_test.go pins the CONVENTIONAL LOCAL PACK (`~/.config/yolo-jail/local`,
-// outstanding-work.md §6a-2): an implicitly-included pack needing no `packs` entry.
+// roadmap.md §6a-2): an implicitly-included pack needing no `packs` entry.
 //
 // Every test points HOME at a t.TempDir(), so the real ~/.config/yolo-jail — which on a
 // development machine holds the live jail's own config — is never read or written.

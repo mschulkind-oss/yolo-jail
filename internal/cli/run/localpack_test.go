@@ -1,7 +1,7 @@
 package run
 
 // localpack_test.go is the JAIL-NOTCH half of the conventional local pack
-// (`~/.config/yolo-jail/local`, outstanding-work.md §6a-2). The host half lives in
+// (`~/.config/yolo-jail/local`, roadmap.md §6a-2). The host half lives in
 // internal/config/localpack_test.go and internal/cli/applyhostlocalpack_test.go.
 //
 // It must work at BOTH notches or the convention reintroduces exactly the asymmetry finding F1

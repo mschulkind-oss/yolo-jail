@@ -4,7 +4,7 @@ package packload
 // prose is read from. It is skillssource.go's sibling, and it exists for the same reason: a
 // `from` that one notch honored and the other ignored.
 //
-// The divergence was verified rather than inferred (outstanding-work.md §6a-4): the host
+// The divergence was verified rather than inferred (roadmap.md §6a-4): the host
 // render built `[from, "AGENTS.md", "CLAUDE.md"]`, while `run.readPackBriefing` took a
 // DIRECTORY and scanned the conventional pair unconditionally — so a pack declaring
 // `from: "house-rules.md"` briefed at the host and stayed silent in a jail. That is the

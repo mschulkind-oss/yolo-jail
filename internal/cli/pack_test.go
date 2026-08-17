@@ -223,7 +223,7 @@ func TestPackLintIgnoresNonContentRootFiles(t *testing.T) {
 	}
 }
 
-// THE DEFECT THIS FIX IS ABOUT (docs/plans/outstanding-work.md §7). A pack that does
+// THE DEFECT THIS FIX IS ABOUT (docs/plans/roadmap.md §7). A pack that does
 // absolutely nothing and a working config-only pack used to get the IDENTICAL message
 // ("pack has neither a skills/ dir nor an AGENTS.md"), which is what made the old rule
 // useless in the one case it existed for. They must now be told different things: one is a

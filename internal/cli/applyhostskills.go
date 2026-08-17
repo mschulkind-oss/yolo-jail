@@ -1,7 +1,7 @@
 package cli
 
 // applyhostskills.go is the `apply --host` call site for the `skills` kind, which yolo now
-// COMPOSES WHOLESALE at every notch (maintainer ruling 2026-08-04, outstanding-work.md §6a-2).
+// COMPOSES WHOLESALE at every notch (maintainer ruling 2026-08-04, roadmap.md §6a-2).
 //
 // It is the second host kind whose call site is PACK-SET-WIDE rather than per-pack, and for the
 // same reason applyhostbriefings.go is: a destination's content is the union of every contributing

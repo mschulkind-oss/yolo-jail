@@ -1,7 +1,7 @@
 package cli
 
 // applyhostlocalpack_test.go is the HOST-NOTCH gate for the conventional local pack
-// (`~/.config/yolo-jail/local`, outstanding-work.md §6a-2): the user's own skills and briefing
+// (`~/.config/yolo-jail/local`, roadmap.md §6a-2): the user's own skills and briefing
 // prose, included with no `packs` entry.
 //
 // It must work at BOTH notches or the convention reintroduces the asymmetry finding F1 just

@@ -1,7 +1,7 @@
 package packload
 
 // briefingsource_test.go pins the ONE resolver both notches read a `briefing` contribution's
-// prose through (outstanding-work.md §6a-4). The notch-level gates live in
+// prose through (roadmap.md §6a-4). The notch-level gates live in
 // internal/cli/run/packbriefingfrom_test.go and internal/entrypoint/hostbriefing_test.go; these
 // pin the precedence itself, which is what the divergence was about.
 

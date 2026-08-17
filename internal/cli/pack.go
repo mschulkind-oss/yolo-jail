@@ -401,7 +401,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// pack — and, decisively, it gave a pack that does ABSOLUTELY NOTHING the identical
 	// message, so it was useless in the one case it existed for.
 	//
-	// The two honest questions, separated (docs/plans/outstanding-work.md §7):
+	// The two honest questions, separated (docs/plans/roadmap.md §7):
 	claimed, unclaimed := stagedContent(res.Staged, pack, skillRoots)
 
 	// The two are MUTUALLY EXCLUSIVE by construction, not by accident: a pack that declares

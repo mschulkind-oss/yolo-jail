@@ -1,7 +1,7 @@
 package cli
 
 // applyhostbriefings.go is the `apply --host` call site for the `briefing` kind, which yolo now
-// GENERATES WHOLESALE at every notch (maintainer ruling 2026-08-04, outstanding-work.md §6a).
+// GENERATES WHOLESALE at every notch (maintainer ruling 2026-08-04, roadmap.md §6a).
 //
 // It is the one host kind whose call site is PACK-SET-WIDE rather than per-pack, and that is a
 // consequence of the ruling rather than a style choice: a destination's content is the union of

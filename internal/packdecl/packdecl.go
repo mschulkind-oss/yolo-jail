@@ -40,7 +40,7 @@ type Manifest struct {
 	Description string `json:"description,omitempty"`
 
 	// SkillsTier is the pack's POSITIVE OPT-IN to having its own skills namespaced in a
-	// real home (maintainer ruling 2026-08-05, outstanding-work.md S1/S2). Values:
+	// real home (maintainer ruling 2026-08-05, roadmap.md S1/S2). Values:
 	//
 	//   ""            unnamespaced — every skill this pack ships is a bare name, and a
 	//                 collision with another pack's bare name is FATAL at apply time

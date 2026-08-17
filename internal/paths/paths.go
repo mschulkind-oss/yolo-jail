@@ -232,7 +232,7 @@ func UserConfigPath() string { return filepath.Join(home(), userConfigSuffix) }
 
 // LocalPackDir returns $HOME/.config/yolo-jail/local — the CONVENTIONAL LOCAL PACK: an
 // implicitly-included pack for the user's own skills and briefing prose, needing no `packs`
-// entry (outstanding-work.md §6a-2).
+// entry (roadmap.md §6a-2).
 //
 // Beside config.jsonc, and derived from it, because that is already where user-scope yolo
 // config lives: the convention EXTENDS an existing one rather than inventing a second

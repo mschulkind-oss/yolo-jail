@@ -3,7 +3,7 @@ package hostskills
 // compose.go is the host-target SKILLS composition: yolo owns each skills destination
 // WHOLESALE, exactly as the jail does, and the user's own tree MOVES into the local pack.
 //
-// Maintainer ruling, 2026-08-04 (outstanding-work.md §6a-2): *"I want to force user-level skills
+// Maintainer ruling, 2026-08-04 (roadmap.md §6a-2): *"I want to force user-level skills
 // migration so we can cleanly own them. Out-of-sync skills between agents is the bigger risk."*
 //
 // WHAT THIS REPLACED, AND WHY IT IS THE SIMPLIFICATION. Delivery used to be per-pack and

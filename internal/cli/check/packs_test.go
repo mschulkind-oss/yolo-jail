@@ -270,7 +270,7 @@ func TestSectionPacksShippedSetHasNoSurfaceCollision(t *testing.T) {
 	}
 }
 
-// The CONVENTIONAL LOCAL PACK (~/.config/yolo-jail/local, outstanding-work.md §6a-2) is
+// The CONVENTIONAL LOCAL PACK (~/.config/yolo-jail/local, roadmap.md §6a-2) is
 // content, never an agent — so `yolo check` must still warn that the jail has no coding agent,
 // while also reporting the local pack it did include. Both halves matter: the notice is still
 // true, and a pack yolo included without a config line must never be invisible.

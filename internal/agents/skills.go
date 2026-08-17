@@ -52,7 +52,7 @@ type SkillTarget struct {
 	// ~/.claude/skills. That was right while the destination held loose user files and became
 	// circular once `apply --host` COMPOSED it: a jail read yolo's own generated output back
 	// in as "the user's tree", and since the local pack is an ordinary pack entry its content
-	// arrived twice by two paths (outstanding-work.md S3). Invisible only because flat is
+	// arrived twice by two paths (roadmap.md S3). Invisible only because flat is
 	// last-writer-wins — and under S1, arriving twice is the kind of thing that becomes an
 	// error rather than a coincidence.
 	//

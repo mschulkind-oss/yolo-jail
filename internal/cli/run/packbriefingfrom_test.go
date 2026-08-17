@@ -3,7 +3,7 @@ package run
 // packbriefingfrom_test.go is the JAIL-PATH gate for the `briefing` kind's `from` field — the
 // sibling of packskillsfrom_test.go, for the sibling defect.
 //
-// The bug (outstanding-work.md §6a-4, verified 2026-08-04): readPackBriefing took a DIRECTORY and
+// The bug (roadmap.md §6a-4, verified 2026-08-04): readPackBriefing took a DIRECTORY and
 // scanned AGENTS.md/CLAUDE.md unconditionally, so a pack declaring
 // `{"kind":"briefing","from":"house-rules.md","into":"…"}` had it honored at the HOST notch
 // (hostBriefingProse built [from, AGENTS.md, CLAUDE.md]) and silently ignored in a jail. Both

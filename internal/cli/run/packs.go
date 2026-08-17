@@ -843,7 +843,7 @@ func packRoot(entry config.PackEntry) (string, error) {
 //
 // It replaces a reader that took a DIRECTORY and scanned `AGENTS.md`/`CLAUDE.md`
 // unconditionally, so a pack declaring `from: "house-rules.md"` had it honored at the host
-// notch and silently IGNORED here (outstanding-work.md §6a-4). Both readers now go through
+// notch and silently IGNORED here (roadmap.md §6a-4). Both readers now go through
 // packload, which is the same convergence `skills` needed for the same reason — three
 // hardcoded conventional-source joins are how the field came to be validated and ignored.
 func (o *Options) packBriefingProse(p *packload.Pack) string {

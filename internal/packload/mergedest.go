@@ -15,7 +15,7 @@ package packload
 // well-defined, and the destination list already exists in the manifests. So this is that
 // inference, extracted to one place, rather than a second hardcoded ".claude/skills" — which
 // would have to guess the agent set, and is exactly what `into` is deliberately NOT
-// conventionalized to avoid (outstanding-work.md §6a-3).
+// conventionalized to avoid (roadmap.md §6a-3).
 //
 // THE DESTINATIONS COME FROM THE SELECTED PACK SET. An agent pack's `skills` contribution
 // exists to NAME the directory its agent reads from (hostskills.Deliver says so), and its

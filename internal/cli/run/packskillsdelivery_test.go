@@ -1,7 +1,7 @@
 package run
 
 // packskillsdelivery_test.go pins WHERE a pack's skills go in a jail — the two facts the
-// S4 audit measured (outstanding-work.md), neither of which anything asserted before.
+// S4 audit measured (roadmap.md), neither of which anything asserted before.
 //
 // S4 suspected a hole in the selection gate: `into` names a specific agent's directory, and
 // nothing checks that agent is one the user selected. The measurement says the behavior is
