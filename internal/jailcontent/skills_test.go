@@ -1,4 +1,4 @@
-package agents
+package jailcontent
 
 import (
 	"os"
@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents/builtinskills"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent/builtinskills"
 )
 
 // TestPrepareSkillsStaging verifies the built-in skill lands, a pack's skills are

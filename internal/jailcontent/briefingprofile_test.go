@@ -1,4 +1,4 @@
-package agents
+package jailcontent
 
 import (
 	"strings"

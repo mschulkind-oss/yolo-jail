@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
@@ -146,7 +146,7 @@ func Run(opts Options) int {
 type stagedPacks struct {
 	root      string
 	packs     []*packload.Pack
-	briefings []agents.PackBriefing
+	briefings []jailcontent.PackBriefing
 }
 
 // stageRunPacks stages this run's packs and reports the failure itself, so the caller's

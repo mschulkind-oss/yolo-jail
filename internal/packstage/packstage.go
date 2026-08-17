@@ -5,7 +5,7 @@
 // files into a staging dir the CLI then mounts read-only.
 //
 // It lives in its own package, with no dependency on internal/config or
-// internal/agents, for two reasons: the tree walk is the part most worth unit
+// internal/jailcontent, for two reasons: the tree walk is the part most worth unit
 // testing in isolation (globs, symlinks, the exec-bit refusal), and keeping it
 // dependency-free means it can be reused by `yolo pack lint` host-side without
 // dragging the config loader in.

@@ -62,7 +62,7 @@ type Contribution struct {
 	From string `json:"from,omitempty"` // pack-relative source path
 	Into string `json:"into,omitempty"` // home-relative jail destination
 	// After, as `"host:<path>"` on a `briefing`, prepends the user's own host file to the
-	// jail's composed briefing (run.briefingHostOverlay → agents.PrependHostBriefing) — so a
+	// jail's composed briefing (run.briefingHostOverlay → jailcontent.PrependHostBriefing) — so a
 	// personal AGENTS.md outranks anything a pack ships INSIDE A JAIL.
 	//
 	// JAIL-ONLY, and after §6a that is a narrower claim than it looks. At the host notch the

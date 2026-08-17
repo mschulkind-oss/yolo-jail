@@ -24,8 +24,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -46,19 +46,19 @@ func skillsPack(t *testing.T, parent, name, into, skill string) string {
 // stageSkillTargets runs the real jail staging path — stagePacks, then packSkillTargets, then
 // PrepareSkills — and returns the loaded packs, the targets, and the staging root. This is the
 // whole delivery chain, rather than any one link, because S4's question spans all three.
-func stageSkillTargets(t *testing.T, cname string) ([]*packload.Pack, []agents.SkillTarget, string) {
+func stageSkillTargets(t *testing.T, cname string) ([]*packload.Pack, []jailcontent.SkillTarget, string) {
 	t.Helper()
 	o := &Options{Workspace: t.TempDir(), Stdout: discardBuf()}
-	agents.SetPackSkillDirs(nil)
-	agents.SetPackSkillTargets(nil)
-	t.Cleanup(func() { agents.SetPackSkillDirs(nil); agents.SetPackSkillTargets(nil) })
+	jailcontent.SetPackSkillDirs(nil)
+	jailcontent.SetPackSkillTargets(nil)
+	t.Cleanup(func() { jailcontent.SetPackSkillDirs(nil); jailcontent.SetPackSkillTargets(nil) })
 	_, loaded, _, err := o.stagePacks(cname)
 	if err != nil {
 		t.Fatalf("stagePacks: %v", err)
 	}
 	targets := packSkillTargets(loaded)
-	agents.SetPackSkillTargets(targets)
-	staging, err := agents.PrepareSkills(cname, os.Getenv("HOME"), nil, false)
+	jailcontent.SetPackSkillTargets(targets)
+	staging, err := jailcontent.PrepareSkills(cname, os.Getenv("HOME"), nil, false)
 	if err != nil {
 		t.Fatalf("PrepareSkills: %v", err)
 	}
@@ -67,7 +67,7 @@ func stageSkillTargets(t *testing.T, cname string) ([]*packload.Pack, []agents.S
 
 // stagedFor returns the sorted skill names staged for `dest`, and whether `dest` is a target
 // at all.
-func stagedFor(t *testing.T, targets []agents.SkillTarget, staging, dest string) ([]string, bool) {
+func stagedFor(t *testing.T, targets []jailcontent.SkillTarget, staging, dest string) ([]string, bool) {
 	t.Helper()
 	for _, tg := range targets {
 		if tg.Dest != dest {

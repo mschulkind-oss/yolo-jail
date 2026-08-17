@@ -34,7 +34,8 @@ things worth knowing before you debug:
 
 `agentcfg.BuiltinManifest()` is now core's own surfaces only (`mise/config`);
 callers wanting the full set merge pack surfaces via `ManifestWith`.
-`internal/agents` keeps only what was never per-agent: skills staging, briefing
+`internal/jailcontent` (was `internal/agents` until the name outlived the
+registry) keeps only what was never per-agent: skills staging, briefing
 composition, loophole descriptions, the source-tree probe.
 
 Backends are `podman`, `container` (Apple Container), and `macos-user` (macOS

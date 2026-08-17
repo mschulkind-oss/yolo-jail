@@ -16,7 +16,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 )
 
 // localBriefingPack writes a pack declaring `from` for its briefing and carrying its prose at
@@ -41,11 +41,11 @@ func localBriefingPack(t *testing.T, from, file, prose string) *Options {
 }
 
 // stagedBriefings runs stagePacks and returns the pack prose it collected, plus the warnings.
-func stagedBriefings(t *testing.T, o *Options) ([]agents.PackBriefing, string) {
+func stagedBriefings(t *testing.T, o *Options) ([]jailcontent.PackBriefing, string) {
 	t.Helper()
 	var out bytes.Buffer
 	o.Stdout = &out
-	agents.SetPackSkillDirs(nil)
+	jailcontent.SetPackSkillDirs(nil)
 	_, _, briefings, err := o.stagePacks("yolo-test-briefingfrom")
 	if err != nil {
 		t.Fatalf("stagePacks: %v", err)

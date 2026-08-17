@@ -17,8 +17,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -50,9 +50,9 @@ const officialStagingDir = "_official"
 // silently missing a pack the user asked for is the failure mode this whole cluster of
 // work exists to remove — and unlike a warning, an error is seen.
 //
-// Sets agents.SetPackSkillDirs as a side effect, which PrepareSkills consumes on the
+// Sets jailcontent.SetPackSkillDirs as a side effect, which PrepareSkills consumes on the
 // next call. Ordering is therefore load-bearing: stagePacks runs first.
-func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.PackBriefing, error) {
+func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcontent.PackBriefing, error) {
 	entries, err := config.LoadPacks(func(msg string) {
 		o.pr(o.Stdout).print("[yellow]Warning: packs: " + msg + "[/yellow]")
 	})
@@ -159,11 +159,11 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 	}
 
 	var skillDirs []string
-	var briefings []agents.PackBriefing
+	var briefings []jailcontent.PackBriefing
 	for _, p := range loaded {
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
 		if text := o.packBriefingProse(p); text != "" {
-			briefings = append(briefings, agents.PackBriefing{Name: p.Name, Text: text})
+			briefings = append(briefings, jailcontent.PackBriefing{Name: p.Name, Text: text})
 		}
 	}
 
@@ -241,7 +241,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
 		if text := o.packBriefingProse(p); text != "" {
-			briefings = append(briefings, agents.PackBriefing{Name: entry.Name, Text: text})
+			briefings = append(briefings, jailcontent.PackBriefing{Name: entry.Name, Text: text})
 		}
 	}
 	// PRE-FLIGHT: two claims on one home destination. The mount assembler emits one bind
@@ -311,7 +311,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []agents.P
 		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(conflicts, "\npacks: "))
 	}
 
-	agents.SetPackSkillDirs(skillDirs)
+	jailcontent.SetPackSkillDirs(skillDirs)
 	// Record the pack-contributed loophole modules for every host-side consumer, with
 	// each one's origin gate already evaluated. THE convergence point
 	// (docs/design/loophole-packaging.md §5.1): the seven discovery surfaces used to

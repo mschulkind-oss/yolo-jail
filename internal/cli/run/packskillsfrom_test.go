@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 )
 
 // writeSkillTree writes <dir>/<name>/SKILL.md so the dir counts as a skills source.
@@ -55,11 +55,11 @@ func stagedSkillDirs(t *testing.T, o *Options) ([]string, string) {
 	t.Helper()
 	var out bytes.Buffer
 	o.Stdout = &out
-	agents.SetPackSkillDirs(nil)
+	jailcontent.SetPackSkillDirs(nil)
 	if _, _, _, err := o.stagePacks("yolo-test-skillsfrom"); err != nil {
 		t.Fatalf("stagePacks: %v", err)
 	}
-	return agents.PackSkillDirs(), out.String()
+	return jailcontent.PackSkillDirs(), out.String()
 }
 
 // A CUSTOM `from` is honored: the staged source dir is the declared one.

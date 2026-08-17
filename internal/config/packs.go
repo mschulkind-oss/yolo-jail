@@ -75,7 +75,7 @@ var knownPackKeys = set(
 // agent list, which is the assumption the pack model deletes — a pack that installs
 // an agent is just a pack, and nothing in this machinery knows what an agent is.
 // The filter was also redundant with where filtering actually happens: staging is
-// per-agent at the DELIVERY end (agents.PrepareSkills layers every pack's skills/
+// per-agent at the DELIVERY end (jailcontent.PrepareSkills layers every pack's skills/
 // into each agent that has a skills dir), so the config-side filter was a second,
 // weaker copy of a decision already made downstream.
 type PackEntry struct {
@@ -246,7 +246,7 @@ const LocalPackName = "local"
 //
 // ORDER IS LOAD-BEARING, AND IT IS LAST. The caller appends this after every configured
 // entry, which puts it last in the delivery order at both notches — the jail merges pack
-// skills dirs in this order (agents.PrepareSkills' packSkillDirs loop, later wins a
+// skills dirs in this order (jailcontent.PrepareSkills' packSkillDirs loop, later wins a
 // same-named skill) and the host renders `loaded` in this order. Last therefore means a
 // PERSONAL skill outranks a shared pack's, which preserves the precedence the jail already
 // had when the user's tree was a separate layer written after the packs: the user's own copy

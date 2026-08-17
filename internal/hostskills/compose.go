@@ -17,7 +17,7 @@ package hostskills
 //
 // The decisions this encodes:
 //
-//   - THE JAIL'S COMPOSITION IS THE SPECIFICATION (agents.PrepareSkills): packs in config order,
+//   - THE JAIL'S COMPOSITION IS THE SPECIFICATION (jailcontent.PrepareSkills): packs in config order,
 //     later winning a same-named skill, with the LOCAL PACK last so a personal skill outranks a
 //     shared one. That ordering is already what config.LoadPacks produces, so the precedence is
 //     inherited from the pack order rather than restated here.

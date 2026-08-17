@@ -1,9 +1,18 @@
-package agents
+package jailcontent
 
-// Per-workspace AGENTS.md / CLAUDE.md briefing generation and host-skill
-// staging. The briefing content is a byte-exact string contract;
-// WriteBriefing's hardlink-breaking truncation is an inode-preservation
-// contract a running jail's bind mount depends on.
+// Per-workspace briefing generation: the jail-managed body (BriefingContent), the
+// config's agents_md_extra and each pack's prose composed onto it, and the user's own
+// host briefing prepended in front of the lot.
+//
+// WHERE it lands is deliberately not this file's business. Every briefing path is some
+// pack's `briefing` contribution `into`, so this renders ONE text and the CLI writes it
+// to each declared destination — which is why nothing here names a briefing FILE. It used
+// to say "AGENTS.md / CLAUDE.md briefing generation", from when the destinations were a
+// per-agent constant in the Go registry.
+//
+// The briefing content is a byte-exact string contract; WriteBriefing's (write.go)
+// hardlink-breaking truncation is an inode-preservation contract a running jail's bind
+// mount depends on.
 
 import (
 	"bytes"

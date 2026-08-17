@@ -180,7 +180,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		}
 		// B5: machine-wide (cross-jail) dirs, from the registry rather than a
 		// hardcoded per-agent branch. These come from GlobalHome, NOT ws_state, so a
-		// credential survives across workspaces — see agents.SharedDirs for why that
+		// credential survives across workspaces — see packload.SharedDirs for why that
 		// tier exists and why widening it is a real decision.
 		for _, dir := range packload.SharedDirs(in.packs) {
 			runCmd = append(runCmd, "-v",

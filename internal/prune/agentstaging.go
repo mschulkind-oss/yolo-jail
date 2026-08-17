@@ -8,7 +8,7 @@ import (
 )
 
 // PruneOrphanAgentStaging reaps per-jail briefing/skill staging dirs
-// (AGENTS_DIR/<cname>, created by agents.PrepareSkills) whose container no
+// (AGENTS_DIR/<cname>, created by jailcontent.PrepareSkills) whose container no
 // longer exists (storage-lifecycle §4). One dir accumulates per distinct
 // container name forever — 1000+ on a busy host — because nothing removed them
 // at container teardown.

@@ -101,7 +101,7 @@ func missingBriefingFromProblem(pack, from string, missed, fellBack bool) string
 // per destination and every pack contributes the same text to all of them.
 //
 // FIRST NON-EMPTY contribution wins, and that is a real limit rather than a resolution rule:
-// the jail's composition takes one (pack, text) pair per pack (agents.ComposePackBriefings), so
+// the jail's composition takes one (pack, text) pair per pack (jailcontent.ComposePackBriefings), so
 // a pack declaring two briefing contributions with two different `from` files cannot deliver
 // both there. The host render is per-DESTINATION and does honor both (BriefingProseFor); making
 // the jail match would mean composing per destination, which is a larger change than the `from`

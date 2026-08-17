@@ -1,7 +1,7 @@
 // Package hostskills delivers a pack's skills into a REAL home, which is a different
 // problem from delivering them into a jail.
 //
-// In a jail, `agents.PrepareSkills` merges built-in < pack < user's own into one flat
+// In a jail, `jailcontent.PrepareSkills` merges built-in < pack < user's own into one flat
 // staging dir and bind-mounts it :ro. Every path there is disposable, so clearing the
 // destination and replacing the tree wholesale is safe. On a host none of that holds: the
 // destination is the user's own `~/.claude/skills`, a `clearDirContents` there deletes

@@ -115,7 +115,7 @@ const confinementLabelPad = "               "
 // The print order and the per-primitive prose both come from internal/render
 // (render.PrimitiveOrder / render.PrimitiveDoes) rather than living here, because this is no
 // longer the only surface that renders the vector for a human: the per-notch briefing header
-// describes the same primitives to an AGENT (C2, internal/agents/agentsmd.go). Two wordings
+// describes the same primitives to an AGENT (C2, internal/jailcontent/briefing.go). Two wordings
 // for one primitive drift, and a reader who hits the disagreement cannot tell which is
 // current — so the table sits in the package that defines Primitive, with both consumers
 // reading it.

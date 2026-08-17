@@ -425,7 +425,7 @@ type PackModule struct {
 // import it (loopholes → config → packload is a cycle, measured). So the resolution
 // happens in whichever command resolved packs, and lands here ONCE; every consumer then
 // reads the same value through NewHostSet instead of assembling its own DiscoverOptions.
-// This is the same shape agents.SetPackSkillDirs already has, set by the same function
+// This is the same shape jailcontent.SetPackSkillDirs already has, set by the same function
 // (run.stagePacks) for the same reason.
 //
 // EMPTY IS FAIL-SAFE, which is what makes any partial wiring honest: a command that never

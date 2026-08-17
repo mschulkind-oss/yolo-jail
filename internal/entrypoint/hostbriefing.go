@@ -17,7 +17,7 @@ package entrypoint
 //
 // The decisions this encodes:
 //   - COMPOSED, in pack order, with the SAME provenance vocabulary the jail emits
-//     (`<!-- from pack: NAME -->`, agents.ComposePackBriefings). One file per destination,
+//     (`<!-- from pack: NAME -->`, jailcontent.ComposePackBriefings). One file per destination,
 //     however many packs contribute to it, so the destination's content is a function of the
 //     pack SET rather than of which pack was rendered last.
 //   - THE USER'S PROSE MOVES, it is not archived away (§6a, amended). A hand-written
@@ -171,7 +171,7 @@ func ComposeHostBriefings(packs []*packload.Pack, homeDir string) []HostBriefing
 }
 
 // appendHostBriefingSection adds one pack's attributed section, matching
-// agents.ComposePackBriefings' spacing byte-for-byte so the same prose reads the same at both
+// jailcontent.ComposePackBriefings' spacing byte-for-byte so the same prose reads the same at both
 // notches.
 func appendHostBriefingSection(base, pack, prose string) string {
 	section := hostBriefingProvenance(pack) + "\n" + strings.TrimRight(prose, " \t\r\n") + "\n"

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -14,8 +14,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// refreshJailBriefings rebuilds the per-jail skills staging + each selected
-// agent's AGENTS.md/CLAUDE.md briefing. Called on
+// refreshJailBriefings rebuilds the per-jail skills staging + one briefing per
+// pack-declared briefing destination. Called on
 // every invocation (incl. attach) so host-side skill/briefing edits propagate to
 // a live jail via inode-preserving writes. Returns the staging dir
 // (AGENTS_DIR/<cname>).
@@ -39,7 +39,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		forwardHostPorts = asAnyList(mapGet(netSec, "forward_host_ports"))
 	}
 
-	// Blocked-tools → agents.BlockedTool records.
+	// Blocked-tools → jailcontent.BlockedTool records.
 	blocked := blockedToolRecords(config.NormalizeBlockedTools(cfgMap(cfg, "security")))
 
 	// mount_descriptions for existing config.mounts.
@@ -61,19 +61,19 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 
 	// Source-tree gating: staged skills + the briefing's dev section both key
 	// off this. Derived from the stable workspace, so launch and attach agree.
-	isSrc := agents.WorkspaceIsYoloSourceTree(o.Workspace)
+	isSrc := jailcontent.WorkspaceIsYoloSourceTree(o.Workspace)
 
 	// Pack staging (C3) already ran, ABOVE the backend dispatch, and its ordering
 	// relative to skills is still load-bearing in the same way: stagePacks sets
-	// agents.SetPackSkillDirs as a side effect and PrepareSkills consumes it below.
+	// jailcontent.SetPackSkillDirs as a side effect and PrepareSkills consumes it below.
 	loadedPacks, packBriefings := staged.packs, staged.briefings
 
 	// PACK-DECLARED skills destinations. A pack mount whose source is "skills" says
 	// "put my skills tree here"; core builds a staging dir per pack and mounts it there.
-	agents.SetPackSkillTargets(packSkillTargets(loadedPacks))
+	jailcontent.SetPackSkillTargets(packSkillTargets(loadedPacks))
 
 	// Skills staging.
-	staging, err := agents.PrepareSkills(cname, homeDir(), nil, isSrc)
+	staging, err := jailcontent.PrepareSkills(cname, homeDir(), nil, isSrc)
 	if err != nil {
 		return "", err
 	}
@@ -81,7 +81,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// Resources map (sorted-key rendering handled inside BriefingContent).
 	resources := orderedMapToStrAny(cfgMap(cfg, "resources"))
 
-	in := agents.BriefingInput{
+	in := jailcontent.BriefingInput{
 		Workspace:          o.Workspace,
 		BlockedTools:       blocked,
 		MountDescriptions:  mountDescriptions,
@@ -90,14 +90,14 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		Loopholes:          loops,
 		Resources:          resources,
 		IsYoloSourceTree:   isSrc,
-		ProvisioningFailed: agents.ReadProvisioningFailed(o.Workspace),
+		ProvisioningFailed: jailcontent.ReadProvisioningFailed(o.Workspace),
 		Confinement:        string(config.ResolveConfinement(cfg)),
 	}
-	jailContent := agents.BriefingContent(in)
-	jailContent = agents.ComposeBriefing(jailContent, cfgStr(cfg, "agents_md_extra"))
+	briefingBody := jailcontent.BriefingContent(in)
+	briefingBody = jailcontent.ComposeBriefing(briefingBody, cfgStr(cfg, "agents_md_extra"))
 	// Pack prose last, each attributed to its pack (C3): it is instructions the
 	// agent will follow, so it must be traceable to a source.
-	jailContent = agents.ComposePackBriefings(jailContent, packBriefings)
+	briefingBody = jailcontent.ComposePackBriefings(briefingBody, packBriefings)
 
 	// Write one briefing per PACK-DECLARED briefing mount. The pack says where its
 	// prose goes; core writes the composed content to the matching staging file and
@@ -113,11 +113,11 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 			if c.Kind != packdecl.KindBriefing {
 				continue
 			}
-			content := jailContent
+			content := briefingBody
 			if hostOverlay := briefingHostOverlay(c); hostOverlay != "" && p.MayAccessHost {
-				content = agents.PrependHostBriefing(filepath.Join(home, hostOverlay), content)
+				content = jailcontent.PrependHostBriefing(filepath.Join(home, hostOverlay), content)
 			}
-			if err := agents.WriteBriefing(filepath.Join(staging, briefingStagingName(p.Name)), content); err != nil {
+			if err := jailcontent.WriteBriefing(filepath.Join(staging, briefingStagingName(p.Name)), content); err != nil {
 				return "", err
 			}
 		}
@@ -149,24 +149,24 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 //
 // A FUNCTION rather than four inline lines, so the property is testable at the code the
 // launch runs: the same expression retyped in a test asserts nothing about this file.
-func briefingLoopholes(loopholesCfg *jsonx.OrderedMap) []agents.Loophole {
-	var out []agents.Loophole
+func briefingLoopholes(loopholesCfg *jsonx.OrderedMap) []jailcontent.Loophole {
+	var out []jailcontent.Loophole
 	for _, lo := range loopholes.NewHostSet(loopholesCfg).Honored() {
-		out = append(out, agents.Loophole{Name: lo.Name, Desc: lo.Description})
+		out = append(out, jailcontent.Loophole{Name: lo.Name, Desc: lo.Description})
 	}
 	return out
 }
 
 // blockedToolRecords converts NormalizeBlockedTools output (a []any of ordered
-// maps) into agents.BlockedTool records.
-func blockedToolRecords(blocked []any) []agents.BlockedTool {
-	var out []agents.BlockedTool
+// maps) into jailcontent.BlockedTool records.
+func blockedToolRecords(blocked []any) []jailcontent.BlockedTool {
+	var out []jailcontent.BlockedTool
 	for _, b := range blocked {
 		m, ok := b.(*jsonx.OrderedMap)
 		if !ok {
 			continue
 		}
-		out = append(out, agents.BlockedTool{
+		out = append(out, jailcontent.BlockedTool{
 			Name:       mapStr(m, "name"),
 			Message:    mapStr(m, "message"),
 			Suggestion: mapStr(m, "suggestion"),
@@ -326,15 +326,15 @@ func briefingStagingName(pack string) string { return "briefing-" + pack + ".md"
 // composes those directories, the jail was reading yolo's generated output back in as "the
 // user's tree", and the local pack's content therefore arrived twice. The user's own skills
 // reach a jail through the local pack, which is an ordinary pack entry appended last.
-func packSkillTargets(loadedPacks []*packload.Pack) []agents.SkillTarget {
-	var out []agents.SkillTarget
+func packSkillTargets(loadedPacks []*packload.Pack) []jailcontent.SkillTarget {
+	var out []jailcontent.SkillTarget
 	for _, p := range loadedPacks {
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind != packdecl.KindSkills {
 				continue
 			}
-			out = append(out, agents.SkillTarget{
-				Staging: agents.SkillStagingName(p.Name), Dest: c.Into,
+			out = append(out, jailcontent.SkillTarget{
+				Staging: jailcontent.SkillStagingName(p.Name), Dest: c.Into,
 			})
 		}
 	}

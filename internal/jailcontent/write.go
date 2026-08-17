@@ -1,4 +1,4 @@
-package agents
+package jailcontent
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agents/builtinskills"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent/builtinskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 

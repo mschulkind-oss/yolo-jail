@@ -92,7 +92,7 @@ func TestJailWithoutALocalPackStagesNothingExtra(t *testing.T) {
 	}
 }
 
-// ORDER IS LOAD-BEARING AND IT IS LAST. agents.PrepareSkills copies packSkillDirs in this
+// ORDER IS LOAD-BEARING AND IT IS LAST. jailcontent.PrepareSkills copies packSkillDirs in this
 // order with later winning a same-named skill (copySkillSubdirs replaces the target), so the
 // local pack coming last is precisely what makes a PERSONAL skill outrank a shared pack's —
 // the precedence the jail already had when the user's own tree was a separate final layer.

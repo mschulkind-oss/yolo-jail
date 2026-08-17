@@ -1,4 +1,4 @@
-package agents
+package jailcontent
 
 import (
 	"io"
@@ -48,8 +48,9 @@ type SkillTarget struct {
 	Dest string
 
 	// A HostSource FIELD USED TO LIVE HERE, naming "the user's OWN skills tree to layer in
-	// last" — and it was set to the DESTINATION (run.packSkillTargets), e.g. the host's
-	// ~/.claude/skills. That was right while the destination held loose user files and became
+	// last" — and it was set to the DESTINATION (run.packSkillTargets), i.e. the host's own
+	// copy of the very path this staging dir gets mounted over. That was right while the
+	// destination held loose user files and became
 	// circular once `apply --host` COMPOSED it: a jail read yolo's own generated output back
 	// in as "the user's tree", and since the local pack is an ordinary pack entry its content
 	// arrived twice by two paths (roadmap.md S3). Invisible only because flat is
