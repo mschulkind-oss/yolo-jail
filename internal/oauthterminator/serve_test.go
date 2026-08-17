@@ -26,9 +26,6 @@ import (
 // up the real handler + a fake broker relay returning a lowercase header name
 // and asserts the client sees the lowercase name.
 func TestVerbatimResponseHeaderNames(t *testing.T) {
-	if testing.Short() {
-		t.Skip("network; -short")
-	}
 	// Fake relay behind the real transport: reply to action=proxy with a lowercase
 	// 'x-request-id' header.
 	double := startRelayDouble(t, respondPlain(map[string]any{
@@ -69,9 +66,6 @@ func TestVerbatimResponseHeaderNames(t *testing.T) {
 
 // TestPinnedHTTP11 asserts the TLS server does not negotiate h2.
 func TestPinnedHTTP11(t *testing.T) {
-	if testing.Short() {
-		t.Skip("network; -short")
-	}
 	cert, key := genSelfSigned(t, t.TempDir())
 	double := startRelayDouble(t, respondPlain(
 		map[string]any{"status": 200, "headers": map[string]any{}, "body_b64": ""}))
@@ -91,7 +85,12 @@ func TestPinnedHTTP11(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Client offering h2 must negotiate http/1.1 (or no ALPN), never h2.
-	conn, err := tls.Dial("tcp", ln.Addr().String(), &tls.Config{
+	//
+	// Bounded dial, not a bare tls.Dial: this test runs in the pre-commit hook,
+	// and if ServeTLS ever fails to start the connection sits in the listener's
+	// accept backlog forever. A deadline turns that into a named failure instead
+	// of a package-timeout panic ten minutes later.
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", ln.Addr().String(), &tls.Config{
 		InsecureSkipVerify: true,
 		NextProtos:         []string{"h2", "http/1.1"},
 	})

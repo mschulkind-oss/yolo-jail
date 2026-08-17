@@ -3,6 +3,7 @@ package packload_test
 import (
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -233,12 +234,24 @@ func TestCopilotFlagsInjectFromItsRealDeclaration(t *testing.T) {
 // antigravity.google.com/install.sh — a placeholder that was never replaced, and which
 // answered 200/text/html — for five days before anyone ran it.
 //
-// NETWORK-GATED, so it is not part of the offline unit run: skipped under -short (which is
-// what the pre-commit hook and the hermetic nix build use). It runs in the full `just test`
-// pass, where reaching the network is already normal.
+// NETWORK-GATED, and gated on its OWN knob rather than on -short. -short means exactly one
+// thing in this repo — "do not start containers" — and it is what integration/'s requireJail
+// reads. This test starts no container; it egresses to two third-party hosts. Hanging that
+// on -short made it invisible, because every invocation in the tree passes -short
+// (Justfile `test` and `test-fast`, ci.yml's check-go and check-macos) and the only
+// non-short target is ./integration, which does not contain this test. So it ran in zero
+// recipes and zero CI jobs — a rot-detector that had itself rotted.
+//
+// Un-gating outright is the wrong correction: a non-200 here is a hard failure, not a skip
+// (only a transport error skips, below), so someone else's CDN — claude.ai sits behind
+// Cloudflare — could redden a PR that changed nothing. Opt in with YOLO_TEST_NETWORK=1.
+//
+// NOTE: nothing in-tree sets that variable yet, so this test still executes nowhere. That is
+// now a visible, one-line-to-close gap (a scheduled job that exports it) instead of a gate
+// disguised as a speed optimization.
 func TestNativeInstallerURLsAreLive(t *testing.T) {
-	if testing.Short() {
-		t.Skip("network-gated: installer URL liveness needs the internet")
+	if os.Getenv("YOLO_TEST_NETWORK") != "1" {
+		t.Skip("needs outbound HTTPS to third-party installer hosts; set YOLO_TEST_NETWORK=1 to run")
 	}
 	checked := 0
 	for _, p := range loadAll(t) {

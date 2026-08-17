@@ -2,15 +2,15 @@ package journald
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/binary"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // tailMarker is journalctl's final output — the last bytes of the stream. The
@@ -38,16 +38,29 @@ const tailMarker = "===END-OF-JOURNAL-MARKER===\n"
 //     only happen after the client resumes reading — so the full payload +
 //     marker always arrive.
 //
-// This made the test bite: with the drain-wait moved back after cmd.Wait it
-// fails every run (short byte count, missing marker); with the fix it passes.
+// This made the test bite — but NOT on every run, and the comment that used to
+// claim otherwise was measured false. With the drain-wait moved back after
+// cmd.Wait (the racy ordering), 5 of 15 invocations here caught it; the other 10
+// passed. The window is open only when the pump is still BLOCKED on a full
+// socket at the instant cmd.Wait closes the pipes, and the socket's real
+// capacity varies run to run: the daemon writes 4096-byte payloads inside
+// frames, so its per-skb accounting differs from the raw 4096-byte writes
+// measureUnixSendBuffer uses to size the payload. When the socket happens to
+// swallow the whole stream the pump reaches EOF before Wait is even reached and
+// there is nothing left to lose. The margin is also bounded from ABOVE: at
+// +48KiB and beyond the leftover no longer fits in the pipe, so the fake cannot
+// exit, cmd.Wait cannot return early, and detection drops to zero.
+//
+// So this is a ~1-in-3 detector, not a deterministic one. It never fails when
+// the code is CORRECT (85 consecutive clean invocations), which is what makes it
+// safe to run un-gated; it is simply weaker evidence than it advertises. Sizing
+// the payload off a frame-shaped measurement rather than a raw one would tighten
+// it, and is left as a known, deliberate follow-up.
 //
 // Driven in-process against journald.Serve (was: a built-and-exec'd binary) —
 // the Wait/pipe race lives entirely inside handleConn, independent of the
 // process boundary.
 func TestNoTruncationRace(t *testing.T) {
-	if testing.Short() {
-		t.Skip("spawns processes; -short")
-	}
 	// Size the body just past the point where the daemon's socket write blocks,
 	// so the tail is guaranteed to still be in the pipe when journalctl exits,
 	// yet the whole payload fits in socket+pipe so journalctl can exit unaided.
@@ -136,9 +149,6 @@ func measureUnixSendBuffer(t *testing.T) int {
 // TestHeaderCapRejectsNewlineless: a client that never sends a newline is
 // rejected (exit 2) instead of growing daemon memory unbounded.
 func TestHeaderCapRejectsNewlineless(t *testing.T) {
-	if testing.Short() {
-		t.Skip("spawns processes; -short")
-	}
 	dir := t.TempDir()
 	writeFakeJournalctl(t, filepath.Join(dir, "journalctl"), 10)
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
@@ -169,23 +179,28 @@ func TestHeaderCapRejectsNewlineless(t *testing.T) {
 
 func writeFakeJournalctl(t *testing.T, path string, n int) {
 	t.Helper()
-	script := "#!/bin/sh\n" +
-		"python3 -c \"import sys; sys.stdout.buffer.write(b'x'*" + strconv.Itoa(n) + ")\"\n"
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeFakeJournalctlTailed(t, path, n, "")
 }
 
 // writeFakeJournalctlTailed writes n bytes of 'x' followed by tail, then exits.
 // The tail marker lands at the very end of the pipe stream, so it is the first
-// thing dropped by the Wait/pipe truncation race. The tail is base64-encoded so
-// it survives the shell/python quoting unchanged (no embedded quotes/newlines).
+// thing dropped by the Wait/pipe truncation race.
+//
+// The payload is generated HERE, in Go, and the fake is a one-line `cat` of it.
+// That is what keeps the fake hermetic — /bin/sh and cat are the whole
+// dependency list. It used to shell out to `python3 -c ...`: an undeclared
+// requirement that announced itself only as "rc=127, want 0" on a host without
+// python, and that has no business sitting in the un-gated unit run.
 func writeFakeJournalctlTailed(t *testing.T, path string, n int, tail string) {
 	t.Helper()
-	b64 := base64.StdEncoding.EncodeToString([]byte(tail))
-	script := "#!/bin/sh\n" +
-		"python3 -c \"import sys,base64; sys.stdout.buffer.write(b'x'*" + strconv.Itoa(n) +
-		"); sys.stdout.buffer.write(base64.b64decode('" + b64 + "')); sys.stdout.buffer.flush()\"\n"
+	payload := path + ".payload"
+	body := make([]byte, 0, n+len(tail))
+	body = append(body, bytes.Repeat([]byte("x"), n)...)
+	body = append(body, tail...)
+	if err := os.WriteFile(payload, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\nexec " + shquote.Join([]string{"cat", payload}) + "\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +219,15 @@ func startServe(t *testing.T, sock, mode string) (chan struct{}, chan struct{}) 
 			t.Errorf("Serve: %v", err)
 		}
 	}()
-	deadline := time.Now().Add(5 * time.Second)
+	// 30s, not 5s. This poll normally succeeds in single-digit milliseconds — the
+	// whole test invocation is under 2s — but at 5s it missed its budget once in
+	// ~85 runs on a loaded machine and reported "daemon socket never appeared"
+	// for a daemon that was merely descheduled. That was tolerable while the test
+	// ran nowhere; it is not, now that it runs in the pre-commit hook and on
+	// shared CI runners. A readiness poll exits the moment it is ready, so a
+	// longer ceiling costs nothing when things work and only buys headroom when
+	// they are slow.
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if c, err := net.DialTimeout("unix", sock, time.Second); err == nil {
 			c.Close()

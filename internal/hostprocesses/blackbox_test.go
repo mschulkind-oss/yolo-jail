@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -241,9 +242,6 @@ func fakePS(t *testing.T, extra string) string {
 }
 
 func TestBlackboxListMode(t *testing.T) {
-	if testing.Short() {
-		t.Skip("spawns ps; -short")
-	}
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway","waykeeper"],"fields":["pid","comm"]}}`)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
@@ -269,9 +267,6 @@ func TestBlackboxListMode(t *testing.T) {
 // this file's header claims, that the daemon never learns which transport carried
 // its bytes.
 func TestBlackboxFrontedListModeIsIdentical(t *testing.T) {
-	if testing.Short() {
-		t.Skip("spawns ps; -short")
-	}
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway","waykeeper"],"fields":["pid","comm"]}}`)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
@@ -304,9 +299,6 @@ func TestBlackboxFrontedListModeIsIdentical(t *testing.T) {
 //     had already taken over asserting it in the connection preamble. That is
 //     what makes this deletion a no-op for operators and not a lost column.
 func TestBlackboxAccessLineIsHostAttributed(t *testing.T) {
-	if testing.Short() {
-		t.Skip("spawns ps; -short")
-	}
 	logs := captureAccessLog(t)
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"],"fields":["pid","comm"]}}`)
@@ -341,9 +333,6 @@ func TestBlackboxAccessLineIsHostAttributed(t *testing.T) {
 // only as a key NAME in keys= — visible as a thing that was asked, never adopted
 // as a thing that is true.
 func TestBlackboxSpoofedJailIDIsOverridden(t *testing.T) {
-	if testing.Short() {
-		t.Skip("spawns ps; -short")
-	}
 	logs := captureAccessLog(t)
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"],"fields":["pid","comm"]}}`)
@@ -370,9 +359,6 @@ func TestBlackboxSpoofedJailIDIsOverridden(t *testing.T) {
 }
 
 func TestBlackboxEmptyAllowlistExit3(t *testing.T) {
-	if testing.Short() {
-		t.Skip("-short")
-	}
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":[]}}`)
 	ps := fakePS(t, "echo x\n")
@@ -388,9 +374,6 @@ func TestBlackboxEmptyAllowlistExit3(t *testing.T) {
 }
 
 func TestBlackboxNonStringModeExit2(t *testing.T) {
-	if testing.Short() {
-		t.Skip("-short")
-	}
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"]}}`)
 	ps := fakePS(t, "echo x\n")
@@ -407,9 +390,6 @@ func TestBlackboxNonStringModeExit2(t *testing.T) {
 }
 
 func TestBlackboxUnknownModeExit2(t *testing.T) {
-	if testing.Short() {
-		t.Skip("-short")
-	}
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"]}}`)
 	ps := fakePS(t, "echo x\n")
@@ -422,9 +402,6 @@ func TestBlackboxUnknownModeExit2(t *testing.T) {
 }
 
 func TestBlackboxTreeNonzeroEmptyExit0(t *testing.T) {
-	if testing.Short() {
-		t.Skip("-short")
-	}
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"]}}`)
 	// fake ps exits 1 with EMPTY stdout -> stdout is read regardless ->
@@ -441,9 +418,15 @@ func TestBlackboxTreeNonzeroEmptyExit0(t *testing.T) {
 	}
 }
 
+// TestBlackboxPidModeNotAllowlisted is the one test here that reads something
+// outside its own temp dirs: handlePid resolves a pid's comm through
+// /proc/<pid>/comm. Without procfs that read fails and the daemon takes the
+// exit-1 "not found" branch instead of the exit-2 not-allowlisted branch this
+// asserts — so the gate is a PLATFORM gate, not a cost gate. (-short is not the
+// flag for it: -short means "do not start containers", and this starts none.)
 func TestBlackboxPidModeNotAllowlisted(t *testing.T) {
-	if testing.Short() {
-		t.Skip("-short")
+	if runtime.GOOS != "linux" {
+		t.Skip("handlePid reads /proc/<pid>/comm; procfs is Linux-only")
 	}
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["definitely-not-our-comm"]}}`)
@@ -458,9 +441,6 @@ func TestBlackboxPidModeNotAllowlisted(t *testing.T) {
 }
 
 func TestBlackboxConfigReReadBetweenRequests(t *testing.T) {
-	if testing.Short() {
-		t.Skip("-short")
-	}
 	cfgDir := t.TempDir()
 	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":[]}}`)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")

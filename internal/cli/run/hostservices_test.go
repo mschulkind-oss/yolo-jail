@@ -1146,7 +1146,7 @@ func TestExternalServiceRefusesADaemonInsideTheWorkspace(t *testing.T) {
 // precisely so yolo's own path (which lives in the workspace during nested-jail
 // verification) cannot trip it.
 func TestExternalServiceStartsADaemonOutsideTheWorkspace(t *testing.T) {
-	if testing.Short() {
+	if runtime.GOOS != "linux" {
 		t.Skip("spawns a host process")
 	}
 	socketsDir := t.TempDir()

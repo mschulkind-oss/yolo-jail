@@ -278,9 +278,6 @@ func TestEndpointFaultsAreAttributed(t *testing.T) {
 // proves the flip changed the DIALER and nothing else: the framing assertions
 // are the same ones the AF_UNIX version made.
 func TestEndToEndOverLoopbackTLS(t *testing.T) {
-	if testing.Short() {
-		t.Skip("spawns a process (fake journalctl); -short")
-	}
 	dir := shortSocketDir(t)
 
 	// A fake journalctl on PATH: the daemon resolves the name against this
