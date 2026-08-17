@@ -93,8 +93,14 @@ func (e *unknownHookError) Error() string {
 }
 
 // linkSharedCredential replaces the pack's credentials file with a symlink into its
-// shared dir, harvesting an existing real file first so a login already performed in this
-// jail is not lost.
+// shared dir, moving an existing real file there first IF AND ONLY IF the shared file is
+// empty.
+//
+// This used to say "harvesting an existing real file first so a login already performed in
+// this jail is not lost", and that has been FALSE since the harvest was deleted (eb12125):
+// a login performed in this jail IS discarded when the shared file is populated, by design.
+// The rule and its accepted failure mode are stated once, at linkThroughShared — read it
+// before concluding a reverted login is a bug.
 //
 // The MACHINE-GLOBAL tier exists because re-authenticating in every workspace is wrong
 // behavior, not an inconvenience — so this is the one hook that deliberately leaks state

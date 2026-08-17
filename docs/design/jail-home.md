@@ -548,9 +548,12 @@ prior container's UID mapping and are deliberately left alone (ensure.go:82-91).
    can't see, and running jails silently stop seeing refreshes. The fsx
    header codifies the ban on rename-writes outside fsx (enforced by
    convention/review, not tooling — `os.Rename` legitimately remains in
-   non-mount-visible paths like image autoload and prune). The one exception
-   for mount-visible files: the credentials harvest into a rw *directory*
-   mount (§4.2).
+   non-mount-visible paths like image autoload and prune). **There is no
+   exception left for mount-visible files**: the one that used to be listed here
+   was the credentials harvest's tmp+rename into a rw *directory* mount, and the
+   harvest is deleted (§4.2, 2026-08-17). `os.Rename` no longer appears anywhere
+   in `internal/entrypoint`, so the rule is now exceptionless in the boot path —
+   don't reintroduce one by reading this gotcha as permission.
 2. **Never remove a mount-anchor directory** (`ClearContents`,
    fsx.go:14-17,49-63) — removing the dir detaches the mount (2026-07-04
    regression). Empty contents in place instead. `~/.yolo-shims` and
