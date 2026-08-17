@@ -176,16 +176,49 @@ is a fact yolo can read before starting anything. It simply never asks: today `n
 
 ## 5. Why "bind somewhere else" has nowhere to go
 
-The instinct — *pick a better bind address* — is right, and it is exhausted. The launcher's network
+> [!NOTE]
+> **First, the thing to be unambiguous about: binding `0.0.0.0` or the host's global address WOULD
+> work.** This section rejects it on security grounds, not because it fails. An earlier draft said
+> "there is no third address", which read as though nothing else could function — that was about a
+> third address which is *both* reachable *and* off the LAN, and it caused exactly the confusion it
+> was trying to prevent.
+>
+> **The §3.1 probe already proves it works.** `169.254.1.2:22` connected and returned the host's SSH
+> banner. That succeeds for one reason: `sshd` does not bind loopback-only. Pasta's tunnel delivers
+> to the host's global address, so **anything listening there is reachable from a jail** — same
+> mechanism, same ports. Our daemons are unreachable purely because of the address they chose.
+
+The instinct — *pick a better bind address* — is right, and it runs out. The launcher's network
 namespace contains **only** loopback and the host's real interfaces, so there are exactly two
-candidates:
+candidates, and each fails a different test:
 
-- **loopback** — what we do now, unreachable from a rootless jail;
-- **`0.0.0.0` or the host's LAN address** — reachable, and **on the LAN**, which is precisely what
-  §3.0's loopback bind exists to prevent. TLS and the per-jail token still gate *access*, but the
-  port becomes visible to the network. That is a change of security posture, not a bug fix.
+| candidate | reachable from a jail? | acceptable? |
+| :--- | :--- | :--- |
+| **`127.0.0.1`** (today) | ❌ no — it is the *host's* loopback, and the jail has its own | ✅ safe by construction |
+| **`0.0.0.0` / the host's LAN address** | ✅ **yes, this works** | ❌ puts the port on the LAN |
 
-There is no third address. The option is not unattractive; it does not exist.
+There is no candidate that passes both. That is the whole reason the fix has to move to the runtime
+rather than the bind.
+
+### 5.1 What binding globally would actually cost
+
+Not "it is less tidy" — three concrete changes, worth reading before rejecting the option, because if
+[OQ-R3](#-oq-r3--if-the-hosts-passt-predates---map-host-loopback-what-then) lands badly this becomes
+the fallback's rival:
+
+- **The port becomes visible to the network.** TLS with a pinned cert and a per-jail bearer token
+  still gate *access*, so this is not an open door. What is lost is that today a loopback-bound
+  socket is unreachable from the network **by construction** — no auth bug can be exploited
+  remotely, because no packet can arrive. Binding globally converts that structural guarantee into a
+  dependency on the auth path being correct. §3.0 exists for precisely that distinction.
+- **Every jail could reach every other jail's port.** Under pasta all jails resolve
+  `host.containers.internal` to the same tunnel, so a globally-bound daemon is visible to all of
+  them. Each per-jail relay would still reject a foreign token, so it is reachable-but-rejected
+  rather than open — but it is a move from *unreachable* to *rejected*, and those are different
+  security properties.
+- **A specific LAN address is not stable.** DHCP renewal or a laptop changing networks moves it, so
+  the daemon would need to re-bind or be bound to `0.0.0.0` anyway. That makes `0.0.0.0` the only
+  practical form of this option, which is also its widest form.
 
 > [!CAUTION]
 > `a1003b9` (reverted by `c49051c`) hit **both** failure modes at once by binding `10.88.0.1`, the
@@ -197,7 +230,7 @@ That leaves three real options, and only one keeps both the security model and t
 | Option | Verdict |
 | :--- | :--- |
 | **Make the runtime forward loopback** (`--map-host-loopback`) | ✅ **Take this.** Bind, cert pinning, per-jail token and the one-transport decision all survive untouched |
-| **Bind `0.0.0.0` / the LAN address** | ❌ Rejected — trades a reachability bug for permanent LAN exposure that §3.0 exists to prevent |
+| **Bind `0.0.0.0` / the LAN address** | ❌ Rejected — **it works** (§5), but trades a structural guarantee for permanent LAN exposure that §3.0 exists to prevent. Kept in view as the fallback's rival if OQ-R3 lands badly |
 | **Bind-mounted AF_UNIX socket on Linux** | ⚠️ Works and is LAN-free, but reopens a decision `loophole-transport.md` §7.4 retired *on purpose*. Fallback only — OQ-R3 |
 
 ---
