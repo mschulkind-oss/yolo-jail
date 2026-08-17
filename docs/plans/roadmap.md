@@ -78,15 +78,33 @@ whether the rule should exist in its current form at all — and by this repo's 
   *require-interpolation* rule admits exactly what the path rule exists to refuse. Interpolation is
   not evidence of anything; it is a spelling.
 
-- **My read, restored and sharpened: a CLOSED, yolo-resolved list of runtime sockets.** The manifest
-  names a member of the list (`pulse`, `pipewire`, …) rather than a path; yolo resolves the session
-  runtime dir; the claim is emitted in the host-IPC class that already exists.
+- ~~**My read, restored and sharpened: a CLOSED, yolo-resolved list of runtime sockets.**~~
+  **WITHDRAWN — you asked me to convince you, and trying to is what changed my mind.** A closed list
+  is an allowlist wearing an extension point's clothes: every new socket needs a yolo release, which
+  is the opposite of what a manifest field is for. That objection lands, and it is the second time I
+  have argued for this rule and had to retreat.
 
-  - **No false positives by construction** — the list is closed, so nothing unintended is admitted.
-  - Its failure mode is a false *negative* (a runtime socket nobody enumerated), which is fixed by
-    adding a name, not by loosening a rule.
-  - The approval string stays machine-independent, because what is approved is the declaration, not
-    the resolved path.
+- **The argument that finishes it, and it is in this file already.** The rule permits everything
+  under `$HOME` and refuses `${XDG_RUNTIME_DIR}/pulse/native`. So today it **admits `~/.ssh` and
+  refuses a pulse socket** — it lets through the thing worth protecting and blocks the thing that is
+  not. A gate with its two cases exactly inverted is not a weak gate; it is not a gate, and the
+  `mount`-kind consistency argument I leaned on last round cannot rescue it. That analogy is false
+  anyway: `mount` is relative-only because it stages **the pack's own content**, which has no
+  business naming a host path at all. A loophole bind is the opposite kind of thing — reaching a
+  host resource is its entire purpose.
+
+- **What actually protects here is what always did:** total claim enumeration plus the approval. A
+  bind emits an approvable string, and a fetched pack cannot cross without the user seeing it. The
+  path rule sits on top of that and refuses what a user could knowingly approve — Test 1 of
+  [gate-placement](../design/gate-placement-principle.md), aimed at an actor who already holds the
+  authority it protects.
+
+- **So: DROP the path rule. Keep one correctness property, which is not a gate.** The approved string
+  must determine the bound path — normalize, resolve `..`, and refuse a declaration whose resolution
+  is not stable between approval and launch. That is not "is this path allowed" (a judgement yolo
+  cannot make for a user) but "does the thing you approved equal the thing I mount" (a property yolo
+  must guarantee). `audio` then expresses itself as a pack with no new vocabulary at all, and
+  OQ-LP14 stops being a missing feature.
 
 - **It stopped being unblocking, 2026-08-15.** *"No bundled loopholes at the end of this sprint"*
   (OQ-BP4 below) cannot be reached without it: `audio` is the one bundled loophole that no pack can
@@ -125,8 +143,29 @@ half-built artifact still there".**
   record a known hole — a failing-if-it-changes assertion rather than a field that implies it is
   handled. If a fetched exec-bearing pack ever ships, decide content-anchoring then, on evidence.
 
-- **What still needs you:** whether to build content-anchoring *at all*, later. Removing the field
-  does not answer that; it only stops the codebase claiming an answer it does not have.
+- **RULED 2026-08-17: yes, build it — and the shape is a yolo-owned lockfile pinning a commit.**
+  The line you drew: a **local** pack you edit is your own business; a **fetched** git repo must not
+  change under you without yolo noticing. Approving a config change approves *that pack at that
+  commit*, and nothing after it.
+
+  - **Half of this already exists**, which makes it much smaller than "a new mechanism":
+    `packsrc.LockEntry` already records the resolved `Commit` alongside the ref
+    (`internal/packsrc/lock.go`). The lockfile is there and it already pins.
+  - **The missing half is the JOIN.** `HostAccessApproved` compares **claim strings only**, so a
+    pack whose commit moves keeps an approval granted against different content — exactly the hole
+    `ApprovedAt` pretended to cover and did not. The fix is to record the commit an approval was
+    granted against and re-prompt when it moves. That is the whole of G2b, and it needs no content
+    hashing: **the commit IS the content anchor** for a git-sourced pack.
+  - **The installer line is already drawn, and further right than you feared.**
+    `packdecl.Install.InstallerURL` — a URL whose contents run as a shell script — is honored only
+    under the origin rule, so a **fetched pack cannot introduce one at all**. What remains is a local
+    pack's own installer, which is the "your own files, your own fault" side of your line. So the
+    install-time ack you asked for is only needed if we ever loosen that, and today the answer is
+    stricter than an ack.
+  - **What this leaves open** is narrow and worth naming: a `file://` pack has no commit to pin, so
+    it gets no anchor by construction — which is the intended asymmetry, not a gap. And a fetched
+    pack whose ref is a *branch* re-resolves on every install; the lockfile records where it landed,
+    so "re-prompt when the commit moves" is well-defined even there.
 
 ### 💬 OQ-D1 — the config-approval snapshot is agent-writable
 
