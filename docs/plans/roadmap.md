@@ -1,6 +1,6 @@
 # Ongoing work
 
-**Status: 19 attention required · 6 ready · 1 in progress · 5 waiting on a Mac · 2 broken · 3 icebox.**
+**Status: 19 attention required · 3 ready · 1 in progress · 5 waiting on a Mac · 2 broken · 3 icebox.**
 
 Last updated 2026-08-15. Counts tallied from this file, not asserted.
 
@@ -166,6 +166,16 @@ half-built artifact still there".**
     it gets no anchor by construction — which is the intended asymmetry, not a gap. And a fetched
     pack whose ref is a *branch* re-resolves on every install; the lockfile records where it landed,
     so "re-prompt when the commit moves" is well-defined even there.
+
+  - **The same ruling one level down, and it found a live hole.** Asking "why can a fetched pack not
+    ship an installer, when we are designing it to ship binaries?" exposed that the gate refuses
+    `curl | sh` while permitting `npm install -g`, which runs postinstall scripts — both arbitrary
+    code in the jail, decided oppositely. 📄
+    [`pack-execution-trust.md`](../design/pack-execution-trust.md) replaces the mechanism list with
+    one property (**pin what executes**), which closes the npm hole and opens the case you asked
+    about. It also rules that approval prose must be readable by a new user, and carries the one
+    genuinely open question (**OQ-X1**: does a digest-pinned installer script count, given its own
+    fetches are not pinned?).
 
 ### 💬 OQ-D1 — the config-approval snapshot is agent-writable
 
@@ -441,19 +451,6 @@ staging change it proposes — and the small independent items trail.
   `scripts/stage-source-bundle.sh`'s `SHIPPED_BINARIES`. A binary missing from the first vanishes
   from a source-built image; missing from the second it vanishes only from a SHIPPED-bundle image,
   which no dev jail ever builds. `internal/entrypoint/shippedclients_test.go` pins both to `cmd/*`.*
-
-- 📦 **`--help` is unanswered on eight more subcommands, and one of them writes a file.**
-
-  Surveyed while fixing `run`: `pack`, `config`, `apply`, `describe` and `check-deps` answer
-  before config load. **`check`, `prune`, `ps`, `init`, `init-user-config`, `config-ref` and the
-  `macos-*` commands do the work instead** — `check --help` runs a full check including a nix
-  build, `prune --help` prints a full disk report, and **`init --help` scaffolds a
-  `yolo-jail.jsonc`**. `loopholes` and `broker` do print usage, but to stderr with exit 1.
-
-  Deliberately not fixed with `run`: the same-shape fix needs a usage const per command, which is
-  new CLI text rather than the one-line change `run` needed. **`init --help` writing a file is the
-  one worth doing first** — asking a command what it does should never change your project.
-
 
 ---
 
