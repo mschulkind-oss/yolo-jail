@@ -96,10 +96,15 @@ does not work, and the reason generalizes.**
 `apiKeyHelper` returns an **API key**. An API key bills as pay-per-token API usage. A Teams
 subscription is **not** a key — it is OAuth whose credential file carries
 `subscriptionType` / `rateLimitTier`, and that metadata *is* the entitlement. (The repo already
-depends on this: `oauthMetadataKeys` in `internal/entrypoint/claude.go` preserves those fields
-deliberately, because Claude ≥ 2.1.200 treats a creds file carrying only the token trio as *not
-logged in*.) Putting a subscription through the key slot would mean paying for the seat and
-billing tokens separately.
+depends on this, because Claude ≥ 2.1.200 treats a creds file carrying only the token trio as
+*not logged in*. It used to depend on it twice — `oauthMetadataKeys` in the entrypoint's
+`shared_credentials` harvest **and** `NormalizeOAuth` in the broker. The harvest was deleted
+with the rest of the claude-shaped hook body, [`pack-code-separation.md`](pack-code-separation.md)
+§5, so the broker's copy-previous-then-override is now the **only** guard — pinned by
+`TestNormalizeOAuthPreservesEntitlementMetadata` and
+`TestRefreshPreservesEntitlementMetadataOnDisk` in `internal/oauthbroker`, which exist precisely
+because deleting one of two guards is how a property quietly becomes unheld.) Putting a
+subscription through the key slot would mean paying for the seat and billing tokens separately.
 
 **This answers a live open question.** `sequencing-2026-07.md` §4e asks: *"Keep the TLS-MITM architecture,
 or revisit `apiKeyHelper`?"* — noting a working `apiKeyHelper` broker exists on an abandoned
