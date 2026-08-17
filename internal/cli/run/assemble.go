@@ -250,12 +250,35 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	}
 
 	// --- network mode flag ---
+	//
+	// The default `bridge` mode still emits no --net flag: it means "let podman
+	// decide", and it stays that way. What it no longer means is "say nothing at
+	// all about networking" — hostLoopbackFactsFor asks podman which rootless
+	// stack it will use and, on the stacks yolo can positively identify, adds the
+	// option that forwards the host's LOOPBACK into the jail. Without it, pasta
+	// (podman's default since 5.0) forwards host.containers.internal to the
+	// host's global address and every loopback-TLS service is unreachable from
+	// every jail — see hostloopback.go and
+	// docs/design/loopback-tls-reachability.md §6. Every failure path there emits
+	// nothing, so the worst case is exactly the behaviour above.
 	if rt == "container" {
 		// Apple Container handles networking internally.
 	} else if rt == "podman" && inContainer {
+		// Podman-in-podman: netavark cannot create a netns without NET_ADMIN. This
+		// is also the one mode in which the reachability bug CANNOT reproduce (the
+		// jail shares the launcher's stack, so the two loopbacks are one), which is
+		// why a nested jail is no evidence about the branch below — §7 of the
+		// design doc, and the carve-out in AGENTS.md.
 		runCmd = append(runCmd, "--net=host")
-	} else if netMode != "bridge" {
-		runCmd = append(runCmd, "--net="+netMode)
+	} else {
+		if netMode != "bridge" {
+			runCmd = append(runCmd, "--net="+netMode)
+		}
+		hostLoopback := decideHostLoopback(o.hostLoopbackFactsFor(rt, netMode))
+		runCmd = append(runCmd, hostLoopback.args...)
+		if hostLoopback.warning != "" {
+			out.print(hostLoopback.warning)
+		}
 	}
 
 	// --- git identity + global gitignore (host-composed, :ro-mounted) ---

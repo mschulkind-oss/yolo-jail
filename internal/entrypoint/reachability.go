@@ -198,10 +198,14 @@ func ProbeServiceReachability(e *Env) {
 }
 
 // reachabilityExplanation is the diagnosis, printed once when anything came back
-// unreachable. It names the mechanism rather than a remedy on purpose: the remedy
-// is a launcher change (docs/design/loopback-tls-reachability.md §6) that does not
-// exist yet, and telling a user to fix something they cannot fix is worse than
-// telling them exactly what is broken.
+// unreachable. It names the mechanism first and the remedy second, in that order
+// on purpose: the remedy (docs/design/loopback-tls-reachability.md §6) now exists
+// in the launcher — internal/cli/run/hostloopback.go asks the runtime to forward
+// the host's loopback — so anyone reading this line is on a host where the
+// launcher DECLINED to ask, and the reason it declined was printed at launch. The
+// last line is what turns "your services are down" into somewhere to look; the
+// launcher's own line is the actionable half, and this points at it rather than
+// guessing which of its branches fired.
 const reachabilityExplanation = "" +
 	"  Every in-jail client of those services will fail the same way.\n" +
 	"  yolo's host daemons bind the host's LOOPBACK and advertise the container\n" +
@@ -211,6 +215,9 @@ const reachabilityExplanation = "" +
 	"  podman's default since 5.0 — which forwards to the host's global address\n" +
 	"  instead. On the host, `podman info --format '{{.Host.RootlessNetworkCmd}}'`\n" +
 	"  says which stack is in use.\n" +
+	"  yolo asks for that forwarding itself on the default network.mode; if it could\n" +
+	"  not — old passt, an explicit network.mode, a rootful or unrecognised runtime,\n" +
+	"  or YOLO_NO_HOST_LOOPBACK — it said so in this jail's launch output above.\n" +
 	"  docs/design/loopback-tls-reachability.md is the whole map."
 
 // enabledServiceEndpoints lists the loopback-TLS services this launch wired up, in
