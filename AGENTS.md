@@ -194,6 +194,23 @@ there is no sync step.
   in-jail** — it refuses (`YOLO_VERSION` set), because `go install` shadows the
   baked `/bin/yolo` on PATH with a stale GOBIN copy; rebuild the image, not a
   binary.
+- **CARVE-OUT: a nested jail is STRUCTURALLY BLIND to host-reachability
+  changes** — the one case where the instruction above is actively misleading
+  rather than merely insufficient. Podman-in-podman forces `--net=host`
+  (netavark cannot create a netns without `NET_ADMIN`), and that is the ONE mode
+  in which the loopback-forwarding class of bug **cannot** reproduce: the jail
+  shares the launcher's network stack, so the host's loopback and the jail's are
+  the same loopback. Anything touching how a jail reaches a host daemon — the
+  `--network` flag (`internal/cli/run/hostloopback.go`), `internal/svcendpoint`'s
+  bind/advertise pair, the `host.containers.internal` hop, the in-jail
+  reachability probe — therefore gets a **free green** from a nested jail no
+  matter how broken it is. That is how a total loopback-TLS outage shipped and
+  went unnoticed for four days
+  (`docs/design/loopback-tls-reachability.md` §3 row 6, §7; the same warning
+  heads `integration/reachability_test.go`). A nested green means the plumbing is
+  wired, never that the forwarding works: the only measurement that settles it is
+  a REAL jail on a rootless host, reported together with
+  `podman info --format '{{.Host.RootlessNetworkCmd}}'`.
 
 ## Invariants & gotchas
 
@@ -211,6 +228,15 @@ there is no sync step.
   forces `--net=host` (netavark can't create netns without `NET_ADMIN`). Inner
   containers also need `--cgroups=disabled` — both are image defaults in
   `/etc/containers/containers.conf`.
+- **The default `network.mode: bridge` no longer means silence.** It still emits
+  no `--net` flag, but the launcher now reads `podman info` and, on a *rootless*
+  podman whose `rootlessNetworkCmd` it recognises, adds the option that forwards
+  the host's LOOPBACK into the jail — `--network=pasta:--map-host-loopback,…` or
+  `--network=slirp4netns:allow_host_loopback=true`. Without it every loopback-TLS
+  service is unreachable from every jail on a pasta host (podman's default since
+  5.0). `internal/cli/run/hostloopback.go` is the whole decision and states why
+  every unproven fact emits nothing; `YOLO_NO_HOST_LOOPBACK=1` is the loud escape
+  hatch back to the old argv. An explicit `network.mode` is never overridden.
 - **Nix inside the jail** delegates to the host daemon: the CLI mounts
   `/nix/var/nix/daemon-socket` + `/nix/store:ro` and sets `NIX_REMOTE=daemon`.
   Without this you get "build users group has no members".
@@ -287,6 +313,9 @@ Agent logs, for debugging: `~/.copilot/logs/`,
    `./dist-go/linux-$(go env GOARCH)/yolo -- bash`. NOT bare `yolo` — that is the
    baked launcher and won't carry a launcher/argv-side change (see the
    nested-jail-verification invariant above). Never `just install` in-jail.
+   **Reachability-shaped change** (`--network`, `svcendpoint`'s bind/advertise,
+   `host.containers.internal`)? A nested jail cannot see that class at all — read
+   the carve-out under Testing before reporting it verified.
 3. `just format` (gofmt) before committing.
 4. Conventional commit messages. The pre-commit hook runs `just check-ci`; if it
    rejects, fix forward — never `--no-verify`, never `--amend`.
