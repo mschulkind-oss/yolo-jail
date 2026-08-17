@@ -517,6 +517,17 @@ func Main(args []string) error {
 		e.LauncherDir(),
 	}, ":"))
 
+	// The in-jail reachability witness runs LAST, and both halves of that are
+	// deliberate. Its warning is then the closest thing to the agent's first prompt
+	// instead of being buried under pack rendering; and it sits immediately above
+	// genFailuresError, the boot's existing "refuse before handing over control"
+	// gate, which is where OQ-R2's flip to fatal has to plug in. See
+	// reachability.go — it is the only check here that can only be answered from
+	// INSIDE the jail, because `yolo check` runs host-side and substitutes 127.0.0.1
+	// for the advertised host.
+	ProbeServiceReachability(e)
+	p.mark("probe_service_reachability")
+
 	// NOTE: We intentionally do NOT call `mise hook-env` here (flock deadlock).
 	p.dump(e.Home)
 
