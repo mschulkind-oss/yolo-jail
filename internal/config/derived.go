@@ -91,16 +91,20 @@ func EffectiveMCPServerNames(mcpServers, mcpPresets any) []any {
 // converted.
 //
 // It used to read the `agents` config key, which is DELETED: config now carries one
-// list of packs, a pack that installs an agent is just a pack, and nothing outside
-// internal/agents knows what an agent is. There is consequently no selection to read
-// and nothing to fall back on — a user with no packs gets no agents, and is TOLD so at
-// launch (that warning is the whole discoverability story, since with zero agents no
-// briefing file is written to put a note in).
+// list of packs, a pack that installs an agent is just a pack, and NOTHING IN CORE knows
+// what an agent is. That last clause named `internal/agents` until 2026-08-17 and was
+// wrong twice over by then — the package is `internal/jailcontent`, and the registry that
+// made the exemption true left it long before the name did (packs/*/pack.json holds it
+// now). There is consequently no selection to read and nothing to fall back on — a user
+// with no packs gets no agents, and is TOLD so at launch (that warning is the whole
+// discoverability story, since with zero agents no briefing file is written to put a
+// note in).
 //
-// It survives as a shim only so the registry-side callers (internal/cli/run,
-// internal/cli/check) keep compiling while they are converted to read packs instead;
-// deleting it is that change's job, not this one. Four call sites remain: run.go's
-// container and macos-user paths, prepare.go, and check/entrypoint.go.
+// It survives as a shim only so the registry-side callers keep compiling while they are
+// converted to read packs instead; deleting it is that change's job, not this one. ONE
+// call site remains — run.go's macos-user path. (The comment said four; prepare.go,
+// check/entrypoint.go and run.go's container path were converted without it being
+// updated, which is why the count is stated as a fact to re-grep rather than trusted.)
 //
 // Returning a non-nil empty slice is no longer LOAD-BEARING, and the comment that used
 // to say it was has been corrected rather than deleted, because the claim is the kind a

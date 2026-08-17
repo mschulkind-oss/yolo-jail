@@ -41,10 +41,12 @@ import (
 // returns no dir); `briefing` reports and carries on, since its fallback is contractual.
 //
 // A CONVENTIONAL `from` that is absent is NOT a problem, and the noise/signal line is drawn there
-// for SkillsSourceDir's reason: all six shipped packs declare `from: "AGENTS.md"` and carry no
-// such file — their contribution exists to name the DESTINATION other packs merge into — so
-// warning would fire on every launch and every apply of a stock config, which is how a warning
-// stops being read.
+// for SkillsSourceDir's reason: a briefing contribution whose job is to name the DESTINATION other
+// packs merge into carries no prose file of its own — all six shipped packs are exactly that shape
+// — so warning would fire on every launch and every apply of a stock config, which is how a
+// warning stops being read. (They reached that shape by dropping the redundant `from: "AGENTS.md"`
+// literals this sentence used to cite; the resolver behaves identically either way, which is the
+// point of routing both spellings through BriefingCandidates.)
 //
 // The containment check is hostBriefingProse's, kept verbatim in intent: `from` is manifest data,
 // packdecl.Validate rejects ".." at the authoring boundary, but a caller may hold a pack whose

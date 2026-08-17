@@ -295,31 +295,44 @@ Only the home-relevant ones expanded; the rest one-lined for orientation.
   (`venvShadowMountArgs`, mounts.go:62-96).
 - **User config for nested jails**: `~/.config/yolo-jail/config.jsonc` →
   same path in home, **ro** (assemble_parts.go:310-323; paths.go:85).
-- **Skills**: per selected agent with a skills target,
-  `AGENTS_DIR/<cname>/skills-<agent>` → `/home/agent/<Skills>` **ro**
-  (assemble.go:315-321); targets `.claude/skills`, `.copilot/skills`,
-  `.gemini/skills` (agents.go). Staging rebuilt host-side **every invocation**
-  by `jailcontent.PrepareSkills` (internal/jailcontent/skills.go): clears staging
-  contents in place (inode-preserving), writes the built-in
-  `jail-startup/SKILL.md`, then copies host `~/.<agent>/skills/*` dereferencing
-  symlinks.
+- **Skills**: per `skills` contribution, `AGENTS_DIR/<cname>/skills-<pack>` →
+  `/home/agent/<into>` **ro** (assemble.go's `packSkillTargets` loop; staging
+  name is `jailcontent.SkillStagingName`).
+  There is no per-agent target table any more — `.claude/skills`,
+  `.pi/agent/skills` and the rest are each some pack's `into` (the Go registry
+  that held them was `internal/agents/agents.go`, now gone). Staging rebuilt
+  host-side **every invocation** by `jailcontent.PrepareSkills`
+  (internal/jailcontent/skills.go): clears staging contents in place
+  (inode-preserving), writes the built-in `jail-startup/SKILL.md`, then copies
+  host `~/.<agent>/skills/*` dereferencing symlinks.
 - **Host agent-config files** (claude/pi selected): the yolo-declared,
-  non-widenable per-agent host-file set (`agents.AgentSpec.HostFiles` —
-  claude/pi each declare just `settings.json`) → `/ctx/host-<agent>/<fname>`
-  **ro** (`hostFileArgs`, internal/cli/run/packhostgrants.go). No config key and no
-  `YOLO_HOST_*_FILES` env: which host files cross into the jail is a credential
-  boundary fixed in yolo-shipped code, not a config knob (the retired
-  `host_claude_files`/`host_pi_files` keys; plan §10.4). The entrypoint
-  re-derives the same set in-jail from the baked registry and reads
+  non-widenable host-file set — each pack's `reads-host` contribution, claude
+  and pi each declaring just `settings.json` — → the `/ctx` path
+  `packload.CtxPath` derives from its `into` (`/ctx/host-claude/settings.json`,
+  `/ctx/host-pi/settings.json`) **ro** (`hostFileArgs`,
+  internal/cli/run/packhostgrants.go). No config key and no `YOLO_HOST_*_FILES`
+  env: which host files cross into the jail is a credential boundary fixed in
+  yolo-shipped code, not a config knob (the retired
+  `host_claude_files`/`host_pi_files` keys; plan §10.4). **The gate is ORIGIN,
+  not a baked list.** It was `agents.AgentSpec.HostFiles`, a fixed per-agent Go
+  constant, until that registry was deleted; a pack declares the grant now and
+  `HonoredHostFiles` honors it only for an embedded or local pack, refusing a
+  fetched one outright. The entrypoint re-derives the identical set in-jail from
+  the same pack manifests — not from a registry, which is why `CtxPath` is
+  deliberately the single definition both sides call — and reads
   `settings.json` fail-open from the mount.
-- **Briefings**: per selected agent, `AGENTS_DIR/<cname>/<Staging>` →
-  `/home/agent/<Mount>` **ro** (assemble.go:329-341). Pairs (agents.go): claude
-  `CLAUDE.md`→`.claude/CLAUDE.md`, copilot `AGENTS-copilot.md`→
-  `.copilot/AGENTS.md`, gemini→`.gemini/AGENTS.md`, opencode→
-  `.config/opencode/AGENTS.md`, pi→`.pi/agent/AGENTS.md`, codex→
-  `.codex/AGENTS.md`. Content regenerated host-side on **every** invocation by
-  `refreshJailBriefings` (prepare.go:20-93; called run.go:121-122) with
-  inode-preserving writes so live mounts see updates.
+- **Briefings**: per `briefing` contribution,
+  `AGENTS_DIR/<cname>/briefing-<pack>.md` → `/home/agent/<into>` **ro**
+  (assemble.go's briefing loop; staging name is `briefingStagingName`).
+  Destinations are pack data, not pairs in a table:
+  claude→`.claude/CLAUDE.md`, copilot→`.copilot/AGENTS.md`,
+  codex→`.codex/AGENTS.md`, opencode→`.config/opencode/AGENTS.md`,
+  pi→`.pi/agent/AGENTS.md`, agy→`.gemini/antigravity-cli/AGENTS.md`. Two packs
+  naming one `into` is legal and expected (an agent pack plus a house-rules
+  pack); first writer wins the mount, since podman rejects a duplicate mount
+  destination. Content regenerated host-side on **every** invocation by
+  `refreshJailBriefings` (prepare.go; called from run.go) with inode-preserving
+  writes so live mounts see updates.
 - **Loophole runtime mounts** (`loopholes.RuntimeArgsFor`,
   internal/loopholes/runtime.go): module dir →
   `/etc/yolo-jail/loopholes/<name>` ro + state dir →
@@ -417,8 +430,11 @@ anchor (fsx.go:49-63).
 
 ### 4.1 Why GLOBAL_HOME is `:ro` with symlink escape hatches
 
-`EnsureGlobalStorage` (ensure.go:39-108) builds the base: the **union** of all
-agents' overlay dirs (`agents.AllOverlayDirs`, agents.go) plus shared dirs, the
+`EnsureGlobalStorage` (ensure.go:39-108) builds the base: the **union** of every
+SHIPPED pack's overlay dirs (`packload.EmbeddedWritableDirs` +
+`EmbeddedSharedDirs` — the union deliberately is NOT selection-gated, so a
+`host_files` entry can never claim a path a pack added tomorrow needs; this was
+`agents.AllOverlayDirs` in the deleted registry), plus the
 touch-file mountpoints, and three **relative** symlinks — `.claude.json →
 .claude/claude.json`, `.gitconfig → .config/git/config`, `.bashrc →
 .config/bashrc` (ensure.go:94-102). The trick: the base is read-only, but these

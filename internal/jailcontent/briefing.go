@@ -63,7 +63,7 @@ type BriefingInput struct {
 // user content is prepended and before agents_md_extra is appended). The body
 // is assembled from BriefingInput — the briefing lines joined with "\n" plus a
 // trailing newline. NOTE: this is NOT golden-pinned; no test asserts the full
-// output (agentsmd_test.go covers only the helpers), so sections can be added
+// output (briefing_test.go covers only the helpers), so sections can be added
 // or removed without regenerating a golden. NetMode defaults to "bridge" when
 // empty.
 

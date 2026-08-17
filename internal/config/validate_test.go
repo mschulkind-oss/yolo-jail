@@ -227,11 +227,17 @@ func TestValidateRepoPathNonStringStillErrors(t *testing.T) {
 }
 
 // host_claude_files and host_pi_files were RETIRED (2026-07-23): the host-file
-// set each agent reads is now a yolo-declared, non-widenable per-agent constant
-// (internal/agents.AgentSpec.HostFiles), so a workspace config can no longer
+// set is yolo-declared and non-widenable, so a workspace config can no longer
 // widen which host files cross the credential boundary. Both keys are dropped
 // from knownTopLevelConfigKeys and now hard-error as unknown keys, exactly like
 // the retired `docker` runtime — "pretend they never existed" (plan §10.4 D4).
+//
+// WHERE the set is declared has moved twice and the boundary has not. It was
+// `internal/agents.AgentSpec.HostFiles`, a fixed per-agent Go constant; it is now
+// each pack's `reads-host` contribution, gated on the pack's content ORIGIN —
+// embedded packs ship with yolo and carry its authority, a fetched pack is refused
+// outright (packload.HonoredHostFiles, run/packhostgrants.go). Config reads into
+// neither, which is the property this test pins.
 func TestRetiredHostFilesKeysAreUnknown(t *testing.T) {
 	for _, key := range []string{"host_pi_files", "host_claude_files"} {
 		errs, _ := ValidateConfig(decode(t, `{"`+key+`": ["settings.json"]}`), t.TempDir(), nil)

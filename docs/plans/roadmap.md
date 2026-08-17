@@ -201,7 +201,8 @@ half-built artifact still there".**
   nothing is composed** — `reportSkillCollisions` prints one red line per collision and the whole
   skills surface is skipped. Deliberately a refusal rather than a crash: its own comment says *"a
   fatal error the user cannot act on is worse than the silent loss it replaces."*
-- **In a jail it is silently resolved.** `internal/agents/skills.go` has **no collision concept at
+- **In a jail it is silently resolved.** `internal/jailcontent/skills.go` (was
+  `internal/agents/skills.go`; renamed 2026-08-17, re-verified after) has **no collision concept at
   all** — no mention of the word — so the packs are copied in order and the last writer wins.
 - **Is it an accident? Half.** S1's ruling was explicit that the collision is fatal *at apply time*,
   and the jail path was simply never given the concept. So it is a scope boundary that hardened into

@@ -128,7 +128,8 @@ leaf.
 
 - **State: PARTIAL.** The top of the chain is solid: the briefing opens with
   `Jail tooling: yolo --help; config reference: yolo config-ref`
-  (`agentsmd.go:112`) and the `--help` footer names `config-ref`. That footer's
+  (`internal/jailcontent/briefing.go`, `confinementHeader` — and `enforcementLines`
+  for the non-jail notches) and the `--help` footer names `config-ref`. That footer's
   hedge — "Run `yolo <subcommand> --help` **where supported**" — is gone, because
   the promise is now true everywhere (item 1); softening it was never the fix, and
   the fix was to make it honest. Each command's help also points onward now (a
@@ -137,7 +138,7 @@ leaf.
   Still PARTIAL for one reason: `yolo --help` does not list `macos-teardown`,
   `macos-unshare` or `macos-fix-permissions` (item 4), so three commands answer a
   `--help` nobody can discover they have. The loopholes branch *is* closed
-  end-to-end (`agentsmd.go:148` → `yolo loopholes list`), and `config-ref` is
+  end-to-end (`jailcontent.BriefingContent` → `yolo loopholes list`), and `config-ref` is
   reachable and real — those are the model.
 
 ### 6. Concepts are reachable from the CLI (config-ref section or `yolo help <topic>`)
