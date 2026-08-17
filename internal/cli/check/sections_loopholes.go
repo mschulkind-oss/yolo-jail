@@ -62,10 +62,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 		switch {
 		case res.RC != nil && *res.RC == 0:
 			r.ok("loophole " + lp.Name + ": self-check ok")
-			if lp.Name == brokerLoopholeName {
-				o.checkBrokerCredsFreshness(r)
-				o.reportBrokerDaemon(r)
-			}
+			reportSelfCheckLines(r, lp.Name, res.Output)
 		case res.RC == nil:
 			out := res.Output
 			if out == "" {
@@ -73,16 +70,49 @@ func (o *Options) checkLoopholes(r *reporter) {
 			}
 			r.warn("loophole "+lp.Name+": self-check could not run", out)
 		default:
-			problems := nixdiag.SplitSelfCheckProblems(res.Output)
-			if len(problems) == 0 {
+			if graded := reportSelfCheckLines(r, lp.Name, res.Output); graded == 0 {
 				r.fail(fmt.Sprintf("loophole %s: self-check failed (rc=%d)", lp.Name, *res.RC), "no output")
-			} else {
-				for _, p := range problems {
-					r.fail("loophole "+lp.Name+": "+p.Title, p.Detail)
-				}
 			}
 		}
+		// OUTSIDE the switch, and deliberately: the daemon-liveness block is the
+		// first thing you want when the self-check FAILED (expired shared creds
+		// are usually a dead or wedged broker), and it used to hang off the rc=0
+		// branch only — where the freshness grading also lived, so a bad grade
+		// could not coexist with a non-zero rc. Now that the grading is behind
+		// doctor_cmd, a bad grade IS a non-zero rc, and gating liveness on rc=0
+		// would hide it in exactly the case it is diagnostic.
+		if lp.Name == brokerLoopholeName {
+			o.reportBrokerDaemon(r)
+		}
 	}
+}
+
+// reportSelfCheckLines renders a self-check's own graded output — "FAIL:" as a
+// fail, "NOTE:" as a warn, "OK:" as a pass — and returns how many lines it
+// rendered. The trailing colon-less "OK" summary is not a graded line; the
+// caller's "self-check ok" header covers that.
+//
+// Core used to render only the FAIL lines, and only when rc was non-zero, which
+// meant a passing self-check's own findings never reached the screen. That is
+// precisely what forced `yolo check` to re-implement the broker's shared-creds
+// freshness grading in Go against `claudeAiOauth.expiresAt` (deleted with this
+// change): the number existed, but there was no way for a loophole to REPORT a
+// healthy-but-informative measurement through the doctor_cmd seam it already
+// declared. Rendering the whole protocol is what makes doctor_cmd the extension
+// point it was always documented to be — for every loophole, not just this one.
+func reportSelfCheckLines(r *reporter, name, output string) int {
+	lines := nixdiag.SplitSelfCheckLines(output)
+	for _, l := range lines {
+		switch l.Grade {
+		case nixdiag.GradeFail:
+			r.fail("loophole "+name+": "+l.Title, l.Detail)
+		case nixdiag.GradeNote:
+			r.warn("loophole "+name+": "+l.Title, l.Detail)
+		case nixdiag.GradeOK:
+			r.ok("loophole " + name + ": " + l.Title)
+		}
+	}
+	return len(lines)
 }
 
 // reportBrokerDaemon reports the broker liveness block (after a green

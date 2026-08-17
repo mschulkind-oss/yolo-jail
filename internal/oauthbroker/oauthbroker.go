@@ -82,6 +82,16 @@ func oauthFromCreds(credsPath string) (*jsonx.OrderedMap, error) {
 	if err != nil {
 		return nil, err
 	}
+	return oauthFromCredsBytes(data)
+}
+
+// oauthFromCredsBytes is oauthFromCreds' body once the file is in hand, split
+// out for the one caller that has already read the bytes for another reason
+// (SelfCheck, which needs the raw text to tell an empty pre-login placeholder
+// from a corrupt file). Keeping ONE claudeAiOauth extraction in this package is
+// the point: the schema knowledge that used to be copied into `yolo check`
+// belongs here, and it should not now be copied twice within here.
+func oauthFromCredsBytes(data []byte) (*jsonx.OrderedMap, error) {
 	decoded, err := jsonx.Decode(data)
 	if err != nil {
 		return nil, err
