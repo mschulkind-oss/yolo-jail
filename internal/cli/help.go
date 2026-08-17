@@ -70,6 +70,12 @@ func usageText() string {
 	b.WriteString("                       Inside a jail this is how you install a loophole for " +
 		"a nested\n")
 	b.WriteString("                       jail: write the layer in your own home and pass it.\n")
-	b.WriteString("\nRun '[cyan]yolo <subcommand> --help[/cyan]' where supported, or see '[cyan]yolo config-ref[/cyan]'.\n")
+	// "where supported" is gone: EVERY registered subcommand now answers --help to
+	// stdout with exit 0 and no side effect (subhelp.go, and
+	// TestEveryRegisteredCommandAnswersHelp which walks the registry to keep it
+	// true). The hedge existed because the promise was false — following it landed
+	// you in a full check, a disk scan, or a scaffolded yolo-jail.jsonc — and a
+	// hedge in the footer is not a fix for a footer that lies.
+	b.WriteString("\nRun '[cyan]yolo <subcommand> --help[/cyan]' for any command's own help, or see '[cyan]yolo config-ref[/cyan]'.\n")
 	return b.String()
 }

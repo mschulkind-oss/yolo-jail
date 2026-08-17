@@ -22,16 +22,77 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
+const macosSetupUsage = `Usage: yolo macos-setup
+
+Provision the native macOS sandbox user the macos-user backend runs jails as: it
+creates the ` + "`_yolojail`" + ` account (random password, no login shell) if it is
+missing, sets up the shared group, and prepares the shared root. Idempotent —
+re-running it reuses an existing account.
+
+sudo is invoked for the account steps, so macOS may prompt for your admin
+password. macOS only: on any other platform it refuses.
+
+  --help, -h  Show this help. Answered before anything is created.
+
+See ` + "`yolo config-ref`" + ` for the ` + "`backend`" + ` key, and ` + "`yolo macos-teardown`" + ` to remove
+the account again.`
+
+const macosTeardownUsage = `Usage: yolo macos-teardown
+
+Remove the ` + "`_yolojail`" + ` sandbox user and its group — the undo of
+` + "`yolo macos-setup`" + `. Does nothing (exit 0) when the account does not exist.
+
+sudo is invoked for the deletion, so macOS may prompt for your admin password.
+macOS only: on any other platform it refuses.
+
+  --help, -h  Show this help. Answered before anything is deleted.`
+
+const macosUnshareUsage = `Usage: yolo macos-unshare <workspace>
+
+Strip yolo-jail's ACLs from <workspace>, so the sandbox user can no longer reach
+it. The path is resolved (absolute + symlinks) first and must be a directory.
+This is how you take a workspace back out of the macos-user backend's reach
+without tearing down the account.
+
+macOS only: on any other platform it refuses.
+
+  --help, -h  Show this help. Answered before any ACL is touched.
+
+The inverse — putting the ACLs BACK on files that predate sharing — is
+` + "`yolo macos-fix-permissions`" + `.`
+
+const macosFixPermissionsUsage = `Usage: yolo macos-fix-permissions [path]
+
+Retrofit the shared-group ACL onto files that already existed in the shared area
+before it was shared. With no [path] it walks the whole shared root; with one it
+walks that directory instead.
+
+It refuses a path inside a user home: the macos-user backend only manages ACLs on
+neutral ground. macOS only: on any other platform it refuses.
+
+  --help, -h  Show this help. Answered before any ACL is applied.`
+
 // runMacosSetup/Teardown/Unshare/FixPermissions dispatch the four macos-*
-// commands (macOS-only; refuse/no-op on Linux).
-func runMacosSetup(_ []string) int {
+// commands (macOS-only; refuse/no-op on Linux). Each answers its own `--help`
+// first: these are sudo-invoking, ACL-rewriting commands, so "what does this do?"
+// must be answerable without running them (see subhelp.go).
+func runMacosSetup(args []string) int {
+	if answerHelp("macos-setup", args, os.Stdout) {
+		return 0
+	}
 	return macosuser.MacosSetup(macosuser.RealDeps(nil, nil, isTTYStdout()))
 }
-func runMacosTeardown(_ []string) int {
+func runMacosTeardown(args []string) int {
+	if answerHelp("macos-teardown", args, os.Stdout) {
+		return 0
+	}
 	return macosuser.MacosTeardown(macosuser.RealDeps(nil, nil, isTTYStdout()))
 }
 
 func runMacosUnshare(args []string) int {
+	if answerHelp("macos-unshare", args, os.Stdout) {
+		return 0
+	}
 	ws := ""
 	if len(args) > 1 {
 		ws = args[1]
@@ -40,6 +101,9 @@ func runMacosUnshare(args []string) int {
 }
 
 func runMacosFixPermissions(args []string) int {
+	if answerHelp("macos-fix-permissions", args, os.Stdout) {
+		return 0
+	}
 	path := ""
 	if len(args) > 1 {
 		path = args[1]
@@ -47,8 +111,48 @@ func runMacosFixPermissions(args []string) int {
 	return macosuser.MacosFixPermissions(macosuser.RealDeps(nil, nil, isTTYStdout()), path)
 }
 
+// pruneUsage is what `yolo prune --help` prints. The flag list is exactly the
+// flags runPrune parses (TestUsageListsEveryParsedFlag pins that), and the
+// defaults are prune.NewDefaultOptions'.
+const pruneUsage = `Usage: yolo prune [flags]
+
+Reclaim disk that yolo is holding: stale containers, old jail images, the image
+tarball cache, nix build/image GC roots, shadowed jail homes, and heavy tool
+caches.
+
+DRY-RUN BY DEFAULT. With no flags it reports what it WOULD reclaim and deletes
+nothing; --apply is the only thing that removes anything.
+
+Flags:
+  --apply                  Actually reclaim. Without it nothing is deleted.
+  --no-containers          Skip the stale-container sweep.
+  --no-images              Skip the old-jail-image sweep.
+  --keep-images <n>        Keep the newest <n> jail images (default 2).
+  --no-image-cache         Skip the image-tarball cache sweep.
+  --image-cache-keep <n>   Keep the newest <n> cached image tarballs (default 3).
+  --no-build-roots         Skip the nix build GC roots.
+  --no-image-roots         Skip the nix image GC roots.
+  --no-shadowed-home       Skip the shadowed jail-home sweep.
+  --cache-age <days>       Only consider caches older than <days> (default 30;
+                           0 skips the pass entirely).
+  --purge-heavy-caches     Also purge the heavy tool caches (npm, go, cargo, …).
+  --no-hardlink            Do not hardlink-dedup identical cache files.
+  --dedup-global           Dedup across every workspace, not just this one.
+  --nix-gc                 Run the bounded host nix store GC. Opt-in, host-only,
+                           and gated on every known image closure having a
+                           durable GC root; it refuses inside a jail.
+  --nix-gc-max <bytes>     Ceiling for that GC (default 50 GiB). A ceiling, not a
+                           target: nix stops once it has freed this many bytes.
+  --help, -h               Show this help. Answered before the disk is scanned,
+                           so asking what prune does costs nothing.`
+
 // runPrune runs `yolo prune` (disk reclaim). Default dry-run; --apply reclaims.
 func runPrune(args []string) int {
+	// Before the scan: a full disk report is the LAST thing someone asking what
+	// this command does wants to wait for. See subhelp.go.
+	if answerHelp("prune", args, os.Stdout) {
+		return 0
+	}
 	opts := prune.NewDefaultOptions()
 	opts.Color = true
 	// args: ["prune", <flags>...]
@@ -136,9 +240,39 @@ func runPrune(args []string) int {
 	return prune.Run(opts)
 }
 
+const brokerUsage = `Usage: yolo broker <subcommand>
+
+Manage the Claude OAuth broker: the host daemon that SERIALIZES Claude OAuth
+refreshes, so several jails sharing one account cannot race and burn the
+single-use refresh token. It runs on your machine, outside every jail.
+
+Subcommands:
+  status              Whether the broker is running, its pid and socket, and the
+                      state of the token it is guarding.
+  stop                Stop the broker.
+  restart             Restart it (the fix for a wedged or stale daemon).
+  logs [flags]        Print the broker's log.
+
+logs flags:
+  -n, --lines <n>     Show the last <n> lines (default 50; also -n<n> and
+                      --lines=<n>).
+  -f, --follow        Follow the log as it grows.
+
+  --help, -h          Show this help.
+
+The broker is a loophole: ` + "`yolo loopholes list`" + ` shows whether it is wired into
+this jail, and ` + "`yolo config-ref`" + ` documents the ` + "`loopholes`" + ` key that enables it.`
+
 // runBroker dispatches `yolo broker {status,stop,restart,logs}`. args is the
 // rewritten argv[1:] (args[0]=="broker").
 func runBroker(args []string) int {
+	// Answered here rather than in the `default:` branch below, which is MISUSE:
+	// help is a request (stdout, exit 0), misuse is an error (stderr, exit 1), and
+	// conflating them is what made `yolo broker --help` exit 1 (self-documenting-cli
+	// item 3).
+	if answerHelp("broker", args, os.Stdout) {
+		return 0
+	}
 	var sub string
 	var rest []string
 	if len(args) > 1 {
@@ -185,9 +319,33 @@ func runBroker(args []string) int {
 	}
 }
 
+const initUsage = `Usage: yolo init [--mount <path>]...
+
+Scaffold this workspace: write a commented yolo-jail.jsonc, append .yolo/ to
+.gitignore, and print the agent briefing. An existing yolo-jail.jsonc is never
+overwritten — re-running init on a configured workspace just reprints the
+briefing.
+
+Flags:
+  --mount, -m <path>  Mount a host path read-only into the jail, at
+                      /ctx/<basename> or at an explicit "host:container" target.
+                      Repeatable; also --mount=<path>.
+  --help, -h          Show this help. Answered BEFORE anything is written:
+                      asking what init does must not scaffold your project.
+
+Every key the generated file can carry is documented by ` + "`yolo config-ref`" + `; the
+user-level defaults every workspace inherits are ` + "`yolo init-user-config`" + `.`
+
 // runInit runs `yolo init` (scaffold yolo-jail.jsonc + briefing). Parses
 // repeatable --mount/-m.
 func runInit(args []string) int {
+	// FIRST, before the scaffold. This is the command the whole per-subcommand
+	// help item was filed for: `yolo init --help` used to fall through this flag
+	// scan and write yolo-jail.jsonc + .gitignore into the cwd, so asking a
+	// command what it does changed the project you asked from. See subhelp.go.
+	if answerHelp("init", args, os.Stdout) {
+		return 0
+	}
 	var mounts []string
 	for i := 1; i < len(args); i++ {
 		a := args[i]
@@ -209,8 +367,25 @@ func runInit(args []string) int {
 	return Init(cwd, mounts, os.Stdout, isTTYStdout())
 }
 
+const initUserConfigUsage = `Usage: yolo init-user-config
+
+Write the USER-level defaults at ~/.config/yolo-jail/config.jsonc — the settings
+every workspace on this machine inherits (packs, runtime, resources, loopholes),
+which a workspace's own yolo-jail.jsonc then narrows. An existing file is left
+untouched.
+
+  --help, -h  Show this help. Answered before the file is written.
+
+` + "`yolo config-ref`" + ` documents every key; ` + "`yolo init`" + ` does the per-workspace half.`
+
 // runInitUserConfig runs `yolo init-user-config`.
-func runInitUserConfig(_ []string) int {
+func runInitUserConfig(args []string) int {
+	// Before the write, for the same reason as `init`: this one creates
+	// ~/.config/yolo-jail/config.jsonc, so an unanswered --help edited the user's
+	// machine-wide config. See subhelp.go.
+	if answerHelp("init-user-config", args, os.Stdout) {
+		return 0
+	}
 	return InitUserConfig(os.Stdout)
 }
 
@@ -218,15 +393,63 @@ func isTTYStdout() bool {
 	return tty.IsTerminalFile(os.Stdout)
 }
 
-// runConfigRef prints the full configuration reference. args ignored.
-func runConfigRef(_ []string) int {
+const configRefUsage = `Usage: yolo config-ref
+
+Print the full configuration reference: every key accepted by a workspace
+yolo-jail.jsonc and by ~/.config/yolo-jail/config.jsonc, with its type, default
+and meaning. This is the schema document, and it is long — pipe it, or search it.
+
+  --help, -h  Show this help. The reference ITSELF is what a bare
+              ` + "`yolo config-ref`" + ` prints; this only describes the command.
+
+Scaffold the files it documents with ` + "`yolo init`" + ` and ` + "`yolo init-user-config`" + `.`
+
+// runConfigRef prints the full configuration reference.
+func runConfigRef(args []string) int {
+	// `config-ref` is not destructive, but a caller typing --help asked about the
+	// COMMAND, and answering with 700 lines of schema is not an answer. Same rule
+	// as everywhere else: help is what was requested.
+	if answerHelp("config-ref", args, os.Stdout) {
+		return 0
+	}
 	return RunStdout()
 }
+
+const loopholesUsage = `Usage: yolo loopholes [subcommand]
+
+A loophole is a HOST capability deliberately wired into the jail — a host daemon,
+a socket pass-through, a TLS intercept, a device — each one an explicit hole in an
+otherwise isolated container. This group is how you see which ones exist, whether
+they are active here, and whether they are healthy.
+
+Subcommands:
+  list              Every installed loophole, its source (bundled, pack-shipped
+                    or config-inline) and whether it is enabled here. This is the
+                    default: a bare ` + "`yolo loopholes`" + ` lists.
+  status            Run each loophole's own self-check. HOST-SIDE: inside a jail
+                    it says so and does nothing, because the things being checked
+                    are host daemons.
+  enable <name>     Print the config key that turns <name> on …
+  disable <name>    … or off. NEITHER WRITES ANYTHING YET: both print the exact
+                    ` + "`loopholes`" + ` block to add to ~/.config/yolo-jail/config.jsonc and
+                    exit non-zero, rather than silently reformatting a config file
+                    you hand-wrote.
+
+  --help, -h        Show this help.
+
+The ` + "`loopholes`" + ` config key is documented in ` + "`yolo config-ref`" + `; a pack can ship one
+(` + "`yolo pack --help`" + `, the ` + "`loophole`" + ` kind).`
 
 // runLoopholes dispatches the `yolo loopholes {list,status,enable,disable}`
 // group. args is the rewritten argv[1:], so args[0] == "loopholes" and args[1]
 // is the sub-subcommand.
 func runLoopholes(args []string) int {
+	// Before the switch: `--help` used to land on the `default:` MISUSE branch and
+	// exit 1 with a one-line usage on stderr. Help is a request, not an error
+	// (self-documenting-cli item 3) — stdout, exit 0, and the full text.
+	if answerHelp("loopholes", args, os.Stdout) {
+		return 0
+	}
 	// args: ["loopholes", <sub>, <rest>...]
 	var sub string
 	var rest []string
@@ -252,11 +475,28 @@ func runLoopholes(args []string) int {
 	}
 }
 
-// runPs runs `yolo ps` (list running jails). args is ignored (ps takes no
-// flags). Uses platform-aware runtime resolution: on macOS with Apple Container
+const psUsage = `Usage: yolo ps
+
+List the running yolo-* jails and the workspace each one is attached to, so you
+can tell whether ` + "`yolo`" + ` in this directory would ATTACH to a live jail or start a
+fresh one. Takes no flags beyond help.
+
+The container runtime is resolved the same way a launch resolves it (YOLO_RUNTIME,
+then the ` + "`runtime`" + ` config key, then a platform probe), so on a Mac running Apple
+Container this lists that runtime's jails rather than an empty podman.
+
+  --help, -h  Show this help.
+
+` + "`yolo prune`" + ` reclaims what the jails listed here have left behind.`
+
+// runPs runs `yolo ps` (list running jails). ps takes no flags of its own beyond
+// help. Uses platform-aware runtime resolution: on macOS with Apple Container
 // running, `podman ps` would be empty and the tracking-prune would delete live
 // jails' files.
-func runPs(_ []string) int {
+func runPs(args []string) int {
+	if answerHelp("ps", args, os.Stdout) {
+		return 0
+	}
 	ws, err := os.Getwd()
 	if err != nil {
 		ws = "."
@@ -394,10 +634,33 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 	})
 }
 
+const checkUsage = `Usage: yolo check [flags]
+       yolo doctor [flags]      (doctor is an alias for check — same body, same flags)
+
+Validate this machine and this workspace: the container runtime, nix, the user and
+workspace config, the jail image, the configured packs, the loopholes, and any
+running jails. One section per area; exit is non-zero if any section FAILs.
+
+Flags:
+  --build      Build the jail image if it is missing or stale (the default).
+  --no-build   Skip the image build entirely. This is the fast preflight to run
+               after editing yolo-jail.jsonc, and the one to use inside a jail.
+  --help, -h   Show this help. Answered before any section runs, so asking what
+               check does never triggers a nix build.
+
+` + "`yolo config-ref`" + ` is the schema the config sections validate against.`
+
 // runCheck parses the check/doctor flags (--build/--no-build) from args and runs
 // the native Go check. args is the rewritten argv[1:] (subcommand included), so
 // the leading token is "check"/"doctor". Exit code: 0 = no failures, 1 = fail.
 func runCheck(args []string) int {
+	// Before the sections, one of which is a nix image build: `yolo check --help`
+	// used to run the whole check (the unknown flag was silently ignored), which is
+	// minutes of work in answer to a question about the command. `doctor` shares
+	// this body and registers the same text under its own key. See subhelp.go.
+	if answerHelp("check", args, os.Stdout) {
+		return 0
+	}
 	opts := check.NewDefaultOptions()
 	opts.Color = true
 	// Parse flags. Only --build/--no-build are defined for check/doctor; any
