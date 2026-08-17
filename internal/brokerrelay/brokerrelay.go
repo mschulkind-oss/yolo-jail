@@ -283,7 +283,7 @@ func Serve(cfg Config, stop <-chan struct{}) error {
 	// function goes, so does the opt-out; until then nothing else may set it.
 	if cfg.EndpointPath != "" {
 		go func() {
-			if err := svcendpoint.ServeFrontWithOptions(cfg.EndpointPath, cfg.AdvertiseHost, "", socketPath, stop,
+			if err := svcendpoint.ServeFrontWithOptions(cfg.EndpointPath, cfg.AdvertiseHost, socketPath, stop,
 				svcendpoint.FrontOptions{NoPreamble: true}); err != nil {
 				Logger.Printf("front: %s not published (%v) — this jail cannot reach the relay",
 					cfg.EndpointPath, err)

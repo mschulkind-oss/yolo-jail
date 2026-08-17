@@ -92,7 +92,7 @@ func startFrontedDaemon(t *testing.T, configPath, fakePSDir string) (endpoint st
 	frontStop := make(chan struct{})
 	frontDone := make(chan struct{})
 	go func() {
-		_ = svcendpoint.ServeFront(endpoint, "127.0.0.1", "", sock, frontStop)
+		_ = svcendpoint.ServeFront(endpoint, "127.0.0.1", sock, frontStop)
 		close(frontDone)
 	}()
 	waitEndpoint(t, endpoint)

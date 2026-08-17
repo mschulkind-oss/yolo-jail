@@ -81,7 +81,7 @@ func TestFrontEOFModeHalfClosesUpstream(t *testing.T) {
 	stop := make(chan struct{})
 	defer close(stop)
 	go func() {
-		_ = ServeFrontWithOptions(endpoint, "127.0.0.1", "", upstream, stop,
+		_ = ServeFrontWithOptions(endpoint, "127.0.0.1", upstream, stop,
 			FrontOptions{HalfCloseUpstream: true})
 	}()
 	waitProbe(t, endpoint)
@@ -160,7 +160,7 @@ func TestServeFrontDefaultHasNoHalfClose(t *testing.T) {
 
 	stop := make(chan struct{})
 	defer close(stop)
-	go func() { _ = ServeFront(endpoint, "127.0.0.1", "", upstream, stop) }()
+	go func() { _ = ServeFront(endpoint, "127.0.0.1", upstream, stop) }()
 	waitProbe(t, endpoint)
 
 	conn, err := Dial(endpoint, 5*time.Second)

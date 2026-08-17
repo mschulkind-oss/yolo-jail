@@ -105,7 +105,7 @@ func TestStartJournalStartsBridge(t *testing.T) {
 	o := &Options{}
 	fillDefaults(o)
 
-	h, ok := o.startJournal(socketsDir, cfg, "127.0.0.1", "")
+	h, ok := o.startJournal(socketsDir, cfg, "127.0.0.1")
 	if !ok {
 		t.Fatal(`startJournal returned ok=false for journal:"user"; the bridge never spawned`)
 	}
@@ -156,7 +156,7 @@ func TestStartJournalSkipsWhenOff(t *testing.T) {
 	o := &Options{}
 	fillDefaults(o)
 
-	if _, ok := o.startJournal(socketsDir, cfg, "127.0.0.1", ""); ok {
+	if _, ok := o.startJournal(socketsDir, cfg, "127.0.0.1"); ok {
 		t.Fatal("startJournal returned a handle with journal unset; expected skip")
 	}
 }

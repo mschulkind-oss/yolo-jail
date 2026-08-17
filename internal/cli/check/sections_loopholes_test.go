@@ -67,7 +67,7 @@ func TestCheckLoopbackTLSServiceNamesTheLayer(t *testing.T) {
 
 	t.Run("complete but dead", func(t *testing.T) {
 		p := filepath.Join(dir, "dead.endpoint")
-		ln, err := svcendpoint.Listen(p, "", "")
+		ln, err := svcendpoint.Listen(p, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -87,7 +87,7 @@ func TestCheckLoopbackTLSServiceNamesTheLayer(t *testing.T) {
 
 	t.Run("auth rejected", func(t *testing.T) {
 		p := filepath.Join(dir, "live.endpoint")
-		ln, err := svcendpoint.Listen(p, "", "")
+		ln, err := svcendpoint.Listen(p, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -113,7 +113,7 @@ func TestCheckLoopbackTLSServiceNamesTheLayer(t *testing.T) {
 		// daemon publishes it. DialLocal keeping the port and substituting 127.0.0.1
 		// is the whole reason a host-side prober works at all, so a test that
 		// published 127.0.0.1 would prove nothing.
-		ln, err := svcendpoint.Listen(p, "", "")
+		ln, err := svcendpoint.Listen(p, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -234,7 +234,7 @@ func TestCheckBrokerRelayProbesTheHopTheJailUses(t *testing.T) {
 
 	t.Run("auth rejected is its own message", func(t *testing.T) {
 		p := filepath.Join(dir, "relay-live.endpoint")
-		ln, err := svcendpoint.Listen(p, "", "")
+		ln, err := svcendpoint.Listen(p, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -260,7 +260,7 @@ func TestCheckBrokerRelayProbesTheHopTheJailUses(t *testing.T) {
 
 	t.Run("relay authenticates but broker does not answer", func(t *testing.T) {
 		p := filepath.Join(dir, "relay-nobroker.endpoint")
-		ln, err := svcendpoint.Listen(p, "", "")
+		ln, err := svcendpoint.Listen(p, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -285,7 +285,7 @@ func TestCheckBrokerRelayProbesTheHopTheJailUses(t *testing.T) {
 		// The DEFAULT advertise host, as a real relay publishes it — DialLocal
 		// substituting 127.0.0.1 for the gateway name is what makes a host-side probe
 		// possible at all.
-		ln, err := svcendpoint.Listen(p, "", "")
+		ln, err := svcendpoint.Listen(p, "")
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -378,7 +378,7 @@ func startEchoFront(t *testing.T) string {
 
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
-	go func() { _ = svcendpoint.ServeFront(endpoint, "127.0.0.1", "", upstream, stop) }()
+	go func() { _ = svcendpoint.ServeFront(endpoint, "127.0.0.1", upstream, stop) }()
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {

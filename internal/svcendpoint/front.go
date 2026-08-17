@@ -22,8 +22,8 @@ import (
 //
 // The front is deliberately independent of the upstream: it publishes as soon as it
 // binds, and a connection that cannot reach upstreamUnixPath is logged and dropped.
-func ServeFront(publishPath, advertiseHost, bindHost, upstreamUnixPath string, stop <-chan struct{}) error {
-	return ServeFrontWithOptions(publishPath, advertiseHost, bindHost, upstreamUnixPath, stop, FrontOptions{})
+func ServeFront(publishPath, advertiseHost, upstreamUnixPath string, stop <-chan struct{}) error {
+	return ServeFrontWithOptions(publishPath, advertiseHost, upstreamUnixPath, stop, FrontOptions{})
 }
 
 // FrontOptions tunes ServeFrontWithOptions. The zero value is ServeFront's
@@ -58,13 +58,13 @@ type FrontOptions struct {
 }
 
 // ServeFrontWithOptions is ServeFront with per-daemon knobs; see FrontOptions.
-func ServeFrontWithOptions(publishPath, advertiseHost, bindHost, upstreamUnixPath string, stop <-chan struct{}, opts FrontOptions) error {
+func ServeFrontWithOptions(publishPath, advertiseHost, upstreamUnixPath string, stop <-chan struct{}, opts FrontOptions) error {
 	// listenWith, not Listen: the audit label these connections carry
 	// (crossing.go) plus the preamble switch. CrossingViaFront is also the marker
 	// that NO per-request tier exists for them — splice does not parse the
 	// stream, and the preamble is the one thing yolo ADDS to it, never something
 	// it reads back.
-	ln, err := listenWith(publishPath, advertiseHost, bindHost, CrossingViaFront, !opts.NoPreamble)
+	ln, err := listenWith(publishPath, advertiseHost, CrossingViaFront, !opts.NoPreamble)
 	if err != nil {
 		return err
 	}

@@ -338,7 +338,7 @@ func TestEndpointFileContentsNeverReachTheUser(t *testing.T) {
 	dir := shortSocketDir(t)
 	endpoint := filepath.Join(dir, "journal.endpoint")
 
-	ln, err := svcendpoint.Listen(endpoint, "127.0.0.1", "")
+	ln, err := svcendpoint.Listen(endpoint, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}

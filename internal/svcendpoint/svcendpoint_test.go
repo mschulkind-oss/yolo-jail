@@ -140,7 +140,7 @@ func startServer(t *testing.T) *testServer {
 
 func startServerAt(t *testing.T, publishPath string) *testServer {
 	t.Helper()
-	ln, err := Listen(publishPath, "127.0.0.1", "")
+	ln, err := Listen(publishPath, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Listen(%s): %v", publishPath, err)
 	}
@@ -895,7 +895,7 @@ func TestNoTokenOrCertInLogs(t *testing.T) {
 // its own loopback.
 func TestAdvertiseHostDiffersFromBindHost(t *testing.T) {
 	path := filepath.Join(privateDir(t), "advertise.endpoint")
-	ln, err := Listen(path, "host.containers.internal", "")
+	ln, err := Listen(path, "host.containers.internal")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -933,7 +933,7 @@ func TestAdvertiseHostDefaultsAndOverrides(t *testing.T) {
 	// An empty advertiseHost argument must never publish a bare ":port".
 	t.Setenv(AdvertiseHostEnv, "gateway.example")
 	path := filepath.Join(privateDir(t), "default.endpoint")
-	ln, err := Listen(path, "", "")
+	ln, err := Listen(path, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -944,29 +944,6 @@ func TestAdvertiseHostDefaultsAndOverrides(t *testing.T) {
 	}
 	if host, _, _ := net.SplitHostPort(ep.HostPort); host != "gateway.example" {
 		t.Errorf("published host = %q, want the resolved advertise host", host)
-	}
-}
-
-func TestBindHostDefaultsAndOverrides(t *testing.T) {
-	t.Setenv(BindHostEnv, "")
-	if got := BindHost(); got != DefaultBindHost {
-		t.Errorf("BindHost with an empty override = %q, want %q", got, DefaultBindHost)
-	}
-	t.Setenv(BindHostEnv, "10.88.0.1")
-	if got := BindHost(); got != "10.88.0.1" {
-		t.Errorf("BindHost = %q, want the override", got)
-	}
-	// A set override must change the BOUND address, not just the published one.
-	t.Setenv(BindHostEnv, "127.0.0.1")
-	path := filepath.Join(privateDir(t), "bind.endpoint")
-	ln, err := Listen(path, "host.containers.internal", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = ln.Close() }()
-	bound := ln.Addr().(*net.TCPAddr)
-	if bound.IP.String() != "127.0.0.1" {
-		t.Errorf("bound IP = %s, want the overridden bind host 127.0.0.1", bound.IP)
 	}
 }
 
@@ -993,7 +970,7 @@ func TestListenPublishesOnlyAfterBind(t *testing.T) {
 	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Listen(filepath.Join(notADir, "svc.endpoint", ""), "127.0.0.1", ""); err == nil {
+	if _, err := Listen(filepath.Join(notADir, "svc.endpoint"), "127.0.0.1"); err == nil {
 		t.Error("Listen succeeded with a regular file for a publish directory")
 	}
 
@@ -1003,7 +980,7 @@ func TestListenPublishesOnlyAfterBind(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(occupied, "child"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Listen(occupied, "127.0.0.1", ""); err == nil {
+	if _, err := Listen(occupied, "127.0.0.1"); err == nil {
 		t.Error("Listen succeeded when its publication could not be renamed into place")
 	}
 	entries, err := os.ReadDir(dir)
@@ -1021,7 +998,7 @@ func TestListenPublishesOnlyAfterBind(t *testing.T) {
 // same step, which is what makes token retirement identical to endpoint retirement.
 func TestCloseUnlinksEndpoint(t *testing.T) {
 	path := filepath.Join(privateDir(t), "close.endpoint")
-	ln, err := Listen(path, "127.0.0.1", "")
+	ln, err := Listen(path, "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -227,7 +227,7 @@ func TestPublishDirIsPrivateAndVerified(t *testing.T) {
 		if err := os.Mkdir(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := Listen(filepath.Join(dir, "svc.endpoint", ""), "127.0.0.1", ""); err == nil {
+		if _, err := Listen(filepath.Join(dir, "svc.endpoint"), "127.0.0.1"); err == nil {
 			t.Error("Listen bound a port for a publication it must refuse to write")
 		}
 	})
