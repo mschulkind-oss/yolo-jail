@@ -299,7 +299,7 @@ func TestShippedPacksLintClean(t *testing.T) {
 
 // A pack delivering skills and prose by CONVENTION, with no manifest at all, does work and
 // must lint clean — the zero-ceremony shape the jail reads through
-// packload.SkillsSourceDirs' undeclared fallback and run.readPackBriefing. Guards the
+// packload.SkillsSourceDirs' undeclared fallback and packload.BriefingProse. Guards the
 // obvious wrong implementation of the zero-contributions check: keying it on the manifest
 // alone would fail-lint the pack `pack init` scaffolds.
 func TestPackLintAcceptsZeroCeremonyPack(t *testing.T) {
@@ -311,6 +311,41 @@ func TestPackLintAcceptsZeroCeremonyPack(t *testing.T) {
 	var out, errw bytes.Buffer
 	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("lint rejected a zero-ceremony pack (rc=%d):\n%s", rc, out.String())
+	}
+}
+
+// lint's claimed-paths set must track packdecl.DefaultBriefingFiles, not a private copy of
+// it. CLAUDE.md left that list on 2026-08-17 (pack-code-separation.md §3.3), and lint kept
+// its own hardcoded `{"AGENTS.md", "CLAUDE.md"}` — so a pack whose only content is a root
+// CLAUDE.md was counted as CLAIMED ("some reader picks this up") by the one check whose job
+// is to say when nothing does. It linted clean and briefed nothing, which is precisely the
+// accepted-and-ignored shape both checks were rewritten to stop producing.
+//
+// Pinned as behavior rather than by asserting the literal, because the defect is the
+// DUPLICATION: a test on the list's contents would have stayed green while the two copies
+// drifted, which is how this survived the rename in the first place.
+func TestPackLintTracksTheBriefingConvention(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "CLAUDE.md"), "prose\n")
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
+		t.Fatalf("lint accepted a pack whose only content is CLAUDE.md; nothing reads that "+
+			"name any more, so the pack does nothing:\n%s", out.String())
+	}
+	if got := out.String(); !strings.Contains(got, "CLAUDE.md") {
+		t.Errorf("lint did not name the unread file:\n%s", got)
+	}
+
+	// The other half, so the fix cannot be "call everything unclaimed": AGENTS.md IS still
+	// the convention, and a pack carrying only that one still lints clean.
+	agents := t.TempDir()
+	writeFile(t, filepath.Join(agents, "AGENTS.md"), "prose\n")
+	out.Reset()
+	errw.Reset()
+	if rc := packMain([]string{"lint", agents}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("lint rejected a pack carrying the conventional AGENTS.md (rc=%d):\n%s",
+			rc, out.String())
 	}
 }
 
