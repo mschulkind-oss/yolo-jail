@@ -52,41 +52,61 @@ programmatic surfaces MUST satisfy 7. Each item is marked with its state
 Help is a *request*, not an error: it prints full help to **stdout** and exits
 **0**, and it never triggers the command's real work.
 
-- **State: UNMET.** No subcommand implements `--help`. `wantsTopLevelHelp`
-  (`internal/cli/cli.go:118`) only inspects `args[0]`, and `dispatchNative`
-  (`internal/cli/dispatch.go:79`) has no help hook, so `--help` falls through to
-  each handler's own flag scan. Verified live: `yolo run --help` *launches a
-  container* (the flag leaks to the inner command); `yolo init --help` *writes
-  `yolo-jail.jsonc`* into the cwd; `yolo prune --help` *runs a full disk scan*;
-  `yolo check --help` / `yolo init-user-config --help` *execute normally*
-  (unknown flag silently ignored).
-  Only `broker`/`loopholes` print anything, and only because `--help` lands on
-  their default/error branch (`internal/cli/commands.go:162,233`) — see item 4.
-  This is worse than a missing feature: several of these mutate state during
-  what an operator intends as a read-only interrogation. Highest-priority fix.
+- **State: MET (2026-08-17).** Every key in the dispatch registry answers
+  `--help`/`-h`/`help` on stdout with exit 0 and no side effect. `run` answers
+  through `runHelp`/`runHelpRequested` (`internal/cli/runcmd.go`), whose scan is
+  deliberately stricter so `yolo -- claude --help` still reaches the inner
+  command; `config`/`pack`/`apply`/`describe`/`check-deps` answer inside their own
+  testable bodies via `isHelpToken`; the remaining twelve keys answer via
+  `answerHelp` at the top of each handler (`internal/cli/subhelp.go`).
+  `dispatchNative` is deliberately NOT a central interception point — see that
+  file's header for why the `run` invariant forbids it.
+
+  **What it was:** worse than a missing feature. `yolo init --help` scaffolded a
+  `yolo-jail.jsonc` and appended to `.gitignore` in the cwd, and
+  `yolo init-user-config --help` wrote `~/.config/yolo-jail/config.jsonc` — TWO
+  commands mutated state during what an operator intends as a read-only
+  interrogation, not the one this doc recorded. `check --help` ran a full check
+  including a nix build, `prune --help` walked the disk, and `broker`/`loopholes`
+  printed a one-line usage to stderr with exit 1 because `--help` landed on their
+  misuse branch.
+
+  **Kept honest by** `TestEveryRegisteredCommandAnswersHelp`
+  (`internal/cli/subhelp_test.go`): it walks `registry` rather than a list, and
+  each probe runs with cwd and `$HOME` pointed at empty temp trees that must still
+  be empty afterwards — so the `init` regression is caught as a *write*, not only
+  as wrong output. Enforcement item 1 below is therefore built.
 
 ### 2. Help lists synopsis, flags, positional args, effects, and ≥1 example
 
-- **State: UNMET.** No command enumerates its own flags or shows an example
-  anywhere in the CLI. Undocumented-in-CLI flags include: `prune`'s ~12 flags
-  (`--apply`, `--keep-images`, `--cache-age`, `--purge-heavy-caches`, …,
-  `internal/cli/commands.go:79`), `run`'s `--new`/`--profile`/`--network`/
-  `--dry-run` (`commands.go:315`), `init`'s `--mount`/`-m` (`commands.go:174`),
-  `broker logs`'s `-n`/`--lines`/`-f`/`--follow` (`commands.go:138`), and the
-  positional args of `macos-unshare` (workspace) and `macos-fix-permissions`
-  (path). The one-line usage strings that exist (`broker`, `loopholes`) list
-  subcommand *names* only — no flags, no effects, no examples.
+- **State: PARTIAL.** Synopsis, flags, positional args and effects are now
+  present for every command: `prune`'s twelve flags, `run`'s
+  `--new`/`--profile`/`--network`/`--dry-run`, `init`'s `--mount`/`-m`,
+  `broker logs`'s `-n`/`--lines`/`-f`/`--follow`, and the positionals of
+  `macos-unshare` (workspace) and `macos-fix-permissions` (path) are all in their
+  command's usage text. Flag coverage is *derived*, not maintained by hand:
+  `TestUsageListsEveryParsedFlag` parses this package's own source, reads the
+  name→handler mapping out of the `registry` composite literal, and requires every
+  `--flag` string literal in a handler's body to appear in that command's help. It
+  passes vacuously for a handler that delegates its parsing (`runApply` →
+  `applyMain`), which is the one gap left in the mechanism.
+
+  What remains genuinely unmet is **examples**: most usage texts point onward
+  (`yolo config-ref`, a sibling command) but only `run` and `pack` show a literal
+  invocation to copy. The bar says ≥1 example per command.
 
 ### 3. Misuse exits non-zero with usage on stderr — and is distinct from help
 
 - **State: PARTIAL.** Unknown top-level command is handled correctly: stderr +
-  exit 1 (`internal/cli/cli.go:63,70`). But misuse is inconsistent and help is
-  conflated with it: `broker`/`loopholes` misuse exits 1 with a stderr usage
-  line; flag-parsing commands (`run`/`check`/`prune`/
-  `init`/`init-user-config`/`ps`) treat an unknown flag — including `--help` —
-  as ignorable and return their normal (often 0) code, so misuse is not even
-  machine-detectable. The rule: help → exit 0 to stdout; misuse → non-zero with
-  usage to stderr; the two must not share a branch.
+  exit 1 (`internal/cli/cli.go:63,70`). The *conflation* half is fixed —
+  `broker`/`loopholes` no longer answer help from their misuse branch, and the
+  branches now differ in every respect the rule names (help → stdout/0, misuse →
+  stderr/non-zero). What remains is the other half: the flag-parsing commands
+  (`run`/`check`/`prune`/`init`/`ps`) still treat an unknown flag as ignorable
+  and return their normal (often 0) code, so a typo'd flag is silently dropped
+  and misuse is not machine-detectable. `config`/`pack`/`apply`/`describe`/
+  `check-deps` already exit 2 on an unexpected argument — that is the shape the
+  rest should take.
 
 ### 4. Top-level help lists every registered command
 
@@ -108,14 +128,17 @@ leaf.
 
 - **State: PARTIAL.** The top of the chain is solid: the briefing opens with
   `Jail tooling: yolo --help; config reference: yolo config-ref`
-  (`agentsmd.go:112`) and the `--help` footer names `config-ref`
-  (`help.go:44`). But that footer also promises "Run `yolo <subcommand> --help`
-  where supported" — and *nothing* supports it (item 1), so the chain
-  dead-ends the moment an agent drills into a command. Until item 1 is
-  universal, that hedge is false advertising and should be softened. The
-  loopholes branch *is* closed end-to-end (`agentsmd.go:148` →
-  `yolo loopholes list`), and `config-ref` is reachable and real — those are the
-  model.
+  (`agentsmd.go:112`) and the `--help` footer names `config-ref`. That footer's
+  hedge — "Run `yolo <subcommand> --help` **where supported**" — is gone, because
+  the promise is now true everywhere (item 1); softening it was never the fix, and
+  the fix was to make it honest. Each command's help also points onward now (a
+  sibling command, `yolo config-ref`, or `yolo pack --help`).
+
+  Still PARTIAL for one reason: `yolo --help` does not list `macos-teardown`,
+  `macos-unshare` or `macos-fix-permissions` (item 4), so three commands answer a
+  `--help` nobody can discover they have. The loopholes branch *is* closed
+  end-to-end (`agentsmd.go:148` → `yolo loopholes list`), and `config-ref` is
+  reachable and real — those are the model.
 
 ### 6. Concepts are reachable from the CLI (config-ref section or `yolo help <topic>`)
 
@@ -170,11 +193,12 @@ output on request.
   composed-config work below; the hidden `yolo internal config-dump` exists but
   is not an operator surface.
 
-**Scorecard:** MET 3 (dry-run, `--version`, tested top-level list), PARTIAL 4
-(misuse/exit codes, top-level completeness, discovery-chain closure, concept
-reachability), UNMET 4 (per-command `--help`, help content, `--format json`,
-completions/man as stretch). The three UNMET core items (1, 2, 7) plus the
-composed-config gap below are the substance of the action list.
+**Scorecard (2026-08-17):** MET 4 (per-command `--help`, dry-run, `--version`,
+tested top-level list), PARTIAL 5 (help content — examples only, misuse/exit
+codes, top-level completeness, discovery-chain closure, concept reachability),
+UNMET 2 (`--format json`, completions/man as stretch). Item 1 moved UNMET→MET and
+took the P0 traps with it; `--format json` (item 7) plus the composed-config gap
+below are now the substance of the action list.
 
 ## The composed-config / Lua / pi surface (the focus)
 
@@ -255,13 +279,20 @@ That makes the following tests possible; **do not implement them here** —
 specify them in the owning backlog items.
 
 1. **Every registered command has a `--help` handler that exits 0 to stdout and
-   runs no side effect.** Extend the `TestUsageListedCommandsAreRegistered`
-   pattern (`internal/cli/help_test.go`): iterate the dispatch registry, invoke
-   each command with `["--help"]` through a route/dispatch shim that captures
-   the exit code and asserts (a) exit 0, (b) non-empty stdout, (c) — critically
-   — that no real work ran (e.g. inject a no-op executor / dry sink and assert
-   it was never called). This is the test that would have caught `init --help`
-   scaffolding a file.
+   runs no side effect.** BUILT 2026-08-17 as
+   `TestEveryRegisteredCommandAnswersHelp` (`internal/cli/subhelp_test.go`): it
+   iterates the dispatch registry, dispatches `["<sub>", "--help"]` (and `-h`)
+   with stdout/stderr captured, and asserts exit 0, stdout equal to the command's
+   registered usage, empty stderr, and no ANSI.
+
+   The no-real-work clause took a different shape than the injected-sink one
+   proposed here, and a stronger one: each probe runs with cwd and `$HOME`
+   pointed at fresh empty temp trees which must still be empty afterwards. An
+   injected sink only catches work that goes through the seam you injected;
+   emptiness catches ANY write, which is what `init --help` (cwd) and
+   `init-user-config --help` ($HOME) each did through no seam at all. A 10s
+   per-probe deadline bounds the other failure mode — a regressed `check --help`
+   would otherwise run a nix build inside `just test-fast`.
 2. **Registry ↔ help are bidirectionally in sync.** Today the test guards
    help→registry; add the reverse: every key in `registry` (minus an explicit
    hidden-set for `doctor` alias and any deliberately private commands) appears
@@ -287,19 +318,28 @@ at. Composed-config items belong to `docs/plans/agent-settings-composition.md`;
 generic CLI items get their own backlog item (proposed:
 `docs/plans/self-documenting-cli.md`, not yet created).
 
-**P0 — active traps (fix first; they mutate state during interrogation).**
+**P0 — active traps. DONE 2026-08-17; kept here for the correction they carry.**
 
-1. Universal `--help`/`-h`/`help <sub>` interception in `dispatchNative`
-   (before the handler runs), returning exit 0 to stdout with no side effect.
-   Stops `run --help` launching a container, `init --help` scaffolding a file,
-   `prune --help` scanning disk. → generic CLI backlog. Blocks items 1, 5, and
-   enforcement test 1.
-2. Until P0.1 lands, soften the `help.go:44` footer so it does not promise a
-   `<subcommand> --help` convention that traps the caller.
+1. ~~Universal `--help`/`-h`/`help <sub>` interception in `dispatchNative`
+   (before the handler runs)~~ — **built, but NOT in `dispatchNative`.** Central
+   interception is unimplementable without breaking the invariant it would sit
+   next to: `yolo -- claude --help` must deliver `--help` to the inner command,
+   which is why `wantsTopLevelHelp` counts only the first token and why
+   `runHelpRequested` mirrors run's own parse. A central hook would have to carry
+   a per-command predicate anyway, so the fix is one shared predicate + a
+   registry of usage texts (`internal/cli/subhelp.go`) called at the top of each
+   handler. Every trap this item named is closed, plus one it missed —
+   `init-user-config --help` wrote `~/.config/yolo-jail/config.jsonc`.
+2. ~~Until P0.1 lands, soften the footer~~ — overtaken: the footer's "where
+   supported" hedge was DELETED rather than softened, because the promise it
+   hedged is now true for every registered command.
+
 **P1 — close the standard for existing commands.**
 
-4. Add per-command help content (synopsis, flags, args, effects, ≥1 example)
-   via the shared help-spec struct. → generic CLI backlog (item 2).
+4. Per-command help content: synopsis, flags, args and effects are DONE (with
+   `TestUsageListsEveryParsedFlag` deriving flag coverage from the handlers'
+   source). Remaining: ≥1 copyable example per command — only `run` and `pack`
+   have one. → generic CLI backlog (item 2).
 5. Add the three unlisted macos commands to `commandHelp`; add the
    registry→help reverse-sync test. → generic CLI backlog (items 4, enforcement 2).
 6. Normalize exit-code/usage semantics: help→0/stdout, misuse→non-zero/stderr,
