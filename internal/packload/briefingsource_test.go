@@ -45,42 +45,67 @@ func TestBriefingProseForPrefersTheDeclaredFrom(t *testing.T) {
 	}
 }
 
-// AGENTS.md before CLAUDE.md when `from` is omitted — the DefaultBriefingFiles order.
-func TestBriefingProseForConventionOrder(t *testing.T) {
+// AGENTS.md is THE convention and the ONLY one: an omitted `from` reads AGENTS.md, and a
+// pack whose prose lives in CLAUDE.md briefs NOTHING until it says so with `from`
+// (pack-code-separation.md §3.3 — CLAUDE.md left DefaultBriefingFiles on 2026-08-17).
+func TestBriefingProseForConventionIsAgentsMdAlone(t *testing.T) {
 	p := &Pack{Name: "p", Root: proseTree(t, map[string]string{
 		"AGENTS.md": "agents\n", "CLAUDE.md": "claude\n",
 	})}
 	if got, _ := p.BriefingProseFor(briefingContribution("")); got != "agents" {
-		t.Errorf("BriefingProseFor = %q, want AGENTS.md to win the convention", got)
+		t.Errorf("BriefingProseFor = %q, want AGENTS.md to be the convention", got)
 	}
-	// And CLAUDE.md is reached when AGENTS.md is absent.
+	// CLAUDE.md is NOT reached when AGENTS.md is absent — that fallback is gone. The pack
+	// has prose on disk and delivers none of it, which is the whole cost of the ruling and
+	// is meant to be visible here rather than discovered in a jail.
 	q := &Pack{Name: "q", Root: proseTree(t, map[string]string{"CLAUDE.md": "claude\n"})}
-	if got, _ := q.BriefingProseFor(briefingContribution("")); got != "claude" {
-		t.Errorf("BriefingProseFor = %q, want the CLAUDE.md fallback", got)
+	if got, _ := q.BriefingProseFor(briefingContribution("")); got != "" {
+		t.Errorf("BriefingProseFor = %q, want no prose: CLAUDE.md is no longer conventional "+
+			"and a pack keeping its prose there must declare `from`", got)
+	}
+	// …and declaring it is all it takes.
+	if got, prob := q.BriefingProseFor(briefingContribution("CLAUDE.md")); got != "claude" || prob != "" {
+		t.Errorf("BriefingProseFor(from=CLAUDE.md) = %q, %q; an explicit `from` must still "+
+			"read it", got, prob)
 	}
 }
 
-// An EMPTY candidate is skipped rather than winning: a pack whose AGENTS.md is a stub still
-// briefs from CLAUDE.md, which is what "the first one that exists and is NON-EMPTY" means.
+// An EMPTY candidate is skipped rather than winning — "the first one that exists and is
+// NON-EMPTY". With the convention down to one name the chain that demonstrates it is
+// [from, AGENTS.md]: a declared source that is a whitespace stub still falls back.
 func TestBriefingProseForSkipsAnEmptyCandidate(t *testing.T) {
 	p := &Pack{Name: "p", Root: proseTree(t, map[string]string{
-		"AGENTS.md": "\n \n", "CLAUDE.md": "claude\n",
+		"house-rules.md": "\n \n", "AGENTS.md": "agents\n",
 	})}
-	if got, _ := p.BriefingProseFor(briefingContribution("")); got != "claude" {
-		t.Errorf("BriefingProseFor = %q, want an empty AGENTS.md to be skipped", got)
+	got, prob := p.BriefingProseFor(briefingContribution("house-rules.md"))
+	if got != "agents" {
+		t.Errorf("BriefingProseFor = %q, want an empty declared source to be skipped", got)
+	}
+	if !strings.Contains(prob, "house-rules.md") {
+		t.Errorf("the substitution must still be reported; got %q", prob)
 	}
 }
 
 // A CONVENTIONAL `from` that is absent is SILENT. All six shipped packs declare
 // `from: "AGENTS.md"` and carry no such file, so a warning here would fire on every launch and
 // every apply of a stock config.
+//
+// "Conventional" now means AGENTS.md ALONE, so `from: "CLAUDE.md"` is an ordinary declared
+// source and its absence REPORTS like any other. That is the second half of the same ruling
+// and it is deliberate: once yolo stops reading a name for free, naming it is a claim about
+// the pack's content, and an unmet claim is exactly what missingBriefingFromProblem is for.
 func TestBriefingProseForConventionalAbsenceIsSilent(t *testing.T) {
 	p := &Pack{Name: "p", Root: t.TempDir()}
-	for _, from := range []string{"", "AGENTS.md", "CLAUDE.md"} {
+	for _, from := range []string{"", "AGENTS.md"} {
 		if got, prob := p.BriefingProseFor(briefingContribution(from)); got != "" || prob != "" {
 			t.Errorf("from=%q gave %q, %q; the convention being absent is the NORMAL case",
 				from, got, prob)
 		}
+	}
+	if got, prob := p.BriefingProseFor(briefingContribution("CLAUDE.md")); got != "" ||
+		!strings.Contains(prob, "CLAUDE.md") {
+		t.Errorf("from=CLAUDE.md gave %q, %q; it is a declared source now, so its absence "+
+			"must be reported", got, prob)
 	}
 }
 

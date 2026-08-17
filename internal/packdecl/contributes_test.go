@@ -490,29 +490,38 @@ func TestSkillsFromIsOptionalAndDefaults(t *testing.T) {
 	}
 }
 
-// Same pair for `briefing`, whose convention is two names rather than one: an omitted
-// `from` resolves to AGENTS.md then CLAUDE.md, in that order, and a declared one is tried
-// FIRST without dropping the convention behind it (the precedence hostBriefingProse
+// Same pair for `briefing`: an omitted `from` resolves to AGENTS.md, and a declared one is
+// tried FIRST without dropping the convention behind it (the precedence hostBriefingProse
 // implements).
+//
+// AGENTS.md is the WHOLE convention, and pinning that is this test's second job. The default
+// was the pair ["AGENTS.md", "CLAUDE.md"] until 2026-08-17; pack-code-separation.md §3.3
+// ruled the claude name out of core, on the grounds that AGENTS.md is the cross-tool
+// convention and CLAUDE.md is one tool's own. A pack whose prose lives anywhere else — that
+// file included — writes `from`, which is what `from` is for.
 func TestBriefingFromIsOptionalAndDefaults(t *testing.T) {
 	m, probs := Decode([]byte(`{"name":"acme","contributes":[
 	  {"kind":"briefing","into":".acme/A.md","after":"host:.acme/A.md"}]}`))
 	if len(probs) != 0 {
 		t.Fatalf("omitting `from` on briefing must validate, got %v", probs)
 	}
-	want := []string{"AGENTS.md", "CLAUDE.md"}
+	want := []string{"AGENTS.md"}
 	if got := m.Contributions()[0].BriefingCandidates(); !equalStrings(got, want) {
 		t.Errorf("BriefingCandidates() = %v, want %v — an omitted `from` must resolve to "+
-			"the conventional pair, in precedence order", got, want)
+			"the one conventional name", got, want)
 	}
 	m, probs = Decode([]byte(`{"name":"acme","contributes":[
 	  {"kind":"briefing","from":"prose/BRIEF.md","into":".acme/A.md"}]}`))
 	if len(probs) != 0 {
 		t.Fatalf("declared `from` must still validate, got %v", probs)
 	}
-	want = []string{"prose/BRIEF.md", "AGENTS.md", "CLAUDE.md"}
+	want = []string{"prose/BRIEF.md", "AGENTS.md"}
 	if got := m.Contributions()[0].BriefingCandidates(); !equalStrings(got, want) {
 		t.Errorf("BriefingCandidates() = %v, want %v", got, want)
+	}
+	if got := DefaultBriefingFiles(); !equalStrings(got, []string{"AGENTS.md"}) {
+		t.Errorf("DefaultBriefingFiles() = %v, want exactly [AGENTS.md] — core names no "+
+			"tool-specific briefing file", got)
 	}
 }
 

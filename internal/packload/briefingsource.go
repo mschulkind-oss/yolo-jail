@@ -12,7 +12,7 @@ package packload
 // ONE resolver both readers go through, so a third reader cannot inherit a fourth spelling.
 //
 // packdecl.Contribution.BriefingCandidates() owns the PRECEDENCE (declared `from` first, then
-// the conventional pair); this owns reading the pack's tree through it — the same split
+// the convention); this owns reading the pack's tree through it — the same split
 // SkillsSource()/SkillsSourceDir() already uses.
 
 import (
@@ -29,7 +29,7 @@ import (
 // problem string when the declaration could not be honored.
 //
 // THE PRECEDENCE IS A FALLBACK CHAIN, not a single choice, and that is `briefing`'s documented
-// difference from `skills`: BriefingCandidates returns `[from, AGENTS.md, CLAUDE.md]` and its
+// difference from `skills`: BriefingCandidates returns `[from, AGENTS.md]` and its
 // contract is "the caller reads the first one that exists and is non-empty". So a declared `from`
 // that is absent still resolves to the convention — narrowing that here would change what the
 // HOST notch has always done, which is the opposite of the convergence this file is for.
@@ -89,7 +89,7 @@ func missingBriefingFromProblem(pack, from string, missed, fellBack bool) string
 	}
 	if fellBack {
 		return fmt.Sprintf("pack %s declares `briefing` from %q, which is not in its content — "+
-			"its conventional AGENTS.md/CLAUDE.md was used instead (check the `from` path, and "+
+			"its conventional AGENTS.md was used instead (check the `from` path, and "+
 			"any only/exclude filters)", pack, from)
 	}
 	return fmt.Sprintf("pack %s declares `briefing` from %q, which is not in its content — no "+

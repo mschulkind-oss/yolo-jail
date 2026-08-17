@@ -377,15 +377,33 @@ func (m *Manifest) SkillsSources() []string {
 	return out
 }
 
-// DefaultBriefingFiles are the conventional pack-relative files a `briefing`
-// contribution reads when it declares no `from`, in precedence order. Both names are in
-// the wild and a pack author should not have to know which one yolo happens to read, so
-// the convention is a PAIR rather than a single name — which is also why `briefing` has a
-// candidate list where `skills` has one DefaultSkillsDir.
-func DefaultBriefingFiles() []string { return []string{"AGENTS.md", "CLAUDE.md"} }
+// DefaultBriefingFiles are the conventional pack-relative files a `briefing` contribution
+// reads when it declares no `from`, in precedence order.
+//
+// THERE IS ONE, and it is AGENTS.md. This returned ["AGENTS.md", "CLAUDE.md"] until
+// 2026-08-17, defended on the grounds that "both names are in the wild and a pack author
+// should not have to know which one yolo happens to read". That argument is about the
+// world, not about this repo, and it still lost (pack-code-separation.md §3.3): AGENTS.md
+// is the CROSS-TOOL convention and CLAUDE.md is one particular tool's own, so a core schema
+// package reading the second for free is core knowing about that tool — the last such
+// mention outside the migration debt. yolo picks one convention and it picks the shared one.
+//
+// The cost is bounded and was measured before the deletion, not after: no pack in the tree
+// or on the maintainer's host relied on the fallback. The six shipped packs carry no
+// briefing prose file at all (their `briefing` contribution exists to name a DESTINATION,
+// which is unaffected — `.claude/CLAUDE.md` as an `into` is a path, not a source), and every
+// local pack names AGENTS.md in an explicit `from`. So the pair never had a second
+// inhabitant; what changed is only what a FUTURE pack gets without asking.
+//
+// A pack whose prose lives elsewhere — CLAUDE.md included — writes `from` explicitly, which
+// is what `from` is for, and gets a REPORT if that file turns out to be missing
+// (packload.missingBriefingFromProblem) rather than the silence a conventional name buys.
+// The return stays a SLICE rather than a single string because BriefingCandidates prepends
+// `from` to it, and because a second convention is a data change if one ever earns its way in.
+func DefaultBriefingFiles() []string { return []string{"AGENTS.md"} }
 
 // BriefingCandidates returns the pack-relative files THIS briefing contribution's prose
-// may live in, in precedence order: the declared `from` first, then the conventional pair.
+// may live in, in precedence order: the declared `from` first, then the convention.
 // The caller reads the first one that exists and is non-empty.
 //
 // Same shape and the same reason as SkillsSource: `from` is optional on this kind because
@@ -745,7 +763,7 @@ func validateContribution(label string, c Contribution) []string {
 		// `from` is required on `files` ONLY, and the split is the whole point rather than
 		// an inconsistency. `skills` and `briefing` each have a CONVENTIONAL source that
 		// every reader already falls back to — DefaultSkillsDir for skills (see
-		// SkillsSource), AGENTS.md then CLAUDE.md for briefing (entrypoint's
+		// SkillsSource), AGENTS.md for briefing (entrypoint's
 		// hostBriefingProse, run.readPackBriefing) — so demanding the field made every pack
 		// author write a literal the resolver would have supplied anyway, and the validator
 		// was the only half of the code that thought it mattered. `files` is

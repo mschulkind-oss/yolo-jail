@@ -66,8 +66,8 @@ const (
 	// had to be kept in sync with this one. What it needs instead is the exclusivity a
 	// per-plugin-name claim gets in the footprint, since delivery is one directory per name.
 	KindSkills Kind = "skills"
-	// KindBriefing: briefing prose concatenated at a path (the AGENTS.md/CLAUDE.md
-	// slot). Multiple packs concatenate in order.
+	// KindBriefing: briefing prose concatenated at a path (the briefing-file slot,
+	// wherever the pack puts it). Multiple packs concatenate in order.
 	KindBriefing Kind = "briefing"
 	// KindFiles: an opaque file/dir tree the pack owns exclusively at a path.
 	// Two packs on one path would shadow — an error.

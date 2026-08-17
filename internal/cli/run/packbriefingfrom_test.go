@@ -83,10 +83,17 @@ func TestJailBriefingDefaultFromStillWorks(t *testing.T) {
 	}
 }
 
-// CLAUDE.md is the other half of the convention, and it is reached by FALLBACK from an omitted
-// `from` — both names are in the wild and a pack author should not have to know which one yolo
-// happens to read.
-func TestJailBriefingFallsBackToClaudeMd(t *testing.T) {
+// CLAUDE.md is NOT the other half of the convention, and this test is the inverted twin of the
+// one that used to pin that it was (TestJailBriefingFallsBackToClaudeMd, deleted in name only).
+// packdecl.DefaultBriefingFiles returns ["AGENTS.md"] alone since 2026-08-17
+// (pack-code-separation.md §3.3): AGENTS.md is the cross-tool convention, CLAUDE.md is one
+// tool's own, and core reading the second for free was the last claude name in the schema layer.
+//
+// It is kept rather than deleted because the JAIL notch is where the old behavior was reached
+// by a different code path than the host's, and "the fallback is gone at both notches" is the
+// claim worth a regression test. Both halves matter: the pack briefs nothing on the convention
+// alone, and one `from` line is the entire remedy.
+func TestJailBriefingDoesNotFallBackToClaudeMd(t *testing.T) {
 	home := packHome(t)
 	packDir := filepath.Join(t.TempDir(), "bf")
 	if err := os.MkdirAll(packDir, 0o755); err != nil {
@@ -100,8 +107,17 @@ func TestJailBriefingFallsBackToClaudeMd(t *testing.T) {
 	writeUserPacks(t, home, `[{"source":"file://`+packDir+`","name":"bf"}]`)
 
 	briefings, warnings := stagedBriefings(t, &Options{Workspace: t.TempDir()})
+	if len(briefings) != 0 {
+		t.Fatalf("briefings = %+v, want none: CLAUDE.md is no longer a conventional SOURCE "+
+			"(it is only this pack's destination)\nwarnings:\n%s", briefings, warnings)
+	}
+
+	// The remedy is one line of manifest, and it must work.
+	writePack(t, packDir,
+		`{"contributes":[{"kind":"briefing","from":"CLAUDE.md","into":".claude/CLAUDE.md"}]}`)
+	briefings, warnings = stagedBriefings(t, &Options{Workspace: t.TempDir()})
 	if len(briefings) != 1 || !strings.Contains(briefings[0].Text, "Claude-md prose.") {
-		t.Fatalf("briefings = %+v, want CLAUDE.md via the convention\nwarnings:\n%s",
+		t.Fatalf("briefings = %+v, want the prose an explicit `from` names\nwarnings:\n%s",
 			briefings, warnings)
 	}
 }
