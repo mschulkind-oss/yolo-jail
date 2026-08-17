@@ -114,20 +114,37 @@ func TestFramedDaemonProducesBothTiers(t *testing.T) {
 
 	logs := captureLog(t)
 
+	dir, err := os.MkdirTemp("/tmp", "yj-tiers-")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// THE SINK IS PROCESS-WIDE, so this recorder MUST only accept its own records.
+	//
+	// Measured, not theorised: this test failed on CI (run 32037731872) with
+	// `tier 1 Service = "fronted", want "twotier"` — a crossing from
+	// servefronted_test.go arriving here. A fronted connection's record is emitted
+	// when the connection CLOSES, which can be after the test that made it has
+	// returned and restored the sink, and by then the NEXT test has installed its
+	// own. Nothing in Go isolates a package-level global across tests, so the fix
+	// cannot be ordering; it has to be identity.
+	//
+	// Filtering on the publication directory is exact: crossingIdentity derives Jail
+	// from the endpoint file's parent directory name, and MkdirTemp guarantees this
+	// test a unique one. Hence the dir is created FIRST, above.
+	mine := filepath.Base(dir)
 	prevSink := svcendpoint.CrossingSink()
 	var mu sync.Mutex
 	var seen []svcendpoint.Crossing
 	svcendpoint.SetCrossingSink(func(c svcendpoint.Crossing) {
+		if c.Jail != mine {
+			return // another test's connection closing late
+		}
 		mu.Lock()
 		defer mu.Unlock()
 		seen = append(seen, c)
 	})
 	t.Cleanup(func() { svcendpoint.SetCrossingSink(prevSink) })
-
-	dir, err := os.MkdirTemp("/tmp", "yj-tiers-")
-	if err != nil {
-		t.Fatal(err)
-	}
 	defer os.RemoveAll(dir)
 	ep := filepath.Join(dir, "twotier.endpoint")
 

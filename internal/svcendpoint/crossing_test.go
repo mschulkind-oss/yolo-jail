@@ -21,10 +21,25 @@ import (
 // restores the previous sink at cleanup. Every test here installs one: the sink
 // is package state, so leaving one behind would leak into the next test.
 type crossingRecorder struct {
-	mu   sync.Mutex
+	mu sync.Mutex
+	// mine is the publication-directory name this recorder accepts, or "" for
+	// everything. See captureCrossings for why a filter is required at all.
+	mine string
 	seen []Crossing
 }
 
+// captureCrossings installs a recorder for THIS test's crossings only.
+//
+// The sink is PROCESS-WIDE, and a crossing is emitted when a connection closes —
+// which can happen after the test that opened it has returned and restored the
+// sink, by which point the next test has installed its own. That is not
+// hypothetical: it turned CI red once already (run 32037731872), asserting one
+// test's front against another test's expectations.
+//
+// So the recorder filters on the JAIL name, which crossingIdentity derives from the
+// endpoint file's parent directory — unique per test by MkdirTemp. A recorder with
+// no directory yet accepts everything; a test asserting an exact COUNT must call
+// scopeTo once its front is up.
 func captureCrossings(t *testing.T) *crossingRecorder {
 	t.Helper()
 	r := &crossingRecorder{}
@@ -32,10 +47,28 @@ func captureCrossings(t *testing.T) *crossingRecorder {
 	SetCrossingSink(func(c Crossing) {
 		r.mu.Lock()
 		defer r.mu.Unlock()
+		if r.mine != "" && c.Jail != r.mine {
+			return // another test's connection closing late
+		}
 		r.seen = append(r.seen, c)
 	})
 	t.Cleanup(func() { SetCrossingSink(prev) })
 	return r
+}
+
+// scopeTo narrows a recorder to one publication directory, DROPPING anything already
+// recorded from elsewhere — safe to call after the front is up.
+func (r *crossingRecorder) scopeTo(dir string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.mine = filepath.Base(dir)
+	kept := r.seen[:0]
+	for _, c := range r.seen {
+		if c.Jail == r.mine {
+			kept = append(kept, c)
+		}
+	}
+	r.seen = kept
 }
 
 func (r *crossingRecorder) all() []Crossing {
@@ -708,5 +741,33 @@ func TestCrossingIdentityFromPublishPath(t *testing.T) {
 			t.Errorf("crossingIdentity(%q) = %q/%q, want %q/%q",
 				tc.path, service, jail, tc.service, tc.jail)
 		}
+	}
+}
+
+// TestRecorderIgnoresAnotherTestsCrossing pins the isolation fix deterministically,
+// because the bug it prevents is not: the sink is process-wide, and a connection
+// opened by one test can close — and emit — while the NEXT test holds the sink. That
+// is how CI run 32037731872 went red.
+//
+// Synthesising the foreign record is the point. Reproducing the real race needs a
+// loaded machine and still does not fail reliably; this fails immediately if the
+// filter is removed.
+func TestRecorderIgnoresAnotherTestsCrossing(t *testing.T) {
+	rec := captureCrossings(t)
+	rec.scopeTo("/tmp/yj-mine-12345")
+
+	sink := CrossingSink()
+	if sink == nil {
+		t.Fatal("captureCrossings did not install a sink")
+	}
+	sink(Crossing{Service: "theirs", Jail: "yj-theirs-99999"}) // another test's, closing late
+	sink(Crossing{Service: "mine", Jail: "yj-mine-12345"})     // this test's
+
+	got := rec.all()
+	if len(got) != 1 {
+		t.Fatalf("recorded %d crossings, want exactly 1 — the foreign one must be dropped", len(got))
+	}
+	if got[0].Service != "mine" {
+		t.Errorf("kept Service = %q, want %q", got[0].Service, "mine")
 	}
 }

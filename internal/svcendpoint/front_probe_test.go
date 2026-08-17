@@ -22,7 +22,7 @@ import (
 // connection preamble, then blocks reading a request frame that a probe never
 // sends. That second read is the whole point — a daemon that treats the FIRST
 // frame as its request cannot reproduce this, because the preamble satisfies it.
-func startFramedFront(t *testing.T) string {
+func startFramedFront(t *testing.T) (string, string) {
 	t.Helper()
 	dir := privateSocketDir(t)
 	upstream := filepath.Join(dir, "framed.sock")
@@ -58,7 +58,7 @@ func startFramedFront(t *testing.T) string {
 	t.Cleanup(func() { close(stop) })
 	go func() { _ = ServeFront(endpoint, "127.0.0.1", upstream, stop) }()
 	waitProbe(t, endpoint)
-	return endpoint
+	return endpoint, dir
 }
 
 // TestProbeDoesNotLeakTheSplice pins the fix. Without it this leaks exactly two
@@ -66,7 +66,7 @@ func startFramedFront(t *testing.T) string {
 // from the runtime are fine) because the defect is unbounded growth, not a
 // precise count.
 func TestProbeDoesNotLeakTheSplice(t *testing.T) {
-	endpoint := startFramedFront(t)
+	endpoint, _ := startFramedFront(t)
 
 	settle := func() int {
 		for i := 0; i < 20; i++ {
@@ -98,7 +98,10 @@ func TestProbeDoesNotLeakTheSplice(t *testing.T) {
 // without restoring the record would leave every probe invisible to the audit.
 func TestProbeStillProducesACrossingRecord(t *testing.T) {
 	rec := captureCrossings(t)
-	endpoint := startFramedFront(t)
+	endpoint, dir := startFramedFront(t)
+	// The sink is process-wide; assert only on this test's own crossings, or a
+	// connection closing late in another test fails the exact count below.
+	rec.scopeTo(dir)
 
 	conn, err := DialLocal(endpoint, 5*time.Second)
 	if err != nil {
@@ -122,7 +125,7 @@ func TestProbeStillProducesACrossingRecord(t *testing.T) {
 // this, "stop the leak by always closing upstream" passes the two tests above and
 // cuts every response short.
 func TestFramedRequestStillRoundTripsThroughTheFront(t *testing.T) {
-	endpoint := startFramedFront(t)
+	endpoint, _ := startFramedFront(t)
 
 	conn, err := DialLocal(endpoint, 5*time.Second)
 	if err != nil {
