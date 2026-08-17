@@ -363,7 +363,7 @@ whole surface taxonomy.
 > yolo-shipped code, and can never be widened by a user/workspace config (that is what
 > retiring `host_claude_files`/`host_pi_files` bought).
 
-Its only mount consumer is `hostFileArgs` (`cli/run/hostclaude.go`), which reads *no config
+Its only mount consumer is `hostFileArgs` (`cli/run/packhostgrants.go`), which reads *no config
 key* and emits *no env var* — deliberately. Two entries exist today: claude's
 `.claude/settings.json` and pi's `.pi/agent/settings.json`.
 

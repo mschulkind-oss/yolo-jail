@@ -404,7 +404,7 @@ host-side half exists and is tested; what is missing is the jail-side wiring.
 Bind mounts carry, today: `/workspace` and `/home/agent` with its rw anchors
 (`internal/cli/run/assemble_parts.go:64-121`); the nix socket + store (§3.2); scratch mounts for the
 `--read-only` rootfs (`internal/cli/run/runmount.go:20-41`); `/ctx/packs` for pack staging
-(`assemble.go:390`), `/ctx/host-*` for pack host-file grants (`internal/cli/run/hostclaude.go:21-82`)
+(`assemble.go:390`), `/ctx/host-*` for pack host-file grants (`internal/cli/run/packhostgrants.go`)
 and `/ctx/host-user/<slug>` for user `host_files` (`internal/cli/run/hostfiles.go:68-90`); `/mise`
 (`assemble_parts.go:118-121`, always a mount, never image content); git identity and gitignore,
 host-composed and `:ro`-mounted (`assemble_parts.go:238-262`); and a dozen single-file binds for

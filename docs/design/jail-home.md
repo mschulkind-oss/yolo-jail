@@ -138,7 +138,8 @@ v2 removed the old shared-host-dir + symlink scheme, and the host's own
 
 For each **selected** agent with overlay dirs: `ws/<subdir>` →
 `/home/agent/.<subdir>` rw (dot stripped by `agentOverlaySubdirs`). Overlay
-dirs per agent (internal/agents/agents.go): claude→`.claude`,
+dirs per agent (each pack's `state` contributions; the Go registry that held
+this was `internal/agents/agents.go`, now gone): claude→`.claude`,
 copilot→`.copilot`, gemini→`.gemini`, pi→`.pi`, codex→`.codex`;
 opencode has none. Creation/seeding happens in `prepareWsState`
 (prepare.go:136-171): mkdir, then `seedAgentDir(GLOBAL_HOME/.<subdir>,
@@ -298,14 +299,14 @@ Only the home-relevant ones expanded; the rest one-lined for orientation.
   `AGENTS_DIR/<cname>/skills-<agent>` → `/home/agent/<Skills>` **ro**
   (assemble.go:315-321); targets `.claude/skills`, `.copilot/skills`,
   `.gemini/skills` (agents.go). Staging rebuilt host-side **every invocation**
-  by `agents.PrepareSkills` (internal/agents/skills.go:20-53): clears staging
+  by `jailcontent.PrepareSkills` (internal/jailcontent/skills.go): clears staging
   contents in place (inode-preserving), writes the built-in
   `jail-startup/SKILL.md`, then copies host `~/.<agent>/skills/*` dereferencing
   symlinks.
 - **Host agent-config files** (claude/pi selected): the yolo-declared,
   non-widenable per-agent host-file set (`agents.AgentSpec.HostFiles` —
   claude/pi each declare just `settings.json`) → `/ctx/host-<agent>/<fname>`
-  **ro** (`hostFileArgs`, internal/cli/run/hostclaude.go). No config key and no
+  **ro** (`hostFileArgs`, internal/cli/run/packhostgrants.go). No config key and no
   `YOLO_HOST_*_FILES` env: which host files cross into the jail is a credential
   boundary fixed in yolo-shipped code, not a config knob (the retired
   `host_claude_files`/`host_pi_files` keys; plan §10.4). The entrypoint
@@ -427,19 +428,34 @@ constantly) land their writes in a writable mount. `EnsureSymlink` migrates a
 pre-existing regular file's data into the target before re-linking
 (ensure.go:113-141).
 
-### 4.2 Shared Claude credentials
+### 4.2 Shared credentials (claude's is the live case)
 
 One OAuth credential per host, shared by all jails: the entrypoint makes
 `~/.claude/.credentials.json` a **relative** symlink to
-`../.claude-shared-credentials/.credentials.json` (claude.go:273-299) —
-relative so it resolves through whichever mount backs `~/.claude` (the
-per-workspace overlay) into the separately mounted shared dir. A pre-existing
-regular file is harvested first (OAuth token merged by max `expiresAt`,
-claude.go:350-378). That harvest is the **one sanctioned tmp+rename** in the
-codebase — legal only because the shared dir is a rw *directory* mount, where
-rename works (fsx.go; claude.go:350-378). Host side, `EnsureGlobalStorage`
-migrates the old single-file location and touches the shared file
-(ensure.go:69-80); the OAuth broker loophole reads the same path.
+`../.claude-shared-credentials/.credentials.json` — relative so it resolves
+through whichever mount backs `~/.claude` (the per-workspace overlay) into the
+separately mounted shared dir.
+
+Neither the file nor the dir is named in Go any more. Both come from the pack's
+`shared_credentials` hook (`file` + `sharedDir`), applied by
+`Env.linkSharedCredential` (`internal/entrypoint/packhooks.go`), which refuses a
+`sharedDir` the pack did not also declare in `sharedDirs`. The symlink decision
+itself is `Env.linkThroughShared` (`internal/entrypoint/claude.go`), and every
+decision it returns is logged to `~/.yolo-shared-creds.log`.
+
+**The harvest is gone** (2026-08-17, `pack-code-separation.md` §5/OQ-3), and with
+it this section's old claim to hold the codebase's **one sanctioned tmp+rename**.
+A pre-existing regular file used to be merged into the shared one by max
+`expiresAt` over claude's `claudeAiOauth` dict — a claude-schema merge inside a
+generically-named hook, which did nothing for the second consumer whose token is
+shaped differently. The rule is now schema-blind: **the shared file always wins**;
+a local file is copied out only if the shared one is *empty*, and otherwise
+discarded. The accepted failure mode (a revoked shared credential outliving a
+fresh local login, fixed by `rm`-ing the shared file and logging in once more) is
+documented at `linkThroughShared`.
+
+Host side, `EnsureGlobalStorage` migrates the old single-file location and touches
+the shared file (ensure.go:69-80); the OAuth broker loophole reads the same path.
 
 ### 4.3 claude.json seed sync
 
@@ -455,7 +471,8 @@ never leak into the shared seed. Parse/IO errors degrade to no-ops
 
 `~/.claude/history.jsonl` is symlinked to
 `~/.claude/jail-history/<sha256(YOLO_HOST_DIR)[:12]>.jsonl`
-(claude.go:242-271; `YOLO_HOST_DIR` set at assemble.go:392). Belt-and-braces:
+(`Env.isolateHistoryFile`, internal/entrypoint/packhooks.go, driven by the pack's
+`per_jail_history` hook; `YOLO_HOST_DIR` set at assemble.go:392). Belt-and-braces:
 even where a `.claude` dir is shared across workspaces (Apple Container's
 single writable home, assemble_parts.go:18-32), history stays distinct per
 host workspace.
@@ -542,7 +559,8 @@ prior container's UID mapping and are deliberately left alone (ensure.go:82-91).
 3. **Symlinks are relative and compared as raw link strings**, never resolved
    (fsx.go:19-21) — resolution must happen through the container's mount
    table, not the host's. (One exception: the claude `history.jsonl` link is
-   absolute — created and resolved entirely inside the jail, claude.go:262-270.)
+   absolute — created and resolved entirely inside the jail,
+   packhooks.go's `isolateHistoryFile`.)
 4. **Stale-wrapper cleanup**: every boot removes regular-file
    `~/.local/bin/yolo` / `yolo-ps` (older entrypoints wrote Python scripts
    there; the Go binaries are baked into the image now) plus shim-dir

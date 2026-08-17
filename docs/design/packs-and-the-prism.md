@@ -57,7 +57,7 @@ Today "supporting an agent" means writing Go:
 | the agent registry (install method, overlay dirs, skills path, briefing pair, YOLO flags) | `internal/agents/agents.go` | 340 lines |
 | its composed surfaces (path, codec, defaults, managed) | `internal/agentcfg/builtin.go` | 441 lines |
 | its boot writer (`Configure*Prism`) | `internal/entrypoint/prism*.go` | 917 non-test lines |
-| its built-in skills | `internal/agents/builtinskills/` | 5 files |
+| its built-in skills | `internal/agents/builtinskills/` (now `internal/jailcontent/builtinskills/`) | 5 files |
 
 The reframe: **make all of that data, shipped as first-party packs.** yolo becomes an
 engine plus a set of official packs — `claude`, `copilot`, `codex`, `pi`, `opencode`,

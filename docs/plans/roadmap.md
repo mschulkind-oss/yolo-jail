@@ -351,15 +351,6 @@ staging change it proposes — and the small independent items trail.
   boot; the exit is `rm`), and a regression test pinning `subscriptionType`/`rateLimitTier` survival
   across a broker refresh — [`agent-auth-modes.md`](../design/agent-auth-modes.md) §3 depends on it.
 
-- 📦 **Rename the claude names out of core.** *(PS step 3; mechanical, no behavior.)*
-
-  `internal/agents` (the package name), `hostclaude.go` → `hostfiles.go`, the `skills.go:52` comment,
-  and a ruling on `packdecl.DefaultBriefingFiles()` — which hardcodes `["AGENTS.md","CLAUDE.md"]` as
-  the fallback pair for *every* pack's briefing. Fold in the stale `claude.go` line refs in
-  [`agent-credentials.md`](../design/agent-credentials.md) and
-  [`jail-home.md`](../design/jail-home.md) §4.2, which point past the end of a 199-line file and
-  which step 1 invalidates again.
-
 - 💬 **T2 is shipped except for one service that cannot follow it — and the blocker is not a client.**
 
   **Shipped.** Both generated-Python clients are gone: `cmd/yolo-cglimit` and `cmd/yolo-journalctl`
@@ -557,7 +548,7 @@ bearer to a non-Anthropic `ANTHROPIC_BASE_URL`? If yes, a proxy gives no-restart
 pack-swapping is the ceiling. ~5 minutes
 ([`agent-auth-modes.md`](../design/agent-auth-modes.md) §6).
 
-### Claude-shaped code in core — all four questions answered, three steps queued, one to design
+### Claude-shaped code in core — all four questions answered, steps 1-3 shipped, one to design
 
 [`pack-code-separation.md`](../design/pack-code-separation.md) inventories the imperative Go that is
 still claude-shaped despite *"core does not know what an agent is"*. Reviewed and **decided**
@@ -572,9 +563,20 @@ parsed only `FAIL:` lines on the other. `nixdiag.SplitSelfCheckLines` now reads 
 `FAIL:`/`NOTE:`/`OK:` protocol, so the remaining-lifetime number arrives as text through the seam
 every loophole already has (`pack-code-separation.md` §9, RESOLVED).
 
-**Steps 1 and 3 are in 📦 above** — though step 1's entry there is stale: its code landed in
-`eb12125` + `cbf63d3`. What remains beyond them is the fourth, which is a workstream, not a queue
-item:
+**Step 3 shipped 2026-08-17** — the renames, with one correction to the ruling. `internal/agents`
+is **`internal/jailcontent`**: the name now says the output (content destined for a jail) rather
+than the audience, and reads against its host-notch counterpart `internal/hostskills`.
+`hostclaude.go` did **not** become `hostfiles.go` as §3.5 ruled — that filename was already taken,
+by the *user's* `host_files` config key (`hostUserFileArgs`, `/ctx/host-user/<slug>`), which is a
+different mechanism gated by config rather than by pack origin. Two host-file paths sharing one
+filename is the confusion the rename was meant to end, so it is **`packhostgrants.go`**, matching
+the `packhost*` prefix its sibling tests already use. `DefaultBriefingFiles()` returns
+`["AGENTS.md"]`; the one test that pinned the CLAUDE.md fallback was inverted rather than deleted
+(`TestJailBriefingDoesNotFallBackToClaudeMd`), and an absent `from: "CLAUDE.md"` now *reports* like
+any other declared source instead of being silently conventional.
+
+**Step 1's entry is still in 📦 above and is stale**: its code landed in `eb12125` + `cbf63d3`.
+What remains beyond these is the fourth, which is a workstream, not a queue item:
 
 - **Make the broker shippable** — now designed in
   [`broker-as-a-pack.md`](../design/broker-as-a-pack.md), and **the design shrank the job**. Two

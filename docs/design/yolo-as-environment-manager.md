@@ -488,7 +488,7 @@ is a `PodSandbox`; gVisor and Firecracker both sell themselves as sandboxes; Chr
 sandbox is seccomp on Linux and Seatbelt on macOS. Containers and VMs are sandboxes. Naming one
 notch `sandbox` gives the notch that most needs a discriminating name the least discriminating
 word available — and this codebase already proves it: `internal/cli/help.go:39` calls the
-container "a sandboxed container jail", `internal/agents/agentsmd.go:114` tells every agent it is
+container "a sandboxed container jail", `internal/jailcontent/briefing.go` tells every agent it is
 "inside a YOLO Jail — a sandboxed container", and `internal/macosuser/seatbelt.go` emits
 `";; yolo-jail macOS-user sandbox profile"`. One word, currently naming both the jail and the
 not-jail.

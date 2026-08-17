@@ -31,7 +31,7 @@ Three properties of yolo make this non-negotiable rather than nice-to-have:
    lean on the host's shell history, the maintainer's memory, or host-side
    tooling to fill gaps. What the CLI tells it is *all* it has. The briefing
    already leans on this — it points at `yolo --help` and `yolo config-ref` as
-   the entry points (`internal/agents/agentsmd.go:112`) precisely because those
+   the entry points (`internal/jailcontent/briefing.go`, `BriefingContent`) precisely because those
    are the only surfaces guaranteed to be present.
 3. **Docs drift; the CLI can be tested against itself.** A checked-in doc and
    the code diverge silently. Help text and JSON output that are generated from
