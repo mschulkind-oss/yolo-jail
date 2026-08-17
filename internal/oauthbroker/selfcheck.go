@@ -82,7 +82,15 @@ func SelfCheck(credsPath string) int {
 		return 1
 	}
 	if warned > 0 {
-		fmt.Println("OK (broker present; state not yet primed)")
+		// "state not yet primed" until the freshness grading moved in here, which was
+		// accurate while every NOTE meant missing CA/leaf/creds. It is not any more: a
+		// token with 40 minutes left is a NOTE on a fully primed broker, and a summary
+		// insisting the state is unprimed sends the reader hunting for a `--init-ca` that
+		// already ran. `yolo check` never sees this line (SplitSelfCheckLines drops the
+		// colon-less summary, deliberately), so it is written for the human running
+		// --self-check by hand — which is exactly why it must not contradict the NOTE
+		// printed directly above it. It must still start with "OK" and carry no colon.
+		fmt.Println("OK (broker present; see the NOTE lines above)")
 		return 0
 	}
 	fmt.Println("OK")
