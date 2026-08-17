@@ -7,6 +7,18 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
+// packhostgrants.go mounts what a PACK declared it may read from the host — the
+// `host_files` and `mount` contribution kinds — read-only under /ctx.
+//
+// The file was `hostclaude.go` until 2026-08-17, from when this was a per-agent constant
+// in the Go registry and claude was the only entry. Nothing in it has been claude-specific
+// since: it reads pack declarations and switches on nothing (pack-code-separation.md §3.5).
+// The §3.5 ruling said `hostfiles.go`, and that name was already taken by a DIFFERENT
+// mechanism — the user's `host_files` config key, which resolves user-scope entries into
+// /ctx/host-user/<slug> and is gated by config rather than by pack origin. Two host-file
+// paths with one filename between them is exactly the confusion the rename was meant to
+// end, so this took the `packhost*` prefix its sibling tests already use.
+//
 // hostFileArgs mounts each pack's DECLARED host files read-only under /ctx.
 //
 // THE CREDENTIAL BOUNDARY, and the enforcement moved rather than loosened. It used to

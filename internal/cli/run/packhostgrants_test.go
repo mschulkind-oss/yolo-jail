@@ -10,12 +10,12 @@ import (
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
-// TestHostFileMounts covers the yolo-declared host-file mounts (hostFileArgs)
-// that replaced the retired host_claude_files/host_pi_files config keys. The set
-// is driven entirely by each selected agent's AgentSpec.HostFiles (a fixed
-// per-agent constant), NOT by config, and NO YOLO_HOST_*_FILES env pair is
-// emitted — the entrypoint re-derives the identical list from the baked
-// registry.
+// TestHostFileMounts covers the PACK-declared host-file mounts (hostFileArgs) that
+// replaced the retired host_claude_files/host_pi_files config keys. The set is driven
+// entirely by the selected packs' `host_files` declarations (AgentSpec.HostFiles, a fixed
+// per-agent Go constant, was where this lived before packs), NOT by config, and NO
+// YOLO_HOST_*_FILES env pair is emitted — the entrypoint re-derives the identical list
+// from the same pack manifests.
 func TestHostFileMounts(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
