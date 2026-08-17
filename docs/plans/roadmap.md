@@ -498,9 +498,15 @@ Code is done or paused. Nothing here is broken; each needs a machine.
   nested podman is forced onto `--net=host` — so AGENTS.md's verification instruction is misleading
   here and needs a carve-out, plus the integration coverage that does not exist.
 
-  📄 [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) — the design doc.
-  §2-§3 spell out every networking mode and where each one actually delivers a packet; §5 shows why
-  "bind somewhere else" has nowhere to go; the three live decisions are **OQ-R1/R2/R3** at its end.
+  **All four design questions are answered (2026-08-17), so this is ready to build**, not to decide:
+  emit the network option on the default path (OQ-R1); an enabled jail-facing service the jail cannot
+  reach **fails the launch** (OQ-R2); and a passt supporting `--map-host-loopback` is a **hard
+  requirement**, with no AF_UNIX revival (OQ-R3). Build the in-jail probe first and prove it in warn
+  mode before making it fatal — a probe that misfires now costs a jail, not a log line.
+
+  📄 [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) — §2-§3 spell out every
+  networking mode and where each actually delivers a packet; §5 prices the "bind globally" option
+  that would work but trades a structural guarantee for LAN exposure.
 
 - 🛑 **The macOS nightly cannot build an image.**
 

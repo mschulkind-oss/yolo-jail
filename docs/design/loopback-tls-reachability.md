@@ -3,12 +3,12 @@ title: "Loopback-TLS reachability — how a jail reaches a host daemon, and why 
 date: 2026-08-17
 status: in-review
 tags: [transport, networking, loopholes, regression]
-summary: "The transport assumes one rootless networking stack's behaviour is universal. It is not. A walk through every networking mode, why 'just bind the right address' has nowhere to go, and the three decisions left."
+summary: "The transport assumes one rootless networking stack's behaviour is universal. It is not. A walk through every networking mode, why 'just bind the right address' has nowhere to go, and the decisions, all now answered."
 ---
 
 # Loopback-TLS reachability — how a jail reaches a host daemon, and why it currently cannot
 
-**Status:** DESIGN, 2026-08-17. Nothing built. Absorbs and replaces the operational handoff that
+**Status:** DECIDED, 2026-08-17. Nothing built; all four open questions answered — ready to implement. Absorbs and replaces the operational handoff that
 originally reported this (`docs/plans/handoff-loopback-tls-pasta.md`, deleted in the same commit —
 its evidence is folded into §2 and §3).
 
@@ -266,7 +266,9 @@ supports it, because the cert's ServerName is a fixed label rather than a hostna
 [`sections_loopholes.go`](../../internal/cli/check/sections_loopholes.go#L143)) — so it dials the one
 address a jail cannot use, and stays green while everything is down. A probe that cannot fail when
 its subject is down is worse than no probe. The honest probe is **in-jail**, because the advertised
-address is only meaningful from inside; that makes its severity a real choice (OQ-R2).
+address is only meaningful from inside — and per OQ-R2 it is **fatal**, not advisory: an enabled
+service the jail cannot reach fails the launch. That raises the bar on the probe itself, since a
+false positive now costs a jail rather than a log line.
 
 **Nested-jail verification is structurally blind to this.** Row 6 of §3 explains the whole incident:
 a nested podman is forced onto `--net=host`, the one mode where the bug **cannot** reproduce. So
@@ -296,13 +298,17 @@ reachability at all.
 | The fix is unverifiable in a nested jail (§7), so it could land untested | Verification is a real launch on an affected host plus new integration coverage — do not accept a nested-jail green as evidence |
 | `podman info` per launch adds startup latency | One host-side subprocess; measure before caching, and cache into the boot baseline only if it matters |
 | The slirp4netns and netavark rows in §3 are unverified | They do not gate the fix — the pasta path is measured, and unrecognised backends keep today's behaviour |
+| **A flaky in-jail probe now bricks launches**, because OQ-R2 made it fatal | Build and prove the probe BEFORE wiring the fatal (§10). Give it a budget generous enough that scheduling starvation cannot read as unreachable — the journald readiness poll flaked at ~1-in-85 for exactly that reason and needed 5s→30s. Mirror the `YOLO_ALLOW_STALE_IMAGE` escape hatch |
+| Old-passt hosts cannot launch at all once both rulings land | Intended (OQ-R2 + OQ-R3), but it must be in the release note rather than discovered. The refusal names the required version and the check command |
 
 ---
 
 ## 10. Sequencing
 
-**First, the in-jail probe (§7).** Independent of the fix, it makes the outage visible, and it is
-what will prove the fix worked. Build the witness before the change.
+**First, the in-jail probe (§7) — and prove it before wiring it.** Independent of the fix, it makes
+the outage visible, and it is what will prove the fix worked. It is also **fatal** by OQ-R2, so a
+probe that misfires costs a jail rather than a log line: land it in warn mode, confirm it is quiet on
+a healthy host and loud on this broken one, and only then make it fail the launch.
 
 **Second, the network option (§6)**, gated on `podman info`, on the default path only.
 
@@ -315,7 +321,10 @@ that let this ship.
 
 ## Open Questions
 
-**Three open, one resolved. This is the complete list — nothing about this bug is open elsewhere.**
+**All four resolved, 2026-08-17. Nothing about this bug is open anywhere.** The design is settled and
+the work is implementable; what remains is building it (§10). Answered questions stay here as the
+decision record — two of them overruled my leaning, and both leanings are kept above their answers so
+the consequences stay visible.
 
 ### ✅ OQ-R0 — what does pasta forward `169.254.1.2` to? — RESOLVED (2026-08-17)
 
@@ -326,7 +335,7 @@ The original report's blocking question.
 > This is what kills the "bind somewhere else" family in §5 and rules out three of the four options
 > the original report listed.
 
-### 💬 OQ-R1 — may yolo emit a network option on the default path?
+### ✅ OQ-R1 — may yolo emit a network option on the default path? — RESOLVED (2026-08-17)
 
 Today `network.mode: "bridge"` means *"emit nothing, let podman decide"*
 ([`assemble.go`](../../internal/cli/run/assemble.go#L252-L259)). The fix makes it mean *"emit
@@ -344,9 +353,11 @@ network stack is not a transport. Emitting nothing for unrecognised backends pre
 behaviour exactly, so the blast radius is confined to hosts we can positively identify.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **Yes.** The fix lives in the launcher: detect `rootlessNetworkCmd` from `podman info` and emit the
+> matching option on the default `bridge` path. Unrecognised backends emit nothing, exactly as today.
+> A user with an explicit `network.mode` keeps control and keeps the bug, and gets warned about it.
 
-### 💬 OQ-R2 — when a jail-facing service is unreachable at boot: warn, or fail the launch?
+### ✅ OQ-R2 — when a jail-facing service is unreachable at boot: warn, or fail the launch? — RESOLVED (2026-08-17)
 
 §7's in-jail probe needs a severity, and it cannot be deferred to `yolo check`, because a host-side
 check structurally cannot test jail reachability.
@@ -359,9 +370,35 @@ the others — so if any service earns its own severity it is that one, which ma
 per-service level rather than one global rule.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **Fail the launch. If it is broken, do not move on.** *(This overrules the leaning above, which is
+> kept because the decision has consequences to plan for — see below.)* One rule, no per-service
+> severity: an enabled jail-facing service that the jail cannot reach is a failed launch.
 
-### 💬 OQ-R3 — if the host's passt predates `--map-host-loopback`, what then?
+**What this ruling changes, and it is more than a log level:**
+
+- **The probe becomes load-bearing.** A warning that misfires is noise; a *fatal* that misfires means
+  no jail at all. So the probe must be correct before it is wired in — §10 already builds it first,
+  and that ordering is now mandatory rather than merely tidy. Its budget and retry behaviour matter:
+  a probe that is merely slow under load must not read as "unreachable".
+- **It composes with the activation rulings, and that is what makes it tolerable.** Under
+  [`loophole-activation.md`](./loophole-activation.md) nothing is enabled unless you asked for it, so
+  the fatal only ever fires for a service the user deliberately turned on. "Enabled but unreachable"
+  is a genuine contradiction; "present but unused" no longer exists as a state.
+- **With [OQ-R3](#-oq-r3--if-the-hosts-passt-predates---map-host-loopback-what-then) also ruled
+  refuse, an old-passt host cannot launch a jail at all** while any jail-facing service is enabled.
+  That is the intended reading of both rulings together, and it should be stated in the release note
+  rather than discovered.
+
+> [!WARNING]
+> **One implementation question this raises, which is not a re-litigation of the ruling:** a hard
+> fatal with no override means a broken host daemon leaves the user unable to open a shell to fix it.
+> The repo already has exactly this shape and answered it once — a failed nix build is fatal, with
+> `YOLO_ALLOW_STALE_IMAGE=1` as a documented, loud opt-out for the case the fatal is wrong about
+> (an offline machine with a good cached image). Recommend mirroring that precedent with an
+> equivalent escape hatch that says what it is suppressing. Confirm or reject when the probe is
+> built.
+
+### ✅ OQ-R3 — if the host's passt predates `--map-host-loopback`, what then? — RESOLVED (2026-08-17)
 
 Two options, not equivalent: **AF_UNIX on Linux**, which reopens
 [`loophole-transport.md`](./loophole-transport.md) §7.4 — retired *on purpose*, so it needs an
@@ -384,4 +421,7 @@ upgrade the user can actually perform. If the affected population turns out to b
 amendment is the honest path — but that is evidence we do not have yet.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **Refuse. A passt supporting `--map-host-loopback` is a hard requirement.** AF_UNIX is not
+> revived, so `loophole-transport.md` §7.4 stands and needs no amendment. The refusal must name the
+> passt version required and the command to check it, because "refuse" is only acceptable if the
+> user can act on it.
