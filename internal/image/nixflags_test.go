@@ -1,7 +1,11 @@
 package image
 
 import (
+	"io"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -19,31 +23,94 @@ func TestNixFlakeFlagsAcceptsFlakeConfig(t *testing.T) {
 	}
 }
 
-// TestFlakeInvocationsCarryAcceptFlakeConfig is the table the roadmap item
-// asks for: every argv builder that evaluates .#ociImage must carry both flags,
-// and must carry them BEFORE the `build` subcommand (they are nix-level flags;
-// nix rejects --accept-flake-config after the subcommand).
+// TestFlakeInvocationsCarryAcceptFlakeConfig drives the REAL builders and reads
+// back what the child process was actually handed.
 //
-// check's dry-run argv is covered by the sibling test in internal/cli/check,
-// which is where that builder lives.
+// Asserting on ociBuildArgv instead would be a tautology dressed as a table.
+// ociBuildArgv is a helper, not a call site, and the defect b7f2ade fixed was not
+// "the helper is wrong" — the helper did not exist. It was that each call site
+// spelled its own `[]string{"nix", "--extra-experimental-features", …}`, and any
+// one of them can regress to that in a single edit while every assertion against
+// the helper stays green. Measured 2026-08-17: reverting either builder to an
+// inline argv left `go test -short ./...` entirely green.
+//
+// So the seam under test is the SUBPROCESS. A recording `nix` first on PATH
+// captures the argv, which is the one artifact that cannot be produced by a
+// builder that bypassed the helper.
+//
+// check's dry-run probe is the third flake-evaluating invocation; it is covered
+// the same way by the sibling test in internal/cli/check, which is where that
+// builder lives and where its injectable Exec seam is.
 func TestFlakeInvocationsCarryAcceptFlakeConfig(t *testing.T) {
 	cases := []struct {
 		name string
-		argv []string
+		run  func(repoRoot, outLink string)
 	}{
-		{"run path (buildImageStorePathArgs)", ociBuildArgv("/tmp/out-link", nil)},
-		{"run path with builder offload", ociBuildArgv("/tmp/out-link", []string{"--builders", "ssh://b"})},
-		{"check preflight (BuildOCIImage)", ociBuildArgv("/tmp/yolo-check-1", nil)},
+		{"run path (buildImageStorePathArgs)", func(repoRoot, outLink string) {
+			_, _ = buildImageStorePathArgs(repoRoot, nil, outLink, io.Discard, nil, nil)
+		}},
+		{"run path with builder offload", func(repoRoot, outLink string) {
+			_, _ = buildImageStorePathArgs(repoRoot, nil, outLink, io.Discard,
+				[]string{"--builders", "ssh://b"}, nil)
+		}},
+		{"check preflight (BuildOCIImage)", func(repoRoot, _ string) {
+			_, _ = BuildOCIImage(repoRoot, nil)
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assertFlakeArgv(t, tc.argv)
+			recorded := fakeNix(t)
+			dir := t.TempDir()
+			tc.run(dir, filepath.Join(dir, "result"))
+			assertFlakeArgv(t, recorded())
 		})
 	}
 }
 
-// assertFlakeArgv is the shared assertion; check's own test mirrors it for the
-// dry-run builder.
+// fakeNix installs a recording `nix` first on PATH and returns a reader for the
+// argv it was called with.
+//
+// The recorder exits NON-ZERO on purpose. Both builders treat a failed nix as an
+// ordinary build failure — they collect the stderr tail and return ("", tail) —
+// so the probe finishes in milliseconds without either one going on to read an
+// out-link that a real build would have created. A zero exit would send them
+// looking for that symlink instead, which is work this test has no opinion about.
+//
+// The argv file is passed through the environment rather than baked into the
+// script so the path never has to survive shell quoting: TMPDIR is not this
+// test's to choose. Both builders hand the child os.Environ(), so it arrives.
+func fakeNix(t *testing.T) func() []string {
+	t.Helper()
+	bin := t.TempDir()
+	argvFile := filepath.Join(bin, "recorded-argv")
+	script := "#!/bin/sh\n" +
+		"for a in \"$@\"; do printf '%s\\n' \"$a\" >>\"$YOLO_TEST_NIX_ARGV\"; done\n" +
+		"exit 1\n"
+	if err := os.WriteFile(filepath.Join(bin, "nix"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YOLO_TEST_NIX_ARGV", argvFile)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	return func() []string {
+		t.Helper()
+		data, err := os.ReadFile(argvFile)
+		if err != nil {
+			t.Fatalf("the recording nix was never executed (%v) — the builder did not "+
+				"run `nix` at all, so this test proved nothing", err)
+		}
+		// One argument per line: `nix-command flakes` is a single argv element that
+		// contains a space, so any whitespace split would silently pass a test that
+		// should fail.
+		args := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+		return append([]string{"nix"}, args...)
+	}
+}
+
+// assertFlakeArgv is the shared assertion: this really is a build of the flake
+// attr, and both nix-level flags precede the subcommand (nix rejects
+// --accept-flake-config after it). check's own test mirrors it for the dry-run
+// probe.
 func assertFlakeArgv(t *testing.T, argv []string) {
 	t.Helper()
 	if len(argv) == 0 || argv[0] != "nix" {
@@ -52,6 +119,10 @@ func assertFlakeArgv(t *testing.T, argv []string) {
 	sub := slices.Index(argv, "build")
 	if sub < 0 {
 		t.Fatalf("argv has no `build` subcommand: %v", argv)
+	}
+	if !slices.Contains(argv, ".#ociImage") {
+		t.Fatalf("argv does not evaluate .#ociImage, so it is not the invocation this "+
+			"test is about: %v", argv)
 	}
 	nixLevel := argv[1:sub]
 	for _, want := range NixFlakeFlags() {
