@@ -211,6 +211,24 @@ there is no sync step.
   wired, never that the forwarding works: the only measurement that settles it is
   a REAL jail on a rootless host, reported together with
   `podman info --format '{{.Host.RootlessNetworkCmd}}'`.
+  **What DOES work from in here is bare `podman run`** — the blindness is
+  `yolo`'s forced `--net=host`, not the jail. Bind a listener on this jail's own
+  loopback and dial it from a container that uses the stack under test; the jail
+  is the "host" for that container, and the bug reproduces exactly:
+  ```console
+  $ python3 -m http.server 18080 --bind 127.0.0.1 &
+  $ probe='(exec 3<>/dev/tcp/169.254.1.2/18080) 2>/dev/null && echo CONNECT || echo FAIL'
+  $ podman run --rm --network=pasta localhost/yolo-jail:latest bash -c "$probe"
+  FAIL                                        # the outage, reproduced
+  $ podman run --rm --network=pasta:--map-host-loopback,169.254.1.2 \
+      localhost/yolo-jail:latest bash -c "$probe"
+  CONNECT                                     # the fix, measured
+  ```
+  Measured 2026-08-17 on podman 5.8.4 + pasta 2026_07_16, and the slirp4netns
+  twin the same way (`--network=slirp4netns:allow_host_loopback=true`, dialling
+  the `10.0.2.2` gateway). This proves the FLAG does what it claims; it still
+  says nothing about a given host's passt build, which is why the launcher probes
+  for the flag before emitting it.
 
 ## Invariants & gotchas
 

@@ -128,9 +128,11 @@ the packet actually arrive?**
 > §5 is what falls out of it.
 
 **Verification status, stated honestly.** The pasta rows are measured on this host (§2 and §3.1).
-The slirp4netns and netavark rows come from documented behaviour and from `46d5417`'s findings,
-**not** re-measured — there is no slirp host here to test on. The `--map-host-loopback` row is the
-proposal; whether the flag exists on a given passt build is OQ-R3.
+The netavark row comes from documented behaviour and from `46d5417`'s findings, **not**
+re-measured. The `--map-host-loopback` row and the slirp4netns row were the proposal when this was
+written and are now **measured** — see [§3.2](#32-both-fixes-measured-from-a-development-jail);
+whether the flag exists on a given *user's* passt build remains OQ-R3, which is why the launcher
+probes for it rather than assuming.
 
 ### 3.1 Where pasta actually forwards — measured
 
@@ -144,6 +146,45 @@ The original report left this open. A differential probe from inside a jail sett
 | `192.168.1.131:22` | refused | the jail's own copy of the host's address, per §2 |
 
 **Pasta forwards `169.254.1.2` to the host's global address, not its loopback.**
+
+### 3.2 Both fixes, measured from a development jail
+
+> [!NOTE]
+> **This corrects §7 and OQ-R3, which both say this class cannot be measured from in here.** What
+> cannot measure it is a nested *yolo* jail, because `yolo` forces `--net=host` under
+> podman-in-podman. Bare `podman run` is not so constrained: the development jail is a perfectly
+> good "host" for a container it starts, and podman ships its own pasta, so the outage and its
+> remedy both reproduce in one command each. Nobody had tried it.
+
+Bind a listener on the jail's own loopback — the same shape as a yolo host daemon — and dial it
+from a container using the stack under test:
+
+```console
+$ python3 -m http.server 18080 --bind 127.0.0.1 &
+$ probe='(exec 3<>/dev/tcp/169.254.1.2/18080) 2>/dev/null && echo CONNECT || echo FAIL'
+$ podman run --rm --network=pasta localhost/yolo-jail:latest bash -c "$probe"
+FAIL
+$ podman run --rm --network=pasta:--map-host-loopback,169.254.1.2 localhost/yolo-jail:latest bash -c "$probe"
+CONNECT
+```
+
+| probe | result | what it establishes |
+| :--- | :--- | :--- |
+| `--network=pasta`, dial `169.254.1.2` | **FAIL** | the outage of §1, reproduced on demand |
+| `--network=pasta:--map-host-loopback,169.254.1.2` | **CONNECT** | §6's fix works, with the exact argv the launcher emits |
+| `--network=slirp4netns`, dial `10.0.2.2` | **FAIL** | the slirp row of §3 was right: podman passes `--disable-host-loopback` by default |
+| `--network=slirp4netns:allow_host_loopback=true`, dial `10.0.2.2` | **CONNECT** | the slirp4netns arm of §6 works too |
+| `--network=pasta:--bogus-flag` | `Error: pasta failed with exit code 1` (rc 126) | **a wrong option is a failed launch, not a degraded one** — the reason §6's implementation detects positively and emits nothing when unsure |
+
+Measured 2026-08-17 on podman 5.8.4 with the bundled pasta 2026_07_16 and slirp4netns 1.3.4. Two
+implementation notes settled along the way: passt accepts the same address for `--map-host-loopback`
+and podman's own `--map-guest-addr`, so §6's "use a distinct address" contingency is not needed; and
+`podman create` accepts a bogus option happily — the rejection comes at **start**, which is exactly
+where it costs a jail.
+
+**What this does NOT establish:** that any particular user's passt supports the flag (OQ-R3 — still a
+host fact), or that the launcher picks the right backend on a host it has never seen. Those are the
+two things the implementation probes for rather than assumes.
 
 ---
 
@@ -275,6 +316,14 @@ a nested podman is forced onto `--net=host`, the one mode where the bug **cannot
 `AGENTS.md`'s "verify in a nested jail" instruction is not merely insufficient here, it is
 *misleading*, and needs an explicit carve-out. There is currently no integration coverage of in-jail
 reachability at all.
+
+> [!NOTE]
+> **Blind is not the same as impossible**, and the first draft of this section conflated them.
+> `yolo`'s forced `--net=host` is what blinds the nested path; a bare
+> `podman run --network=pasta …` from the same jail reproduces the outage and demonstrates the fix
+> in one command each ([§3.2](#32-both-fixes-measured-from-a-development-jail)). The carve-out in
+> `AGENTS.md` carries that recipe, because "you cannot test this here" is the belief that let the
+> option ship unmeasured for a day longer than it needed to.
 
 ---
 
@@ -409,11 +458,15 @@ version required.
 question.
 
 > [!TIP]
-> **This collapses to a fact, and it cannot be obtained from inside a jail** (no pasta here, and
-> `yolo-ps` is down because of this very bug). One command on the host settles it:
+> **This collapses to a fact about the USER'S host, and only that host can answer it** (`yolo-ps` is
+> down because of this very bug, so there is no remote read of it either). One command settles it:
 > ```bash
 > pasta --version
 > ```
+> Corrected 2026-08-17: the original wording said "no pasta here", which is wrong — podman ships one
+> (`podman info --format '{{.Host.Pasta.Executable}}'`), and [§3.2](#32-both-fixes-measured-from-a-development-jail)
+> used it to measure the flag. What a development jail cannot know is what is installed on someone
+> else's machine, which is why the launcher probes at launch instead of trusting a version.
 
 _Leaning:_ **Refuse to launch, and say what is needed.** Reviving a retired transport to serve one
 old passt build is a large permanent cost for a shrinking population; a clear refusal names an
