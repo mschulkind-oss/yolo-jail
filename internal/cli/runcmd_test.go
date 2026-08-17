@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -135,6 +136,18 @@ func TestParseRunArgsFlags(t *testing.T) {
 // TestRunUsageListsEveryRunFlag guards the usage text against parser drift: every
 // flag runRun consumes must be documented, or `run --help` teaches a flag surface
 // that is not the real one.
+//
+// runFlags is a HAND-WRITTEN inventory — parseRunArgs spells its own literals and
+// runHelpRequested skips anything that starts with `-`, so neither reads this list
+// and neither breaks when it goes stale. Iterating it therefore proved only that a
+// remembered flag is documented, never that a NEW one is; the parser is the
+// authority and is checked directly by TestUsageListsEveryParsedFlag, which follows
+// runRun's delegation into parseRunArgs.
+//
+// The list still earns its place as the one written-down answer to "what does run
+// consume", which is why the second assertion here pins it AGAINST the parser: an
+// inventory nothing keeps honest is worse than no inventory, because a reader
+// (runHelpRequested's doc comment among them) trusts it.
 func TestRunUsageListsEveryRunFlag(t *testing.T) {
 	for _, f := range runFlags {
 		if !strings.Contains(runUsage, f) {
@@ -145,6 +158,19 @@ func TestRunUsageListsEveryRunFlag(t *testing.T) {
 		if !strings.Contains(runUsage, f) {
 			t.Errorf("runUsage does not document %q\n%s", f, runUsage)
 		}
+	}
+
+	_, funcs := parseCLISource(t)
+	parser, ok := funcs["parseRunArgs"]
+	if !ok {
+		t.Fatal("parseRunArgs is gone — runFlags has nothing left to be an inventory of")
+	}
+	// parseRunArgs also matches `--` (excluded by length) and the `--network=`
+	// form, which longFlagLiterals folds onto `--network`.
+	got, want := longFlagLiterals(parser), append([]string(nil), runFlags...)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("runFlags is stale: parseRunArgs consumes %v, runFlags says %v", got, want)
 	}
 }
 

@@ -148,11 +148,20 @@ func TestRunHelpIsNotClaimedByTheSharedScan(t *testing.T) {
 // fail — the drift that left `prune`'s twelve flags and `init`'s `--mount`
 // undocumented for as long as they existed cannot recur silently.
 //
-// Its blind spot, stated so nobody reads more into a pass than is there: a
-// handler that DELEGATES its parsing to another function (runApply → applyMain,
-// runRun → parseRunArgs) has no flag literals in its own body and passes
-// vacuously. run is covered by TestRunUsageListsEveryRunFlag, which pins the same
-// property through the `runFlags` list its parser and its usage share.
+// It follows ONE HOP of delegation, and that is not a refinement — without it the
+// scan misses the two commands with the largest flag surfaces. runRun and runApply
+// hold no flag literal of their own; they hand argv to parseRunArgs and applyMain.
+// A handler-body-only scan therefore passes VACUOUSLY for `run` and `apply`, and
+// measured 2026-08-17 that is not theoretical: adding a case to parseRunArgs's
+// switch and documenting it nowhere left `go test -short ./...` fully green.
+//
+// The hop is narrowed to same-package callees that take a `[]string` parameter,
+// which is what an argv parser looks like and what an ordinary helper does not.
+// The alternative — follow every call — drags each handler's whole support cast in
+// and turns an unrelated `--flag` literal into a demand that `prune` document it.
+//
+// Its remaining blind spot, stated so nobody reads more into a pass than is there:
+// TWO hops. A parser that delegates again (none does today) is invisible here.
 func TestUsageListsEveryParsedFlag(t *testing.T) {
 	handlers, funcs := parseCLISource(t)
 	for _, sub := range slices.Sorted(maps.Keys(registry)) {
@@ -169,13 +178,68 @@ func TestUsageListsEveryParsedFlag(t *testing.T) {
 			continue
 		}
 		usage := subcommandUsage[sub].text
-		for _, flag := range longFlagLiterals(fn) {
+		for _, flag := range parsedFlagLiterals(fn, funcs) {
 			if !strings.Contains(usage, flag) {
 				t.Errorf("`yolo %s` parses %s but its help never mentions it "+
 					"(handler %s)", sub, flag, fnName)
 			}
 		}
 	}
+}
+
+// parsedFlagLiterals returns fn's own long-flag literals plus those of every
+// same-package function fn CALLS that takes a `[]string` parameter — the shape of a
+// delegated argv parser. See TestUsageListsEveryParsedFlag for why the hop exists
+// and why it is narrowed this way.
+func parsedFlagLiterals(fn *ast.FuncDecl, funcs map[string]*ast.FuncDecl) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(from *ast.FuncDecl) {
+		for _, flag := range longFlagLiterals(from) {
+			if !seen[flag] {
+				seen[flag] = true
+				out = append(out, flag)
+			}
+		}
+	}
+	add(fn)
+	ast.Inspect(fn, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		// An *ast.Ident callee is an unqualified — therefore same-package — call.
+		// A pkg.Func selector is somebody else's surface and is left alone.
+		id, ok := call.Fun.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		callee, ok := funcs[id.Name]
+		if ok && takesArgv(callee) {
+			add(callee)
+		}
+		return true
+	})
+	slices.Sort(out)
+	return out
+}
+
+// takesArgv reports whether fn accepts a []string, the signature that separates an
+// argv parser from an ordinary helper.
+func takesArgv(fn *ast.FuncDecl) bool {
+	if fn.Type.Params == nil {
+		return false
+	}
+	for _, p := range fn.Type.Params.List {
+		arr, ok := p.Type.(*ast.ArrayType)
+		if !ok || arr.Len != nil {
+			continue
+		}
+		if elem, ok := arr.Elt.(*ast.Ident); ok && elem.Name == "string" {
+			return true
+		}
+	}
+	return false
 }
 
 // parseCLISource parses the non-test sources of package cli and returns the

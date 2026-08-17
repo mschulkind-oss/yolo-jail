@@ -126,6 +126,7 @@ every loaded pack's host access is listed in the startup banner each launch.
   yolo pack install           fetch configured packs, write the lockfile, approve host access
   yolo pack update            same as install (re-fetch; reports moved pins, re-approves new access)
   yolo pack status            show locked commits, and flag config/lock drift
+  yolo pack --help, -h        this text (also 'yolo pack help')
 
 Packs are configured in ~/.config/yolo-jail/config.jsonc under "packs" (USER scope
 only — a workspace config cannot name one), as a bare name for a pack yolo ships or an
