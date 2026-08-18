@@ -769,6 +769,20 @@
           imagePkgs.iptables      # DNAT rules (published port → localhost fixup)
           imagePkgs.socat         # host port forwarding into the jail
           imagePkgs.sox           # Claude Code's `/voice` recorder depends on it
+          # Baked for ONE consumer that never appears in this image's own argv:
+          # `internal/oauthbroker`'s EnsureCAAndLeaf shells out to `openssl` to
+          # mint the broker CA (a crypto/x509 port is flagged in that function
+          # and deliberately deferred). Nothing in the image invokes openssl
+          # directly, so a closure audit reads it as unused — it is not.
+          # Without it, every launch whose HOST IS ITSELF A JAIL kills the
+          # broker singleton at startup: the socket never binds, no endpoint
+          # file is written, and since the reachability witness became fatal
+          # that surfaces as a REFUSED launch — of the nested launch AGENTS.md
+          # makes mandatory for verifying Go changes. It hid for months (2,549
+          # dead spawns in one jail) because on a real host openssl is simply
+          # always there. Core, not full: a minimal-variant jail is a host for
+          # its children too. See docs/design/broker-ca-and-nested-hosts.md.
+          imagePkgs.openssl
           # Timezone database — without it, glibc can't resolve
           # ``TZ=America/New_York`` etc. and silently falls back to UTC,
           # so `date` inside the jail reports wall-clock time that
