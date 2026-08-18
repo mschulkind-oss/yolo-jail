@@ -3,14 +3,18 @@ title: "Nothing reaches your host because it happened to be there — loophole a
 date: 2026-08-18
 status: in-review
 tags: [loopholes, packs, activation, security, config]
-summary: "A loophole is active today because it was present and something it named happened to exist on the host. Six rulings replace that end to end: presence stops implying activation, a pack declares a default, and the default is disabled. Eight questions are settled; five remain."
+summary: "A loophole is active today because it was present and something it named happened to exist on the host. Six rulings replace that end to end: presence stops implying activation, a pack declares a default, and the default is disabled. Eleven questions settled; two remain, neither blocking."
 ---
 
 # Nothing reaches your host because it happened to be there — loophole activation
 
-**Status:** RULED 2026-08-15, nothing built. Six rulings (§2) and **eight questions settled**
-(Decision Ledger below); **five open**. The design's one real gap — `default_enabled` colliding with
-a live `enabled` key — is closed: OQ-A9 ruled one key, renamed, governing all four manifest sources.
+**Status:** RULED 2026-08-15, nothing built. Six rulings (§2) and **eleven questions settled**
+(Decision Ledger below); **two open**, neither blocking. The design's one real gap —
+`default_enabled` colliding with a live `enabled` key — is closed by OQ-A9: one key, renamed,
+governing all four manifest sources.
+
+**This is now a buildable design.** What remains open is one scope question about daemons nobody
+gates yet (OQ-A11) and one surface question about disclosure (OQ-A13).
 
 The doc grew this many questions on purpose: every one came from asking *"what else reaches the host,
 and why is it on?"*, and the answer kept being "something different each time".
@@ -47,9 +51,12 @@ have since been settled and folded into the body.
 | **OQ-A2** | **Going dark is fine.** No migration machinery, no upgrade notice — a loophole you never listed behaves like an agent pack you never listed | 2026-08-17 | [§4](#4-what-it-costs) |
 | **OQ-A3** | `default_enabled: true` stays available to **fetched** packs, unrestricted — the origin gate is the gate | 2026-08-16 | [§3](#3-what-this-does-not-license) |
 | **OQ-A4** | The cgroup delegate becomes **opt-in**, like everything else — no presence-activated exception | 2026-08-18 | [§1.2](#12-the-three-things-this-doc-first-ignored--raised-in-review-and-one-is-a-real-hole), [§1.3](#13-everything-that-reaches-your-host-and-how-it-turns-on) |
+| **OQ-A5** | **Keep all three gates** for `yolo-ps` — they answer different questions, and only two of them are new | 2026-08-18 | [§1.2](#12-the-three-things-this-doc-first-ignored--raised-in-review-and-one-is-a-real-hole) |
 | **OQ-A6** | `journal` and `cgroup-delegate` **become manifest loopholes — in this sprint**, not after it | 2026-08-18 | [§5](#5-the-structural-questions-this-opened) |
 | **OQ-A7** | A loophole-only pack **needs selecting**. No special case: shipped in the binary is not installed | 2026-08-17 | [§5](#5-the-structural-questions-this-opened) |
 | **OQ-A8** | A loophole's settings are **typed and declared in its manifest**, not an opaque map — 📄 [`pack-config-keys.md`](pack-config-keys.md) | 2026-08-17 | [§1.4](#14-the-finding-that-undercuts-the-conversion--core-hardcodes-two-loopholes-by-name) |
+| **OQ-A10** | The broker's loophole is a contribution of **`packs/claude`**, not its own pack — and `broker-as-a-pack.md` §6 is corrected rather than left standing | 2026-08-18 | [§2](#2-the-rulings) |
+| **OQ-A12** | `yolo check` learns to read pack-shipped loopholes **in this sprint**, as part of the conversion | 2026-08-18 | [§4](#4-what-it-costs) |
 | **OQ-A9** | **One key, renamed.** `default_enabled` *is* `enabled` with the default flipped, governing all four manifest sources | 2026-08-18 | [§2](#2-the-rulings) |
 
 ---
@@ -132,9 +139,16 @@ before the general rule existed. Two consequences:
   precise trigger for OQ-A2's notice: a workspace with entries but no selected pack is exactly the
   case worth printing a line for, and it costs nothing to detect.
 - **After the ruling there are three gates for one feature** — select the pack, enable the loophole,
-  list the processes. Two of them are genuinely different questions (is the daemon running vs. what
-  may it show) but the ceremony is real, and it is worth deciding deliberately rather than
-  discovering. See OQ-A5.
+  list the processes.
+
+  **RULED (OQ-A5, 2026-08-18): keep all three, and do nothing clever.** They answer different
+  questions — is it installed, is it running, what may it show — and collapsing them would mean a
+  non-empty `visible` list **silently starting a host daemon**, which is the presence-activation this
+  whole document deletes, wearing a different hat. The ceremony is the price of the rule being true.
+
+  Note the count is smaller than it looks: the third gate is the **status quo** (it predates this
+  design), so the rulings add **two** steps, not three. Where the cost should be softened is the
+  *message*, not the mechanism.
 
 **(b) The journal bridge is already opt-in, and it is the precedent.** It starts only when the
 top-level `journal` key says so (`internal/cli/run/loopholesruntime.go:89-90, 108`). So R1 is not a
@@ -284,6 +298,23 @@ what makes per-workspace enablement safe to offer at all.
 selecting the claude pack is the dependency — and R3's deletion is then free rather than a
 regression, because the sniff was standing in for exactly this.
 
+> **RULED (OQ-A10, 2026-08-18): a contribution of `packs/claude`, not a pack of its own.**
+> [`broker-as-a-pack.md`](broker-as-a-pack.md) §6 designs a separate `packs/claude-oauth-broker/`;
+> that is now **wrong and gets corrected there** rather than left as a second answer in a sibling
+> doc. R6's whole argument is that the dependency is structural, and a separate pack reinstates the
+> second selection step R6 deletes. A Bedrock user's escape is `supersedes` on the
+> `claude-oauth-refresh` capability — already built, already declared — not deselection.
+
+> [!WARNING]
+> **Deleting `bundled_loopholes/claude-oauth-broker/` does NOT free the name, and getting this wrong
+> breaks every launch for every claude user.** The reserved name is appended **unconditionally**
+> (`discover.go:322-325`) — it is *not* derived from the bundled directory — and a pack claiming a
+> reserved name fails the **whole launch** (`packs.go:310-311`). So the first commit adding the
+> loophole contribution must also retire the reservation **and** the name special-case at
+> `loopholesruntime.go:211-214`, in the same change. `audio` escaped this by renaming itself
+> `audio-alsa`; the broker cannot, because `loopholes.claude-oauth-broker.enabled` is a user-visible
+> config key.
+
 ---
 
 ## 3. What this does NOT license
@@ -348,6 +379,18 @@ costs no warning surface here: there is nothing left to warn about.
 a simplification, not a loss — but the "loophole silently inactive" reports it used to produce were
 at least *diagnosable*, and a missing program now surfaces as a daemon that fails to spawn. Worth
 checking that failure reads well before shipping.
+
+**RULED (OQ-A12, 2026-08-18): `yolo check` learns to read pack-shipped loopholes in this sprint.**
+Not after it. The health section reads only the non-pack sources, which costs nothing today because
+the only pack-shipped loophole (`audio-alsa`) has no `doctor_cmd` — but **this sprint moves the only
+two loopholes that have one**, the broker and `host-processes`. Landing the conversion without the
+fix means that on the day it ships, `yolo check` prints a cheerful "no loopholes installed" while the
+broker's cert freshness, liveness and self-check go unreported.
+
+That compounds the diagnosability cost in the paragraph above, on exactly the command a user reaches
+for when a loophole is silently off. It is also the honest completion of
+[`pack-code-separation.md`](pack-code-separation.md)'s doctor ruling: `check` should read loophole
+health through the manifest surface rather than hand-rolled Go.
 
 **And R3 is a silent WIDENING for manifests we do not ship — priced wrong above.** The sweep's
 sharpest small finding: deleting a key that *grants* is not symmetric with deleting one that
@@ -466,69 +509,10 @@ contribution.
 
 ## Open Questions
 
-Five, in ID order. The eight settled ones are in the Decision Ledger at the top and folded into
-the body; their IDs are unchanged because sibling docs and the roadmap cite them.
+Two. The eleven settled ones are in the Decision Ledger at the top and folded into the body;
+their IDs are unchanged because sibling docs and the roadmap cite them.
 
-1. 💬 **OQ-A5 — three gates for `yolo-ps`: is that the intended shape?**
-
-   After the ruling, showing a host process takes: select the pack (user scope), enable the loophole
-   (either scope), and list the process names (workspace scope). The first two are new; the third
-   already existed (§1.2a).
-
-   **What "list the process names" means, since the phrasing was doing too much work.** Yes on both
-   counts: it is a per-loophole **allowlist**, and it is how `yolo-ps` already works today — it
-   predates this design and nothing here proposes it.
-
-   - `host_processes.visible` is a **list of exact process names**, loaded into a set and matched by
-     equality (`hostprocesses.go:126-128`) — not a pattern, not a substring.
-   - It is read from the **workspace** config, and **per request** rather than at spawn: the handler
-     calls `LoadConfig` on every call (`hostprocesses.go:125`).
-   - It defaults to **empty**, and empty is not "show everything" — it is *"nothing to show"*, with
-     the daemon exiting 3 and saying so (`hostprocesses.go:137-139`). `LoadConfig`'s own comment calls
-     that *"feature effectively disabled"*.
-
-   So the ceremony this question is about is really **two** new steps, not three. The third gate is
-   the status quo, and it is the one that already embodies R5's shape — user-scope install,
-   workspace-scope opt-in — invented ad hoc for this one loophole before the general rule existed.
-
-   *One thing does move: per OQ-A8 the key becomes `loopholes.host-processes.settings.visible`, typed
-   and declared in the manifest, so `host_processes.visible` becomes a deprecated alias needing a
-   migration. That changes where it is written, not what it does.*
-
-   _Leaning:_ **keep all three, and do nothing clever.** They answer different questions — is it
-   installed, is it running, what may it show — and collapsing them would mean a non-empty `visible`
-   list silently starting a host daemon, which is the presence-activation this whole doc deletes,
-   wearing a different hat. The ceremony is the price of the rule being true. Where it should be
-   softened is the *message*, not the mechanism: OQ-A2's notice makes the two-step discoverable at
-   exactly the moment someone hits it.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-A10 — is the broker's loophole a contribution of `packs/claude`, or its own official pack?**
-
-   R6 says *"inside `packs/claude/`"*. [`broker-as-a-pack.md`](broker-as-a-pack.md) §6 designs a
-   **separate** pack, `packs/claude-oauth-broker/`. Two docs in one sprint, two answers, and the
-   difference is user-visible: can a Bedrock user drop the broker without dropping claude?
-
-   **The trap underneath is worse than either doc says.** The reserved name is appended
-   **unconditionally** (`discover.go:322-325`) — it is *not* derived from the bundled directory —
-   and a pack claiming a reserved name fails the **whole launch** (`packs.go:310-311`). So deleting
-   `bundled_loopholes/claude-oauth-broker/` does **not** free the name: the first commit adding the
-   loophole contribution breaks every launch for every claude user until the reservation *and* the
-   name special-case at `loopholesruntime.go:211-214` die in the same change. `audio` escaped this
-   by renaming itself `audio-alsa`; the broker cannot, because `loopholes.claude-oauth-broker.enabled`
-   is a user-visible config key.
-
-   _Leaning:_ **inside `packs/claude`, and fix §6 rather than leaving two answers standing.** R6's
-   whole argument is that the dependency is structural; a separate pack reinstates the second
-   selection step R6 deletes. A Bedrock user's escape is `supersedes` on the `claude-oauth-refresh`
-   capability — already built, already declared — not deselection.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-A11 — do the ungated host daemons get gated: the broker singleton, the per-jail relay, and
+1. 💬 **OQ-A11 — do the ungated host daemons get gated: the broker singleton, the per-jail relay, and
    the host nix-daemon socket?**
 
    §1.1 and §1.3: `run.go:392-398` spawns the broker singleton and a relay **every launch with no
@@ -538,6 +522,19 @@ the body; their IDs are unchanged because sibling docs and the roadmap cite them
    in any surface (`loopholes list` will not name it, the briefing will not mention it) while yolo
    keeps spawning the singleton on that host at every launch. A daemon none of yolo's own surfaces
    name is worse than one that is merely on.
+
+   > **Asked on review: "are you telling me there are still hard codings? or does `supersedes` have a
+   > bug?"** — **Hardcoding. `supersedes` is fine and is not involved.**
+   >
+   > `run.go:395` calls `o.brokerEnsure()` with **no loophole lookup of any kind**; the only guard
+   > around it is `rt != "container"`. Re-verified 2026-08-18, after this week's containment patch —
+   > that patch gated the *relay* on the singleton socket existing and stopped the launcher
+   > *promising* an endpoint it cannot publish, but the singleton spawn itself is still
+   > unconditional. It is the same family as §1.4's hardcoded config keys: core reaching for a
+   > specific loophole by name, one layer down.
+   >
+   > The nix row is a second, unrelated hardcoding — the daemon socket is mounted because it exists
+   > (§1.3), with no key anywhere.
 
    _Leaning:_ **gate the broker daemons on the loophole record; leave nix for now and say why.** The
    broker is squarely in scope — it is the loophole R6 is already moving, and the fix is to route
@@ -549,35 +546,46 @@ the body; their IDs are unchanged because sibling docs and the roadmap cite them
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-A12 — `yolo check` cannot see pack-shipped loopholes; does that get fixed in this sprint?**
-
-   The health section reads only the non-pack sources, so today it costs nothing: the only
-   pack-shipped loophole is `audio-alsa`, which has no `doctor_cmd`. **This sprint moves the only
-   two loopholes that have one** — the broker and host-processes — out of the surface that reports
-   their health. On the day the conversion lands, `yolo check` prints a cheerful "no loopholes
-   installed" while the broker's cert freshness, liveness and self-check go unreported.
-
-   _Leaning:_ **fix it in the sprint, as part of the conversion rather than after it.** §4 already
-   worries that R3 costs diagnosability; landing this in the same sprint would compound it on
-   exactly the command a user reaches for when a loophole is silently off. It is also the honest
-   completion of [`pack-code-separation.md`](pack-code-separation.md)'s doctor ruling, which said
-   `check` should read loophole health through the manifest surface rather than hand-rolled Go.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-5. 💬 **OQ-A13 — enabling is now the dangerous direction, and nothing discloses it. Does it need a
+2. 💬 **OQ-A13 — enabling is now the dangerous direction, and nothing discloses it. Does it need a
    surface?**
 
    Today `enabled: true` in an agent-editable workspace file is **inert** — the manifest default is
    already true — so the only meaningful workspace power is turning things **off**, which is
    precisely the direction yolo discloses at launch and warns about in `yolo check`. R2 makes
-   `enabled: true` **the activation verb** and R5 keeps it available at workspace scope. That path
-   produces no violation, no disclosure, no launch line and no warning.
+   `enabled: true` **the activation verb** and R5 keeps it available at workspace scope.
+
+   > **⚠ Corrected on review, 2026-08-18.** This question originally claimed the path produces *"no
+   > violation, no disclosure, no launch line and no warning."* **The disclosure claim was wrong:**
+   > a workspace config change fires the config-approval diff, which renders the added line and asks
+   > *"Accept these config changes? [y/N]"* (`preflight.go:213-232`). So enabling is disclosed, on an
+   > interactive launch, against an untampered snapshot.
+   >
+   > **Two holes keep the question alive, and they are narrower and more interesting than the
+   > original claim:**
+   >
+   > - **The snapshot is inside the jail's reach.** It lives at
+   >   `<workspace>/.yolo/config-snapshot.json` (`config/snapshot.go:18-20`) and `/workspace` is
+   >   bind-mounted **rw**, so whatever writes `enabled: true` can rewrite the baseline the diff is
+   >   computed against. That is roadmap **OQ-D1**, arriving here from a second direction.
+   > - **No TTY means no prompt.** The documented behaviour is *"Changed + non-tty: auto-accept,
+   >   rewrite snapshot"* (`config/snapshot.go:38`) — so a scripted or CI launch accepts silently.
+   >
+   > So the live question is not *"is there any disclosure?"* but **"is a generic config diff the
+   > right surface for what is now the activation verb, given it is suppressible from inside the jail
+   > and skipped without a TTY?"**
 
    The lockfile half is the same shape one surface over: a fetched pack the user reviewed, approved
    and deliberately never enabled can flip `default_enabled: false → true` in a later commit with a
    byte-identical claim set, so the approval check still passes.
+
+   > **Yes, that requires a new commit — and that is exactly why it lands here rather than being
+   > covered already.** The lockfile *does* record the commit a fetched pack resolved to
+   > (`packsrc/lock.go:39-42`), so the material to detect a moved pin exists. But every reader of
+   > that field is **display-only**: `pack.go:1096` reports whether an update moved the pin, and
+   > `pack.go:1313-1316` prints it in a listing. **Nothing consults it at launch.** So a new commit
+   > is not detected, the claim set is unchanged, and the approval carries over to code the user
+   > never reviewed. That is roadmap **OQ-LP8 / G2b** — you ruled the shape (approval pinned to a
+   > commit); what is missing is the enforcement.
 
    _Leaning:_ **yes — mirror the existing disclosure, do not invent a new one.** The machinery is
    already there for the opposite direction; pointing it at the new dangerous direction is a small

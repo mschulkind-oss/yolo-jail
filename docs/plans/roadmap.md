@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 9 needing you · 1 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
+**Status: 9 needing you · 2 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
 
 Last updated **2026-08-18**. Counts tallied from this file, not asserted.
 
@@ -29,33 +29,25 @@ the real number was closer to 50.
 Grouped by decision, not by question. Each row names its design doc; the doc holds the stakes and my
 leaning. **Nothing here asks you to pick an execution order** — sequencing is mine.
 
-### 💬 1 — Loophole activation: five questions, one design
+### 💬 1 — Loophole activation: two questions, neither blocking
 
 📄 [`loophole-activation.md`](../design/loophole-activation.md)
 
-**Compacted and ruled 2026-08-18** — six rulings and **eight settled questions** now live in the
-doc's body and its Decision Ledger. **OQ-A9 is closed**, which was the design's one real gap and the
-thing blocking the sprint: one key, renamed, governing all four manifest sources.
+**Ruled out to buildable, 2026-08-18.** Eleven of thirteen questions are settled and folded into the
+doc; **OQ-A9 is closed**, which was the design's one real gap and the single decision blocking the
+sprint below.
 
-**OQ-A6 grew the sprint** — `journal` and `cgroup-delegate` become manifest loopholes *in* this work
-rather than after it, overruling my leaning. That removes the second loophole name from core's own
-config schema, which is what makes the conversion mean anything.
+Two remain, and neither gates the work:
 
-Five remain, none of them blocking:
-
-- **OQ-A10** — the broker's loophole: inside `packs/claude`, or its own pack? Two docs disagree, and
-  the reserved name does **not** free itself when the bundled copy is deleted.
-- **OQ-A11** — the broker daemon and relay spawn on **every launch with no lookup at all**, so R1 has
-  a counterexample in the run pipeline. Also covers the ungated host nix-daemon socket.
-- **OQ-A5 · A12 · A13** — whether three gates for `yolo-ps` is the intended shape (its allowlist
-  question is answered in-doc: it is the status quo, so the ruling adds two steps, not three),
-  `yolo check`'s blindness to pack loopholes, and disclosure now that *enabling* is the dangerous
-  direction.
-
-*Settled and folded in: A1, A2, A3, A4, A6, A7, A8, A9. The one with reach beyond this doc is A8 —
-settings are typed in the manifest (📄 [`pack-config-keys.md`](../design/pack-config-keys.md), whose
-own **OQ-K1..K4** stay open; `journal: "full"` is an agent-settable host-journal passthrough with no
-scope rule at all today).*
+- **OQ-A11** — the broker singleton still spawns on **every launch with no lookup at all**
+  (`run.go:395`, re-verified after this week's containment patch), and the host nix-daemon socket is
+  mounted because it exists. Both are R1 counterexamples living in the run pipeline. *You asked
+  whether this was hardcoding or a `supersedes` bug: hardcoding, and `supersedes` is not involved.*
+- **OQ-A13** — whether *enabling* needs its own disclosure now that it is the dangerous verb. *Your
+  objection was right and narrowed it:* the config-approval diff **does** fire, so the question is no
+  longer "is there any disclosure" but whether a generic diff is the right surface, given the
+  snapshot it compares against lives at `<workspace>/.yolo/` and is **agent-writable** (OQ-D1), and a
+  non-TTY launch **auto-accepts** with no prompt at all.
 
 ### 💬 2 — Trust paths: where we extend trust, and where a pin is theatre
 
@@ -152,6 +144,36 @@ one-line deliverable that is decided in all but name.
 # 📦 Up next
 
 **Ordered by:** what unblocks something else, then what protects a live user, then cost.
+
+- 📦 **Empty `bundled_loopholes/` — the activation sprint is now fully designed.** 📄
+  [`loophole-activation.md`](../design/loophole-activation.md) ·
+  [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) ·
+  [`pack-config-keys.md`](../design/pack-config-keys.md)
+
+  Eleven of thirteen questions ruled; the two left do not gate it. What the sprint now carries, in
+  dependency order:
+
+  1. **`default_enabled` replaces `enabled`** (OQ-A9) — one key, renamed, governing all four manifest
+     sources; `enabled` becomes recognized-and-refused; `SetEnabled` writes config, not a manifest.
+     **Needs a refusal for reverse skew**, not a tolerance: an older yolo ignores the new key and runs
+     `audio` on.
+  2. **Typed, manifest-declared loophole settings** (OQ-A8) — the prerequisite for anything else
+     moving out of core, since it is what lets `host_processes.visible` and `journal` stop being
+     hardcoded top-level keys.
+  3. **`host-processes` and `audio` become packs**; the broker's loophole becomes a contribution of
+     `packs/claude` (OQ-A10). ⚠ The reserved name is **not** freed by deleting the bundled directory —
+     the reservation and the `loopholesruntime.go` name special-case must die in the same commit, or
+     every claude user's launch breaks.
+  4. **`journal` and `cgroup-delegate` become manifest loopholes** (OQ-A6, in-sprint by your ruling),
+     with `cgroup-delegate` default-off (OQ-A4). This is what removes core's last two hardcoded
+     loophole names. **Accepted cost:** `yolo-cglimit` stops working out of the box.
+  5. **`yolo check` learns to read pack-shipped loopholes** (OQ-A12) — same sprint, because the
+     conversion moves the only two loopholes that have a `doctor_cmd`.
+
+  This is the largest queued item in the file and it grew on 2026-08-18: OQ-A6 pulled the two builtin
+  conversions in rather than deferring them. That was your call and the reasoning is in the doc; the
+  argument for deferring is kept there too, because a sprint that silently absorbs a fifth workstream
+  is how the other four slip.
 
 - 📦 **Bake `openssl`, and make the broker's own failure detector speak.** *One package, plus the
   three layers that stayed quiet about it.* 📄
@@ -260,12 +282,10 @@ The goal is **no inhabitants at sprint end** (OQ-BP4). `host-processes` steps 1�
 connection preamble end to end, `ServeFrontedUnix`, the daemon behind the framework front, and
 `yolo-ps` no longer self-reporting a `jail_id` nobody trusted.
 
-**Step 7 — the official pack — is blocked on OQ-A9.** (A7 is answered: it is selected like any other
-pack.) The broker conversion is blocked on OQ-A10.
-
-**`audio` is UNBLOCKED as of 2026-08-17** — OQ-LP14's path rule is withdrawn as false security, so it
-needs no new vocabulary and now shares the same OQ-A9 dependency as the rest. **OQ-A9 is therefore the
-single decision standing between here and an empty `bundled_loopholes/`.**
+**Nothing is blocked any more.** OQ-A9 was the single decision standing between here and an empty
+`bundled_loopholes/`, and it is ruled — one key, renamed. Step 7 (the official pack), the broker
+conversion (OQ-A10: a contribution of `packs/claude`, not its own pack) and `audio` are all designed
+through. The work is queued in 📦 above.
 
 📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) — four of its six questions are answered;
 **OQ-BP5** (build step vs download-only) and **OQ-BP6** (may a fetched pack ship a host-side binary?)
