@@ -308,8 +308,15 @@ func GeneratePackageManagerLaunchers(e *Env) error {
 
 // npmLauncherTemplate is the npm agent launcher body, with the per-agent
 // fields replaced by __YOLO_*__ sentinels.
+//
+// THE LAUNCHER NEVER RESOLVES A NEW VERSION ON ITS OWN (docs/design/trust-paths.md §1
+// row 1, ruled 2026-08-18: "no magical evergreen npm packages"). It installs on first
+// use, it reports when the registry has moved, and the ONE input that makes it resolve
+// anything after that is YOLO_PACK_UPDATE=1 — which `yolo pack update` sets and nothing
+// else does. See _poll_and_report and _update below for the whole of the rule.
 const npmLauncherTemplate = `#!/bin/bash
-# Lazy-update launcher for __YOLO_BIN__ — installs/updates on first use, not at boot.
+# Lazy-install launcher for __YOLO_BIN__ — installs on first use, not at boot, and never
+# resolves a new version unless YOLO_PACK_UPDATE=1 asks it to.
 set -euo pipefail
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
@@ -323,7 +330,7 @@ REAL_BIN="$NPM_CONFIG_PREFIX/bin/__YOLO_BIN__"
 PKG="__YOLO_PKG__"
 SPEC="__YOLO_SPEC__"
 PINNED="__YOLO_PINNED__"   # 1 when the declaration carried a version selector
-UPDATE_INTERVAL=3600  # seconds between update checks
+UPDATE_INTERVAL=3600  # seconds between update CHECKS — a check reports, it never installs
 
 mkdir -p "$STAMP_DIR"
 
@@ -354,18 +361,75 @@ _do_install() {
     touch "$STAMP"
 }
 
-_poll_and_update() {
+# _poll_and_report is the hourly registry check, and it is INFORMATIONAL. It asks the
+# registry what its "latest" dist-tag is and PRINTS the answer. It does not install.
+#
+# It used to be _poll_and_update: same "npm view", then a full "npm install -g" whenever
+# the registry had moved. That reinstall is the mechanism docs/design/trust-paths.md §1
+# row 1 deletes, and the objection is not that updating is bad — it is that the binary
+# changed between two invocations WITH NOBODY PRESENT. A silent change has no act to pin
+# to, so no pin, lockfile field or approval prompt can ever cover it; the only fix that
+# works is for the timer to stop being an installer. "yolo pack update" is the act that
+# replaces it, and the message below names it because a report the reader cannot act on
+# is worse than the reinstall it replaces.
+#
+# The stamp is touched on EVERY check, hit or miss — that is the throttle, and it has to
+# be unconditional now that the "hit" branch no longer installs (and so no longer touches
+# the stamp via _do_install). Without it the check would fire on every single invocation
+# once the registry moved, which is both a network round-trip per launch and the exact
+# noise that gets a real notice skimmed past.
+_poll_and_report() {
     INSTALLED=$(_installed_version)
     LATEST=$(YOLO_BYPASS_SHIMS=1 npm view "$PKG" version 2>/dev/null || echo "$INSTALLED")
     if [ "$INSTALLED" != "$LATEST" ]; then
-        echo "  Updating __YOLO_BIN__ $INSTALLED → $LATEST..." >&2
-        _do_install
-    else
-        touch "$STAMP"
+        echo "  __YOLO_BIN__ $INSTALLED → $LATEST is available. Run 'yolo pack update' to install it." >&2
     fi
+    touch "$STAMP"
 }
 
+# _update is the ONLY path in this script that resolves a new version, and the only way
+# into it is YOLO_PACK_UPDATE=1. That is the install/update split, implemented at the one
+# place that knows how to talk to npm rather than copied into Go beside it.
+_update() {
+    if [ "$PINNED" = "1" ]; then
+        # A declared selector already IS the answer to "which version", so there is
+        # nothing for an update to resolve — asking the registry here would either
+        # override the declaration or waste the round-trip. Converging on the declaration
+        # is still this act's job: an update that left the jail behind its own pack would
+        # report success while running the old binary.
+        if [ ! -x "$REAL_BIN" ] || [ "$(cat "$SPEC_FILE" 2>/dev/null || true)" != "$SPEC" ]; then
+            _do_install
+        else
+            echo "  __YOLO_BIN__ is pinned to $SPEC by its pack — nothing to resolve." >&2
+        fi
+        return
+    fi
+    if [ ! -x "$REAL_BIN" ]; then
+        _do_install
+        return
+    fi
+    INSTALLED=$(_installed_version)
+    LATEST=$(YOLO_BYPASS_SHIMS=1 npm view "$PKG" version 2>/dev/null || echo "$INSTALLED")
+    if [ "$INSTALLED" = "$LATEST" ]; then
+        echo "  __YOLO_BIN__ $INSTALLED is already current." >&2
+        touch "$STAMP"
+        return
+    fi
+    echo "  Updating __YOLO_BIN__ $INSTALLED → $LATEST..." >&2
+    _do_install
+}
+
+if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
+    # Update mode EXITS instead of exec'ing the real binary: "yolo pack update" walks
+    # every npm-declared program in turn and must refresh them, not launch them.
+    _update
+    exit 0
+fi
+
 if [ ! -x "$REAL_BIN" ]; then
+    # Cold home: the FIRST install is not a poll, and the no-evergreen ruling does not
+    # touch it. There is no version here to keep — without this branch a fresh jail would
+    # simply have no agent CLI at all.
     _do_install
 elif [ "$PINNED" = "1" ]; then
     # A pinned package has nothing to poll for. A "npm view $PKG version" call answers "what is
@@ -378,13 +442,13 @@ elif [ "$PINNED" = "1" ]; then
         _do_install
     fi
 elif [ ! -f "$STAMP" ]; then
-    # First run since jail boot — check if update needed
-    _poll_and_update
+    # First run since jail boot — say whether a newer version exists.
+    _poll_and_report
 else
     # Check if stamp is stale (older than UPDATE_INTERVAL)
     STAMP_AGE=$(( $(date +%s) - $(stat -c %Y "$STAMP" 2>/dev/null || echo 0) ))
     if [ "$STAMP_AGE" -gt "$UPDATE_INTERVAL" ]; then
-        _poll_and_update
+        _poll_and_report
     fi
 fi
 

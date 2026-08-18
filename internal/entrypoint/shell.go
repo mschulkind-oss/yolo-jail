@@ -208,9 +208,10 @@ export PATH="$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:__YOLO_MISE_SHIMS__:$GOBIN:
 # Initialize font cache (once, not on every shell session)
 fc-cache -f >/dev/null 2>&1
 
-# Agent CLIs (copilot, claude, codex) are NOT updated here.
-# Lazy-update launchers in ~/.yolo-shims/ handle install/update on first use,
-# keeping boot fast.  Only MCP/LSP tools that agents depend on are installed here.
+# Agent CLIs (copilot, claude, codex) are NOT installed here.
+# Lazy-install launchers in ~/.yolo-launchers/ install them on first use, keeping boot
+# fast.  They no longer update themselves on a timer — "yolo pack update" is the act that
+# resolves a new version.  Only MCP/LSP tools that agents depend on are installed here.
 
 # --- MCP preset tools (gated on the ENABLED presets, D6) ----------------
 # Empty when no preset needs an npm package, so a jail that wants none installs

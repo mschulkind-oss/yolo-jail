@@ -190,7 +190,7 @@ func TestBlockedAndDeclaredToolGetsBothAndBlockerWins(t *testing.T) {
 		t.Fatalf("a pack-declared program must get its launcher even when the tool is "+
 			"ALSO blocked — the dirs cannot collide, so there is nothing to skip: %v", err)
 	}
-	if !strings.Contains(string(launcherBody), "Lazy-update launcher") {
+	if !strings.Contains(string(launcherBody), "Lazy-install launcher") {
 		t.Errorf("launcher body looks wrong:\n%s", launcherBody)
 	}
 
