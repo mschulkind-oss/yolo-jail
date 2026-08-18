@@ -29,32 +29,29 @@ the real number was closer to 50.
 Grouped by decision, not by question. Each row names its design doc; the doc holds the stakes and my
 leaning. **Nothing here asks you to pick an execution order** — sequencing is mine.
 
-### 💬 1 — Loophole activation: eleven questions, one design
+### 💬 1 — Loophole activation: eight questions, one design
 
 📄 [`loophole-activation.md`](../design/loophole-activation.md)
 
-Six rulings are already recorded (presence never activates; packs declare a default that defaults to
-**disabled**; `requires.command_on_path` is deleted; host access is never on by default; install is
-user-scope and enable is either; the broker moves inside `packs/claude`). What is left:
+**Compacted 2026-08-18** — six rulings and five settled questions now live in the doc's body and its
+Decision Ledger; **eight remain open**, listed here by ID:
 
 - **OQ-A9 is the one real gap** — `default_enabled` collides with a live `enabled` key that all four
   shipped manifests set and `SetEnabled` writes back. Either reading breaks something, and **it
   blocks two other items** (host-processes step 7, and OQ-LP10's retirement).
-- **OQ-A7** — does a loophole-only pack need selecting, or is enabling enough?
 - **OQ-A10** — the broker's loophole: inside `packs/claude`, or its own pack? Two docs currently
   disagree, and the reserved name does **not** free itself when the bundled copy is deleted.
 - **OQ-A11** — the broker daemon and relay spawn on **every launch with no lookup at all**, so R1 has
   a counterexample in the run pipeline. Also covers the ungated host nix-daemon socket.
-- ✅ **OQ-A8 is designed** — 📄 [`pack-config-keys.md`](../design/pack-config-keys.md): a loophole's
-  settings are **typed and declared in its manifest**, supplied under `loopholes.<name>.settings`,
-  and delivered through a file core writes. Four questions live there (**OQ-K1..K4**), and one of them
-  matters beyond this: `journal: "full"` is an **agent-settable host-journal passthrough with no scope
-  rule at all** today.
 - **OQ-A4 · A5 · A6 · A12 · A13** — cgroup-delegate's opt-in, the three gates on `yolo-ps`, whether
   the builtins become manifests, `yolo check`'s blindness to pack loopholes, and disclosure now that
   *enabling* is the dangerous direction.
-- ✅ **A1 · A2 · A3 · A7 answered.** Going dark needs no migration machinery, and a loophole-only pack
-  is selected like any other — no special case.
+
+*Settled and folded in: A1 (broker on inside `packs/claude`), A2 (going dark needs no migration
+machinery), A3 (fetched packs may declare a default), A7 (a loophole-only pack is still selected),
+A8 (settings are typed in the manifest — 📄 [`pack-config-keys.md`](../design/pack-config-keys.md),
+whose own **OQ-K1..K4** stay open; one matters beyond this doc, since `journal: "full"` is an
+agent-settable host-journal passthrough with no scope rule at all today).*
 
 ### 💬 2 — Trust paths: where we extend trust, and where a pin is theatre
 
