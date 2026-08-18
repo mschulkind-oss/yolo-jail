@@ -379,16 +379,34 @@ becomes cheap to justify.
 - **OQ-A. Is the synchronous version enough?** Most of the complexity here is durability. If the
   human is usually at the keyboard, a blocking ask with a timeout may cover the real need — and
   step 3 never has to happen. **Resolved by:** trying step 2.
-- **OQ-B. Should an approval be reusable?** "Yes, and don't ask again for this verb in this
+- **✅ OQ-B. Should an approval be reusable? — RESOLVED in §10.8 by the unYOLO source read.** "Yes,
+  and don't ask again for this verb in this
   session" is the difference between a usable feature and prompt fatigue — but it is also how a
   gate quietly becomes an allowlist. **Resolved by:** deciding whether the grant is per-action or
   per-(verb, jail, session), and if the latter, what expires it. **→ §10 has a worked answer.**
+
+  **Answer:**
+  > **Per-action by default; a reusable grant is bounded by duration AND use count, and the
+  > operator may only NARROW it.** The chain is **policy ceiling ≥ request ≥ operator's grant**,
+  > monotonically narrowing — see §10.1 correction 1, which corrects this document's own earlier
+  > reading (it had the human *widening* a grant, which unYOLO's
+  > `validApprovalConstraints` rejects outright). §10.6 lists two-bound narrowing-only grants among
+  > the ideas B2 should take, and §10.8 records the closure. Narrowing-only is what stops the
+  > reusable case from turning the gate into an allowlist, which was the whole worry above.
 - **OQ-C. Does the jail see the RESULT or just success?** A PR comment returns a URL, which is
   useful; a credential-bearing response would defeat the "action crosses, credential does not"
   rule. **Resolved by:** a per-verb response schema, server-owned.
-- **OQ-D. Is dynamic auth switching a real requirement or a nice-to-have?** Moved with the auth
+- **➡️ OQ-D. Is dynamic auth switching a real requirement or a nice-to-have? — NOT OPEN HERE;
+  DELEGATED, and it is a pointer, not a question.** Moved with the auth
   content to [`agent-auth-modes.md`](agent-auth-modes.md) §6 / OQ-1; kept here as a pointer
   because the answer decides whether this daemon ever holds auth state (§6).
+
+  **Where it lives now:**
+  > **`agent-auth-modes.md` §10, auth OQ-1** — *"Is per-jail selection enough?"*, whose own
+  > **Resolved by:** is *"using §5 for a while"*: an experiment, not a ruling.
+  > Nothing about it is decided in **this** document, and nothing here waits on it except §6's
+  > "does the daemon hold auth state" branch, which is downstream of B2 anyway. Do not count OQ-D
+  > as an open boundary-broker question: answering it means running auth §5 and reporting there.
 - **OQ-E. Where does the human answer?** A foreground `yolo approve`, a TUI, a notification, the
   existing `yolo ps`-style view? This is a UX decision that constrains the state design, so it is
   worth answering before step 3 rather than after. **→ §10 answers the security half of this.**

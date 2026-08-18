@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 10 needing you · 2 ready · 0 in progress · 2 waiting · 2 broken · 2 icebox.**
+**Status: 9 needing you · 1 ready · 0 in progress · 2 waiting · 2 broken · 2 icebox.**
 
 Last updated **2026-08-17**. Counts tallied from this file, not asserted.
 
@@ -128,14 +128,6 @@ where the sweep found the gate also fails open three other ways), **OQ-CO**, **O
 Should host-side `files` be `0o444`? Same asymmetry as E1/E2 — decide them together. OQ-CAP is a
 one-line deliverable that is decided in all but name.
 
-### 💬 10 — Bookkeeping: five records that say "open" and are not
-
-Not a design decision — a correctness pass on the record itself, listed because it needs your assent
-rather than my judgement: **auth OQ-5** (retired in `retired-decisions.md`, still written open),
-**auth OQ-8** (dead by events — superseded by the transport unification), **image-staging OQ-2**
-(answered by shipped code, `7830f65`, and the shipped answer differs from the doc's leaning),
-**boundary OQ-B** (answered at `boundary-broker.md:717`), **broker OQ-D** (delegated to auth OQ-1).
-
 ---
 
 # 📦 Up next
@@ -157,8 +149,6 @@ rather than my judgement: **auth OQ-5** (retired in `retired-decisions.md`, stil
   has never run at a genuine container start — every green is a unit test against an in-process
   listener — and this host's own services were unreachable until the launcher fix landed. 📄
   [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §7, §10.
-
-- 📦 **Close the five stale question records** from 💬 11 above, once you assent. Mechanical.
 
 ---
 

@@ -334,6 +334,16 @@ another* — has no way to say so.
 idea A2 needs: one names packs that must be present, the other names packs that must not be.
 Both are load-time checks over a list yolo already has, with no runtime cost. **OQ-5** below.
 
+> **⛔ SUPERSEDED — `requires_pack` was RETIRED, and this paragraph's "minimal fix" is no longer
+> the plan.** See [`retired-decisions.md`](retired-decisions.md) Thread A, *"Also retired:
+> `requires_pack` / pack→pack composition"*: its motivating case was two auth packs excluding each
+> other, and Thread A's ruling left **one** pack (`claude-bedrock`), so there is nothing to
+> exclude. A personal pack selected without it is additive and harmless — the exact case described
+> two paragraphs above — because an MCP server whose key is absent is already inert via
+> `requires_env`. **Build it when something breaks without it.** The finding above (there is no
+> pack→pack mechanism) is still true and still worth keeping; only the prescription is withdrawn.
+> Tracked as answered in **OQ-5**, §12.4.
+
 ### 11.2 The host-notch mechanism: use `config-overlay`, NOT the `env` kind
 
 This corrects Thread A's earlier claim that `env` is "refused at the host notch." The truth is
@@ -416,6 +426,16 @@ approval path that already exists. **OQ-6.**
 
 ## 12. Relationship to PR #32 (macOS broker transport)
 
+> **⛔ OVERTAKEN BY EVENTS, 2026-08-13.** This section was written while #32 was open and
+> mergeable. It no longer is: the maintainer ruled that yolo **builds the unified transport
+> instead of merging #32**, and that `loopback-tls` becomes the loophole framework's only
+> transport (`unix-socket` retired). See
+> [`loophole-transport.md`](loophole-transport.md) §7.3 (OQ-T8) and §7.4 (OQ-T9); §7.1 of that doc
+> states **"All of §7 is now settled."** The analysis below is kept as the record of why the
+> generalization was the right call — §12.2's list of what #32 got right is the spec
+> `loophole-transport.md` §7.3 re-derives against. Only its framing of the choice as still open is
+> stale. **OQ-8 in §12.4 is answered accordingly.**
+
 [PR #32](https://github.com/mschulkind-oss/yolo-jail/pull/32) — *"oauth broker: loopback TCP
 transport for macOS+podman"*, +1064/−13, open — fixes
 [#31](https://github.com/mschulkind-oss/yolo-jail/issues/31): on macOS+podman the in-jail
@@ -469,18 +489,38 @@ so.
 
 ### 12.4 Open questions from §11–§12
 
-- **OQ-5. Should packs be able to require other packs?** §11.1 — a `requires_pack` contribution,
-  paired with A2's `conflicts`. Both are load-time checks over a list yolo already has.
-  **Resolved by:** deciding whether the flat `packs` list is the whole composition story.
+- **✅ OQ-5. Should packs be able to require other packs? — RESOLVED: NO, not now.** §11.1 — a
+  `requires_pack` contribution, paired with A2's `conflicts`. Both are load-time checks over a list
+  yolo already has. **Resolved by:** deciding whether the flat `packs` list is the whole
+  composition story — and it is.
+
+  **Answer:**
+  > **`requires_pack` / pack→pack composition is RETIRED**, recorded in
+  > [`retired-decisions.md`](retired-decisions.md) Thread A. Thread A collapsed the two-auth-pack
+  > shape into one `claude-bedrock` pack, which removes the motivating case: with nothing to
+  > exclude, a personal pack selected alone is additive and harmless (`requires_env` already makes
+  > a keyless MCP server inert). The flat, ordered `packs` list is the whole composition story.
+  > **Build it when something breaks without it.** §11.1 carries the superseding note.
 - **OQ-6. Shipped, or a separate public pack repo?** §11.5 — shipping breaks the "six packs"
   tests and embeds a personal auth choice in the binary; a fetched repo matches "shareable" and
   exercises the approval path. **Recommendation: fetched.**
 - **OQ-7. Does the Teams pack own the model IDs, or does the base `claude` pack?** If the base
   pack pins nothing, a jail with no auth pack has no model pin at all — which may be correct
   (Claude Code defaults) or may be a silent hole.
-- **OQ-8. Generalize #32's transport into the loophole framework, or merge it as-is?** §12.2. As-is
-  is faster and leaves the next host service to rediscover the problem; generalizing is the same
-  code in a different package with a wider blast radius.
+- **✅ OQ-8. Generalize #32's transport into the loophole framework, or merge it as-is? —
+  RESOLVED: generalize, and #32 is not merged at all.** §12.2. As-is is faster and leaves the next
+  host service to rediscover the problem; generalizing is the same code in a different package with
+  a wider blast radius.
+
+  **Answer:**
+  > **Generalize — decided by the maintainer 2026-08-13, against the recommendation recorded in
+  > §12.2.** Not "merge then migrate": #32 is closed and its design is the spec, because it lives
+  > in `brokerrelay` where the framework cannot own it. `loopback-tls` becomes the framework's only
+  > transport and `unix-socket` is retired. Both halves are in
+  > [`loophole-transport.md`](loophole-transport.md) — §7.3 (OQ-T8, *"ship the unification instead
+  > of #32"*) and §7.4 (OQ-T9, *"unify"*) — and §7.1 there records **"All of §7 is now settled."**
+  > The cost this buys, stated there rather than here: macOS + podman stays broken until the
+  > unification ships, and #32's 1064 tested lines are re-derived rather than reused.
 - **OQ-9. Is `env_sources` still the right home for the AWS keys?** It works and is invisible to
   yolo's config model (§1). §11.2 moves the *non-secret* half into a pack; the secret half has to
   live somewhere, and `env_sources` puts it cleartext at 0644 in several files (§7.4).
