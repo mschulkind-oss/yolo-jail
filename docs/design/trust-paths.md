@@ -11,7 +11,7 @@ summary: "Twenty-five paths, enumerated from the code, each with when trust is e
 **Status:** INVENTORY, 2026-08-17; **two rulings since**, both 2026-08-18 and both closing a finding
 by *removing* a mechanism rather than adding a gate — no evergreen npm ([§1 row 1](#where-a-pin-would-change-the-outcome)),
 and a refused contribution refuses the launch ([§3.1](#ruled-2026-08-18-a-refused-contribution-is-a-refused-launch)),
-which obviates OQ-T1. Nothing built. Every row was traced in the code; anchors are
+which obviates OQ-TP1 (see the Decision Ledger). Nothing built. Every row was traced in the code; anchors are
 inline and the check date is today.
 
 **Why this exists.** A proposal ([`pack-execution-trust.md`](./pack-execution-trust.md)) argued that
@@ -34,6 +34,30 @@ approved is the thing that runs, and you will be asked again when it changes"* �
 against exactly one threat, the silent update.
 
 ---
+
+## Decision Ledger
+
+Two rulings and one obviated question. IDs are `OQ-TP*` **and that prefix is load-bearing** — see the
+note below.
+
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| **OQ-TP1** | **Obviated.** There is no decision to carry into a jail, because a refused contribution refuses the launch (OQ-TP6). The hardcoded `mayAccessHost=true` stays worth fixing as tidiness, not as a broken guarantee | 2026-08-18 | [§3.1](#31-the-origin-gate-is-not-enforced-where-it-executes-) |
+| **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report* | 2026-08-18 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
+| **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it | 2026-08-18 | [§3.1](#ruled-2026-08-18-a-refused-contribution-is-a-refused-launch) |
+
+> [!WARNING]
+> **This document's questions were renumbered on 2026-08-18, and the reason is worth keeping.** They
+> were `OQ-T1..T4` and collided with [`loophole-transport.md`](loophole-transport.md), which already
+> owned `OQ-T1..T9` — and *those* are the ones cited from code, by name:
+> *"loophole-transport.md OQ-T2"* (`loopholescmd.go:195`), *"loophole-transport.md OQ-T5"*
+> (`macosuser.go:388`), `OQ-T7` (`svcendpoint/doc.go:44`).
+>
+> Two docs answering to one ID space is worse than a rename: a reader grepping `OQ-T3` landed in
+> whichever file they opened first. This doc yielded because its IDs were cited only from
+> `roadmap.md`, which moved in the same commit; the transport's are cited from three code files and
+> did not move. **A stale `OQ-T1..T4` referring to trust-paths therefore means "written before
+> 2026-08-18" — it is not a dangling reference, it is an old spelling of `OQ-TP1..TP4`.**
 
 ## 1. The verdict
 
@@ -103,7 +127,7 @@ becomes a gate only if three things hold together — (i) enforced at use, (ii) 
    >   lockfile is "unused for embedded/local packs". But this row's own text says the silent-change
    >   problem *"applies to embedded packs (pi, copilot, codex, opencode) as much as fetched ones"* —
    >   and those four are exactly the packs that declare npm programs. **So the ruling has no home for
-   >   the pin it depends on for the majority case.** That is OQ-T4 below; it is not a detail, it is
+   >   the pin it depends on for the majority case.** That is OQ-TP4 below; it is not a detail, it is
    >   the question of whether this ruling can be implemented as stated.
    > - **npm installs are deliberately NOT origin-gated** — `HonoredInstalls`
    >   ([`packload.go`](../../internal/packload/packload.go#L258-L276)) gates a `curl`-piped installer
@@ -248,7 +272,7 @@ Ordered from most-trusted origin to least. "Silent change" is the column the exe
 
 **The only verified break of a guarantee the codebase actively claims.**
 
-### What the gate is supposed to do
+#### What the gate is supposed to do
 
 `HonoredInstalls` ([`packload.go`](../../internal/packload/packload.go#L266-L277)) walks a pack's
 install contributions and refuses one specific thing:
@@ -263,7 +287,7 @@ if in.InstallerURL != "" && !p.MayAccessHost {
 granted = append(granted, in)
 ```
 
-### What `mayAccessHost` is, and what it is protecting
+#### What `mayAccessHost` is, and what it is protecting
 
 **Origin decides exactly one thing** in this system — the package comment is explicit that a user
 pack and an official pack are the same kind of thing, and that *"the only difference is ORIGIN, and
@@ -298,7 +322,7 @@ things you were shown and said yes to."* The claims are strings computed from th
 intercepts, binds and devices. All of them flow through one merged helper on purpose — both ends of
 the approval must compute the same union, or the gate disagrees with the prompt.
 
-### The refusal itself
+#### The refusal itself
 
 Two properties of it are load-bearing and worth stating before the defect, because the fix must
 preserve both:
@@ -311,7 +335,7 @@ preserve both:
   origin-gated — it is the same trust as any dependency the user already installs."* The gate is
   about `curl | sh` specifically, not about installing things.
 
-### What actually happens
+#### What actually happens
 
 The decision is made **twice, on two sides of the boundary, from different inputs** — and only the
 first side has the input that matters.
@@ -329,7 +353,7 @@ manifest. The jail re-derives the same verdict from an input that is hardcoded t
 answer, so `GenerateAgentLaunchers` writes the `curl → bash` launcher for a **fetched, unapproved**
 pack. The warning the user saw was true about the *decision* and false about the *outcome*.
 
-### Why the tests do not catch it
+#### Why the tests do not catch it
 
 The test that "asserts" the split states the assumption in its own words — *"The JAIL loader trusts
 the staged tree (the host already applied the gate)"* — and then **bypasses the jail loader**, so it
@@ -339,7 +363,7 @@ exactly where the gate's decision is *not* recorded.
 This is the identical shape `gateAdmitsCrossing` was written to close for loopholes: **true of the
 decision, false of its enforcement.**
 
-### What it is and is not
+#### What it is and is not
 
 - **It is not remote code execution by a stranger.** A fetched pack must still be *selected* by name
   in the user's own user-scope config (§ row 3 above), so someone deliberately installed this pack.
@@ -350,10 +374,10 @@ decision, false of its enforcement.**
 
 **Consequence for the pinning proposal: extending an unenforced refusal to more mechanisms adds
 rules, not safety.** Any new gate proposed in this document inherits this same host-decides /
-jail-executes split, and would need the decision *staged* to mean anything. That is why OQ-T1 asks
+jail-executes split, and would need the decision *staged* to mean anything. That is why OQ-TP1 asks
 whether to fix this first rather than build on top of it.
 
-### RULED (2026-08-18): a refused contribution is a REFUSED LAUNCH
+#### RULED (2026-08-18): a refused contribution is a REFUSED LAUNCH
 
 *"If the installer is refused, that should be fatal. We can't run packs with selective things
 disabled by refusals. Fix the pack, remove the pack, approve. Those are the choices."*
@@ -395,7 +419,7 @@ they are the only three that end with the manifest and the runtime agreeing.
 > The distinction that keeps these separate: **this ruling is about a claim yolo UNDERSTOOD and
 > declined.** Something absent, or something from the future, is neither.
 
-### "So should we just remove the gate?"
+#### "So should we just remove the gate?"
 
 Asked on review, and it is the right question to ask of any guarantee that turns out not to hold —
 an unenforced gate is worse than no gate, because the warning tells the user something false.
@@ -472,40 +496,7 @@ closed. A refusal that does not hold where the code runs is not a foundation to 
 
 ## Open Questions
 
-### ✅ OQ-T1 — is §3.1 a bug to fix now, or a design change? — RESOLVED (2026-08-18)
-
-Carrying the origin decision into the jail could be a marker in the staged tree, an env var, or
-staging a *modified* `pack.json` with the refused contribution removed. The third is the only one a
-jail cannot ignore.
-
-**A fourth option was raised on review — delete the gate and its warning.** It is answered in
-[§3.1](#so-should-we-just-remove-the-gate) rather than here, because the answer is factual rather
-than a matter of taste: `installer <URL>` is already an approvable claim flowing through the same
-prompt and the same lockfile as every other host-access claim, so removing it would leave `curl | sh`
-as the single unapproved crossing in a model that approves everything else. Removal is only coherent
-as a decision about the whole approval model.
-
-_Leaning:_ **Fix it now, by staging the refusal.** It is the one place where a documented guarantee
-is false rather than weak, and it is load-bearing for every other rule that keys on origin. Staging
-the modified manifest is also the cheapest of the three: no new file, no new variable, and it makes
-the jail's permissive default harmless instead of leaving it as a trap for the next reader — the same
-shape as *"the MOUNT is the filter"*, which this subsystem already relies on for pack selection.
-
-**Answer:**
-> **Neither — the question is obviated.** A refused contribution is a **refused launch**
-> ([§3.1](#ruled-2026-08-18-a-refused-contribution-is-a-refused-launch)), so there is no decision to
-> carry into a jail and no degraded pack to carry it for. All three mechanisms above were ways of
-> delivering a *partially disabled* pack, and the ruling says that pack should not exist.
->
-> **What survives of the finding:** the hardcoded `mayAccessHost=true` at `packsurfaces.go:89` should
-> still be fixed, but as tidiness and defence in depth rather than as a broken guarantee — once the
-> host refuses, every pack that reaches a jail has every claim approved, so the permissive default is
-> correct for every input it can now receive.
->
-> **What replaces it as the work:** making the refusal fatal, and writing a refusal message that
-> names the pack, the specific unapproved claim, and the three choices (fix, remove, approve).
-
-### 💬 OQ-T2 — does agent context (skills, briefing) get gated at all, or is "jail-internal" the ruling?
+### 💬 OQ-TP2 — does agent context (skills, briefing) get gated at all, or is "jail-internal" the ruling?
 
 Today it is ungated and undisclosed by explicit classification, while `env` **is** disclosed on
 reasoning that applies verbatim to skills. Either the reasoning is wrong or the classification is.
@@ -517,7 +508,7 @@ launch banner exactly as `env` does.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### 💬 OQ-T3 — given §1, is pinning worth building at all, and where first?
+### 💬 OQ-TP3 — given §1, is pinning worth building at all, and where first?
 
 The honest ranking from this inventory is: **npm `@latest` first** (highest plausibility, affects
 embedded packs, changes with nobody present), then the OQ-LP8 file/hook bodies, then `?ref=` drift.
@@ -544,12 +535,12 @@ real and rarer; do them when their consumers exist.
 >
 > **What that leaves of this question, still open:** it settles the *behaviour* and not the two scope
 > halves the paragraph above names — whether yolo pins its OWN embedded packs (which is
-> [OQ-T4](#-oq-t4--where-does-an-embedded-packs-npm-version-get-pinned), and the ruling cannot be
+> [OQ-TP4](#-oq-tp4--where-does-an-embedded-packs-npm-version-get-pinned), and the ruling cannot be
 > implemented for the majority case until it is answered), and whether a **fetched** pack is
 > *required* to pin rather than merely permitted to. Rows 2 and 3 are also untouched: both are
 > enforcement gaps on pins that already exist, not missing pins.
 
-### 💬 OQ-T4 — where does an EMBEDDED pack's npm version get pinned?
+### 💬 OQ-TP4 — where does an EMBEDDED pack's npm version get pinned?
 
 Raised by the 2026-08-18 ruling in §1 row 1, and it decides whether that ruling is implementable as
 stated rather than only for the minority of packs.

@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 8 needing you · 2 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
+**Status: 8 needing you · 3 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
 
 Last updated **2026-08-18**. Counts tallied from this file, not asserted.
 
@@ -34,14 +34,27 @@ leaning. **Nothing here asks you to pick an execution order** — sequencing is 
 📄 [`trust-paths.md`](../design/trust-paths.md) — 25 paths enumerated from the code · partly supersedes
 [`pack-execution-trust.md`](../design/pack-execution-trust.md)
 
-- **OQ-T1** — the origin gate is **not enforced in the jail** (see 🛑 below). Fix now, or design change?
-- **OQ-T2** — does agent context (skills, briefings) get gated, or just **disclosed**? Today it is
+**Two rulings on 2026-08-18, both closing a finding by removing a mechanism rather than adding a
+gate** — and one of them obviated a question rather than answering it:
+
+- ✅ **OQ-TP5 — no evergreen npm.** `install` obeys the lockfile, `update` is the only act that
+  resolves a new version, and the hourly poll is downgraded to informational. *Queued in 📦 below.*
+- ✅ **OQ-TP6 — a refused contribution refuses the launch.** No partial packs: fix it, remove it, or
+  approve it. *Queued in 📦 below.*
+- ✅ **OQ-TP1 obviated by TP6.** There is nothing to carry into a jail if no jail starts, so the
+  origin-gate finding stops being a broken guarantee. It stays in 🛑 until the fatal ships, but the
+  fix is now defined rather than undecided.
+
+What is still open:
+
+- **OQ-TP2** — does agent context (skills, briefings) get gated, or just **disclosed**? Today it is
   neither, by explicit classification, while `env` *is* disclosed on reasoning that applies verbatim.
-- **OQ-T3** — is pinning worth building at all? It changes an outcome in **three of twenty-five** paths.
-  *Its top row is now attemptable:* a pack's `package` string could not express a version at all until
-  today (the launcher appended a literal `@latest`, so `foo@1.2.3` became `foo@1.2.3@latest`). That is
-  fixed as a bug — nothing is pinned by default and no shipped pack changed what it installs — so the
-  question is now a live policy choice rather than a blocked one.
+- **OQ-TP3** — is pinning worth building at all? **Partly answered:** TP5 settles row 1's behaviour.
+  What is left is scope — whether yolo pins its *own* embedded packs, and whether a fetched pack is
+  *required* to pin rather than merely permitted.
+- **OQ-TP4** *(new)* — **where does an embedded pack's npm version get pinned?** The lockfile is per
+  *fetched* pack, but pi, copilot, codex and opencode are all **embedded** — so TP5's ruling has no
+  home for the pin in the case that covers nearly every user. This gates implementing TP5.
 - **OQ-X1** — does a digest-pinned installer script count, given its own fetches are not pinned?
 - **OQ-LP8 / G2b** — you ruled the shape (approval pinned to a commit); what remains is that
   `LockEntry.Commit` is **never consulted at launch**, so the pin does not yet exist.
@@ -172,6 +185,26 @@ one-line deliverable that is decided in all but name.
   argument for deferring is kept there too, because a sprint that silently absorbs a fifth workstream
   is how the other four slip.
 
+- 📦 **Two trust-path rulings: no evergreen npm, and no partial packs.** 📄
+  [`trust-paths.md`](../design/trust-paths.md)
+
+  Both close a finding by **removing a mechanism** rather than adding a gate, which is why they are
+  cheap. Ordered by dependency:
+
+  1. **A refused contribution refuses the launch (OQ-TP6).** Today the host computes a refusal,
+     prints it, and stages the pack anyway; the jail then grants what was refused. Making it fatal
+     deletes that whole class — no decision to carry, and the 🛑 origin-gate finding below closes with
+     it. ⚠ **Behaviour change:** a selected-but-unapproved fetched pack now yields *no jail* where it
+     used to yield a warning and a working one. The refusal message is therefore the entire user
+     experience of the failure — it must name the pack, the unapproved claim, and the three choices
+     (fix, remove, approve). **Do not** extend this to a missing bind-mount source or an unknown
+     contribution kind; both are deliberate and a jail's boot depends on the second.
+  2. **No evergreen npm (OQ-TP5).** Split `install` from `update`: install obeys the lockfile, update
+     is the only resolver and writes it, and the hourly poll survives as an informational
+     "an update is available". ⚠ **Blocked on OQ-TP4** for the case that matters — the lockfile is
+     per *fetched* pack and the four packs declaring npm programs are all *embedded*, so there is
+     nowhere to put the pin yet. The install/update split and the poll downgrade can land first.
+
 - 📦 **Bake `openssl`, and make the broker's own failure detector speak.** *One package, plus the
   three layers that stayed quiet about it.* 📄
   [`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md)
@@ -205,7 +238,12 @@ one-line deliverable that is decided in all but name.
   staged tree"* and then bypasses the jail loader.
 
   This is the exact shape `gateAdmitsCrossing` exists to close: **true of the decision, false of its
-  enforcement.** How to fix it is **OQ-T1**; that it must be fixed is not in question. 📄
+  enforcement.**
+
+  **The fix is now decided (OQ-TP6): the refusal becomes FATAL.** That deletes the problem rather
+  than plumbing around it — with no jail starting, there is no decision to carry and the hardcoded
+  `mayAccessHost=true` becomes correct for every input it can receive. It stays 🛑 until that ships,
+  but it is queued work now, not an open question. 📄
   [`trust-paths.md`](../design/trust-paths.md) §3.1.
 
 - 🛑 **The macOS nightly cannot build an image.** Five consecutive failures since v0.8.0.
