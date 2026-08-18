@@ -360,14 +360,25 @@ supports it, because the cert's ServerName is a fixed label rather than a hostna
 
 ## 7. Companion work — non-optional, whichever way the fix goes
 
-**`yolo check` reports PASS during a total outage.** Its probe uses `DialLocal`, which substitutes
-`127.0.0.1` for the advertised host ([`dial.go`](../../internal/svcendpoint/dial.go#L64), called at
-[`sections_loopholes.go`](../../internal/cli/check/sections_loopholes.go#L143)) — so it dials the one
-address a jail cannot use, and stays green while everything is down. A probe that cannot fail when
+**`yolo check` reports PASS during a total outage.** Both its probes — the loopback-TLS one and the
+broker relay's — use `DialLocal`, which substitutes `127.0.0.1` for the advertised host
+([`dial.go`](../../internal/svcendpoint/dial.go#L55), called twice in
+[`sections_loopholes.go`](../../internal/cli/check/sections_loopholes.go)) — so they dial the one
+address a jail cannot use, and stay green while everything is down. A probe that cannot fail when
 its subject is down is worse than no probe. The honest probe is **in-jail**, because the advertised
 address is only meaningful from inside — and per OQ-R2 it is **fatal**, not advisory: an enabled
 service the jail cannot reach fails the launch. That raises the bar on the probe itself, since a
 false positive now costs a jail rather than a log line.
+
+> [!NOTE]
+> **Done, as far as it can be: the OUTPUT is now honest** (2026-08-17). The dial cannot be fixed —
+> `yolo check` runs host-side, and the advertised address has no meaning outside a namespace the
+> runtime built — so each green now labels itself *"host-side, says nothing about in-jail
+> reachability"*, and one dim footnote per run points at the in-jail probe as the only thing that
+> can answer. Same treatment for the section's in-jail branch, which used to return **silently** and
+> leave its header standing over an empty block, reading as "probed, nothing to report".
+> What is **not** closed is the underlying asymmetry: `yolo check` still cannot fail on this, and
+> only the boot-time witness can.
 
 **Nested-jail verification is structurally blind to this.** Row 6 of §3 explains the whole incident:
 a nested podman is forced onto `--net=host`, the one mode where the bug **cannot** reproduce. So

@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 10 needing you · 3 ready · 0 in progress · 2 waiting · 2 broken · 2 icebox.**
+**Status: 10 needing you · 2 ready · 0 in progress · 2 waiting · 2 broken · 2 icebox.**
 
 Last updated **2026-08-17**. Counts tallied from this file, not asserted.
 
@@ -157,17 +157,6 @@ rather than my judgement: **auth OQ-5** (retired in `retired-decisions.md`, stil
   has never run at a genuine container start — every green is a unit test against an in-process
   listener — and this host's own services were unreachable until the launcher fix landed. 📄
   [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §7, §10.
-
-- 📦 **Say what `yolo check` cannot see.**
-
-  Both its `DialLocal` paths (`sections_loopholes.go:143` and `:274`) substitute `127.0.0.1` for the
-  advertised host, so a green check says nothing about whether a *jail* can reach the service. Label
-  them host-side rather than leaving a green that reads as more than it is.
-
-  *Related and now fixed: check reported `[FAIL]` in-jail for every local pack, because a jail's
-  config names host paths it cannot see. It reads the staged tree instead. The shape is the same one
-  — a check reporting on the wrong side of the boundary — so it is worth looking for more of them
-  while doing the above.*
 
 - 📦 **Close the five stale question records** from 💬 11 above, once you assent. Mechanical.
 
