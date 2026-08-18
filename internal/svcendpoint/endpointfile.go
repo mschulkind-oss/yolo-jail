@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"os"
@@ -123,16 +124,21 @@ func Publish(path string, ep Endpoint) error {
 	return nil
 }
 
+// MaxEndpointFileSize bounds what Read is willing to slurp. A published endpoint is
+// three whitespace-separated fields — address, base64 DER cert, token — which is
+// under 2 KiB for every listener yolo stands up, so a megabyte is orders of magnitude
+// of headroom and still a ceiling.
+//
+// Exported because it is a property of the FORMAT, not of any one reader: the boot
+// probe's regression test asserts against the same number, and a second spelling of
+// it somewhere else would be a ceiling that drifts.
+const MaxEndpointFileSize = 1 << 20
+
 // Read reads and parses the published endpoint. Callers read FRESH ON EVERY DIAL
 // — see Dial — so this must stay cheap and must never cache.
 func Read(path string) (Endpoint, error) {
-	data, err := os.ReadFile(path)
+	data, err := readEndpointFile(path)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			// Two %w: the sentinel AND the *PathError, so errors.Is holds for
-			// ErrEndpointMissing and for syscall.ENOENT alike.
-			return Endpoint{}, fmt.Errorf("%w: %w", ErrEndpointMissing, err)
-		}
 		return Endpoint{}, err
 	}
 	ep, err := Parse(string(data))
@@ -140,6 +146,150 @@ func Read(path string) (Endpoint, error) {
 		return Endpoint{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return ep, nil
+}
+
+// readEndpointFile is the bytes half of Read: STAT FIRST, refuse anything that is
+// not a plausible endpoint file, and only then open it.
+//
+// # Why a stat gate exists at all, when a dozen malformed shapes already end in errors
+//
+// This used to be a bare os.ReadFile, and os.ReadFile OPENS the path. Opening a FIFO
+// that has no writer BLOCKS FOREVER, and no timeout anywhere in this package or its
+// callers can reach it: Dial's dialTimeout bounds the dial it has not started yet,
+// the boot probe's budget bounds a retry loop it has not entered, and the OAuth
+// terminator has no deadline on this call at all. MEASURED 2026-08-18: an os.ReadFile
+// of a writer-less fifo does not return in 3s or ever, while an os.Stat of the same
+// path answers immediately with p---------.
+//
+// That is not a caller reporting a fault. It is the caller GONE — the boot probe is
+// PID 1 wedged above genFailuresError and below any output, a jail that never starts
+// with nothing said about why; the in-jail OAuth terminator is Claude Code simply
+// never launching, with no error at all; `yolo check` and the readiness polls hang
+// the same way. Every one of those callers reads the SAME per-jail host-services
+// directory, which is bind-mounted READ-WRITE into the jail (internal/cli/run's
+// hostServicesMountArgs), so anything in the jail can leave a fifo, a device node or
+// a unix socket where an endpoint file belongs — a mkfifo, a half-written pack hook,
+// a restored backup. No attacker is required, and the gate belongs HERE rather than
+// at any one call site precisely because the shape is one file and the readers are
+// four packages.
+//
+// The size cap is the same argument one step along: os.ReadFile has no ceiling, so a
+// file something grew to fill the disk is an OOM in the reader rather than an error
+// it can report. The cap is enforced twice — the stat refuses the declared size, and
+// the read itself is bounded — because the stat's answer is a snapshot and a regular
+// file can grow between the two.
+//
+// # How long such a file lasts, which is not "forever" and is not "one boot" either
+//
+// The host CLEARS it on the next launch: every respawn path unlinks the stale artifact
+// before spawning (internal/cli/run/loopholesruntime.go's os.Remove, retireStaleRelayFiles
+// for the relay's pair) and Publish renames a temp file onto the target. unlink(2) and
+// rename(2) both work on a fifo, and the host half never opens the path, so it cannot be
+// wedged the way a reader can.
+//
+// What that argument misses — and it was the argument for putting this gate only in the
+// boot probe — is that the host's next launch is not the next READ. A jail's OAuth
+// terminator reads this directory for the whole life of the session, so the window there
+// is not one boot but every read until the container exits. That is the case this gate is
+// really for; the boot probe's was merely the one that got noticed first.
+//
+// # Why the error is ErrEndpointMalformed
+//
+// Because that is what these shapes are under this package's own definition: "the
+// file exists but is not a complete, usable endpoint". The ATTRIBUTION is the part
+// that carries weight downstream — internal/entrypoint's classifyReachability maps
+// exactly ErrEndpointMissing and ErrEndpointMalformed onto faultUnpublished and
+// EVERYTHING ELSE onto faultUnreachable, which is the one class OQ-R2's fatal refuses
+// a launch over. An untyped errno here would put "a fifo sits where an endpoint
+// belongs" into the refuse-the-launch class, and a local file shape has nothing to do
+// with the network. (That is not hypothetical: a DIRECTORY at the endpoint path used
+// to land there, via os.ReadFile's untyped EISDIR.)
+//
+// ErrEndpointMissing would be the wrong sentinel for the same reason it is the right
+// one for ENOENT: it carries a second promise — errors.Is(err, syscall.ENOENT), which
+// internal/oauthterminator's frozen two-layer attribution gates on — and a fifo that
+// exists is not an absent file.
+//
+// # What it does not close, and why O_NONBLOCK is not the answer
+//
+// A stat is not an atomic open, so a path that becomes a fifo between the two still
+// wedges. An earlier note (internal/entrypoint/reachability.go, now retired) claimed
+// the fix for that was O_NONBLOCK plumbed through here. MEASURED 2026-08-18, and it
+// is not: os.OpenFile with syscall.O_NONBLOCK returns immediately for a writer-less
+// fifo (the read then gives EOF), but with a LIVE, SILENT writer the open succeeds and
+// the subsequent Read blocks forever anyway — Go's os package puts the pollable fd in
+// the runtime netpoller, which turns EAGAIN back into a wait. Closing the residual
+// race properly needs a read deadline on a pollable fd, i.e. a different file object
+// for a case that is already a race against a corruption nobody has observed. Spelling
+// out the flag that does not work is worth more than adding it: it looks like the fix.
+func readEndpointFile(path string) ([]byte, error) {
+	// os.Stat, not os.Lstat: os.ReadFile followed symlinks before this gate existed,
+	// so refusing them here would be a silent behaviour change dressed up as a safety
+	// fix. A DANGLING symlink still reports ENOENT, which is the attribution below.
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, readPathError(path, err)
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%w: %s is a %s, not a published endpoint file — refusing to open it",
+			ErrEndpointMalformed, path, fileKindName(fi.Mode()))
+	}
+	if fi.Size() > MaxEndpointFileSize {
+		return nil, fmt.Errorf("%w: %s is %d bytes, far larger than any published endpoint — refusing to read it",
+			ErrEndpointMalformed, path, fi.Size())
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, readPathError(path, err)
+	}
+	defer func() { _ = f.Close() }()
+	// One byte past the ceiling, so "hit the limit" is distinguishable from "the file
+	// is exactly the ceiling" without a second stat.
+	data, err := io.ReadAll(io.LimitReader(f, MaxEndpointFileSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > MaxEndpointFileSize {
+		return nil, fmt.Errorf("%w: %s grew past %d bytes while being read — refusing it",
+			ErrEndpointMalformed, path, MaxEndpointFileSize)
+	}
+	return data, nil
+}
+
+// readPathError attributes a stat or open failure. Only ENOENT is claimed: it is the
+// one errno this package has a meaning for, and it has TWO consumers that must both
+// keep working, which is why the wrap is double.
+//
+// Everything else — EACCES on the parent, EIO — is deliberately passed through
+// untouched. That is what os.ReadFile did before this gate existed, and inventing an
+// attribution for an errno nobody has reasoned about would change how every caller
+// classifies it.
+func readPathError(path string, err error) error {
+	if errors.Is(err, fs.ErrNotExist) {
+		// Two %w: the sentinel AND the *PathError, so errors.Is holds for
+		// ErrEndpointMissing and for syscall.ENOENT alike.
+		return fmt.Errorf("%w: %w", ErrEndpointMissing, err)
+	}
+	return err
+}
+
+// fileKindName names the shape in the error. "not a regular file" would leave the
+// reader to go and stat it themselves, and the specific word is usually the whole
+// diagnosis — "named pipe" says somebody ran mkfifo here.
+func fileKindName(m os.FileMode) string {
+	switch {
+	case m.IsDir():
+		return "directory"
+	case m&os.ModeNamedPipe != 0:
+		return "named pipe (fifo)"
+	case m&os.ModeSocket != 0:
+		return "unix socket"
+	case m&os.ModeDevice != 0:
+		return "device node"
+	default:
+		return "special file"
+	}
 }
 
 // Probe reports whether path holds a COMPLETE, USABLE endpoint. This is the

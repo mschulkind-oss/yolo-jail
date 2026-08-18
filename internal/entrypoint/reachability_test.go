@@ -480,17 +480,25 @@ func TestReachabilityProbeSurvivesAMalformedEndpointFile(t *testing.T) {
 // TestReachabilityProbeNeverOpensANonRegularEndpoint is the shape the malformed-file
 // table above cannot express, because it does not end in a warning — it does not end.
 //
-// os.ReadFile (svcendpoint.Read, and Dial through it) OPENS the path, and opening a
-// fifo with no writer blocks forever. No timeout in this file can reach that: the dial
-// timeout is never entered, and reachabilityBudget only bounds the retry loop. The
-// result is PID 1 wedged in the boot path with nothing printed — a jail that never
-// starts, which is strictly worse than the launch failure OQ-R2 is still debating.
+// Reading the path OPENS it, and opening a fifo with no writer blocks forever. No
+// timeout in this file can reach that: the dial timeout is never entered, and
+// reachabilityBudget only bounds the retry loop. The result is PID 1 wedged in the boot
+// path with nothing printed — a jail that never starts, which is strictly worse than the
+// launch failure OQ-R2 is still debating.
 //
 // It is reachable without an attacker: /run/yolo-services is bind-mounted READ-WRITE,
 // its per-jail directory is keyed on the container name and so is the same directory
 // every launch, and the endpoint variable is wired on the LOOPHOLE being active rather
-// than on the daemon having published. One mkfifo in a jail therefore poisons every
-// later boot of that jail.
+// than on the daemon having published.
+//
+// THE GUARD NO LONGER LIVES IN THIS PACKAGE — it is svcendpoint.Read's own stat gate
+// (readEndpointFile), so every reader of an endpoint file inherits it and not just the
+// boot probe. This test is deliberately KEPT AS AN END-TO-END ASSERTION anyway, against
+// ProbeServiceReachability rather than against Read: what the boot path owes is not "the
+// gate exists" but "a fifo produces a NAMED, non-escalating warning and the boot
+// continues", and that is a property of this file's classification and wording, both of
+// which could regress with svcendpoint untouched. svcendpoint's own
+// TestReadRefusesNonRegularFiles covers the layer below.
 //
 // The assertion is time-bounded on purpose. A regression here HANGS rather than fails,
 // and a hung test is reported as a package-wide timeout minutes later with no name
@@ -545,7 +553,14 @@ func TestReachabilityProbeNeverOpensANonRegularEndpoint(t *testing.T) {
 					"This is not a slow probe; a writer-less fifo blocks in open(2) forever, which " +
 					"is PID 1 wedged in the boot with nothing printed.")
 			}
-			if !strings.Contains(got, tc.want) {
+			// The assertion is on the PHRASE, not on the bare word, because the bare
+			// word is already in this warning twice over for the directory case: once
+			// in the path (t.TempDir names its directory after the test) and once in
+			// the standing advice about "this jail's services directory". Checked
+			// against the word alone, the directory case stayed green with the
+			// shape-naming replaced by a constant "not a regular file" — dead coverage
+			// that looked healthy, measured while mutation-testing this.
+			if !strings.Contains(got, "is a "+tc.want) {
 				t.Errorf("the warning must name what is actually at the path (%q), got:\n%s", tc.want, got)
 			}
 			// And it must not be attributed to the network. Nothing about a local file
@@ -561,9 +576,13 @@ func TestReachabilityProbeNeverOpensANonRegularEndpoint(t *testing.T) {
 }
 
 // TestReachabilityProbeRefusesAnEnormousEndpointFile is the same argument one step
-// along: os.ReadFile has no ceiling, an endpoint is three fields under 2 KiB, and
+// along: an unbounded read has no ceiling, an endpoint is three fields under 2 KiB, and
 // slurping a file something in that read-write directory grew without bound is an OOM
 // in PID 1 rather than a warning.
+//
+// The ceiling is svcendpoint's, referenced rather than respelled — a second copy of the
+// number here would be a boundary that drifts away from the one actually enforced, and
+// this test would keep passing while testing nothing.
 func TestReachabilityProbeRefusesAnEnormousEndpointFile(t *testing.T) {
 	shrinkReachabilityBudget(t)
 	dir := servicesDir(t)
@@ -573,7 +592,7 @@ func TestReachabilityProbeRefusesAnEnormousEndpointFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Sparse: the test cares about the declared SIZE, which is what the gate reads.
-	if err := f.Truncate(maxEndpointFileSize + 1); err != nil {
+	if err := f.Truncate(svcendpoint.MaxEndpointFileSize + 1); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.Close(); err != nil {
@@ -589,6 +608,16 @@ func TestReachabilityProbeRefusesAnEnormousEndpointFile(t *testing.T) {
 	}
 	if strings.Contains(got, "UNREACHABLE") {
 		t.Errorf("an oversized file is not a reachability failure, got:\n%s", got)
+	}
+	// The SIZE has to appear in the warning, and that is what makes this test
+	// discriminating rather than accidentally green. A megabyte of NUL bytes is one
+	// whitespace-free field, so with the ceiling removed entirely the probe reads the
+	// whole thing and Parse rejects it — same fault class, same service name, same
+	// two assertions above satisfied, and the OOM this cap exists to stop restored.
+	// Only the byte count separates "refused to read it" from "read it and disliked
+	// it" (measured: without this line, deleting the cap left this test passing).
+	if !strings.Contains(got, strconv.Itoa(svcendpoint.MaxEndpointFileSize+1)) {
+		t.Errorf("the warning must name the file's size, got:\n%s", got)
 	}
 }
 
