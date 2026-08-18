@@ -63,11 +63,26 @@ package run
 // Verified support, so the degraded path is rarer than it reads: the flag is
 // present in pasta 2026_07_16 (measured 2026-08-17), which is what the
 // maintainer's own host runs.
+//
+// # What this decision TELLS THE JAIL, and why it has to
+//
+// "Unsupported is not broken" is a distinction only this file can draw. From
+// inside a jail the two look identical — a service that does not answer — and the
+// in-jail witness (internal/entrypoint/reachability.go) is the thing OQ-R2 turns
+// into a launch failure. So the plan carries a `disposition` that rides into the
+// container as paths.HostLoopbackEnvVar: `requested` when the option above went
+// out on the argv (an unreachable service is then a FAULT), `unsupported` when
+// yolo identified the stack and could not get it to forward (a KNOWN LIMITATION,
+// never a launch failure), and NOTHING at all for every path that reached no
+// conclusion. Absent is the safe default by construction, which is the same
+// positive-facts-only discipline the argv itself is built on.
 
 import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 const (
@@ -166,11 +181,34 @@ type hostLoopbackFacts struct {
 }
 
 // hostLoopbackPlan is the decision's whole output: an argv fragment to append
-// (usually empty) and a warning to print (usually empty). Both empty is the
-// healthy, silent, overwhelmingly common case.
+// (usually empty), a warning to print (usually empty), and what the JAIL is told
+// about the decision. args+warning both empty is the healthy, silent,
+// overwhelmingly common case.
 type hostLoopbackPlan struct {
 	args    []string
 	warning string
+	// disposition is the one fact this decision has that nothing inside the jail
+	// can recover for itself: whether the forwarding option went out on the argv.
+	// The in-jail reachability witness needs it to tell a KNOWN LIMITATION (yolo
+	// could not ask this host) from a FAULT (yolo asked and the service is still
+	// unreachable) — only the second may ever fail a launch, which is OQ-R2 as
+	// scoped by OQ-R3. See paths.HostLoopbackEnvVar.
+	//
+	// "" means NOT ATTRIBUTABLE and is carried as an absent variable rather than as
+	// a value, so every path that reaches no conclusion — an unrecognised backend,
+	// a rootful podman, an explicit network.mode, the opt-out, a podman that would
+	// not answer — lands on the witness's safe default without having to be
+	// enumerated here.
+	disposition string
+}
+
+// jailEnvArgs renders the disposition as the `-e` pair the container carries, or
+// nothing at all. Nothing is the common case and the safe one: see disposition.
+func (p hostLoopbackPlan) jailEnvArgs() []string {
+	if p.disposition == "" {
+		return nil
+	}
+	return []string{"-e", paths.HostLoopbackEnvVar + "=" + p.disposition}
 }
 
 // decideHostLoopback maps facts onto the plan. Pure — no exec, no filesystem, no
@@ -186,6 +224,12 @@ func decideHostLoopback(f hostLoopbackFacts) hostLoopbackPlan {
 	if len(plan.args) == 0 {
 		return hostLoopbackPlan{}
 	}
+	// The suppressed plan carries NO disposition, and that is two promises at once.
+	// The hatch's contract is "today's argv, byte for byte" — a jail-side variable
+	// smuggled in under it would not be that. And a user who deliberately turned
+	// the fix off must never have their own choice reported back to them as a
+	// broken jail: with no disposition the witness cannot escalate, which is
+	// exactly right here.
 	return hostLoopbackPlan{warning: "[yellow]Warning: " + hostLoopbackOptOutEnv + " is set — NOT requesting " +
 		"host-loopback forwarding (" + strings.Join(plan.args, " ") + ").\n" +
 		"  Jail-facing services (Claude OAuth broker, yolo-ps, yolo-journalctl) will be\n" +
@@ -209,6 +253,12 @@ func hostLoopbackPlanFor(f hostLoopbackFacts) hostLoopbackPlan {
 	// the host's stack, so its loopback IS the jail's and there is nothing to
 	// forward — and only when the backend is one this would otherwise have fixed,
 	// so the line names a consequence instead of musing about networking.
+	//
+	// NO DISPOSITION on either branch. "Unsupported" would be a lie (this host may
+	// well support the forwarding — yolo simply did not ask), and "requested" is
+	// plainly false, so the witness is told nothing and treats an unreachable
+	// service as unattributable. The specific, more useful sentence — that an
+	// explicit mode is why — is the warning printed right here, at launch.
 	if f.netMode != "bridge" {
 		if f.netMode == "host" || !mappableBackend(f.backend) {
 			return hostLoopbackPlan{}
@@ -227,16 +277,28 @@ func hostLoopbackPlanFor(f hostLoopbackFacts) hostLoopbackPlan {
 		if f.support == supportConfirmed {
 			// Podman splits the option string on commas into pasta's argv, so this
 			// is `pasta --map-host-loopback 169.254.1.2`.
-			return hostLoopbackPlan{args: []string{
-				"--network=pasta:" + pastaMapHostLoopbackFlag + "," + hostLoopbackAddr,
-			}}
+			return hostLoopbackPlan{
+				args: []string{
+					"--network=pasta:" + pastaMapHostLoopbackFlag + "," + hostLoopbackAddr,
+				},
+				disposition: paths.HostLoopbackRequested,
+			}
 		}
-		return hostLoopbackPlan{warning: pastaUnsupportedWarning(f)}
+		return hostLoopbackPlan{
+			warning:     pastaUnsupportedWarning(f),
+			disposition: paths.HostLoopbackUnsupported,
+		}
 	case backendSlirp4netns:
 		if f.support == supportConfirmed {
-			return hostLoopbackPlan{args: []string{"--network=slirp4netns:allow_host_loopback=true"}}
+			return hostLoopbackPlan{
+				args:        []string{"--network=slirp4netns:allow_host_loopback=true"},
+				disposition: paths.HostLoopbackRequested,
+			}
 		}
-		return hostLoopbackPlan{warning: slirpUnsupportedWarning(f)}
+		return hostLoopbackPlan{
+			warning:     slirpUnsupportedWarning(f),
+			disposition: paths.HostLoopbackUnsupported,
+		}
 	default:
 		// Unrecognised backend — including "" from a podman that would not answer.
 		// Silence is the correct output: this is today's behaviour exactly, and
@@ -244,6 +306,28 @@ func hostLoopbackPlanFor(f hostLoopbackFacts) hostLoopbackPlan {
 		// host, every rootful host, and every future backend.
 		return hostLoopbackPlan{}
 	}
+}
+
+// reachabilityOptOutArgs forwards the IN-JAIL witness's escape hatch
+// (paths.AllowUnreachableServicesEnv) from the host environment into the
+// container, and only when the user actually set it.
+//
+// The hatch is not this file's to honour — the witness that reads it runs in
+// internal/entrypoint — but the forwarding has to happen here, and that is the
+// whole point. The user types it on the HOST, in front of `yolo`, exactly as they
+// type YOLO_ALLOW_STALE_IMAGE; a container inherits nothing from the launcher's
+// environment, so a hatch that is only ever read in-jail is a hatch nobody can
+// reach. This one exists for the user whose jail will not start, who by
+// definition has no in-jail shell to set it from.
+//
+// It is emitted for every runtime and every network mode, not just the branch
+// above: the witness runs on all of them, so the way out has to as well.
+func (o *Options) reachabilityOptOutArgs() []string {
+	val := o.Getenv(paths.AllowUnreachableServicesEnv)
+	if val == "" {
+		return nil
+	}
+	return []string{"-e", paths.AllowUnreachableServicesEnv + "=" + val}
 }
 
 // mappableBackend reports whether backend is one whose host-loopback forwarding

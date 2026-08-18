@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // The decision function is the half of the host-loopback fix that CAN be tested
@@ -27,17 +29,22 @@ func TestDecideHostLoopback(t *testing.T) {
 		args []string
 		// warn is a substring the warning must contain; "" demands silence.
 		warn string
+		// disp is the verdict carried into the jail; "" demands that NOTHING is
+		// carried, which is the value the in-jail witness can never escalate on.
+		disp string
 	}{
 		// --- the fix firing ---
 		{
 			name: "pasta confirmed on the default path emits the map flag",
 			f:    hostLoopbackFacts{netMode: "bridge", backend: "pasta", rootless: true, support: supportConfirmed},
 			args: []string{pastaArg},
+			disp: paths.HostLoopbackRequested,
 		},
 		{
 			name: "slirp4netns confirmed on the default path emits allow_host_loopback",
 			f:    hostLoopbackFacts{netMode: "bridge", backend: "slirp4netns", rootless: true, support: supportConfirmed},
 			args: []string{slirpArg},
+			disp: paths.HostLoopbackRequested,
 		},
 
 		// --- capability not positively confirmed: emit nothing, say why ---
@@ -46,29 +53,34 @@ func TestDecideHostLoopback(t *testing.T) {
 			f: hostLoopbackFacts{netMode: "bridge", backend: "pasta", rootless: true,
 				support: supportAbsent, probeCmd: "/usr/bin/pasta --help", version: "pasta 2024_01_01.abc"},
 			warn: "Upgrade passt to 2024_08_21",
+			disp: paths.HostLoopbackUnsupported,
 		},
 		{
 			name: "pasta version is echoed so the user knows what they have",
 			f: hostLoopbackFacts{netMode: "bridge", backend: "pasta", rootless: true,
 				support: supportAbsent, version: "pasta 2024_01_01.abc"},
 			warn: "(reported: pasta 2024_01_01.abc)",
+			disp: paths.HostLoopbackUnsupported,
 		},
 		{
 			name: "pasta that could not be probed says so rather than blaming the version",
 			f: hostLoopbackFacts{netMode: "bridge", backend: "pasta", rootless: true,
 				support: supportUnknown, probeCmd: "/usr/bin/pasta --help"},
 			warn: "could not confirm it",
+			disp: paths.HostLoopbackUnsupported,
 		},
 		{
 			name: "pasta with no binary at all names that instead of a probe",
 			f:    hostLoopbackFacts{netMode: "bridge", backend: "pasta", rootless: true, support: supportUnknown},
 			warn: "could not find a pasta binary",
+			disp: paths.HostLoopbackUnsupported,
 		},
 		{
 			name: "slirp4netns without the flag warns and emits nothing",
 			f: hostLoopbackFacts{netMode: "bridge", backend: "slirp4netns", rootless: true,
 				support: supportAbsent, version: "slirp4netns version 0.3.0"},
 			warn: "slirp4netns --help",
+			disp: paths.HostLoopbackUnsupported,
 		},
 
 		// --- unrecognised / rootful: silence, exactly today's behaviour ---
@@ -131,7 +143,93 @@ func TestDecideHostLoopback(t *testing.T) {
 			case tc.warn != "" && !strings.Contains(got.warning, tc.warn):
 				t.Errorf("warning missing %q:\n%s", tc.warn, got.warning)
 			}
+			if got.disposition != tc.disp {
+				t.Errorf("disposition = %q, want %q", got.disposition, tc.disp)
+			}
+			var wantEnv []string
+			if tc.disp != "" {
+				wantEnv = []string{"-e", paths.HostLoopbackEnvVar + "=" + tc.disp}
+			}
+			if env := got.jailEnvArgs(); !slices.Equal(env, wantEnv) {
+				t.Errorf("jailEnvArgs = %v, want %v", env, wantEnv)
+			}
 		})
+	}
+}
+
+// TestDecideHostLoopbackDispositionMatchesTheArgv is the property the in-jail
+// witness's severity hangs off, swept over every input combination: the jail is
+// told `requested` if and ONLY if the forwarding option actually went out on the
+// argv.
+//
+// Both directions are failures with teeth, and in opposite ways. A `requested`
+// that was not requested is a jail refused (once OQ-R2 flips) for a limitation of
+// the host — precisely the refusal OQ-R3 rejected, arriving by the back door. A
+// forwarding option emitted while the jail is told `unsupported` or nothing is a
+// real fault reported as "your host is old", which sends the reader to upgrade
+// passt for a dead daemon.
+//
+// Kept separate from the named cases for the same reason
+// TestDecideHostLoopbackOnlyEmitsOnPositiveFacts is: those say what the feature
+// does, this says what it can never do, and it has to survive somebody adding a
+// backend, a support state, or a network mode.
+func TestDecideHostLoopbackDispositionMatchesTheArgv(t *testing.T) {
+	netModes := []string{"bridge", "host", "none", "private"}
+	backends := []string{"pasta", "slirp4netns", "netavark", "cni", ""}
+	supports := []hostLoopbackSupport{supportUnknown, supportConfirmed, supportAbsent}
+
+	for _, netMode := range netModes {
+		for _, backend := range backends {
+			for _, support := range supports {
+				for _, rootless := range []bool{true, false} {
+					for _, optOut := range []bool{true, false} {
+						f := hostLoopbackFacts{
+							netMode: netMode, backend: backend, rootless: rootless,
+							support: support, optOut: optOut,
+						}
+						got := decideHostLoopback(f)
+						emitted := len(got.args) > 0
+						if emitted != (got.disposition == paths.HostLoopbackRequested) {
+							t.Errorf("%+v: argv %v but disposition %q — the jail's severity must "+
+								"track what was actually requested", f, got.args, got.disposition)
+						}
+						// The only other value there is. An unrecognised spelling would
+						// be read as "not attributable" in-jail, which is safe but silent
+						// — so it must not be reachable from here.
+						if got.disposition != "" &&
+							got.disposition != paths.HostLoopbackRequested &&
+							got.disposition != paths.HostLoopbackUnsupported {
+							t.Errorf("%+v: unknown disposition %q", f, got.disposition)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestReachabilityOptOutArgsForwardsOnlyWhenSet. The witness's escape hatch is
+// typed on the HOST and honoured in the JAIL, and a container inherits nothing
+// from the launcher's environment — so this forwarding is the entire mechanism. It
+// is also the one an unlaunchable jail depends on, which is why it must not be
+// conditional on anything else.
+func TestReachabilityOptOutArgsForwardsOnlyWhenSet(t *testing.T) {
+	o := &Options{}
+	fillDefaults(o)
+	o.Getenv = func(string) string { return "" }
+	if got := o.reachabilityOptOutArgs(); got != nil {
+		t.Errorf("an unset hatch must add nothing to the argv, got %v", got)
+	}
+
+	o.Getenv = func(k string) string {
+		if k == paths.AllowUnreachableServicesEnv {
+			return "1"
+		}
+		return ""
+	}
+	want := []string{"-e", paths.AllowUnreachableServicesEnv + "=1"}
+	if got := o.reachabilityOptOutArgs(); !slices.Equal(got, want) {
+		t.Errorf("reachabilityOptOutArgs = %v, want %v", got, want)
 	}
 }
 
@@ -407,6 +505,13 @@ func TestHostLoopbackFactsForFailSafe(t *testing.T) {
 			}
 			if plan.warning != "" {
 				t.Errorf("expected silence, got warning:\n%s", plan.warning)
+			}
+			// And the jail is told NOTHING. A host yolo could not read anything about
+			// is exactly the case where a claim in either direction would be invented,
+			// and the in-jail witness treats an absent variable as "not attributable"
+			// — the only value that cannot cost a jail once OQ-R2 flips.
+			if plan.disposition != "" {
+				t.Errorf("disposition = %q, want nothing carried into the jail", plan.disposition)
 			}
 		})
 	}

@@ -284,10 +284,21 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		}
 		hostLoopback := decideHostLoopback(o.hostLoopbackFactsFor(rt, netMode))
 		runCmd = append(runCmd, hostLoopback.args...)
+		// What the jail is told about that decision. The in-jail witness cannot
+		// recover it for itself — an unreachable service looks the same whether yolo
+		// could not ask this host to forward loopback (a known limitation) or asked
+		// and was ignored (a fault) — and only the second may ever fail a launch.
+		// Absent for every path that reached no conclusion; see hostLoopbackPlan.
+		runCmd = append(runCmd, hostLoopback.jailEnvArgs()...)
 		if hostLoopback.warning != "" {
 			out.print(hostLoopback.warning)
 		}
 	}
+
+	// The in-jail witness's escape hatch, forwarded from the host environment where
+	// the user types it. Outside the branch above on purpose: the witness runs
+	// under every runtime and every network mode, so the way past it must too.
+	runCmd = append(runCmd, o.reachabilityOptOutArgs()...)
 
 	// --- git identity + global gitignore (host-composed, :ro-mounted) ---
 	runCmd = append(runCmd, o.gitIdentityMountArgs(rt, in.wsState, in.mountTargets)...)

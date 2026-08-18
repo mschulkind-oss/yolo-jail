@@ -36,6 +36,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // networkProbes filters a recorded subprocess list down to the two commands the
@@ -53,6 +55,23 @@ func networkProbes(ran []string) []string {
 	return out
 }
 
+// envValue returns the value of the LAST `-e KEY=VALUE` pair naming key, and
+// whether one was present at all. Last wins because that is what podman does with
+// a repeated -e, so a test that read the first would pass on an argv the runtime
+// resolves differently.
+func envValue(argv []string, key string) (string, bool) {
+	val, found := "", false
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] != "-e" {
+			continue
+		}
+		if v, ok := strings.CutPrefix(argv[i+1], key+"="); ok {
+			val, found = v, true
+		}
+	}
+	return val, found
+}
+
 // networkSelectors returns every argument in argv that selects podman's network
 // mode. Both spellings are collected because podman treats them as one flag: the
 // count is the invariant, not which name was used.
@@ -67,6 +86,19 @@ func networkSelectors(argv []string) []string {
 	return out
 }
 
+// pastaFixtureExe is the executable podman reports for pasta in
+// podmanInfoFixture. The capability probe runs exactly that path, so the canned
+// --help has to be keyed on it.
+const pastaFixtureExe = "/nix/store/xxxx-podman-5.8.4/libexec/podman/pasta"
+
+// pastaHelpWithFlag / pastaHelpWithoutFlag are the two answers a real pasta gives
+// about itself, and they are the fork in the whole feature: the first makes yolo
+// emit the forwarding option, the second makes it degrade and say so (OQ-R3).
+const (
+	pastaHelpWithFlag    = "Usage: pasta [OPTION]...\n  " + pastaMapHostLoopbackFlag + " ADDR\tTranslate ADDR to refer to host\n"
+	pastaHelpWithoutFlag = "Usage: pasta [OPTION]...\n  --map-gw\tMap the gateway\n"
+)
+
 // pastaHostOptions wires an Options that looks like a rootless podman host running
 // pasta with a binary that advertises --map-host-loopback — the one combination
 // that makes decideHostLoopback emit an argv — and records every subprocess the
@@ -74,9 +106,15 @@ func networkSelectors(argv []string) []string {
 // the right one was.
 func pastaHostOptions(t *testing.T, ws, home string, containerenv bool) (*Options, *[]string) {
 	t.Helper()
-	// The executable podman reports for pasta in podmanInfoFixture; the probe runs
-	// exactly that path, so the canned --help must be keyed on it.
-	const pastaExe = "/nix/store/xxxx-podman-5.8.4/libexec/podman/pasta"
+	return pastaHostOptionsWithHelp(t, ws, home, containerenv, pastaHelpWithFlag)
+}
+
+// pastaHostOptionsWithHelp is pastaHostOptions with the pasta binary's own answer
+// as a parameter, so the degraded host — a pasta whose --help does not list the
+// flag — can be assembled too. That host launches, which is the point of OQ-R3,
+// and what it tells the jail differs from both a working host and an unknown one.
+func pastaHostOptionsWithHelp(t *testing.T, ws, home string, containerenv bool, help string) (*Options, *[]string) {
+	t.Helper()
 
 	var ran []string
 	o := goldenOptions(ws, home)
@@ -92,9 +130,8 @@ func pastaHostOptions(t *testing.T, ws, home string, containerenv bool) (*Option
 		switch joined {
 		case "/usr/bin/podman info --format json":
 			return ExecResult{Ran: true, RC: 0, Stdout: podmanInfoFixture}
-		case pastaExe + " --help":
-			return ExecResult{Ran: true, RC: 0,
-				Stdout: "  " + pastaMapHostLoopbackFlag + " ADDR\tTranslate ADDR to refer to host\n"}
+		case pastaFixtureExe + " --help":
+			return ExecResult{Ran: true, RC: 0, Stdout: help}
 		}
 		return ExecResult{Ran: false}
 	}
@@ -260,5 +297,160 @@ func TestAssembleRunCmdOptOutRestoresTodaysArgv(t *testing.T) {
 	// no way to connect "my broker is unreachable" back to their own env var.
 	if !strings.Contains(stdout.String(), hostLoopbackOptOutEnv) {
 		t.Errorf("the opt-out must name itself when it suppresses the flag, got:\n%s", stdout.String())
+	}
+}
+
+// TestAssembleRunCmdTellsTheJailWhatItRequested. The jail cannot see the argv it
+// was launched with, and from inside it an unreachable service looks the same
+// whether the forwarding was requested or was never asked for — so the launcher's
+// decision has to travel with the container. This is the wiring of that: a host
+// where the option WAS emitted must carry `requested`, because that is the value
+// the in-jail witness is allowed to escalate on (OQ-R2, scoped by OQ-R3).
+func TestAssembleRunCmdTellsTheJailWhatItRequested(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o, _ := pastaHostOptions(t, "/ws", home, false)
+
+	argv := o.assembleRunCmd(relocationInput(t, "podman", t.TempDir(), nil))
+	if !slices.Contains(argv, pastaArg) {
+		t.Fatalf("fixture drift: the forwarding option is not on the argv: %v", networkSelectors(argv))
+	}
+	got, ok := envValue(argv, paths.HostLoopbackEnvVar)
+	if !ok {
+		t.Fatalf("the jail was told nothing about a launch that DID request forwarding; "+
+			"an unreachable service there is a fault and must be reportable as one. argv: %v", argv)
+	}
+	if got != paths.HostLoopbackRequested {
+		t.Errorf("%s = %q, want %q", paths.HostLoopbackEnvVar, got, paths.HostLoopbackRequested)
+	}
+}
+
+// TestAssembleRunCmdTellsTheJailWhenTheHostCannot is the other branch of "
+// unsupported is not broken": a pasta that does not advertise the flag launches
+// (OQ-R3 re-ruled refusal out), emits no network selector, and must tell the jail
+// so — otherwise the witness sees an unreachable service on a launch it cannot
+// attribute, and the honest "this host cannot do it, here is what to upgrade"
+// becomes a generic outage report.
+func TestAssembleRunCmdTellsTheJailWhenTheHostCannot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o, _ := pastaHostOptionsWithHelp(t, "/ws", home, false, pastaHelpWithoutFlag)
+	var stdout strings.Builder
+	o.Stdout = &stdout
+
+	argv := o.assembleRunCmd(relocationInput(t, "podman", t.TempDir(), nil))
+	if sel := networkSelectors(argv); len(sel) != 0 {
+		t.Errorf("an old pasta must be asked for nothing, got %v", sel)
+	}
+	got, ok := envValue(argv, paths.HostLoopbackEnvVar)
+	if !ok {
+		t.Fatalf("the degraded host must be declared to the jail as a known limitation; argv: %v", argv)
+	}
+	if got != paths.HostLoopbackUnsupported {
+		t.Errorf("%s = %q, want %q", paths.HostLoopbackEnvVar, got, paths.HostLoopbackUnsupported)
+	}
+	// And it launches, loudly. A refusal here is the outcome OQ-R3 rejected.
+	if !strings.Contains(stdout.String(), minPasstVersion) {
+		t.Errorf("the limitation must name the version that fixes it, got:\n%s", stdout.String())
+	}
+}
+
+// TestAssembleRunCmdSaysNothingToTheJailWhenItDecidedNothing. Absent is the value
+// the witness can never escalate on, so every path that reached no conclusion must
+// leave the variable off the argv entirely rather than guess at one. Nested podman
+// and Apple Container are the two that never reach the decision at all, and the
+// opt-out is the one that reaches it and throws it away.
+func TestAssembleRunCmdSaysNothingToTheJailWhenItDecidedNothing(t *testing.T) {
+	cases := []struct {
+		name        string
+		rt          string
+		inContainer bool
+		optOut      bool
+	}{
+		{name: "nested podman shares the launcher's stack", rt: "podman", inContainer: true},
+		{name: "apple container does its own networking", rt: "container"},
+		{name: "the opt-out threw the decision away", rt: "podman", optOut: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			emptyLoopholeDirs(t)
+			o, _ := pastaHostOptions(t, "/ws", home, tc.inContainer)
+			if tc.optOut {
+				o.Getenv = func(k string) string {
+					if k == hostLoopbackOptOutEnv {
+						return "1"
+					}
+					return ""
+				}
+			}
+			var stdout strings.Builder
+			o.Stdout = &stdout
+
+			argv := o.assembleRunCmd(relocationInput(t, tc.rt, t.TempDir(), nil))
+			if val, ok := envValue(argv, paths.HostLoopbackEnvVar); ok {
+				t.Errorf("nothing was decided, yet the jail was told %s=%q — a claim in either "+
+					"direction here is invented, and `requested` costs a jail once OQ-R2 flips",
+					paths.HostLoopbackEnvVar, val)
+			}
+		})
+	}
+}
+
+// TestAssembleRunCmdForwardsTheWitnessEscapeHatch. The hatch is typed on the host
+// in front of `yolo` (the YOLO_ALLOW_STALE_IMAGE convention) and honoured inside
+// the jail, and a container inherits NOTHING from the launcher's environment — so
+// without this forwarding the hatch is unreachable from the only place a user with
+// an unlaunchable jail can type it.
+//
+// Swept over every runtime and nesting shape because the witness runs on all of
+// them: a way out that exists on some launches is not a way out.
+func TestAssembleRunCmdForwardsTheWitnessEscapeHatch(t *testing.T) {
+	for _, rt := range []string{"podman", "container"} {
+		for _, inContainer := range []bool{false, true} {
+			name := rt
+			if inContainer {
+				name += "/nested"
+			}
+			t.Run(name, func(t *testing.T) {
+				home := t.TempDir()
+				t.Setenv("HOME", home)
+				emptyLoopholeDirs(t)
+				o, _ := pastaHostOptions(t, "/ws", home, inContainer)
+				o.Getenv = func(k string) string {
+					if k == paths.AllowUnreachableServicesEnv {
+						return "1"
+					}
+					return ""
+				}
+
+				argv := o.assembleRunCmd(relocationInput(t, rt, t.TempDir(), nil))
+				got, ok := envValue(argv, paths.AllowUnreachableServicesEnv)
+				if !ok || got != "1" {
+					t.Errorf("%s must reach the jail that honours it (got %q, present=%v)",
+						paths.AllowUnreachableServicesEnv, got, ok)
+				}
+			})
+		}
+	}
+}
+
+// TestAssembleRunCmdWithoutTheHatchIsUnchanged. The hatch may not cost anything on
+// a launch that did not ask for it: an env var that appears on every argv is one
+// more thing frozen into every jail's environment, and the golden argv is a
+// contract (assemble_test.go).
+func TestAssembleRunCmdWithoutTheHatchIsUnchanged(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o, _ := pastaHostOptions(t, "/ws", home, false)
+
+	argv := o.assembleRunCmd(relocationInput(t, "podman", t.TempDir(), nil))
+	if val, ok := envValue(argv, paths.AllowUnreachableServicesEnv); ok {
+		t.Errorf("an unset hatch must not appear in the argv, got %s=%q",
+			paths.AllowUnreachableServicesEnv, val)
 	}
 }

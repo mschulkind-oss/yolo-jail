@@ -110,6 +110,53 @@ const (
 // exactly the reason recorded above CgdSocketName.
 const CgdEndpointName = BuiltinCgroupLoopholeName + ServiceEndpointExt
 
+// HostLoopbackEnvVar carries the LAUNCHER'S host-loopback decision into the jail,
+// and it exists to keep apart two outcomes that are indistinguishable from inside:
+// a jail-facing service is unreachable because this HOST cannot forward the host's
+// loopback (an old passt, a stack yolo does not recognise) — a KNOWN LIMITATION —
+// or because yolo DID ask for that forwarding and the service is unreachable
+// anyway — a FAULT. Only the second is a broken jail, and only the second may ever
+// fail a launch (docs/design/loopback-tls-reachability.md, OQ-R2 as scoped by
+// OQ-R3: "unsupported is not broken").
+//
+// The producer is internal/cli/run/hostloopback.go, which is the only place that
+// knows whether the option reached the argv; the consumer is
+// internal/entrypoint/reachability.go, the in-jail witness. The spelling lives
+// here for the reason ServiceEnvVarPrefix does: a producer and a consumer in
+// different binaries, one of them BAKED INTO THE IMAGE, must not be able to drift
+// apart by a re-typing.
+//
+// IT IS POSITIVE-ONLY. The launcher sets it when it has a definite statement to
+// make and emits NOTHING otherwise, so an absent variable means "not
+// attributable" — which is what makes an older launcher against a newer image, an
+// Apple Container launch, a nested jail, and any path nobody thought about all
+// default to the safe answer instead of to a launch failure.
+const HostLoopbackEnvVar = "YOLO_HOST_LOOPBACK"
+
+const (
+	// HostLoopbackRequested: yolo put the forwarding option on this container's
+	// argv (--network=pasta:--map-host-loopback,… or the slirp4netns twin). An
+	// unreachable jail-facing service on such a launch is a fault.
+	HostLoopbackRequested = "requested"
+
+	// HostLoopbackUnsupported: yolo identified the rootless stack, could not get
+	// it to forward the host's loopback (an old passt, a capability it could not
+	// confirm), and launched anyway — OQ-R3's ruling that yolo degrades rather
+	// than refusing on the host it is given. An unreachable service here is a
+	// known limitation of the host, and the launch output said so.
+	HostLoopbackUnsupported = "unsupported"
+)
+
+// AllowUnreachableServicesEnv is the escape hatch out of the in-jail reachability
+// witness, mirroring YOLO_ALLOW_STALE_IMAGE (internal/image): any non-empty value
+// keeps the jail launching, loudly, and says what it is suppressing.
+//
+// It exists because the witness is on its way to being FATAL (OQ-R2), and a hard
+// fatal with no override leaves a user unable to open a shell to fix the very
+// daemon that is failing. The user types it on the HOST, so the launcher forwards
+// it into the container — an escape hatch nobody can reach is not one.
+const AllowUnreachableServicesEnv = "YOLO_ALLOW_UNREACHABLE_SERVICES"
+
 // hostServicesDirPrefix names the per-jail host-side directory. The 8-hex suffix
 // is JailShortHash(cname).
 const hostServicesDirPrefix = "yolo-host-services-"

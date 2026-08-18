@@ -523,3 +523,224 @@ func TestReachabilityProbeStaysWithinItsBudget(t *testing.T) {
 			"reported, got:\n%s", got)
 	}
 }
+
+// --- the two prerequisites of OQ-R2's flip: the scoping, and the escape hatch ---
+
+// withReachabilityFatal runs the rest of the test in the mode OQ-R2 rules for the
+// end state, and restores warn mode afterwards.
+//
+// This is the reason the mode is a variable rather than an unwritten branch. The
+// fatal path is the one that costs a jail when it is wrong, so it has to be
+// exercised BEFORE it is turned on — a branch first executed on a user's broken
+// host is a branch nobody has ever seen work.
+func withReachabilityFatal(t *testing.T) {
+	t.Helper()
+	prev := reachabilityFatal
+	t.Cleanup(func() { reachabilityFatal = prev })
+	reachabilityFatal = true
+}
+
+// runProbe drives the probe over one env matrix and hands back both of its
+// outputs: what it said, and whether it recorded a failure that would abort the
+// boot. The second is the one the flip is about, and it is read through
+// genFailuresError — the value Main actually branches on.
+func runProbe(t *testing.T, vars map[string]string) (string, error) {
+	t.Helper()
+	var out strings.Builder
+	e := NewEnv(vars)
+	e.Stderr = &out
+	ProbeServiceReachability(e)
+	return out.String(), genFailuresError(e)
+}
+
+// brokenServiceVars is a jail with one enabled jail-facing service whose
+// advertised address answers nothing — the shape of the real outage — plus
+// whatever the launcher told this jail about host-loopback forwarding.
+func brokenServiceVars(t *testing.T, extra map[string]string) map[string]string {
+	t.Helper()
+	vars := map[string]string{
+		"JAIL_HOME": t.TempDir(),
+		paths.ServiceEnvVarPrefix + "CLAUDE_OAUTH_BROKER" + paths.ServiceEnvVarSuffix: deadEndpoint(t, servicesDir(t), "claude-oauth-broker"),
+	}
+	for k, v := range extra {
+		vars[k] = v
+	}
+	return vars
+}
+
+// TestReachabilityProbeScopesAnUnsupportedHostAsALimitation is the substantive
+// half of "unsupported is not broken" (OQ-R3, which re-ruled refusal out the same
+// day it ruled it in).
+//
+// On a host where yolo could not get the network stack to forward the host's
+// loopback, an unreachable service is a KNOWN LIMITATION: the user has done nothing
+// wrong, launching is the correct outcome, and no future severity may change that.
+// The test runs with the fatal ALREADY ON, because that is the only way to assert
+// the second half — a rule that only holds while nothing is at stake is not the
+// rule OQ-R3 needs. Without this scoping the two rulings collide and an old-passt
+// host cannot launch a jail at all, which is precisely the refusal that was
+// rejected.
+func TestReachabilityProbeScopesAnUnsupportedHostAsALimitation(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	withReachabilityFatal(t)
+
+	got, err := runProbe(t, brokenServiceVars(t, map[string]string{
+		paths.HostLoopbackEnvVar: paths.HostLoopbackUnsupported,
+	}))
+	if err != nil {
+		t.Errorf("a host yolo could not ask must never fail a launch — that is OQ-R3's "+
+			"refusal arriving by the back door. genFailuresError: %v", err)
+	}
+	if !strings.Contains(got, "claude-oauth-broker") {
+		t.Errorf("the service must still be named, got:\n%s", got)
+	}
+	if !strings.Contains(got, "KNOWN LIMITATION") {
+		t.Errorf("an unsupported host must be reported as a limitation, not as a fault, got:\n%s", got)
+	}
+	if strings.Contains(got, "FAULT") {
+		t.Errorf("this host did nothing wrong; calling it a fault sends the reader after the "+
+			"wrong thing entirely. got:\n%s", got)
+	}
+	if strings.Contains(got, paths.AllowUnreachableServicesEnv) {
+		t.Errorf("nothing was suppressed and nothing was at risk, so the escape hatch has no "+
+			"business being mentioned, got:\n%s", got)
+	}
+}
+
+// TestReachabilityProbeCallsRequestedForwardingAFault is the other side of the
+// split. yolo asked this host's stack to forward loopback and the service is still
+// unreachable, so the network option is the one thing already ruled out — saying so
+// is what stops a reader spending an afternoon on pasta flags for a daemon that is
+// simply not running. In warn mode it is still only a warning.
+func TestReachabilityProbeCallsRequestedForwardingAFault(t *testing.T) {
+	shrinkReachabilityBudget(t)
+
+	got, err := runProbe(t, brokenServiceVars(t, map[string]string{
+		paths.HostLoopbackEnvVar: paths.HostLoopbackRequested,
+	}))
+	if err != nil {
+		t.Errorf("the witness is still in WARN mode and must not abort the boot: %v", err)
+	}
+	if !strings.Contains(got, "FAULT") {
+		t.Errorf("a launch that requested forwarding and still cannot reach the service must be "+
+			"attributed as a fault, got:\n%s", got)
+	}
+	if strings.Contains(got, "KNOWN LIMITATION") {
+		t.Errorf("forwarding was requested, so this is not a host limitation, got:\n%s", got)
+	}
+	// Warn mode has nothing to escape, and a hatch advertised before it does
+	// anything is one people set once and forget.
+	if strings.Contains(got, paths.AllowUnreachableServicesEnv) {
+		t.Errorf("the hatch must stay quiet while it is suppressing nothing, got:\n%s", got)
+	}
+}
+
+// TestReachabilityProbeFatalModeFailsOnlyAFault runs the end state OQ-R2 ruled and
+// asserts both halves of it at once: a fault aborts the boot, and the refusal names
+// the way past itself.
+//
+// The escape hatch is not optional politeness here. The daemon the user has to fix
+// is on the HOST, and the shell they would fix it from is in the jail that just
+// refused to start; a fatal with no override is a tool that locks the door and
+// posts the key inside.
+func TestReachabilityProbeFatalModeFailsOnlyAFault(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	withReachabilityFatal(t)
+
+	got, err := runProbe(t, brokenServiceVars(t, map[string]string{
+		paths.HostLoopbackEnvVar: paths.HostLoopbackRequested,
+	}))
+	if err == nil {
+		t.Fatal("a requested-and-still-unreachable service is what OQ-R2's fatal is for; " +
+			"genFailuresError returned nil")
+	}
+	if !strings.Contains(err.Error(), "claude-oauth-broker") {
+		t.Errorf("the abort must name the service that caused it, got: %v", err)
+	}
+	if !strings.Contains(got, paths.AllowUnreachableServicesEnv+"=1") {
+		t.Errorf("a refusal must name the override that gets past it, or the user cannot open a "+
+			"shell to fix the daemon that is failing. got:\n%s", got)
+	}
+}
+
+// TestReachabilityProbeEscapeHatchKeepsTheJail: the hatch, honoured. It mirrors
+// YOLO_ALLOW_STALE_IMAGE in both directions — the launch proceeds, AND the output
+// says what is being suppressed rather than going quiet, including the part that
+// matters most: nothing was repaired.
+func TestReachabilityProbeEscapeHatchKeepsTheJail(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	withReachabilityFatal(t)
+
+	got, err := runProbe(t, brokenServiceVars(t, map[string]string{
+		paths.HostLoopbackEnvVar:          paths.HostLoopbackRequested,
+		paths.AllowUnreachableServicesEnv: "1",
+	}))
+	if err != nil {
+		t.Errorf("%s must keep the jail launching: %v", paths.AllowUnreachableServicesEnv, err)
+	}
+	if !strings.Contains(got, paths.AllowUnreachableServicesEnv) {
+		t.Errorf("a hatch that suppresses a launch failure silently is indistinguishable from a "+
+			"jail with no problem, got:\n%s", got)
+	}
+	if !strings.Contains(got, "CONTINUING") {
+		t.Errorf("the override must state that it is continuing anyway, got:\n%s", got)
+	}
+	if !strings.Contains(got, "claude-oauth-broker") {
+		t.Errorf("the override must name what it is continuing past, got:\n%s", got)
+	}
+}
+
+// TestReachabilityProbeFatalModeStaysSilentOnAHealthyJail. The single most
+// important property of the flip: a working jail must be untouched by it. A fatal
+// that fires on a reachable service is not a strict check, it is a product that
+// will not start.
+func TestReachabilityProbeFatalModeStaysSilentOnAHealthyJail(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	withReachabilityFatal(t)
+	dir := servicesDir(t)
+
+	got, err := runProbe(t, map[string]string{
+		"JAIL_HOME":              t.TempDir(),
+		paths.HostLoopbackEnvVar: paths.HostLoopbackRequested,
+		paths.ServiceEnvVarPrefix + "HOST_PROCESSES" + paths.ServiceEnvVarSuffix: liveEndpoint(t, dir, "host-processes"),
+	})
+	if err != nil {
+		t.Errorf("a reachable service must not fail the launch, even in fatal mode: %v", err)
+	}
+	if got != "" {
+		t.Errorf("silence is the healthy output in every mode, got:\n%s", got)
+	}
+}
+
+// TestReachabilityProbeNeverEscalatesWhatItCannotAttribute sweeps the values that
+// mean "the launcher said nothing definite": absent (an explicit network.mode, the
+// YOLO_NO_HOST_LOOPBACK opt-out, a rootful or unrecognised runtime, Apple
+// Container, a nested jail — and any launcher older than the variable), empty, and
+// a spelling from some future launcher this binary does not know.
+//
+// The last one is the one worth having a test for. The image and the launcher
+// version independently (AGENTS.md: the baked binaries are frozen at the last host
+// `just load`), so an unrecognised value is a real state, and reading one as
+// permission to fail a launch would turn a version skew into a jail nobody can
+// start.
+func TestReachabilityProbeNeverEscalatesWhatItCannotAttribute(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	withReachabilityFatal(t)
+
+	cases := map[string]map[string]string{
+		"absent":                 {},
+		"empty":                  {paths.HostLoopbackEnvVar: ""},
+		"a value we do not know": {paths.HostLoopbackEnvVar: "requested-via-some-future-mechanism"},
+	}
+	for name, extra := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := runProbe(t, brokenServiceVars(t, extra))
+			if err != nil {
+				t.Errorf("an unattributable failure must never abort the boot: %v", err)
+			}
+			if !strings.Contains(got, "UNREACHABLE") {
+				t.Errorf("it must still be reported, just not escalated, got:\n%s", got)
+			}
+		})
+	}
+}
