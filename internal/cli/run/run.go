@@ -122,6 +122,29 @@ func Run(opts Options) int {
 		if len(agentArgv) == 0 {
 			agentArgv = []string{"/bin/zsh", "-l"}
 		}
+		// CONFIG-CHANGE APPROVAL, on this arm too (docs/design/config-safety.md:
+		// "Every config change requires explicit approval"). The gate used to live
+		// only inside runContainer, several lines below the return above — the same
+		// shape of omission pack staging had before B-0, and with the same signature:
+		// nothing failed, the backend simply launched a config no human had seen. It
+		// is not a container-only concern. macos-user reads `security.blocked_tools`,
+		// `mcp_servers`, `lsp_servers` and `packages` off the very config an agent can
+		// edit in the workspace, and `mcp_servers` in particular is a command line the
+		// agent's own MCP client executes — so the ONE backend with no container around
+		// it was the one accepting those edits unprompted.
+		//
+		// Placed here rather than hoisted above the dispatch because the container arm
+		// gates the FRESH-LAUNCH path only: attaching to a running jail deliberately
+		// skips the check (the container was already started with its config). This
+		// backend has no attach — every macos-user invocation is a fresh sandbox — so
+		// the arm's own call site is where the two backends agree.
+		//
+		// --dry-run is exempt: it prints the plan and launches nothing, so there is no
+		// change to approve, and refusing a plan render would only hide the diff a user
+		// is asking to inspect.
+		if !o.DryRun && !o.checkConfigChanges(cfg) {
+			return 1
+		}
 		// Same notice as the container paths: a brand-new macos-user user has no packs
 		// either, and the native backend is where a "where is my agent?" is hardest to
 		// diagnose (no image, no provisioning output to read back).
