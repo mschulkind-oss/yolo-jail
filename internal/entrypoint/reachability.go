@@ -608,16 +608,26 @@ const maxEndpointFileSize = 1 << 20
 // os.ReadFile has no ceiling, so a file something in the jail grew to fill the disk is
 // an OOM in PID 1 rather than a warning.
 //
-// # It is reachable without an attacker
+// # It is reachable without an attacker — but the window is one boot, not forever
 //
 // The per-jail host-services directory is bind-mounted READ-WRITE at
-// paths.JailHostServicesDir (internal/cli/run's hostServicesMountArgs), it is keyed on
-// the container name and therefore the same directory on every launch of a workspace's
-// jail, and the YOLO_SERVICE_<NAME>_ENDPOINT variable is wired whenever the LOOPHOLE is
-// active rather than whenever the daemon published. So anything in the jail that leaves
-// a fifo, a device node or a unix socket where an endpoint file belongs — a mkfifo, a
-// half-written pack hook, a restored backup — poisons every later boot of that jail,
-// and the daemon is not guaranteed to republish over it.
+// paths.JailHostServicesDir (internal/cli/run's hostServicesMountArgs), so anything in
+// the jail can leave a fifo, a device node or a unix socket where an endpoint file
+// belongs — a mkfifo, a half-written pack hook, a restored backup.
+//
+// This comment used to claim such a file "poisons every later boot of that jail". THAT
+// IS WRONG, corrected 2026-08-18: every respawn path unlinks the stale artifact before
+// spawning (loopholesruntime.go's os.Remove before the spawn, retireStaleRelayFiles for
+// the relay's pair) and svcendpoint.Publish renames a temp file onto the target.
+// unlink(2) and rename(2) both work on a fifo, so the host clears and replaces it on the
+// NEXT launch, and the host never opens the path so it cannot be wedged the way this
+// probe could.
+//
+// What remains is a single boot's window — something corrupts the path after the
+// launcher published and before this probe runs — plus the broker, whose variable is
+// wired on the loophole being active rather than on a successful publish. Narrow, and
+// still worth a stat: the cost of being wrong is not a bad diagnostic, it is PID 1
+// blocked forever in open(2) with nothing printed.
 //
 // # Why the fault is UNPUBLISHED
 //

@@ -3,17 +3,18 @@ title: "Loopback-TLS reachability — how a jail reaches a host daemon, and why 
 date: 2026-08-17
 status: in-review
 tags: [transport, networking, loopholes, regression]
-summary: "The transport assumes one rootless networking stack's behaviour is universal. It is not. A walk through every networking mode, why 'just bind the right address' has nowhere to go, and the decisions — the original four answered, two more raised by building them."
+summary: "The transport assumes one rootless networking stack's behaviour is universal. It is not. A walk through every networking mode, why 'just bind the right address' has nowhere to go, and the decisions — six answered, one open on which failures may refuse a launch."
 ---
 
 # Loopback-TLS reachability — how a jail reaches a host daemon, and why it currently cannot
 
 **Status:** DECIDED, 2026-08-17; the launcher fix (§6), the in-jail witness (§7, still warn-mode per
-§10), and the slirp4netns fallback (§10's follow-up) are BUILT. **OQ-R4, OQ-R5 and OQ-R6 are open** —
-all three raised by building and then reviewing the witness, and all three scope *which* failures the
-§10 flip may refuse a launch over. R4 and R5 both had a leaning that a reviewer's question defeated on
-2026-08-18; the revised ones point the other way, at a **wider** escalation set than the code has
-today. Absorbs and replaces the operational handoff that originally reported this
+§10), and the slirp4netns fallback (§10's follow-up) are BUILT. **OQ-R5 and OQ-R6 resolved 2026-08-18;
+OQ-R4 is the last one open** — all three raised by building and then reviewing the witness, and all
+three scope *which* failures the §10 flip may refuse a launch over. Review moved this **wider** than
+the code is today: two leanings were defeated by reviewer questions, and a third claim (a
+self-inflicted lockout) was withdrawn as simply false. Absorbs and replaces the operational handoff
+that originally reported this
 (`docs/plans/handoff-loopback-tls-pasta.md`, deleted in the same commit — its evidence is folded into
 §2 and §3).
 
@@ -682,14 +683,8 @@ cannot use it", the launcher has already proven the endpoint was healthy moments
 distinctions that remain are about *where to look*, not *how bad it is* — which is what the three
 diagnosis paragraphs are for and what the severity should not duplicate.
 
-Two consequences to accept deliberately rather than discover, because both are real:
+One consequence to accept deliberately rather than discover:
 
-- **Self-inflicted lockout.** `faultUnpublished` covers a fifo, a directory or a junk file at the
-  endpoint path, and that directory is bind-mounted **read-write** and keyed on the container name —
-  the same directory every launch of that workspace's jail. Escalating means anything in the jail
-  that corrupts it makes that jail permanently unlaunchable. This is the case
-  `YOLO_ALLOW_UNREACHABLE_SERVICES=1` exists for, and it is the reason the hatch had to be built
-  BEFORE the flip rather than alongside it. Worth stating in the release note.
 - **The broker is not gated like the others.** Its variable is wired on `brokerLoopholeActive(cfg)`
   alone ([`assemble_parts.go#L408`](../../internal/cli/run/assemble_parts.go#L408)) with no publish
   gate, because it is a host-wide singleton rather than a per-jail daemon. So "broker configured,
@@ -697,6 +692,29 @@ Two consequences to accept deliberately rather than discover, because both are r
   becomes a refused launch for every jail on that host. Observed exactly this on 2026-08-18 with a
   broker whose state files were missing. Correct, arguably — a jail with no Claude auth is the case
   §1 calls closest to fatal — but it is the single largest behaviour change in the ruling.
+  **Accepted by the reviewer, 2026-08-18.**
+
+> [!WARNING]
+> **A second consequence was claimed here and is WITHDRAWN — it was wrong.** This section used to
+> warn of a *self-inflicted lockout*: corrupt the rw-mounted services directory, and escalating
+> `faultUnpublished` makes that jail permanently unlaunchable. The reviewer asked the right question —
+> *"shouldn't we be republishing at every jail startup?"* — and we do.
+>
+> **Every respawn path removes the stale artifact before spawning**
+> ([`loopholesruntime.go#L550`](../../internal/cli/run/loopholesruntime.go#L550), and
+> `retireStaleRelayFiles` for the relay's pair), and `Publish` writes a temp file beside the target
+> and `os.Rename`s onto it. `unlink(2)` works on a fifo, a socket and a junk file alike; `rename(2)`
+> replaces any of them. The host never OPENS the corrupt path, so it cannot be wedged by a fifo the
+> way the in-jail probe could.
+>
+> The one shape that survives both is a **non-empty directory** — and it cannot reach the escalation
+> set anyway: publish fails, the readiness wait fails, and for every non-broker service the env var is
+> then never wired, so the witness never probes it. What remains is a race (something corrupts the
+> path after the launcher published and before the probe runs, inside one boot), not a durable state.
+>
+> **This makes R4 safer than it was argued**, not riskier: the main cost of escalating
+> `faultUnpublished` does not exist. `YOLO_ALLOW_UNREACHABLE_SERVICES=1` keeps its value for the
+> broker case and for a genuinely down host daemon — it was simply not needed for *this*.
 
 > [!NOTE]
 > This is not hypothetical tidiness. A **directory** at an endpoint path used to classify as
@@ -709,7 +727,7 @@ Two consequences to accept deliberately rather than discover, because both are r
 **Answer:**
 > _(unanswered)_
 
-### 💬 OQ-R5 — should a jail that shares the host's network stack be able to fail this way?
+### ✅ OQ-R5 — should a jail that shares the host's network stack be able to fail this way? — RESOLVED (2026-08-18)
 
 A nested jail and an explicit `network.mode: host` both carry **no disposition**, so under
 [OQ-R3](#-oq-r3--if-the-hosts-passt-predates---map-host-loopback-what-then--resolved-2026-08-17)'s
@@ -745,9 +763,17 @@ nothing to excuse". The predicate already exists and is already trusted for a ha
 `advertiseHostFor` computes it to decide what every daemon publishes.
 
 **Answer:**
-> _(unanswered)_
+> **Yes — escalatable.** A jail that shares the launcher's network namespace has no host-stack excuse
+> available, so an unreachable service there is a plain fault and reads as one.
+>
+> **This is blocked on the wire change, not merely gated by it.** The launcher must send a positive
+> `shared` before anything here can escalate, because today these two shapes are indistinguishable
+> from a rootful podman, an unrecognised backend and a launcher older than the variable — and those
+> must keep their never-escalate default. Shipping the severity without the spelling would escalate
+> genuine ignorance. See [OQ-R6](#-oq-r6--does-the-disposition-belong-on-the-wire-at-all-or-should-the-jail-measure-it--resolved-2026-08-18)
+> for the spelling this lands on.
 
-### 💬 OQ-R6 — does the disposition belong on the wire at all, or should the jail measure it?
+### ✅ OQ-R6 — does the disposition belong on the wire at all, or should the jail measure it? — RESOLVED (2026-08-18)
 
 Raised by R5's shape rather than by a defect. `YOLO_HOST_LOOPBACK` now carries four states —
 `requested`, `unsupported`, absent-because-shared, absent-because-unknown — and the last two are the
@@ -766,4 +792,22 @@ is real and gets worse with each ruling, so the choice is worth making once, del
 than one value at a time.
 
 **Answer:**
-> _(unanswered)_
+> **Keep it on the wire, and spell every state.** *(Reviewer, 2026-08-18: "and we can do 4 states and
+> 4 spellings?" — yes, and that is the fix. The three-spellings problem was self-inflicted, not
+> inherent.)*
+>
+> | Value | Means | Escalatable |
+> |---|---|---|
+> | `requested` | the forwarding option reached the argv | ✅ |
+> | `unsupported` | yolo identified the stack and could not make it forward | ❌ (OQ-R3) |
+> | `shared` | the jail shares the launcher's netns; nothing to forward | ✅ (OQ-R5) |
+> | `unknown` | yolo reached no conclusion — rootful, unrecognised backend, explicit `network.mode`, opt-out | ❌ |
+>
+> **Absent stays a fifth state and needs no spelling**: it means "the launcher predates this
+> variable", and it must map to the same never-escalate default as `unknown`. That is not a wart —
+> it is the only forward-compatible reading, and it is why the escalating values are the ones matched
+> EXACTLY while everything unrecognised falls through to safe.
+>
+> The discipline that governs the argv now governs the severity: **only positive facts escalate.**
+> `shared` is a positive fact — `advertiseHostFor` already trusts the same predicate to decide what
+> every daemon publishes — where absent-because-nested was an inference from silence.

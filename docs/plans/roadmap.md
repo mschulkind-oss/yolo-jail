@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 10 needing you · 2 ready · 0 in progress · 3 waiting · 2 broken · 2 icebox.**
+**Status: 10 needing you · 3 ready · 0 in progress · 3 waiting · 2 broken · 2 icebox.**
 
 Last updated **2026-08-18**. Counts tallied from this file, not asserted.
 
@@ -31,32 +31,23 @@ leaning. **Nothing here asks you to pick an execution order** — sequencing is 
 
 ### 💬 1 — Before the reachability flip: which failures may refuse a launch?
 
-📄 [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) — **OQ-R4 · OQ-R5 · OQ-R6**
+📄 [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) — **OQ-R4**
 
-Raised *by building* OQ-R2's prerequisites, then sharpened by your review. All three gate the one item
-in 📦 below. OQ-R2 ruled that an unreachable service fails the launch; none of these re-open that —
-they scope **which failures count**.
+**R5 and R6 are answered** (2026-08-18): a jail sharing the launcher's netns *is* escalatable, and the
+disposition stays on the wire with **every state spelled** — `requested` · `unsupported` · `shared` ·
+`unknown`, with absent reserved for "launcher older than the variable". Only positive facts escalate.
 
-> [!IMPORTANT]
-> **Both leanings flipped on 2026-08-18, because your review defeated the reasoning under them.** They
-> now point at a **wider** escalation set than the code has today, so this is no longer a "confirm the
-> conservative default" question.
->
-> - **R4** rested on `faultUnpublished` also being a slow-to-publish race. There is no such race: the
->   launcher polls for 5s before the container starts and kills the daemon if it misses. Every one of
->   the three faults means something is broken.
-> - **R5** claimed a nested jail "cannot measure" this. It conflated forwarding with reachability — a
->   nested jail measures reachability *better* than any other mode, because `127.0.0.1` is the only
->   thing that can work there and the code already relies on exactly that.
->
-> **R5 is not a severity tweak — it needs a new value on the wire** (`shared`), because "stack is
-> shared" and "we could not tell" are the same absent-variable today. **R6** asks whether that wire is
-> the right mechanism at all before it grows a fourth state.
+**OQ-R4 is the one left:** may `faultUnpublished` and `faultRejected` refuse a launch, or only
+`faultUnreachable`? Your review already removed the argument I had against it — there is no
+slow-to-publish race (the launcher polls 5 s before the container starts and kills the daemon if it
+misses), and the *lockout* risk I claimed turned out not to exist, because every respawn path unlinks
+the stale artifact and republishes.
 
-Two consequences worth seeing before ruling, both in the doc: escalating `faultUnpublished` makes a
-corrupted services directory a **permanently unlaunchable jail** (what the escape hatch is for), and
-the **broker** reaches the jail unpublished *by design* when its host-wide singleton is down — so
-under R4 that refuses every jail on the host.
+What is left to weigh is the one real consequence, which you have already accepted: the **broker's**
+variable is wired without a publish gate, so "singleton down" refuses every jail on that host.
+
+Ordering note: **R5's answer is blocked on the wire change, not merely gated by it** — the `shared`
+value has to ship before that severity can, or the jail escalates genuine ignorance.
 
 ### 💬 2 — Loophole activation: eleven questions, one design
 
@@ -177,6 +168,18 @@ one-line deliverable that is decided in all but name.
 # 📦 Up next
 
 **Ordered by:** what unblocks something else, then what protects a live user, then cost.
+
+- 📦 **Spell every disposition state on the wire (OQ-R6, answered).** *Unblocks OQ-R5's severity.*
+
+  `YOLO_HOST_LOOPBACK` carries four states in three spellings today: `requested`, `unsupported`, and
+  an *absent* that means both "this jail shares my network namespace" and "I could not tell". Split
+  them — add `shared` and `unknown` — leaving absent to mean only "launcher older than the variable",
+  which maps to the same never-escalate default as `unknown`.
+
+  Small and mechanical (the predicate exists: `advertiseHostFor` already computes shared-namespace to
+  decide what every daemon publishes), but it is a **prerequisite, not a companion**: R5's ruling
+  cannot ship before it, because escalating today's absent would escalate genuine ignorance. 📄
+  [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) OQ-R6.
 
 - 📦 **Close the blocking-open hazard in `svcendpoint.Read` itself.** *A real defect, found by
   mutation, fixed only at the boot path.*
