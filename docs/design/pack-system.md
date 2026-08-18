@@ -174,7 +174,17 @@ it. The consequence to know: a name the **image** bakes now wins over the pack's
 version.
 - `bin` (required) — the command name.
 - `via` (required) — `npm` or `installer`.
-- `package` (required for `npm`) — the npm package.
+- `package` (required for `npm`) — the npm package, optionally with a version selector:
+  `opencode-ai`, `opencode-ai@1.2.3`, `@scope/tool@next`, `@scope/tool@^1.0.0`. **No
+  selector means `@latest`**, which the launcher re-checks against the registry once an
+  hour — so an unversioned declaration changes what runs with nobody present. **A selector
+  turns that poll off**: the registry's `latest` is not an answer to a declaration that
+  named its own version, and for a tag or a range it would never compare equal, so polling
+  would reinstall hourly forever. A pinned launcher instead compares the recorded spec
+  against the declared one, offline, so moving a pack from `1.2.3` to `1.3.0` still takes
+  effect. (Until 2026-08-17 the launcher appended `@latest` unconditionally, so
+  `foo@1.2.3` was installed as `foo@1.2.3@latest` and a version was not expressible at
+  all — the caveat that stalled the top row of `trust-paths.md` §1.)
 - `url` (required for `installer`) — the install-script URL (origin-gated, §9).
 - `flags` — optional flags baked into the launcher.
 A pack may declare **several** `program` contributions and each gets its own launcher —

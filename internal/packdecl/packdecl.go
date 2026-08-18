@@ -104,7 +104,14 @@ type Install struct {
 	Kind string `json:"kind"`
 	// Bin is the binary name on PATH, and the lazy-launcher filename.
 	Bin string `json:"bin"`
-	// Package is the npm package (kind == "npm").
+	// Package is the npm package (kind == "npm"), optionally carrying a version
+	// selector: `foo`, `foo@1.2.3`, `foo@next`, `@scope/foo@^1.0.0`.
+	//
+	// No selector means `@latest`, re-checked hourly by the launcher. A selector turns
+	// that poll OFF — the registry's `latest` is not an answer to a declaration that
+	// named its own version. (Until 2026-08-17 the launcher appended `@latest`
+	// unconditionally, so a version was not expressible at all: `foo@1.2.3` was
+	// installed as `foo@1.2.3@latest`. See internal/entrypoint/npmspec.go.)
 	Package string `json:"package,omitempty"`
 	// Flags are extra npm install flags.
 	Flags []string `json:"flags,omitempty"`

@@ -49,14 +49,19 @@ becomes a gate only if three things hold together — (i) enforced at use, (ii) 
 
 ### Where a pin would change the outcome
 
-1. **`program via npm`** — because there is *no* pin and the content changes with **zero user
-   action**. The launcher hardcodes `@latest` with an hourly `npm view` poll
-   ([`shims.go`](../../internal/entrypoint/shims.go#L300-L337)), so the binary changes between two
+1. **`program via npm`** — because nothing *is* pinned and the content changes with **zero user
+   action**. Every shipped pack declares a bare package name, which the launcher resolves to
+   `@latest` and re-checks with an hourly `npm view` poll
+   ([`shims.go`](../../internal/entrypoint/shims.go)), so the binary changes between two
    invocations with nobody present. This is the highest-plausibility silent change in the inventory
    and it applies to **embedded** packs (pi, copilot, codex, opencode) as much as fetched ones.
-   *Caveat that guts the proposal's own table:* a version is **not expressible** — the template
-   appends `@latest` to the package string, so `foo@1.2.3` yields `foo@1.2.3@latest`. Pinning npm
-   requires a launcher rewrite first.
+   *Caveat, since RETIRED (2026-08-17):* a version used to be **not expressible** — the template
+   appended `@latest` to the package string, so `foo@1.2.3` yielded `foo@1.2.3@latest`. The
+   launcher now splits the declaration (`internal/entrypoint/npmspec.go`), honours a version,
+   dist-tag or range, and skips the poll for anything it did not resolve to `latest` itself. That
+   was a bug fix and **not** the decision: nothing is pinned by default and the shipped packs
+   resolve exactly as before. What changed is that the row can now be *attempted* — the question
+   is once again "should a pack pin?" rather than "can it?".
 2. **A loophole's daemon FILE, and a plugin's HOOK BODIES** — the two gated crossings whose approval
    string genuinely does not cover the bytes. `["python3","{loophole_dir}/acme.py"]` is one claim
    string forever; `plugin <name> hooks (runs code at agent lifecycle events)` is a **constant** with

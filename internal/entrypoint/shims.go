@@ -227,9 +227,22 @@ func GenerateAgentLaunchers(e *Env) error {
 	return nil
 }
 
+// npmAgentLauncher renders the npm lazy-install launcher for one `program via npm`
+// contribution.
+//
+// The declared package string is split here rather than in the shell, because the template
+// needs both halves in DIFFERENT places (see npmspec.go): the name indexes node_modules
+// and is the only thing `npm view` accepts, while the install spec is the name plus
+// whatever selector the pack asked for. Splitting it in bash would mean re-deriving npm's
+// scoped-package rule in a launcher that has to keep working when the pack author gets it
+// slightly wrong.
 func npmAgentLauncher(inst *packdecl.Install, stampDir string) string {
 	binName := inst.Bin
-	pkgName := inst.Package
+	pkgName, pkgVersion := splitNpmSpec(inst.Package)
+	pinned := "0"
+	if npmSpecIsPinned(pkgVersion) {
+		pinned = "1"
+	}
 	extraFlags := strings.Join(inst.Flags, " ")
 	if extraFlags != "" {
 		extraFlags += " "
@@ -237,6 +250,8 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir string) string {
 	r := strings.NewReplacer(
 		"__YOLO_BIN__", binName,
 		"__YOLO_PKG__", pkgName,
+		"__YOLO_SPEC__", npmInstallSpec(pkgName, pkgVersion),
+		"__YOLO_PINNED__", pinned,
 		"__YOLO_STAMP_DIR__", stampDir,
 		"__YOLO_EXTRA__", extraFlags,
 	)
@@ -268,15 +283,21 @@ func GeneratePackageManagerLaunchers(e *Env) error {
 	stampDir := filepath.Join(e.Home, ".cache", "yolo-package-manager-stamps")
 	stampDirLiteral := shquote.Quote(stampDir)
 
-	// The only lazily-installed package manager is pnpm.
+	// The only lazily-installed package manager is pnpm. The package string goes through
+	// the same split as a pack's, so `pnpm` still renders `pnpm@latest` byte-for-byte
+	// while a future entry that names a version would be honoured instead of corrupted —
+	// this list is the second site that hardcoded `@latest`, and leaving one behind is how
+	// the next reader concludes the rule is inconsistent rather than fixed.
 	for _, pm := range []struct{ bin, pkg string }{{"pnpm", "pnpm"}} {
 		launcherPath := filepath.Join(launcherDir, pm.bin)
 		if pathExists(launcherPath) {
 			continue // a pack already claimed this bin name
 		}
+		pkgName, pkgVersion := splitNpmSpec(pm.pkg)
 		r := strings.NewReplacer(
 			"__YOLO_BIN__", pm.bin,
-			"__YOLO_PKG__", pm.pkg,
+			"__YOLO_PKG__", pkgName,
+			"__YOLO_SPEC__", npmInstallSpec(pkgName, pkgVersion),
 			"__YOLO_STAMP_DIR_LIT__", stampDirLiteral,
 		)
 		if err := writeExecutable(launcherPath, r.Replace(pkgManagerLauncherTemplate)); err != nil {
@@ -295,25 +316,38 @@ export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
 STAMP_DIR="__YOLO_STAMP_DIR__"
 STAMP="$STAMP_DIR/__YOLO_BIN__.stamp"
+SPEC_FILE="$STAMP_DIR/__YOLO_BIN__.spec"
 REAL_BIN="$NPM_CONFIG_PREFIX/bin/__YOLO_BIN__"
+# PKG is the package NAME alone; SPEC is what "npm install" is handed. They differ whenever
+# the pack declared a version, and the two are NOT interchangeable: only PKG may index
+# node_modules or be passed to "npm view", and only SPEC may be installed.
 PKG="__YOLO_PKG__"
+SPEC="__YOLO_SPEC__"
+PINNED="__YOLO_PINNED__"   # 1 when the declaration carried a version selector
 UPDATE_INTERVAL=3600  # seconds between update checks
 
 mkdir -p "$STAMP_DIR"
 
+_installed_version() {
+    jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$PKG/package.json" 2>/dev/null || echo "0"
+}
+
 _do_install() {
-    echo "  Installing $PKG..." >&2
+    echo "  Installing $SPEC..." >&2
     # Clean stale npm temp dirs that cause ENOTEMPTY
     rm -rf "$NPM_CONFIG_PREFIX"/lib/node_modules/${PKG%%/*}/.${PKG##*/}-* 2>/dev/null
-    YOLO_BYPASS_SHIMS=1 npm install -g __YOLO_EXTRA__--prefer-online "$PKG@latest" 2>&1 || true
+    YOLO_BYPASS_SHIMS=1 npm install -g __YOLO_EXTRA__--prefer-online "$SPEC" 2>&1 || true
+    # Record what we ASKED for. It lets a later run tell "the DECLARATION moved" from "the
+    # registry moved" with a local file read and no network — the only question a pinned
+    # package still has to answer. Written on failure too, for the same reason the stamp
+    # is: one attempt per event, never a retry storm. A failed install leaves REAL_BIN
+    # missing, and that branch retries unconditionally.
+    printf '%s\n' "$SPEC" > "$SPEC_FILE"
     touch "$STAMP"
 }
 
-if [ ! -x "$REAL_BIN" ]; then
-    _do_install
-elif [ ! -f "$STAMP" ]; then
-    # First run since jail boot — check if update needed
-    INSTALLED=$(jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$PKG/package.json" 2>/dev/null || echo "0")
+_poll_and_update() {
+    INSTALLED=$(_installed_version)
     LATEST=$(YOLO_BYPASS_SHIMS=1 npm view "$PKG" version 2>/dev/null || echo "$INSTALLED")
     if [ "$INSTALLED" != "$LATEST" ]; then
         echo "  Updating __YOLO_BIN__ $INSTALLED → $LATEST..." >&2
@@ -321,18 +355,28 @@ elif [ ! -f "$STAMP" ]; then
     else
         touch "$STAMP"
     fi
+}
+
+if [ ! -x "$REAL_BIN" ]; then
+    _do_install
+elif [ "$PINNED" = "1" ]; then
+    # A pinned package has nothing to poll for. A "npm view $PKG version" call answers "what is
+    # the registry's latest?", which against a declared selector is either ignored (the
+    # round-trip was pure cost) or honoured (the declaration was a lie) — and for a tag or
+    # a range it never compares equal, so polling would reinstall every hour forever. The
+    # one thing that can legitimately move this binary is the DECLARATION, so that is what
+    # we compare, offline.
+    if [ "$(cat "$SPEC_FILE" 2>/dev/null || true)" != "$SPEC" ]; then
+        _do_install
+    fi
+elif [ ! -f "$STAMP" ]; then
+    # First run since jail boot — check if update needed
+    _poll_and_update
 else
     # Check if stamp is stale (older than UPDATE_INTERVAL)
     STAMP_AGE=$(( $(date +%s) - $(stat -c %Y "$STAMP" 2>/dev/null || echo 0) ))
     if [ "$STAMP_AGE" -gt "$UPDATE_INTERVAL" ]; then
-        INSTALLED=$(jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$PKG/package.json" 2>/dev/null || echo "0")
-        LATEST=$(YOLO_BYPASS_SHIMS=1 npm view "$PKG" version 2>/dev/null || echo "$INSTALLED")
-        if [ "$INSTALLED" != "$LATEST" ]; then
-            echo "  Updating __YOLO_BIN__ $INSTALLED → $LATEST..." >&2
-            _do_install
-        else
-            touch "$STAMP"
-        fi
+        _poll_and_update
     fi
 fi
 
@@ -420,7 +464,8 @@ export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
 STAMP_DIR=__YOLO_STAMP_DIR_LIT__
 STAMP="$STAMP_DIR/__YOLO_BIN__.stamp"
 REAL_BIN="$NPM_CONFIG_PREFIX/bin/__YOLO_BIN__"
-PKG="__YOLO_PKG__"
+PKG="__YOLO_PKG__"    # name alone, for the message
+SPEC="__YOLO_SPEC__"  # what npm install is handed: name@<selector>
 RETRY_INTERVAL=3600  # seconds before retrying a failed install
 
 mkdir -p "$STAMP_DIR"
@@ -436,8 +481,8 @@ if [ ! -x "$REAL_BIN" ]; then
         fi
     fi
     if [ "$SHOULD_INSTALL" = "1" ]; then
-        echo "  Installing $PKG..." >&2
-        YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$PKG@latest" 2>&1 || true
+        echo "  Installing $SPEC..." >&2
+        YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$SPEC" 2>&1 || true
         touch "$STAMP"
     fi
 fi
