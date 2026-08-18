@@ -181,7 +181,8 @@ func (o *Options) checkBrokerRelay(r *reporter, label, endpointPath, rt, cname s
 	}
 	// DialLocal, not Dial: the published address names the container runtime's
 	// gateway, which a jail resolves and this host does not. Same port, same pinned
-	// certificate, same token — only the name substituted.
+	// certificate, same token — only the name substituted. That substitution is why
+	// the PASS below labels itself host-side; see hostSideProbeCaveat.
 	conn, err := svcendpoint.DialLocal(endpointPath, 2*time.Second)
 	if err != nil {
 		if errors.Is(err, svcendpoint.ErrAuthRejected) {
@@ -210,7 +211,8 @@ func (o *Options) checkBrokerRelay(r *reporter, label, endpointPath, rt, cname s
 					"CREDENTIAL, so re-reading cannot recover it either.  Relaunch "+
 					"the jail to remount the directory.")
 		} else {
-			r.ok(label + ": relay ok (cert-pinned, token-authenticated), broker answers through it")
+			r.ok(label + ": relay ok (cert-pinned, token-authenticated), broker answers " +
+				"through it — host-side, says nothing about in-jail reachability")
 		}
 	} else {
 		r.fail(label+": relay up, broker unreachable",
@@ -224,7 +226,13 @@ func (o *Options) checkBrokerRelay(r *reporter, label, endpointPath, rt, cname s
 // jail, that each external host_daemon's socket is alive.
 func (o *Options) checkHostServiceLiveness(r *reporter) {
 	if o.inJail() {
-		return // inside jail — host sockets aren't reachable
+		// Say so, rather than returning silently. Every sibling section announces why
+		// it stepped aside; this one left its header standing over an empty block,
+		// which reads as "probed, nothing to report" in exactly the place where the
+		// honest answer is "not askable from here" — the host's per-jail service
+		// directory is not mounted in, so there is nothing to probe.
+		r.ok("Inside jail — host-service liveness skipped (these probes run host-side)")
+		return
 	}
 	entries := loopholes.ValidateLoopholes(true)
 	var externals []*loopholes.Loophole
@@ -252,16 +260,23 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 		r.ok("no jails running — nothing to probe")
 		return
 	}
+	// Whether any loopback-TLS probe actually ran, so the caveat below appears only
+	// under greens it qualifies. A run with nothing but AF_UNIX sockets has no
+	// loopback hop to be wrong about — the socket is bind-mounted, not routed — and a
+	// caveat printed there would train the reader to skip it where it matters.
+	probedLoopbackTLS := false
 	for _, cname := range cnames {
 		socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 		for _, lp := range externals {
 			label := fmt.Sprintf("loophole %s @ %s", lp.Name, cname)
 			if lp.Name == brokerLoopholeName {
+				probedLoopbackTLS = true
 				o.checkBrokerRelay(r, label,
 					filepath.Join(socketsDir, lp.Name+paths.ServiceEndpointExt), rt, cname)
 				continue
 			}
 			if lp.Transport == loopholes.TransportLoopbackTLS {
+				probedLoopbackTLS = true
 				o.checkLoopbackTLSService(r, label, filepath.Join(socketsDir, lp.Name+paths.ServiceEndpointExt), lp.Name)
 				continue
 			}
@@ -284,6 +299,9 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 			_ = conn.Close()
 			r.ok(label + ": socket accepting")
 		}
+	}
+	if probedLoopbackTLS {
+		r.dim(hostSideProbeCaveat)
 	}
 }
 
@@ -312,7 +330,8 @@ func (o *Options) checkLoopbackTLSService(r *reporter, label, endpointPath, name
 	}
 	// DialLocal, not Dial: the published address names the runtime's gateway, which
 	// a jail resolves and this host does not. Same port, same pinned cert, same
-	// token — only the name substituted.
+	// token — only the name substituted. That substitution is why the PASS below
+	// labels itself host-side; see hostSideProbeCaveat.
 	conn, err := svcendpoint.DialLocal(endpointPath, 2*time.Second)
 	if err != nil {
 		detail := fmt.Sprintf("Dialing the listener named by %s failed: %s.  "+
@@ -327,8 +346,30 @@ func (o *Options) checkLoopbackTLSService(r *reporter, label, endpointPath, name
 		return
 	}
 	_ = conn.Close()
-	r.ok(label + ": endpoint accepting (cert-pinned, token-authenticated)")
+	r.ok(label + ": endpoint accepting (cert-pinned, token-authenticated) — host-side, " +
+		"says nothing about in-jail reachability")
 }
+
+// hostSideProbeCaveat is the footnote under every green above, printed ONCE per run.
+//
+// It is here because the greens cannot be made honest by dialling differently. Both
+// probes use svcendpoint.DialLocal, which keeps the published PORT and substitutes
+// 127.0.0.1 — where the daemons bind, and the one address a jail cannot use. That
+// substitution is not a wiring mistake to fix: `yolo check` runs HOST-SIDE, and the
+// ADVERTISED address (the runtime's gateway name) is only meaningful from inside a
+// network namespace the runtime built. A host-side prober therefore cannot fail for
+// the reason a jail's clients fail, which is how a total loopback-TLS outage sat under
+// an all-green check for four days (docs/design/loopback-tls-reachability.md §7).
+//
+// So the output is made honest instead: each green says what it is, and this says
+// where the answer it CANNOT give actually lives. Once, not per service — on a broken
+// host every service fails for the same reason at the same instant, and a paragraph
+// repeated under each one is a paragraph nobody reads (the same rule
+// internal/entrypoint/reachability.go follows for its own shared explanation).
+const hostSideProbeCaveat = "the probes above are HOST-SIDE: they dial 127.0.0.1, " +
+	"where these daemons bind, so a green means the daemon answers — never that a JAIL " +
+	"can reach it. Only the in-jail probe that runs at jail startup can say that " +
+	"(docs/design/loopback-tls-reachability.md §7)."
 
 // firstLine returns the first line of s, or "" when s is empty.
 func firstLine(s string) string {

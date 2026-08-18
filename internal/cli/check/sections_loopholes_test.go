@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -130,6 +131,12 @@ func TestCheckLoopbackTLSServiceNamesTheLayer(t *testing.T) {
 		r, out := probeOnce(t, p)
 		if r.failed != 0 || r.passed != 1 || !strings.Contains(out, "endpoint accepting") {
 			t.Errorf("a live listener did not pass: passed=%d failed=%d out=%q", r.passed, r.failed, out)
+		}
+		// The green must not read as more than it is. DialLocal substituted
+		// 127.0.0.1, so this says the daemon answers on the HOST's loopback and
+		// nothing whatever about a jail — see hostSideProbeCaveat.
+		if !strings.Contains(out, "host-side") || !strings.Contains(out, "in-jail reachability") {
+			t.Errorf("a green host-side probe did not label itself: out=%q", out)
 		}
 	})
 }
@@ -296,6 +303,11 @@ func TestCheckBrokerRelayProbesTheHopTheJailUses(t *testing.T) {
 		if !strings.Contains(out, "token-authenticated") {
 			t.Errorf("the success line does not record that the probe authenticated: %q", out)
 		}
+		// Same rule as the loopback-TLS probe's green: the relay was dialled on
+		// 127.0.0.1, so the line may not imply a jail can reach it.
+		if !strings.Contains(out, "host-side") || !strings.Contains(out, "in-jail reachability") {
+			t.Errorf("a green host-side relay probe did not label itself: out=%q", out)
+		}
 	})
 }
 
@@ -432,5 +444,120 @@ func TestCheckLoopholesReportsTheRetiredDirectory(t *testing.T) {
 	// And the manifest sitting there is NOT loaded: reporting it must not resurrect it.
 	if strings.Contains(out, "loophole leftover:") {
 		t.Errorf("the retired directory's manifest was walked as a live loophole:\n%s", out)
+	}
+}
+
+// TestHostServiceLivenessSaysWhatItCannotSee pins the honesty of the section as a
+// whole, which is a property of the OUTPUT rather than of any one dial.
+//
+// Both probes in it use svcendpoint.DialLocal, which keeps the published port and
+// substitutes 127.0.0.1 — where the daemons bind, and the one address a jail cannot
+// use. That is structural: `yolo check` runs host-side, and the advertised address is
+// only meaningful inside a namespace the runtime built, so this section reported PASS
+// through a total in-jail outage (docs/design/loopback-tls-reachability.md §7). It
+// cannot be fixed by dialling differently, so what is pinned here is the wording: a
+// green that labels itself, and the once-per-run pointer at the in-jail probe.
+func TestHostServiceLivenessSaysWhatItCannotSee(t *testing.T) {
+	fakeBundled := t.TempDir()
+	oldBundled := loopholes.BundledLoopholesDir
+	loopholes.BundledLoopholesDir = func() string { return fakeBundled }
+	t.Cleanup(func() { loopholes.BundledLoopholesDir = oldBundled })
+	retiredLoopholeDir(t)
+
+	modDir := filepath.Join(fakeBundled, "svc")
+	if err := os.MkdirAll(modDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// host_daemon is what puts it in the "externals" set this section probes at all.
+	if err := os.WriteFile(filepath.Join(modDir, "manifest.jsonc"), []byte(
+		`{"name": "svc", "description": "x", "transport": "loopback-tls", `+
+			`"host_daemon": {"cmd": ["true"]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The per-jail services directory is a deterministic function of the container
+	// name, so a name unique to this test names a real directory no jail owns.
+	const cname = "yolo-check-hostside-probe-test"
+	svcDir := paths.HostServicesDir(cname, false)
+	// 0700 exactly: svcendpoint refuses to publish a credential into anything wider.
+	if err := os.MkdirAll(svcDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(svcDir) })
+	// The DEFAULT advertise host, exactly as a real daemon publishes it: a test that
+	// published 127.0.0.1 would prove nothing about the substitution being labelled.
+	ln, err := svcendpoint.Listen(filepath.Join(svcDir, "svc"+paths.ServiceEndpointExt), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+
+	var buf bytes.Buffer
+	r := newReporter(&buf, false)
+	o := &Options{
+		// Empty for every key, so inJail() is false — this suite runs inside a jail,
+		// where the real YOLO_VERSION would send the section down the skip branch.
+		Getenv:   func(string) string { return "" },
+		LookPath: func(name string) (string, bool) { return "/bin/" + name, name == "podman" },
+		Exec: func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+			if len(argv) > 1 && argv[0] == "podman" && argv[1] == "ps" {
+				return ExecResult{Ran: true, RC: 0, Stdout: cname + "\n"}
+			}
+			return ExecResult{Ran: true, RC: 1}
+		},
+	}
+	fillDefaults(o)
+	o.checkHostServiceLiveness(r)
+	out := buf.String()
+
+	if r.failed != 0 || !strings.Contains(out, "endpoint accepting") {
+		t.Fatalf("the live listener did not pass: failed=%d out=%q", r.failed, out)
+	}
+	if !strings.Contains(out, "host-side") || !strings.Contains(out, "in-jail reachability") {
+		t.Errorf("the green did not label itself host-side: out=%q", out)
+	}
+	// The caveat is the half that says where the answer this section cannot give
+	// actually lives, and it must appear ONCE — a paragraph repeated under every
+	// service is a paragraph nobody reads.
+	if n := strings.Count(out, "the probes above are HOST-SIDE"); n != 1 {
+		t.Errorf("host-side caveat appeared %d times, want exactly 1: out=%q", n, out)
+	}
+	if !strings.Contains(out, "in-jail probe") {
+		t.Errorf("the caveat does not point at the probe that CAN answer: out=%q", out)
+	}
+	// The caveat is dim scaffolding, not a finding: it must not move the counts.
+	if r.warned != 0 {
+		t.Errorf("warned=%d — the caveat must not be graded: out=%q", r.warned, out)
+	}
+}
+
+// TestHostServiceLivenessInJailSaysWhy: run from inside a jail this section used to
+// return SILENTLY, leaving its header standing over an empty block — which reads as
+// "probed, nothing to report" in exactly the place where the honest answer is "not
+// askable from here". Every sibling section announces why it stepped aside.
+func TestHostServiceLivenessInJailSaysWhy(t *testing.T) {
+	var buf bytes.Buffer
+	r := newReporter(&buf, false)
+	o := &Options{Getenv: func(k string) string {
+		if k == "YOLO_VERSION" {
+			return "9.9.9-test"
+		}
+		return ""
+	}}
+	fillDefaults(o)
+	o.checkHostServiceLiveness(r)
+	out := buf.String()
+	if r.failed != 0 || !strings.Contains(out, "Inside jail") ||
+		!strings.Contains(out, "host-side") {
+		t.Errorf("the in-jail skip is silent or unexplained: failed=%d out=%q", r.failed, out)
 	}
 }
