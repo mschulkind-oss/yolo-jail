@@ -594,6 +594,26 @@ func TestReachabilityProbeNeverOpensANonRegularEndpoint(t *testing.T) {
 			},
 			want: "directory",
 		},
+		{
+			// The shape the OTHER half of this directory leaves lying around. Every
+			// per-jail loophole socket used to live here, and the transports moved out
+			// one at a time (the relay's own socket left in 9b77742); a leftover from a
+			// jail that predates the move, or a pack hook that binds one by hand, puts
+			// a socket exactly where an endpoint file belongs. It is also the one
+			// non-regular shape whose failure mode without the stat gate is NOT a hang:
+			// open(2) on a unix socket gives ENXIO, which readPathError passes through
+			// untouched as an untyped error — straight into faultUnreachable, the class
+			// that sends the reader to the network for a local file.
+			name: "a unix socket",
+			make: func(t *testing.T, p string) {
+				l, err := net.Listen("unix", p)
+				if err != nil {
+					t.Skipf("cannot bind a unix socket here: %v", err)
+				}
+				t.Cleanup(func() { _ = l.Close() })
+			},
+			want: "unix socket",
+		},
 	}
 
 	for _, tc := range cases {
@@ -628,9 +648,12 @@ func TestReachabilityProbeNeverOpensANonRegularEndpoint(t *testing.T) {
 				t.Errorf("the warning must name what is actually at the path (%q), got:\n%s", tc.want, got)
 			}
 			// And it must not be attributed to the network. Nothing about a local file
-			// shape is a transport failure, and faultUnreachable is the ONE class OQ-R2's
-			// fatal escalates — a directory used to land there, via
+			// shape is a transport failure — a directory used to land there, via
 			// classifyReachability's transport default over os.ReadFile's EISDIR.
+			//
+			// Since OQ-R4 the ATTRIBUTION is all this buys, because every class escalates:
+			// what it still decides is whether the reader is sent to the pasta paragraph
+			// (printed for faultUnreachable alone) or to the file the host never wrote.
 			if strings.Contains(got, "UNREACHABLE") {
 				t.Errorf("a %s at the endpoint path is not a reachability failure and must never "+
 					"reach the escalation set, got:\n%s", tc.want, got)
