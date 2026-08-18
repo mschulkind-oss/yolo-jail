@@ -1158,14 +1158,15 @@ Class-2 guidance depends on this and the boundary is sharper than the docs sugge
   the keys it re-reads (`network`, `security.blocked_tools`, `mounts`, `loopholes`,
   `resources`, `agents`, `agents_md_extra`) have **live briefing text but frozen
   enforcement** — the jail will *describe* a limit it is not applying.
-- **In-jail, `config.LoadConfig` returns `<workspace>/.yolo/config-snapshot.json`
+- **In-jail, `config.LoadConfig` returns `<workspace>/.yolo/config-assembled.json`
   verbatim** and never reads `yolo-jail.jsonc` (gated on `YOLO_VERSION`). But
   **`yolo check` bypasses `LoadConfig`** and validates the raw files — which is what
   makes the documented "edit → `yolo check --no-build`" loop work at all. That
   split-brain is load-bearing and undocumented.
 - **The approval prompt only fires on fresh launch**, after the attach branch has
-  returned — so attaching never re-checks config, and in a non-TTY it **auto-accepts**
-  and rewrites the snapshot.
+  returned — so attaching never re-checks config. In a non-TTY the launch is now
+  **refused** rather than auto-accepted (`config-safety.md` OQ-D2); `--accept-config-changes`
+  grants the approval for that one launch.
 
 ### 8.4 What to do about it
 

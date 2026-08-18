@@ -192,7 +192,7 @@ The split is enforced **by construction**, not by a check: `config.LoadHostFiles
 reads source-bearing entries **only** from `paths.UserConfigPath()` (plus its
 `include_if_found` files), so workspace scope is inexpressible. Of the places a
 config key can come from, two are jail-writable — the workspace
-`yolo-jail{,.local}.jsonc` and `<workspace>/.yolo/config-snapshot.json`, both on
+`yolo-jail{,.local}.jsonc` and `<workspace>/.yolo/config-assembled.json`, both on
 the read-write `/workspace` bind — and only the host user config is not.
 `validateHostFiles` additionally hard-errors on a source-bearing entry found at
 workspace scope; that is defense-in-depth against a silent no-op, not the

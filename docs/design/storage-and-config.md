@@ -95,7 +95,10 @@ human didn't approve. See `docs/design/config-safety.md` for details.
 This approval step does **not** replace `yolo check` — agents should still run
 `yolo check` after every config edit before the restart happens.
 
-**Snapshot location:** `<workspace>/.yolo/config-snapshot.json`
+**Snapshot location:** `~/.local/share/yolo-jail/approvals/<container-name>.json` — HOST-side and
+never mounted into a jail, so the record of what was approved cannot be rewritten by whatever edited
+the config (`config-safety.md`, OQ-D1). A non-interactive launch with a changed config is refused;
+`yolo --accept-config-changes` approves it for that launch only (OQ-D2).
 
 ---
 
@@ -179,7 +182,9 @@ Each workspace has a `.yolo/` directory (gitignored) for isolated state:
 │                                   venv path and any per_side_paths entries;
 │                                   '/' in an entry becomes '__' in the dir name)
 ├── startup.log                   → Provisioning log from the last new-container boot
-└── config-snapshot.json          → Last-confirmed config (for change detection)
+└── config-assembled.json         → Merged config the host assembled for this launch
+                                    (read verbatim in-jail; the APPROVAL record lives
+                                    host-side under approvals/, not here)
 ```
 
 These are mounted as **writable overlays** on top of the read-only global home.

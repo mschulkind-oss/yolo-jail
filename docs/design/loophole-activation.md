@@ -330,18 +330,18 @@ what makes per-workspace enablement safe to offer at all.
 > vocabulary rather than inventing a second.
 
 > [!WARNING]
-> **Ship this as readability, not as a safety property — the distinction is the whole ruling.** The
-> config-approval diff already renders a workspace `enabled: true` and prompts for it
-> (`preflight.go:213-232`), so disclosure is not absent today. It is **suppressible from inside the
-> jail**: the snapshot it compares against lives at `<workspace>/.yolo/config-snapshot.json`
-> (`config/snapshot.go:18-20`) under an rw bind mount, so whatever writes the key can rewrite the
-> baseline. And a non-TTY launch **auto-accepts** it (`config/snapshot.go:38`).
+> **Written when this was readability only; both blockers have since landed.** The config-approval
+> diff renders a workspace `enabled: true` and prompts for it, so disclosure was never absent. What
+> it lacked was integrity: the baseline it compared against lived at
+> `<workspace>/.yolo/config-snapshot.json` under an rw bind mount, so whatever wrote the key could
+> rewrite the baseline — and a non-TTY launch **auto-accepted** it.
 >
-> **A disclosure an agent can suppress is not a control.** The mirrored line makes the dangerous
-> direction legible to a human watching a launch; it does not make it safe. The actual fix is
-> **OQ-D1** — an approval snapshot the jail cannot rewrite — which now has a home and options in
-> 📄 [`config-safety.md`](config-safety.md). Until it lands, nothing in this section should be
-> counted as protection.
+> **A disclosure an agent can suppress is not a control.** Both fixes shipped 2026-08-18: **OQ-D1**
+> moved the approval record host-side to `~/.local/share/yolo-jail/approvals/<container-name>.json`,
+> which the jail never mounts, and **OQ-D2** made a non-interactive launch with a changed config a
+> refusal that CI opts out of with `--accept-config-changes`. See
+> 📄 [`config-safety.md`](config-safety.md). The mirrored line in this section is therefore now
+> backed by a control, not just by a human happening to be watching.
 
 **R6. The broker's loophole moves inside `packs/claude/`.** It exists only to serve claude, so
 selecting the claude pack is the dependency — and R3's deletion is then free rather than a

@@ -893,9 +893,15 @@
 
   - First run: config is accepted and a snapshot saved.
   - Subsequent runs: changes require explicit y/N approval.
-  - Non-interactive (piped input): accepted with a warning.
+  - Non-interactive (piped input, CI): the launch is REFUSED. Approve
+    the change for that one launch with `yolo --accept-config-changes`,
+    which records it exactly as answering y would. A flag rather than an
+    environment variable, so an approval is never inherited by a child
+    process or left behind in a shell.
 
-  Snapshot location: <workspace>/.yolo/config-snapshot.json
+  Snapshot location: ~/.local/share/yolo-jail/approvals/<container>.json
+  (HOST-side, never mounted into the jail — a record an agent could
+  rewrite is not a record).
 
 [bold cyan]AGENT PACKAGE WORKFLOW[/bold cyan]
 

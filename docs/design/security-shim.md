@@ -121,8 +121,8 @@ The security shim is the **only code that bridges the trust boundary** between t
 |---|---|
 | Normalized comparison | Config is serialized to canonical JSON before diffing — whitespace/comment changes don't trigger |
 | Human approval required | Interactive terminal: y/N prompt (default N) |
-| Non-interactive safety | Piped stdin: auto-approves but prints a visible warning |
-| Snapshot stored outside workspace | In `.yolo/config-snapshot.json` — agent can't delete it to bypass |
+| Non-interactive safety | Piped stdin: the launch is **refused**; CI opts in per-launch with `--accept-config-changes` (a flag, not an env var, so an approval is never inherited) |
+| Snapshot stored outside workspace | `~/.local/share/yolo-jail/approvals/<container-name>.json` — host-side, never mounted, so an agent can neither rewrite it to hide a change nor delete it to bypass |
 
 ---
 

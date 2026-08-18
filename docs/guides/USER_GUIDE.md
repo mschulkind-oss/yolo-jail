@@ -1095,6 +1095,24 @@ Accept this config? [y/N]:
 
 This prevents agents from silently adding packages, mounts, or devices. The human must approve every change.
 
+**The record of what you approved lives on the host**, at
+`~/.local/share/yolo-jail/approvals/<container-name>.json`. It is deliberately *not* in the
+workspace: `/workspace` is bind-mounted read-write, so anything that can edit `yolo-jail.jsonc`
+could also have rewritten a baseline kept in there, and the next launch would have had nothing to
+show you. A workspace copied or moved to a new path loses its baseline and re-prompts once.
+
+**A launch with no terminal (CI, `yolo … < /dev/null`, a script) is REFUSED when the config
+changed** — it is not auto-accepted. The refusal prints the diff and tells you the flag:
+
+```console
+$ yolo --accept-config-changes -- ./ci-task.sh
+```
+
+That approves the change for **that launch only** and records it exactly as answering `y` does. It
+is a flag rather than an environment variable on purpose: `YOLO_ALLOW_*` variables suppress a
+*diagnosis*, this one grants an *approval*, and an approval must not be inherited by every child
+process or linger in a shell for the rest of a session.
+
 ### Workflow for Config Changes
 
 **From outside the jail (handoff to agent):**

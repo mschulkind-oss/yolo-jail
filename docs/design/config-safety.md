@@ -8,8 +8,10 @@ summary: "Agents may edit the workspace config; humans must approve the change b
 
 # Config Safety: User/Agent Workflow
 
-**Status:** DECIDED 2026-08-18. The flow below is built; **two rulings are not yet implemented** —
-the snapshot still lives in the workspace, and a non-interactive launch still auto-accepts.
+**Status:** DECIDED 2026-08-18, **both rulings implemented 2026-08-18.** The approval snapshot lives
+host-side at `~/.local/share/yolo-jail/approvals/<container-name>.json`
+(`config.ApprovalSnapshotPath`), and a non-interactive launch with a changed config is refused
+unless `--accept-config-changes` is passed.
 
 **The short version.** An agent may edit the workspace config; a human must approve the change before
 it takes effect, via a diff and a prompt at the next launch. Two things made that promise weaker than
@@ -54,10 +56,16 @@ On every new jail startup, the CLI compares the current merged config
 (user defaults + workspace config) against a snapshot from the previous run:
 
 - **First run**: Config is accepted and a snapshot is saved at
-  `<workspace>/.yolo/config-snapshot.json`
+  `~/.local/share/yolo-jail/approvals/<container-name>.json`
 - **No changes**: Startup proceeds normally
 - **Changes detected**: A unified diff is displayed and the user is prompted
   with `Accept these config changes? [y/N]`
+- **Migrating a workspace that was approved before OQ-D1**: the old
+  `<workspace>/.yolo/config-snapshot.json` is a *migration signal only*. Its presence says the
+  workspace has been launched before — so the missing host-side record is a migration, not a first
+  run, and a first run accepts silently. Its **content is never adopted**: it is precisely the file
+  the ruling declares untrustworthy. So the launch diffs against an empty previous config, shows the
+  whole current config once, and asks. On acceptance the legacy file is deleted.
 
 The snapshot stores the **normalized** (parsed and re-serialized) config, so
 cosmetic changes like reformatting or reordering comments don't trigger a diff.
@@ -86,7 +94,34 @@ Accept these config changes? [y/N]
 - **N/no/empty**: Changes are rejected, jail does not start. The user can
   inspect and revert the config before trying again.
 - **Non-interactive** (piped stdin): **the launch FAILS.** A config change that
-  nobody can be asked about is not a change that may take effect silently.
+  nobody can be asked about is not a change that may take effect silently. The refusal names
+  `--accept-config-changes`, the workspace and user config files, the host-side approval record, and
+  prints the same coloured diff the prompt would have.
+- **Non-interactive + `--accept-config-changes`**: the change is approved for **that launch**, and
+  the snapshot is rewritten exactly as a `y` rewrites it — so the next run is not asked again.
+
+```console
+$ yolo -- true < /dev/null
+⚠  Jail config changed since the last approved launch, and this launch has no terminal to approve it on.
+
+--- previous config
++++ current config
+@@ -1,3 +1,4 @@
+ {
+   "packages": [
++    "postgresql",
+     "ripgrep"
+
+A changed config is never accepted without a human — …
+
+  workspace config: /home/matt/code/thing/yolo-jail.jsonc
+  user config:      /home/matt/.config/yolo-jail/config.jsonc
+  approved config:  /home/matt/.local/share/yolo-jail/approvals/yolo-thing-1a2b3c4d.json
+
+Revert the change, or approve it for THIS LAUNCH ONLY by re-running with
+  --accept-config-changes
+which records the new config as approved exactly as answering `y` would.
+```
 
 > **RULED (OQ-D2, 2026-08-18): non-interactive + changed config is fatal, and CI opts in explicitly.**
 > This reverses the behaviour described above, which auto-accepted and rewrote the snapshot
@@ -167,7 +202,7 @@ An agent can check whether its edit has taken effect yet with `yolo config drift
 which compares the workspace config on disk against the one the running jail was
 built from. The jail freezes that baseline (workspace-only) at fresh launch to
 `<workspace>/.yolo/config-boot.json` — immutable for the jail's life, distinct from
-the every-launch `config-snapshot.json`. `drift` re-reads the live config in-jail
+the every-launch `config-assembled.json`. `drift` re-reads the live config in-jail
 (the workspace is bind-mounted, so this is accurate) and diffs the canonical form:
 exit `0` in sync, `3` drifted (prints the diff), `4` no baseline. Since the running
 jail's config is fixed until restart, a non-zero drift is the signal that a restart
@@ -189,22 +224,36 @@ form for inspection.
 |------|---------|
 | `yolo-jail.jsonc` | Workspace config (project root) |
 | `~/.config/yolo-jail/config.jsonc` | User-level defaults |
-| `<workspace>/.yolo/config-snapshot.json` | Last-approved normalized config — **moving host-side, see below** |
+| `~/.local/share/yolo-jail/approvals/<container-name>.json` | **Last-approved normalized config — HOST-SIDE, never mounted into any jail** |
+| `<workspace>/.yolo/config-assembled.json` | The merged config the host assembled for this launch, delivered into the jail (see below) |
+| `<workspace>/.yolo/config-boot.json` | Frozen workspace-only config the jail was built from (`yolo config drift`) |
 
 > **RULED (OQ-D1, 2026-08-18): the snapshot moves out of the jail's reach**, into per-workspace
-> host-side state the jail never mounts.
+> host-side state the jail never mounts. **Implemented.**
 >
-> As written, the table above defeats Design Goal 2: `/workspace` is bind-mounted **read-write**, so
-> whatever edits `yolo-jail.jsonc` can also rewrite the only record of what was last approved, and
-> the next launch shows nothing to approve. Note the shape of the defect — **deleting** the snapshot
-> fails safe (an absent baseline diffs against empty and prompts), so what is needed is *integrity*,
-> not secrecy, which is why signing it or mounting it `:ro` are both more machinery than the problem
-> requires.
+> The old location defeated Design Goal 2: `/workspace` is bind-mounted **read-write**, so
+> whatever edits `yolo-jail.jsonc` could also rewrite the only record of what was last approved, and
+> the next launch showed nothing to approve. Note the shape of the defect — **deleting** the snapshot
+> fails safe, so what is needed is *integrity*, not secrecy, which is why signing it or mounting it
+> `:ro` are both more machinery than the problem requires.
 >
-> The move costs nothing at runtime: the prompt already runs host-side in the launcher
-> (`internal/cli/run/preflight.go`), so the jail never reads this file. Its one real cost is that a
-> workspace copied or moved elsewhere loses its approval baseline and re-prompts — which is the
-> direction to fail in.
+> It is keyed by `runtime.FromWorkspace`'s deterministic container name, the same key
+> `paths.ContainerDir` and `paths.AgentsDir` already use for their per-workspace host state — not a
+> new keying scheme. Its one real cost is that a workspace copied or moved elsewhere loses its
+> approval baseline and re-prompts — which is the direction to fail in.
+>
+> **The jail DID read the old file, and that is why there are now two files.** The prompt runs
+> host-side, but `config.LoadConfig` also short-circuited on `config-snapshot.json` in-jail for the
+> jail's own workspace, because the user-level `include_if_found` overrides it carries are host-side
+> files the jail never sees and an in-jail re-assemble silently produces a *reduced* config. One file
+> was doing two jobs that pull opposite ways: the approval record must be somewhere the jail cannot
+> write, the delivery copy must be somewhere it can read. So they split —
+> `config-assembled.json` is the delivery copy, written unconditionally at every fresh launch
+> (`internal/config/assembled.go`). Nothing about the delivery copy's integrity is load-bearing: a
+> jail that rewrites its own assembled config has only lied to itself about a config it can already
+> edit at the source, in the same mount. The security boundary was never there — it is that
+> `LoadCacheRelocations` and `LoadHostFiles` read the host user config **directly**, which makes
+> workspace scope inexpressible rather than merely rejected.
 >
 > **What this unblocks:** [`loophole-activation.md`](loophole-activation.md) OQ-A13 ruled that a
 > workspace may enable a host-reaching loophole with this diff as the disclosure, and explicitly
@@ -218,6 +267,11 @@ form for inspection.
 - **User config changes**: Since the snapshot stores the merged result,
   changes to user-level config also trigger a diff.
 - **Config deleted**: Triggers a diff (previous config → empty config).
+- **Snapshot deleted**: fails safe, but not by prompting — an absent record with no legacy file is a
+  *first run*, which accepts the current config silently and records it. That is the same trade the
+  first-launch case makes, and it is why the ruling was about integrity (a record that can be
+  *rewritten* to match a change) and not about deletion (which loses the baseline without hiding
+  anything).
 - **Multiple agents**: All share the same config file. If two agents modify
   it, the human sees all changes combined in one diff.
 
