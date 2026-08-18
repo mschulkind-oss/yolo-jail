@@ -198,6 +198,15 @@ should fail loudly at spawn, not vanish silently from a list.
 **R4. Host access is never on by default.** `audio` ships `default_enabled: false`. Being useful is
 not a reason to be automatic.
 
+> [!CAUTION]
+> **R5 is FALSE for list-shaped settings, established 2026-08-17.** `MergeConfig` union-merges every
+> list at every depth (`load.go:63-118`), and the replace-wholesale exception was **deleted** — so a
+> user-scope *ceiling* that a workspace *narrows* is inexpressible, and a workspace can only **widen**.
+> For an allowlist like `host_processes.visible` that inverts the intended property: the weak,
+> agent-writable scope can only add capability. The claim below holds for a scalar switch and not for
+> a list. See [`pack-config-keys.md`](./pack-config-keys.md) §3, whose per-key `scope` field is the
+> answer.
+
 **R5. Install is user-scope; enable is either scope.** Already true and kept: `packs` is read from
 the user config only (`internal/config/packs.go`), install-shaped keys are refused in workspace
 scope, and `loopholes.<name>.enabled` is honored from both. So a workspace may switch on only what
@@ -521,7 +530,15 @@ contribution.
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. **OQ-A8 — where do a pack-shipped loophole's own settings live?**
+8. **OQ-A8 — where do a pack-shipped loophole's own settings live? — DESIGNED 2026-08-17**
+
+   > **📄 [`pack-config-keys.md`](./pack-config-keys.md) is the answer**, and it overrules the leaning
+   > below: the opaque `settings` map is a **trust regression**, because core that validates only
+   > "it is an object" cannot tell `settings.visible` from `settings.ld_preload` — which launders the
+   > user-scope-only refusal that exists to keep `LD_PRELOAD` out of a host daemon's spawn. The keys
+   > are **typed and declared in the manifest** instead, validated through the resolver core already
+   > injects, delivered through a file core writes rather than an env channel the workspace controls.
+   > Four questions remain there (OQ-K1..K4); none of them blocks this document.
 
    > **Confirmed independently in review, 2026-08-17:** *"I don't understand the yolo-ps visible flag
    > though — doesn't that mean the yolo config schema has a pack-shipped loophole baked in?"*

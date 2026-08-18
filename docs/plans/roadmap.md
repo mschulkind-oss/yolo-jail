@@ -45,9 +45,11 @@ user-scope and enable is either; the broker moves inside `packs/claude`). What i
   disagree, and the reserved name does **not** free itself when the bundled copy is deleted.
 - **OQ-A11** — the broker daemon and relay spawn on **every launch with no lookup at all**, so R1 has
   a counterexample in the run pipeline. Also covers the ungated host nix-daemon socket.
-- **OQ-A8 is the one with teeth left** — core's config schema names `host_processes` and `journal`
-  **by hand**, so moving a manifest into a pack while leaving its key in `knownTopLevelConfigKeys`
-  is the appearance of separation with none of the substance.
+- ✅ **OQ-A8 is designed** — 📄 [`pack-config-keys.md`](../design/pack-config-keys.md): a loophole's
+  settings are **typed and declared in its manifest**, supplied under `loopholes.<name>.settings`,
+  and delivered through a file core writes. Four questions live there (**OQ-K1..K4**), and one of them
+  matters beyond this: `journal: "full"` is an **agent-settable host-journal passthrough with no scope
+  rule at all** today.
 - **OQ-A4 · A5 · A6 · A12 · A13** — cgroup-delegate's opt-in, the three gates on `yolo-ps`, whether
   the builtins become manifests, `yolo check`'s blindness to pack loopholes, and disclosure now that
   *enabling* is the dangerous direction.
