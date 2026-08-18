@@ -44,11 +44,14 @@ package entrypoint
 //
 //   - THE SCOPING — "unsupported is not broken". The launcher carries its own
 //     decision into the jail (paths.HostLoopbackEnvVar), because from inside a jail
-//     the two failures are indistinguishable: a service does not answer either
-//     way. With it, this file separates a KNOWN LIMITATION (yolo could not get
-//     this host's network stack to forward the host's loopback — an old passt, an
-//     unrecognised backend) from a FAULT (yolo asked, and the service is still
-//     unreachable). Only a fault is ever escalated. See loopbackDisposition.
+//     the failures are indistinguishable: a service does not answer whichever it
+//     was. With it, this file separates a KNOWN LIMITATION (yolo could not get this
+//     host's network stack to forward the host's loopback — an old passt) from a
+//     FAULT (yolo asked, and the service is still unreachable) from a launch where
+//     nothing was established at all. Every state is now spelled rather than three
+//     of them sharing one silence (OQ-R6), which is what makes `shared` — a jail on
+//     the launcher's own namespace, where there is no forwarding hop to blame —
+//     sayable at all. Only a fault is escalated today. See loopbackDisposition.
 //   - THE ESCAPE HATCH — paths.AllowUnreachableServicesEnv, mirroring
 //     YOLO_ALLOW_STALE_IMAGE: honoured loudly, naming what it suppresses. A hard
 //     fatal with no override would leave a user unable to open a shell to fix the
@@ -190,23 +193,44 @@ type reachabilityResult struct {
 type loopbackDisposition int
 
 const (
-	// dispositionUnattributed: the launcher said nothing. An explicit
-	// network.mode, the YOLO_NO_HOST_LOOPBACK opt-out, a rootful podman, an
-	// unrecognised backend, Apple Container, a nested jail on --net=host, or a
-	// launcher older than the variable itself. The launch output is where the
-	// reason for any of those lives; an unreachable service here is never
-	// escalated, because nothing was positively established about it.
+	// dispositionUnattributed: the variable is ABSENT, empty, or carries a spelling
+	// this binary does not know. Since OQ-R6 that means one thing in practice — the
+	// launcher predates the variable, or is newer than this image and has invented a
+	// state (the two versions move independently; AGENTS.md, "the baked binaries are
+	// frozen at the last host `just load`"). It is the zero value so that every input
+	// nobody thought about lands here, and it is never escalated.
 	dispositionUnattributed loopbackDisposition = iota
 	// dispositionRequested: yolo put the forwarding option on this container's
 	// argv. An unreachable service is then a FAULT — the one case OQ-R2's fatal
 	// is for.
 	dispositionRequested
+	// dispositionShared: this jail SHARES the launcher's network namespace —
+	// `network.mode: host`, or podman-in-podman, where --net=host is forced. There
+	// is no forwarding hop in that mode at all: the loopback a host daemon bound and
+	// the loopback this jail dials are one loopback, which is why the launcher
+	// published 127.0.0.1 rather than a gateway name for exactly these shapes. So an
+	// unreachable service here has no host-stack ambiguity to hide in — it is the
+	// STRONGEST case in the set rather than the vaguest (OQ-R5), and it used to
+	// arrive as an absent variable, indistinguishable from the weakest.
+	dispositionShared
 	// dispositionUnsupported: yolo identified the rootless stack, could not get it
 	// to forward the host's loopback, and launched anyway (OQ-R3: degrade, never
 	// refuse). An unreachable service is a KNOWN LIMITATION of the host, and must
 	// never fail a launch — a fatal here would reintroduce by the back door
 	// exactly the refusal OQ-R3 rejected.
 	dispositionUnsupported
+	// dispositionUnknown: the launcher reached NO conclusion — a rootful podman, a
+	// backend it does not recognise, a `podman info` it could not read, an explicit
+	// network.mode it declined to override, the YOLO_NO_HOST_LOOPBACK opt-out,
+	// Apple Container. Nothing was positively established, so nothing may be
+	// escalated.
+	//
+	// It behaves exactly like dispositionUnattributed and is deliberately NOT folded
+	// into it: the two differ in what they say about the LAUNCHER, which is the only
+	// thing a boot log can use to tell a version skew from a launcher that ran and
+	// declined. "unknown" means a launcher that had an opinion about having no
+	// opinion; "unattributed" means one that could not have had one.
+	dispositionUnknown
 )
 
 // launcherLoopbackDisposition reads the launcher's verdict for this jail.
@@ -218,9 +242,16 @@ func (d loopbackDisposition) String() string {
 	switch d {
 	case dispositionRequested:
 		return paths.HostLoopbackRequested
+	case dispositionShared:
+		return paths.HostLoopbackShared
 	case dispositionUnsupported:
 		return paths.HostLoopbackUnsupported
+	case dispositionUnknown:
+		return paths.HostLoopbackUnknown
 	default:
+		// The one name with no env-var spelling behind it, because it is the one
+		// state the launcher cannot ASSERT: it is what this binary calls a variable
+		// that was never set or was set to something it does not understand.
 		return "unattributed"
 	}
 }
@@ -229,14 +260,19 @@ func launcherLoopbackDisposition(e *Env) loopbackDisposition {
 	switch e.Getenv(paths.HostLoopbackEnvVar) {
 	case paths.HostLoopbackRequested:
 		return dispositionRequested
+	case paths.HostLoopbackShared:
+		return dispositionShared
 	case paths.HostLoopbackUnsupported:
 		return dispositionUnsupported
+	case paths.HostLoopbackUnknown:
+		return dispositionUnknown
 	default:
 		// Absent, empty, or a spelling some future launcher invented — all three
 		// are "not attributable". A value this binary does not recognise must never
-		// be read as permission to fail a launch, which is why the escalating value
-		// is the one that has to be matched exactly and every other input lands
-		// here.
+		// be read as permission to fail a launch, which is why the escalating values
+		// are the ones that have to be matched exactly and every other input lands
+		// here. Adding spellings is therefore free in the direction that costs a
+		// jail: an image older than its launcher reads a new state as this one.
 		return dispositionUnattributed
 	}
 }
@@ -324,6 +360,14 @@ func ProbeServiceReachability(e *Env) {
 	if disposition != dispositionRequested {
 		// "Unsupported is not broken" (OQ-R3), and "not attributable" is not broken
 		// either. Neither may ever fail a launch, in this mode or any future one.
+		//
+		// dispositionShared is the ONE value in this set that OQ-R5 rules MAY escalate
+		// — a shared namespace has no forwarding hop to blame — and it is not in the
+		// escalating set yet on purpose: the spellings had to exist before the
+		// severity could move, or escalating today's absent would escalate genuine
+		// ignorance. Widening this ships with the flip, and not alone:
+		// unreachableFaultMessage opens with "yolo requested host-loopback
+		// forwarding", which is false for a launch that never needed any.
 		return
 	}
 	reportUnreachableFault(e, unreachable)
@@ -404,20 +448,57 @@ func serviceListPhrase(names []string) string {
 }
 
 // reachabilityExplanationFor picks the diagnosis that matches what the launcher
-// actually did. The three are genuinely different findings — a host limitation, a
-// fault, and an unattributed failure — and printing the mechanism paragraph at
-// someone whose launcher already told them the specific reason is how the useful
-// line gets lost.
+// actually did. They are genuinely different findings — a host limitation, a fault,
+// a jail with no forwarding hop at all, and a failure nothing can attribute — and
+// printing the mechanism paragraph at someone whose launcher already told them the
+// specific reason is how the useful line gets lost.
+//
+// `unknown` and an unattributed launch share one text on purpose: both mean nobody
+// established anything about the forwarding, so the widest explanation is the only
+// honest one, and it already ends by pointing at the launch output rather than
+// guessing which branch fired.
 func reachabilityExplanationFor(d loopbackDisposition) string {
 	switch d {
 	case dispositionRequested:
 		return reachabilityFaultExplanation
+	case dispositionShared:
+		return reachabilitySharedExplanation
 	case dispositionUnsupported:
 		return reachabilityLimitationExplanation
 	default:
 		return reachabilityExplanation
 	}
 }
+
+// reachabilitySharedExplanation is the diagnosis for a jail that shares the
+// launcher's network namespace, and it needs its own paragraph because all three of
+// the others would be actively MISLEADING here rather than merely imprecise.
+//
+// There is no forwarding hop in this mode. `--net=host` — chosen, or forced for
+// podman-in-podman because netavark cannot create a netns without NET_ADMIN — puts
+// the jail on the launcher's own stack, so the loopback a daemon bound and the
+// loopback this jail dials are ONE loopback. That is why every host daemon published
+// 127.0.0.1 for this launch instead of a gateway name (internal/cli/run's
+// advertiseHostFor: "not merely correct, it is the ONLY thing that works").
+//
+// So a reader sent to check pasta, --map-host-loopback or host.containers.internal
+// would be checking a hop their jail does not have — an afternoon spent on a network
+// stack that is not in the path. Everything true about this case points one way: the
+// address is right and nothing is answering on it, so the daemon is the subject. The
+// last line is there because "the host" is ambiguous in exactly the shape that
+// produces this state most often — inside a nested jail it means the OUTER jail, not
+// the machine at the bottom of the stack.
+const reachabilitySharedExplanation = "" +
+	"  This jail SHARES the network namespace of whatever launched it (--net=host,\n" +
+	"  which podman-in-podman also forces), so there is no forwarding to have gone\n" +
+	"  wrong: the address above is the launcher's own loopback, and this jail's\n" +
+	"  loopback is the same one. Nothing about the rootless network stack — pasta,\n" +
+	"  slirp4netns, the gateway name — is in the path on this launch, so checking\n" +
+	"  those is checking a hop that does not exist here.\n" +
+	"  Look at the daemon instead: is it running (`yolo check` where this jail was\n" +
+	"  launched from), and did it republish its endpoint after a restart? For a\n" +
+	"  nested jail that is the jail that launched this one, not the host machine.\n" +
+	"  docs/design/loopback-tls-reachability.md"
 
 // reachabilityLimitationExplanation is the OQ-R3 path: yolo could not ask this
 // host to forward its loopback, and launched anyway. It must not read as an error
@@ -448,11 +529,13 @@ const reachabilityFaultExplanation = "" +
 	"  services will fail the same way until it answers.\n" +
 	"  docs/design/loopback-tls-reachability.md"
 
-// reachabilityExplanation is the UNATTRIBUTED diagnosis — the one printed when the
-// launcher told this jail nothing, which is also every launch by a launcher older
-// than paths.HostLoopbackEnvVar. It is the widest of the three because it is the
-// one that has to cover a case it cannot narrow: it walks the mechanism and then
-// lists every branch the launcher might have taken, since it does not know which.
+// reachabilityExplanation is the diagnosis for the two states that establish
+// nothing: `unknown` — a launcher that ran and reached no conclusion — and an
+// unattributed launch, which since OQ-R6 means a launcher older than
+// paths.HostLoopbackEnvVar or one whose spelling this image does not know. It is the
+// widest of the four because it is the one that has to cover a case it cannot
+// narrow: it walks the mechanism and then lists every branch the launcher might have
+// taken, since it does not know which.
 //
 // It names the mechanism first and the remedy second, in that order
 // on purpose: the remedy (docs/design/loopback-tls-reachability.md §6) now exists

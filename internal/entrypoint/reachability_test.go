@@ -832,6 +832,99 @@ func TestReachabilityProbeCallsRequestedForwardingAFault(t *testing.T) {
 	}
 }
 
+// TestReachabilityProbeExplainsASharedNamespaceOnItsOwnTerms is the third diagnosis,
+// and the reason it is a paragraph of its own rather than a fourth caller of the wide
+// one: in a jail that shares the launcher's network namespace there IS no forwarding
+// hop, so every sentence about pasta, slirp4netns or the gateway name describes
+// machinery that is not in the path. Printed here it would not be vague, it would be
+// wrong — an afternoon spent on a network stack that this launch never used.
+//
+// The forbidden strings are the ACTIONABLE halves of the other three paragraphs —
+// the command that names the rootless stack, the flag to upgrade for, the two verdict
+// phrases — because each is a specific instruction to go and look somewhere this jail
+// does not have. The shared text does name pasta and slirp4netns, and that is the
+// opposite failure: it names them to say they are NOT in the path, which is the first
+// thing a reader of this repo will otherwise go and check.
+func TestReachabilityProbeExplainsASharedNamespaceOnItsOwnTerms(t *testing.T) {
+	shrinkReachabilityBudget(t)
+
+	got, err := runProbe(t, brokenServiceVars(t, map[string]string{
+		paths.HostLoopbackEnvVar: paths.HostLoopbackShared,
+	}))
+	if err != nil {
+		t.Errorf("the witness is still in WARN mode and must not abort the boot: %v", err)
+	}
+	if !strings.Contains(got, "claude-oauth-broker") {
+		t.Errorf("the service must still be named, got:\n%s", got)
+	}
+	if !strings.Contains(got, "SHARES the network namespace") {
+		t.Errorf("a shared namespace must be named as the reason there is nothing to forward, "+
+			"got:\n%s", got)
+	}
+	for _, misleading := range []string{
+		"podman info --format", // the unattributed paragraph's command
+		"--map-host-loopback",  // the flag an old-passt host is told to upgrade for
+		"KNOWN LIMITATION",     // the unsupported verdict
+		"yolo DID ask",         // the fault paragraph's opening
+	} {
+		if strings.Contains(got, misleading) {
+			t.Errorf("this jail has no forwarding hop, so %q sends the reader to check machinery "+
+				"that is not in its path. got:\n%s", misleading, got)
+		}
+	}
+	// And it has to leave the reader somewhere to go, or it is only a correction.
+	if !strings.Contains(got, "yolo check") {
+		t.Errorf("with the network ruled out, the daemon is the whole subject — say where to "+
+			"look. got:\n%s", got)
+	}
+}
+
+// TestReachabilityProbeRecordsWhichLauncherStateItSaw pins the four spellings and the
+// name for having seen none, through the boot log — which is the only place the
+// distinction is observable on a jail that is otherwise fine.
+//
+// `unknown` and an ABSENT variable behave identically (neither escalates, both get
+// the same explanation), so the log line is what keeps them from collapsing into one
+// state in practice. They mean different things about the LAUNCHER: "unknown" is a
+// launcher that ran and reached no conclusion, "unattributed" is one too old to have
+// the variable at all — since OQ-R6 that is the only thing absence can mean, and it
+// is the first thing to check when a jail's disposition looks wrong.
+func TestReachabilityProbeRecordsWhichLauncherStateItSaw(t *testing.T) {
+	shrinkReachabilityBudget(t)
+
+	cases := map[string]string{
+		paths.HostLoopbackRequested:   "disposition=" + paths.HostLoopbackRequested,
+		paths.HostLoopbackShared:      "disposition=" + paths.HostLoopbackShared,
+		paths.HostLoopbackUnsupported: "disposition=" + paths.HostLoopbackUnsupported,
+		paths.HostLoopbackUnknown:     "disposition=" + paths.HostLoopbackUnknown,
+		// The launcher that predates the variable, and the one that is newer than
+		// this image and invented a state: both land on the same name, and neither
+		// may be read as a claim.
+		"":                             "disposition=unattributed",
+		"a-spelling-from-a-newer-yolo": "disposition=unattributed",
+	}
+	for value, want := range cases {
+		t.Run(orNone(value), func(t *testing.T) {
+			dir := servicesDir(t)
+			vars := map[string]string{
+				"JAIL_HOME": t.TempDir(),
+				paths.ServiceEnvVarPrefix + "HOST_PROCESSES" + paths.ServiceEnvVarSuffix: liveEndpoint(t, dir, "host-processes"),
+			}
+			if value != "" {
+				vars[paths.HostLoopbackEnvVar] = value
+			}
+			_, log, err := runProbeBothSinks(t, vars)
+			if err != nil {
+				t.Fatalf("a reachable service must not fail the launch: %v", err)
+			}
+			if !strings.Contains(log, want) {
+				t.Errorf("the record must name the state the launcher reported; missing %q\n--- log ---\n%s",
+					want, log)
+			}
+		})
+	}
+}
+
 // TestReachabilityProbeFatalModeFailsOnlyAFault runs the end state OQ-R2 ruled and
 // asserts both halves of it at once: a fault aborts the boot, and the refusal names
 // the way past itself.
@@ -1008,7 +1101,9 @@ func TestReachabilityProbeInShippedModeCannotAbortAnyBoot(t *testing.T) {
 	dispositions := []string{
 		"",
 		paths.HostLoopbackRequested,
+		paths.HostLoopbackShared,
 		paths.HostLoopbackUnsupported,
+		paths.HostLoopbackUnknown,
 		"a-spelling-from-a-newer-launcher",
 	}
 	hatches := []string{"", "1", "0", "false"}
@@ -1053,16 +1148,18 @@ func orNone(s string) string {
 }
 
 // TestReachabilityProbeNeverEscalatesWhatItCannotAttribute sweeps the values that
-// mean "the launcher said nothing definite": absent (an explicit network.mode, the
+// mean "the launcher established nothing": `unknown` (an explicit network.mode, the
 // YOLO_NO_HOST_LOOPBACK opt-out, a rootful or unrecognised runtime, Apple
-// Container, a nested jail — and any launcher older than the variable), empty, and
-// a spelling from some future launcher this binary does not know.
+// Container), absent — which since OQ-R6 means a launcher older than the variable —
+// empty, and a spelling from some future launcher this binary does not know.
 //
-// The last one is the one worth having a test for. The image and the launcher
+// The last two are the ones worth having a test for. The image and the launcher
 // version independently (AGENTS.md: the baked binaries are frozen at the last host
 // `just load`), so an unrecognised value is a real state, and reading one as
 // permission to fail a launch would turn a version skew into a jail nobody can
-// start.
+// start. `unknown` is here because it is now a POSITIVE claim on the wire — the
+// launcher asserting it has no opinion — and a positive claim is exactly the kind of
+// thing a future edit might mistake for something to act on.
 func TestReachabilityProbeNeverEscalatesWhatItCannotAttribute(t *testing.T) {
 	shrinkReachabilityBudget(t)
 	withReachabilityFatal(t)
@@ -1070,6 +1167,7 @@ func TestReachabilityProbeNeverEscalatesWhatItCannotAttribute(t *testing.T) {
 	cases := map[string]map[string]string{
 		"absent":                 {},
 		"empty":                  {paths.HostLoopbackEnvVar: ""},
+		"unknown":                {paths.HostLoopbackEnvVar: paths.HostLoopbackUnknown},
 		"a value we do not know": {paths.HostLoopbackEnvVar: "requested-via-some-future-mechanism"},
 	}
 	for name, extra := range cases {
