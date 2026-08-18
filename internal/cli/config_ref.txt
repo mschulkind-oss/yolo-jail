@@ -171,16 +171,49 @@
     Each key is a service name (must match ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$).
     The name "cgroup-delegate" is reserved for the built-in cgroup daemon.
 
-    Each value is an object with:
+    A key here does one of two things, and which one depends on whether a loophole
+    of that name already EXISTS on this machine (bundled, or shipped by a selected
+    pack).  A new name DECLARES an inline host service; an existing name OVERRIDES
+    that loophole.  The two accept different keys, because you cannot replace a
+    manifest's daemon from config.
+
+    "enabled" (boolean, optional) is accepted by BOTH, and it is THE SWITCH:
+
+      "loopholes": { "audio": { "enabled": true } }
+
+      It is the USER's answer, and it outranks whatever the loophole's manifest
+      declared, in both directions.  DO NOT CONFUSE IT WITH "default_enabled",
+      which is a key on a loophole's manifest.jsonc and is not valid here: that
+      one is the PACK AUTHOR's default — what happens when nobody has spoken —
+      and an ABSENT "default_enabled" means the loophole is OFF (presence never
+      activates; docs/design/loophole-activation.md R1/R2).  So a loophole whose
+      author shipped it off, "audio" among them, runs only because this key says
+      so.  Honored from the user config and from a workspace yolo-jail.jsonc
+      alike; the workspace is the agent-editable scope, so a switch written there
+      is disclosed by name at every launch and by "yolo check".
+      On an inline service the default is ON — writing the argv out by hand is
+      already the deliberate act — so there the key is only ever used to switch
+      one off without deleting it.
+
+    DECLARING an inline service also takes:
       "command" (array of strings, required): the command to launch on the host
         when the jail starts.  "{endpoint}" in any arg is substituted with the
         actual host-side path the service should publish at.  "{socket}" is
         accepted as an alias for it.
       "env" (object, optional): extra env vars for the host daemon (NOT the jail).
+      "description" (string, optional), "doctor_cmd" (array of strings, optional),
+      "preamble" (boolean, optional, default false — an inline daemon is a
+        third-party program that never asked for a framing preamble).
       "jail_endpoint" (string, optional): override the jail-side path.
         Must start with /run/yolo-services/.
         Default: /run/yolo-services/<name>.endpoint
         ("jail_socket" is accepted as an alias.)
+
+    OVERRIDING an existing loophole takes only "enabled", "env" and "jail_env"
+    ("jail_env" being extra env vars set INSIDE the jail, merged over whatever the
+    manifest declared).  "command" and "doctor_cmd" are REFUSED there by name:
+    they are fixed by the loophole's manifest, and a config that appeared to
+    change them would change nothing.
 
     Each service gets:
       • Its published path bind-mounted into the jail under /run/yolo-services/

@@ -4,20 +4,35 @@ Ships with the yolo-jail wheel. Bridges the user's audio stack into the jail alo
 
 ## Activation
 
-Gated on `requires.file_exists: ${XDG_RUNTIME_DIR}/pulse/native`. The loophole is *present* in every install but only *active* on Linux hosts where PipeWire or classic PulseAudio exposes its user socket at the standard path. This is the default on:
-
-- PipeWire with `pipewire-pulse` (Fedora 34+, Ubuntu 22.04+, Arch, NixOS with the `pipewire.pulse.enable` flag).
-- Classic PulseAudio (older distros, user-service mode).
-
-To explicitly disable — e.g. you want the jail silent — add to `yolo-jail.jsonc`:
+**Off unless you ask for it.** The manifest ships `"default_enabled": false`, so a jail is
+silent until you write the switch — being useful is not a reason to be automatic, and this
+loophole binds the host's audio sockets and passes `/dev/snd` through
+([`loophole-activation.md`](../../docs/design/loophole-activation.md) R1/R4). Add to
+`~/.config/yolo-jail/config.jsonc`:
 
 ```jsonc
 {
   "loopholes": {
-    "audio": { "enabled": false }
+    "audio": { "enabled": true }
   }
 }
 ```
+
+`false` there turns it back off, and the same key works from a workspace `yolo-jail.jsonc`
+— but that file is the agent-editable scope, so a switch written there is disclosed by
+name at every launch and by `yolo check`.
+
+> This used to be automatic: the manifest's key was `enabled` and an absent one meant
+> **on**, so audio was wired into every jail whose host happened to have a Pulse socket —
+> host presence deciding activation, which is exactly what R1 deletes. If your microphone
+> stopped working after an upgrade, the two lines above are the whole fix.
+
+Switched on, the loophole is still gated on `requires.file_exists:
+${XDG_RUNTIME_DIR}/pulse/native`, so it goes *inactive* rather than failing on a host with
+no user audio socket. That is the default path on:
+
+- PipeWire with `pipewire-pulse` (Fedora 34+, Ubuntu 22.04+, Arch, NixOS with the `pipewire.pulse.enable` flag).
+- Classic PulseAudio (older distros, user-service mode).
 
 ## macOS
 
