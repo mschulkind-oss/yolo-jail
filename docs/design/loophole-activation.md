@@ -324,10 +324,28 @@ what makes per-workspace enablement safe to offer at all.
 > the per-workspace opt-in R5 exists for, which §1.2a shows `yolo-ps` already depends on.
 >
 > Instead the existing disclosure becomes **symmetric**. `WorkspaceDisabledLoopholes`
-> (`validate_loopholes.go:352-372`) already computes exactly this and discards the `true` case at
-> `:367`; feeding it to the two surfaces an OFF already reaches — the launch line and `yolo check`'s
+> (`validate_loopholes.go`) already computes exactly this and discards the `true` case; feeding it to
+> the two surfaces an OFF already reaches — the launch line and `yolo check`'s
 > warning-instead-of-green — points existing machinery at the new dangerous direction and keeps one
 > vocabulary rather than inventing a second.
+>
+> **BUILT 2026-08-18.** The seam was WIDENED rather than twinned: it is now
+> `WorkspaceLoopholeSwitches`, returning `{File, Enabled}` so one function answers "what did
+> workspace scope say about this switch" in both directions. Absence still means *"workspace scope
+> said nothing"* — a zero value would read as a disable nobody wrote. Two details the ruling did not
+> settle and the implementation had to:
+>
+> - **The `yolo check` row discloses and then falls THROUGH**, where the OFF row stops. Off means
+>   there is nothing left to measure; on means the loophole is about to run, and its `doctor_cmd` is
+>   the next thing a reader wants. Stopping there would undo OQ-A12 for exactly the activations
+>   nobody expected. What the row replaces is the greenest line in the section — `[PASS] loophole X:
+>   disabled`, read off the manifest default (that walk resolves no config) with the file that
+>   overrode it named nowhere.
+> - **A workspace file that merely RESTATES the manifest default is disclosed too.** The launch
+>   surface *cannot* suppress that case — its `LoopholeInfo` is `Name` + `HasHostDaemon`, with no
+>   default in it — and two disclosures contradicting each other over one file is worse than one
+>   redundant line. An explicit `enabled` in an agent-editable file is a deliberate act either way,
+>   which is what keeps this off ordinary launches.
 
 > [!WARNING]
 > **Written when this was readability only; both blockers have since landed.** The config-approval
