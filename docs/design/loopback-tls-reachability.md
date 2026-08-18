@@ -359,6 +359,19 @@ the outage visible, and it is what will prove the fix worked. It is also **fatal
 probe that misfires costs a jail rather than a log line: land it in warn mode, confirm it is quiet on
 a healthy host and loud on this broken one, and only then make it fail the launch.
 
+> [!NOTE]
+> **Status, 2026-08-17: the probe is in warn mode and both of the flip's prerequisites are built** —
+> the escape hatch (the CONFIRMED note under OQ-R2) and the unsupported/broken scoping (the BUILT
+> note under OQ-R3). The flip itself is one line, `reachabilityFatal = true` in
+> `internal/entrypoint/reachability.go`, and both modes are already exercised by tests so the fatal
+> branch is not written blind on the day it is turned on.
+>
+> **What is still owed is not code: nobody has watched this probe at a real boot on a healthy
+> host.** Every green it has is a unit test dialling an in-process listener, and this very host's
+> services were unreachable until the launcher fix landed hours ago. Until it has been seen silent on
+> a working host and loud on a broken one — the sentence at the top of this section, unchanged — a
+> false positive costs a jail.
+
 **Second, the network option (§6)**, gated on `podman info`, on the default path only.
 
 **Third, integration coverage** asserting a jail can actually reach a published endpoint — the gap
@@ -451,6 +464,15 @@ per-service level rather than one global rule.
 > (an offline machine with a good cached image). Recommend mirroring that precedent with an
 > equivalent escape hatch that says what it is suppressing. Confirm or reject when the probe is
 > built.
+>
+> **CONFIRMED and BUILT, 2026-08-17: `YOLO_ALLOW_UNREACHABLE_SERVICES=1`.** It mirrors the
+> precedent exactly — any non-empty value keeps the jail launching, the override says what it is
+> suppressing and that nothing was repaired, and the refusal it bypasses names it, so the user
+> reading the refusal is told the way past it. It is honoured only where it can actually suppress
+> something, so it stays silent in today's warn mode rather than training people to skip the line.
+> Because the witness runs in-jail and the user types the variable on the host, the launcher
+> forwards it into the container (`reachabilityOptOutArgs`) on every runtime — an escape hatch
+> nobody can reach is not one.
 
 ### ✅ OQ-R3 — if the host's passt predates `--map-host-loopback`, what then? — RESOLVED (2026-08-17)
 
@@ -508,6 +530,18 @@ amendment is the honest path — but that is evidence we do not have yet.
 > Without this split the two rulings collide: "fail when a service is unreachable" plus "an old passt
 > cannot reach any service" would mean an old-passt host cannot launch a jail at all — reintroducing
 > by the back door precisely the refusal this question just rejected.
+>
+> **BUILT, 2026-08-17.** The split needs a fact to cross the boundary, because from inside a jail the
+> two cases are the same observation — a service that does not answer — and the facts that separate
+> them (which stack, which passt, what went on the argv) are all host facts. So the launcher's
+> decision rides in as `YOLO_HOST_LOOPBACK` (`paths.HostLoopbackEnvVar`): `requested` when the
+> forwarding option reached the argv, `unsupported` when yolo identified the stack and could not get
+> it to forward, and **nothing at all** for every path that reached no conclusion — an explicit
+> `network.mode`, `YOLO_NO_HOST_LOOPBACK`, a rootful or unrecognised runtime, Apple Container, a
+> nested jail, or a launcher older than the variable. Absent is the value that can never escalate, so
+> the positive-facts-only discipline that governs the argv governs the severity too. Only `requested`
+> is escalatable; `unsupported` reports a limitation and launches, in warn mode and in the future
+> fatal one alike.
 
 **A fallback worth evaluating before accepting the degraded path**, not considered when this question
 was first framed: on a host with an old passt, podman can often be asked for **slirp4netns**

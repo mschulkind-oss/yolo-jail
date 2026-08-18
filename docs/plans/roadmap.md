@@ -142,14 +142,20 @@ rather than my judgement: **auth OQ-5** (retired in `retired-decisions.md`, stil
 
 **Ordered by:** what unblocks something else, then what protects a live user, then cost.
 
-- 📦 **Flip the in-jail reachability probe to fatal (OQ-R2), with an escape hatch.**
+- 📦 **Flip the in-jail reachability probe to fatal (OQ-R2).** *Two of its three gates are now
+  closed; the one left is not code.*
 
-  The probe landed in **warn mode** today and its call site is already immediately above
-  `genFailuresError`, so the flip is a one-liner. Three things gate it, all cheap: observe the probe
-  at one real boot on a healthy host (it has never run at a genuine container start); add the
-  `YOLO_ALLOW_STALE_IMAGE`-shaped opt-out, because a hard fatal with no override leaves a user unable
-  to open a shell to fix the daemon that is failing; and **scope the fatal to "yolo tried and
-  failed"** rather than "this host cannot" — an old-passt host warns and launches (OQ-R3). 📄
+  The probe landed in **warn mode** and its call site is already immediately above
+  `genFailuresError`. **Built since:** the `YOLO_ALLOW_STALE_IMAGE`-shaped opt-out
+  (`YOLO_ALLOW_UNREACHABLE_SERVICES=1`, forwarded into the jail because that is where it is
+  honoured), and the **scoping** — the launcher carries `YOLO_HOST_LOOPBACK=requested|unsupported`
+  into the jail so an old-passt host reports a known limitation and launches (OQ-R3) while a launch
+  that *did* request forwarding and still cannot reach a service is a fault. The flip is now literally
+  `reachabilityFatal = true`, and both modes are already under test.
+
+  **Still owed, and it is the whole gate:** observe the probe at one real boot on a healthy host. It
+  has never run at a genuine container start — every green is a unit test against an in-process
+  listener — and this host's own services were unreachable until the launcher fix landed. 📄
   [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §7, §10.
 
 - 📦 **Fall back to slirp4netns on a host whose passt is too old.**

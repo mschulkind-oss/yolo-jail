@@ -256,6 +256,16 @@ there is no sync step.
   5.0). `internal/cli/run/hostloopback.go` is the whole decision and states why
   every unproven fact emits nothing; `YOLO_NO_HOST_LOOPBACK=1` is the loud escape
   hatch back to the old argv. An explicit `network.mode` is never overridden.
+- **The launcher tells the jail what it decided**, via
+  `YOLO_HOST_LOOPBACK=requested|unsupported` — absent whenever it decided nothing.
+  The in-jail reachability witness (`internal/entrypoint/reachability.go`) cannot
+  derive it: from inside, "this host cannot forward loopback" and "yolo asked and
+  the service is still down" are the same observation, and only the second may
+  ever fail a launch (OQ-R2 scoped by OQ-R3, "unsupported is not broken"). That
+  witness is still in **warn** mode; its flip is `reachabilityFatal = true` and its
+  own escape hatch, `YOLO_ALLOW_UNREACHABLE_SERVICES=1`, is already wired and
+  forwarded from the host env — what is still owed is one observation at a real
+  boot on a healthy host.
 - **Nix inside the jail** delegates to the host daemon: the CLI mounts
   `/nix/var/nix/daemon-socket` + `/nix/store:ro` and sets `NIX_REMOTE=daemon`.
   Without this you get "build users group has no members".
