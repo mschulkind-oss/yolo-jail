@@ -169,6 +169,11 @@ rather than my judgement: **auth OQ-5** (retired in `retired-decisions.md`, stil
   advertised host, so a green check says nothing about whether a *jail* can reach the service. Label
   them host-side rather than leaving a green that reads as more than it is.
 
+  *Related and now fixed: check reported `[FAIL]` in-jail for every local pack, because a jail's
+  config names host paths it cannot see. It reads the staged tree instead. The shape is the same one
+  — a check reporting on the wrong side of the boundary — so it is worth looking for more of them
+  while doing the above.*
+
 - 📦 **Close the five stale question records** from 💬 11 above, once you assent. Mechanical.
 
 ---
