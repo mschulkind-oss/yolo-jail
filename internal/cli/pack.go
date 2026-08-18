@@ -123,8 +123,11 @@ every loaded pack's host access is listed in the startup banner each launch.
   yolo pack footprint [ref]   what packs claim on the environment + collisions;
                               [ref] = an embedded name OR a local path / file:// pack
                               --allow-exec  same as lint's: inspect a pack shipping an executable
-  yolo pack install           fetch configured packs, write the lockfile, approve host access
-  yolo pack update            same as install (re-fetch; reports moved pins, re-approves new access)
+  yolo pack install           fetch configured packs, write the lockfile, approve host access.
+                              It NEVER asks a registry what the latest version is
+  yolo pack update            install, PLUS the only act that resolves a new version for a
+                              pack's npm-declared program. Run it inside the jail — that is
+                              where an agent CLI is installed
   yolo pack status            show locked commits, and flag config/lock drift
   yolo pack --help, -h        this text (also 'yolo pack help')
 
@@ -137,6 +140,12 @@ address for one from elsewhere:
             "git+ssh://git@github.com/org/repo//subdir?ref=main"]
 
 Then run ` + "`yolo pack install`" + ` (fetching only ever happens there, never at launch).
+
+A pack's ` + "`program via npm`" + ` no longer updates itself. Its launcher installs the tool on
+first use and afterwards only REPORTS, at most hourly, that a newer version exists —
+nothing changes a binary between two invocations with nobody present. ` + "`yolo pack update`" + `,
+run inside the jail, is the act that resolves the new version.
+
 For the full entry schema — name, only/exclude, allow_exec — and the precedence
 rules, see ` + "`yolo config-ref`" + `.`
 
@@ -172,8 +181,13 @@ func packMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) i
 		return packExplain(args[1:], out, errw, color)
 	case "footprint":
 		return packFootprint(args[1:], out, errw, color)
-	case "install", "update":
+	// install and update are two ACTS, not two spellings of one. Only update may
+	// resolve a new version for a pack's npm-declared program — docs/design/
+	// trust-paths.md §1 row 1, and see packupdate.go for the whole of the difference.
+	case "install":
 		return packInstall(out, errw, color, stdin)
+	case "update":
+		return packUpdate(out, errw, color, stdin)
 	case "status":
 		return packStatus(out, errw, color)
 	case "-h", "--help", "help":
