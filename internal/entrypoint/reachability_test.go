@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -424,6 +425,121 @@ func TestReachabilityProbeSurvivesAMalformedEndpointFile(t *testing.T) {
 	}
 }
 
+// TestReachabilityProbeNeverOpensANonRegularEndpoint is the shape the malformed-file
+// table above cannot express, because it does not end in a warning — it does not end.
+//
+// os.ReadFile (svcendpoint.Read, and Dial through it) OPENS the path, and opening a
+// fifo with no writer blocks forever. No timeout in this file can reach that: the dial
+// timeout is never entered, and reachabilityBudget only bounds the retry loop. The
+// result is PID 1 wedged in the boot path with nothing printed — a jail that never
+// starts, which is strictly worse than the launch failure OQ-R2 is still debating.
+//
+// It is reachable without an attacker: /run/yolo-services is bind-mounted READ-WRITE,
+// its per-jail directory is keyed on the container name and so is the same directory
+// every launch, and the endpoint variable is wired on the LOOPHOLE being active rather
+// than on the daemon having published. One mkfifo in a jail therefore poisons every
+// later boot of that jail.
+//
+// The assertion is time-bounded on purpose. A regression here HANGS rather than fails,
+// and a hung test is reported as a package-wide timeout minutes later with no name
+// attached to it — so the probe runs on its own goroutine and the deadline is the
+// failure.
+func TestReachabilityProbeNeverOpensANonRegularEndpoint(t *testing.T) {
+	shrinkReachabilityBudget(t)
+
+	cases := []struct {
+		name string
+		make func(t *testing.T, path string)
+		want string // a word the warning must carry, so the reader knows what is there
+	}{
+		{
+			name: "a fifo nobody is writing to",
+			make: func(t *testing.T, p string) {
+				if err := syscall.Mkfifo(p, 0o600); err != nil {
+					t.Skipf("mkfifo unavailable here: %v", err)
+				}
+			},
+			want: "named pipe",
+		},
+		{
+			name: "a directory",
+			make: func(t *testing.T, p string) {
+				if err := os.MkdirAll(p, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "directory",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := servicesDir(t)
+			path := filepath.Join(dir, "host-processes"+paths.ServiceEndpointExt)
+			tc.make(t, path)
+
+			vars := map[string]string{
+				"JAIL_HOME": t.TempDir(),
+				paths.ServiceEnvVarPrefix + "HOST_PROCESSES" + paths.ServiceEnvVarSuffix: path,
+			}
+			done := make(chan string, 1)
+			go func() { done <- probeWarnings(t, vars) }()
+
+			var got string
+			select {
+			case got = <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatal("the probe never returned — it opened the path instead of stat'ing it first. " +
+					"This is not a slow probe; a writer-less fifo blocks in open(2) forever, which " +
+					"is PID 1 wedged in the boot with nothing printed.")
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("the warning must name what is actually at the path (%q), got:\n%s", tc.want, got)
+			}
+			// And it must not be attributed to the network. Nothing about a local file
+			// shape is a transport failure, and faultUnreachable is the ONE class OQ-R2's
+			// fatal escalates — a directory used to land there, via
+			// classifyReachability's transport default over os.ReadFile's EISDIR.
+			if strings.Contains(got, "UNREACHABLE") {
+				t.Errorf("a %s at the endpoint path is not a reachability failure and must never "+
+					"reach the escalation set, got:\n%s", tc.want, got)
+			}
+		})
+	}
+}
+
+// TestReachabilityProbeRefusesAnEnormousEndpointFile is the same argument one step
+// along: os.ReadFile has no ceiling, an endpoint is three fields under 2 KiB, and
+// slurping a file something in that read-write directory grew without bound is an OOM
+// in PID 1 rather than a warning.
+func TestReachabilityProbeRefusesAnEnormousEndpointFile(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	dir := servicesDir(t)
+	path := filepath.Join(dir, "host-processes"+paths.ServiceEndpointExt)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Sparse: the test cares about the declared SIZE, which is what the gate reads.
+	if err := f.Truncate(maxEndpointFileSize + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := probeWarnings(t, map[string]string{
+		"JAIL_HOME": t.TempDir(),
+		paths.ServiceEnvVarPrefix + "HOST_PROCESSES" + paths.ServiceEnvVarSuffix: path,
+	})
+	if !strings.Contains(got, "host-processes") {
+		t.Errorf("the warning must name the service, got:\n%s", got)
+	}
+	if strings.Contains(got, "UNREACHABLE") {
+		t.Errorf("an oversized file is not a reachability failure, got:\n%s", got)
+	}
+}
+
 // writeEndpointRaw drops arbitrary bytes at path, bypassing svcendpoint.Publish —
 // which is the point: Publish only ever writes well-formed files, and the shapes
 // under test are the ones a reader can be handed anyway.
@@ -710,6 +826,109 @@ func TestReachabilityProbeFatalModeStaysSilentOnAHealthyJail(t *testing.T) {
 	if got != "" {
 		t.Errorf("silence is the healthy output in every mode, got:\n%s", got)
 	}
+}
+
+// TestReachabilityWitnessShipsInWarnMode pins the ONE value whose flip costs a jail.
+//
+// reachability.go names exactly what is still owed before it may become true — an
+// observation at a real boot on a healthy host, which has not happened — and the file
+// is written so that the flip is a one-character edit. That is precisely why it needs
+// a guard: the change that turns every unreachable-service launch into a refusal is
+// indistinguishable, in a diff, from a typo, and nothing else in the tree would fail.
+//
+// This test is not asserting that warn mode is right forever. It is asserting that the
+// flip is a DELIBERATE act: whoever flips it deletes this test and writes down that the
+// observation happened.
+func TestReachabilityWitnessShipsInWarnMode(t *testing.T) {
+	if reachabilityFatal {
+		t.Fatal("reachabilityFatal is true. OQ-R2's flip is gated on one thing that is not " +
+			"code: this probe has never been observed at a real boot on a healthy host. " +
+			"Until it has, a false positive here costs a jail rather than a log line — see " +
+			"the WARN MODE section of reachability.go.")
+	}
+}
+
+// TestReachabilityProbeInShippedModeCannotAbortAnyBoot is the launch-safety property
+// stated as a sweep rather than as three examples: in the mode that SHIPS, no
+// combination of what the launcher said, what shape the endpoint is in, and whether
+// the escape hatch is set may produce an error out of genFailuresError.
+//
+// genFailuresError is the value Main branches on, so it is the only honest subject.
+// The disposition axis includes a value this binary does not know, because the image
+// and the launcher version independently (AGENTS.md: the baked binaries are frozen at
+// the last host `just load`) and an unrecognised spelling must never be read as
+// permission to fail a launch. The hatch axis includes "0" and "false", because the
+// hatch is a "any non-empty value" switch and a reader who assumes otherwise would be
+// wrong in the direction that keeps a jail down.
+func TestReachabilityProbeInShippedModeCannotAbortAnyBoot(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	// Deliberately NOT withReachabilityFatal: the subject is the shipped mode.
+
+	shapes := map[string]func(t *testing.T, dir string) string{
+		"an address that answers nothing": func(t *testing.T, dir string) string {
+			return deadEndpoint(t, dir, "claude-oauth-broker")
+		},
+		"an endpoint the host never published": func(t *testing.T, dir string) string {
+			return filepath.Join(dir, "claude-oauth-broker"+paths.ServiceEndpointExt)
+		},
+		"a truncated endpoint file": func(t *testing.T, dir string) string {
+			p := filepath.Join(dir, "claude-oauth-broker"+paths.ServiceEndpointExt)
+			writeEndpointRaw(t, p, "127.0.0.1:1\n")
+			return p
+		},
+		"a directory where the endpoint belongs": func(t *testing.T, dir string) string {
+			p := filepath.Join(dir, "claude-oauth-broker"+paths.ServiceEndpointExt)
+			if err := os.MkdirAll(p, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			return p
+		},
+	}
+	dispositions := []string{
+		"",
+		paths.HostLoopbackRequested,
+		paths.HostLoopbackUnsupported,
+		"a-spelling-from-a-newer-launcher",
+	}
+	hatches := []string{"", "1", "0", "false"}
+
+	for shapeName, mkShape := range shapes {
+		for _, disp := range dispositions {
+			for _, hatch := range hatches {
+				name := shapeName + "/disposition=" + orNone(disp) + "/hatch=" + orNone(hatch)
+				t.Run(name, func(t *testing.T) {
+					vars := map[string]string{
+						"JAIL_HOME": t.TempDir(),
+						paths.ServiceEnvVarPrefix + "CLAUDE_OAUTH_BROKER" + paths.ServiceEnvVarSuffix: mkShape(t, servicesDir(t)),
+					}
+					if disp != "" {
+						vars[paths.HostLoopbackEnvVar] = disp
+					}
+					if hatch != "" {
+						vars[paths.AllowUnreachableServicesEnv] = hatch
+					}
+					got, err := runProbe(t, vars)
+					if err != nil {
+						t.Errorf("the shipped witness is a WARNING and may not abort a boot for "+
+							"any input: %v", err)
+					}
+					// Guard the guard: a sweep whose fixtures stopped being broken would
+					// pass for the wrong reason and cover nothing.
+					if got == "" {
+						t.Error("the fixture is meant to be broken; the probe said nothing")
+					}
+				})
+			}
+		}
+	}
+}
+
+// orNone renders an empty axis value as something a subtest name can carry.
+func orNone(s string) string {
+	if s == "" {
+		return "absent"
+	}
+	return s
 }
 
 // TestReachabilityProbeNeverEscalatesWhatItCannotAttribute sweeps the values that

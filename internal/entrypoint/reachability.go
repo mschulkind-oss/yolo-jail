@@ -77,6 +77,8 @@ package entrypoint
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -493,6 +495,13 @@ func serviceNameFor(envKey, endpointPath string) string {
 // client wrote no payload bytes, which is what stops this probe wedging a framed
 // daemon (svcendpoint/front.go's splice, pinned by front_probe_test.go).
 func probeService(svc serviceEndpoint, deadline time.Time) *reachabilityResult {
+	// BEFORE ANY OPEN, and outside the retry loop because none of what it refuses
+	// heals within one boot. Every other shape this file can be handed ends in a
+	// warning; the ones refused here would not end at all. See endpointReadFault.
+	if err := endpointReadFault(svc.path); err != nil {
+		return &reachabilityResult{svc: svc, fault: faultUnpublished, err: err}
+	}
+
 	var last *reachabilityResult
 	for attempt := 0; ; attempt++ {
 		// THE FIRST ATTEMPT ALWAYS RUNS, whatever the clock says. A budget check
@@ -533,6 +542,96 @@ func probeService(svc serviceEndpoint, deadline time.Time) *reachabilityResult {
 			return last
 		}
 		time.Sleep(reachabilityRetryDelay)
+	}
+}
+
+// maxEndpointFileSize bounds what this probe is willing to slurp. A published
+// endpoint is three whitespace-separated fields — address, base64 DER cert, token —
+// which is under 2 KiB for every listener yolo stands up, so a megabyte is orders of
+// magnitude of headroom and still a ceiling.
+const maxEndpointFileSize = 1 << 20
+
+// endpointReadFault refuses to READ anything that is not a plausible endpoint file,
+// and returns the reason. nil means "go ahead and open it".
+//
+// # Why a stat gate exists at all, when six malformed shapes already end in warnings
+//
+// svcendpoint.Read is os.ReadFile, and svcendpoint.Dial calls it again. os.ReadFile
+// OPENS the path — and opening a FIFO that has no writer BLOCKS FOREVER, with no
+// timeout to reach it: not in the dial, which is never entered, and not in
+// reachabilityBudget, which only bounds the retry loop. Measured 2026-08-18: an
+// os.ReadFile of a writer-less fifo does not return, while an os.Stat of the same
+// path answers immediately with p---------.
+//
+// That is not a probe reporting a fault. It is PID 1 wedged in the boot path, above
+// genFailuresError and below any output — a jail that never starts, with nothing said
+// about why — which is the one outcome this witness may never produce, in warn mode
+// or under OQ-R2's fatal alike. The size cap is the same argument one step along:
+// os.ReadFile has no ceiling, so a file something in the jail grew to fill the disk is
+// an OOM in PID 1 rather than a warning.
+//
+// # It is reachable without an attacker
+//
+// The per-jail host-services directory is bind-mounted READ-WRITE at
+// paths.JailHostServicesDir (internal/cli/run's hostServicesMountArgs), it is keyed on
+// the container name and therefore the same directory on every launch of a workspace's
+// jail, and the YOLO_SERVICE_<NAME>_ENDPOINT variable is wired whenever the LOOPHOLE is
+// active rather than whenever the daemon published. So anything in the jail that leaves
+// a fifo, a device node or a unix socket where an endpoint file belongs — a mkfifo, a
+// half-written pack hook, a restored backup — poisons every later boot of that jail,
+// and the daemon is not guaranteed to republish over it.
+//
+// # Why the fault is UNPUBLISHED
+//
+// Because that is what it is: the host half did not put a usable endpoint there. It
+// also keeps the shape out of the escalation set, which matters beyond tidiness — a
+// DIRECTORY at this path used to classify as faultUnreachable (os.ReadFile returns
+// EISDIR, which svcendpoint does not claim, so classifyReachability's transport default
+// took it), and once OQ-R2 flips that would have refused a launch over a local file
+// shape that has nothing to do with the network.
+//
+// # What it does not close
+//
+// A stat is not an atomic open, so a path that becomes a fifo between the two still
+// wedges. Closing that needs O_NONBLOCK plumbed through svcendpoint.Read, which every
+// other caller shares — including the OAuth terminator, which reads the same rw-mounted
+// directory from inside a running jail. This gate is scoped to the BOOT path, where the
+// cost of the hang is a jail that never starts; nothing is racing the probe there,
+// because it runs before the agent is exec'd.
+func endpointReadFault(path string) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		// Missing, a dangling symlink, an unreadable parent: all of them are the
+		// unpublished case, and Read reports them with better wording than a stat
+		// error would. Hand it back to the normal path rather than pre-empting it.
+		return nil
+	}
+	if !fi.Mode().IsRegular() {
+		return fmt.Errorf("%w: %s is a %s, not a published endpoint file — refusing to open it",
+			svcendpoint.ErrEndpointMalformed, path, fileKindName(fi.Mode()))
+	}
+	if fi.Size() > maxEndpointFileSize {
+		return fmt.Errorf("%w: %s is %d bytes, far larger than any published endpoint — refusing to read it",
+			svcendpoint.ErrEndpointMalformed, path, fi.Size())
+	}
+	return nil
+}
+
+// fileKindName names the shape in the warning. "not a regular file" would leave the
+// reader to go and stat it themselves, and the specific word is usually the whole
+// diagnosis — "named pipe" says somebody ran mkfifo here.
+func fileKindName(m os.FileMode) string {
+	switch {
+	case m.IsDir():
+		return "directory"
+	case m&os.ModeNamedPipe != 0:
+		return "named pipe (fifo)"
+	case m&os.ModeSocket != 0:
+		return "unix socket"
+	case m&os.ModeDevice != 0:
+		return "device node"
+	default:
+		return "special file"
 	}
 }
 
