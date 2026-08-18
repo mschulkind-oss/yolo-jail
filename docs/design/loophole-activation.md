@@ -3,14 +3,14 @@ title: "Nothing reaches your host because it happened to be there — loophole a
 date: 2026-08-18
 status: in-review
 tags: [loopholes, packs, activation, security, config]
-summary: "A loophole is active today because it was present and something it named happened to exist on the host. Six rulings replace that end to end: presence stops implying activation, a pack declares a default, and the default is disabled. Eight questions remain, one of which is a real gap in the design."
+summary: "A loophole is active today because it was present and something it named happened to exist on the host. Six rulings replace that end to end: presence stops implying activation, a pack declares a default, and the default is disabled. Eight questions are settled; five remain."
 ---
 
 # Nothing reaches your host because it happened to be there — loophole activation
 
-**Status:** RULED 2026-08-15, nothing built. Six rulings (§2) and five questions settled (Decision
-Ledger below); **eight open**, of which **OQ-A9 is the one real gap** — `default_enabled` collides
-with a live `enabled` key and the design never says which wins.
+**Status:** RULED 2026-08-15, nothing built. Six rulings (§2) and **eight questions settled**
+(Decision Ledger below); **five open**. The design's one real gap — `default_enabled` colliding with
+a live `enabled` key — is closed: OQ-A9 ruled one key, renamed, governing all four manifest sources.
 
 The doc grew this many questions on purpose: every one came from asking *"what else reaches the host,
 and why is it on?"*, and the answer kept being "something different each time".
@@ -23,12 +23,11 @@ the `requires.command_on_path` sniff is **deleted** rather than fixed — it is 
 bug in the mechanism. The principle behind it, in the maintainer's words: *"we don't give host
 access by default."*
 
-**If you read two sections: §1.3** (the inventory) **and OQ-A9** (the one real gap the sweep found —
-`default_enabled` collides with a live `enabled` key and the design never says which wins).
+**If you read one section, read §1.3** — the inventory of everything that reaches your host and why
+it is currently on. No two rows agree, and that is the whole argument.
 
-**§1.3** — the six-row table of everything that reaches your host and
-why it is currently on. No two rows agree, and that is the whole argument. §1.4 is the finding that
-should worry you most: core's config schema names two loopholes by hand.
+§1.4 is the finding that should worry you most: core's config schema names two loopholes by hand —
+and after OQ-A6 both of those names go, which is what makes the conversion mean something.
 
 **Reads with:** [`broker-as-a-pack.md`](broker-as-a-pack.md) (the sprint this came out of; §5.5 is
 the connection preamble, §12 the `host-processes` conversion),
@@ -47,8 +46,11 @@ have since been settled and folded into the body.
 | **OQ-A1** | The broker ships `default_enabled: true` **inside `packs/claude`** — selecting the pack is what turns it on | 2026-08-16 | [§4](#4-what-it-costs) |
 | **OQ-A2** | **Going dark is fine.** No migration machinery, no upgrade notice — a loophole you never listed behaves like an agent pack you never listed | 2026-08-17 | [§4](#4-what-it-costs) |
 | **OQ-A3** | `default_enabled: true` stays available to **fetched** packs, unrestricted — the origin gate is the gate | 2026-08-16 | [§3](#3-what-this-does-not-license) |
+| **OQ-A4** | The cgroup delegate becomes **opt-in**, like everything else — no presence-activated exception | 2026-08-18 | [§1.2](#12-the-three-things-this-doc-first-ignored--raised-in-review-and-one-is-a-real-hole), [§1.3](#13-everything-that-reaches-your-host-and-how-it-turns-on) |
+| **OQ-A6** | `journal` and `cgroup-delegate` **become manifest loopholes — in this sprint**, not after it | 2026-08-18 | [§5](#5-the-structural-questions-this-opened) |
 | **OQ-A7** | A loophole-only pack **needs selecting**. No special case: shipped in the binary is not installed | 2026-08-17 | [§5](#5-the-structural-questions-this-opened) |
 | **OQ-A8** | A loophole's settings are **typed and declared in its manifest**, not an opaque map — 📄 [`pack-config-keys.md`](pack-config-keys.md) | 2026-08-17 | [§1.4](#14-the-finding-that-undercuts-the-conversion--core-hardcodes-two-loopholes-by-name) |
+| **OQ-A9** | **One key, renamed.** `default_enabled` *is* `enabled` with the default flipped, governing all four manifest sources | 2026-08-18 | [§2](#2-the-rulings) |
 
 ---
 
@@ -141,7 +143,14 @@ new idea in this codebase — it is one service's local practice, and this doc g
 **(c) The cgroup delegate is presence-activated, and nothing gates it.** It starts whenever the
 platform allows — *"Linux only, cgroup v2 only"* (`loopholesruntime.go:104-107`), no config key at
 all. That is precisely the shape R1 deletes, in a host-side daemon, and the first draft did not
-mention it. Whether it should be exempt is OQ-A4; that it needs an explicit answer is not in doubt.
+mention it.
+
+**RULED (OQ-A4, 2026-08-18): it becomes opt-in, same as everything else.** No exception. The
+delegate hands a jail control of **its own** cgroup rather than reading host state, so R4's "we don't
+give host access by default" argument is genuinely weaker here — but weaker is not absent, and R1 is
+about the *mechanism*, not the severity. The moment one builtin stays presence-activated, "presence
+never activates" stops being a rule anyone can rely on while reading the code. The practical
+consequence to accept: `yolo-cglimit` no longer works out of the box.
 
 ### 1.3 Everything that reaches your host, and how it turns on
 
@@ -155,8 +164,8 @@ is the argument for unifying them.*
 | **broker jail wiring** | bundled loophole | manifest `enabled: true` **and** host `claude` on PATH | `loopholes.claude-oauth-broker.enabled` | inside `packs/claude`, `default_enabled: true` |
 | **host-processes** | bundled loophole | manifest `enabled: true` **and** host `ps` | `loopholes.host-processes.enabled` **plus** top-level `host_processes.visible` | own pack, `default_enabled: false` |
 | **audio** | bundled loophole *and* an official pack beside it | manifest `enabled: true` **and** the pulse socket exists | `loopholes.audio.enabled` | own pack, `default_enabled: false` |
-| **journal** | **builtin service**, hardcoded in the run pipeline | the top-level `journal` key says so | top-level `journal` | **undecided — OQ-A6** |
-| **cgroup-delegate** | **builtin service**, hardcoded | Linux + cgroup v2. No key exists. | *none* | **undecided — OQ-A4** |
+| **journal** | **builtin service**, hardcoded in the run pipeline | the top-level `journal` key says so | top-level `journal` | **manifest loophole** (OQ-A6); its top-level key goes, settings become typed manifest keys (OQ-A8) |
+| **cgroup-delegate** | **builtin service**, hardcoded | Linux + cgroup v2. No key exists. | *none* | **manifest loophole** (OQ-A6) with `default_enabled: false` (OQ-A4) — stops starting itself |
 | **host nix daemon** | mounted by the run pipeline | the socket exists on the host | *none* | **undecided — OQ-A11** |
 | a user's own | `loopholes:` config block | `enabled` defaults true | `loopholes.<name>.*` | unchanged |
 
@@ -230,6 +239,23 @@ nothing does).
 **R2. A pack declares its loophole's default state, and that declaration defaults to disabled.**
 `default_enabled`, on the loophole manifest. Absent means off. This is what lets a pack "do the
 right thing by default" without yolo guessing on its behalf.
+
+> **RULED (OQ-A9, 2026-08-18): one key, renamed, governing all four manifest sources.**
+> `default_enabled` **is** `enabled` with the default flipped — not a second key beside it. `enabled`
+> becomes a **recognized-and-refused** key whose error names the rename, `SetEnabled` is fixed to
+> write **config** rather than a manifest file, and the four shipped manifests are updated in the same
+> commit. Two booleans over one state would give the manifest, `loopholes list` and `SetEnabled`
+> three ways to disagree.
+>
+> This settles the sweep's headline finding: the design introduced `default_enabled` onto a schema
+> that already had a live `enabled` key with the opposite default, and never said which won.
+
+> [!WARNING]
+> **Reverse skew is the cost, and it needs a refusal rather than a tolerance.** An *older* yolo
+> reading a *newer* manifest ignores `default_enabled` and falls back to enabled-defaults-**true** —
+> so `audio` ships default-off and an older build runs it **on**. Deletion-shaped schema changes
+> cannot rely on the unknown-key skew note, whose wording tells the reader a *newer* build knows the
+> key: the exact opposite of the truth for a removed one (§4).
 
 **R3. `requires.command_on_path` is deleted from the schema.** Not corrected — deleted. It is the
 sniffing mechanism itself, and both of its uses are the argument against it: one is wrong for the
@@ -339,6 +365,29 @@ tolerance that shrugs at it.
 *Three questions from review that are bigger than the rulings and should not be answered inside
 them. Each gets an OQ; this section is the context they share.*
 
+**RULED (OQ-A6, 2026-08-18): they become manifest loopholes, and it happens IN this sprint.**
+*"Make them manifests, and do it as part of this work."* My leaning was to file it and convert them
+afterwards, on the grounds that the sprint was already carrying a preamble, a pack conversion, a
+schema change and a deletion. **Overruled on scope, and the reason is sound**: the unification is the
+point of the sprint, and a channel emptied of everything except the two things yolo happens to have
+compiled in has not been emptied — it has been renamed. Deferring the conversion would leave §1.3's
+table with two rows that still answer "why is it on?" differently from every other row.
+
+Three consequences to carry, since this is now in scope rather than filed:
+
+- **`journal`'s top-level config key goes.** §1.4 named it as one of the two loopholes core's schema
+  hardcodes; converting it to a manifest is what removes the second name. Its settings move to the
+  typed manifest-declared keys OQ-A8 rules — which is what makes this conversion possible at all, and
+  is why the two questions could not have been sequenced the other way round.
+- **`cgroup-delegate` gets a `default_enabled`**, and per OQ-A4 that value is **false**. The two
+  rulings agree rather than merely coexisting: A4 says it stops starting itself, A6 says the switch
+  it now needs lives in a manifest like every other.
+- **The sprint's honest size grows.** Recorded rather than argued: the reason I wanted this deferred
+  does not disappear because the ruling went the other way, and a sprint that silently absorbs a
+  fifth workstream is how the other four slip.
+
+*The original framing, kept because it is the argument for the ruling:*
+
 **Is "builtin service" a channel worth keeping?** `journal` and `cgroup-delegate` are not loopholes
 in the manifest sense at all — they are Go functions called from the run pipeline
 (`loopholesruntime.go:104-112`), with reserved names in `paths.go` and bespoke switches. Everything
@@ -346,7 +395,7 @@ this doc argues for — one activation model, one place to read what reaches you
 easier if they are manifests like everything else. Against: they are yolo's own code with no
 distribution problem to solve, and a manifest for something that is compiled in anyway is ceremony.
 **The asymmetry is the real evidence**: one of the two is opt-in and the other cannot be turned off,
-and nobody decided that — it is just where each landed. **OQ-A6.**
+and nobody decided that — it is just where each landed.
 
 **Are official packs installed by default?** Terms first, because the question hides an ambiguity:
 an official pack is **embedded in the binary** (always present — `packs/embed.go` carries seven) but
@@ -417,37 +466,34 @@ contribution.
 
 ## Open Questions
 
-Eight, in ID order. The five settled ones are in the Decision Ledger at the top and folded into
+Five, in ID order. The eight settled ones are in the Decision Ledger at the top and folded into
 the body; their IDs are unchanged because sibling docs and the roadmap cite them.
 
-1. 💬 **OQ-A4 — does the cgroup delegate become opt-in too?**
-
-   Raised in review (§1.2c). It is the one host-side daemon that still starts purely because the
-   platform allows it — Linux + cgroup v2, no key. R1 says presence never activates, and it is
-   presence-activated, so either it is an exception with a stated reason or it gets a gate.
-
-   What it decides: whether `yolo-cglimit` keeps working out of the box. The delegate hands a jail
-   control of **its own** cgroup rather than reading host state, so the R4 argument for `audio`
-   ("we don't give host access by default") is genuinely weaker here — but "weaker" is not "absent",
-   and R1 is about the *mechanism*, not the severity.
-
-   *Overlaps OQ-A6, which asks the structural version of this — whether both builtins become
-   manifests. A4 is the narrow question: whatever channel it lives in, does it keep starting itself?*
-
-   _Leaning:_ **make it opt-in, same as everything else.** An exception costs more than the
-   convenience: the moment one builtin is presence-activated, "presence never activates" stops being
-   a rule anyone can rely on when reading the code. The natural gate already exists in spirit — a
-   jail that never calls `yolo-cglimit` does not need the delegate, and a jail that does is one whose
-   config already talks about `resources`.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-A5 — three gates for `yolo-ps`: is that the intended shape?**
+1. 💬 **OQ-A5 — three gates for `yolo-ps`: is that the intended shape?**
 
    After the ruling, showing a host process takes: select the pack (user scope), enable the loophole
    (either scope), and list the process names (workspace scope). The first two are new; the third
    already existed (§1.2a).
+
+   **What "list the process names" means, since the phrasing was doing too much work.** Yes on both
+   counts: it is a per-loophole **allowlist**, and it is how `yolo-ps` already works today — it
+   predates this design and nothing here proposes it.
+
+   - `host_processes.visible` is a **list of exact process names**, loaded into a set and matched by
+     equality (`hostprocesses.go:126-128`) — not a pattern, not a substring.
+   - It is read from the **workspace** config, and **per request** rather than at spawn: the handler
+     calls `LoadConfig` on every call (`hostprocesses.go:125`).
+   - It defaults to **empty**, and empty is not "show everything" — it is *"nothing to show"*, with
+     the daemon exiting 3 and saying so (`hostprocesses.go:137-139`). `LoadConfig`'s own comment calls
+     that *"feature effectively disabled"*.
+
+   So the ceremony this question is about is really **two** new steps, not three. The third gate is
+   the status quo, and it is the one that already embodies R5's shape — user-scope install,
+   workspace-scope opt-in — invented ad hoc for this one loophole before the general rule existed.
+
+   *One thing does move: per OQ-A8 the key becomes `loopholes.host-processes.settings.visible`, typed
+   and declared in the manifest, so `host_processes.visible` becomes a deprecated alias needing a
+   migration. That changes where it is written, not what it does.*
 
    _Leaning:_ **keep all three, and do nothing clever.** They answer different questions — is it
    installed, is it running, what may it show — and collapsing them would mean a non-empty `visible`
@@ -459,56 +505,7 @@ the body; their IDs are unchanged because sibling docs and the roadmap cite them
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-A6 — do `journal` and `cgroup-delegate` become manifest loopholes, or stay builtin with a
-   uniform gate?**
-
-   Raised in review: *"shouldn't cgroups and journalctl be similar?"* They are not, and the
-   difference was never decided — `journal` is opt-in via its own top-level key, `cgroup-delegate`
-   has no key at all (§1.3). Whatever else happens, those two should stop disagreeing.
-
-   What it decides: whether "one activation model for everything that reaches your host" is literally
-   true or true-with-two-exceptions. It also decides whether §1.4's `journal` top-level key survives.
-
-   _Leaning:_ **make them manifests, but AFTER this sprint.** The unification is right — a reader
-   should be able to answer "what can reach my host and why is it on" from one place — and being
-   yolo's own code is not a reason to be a special case, since that argument is exactly what
-   `bundled_loopholes/` is being emptied to refute. But converting them is not needed to empty the
-   channel, and this sprint is already carrying a preamble, a pack conversion, a schema change and a
-   deletion. File it, do not fold it in.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-A9 — does `default_enabled` REPLACE `enabled`, or sit beside it — and which manifest sources
-   does it govern?**
-
-   *The sweep's headline finding, and the one place the design has a real gap.* `enabled` is a live
-   top-level manifest key (`keys.go:27`, in the closed `topKeys` census), it defaults to **true** when
-   absent (`loopholedecl.go:509-511`), **all four shipped manifests set it explicitly**, and
-   `SetEnabled` (`runtime.go:420`) writes it back into the manifest file. `default_enabled` exists
-   nowhere but this document.
-
-   Both readings break something. If `enabled` keeps winning, R2 is a **no-op for every manifest that
-   exists** — including the official audio pack's, which would violate R4 on day one. If
-   `default_enabled` wins, an author's explicit `enabled: true` is silently ignored and `SetEnabled`
-   writes a key nothing reads. And R2 is phrased as *"a **pack** declares…"* while R4's target
-   (`audio`) is a **bundled** manifest and the user-loopholes dir is a third source — so if
-   `default_enabled` is pack-only, **R4 has no mechanism at all**.
-
-   _Leaning:_ **one key, renamed, governing all four sources.** `default_enabled` *is* `enabled` with
-   the default flipped; `enabled` becomes a recognized-and-refused key whose error names the rename,
-   `SetEnabled` is fixed to write config rather than a manifest, and the four shipped manifests are
-   updated in the same commit. Two booleans over one state would give the manifest, `loopholes list`
-   and `SetEnabled` three ways to disagree.
-
-   _Price this in the answer:_ **reverse skew.** An *older* yolo reading a *newer* manifest ignores
-   `default_enabled` and falls back to enabled-defaults-true — so `audio` ships default-off and an
-   older build runs it on. Deletion-shaped schema changes need a refusal, not a tolerance (§4).
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-5. 💬 **OQ-A10 — is the broker's loophole a contribution of `packs/claude`, or its own official pack?**
+2. 💬 **OQ-A10 — is the broker's loophole a contribution of `packs/claude`, or its own official pack?**
 
    R6 says *"inside `packs/claude/`"*. [`broker-as-a-pack.md`](broker-as-a-pack.md) §6 designs a
    **separate** pack, `packs/claude-oauth-broker/`. Two docs in one sprint, two answers, and the
@@ -531,7 +528,7 @@ the body; their IDs are unchanged because sibling docs and the roadmap cite them
    **Answer:**
    > _(empty — fill in when decided)_
 
-6. 💬 **OQ-A11 — do the ungated host daemons get gated: the broker singleton, the per-jail relay, and
+3. 💬 **OQ-A11 — do the ungated host daemons get gated: the broker singleton, the per-jail relay, and
    the host nix-daemon socket?**
 
    §1.1 and §1.3: `run.go:392-398` spawns the broker singleton and a relay **every launch with no
@@ -552,7 +549,7 @@ the body; their IDs are unchanged because sibling docs and the roadmap cite them
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 **OQ-A12 — `yolo check` cannot see pack-shipped loopholes; does that get fixed in this sprint?**
+4. 💬 **OQ-A12 — `yolo check` cannot see pack-shipped loopholes; does that get fixed in this sprint?**
 
    The health section reads only the non-pack sources, so today it costs nothing: the only
    pack-shipped loophole is `audio-alsa`, which has no `doctor_cmd`. **This sprint moves the only
@@ -569,7 +566,7 @@ the body; their IDs are unchanged because sibling docs and the roadmap cite them
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. 💬 **OQ-A13 — enabling is now the dangerous direction, and nothing discloses it. Does it need a
+5. 💬 **OQ-A13 — enabling is now the dangerous direction, and nothing discloses it. Does it need a
    surface?**
 
    Today `enabled: true` in an agent-editable workspace file is **inert** — the manifest default is
