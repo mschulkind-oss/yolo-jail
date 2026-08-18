@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 8 needing you · 3 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
+**Status: 9 needing you · 1 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
 
 Last updated **2026-08-18**. Counts tallied from this file, not asserted.
 
@@ -29,7 +29,30 @@ the real number was closer to 50.
 Grouped by decision, not by question. Each row names its design doc; the doc holds the stakes and my
 leaning. **Nothing here asks you to pick an execution order** — sequencing is mine.
 
-### 💬 1 — Trust paths: where we extend trust, and where a pin is theatre
+### 💬 1 — Pack config keys: the four questions gating the loophole sprint
+
+📄 [`pack-config-keys.md`](../design/pack-config-keys.md) — **OQ-K1 · K2 · K3 · K4**
+
+**These lost their attention row when `loophole-activation.md` became fully decided** — that row was
+what pointed at them, and pruning it took the pointer with it. They are now the single thing standing
+between here and an empty `bundled_loopholes/`, so they are back at the top.
+
+The design is written and says *"Nothing built"*: a loophole's settings become **typed and declared
+in its manifest**, supplied under `loopholes.<name>.settings`, validated through the resolver core
+already injects, and delivered through a file core writes. What is unresolved:
+
+- **OQ-K3 and OQ-K4 are the two with teeth.** K3 decides whether `host_processes` keeps its **live
+  per-request re-read** — the only reason `visible` works at all today — so the answer decides
+  whether the conversion is a rename or a rewrite. K4 asks whether `journal` is in scope, and what
+  its scope rule is.
+- **OQ-K1 · K2** — whether an unseen pack declaration is advisory or authoritative, and whether a
+  workspace may supply values that reach a host daemon at all. K2 carries the security edge:
+  `journal: "full"` is an agent-settable host-journal passthrough with no scope rule today.
+
+**What answering them unblocks:** the three conversions that actually empty `bundled_loopholes/` —
+see *Emptying `bundled_loopholes/`* under Open threads.
+
+### 💬 2 — Trust paths: where we extend trust, and where a pin is theatre
 
 📄 [`trust-paths.md`](../design/trust-paths.md) — 25 paths enumerated from the code · partly supersedes
 [`pack-execution-trust.md`](../design/pack-execution-trust.md)
@@ -60,7 +83,7 @@ What is still open:
 - **OQ-LP8 / G2b** — you ruled the shape (approval pinned to a commit); what remains is that
   `LockEntry.Commit` is **never consulted at launch**, so the pin does not yet exist.
 
-### 💬 2 — Auth mode
+### 💬 3 — Auth mode
 
 📄 [`agent-auth-modes.md`](../design/agent-auth-modes.md)
 
@@ -69,7 +92,7 @@ What is still open:
 subscription OAuth bearer to a non-Anthropic base URL?) and it gates boundary-broker B2. **OQ-2 · 3 ·
 4 · 9** are smaller. **OQ-7 is moot as phrased** — there is no Teams pack — and needs restating.
 
-### 💬 3 — Non-container nix
+### 💬 4 — Non-container nix
 
 📄 [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md)
 
@@ -77,7 +100,7 @@ subscription OAuth bearer to a non-Anthropic base URL?) and it gates boundary-br
 backend? Everything else in that doc is subordinate to it. No longer urgent — the auth thread routed
 around the `env` refusal that motivated it.
 
-### 💬 4 — Boundary broker
+### 💬 5 — Boundary broker
 
 📄 [`boundary-broker.md`](../design/boundary-broker.md)
 
@@ -85,7 +108,7 @@ around the `env` refusal that motivated it.
 **OQ-C** is a real API-shape decision: does the jail see the *result* or just success? **OQ-B1b**
 sizes B1b only. The security half of **OQ-E** is settled; only its packaging half is live.
 
-### 💬 5 — Image staging and baking
+### 💬 6 — Image staging and baking
 
 📄 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md)
 
@@ -93,7 +116,7 @@ sizes B1b only. The security half of **OQ-E** is settled; only its packaging hal
 content-addressed image tag; **OQ-1** blocks two more items; **OQ-4** is a scope ruling on a shipped
 config key. None of these were in this file before today.
 
-### 💬 6 — macOS, and the environment-manager stories
+### 💬 7 — macOS, and the environment-manager stories
 
 📄 [`macos-user-build-step-threat-model.md`](../design/macos-user-build-step-threat-model.md) ·
 [`environment-manager-user-stories.md`](../design/environment-manager-user-stories.md) ·
@@ -104,7 +127,7 @@ whether Linux `guest` is a promise or a hypothesis. **threat-model Q1-Q3** cover
 refusal, `--accept-flake-config`'s substituter surface (now live — see the shipped item), and a macOS
 build sandbox. **OQ-L1** explicitly blocks Track L part 2.
 
-### 💬 7 — The small ones with no design-doc home
+### 💬 8 — The small ones with no design-doc home
 
 These were born in this file and have nowhere else to live: **S5** (a jail resolves a skill-name
 collision silently), **OQ-CO**, **OQ-S4**, **OQ-E4**, and **E1/E2/E3/E5** from the backlog. Each is
@@ -128,7 +151,7 @@ should *print* for a section it skipped — now has a design-doc home as **OQ-3*
   version, a typo like `foo@@1.2.3` reaches npm and fails at first use *inside* the jail, where the
   diagnosis is worst. Cheap host-side check; needs a ruling only on how strict to be.
 
-### 💬 8 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
+### 💬 9 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
 
 📄 [`pack-host-management-plan.md`](pack-host-management-plan.md) ·
 [`pack-capabilities.md`](../design/pack-capabilities.md)
@@ -141,50 +164,6 @@ one-line deliverable that is decided in all but name.
 # 📦 Up next
 
 **Ordered by:** what unblocks something else, then what protects a live user, then cost.
-
-- 📦 **Empty `bundled_loopholes/` — the activation sprint is now fully designed.** 📄
-  [`loophole-activation.md`](../design/loophole-activation.md) ·
-  [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) ·
-  [`pack-config-keys.md`](../design/pack-config-keys.md)
-
-  Eleven of thirteen questions ruled; the two left do not gate it. What the sprint now carries, in
-  dependency order:
-
-  1. **`default_enabled` replaces `enabled`** (OQ-A9) — one key, renamed, governing all four manifest
-     sources; `enabled` becomes recognized-and-refused; `SetEnabled` writes config, not a manifest.
-     **Needs a refusal for reverse skew**, not a tolerance: an older yolo ignores the new key and runs
-     `audio` on.
-  2. **Typed, manifest-declared loophole settings** (OQ-A8) — the prerequisite for anything else
-     moving out of core, since it is what lets `host_processes.visible` and `journal` stop being
-     hardcoded top-level keys.
-  3. **`host-processes` and `audio` become packs**; the broker's loophole becomes a contribution of
-     `packs/claude` (OQ-A10). ⚠ The reserved name is **not** freed by deleting the bundled directory —
-     the reservation and the `loopholesruntime.go` name special-case must die in the same commit, or
-     every claude user's launch breaks.
-  4. **`journal` and `cgroup-delegate` become manifest loopholes** (OQ-A6, in-sprint by your ruling),
-     with `cgroup-delegate` default-off (OQ-A4). This is what removes core's last two hardcoded
-     loophole names. **Accepted cost:** `yolo-cglimit` stops working out of the box.
-  5. **`yolo check` learns to read pack-shipped loopholes** (OQ-A12) — same sprint, because the
-     conversion moves the only two loopholes that have a `doctor_cmd`.
-  6. **Mirror the enable-direction disclosure** (OQ-A13) — `WorkspaceDisabledLoopholes` already
-     computes it and throws the `true` case away at `validate_loopholes.go:367`. **Ship it as
-     readability, not as a control:** the snapshot it relies on is agent-writable.
-  7. **Move the approval snapshot out of the jail's reach** (OQ-D1, ruled) — host-side per-workspace
-     state the jail never mounts. This is what turns step 6 from a courtesy into a control. Costs
-     nothing at runtime: the prompt already runs host-side and the jail never reads the file. 📄
-     [`config-safety.md`](../design/config-safety.md)
-  8. **A non-interactive launch with a changed config FAILS** (OQ-D2, ruled) — CI opts in with an
-     explicit flag instead of the implicit yes it gets today (`config/snapshot.go:38`).
-     ⚠ **Breaking change for existing non-interactive callers**, deliberately: a pipeline silently
-     accepting config drift starts failing instead of continuing to not tell anyone. Needs a release
-     note, and the failure message must name the flag — the reader of that message cannot be
-     prompted. A flag rather than an env var, because this grants an *approval* rather than
-     suppressing a diagnosis, and an env var is inherited by every child and outlives the launch.
-
-  This is the largest queued item in the file and it grew on 2026-08-18: OQ-A6 pulled the two builtin
-  conversions in rather than deferring them. That was your call and the reasoning is in the doc; the
-  argument for deferring is kept there too, because a sprint that silently absorbs a fifth workstream
-  is how the other four slip.
 
 - 📦 **Two trust-path rulings: no evergreen npm, and no partial packs.** 📄
   [`trust-paths.md`](../design/trust-paths.md)
@@ -205,26 +184,6 @@ one-line deliverable that is decided in all but name.
      "an update is available". ⚠ **Blocked on OQ-TP4** for the case that matters — the lockfile is
      per *fetched* pack and the four packs declaring npm programs are all *embedded*, so there is
      nowhere to put the pin yet. The install/update split and the poll downgrade can land first.
-
-- 📦 **Bake `openssl`, and make the broker's own failure detector speak.** *One package, plus the
-  three layers that stayed quiet about it.* 📄
-  [`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md)
-
-  The broker mints its CA by shelling out to `openssl`; the jail image bakes none. So on any launch
-  where **the host is itself a jail**, the singleton dies at startup — **2,549 times in this jail,
-  1.3 MB of log**, silently, for months. You have ruled: bake it.
-
-  The packaging fix is one line. The reason it hid for months is worth the other three:
-
-  1. `brokerWaitForSocket` **detects the dead child in milliseconds** and its caller discards the
-     return value. Making that speak is what would have caught this on day one.
-  2. The daemon's log has **no reader anywhere in the tree**.
-  3. `yolo check` skips loophole checks in-jail and prints **`[PASS]`** — the third finding this
-     month of the same shape, reporting on the wrong side of a boundary in the confident direction.
-
-  **Three questions live in the doc** (OQ-1 retire vs. satisfy the `openssl` dependency, OQ-2 should a
-  nested jail run its own broker at all, OQ-3 the honest token for "I did not look"). None blocks the
-  bake.
 
 ---
 
@@ -334,10 +293,23 @@ The goal is **no inhabitants at sprint end** (OQ-BP4). `host-processes` steps 1�
 connection preamble end to end, `ServeFrontedUnix`, the daemon behind the framework front, and
 `yolo-ps` no longer self-reporting a `jail_id` nobody trusted.
 
-**Nothing is blocked any more.** OQ-A9 was the single decision standing between here and an empty
-`bundled_loopholes/`, and it is ruled — one key, renamed. Step 7 (the official pack), the broker
-conversion (OQ-A10: a contribution of `packs/claude`, not its own pack) and `audio` are all designed
-through. The work is queued in 📦 above.
+**Five more steps shipped 2026-08-18** — the `default_enabled` rename (OQ-A9), `yolo check` reading
+pack-shipped loopholes (OQ-A12), the enable-direction disclosure (OQ-A13), the approval snapshot
+moving host-side (OQ-D1), and the non-interactive config fatal (OQ-D2).
+
+**What is left is the part that actually empties the directory, and it is blocked on 💬 1.** All
+three conversions need typed manifest-declared settings first (OQ-A8 → `pack-config-keys.md`,
+unbuilt, carrying OQ-K1..K4):
+
+- **`host-processes` and `audio` become packs; the broker's loophole moves into `packs/claude`**
+  (OQ-A10). ⚠ Deleting `bundled_loopholes/claude-oauth-broker/` does **not** free the reserved name —
+  the reservation and the `loopholesruntime.go` name special-case must die in the same commit, or
+  every claude user's launch breaks.
+- **`journal` and `cgroup-delegate` become manifest loopholes** (OQ-A6), with `cgroup-delegate`
+  default-off (OQ-A4). **Accepted cost:** `yolo-cglimit` stops working out of the box.
+
+Both conversions remove core's last hardcoded loophole names, which is what makes this mean something
+rather than moving files around.
 
 📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) — four of its six questions are answered;
 **OQ-BP5** (build step vs download-only) and **OQ-BP6** (may a fetched pack ship a host-side binary?)
