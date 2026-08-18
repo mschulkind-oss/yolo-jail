@@ -93,6 +93,38 @@ socket existed.
 > The hazard is real for a **pack-shipped** loophole read by an older yolo, and for a yolo-jail
 > developer whose checkout is newer than their installed binary.
 
+### ⚠️ A pack whose claims you never approved now refuses the launch
+
+**What changed.** A **fetched** pack (a `git+https://…` entry in `packs`) may only read your host or
+run code on it for the claims you approved at `yolo pack install`. An unapproved claim used to print
+`Warning: refused installer …` and hand you a **working jail with that part of the pack switched
+off**. It now **refuses the launch**: no jail starts.
+
+**Who is affected.** Anyone with a fetched pack that was selected in `packs` but never run through
+`yolo pack install` — or whose pin moved and *gained* a claim since the last approval. Embedded packs
+(`claude`, `pi`, …) and local `file://` packs are unaffected: their origin already carries your own
+authority, so they refuse nothing. A fetched pack that reads nothing from the host is unaffected too
+— there is nothing to approve.
+
+Newly covered by this, because the launch never checked it before: a wrapped agent **plugin's**
+`hooks`/`mcpServers`/`lspServers`, which travel inside the pack's skills tree.
+
+**What to do.** The refusal names the pack, the exact claim, and these three choices:
+
+```console
+$ yolo pack install     # review every claim the pack makes and approve it
+```
+
+…or edit the pack so it stops asking, or delete it from `packs` in
+`~/.config/yolo-jail/config.jsonc`. **There is no "run it anyway" flag**, deliberately: a fourth
+choice would be the partial pack this change exists to retire.
+
+**Why.** The refusal was computed on the host and then *not carried into the jail*, which re-derived
+it from a hardcoded permissive answer — so the curl-to-bash launcher was written for a fetched,
+unapproved pack anyway. The warning was true about the decision and false about the outcome. Refusing
+on the host deletes the problem instead of plumbing a decision across the boundary.
+📄 [`trust-paths.md`](design/trust-paths.md) §3.1, OQ-TP6.
+
 ### ⚠️ An unreachable host service now refuses the launch
 
 **What changed.** At boot, the jail dials every jail-facing service this launch wired up. An enabled

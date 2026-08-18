@@ -13,8 +13,8 @@ by *removing* a mechanism rather than adding a gate — no evergreen npm ([§1 r
 and a refused contribution refuses the launch ([§3.1](#ruled-2026-08-18-a-refused-contribution-is-a-refused-launch)),
 which obviates OQ-TP1, and one more on 2026-08-18 answering OQ-TP2 with *"nothing explicit — the
 commit pin already closes over it"* (see the Decision Ledger). **Two questions remain: OQ-TP3 and
-OQ-TP4.** Nothing built. Every row was traced in the code; anchors are
-inline and the check date is today.
+OQ-TP4.** **OQ-TP6 is BUILT** (2026-08-18) — everything else here is still inventory. Every row was
+traced in the code; anchors are inline and the check date is today.
 
 **Why this exists.** A proposal ([`pack-execution-trust.md`](./pack-execution-trust.md)) argued that
 a fetched pack should only execute content it pins. The review response was *"they're all just as
@@ -384,10 +384,11 @@ preserve both:
   origin-gated — it is the same trust as any dependency the user already installs."* The gate is
   about `curl | sh` specifically, not about installing things.
 
-#### What actually happens
+#### What actually happened, until the ruling below was built (2026-08-18)
 
-The decision is made **twice, on two sides of the boundary, from different inputs** — and only the
-first side has the input that matters.
+The decision was made **twice, on two sides of the boundary, from different inputs** — and only the
+first side had the input that matters. Kept in the present tense below because it is the finding as
+measured; what replaced it is the RULED section further down.
 
 | | Host, at launch | Jail, at boot |
 | :--- | :--- | :--- |
@@ -451,6 +452,39 @@ they are the only three that end with the manifest and the runtime agreeing.
 > point — but it means the refusal message is now the entire user experience of the failure, so it
 > must name all three choices, the pack, and the specific claim that was not approved. A fatal the
 > reader cannot act on would be worse than the warning it replaces.
+
+> [!NOTE]
+> **BUILT, 2026-08-18.** `stagePacks` collects every refusal the `Honored*` family reports and
+> returns [`refusedLaunchError`](../../internal/cli/run/packrefusal.go) instead of the four warnings
+> it used to print — before the mechanical pre-flights, because this one is about CONSENT and those
+> are about pack mechanics. Refusals accumulate across the whole configured set, so two broken packs
+> cost one launch rather than two.
+>
+> **Three things the implementation found that this section did not say.**
+>
+> 1. **`briefing after: host:<path>` had no reporter at all.** It is an approvable claim like the
+>    other four, and the launch withheld it in a single `&& p.MayAccessHost` inside
+>    `run/prepare.go` — silently. A pack whose only host claim was *"prepend the user's own
+>    AGENTS.md before my prose"* produced a jail with the pack's prose and none of the user's, and
+>    nothing anywhere said so. It now has `packload.RefusedBriefingOverlays`, which is a REPORTER
+>    rather than a gate: the gate stays in `prepare.go`, which is the only place that knows the host
+>    home.
+> 2. **The launch never consulted `HonoredPlugins`** — its one production caller was
+>    `apply --host`'s skills compose. So [row 21](#2-the-inventory)'s hook bodies travelled into a
+>    jail inside the pack's skills tree with the refusal computed nowhere on that path. It is in the
+>    fatal now, which is the first time that row is enforced at launch at all.
+> 3. **No escape hatch, deliberately.** Every other fatal in this system has one
+>    (`YOLO_ALLOW_UNREACHABLE_SERVICES`, `YOLO_ALLOW_STALE_IMAGE`) because the user may be unable to
+>    repair the cause from where they are standing. That does not hold here — the approve path is
+>    one command away — and a fourth choice would be the partial pack this ruling retires.
+>
+> **`packsurfaces.go`'s hardcoded `true` was NOT removed**, and the honest reason is wider than
+> "tidiness": it is the only value the jail can compute, and it is now correct for every input it
+> can receive. From inside, an embedded pack, a local `file://` pack and an APPROVED fetched pack
+> are three identical directories — so passing `false` for anything outside `_official/` would
+> refuse the host files, mounts and installers of packs the user did approve, while protecting
+> nothing. It is a named constant (`jailPackHostAccess`) carrying that argument, so the next reader
+> is not misled by a bare literal where a security gate's input goes.
 
 > [!IMPORTANT]
 > **Two things that look like partial packs and must NOT become fatal.** Both already exist, both are
