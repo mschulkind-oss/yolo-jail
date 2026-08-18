@@ -93,7 +93,7 @@ Ordered from most-trusted origin to least. "Silent change" is the column the exe
 | :-- | :--- | :--- | :--- | :--- |
 | 1 | the yolo binary — built-in skills + composed briefing | agent context | never | only via your own upgrade |
 | 2 | **embedded pack `program via installer`** (claude, agy) | in-jail exec as UID 0 | **never** — embedded origin grants unconditionally | **yes, twice over**: the URL's bytes, and the vendor's own hourly self-update, which no pin touches |
-| 3 | **`program via npm`** — any pack, any origin | in-jail exec (postinstall + deps) | **never**, for any origin | **yes — `@latest` on an hourly timer, unpinnable by construction** |
+| 3 | **`program via npm`** — any pack, any origin | in-jail exec (postinstall + deps) | **never**, for any origin | **yes — `@latest` on an hourly timer.** Since 2026-08-17 a declaration *may* name a version, which stops the poll; no shipped pack does, so the row is unchanged in practice (§1) |
 | 4 | `flake.nix` / `flake.lock` | in-jail exec (everything on PATH) | implicit, at PR merge | no for inputs (locked revs, hermetic build) |
 | 5 | **the implicit local pack** `~/.config/yolo-jail/local` | everything, at maximum trust | **never**, and deliberately | **yes, continuously** — live dir, re-read every launch, no record |
 | 6 | explicit `file://` local pack | same as 5 | implicit in the config line | yes, every launch — no copy, no hash |
@@ -165,8 +165,13 @@ write. The only four user-scope-only things are `packs`, source-bearing `host_fi
 [`pack-execution-trust.md`](./pack-execution-trust.md) should be read with three corrections:
 
 1. **Its §3 premise is false** — no commit pin is enforced anywhere (see the callout at the top).
-2. **Its permit/refuse table's top row is not expressible** — `npm` cannot carry a version through
-   the current launcher template.
+2. ~~**Its permit/refuse table's top row is not expressible**~~ — **RETIRED 2026-08-17.** It was
+   true: `npm` could not carry a version through the launcher template, which appended `@latest` to
+   whatever the pack declared. The launcher now splits the declaration and honours a version,
+   dist-tag or range ([`npmspec.go`](../../internal/entrypoint/npmspec.go)). Kept as a correction
+   rather than deleted, because the correction it becomes is narrower and still bites: the row is
+   *expressible*, not *taken* — nothing pins by default, so §1's ranking is untouched and the
+   proposal gains an option it never had, not an argument.
 3. **Its scope is too narrow to matter.** It gates execution kinds while `skills`, `briefing` and
    `env` — all of which reach the agent, and `env` of which reaches execution — stay ungated and
    undisclosed.
@@ -211,6 +216,14 @@ Everything else is theatre until §3.1 is closed.
 
 _Leaning:_ **Yes, but only #1, and only after the launcher can express a version.** The other two are
 real and rarer; do them when their consumers exist.
+
+> **The leaning's precondition is met as of 2026-08-17** and the question is therefore live rather
+> than blocked. A `package` string may now carry a version, dist-tag or range, the launcher honours
+> it, and a pinned launcher stops polling the registry
+> ([`npmspec.go`](../../internal/entrypoint/npmspec.go)). That was a bug fix, **not** an answer to
+> this question: nothing pins by default and every shipped pack still declares a bare name, so #1's
+> risk is exactly what §1 describes. What is now decidable — and is what this OQ is asking — is
+> whether yolo should pin its OWN packs, and whether a *fetched* pack should be required to.
 
 **Answer:**
 > _(empty — fill in when decided)_

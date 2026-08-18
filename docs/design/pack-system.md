@@ -182,7 +182,10 @@ version.
   named its own version, and for a tag or a range it would never compare equal, so polling
   would reinstall hourly forever. A pinned launcher instead compares the recorded spec
   against the declared one, offline, so moving a pack from `1.2.3` to `1.3.0` still takes
-  effect. (Until 2026-08-17 the launcher appended `@latest` unconditionally, so
+  effect. The recorded spec is what npm **installed**, never merely what was asked for —
+  an upgrade leaves the previous binary in place, so recording a failed attempt would shut
+  both exits at once and freeze the jail on the old version with nothing left to retry.
+  (Until 2026-08-17 the launcher appended `@latest` unconditionally, so
   `foo@1.2.3` was installed as `foo@1.2.3@latest` and a version was not expressible at
   all — the caveat that stalled the top row of `trust-paths.md` §1.)
 - `url` (required for `installer`) — the install-script URL (origin-gated, §9).

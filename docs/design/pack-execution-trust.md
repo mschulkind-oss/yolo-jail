@@ -21,8 +21,13 @@ summary: "The gate names mechanisms — curl|sh refused, npm install -g permitte
 >
 > What survives here is the *shape* of P1 — content-addressing is the only answer to "is this the
 > same code I looked at" — plus §6's readable-approval ruling, which is unaffected. The permit/refuse
-> table in §4 does not survive: its top row is not even expressible, because the launcher appends
-> `@latest` to the package string. Written from a review challenge that turned out to be
+> table in §4 was written off because its top row was not even expressible — the launcher appended
+> `@latest` to the package string — and **that objection is spent as of 2026-08-17**: the launcher
+> splits the declaration and honours a version, tag or range
+> ([`npmspec.go`](../../internal/entrypoint/npmspec.go)). The row is expressible now; it is still not
+> *taken*, because nothing pins by default and every shipped pack declares a bare name. So the table
+> fails for the remaining reason only — a refusal that does not hold where the code runs. Written
+> from a review challenge that turned out to be
 right: *"a fetched pack can't introduce an installer — that means you couldn't use a pack in git to
 install an agent? don't we allow native binary downloads? why disallow an installer at that point?"*
 
