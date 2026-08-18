@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 11 needing you · 3 ready · 0 in progress · 2 waiting · 2 broken · 2 icebox.**
+**Status: 11 needing you · 4 ready · 0 in progress · 2 waiting · 2 broken · 2 icebox.**
 
 Last updated **2026-08-17**. Counts tallied from this file, not asserted.
 
@@ -148,11 +148,20 @@ rather than my judgement: **auth OQ-5** (retired in `retired-decisions.md`, stil
 - 📦 **Flip the in-jail reachability probe to fatal (OQ-R2), with an escape hatch.**
 
   The probe landed in **warn mode** today and its call site is already immediately above
-  `genFailuresError`, so the flip is a one-liner. Two things gate it, both cheap: observe the probe at
-  one real boot on a healthy host (it has never run at a genuine container start), and add the
-  `YOLO_ALLOW_STALE_IMAGE`-shaped opt-out — a hard fatal with no override leaves a user unable to open
-  a shell to fix the daemon that is failing. 📄
+  `genFailuresError`, so the flip is a one-liner. Three things gate it, all cheap: observe the probe
+  at one real boot on a healthy host (it has never run at a genuine container start); add the
+  `YOLO_ALLOW_STALE_IMAGE`-shaped opt-out, because a hard fatal with no override leaves a user unable
+  to open a shell to fix the daemon that is failing; and **scope the fatal to "yolo tried and
+  failed"** rather than "this host cannot" — an old-passt host warns and launches (OQ-R3). 📄
   [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §7, §10.
+
+- 📦 **Fall back to slirp4netns on a host whose passt is too old.**
+
+  Today such a host launches with a clear warning and unreachable services. But podman can often be
+  asked for slirp4netns instead, and `--network=slirp4netns:allow_host_loopback=true` forwards
+  loopback correctly — so those hosts could *work* rather than merely be told why they do not. Guard
+  it on slirp4netns actually being installed, and keep it a fallback rather than a preference, since
+  it is the older and slower stack. Rarer than it sounds: the flag is present in pasta `2026_07_16`.
 
 - 📦 **Say what `yolo check` cannot see.**
 
@@ -193,8 +202,8 @@ rather than my judgement: **auth OQ-5** (retired in `retired-decisions.md`, stil
   and emits `--network=pasta:--map-host-loopback,…` on the default path, fail-safe in every unproven
   case. The **flag itself is measured** (a real `podman run` reproduces the outage and the flag fixes
   it, podman 5.8.4 + pasta 2026_07_16). What is unverified is a real `yolo` launch on the affected
-  host — and a nested jail **cannot** verify it, by construction. Also outstanding: `pasta --version`
-  on the host, which settles OQ-R3's refusal path.
+  host — and a nested jail **cannot** verify it, by construction. The host's passt is `2026_07_16`, which
+  **does** carry the flag — so the degraded path is not exercised here at all.
 
 - 🔒 **On a Mac** — five items: the `macos-user` acceptance matrix, Track D4's download proof, the
   guest-notch handoff, and two lib-farm assertions that only fail on darwin. 📄

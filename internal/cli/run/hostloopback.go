@@ -44,17 +44,25 @@ package run
 //     Go. It is loud and it names what it suppresses, and it stays silent when
 //     it is suppressing nothing.
 //
-// # TODO(OQ-R3): the end state is REFUSE, and this is not it
+// # WHY AN OLD PASST DEGRADES RATHER THAN REFUSING — this IS the end state
 //
-// docs/design/loopback-tls-reachability.md OQ-R3 ruled that a passt supporting
-// `--map-host-loopback` is a HARD REQUIREMENT: an old-passt host should be
-// refused, not launched degraded. This lands as a WARNING instead, deliberately,
-// for the same reason OQ-R2's fatal was sequenced after its probe (§10): a
-// refusal built on a detection nobody could test is worse than the status quo —
-// it converts "some services are down" into "no jail at all" on the strength of
-// a `--help` scrape. Flip it once the pasta path has been observed on a real
-// affected host: the refusal already names the passt version and the check
-// command, which is the part OQ-R3 requires of it.
+// An earlier reading of OQ-R3 made a passt with `--map-host-loopback` a hard
+// requirement and refused the launch without it. That was re-ruled on 2026-08-17,
+// and the reason generalizes past this file: **yolo has to work on the host it is
+// given.** Refusing converts "some services are down" into "no jail at all", on a
+// machine whose owner may not be able to upgrade passt at all — a distro freeze,
+// a shared box, a policy. Trading a degraded jail for no jail is not a safety win;
+// it is the tool declining to run.
+//
+// So the rule is: **unsupported is not the same as broken.** An old passt is a
+// KNOWN LIMITATION — say so once, clearly, name the version that fixes it and the
+// command that checks, and launch. A host where yolo DID emit the forwarding
+// option and the service is still unreachable is BROKEN, and that is what the
+// in-jail probe is for (OQ-R2). Only the second earns a failure.
+//
+// Verified support, so the degraded path is rarer than it reads: the flag is
+// present in pasta 2026_07_16 (measured 2026-08-17), which is what the
+// maintainer's own host runs.
 
 import (
 	"encoding/json"
@@ -244,9 +252,11 @@ func mappableBackend(backend string) bool {
 	return backend == backendPasta || backend == backendSlirp4netns
 }
 
-// pastaUnsupportedWarning is the OQ-R3 refusal, still in warn clothing. It has
-// to carry three things or it is not actionable: what breaks, the version that
-// fixes it, and the command that checks.
+// pastaUnsupportedWarning reports a KNOWN LIMITATION, not a failure — see the
+// degrade-never-refuse note at the top of this file. It has to carry three things
+// or it is not actionable: what breaks, the version that fixes it, and the command
+// that checks. It must never read as an error, because launching is the correct
+// outcome and the user has not done anything wrong.
 func pastaUnsupportedWarning(f hostLoopbackFacts) string {
 	return "[yellow]Warning: this host's rootless network stack is pasta, which forwards\n" +
 		"  host.containers.internal to the host's GLOBAL address rather than its loopback —\n" +

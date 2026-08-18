@@ -422,6 +422,11 @@ per-service level rather than one global rule.
 > **Fail the launch. If it is broken, do not move on.** *(This overrules the leaning above, which is
 > kept because the decision has consequences to plan for — see below.)* One rule, no per-service
 > severity: an enabled jail-facing service that the jail cannot reach is a failed launch.
+>
+> **Scoped by OQ-R3's re-ruling: "broken" means yolo tried and failed, not "this host cannot."** On a
+> host where yolo knows it cannot forward loopback (an old passt, no slirp4netns), the outcome is a
+> warning and a launch — see the callout under OQ-R3. The fatal fires when the forwarding option WAS
+> emitted and the service is still unreachable, because that is a fault rather than a limitation.
 
 **What this ruling changes, and it is more than a log level:**
 
@@ -473,8 +478,40 @@ old passt build is a large permanent cost for a shrinking population; a clear re
 upgrade the user can actually perform. If the affected population turns out to be large, the
 amendment is the honest path — but that is evidence we do not have yet.
 
-**Answer:**
-> **Refuse. A passt supporting `--map-host-loopback` is a hard requirement.** AF_UNIX is not
-> revived, so `loophole-transport.md` §7.4 stands and needs no amendment. The refusal must name the
-> passt version required and the command to check it, because "refuse" is only acceptable if the
-> user can act on it.
+**Answer (2026-08-17):**
+> ~~**Refuse. A passt supporting `--map-host-loopback` is a hard requirement.**~~
+>
+> **RE-RULED THE SAME DAY: never refuse. Degrade, loudly.** *"What does host version matter? We need
+> to work for all host versions."* That is the stronger position and it overrides the first answer,
+> including my own leaning, which argued for refusal twice.
+>
+> Refusing converts *"some services are down"* into *"no jail at all"*, on a machine whose owner may
+> not be able to upgrade passt — a distro freeze, a shared box, a policy. That is not a safety win;
+> it is the tool declining to run. AF_UNIX is still **not** revived, so
+> [`loophole-transport.md`](./loophole-transport.md) §7.4 stands either way — the fallback is simply
+> *launch without the option*, which is exactly today's behaviour plus a message.
+>
+> **The requirement that survives is on the MESSAGE:** it must name what breaks, the passt version
+> that fixes it, and the command that checks — and it must not read as an error, because launching is
+> correct and the user has done nothing wrong.
+>
+> **Measured, so this path is rarer than it reads:** the flag is present in **pasta 2026_07_16**,
+> which is what the maintainer's host runs. The degraded path is for older hosts only.
+
+> [!IMPORTANT]
+> **This forces a distinction that OQ-R2 needs too: unsupported is not broken.**
+>
+> If yolo *cannot* forward loopback on this host, that is a **known limitation** — warn once and
+> launch. If yolo *did* emit the forwarding option and a service is still unreachable, that is
+> **broken** — and that is what OQ-R2's fatal is for.
+>
+> Without this split the two rulings collide: "fail when a service is unreachable" plus "an old passt
+> cannot reach any service" would mean an old-passt host cannot launch a jail at all — reintroducing
+> by the back door precisely the refusal this question just rejected.
+
+**A fallback worth evaluating before accepting the degraded path**, not considered when this question
+was first framed: on a host with an old passt, podman can often be asked for **slirp4netns**
+instead — `--network=slirp4netns:allow_host_loopback=true` is already the row-3 option in §3 and it
+forwards loopback correctly. That would make old-passt hosts *work* rather than merely warn. The cost
+is that slirp4netns is slower and is the older stack, so it should be a fallback rather than a
+preference, and only when it is actually installed. **Not built; worth a follow-up.**
