@@ -29,25 +29,22 @@ the real number was closer to 50.
 Grouped by decision, not by question. Each row names its design doc; the doc holds the stakes and my
 leaning. **Nothing here asks you to pick an execution order** — sequencing is mine.
 
-### 💬 1 — Loophole activation: two questions, neither blocking
+### 💬 1 — Loophole activation: one question, and it does not block the build
 
 📄 [`loophole-activation.md`](../design/loophole-activation.md)
 
-**Ruled out to buildable, 2026-08-18.** Eleven of thirteen questions are settled and folded into the
-doc; **OQ-A9 is closed**, which was the design's one real gap and the single decision blocking the
-sprint below.
+**Twelve of thirteen settled.** OQ-A9 (the design's one real gap) and OQ-A11 (gate the broker
+daemons, leave nix and say why) are both closed, so the sprint in 📦 is fully designed.
 
-Two remain, and neither gates the work:
+**OQ-A13 is the one left, and it is a scope decision, not a wording one:** R5 says *"enable is either
+scope"*, written when `enabled: true` was **inert**. R2 makes it **the activation verb**. So may a
+workspace — a file an agent can edit — still turn a host-reaching loophole **on**?
 
-- **OQ-A11** — the broker singleton still spawns on **every launch with no lookup at all**
-  (`run.go:395`, re-verified after this week's containment patch), and the host nix-daemon socket is
-  mounted because it exists. Both are R1 counterexamples living in the run pipeline. *You asked
-  whether this was hardcoding or a `supersedes` bug: hardcoding, and `supersedes` is not involved.*
-- **OQ-A13** — whether *enabling* needs its own disclosure now that it is the dangerous verb. *Your
-  objection was right and narrowed it:* the config-approval diff **does** fire, so the question is no
-  longer "is there any disclosure" but whether a generic diff is the right surface, given the
-  snapshot it compares against lives at `<workspace>/.yolo/` and is **agent-writable** (OQ-D1), and a
-  non-TTY launch **auto-accepts** with no prompt at all.
+The doc lays out four answers with costs. My leaning is **mirror the existing disclosure** (the seam
+already computes it and throws the `true` case away at `validate_loopholes.go:367`) **while saying
+plainly that the real fix is OQ-D1** — the approval snapshot lives in the rw-mounted workspace, so a
+disclosure an agent can suppress is not a control. Narrowing R5 to user-scope-only is the strongest
+option and costs the per-workspace opt-in that R5 exists for.
 
 ### 💬 2 — Trust paths: where we extend trust, and where a pin is theatre
 

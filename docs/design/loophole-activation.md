@@ -3,18 +3,18 @@ title: "Nothing reaches your host because it happened to be there — loophole a
 date: 2026-08-18
 status: in-review
 tags: [loopholes, packs, activation, security, config]
-summary: "A loophole is active today because it was present and something it named happened to exist on the host. Six rulings replace that end to end: presence stops implying activation, a pack declares a default, and the default is disabled. Eleven questions settled; two remain, neither blocking."
+summary: "A loophole is active today because it was present and something it named happened to exist on the host. Six rulings replace that end to end: presence stops implying activation, a pack declares a default, and the default is disabled. Twelve questions settled; one remains, and it does not block the work."
 ---
 
 # Nothing reaches your host because it happened to be there — loophole activation
 
-**Status:** RULED 2026-08-15, nothing built. Six rulings (§2) and **eleven questions settled**
-(Decision Ledger below); **two open**, neither blocking. The design's one real gap —
-`default_enabled` colliding with a live `enabled` key — is closed by OQ-A9: one key, renamed,
-governing all four manifest sources.
+**Status:** RULED 2026-08-15, nothing built. Six rulings (§2) and **twelve questions settled**
+(Decision Ledger below); **one open**, and it does not block the work.
 
-**This is now a buildable design.** What remains open is one scope question about daemons nobody
-gates yet (OQ-A11) and one surface question about disclosure (OQ-A13).
+**This is a buildable design.** The one real gap — `default_enabled` colliding with a live `enabled`
+key — is closed by OQ-A9: one key, renamed, governing all four manifest sources. What remains is
+**OQ-A13**: now that `enabled: true` is the activation verb rather than an inert restatement of the
+default, may a *workspace* still use it, and if so what says it did?
 
 The doc grew this many questions on purpose: every one came from asking *"what else reaches the host,
 and why is it on?"*, and the answer kept being "something different each time".
@@ -56,6 +56,7 @@ have since been settled and folded into the body.
 | **OQ-A7** | A loophole-only pack **needs selecting**. No special case: shipped in the binary is not installed | 2026-08-17 | [§5](#5-the-structural-questions-this-opened) |
 | **OQ-A8** | A loophole's settings are **typed and declared in its manifest**, not an opaque map — 📄 [`pack-config-keys.md`](pack-config-keys.md) | 2026-08-17 | [§1.4](#14-the-finding-that-undercuts-the-conversion--core-hardcodes-two-loopholes-by-name) |
 | **OQ-A10** | The broker's loophole is a contribution of **`packs/claude`**, not its own pack — and `broker-as-a-pack.md` §6 is corrected rather than left standing | 2026-08-18 | [§2](#2-the-rulings) |
+| **OQ-A11** | **Gate the broker daemons** on the loophole record; **leave the nix socket** ungated and say why | 2026-08-18 | [§1.3](#13-everything-that-reaches-your-host-and-how-it-turns-on) |
 | **OQ-A12** | `yolo check` learns to read pack-shipped loopholes **in this sprint**, as part of the conversion | 2026-08-18 | [§4](#4-what-it-costs) |
 | **OQ-A9** | **One key, renamed.** `default_enabled` *is* `enabled` with the default flipped, governing all four manifest sources | 2026-08-18 | [§2](#2-the-rulings) |
 
@@ -174,17 +175,31 @@ is the argument for unifying them.*
 
 | | channel | on today because… | its config key | after the rulings |
 |---|---|---|---|---|
-| **broker daemon + relay** | *not gated at all* | `run.go:392-398` spawns them every launch, no lookup | *none* | **undecided — OQ-A11** |
+| **broker daemon + relay** | *not gated at all* | `run.go:395` spawns the singleton every launch, no lookup | *none* | **gated on the loophole record** (OQ-A11) — `brokerEnsure` routes through the same record as everything else |
 | **broker jail wiring** | bundled loophole | manifest `enabled: true` **and** host `claude` on PATH | `loopholes.claude-oauth-broker.enabled` | inside `packs/claude`, `default_enabled: true` |
 | **host-processes** | bundled loophole | manifest `enabled: true` **and** host `ps` | `loopholes.host-processes.enabled` **plus** top-level `host_processes.visible` | own pack, `default_enabled: false` |
 | **audio** | bundled loophole *and* an official pack beside it | manifest `enabled: true` **and** the pulse socket exists | `loopholes.audio.enabled` | own pack, `default_enabled: false` |
 | **journal** | **builtin service**, hardcoded in the run pipeline | the top-level `journal` key says so | top-level `journal` | **manifest loophole** (OQ-A6); its top-level key goes, settings become typed manifest keys (OQ-A8) |
 | **cgroup-delegate** | **builtin service**, hardcoded | Linux + cgroup v2. No key exists. | *none* | **manifest loophole** (OQ-A6) with `default_enabled: false` (OQ-A4) — stops starting itself |
-| **host nix daemon** | mounted by the run pipeline | the socket exists on the host | *none* | **undecided — OQ-A11** |
+| **host nix daemon** | mounted by the run pipeline | the socket exists on the host | *none* | **stays ungated** (OQ-A11) — image infrastructure, not a capability a jail reaches for; gating it is a `--no-nix` feature |
 | a user's own | `loopholes:` config block | `enabled` defaults true | `loopholes.<name>.*` | unchanged |
 
 Read down the "on today because…" column and the diagnosis writes itself: **no two of these turn on
 the same way**, and only one of them was ever a decision the user made deliberately.
+
+**RULED (OQ-A11, 2026-08-18): gate the broker daemons on the loophole record; leave nix ungated, and
+say why.** The broker is squarely in scope — it is the loophole R6 is already moving, and the fix is
+to route `brokerEnsure` through the same record everything else consults, rather than calling it from
+the run pipeline with only an `rt != "container"` guard. Without that, R6 makes things *worse* before
+better: after the move, a jail that does not select the claude pack has no broker in any surface
+(`loopholes list` will not name it, the briefing will not mention it) while yolo keeps spawning the
+singleton on that host at every launch. **A daemon none of yolo's own surfaces name is worse than one
+that is merely on.**
+
+Nix is a different animal and stays as it is: it is infrastructure the *image* depends on rather than
+a capability a jail reaches for, so gating it is a `--no-nix`-shaped feature, not an activation
+ruling. **The row stays in the table either way** — the table's credibility is the argument, and an
+inventory that quietly omits the crossing it cannot justify is worth less than one that names it.
 
 *Two rows were added by the completeness sweep (§6) and both matter. The broker splits in half — the
 daemon is ungated, only the jail wiring is — and the **host nix daemon socket** is mounted into jails
@@ -509,88 +524,54 @@ contribution.
 
 ## Open Questions
 
-Two. The eleven settled ones are in the Decision Ledger at the top and folded into the body;
-their IDs are unchanged because sibling docs and the roadmap cite them.
+One. The twelve settled ones are in the Decision Ledger at the top and folded into the body; their
+IDs are unchanged because sibling docs and the roadmap cite them.
 
-1. 💬 **OQ-A11 — do the ungated host daemons get gated: the broker singleton, the per-jail relay, and
-   the host nix-daemon socket?**
+1. 💬 **OQ-A13 — may a WORKSPACE turn a host-reaching loophole on, and if so what says it did?**
 
-   §1.1 and §1.3: `run.go:392-398` spawns the broker singleton and a relay **every launch with no
-   lookup**, and the host nix-daemon socket is mounted because it exists. Both are host crossings
-   that no key controls, so **R1 has counterexamples in the run pipeline today** — and R6 by itself
-   does not remove them: after the move, a jail that does not select the claude pack has no broker
-   in any surface (`loopholes list` will not name it, the briefing will not mention it) while yolo
-   keeps spawning the singleton on that host at every launch. A daemon none of yolo's own surfaces
-   name is worse than one that is merely on.
+   **The decision, stated as a choice.** R5 says *"install is user-scope; enable is either scope."*
+   That was written when `enabled: true` was **inert** — the manifest default was already true, so the
+   only meaningful workspace power was turning things **off**. R2 inverts it: `enabled: true` becomes
+   **the activation verb**, and R5 leaves it available in a file an agent can edit.
 
-   > **Asked on review: "are you telling me there are still hard codings? or does `supersedes` have a
-   > bug?"** — **Hardcoding. `supersedes` is fine and is not involved.**
-   >
-   > `run.go:395` calls `o.brokerEnsure()` with **no loophole lookup of any kind**; the only guard
-   > around it is `rt != "container"`. Re-verified 2026-08-18, after this week's containment patch —
-   > that patch gated the *relay* on the singleton socket existing and stopped the launcher
-   > *promising* an endpoint it cannot publish, but the singleton spawn itself is still
-   > unconditional. It is the same family as §1.4's hardcoded config keys: core reaching for a
-   > specific loophole by name, one layer down.
-   >
-   > The nix row is a second, unrelated hardcoding — the daemon socket is mounted because it exists
-   > (§1.3), with no key anywhere.
+   So: **does R5 still stand for the ON direction, and if it does, does enabling get its own
+   disclosure?** Four answers, and they are not all exclusive:
 
-   _Leaning:_ **gate the broker daemons on the loophole record; leave nix for now and say why.** The
-   broker is squarely in scope — it is the loophole R6 is already moving, and the fix is to route
-   `brokerEnsure` through the same record everything else uses. Nix is a different animal: it is
-   infrastructure the *image* depends on rather than a capability a jail reaches for, and gating it
-   is a `--no-nix`-shaped feature, not an activation ruling. But §1.3 must carry the row either way
-   — the table's credibility is the argument.
+   | | Option | Cost |
+   | :--- | :--- | :--- |
+   | **(a)** | **R5 unchanged, nothing added.** The config-approval diff is the disclosure | It is suppressible from inside the jail and skipped without a TTY — see the correction below |
+   | **(b)** | **R5 unchanged, mirror the disclosure.** Make the existing seam symmetric so an ON from workspace scope gets the launch line and the `yolo check` warning that an OFF already gets | Small and one vocabulary. `WorkspaceDisabledLoopholes` (`validate_loopholes.go:352-372`) already computes exactly this and discards the `true` case at `:367` |
+   | **(c)** | **Narrow R5: enabling a host-reaching loophole becomes user-scope only.** The workspace may only disable | Strongest, and it costs a real use case — per-workspace opt-in is what R5 is *for*, and §1.2a shows `yolo-ps` already depends on that shape |
+   | **(d)** | **Fix the substrate instead.** Make the approval snapshot non-agent-writable, so the generic diff can be trusted | Not this doc's to rule — it is roadmap **OQ-D1** — but it is where the real defect lives |
 
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-A13 — enabling is now the dangerous direction, and nothing discloses it. Does it need a
-   surface?**
-
-   Today `enabled: true` in an agent-editable workspace file is **inert** — the manifest default is
-   already true — so the only meaningful workspace power is turning things **off**, which is
-   precisely the direction yolo discloses at launch and warns about in `yolo check`. R2 makes
-   `enabled: true` **the activation verb** and R5 keeps it available at workspace scope.
+   _Leaning:_ **(b) now, and say plainly that (d) is the actual fix.** The machinery exists for the
+   opposite direction, so pointing it at the new dangerous direction is a small change that keeps one
+   vocabulary; (c) over-corrects and breaks the case R5 was written for. But (b) is a *disclosure*,
+   and a disclosure an agent can suppress is not a control — so it should be shipped as a
+   readability improvement, not banked as a safety property.
 
    > **⚠ Corrected on review, 2026-08-18.** This question originally claimed the path produces *"no
-   > violation, no disclosure, no launch line and no warning."* **The disclosure claim was wrong:**
-   > a workspace config change fires the config-approval diff, which renders the added line and asks
-   > *"Accept these config changes? [y/N]"* (`preflight.go:213-232`). So enabling is disclosed, on an
-   > interactive launch, against an untampered snapshot.
-   >
-   > **Two holes keep the question alive, and they are narrower and more interesting than the
-   > original claim:**
+   > violation, no disclosure, no launch line and no warning."* **The disclosure claim was wrong:** a
+   > workspace config change fires the config-approval diff, which renders the added line and asks
+   > *"Accept these config changes? [y/N]"* (`preflight.go:213-232`). Two holes are what keep the
+   > question alive, and they are narrower and more interesting than the original claim:
    >
    > - **The snapshot is inside the jail's reach.** It lives at
    >   `<workspace>/.yolo/config-snapshot.json` (`config/snapshot.go:18-20`) and `/workspace` is
    >   bind-mounted **rw**, so whatever writes `enabled: true` can rewrite the baseline the diff is
    >   computed against. That is roadmap **OQ-D1**, arriving here from a second direction.
    > - **No TTY means no prompt.** The documented behaviour is *"Changed + non-tty: auto-accept,
-   >   rewrite snapshot"* (`config/snapshot.go:38`) — so a scripted or CI launch accepts silently.
-   >
-   > So the live question is not *"is there any disclosure?"* but **"is a generic config diff the
-   > right surface for what is now the activation verb, given it is suppressible from inside the jail
-   > and skipped without a TTY?"**
+   >   rewrite snapshot"* (`config/snapshot.go:38`) — a scripted or CI launch accepts silently.
 
-   The lockfile half is the same shape one surface over: a fetched pack the user reviewed, approved
-   and deliberately never enabled can flip `default_enabled: false → true` in a later commit with a
-   byte-identical claim set, so the approval check still passes.
-
-   > **Yes, that requires a new commit — and that is exactly why it lands here rather than being
-   > covered already.** The lockfile *does* record the commit a fetched pack resolved to
-   > (`packsrc/lock.go:39-42`), so the material to detect a moved pin exists. But every reader of
-   > that field is **display-only**: `pack.go:1096` reports whether an update moved the pin, and
-   > `pack.go:1313-1316` prints it in a listing. **Nothing consults it at launch.** So a new commit
-   > is not detected, the claim set is unchanged, and the approval carries over to code the user
-   > never reviewed. That is roadmap **OQ-LP8 / G2b** — you ruled the shape (approval pinned to a
-   > commit); what is missing is the enforcement.
-
-   _Leaning:_ **yes — mirror the existing disclosure, do not invent a new one.** The machinery is
-   already there for the opposite direction; pointing it at the new dangerous direction is a small
-   change and keeps one vocabulary. The lockfile half is the sharper question and may belong with
-   OQ-LP8's content-anchoring rather than here.
+   > [!NOTE]
+   > **The lockfile half of this question has moved out**, because it is a different decision and
+   > carrying both is what made this question unanswerable. A fetched pack the user approved and
+   > deliberately never enabled can flip `default_enabled: false → true` in a later commit with a
+   > byte-identical claim set. That **does** require a new commit, and the lockfile **does** record
+   > the resolved commit (`packsrc/lock.go:39-42`) — but every reader of that field is display-only
+   > (`pack.go:1096` reports a moved pin, `:1313-1316` lists it) and **nothing consults it at
+   > launch**. You have already ruled the shape there (approval pinned to a commit); the missing
+   > piece is enforcement, and it belongs to **OQ-LP8 / G2b**, not here.
 
    **Answer:**
    > _(empty — fill in when decided)_
