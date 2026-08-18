@@ -338,7 +338,19 @@ _installed_version() {
     jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$PKG/package.json" 2>/dev/null || echo "0"
 }
 
+# _do_install RETURNS THE INSTALL'S STATUS, and that return value is load-bearing for
+# exactly one caller. Update mode has no other way to find out that the program it was
+# asked to refresh is not there: it exits instead of exec'ing, so the "is $REAL_BIN
+# missing?" test at the bottom of this script — the launch path's verdict, and a truer
+# question there, since a failed UPGRADE still leaves a working binary to run — never
+# executes. Without a status, "yolo pack update" reported success for a refresh that
+# installed nothing, which is the silent no-op the whole split exists to avoid.
+#
+# The launch path therefore drops it explicitly ("_do_install || true") rather than by
+# accident: dropping it is the correct behaviour there, and saying so keeps the two
+# readings from being confused for one.
 _do_install() {
+    local rc=0
     echo "  Installing $SPEC..." >&2
     # Clean stale npm temp dirs that cause ENOTEMPTY
     rm -rf "$NPM_CONFIG_PREFIX"/lib/node_modules/${PKG%%/*}/.${PKG##*/}-* 2>/dev/null
@@ -357,8 +369,11 @@ _do_install() {
         # differ and tries again. Leaving the PREVIOUS spec in place instead keeps the record
         # true (it names what is actually on disk) and makes the mismatch self-healing.
         printf '%s\n' "$SPEC" > "$SPEC_FILE"
+    else
+        rc=1
     fi
     touch "$STAMP"
+    return "$rc"
 }
 
 # _poll_and_report is the hourly registry check, and it is INFORMATIONAL. It asks the
@@ -390,6 +405,14 @@ _poll_and_report() {
 # _update is the ONLY path in this script that resolves a new version, and the only way
 # into it is YOLO_PACK_UPDATE=1. That is the install/update split, implemented at the one
 # place that knows how to talk to npm rather than copied into Go beside it.
+#
+# IT REPORTS FAILURE THROUGH ITS EXIT STATUS, because it is the only thing that can. An
+# update runs with nobody reading the scrollback — "yolo pack update" walks every
+# npm-declared program in turn — and its caller has no other signal: it cannot inspect
+# $REAL_BIN (that is this jail's npm prefix, not the CLI's), and npm's own "npm ERR!"
+# lines are indistinguishable from the noise a SUCCESSFUL install prints. So every way
+# this function can fail to leave the declared program installed returns non-zero:
+# a failed "npm install", and a registry that did not answer.
 _update() {
     if [ "$PINNED" = "1" ]; then
         # A declared selector already IS the answer to "which version", so there is
@@ -409,11 +432,25 @@ _update() {
         return
     fi
     INSTALLED=$(_installed_version)
-    LATEST=$(YOLO_BYPASS_SHIMS=1 npm view "$PKG" version 2>/dev/null || echo "$INSTALLED")
+    # A registry that did not answer is NOT "already current", and the two must not share
+    # a branch. _poll_and_report may collapse them — it substitutes $INSTALLED for a failed
+    # "npm view" on purpose, because an informational poll that cannot reach the registry
+    # has nothing to say and must not delay a launch. Here the user ASKED, so the same
+    # substitution would answer a question that was never put to the registry: it printed
+    # "<version> is already current" and exited 0 for an offline jail, which is worse than
+    # the reinstall it replaced — a user told their CLI is current stops looking.
+    #
+    # An empty answer is treated the same as a failed one: "npm view" has more than one way
+    # to come back with nothing useful, and every one of them means "unknown", never "same".
+    LATEST=$(YOLO_BYPASS_SHIMS=1 npm view "$PKG" version 2>/dev/null || true)
+    if [ -z "$LATEST" ]; then
+        echo "  ⚠ __YOLO_BIN__: could not ask the npm registry for a newer version — leaving $INSTALLED in place." >&2
+        return 1
+    fi
     if [ "$INSTALLED" = "$LATEST" ]; then
         echo "  __YOLO_BIN__ $INSTALLED is already current." >&2
         touch "$STAMP"
-        return
+        return 0
     fi
     echo "  Updating __YOLO_BIN__ $INSTALLED → $LATEST..." >&2
     _do_install
@@ -422,15 +459,27 @@ _update() {
 if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
     # Update mode EXITS instead of exec'ing the real binary: "yolo pack update" walks
     # every npm-declared program in turn and must refresh them, not launch them.
-    _update
-    exit 0
+    #
+    # It exits with _update's STATUS, not 0. The "|| _rc=$?" capture is what makes that
+    # readable under "set -e": running _update on the left of a "||" suspends errexit for
+    # the whole of it, so a failed "npm install" inside comes back as a return value
+    # instead of killing the script two frames down — and the script's own exit code stays
+    # the single place this outcome is decided.
+    _rc=0
+    _update || _rc=$?
+    exit "$_rc"
 fi
 
 if [ ! -x "$REAL_BIN" ]; then
     # Cold home: the FIRST install is not a poll, and the no-evergreen ruling does not
     # touch it. There is no version here to keep — without this branch a fresh jail would
     # simply have no agent CLI at all.
-    _do_install
+    #
+    # "|| true": on the LAUNCH path a failed install is not the verdict. The -x "$REAL_BIN"
+    # test at the bottom is, because it answers the question this path actually has — is
+    # there something to exec? — and it answers it correctly for the upgrade case too,
+    # where the install failed and the previous version is still perfectly runnable.
+    _do_install || true
 elif [ "$PINNED" = "1" ]; then
     # A pinned package has nothing to poll for. A "npm view $PKG version" call answers "what is
     # the registry's latest?", which against a declared selector is either ignored (the
@@ -439,7 +488,7 @@ elif [ "$PINNED" = "1" ]; then
     # one thing that can legitimately move this binary is the DECLARATION, so that is what
     # we compare, offline.
     if [ "$(cat "$SPEC_FILE" 2>/dev/null || true)" != "$SPEC" ]; then
-        _do_install
+        _do_install || true
     fi
 elif [ ! -f "$STAMP" ]; then
     # First run since jail boot — say whether a newer version exists.

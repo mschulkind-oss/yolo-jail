@@ -132,6 +132,12 @@ type npmProbe struct {
 // $FAKE_INSTALL_FAIL makes `npm install` fail the way a real one does — non-zero, nothing
 // written — which is the only way to reach the branch that decides whether a pinned
 // launcher may record a spec it never got.
+//
+// $FAKE_VIEW_FAIL is the same injection for the other half of the network: `npm view`
+// exits non-zero and prints nothing, which is what an offline jail, a proxy refusing
+// CONNECT and a registry outage all look like from in here. It has to be separately
+// injectable because the launcher's two modes must answer it DIFFERENTLY — the
+// informational poll swallows it, the explicit update must not.
 func newNpmProbe(t *testing.T, bin string) *npmProbe {
 	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
@@ -162,6 +168,10 @@ install)
     chmod +x "$NPM_CONFIG_PREFIX/bin/` + bin + `"
     ;;
 view)
+    if [ -n "${FAKE_VIEW_FAIL:-}" ]; then
+        echo "npm ERR! code ENOTFOUND" >&2
+        exit 1
+    fi
     echo "${FAKE_LATEST:-0}"
     ;;
 esac
@@ -197,7 +207,28 @@ func (p *npmProbe) run(t *testing.T, bin, pkg string, env ...string) []string {
 // available" line (which by design touches npm only for the `view`), and whether the
 // launcher exec'd the real binary — the fake one prints RAN, so its absence is the proof
 // that update mode refreshed instead of launching.
+//
+// It FAILS the test on a non-zero exit, which is right for every caller that expects the
+// launcher to succeed. A caller measuring the exit code itself wants runStatus.
 func (p *npmProbe) runOut(t *testing.T, bin, pkg string, env ...string) ([]string, string) {
+	t.Helper()
+	log, out, rc := p.runStatus(t, bin, pkg, env...)
+	if rc != 0 {
+		t.Fatalf("launcher failed: exit %d\n%s", rc, out)
+	}
+	return log, out
+}
+
+// runStatus is runOut without the verdict: it hands back the launcher's EXIT CODE instead
+// of failing on it.
+//
+// That code is not a detail of the harness — it is the launcher's only channel to
+// `yolo pack update`, which walks a list of programs and cannot see into any of them
+// (it does not know this jail's npm prefix, and npm's own "npm ERR!" lines are
+// indistinguishable from the chatter a SUCCESSFUL install prints). A test that could only
+// assert on stdout would pass just as happily against a launcher that reported every
+// outcome as success.
+func (p *npmProbe) runStatus(t *testing.T, bin, pkg string, env ...string) ([]string, string, int) {
 	t.Helper()
 	body := npmAgentLauncher(
 		&packdecl.Install{Kind: "npm", Bin: bin, Package: pkg},
@@ -213,10 +244,13 @@ func (p *npmProbe) runOut(t *testing.T, bin, pkg string, env ...string) ([]strin
 		"PATH=" + p.fakeBin + ":" + os.Getenv("PATH"),
 	}, env...)
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("launcher failed: %v\n%s", err, out)
+	rc := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		rc = ee.ExitCode()
+	} else if err != nil {
+		t.Fatalf("launcher could not be run at all: %v\n%s", err, out)
 	}
-	return p.log(t), string(out)
+	return p.log(t), string(out), rc
 }
 
 func (p *npmProbe) log(t *testing.T) []string {
@@ -414,6 +448,136 @@ func TestNpmLauncherUpdateModeIsTheOnlyResolver(t *testing.T) {
 	}
 	if !strings.Contains(out, "already current") {
 		t.Errorf("update mode must say it found nothing to do:\n%s", out)
+	}
+}
+
+// TestNpmLauncherUpdateModeReportsAFailedInstall is the split's silent no-op, closed.
+//
+// Update mode exits instead of exec'ing, so it never reaches the `-x "$REAL_BIN"` test at
+// the bottom of the script — the launch path's verdict, and the only place the launcher
+// used to decide anything about failure. With an unconditional `exit 0` after `_update`,
+// every failure inside it came back as SUCCESS: `yolo pack update` printed npm's error and
+// returned 0, so a scripted `yolo pack update && …` proceeded and a user was told nothing
+// had gone wrong while the agent CLI was still the old one — or, on a cold home, absent.
+//
+// That is the failure this whole mechanism was built to prevent, arriving through the act
+// meant to replace it, and it is invisible from inside Go: `internal/cli`'s seam test
+// stubs the refresh out, so the plumbing carrying a non-zero was pinned while the launcher
+// could not produce one. It only shows up by RUNNING the script against a failing npm.
+//
+// Both shapes are covered because they reach `_do_install` down different branches — the
+// unpinned one after a registry comparison, the pinned one after a spec-file comparison —
+// and a `return` that drops the status on either is the same defect.
+func TestNpmLauncherUpdateModeReportsAFailedInstall(t *testing.T) {
+	t.Run("unpinned", func(t *testing.T) {
+		p := newNpmProbe(t, "tool")
+		p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
+		p.truncateLog(t)
+
+		log, out, rc := p.runStatus(t, "tool", "tool", "YOLO_PACK_UPDATE=1",
+			"FAKE_LATEST=9.9.9", "FAKE_INSTALL_FAIL=1")
+		if !hasArgv(log, "install -g --prefer-online tool@latest") {
+			t.Fatalf("the update must at least attempt the install:\n%s", strings.Join(log, "\n"))
+		}
+		if rc == 0 {
+			t.Errorf("an update whose `npm install` failed must exit non-zero — it is the "+
+				"only signal `yolo pack update` gets, and 0 here means a user is told the "+
+				"refresh worked while the old binary is still in place:\n%s", out)
+		}
+	})
+
+	t.Run("pinned, declaration moved", func(t *testing.T) {
+		p := newNpmProbe(t, "tool")
+		p.run(t, "tool", "tool@1.2.3")
+		p.truncateLog(t)
+
+		log, out, rc := p.runStatus(t, "tool", "tool@1.3.0", "YOLO_PACK_UPDATE=1",
+			"FAKE_INSTALL_FAIL=1")
+		if !hasArgv(log, "install -g --prefer-online tool@1.3.0") {
+			t.Fatalf("a moved pin must still be attempted:\n%s", strings.Join(log, "\n"))
+		}
+		if rc == 0 {
+			t.Errorf("a pinned update that could not converge on its declaration must say so "+
+				"in its exit code:\n%s", out)
+		}
+	})
+
+	// The LAUNCH path is deliberately the other way round and must stay that way: a failed
+	// install there is not the verdict, because the question that path has is "is there
+	// something to exec?" — and after a failed UPGRADE there still is.
+	t.Run("launch path keeps its own verdict", func(t *testing.T) {
+		p := newNpmProbe(t, "tool")
+		p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
+		p.truncateLog(t)
+
+		// A failed pinned upgrade: the previous binary is still there, so the launch
+		// succeeds and runs it.
+		_, out, rc := p.runStatus(t, "tool", "tool@2.0.0", "FAKE_INSTALL_FAIL=1")
+		if rc != 0 || !strings.Contains(out, "RAN") {
+			t.Errorf("a failed upgrade must still launch the version that IS installed "+
+				"(rc=%d):\n%s", rc, out)
+		}
+
+		// A COLD home whose install failed has nothing to exec, and that is the one case
+		// the launch path fails on — with the message that names the tool.
+		q := newNpmProbe(t, "tool")
+		_, out, rc = q.runStatus(t, "tool", "tool", "FAKE_INSTALL_FAIL=1")
+		if rc == 0 {
+			t.Errorf("a cold home whose install failed has no CLI, and the launcher must "+
+				"not report success:\n%s", out)
+		}
+		if !strings.Contains(out, "not available") {
+			t.Errorf("and it must say which tool is missing:\n%s", out)
+		}
+	})
+}
+
+// TestNpmLauncherUpdateModeDoesNotClaimCurrentWhenTheRegistryIsSilent: "I could not ask"
+// and "the answer was the same" are different facts, and only one of them is good news.
+//
+// `_update` resolved LATEST with `npm view … || echo "$INSTALLED"`, borrowed verbatim from
+// the informational poll. In the poll that substitution is right — a check nobody asked for
+// that cannot reach the registry has nothing to say and must not delay a launch. In an
+// update it makes the failure indistinguishable from success by construction: the two
+// versions compare equal, so an offline jail was told "<version> is already current" and
+// given exit 0. That is worse than the silent reinstall this mechanism replaced, because a
+// user who has been told their CLI is current stops looking.
+func TestNpmLauncherUpdateModeDoesNotClaimCurrentWhenTheRegistryIsSilent(t *testing.T) {
+	p := newNpmProbe(t, "tool")
+	p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
+	p.truncateLog(t)
+
+	log, out, rc := p.runStatus(t, "tool", "tool", "YOLO_PACK_UPDATE=1", "FAKE_VIEW_FAIL=1")
+	if !hasArgv(log, "view tool version") {
+		t.Fatalf("the update must have asked:\n%s", strings.Join(log, "\n"))
+	}
+	if strings.Contains(out, "already current") {
+		t.Errorf("an unanswered registry must never be reported as an up-to-date one:\n%s", out)
+	}
+	if rc == 0 {
+		t.Errorf("the user asked for an update and did not get one; that is not exit 0:\n%s", out)
+	}
+	// And it must not paper over the failure by reinstalling blind: a guess is not a
+	// resolution, and this is the act the no-evergreen ruling reserves for real answers.
+	if hasArgv(log, "install") {
+		t.Errorf("a registry that did not answer is not a licence to reinstall:\n%s",
+			strings.Join(log, "\n"))
+	}
+
+	// The POLL keeps the opposite behaviour, and the contrast is the point: nobody asked,
+	// so an unreachable registry is silent, harmless and must not stop the launch.
+	p.agePastInterval(t, "tool")
+	p.truncateLog(t)
+	log, out, rc = p.runStatus(t, "tool", "tool", "FAKE_VIEW_FAIL=1")
+	if !hasArgv(log, "view tool version") {
+		t.Errorf("the poll must still try:\n%s", strings.Join(log, "\n"))
+	}
+	if rc != 0 || !strings.Contains(out, "RAN") {
+		t.Errorf("but a poll that could not reach the registry must never stop a launch "+
+			"(rc=%d):\n%s", rc, out)
+	}
+	if strings.Contains(out, "is available") {
+		t.Errorf("nor invent a report out of an answer it never got:\n%s", out)
 	}
 }
 
