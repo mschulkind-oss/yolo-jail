@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
 // TestSetEnabledRefusesAndNamesTheConfigKey: after OQ-LP10 the command has no manifest
@@ -45,6 +46,56 @@ func TestSetEnabledRefusesAndNamesTheConfigKey(t *testing.T) {
 		if out.Len() != 0 {
 			t.Errorf("%s: wrote %q to stdout — a refusal belongs on stderr", tc.verb, out.String())
 		}
+		// OQ-A9's trap, and the single most likely way to get the rename wrong. The
+		// MANIFEST's `enabled` became `default_enabled`; the CONFIG's `loopholes.<name>.
+		// enabled` did NOT, because they were never the same key — one is the pack
+		// author's default, the other is the user's answer. A well-meaning sweep that
+		// renamed both would leave this command instructing users to write a key
+		// internal/config does not validate and discovery never reads, so the
+		// instruction would be silently inert.
+		if strings.Contains(got, "default_enabled") {
+			t.Errorf("%s: the command offers the MANIFEST key `default_enabled`; the user's "+
+				"switch is the CONFIG key `loopholes.%s.enabled` and the rename did not touch "+
+				"it:\n%s", tc.verb, "myhole", got)
+		}
+	}
+}
+
+// TestSetEnabledNeverWritesAManifest is the other half of the same ruling: whatever
+// `yolo loopholes enable` grows into, it must not reach for a manifest file.
+//
+// The command's ORIGINAL mechanism was exactly that — rewrite `enabled` in a
+// hand-placed manifest — and OQ-A9 rules the fix is to write CONFIG instead. The
+// mechanism is already gone (SetEnabled was deleted with the directory it served,
+// OQ-LP10), so what this pins is that it stays gone: a manifest.jsonc sitting exactly
+// where the retired loader used to look is untouched by both verbs.
+//
+// Pinned by the FILE's bytes rather than by asserting the absence of a function,
+// because the property is about effect, not about which symbol performs it.
+func TestSetEnabledNeverWritesAManifest(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	retired := RetiredUserLoopholesDir()
+	mod := filepath.Join(retired, "myhole")
+	must(t, os.MkdirAll(mod, 0o755))
+	manifestPath := filepath.Join(mod, loopholedecl.ManifestName)
+	const body = `{"name": "myhole", "transport": "none", "default_enabled": false}`
+	must(t, os.WriteFile(manifestPath, []byte(body), 0o644))
+
+	for _, enabled := range []bool{true, false} {
+		var out, errBuf bytes.Buffer
+		CmdSetEnabled(Deps{Out: &out, Err: &errBuf, Cwd: home}, "myhole", enabled)
+	}
+	after, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != body {
+		t.Errorf("the manifest was rewritten:\n before: %s\n  after: %s\n"+
+			"Enable/disable state belongs in config for EVERY source — a manifest is the "+
+			"binary's content (bundled) or the pack's (pack-shipped), and after OQ-A9 it "+
+			"carries the AUTHOR's default rather than the user's answer at all.",
+			body, after)
 	}
 }
 

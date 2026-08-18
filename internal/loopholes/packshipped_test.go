@@ -447,10 +447,27 @@ func TestSubsetManifestProjectsEveryField(t *testing.T) {
 			}
 			continue
 		}
-		// HostBindMount is spelled HostBindMounts on the manifest — the one rename.
+		// Two fields whose names differ across the projection, and they differ for
+		// different reasons — worth keeping separate rather than collapsing into one
+		// "renames" map, because only one of them is a rename.
+		//
+		//	HostBindMount → HostBindMounts   a spelling difference and nothing more.
+		//	Enabled       → DefaultEnabled   a MEANING difference (OQ-A9). The record's
+		//	                                 Enabled is the resolved state, config
+		//	                                 override and all; the manifest's
+		//	                                 DefaultEnabled is only what the pack AUTHOR
+		//	                                 declared. resolve() (load.go) is where the
+		//	                                 second becomes the first, and this
+		//	                                 projection runs the other way — which is
+		//	                                 lossy in principle and free in fact,
+		//	                                 because the pack-shipped subset reads
+		//	                                 neither.
 		projName := name
-		if name == "HostBindMount" {
+		switch name {
+		case "HostBindMount":
 			projName = "HostBindMounts"
+		case "Enabled":
+			projName = "DefaultEnabled"
 		}
 		field := projected.FieldByName(projName)
 		if !field.IsValid() {

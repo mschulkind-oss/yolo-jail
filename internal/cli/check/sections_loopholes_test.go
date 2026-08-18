@@ -164,8 +164,8 @@ func TestCheckLoopholesWarnsOnWorkspaceDisable(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeManifest("wsoff", `{"name": "wsoff", "transport": "none", "enabled": true}`)
-	writeManifest("selfoff", `{"name": "selfoff", "transport": "none", "enabled": false}`)
+	writeManifest("wsoff", `{"name": "wsoff", "transport": "none", "default_enabled": true}`)
+	writeManifest("selfoff", `{"name": "selfoff", "transport": "none", "default_enabled": false}`)
 
 	ws := t.TempDir()
 	wsCfg := filepath.Join(ws, "yolo-jail.jsonc")
@@ -471,7 +471,7 @@ func TestHostServiceLivenessSaysWhatItCannotSee(t *testing.T) {
 	// host_daemon is what puts it in the "externals" set this section probes at all.
 	if err := os.WriteFile(filepath.Join(modDir, "manifest.jsonc"), []byte(
 		`{"name": "svc", "description": "x", "transport": "loopback-tls", `+
-			`"host_daemon": {"cmd": ["true"]}}`), 0o644); err != nil {
+			`"default_enabled": true, "host_daemon": {"cmd": ["true"]}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -567,7 +567,7 @@ func TestHostServiceLivenessNoCaveatWithoutALoopbackTLSProbe(t *testing.T) {
 	// other than loopback-tls is probed as a plain socket.
 	if err := os.WriteFile(filepath.Join(modDir, "manifest.jsonc"), []byte(
 		`{"name": "unixsvc", "description": "x", "transport": "none", `+
-			`"host_daemon": {"cmd": ["true"]}}`), 0o644); err != nil {
+			`"default_enabled": true, "host_daemon": {"cmd": ["true"]}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

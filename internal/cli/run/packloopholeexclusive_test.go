@@ -350,7 +350,7 @@ func loopholePackDir(t *testing.T, name, from string) string {
 	}
 	// A minimal, valid loophole manifest: name MUST equal the dir basename (the loader
 	// enforces it, which is what makes the pre-flight's basename shortcut sound).
-	body := `{"name":"` + filepath.Base(moduleDir) + `","description":"test","enabled":true,` +
+	body := `{"name":"` + filepath.Base(moduleDir) + `","description":"test","default_enabled":true,` +
 		`"transport":"none","lifecycle":"external"}`
 	if err := os.WriteFile(filepath.Join(moduleDir, "manifest.jsonc"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)

@@ -420,6 +420,14 @@ func runOne(argv []string, timeout time.Duration) (*int, string) {
 // installed binary there is no file at all), and a PACK's manifest belongs to the
 // pack, where a local rewrite would be silently reverted by the next `pack install`.
 // Enable/disable state moves into config for every source; see CmdSetEnabled.
+//
+// OQ-A9 CLOSED THE OTHER HALF, and it is worth stating because the ruling reads like
+// work still owed: the key this function used to write DOES NOT EXIST any more. The
+// manifest's `enabled` is now `default_enabled` and is the PACK AUTHOR's default, not
+// a user setting, so there is no longer a manifest field a `yolo loopholes enable`
+// could legitimately target even if a writable manifest turned up. The only writable
+// home for the user's answer is config, which is where CmdSetEnabled points —
+// `loopholes.<name>.enabled`, unrenamed, because it was always the other key.
 
 func toAnySlice(ss []string) []any {
 	out := make([]any, len(ss))

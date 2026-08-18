@@ -25,7 +25,24 @@
   "name": "audio-alsa",
   "description": "ALSA→PipeWire routing for the jail: drops an /etc/alsa/conf.d fragment that points libasound's \"default\" PCM/CTL at the PipeWire shim, so a libasound client reaches the audio the bundled `audio` loophole bridged instead of dying on a missing card.",
   "version": 1,
-  "enabled": true,
+
+  // `enabled` renamed, default flipped, behaviour deliberately UNCHANGED
+  // (docs/design/loophole-activation.md OQ-A9). TRUE and not false, even though its
+  // sibling `audio` flips to false in the same commit, because R4's subject is HOST
+  // ACCESS and this loophole reaches none: its single crossing is a read-only bind of
+  // a config file THE PACK ITSELF SHIPS (see host_bind_mounts below — the pack-shipped
+  // subset permits `{loophole_dir}` and nothing else). There is no host socket, no
+  // device, no daemon.
+  //
+  // And the deliberate act R1 asks for has already happened by the time this manifest
+  // is read at all: a pack-shipped loophole is only discovered when its pack is
+  // SELECTED, and `packs: ["audio"]` is a line in the user-scope config that nothing
+  // but a human writes (OQ-A7 — "shipped in the binary is not installed"). Selecting a
+  // pack whose entire content is audio routing IS the request for audio routing;
+  // making it also say `loopholes.audio-alsa.enabled: true` would be the same intent
+  // spelled twice, which is the ceremony OQ-A5 weighs and only accepts where the gates
+  // answer different questions.
+  "default_enabled": true,
 
   // Linux-only, DECLARED rather than left to a `requires` probe (§3.1). The two
   // fields answer different questions: `requires` is "is the thing I need present"

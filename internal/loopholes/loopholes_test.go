@@ -17,8 +17,29 @@ import (
 
 // writeManifest writes a manifest.jsonc built from a Go map via
 // json.MarshalIndent.
+//
+// It SUPPLIES `default_enabled: true` when the caller did not state one, and that
+// default is the opposite of the schema's on purpose. After OQ-A9 flipped the
+// manifest's default to OFF (docs/design/loophole-activation.md R2), a fixture that
+// says nothing about enablement produces a loophole that is not discovered, not
+// active, and absent from every report — so every test in this package about
+// something ELSE (platforms, requires, doctor_cmd, workspace overrides, the origin
+// gate) would go on passing while measuring an empty list. That is a silent
+// coverage loss, not a failure, which is why the default is stated here rather than
+// left to the schema.
+//
+// A caller that CARES about enablement writes the key, and its explicit value wins —
+// which is what the disabled-loophole tests in this file rely on.
 func writeManifest(t *testing.T, dir string, data map[string]any) {
 	t.Helper()
+	if _, stated := data["default_enabled"]; !stated {
+		withDefault := make(map[string]any, len(data)+1)
+		for k, v := range data {
+			withDefault[k] = v
+		}
+		withDefault["default_enabled"] = true
+		data = withDefault
+	}
 	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +153,7 @@ func TestNameMustMatchDirectory(t *testing.T) {
 func TestDisabledSkippedByDefault(t *testing.T) {
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "off"))
-	writeManifest(t, mod, map[string]any{"name": "off", "description": "x", "enabled": false})
+	writeManifest(t, mod, map[string]any{"name": "off", "description": "x", "default_enabled": false})
 	if got := discoverDir(md, false); len(got) != 0 {
 		t.Errorf("disabled should be skipped: %v", names(got))
 	}
@@ -270,7 +291,7 @@ func TestConfigLoopholePreambleOptIn(t *testing.T) {
 func TestWorkspaceOverrideMergesEnabled(t *testing.T) {
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "bundled-like"))
-	writeManifest(t, mod, map[string]any{"name": "bundled-like", "description": "x", "enabled": false})
+	writeManifest(t, mod, map[string]any{"name": "bundled-like", "description": "x", "default_enabled": false})
 	cfg := orderedFromPairs("bundled-like", map[string]any{"enabled": true})
 	loaded := discoverWithConfig(md, true, cfg)
 	if len(loaded) != 1 || loaded[0].Name != "bundled-like" || !loaded[0].Enabled || loaded[0].Source != SourceBundled {

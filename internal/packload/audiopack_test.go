@@ -193,6 +193,23 @@ func TestAudioPackLoopholeIsInsideThePackShippedSubset(t *testing.T) {
 	if mod.Decl == nil {
 		t.Fatalf("manifest did not decode: %s", mod.Problem)
 	}
+	// The fourth shipped manifest's enablement default, after the OQ-A9 rename
+	// (docs/design/loophole-activation.md). TRUE, unlike its bundled sibling `audio`
+	// which R4 flips to false in the same commit, and the asymmetry is the ruling
+	// rather than an oversight: R4's subject is HOST ACCESS, and this loophole reaches
+	// none — its one crossing is a :ro bind of a file the pack itself ships. The
+	// deliberate act R1 wants has also already happened by the time this manifest is
+	// read, because a pack-shipped loophole is discovered only when its pack is
+	// SELECTED, and `packs: ["audio"]` is user-scope and hand-written (OQ-A7).
+	//
+	// Asserted through the EMBEDDED pack, so the value the binary carries is what is
+	// pinned — the same reason every other assertion in this file reads the embed.
+	if !mod.Decl.DefaultEnabled {
+		t.Errorf("default_enabled = false; selecting the `audio` pack is already the "+
+			"deliberate act, so the pack's own loophole must not need a second one. "+
+			"If this was flipped on purpose, R4 is about host access and %q reaches none.",
+			audioLoopholeName)
+	}
 	if probs := mod.Decl.PackShippedProblems(loopholedecl.ManifestPath(mod.Dir)); len(probs) > 0 {
 		t.Errorf("the SHIPPED pack's loophole is outside the pack-shipped subset, so a "+
 			"launch would refuse it:\n%s", strings.Join(probs, "\n"))

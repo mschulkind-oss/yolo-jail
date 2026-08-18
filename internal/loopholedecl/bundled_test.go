@@ -28,6 +28,27 @@ func bundledManifest(t *testing.T, name string) []byte {
 // declares and nothing reads. If the strict decoder rejected a shipped manifest,
 // `yolo pack lint` would fail on yolo's own loopholes.
 func TestBundledManifestsDecodeStrictly(t *testing.T) {
+	// The declared default, PER MANIFEST, because after OQ-A9 they no longer agree —
+	// and each disagreement is a ruling rather than an accident:
+	//
+	//   audio                 R4, "host access is never on by default". The one
+	//                         behaviour change in the rename commit.
+	//   claude-oauth-broker   OQ-A1. It must not gain a way to be silently off; a
+	//                         jail-only claude user without it races the single-use
+	//                         refresh token rather than merely losing a feature.
+	//   host-processes        unchanged pending the pack conversion (§1.3 has it
+	//                         ending at false, paid for by `packs:` selection). Its
+	//                         capability is empty anyway until the workspace lists
+	//                         names in `host_processes.visible` (§1.2a).
+	//
+	// A table rather than one blanket assertion because the blanket one — "every
+	// bundled manifest declares enabled:true" — is what this change had to delete, and
+	// a reader who flips a value here should have to say which ruling moved.
+	wantDefaultEnabled := map[string]bool{
+		"audio":               false,
+		"claude-oauth-broker": true,
+		"host-processes":      true,
+	}
 	for _, name := range []string{"audio", "claude-oauth-broker", "host-processes"} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join("/loopholes", name)
@@ -42,8 +63,8 @@ func TestBundledManifestsDecodeStrictly(t *testing.T) {
 				t.Errorf("Version = %d (set=%v), want 1 — `version` must be READ, not just tolerated",
 					m.Version, m.VersionSet)
 			}
-			if !m.Enabled {
-				t.Errorf("Enabled = false; every bundled manifest declares enabled:true")
+			if m.DefaultEnabled != wantDefaultEnabled[name] {
+				t.Errorf("DefaultEnabled = %v, want %v", m.DefaultEnabled, wantDefaultEnabled[name])
 			}
 			// The tolerant path must agree, key for key: these manifests cross the
 			// version boundary into a jail whose baked entrypoint may be older.

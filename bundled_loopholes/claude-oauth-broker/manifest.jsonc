@@ -6,7 +6,15 @@
   "name": "claude-oauth-broker",
   "description": "Serializes Claude OAuth refreshes so multi-jail setups don't burn the single-use refresh token. TLS termination lives inside each jail; a host-side daemon owns the flock + shared credentials file.",
   "version": 1,
-  "enabled": true,
+  // `enabled` renamed, default flipped, behaviour deliberately UNCHANGED here
+  // (docs/design/loophole-activation.md OQ-A9 for the rename, OQ-A1 for the value).
+  // The broker is the one loophole that must not gain a way to be silently off: a
+  // jail-only claude user who loses it is not merely without a feature, they are
+  // running unserialized single-use refresh-token races against Anthropic
+  // (agent-credentials.md §2.5).  When R6 moves this manifest inside `packs/claude`,
+  // SELECTING THE CLAUDE PACK becomes the thing that turns it on and this value is
+  // what makes that selection sufficient.
+  "default_enabled": true,
   // Activation precondition.  Bundled → always *present*; inactive when
   // Claude Code isn't installed on the host (no point running the
   // broker with nothing to refresh for).

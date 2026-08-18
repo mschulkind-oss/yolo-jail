@@ -31,7 +31,19 @@
   "name": "audio",
   "description": "PipeWire/PulseAudio socket pass-through + ALSA→PipeWire routing — enables microphone and playback inside the jail (Claude Code /voice, sox, ffmpeg, pipewire-rs, libasound clients).",
   "version": 1,
-  "enabled": true,
+
+  // OFF unless somebody asks for it, and this is the one shipped manifest whose
+  // BEHAVIOUR the rename changes rather than merely respelling
+  // (docs/design/loophole-activation.md R4: "host access is never on by default").
+  // Audio was on for everyone whose host had a pulse socket — presence deciding
+  // activation, which is precisely what R1 deletes — and "being useful is not a
+  // reason to be automatic".
+  //
+  // Written out rather than omitted even though absent already means false: this is
+  // the manifest a reader checks when they wonder why their microphone stopped
+  // working, and a key that is not there answers nothing. The switch back on is
+  // `"loopholes": {"audio": {"enabled": true}}` in ~/.config/yolo-jail/config.jsonc.
+  "default_enabled": false,
 
   // Only activate when the Linux user audio socket is actually
   // present.  Works for both PipeWire (which ships a Pulse-compatible

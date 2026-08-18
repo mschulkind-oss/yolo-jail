@@ -43,7 +43,7 @@ into another pack unchanged. See
   "name": "my-loophole",          // required; must match directory name
   "description": "…",             // optional; one-line human summary
   "version": 1,                   // manifest format; currently 1
-  "enabled": true,                // default true; toggle via CLI
+  "default_enabled": false,       // the AUTHOR's default; ABSENT MEANS OFF (see below)
   "transport": "loopback-tls",    // or "none"; DEFAULT is "loopback-tls"
   "lifecycle": "external",        // or "spawned" (yolo manages the daemon)
   "intercepts": [                 // optional; presence is what makes it a TLS intercept
@@ -75,6 +75,26 @@ into another pack unchanged. See
   "platforms": ["linux", "darwin/arm64"]  // optional; omit = every platform
 }
 ```
+
+**`default_enabled` is the pack AUTHOR's opinion, and absent means OFF.** Omit it
+and the loophole ships disabled — *presence never activates*
+([`loophole-activation.md`](../design/loophole-activation.md) R1/R2). Declare
+`true` only where being off would be a defect rather than a preference: the
+`claude-oauth-broker` does, because a jail-only claude user without it races the
+single-use refresh token instead of merely losing a feature.
+
+**Do not confuse it with `loopholes.<name>.enabled` in config**, which is the
+*user's* switch and is untouched by any of this — it overrides whatever the
+manifest declared, in either direction, from either scope. Two different people
+answer the two keys: the pack author says what should happen when nobody has
+spoken, and you say what happens instead.
+
+> The manifest key used to be spelled `enabled` and used to default to **true**.
+> It is now **refused** with an error naming the rename, rather than ignored,
+> because the two readings of a silently-dropped `enabled` (was it asking to be on,
+> or asking to be off?) are both defensible and neither is guessable. Rename the
+> key; if the old value was `false`, delete it instead — that is what saying
+> nothing now means.
 
 Note the second half of that census — `host_daemon`, `jail_daemon`,
 `host_bind_mounts`, `host_devices`, `requires` — is every key with a host-side
@@ -210,7 +230,7 @@ Declare it whenever your state dir holds anything the jail does not read.
 What the loader does at each `yolo run`:
 
 1. Scans `bundled_loopholes/` and each selected pack's `loophole` contributions for subdirectories with a valid `manifest.jsonc`.
-2. Skips any with `"enabled": false`.
+2. Skips any that resolve to disabled — `default_enabled` absent or `false` in the manifest, unless a config `loopholes.<name>.enabled: true` overrides it (and vice versa: config `false` wins over a manifest `true`).
 3. For loopholes declaring `intercepts`: emits `--add-host <host>:<broker_ip>` for each intercept, bind-mounts the CA cert into the jail at `/etc/yolo-jail/loopholes/<name>/ca.crt`, and sets `NODE_EXTRA_CA_CERTS` to all loophole CAs concatenated. **Note:** Apple Container (`runtime=container`) does not support `--add-host` ([apple/container#673](https://github.com/apple/container/issues/673)), so an intercepting loophole is skipped entirely on that runtime.
 4. For `loopback-tls` / `spawned` loopholes — either a bundled manifest with a `host_daemon`, or the `loopholes` shorthand in the user config (see below); yolo handles spawning the daemon, bind-mounting its published path into the jail, and cleanup.
 5. Merges `jail_env` into the container env.
@@ -363,10 +383,14 @@ would still push its bind mounts, devices and `jail_env` into the jail while the
 winner's daemon ran.
 
 **Selecting the pack is what activates the loophole; deselecting it is what stops
-the loophole starting next launch.** There is no second switch to throw — no
-`loopholes.<name>.enabled: true` needed, and no default-on: *nothing pack-shipped
-is ever active by default*, because for this kind "active by default" would mean
-yolo running a daemon on your machine that you did not ask for. Deselecting also
+the loophole starting next launch.** There is no second switch to throw when the
+manifest says `default_enabled: true` — no `loopholes.<name>.enabled: true` needed
+on top of it. And *nothing pack-shipped is ever active because it is merely
+present*: a pack has to be listed in `packs` in your user-scope config before yolo
+reads its manifest at all, because for this kind "active by default" would mean
+yolo running a daemon on your machine that you did not ask for. A pack whose
+manifest omits `default_enabled` needs the config key as well — selection is
+necessary, and the author decides whether it is also sufficient. Deselecting also
 **retires the state that loophole left behind** — its state dir and its
 `host-service-<name>.log` are archived (not deleted) under
 `<state>/.retired/<timestamp>/<loophole>/` with a marker naming the pack that owned

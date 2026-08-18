@@ -178,8 +178,20 @@ type Manifest struct {
 	Version int
 	// VersionSet distinguishes an absent `version` from `"version": 0`.
 	VersionSet bool
-	// Enabled defaults true.
-	Enabled bool
+	// DefaultEnabled is the PACK AUTHOR's opinion about whether this loophole
+	// should be on when nobody has said otherwise — `default_enabled`, and ABSENT
+	// MEANS FALSE (docs/design/loophole-activation.md R2). It is not the user's
+	// switch and must never be read as one: the user's switch is the CONFIG key
+	// `loopholes.<name>.enabled`, which internal/loopholes lays over this value at
+	// discovery (discover.go's applyWorkspaceOverrides) and which this rename
+	// deliberately did not touch.
+	//
+	// The two used to share the spelling `enabled`, on opposite defaults, with
+	// nothing saying which won — the finding that produced the rename. The field
+	// name is the enforcement: `Manifest.DefaultEnabled` and `Loophole.Enabled` can
+	// no longer be confused at a call site, and resolve() (load.go) is the one place
+	// the first becomes the second.
+	DefaultEnabled bool
 	// Transport is one of ValidTransports; absent means TransportLoopbackTLS.
 	Transport string
 	// Lifecycle is one of ValidLifecycles; absent means "external".
@@ -394,6 +406,31 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 			manifestPath, name, dirName)
 	}
 
+	// A RETIRED top-level key is refused BY NAME, here in the structural walk, and
+	// both halves of that placement are load-bearing.
+	//
+	// IN THE WALK, so BOTH decoders refuse it — strict (authoring) and tolerant (the
+	// version boundary) alike. Every other cross-version tolerance in this package
+	// exists because a key only a NEWER build knows must not make a loophole vanish;
+	// a REMOVED key is the opposite case, and tolerating it means silently applying
+	// the new default to a manifest that explicitly asked for the old one.
+	//
+	// EARLY, before every other structural check, so the reader of a manifest written
+	// against the old schema is told about the rename rather than about whatever
+	// unrelated thing the walk would have tripped over next.
+	//
+	// The cost, named rather than discovered: an already-shipped third-party manifest
+	// carrying `enabled` now FAILS TO LOAD, so its loophole vanishes with a warning
+	// (loadFromDir) instead of quietly changing meaning. That is the fail-CLOSED
+	// direction in both readings — `enabled: true` wanted on and gets off, `enabled:
+	// false` wanted off and gets off — which is what makes a refusal affordable here
+	// where R3's `requires` deletion could not have one.
+	for _, k := range data.Keys() {
+		if msg := retiredTopKeyRefusal(k); msg != "" {
+			return nil, Errorf("%s: %s", manifestPath, msg)
+		}
+	}
+
 	description := ""
 	if dv, ok := data.Get(keyDescription); ok {
 		s, isStr := dv.(string)
@@ -506,9 +543,27 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 		return nil, err
 	}
 
-	enabled := true
-	if ev, ok := data.Get(keyEnabled); ok {
-		enabled = Truthy(ev)
+	// ABSENT MEANS OFF, and the default lives HERE rather than at any reader, which is
+	// what makes "a manifest that says nothing activates nothing" literally true
+	// instead of true-at-the-places-somebody-remembered.
+	//
+	// TYPE-CHECKED, NOT COERCED WITH Truthy, and this is the tightening `enabled`
+	// could never have. Truthy("false") is TRUE (a non-empty string), so under the old
+	// key the one slip a human is actually likely to make — `"enabled": "false"` — read
+	// as ON, and the key was too widely shipped to tighten. `default_enabled` is new in
+	// this change, so no manifest anywhere can be relying on the loose coercion, and
+	// the direction the slip fails in is the one R4 exists to prevent: a quoted "false"
+	// would grant host access on a manifest whose author wrote the word for refusing
+	// it. `host_daemon.preamble` is the precedent and states the same rule.
+	defaultEnabled := false
+	if ev, ok := data.Get(keyDefaultEnabled); ok {
+		b, isBool := ev.(bool)
+		if !isBool {
+			return nil, Errorf("%s: 'default_enabled' must be a boolean — write true or false"+
+				" (not %s); it is the pack author's default, and an absent key already means false",
+				manifestPath, pytext.Repr(Str(ev)))
+		}
+		defaultEnabled = b
 	}
 
 	brokerIP := DefaultBrokerIP
@@ -521,7 +576,7 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 		Description:    description,
 		Version:        version,
 		VersionSet:     versionSet,
-		Enabled:        enabled,
+		DefaultEnabled: defaultEnabled,
 		Transport:      transport,
 		Lifecycle:      lifecycle,
 		Intercepts:     intercepts,

@@ -24,7 +24,7 @@ const (
 	keyName           = "name"
 	keyDescription    = "description"
 	keyVersion        = "version"
-	keyEnabled        = "enabled"
+	keyDefaultEnabled = "default_enabled"
 	keyTransport      = "transport"
 	keyLifecycle      = "lifecycle"
 	keyIntercepts     = "intercepts"
@@ -54,12 +54,57 @@ const (
 	keyFileExists    = "file_exists"
 )
 
+// Retired manifest key names, kept ONLY to RECOGNIZE them and say what to write
+// instead — the same shape RetiredTransportTLSIntercept/UnixSocket have one level
+// down (enums.go), and for the same reason: a value that still validates is a value
+// someone will keep using.
+//
+// None of these is in topKeys, so KnownKeys() never suggests one and the unknown-key
+// census would call it unknown. THAT CENSUS MUST NEVER SEE THEM, which is why the
+// refusal lives in the structural walk and the walk runs FIRST (decode returns on a
+// walk error before unknownKeyNotes is called). The distinction is not cosmetic: the
+// tolerant census says *"this build does not know it, so whatever it declares is not
+// honored (version skew; a build that knows the key will read it)"* — which is exactly
+// BACKWARDS for a key that was REMOVED. A newer build will never read `enabled`; it
+// deleted it. Telling a reader to wait for one is telling them to wait forever, and
+// meanwhile the loophole quietly takes the new default
+// (docs/design/loophole-activation.md §4).
+const (
+	// RetiredKeyEnabled is the manifest's old enablement key. It was renamed to
+	// `default_enabled` AND its default flipped (OQ-A9/R2), which is why a tolerance
+	// is not available here: silently dropping `"enabled": true` would leave the
+	// loophole OFF, and silently dropping `"enabled": false` would leave a loophole
+	// its author disabled looking like one that merely said nothing. Both readings
+	// are defensible, which is precisely why the manifest must not be guessed at.
+	RetiredKeyEnabled = "enabled"
+)
+
+// retiredTopKeyRefusal returns the refusal text for a retired TOP-LEVEL key, or ""
+// when the key is not retired. Written as a lookup over all keys rather than an `if`
+// per key so retiring the next one is a single entry, not a second call site to
+// forget.
+func retiredTopKeyRefusal(key string) string {
+	switch key {
+	case RetiredKeyEnabled:
+		return "'enabled' was retired from the loophole MANIFEST: write 'default_enabled'" +
+			" instead, and note that THE DEFAULT FLIPPED — an absent 'default_enabled' means" +
+			" the loophole is OFF, where an absent 'enabled' meant ON" +
+			" (docs/design/loophole-activation.md R2: \"presence never activates\"). So" +
+			" \"enabled\": true becomes \"default_enabled\": true, and \"enabled\": false is" +
+			" now what saying nothing means — delete the key." +
+			" THIS IS NOT THE CONFIG KEY: 'loopholes.<name>.enabled' in config.jsonc or" +
+			" yolo-jail.jsonc is the USER's switch and is unchanged. The manifest key was" +
+			" the pack author's DEFAULT, and it was renamed to say so."
+	}
+	return ""
+}
+
 // The known key set per object in the schema. `jail_env` and `host_daemon.env`
 // are deliberately absent: their keys are environment variable NAMES, so every
 // key in them is known by construction.
 var (
 	topKeys = []string{
-		keyName, keyDescription, keyVersion, keyEnabled, keyTransport, keyLifecycle,
+		keyName, keyDescription, keyVersion, keyDefaultEnabled, keyTransport, keyLifecycle,
 		keyIntercepts, keyBrokerIP, keyCACert, keyJailEnv, keyDoctorCmd, keyHostDaemon,
 		keyJailDaemon, keyHostBindMounts, keyHostDevices, keyStateFiles, keyRequires,
 		keyPlatforms, keyServes,

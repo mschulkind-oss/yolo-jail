@@ -135,9 +135,14 @@ func (l *Loophole) PackShippedProblems() []string {
 // manifest, where a module-relative path still looks module-relative.
 func (l *Loophole) subsetManifest() *loopholedecl.Manifest {
 	return &loopholedecl.Manifest{
-		Name:           l.Name,
-		Description:    l.Description,
-		Enabled:        l.Enabled,
+		Name:        l.Name,
+		Description: l.Description,
+		// The record's Enabled has already absorbed any config override, so projecting
+		// it back onto DefaultEnabled is lossy in principle. It costs nothing in fact
+		// (the subset reads neither), and the honest alternative — carrying the author's
+		// declaration separately on the record purely so this projection could be exact —
+		// would be a second boolean over one state, which is what OQ-A9 ruled against.
+		DefaultEnabled: l.Enabled,
 		Transport:      l.Transport,
 		Lifecycle:      l.Lifecycle,
 		Intercepts:     l.Intercepts,
@@ -233,10 +238,17 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 	}
 
 	return &Loophole{
-		Name:          m.Name,
-		Description:   m.Description,
-		Path:          modulePath,
-		Enabled:       m.Enabled,
+		Name:        m.Name,
+		Description: m.Description,
+		Path:        modulePath,
+		// THIS LINE IS WHERE THE AUTHOR'S DEFAULT BECOMES THE USER'S SWITCH, and it is
+		// the only place the two meet. `Manifest.DefaultEnabled` is what the pack said
+		// when nobody had spoken; `Loophole.Enabled` is the resolved state, which
+		// discovery then overwrites from the config key `loopholes.<name>.enabled` if
+		// the user set it (discover.go's applyWorkspaceOverrides). Seeding the switch
+		// with the default is what lets config stay an OVERRIDE rather than a third
+		// value to reconcile (docs/design/loophole-activation.md OQ-A9).
+		Enabled:       m.DefaultEnabled,
 		Transport:     m.Transport,
 		Lifecycle:     m.Lifecycle,
 		Intercepts:    m.Intercepts,

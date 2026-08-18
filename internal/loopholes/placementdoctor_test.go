@@ -36,7 +36,7 @@ func writeDoctorModule(t *testing.T, parent, name, target string) string {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"name":"` + name + `","description":"probe","enabled":true,` +
+	body := `{"name":"` + name + `","description":"probe","default_enabled":true,` +
 		`"transport":"none","lifecycle":"external",` +
 		`"doctor_cmd":["/bin/sh","` + target + `"]}`
 	if err := os.WriteFile(filepath.Join(dir, "manifest.jsonc"), []byte(body), 0o644); err != nil {

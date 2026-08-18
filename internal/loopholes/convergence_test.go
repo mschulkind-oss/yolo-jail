@@ -37,7 +37,7 @@ func writeModule(t *testing.T, parent, name string, doctorCmd []string) string {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"name":"` + name + `","description":"` + name + ` desc","enabled":true,` +
+	body := `{"name":"` + name + `","description":"` + name + ` desc","default_enabled":true,` +
 		`"transport":"none","lifecycle":"external"`
 	if len(doctorCmd) > 0 {
 		body += `,"doctor_cmd":["` + strings.Join(doctorCmd, `","`) + `"]`
@@ -456,7 +456,7 @@ func TestNonPackRecordsAreAlwaysAllowedToRunHostCode(t *testing.T) {
 func TestActiveExcludesEnabledButUnmetRequirements(t *testing.T) {
 	unsetJail(t)
 	dir := t.TempDir()
-	body := `{"name":"needy","enabled":true,"transport":"none","lifecycle":"external",` +
+	body := `{"name":"needy","default_enabled":true,"transport":"none","lifecycle":"external",` +
 		`"requires":{"file_exists":"` + filepath.Join(dir, "definitely-absent") + `"}}`
 	mod := filepath.Join(dir, "needy")
 	if err := os.MkdirAll(mod, 0o755); err != nil {
@@ -516,7 +516,7 @@ func TestSetHoldsTheDisabledSupersetAndOffersNarrowViews(t *testing.T) {
 	if err := os.MkdirAll(off, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"name":"off","enabled":false,"transport":"none","lifecycle":"external"}`
+	body := `{"name":"off","default_enabled":false,"transport":"none","lifecycle":"external"}`
 	if err := os.WriteFile(filepath.Join(off, "manifest.jsonc"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -38,7 +38,7 @@ func TestBothInertBackendsReportByName(t *testing.T) {
 	for _, rt := range []string{"container", "macos-user"} {
 		t.Run(rt, func(t *testing.T) {
 			p := writeLoopholePack(t, "acme", "acme-proxy",
-				`{"name": "acme-proxy", "transport": "none"}`)
+				`{"name": "acme-proxy", "default_enabled": true, "transport": "none"}`)
 			got := inertOutput(t, rt, p)
 			// The EXACT line the report renders, built from the same inputs — so this cannot
 			// pass on a partial match, and cannot rot into matching nothing when either axis's
@@ -67,7 +67,7 @@ func TestBothInertBackendsReportByName(t *testing.T) {
 // The report names the REASON, not just the fact — "and here is why" is half of the one
 // answer shape §3.1 asks the two axes to share.
 func TestInertBackendLineExplainsWhy(t *testing.T) {
-	p := writeLoopholePack(t, "acme", "acme-proxy", `{"name": "acme-proxy", "transport": "none"}`)
+	p := writeLoopholePack(t, "acme", "acme-proxy", `{"name": "acme-proxy", "default_enabled": true, "transport": "none"}`)
 	if got := inertOutput(t, "container", p); !strings.Contains(got, "Apple Container") {
 		t.Errorf("the container line does not name the backend:\n%s", got)
 	}
@@ -79,7 +79,7 @@ func TestInertBackendLineExplainsWhy(t *testing.T) {
 // A WORKING backend prints nothing. The report must not become a line on every podman launch,
 // or the one time it matters gets skipped with the rest.
 func TestWorkingBackendPrintsNoInertLine(t *testing.T) {
-	p := writeLoopholePack(t, "acme", "acme-proxy", `{"name": "acme-proxy", "transport": "none"}`)
+	p := writeLoopholePack(t, "acme", "acme-proxy", `{"name": "acme-proxy", "default_enabled": true, "transport": "none"}`)
 	if got := inertOutput(t, "podman", p); got != "" {
 		t.Errorf("podman produced an inert line:\n%s", got)
 	}
@@ -108,7 +108,7 @@ func TestPlatformUnsupportedUsesTheSameReport(t *testing.T) {
 		other = "linux"
 	}
 	p := writeLoopholePack(t, "acme", "acme-proxy",
-		`{"name": "acme-proxy", "transport": "none", "platforms": ["`+other+`"]}`)
+		`{"name": "acme-proxy", "default_enabled": true, "transport": "none", "platforms": ["`+other+`"]}`)
 	// A WORKING backend, so the only reason left is the platform — which is what proves the
 	// two axes share one mechanism rather than the backend answer covering for a missing one.
 	got := inertOutput(t, "podman", p)
@@ -145,7 +145,7 @@ func TestPlatformUnsupportedUsesTheSameReport(t *testing.T) {
 // above, which would otherwise pass on any pack at all.
 func TestSupportedPlatformPrintsNothing(t *testing.T) {
 	p := writeLoopholePack(t, "acme", "acme-proxy",
-		`{"name": "acme-proxy", "transport": "none", "platforms": ["`+runtime.GOOS+`"]}`)
+		`{"name": "acme-proxy", "default_enabled": true, "transport": "none", "platforms": ["`+runtime.GOOS+`"]}`)
 	if got := inertOutput(t, "podman", p); got != "" {
 		t.Errorf("a supported loophole on a working backend produced a line:\n%s", got)
 	}
@@ -160,7 +160,7 @@ func TestBackendReasonWinsOverPlatformReason(t *testing.T) {
 		other = "linux"
 	}
 	p := writeLoopholePack(t, "acme", "acme-proxy",
-		`{"name": "acme-proxy", "transport": "none", "platforms": ["`+other+`"]}`)
+		`{"name": "acme-proxy", "default_enabled": true, "transport": "none", "platforms": ["`+other+`"]}`)
 	got := inertOutput(t, "container", p)
 	if strings.Count(got, "loophole acme-proxy is ") != 1 {
 		t.Errorf("want exactly one inert line when both axes apply:\n%s", got)
@@ -182,7 +182,7 @@ func TestUnreadableLoopholeManifestIsSilentInTheInertReport(t *testing.T) {
 
 // The report goes to STDERR, like every other launch notice.
 func TestInertReportWritesToStderr(t *testing.T) {
-	p := writeLoopholePack(t, "acme", "acme-proxy", `{"name": "acme-proxy", "transport": "none"}`)
+	p := writeLoopholePack(t, "acme", "acme-proxy", `{"name": "acme-proxy", "default_enabled": true, "transport": "none"}`)
 	var outBuf, errBuf bytes.Buffer
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stdout, o.Stderr = &outBuf, &errBuf
@@ -229,7 +229,7 @@ func TestOneLoopholeNamedTwiceProducesOneInertLine(t *testing.T) {
 		other = "linux"
 	}
 	p := writeLoopholePack(t, "acme", "acme-proxy",
-		`{"name": "acme-proxy", "transport": "none", "platforms": ["`+other+`"]}`)
+		`{"name": "acme-proxy", "default_enabled": true, "transport": "none", "platforms": ["`+other+`"]}`)
 	// The SAME module declared twice. The pack layer refuses this at staging by name; the
 	// report must not turn one mistake into two problems if it ever reaches here.
 	p.Decl.Contributes = append(p.Decl.Contributes, p.Decl.Contributes[0])
@@ -253,7 +253,7 @@ func TestADisabledLoopholeDrawsNoPlatformInertLine(t *testing.T) {
 		other = "linux"
 	}
 	p := writeLoopholePack(t, "acme", "acme-proxy",
-		`{"name": "acme-proxy", "transport": "none", "enabled": false, "platforms": ["`+other+`"]}`)
+		`{"name": "acme-proxy", "transport": "none", "default_enabled": false, "platforms": ["`+other+`"]}`)
 	if got := inertOutput(t, "podman", p); got != "" {
 		t.Errorf("a DISABLED loophole drew a platform inert line. The producer skips it "+
 			"deliberately — the user chose this, hears 'disabled' already, and a second line "+
@@ -300,7 +300,7 @@ func TestThePlatformInertProducerHasAProductionCaller(t *testing.T) {
 // can act on. Without this the fix above could quietly silence the backend report too.
 func TestADisabledLoopholeStillDrawsTheBackendInertLine(t *testing.T) {
 	p := writeLoopholePack(t, "acme", "acme-proxy",
-		`{"name": "acme-proxy", "transport": "none", "enabled": false}`)
+		`{"name": "acme-proxy", "transport": "none", "default_enabled": false}`)
 	got := inertOutput(t, "container", p)
 	if !strings.Contains(got, "loophole acme-proxy is ") {
 		t.Errorf("the backend axis went silent for a disabled loophole. The backend answer is "+

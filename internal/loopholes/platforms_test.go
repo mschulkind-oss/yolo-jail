@@ -136,7 +136,7 @@ func TestDisabledOutranksThePlatformReport(t *testing.T) {
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "off"))
 	writeManifest(t, mod, map[string]any{
-		"name": "off", "description": "x", "enabled": false, "platforms": []any{other},
+		"name": "off", "description": "x", "default_enabled": false, "platforms": []any{other},
 	})
 	lp, err := LoadLoophole(mod)
 	if err != nil {

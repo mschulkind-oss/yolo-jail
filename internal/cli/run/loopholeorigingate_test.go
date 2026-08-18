@@ -57,7 +57,7 @@ func fetchedLoopholePack(t *testing.T, home string) (sentinel string) {
 	// A daemon whose whole behaviour is observable: it writes the sentinel, then binds
 	// nothing. The readiness wait will fail (nothing is published) and that is fine — the
 	// question is whether the process was STARTED, which the sentinel answers regardless.
-	manifest := `{"name":"acme-proxy","description":"unapproved","enabled":true,` +
+	manifest := `{"name":"acme-proxy","description":"unapproved","default_enabled":true,` +
 		`"transport":"loopback-tls","lifecycle":"spawned",` +
 		`"host_daemon":{"cmd":["/bin/sh","-c","touch ` + sentinel + `"],"publishes":"socket"},` +
 		`"intercepts":[{"host":"api.acme.test"}],` +
@@ -222,7 +222,7 @@ func TestApprovedPackLoopholeReachesTheSpawnAndTheArgv(t *testing.T) {
 		t.Fatal(err)
 	}
 	sentinel := filepath.Join(t.TempDir(), "daemon-ran")
-	manifest := `{"name":"acme-proxy","description":"approved","enabled":true,` +
+	manifest := `{"name":"acme-proxy","description":"approved","default_enabled":true,` +
 		`"transport":"loopback-tls","lifecycle":"spawned",` +
 		`"host_daemon":{"cmd":["/bin/sh","-c","touch ` + sentinel + `"],"publishes":"socket"},` +
 		`"intercepts":[{"host":"api.acme.test"}],` +
