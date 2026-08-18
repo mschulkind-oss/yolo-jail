@@ -270,8 +270,10 @@ func retireLegacyWorkspaceSnapshot(workspace string) {
 	_ = os.Remove(LegacyWorkspaceSnapshotPath(workspace))
 }
 
-// writeSnapshot writes currentJSON + "\n", creating .yolo/ as needed
-// (parents=True, exist_ok=True).
+// writeSnapshot writes currentJSON + "\n", creating the containing directory as
+// needed. It serves three destinations now — the host-side approvals dir, the
+// workspace's config-assembled.json and its config-boot.json — so it names the
+// PARENT of whatever path it is handed rather than any one of them.
 func writeSnapshot(path, currentJSON string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
