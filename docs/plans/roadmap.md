@@ -45,9 +45,14 @@ user-scope and enable is either; the broker moves inside `packs/claude`). What i
   disagree, and the reserved name does **not** free itself when the bundled copy is deleted.
 - **OQ-A11** — the broker daemon and relay spawn on **every launch with no lookup at all**, so R1 has
   a counterexample in the run pipeline. Also covers the ungated host nix-daemon socket.
-- **OQ-A2 · A4 · A5 · A6 · A8 · A12 · A13** — the upgrade notice, cgroup-delegate's opt-in, the three
-  gates on `yolo-ps`, whether the builtins become manifests, where a pack's settings live, `yolo
-  check`'s blindness to pack loopholes, and disclosure now that *enabling* is the dangerous direction.
+- **OQ-A8 is the one with teeth left** — core's config schema names `host_processes` and `journal`
+  **by hand**, so moving a manifest into a pack while leaving its key in `knownTopLevelConfigKeys`
+  is the appearance of separation with none of the substance.
+- **OQ-A4 · A5 · A6 · A12 · A13** — cgroup-delegate's opt-in, the three gates on `yolo-ps`, whether
+  the builtins become manifests, `yolo check`'s blindness to pack loopholes, and disclosure now that
+  *enabling* is the dangerous direction.
+- ✅ **A1 · A2 · A3 · A7 answered.** Going dark needs no migration machinery, and a loophole-only pack
+  is selected like any other — no special case.
 
 ### 💬 2 — OQ-LP14: `audio`'s socket half, and my withdrawal
 
