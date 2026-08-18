@@ -34,9 +34,15 @@ import (
 // The cross-check is the point. Measuring reachability twice by two unrelated
 // means — bash's /dev/tcp here, a full authenticated svcendpoint dial in
 // internal/entrypoint/reachability.go — is what makes this a test OF THE WITNESS
-// and not merely another probe alongside it. A witness that is about to become a
-// launch failure (design doc OQ-R2) has to be checkable against something that is
-// not itself.
+// and not merely another probe alongside it. A witness that IS a launch failure
+// (design doc OQ-R2, fatal since 2026-08-18) has to be checkable against something
+// that is not itself.
+//
+// One consequence of that flip is worth knowing before reading a failure here: the
+// two disagreement branches below can now only fire in the direction of a false
+// POSITIVE. A jail whose service is genuinely unreachable no longer starts, so the
+// script never runs and the failure surfaces at the "never reported a count" bail
+// above it instead.
 func TestInJailServiceReachability(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{"network": {"mode": "bridge"}}`)
@@ -74,7 +80,15 @@ echo "PROBED $probed"
 		}
 	}
 	if probed < 0 {
-		t.Fatalf("the in-jail probe never reported a count — the script did not run.\nstdout: %s\nstderr: %s",
+		// Since the witness became FATAL (2026-08-18) this branch is where a REAL
+		// outage now lands, and it no longer means "the harness is broken": a jail
+		// that cannot reach an enabled service refuses to start, so the script never
+		// runs and there is no count to report. The witness's own verdict is in
+		// stderr, which is printed here for exactly that reason — read it before
+		// suspecting the harness.
+		t.Fatalf("the in-jail probe never reported a count — the script did not run. Either "+
+			"the jail refused to start (the boot witness names the service and the address "+
+			"in stderr below) or the harness is broken.\nstdout: %s\nstderr: %s",
 			r.stdout, r.stderr)
 	}
 	if probed == 0 {
@@ -102,8 +116,9 @@ echo "PROBED $probed"
 			"real outage.\nstdout: %s\nstderr: %s", unreachable, r.stdout, r.stderr)
 	case len(unreachable) == 0 && warned:
 		t.Fatalf("every advertised endpoint dialled fine, yet the entrypoint's boot probe "+
-			"warned about one — a false positive here becomes a refused launch once OQ-R2 "+
-			"flips it to fatal.\nstdout: %s\nstderr: %s", r.stdout, r.stderr)
+			"warned about one — and a false positive there is now a REFUSED LAUNCH (OQ-R2 "+
+			"is fatal since 2026-08-18), not a stray warning.\nstdout: %s\nstderr: %s",
+			r.stdout, r.stderr)
 	case len(unreachable) > 0:
 		t.Fatalf("loopback-TLS is unreachable from inside the jail for: %v.  Every in-jail "+
 			"client of those services is down.  See docs/design/loopback-tls-reachability.md; "+
