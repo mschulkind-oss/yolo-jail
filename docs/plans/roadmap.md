@@ -124,7 +124,10 @@ collision silently), **OQ-D1** (the config-approval snapshot is agent-writable �
 where the sweep found the gate also fails open three other ways), **OQ-CO**, **OQ-S4**, **OQ-E4**, and
 **E1/E2/E3/E5** from the backlog. Each is one paragraph; none blocks anything.
 
-Two more of the same size, both from the `yolo check` honesty pass:
+Two more of the same size, both from the `yolo check` honesty pass. (A third — what `yolo check`
+should *print* for a section it skipped — now has a design-doc home as **OQ-3** in
+[`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md), because the same
+`[PASS]`-on-a-skip is what hid a daemon that never started.)
 
 - **`sectionRunningJails` has no in-jail guard.** Run from inside a jail it reports the *nested*
   podman's view — measured `[PASS] No jails currently running` in here while the host had one — and
@@ -149,21 +152,25 @@ one-line deliverable that is decided in all but name.
 
 **Ordered by:** what unblocks something else, then what protects a live user, then cost.
 
-- 📦 **The broker singleton cannot start inside a jail, and has been failing silently for months.**
-  *Found 2026-08-18 by the verifier that measured the nested-launch refusal.*
+- 📦 **Bake `openssl`, and make the broker's own failure detector speak.** *One package, plus the
+  three layers that stayed quiet about it.* 📄
+  [`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md)
 
-  Every nested launch spawns the host-wide broker daemon, and it exits instantly:
-  `yolo-claude-oauth-broker-host: cannot locate openssl`. The jail image bakes no openssl and the
-  daemon needs it to mint its CA. **Measured in this jail: 2,549 failures, 1.3 MB of log.** Nothing
-  ever consumed the error, so it has been invisible.
+  The broker mints its CA by shelling out to `openssl`; the jail image bakes none. So on any launch
+  where **the host is itself a jail**, the singleton dies at startup — **2,549 times in this jail,
+  1.3 MB of log**, silently, for months. You have ruled: bake it.
 
-  It only became load-bearing when the witness turned fatal — an endpoint nobody can publish is now
-  a refused launch — and that is patched at the promise (`brokerEndpointIsUnpublishable`, below). The
-  spawn itself is still pointless and still growing a log file every launch.
+  The packaging fix is one line. The reason it hid for months is worth the other three:
 
-  **The narrow fix is not to spawn a daemon that provably cannot start.** Making it actually *work*
-  in a nested jail is a separate call — it needs openssl baked into the image, and a nested jail
-  minting its own CA may not be wanted at all. Don't bundle the two.
+  1. `brokerWaitForSocket` **detects the dead child in milliseconds** and its caller discards the
+     return value. Making that speak is what would have caught this on day one.
+  2. The daemon's log has **no reader anywhere in the tree**.
+  3. `yolo check` skips loophole checks in-jail and prints **`[PASS]`** — the third finding this
+     month of the same shape, reporting on the wrong side of a boundary in the confident direction.
+
+  **Three questions live in the doc** (OQ-1 retire vs. satisfy the `openssl` dependency, OQ-2 should a
+  nested jail run its own broker at all, OQ-3 the honest token for "I did not look"). None blocks the
+  bake.
 
 ---
 
