@@ -540,6 +540,85 @@ func TestHostServiceLivenessSaysWhatItCannotSee(t *testing.T) {
 	}
 }
 
+// TestHostServiceLivenessNoCaveatWithoutALoopbackTLSProbe is the other half of the
+// caveat's contract, and the half a green suite was not holding: the footnote is
+// gated on a loopback-TLS probe having actually run, and nothing measured the gate
+// in the direction that turns it off.
+//
+// It matters because the caveat makes a claim about the probes above it — "they dial
+// 127.0.0.1" — which is simply untrue of an AF_UNIX green: that socket is
+// bind-mounted into the jail, not routed, so there is no forwarding hop to be wrong
+// about and no in-jail question left unanswered. Printing it there is a paragraph
+// that does not apply, under a section whose whole point is now saying exactly what
+// it does and does not know.
+func TestHostServiceLivenessNoCaveatWithoutALoopbackTLSProbe(t *testing.T) {
+	fakeBundled := t.TempDir()
+	oldBundled := loopholes.BundledLoopholesDir
+	loopholes.BundledLoopholesDir = func() string { return fakeBundled }
+	t.Cleanup(func() { loopholes.BundledLoopholesDir = oldBundled })
+	retiredLoopholeDir(t)
+
+	modDir := filepath.Join(fakeBundled, "unixsvc")
+	if err := os.MkdirAll(modDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// transport "none" WITH a host_daemon is the shape that reaches the AF_UNIX
+	// branch: host_daemon is what puts it in the externals set, and any transport
+	// other than loopback-tls is probed as a plain socket.
+	if err := os.WriteFile(filepath.Join(modDir, "manifest.jsonc"), []byte(
+		`{"name": "unixsvc", "description": "x", "transport": "none", `+
+			`"host_daemon": {"cmd": ["true"]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const cname = "yolo-check-unix-only-probe-test"
+	svcDir := paths.HostServicesDir(cname, false)
+	if err := os.MkdirAll(svcDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(svcDir) })
+	ln, err := net.Listen("unix", filepath.Join(svcDir, "unixsvc.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+
+	var buf bytes.Buffer
+	r := newReporter(&buf, false)
+	o := &Options{
+		Getenv:   func(string) string { return "" },
+		LookPath: func(name string) (string, bool) { return "/bin/" + name, name == "podman" },
+		Exec: func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+			if len(argv) > 1 && argv[0] == "podman" && argv[1] == "ps" {
+				return ExecResult{Ran: true, RC: 0, Stdout: cname + "\n"}
+			}
+			return ExecResult{Ran: true, RC: 1}
+		},
+	}
+	fillDefaults(o)
+	o.checkHostServiceLiveness(r)
+	out := buf.String()
+
+	// Guard the guard: without a green here the assertion below would pass for the
+	// wrong reason — a section that probed nothing prints no caveat either.
+	if r.failed != 0 || !strings.Contains(out, "socket accepting") {
+		t.Fatalf("the unix socket did not pass: failed=%d out=%q", r.failed, out)
+	}
+	if strings.Contains(out, "the probes above are HOST-SIDE") {
+		t.Errorf("a run with no loopback-TLS probe has no host-side caveat to make; "+
+			"printing it here is how a reader learns to skip it where it matters: out=%q", out)
+	}
+}
+
 // TestHostServiceLivenessInJailSaysWhy: run from inside a jail this section used to
 // return SILENTLY, leaving its header standing over an empty block — which reads as
 // "probed, nothing to report" in exactly the place where the honest answer is "not

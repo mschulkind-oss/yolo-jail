@@ -242,6 +242,58 @@ func TestReachabilityProbeAttributesAnUnpublishedEndpoint(t *testing.T) {
 	}
 }
 
+// TestReachabilityProbeAttributesAStaleToken is the third fault class, and the one
+// with a launch riding on it once OQ-R2 flips.
+//
+// A listener that restarts republishes a new token; a jail holding the previous file
+// is REACHABLE and refused. That is a stale file with a one-line fix (relaunch), and
+// it has nothing to do with what the launcher decided about forwarding — which is
+// exactly why the escalation set is the unreachable class alone. Fold this into it,
+// as the default arm of classifyReachability silently would, and two things break at
+// once: the reader is sent after a network stack that is working, and a fatal witness
+// refuses to start a jail over a stale file.
+//
+// Run with the fatal ALREADY ON, because "must never fail a launch" is not a claim a
+// warn-mode run can make.
+func TestReachabilityProbeAttributesAStaleToken(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	withReachabilityFatal(t)
+	dir := servicesDir(t)
+
+	// A live listener, and a SECOND file naming it with the wrong credential — the
+	// shape of a daemon that restarted and republished under a jail holding the
+	// previous publication.
+	live := liveEndpoint(t, dir, "claude-oauth-broker")
+	ep, err := svcendpoint.Read(live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep.Token = strings.Repeat("a", len(ep.Token))
+	stale := filepath.Join(dir, "host-processes"+paths.ServiceEndpointExt)
+	if err := svcendpoint.Publish(stale, ep); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := runProbe(t, map[string]string{
+		"JAIL_HOME": t.TempDir(),
+		// The launcher DID request forwarding: the one disposition that escalates,
+		// so nothing but the fault classification is keeping this launch alive.
+		paths.HostLoopbackEnvVar: paths.HostLoopbackRequested,
+		paths.ServiceEnvVarPrefix + "HOST_PROCESSES" + paths.ServiceEnvVarSuffix: stale,
+	})
+	if err != nil {
+		t.Errorf("a stale token is not a reachability failure and must never abort a boot; "+
+			"genFailuresError: %v", err)
+	}
+	if !strings.Contains(got, "rejected this jail's token") {
+		t.Errorf("the warning must name the fault the user can actually fix, got:\n%s", got)
+	}
+	if strings.Contains(got, "UNREACHABLE") {
+		t.Errorf("the address answered — reporting this as unreachable sends the reader "+
+			"after a network stack that is working. got:\n%s", got)
+	}
+}
+
 // TestReachabilityProbeReportsEveryBrokenService, in a stable order. One warning
 // per service, because a jail that lost its whole transport should say so once per
 // thing the agent is about to reach for — and Go's map iteration order is random,
@@ -803,6 +855,46 @@ func TestReachabilityProbeEscapeHatchKeepsTheJail(t *testing.T) {
 	}
 	if !strings.Contains(got, "claude-oauth-broker") {
 		t.Errorf("the override must name what it is continuing past, got:\n%s", got)
+	}
+}
+
+// TestReachabilityProbeHatchStaysQuietInWarnMode is the hatch's OTHER contract, and
+// the one a green suite was not holding: it may only speak where it is actually
+// saving a launch.
+//
+// The sibling tests assert that the hatch is not mentioned — but they never SET it,
+// so they hold whatever the code does with it, and the `reachabilityFatal &&` guard
+// in reportUnreachableFault could be deleted with every test still green. This sets
+// it, in the shipped (warn) mode, where it is suppressing nothing.
+//
+// What goes wrong without the guard is not cosmetic. The override notice REPLACES the
+// finding: a user who set the variable once — on the host, in front of `yolo`, from
+// where it is forwarded into every jail — would get "CONTINUING with … unreachable"
+// on a launch that was never at risk, and would lose the FAULT attribution that says
+// the forwarding is already ruled out. That is the same rule
+// internal/cli/run/hostloopback.go's own opt-out follows, and it is pinned there.
+func TestReachabilityProbeHatchStaysQuietInWarnMode(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	// Deliberately NOT withReachabilityFatal: warn mode is what ships today.
+
+	got, err := runProbe(t, brokenServiceVars(t, map[string]string{
+		paths.HostLoopbackEnvVar:          paths.HostLoopbackRequested,
+		paths.AllowUnreachableServicesEnv: "1",
+	}))
+	if err != nil {
+		t.Errorf("the witness is in warn mode; nothing may abort the boot: %v", err)
+	}
+	if !strings.Contains(got, "FAULT") {
+		t.Errorf("the hatch suppressed a finding it was not saving anything from — the "+
+			"fault attribution is the whole content of this warning. got:\n%s", got)
+	}
+	if strings.Contains(got, "CONTINUING") {
+		t.Errorf("nothing was continued past: the launch was never at risk in warn mode, "+
+			"and an override that announces itself on launches it is not saving is one "+
+			"people stop reading. got:\n%s", got)
+	}
+	if strings.Contains(got, paths.AllowUnreachableServicesEnv) {
+		t.Errorf("the hatch must stay quiet while it is suppressing nothing, got:\n%s", got)
 	}
 }
 

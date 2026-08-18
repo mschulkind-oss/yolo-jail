@@ -773,6 +773,93 @@ func TestHostLoopbackFactsForNoFallbackProbeOnAHealthyHost(t *testing.T) {
 	}
 }
 
+// podmanInfoRootfulFixture / podmanInfoUnknownBackendFixture are the two hosts whose
+// answer is already decided before any capability matters: a rootful podman (where
+// `rootlessNetworkCmd` is a containers.conf value it reports and never uses) and a
+// backend yolo does not recognise. Trimmed to the fields read.
+const (
+	podmanInfoRootfulFixture = `{
+  "host": {
+    "rootlessNetworkCmd": "pasta",
+    "security": {"rootless": false},
+    "pasta": {"executable": "/nix/store/xxxx-podman-5.8.4/libexec/podman/pasta", "version": "pasta 2026_07_16.090d739\n"}
+  }
+}`
+	podmanInfoUnknownBackendFixture = `{
+  "host": {
+    "rootlessNetworkCmd": "netavark",
+    "security": {"rootless": true},
+    "pasta": {"executable": "/nix/store/xxxx-podman-5.8.4/libexec/podman/pasta", "version": "pasta 2026_07_16.090d739\n"}
+  }
+}`
+)
+
+// TestHostLoopbackFactsForProbesOnlyWhereTheAnswerIsRead is the same gate
+// TestHostLoopbackFactsForNoFallbackProbeOnAHealthyHost holds for the fallback probe,
+// applied to the capability probe itself: every `<backend> --help` is a subprocess on
+// the LAUNCH PATH, and three of the four branches above already know their answer
+// without it.
+//
+// Asserting the probe did not run is what keeps each gate a real one rather than a
+// discarded answer. A `return f` that gets deleted as a redundant early exit reads as
+// a harmless cleanup and costs every launch on those hosts a subprocess — silently,
+// because nothing in the output changes.
+func TestHostLoopbackFactsForProbesOnlyWhereTheAnswerIsRead(t *testing.T) {
+	const pastaExe = "/nix/store/xxxx-podman-5.8.4/libexec/podman/pasta"
+	tests := []struct {
+		name    string
+		info    string
+		netMode string
+	}{
+		{
+			// OQ-R1: the decision is the user's, so the capability cannot change it.
+			name: "an explicit network.mode has already decided", info: podmanInfoFixture, netMode: "none",
+		},
+		{
+			name: "a rootful podman is out of scope whatever its pasta can do",
+			info: podmanInfoRootfulFixture, netMode: "bridge",
+		},
+		{
+			name: "an unrecognised backend has nothing to ask about",
+			info: podmanInfoUnknownBackendFixture, netMode: "bridge",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var ran []string
+			o := &Options{}
+			fillDefaults(o)
+			o.Getenv = func(string) string { return "" }
+			o.LookPath = func(name string) (string, bool) {
+				if name == "podman" {
+					return "/usr/bin/podman", true
+				}
+				return "", false
+			}
+			o.Exec = recordingHostExec(map[string]ExecResult{
+				"/usr/bin/podman info --format json": {Ran: true, RC: 0, Stdout: tc.info},
+				pastaExe + " --help":                 {Ran: true, RC: 0, Stdout: "  --map-host-loopback ADDR\n"},
+				"/bin/slirp4netns --help":            {Ran: true, RC: 0, Stdout: slirpHelpWithFlag},
+			}, &ran)
+
+			f := o.hostLoopbackFactsFor("podman", tc.netMode)
+			for _, cmd := range ran {
+				if strings.Contains(cmd, "pasta") || strings.Contains(cmd, "slirp4netns") {
+					t.Errorf("asked the network stack a question nothing will read: %q (ran %v)", cmd, ran)
+				}
+			}
+			if f.support != supportUnknown || f.fallbackSupport != supportUnknown {
+				t.Errorf("facts = %+v, want no capability verdict at all", f)
+			}
+			// And the plan is still the safe one: nothing on the argv. The
+			// explicit-mode branch warns, which is its own pinned behaviour.
+			if plan := decideHostLoopback(f); len(plan.args) != 0 {
+				t.Errorf("emitted %v, want nothing", plan.args)
+			}
+		})
+	}
+}
+
 // TestHostLoopbackFallbackTrustsOnlyPodmansOwnLookup is the fail-safe with the
 // sharpest edge in this feature. PODMAN is the process that will exec
 // slirp4netns; a binary yolo can see on PATH and podman cannot is a container

@@ -287,6 +287,38 @@ func TestUnpinnedNpmLauncherIsUnchanged(t *testing.T) {
 	}
 }
 
+// TestUnpinnedNpmLauncherDoesNotReinstallWhenCurrent is the half of "unchanged" the
+// poll's own refactor put at risk: the comparison it exists to make.
+//
+// The hourly poll reads the INSTALLED version out of
+// `$NPM_CONFIG_PREFIX/lib/node_modules/$PKG/package.json` and compares it with the
+// registry's. Both halves moved when the branch was extracted into
+// `_poll_and_update` / `_installed_version`, and if either stops matching — the
+// lookup handed $SPEC instead of $PKG is the near miss, since the two are now
+// different strings — the comparison never comes out equal and the launcher runs a
+// full `npm install -g` on the first invocation after EVERY interval, forever. That
+// is precisely the reinstall storm the pinned branch was written to avoid, arriving
+// on the unpinned path where every shipped pack lives.
+//
+// A test that only ever asserts "an update did happen" cannot see it: an unconditional
+// reinstall satisfies that assertion too. So this one pins the negative.
+func TestUnpinnedNpmLauncherDoesNotReinstallWhenCurrent(t *testing.T) {
+	p := newNpmProbe(t, "tool")
+	p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
+
+	p.agePastInterval(t, "tool")
+	p.truncateLog(t)
+	log := p.run(t, "tool", "tool", "FAKE_LATEST=1.0.0")
+
+	if !hasArgv(log, "view tool version") {
+		t.Fatalf("the poll must still run for an unpinned package:\n%s", strings.Join(log, "\n"))
+	}
+	if hasArgv(log, "install") {
+		t.Errorf("the installed version already IS the registry's latest; reinstalling here "+
+			"is an unconditional hourly `npm install -g` for every jail:\n%s", strings.Join(log, "\n"))
+	}
+}
+
 // TestPinnedNpmLauncherNeverPollsTheRegistry: the poll asks for the registry's `latest`,
 // which is not an answer to any question a pinned package has. Left running, it also never
 // compares equal for a tag or a range — so it would reinstall hourly, forever.
