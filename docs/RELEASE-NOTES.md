@@ -21,6 +21,47 @@ changelog; this is the subset that bites.
 
 ## Unreleased
 
+### ⚠️ Agent CLIs no longer update themselves
+
+**What changed.** A pack's `program via npm` — every agent CLI yolo ships (`pi`, `copilot`,
+`codex`, `opencode`) — used to keep itself current. Its launcher polled the npm registry on the
+first invocation after a jail boot and hourly after that, and **reinstalled** whenever the
+registry had moved. It no longer installs anything: the same poll now only **prints** that a
+newer version is available, at most once an hour.
+
+**Who is affected.** Anyone with an existing jail home. Those homes persist across boots, so the
+CLI in yours is frozen at whatever it last installed and will stay there until you ask for a new
+one. A **fresh** jail is unaffected — the first install on first use still happens, because a
+first install is not a poll.
+
+**What to do.** Run the new act, inside the jail:
+
+```console
+$ yolo pack update
+```
+
+It refreshes every npm-declared program the jail's packs contribute. `yolo pack install` no
+longer resolves a new version at all — the two verbs used to be one code path and now behave
+differently. Run `update` **in the jail**: an agent CLI is installed into that jail's npm prefix,
+so on the host there is nothing to refresh (it says so rather than doing nothing).
+
+A pack that pins its own version (`"package": "@scope/tool@1.2.3"`) is unaffected in both
+directions: it never polled, and `update` honours the pin rather than overriding it.
+
+**Why.** *"I don't want magical evergreen npm packages."* A binary that changes between two
+invocations with nobody present is a silent-change path that no pin, lockfile or approval prompt
+can ever cover, because there is no act to attach them to. Deleting the mechanism is cheaper than
+gating it. 📄 [`trust-paths.md`](design/trust-paths.md) §1 row 1 (OQ-TP5).
+
+> [!NOTE]
+> **The lockfile half of that ruling is not built.** `update` resolves the registry's latest and
+> installs it; nothing yet **records** which version it got, so `install` has no pin to reinstall
+> from. There is nowhere to put one: `LockEntry` has no package-version field, and the lockfile is
+> per *fetched* pack while all four packs declaring npm programs are *embedded*. That is
+> [`trust-paths.md`](design/trust-paths.md) OQ-TP4, still open. The user-visible consequence is
+> only that two jails updated at different times can hold different versions — which was already
+> true, and is now at least the result of somebody asking.
+
 ### ⚠️ `audio` is now off by default
 
 **What changed.** A loophole's manifest declares `default_enabled`, and absent now means **off**.

@@ -46,8 +46,8 @@ note below.
 | :--- | :--- | :--- | :--- |
 | **OQ-TP1** | **Obviated.** There is no decision to carry into a jail, because a refused contribution refuses the launch (OQ-TP6). The hardcoded `mayAccessHost=true` stays worth fixing as tidiness, not as a broken guarantee | 2026-08-18 | [§3.1](#31-the-origin-gate-is-not-enforced-where-it-executes-) |
 | **OQ-TP2** | **Nothing explicit.** Agent context needs no gate and no separate disclosure — the lockfile's commit pin closes over it, because it closes over the whole tree | 2026-08-18 | [§2 row 17+](#2-the-inventory) |
-| **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report* | 2026-08-18 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
-| **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it | 2026-08-18 | [§3.1](#ruled-2026-08-18-a-refused-contribution-is-a-refused-launch) |
+| **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report*. **Built 2026-08-18**, minus the pin it has nowhere to record (OQ-TP4) | 2026-08-18 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
+| **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **BUILT 2026-08-18** | 2026-08-18 | [§3.1](#ruled-2026-08-18-a-refused-contribution-is-a-refused-launch) |
 
 > [!WARNING]
 > **This document's questions were renumbered on 2026-08-18, and the reason is worth keeping.** They
@@ -79,21 +79,25 @@ becomes a gate only if three things hold together — (i) enforced at use, (ii) 
 
 ### Where a pin would change the outcome
 
-1. **`program via npm`** — because nothing *is* pinned and the content changes with **zero user
+1. **`program via npm`** — because nothing *is* pinned and the content changed with **zero user
    action**. Every shipped pack declares a bare package name, which the launcher resolves to
-   `@latest` and then keeps current on an hourly poll, so the binary changes between two invocations
-   with nobody present.
+   `@latest` and then kept current on an hourly poll, so the binary changed between two invocations
+   with nobody present. **The zero-user-action half was removed on 2026-08-18** (see the ruling
+   below); what survives of this row is that the version an explicit update lands on is still not
+   recorded anywhere, which is OQ-TP4.
 
-   > **What the hourly poll is, since it is ours and it is deliberate — and it is being removed.**
+   > **What the hourly poll was, since it is ours and it was deliberate — and it has been removed.**
    > A pack that declares `program via npm` does not get its binary at image-build time. The
    > entrypoint generates a *launcher* script for the command name, and the first invocation installs
-   > it ([`shims.go`](../../internal/entrypoint/shims.go#L320-L390)). That script then keeps the
-   > package fresh on its own: on the first call after a jail boot, and thereafter at most once an
-   > hour (`UPDATE_INTERVAL=3600`), it runs `npm view <pkg> version` and **reinstalls** if the
-   > registry's latest differs from what is installed.
+   > it ([`shims.go`](../../internal/entrypoint/shims.go)). That script then kept the package fresh
+   > on its own: on the first call after a jail boot, and thereafter at most once an hour
+   > (`UPDATE_INTERVAL=3600`), it ran `npm view <pkg> version` and **reinstalled** if the registry's
+   > latest differed from what was installed.
    >
-   > It was built for a real problem: agent CLIs install lazily into a jail home that *persists across
-   > boots*, so with no refresh they freeze at whatever was current the day that home was created.
+   > It was built for a real problem, and the problem did not go away: agent CLIs install lazily into
+   > a jail home that *persists across boots*, so with no refresh they freeze at whatever was current
+   > the day that home was created. `yolo pack update` is what answers it now — the same refresh,
+   > asked for rather than assumed.
 
    > **RULED, 2026-08-18: no evergreen npm packages. Install and update become different acts.**
    > *"This is not something we can keep with pack-sourced things. I don't want magical evergreen npm
@@ -116,11 +120,25 @@ becomes a gate only if three things hold together — (i) enforced at use, (ii) 
    > already runs on a sane schedule, and already knows the answer. What changes is that it reports
    > instead of acting.
    >
-   > **What stands in the way today, stated so nobody is surprised mid-implementation:**
+   > **BUILT, 2026-08-18 — the two behavioural halves, not the record.** The launcher's
+   > `_poll_and_update` is now `_poll_and_report`
+   > ([`shims.go`](../../internal/entrypoint/shims.go)): same `npm view`, same hourly throttle, and
+   > it prints `<installed> → <latest> is available. Run 'yolo pack update'` instead of reinstalling.
+   > The ONE input that still resolves a version is `YOLO_PACK_UPDATE=1`, which
+   > `yolo pack update` sets and nothing else does; in that mode the launcher installs and **exits
+   > without exec'ing**, so refreshing a list of agent CLIs never starts one. The cold path is
+   > untouched by design — a first install is not a poll, and without it a fresh jail would have no
+   > agent CLI at all. `internal/cli/pack.go`'s `case "install", "update":` is split, and
+   > `internal/cli/packupdate.go` is the whole of the difference: it walks the staged packs (not the
+   > launcher dir, which also holds native and package-manager launchers), and runs each
+   > npm-declared program's launcher in update mode.
    >
-   > - **`install` and `update` are literally the same code path.** `internal/cli/pack.go:175` reads
-   >   `case "install", "update":`. The split is real work, not a flag — and the two must end up
-   >   *behaving* differently, not merely printing differently.
+   > **What stands in the way today, stated so nobody is surprised mid-implementation** — the first
+   > bullet is now closed, the rest are what the build deliberately did not touch:
+   >
+   > - ~~**`install` and `update` are literally the same code path.**~~ **CLOSED 2026-08-18.** They
+   >   are two case arms reaching two functions, and the difference is behavioural: `update`
+   >   refreshes an npm-declared program and `install` never does.
    > - **The lockfile has nowhere to put an npm version.** `LockEntry`
    >   ([`lock.go`](../../internal/packsrc/lock.go#L32-L55)) records `Name`, `Source`, `Commit`, `Ref`
    >   and `ApprovedHostAccess` — everything about a *git* pin and nothing about a package one. It
@@ -243,7 +261,7 @@ Ordered from most-trusted origin to least. "Silent change" is the column the exe
 | :-- | :--- | :--- | :--- | :--- |
 | 1 | the yolo binary — built-in skills + composed briefing | agent context | never | only via your own upgrade |
 | 2 | **embedded pack `program via installer`** (claude, agy) | in-jail exec as UID 0 | **never** — embedded origin grants unconditionally | **yes, twice over**: the URL's bytes, and the vendor's own hourly self-update, which no pin touches |
-| 3 | **`program via npm`** — any pack, any origin | in-jail exec (postinstall + deps) | **never**, for any origin | **yes — `@latest` on an hourly timer.** Since 2026-08-17 a declaration *may* name a version, which stops the poll; no shipped pack does, so the row is unchanged in practice (§1) |
+| 3 | **`program via npm`** — any pack, any origin | in-jail exec (postinstall + deps) | **never**, for any origin | **no longer silently — 2026-08-18.** The hourly poll now only reports; `yolo pack update` is the only act that resolves a version. What remains is that the version it resolves is unrecorded (OQ-TP4), so *which* bytes an update lands on is still unpinned — but no longer unasked-for (§1) |
 | 4 | `flake.nix` / `flake.lock` | in-jail exec (everything on PATH) | implicit, at PR merge | no for inputs (locked revs, hermetic build) |
 | 5 | **the implicit local pack** `~/.config/yolo-jail/local` | everything, at maximum trust | **never**, and deliberately | **yes, continuously** — live dir, re-read every launch, no record |
 | 6 | explicit `file://` local pack | same as 5 | implicit in the config line | yes, every launch — no copy, no hash |
@@ -550,7 +568,10 @@ real and rarer; do them when their consumers exist.
 > **Row 1 is decided: yes, and by removing the mechanism rather than adding a gate.** No evergreen
 > npm — `install` installs the lockfile's version, `update` is the only act that resolves a new one,
 > and the launcher's hourly poll is downgraded to an informational "an update is available". See the
-> ruling in [§1 row 1](#where-a-pin-would-change-the-outcome).
+> ruling in [§1 row 1](#where-a-pin-would-change-the-outcome). **The two behavioural halves are
+> built** (same date): the poll reports, and `yolo pack update` is the only resolver. The unbuilt
+> half is the record — see OQ-TP4 immediately below, which is now the ONLY thing between this
+> ruling and its stated form.
 >
 > **What that leaves of this question, still open:** it settles the *behaviour* and not the two scope
 > halves the paragraph above names — whether yolo pins its OWN embedded packs (which is
@@ -563,6 +584,13 @@ real and rarer; do them when their consumers exist.
 
 Raised by the 2026-08-18 ruling in §1 row 1, and it decides whether that ruling is implementable as
 stated rather than only for the minority of packs.
+
+**Sharpened by the build (2026-08-18), which stopped exactly here.** The behavioural halves shipped
+without it: the poll reports, and `yolo pack update` resolves. So what is missing is no longer the
+mechanism but the RECORD — `update` resolves a version and nothing writes it down, which means
+`install` has no version to install and falls back to "leave what is there alone". That is a
+coherent state (nothing changes without being asked) and it is not the ruling as stated: rule 1
+says *install installs the version the lockfile records*, and today there is no such version.
 
 The ruling is *"if there's a committed lockfile, install installs from that version."* The lockfile
 is `packsrc`'s, and it exists **per fetched pack** — `LockEntry`'s own comment says the approval
