@@ -41,14 +41,15 @@ gate** — and one of them obviated a question rather than answering it:
   resolves a new version, and the hourly poll is downgraded to informational. *Queued in 📦 below.*
 - ✅ **OQ-TP6 — a refused contribution refuses the launch.** No partial packs: fix it, remove it, or
   approve it. *Queued in 📦 below.*
+- ✅ **OQ-TP2 — nothing explicit.** Agent context needs no gate and no separate disclosure: the
+  lockfile's commit pin closes over the whole tree, prose included. *Inherits OQ-LP8/G2b — the pin is
+  recorded and never consulted at launch, so it covers this on paper until enforcement lands.*
 - ✅ **OQ-TP1 obviated by TP6.** There is nothing to carry into a jail if no jail starts, so the
   origin-gate finding stops being a broken guarantee. It stays in 🛑 until the fatal ships, but the
   fix is now defined rather than undecided.
 
 What is still open:
 
-- **OQ-TP2** — does agent context (skills, briefings) get gated, or just **disclosed**? Today it is
-  neither, by explicit classification, while `env` *is* disclosed on reasoning that applies verbatim.
 - **OQ-TP3** — is pinning worth building at all? **Partly answered:** TP5 settles row 1's behaviour.
   What is left is scope — whether yolo pins its *own* embedded packs, and whether a fetched pack is
   *required* to pin rather than merely permitted.

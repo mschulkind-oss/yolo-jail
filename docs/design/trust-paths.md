@@ -11,7 +11,9 @@ summary: "Twenty-five paths, enumerated from the code, each with when trust is e
 **Status:** INVENTORY, 2026-08-17; **two rulings since**, both 2026-08-18 and both closing a finding
 by *removing* a mechanism rather than adding a gate — no evergreen npm ([§1 row 1](#where-a-pin-would-change-the-outcome)),
 and a refused contribution refuses the launch ([§3.1](#ruled-2026-08-18-a-refused-contribution-is-a-refused-launch)),
-which obviates OQ-TP1 (see the Decision Ledger). Nothing built. Every row was traced in the code; anchors are
+which obviates OQ-TP1, and one more on 2026-08-18 answering OQ-TP2 with *"nothing explicit — the
+commit pin already closes over it"* (see the Decision Ledger). **Two questions remain: OQ-TP3 and
+OQ-TP4.** Nothing built. Every row was traced in the code; anchors are
 inline and the check date is today.
 
 **Why this exists.** A proposal ([`pack-execution-trust.md`](./pack-execution-trust.md)) argued that
@@ -43,6 +45,7 @@ note below.
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | **OQ-TP1** | **Obviated.** There is no decision to carry into a jail, because a refused contribution refuses the launch (OQ-TP6). The hardcoded `mayAccessHost=true` stays worth fixing as tidiness, not as a broken guarantee | 2026-08-18 | [§3.1](#31-the-origin-gate-is-not-enforced-where-it-executes-) |
+| **OQ-TP2** | **Nothing explicit.** Agent context needs no gate and no separate disclosure — the lockfile's commit pin closes over it, because it closes over the whole tree | 2026-08-18 | [§2 row 17+](#2-the-inventory) |
 | **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report* | 2026-08-18 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
 | **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it | 2026-08-18 | [§3.1](#ruled-2026-08-18-a-refused-contribution-is-a-refused-launch) |
 
@@ -263,6 +266,34 @@ Ordered from most-trusted origin to least. "Silent change" is the column the exe
 | 23 | fetched pack — loophole with a `host_daemon` | **host execution** + a CA trusted in-jail | explicit, per crossing | yes — the claim pins the argv, not the file (OQ-LP8) |
 | 24 | `yolo apply --host` | **host write** into your real home | explicit per invocation, `--assert` required | for a local pack, yes — source re-read each apply |
 | 25 | the mirror + ref resolution behind rows 17–23 | selects which bytes every row above delivers | — | **three verified mechanisms** |
+
+---
+
+### Agent context needs no gate of its own
+
+**RULED (OQ-TP2, 2026-08-18): nothing explicit.** Skills, briefing prose and the rest of the
+agent-facing surface get no gate and no separate disclosure line, because **the lockfile already pins
+a commit, and a commit closes over the whole tree** — prose included. A second mechanism aimed at the
+same bytes would be the halfway-measure shape this repo keeps deleting.
+
+**The scope is exactly right, which is worth stating because it looks narrower than it is.** A commit
+pin covers *fetched* packs only: `LockEntry.Commit` is *"empty for a local pack — a directory has no
+commit, and pretending otherwise would invent a pin"*
+([`lock.go`](../../internal/packsrc/lock.go#L39-L41)), and embedded packs have no lockfile row at
+all. That is not a gap — **fetched packs are the only ones whose content someone else controls.** A
+local pack is your own files under your own authority, and an embedded one is yolo's own code. So the
+one kind a pin can cover is the one kind that needs covering.
+
+> [!WARNING]
+> **This ruling inherits an enforcement gap, and is worth exactly as much as that gap is closed.**
+> The lockfile *records* the resolved commit; **nothing consults it at launch.** Every reader of
+> `LockEntry.Commit` is display-only — `pack.go:1096` reports whether an update moved the pin,
+> `pack.go:1313-1316` prints it in a listing. So today the commit pin closes over agent context *on
+> paper*.
+>
+> That is **OQ-LP8 / G2b**, already open and already ruled in shape. Nothing here needs a new
+> mechanism — but until the pin is enforced at use, "the pin covers it" is a statement about the
+> design rather than about a running system.
 
 ---
 
@@ -495,18 +526,6 @@ closed. A refusal that does not hold where the code runs is not a foundation to 
 ---
 
 ## Open Questions
-
-### 💬 OQ-TP2 — does agent context (skills, briefing) get gated at all, or is "jail-internal" the ruling?
-
-Today it is ungated and undisclosed by explicit classification, while `env` **is** disclosed on
-reasoning that applies verbatim to skills. Either the reasoning is wrong or the classification is.
-
-_Leaning:_ **Disclose, do not gate.** Prompt content is not execution and gating it would make packs
-unusable; but a fetched pack silently rewriting every skill the agent reads should appear in the
-launch banner exactly as `env` does.
-
-**Answer:**
-> _(empty — fill in when decided)_
 
 ### 💬 OQ-TP3 — given §1, is pinning worth building at all, and where first?
 
