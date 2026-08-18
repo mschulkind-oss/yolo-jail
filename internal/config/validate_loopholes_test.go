@@ -35,6 +35,34 @@ func TestInlineLoopholeKeysLoaderReadsAreKnown(t *testing.T) {
 	}
 }
 
+// TestInlineLoopholeEnabledIsKnownAndTypeChecked is the same reconciliation, on the
+// key the first pass missed and the one it could least afford to.
+//
+// synthesizeConfigLoopholes reads `enabled` off an inline entry (defaulting TRUE),
+// so it is the only way to switch an inline service off without deleting its argv —
+// and it was an "unknown key" ERROR, which refuses the whole config. That also made
+// `yolo loopholes disable`'s own instruction false for one of the three sources it
+// names: "that key works for every source (bundled, pack-shipped, config-inline)".
+//
+// The type check is the other half, and it is not decoration. The loader coerces
+// with Truthy, where `"false"` is a non-empty string and therefore TRUE — the slip
+// fails in the granting direction, exactly as `preamble` documents next door, and
+// exactly as the OVERRIDE shape of this same key already refuses.
+func TestInlineLoopholeEnabledIsKnownAndTypeChecked(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	cfg := decode(t, `{"loopholes": {"svc": {"command": ["/bin/true"], "enabled": false}}}`)
+	if errs, _ := ValidateConfig(cfg, t.TempDir(), nil); len(errs) != 0 {
+		t.Errorf("errors = %v, want none — `enabled` is read by synthesizeConfigLoopholes, "+
+			"so switching an inline service off must not be a config error", errs)
+	}
+	bad := decode(t, `{"loopholes": {"svc": {"command": ["/bin/true"], "enabled": "false"}}}`)
+	errs, _ := ValidateConfig(bad, t.TempDir(), nil)
+	if len(containing(errs, "loopholes.svc.enabled", "boolean")) == 0 {
+		t.Errorf("errors = %v, want a boolean type error — Truthy(\"false\") is TRUE, so the "+
+			"quoted spelling would silently switch the service ON", errs)
+	}
+}
+
 // validateScoped writes the given workspace yolo-jail.jsonc, then runs
 // ValidateConfig over the merged map a real load would produce (user merged
 // under workspace). Host behavior is pinned via YOLO_VERSION="" — this project

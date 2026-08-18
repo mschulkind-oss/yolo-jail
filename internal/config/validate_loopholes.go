@@ -571,6 +571,13 @@ func validateInlineService(spec *jsonx.OrderedMap, path string, errs *[]string) 
 	if pV, present := spec.Get("preamble"); present && pV != nil && !isBool(pV) {
 		add(errs, path+".preamble: expected a boolean (got "+pyReprValue(pV)+")")
 	}
+	// `enabled` gets the identical check, and the identical wording as the OVERRIDE
+	// path's (validateLoopholeOverride). One key, read by two loaders, must not be
+	// strict in one entry shape and truthy in the other — `"enabled": "false"` is
+	// the same slip in both places and it fails in the granting direction in both.
+	if eV, present := spec.Get("enabled"); present && eV != nil && !isBool(eV) {
+		add(errs, path+".enabled: expected a boolean (got "+pyReprValue(eV)+")")
+	}
 	// jail_endpoint is the canonical override; jail_socket stays an ACCEPTED ALIAS.
 	// Retiring the older key rather than aliasing it would make a third-party
 	// loophole's override silently vanish over a rename, which is the same class of

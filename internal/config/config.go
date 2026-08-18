@@ -88,8 +88,19 @@ var (
 	// knownLoopholeOverrideKeys, because applyWorkspaceOverrides does not read
 	// it — on an override the key would be inert, which is precisely what the
 	// doctor_cmd refusal in validateLoopholeOverride exists to prevent.
+	//
+	// `enabled` is the FOURTH key the reconciliation missed, and the one it could
+	// least afford to: synthesizeConfigLoopholes reads it (defaulting TRUE — an
+	// inline entry is a service the user wrote out by hand, so writing it IS the
+	// deliberate act), and it is the only way to switch an inline service off
+	// without deleting its argv. Omitting it here made
+	// `{"command": [...], "enabled": false}` a hard config ERROR, which also made
+	// `yolo loopholes disable`'s own instruction — "that key works for every
+	// source (bundled, pack-shipped, config-inline)" — false for the third source
+	// it names. It is in BOTH censuses because both loaders read it: on an
+	// override applyWorkspaceOverrides honors it too.
 	knownHostServiceKeys = set("command", "env", "jail_socket", "jail_endpoint",
-		"doctor_cmd", "description", "preamble")
+		"doctor_cmd", "description", "preamble", "enabled")
 	knownLoopholeOverrideKeys = set("enabled", "env", "jail_env")
 	knownGPUKeys              = set(
 		"enabled", "devices", "capabilities", "vendor", "mode",
