@@ -79,6 +79,49 @@ const (
 	RetiredKeyEnabled = "enabled"
 )
 
+// # REVERSE SKEW, and why this file cannot fix it — read before adding a tripwire
+//
+// The refusal above protects a NEW build reading an OLD manifest. The opposite
+// direction is the dangerous one and it is NOT SOLVED HERE: an OLD build reading a
+// manifest that declares `default_enabled` does not know the key, tolerates it, and
+// falls back to enabled-defaults-TRUE. So a manifest shipping a loophole meant to be
+// OFF runs it ON under a yolo that predates the rename — a security regression
+// delivered by an upgrade of the CONTENT rather than of the binary.
+//
+// Three things were considered and only the third is honest.
+//
+//	A schema-version or unknown-key REFUSAL an old build trips on does not exist,
+//	and it does not exist ON PURPOSE. `version` is recognized-but-never-enum-checked
+//	(see Manifest.Version: refusing it "would brick a jail whose baked entrypoint is
+//	one just load behind"), unknown keys are tolerated by DecodeTolerant and again by
+//	packload.LoopholeModules, and BOTH tolerances are rulings with the `tier` incident
+//	as their measured cost. A value planted in new manifests purely to make old
+//	binaries choke reverses those rulings, and it fires for every pack manifest —
+//	including every harmless default-true one.
+//
+//	SHIPPING BOTH KEYS through a transition needs the refusal above scoped to
+//	non-shipped manifests. Pack-shippedness is deliberately the CALLER's fact and not
+//	the manifest's (internal/loopholes/load.go says why), and `yolo pack lint` runs
+//	the strict decoder over yolo's own packs — so the scoping would thread through
+//	three loaders and then exempt yolo from its own lint.
+//
+//	A VERSION FLOOR is the tempting one, and the reason it fails is worth keeping:
+//	internal/version does stamp a real version into the binary, so a `min_yolo` key
+//	is expressible. It is not ENFORCEABLE. A floor has to be checked by the READER,
+//	and the reader that needs stopping is precisely the build that shipped before the
+//	key existed — to which `min_yolo` is one more unknown key, tolerated. A floor
+//	added today can only bind the NEXT deletion-shaped change, never this one.
+//
+// So the residual is a RELEASE NOTE, and the population is smaller than it looks.
+// For the three BUNDLED manifests reverse skew is structurally impossible: they are
+// go:embed'd, and internal/loopholes' materializeEmbedded is content-addressed over
+// the embedded bytes, so a binary reads its own copy and never a newer one. The lone
+// exception is BundledLoopholesDir preferring a repo checkout when one resolves —
+// a yolo-jail developer whose binary predates this change and whose checkout does
+// not, one `just load` from fixed. For PACK-shipped manifests, written by third
+// parties and updated independently of the binary, it is real and unclosable from
+// inside this package.
+
 // retiredTopKeyRefusal returns the refusal text for a retired TOP-LEVEL key, or ""
 // when the key is not retired. Written as a lookup over all keys rather than an `if`
 // per key so retiring the next one is a single entry, not a second call site to
