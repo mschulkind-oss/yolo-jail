@@ -8,8 +8,10 @@ summary: "Twenty-five paths, enumerated from the code, each with when trust is e
 
 # Every path by which someone else's content runs in your jail
 
-**Status:** INVENTORY, 2026-08-17; **one ruling since — see §1 row 1** (2026-08-18: no evergreen npm;
-install and update become different acts). Nothing built. Every row was traced in the code; anchors are
+**Status:** INVENTORY, 2026-08-17; **two rulings since**, both 2026-08-18 and both closing a finding
+by *removing* a mechanism rather than adding a gate — no evergreen npm ([§1 row 1](#where-a-pin-would-change-the-outcome)),
+and a refused contribution refuses the launch ([§3.1](#ruled-2026-08-18-a-refused-contribution-is-a-refused-launch)),
+which obviates OQ-T1. Nothing built. Every row was traced in the code; anchors are
 inline and the check date is today.
 
 **Why this exists.** A proposal ([`pack-execution-trust.md`](./pack-execution-trust.md)) argued that
@@ -351,6 +353,48 @@ rules, not safety.** Any new gate proposed in this document inherits this same h
 jail-executes split, and would need the decision *staged* to mean anything. That is why OQ-T1 asks
 whether to fix this first rather than build on top of it.
 
+### RULED (2026-08-18): a refused contribution is a REFUSED LAUNCH
+
+*"If the installer is refused, that should be fatal. We can't run packs with selective things
+disabled by refusals. Fix the pack, remove the pack, approve. Those are the choices."*
+
+**This does not fix the enforcement gap — it deletes the problem.** Everything above describes a
+decision made on the host and then *carried*, badly, into a jail that re-derives it from a hardcoded
+input. Under this ruling there is nothing to carry: the host refuses, and **no jail starts**. The
+`mayAccessHost=true` at `packsurfaces.go:89` stops being a security defect and becomes merely
+untidy — any pack that reaches a jail now has every claim approved, so the permissive default is
+accidentally correct for every input it can receive. (Worth fixing anyway, as defence in depth and so
+the next reader is not misled, but it is no longer load-bearing.)
+
+**It also retires the partial-pack concept**, which is the deeper change. A pack that half-loads is a
+pack whose behaviour nobody can predict from reading it: the manifest says one thing, the running
+system does another, and the difference is a warning scrolled past ten minutes ago. The three choices
+the ruling names — **fix the pack, remove the pack, approve it** — are exhaustive precisely because
+they are the only three that end with the manifest and the runtime agreeing.
+
+> [!WARNING]
+> **This is a behaviour change, and the direction is deliberate.** Today a user with a selected but
+> unapproved fetched pack gets a warning and a working jail; afterwards they get no jail. That is the
+> point — but it means the refusal message is now the entire user experience of the failure, so it
+> must name all three choices, the pack, and the specific claim that was not approved. A fatal the
+> reader cannot act on would be worse than the warning it replaces.
+
+> [!IMPORTANT]
+> **Two things that look like partial packs and must NOT become fatal.** Both already exist, both are
+> deliberate, and collapsing them into this ruling would break a jail's ability to boot at all.
+>
+> - **A declared bind mount whose host path is absent** is skipped with a warning
+>   ([`runtime.go`](../../internal/loopholes/runtime.go#L214)). That is *adaptation inside a
+>   capability the user already consented to* — nothing was refused, the thing simply is not there.
+> - **A contribution whose KIND this build does not recognise** is skipped, not fatal, because the
+>   host CLI and the baked entrypoint legitimately differ in age
+>   ([`packload.go`](../../internal/packload/packload.go#L283-L296): every read in the jail is a
+>   cross-version read, and *"the wrong one is the boot path, where the cost is a jail that will not
+>   start"*). That is **skew tolerance**, not a refusal.
+>
+> The distinction that keeps these separate: **this ruling is about a claim yolo UNDERSTOOD and
+> declined.** Something absent, or something from the future, is neither.
+
 ### "So should we just remove the gate?"
 
 Asked on review, and it is the right question to ask of any guarantee that turns out not to hold —
@@ -428,7 +472,7 @@ closed. A refusal that does not hold where the code runs is not a foundation to 
 
 ## Open Questions
 
-### 💬 OQ-T1 — is §3.1 a bug to fix now, or a design change?
+### ✅ OQ-T1 — is §3.1 a bug to fix now, or a design change? — RESOLVED (2026-08-18)
 
 Carrying the origin decision into the jail could be a marker in the staged tree, an env var, or
 staging a *modified* `pack.json` with the refused contribution removed. The third is the only one a
@@ -448,7 +492,18 @@ the jail's permissive default harmless instead of leaving it as a trap for the n
 shape as *"the MOUNT is the filter"*, which this subsystem already relies on for pack selection.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **Neither — the question is obviated.** A refused contribution is a **refused launch**
+> ([§3.1](#ruled-2026-08-18-a-refused-contribution-is-a-refused-launch)), so there is no decision to
+> carry into a jail and no degraded pack to carry it for. All three mechanisms above were ways of
+> delivering a *partially disabled* pack, and the ruling says that pack should not exist.
+>
+> **What survives of the finding:** the hardcoded `mayAccessHost=true` at `packsurfaces.go:89` should
+> still be fixed, but as tidiness and defence in depth rather than as a broken guarantee — once the
+> host refuses, every pack that reaches a jail has every claim approved, so the permissive default is
+> correct for every input it can now receive.
+>
+> **What replaces it as the work:** making the refusal fatal, and writing a refusal message that
+> names the pack, the specific unapproved claim, and the three choices (fix, remove, approve).
 
 ### 💬 OQ-T2 — does agent context (skills, briefing) get gated at all, or is "jail-internal" the ruling?
 
@@ -466,7 +521,9 @@ launch banner exactly as `env` does.
 
 The honest ranking from this inventory is: **npm `@latest` first** (highest plausibility, affects
 embedded packs, changes with nobody present), then the OQ-LP8 file/hook bodies, then `?ref=` drift.
-Everything else is theatre until §3.1 is closed.
+Everything else is theatre until §3.1 is closed — **and it now closes by ruling rather than by
+machinery**: a refused contribution refuses the launch (2026-08-18), so the unenforced-gate finding
+stops being a prerequisite for anything else in this list.
 
 _Leaning:_ **Yes, but only #1, and only after the launcher can express a version.** The other two are
 real and rarer; do them when their consumers exist.
