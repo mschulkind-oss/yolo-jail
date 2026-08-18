@@ -2285,6 +2285,12 @@ constraint is the other, and it is OQ-LP14. The alternative is the collision pas
 additive. **Resolved by:** the first real pack that wants conditional env — `audio` wants it and
 tolerates the unconditional form, which is why this is still open rather than forced.
 
+> **✅ RESOLVED 2026-08-17 — the path rule is WITHDRAWN, not extended.** The vocabulary was never the
+> problem: the rule admits `~/.ssh` and refuses a pulse socket, so its two cases are inverted. Claim
+> enumeration plus the approval already do the work; what survives is a correctness rule (the approved
+> string must resolve to the bound path), not a gate. Full reasoning at the OQ-LP14 entry in
+> [`loophole-packaging-overview.md`](loophole-packaging-overview.md). `audio` needs no new vocabulary.
+
 **OQ-LP14 — the subset has no vocabulary for a RUNTIME-DIR SOCKET, which is the commonest non-home
 host path there is. NEW 2026-08-14, from building the pack.** §3.1's requirement 1 admits
 `{loophole_dir}/…` and home-relative paths and refuses everything else, correctly (see the argument

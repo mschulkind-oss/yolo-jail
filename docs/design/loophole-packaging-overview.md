@@ -987,7 +987,39 @@ packaging it would be ceremony over a thing that ignores the package. It moves w
 vocabulary, and `host-processes` can move whenever, since an official pack is embedded in the same
 binary as its client.
 
-### OQ-LP14 — the subset cannot say "a socket in this session's runtime dir" ❓ NEW, and it needs you
+### OQ-LP14 — the subset cannot say "a socket in this session's runtime dir" ✅ RESOLVED 2026-08-17 — THE RULE IS WITHDRAWN
+
+> **ANSWERED: drop the path rule entirely. It was false security.**
+>
+> The section below argues *"the rule is right; the vocabulary is missing"*, and both halves are
+> wrong. It is kept because the argument that lost is worth reading — it took two rounds and two
+> withdrawn proposals to see the flaw.
+>
+> **What kills it, in one line:** the rule permits everything under `$HOME` and refuses
+> `${XDG_RUNTIME_DIR}/pulse/native` — so it **admits `~/.ssh` and blocks a pulse socket.** It lets
+> through the thing worth protecting and blocks the thing that is not. A gate with its two cases
+> inverted is not a weak gate; it is not a gate.
+>
+> **And my own proposed fix was worse than nothing:** a closed, yolo-resolved socket vocabulary is an
+> allowlist wearing an extension point's clothes — every new socket would need a yolo release, which
+> is the opposite of what a manifest field is for.
+>
+> **The `mount`-kind consistency argument below does not rescue it either**, and that analogy is
+> false: `mount` is relative-only because it stages **the pack's own content**, which has no business
+> naming a host path. Reaching a host resource is a loophole bind's entire purpose.
+>
+> **What replaces it is not a gate:** total claim enumeration plus the approval already do the work —
+> a bind emits an approvable string and a fetched pack cannot cross without the user seeing it. The
+> one property worth keeping is a **correctness** rule: normalize, resolve `..`, and refuse a
+> declaration whose resolution is not stable between approval and launch. That is *"does what you
+> approved equal what I mount"*, which yolo must guarantee — not *"is this path allowed"*, which yolo
+> cannot judge for a user.
+>
+> **Consequence:** `audio` becomes expressible as a pack with **no new vocabulary at all**, so the
+> gate on emptying `bundled_loopholes/` is lifted. See [`trust-paths.md`](./trust-paths.md) for the
+> inventory that shows why declaration-keyed gates cannot answer content questions.
+
+*(Original question and its argument, preserved.)*
 
 **Raised by building the thing, not by reviewing it.** A pack-shipped loophole's bind hosts must be
 inside its own module dir or relative to `$HOME`. `${XDG_RUNTIME_DIR}/pulse/native` is neither, in every
