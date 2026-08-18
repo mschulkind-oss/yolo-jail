@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 8 needing you · 2 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
+**Status: 8 needing you · 1 ready · 0 in progress · 4 waiting · 1 broken · 2 icebox.**
 
 Last updated **2026-08-18**. Counts tallied from this file, not asserted.
 
@@ -166,46 +166,9 @@ one-line deliverable that is decided in all but name.
   needs a migration message, not silence). **Accepted cost:** `yolo-cglimit` stops working out of the
   box.
 
-- 📦 **Two trust-path rulings: no evergreen npm, and no partial packs.** 📄
-  [`trust-paths.md`](../design/trust-paths.md)
-
-  Both close a finding by **removing a mechanism** rather than adding a gate, which is why they are
-  cheap. Ordered by dependency:
-
-  1. **A refused contribution refuses the launch (OQ-TP6).** Today the host computes a refusal,
-     prints it, and stages the pack anyway; the jail then grants what was refused. Making it fatal
-     deletes that whole class — no decision to carry, and the 🛑 origin-gate finding below closes with
-     it. ⚠ **Behaviour change:** a selected-but-unapproved fetched pack now yields *no jail* where it
-     used to yield a warning and a working one. The refusal message is therefore the entire user
-     experience of the failure — it must name the pack, the unapproved claim, and the three choices
-     (fix, remove, approve). **Do not** extend this to a missing bind-mount source or an unknown
-     contribution kind; both are deliberate and a jail's boot depends on the second.
-  2. **No evergreen npm (OQ-TP5).** Split `install` from `update`: install obeys the lockfile, update
-     is the only resolver and writes it, and the hourly poll survives as an informational
-     "an update is available". ⚠ **Blocked on OQ-TP4** for the case that matters — the lockfile is
-     per *fetched* pack and the four packs declaring npm programs are all *embedded*, so there is
-     nowhere to put the pin yet. The install/update split and the poll downgrade can land first.
-
 ---
 
 # 🛑 Broken
-
-- 🛑 **The origin gate is not enforced where the code runs.** *(Found 2026-08-17, verified twice.)*
-
-  `internal/entrypoint/packsurfaces.go:89` loads **every** staged pack with `mayAccessHost=true`. The
-  host computes the refusal, prints a warning, and stages the unmodified `pack.json` anyway — nothing
-  carries the decision across the boundary. So a **fetched, unapproved** pack still gets its
-  `curl → bash` launcher written. The test asserting the split says *"the JAIL loader trusts the
-  staged tree"* and then bypasses the jail loader.
-
-  This is the exact shape `gateAdmitsCrossing` exists to close: **true of the decision, false of its
-  enforcement.**
-
-  **The fix is now decided (OQ-TP6): the refusal becomes FATAL.** That deletes the problem rather
-  than plumbing around it — with no jail starting, there is no decision to carry and the hardcoded
-  `mayAccessHost=true` becomes correct for every input it can receive. It stays 🛑 until that ships,
-  but it is queued work now, not an open question. 📄
-  [`trust-paths.md`](../design/trust-paths.md) §3.1.
 
 - 🛑 **The macOS nightly cannot build an image.** Five consecutive failures since v0.8.0.
 
