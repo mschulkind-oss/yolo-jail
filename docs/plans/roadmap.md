@@ -155,10 +155,17 @@ one-line deliverable that is decided in all but name.
   6. **Mirror the enable-direction disclosure** (OQ-A13) — `WorkspaceDisabledLoopholes` already
      computes it and throws the `true` case away at `validate_loopholes.go:367`. **Ship it as
      readability, not as a control:** the snapshot it relies on is agent-writable.
-  7. **Move the approval snapshot out of the jail's reach** (OQ-D1) — this is what turns step 6 from
-     a courtesy into a control, and it is the only step here with an unanswered question. 📄
-     [`config-safety.md`](../design/config-safety.md); my leaning is to move it host-side, since the
-     prompt already runs there and the jail never reads it.
+  7. **Move the approval snapshot out of the jail's reach** (OQ-D1, ruled) — host-side per-workspace
+     state the jail never mounts. This is what turns step 6 from a courtesy into a control. Costs
+     nothing at runtime: the prompt already runs host-side and the jail never reads the file. 📄
+     [`config-safety.md`](../design/config-safety.md)
+  8. **A non-interactive launch with a changed config FAILS** (OQ-D2, ruled) — CI opts in with an
+     explicit flag instead of the implicit yes it gets today (`config/snapshot.go:38`).
+     ⚠ **Breaking change for existing non-interactive callers**, deliberately: a pipeline silently
+     accepting config drift starts failing instead of continuing to not tell anyone. Needs a release
+     note, and the failure message must name the flag — the reader of that message cannot be
+     prompted. A flag rather than an env var, because this grants an *approval* rather than
+     suppressing a diagnosis, and an env var is inherited by every child and outlives the launch.
 
   This is the largest queued item in the file and it grew on 2026-08-18: OQ-A6 pulled the two builtin
   conversions in rather than deferring them. That was your call and the reasoning is in the doc; the
