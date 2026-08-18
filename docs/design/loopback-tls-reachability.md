@@ -521,6 +521,32 @@ here" is the belief that let the option ship unmeasured for a day longer than it
 with one footnote per run pointing at the boot-time witness as the only thing that can answer. The
 underlying asymmetry is not closed and cannot be: `yolo check` still cannot fail on this.
 
+> [!CAUTION]
+> **Blind, and for one day also REFUSED — measured 2026-08-18.** The nested case is not only unable
+> to see this bug; the flip made it unable to launch at all. Four correct decisions compose into it:
+> a nested launch's disposition is `shared`, which escalates ([§7.2](#72-what-may-escalate)); its
+> broker endpoint variable is wired on loophole activity with no publish gate
+> ([§7.3](#73-which-fault-classes-escalate)); a nested launcher's broker *singleton* can never bind,
+> because the jail image bakes no `openssl` and the daemon exits with `cannot locate openssl` the
+> instant `brokerEnsure` spawns it, so `ensureBrokerRelay` is skipped and nothing writes the endpoint
+> file; and an endpoint nobody published is `faultUnpublished`, which escalates too
+> ([§7.3](#73-which-fault-classes-escalate)). Measured with a freshly built launcher from inside this
+> repo's own jail: `yolo -- bash` exited 1 with *"Refusing to start … claude-oauth-broker"* — the one
+> launch shape `AGENTS.md` makes **mandatory** for verifying a change to `cmd/` or `internal/`.
+>
+> **Fixed at the promise, not at the severity.** `hostServicesMountArgs` now withholds the broker's
+> endpoint variable on the single shape where nothing on this side can ever publish it —
+> `brokerEndpointIsUnpublishable`: the launcher is itself in a jail *and* no singleton socket is
+> there after `brokerEnsure` already tried. **The host case above is untouched**, deliberately: a
+> host with a dead singleton still wires the variable and still refuses its jails, and the restart
+> window that removed the old unconditional socket gate (`9b77742`) is unchanged. Re-measured: the
+> same nested launch now exits 0, still carrying `YOLO_HOST_LOOPBACK=shared` and still probing (and
+> reaching) `host-processes`, so the witness was narrowed nowhere.
+>
+> The general lesson is the one this section already carries in a different key: an endpoint variable
+> is a *promise*, and the fatal turned every unbackable promise into a refused launch. Any future
+> service wired without a publish gate owes this same question.
+
 ---
 
 ## 8. Non-goals
