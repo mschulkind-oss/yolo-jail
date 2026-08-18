@@ -296,7 +296,6 @@ func GeneratePackageManagerLaunchers(e *Env) error {
 		pkgName, pkgVersion := splitNpmSpec(pm.pkg)
 		r := strings.NewReplacer(
 			"__YOLO_BIN__", pm.bin,
-			"__YOLO_PKG__", pkgName,
 			"__YOLO_SPEC__", npmInstallSpec(pkgName, pkgVersion),
 			"__YOLO_STAMP_DIR_LIT__", stampDirLiteral,
 		)
@@ -336,13 +335,22 @@ _do_install() {
     echo "  Installing $SPEC..." >&2
     # Clean stale npm temp dirs that cause ENOTEMPTY
     rm -rf "$NPM_CONFIG_PREFIX"/lib/node_modules/${PKG%%/*}/.${PKG##*/}-* 2>/dev/null
-    YOLO_BYPASS_SHIMS=1 npm install -g __YOLO_EXTRA__--prefer-online "$SPEC" 2>&1 || true
-    # Record what we ASKED for. It lets a later run tell "the DECLARATION moved" from "the
-    # registry moved" with a local file read and no network — the only question a pinned
-    # package still has to answer. Written on failure too, for the same reason the stamp
-    # is: one attempt per event, never a retry storm. A failed install leaves REAL_BIN
-    # missing, and that branch retries unconditionally.
-    printf '%s\n' "$SPEC" > "$SPEC_FILE"
+    if YOLO_BYPASS_SHIMS=1 npm install -g __YOLO_EXTRA__--prefer-online "$SPEC" 2>&1; then
+        # Record what we ASKED for, and ONLY once npm agreed to it. It lets a later run tell
+        # "the DECLARATION moved" from "the registry moved" with a local file read and no
+        # network — the only question a pinned package still has to answer.
+        #
+        # Recording it on FAILURE too looks like the same one-attempt-per-event throttle the
+        # stamp is, and it is not: it WEDGES the jail. An upgrade leaves REAL_BIN present —
+        # the PREVIOUS version — so the "not installed" branch never fires, and a spec file
+        # already advanced to the new declaration silences the pinned branch as well. One
+        # failed "npm install" during an offline hour would pin the jail to the old binary
+        # for the life of the home: no hourly retry, no retry at boot, no message. The
+        # unpinned path has no such hole, because its next poll still sees the two versions
+        # differ and tries again. Leaving the PREVIOUS spec in place instead keeps the record
+        # true (it names what is actually on disk) and makes the mismatch self-healing.
+        printf '%s\n' "$SPEC" > "$SPEC_FILE"
+    fi
     touch "$STAMP"
 }
 
@@ -464,7 +472,10 @@ export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
 STAMP_DIR=__YOLO_STAMP_DIR_LIT__
 STAMP="$STAMP_DIR/__YOLO_BIN__.stamp"
 REAL_BIN="$NPM_CONFIG_PREFIX/bin/__YOLO_BIN__"
-PKG="__YOLO_PKG__"    # name alone, for the message
+# Only the install SPEC, deliberately: unlike the agent launcher this body never indexes
+# node_modules and never calls "npm view", which are the only two things the bare package
+# NAME is good for. Carrying an unread PKG beside it would read as "the name matters here
+# too" and invite the next edit to use it in a place only the spec belongs.
 SPEC="__YOLO_SPEC__"  # what npm install is handed: name@<selector>
 RETRY_INTERVAL=3600  # seconds before retrying a failed install
 

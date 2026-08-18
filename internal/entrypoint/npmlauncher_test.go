@@ -128,6 +128,10 @@ type npmProbe struct {
 // newNpmProbe writes the fakes. `npm install` materializes the binary and the
 // node_modules package.json the launcher reads; `npm view` answers with
 // $FAKE_LATEST. Every invocation is appended to a log, which is the measurement.
+//
+// $FAKE_INSTALL_FAIL makes `npm install` fail the way a real one does — non-zero, nothing
+// written — which is the only way to reach the branch that decides whether a pinned
+// launcher may record a spec it never got.
 func newNpmProbe(t *testing.T, bin string) *npmProbe {
 	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
@@ -144,6 +148,10 @@ func newNpmProbe(t *testing.T, bin string) *npmProbe {
 printf '%s\n' "$*" >> "` + logPath + `"
 case "${1:-}" in
 install)
+    if [ -n "${FAKE_INSTALL_FAIL:-}" ]; then
+        echo "npm ERR! network unreachable" >&2
+        exit 1
+    fi
     spec="${@: -1}"
     name="${spec%@*}"
     ver="${spec##*@}"
@@ -321,5 +329,48 @@ func TestPinnedNpmLauncherFollowsTheDeclaration(t *testing.T) {
 	p.truncateLog(t)
 	if log := p.run(t, "tool", "tool@1.3.0"); len(log) != 0 {
 		t.Errorf("an unchanged pin must not reinstall:\n%s", strings.Join(log, "\n"))
+	}
+}
+
+// TestPinnedNpmLauncherRetriesAFailedUpgrade is the hole the recorded-spec mechanism opens
+// if the spec is recorded unconditionally, and it is worse than the bug the mechanism fixes.
+//
+// An UPGRADE is not the cold case: REAL_BIN is already there holding the PREVIOUS version,
+// so a failed `npm install` does not fall into the "not installed, retry unconditionally"
+// branch. Record the new spec anyway and the pinned branch goes quiet too — both exits are
+// shut, and one offline minute pins the jail to the old binary for the life of the home,
+// with no hourly retry, no retry at boot and no message. The unpinned path cannot wedge
+// this way: its next poll still sees the two versions differ and tries again. This test is
+// the asymmetry, closed.
+func TestPinnedNpmLauncherRetriesAFailedUpgrade(t *testing.T) {
+	p := newNpmProbe(t, "tool")
+	p.run(t, "tool", "tool@1.2.3") // installs, records tool@1.2.3
+	p.truncateLog(t)
+
+	// The declaration moves while the registry is unreachable. The attempt is made and
+	// fails; the binary on disk is still 1.2.3.
+	log := p.run(t, "tool", "tool@1.3.0", "FAKE_INSTALL_FAIL=1")
+	if !hasArgv(log, "install -g --prefer-online tool@1.3.0") {
+		t.Fatalf("the moved declaration must still be attempted:\n%s", strings.Join(log, "\n"))
+	}
+	p.truncateLog(t)
+
+	// Registry back. Nothing about the DECLARATION changed, but 1.3.0 was never installed,
+	// so the launcher must try again rather than treat the failure as done.
+	log = p.run(t, "tool", "tool@1.3.0")
+	if !hasArgv(log, "install -g --prefer-online tool@1.3.0") {
+		t.Errorf("a failed pinned upgrade must be retried, not recorded as installed:\n%s",
+			strings.Join(log, "\n"))
+	}
+	// ...and it must still be noticed offline — a retry is not a licence to poll.
+	if hasArgv(log, "view") {
+		t.Errorf("the retry must not reach for the registry's latest:\n%s", strings.Join(log, "\n"))
+	}
+
+	// Once it succeeds the launcher goes quiet again, so the retry is bounded by the
+	// failure and not a permanent reinstall loop.
+	p.truncateLog(t)
+	if log := p.run(t, "tool", "tool@1.3.0"); len(log) != 0 {
+		t.Errorf("a pin that finally installed must stop reinstalling:\n%s", strings.Join(log, "\n"))
 	}
 }
