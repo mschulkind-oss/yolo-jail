@@ -3,7 +3,7 @@ title: "Loopback-TLS reachability — how a jail reaches a host daemon"
 date: 2026-08-18
 status: accepted
 tags: [transport, networking, loopholes, regression]
-summary: "yolo's host daemons bind the host's loopback and tell the jail to dial a name the runtime does not forward there. Every networking mode spelled out, why 'just bind somewhere else' has nowhere to go, and the fix — in the launcher, not the transport."
+summary: "yolo's host daemons bind the host's loopback and tell the jail to dial a name the runtime does not forward there. Every networking mode spelled out, why 'just bind somewhere else' has nowhere to go, and the fix — in the launcher, not the transport. Fully decided; the remainder is build work."
 ---
 
 # Loopback-TLS reachability — how a jail reaches a host daemon
@@ -37,10 +37,11 @@ Settled and folded into the body. IDs are load-bearing — code comments cite th
 | **OQ-R1** | yolo may emit a network option on the default `bridge` path; unrecognised backends emit nothing | [§6](#6-the-fix) |
 | **OQ-R2** | an enabled jail-facing service the jail cannot reach is a **failed launch**, not a warning | [§7.1](#71-the-severity-rule) |
 | **OQ-R3** | a host yolo cannot fix **degrades and launches**; it is never refused for what it cannot help | [§6.1](#61-the-ladder), [§7.2](#72-what-may-escalate) |
+| **OQ-R4** | **all three** fault classes escalate, not just the dial failing | [§7.3](#73-which-fault-classes-escalate) |
 | **OQ-R5** | a jail sharing the launcher's netns **is** escalatable — no host-stack excuse exists there | [§7.2](#72-what-may-escalate) |
 | **OQ-R6** | the launcher's decision rides on the wire with **every state spelled**; only positive facts escalate | [§7.2](#72-what-may-escalate) |
 
-One question is open: [**OQ-R4**](#open-question), which fault classes may refuse a launch.
+**Nothing is open.** What is left is build work, listed in [§10](#10-status).
 
 ---
 
@@ -129,7 +130,7 @@ the packet actually arrive?**
 | **slirp4netns** + `allow_host_loopback` **+ a pinned hosts entry** | `10.0.2.2`, its userspace gateway | the host's **loopback** | No — and it does not need to | ✅ the old-passt fallback |
 | **netavark bridge** (rootful) | the bridge gateway, e.g. `10.88.0.1` | the host, via a real bridge interface | **Yes** — a genuine host interface | ✅ works |
 | **`--net=host`** (no namespace) | n/a — the jail *shares* the host's stack | itself | Yes, trivially | ✅ works |
-| **nested jail** (podman-in-podman) | forced to `--net=host` | itself | Yes | ✅ works — **and this is why nobody caught it** ([§7.4](#74-a-nested-jail-is-structurally-blind-to-this)) |
+| **nested jail** (podman-in-podman) | forced to `--net=host` | itself | Yes | ✅ works — **and this is why nobody caught it** ([§7.5](#75-a-nested-jail-is-structurally-blind-to-this)) |
 | **Apple Container / `macos-user`** | a VM hop, not pasta | out of scope | — | not affected |
 
 > [!WARNING]
@@ -167,7 +168,7 @@ kills the "bind somewhere else" family in §5.
 > the one mode where the bug cannot reproduce. **Bare `podman run` is not so constrained:** the
 > development jail is a perfectly good "host" for a container it starts, and podman ships its own
 > pasta, so the outage and its remedy both reproduce in one command each. See
-> [§7.4](#74-a-nested-jail-is-structurally-blind-to-this).
+> [§7.5](#75-a-nested-jail-is-structurally-blind-to-this).
 
 Bind a listener on the jail's own loopback — the same shape as a yolo host daemon — and dial it from
 a container using the stack under test:
@@ -418,10 +419,54 @@ stack in the path: a service unreachable there has no ambiguity to hide in.
 
 > [!NOTE]
 > **Build status:** `requested` / `unsupported` / absent are shipped. `shared` and `unknown` are
-> **not yet spelled** — both are absent today — so R5's severity cannot ship until they are. Shipping
-> it first would escalate genuine ignorance.
+> **not yet spelled** — both are absent today — so OQ-R5's severity cannot ship until they are.
+> Shipping it first would escalate genuine ignorance.
 
-### 7.3 Current mode, and the flip
+### 7.3 Which fault classes escalate
+
+**OQ-R4 — all three.** The witness distinguishes three failures
+([`reachability.go#L155-L169`](../../internal/entrypoint/reachability.go#L155-L169)) and every one of
+them means "this service is enabled and this jail cannot use it":
+
+| Fault | What it is |
+| :--- | :--- |
+| `faultUnreachable` | the endpoint file is good and the advertised address does not answer |
+| `faultUnpublished` | no endpoint file, one that does not parse, or one that is not a readable regular file |
+| `faultRejected` | the endpoint parsed and the listener refused this jail's token — a stale file |
+
+The distinctions that remain are about **where to look**, not how bad it is — which is what the three
+diagnosis paragraphs are for, and what severity must not duplicate.
+
+**Neither of the two obvious objections survives contact with the code**, and they are recorded here
+because both are the kind that get re-derived:
+
+- **There is no slow-to-publish race.** `waitServiceReady`
+  ([`loopholesruntime.go#L453`](../../internal/cli/run/loopholesruntime.go#L453)) polls
+  `svcendpoint.Probe` for 5 s *before* the container starts; a daemon that misses is SIGKILLed as a
+  group and its env var is never wired. At boot, a missing or stale endpoint means it was healthy five
+  seconds earlier and is not now.
+- **There is no permanent lockout.** Every respawn path unlinks the stale artifact before spawning
+  ([`loopholesruntime.go#L550`](../../internal/cli/run/loopholesruntime.go#L550), and
+  `retireStaleRelayFiles`), and `Publish` renames a temp file onto the target. `unlink(2)` and
+  `rename(2)` both work on a fifo, and the host never *opens* the path, so it cannot be wedged the way
+  the in-jail probe can. The only shape that survives is a non-empty directory, and that cannot reach
+  the escalation set at all: publish fails, readiness fails, and the variable is then never wired.
+
+> [!WARNING]
+> **The consequence to put in the release note.** The broker's variable is wired on
+> `brokerLoopholeActive(cfg)` alone
+> ([`assemble_parts.go#L408`](../../internal/cli/run/assemble_parts.go#L408)) with **no publish
+> gate**, because it is a host-wide singleton rather than a per-jail daemon. So *"broker configured,
+> singleton down"* reaches the jail as `faultUnpublished` **by design** — and under this ruling that
+> refuses **every jail on the host**, not just one. Consistent with §1, which calls a jail with no
+> Claude auth the case closest to fatal, and accepted deliberately (2026-08-18). It is the largest
+> behaviour change in this document.
+
+> [!NOTE]
+> **Build status:** the code escalates `faultUnreachable` only. Widening it to all three ships with
+> the flip.
+
+### 7.4 Current mode, and the flip
 
 The witness ships in **warn mode**. `reachabilityFatal = false` is the whole of it, isolated to one
 boolean whose flip is one line, with both modes already under test and a guard test that fails if the
@@ -435,7 +480,8 @@ flip lands while anything below is still owed.
   `requested` diagnosis — which correctly points *away* from the network stack — and the FAULT
   verdict, with the jail still starting because warn mode.
 
-What remains before the flip is **OQ-R4** below, plus the `shared`/`unknown` spellings for OQ-R5.
+**Nothing is left to decide.** What remains is code: the `shared`/`unknown` spellings ([§7.2](#72-what-may-escalate)),
+widening the escalation set ([§7.3](#73-which-fault-classes-escalate)), and the flip itself.
 
 Boot output is persisted to `<workspace>/.yolo/boot.log` (previous boot kept beside it). That
 directory is bind-mounted from the host, so the log survives a boot that refused — the state the flip
@@ -443,7 +489,7 @@ makes reachable, where there is no jail left to ask. A healthy witness records i
 stays silent on the terminal, because "ran and found nothing" and "never ran" are otherwise the same
 bytes.
 
-### 7.4 A nested jail is structurally blind to this
+### 7.5 A nested jail is structurally blind to this
 
 A nested podman is forced onto `--net=host`, the one mode where the bug **cannot** reproduce. So
 `AGENTS.md`'s "verify in a nested jail" instruction is not merely insufficient here, it is
@@ -489,55 +535,10 @@ underlying asymmetry is not closed and cannot be: `yolo check` still cannot fail
 hatch, the `requested`/`unsupported` spellings, the boot log, `yolo check`'s honesty labels, and the
 `AGENTS.md` carve-out.
 
-**Not built:** the `shared` and `unknown` spellings (§7.2), and the flip itself (§7.3).
+**Not built:** the `shared` and `unknown` spellings ([§7.2](#72-what-may-escalate)), widening the
+escalation set to all three fault classes ([§7.3](#73-which-fault-classes-escalate)), and the flip
+itself ([§7.4](#74-current-mode-and-the-flip)). They ship together: the spellings are a prerequisite,
+and the other two are invisible until the fatal is on.
 
-**Blocked on a ruling:** R4, below.
-
----
-
-## Open question
-
-### 💬 OQ-R4 — which fault classes may refuse a launch?
-
-[§7.1](#71-the-severity-rule) rules *that* an unreachable service fails the launch. It does not say
-which **kind** of failure counts, and the witness distinguishes three
-([`reachability.go#L155-L169`](../../internal/entrypoint/reachability.go#L155-L169)). Only the first
-escalates today:
-
-| Fault | What it is | Escalates today |
-| :--- | :--- | :--- |
-| `faultUnreachable` | the endpoint file is good and the advertised address does not answer | ✅ |
-| `faultUnpublished` | no endpoint file, one that does not parse, or one that is not a readable regular file | ❌ |
-| `faultRejected` | the endpoint parsed and the listener refused this jail's token — a stale file | ❌ |
-
-**What it decides:** whether "enabled and unusable" means the *network* specifically, or the outcome.
-A stale token and a missing endpoint are both services the user asked for and cannot have.
-
-**Two things that are NOT arguments against escalating, because they were checked:**
-
-- **There is no slow-to-publish race.** `waitServiceReady`
-  ([`loopholesruntime.go#L453`](../../internal/cli/run/loopholesruntime.go#L453)) polls
-  `svcendpoint.Probe` for 5s *before* the container starts; a daemon that misses is SIGKILLed as a
-  group and its env var is never wired. At boot, a missing or stale endpoint means it was healthy
-  five seconds ago and is not now.
-- **There is no permanent lockout.** Every respawn path unlinks the stale artifact before spawning
-  ([`loopholesruntime.go#L550`](../../internal/cli/run/loopholesruntime.go#L550), and
-  `retireStaleRelayFiles`), and `Publish` renames a temp file onto the target. `unlink(2)` and
-  `rename(2)` both work on a fifo, and the host never *opens* the path, so it cannot be wedged the way
-  the in-jail probe could. The only shape that survives is a non-empty directory, which cannot reach
-  the escalation set anyway: publish fails, readiness fails, and the variable is then never wired.
-
-**The one real consequence.** The broker's variable is wired on `brokerLoopholeActive(cfg)` alone
-([`assemble_parts.go#L408`](../../internal/cli/run/assemble_parts.go#L408)) with no publish gate,
-because it is a host-wide singleton rather than a per-jail daemon. So *"broker configured, singleton
-down"* reaches the jail as `faultUnpublished` **by design**, and escalating that class refuses every
-jail on the host. Arguably correct — §1 calls a jail with no Claude auth the case closest to fatal —
-but it is the largest behaviour change in the ruling, and it is the thing to decide on.
-
-_Leaning:_ **escalate all three.** Each means "this service is enabled and this jail cannot use it",
-the launcher has already proven the endpoint was healthy moments before, and the distinctions that
-remain are about *where to look* rather than *how bad it is* — which is what the three diagnosis
-paragraphs are for and what severity should not duplicate.
-
-**Answer:**
-> _(unanswered)_
+**Blocked on nothing.** Every question this document raised is answered; the remaining work is
+listed above and sequenced in the roadmap.

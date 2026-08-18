@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 10 needing you · 3 ready · 0 in progress · 3 waiting · 2 broken · 2 icebox.**
+**Status: 9 needing you · 3 ready · 0 in progress · 3 waiting · 2 broken · 2 icebox.**
 
 Last updated **2026-08-18**. Counts tallied from this file, not asserted.
 
@@ -29,27 +29,7 @@ the real number was closer to 50.
 Grouped by decision, not by question. Each row names its design doc; the doc holds the stakes and my
 leaning. **Nothing here asks you to pick an execution order** — sequencing is mine.
 
-### 💬 1 — Before the reachability flip: which failures may refuse a launch?
-
-📄 [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) — **OQ-R4**
-
-**R5 and R6 are answered** (2026-08-18): a jail sharing the launcher's netns *is* escalatable, and the
-disposition stays on the wire with **every state spelled** — `requested` · `unsupported` · `shared` ·
-`unknown`, with absent reserved for "launcher older than the variable". Only positive facts escalate.
-
-**OQ-R4 is the one left:** may `faultUnpublished` and `faultRejected` refuse a launch, or only
-`faultUnreachable`? Your review already removed the argument I had against it — there is no
-slow-to-publish race (the launcher polls 5 s before the container starts and kills the daemon if it
-misses), and the *lockout* risk I claimed turned out not to exist, because every respawn path unlinks
-the stale artifact and republishes.
-
-What is left to weigh is the one real consequence, which you have already accepted: the **broker's**
-variable is wired without a publish gate, so "singleton down" refuses every jail on that host.
-
-Ordering note: **R5's answer is blocked on the wire change, not merely gated by it** — the `shared`
-value has to ship before that severity can, or the jail escalates genuine ignorance.
-
-### 💬 2 — Loophole activation: eleven questions, one design
+### 💬 1 — Loophole activation: eleven questions, one design
 
 📄 [`loophole-activation.md`](../design/loophole-activation.md)
 
@@ -76,7 +56,7 @@ user-scope and enable is either; the broker moves inside `packs/claude`). What i
 - ✅ **A1 · A2 · A3 · A7 answered.** Going dark needs no migration machinery, and a loophole-only pack
   is selected like any other — no special case.
 
-### 💬 3 — Trust paths: where we extend trust, and where a pin is theatre
+### 💬 2 — Trust paths: where we extend trust, and where a pin is theatre
 
 📄 [`trust-paths.md`](../design/trust-paths.md) — 25 paths enumerated from the code · partly supersedes
 [`pack-execution-trust.md`](../design/pack-execution-trust.md)
@@ -93,7 +73,7 @@ user-scope and enable is either; the broker moves inside `packs/claude`). What i
 - **OQ-LP8 / G2b** — you ruled the shape (approval pinned to a commit); what remains is that
   `LockEntry.Commit` is **never consulted at launch**, so the pin does not yet exist.
 
-### 💬 4 — Auth mode
+### 💬 3 — Auth mode
 
 📄 [`agent-auth-modes.md`](../design/agent-auth-modes.md)
 
@@ -102,7 +82,7 @@ user-scope and enable is either; the broker moves inside `packs/claude`). What i
 subscription OAuth bearer to a non-Anthropic base URL?) and it gates boundary-broker B2. **OQ-2 · 3 ·
 4 · 9** are smaller. **OQ-7 is moot as phrased** — there is no Teams pack — and needs restating.
 
-### 💬 5 — Non-container nix
+### 💬 4 — Non-container nix
 
 📄 [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md)
 
@@ -110,7 +90,7 @@ subscription OAuth bearer to a non-Anthropic base URL?) and it gates boundary-br
 backend? Everything else in that doc is subordinate to it. No longer urgent — the auth thread routed
 around the `env` refusal that motivated it.
 
-### 💬 6 — Boundary broker
+### 💬 5 — Boundary broker
 
 📄 [`boundary-broker.md`](../design/boundary-broker.md)
 
@@ -118,7 +98,7 @@ around the `env` refusal that motivated it.
 **OQ-C** is a real API-shape decision: does the jail see the *result* or just success? **OQ-B1b**
 sizes B1b only. The security half of **OQ-E** is settled; only its packaging half is live.
 
-### 💬 7 — Image staging and baking
+### 💬 6 — Image staging and baking
 
 📄 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md)
 
@@ -126,7 +106,7 @@ sizes B1b only. The security half of **OQ-E** is settled; only its packaging hal
 content-addressed image tag; **OQ-1** blocks two more items; **OQ-4** is a scope ruling on a shipped
 config key. None of these were in this file before today.
 
-### 💬 8 — macOS, and the environment-manager stories
+### 💬 7 — macOS, and the environment-manager stories
 
 📄 [`macos-user-build-step-threat-model.md`](../design/macos-user-build-step-threat-model.md) ·
 [`environment-manager-user-stories.md`](../design/environment-manager-user-stories.md) ·
@@ -137,7 +117,7 @@ whether Linux `guest` is a promise or a hypothesis. **threat-model Q1-Q3** cover
 refusal, `--accept-flake-config`'s substituter surface (now live — see the shipped item), and a macOS
 build sandbox. **OQ-L1** explicitly blocks Track L part 2.
 
-### 💬 9 — The small ones with no design-doc home
+### 💬 8 — The small ones with no design-doc home
 
 These were born in this file and have nowhere else to live: **S5** (a jail resolves a skill-name
 collision silently), **OQ-D1** (the config-approval snapshot is agent-writable — and see 🛑 below,
@@ -155,7 +135,7 @@ Two more of the same size, both from the `yolo check` honesty pass:
   version, a typo like `foo@@1.2.3` reaches npm and fails at first use *inside* the jail, where the
   diagnosis is worst. Cheap host-side check; needs a ruling only on how strict to be.
 
-### 💬 10 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
+### 💬 9 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
 
 📄 [`pack-host-management-plan.md`](pack-host-management-plan.md) ·
 [`pack-capabilities.md`](../design/pack-capabilities.md)
@@ -196,8 +176,8 @@ one-line deliverable that is decided in all but name.
   which is why the verification pass scoped itself to the boot path and wrote the limitation down
   rather than landing it unreviewed. `internal/svcendpoint/endpointfile.go`.
 
-- 📦 **Flip the in-jail reachability probe to fatal (OQ-R2).** *Its two code gates are closed. What
-  is left is one observation and 💬 1 above.*
+- 📦 **Flip the in-jail reachability probe to fatal (OQ-R2), and widen what it escalates.**
+  *Fully unblocked — every question behind it is answered and both real-boot observations are done.*
 
   The probe landed in **warn mode** and its call site is already immediately above
   `genFailuresError`. **Built since:** the `YOLO_ALLOW_STALE_IMAGE`-shaped opt-out
@@ -208,21 +188,23 @@ one-line deliverable that is decided in all but name.
   `reachabilityFatal = true`, both modes are under test, and a **guard test fails if the flip lands
   with the observation still owed** — so it cannot happen by accident or by tidy-up.
 
-  **The healthy half is now observed** (2026-08-18, this host, after a real deploy + restart): the
-  jail was told `YOLO_HOST_LOOPBACK=requested`, both endpoints published as regular files, and both
-  answered through the witness's own path — `svcendpoint.Read` + `Dial`, TLS, cert-pinned,
-  token-authenticated — in 1–2 ms. So the witness had nothing to say, which is the silence the gate
-  asked for. *Measured with a throwaway client on that exact code path, not by watching the witness
-  function itself run; the boot log below is what closes that last inch.*
+  **Both halves observed at real boots, 2026-08-18.** *Healthy:* `YOLO_HOST_LOOPBACK=requested`, both
+  endpoints published, both answered through the witness's own path (TLS, cert-pinned,
+  token-authenticated) in 1–2 ms — silent, as the gate asked. *Broken:* a service pointed at a dead
+  port produced the warning, the address, the `requested` diagnosis that correctly points **away**
+  from the network stack, and the FAULT verdict — with the jail still starting, because warn mode.
 
-  **Still owed:** the LOUD half — one boot where a service really is unreachable, confirming the
-  witness says so rather than misfiring or staying quiet. Plus 💬 1 above. 📄
-  [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §7, §10.
+  **Ships as three changes together**, because the first is a prerequisite and the other two are
+  invisible until the fatal is on:
 
-  *Newly cheap: the entrypoint now writes `<workspace>/.yolo/boot.log` (previous boot kept beside
-  it), so the witness's verdict is readable after the fact from inside the jail and — because
-  `.yolo/` is bind-mounted from the host — after a boot that refused. Takes a host `just load` to
-  appear, since the entrypoint is baked.*
+  1. the `shared` / `unknown` spellings (the 📦 item above);
+  2. widen the escalation set to **all three** fault classes (OQ-R4) — today only `faultUnreachable`
+     escalates;
+  3. `reachabilityFatal = true`, plus deleting the guard test that currently blocks it.
+
+  **Release-note item, not a surprise to discover:** the broker's variable is wired with no publish
+  gate, so "broker configured, singleton down" refuses **every jail on that host**. Accepted. 📄
+  [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §7.3, §10.
 
 ---
 
