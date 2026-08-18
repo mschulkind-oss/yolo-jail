@@ -428,10 +428,12 @@ const reachabilityExplanation = "" +
 	"  yolo's host daemons bind the host's LOOPBACK and advertise the container\n" +
 	"  runtime's gateway name, which only works if the runtime forwards that name to\n" +
 	"  the host's loopback. Whether it does is a property of the rootless network\n" +
-	"  stack: true for slirp4netns with allow_host_loopback, FALSE for pasta —\n" +
-	"  podman's default since 5.0 — which forwards to the host's global address\n" +
-	"  instead. On the host, `podman info --format '{{.Host.RootlessNetworkCmd}}'`\n" +
-	"  says which stack is in use.\n" +
+	"  stack AND of the address podman writes for that name: FALSE for pasta —\n" +
+	"  podman's default since 5.0, which forwards to the host's global address — and\n" +
+	"  true for slirp4netns only when allow_host_loopback is set AND the gateway name\n" +
+	"  is pinned at slirp's own host address, which podman does not do by itself.\n" +
+	"  yolo emits both. On the host, `podman info --format\n" +
+	"  '{{.Host.RootlessNetworkCmd}}'` says which stack is in use.\n" +
 	"  yolo asks for that forwarding itself on the default network.mode; if it could\n" +
 	"  not — old passt, an explicit network.mode, a rootful or unrecognised runtime,\n" +
 	"  or YOLO_NO_HOST_LOOPBACK — it said so in this jail's launch output above.\n" +

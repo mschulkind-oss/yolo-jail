@@ -8,9 +8,12 @@ package run
 // yolo's host daemons bind the host's loopback and advertise
 // `host.containers.internal`, on the assumption that the runtime forwards that
 // name to the host's loopback. Whether it does is a property of WHICH rootless
-// network stack is in use: true for slirp4netns with allow_host_loopback, FALSE
-// for pasta — podman's default since 5.0 — which forwards to the host's GLOBAL
-// address instead, so every loopback-TLS service is unreachable from every jail.
+// network stack is in use AND of where podman aims that NAME: false for pasta —
+// podman's default since 5.0 — which forwards it to the host's GLOBAL address;
+// true for slirp4netns only with allow_host_loopback AND a hosts entry pinning
+// the name at slirp's gateway, since podman aims it at the host's global address
+// there too (measured — see slirp4netnsHostAddr). Out of the box, therefore,
+// every loopback-TLS service is unreachable from every jail on both stacks.
 // The design doc walks the whole map (§2-§3) and rules out changing what yolo
 // binds (§5); the fix has to move to the runtime, which is this file.
 //
@@ -64,6 +67,29 @@ package run
 // present in pasta 2026_07_16 (measured 2026-08-17), which is what the
 // maintainer's own host runs.
 //
+// # THE SLIRP4NETNS FALLBACK — degrade the STACK before degrading the JAIL
+//
+// "Unsupported is not broken" was written when an old passt meant a jail with no
+// reachable services. It does not have to. Podman can be asked for the OTHER
+// rootless stack, and slirp4netns forwards the host's loopback on request — so a
+// host whose passt is too old can be made to WORK rather than merely be told why
+// it does not. That is what fallbackSupport and slirpForwardingArgs are.
+//
+// It is a FALLBACK and never a preference, in both directions:
+//
+//   - A pasta that advertises --map-host-loopback is taken first, always.
+//     slirp4netns is the older stack and the slower one (a userspace TCP stack per
+//     container), so a host that does not need it never sees it.
+//   - It is taken only when yolo POSITIVELY established that slirp4netns is there
+//     — podman's own executable path, and that binary's own --help. Anything less
+//     emits nothing and keeps the warn-and-launch path, because a --network= flag
+//     naming a stack the host cannot start is a jail that does not start at all,
+//     and that is the one outcome this file may never produce.
+//
+// The measurement that shaped it, and the correction it carries, are at
+// slirp4netnsHostAddr: the option alone forwards a loopback nothing in the jail
+// dials.
+//
 // # What this decision TELLS THE JAIL, and why it has to
 //
 // "Unsupported is not broken" is a distinction only this file can draw. From
@@ -83,6 +109,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
 const (
@@ -112,6 +139,33 @@ const (
 	// probe that looks for a different string than the one it gates is how you
 	// ship a confident wrong answer.
 	pastaMapHostLoopbackFlag = "--map-host-loopback"
+
+	// slirp4netnsHostAddr is the address slirp4netns answers on as "the host": the
+	// second address of its default subnet (`--cidr`, default 10.0.2.0/24, per
+	// slirp4netns --help). yolo passes no cidr, so the default is what podman gets.
+	//
+	// It has to be spelled out here because of a fact the design doc's §3
+	// slirp4netns row does not carry — that row was measured by dialling the
+	// gateway DIRECTLY. Measured 2026-08-17 (podman 5.8.4, slirp4netns 1.3.4),
+	// with the jail's inherited /etc/hosts removed from the picture so podman's own
+	// computation is what is observed:
+	//
+	//	--network=slirp4netns:allow_host_loopback=true         host.containers.internal
+	//	                                                       = 192.168.1.131  → FAIL
+	//	  + --add-host=host.containers.internal:10.0.2.2       = 10.0.2.2       → CONNECT
+	//	--add-host … WITHOUT allow_host_loopback               = 10.0.2.2       → FAIL
+	//
+	// Under slirp4netns podman points host.containers.internal at the host's GLOBAL
+	// address, which is the very failure §1 is about. That is not a podman bug:
+	// etchosts prefers a mapped address only when PASTA reported one (`PreferIP`,
+	// fed from pastaResult.MapGuestAddrIPs and from nothing else) and rootless
+	// otherwise falls through to GetLocalIPExcluding — read in containers/common
+	// libnetwork/etchosts/ip.go and podman libpod/container_internal_common.go.
+	//
+	// So the option alone forwards a loopback NOBODY IN THE JAIL DIALS: yolo's
+	// daemons advertise a NAME (svcendpoint.DefaultAdvertiseHost), and the name is
+	// what podman aims elsewhere. Both flags together, or neither.
+	slirp4netnsHostAddr = "10.0.2.2"
 
 	// slirp4netnsHostLoopbackFlag is slirp4netns's side of the same capability.
 	// Podman's `allow_host_loopback=true` option works by OMITTING
@@ -170,6 +224,17 @@ type hostLoopbackFacts struct {
 	rootless bool
 	// support is the capability verdict for backend.
 	support hostLoopbackSupport
+	// fallbackSupport is the capability verdict for slirp4netns AS A FALLBACK —
+	// the availability half of the decision. It is gathered only on the one path
+	// where it can change the answer (a pasta host whose pasta cannot forward
+	// loopback), so it is supportUnknown everywhere else and reads as "no fallback"
+	// there, which is exactly today's behaviour.
+	//
+	// supportConfirmed means two positive facts at once: PODMAN knows where a
+	// slirp4netns is, and that binary's own --help advertises host-loopback
+	// control. See hostLoopbackFactsFor for why podman's lookup is the only one
+	// that may count.
+	fallbackSupport hostLoopbackSupport
 	// probeCmd is the exact command the capability probe ran, echoed in the
 	// warning so the user can re-run it. "" when no probe ran.
 	probeCmd string
@@ -284,6 +349,18 @@ func hostLoopbackPlanFor(f hostLoopbackFacts) hostLoopbackPlan {
 				disposition: paths.HostLoopbackRequested,
 			}
 		}
+		// Only now — this pasta cannot forward loopback. Switching the jail to the
+		// older stack beats leaving every jail-facing service down, and is still
+		// strictly better than the alternative that OQ-R3 rejected (refusing to
+		// launch). It happens ONLY on a positively established slirp4netns, so the
+		// worst case of an unavailable one stays the warn-and-launch below.
+		if f.fallbackSupport == supportConfirmed {
+			return hostLoopbackPlan{
+				args:        slirpForwardingArgs(),
+				warning:     slirpFallbackNotice(f),
+				disposition: paths.HostLoopbackRequested,
+			}
+		}
 		return hostLoopbackPlan{
 			warning:     pastaUnsupportedWarning(f),
 			disposition: paths.HostLoopbackUnsupported,
@@ -291,7 +368,7 @@ func hostLoopbackPlanFor(f hostLoopbackFacts) hostLoopbackPlan {
 	case backendSlirp4netns:
 		if f.support == supportConfirmed {
 			return hostLoopbackPlan{
-				args:        []string{"--network=slirp4netns:allow_host_loopback=true"},
+				args:        slirpForwardingArgs(),
 				disposition: paths.HostLoopbackRequested,
 			}
 		}
@@ -305,6 +382,36 @@ func hostLoopbackPlanFor(f hostLoopbackFacts) hostLoopbackPlan {
 		// warning about a stack we failed to identify would fire on every macOS
 		// host, every rootful host, and every future backend.
 		return hostLoopbackPlan{}
+	}
+}
+
+// slirpForwardingArgs is the slirp4netns side of the fix, and it is TWO flags for
+// the reason measured at slirp4netnsHostAddr: the option makes the stack forward
+// the host's loopback, and the hosts entry aims the name the jail actually dials
+// at the address that forwards it. Either flag on its own is a no-op that the
+// launcher would then report to the jail as `requested` — a dead service filed as
+// a fault, which is worse than the honest warning it replaced.
+//
+// Both arms of the decision emit this, the slirp4netns host and the old-passt
+// fallback alike: the mechanism does not know why it was chosen, and a host that
+// gets the option without the entry is broken the same way in both.
+//
+// It pins ONE name — the one yolo's daemons advertise. Podman writes its own
+// entry for every name it still owns (host.docker.internal, measured 2026-08-17
+// as surviving alongside this one), and a user entry only displaces the name it
+// spells, so nothing else in the jail's /etc/hosts moves.
+//
+// The name comes from svcendpoint rather than a literal so the pin and the thing
+// pinned are one fact. Its one blind spot, named rather than papered over: a user
+// who sets svcendpoint.AdvertiseHostEnv on the host makes the daemons publish a
+// DIFFERENT name, which this does not pin — the jail then dials something yolo did
+// not aim, and the outcome is today's unreachable services. Reading the override
+// here would buy that back at the cost of another input to the decision, and the
+// override is a host-side expert knob that no shipped path sets.
+func slirpForwardingArgs() []string {
+	return []string{
+		"--network=slirp4netns:allow_host_loopback=true",
+		"--add-host=" + svcendpoint.DefaultAdvertiseHost + ":" + slirp4netnsHostAddr,
 	}
 }
 
@@ -348,10 +455,59 @@ func pastaUnsupportedWarning(f hostLoopbackFacts) string {
 		"  unreachable from inside this jail.\n" +
 		"  The fix is pasta's " + pastaMapHostLoopbackFlag + ", and " +
 		pastaSupportPhrase(f) + "\n" +
+		"  " + slirpFallbackPhrase(f) + "\n" +
 		"  Upgrade passt to " + minPasstVersion + " or newer (the release that added it) and\n" +
 		"  check with: pasta --version\n" +
 		"  Launching without it — nothing else changes.\n" +
 		"  docs/design/loopback-tls-reachability.md[/yellow]"
+}
+
+// slirpFallbackPhrase says why the OTHER stack was not used, which is the
+// question this warning now invites: yolo has a fallback, so a user reading "your
+// pasta is too old" is owed the reason it was not taken here. Both not-confirmed
+// verdicts appear, because "podman knows no slirp4netns" and "the slirp4netns
+// podman knows cannot do it either" send a reader to different places.
+func slirpFallbackPhrase(f hostLoopbackFacts) string {
+	if f.fallbackSupport == supportAbsent {
+		return "The slirp4netns fallback was not taken either: that binary does not " +
+			"advertise\n  host-loopback control."
+	}
+	return "The slirp4netns fallback was not taken either: podman reports no usable\n" +
+		"  slirp4netns on this host."
+}
+
+// slirpFallbackNotice is the one message in this file about a host that WORKS, so
+// it is a note and not a warning: nothing is broken, nothing is owed, and a
+// yellow "Warning:" on a healthy launch is how a reader learns to skip the line.
+//
+// It still has to be said out loud. yolo silently moved this jail onto a
+// different, slower network stack than the one the host's podman defaults to —
+// that shows up as throughput, and a user debugging it should not have to read
+// this file to find out why. So the note carries what changed, what it costs, how
+// to get back onto pasta, and the hatch that turns the whole thing off.
+func slirpFallbackNotice(f hostLoopbackFacts) string {
+	return "[cyan]Note: " + pastaFallbackReason(f) + "\n" +
+		"  yolo launched this jail on slirp4netns instead, which does forward it, so\n" +
+		"  jail-facing services (Claude OAuth broker, yolo-ps, yolo-journalctl) work.\n" +
+		"  The cost is that slirp4netns is the older and slower rootless stack.\n" +
+		"  Upgrade passt to " + minPasstVersion + " or newer and yolo goes back to pasta by itself;\n" +
+		"  " + hostLoopbackOptOutEnv + "=1 turns off both.\n" +
+		"  docs/design/loopback-tls-reachability.md[/cyan]"
+}
+
+// pastaFallbackReason keeps the note honest about WHY the fallback was taken. An
+// unprobeable pasta is not a proven-old one, and saying so would be the kind of
+// invented fact the rest of this file refuses. Both readings still lead here: with
+// no forwarding option on the argv, pasta does not forward the host's loopback at
+// any version, so "could not confirm" and "does not have it" cost a jail the same
+// services.
+func pastaFallbackReason(f hostLoopbackFacts) string {
+	if f.support == supportAbsent {
+		return "this host's pasta" + versionSuffix(f) + " has no " + pastaMapHostLoopbackFlag +
+			",\n  so it cannot forward the host's loopback into a jail."
+	}
+	return "yolo could not confirm this host's pasta supports " + pastaMapHostLoopbackFlag +
+		",\n  without which it does not forward the host's loopback into a jail."
 }
 
 // pastaSupportPhrase completes the sentence above differently for "asked and it
@@ -483,6 +639,24 @@ func (o *Options) hostLoopbackFactsFor(rt, netMode string) hostLoopbackFacts {
 	}
 	f.version = firstLine(helper.Version)
 	f.support, f.probeCmd = o.probeHostLoopbackSupport(helper.Executable, fallbacks, flag)
+
+	// The slirp4netns FALLBACK, asked about only where the answer can change
+	// anything: a pasta host whose pasta cannot forward loopback. A third
+	// subprocess on the healthy path would be launch latency spent on a fact
+	// nothing reads.
+	//
+	// PODMAN'S OWN executable path is the only one accepted here — note the empty
+	// fallback list, deliberately unlike the active-backend probe above. podman is
+	// the process that will exec slirp4netns, so podman's lookup is the only one
+	// whose success predicts the launch; a slirp4netns that yolo can find on PATH
+	// and podman cannot is a container that fails to START, which is the single
+	// outcome this file may not produce. Measured 2026-08-17: podman reports
+	// host.slirp4netns.executable as "" when the binary is off its PATH, so "" is
+	// podman itself saying it has none — a positive fact, not a missing one.
+	if f.backend == backendPasta && f.support != supportConfirmed {
+		f.fallbackSupport, _ = o.probeHostLoopbackSupport(
+			info.Host.Slirp4netns.Executable, nil, slirp4netnsHostLoopbackFlag)
+	}
 	return f
 }
 

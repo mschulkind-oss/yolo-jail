@@ -91,6 +91,13 @@ func networkSelectors(argv []string) []string {
 // --help has to be keyed on it.
 const pastaFixtureExe = "/nix/store/xxxx-podman-5.8.4/libexec/podman/pasta"
 
+// slirpFixtureExe is the slirp4netns executable podman reports in the same
+// fixture. The fallback probe runs THAT path and never a PATH lookup, so the
+// canned --help has to be keyed on it — see
+// TestHostLoopbackFallbackTrustsOnlyPodmansOwnLookup for why the distinction is
+// load-bearing rather than incidental.
+const slirpFixtureExe = "/bin/slirp4netns"
+
 // pastaHelpWithFlag / pastaHelpWithoutFlag are the two answers a real pasta gives
 // about itself, and they are the fork in the whole feature: the first makes yolo
 // emit the forwarding option, the second makes it degrade and say so (OQ-R3).
@@ -113,7 +120,20 @@ func pastaHostOptions(t *testing.T, ws, home string, containerenv bool) (*Option
 // as a parameter, so the degraded host — a pasta whose --help does not list the
 // flag — can be assembled too. That host launches, which is the point of OQ-R3,
 // and what it tells the jail differs from both a working host and an unknown one.
+//
+// Its slirp4netns answers nothing, so the degraded host stays degraded: that is a
+// host with no usable fallback. pastaHostOptionsWithHelps is the one that has one.
 func pastaHostOptionsWithHelp(t *testing.T, ws, home string, containerenv bool, help string) (*Options, *[]string) {
+	t.Helper()
+	return pastaHostOptionsWithHelps(t, ws, home, containerenv, help, "")
+}
+
+// pastaHostOptionsWithHelps adds the slirp4netns binary's own answer, which is the
+// second fork in the feature: an old pasta on a host WITH a usable slirp4netns is
+// moved onto that stack and works, rather than launching with dead services. An
+// empty slirpHelp means the probe finds nothing to run, the shape of a host with no
+// slirp4netns installed.
+func pastaHostOptionsWithHelps(t *testing.T, ws, home string, containerenv bool, pastaHelp, slirpHelp string) (*Options, *[]string) {
 	t.Helper()
 
 	var ran []string
@@ -131,7 +151,12 @@ func pastaHostOptionsWithHelp(t *testing.T, ws, home string, containerenv bool, 
 		case "/usr/bin/podman info --format json":
 			return ExecResult{Ran: true, RC: 0, Stdout: podmanInfoFixture}
 		case pastaFixtureExe + " --help":
-			return ExecResult{Ran: true, RC: 0, Stdout: help}
+			return ExecResult{Ran: true, RC: 0, Stdout: pastaHelp}
+		case slirpFixtureExe + " --help":
+			if slirpHelp == "" {
+				return ExecResult{Ran: false}
+			}
+			return ExecResult{Ran: true, RC: 0, Stdout: slirpHelp}
 		}
 		return ExecResult{Ran: false}
 	}
@@ -149,31 +174,41 @@ func pastaHostOptionsWithHelp(t *testing.T, ws, home string, containerenv bool, 
 // errors), so "at most one" is not a style preference — it is the difference
 // between a jail that starts and a jail that does not.
 //
-// The host underneath is held at the WORST case for this property throughout:
-// rootless podman on pasta, with a pasta that advertises the flag. That is the
-// only configuration in which decideHostLoopback wants to emit anything, so it is
-// the only one in which a caller-side mistake is observable.
+// The host underneath is held at the WORST cases for this property throughout:
+// the two shapes in which decideHostLoopback wants to emit a selector at all — a
+// pasta that advertises the flag, and an old pasta with a slirp4netns to fall back
+// to. Those are the only configurations in which a caller-side mistake is
+// observable, and the fallback is the one that emits a selector for a stack the
+// host's podman did NOT default to.
 func TestAssembleRunCmdEmitsAtMostOneNetworkSelector(t *testing.T) {
-	for _, rt := range []string{"podman", "container"} {
-		for _, inContainer := range []bool{false, true} {
-			for _, netMode := range []string{"bridge", "host", "none", "private"} {
-				name := rt + "/" + netMode
-				if inContainer {
-					name += "/nested"
-				}
-				t.Run(name, func(t *testing.T) {
-					home := t.TempDir()
-					t.Setenv("HOME", home)
-					emptyLoopholeDirs(t)
-					o, _ := pastaHostOptions(t, "/ws", home, inContainer)
-					o.Network = netMode
-
-					got := networkSelectors(o.assembleRunCmd(relocationInput(t, rt, t.TempDir(), nil)))
-					if len(got) > 1 {
-						t.Errorf("podman refuses a container with two network selectors; argv has %d: %v",
-							len(got), got)
+	hosts := map[string]func(*testing.T, string, string, bool) (*Options, *[]string){
+		"pasta": pastaHostOptions,
+		"slirpfallback": func(t *testing.T, ws, home string, inContainer bool) (*Options, *[]string) {
+			return pastaHostOptionsWithHelps(t, ws, home, inContainer, pastaHelpWithoutFlag, slirpHelpWithFlag)
+		},
+	}
+	for hostName, mkHost := range hosts {
+		for _, rt := range []string{"podman", "container"} {
+			for _, inContainer := range []bool{false, true} {
+				for _, netMode := range []string{"bridge", "host", "none", "private"} {
+					name := hostName + "/" + rt + "/" + netMode
+					if inContainer {
+						name += "/nested"
 					}
-				})
+					t.Run(name, func(t *testing.T) {
+						home := t.TempDir()
+						t.Setenv("HOME", home)
+						emptyLoopholeDirs(t)
+						o, _ := mkHost(t, "/ws", home, inContainer)
+						o.Network = netMode
+
+						got := networkSelectors(o.assembleRunCmd(relocationInput(t, rt, t.TempDir(), nil)))
+						if len(got) > 1 {
+							t.Errorf("podman refuses a container with two network selectors; argv has %d: %v",
+								len(got), got)
+						}
+					})
+				}
 			}
 		}
 	}
@@ -354,6 +389,44 @@ func TestAssembleRunCmdTellsTheJailWhenTheHostCannot(t *testing.T) {
 	// And it launches, loudly. A refusal here is the outcome OQ-R3 rejected.
 	if !strings.Contains(stdout.String(), minPasstVersion) {
 		t.Errorf("the limitation must name the version that fixes it, got:\n%s", stdout.String())
+	}
+}
+
+// TestAssembleRunCmdOldPastaWithSlirpLaunchesOnTheOlderStack is the fallback
+// arriving on the argv, and it is TWO flags that have to travel together: the
+// network selector that makes slirp4netns forward the host's loopback, and the
+// hosts entry that aims the name the jail dials at the address that forwards it.
+// Measured 2026-08-17 (see slirp4netnsHostAddr) — with the option alone, podman
+// points host.containers.internal at the host's GLOBAL address and the jail
+// reaches nothing, which the launcher would then have reported as `requested`.
+//
+// It is also still ONE network selector, the property this whole file exists for.
+func TestAssembleRunCmdOldPastaWithSlirpLaunchesOnTheOlderStack(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o, _ := pastaHostOptionsWithHelps(t, "/ws", home, false, pastaHelpWithoutFlag, slirpHelpWithFlag)
+	var stdout strings.Builder
+	o.Stdout = &stdout
+
+	argv := o.assembleRunCmd(relocationInput(t, "podman", t.TempDir(), nil))
+	if got := networkSelectors(argv); !slices.Equal(got, []string{slirpArgs[0]}) {
+		t.Errorf("want exactly one selector %q, got %v", slirpArgs[0], got)
+	}
+	if !slices.Contains(argv, slirpArgs[1]) {
+		t.Errorf("the hosts entry is half the fix and must reach the argv (%q): %v", slirpArgs[1], argv)
+	}
+	// The jail is told `requested`: yolo DID ask this host to forward the loopback,
+	// so a service that is still unreachable in there is a fault, not the known
+	// limitation an old passt would otherwise have been.
+	got, ok := envValue(argv, paths.HostLoopbackEnvVar)
+	if !ok || got != paths.HostLoopbackRequested {
+		t.Errorf("%s = %q (present=%v), want %q", paths.HostLoopbackEnvVar, got, ok,
+			paths.HostLoopbackRequested)
+	}
+	if !strings.Contains(stdout.String(), "slirp4netns") {
+		t.Errorf("moving a jail onto another network stack must be said out loud, got:\n%s",
+			stdout.String())
 	}
 }
 

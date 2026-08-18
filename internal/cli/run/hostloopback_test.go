@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
 // The decision function is the half of the host-loopback fix that CAN be tested
@@ -17,10 +18,18 @@ import (
 // cases: the named cases pin the intended behaviour, the sweep pins the SAFETY
 // PROPERTY over every input combination there is.
 
-const (
-	pastaArg = "--network=pasta:--map-host-loopback,169.254.1.2"
-	slirpArg = "--network=slirp4netns:allow_host_loopback=true"
-)
+const pastaArg = "--network=pasta:--map-host-loopback,169.254.1.2"
+
+// slirpArgs is spelled out rather than taken from slirpForwardingArgs() on
+// purpose: these two flags ARE the contract, and a test that calls the function
+// it is testing would follow any future edit silently. Both are load-bearing and
+// measured (see slirp4netnsHostAddr) — the option alone forwards the host's
+// loopback to an address the jail never dials, because podman aims
+// host.containers.internal at the host's GLOBAL address under slirp4netns.
+var slirpArgs = []string{
+	"--network=slirp4netns:allow_host_loopback=true",
+	"--add-host=host.containers.internal:10.0.2.2",
+}
 
 func TestDecideHostLoopback(t *testing.T) {
 	tests := []struct {
@@ -41,10 +50,82 @@ func TestDecideHostLoopback(t *testing.T) {
 			disp: paths.HostLoopbackRequested,
 		},
 		{
-			name: "slirp4netns confirmed on the default path emits allow_host_loopback",
+			name: "slirp4netns confirmed on the default path emits the option AND the hosts entry",
 			f:    hostLoopbackFacts{netMode: "bridge", backend: "slirp4netns", rootless: true, support: supportConfirmed},
-			args: []string{slirpArg},
+			args: slirpArgs,
 			disp: paths.HostLoopbackRequested,
+		},
+
+		// --- the slirp4netns FALLBACK: an old pasta host that can be made to work ---
+		{
+			name: "an old pasta with a usable slirp4netns is switched to it rather than degraded",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "pasta", rootless: true,
+				support: supportAbsent, fallbackSupport: supportConfirmed,
+				version: "pasta 2024_01_01.abc"},
+			args: slirpArgs,
+			warn: "yolo launched this jail on slirp4netns instead",
+			disp: paths.HostLoopbackRequested,
+		},
+		{
+			// Taken here too — with no forwarding option on the argv, pasta does not
+			// forward loopback at any version — but the note may not claim the pasta
+			// is old when yolo never got an answer out of it.
+			name: "a pasta that could not be probed also gets the fallback, without being blamed",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "pasta", rootless: true,
+				support: supportUnknown, fallbackSupport: supportConfirmed},
+			args: slirpArgs,
+			warn: "could not confirm this host's pasta supports",
+			disp: paths.HostLoopbackRequested,
+		},
+		{
+			// The whole point of "fallback, not preference": slirp4netns is the older
+			// and slower stack, so a host whose pasta works must never be moved to it.
+			name: "a working pasta is preferred even when slirp4netns is available",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "pasta", rootless: true,
+				support: supportConfirmed, fallbackSupport: supportConfirmed},
+			args: []string{pastaArg},
+			disp: paths.HostLoopbackRequested,
+		},
+		{
+			// The fallback is pasta-only. A slirp4netns host that cannot be confirmed
+			// has nothing to fall back TO — asking pasta instead would be a preference
+			// inversion nobody ruled on, so the honest warning stands.
+			name: "an unconfirmable slirp4netns host is not rescued by the fallback fact",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "slirp4netns", rootless: true,
+				support: supportAbsent, fallbackSupport: supportConfirmed},
+			warn: "slirp4netns --help",
+			disp: paths.HostLoopbackUnsupported,
+		},
+		{
+			name: "an old pasta whose slirp4netns cannot do it either says which of the two failed",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "pasta", rootless: true,
+				support: supportAbsent, fallbackSupport: supportAbsent},
+			warn: "does not advertise",
+			disp: paths.HostLoopbackUnsupported,
+		},
+		{
+			name: "an old pasta on a host with no slirp4netns at all says that instead",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "pasta", rootless: true,
+				support: supportAbsent, fallbackSupport: supportUnknown},
+			warn: "reports no usable",
+			disp: paths.HostLoopbackUnsupported,
+		},
+		{
+			name: "the fallback is never taken on a rootful host",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "pasta", rootless: false,
+				support: supportAbsent, fallbackSupport: supportConfirmed},
+		},
+		{
+			name: "the fallback is never taken under an explicit network.mode",
+			f: hostLoopbackFacts{netMode: "none", backend: "pasta", rootless: true,
+				support: supportAbsent, fallbackSupport: supportConfirmed},
+			warn: "network.mode is set to 'none'",
+		},
+		{
+			name: "the opt-out suppresses the fallback too, and names the argv it suppressed",
+			f: hostLoopbackFacts{netMode: "bridge", backend: "pasta", rootless: true,
+				support: supportAbsent, fallbackSupport: supportConfirmed, optOut: true},
+			warn: slirpArgs[0],
 		},
 
 		// --- capability not positively confirmed: emit nothing, say why ---
@@ -174,6 +255,31 @@ func TestDecideHostLoopback(t *testing.T) {
 // does, this says what it can never do, and it has to survive somebody adding a
 // backend, a support state, or a network mode.
 func TestDecideHostLoopbackDispositionMatchesTheArgv(t *testing.T) {
+	forEveryHostLoopbackFact(func(f hostLoopbackFacts) {
+		got := decideHostLoopback(f)
+		emitted := len(got.args) > 0
+		if emitted != (got.disposition == paths.HostLoopbackRequested) {
+			t.Errorf("%+v: argv %v but disposition %q — the jail's severity must "+
+				"track what was actually requested", f, got.args, got.disposition)
+		}
+		// The only other value there is. An unrecognised spelling would
+		// be read as "not attributable" in-jail, which is safe but silent
+		// — so it must not be reachable from here.
+		if got.disposition != "" &&
+			got.disposition != paths.HostLoopbackRequested &&
+			got.disposition != paths.HostLoopbackUnsupported {
+			t.Errorf("%+v: unknown disposition %q", f, got.disposition)
+		}
+	})
+}
+
+// forEveryHostLoopbackFact calls fn once per combination of every input the
+// decision has: the effective network mode, the backend podman reported, the
+// capability verdict for it, the slirp4netns FALLBACK verdict, rootlessness, and
+// the opt-out. Shared by the two sweeps below so a new input dimension is added in
+// ONE place — the slirp4netns fallback was added as a sixth, and a sweep that had
+// been left behind would have gone on passing while covering nothing.
+func forEveryHostLoopbackFact(fn func(hostLoopbackFacts)) {
 	netModes := []string{"bridge", "host", "none", "private"}
 	backends := []string{"pasta", "slirp4netns", "netavark", "cni", ""}
 	supports := []hostLoopbackSupport{supportUnknown, supportConfirmed, supportAbsent}
@@ -181,30 +287,35 @@ func TestDecideHostLoopbackDispositionMatchesTheArgv(t *testing.T) {
 	for _, netMode := range netModes {
 		for _, backend := range backends {
 			for _, support := range supports {
-				for _, rootless := range []bool{true, false} {
-					for _, optOut := range []bool{true, false} {
-						f := hostLoopbackFacts{
-							netMode: netMode, backend: backend, rootless: rootless,
-							support: support, optOut: optOut,
-						}
-						got := decideHostLoopback(f)
-						emitted := len(got.args) > 0
-						if emitted != (got.disposition == paths.HostLoopbackRequested) {
-							t.Errorf("%+v: argv %v but disposition %q — the jail's severity must "+
-								"track what was actually requested", f, got.args, got.disposition)
-						}
-						// The only other value there is. An unrecognised spelling would
-						// be read as "not attributable" in-jail, which is safe but silent
-						// — so it must not be reachable from here.
-						if got.disposition != "" &&
-							got.disposition != paths.HostLoopbackRequested &&
-							got.disposition != paths.HostLoopbackUnsupported {
-							t.Errorf("%+v: unknown disposition %q", f, got.disposition)
+				for _, fallback := range supports {
+					for _, rootless := range []bool{true, false} {
+						for _, optOut := range []bool{true, false} {
+							fn(hostLoopbackFacts{
+								netMode: netMode, backend: backend, rootless: rootless,
+								support: support, fallbackSupport: fallback, optOut: optOut,
+							})
 						}
 					}
 				}
 			}
 		}
+	}
+}
+
+// TestSlirpForwardingArgsPinTheNameTheDaemonsAdvertise is the bridge between the
+// literal every other test in this file pins and the two facts it depends on: the
+// slirp4netns host address, and the name yolo's host daemons publish for a jail to
+// dial. The hosts entry is the whole reason the slirp4netns path works at all
+// (podman aims host.containers.internal at the host's GLOBAL address under that
+// stack), so pinning a name the daemons do not advertise would be a silent no-op.
+func TestSlirpForwardingArgsPinTheNameTheDaemonsAdvertise(t *testing.T) {
+	if !slices.Equal(slirpForwardingArgs(), slirpArgs) {
+		t.Fatalf("slirpForwardingArgs() = %v, want the reviewed literal %v", slirpForwardingArgs(), slirpArgs)
+	}
+	want := "--add-host=" + svcendpoint.DefaultAdvertiseHost + ":" + slirp4netnsHostAddr
+	if !slices.Contains(slirpForwardingArgs(), want) {
+		t.Errorf("the hosts entry must aim %s at the slirp4netns host address; args = %v",
+			svcendpoint.DefaultAdvertiseHost, slirpForwardingArgs())
 	}
 }
 
@@ -237,45 +348,52 @@ func TestReachabilityOptOutArgsForwardsOnlyWhenSet(t *testing.T) {
 // inputs and asserts the one property that keeps a bad detection from bricking a
 // user's environment: an argv is emitted if and only if every fact is positive —
 // the default network mode, a rootless podman, a backend yolo recognises, a
-// capability it confirmed by asking, and no opt-out. Anything else must fall back
-// to emitting nothing, which is byte-for-byte the behaviour before this feature.
+// capability it confirmed by asking (its own, or slirp4netns's as the pasta
+// fallback), and no opt-out. Anything else must fall back to emitting nothing,
+// which is byte-for-byte the behaviour before this feature.
 //
 // This is deliberately a separate test from the named cases above. Those say what
 // the feature does; this says what it can never do, and it is the one that has to
 // survive somebody adding a backend or a support state.
 func TestDecideHostLoopbackOnlyEmitsOnPositiveFacts(t *testing.T) {
-	netModes := []string{"bridge", "host", "none", "private"}
-	backends := []string{"pasta", "slirp4netns", "netavark", "cni", ""}
-	supports := []hostLoopbackSupport{supportUnknown, supportConfirmed, supportAbsent}
-
-	for _, netMode := range netModes {
-		for _, backend := range backends {
-			for _, support := range supports {
-				for _, rootless := range []bool{true, false} {
-					for _, optOut := range []bool{true, false} {
-						f := hostLoopbackFacts{
-							netMode: netMode, backend: backend, rootless: rootless,
-							support: support, optOut: optOut,
-						}
-						wantEmit := netMode == "bridge" && rootless && !optOut &&
-							support == supportConfirmed && mappableBackend(backend)
-						got := decideHostLoopback(f)
-						if wantEmit != (len(got.args) > 0) {
-							t.Errorf("%+v: emitted %v, wantEmit=%v", f, got.args, wantEmit)
-							continue
-						}
-						// A flag that is emitted must be one of the two literals
-						// reviewed here — never an improvised one.
-						if len(got.args) > 0 &&
-							!slices.Equal(got.args, []string{pastaArg}) &&
-							!slices.Equal(got.args, []string{slirpArg}) {
-							t.Errorf("%+v: unexpected argv %v", f, got.args)
-						}
-					}
-				}
-			}
+	forEveryHostLoopbackFact(func(f hostLoopbackFacts) {
+		// The fallback widens this predicate by exactly one term, and only for
+		// pasta: a confirmed slirp4netns can stand in for an unconfirmable pasta,
+		// never for an unrecognised backend, a rootful podman, or an explicit mode.
+		confirmed := f.support == supportConfirmed ||
+			(f.backend == backendPasta && f.fallbackSupport == supportConfirmed)
+		wantEmit := f.netMode == "bridge" && f.rootless && !f.optOut &&
+			confirmed && mappableBackend(f.backend)
+		got := decideHostLoopback(f)
+		if wantEmit != (len(got.args) > 0) {
+			t.Errorf("%+v: emitted %v, wantEmit=%v", f, got.args, wantEmit)
+			return
 		}
-	}
+		// A flag that is emitted must be one of the two argvs reviewed here — never
+		// an improvised one, and never half of the slirp4netns pair.
+		if len(got.args) > 0 &&
+			!slices.Equal(got.args, []string{pastaArg}) &&
+			!slices.Equal(got.args, slirpArgs) {
+			t.Errorf("%+v: unexpected argv %v", f, got.args)
+		}
+	})
+}
+
+// TestDecideHostLoopbackNeverSwitchesStacksSilently. The fallback moves a jail onto
+// a network stack the host's podman did not choose — slower, and a surprise to
+// anyone measuring throughput — so the one path that does it must always say so.
+// The healthy pasta path stays silent, which is what keeps the line worth reading.
+func TestDecideHostLoopbackNeverSwitchesStacksSilently(t *testing.T) {
+	forEveryHostLoopbackFact(func(f hostLoopbackFacts) {
+		got := decideHostLoopback(f)
+		fellBack := slices.Equal(got.args, slirpArgs) && f.backend == backendPasta
+		if fellBack && !strings.Contains(got.warning, "slirp4netns") {
+			t.Errorf("%+v: switched this jail to slirp4netns without saying so: %q", f, got.warning)
+		}
+		if slices.Equal(got.args, []string{pastaArg}) && got.warning != "" {
+			t.Errorf("%+v: the healthy path must be silent, got:\n%s", f, got.warning)
+		}
+	})
 }
 
 // podmanInfoFixture is the shape of real `podman info --format json` output
@@ -545,6 +663,156 @@ func TestHostLoopbackFactsForPasta(t *testing.T) {
 	}
 	if got := decideHostLoopback(f); !slices.Equal(got.args, []string{pastaArg}) {
 		t.Errorf("args = %v, want %v", got.args, []string{pastaArg})
+	}
+}
+
+// podmanInfoNoSlirpFixture is podman's answer on a host with NO slirp4netns
+// installed: the helper block is present but empty. Measured 2026-08-17 by
+// running `podman info` with the binary off podman's PATH — podman reports "" for
+// the executable rather than omitting the block or erroring, which is what makes
+// "" a positive "podman has none" rather than a fact yolo failed to read.
+const podmanInfoNoSlirpFixture = `{
+  "host": {
+    "rootlessNetworkCmd": "pasta",
+    "security": {"rootless": true},
+    "pasta": {
+      "executable": "/nix/store/xxxx-podman-5.8.4/libexec/podman/pasta",
+      "version": "pasta 2024_01_01.abc\n"
+    },
+    "slirp4netns": {"executable": "", "package": "", "version": ""}
+  }
+}`
+
+// slirpHelpWithFlag is the real slirp4netns 1.3.4 line the probe greps for.
+const slirpHelpWithFlag = "Usage: slirp4netns [OPTION]... PID|PATH|FD [TAPNAME]\n" +
+	"--disable-host-loopback  prohibit connecting to 127.0.0.1:* on the host namespace\n"
+
+// recordingHostExec is fakeHostExec that also appends every argv it was asked for,
+// so a test can assert a subprocess was NOT run as easily as that it was. Both
+// directions matter here: the fallback probe must not cost a healthy host a third
+// subprocess, and it must never reach a binary podman did not name.
+func recordingHostExec(cases map[string]ExecResult, ran *[]string) func([]string, string, []string, time.Duration) ExecResult {
+	inner := fakeHostExec(cases)
+	return func(argv []string, dir string, env []string, d time.Duration) ExecResult {
+		*ran = append(*ran, strings.Join(argv, " "))
+		return inner(argv, dir, env, d)
+	}
+}
+
+// TestHostLoopbackFactsForSlirpFallback walks the whole gathering path on the host
+// this feature exists for: a rootless podman on pasta, a pasta too old to forward
+// loopback, and a slirp4netns that podman knows about and that advertises
+// host-loopback control. The outcome must be a WORKING jail on the older stack,
+// not the warn-and-launch it used to be.
+func TestHostLoopbackFactsForSlirpFallback(t *testing.T) {
+	const pastaExe = "/nix/store/xxxx-podman-5.8.4/libexec/podman/pasta"
+	var ran []string
+	o := &Options{}
+	fillDefaults(o)
+	o.Getenv = func(string) string { return "" }
+	o.LookPath = func(name string) (string, bool) {
+		if name == "podman" {
+			return "/usr/bin/podman", true
+		}
+		return "", false
+	}
+	o.Exec = recordingHostExec(map[string]ExecResult{
+		"/usr/bin/podman info --format json": {Ran: true, RC: 0, Stdout: podmanInfoFixture},
+		pastaExe + " --help":                 {Ran: true, RC: 0, Stdout: "Usage: pasta\n  --map-gw\tMap the gateway\n"},
+		"/bin/slirp4netns --help":            {Ran: true, RC: 0, Stdout: slirpHelpWithFlag},
+	}, &ran)
+
+	f := o.hostLoopbackFactsFor("podman", "bridge")
+	if f.support != supportAbsent || f.fallbackSupport != supportConfirmed {
+		t.Fatalf("facts = %+v, want pasta absent / fallback confirmed", f)
+	}
+	plan := decideHostLoopback(f)
+	if !slices.Equal(plan.args, slirpArgs) {
+		t.Errorf("args = %v, want the slirp4netns pair %v", plan.args, slirpArgs)
+	}
+	if plan.disposition != paths.HostLoopbackRequested {
+		t.Errorf("disposition = %q, want %q — the forwarding option DID go out",
+			plan.disposition, paths.HostLoopbackRequested)
+	}
+	if !slices.Contains(ran, "/bin/slirp4netns --help") {
+		t.Errorf("the fallback must be probed on this host, ran: %v", ran)
+	}
+}
+
+// TestHostLoopbackFactsForNoFallbackProbeOnAHealthyHost. The fallback probe is a
+// third subprocess on the launch path, and the overwhelmingly common host does not
+// need it. Asserting it is not run keeps the gate a real one rather than a
+// discarded answer — the same property the nested-podman argv test holds.
+func TestHostLoopbackFactsForNoFallbackProbeOnAHealthyHost(t *testing.T) {
+	const pastaExe = "/nix/store/xxxx-podman-5.8.4/libexec/podman/pasta"
+	var ran []string
+	o := &Options{}
+	fillDefaults(o)
+	o.Getenv = func(string) string { return "" }
+	o.LookPath = func(name string) (string, bool) {
+		if name == "podman" {
+			return "/usr/bin/podman", true
+		}
+		return "", false
+	}
+	o.Exec = recordingHostExec(map[string]ExecResult{
+		"/usr/bin/podman info --format json": {Ran: true, RC: 0, Stdout: podmanInfoFixture},
+		pastaExe + " --help":                 {Ran: true, RC: 0, Stdout: "  --map-host-loopback ADDR\n"},
+		"/bin/slirp4netns --help":            {Ran: true, RC: 0, Stdout: slirpHelpWithFlag},
+	}, &ran)
+
+	f := o.hostLoopbackFactsFor("podman", "bridge")
+	if f.fallbackSupport != supportUnknown {
+		t.Errorf("fallbackSupport = %v on a host that never needed one", f.fallbackSupport)
+	}
+	if slices.Contains(ran, "/bin/slirp4netns --help") {
+		t.Errorf("a working pasta host must not pay for the fallback probe, ran: %v", ran)
+	}
+	if got := decideHostLoopback(f); !slices.Equal(got.args, []string{pastaArg}) {
+		t.Errorf("args = %v, want pasta to keep winning", got.args)
+	}
+}
+
+// TestHostLoopbackFallbackTrustsOnlyPodmansOwnLookup is the fail-safe with the
+// sharpest edge in this feature. PODMAN is the process that will exec
+// slirp4netns; a binary yolo can see on PATH and podman cannot is a container
+// that fails to START — the one outcome this file may never produce — so an empty
+// `podman info` executable must end the matter, however findable slirp4netns is
+// from here.
+func TestHostLoopbackFallbackTrustsOnlyPodmansOwnLookup(t *testing.T) {
+	const pastaExe = "/nix/store/xxxx-podman-5.8.4/libexec/podman/pasta"
+	var ran []string
+	o := &Options{}
+	fillDefaults(o)
+	o.Getenv = func(string) string { return "" }
+	o.LookPath = func(name string) (string, bool) {
+		switch name {
+		case "podman":
+			return "/usr/bin/podman", true
+		case "slirp4netns":
+			return "/usr/local/bin/slirp4netns", true
+		}
+		return "", false
+	}
+	o.Exec = recordingHostExec(map[string]ExecResult{
+		"/usr/bin/podman info --format json": {Ran: true, RC: 0, Stdout: podmanInfoNoSlirpFixture},
+		pastaExe + " --help":                 {Ran: true, RC: 0, Stdout: "Usage: pasta\n  --map-gw\n"},
+		"/usr/local/bin/slirp4netns --help":  {Ran: true, RC: 0, Stdout: slirpHelpWithFlag},
+	}, &ran)
+
+	f := o.hostLoopbackFactsFor("podman", "bridge")
+	if f.fallbackSupport != supportUnknown {
+		t.Errorf("fallbackSupport = %v; podman reported no slirp4netns, which settles it", f.fallbackSupport)
+	}
+	if slices.Contains(ran, "/usr/local/bin/slirp4netns --help") {
+		t.Errorf("the fallback probe must never fall back to PATH, ran: %v", ran)
+	}
+	plan := decideHostLoopback(f)
+	if len(plan.args) != 0 {
+		t.Errorf("emitted %v, want the warn-and-launch path", plan.args)
+	}
+	if plan.disposition != paths.HostLoopbackUnsupported {
+		t.Errorf("disposition = %q, want %q", plan.disposition, paths.HostLoopbackUnsupported)
 	}
 }
 
