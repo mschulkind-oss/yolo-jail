@@ -6,7 +6,10 @@ package run
 // Two defects, one shape. The launch reported refusals from HonoredHostFiles, HonoredMounts
 // and HonoredInstalls; there was no equivalent for a LOOPHOLE, so an unapproved fetched pack's
 // loophole was withheld in SILENCE — a pack the user installed, selected, and whose whole
-// purpose is a loophole, doing nothing, with no line saying why or how to fix it. And the
+// purpose is a loophole, doing nothing, with no line saying why or how to fix it. (Since
+// OQ-TP6 that report is fatal rather than advisory; see packrefusal.go. The reporting is still
+// what this file pins — the ruling changed what happens after the sentence, not the sentence.)
+// And the
 // pre-spawn exec disclosure printed that same loophole's daemon argv under the heading "This
 // launch runs pack code on your machine", because the footprint is deliberately not gated on
 // MayAccessHost for this kind (it answers what a pack WANTS). So the one banner a user reads
@@ -24,8 +27,14 @@ import (
 )
 
 // A REFUSED loophole is named, with the reason and the fix. The three shipped Honored*
-// reporters set the shape: "pack X: refused <thing> — <why>", printed at staging.
-func TestUnapprovedLoopholeIsReportedAtStaging(t *testing.T) {
+// reporters set the shape: "pack X: refused <thing> — <why>".
+//
+// UPDATED 2026-08-18 (docs/design/trust-paths.md OQ-TP6): the report is no longer a warning
+// beside a working jail, it is the launch REFUSAL itself. The assertions are unchanged — the
+// sentence a user reads is the same sentence, and it is now the whole outcome rather than a
+// line above one — but they read the error instead of stdout, because a warning nobody had to
+// act on is exactly what the ruling retired.
+func TestUnapprovedLoopholeRefusesTheLaunch(t *testing.T) {
 	os.Unsetenv("YOLO_VERSION")
 	home := packHome(t)
 	isolatePackModules(t)
@@ -36,10 +45,13 @@ func TestUnapprovedLoopholeIsReportedAtStaging(t *testing.T) {
 	o := goldenOptions(t.TempDir(), t.TempDir())
 	o.Stdout = &out
 	o.Stderr = &out
-	if _, _, _, err := o.stagePacks("yolo-test-loophole-refusal"); err != nil {
-		t.Fatal(err)
+	_, _, _, err := o.stagePacks("yolo-test-loophole-refusal")
+	if err == nil {
+		t.Fatalf("an unapproved fetched pack's loophole was refused and the launch went ahead "+
+			"anyway — OQ-TP6 says a refused contribution refuses the launch, because a pack "+
+			"that half-loads is one nobody can predict from reading it:\n%s", out.String())
 	}
-	got := out.String()
+	got := err.Error()
 	for _, want := range []string{
 		"acme",         // the pack
 		"acme-proxy",   // the loophole, by name
@@ -47,10 +59,9 @@ func TestUnapprovedLoopholeIsReportedAtStaging(t *testing.T) {
 		"pack install", // the route to approving it
 	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("the launch never reports the withheld loophole (%q missing). A pack "+
-				"whose whole purpose is a loophole then does NOTHING with no line saying why "+
-				"— the silence G3's \"refusals printed per-claim\" exists to prevent:\n%s",
-				want, got)
+			t.Errorf("the refusal never names the withheld loophole (%q missing). This message "+
+				"is now the ENTIRE user experience of the failure — there is no jail left to "+
+				"go looking in:\n%s", want, got)
 		}
 	}
 }

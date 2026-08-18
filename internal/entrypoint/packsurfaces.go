@@ -38,12 +38,39 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 )
 
+// jailPackHostAccess is the mayAccessHost every pack is loaded with IN THE JAIL, and it is
+// deliberately the permissive answer — named rather than written as a bare `true` at the call
+// site, because a reader who finds a literal `true` where a security gate's input goes is
+// right to be alarmed and deserves the reason in one place.
+//
+// IT IS THE ONLY VALUE THIS SIDE CAN COMPUTE. Origin decides host access, and origin is a fact
+// about the user's config — which the jail deliberately cannot read. From in here an embedded
+// pack, a local `file://` pack and an approved fetched pack are three identical directories.
+//
+// AND IT IS NOW CORRECT FOR EVERY INPUT IT CAN RECEIVE, which is what changed with OQ-TP6
+// (docs/design/trust-paths.md §3.1). A refused contribution refuses the LAUNCH, so a pack with
+// an unapproved claim never reaches a jail at all: every tree under YOLO_PACK_ROOT is one whose
+// every claim the host either granted by origin or found already approved in the lockfile.
+// The permissive default used to be a security defect (the host printed "refused
+// installer" and the jail wrote the curl-to-bash launcher anyway); it is now accidentally, and
+// then deliberately, right.
+//
+// WHY IT IS NOT DERIVED, since the tempting fix is to pass `false` for anything outside
+// `_official/`: that would be wrong, not stricter. The tree under YOLO_PACK_ROOT holds local
+// packs and APPROVED fetched packs beside the embedded ones, and refusing their host files,
+// mounts and installers in-jail would break exactly the packs the user did approve, while
+// protecting nothing — there is nothing left in that tree to protect against. The host is the
+// only side with the inputs, and the ruling put the whole decision there on purpose.
+const jailPackHostAccess = true
+
 // LoadJailPacks reads the pack trees mounted at YOLO_PACK_ROOT.
 //
 // Every pack found here was already staged and origin-checked ON THE HOST, so this does
 // NOT re-derive trust: the host decided which host files a pack may name, and it did so
 // with access to the user config (which the jail deliberately cannot read). The jail's
-// job is to render what it was given.
+// job is to render what it was given — and since OQ-TP6 that sentence is enforced rather
+// than merely asserted: a pack with a refused contribution refuses the launch, so a jail
+// that exists is a jail whose packs are wholly approved (see jailPackHostAccess).
 //
 // A pack whose manifest fails to parse in-jail after parsing on the host means the
 // mounted tree disagrees with what was staged — corruption, not a user error — so it is
@@ -86,7 +113,8 @@ func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
 			if !ent.IsDir() || ent.Name() == "_official" {
 				continue
 			}
-			p, problems := packload.LoadDir(filepath.Join(dir, ent.Name()), ent.Name(), true)
+			p, problems := packload.LoadDir(filepath.Join(dir, ent.Name()), ent.Name(),
+				jailPackHostAccess)
 			if len(problems) > 0 {
 				return nil, fmt.Errorf("pack %s: %s", ent.Name(), problems[0])
 			}

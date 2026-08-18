@@ -141,6 +141,9 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	}
 	var loaded []*packload.Pack
 	var configured []config.PackEntry
+	// Every claim a configured pack made that yolo understood and declined. Filled in the
+	// staging loop below and turned into the launch refusal immediately after it.
+	var refusals []string
 	for _, entry := range entries {
 		p, isEmbedded := byName[entry.Name]
 		if !isEmbedded || !entry.Embedded() {
@@ -215,34 +218,34 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		for _, prob := range probs {
 			return "", nil, nil, fmt.Errorf("packs: %s", prob)
 		}
-		// Report every refused declaration. A pack silently not getting what it asked
-		// for changes what the jail contains, so the user has to be told.
-		_, refused := p.HonoredHostFiles()
-		if _, mountRefused := p.HonoredMounts(); len(mountRefused) > 0 {
-			refused = append(refused, mountRefused...)
-		}
-		// Per contribution: a pack mixing an npm install with a curl-to-shell installer
-		// gets exactly one refusal, for the installer.
-		if _, installRefused := p.HonoredInstalls(); len(installRefused) > 0 {
-			refused = append(refused, installRefused...)
-		}
-		// The FOURTH reporter, and the one §4.3 G3 asked for and did not get: a withheld
-		// LOOPHOLE. The withholding shipped without it, so a pack whose whole purpose is a
-		// loophole did nothing, silently — worse than the `mount` case it was modelled on,
-		// because a missing mount shows up as a missing directory while a missing loophole
-		// looks like a loophole that does not work.
-		if _, loopholeRefused := p.HonoredLoopholes(); len(loopholeRefused) > 0 {
-			refused = append(refused, loopholeRefused...)
-		}
-		for _, msg := range refused {
-			o.pr(o.Stdout).print("[yellow]Warning: " + msg + "[/yellow]")
-		}
+		// Collect every refused declaration. These used to be printed as warnings and the
+		// pack staged anyway — the split that let a fetched pack's refused installer run in
+		// the jail regardless (docs/design/trust-paths.md §3.1). They are now FATAL, and
+		// accumulated across the whole configured set rather than raised at the first pack,
+		// so a user with two broken packs learns about both in one launch instead of fixing
+		// them one restart at a time. See packrefusal.go for the ruling and for the two
+		// look-alikes (an absent bind source, an unknown contribution kind) that are still
+		// skipped with a warning and must stay that way.
+		refusals = append(refusals, packRefusals(p)...)
 		loaded = append(loaded, p)
 
 		skillDirs = append(skillDirs, o.packSkillSourceDirs(p)...)
 		if text := o.packBriefingProse(p); text != "" {
 			briefings = append(briefings, jailcontent.PackBriefing{Name: entry.Name, Text: text})
 		}
+	}
+	// THE REFUSAL, and it comes FIRST of the pre-flights: the four below are about pack
+	// MECHANICS (two packs claiming one destination, a name that shadows a reserved one) and
+	// this one is about CONSENT. A user whose pack asks for something they never approved is
+	// answering a different question from a user whose two packs collide, and the consent
+	// question is the one whose answer might be "remove this pack", which retires the
+	// collision too.
+	//
+	// Raised here rather than inside the loop so the message can name every refused claim
+	// across every pack at once — see refusedLaunchError for why that message is the entire
+	// user experience of this failure.
+	if len(refusals) > 0 {
+		return "", nil, nil, refusedLaunchError(refusals)
 	}
 	// PRE-FLIGHT: two claims on one home destination. The mount assembler emits one bind
 	// per contribution with no dedup, so this would otherwise surface as podman's

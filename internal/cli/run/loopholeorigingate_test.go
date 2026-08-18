@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -126,11 +127,21 @@ func syncPackStore(t *testing.T, src string) {
 	}
 }
 
-// TestUnapprovedFetchedPackLoopholeNeitherSpawnsNorReachesTheArgv is G3, measured.
+// TestUnapprovedFetchedPackLoopholeNeitherSpawnsNorReachesTheArgv is G3, measured — as
+// OQ-TP6 rewrote it.
 //
-// One launch, three assertions, and each one was FALSE before the gate was enforced:
-// the daemon did not run, the container argv carries none of the loophole's crossings, and
-// the pack's OTHER contribution still works (G3 refuses the loophole, not the pack).
+// UPDATED 2026-08-18. This test used to open on "staging must SUCCEED — G3 refuses the
+// loophole, not the pack" and close on "AND THE PACK STILL WORKS", and both were faithful
+// readings of G3. Both are retired by the ruling in docs/design/trust-paths.md §3.1: there are
+// no partial packs, so a refused loophole refuses the LAUNCH. Assertion 4 is gone with the
+// concept it asserted.
+//
+// The other three survive, and their REASON for surviving changed. They used to be the only
+// thing standing between an unapproved fetched pack and a running host daemon; the refusal
+// above them is now that thing. They are kept as DEFENCE IN DEPTH — driven from the tree
+// staging actually wrote, with the module record made by hand because the refusal returns
+// before stagePacks reaches the line that makes it — so a future relaxation of the fatal
+// cannot silently re-open a hole it took four layers to close.
 func TestUnapprovedFetchedPackLoopholeNeitherSpawnsNorReachesTheArgv(t *testing.T) {
 	os.Unsetenv("YOLO_VERSION")
 	home := packHome(t)
@@ -139,24 +150,50 @@ func TestUnapprovedFetchedPackLoopholeNeitherSpawnsNorReachesTheArgv(t *testing.
 	sentinel := fetchedLoopholePack(t, home)
 
 	var out bytes.Buffer
+	cname := "yolo-test-unapproved-loophole"
 	o := goldenOptions(t.TempDir(), t.TempDir())
 	o.Stdout = &out
 	o.Stderr = &out
-	_, loaded, _, err := o.stagePacks("yolo-test-unapproved-loophole")
-	if err != nil {
-		t.Fatalf("staging must SUCCEED — G3 refuses the loophole, not the pack: %v", err)
+
+	// 0. THE LAUNCH, which is now the outermost assertion and the one that makes the three
+	//    below unreachable in production. A refused contribution refuses the launch.
+	_, loaded, _, err := o.stagePacks(cname)
+	if err == nil {
+		t.Fatalf("staging SUCCEEDED for a pack whose loophole was refused — OQ-TP6 rules that "+
+			"a partial pack is not a thing yolo runs:\n%s", out.String())
+	}
+	if len(loaded) != 0 {
+		t.Errorf("a refused launch still handed %d packs to the rest of the pipeline; the "+
+			"refusal must be the whole return value, or a caller ignoring the error gets a "+
+			"jail built from packs yolo just declined", len(loaded))
+	}
+	// AND THE MODULE WAS NEVER RECORDED. stagePacks calls loopholes.SetPackModules on its way
+	// out; the refusal returns first, so the converged set never learns the loophole exists.
+	// That is the end-to-end shape of "nothing of it crossed" under the ruling — no gate had
+	// to hold, because no gate was ever consulted.
+	if _, ok := loopholes.NewHostSet(nil).Lookup("acme-proxy"); ok {
+		t.Error("a refused launch still recorded the pack's loophole into the converged set")
+	}
+
+	// The three original assertions, now as defence in depth. Load the pack from the STAGED
+	// tree (staging ran; only the return did not) and make the module record stagePacks would
+	// have made, so the layers below the fatal are exercised rather than merely bypassed.
+	staged := filepath.Join(paths.AgentsDir(), cname, "packs", config.PackEntry{Name: "acme"}.Slug())
+	p, probs := packload.LoadDir(staged, "acme", false)
+	if len(probs) > 0 {
+		t.Fatalf("the staged tree does not load: %v", probs)
 	}
 	// Precondition: the pack itself is unapproved. Without this the test could pass because
 	// the pack failed to load at all.
-	for _, p := range loaded {
-		if p.Name == "acme" && p.MayAccessHost {
-			t.Fatal("the fixture pack was granted host access — it must be a FETCHED pack with " +
-				"no lockfile approval, or the gate under test is not the branch being exercised")
-		}
+	if p.MayAccessHost {
+		t.Fatal("the fixture pack was granted host access — it must be a FETCHED pack with " +
+			"no lockfile approval, or the gate under test is not the branch being exercised")
 	}
+	loaded = []*packload.Pack{p}
+	loopholes.SetPackModules(packLoopholeModules(loaded))
 
 	// 1. THE SPAWN. startLoopholes is reached through its one disclosed call site.
-	o.startLoopholesDisclosed("yolo-test-unapproved-loophole", "podman", jsonx.NewOrderedMap(), loaded)
+	o.startLoopholesDisclosed(cname, "podman", jsonx.NewOrderedMap(), loaded)
 	if _, statErr := os.Stat(sentinel); statErr == nil {
 		t.Error("an UNAPPROVED fetched pack's host daemon EXECUTED. G3 says its loophole is " +
 			"\"not discovered at all\"; the gate was computed per module and then never " +
@@ -193,13 +230,11 @@ func TestUnapprovedFetchedPackLoopholeNeitherSpawnsNorReachesTheArgv(t *testing.
 		}
 	}
 
-	// 4. AND THE PACK STILL WORKS. G3 is per-loophole: "its other contributions still work
-	// — the same shape `mount` has today". A gate that dropped the whole pack would be a
-	// different, wider refusal than the design asks for.
-	if got := packload.EnvVars(loaded)["ACME_OTHER_CONTRIBUTION"]; got != "1" {
-		t.Errorf("the pack's `env` contribution was dropped along with its loophole (got %q) — "+
-			"G3 refuses the LOOPHOLE, not the pack", got)
-	}
+	// 4. WAS "AND THE PACK STILL WORKS" — G3's "its other contributions still work". Deleted
+	// 2026-08-18 rather than inverted: OQ-TP6 retires the partial pack, so there is no jail
+	// for the pack's `env` contribution to work in. Assertion 0 above is what replaced it, and
+	// the fixture keeps its second contribution so the refusal is demonstrably about the
+	// loophole and not about a pack with nothing else in it.
 }
 
 // An APPROVED origin still reaches both surfaces, or the gate is a ban rather than a gate and

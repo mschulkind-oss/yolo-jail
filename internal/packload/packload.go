@@ -276,6 +276,41 @@ func (p *Pack) HonoredInstalls() (granted []packdecl.Install, refused []string) 
 	return granted, refused
 }
 
+// RefusedBriefingOverlays names every `briefing` contribution whose `after: "host:<path>"`
+// this pack's origin does not permit — the FIFTH gated claim, and the only one that had no
+// reporter at all.
+//
+// `briefing host:<path>` is an approvable claim like any other (contributes.go's
+// HostAccessClaims emits it, `pack install` prompts for it, the lockfile records it), and the
+// launch already withheld it for an unapproved pack — silently, in one `&& p.MayAccessHost`
+// inside run/prepare.go's briefing loop. So a pack whose ONLY host claim was "prepend the
+// user's own AGENTS.md before my prose" produced a jail with the pack's prose and none of the
+// user's, and not one line anywhere said so. Under OQ-TP6 that is a partial pack, so it needs
+// a refusal to be fatal ABOUT.
+//
+// A REPORTER, not a gate, which is the one asymmetry with the Honored* family above. The gate
+// stays where it is: prepare.go composes the briefing body and is the only place that knows
+// the host home, and moving the composition here to justify a `granted` return nobody would
+// read would be a worse trade than the asymmetry. What this owes the family is the sentence a
+// user reads, and that is all it returns.
+func (p *Pack) RefusedBriefingOverlays() []string {
+	if p.MayAccessHost {
+		return nil
+	}
+	var refused []string
+	for _, c := range p.Decl.Contributions() {
+		if c.Kind != packdecl.KindBriefing || !strings.HasPrefix(c.After, "host:") {
+			continue
+		}
+		src := strings.TrimPrefix(c.After, "host:")
+		refused = append(refused, fmt.Sprintf(
+			"pack %s: refused briefing overlay %q — a FETCHED pack cannot read your host "+
+				"home, so your own %s would not be prepended to this pack's prose.",
+			p.Name, src, src))
+	}
+	return refused
+}
+
 // LoadDir reads a pack from a directory. A missing pack.json is fine and yields an
 // empty declaration.
 // tolerateUnknownFields makes LoadDir ignore manifest fields — and skip contribution
