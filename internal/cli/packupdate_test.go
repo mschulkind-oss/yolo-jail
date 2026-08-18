@@ -95,6 +95,84 @@ func TestInstallAndUpdateAreDifferentActs(t *testing.T) {
 	}
 }
 
+// TestUpdateReachesTheLauncherInUpdateMode is the CALL-SITE pin, and it exists because every
+// other test in this file passes with the refresh disconnected from the command.
+//
+// Two single-point mutations survived the whole unit gate on 2026-08-18, and each is the same
+// shape: a test that pins a FUNCTION while the wiring that reaches it is pinned nowhere.
+//
+//   - `var npmRefresh = func(richtext.Printer, io.Writer) int { return 0 }` — green. The
+//     dispatch test above installs its own stub over that variable, and the refresh tests
+//     below call refreshNpmPrograms / refreshNpmProgramsFromOS directly, so nothing asserted
+//     which function the seam is actually wired to. `yolo pack update` would refresh nothing,
+//     print nothing, and exit 0.
+//   - dropping `npmLauncherUpdateEnv+"=1"` from execLauncherUpdate — also green, and worse
+//     than doing nothing: without the variable the launcher takes its NORMAL path, which
+//     ends in `exec`. `yolo pack update` would then START every agent CLI it was asked to
+//     refresh, one after another, into the user's terminal.
+//
+// So this drives packMain end to end against a real launcher script on disk that records the
+// environment it was handed. It is the only test here that fails if either seam is cut, and
+// the `install` half re-asserts the ruling's split at the production wiring rather than over
+// a stub.
+func TestUpdateReachesTheLauncherInUpdateMode(t *testing.T) {
+	home := t.TempDir()
+	packRoot := t.TempDir()
+	packDir := filepath.Join(packRoot, "acme")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packDir, "pack.json"),
+		[]byte(`{"name":"acme","contributes":[`+
+			`{"kind":"program","bin":"npmtool","via":"npm","package":"npmtool"}]}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	// JAIL_HOME as well as HOME: EnvFromOS prefers it, and this jail sets it — left alone,
+	// LauncherDir would resolve to the REAL ~/.yolo-launchers and the refresh would run
+	// whatever agent launcher it found there.
+	t.Setenv("HOME", home)
+	t.Setenv("JAIL_HOME", home)
+	t.Setenv("YOLO_PACK_ROOT", packRoot)
+
+	e := entrypoint.NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
+	if err := os.MkdirAll(e.LauncherDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	record := filepath.Join(t.TempDir(), "handed-env")
+	if err := os.WriteFile(filepath.Join(e.LauncherDir(), "npmtool"),
+		[]byte("#!/bin/sh\nprintf '%s' \"${"+npmLauncherUpdateEnv+":-<unset>}\" > "+record+"\n"),
+		0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"install"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("pack install rc = %d: %s", rc, errw.String())
+	}
+	if _, err := os.Stat(record); err == nil {
+		t.Error("`pack install` ran the npm launcher — install installs what is recorded and " +
+			"NEVER asks a registry what is latest (trust-paths.md §1 row 1)")
+	}
+
+	out.Reset()
+	errw.Reset()
+	if rc := packMain([]string{"update"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("pack update rc = %d: %s", rc, errw.String())
+	}
+	got, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatalf("`pack update` never ran the npm launcher, so nothing resolves a new version "+
+			"at all — with the hourly reinstall gone this command is the only act left: %v\n%s",
+			err, out.String()+errw.String())
+	}
+	if string(got) != "1" {
+		t.Errorf("the launcher was handed %s=%q, want \"1\". Without it the launcher takes its "+
+			"normal path and EXECS the tool, so `yolo pack update` starts every agent CLI it "+
+			"was asked to refresh instead of refreshing them", npmLauncherUpdateEnv, got)
+	}
+}
+
 // TestUpdateReportsAFailedRefresh: the npm half's exit code has to reach the caller, or a
 // scripted `yolo pack update && …` would proceed on a jail whose agent never updated.
 func TestUpdateReportsAFailedRefresh(t *testing.T) {

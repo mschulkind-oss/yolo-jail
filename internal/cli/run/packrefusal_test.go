@@ -32,6 +32,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -274,14 +276,75 @@ func TestAbsenceAndSkewAreNotRefusals(t *testing.T) {
 	// to the capability, and the thing simply is not there. Driven through a real loophole pack
 	// so the fixture is the same shape as the refused one, differing only in the fact that
 	// makes it adaptation rather than refusal.
-	absent := writeRealLoopholePack(t, "acme", "acme-proxy", `{"name":"acme-proxy",`+
-		`"transport":"none","host_daemon":{"cmd":["/bin/true"],"publishes":"socket"},`+
-		`"host_bind_mounts":[{"host":"/nonexistent/acme-conf","container":"/etc/acme"}]}`)
+	//
+	// TWO HALVES, and the second is what makes the first mean anything. `packRefusals` staying
+	// silent is necessary and NOT SUFFICIENT: it never stats a host path, and every producer in
+	// it short-circuits on MayAccessHost — which this fixture has, being a local pack — long
+	// before anything could look at one. Measured 2026-08-18: the silent half alone passes with
+	// the source pointed at a path that EXISTS, and passes with the manifest carrying no
+	// `host_bind_mounts` key at all, so on its own it says nothing about absence.
+	//
+	// The argv is where the absence is actually decided, so that is where the second half
+	// reads, and it asserts in BOTH directions: the missing source is dropped, and a present
+	// source beside it still crosses. Without the second direction "skipped" degenerates into
+	// "bind mounts do not work", which passes the first direction perfectly.
+	// The fixture is built here rather than through writeRealLoopholePack because it needs the
+	// module dir back: a pack-shipped loophole may only bind a path under `{loophole_dir}` or
+	// one relative to the home (loophole-packaging.md §3.1), so "present" and "absent" have to
+	// be two names inside the module the pack ships — one written, one not. An absolute /tmp
+	// path fails that check and takes the whole manifest down with it, which is a fourth way
+	// for this guard to pass while measuring nothing.
+	//
+	// YOLO_VERSION is cleared for the same reason every other launch-path test in this package
+	// clears it: the argv is a HOST-side computation, and in-jail a loophole with bind mounts
+	// is Active() only if one of its CONTAINER paths already exists (loopholes.inJailActive).
+	// Left set, the whole loophole drops out before runtimeArgsFor looks at a single source and
+	// the argv is empty for a reason that has nothing to do with absence — a fifth way for this
+	// guard to pass while measuring nothing, and the one that would have hidden the other four.
+	os.Unsetenv("YOLO_VERSION")
+	isolatePackModules(t)
+	fakeBundled(t)
+	packRoot := t.TempDir()
+	mod := filepath.Join(packRoot, "loopholes", "acme-proxy")
+	if err := os.MkdirAll(filepath.Join(mod, "conf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(
+		`{"name":"acme-proxy","transport":"none","default_enabled":true,`+
+			`"host_daemon":{"cmd":["/bin/true"],"publishes":"socket"},`+
+			`"host_bind_mounts":[{"host":"{loophole_dir}/conf","container":"/etc/acme-present"},`+
+			`{"host":"{loophole_dir}/gone","container":"/etc/acme-absent"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packRoot, "pack.json"), []byte(
+		`{"name":"acme","contributes":[{"kind":"loophole","from":"loopholes/acme-proxy"}]}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	absentSrc := filepath.Join(mod, "gone")
+	absent, probs := packload.LoadDir(packRoot, "acme", true)
+	if len(probs) > 0 {
+		t.Fatalf("fixture: %v", probs)
+	}
 	if r := packRefusals(absent); len(r) != 0 {
 		t.Errorf("an absent bind SOURCE refused the launch: %v\nThat is adaptation inside a "+
 			"capability the user already consented to — a host path that is not there is not a "+
 			"claim yolo declined, and making it fatal would refuse launches on any machine "+
 			"where an optional host dir does not exist", r)
+	}
+	loopholes.SetPackModules(packLoopholeModules([]*packload.Pack{absent}))
+	argv := strings.Join((&Options{}).loopholesRuntimeArgs(jsonx.NewOrderedMap(), "podman"), " ")
+	if strings.Contains(argv, absentSrc) {
+		t.Errorf("the absent bind source reached the container argv:\n%s\nThe launch does not "+
+			"refuse over it, so something has to drop it — and podman's own error for a "+
+			"nonexistent -v source is a boot failure naming neither the pack nor the loophole, "+
+			"which is the refusal this guard says is not happening, wearing a worse message",
+			argv)
+	}
+	if !strings.Contains(argv, "/etc/acme-present") {
+		t.Errorf("the PRESENT bind mount beside it did not cross either:\n%s\nSkipping what is "+
+			"missing is adaptation; skipping what is there is a loophole that does not work, "+
+			"and the assertion above cannot tell the two apart on its own", argv)
 	}
 
 	// GUARD 2 — a contribution whose KIND this build does not recognise. The jail's manifest
