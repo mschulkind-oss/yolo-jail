@@ -271,6 +271,28 @@ func ProbeServiceReachability(e *Env) {
 	}
 	wg.Wait()
 
+	// The affirmative record, to the LOG only. A healthy jail's witness is silent on
+	// the terminal by design, and that silence is indistinguishable from a witness
+	// that never ran — an ambiguity that stops being academic once this can refuse a
+	// launch, because "no complaint" is then the evidence the launch was allowed on.
+	// probeService returns nil for a service it reached, so the nil count IS the
+	// reachable count.
+	//
+	// DEFERRED so it lands after every warning below. Both sinks are the same file in
+	// a real boot, and emitted inline this summary wedged itself BETWEEN a finding and
+	// the explanation of that finding — observed 2026-08-18 in an actual boot log,
+	// splitting the two things a reader has to hold together.
+	defer func() {
+		reached := 0
+		for _, res := range results {
+			if res == nil {
+				reached++
+			}
+		}
+		e.note(fmt.Sprintf("reachability: %d/%d enabled service(s) reachable, disposition=%s",
+			reached, len(results), launcherLoopbackDisposition(e)))
+	}()
+
 	// One line per broken service, then the shared explanation ONCE. Repeating a
 	// paragraph about pasta's forwarding under every service is how a real finding
 	// gets skimmed past: on a broken host EVERY jail-facing service fails for the
@@ -286,21 +308,6 @@ func ProbeServiceReachability(e *Env) {
 		}
 		e.warn(reachabilityWarning(*res))
 	}
-
-	// The affirmative record, to the LOG only. A healthy jail's witness is silent on
-	// the terminal by design, and that silence is indistinguishable from a witness
-	// that never ran — an ambiguity that stops being academic once this can refuse a
-	// launch, because "no complaint" is then the evidence the launch was allowed on.
-	// probeService returns nil for a service it reached, so the nil count IS the
-	// reachable count.
-	reached := 0
-	for _, res := range results {
-		if res == nil {
-			reached++
-		}
-	}
-	e.note(fmt.Sprintf("reachability: %d/%d enabled service(s) reachable, disposition=%s",
-		reached, len(results), launcherLoopbackDisposition(e)))
 
 	if len(unreachable) == 0 {
 		return

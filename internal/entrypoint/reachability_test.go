@@ -1141,3 +1141,35 @@ func TestReachabilityRecordIsSilentWithNoLog(t *testing.T) {
 		t.Errorf("the log-only record must never reach Stderr, got:\n%s", got)
 	}
 }
+
+// In a real boot both sinks are the SAME FILE, so their relative order is a real
+// property that two separate test buffers cannot see. Observed 2026-08-18 in an
+// actual boot log: the summary landed between a service's warning and the
+// explanation of that warning, splitting the two things a reader holds together.
+func TestReachabilityRecordLandsAfterTheFindingsItSummarises(t *testing.T) {
+	shrinkReachabilityBudget(t)
+
+	// One buffer for both sinks: this IS the boot log's shape.
+	var both strings.Builder
+	e := NewEnv(brokenServiceVars(t, map[string]string{
+		paths.HostLoopbackEnvVar: paths.HostLoopbackRequested,
+	}))
+	e.Stderr = &both
+	e.LogOnly = &both
+	ProbeServiceReachability(e)
+
+	out := both.String()
+	summary := strings.Index(out, "reachability:")
+	if summary < 0 {
+		t.Fatalf("no summary recorded:\n%s", out)
+	}
+	// The explanation is the last thing the witness says about a broken service.
+	explain := strings.LastIndex(out, "docs/design/loopback-tls-reachability.md")
+	if explain < 0 {
+		t.Fatalf("no explanation emitted for a broken service:\n%s", out)
+	}
+	if summary < explain {
+		t.Errorf("the summary must not split a finding from its explanation\n"+
+			"  summary at %d, explanation ends at %d\n--- output ---\n%s", summary, explain, out)
+	}
+}
