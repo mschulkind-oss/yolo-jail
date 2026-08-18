@@ -296,3 +296,71 @@ func TestSectionPacksWarnsWithOnlyTheLocalPack(t *testing.T) {
 			"line is the one that most needs naming:\n%s", buf.String())
 	}
 }
+
+// A pack whose SOURCE is invisible from here but whose STAGED copy is present is
+// working, and check must say so.
+//
+// The reported symptom: `yolo check` run inside a jail printed
+//
+//	[FAIL] matt-core: local pack /home/matt/.dotfiles/packs/matt-core is not a directory
+//
+// for three packs that were functioning normally, staged at /ctx/packs. Every pack
+// address in a jail's config names a host path, so this fired for every local pack
+// every time — telling the user their working setup was broken while the delivered
+// copies sat one directory away.
+func TestSectionPacksReportsTheStagedTreeWhenTheSourceIsNotVisible(t *testing.T) {
+	// A source path that does not exist, exactly as a host path looks from in-jail.
+	missing := filepath.Join(t.TempDir(), "not-here")
+	packsFixture(t, `{"packs": ["file://`+missing+`"]}`)
+
+	// The staged tree the launcher would have mounted, named as YOLO_PACK_ROOT.
+	root := t.TempDir()
+	name := filepath.Base(missing)
+	if err := os.MkdirAll(filepath.Join(root, name, "skills", "s"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, name, "skills", "s", "SKILL.md"), []byte("---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{Getenv: func(k string) string {
+		if k == "YOLO_PACK_ROOT" {
+			return root
+		}
+		return ""
+	}}).sectionPacks(r)
+
+	if r.failed != 0 {
+		t.Errorf("a staged pack must not be reported as broken:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "staged at") {
+		t.Errorf("the pass should say where it was delivered:\n%s", buf.String())
+	}
+	// The note must still name the unreachable source, or a user debugging a
+	// genuinely-missing pack loses the one path that tells them what to fix.
+	if !strings.Contains(buf.String(), missing) {
+		t.Errorf("the note should still name the host-side source:\n%s", buf.String())
+	}
+}
+
+// The anti-vacuity control: with NO staged copy, the failure must survive. This is
+// what stops the fix above from becoming "never report a missing pack".
+func TestSectionPacksStillFailsWhenNothingWasStagedEither(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "not-here")
+	packsFixture(t, `{"packs": ["file://`+missing+`"]}`)
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{Getenv: func(k string) string {
+		if k == "YOLO_PACK_ROOT" {
+			return t.TempDir() // exists, but holds no pack of that name
+		}
+		return ""
+	}}).sectionPacks(r)
+
+	if r.failed == 0 {
+		t.Errorf("a pack that is neither resolvable nor staged is broken:\n%s", buf.String())
+	}
+}
