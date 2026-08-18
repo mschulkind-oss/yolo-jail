@@ -1,3 +1,11 @@
+---
+title: "Config Safety: User/Agent Workflow"
+date: 2026-08-18
+status: in-review
+tags: [config, security, agents, approval]
+summary: "Agents may edit the workspace config; humans must approve the change before it takes effect. The snapshot-and-diff flow that implements this, and the one open question about where the snapshot may live."
+---
+
 # Config Safety: User/Agent Workflow
 
 ## Problem
@@ -147,3 +155,40 @@ form for inspection.
 - **Config deleted**: Triggers a diff (previous config → empty config).
 - **Multiple agents**: All share the same config file. If two agents modify
   it, the human sees all changes combined in one diff.
+
+---
+
+## Open Questions
+
+1. 💬 **OQ-D1 — may the approval snapshot live inside the workspace, where the jail can rewrite it?**
+
+   **Design Goal 2 above says *"Humans MUST approve changes — no silent config modifications."* The
+   File Locations table defeats it.** The snapshot is the *only* record of what was last approved, it
+   lives at `<workspace>/.yolo/config-snapshot.json` (`config/snapshot.go:18-20`), and `/workspace` is
+   bind-mounted **read-write** into the jail. So an agent that edits `yolo-jail.jsonc` can rewrite the
+   baseline the diff is computed against, and the next launch shows nothing to approve.
+
+   **Deleting the snapshot fails safe** — an absent baseline diffs against empty and prompts. The
+   defect is specifically **rewriting** it to match, so what is needed is integrity, not secrecy.
+
+   **What it decides, and why it stopped being small.** This was one clause in `roadmap.md`'s
+   catch-all list until [`loophole-activation.md`](loophole-activation.md) OQ-A13 ruled that a
+   workspace may turn a host-reaching loophole **on**, with this diff as the disclosure. That ruling
+   explicitly declines to bank the disclosure as a safety property *because of this question*. So the
+   answer here decides whether the enable-direction disclosure is a control or only a courtesy — and
+   with it, whether R5's "enable is either scope" is safe as written.
+
+   | | Option | Cost |
+   | :--- | :--- | :--- |
+   | **(a)** | **Move the snapshot host-side**, into per-workspace state the jail never mounts | Nothing functional — the prompt already runs host-side in the launcher (`preflight.go`), so the jail never reads it. A workspace copied elsewhere loses its baseline and re-prompts, which fails safe |
+   | **(b)** | **Keep it in `.yolo/` but bind that one file `:ro`** | `.yolo/` also holds files the jail legitimately writes (`boot.log`, `startup.log`), so this needs a single-file mount rather than a directory one |
+   | **(c)** | **Sign it** with a host-held key so tampering is detectable | Key management for a property (a) gets structurally |
+   | **(d)** | **Accept it**, and say in this doc that the gate is advisory against a cooperative agent rather than a control against a hostile one | Free, and it makes Design Goal 2 false as written — which is worse than the current silence, because the goal is what a reader trusts |
+
+   _Leaning:_ **(a).** The snapshot is host-side logic that happens to be stored in the guest. Moving
+   it costs nothing at runtime, needs no crypto and no mount gymnastics, and puts the record where
+   every other host-authoritative fact already lives. Its one real cost — a workspace moved or copied
+   loses its approval baseline — resolves to an extra prompt, which is the direction to fail in.
+
+   **Answer:**
+   > _(empty — fill in when decided)_

@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 9 needing you · 2 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
+**Status: 8 needing you · 2 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
 
 Last updated **2026-08-18**. Counts tallied from this file, not asserted.
 
@@ -29,24 +29,7 @@ the real number was closer to 50.
 Grouped by decision, not by question. Each row names its design doc; the doc holds the stakes and my
 leaning. **Nothing here asks you to pick an execution order** — sequencing is mine.
 
-### 💬 1 — Loophole activation: one question, and it does not block the build
-
-📄 [`loophole-activation.md`](../design/loophole-activation.md)
-
-**Twelve of thirteen settled.** OQ-A9 (the design's one real gap) and OQ-A11 (gate the broker
-daemons, leave nix and say why) are both closed, so the sprint in 📦 is fully designed.
-
-**OQ-A13 is the one left, and it is a scope decision, not a wording one:** R5 says *"enable is either
-scope"*, written when `enabled: true` was **inert**. R2 makes it **the activation verb**. So may a
-workspace — a file an agent can edit — still turn a host-reaching loophole **on**?
-
-The doc lays out four answers with costs. My leaning is **mirror the existing disclosure** (the seam
-already computes it and throws the `true` case away at `validate_loopholes.go:367`) **while saying
-plainly that the real fix is OQ-D1** — the approval snapshot lives in the rw-mounted workspace, so a
-disclosure an agent can suppress is not a control. Narrowing R5 to user-scope-only is the strongest
-option and costs the per-workspace opt-in that R5 exists for.
-
-### 💬 2 — Trust paths: where we extend trust, and where a pin is theatre
+### 💬 1 — Trust paths: where we extend trust, and where a pin is theatre
 
 📄 [`trust-paths.md`](../design/trust-paths.md) — 25 paths enumerated from the code · partly supersedes
 [`pack-execution-trust.md`](../design/pack-execution-trust.md)
@@ -63,7 +46,7 @@ option and costs the per-workspace opt-in that R5 exists for.
 - **OQ-LP8 / G2b** — you ruled the shape (approval pinned to a commit); what remains is that
   `LockEntry.Commit` is **never consulted at launch**, so the pin does not yet exist.
 
-### 💬 3 — Auth mode
+### 💬 2 — Auth mode
 
 📄 [`agent-auth-modes.md`](../design/agent-auth-modes.md)
 
@@ -72,7 +55,7 @@ option and costs the per-workspace opt-in that R5 exists for.
 subscription OAuth bearer to a non-Anthropic base URL?) and it gates boundary-broker B2. **OQ-2 · 3 ·
 4 · 9** are smaller. **OQ-7 is moot as phrased** — there is no Teams pack — and needs restating.
 
-### 💬 4 — Non-container nix
+### 💬 3 — Non-container nix
 
 📄 [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md)
 
@@ -80,7 +63,7 @@ subscription OAuth bearer to a non-Anthropic base URL?) and it gates boundary-br
 backend? Everything else in that doc is subordinate to it. No longer urgent — the auth thread routed
 around the `env` refusal that motivated it.
 
-### 💬 5 — Boundary broker
+### 💬 4 — Boundary broker
 
 📄 [`boundary-broker.md`](../design/boundary-broker.md)
 
@@ -88,7 +71,7 @@ around the `env` refusal that motivated it.
 **OQ-C** is a real API-shape decision: does the jail see the *result* or just success? **OQ-B1b**
 sizes B1b only. The security half of **OQ-E** is settled; only its packaging half is live.
 
-### 💬 6 — Image staging and baking
+### 💬 5 — Image staging and baking
 
 📄 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md)
 
@@ -96,7 +79,7 @@ sizes B1b only. The security half of **OQ-E** is settled; only its packaging hal
 content-addressed image tag; **OQ-1** blocks two more items; **OQ-4** is a scope ruling on a shipped
 config key. None of these were in this file before today.
 
-### 💬 7 — macOS, and the environment-manager stories
+### 💬 6 — macOS, and the environment-manager stories
 
 📄 [`macos-user-build-step-threat-model.md`](../design/macos-user-build-step-threat-model.md) ·
 [`environment-manager-user-stories.md`](../design/environment-manager-user-stories.md) ·
@@ -107,12 +90,15 @@ whether Linux `guest` is a promise or a hypothesis. **threat-model Q1-Q3** cover
 refusal, `--accept-flake-config`'s substituter surface (now live — see the shipped item), and a macOS
 build sandbox. **OQ-L1** explicitly blocks Track L part 2.
 
-### 💬 8 — The small ones with no design-doc home
+### 💬 7 — The small ones with no design-doc home
 
 These were born in this file and have nowhere else to live: **S5** (a jail resolves a skill-name
-collision silently), **OQ-D1** (the config-approval snapshot is agent-writable — and see 🛑 below,
-where the sweep found the gate also fails open three other ways), **OQ-CO**, **OQ-S4**, **OQ-E4**, and
-**E1/E2/E3/E5** from the backlog. Each is one paragraph; none blocks anything.
+collision silently), **OQ-CO**, **OQ-S4**, **OQ-E4**, and **E1/E2/E3/E5** from the backlog. Each is
+one paragraph; none blocks anything.
+
+*(**OQ-D1 has left this list.** It stopped being small when OQ-A13 made the config diff the
+disclosure for enabling a host-reaching loophole, so it now has stakes, four options and a leaning in
+📄 [`config-safety.md`](../design/config-safety.md) — and it is in the sprint below.)*
 
 Two more of the same size, both from the `yolo check` honesty pass. (A third — what `yolo check`
 should *print* for a section it skipped — now has a design-doc home as **OQ-3** in
@@ -128,7 +114,7 @@ should *print* for a section it skipped — now has a design-doc home as **OQ-3*
   version, a typo like `foo@@1.2.3` reaches npm and fails at first use *inside* the jail, where the
   diagnosis is worst. Cheap host-side check; needs a ruling only on how strict to be.
 
-### 💬 9 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
+### 💬 8 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
 
 📄 [`pack-host-management-plan.md`](pack-host-management-plan.md) ·
 [`pack-capabilities.md`](../design/pack-capabilities.md)
@@ -166,6 +152,13 @@ one-line deliverable that is decided in all but name.
      loophole names. **Accepted cost:** `yolo-cglimit` stops working out of the box.
   5. **`yolo check` learns to read pack-shipped loopholes** (OQ-A12) — same sprint, because the
      conversion moves the only two loopholes that have a `doctor_cmd`.
+  6. **Mirror the enable-direction disclosure** (OQ-A13) — `WorkspaceDisabledLoopholes` already
+     computes it and throws the `true` case away at `validate_loopholes.go:367`. **Ship it as
+     readability, not as a control:** the snapshot it relies on is agent-writable.
+  7. **Move the approval snapshot out of the jail's reach** (OQ-D1) — this is what turns step 6 from
+     a courtesy into a control, and it is the only step here with an unanswered question. 📄
+     [`config-safety.md`](../design/config-safety.md); my leaning is to move it host-side, since the
+     prompt already runs there and the jail never reads it.
 
   This is the largest queued item in the file and it grew on 2026-08-18: OQ-A6 pulled the two builtin
   conversions in rather than deferring them. That was your call and the reasoning is in the doc; the

@@ -1,22 +1,29 @@
 ---
 title: "Nothing reaches your host because it happened to be there — loophole activation"
 date: 2026-08-18
-status: in-review
+status: accepted
 tags: [loopholes, packs, activation, security, config]
-summary: "A loophole is active today because it was present and something it named happened to exist on the host. Six rulings replace that end to end: presence stops implying activation, a pack declares a default, and the default is disabled. Twelve questions settled; one remains, and it does not block the work."
+summary: "A loophole is active today because it was present and something it named happened to exist on the host. Six rulings replace that end to end: presence stops implying activation, a pack declares a default, and the default is disabled. All thirteen questions are settled; what is left is building it."
 ---
 
 # Nothing reaches your host because it happened to be there — loophole activation
 
-**Status:** RULED 2026-08-15, nothing built. Six rulings (§2) and **twelve questions settled**
-(Decision Ledger below); **one open**, and it does not block the work.
+**Status:** DECIDED 2026-08-18, nothing built. Six rulings (§2) and **all thirteen questions
+settled** (Decision Ledger below). What remains is building it — sequenced in
+[`roadmap.md`](../plans/roadmap.md).
 
-**This is a buildable design.** The one real gap — `default_enabled` colliding with a live `enabled`
-key — is closed by OQ-A9: one key, renamed, governing all four manifest sources. What remains is
-**OQ-A13**: now that `enabled: true` is the activation verb rather than an inert restatement of the
-default, may a *workspace* still use it, and if so what says it did?
+**The one real gap is closed.** `default_enabled` collided with a live `enabled` key and the design
+never said which won; OQ-A9 ruled one key, renamed, governing all four manifest sources.
 
-The doc grew this many questions on purpose: every one came from asking *"what else reaches the host,
+> [!WARNING]
+> **Two traps that will bite the implementation, both easy to walk into.** Deleting
+> `bundled_loopholes/claude-oauth-broker/` does **not** free the reserved name, so the reservation and
+> the `loopholesruntime.go` name special-case must die in the same commit or every claude user's
+> launch breaks ([§2](#2-the-rulings)). And the key rename needs a **refusal** for reverse skew, not a
+> tolerance: an older yolo ignores `default_enabled` and runs `audio` **on** ([§2](#2-the-rulings),
+> [§4](#4-what-it-costs)).
+
+The doc grew thirteen questions on purpose: every one came from asking *"what else reaches the host,
 and why is it on?"*, and the answer kept being "something different each time".
 
 **The short version.** A loophole is active today because it was *present* and something it named
@@ -58,6 +65,7 @@ have since been settled and folded into the body.
 | **OQ-A10** | The broker's loophole is a contribution of **`packs/claude`**, not its own pack — and `broker-as-a-pack.md` §6 is corrected rather than left standing | 2026-08-18 | [§2](#2-the-rulings) |
 | **OQ-A11** | **Gate the broker daemons** on the loophole record; **leave the nix socket** ungated and say why | 2026-08-18 | [§1.3](#13-everything-that-reaches-your-host-and-how-it-turns-on) |
 | **OQ-A12** | `yolo check` learns to read pack-shipped loopholes **in this sprint**, as part of the conversion | 2026-08-18 | [§4](#4-what-it-costs) |
+| **OQ-A13** | **R5 stands** — a workspace may still enable. Mirror the existing OFF-direction disclosure onto ON, and treat it as readability rather than a control | 2026-08-18 | [§2](#2-the-rulings) |
 | **OQ-A9** | **One key, renamed.** `default_enabled` *is* `enabled` with the default flipped, governing all four manifest sources | 2026-08-18 | [§2](#2-the-rulings) |
 
 ---
@@ -309,6 +317,32 @@ scope, and `loopholes.<name>.enabled` is honored from both. So a workspace may s
 the user already installed — the weak, agent-editable scope is bounded by the strong one, which is
 what makes per-workspace enablement safe to offer at all.
 
+> **RULED (OQ-A13, 2026-08-18): R5 stands for the ON direction, and the disclosure is mirrored.**
+> R5 was written when `enabled: true` was **inert** — the manifest default was already true, so the
+> only meaningful workspace power was turning things **off**. R2 inverts that and makes it the
+> activation verb. R5 is not narrowed in response: restricting enablement to user scope would cost
+> the per-workspace opt-in R5 exists for, which §1.2a shows `yolo-ps` already depends on.
+>
+> Instead the existing disclosure becomes **symmetric**. `WorkspaceDisabledLoopholes`
+> (`validate_loopholes.go:352-372`) already computes exactly this and discards the `true` case at
+> `:367`; feeding it to the two surfaces an OFF already reaches — the launch line and `yolo check`'s
+> warning-instead-of-green — points existing machinery at the new dangerous direction and keeps one
+> vocabulary rather than inventing a second.
+
+> [!WARNING]
+> **Ship this as readability, not as a safety property — the distinction is the whole ruling.** The
+> config-approval diff already renders a workspace `enabled: true` and prompts for it
+> (`preflight.go:213-232`), so disclosure is not absent today. It is **suppressible from inside the
+> jail**: the snapshot it compares against lives at `<workspace>/.yolo/config-snapshot.json`
+> (`config/snapshot.go:18-20`) under an rw bind mount, so whatever writes the key can rewrite the
+> baseline. And a non-TTY launch **auto-accepts** it (`config/snapshot.go:38`).
+>
+> **A disclosure an agent can suppress is not a control.** The mirrored line makes the dangerous
+> direction legible to a human watching a launch; it does not make it safe. The actual fix is
+> **OQ-D1** — an approval snapshot the jail cannot rewrite — which now has a home and options in
+> 📄 [`config-safety.md`](config-safety.md). Until it lands, nothing in this section should be
+> counted as protection.
+
 **R6. The broker's loophole moves inside `packs/claude/`.** It exists only to serve claude, so
 selecting the claude pack is the dependency — and R3's deletion is then free rather than a
 regression, because the sniff was standing in for exactly this.
@@ -521,57 +555,3 @@ unserialized* credentials, not to per-jail ones, because the shared dir is a sep
 contribution.
 
 ---
-
-## Open Questions
-
-One. The twelve settled ones are in the Decision Ledger at the top and folded into the body; their
-IDs are unchanged because sibling docs and the roadmap cite them.
-
-1. 💬 **OQ-A13 — may a WORKSPACE turn a host-reaching loophole on, and if so what says it did?**
-
-   **The decision, stated as a choice.** R5 says *"install is user-scope; enable is either scope."*
-   That was written when `enabled: true` was **inert** — the manifest default was already true, so the
-   only meaningful workspace power was turning things **off**. R2 inverts it: `enabled: true` becomes
-   **the activation verb**, and R5 leaves it available in a file an agent can edit.
-
-   So: **does R5 still stand for the ON direction, and if it does, does enabling get its own
-   disclosure?** Four answers, and they are not all exclusive:
-
-   | | Option | Cost |
-   | :--- | :--- | :--- |
-   | **(a)** | **R5 unchanged, nothing added.** The config-approval diff is the disclosure | It is suppressible from inside the jail and skipped without a TTY — see the correction below |
-   | **(b)** | **R5 unchanged, mirror the disclosure.** Make the existing seam symmetric so an ON from workspace scope gets the launch line and the `yolo check` warning that an OFF already gets | Small and one vocabulary. `WorkspaceDisabledLoopholes` (`validate_loopholes.go:352-372`) already computes exactly this and discards the `true` case at `:367` |
-   | **(c)** | **Narrow R5: enabling a host-reaching loophole becomes user-scope only.** The workspace may only disable | Strongest, and it costs a real use case — per-workspace opt-in is what R5 is *for*, and §1.2a shows `yolo-ps` already depends on that shape |
-   | **(d)** | **Fix the substrate instead.** Make the approval snapshot non-agent-writable, so the generic diff can be trusted | Not this doc's to rule — it is roadmap **OQ-D1** — but it is where the real defect lives |
-
-   _Leaning:_ **(b) now, and say plainly that (d) is the actual fix.** The machinery exists for the
-   opposite direction, so pointing it at the new dangerous direction is a small change that keeps one
-   vocabulary; (c) over-corrects and breaks the case R5 was written for. But (b) is a *disclosure*,
-   and a disclosure an agent can suppress is not a control — so it should be shipped as a
-   readability improvement, not banked as a safety property.
-
-   > **⚠ Corrected on review, 2026-08-18.** This question originally claimed the path produces *"no
-   > violation, no disclosure, no launch line and no warning."* **The disclosure claim was wrong:** a
-   > workspace config change fires the config-approval diff, which renders the added line and asks
-   > *"Accept these config changes? [y/N]"* (`preflight.go:213-232`). Two holes are what keep the
-   > question alive, and they are narrower and more interesting than the original claim:
-   >
-   > - **The snapshot is inside the jail's reach.** It lives at
-   >   `<workspace>/.yolo/config-snapshot.json` (`config/snapshot.go:18-20`) and `/workspace` is
-   >   bind-mounted **rw**, so whatever writes `enabled: true` can rewrite the baseline the diff is
-   >   computed against. That is roadmap **OQ-D1**, arriving here from a second direction.
-   > - **No TTY means no prompt.** The documented behaviour is *"Changed + non-tty: auto-accept,
-   >   rewrite snapshot"* (`config/snapshot.go:38`) — a scripted or CI launch accepts silently.
-
-   > [!NOTE]
-   > **The lockfile half of this question has moved out**, because it is a different decision and
-   > carrying both is what made this question unanswerable. A fetched pack the user approved and
-   > deliberately never enabled can flip `default_enabled: false → true` in a later commit with a
-   > byte-identical claim set. That **does** require a new commit, and the lockfile **does** record
-   > the resolved commit (`packsrc/lock.go:39-42`) — but every reader of that field is display-only
-   > (`pack.go:1096` reports a moved pin, `:1313-1316` lists it) and **nothing consults it at
-   > launch**. You have already ruled the shape there (approval pinned to a commit); the missing
-   > piece is enforcement, and it belongs to **OQ-LP8 / G2b**, not here.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
