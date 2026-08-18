@@ -32,7 +32,30 @@ func (o *Options) checkLoopholes(r *reporter) {
 			fmt.Sprintf("%d module(s): %s", len(stranded), strings.Join(stranded, ", ")),
 			loopholes.RetiredUserLoopholeNotice())
 	}
-	entries := loopholes.ValidateLoopholes(true)
+	// ValidateSet, not ValidateLoopholes: the SAME walk, plus the ORIGIN GATE the
+	// entries cannot carry — a ValidateEntry is a manifest, not a set. Both halves are
+	// load-bearing here, and only the second one was missing: the walker already reads
+	// the recorded pack modules, so a pack-shipped loophole was already LISTED, but the
+	// doctor face went through the package-level RunDoctorChecks, which refuses every
+	// SourcePack record by construction (a slice carries no gate). An APPROVED pack's
+	// self-check therefore reported "could not run" and its output never reached the
+	// screen.
+	//
+	// That costs nothing today, because the one pack-shipped loophole (audio-alsa)
+	// declares no doctor_cmd — and it costs everything the moment the activation sprint
+	// moves the only two that DO declare one, the broker and host-processes, out of
+	// bundled_loopholes/ (docs/design/loophole-activation.md OQ-A12). On the day that
+	// conversion lands this section would print a cheerful all-green while the broker's
+	// cert freshness, liveness and self-check went unreported — on exactly the command a
+	// user reaches for when a loophole has silently stopped.
+	//
+	// It is also the honest completion of docs/design/pack-code-separation.md's doctor
+	// ruling: `check` reads loophole health through the manifest surface rather than
+	// hand-rolled Go. Nothing about WHAT a doctor_cmd does or WHEN it runs moves — the
+	// origin and placement gates still live in the callee, where a slice cannot forget
+	// them, and an unapproved pack is still refused WITH its reason (below, in the
+	// RC==nil branch). Only which loopholes this section can see changes.
+	entries, set := loopholes.ValidateSet(true)
 	if len(entries) == 0 {
 		r.ok(fmt.Sprintf("No loopholes installed (install one as a pack; %s is "+
 			"selected implicitly when it exists)", paths.LocalPackDir()))
@@ -69,7 +92,14 @@ func (o *Options) checkLoopholes(r *reporter) {
 			r.ok("loophole " + lp.Name + ": no self-check declared")
 			continue
 		}
-		results := loopholes.RunDoctorChecks([]*loopholes.Loophole{lp}, 10*time.Second)
+		// set.RunDoctorChecks, not the package-level function: the Set is what carries
+		// the origin gate, and the ungated door is nailed shut rather than documented —
+		// through it a pack-shipped record comes back RC=nil however approved its pack
+		// actually is. An UNAPPROVED pack still comes back RC=nil, from the callee, and
+		// lands in the RC==nil branch with the refusal as its note; that is visible
+		// rather than silent, which is the whole difference between "withheld" and
+		// "declares no self-check".
+		results := set.RunDoctorChecks([]*loopholes.Loophole{lp}, 10*time.Second)
 		res := results[0]
 		switch {
 		case res.RC != nil && *res.RC == 0:

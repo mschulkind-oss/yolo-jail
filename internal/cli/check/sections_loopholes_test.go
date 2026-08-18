@@ -640,3 +640,187 @@ func TestHostServiceLivenessInJailSaysWhy(t *testing.T) {
 		t.Errorf("the in-jail skip is silent or unexplained: failed=%d out=%q", r.failed, out)
 	}
 }
+
+// isolatedBundledDir points discovery at an EMPTY bundled dir and clears the retired
+// one, so a test's own manifests are the only loopholes `yolo check` can find.
+//
+// Isolation is not politeness here: without it a developer's real bundled_loopholes/
+// would have its doctor_cmds EXECUTED by every test in this file — the broker's among
+// them — which is host execution from a unit test, and the counts would depend on the
+// machine.
+func isolatedBundledDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	orig := loopholes.BundledLoopholesDir
+	loopholes.BundledLoopholesDir = func() string { return dir }
+	t.Cleanup(func() { loopholes.BundledLoopholesDir = orig })
+	retiredLoopholeDir(t)
+	return dir
+}
+
+// writeLoopholeManifest writes <parent>/<name>/manifest.jsonc from the given body
+// fields and returns the module dir. body is the manifest's interior, without braces.
+func writeLoopholeManifest(t *testing.T, parent, name, body string) string {
+	t.Helper()
+	dir := filepath.Join(parent, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.jsonc"), []byte("{"+body+"}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// selfCheckModule writes a module whose only host-side face is a doctor_cmd running
+// argv, or no doctor_cmd at all when argv is empty.
+//
+// It stays inside the PACK-SHIPPED SUBSET (loophole-packaging.md §3.1: no jail_env, no
+// ca_cert, no requires, no `publishes: "socket"`), because the same body is loaded as a
+// bundled manifest in one test and as a pack module in another — and a pack module is
+// read through loaderFor(SourcePack), which REFUSES anything outside the subset. One
+// body that both loaders accept is what makes the two tests comparable.
+func selfCheckModule(t *testing.T, parent, name string, argv []string) string {
+	t.Helper()
+	body := `"name":"` + name + `","description":"` + name + `","transport":"none",` +
+		`"default_enabled":true`
+	if len(argv) > 0 {
+		body += `,"doctor_cmd":["` + strings.Join(argv, `","`) + `"]`
+	}
+	return writeLoopholeManifest(t, parent, name, body)
+}
+
+// touchAndSay is a doctor_cmd argv that records having run and prints one graded line.
+func touchAndSay(sentinel, line string) []string {
+	return []string{"/bin/sh", "-c", "touch " + sentinel + "; echo '" + line + "'"}
+}
+
+// recordPackModule records mod as this process's only pack-contributed loophole module,
+// with the origin gate already decided, and clears the record afterwards.
+//
+// The record is deliberately process-wide — it IS the convergence point — so the
+// cleanup is mandatory rather than tidy.
+func recordPackModule(t *testing.T, mod string, approved bool) {
+	t.Helper()
+	loopholes.SetPackModules([]loopholes.PackModule{{Dir: mod, HostExecApproved: approved}})
+	t.Cleanup(loopholes.ResetPackModules)
+}
+
+// runCheckLoopholes runs the health section against an empty workspace and returns the
+// reporter and its rendered output.
+func runCheckLoopholes(t *testing.T, workspace string) (*reporter, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	r := newReporter(&buf, false)
+	// Getenv empty for every key, so inJail() is false: this suite runs INSIDE a jail,
+	// where the real YOLO_VERSION would send the section down the skip branch and every
+	// assertion below would pass for the wrong reason.
+	o := &Options{Workspace: workspace, Getenv: func(string) string { return "" }}
+	fillDefaults(o)
+	o.checkLoopholes(r)
+	return r, buf.String()
+}
+
+// TestCheckLoopholesReportsAPackShippedSelfCheck is OQ-A12
+// (docs/design/loophole-activation.md §4), and the reason it is not academic is that the
+// activation sprint moves the ONLY two loopholes that declare a doctor_cmd — the broker
+// and host-processes — out of bundled_loopholes/ and into packs. The health section used
+// the package-level RunDoctorChecks, which refuses every SourcePack record by
+// construction, so on the day that conversion lands the broker's cert freshness,
+// liveness and self-check would have gone unreported under an all-green check.
+//
+// A BUNDLED loophole is present alongside the pack one, and asserted in the same run:
+// the fix is "the pack source is seen too", never "the pack source replaced the ones
+// that already worked".
+func TestCheckLoopholesReportsAPackShippedSelfCheck(t *testing.T) {
+	bundled := isolatedBundledDir(t)
+	sentinels := t.TempDir()
+
+	packRan := filepath.Join(sentinels, "pack-ran")
+	packMod := selfCheckModule(t, t.TempDir(), "acme-proxy",
+		touchAndSay(packRan, "NOTE: acme relay certificate expires in 3h"))
+	recordPackModule(t, packMod, true)
+
+	bundledRan := filepath.Join(sentinels, "bundled-ran")
+	selfCheckModule(t, bundled, "corehole", touchAndSay(bundledRan, "OK: core wiring present"))
+
+	r, out := runCheckLoopholes(t, t.TempDir())
+
+	if _, err := os.Stat(packRan); err != nil {
+		t.Fatalf("the pack-shipped doctor_cmd never ran:\n%s", out)
+	}
+	if !strings.Contains(out, "loophole acme-proxy: self-check ok") {
+		t.Errorf("the pack-shipped self-check is not reported:\n%s", out)
+	}
+	// Its own graded output has to reach the screen too, or the loophole is "seen"
+	// without anything it measured being readable — which is the exact shape of the
+	// unreported cert freshness this change exists to prevent.
+	if !strings.Contains(out, "acme relay certificate expires in 3h") || r.warned != 1 {
+		t.Errorf("the pack self-check's NOTE line did not render as a warning "+
+			"(warned=%d):\n%s", r.warned, out)
+	}
+	// And the non-pack source is untouched: same walk, same rendering, still executed.
+	if _, err := os.Stat(bundledRan); err != nil {
+		t.Fatalf("the BUNDLED doctor_cmd stopped running:\n%s", out)
+	}
+	if !strings.Contains(out, "loophole corehole: self-check ok") ||
+		!strings.Contains(out, "core wiring present") {
+		t.Errorf("the bundled self-check's reporting changed:\n%s", out)
+	}
+	if r.failed != 0 {
+		t.Errorf("failed=%d — two passing self-checks:\n%s", r.failed, out)
+	}
+}
+
+// A pack-shipped loophole that declares NO doctor_cmd must not have one invented for
+// it. `audio-alsa` is that loophole today, and it is the reason the gap cost nothing
+// until now — so the "no self-check declared" line is the state the fix must leave
+// exactly as it found it, rather than a green that implies something was measured.
+func TestCheckLoopholesDoesNotInventAPackSelfCheck(t *testing.T) {
+	isolatedBundledDir(t)
+	mod := selfCheckModule(t, t.TempDir(), "acme-quiet", nil)
+	recordPackModule(t, mod, true)
+
+	r, out := runCheckLoopholes(t, t.TempDir())
+
+	if !strings.Contains(out, "loophole acme-quiet: no self-check declared") {
+		t.Errorf("a pack loophole without a doctor_cmd is not reported as such:\n%s", out)
+	}
+	if strings.Contains(out, "self-check ok") || r.warned != 0 || r.failed != 0 {
+		t.Errorf("a loophole declaring no self-check produced a health verdict "+
+			"(warned=%d failed=%d):\n%s", r.warned, r.failed, out)
+	}
+}
+
+// The gate still refuses, and still SAYS SO. Reading pack loopholes through the Set is
+// not a way past the origin gate: an unapproved pack's doctor_cmd is host execution
+// from a command AGENTS.md treats as read-only preflight, and the refusal lives in the
+// callee where a slice cannot forget it.
+//
+// It has to be VISIBLE, which is why this asserts the wording and not merely the
+// absence of the sentinel: silence would render as "no self-check declared", telling
+// the reader the loophole measures nothing when in fact its measurement was withheld —
+// and the fix (`yolo pack install` records the approval) is not discoverable from an
+// absence.
+func TestCheckLoopholesWithholdsAnUnapprovedPackSelfCheck(t *testing.T) {
+	isolatedBundledDir(t)
+	ran := filepath.Join(t.TempDir(), "ran")
+	mod := selfCheckModule(t, t.TempDir(), "acme-evil", touchAndSay(ran, "OK: harmless"))
+	recordPackModule(t, mod, false)
+
+	r, out := runCheckLoopholes(t, t.TempDir())
+
+	if _, err := os.Stat(ran); err == nil {
+		t.Fatal("THE DOCTOR_CMD RAN. `yolo check` is read-only preflight; running an " +
+			"unapproved pack's host code from it is the fork loophole-packaging.md §5.1 " +
+			"refuses to leave open")
+	}
+	if r.warned != 1 || !strings.Contains(out, "self-check could not run") ||
+		!strings.Contains(out, "not approved") {
+		t.Errorf("the withheld self-check is not reported with its reason (warned=%d):\n%s",
+			r.warned, out)
+	}
+	if strings.Contains(out, "no self-check declared") {
+		t.Errorf("a WITHHELD self-check was rendered as a loophole that declares none:\n%s", out)
+	}
+}
