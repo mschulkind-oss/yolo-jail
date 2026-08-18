@@ -128,9 +128,12 @@ func TestReadRefusesNonRegularFiles(t *testing.T) {
 			// ErrEndpointMalformed, and the choice is load-bearing rather than
 			// cosmetic: internal/entrypoint's classifyReachability maps exactly
 			// ErrEndpointMissing and ErrEndpointMalformed onto faultUnpublished and
-			// EVERYTHING ELSE onto faultUnreachable. An untyped error here puts "a
-			// fifo sits where an endpoint belongs" into the class that refuses a
-			// launch once reachabilityFatal flips.
+			// EVERYTHING ELSE onto faultUnreachable. Since OQ-R4 both classes refuse
+			// the launch, so what an untyped error here costs is no longer the
+			// severity but the DIAGNOSIS: "a fifo sits where an endpoint belongs"
+			// would be reported as a transport failure and printed under the
+			// paragraph about pasta's forwarding, sending the reader after a network
+			// stack for a local file.
 			if !errors.Is(err, ErrEndpointMalformed) {
 				t.Errorf("Read(%s) error = %v, want ErrEndpointMalformed", tc.want, err)
 			}

@@ -3,7 +3,7 @@ title: "Loopback-TLS reachability — how a jail reaches a host daemon"
 date: 2026-08-18
 status: accepted
 tags: [transport, networking, loopholes, regression]
-summary: "yolo's host daemons bind the host's loopback and tell the jail to dial a name the runtime does not forward there. Every networking mode spelled out, why 'just bind somewhere else' has nowhere to go, and the fix — in the launcher, not the transport. Fully decided; the remainder is build work."
+summary: "yolo's host daemons bind the host's loopback and tell the jail to dial a name the runtime does not forward there. Every networking mode spelled out, why 'just bind somewhere else' has nowhere to go, and the fix — in the launcher, not the transport. Fully decided and fully built: an enabled service the jail cannot use now refuses the launch."
 ---
 
 # Loopback-TLS reachability — how a jail reaches a host daemon
@@ -41,7 +41,7 @@ Settled and folded into the body. IDs are load-bearing — code comments cite th
 | **OQ-R5** | a jail sharing the launcher's netns **is** escalatable — no host-stack excuse exists there | [§7.2](#72-what-may-escalate) |
 | **OQ-R6** | the launcher's decision rides on the wire with **every state spelled**; only positive facts escalate | [§7.2](#72-what-may-escalate) |
 
-**Nothing is open.** What is left is build work, listed in [§10](#10-status).
+**Nothing is open, and nothing is left to build** — [§10](#10-status) is the ledger of what landed.
 
 ---
 
@@ -386,9 +386,10 @@ jail at all. Two things follow, and both are built:
 - **An escape hatch**, `YOLO_ALLOW_UNREACHABLE_SERVICES=1`, mirroring `YOLO_ALLOW_STALE_IMAGE`: any
   non-empty value keeps the jail launching, it says what it is suppressing and that nothing was
   repaired, and the refusal names it so the reader is told the way past it. It is honoured only where
-  it suppresses something, so it stays silent in warn mode rather than training people to skip it.
-  The launcher forwards it into the container, because the witness runs in-jail and the user types it
-  on the host.
+  it suppresses something — on a launch a non-escalating disposition was never going to refuse it
+  says nothing at all, rather than training people to skip the line it exists to be read on. The
+  launcher forwards it into the container, because the witness runs in-jail and the user types it on
+  the host.
 
 ### 7.2 What may escalate
 
@@ -418,16 +419,18 @@ merely correct, it is the ONLY thing that works."* No gateway name, no forwardin
 stack in the path: a service unreachable there has no ambiguity to hide in.
 
 > [!NOTE]
-> **Build status:** all four spellings ship. The launcher emits one on **every** launch, so absent
-> now means only "older launcher" — `shared` is decided at the emission point in
-> [`assemble.go`](../../internal/cli/run/assemble.go), not inside `decideHostLoopback`, because the
-> shapes that have it branch to `--net=host` *above* that call and never reach it; it reads the same
-> `sharesLauncherNetns` predicate `advertiseHostFor` uses, so the severity the witness applies and
-> the address the daemons publish cannot disagree. The witness recognises both new values and gives
-> `shared` its own diagnosis (naming pasta only to rule it out — there is no forwarding hop in that
-> mode). **What is left of OQ-R5 is the severity:** `shared` is not in the escalating set yet. It
-> joins with the flip, and not alone — the fault verdict opens *"yolo requested host-loopback
-> forwarding"*, which is false for a launch that never needed any.
+> **Build status: shipped, severity included.** All four spellings ride the wire and the launcher
+> emits one on **every** launch, so absent now means only "older launcher" — `shared` is decided at
+> the emission point in [`assemble.go`](../../internal/cli/run/assemble.go), not inside
+> `decideHostLoopback`, because the shapes that have it branch to `--net=host` *above* that call and
+> never reach it; it reads the same `sharesLauncherNetns` predicate `advertiseHostFor` uses, so the
+> severity the witness applies and the address the daemons publish cannot disagree. The witness
+> gives `shared` its own diagnosis (naming pasta only to rule it out — there is no forwarding hop in
+> that mode) **and escalates on it** (OQ-R5). The whole table is one allowlist,
+> `loopbackDisposition.escalates()`, matching the two positive claims and defaulting everything else
+> to safe. Widening it forced the verdict to be rewritten: it opened *"yolo requested host-loopback
+> forwarding"*, false of a launch that never needed any, so the lead sentence is now
+> per-disposition.
 
 ### 7.3 Which fault classes escalate
 
@@ -470,31 +473,36 @@ because both are the kind that get re-derived:
 > behaviour change in this document.
 
 > [!NOTE]
-> **Build status:** the code escalates `faultUnreachable` only. Widening it to all three ships with
-> the flip.
+> **Build status: shipped.** All three classes escalate. What stayed per-class is the *diagnosis*:
+> the forwarding paragraph is still printed for `faultUnreachable` alone, because nothing about a
+> file the host never wrote is a forwarding failure — severity reads the disposition, wording reads
+> the fault.
 
-### 7.4 Current mode, and the flip
+### 7.4 Current mode
 
-The witness ships in **warn mode**. `reachabilityFatal = false` is the whole of it, isolated to one
-boolean whose flip is one line, with both modes already under test and a guard test that fails if the
-flip lands while anything below is still owed.
+The witness is **FATAL**, since 2026-08-18. `reachabilityFatal = true` is the whole of it: an enabled
+jail-facing service this jail cannot use refuses the launch, subject to the disposition
+([§7.2](#72-what-may-escalate)) and the escape hatch ([§7.1](#71-the-severity-rule)).
 
-**Observed at real boots, 2026-08-18** — the gate the flip was waiting on:
+**Observed at real boots, 2026-08-18** — the gate the flip was waiting on, and the one thing about it
+that was never code:
 
 - **Healthy host, silent.** `YOLO_HOST_LOOPBACK=requested`, both endpoints published, both answered
   through the witness's own path (TLS, cert-pinned, token-authenticated) in 1–2 ms.
 - **Broken host, loud.** A service pointed at a dead port produced the warning, the address, the
   `requested` diagnosis — which correctly points *away* from the network stack — and the FAULT
-  verdict, with the jail still starting because warn mode.
+  verdict, with the jail still starting because the witness was still a warning that day.
 
-**Nothing is left to decide.** What remains is code, and the prerequisite of it — the four
-disposition spellings ([§7.2](#72-what-may-escalate)) — has landed: adding `shared` to the escalating
-set, widening the escalation to all three fault classes ([§7.3](#73-which-fault-classes-escalate)),
-and the flip itself.
+Isolating the mode to one boolean is what made the flip day a day of changing one value rather than
+of writing the load-bearing branch blind against a user's broken host: the escalation, the escape
+hatch and the scoping were all exercised by tests for the whole time it was false. The false side
+survives as a **test seam only** — no boot path can reach it — kept for the one property that is
+otherwise unobservable, that the escape hatch may speak only where it is actually suppressing a
+launch failure.
 
 Boot output is persisted to `<workspace>/.yolo/boot.log` (previous boot kept beside it). That
-directory is bind-mounted from the host, so the log survives a boot that refused — the state the flip
-makes reachable, where there is no jail left to ask. A healthy witness records its verdict there and
+directory is bind-mounted from the host, so the log survives a boot that refused — the state the
+fatal makes reachable, where there is no jail left to ask. A healthy witness records its verdict there and
 stays silent on the terminal, because "ran and found nothing" and "never ran" are otherwise the same
 bytes.
 
@@ -531,7 +539,7 @@ underlying asymmetry is not closed and cannot be: `yolo check` still cannot fail
 | :--- | :--- |
 | yolo now dictates a network option and a future podman default shifts under it | Detect from `podman info` rather than assuming; emit nothing for unrecognised backends, which is exactly the old behaviour |
 | A user with an explicit `network.mode` keeps the bug | Warn on that path naming the reachability risk, rather than overriding a setting they chose |
-| A flaky witness bricks launches once R2's fatal is wired | Warn mode first, proven at real boots both ways (§7.3); a 30s budget; the escape hatch |
+| A flaky witness bricks launches now R2's fatal is wired | It shipped as a warning first and was proven at real boots both ways before the flip (§7.4); a 30s budget; the escape hatch |
 | The netavark row (§3) is unverified | It does not gate the fix — the pasta path is measured and unrecognised backends keep the old behaviour |
 | The slirp4netns fallback is unverified on a real old-passt host | Nobody has one. The flags are measured (§3.2.1); what is unproven is a host yolo has never seen accepting `--network=slirp4netns` at all |
 | A host running slirp with a non-default CIDR | The `10.0.2.2` pin misses and services stay unreachable — but the jail is told `requested`, which R4/R2 would escalate. Bounded and known, not eliminated |
@@ -540,15 +548,17 @@ underlying asymmetry is not closed and cannot be: `yolo check` still cannot fail
 
 ## 10. Status
 
-**Built:** the launcher fix and its ladder (§6), the in-jail witness in warn mode (§7), the escape
-hatch, **all four disposition spellings** ([§7.2](#72-what-may-escalate)) with absent reserved for a
-launcher older than the variable, the boot log, `yolo check`'s honesty labels, and the `AGENTS.md`
-carve-out.
+**Built:** the launcher fix and its ladder (§6), the in-jail witness (§7) and the escape hatch, **all
+four disposition spellings** ([§7.2](#72-what-may-escalate)) with absent reserved for a launcher
+older than the variable, the boot log, `yolo check`'s honesty labels, and the `AGENTS.md` carve-out.
 
-**Not built:** the three severity changes, which ship together because two of them are invisible
-until the fatal is on — adding `shared` to the escalating set ([§7.2](#72-what-may-escalate), OQ-R5),
-widening the escalation to all three fault classes ([§7.3](#73-which-fault-classes-escalate)), and
-the flip itself ([§7.4](#74-current-mode-and-the-flip)). Their prerequisite is now in place.
+**Built as of 2026-08-18 — the three severity changes**, which shipped together because two of them
+are invisible until the fatal is on: `shared` joined the escalating set
+([§7.2](#72-what-may-escalate), OQ-R5), the escalation widened to all three fault classes
+([§7.3](#73-which-fault-classes-escalate), OQ-R4), and the witness became FATAL
+([§7.4](#74-current-mode), OQ-R2). The guard test that made the flip a deliberate act rather than a
+typo was deleted by the change it was guarding, which is how it was meant to be passed; the
+observation it was holding out for is recorded in §7.4.
 
-**Blocked on nothing.** Every question this document raised is answered; the remaining work is
-listed above and sequenced in the roadmap.
+**Not built:** nothing. Every question this document raised is answered and every ruling in the
+ledger is in the code.
