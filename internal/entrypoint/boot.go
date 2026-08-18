@@ -404,7 +404,11 @@ func Main(args []string) error {
 	}
 
 	e := EnvFromOS()
-	e.Stderr = os.Stderr
+	// Everything the boot says now also lands in <workspace>/.yolo/boot.log, which
+	// outlives the container and is therefore readable after a boot that REFUSED —
+	// the state OQ-R2's flip makes reachable, where there is no jail left to ask.
+	// Never fatal: any failure here yields plain stderr. See bootlog.go.
+	blog := attachBootLog(e, os.Stderr)
 
 	p := newPerfLog()
 	p.mark("start")
@@ -491,7 +495,8 @@ func Main(args []string) error {
 	genStep(e, "configure_host_files", func() error { return ConfigureHostFiles(e) })
 	p.mark("configure_host_files")
 
-	setupCgroupDelegation(os.Stderr)
+	// e.Stderr, not os.Stderr: this is a boot diagnostic and belongs in the log.
+	setupCgroupDelegation(e.Stderr)
 	p.mark("cgroup_delegation")
 	// No generate step for yolo-cglimit / yolo-journalctl any more: the image
 	// bakes both (flake.nix shippedBinaries). All that is left is unlinking the
@@ -534,9 +539,14 @@ func Main(args []string) error {
 	// A12: abort BEFORE handing control to the agent. Everything above has run, so
 	// this reports every broken generator at once rather than one per restart.
 	if err := genFailuresError(e); err != nil {
+		blog.finish(err)
 		return err
 	}
 
+	// Closed BEFORE the exec, not deferred: execBash replaces this process, so a
+	// deferred close would never run and the log would end mid-sentence on every
+	// SUCCESSFUL boot — the opposite of the signal it exists to carry.
+	blog.finish(nil)
 	return execBash(e, command)
 }
 
