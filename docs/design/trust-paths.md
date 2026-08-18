@@ -436,11 +436,23 @@ disabled by refusals. Fix the pack, remove the pack, approve. Those are the choi
 
 **This does not fix the enforcement gap — it deletes the problem.** Everything above describes a
 decision made on the host and then *carried*, badly, into a jail that re-derives it from a hardcoded
-input. Under this ruling there is nothing to carry: the host refuses, and **no jail starts**. The
-`mayAccessHost=true` at `packsurfaces.go:89` stops being a security defect and becomes merely
-untidy — any pack that reaches a jail now has every claim approved, so the permissive default is
-accidentally correct for every input it can receive. (Worth fixing anyway, as defence in depth and so
-the next reader is not misled, but it is no longer load-bearing.)
+input. Under this ruling there is nothing to carry: the host refuses, and **no jail starts**.
+
+> [!IMPORTANT]
+> **The hardcoded `true` must STAY, and an earlier draft of this section was wrong to call it merely
+> untidy.** It said the value was "worth fixing anyway, as defence in depth". Building the ruling
+> showed that **deriving it would be a regression**, for a reason the jail side cannot work around:
+>
+> From inside a jail, an **embedded** pack, a **local** pack and an **approved fetched** pack are
+> three identical directories under `YOLO_PACK_ROOT`. Origin is a fact about the *user config*, which
+> the jail deliberately cannot read — that is the same credential boundary that makes `packs`
+> user-scope-only in the first place. So passing `false` for anything outside `_official/` would
+> refuse the host files, mounts and installers of packs the user **did** approve, while protecting
+> nothing: a pack with an unapproved claim never reaches the jail at all now.
+>
+> It is now a named constant carrying that argument, which is the defence-in-depth that was actually
+> available here — the next reader is protected by the name and the comment, not by a derivation that
+> cannot be made correct.
 
 **It also retires the partial-pack concept**, which is the deeper change. A pack that half-loads is a
 pack whose behaviour nobody can predict from reading it: the manifest says one thing, the running

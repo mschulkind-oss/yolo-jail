@@ -1371,7 +1371,19 @@ it (fold a digest of the module dir into the claim string instead; or advise tag
 embedded or local ⇒ true; fetched ⇒ the lock must approve every claim the *staged* tree currently
 makes; a nil, missing or corrupt lock approves nothing. A fetched pack whose loophole claim is
 unapproved has its loophole **not discovered at all** while its other contributions still work — the
-same shape `mount` has today, refusals printed per-claim (`packs.go:218-231`). With §3.3's total
+same shape `mount` has today, refusals printed per-claim (`packs.go:218-231`).
+
+> [!WARNING]
+> **The clause above is RETIRED as of 2026-08-18 — "while its other contributions still work" is no
+> longer true, and this paragraph is kept only so the change is legible.** OQ-TP6 in
+> [`trust-paths.md`](trust-paths.md) rules that **a refused contribution refuses the LAUNCH**: there
+> are no partial packs, so an unapproved loophole claim no longer degrades a pack into its
+> still-permitted half. The three choices are fix the pack, remove the pack, or approve it.
+>
+> The rest of G3 stands unchanged and is load-bearing: origin still bounds host access, a fetched
+> pack still needs every claim approved against the lock, and a nil, missing or corrupt lock still
+> approves nothing. What changed is only the **consequence** of that verdict — withheld became
+> refused. With §3.3's total
 enumeration, `len(want) == 0` is now only reachable for a pack that genuinely crosses nothing.
 
 **LANDED 2026-08-14, and the enforcement had to be built — the DECISION alone shipped first.** The

@@ -1230,13 +1230,21 @@ func resolveHostApproval(name, treeRoot string, prev packsrc.LockEntry, hadPrev 
 		// pipe to answer it, and `yes(1)` would. The claims above still print, so a CI
 		// log shows exactly what is waiting on a human.
 		pr.Printf("  [red]host access NOT approved — approval requires an interactive "+
-			"terminal, and stdin is not one; rerun `yolo pack install` from a terminal "+
-			"to approve %s's claims[/red]", name)
+			"terminal, and stdin is not one. %s will REFUSE TO LAUNCH until its claims "+
+			"are approved; rerun `yolo pack install` from a terminal[/red]", name)
 		return prevApproved(prev, hadPrev), true
 	}
 	if !promptYesNo(out, stdin.reader, "  Approve host access for "+name+"? [y/N] ") {
-		pr.Printf("  [red]host access NOT approved — %s's host claims will be refused at "+
-			"launch until you run `yolo pack install` and approve[/red]", name)
+		// Say what actually happens, not what used to. Before OQ-TP6 an unapproved
+		// claim was withheld and the jail started with the pack half-loaded, so
+		// "will be refused at launch" was accurate. It is not any more: a refused
+		// contribution REFUSES THE LAUNCH (docs/design/trust-paths.md §3.1). Leaving
+		// the old wording would tell a user their jail still starts, which is the
+		// single most expensive thing this message could get wrong — they would find
+		// out at the next launch instead of here, where the fix is one command away.
+		pr.Printf("  [red]host access NOT approved — %s will REFUSE TO LAUNCH until its "+
+			"claims are approved. Run `yolo pack install` and approve, edit the pack so "+
+			"it stops asking, or remove it from `packs`[/red]", name)
 		return prevApproved(prev, hadPrev), true
 	}
 	return want, false
