@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 10 needing you · 4 ready · 0 in progress · 2 waiting · 2 broken · 2 icebox.**
+**Status: 10 needing you · 3 ready · 0 in progress · 2 waiting · 2 broken · 2 icebox.**
 
 Last updated **2026-08-17**. Counts tallied from this file, not asserted.
 
@@ -157,14 +157,6 @@ rather than my judgement: **auth OQ-5** (retired in `retired-decisions.md`, stil
   has never run at a genuine container start — every green is a unit test against an in-process
   listener — and this host's own services were unreachable until the launcher fix landed. 📄
   [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §7, §10.
-
-- 📦 **Fall back to slirp4netns on a host whose passt is too old.**
-
-  Today such a host launches with a clear warning and unreachable services. But podman can often be
-  asked for slirp4netns instead, and `--network=slirp4netns:allow_host_loopback=true` forwards
-  loopback correctly — so those hosts could *work* rather than merely be told why they do not. Guard
-  it on slirp4netns actually being installed, and keep it a fallback rather than a preference, since
-  it is the older and slower stack. Rarer than it sounds: the flag is present in pasta `2026_07_16`.
 
 - 📦 **Say what `yolo check` cannot see.**
 

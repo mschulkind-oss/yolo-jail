@@ -8,15 +8,18 @@ summary: "The transport assumes one rootless networking stack's behaviour is uni
 
 # Loopback-TLS reachability — how a jail reaches a host daemon, and why it currently cannot
 
-**Status:** DECIDED, 2026-08-17. Nothing built; all four open questions answered — ready to implement. Absorbs and replaces the operational handoff that
+**Status:** DECIDED, 2026-08-17; the launcher fix (§6), the in-jail witness (§7, still warn-mode per
+§10), and the slirp4netns fallback (§10's follow-up) are BUILT. Absorbs and replaces the operational handoff that
 originally reported this (`docs/plans/handoff-loopback-tls-pasta.md`, deleted in the same commit —
 its evidence is folded into §2 and §3).
 
 **The short version.** yolo's host daemons bind `127.0.0.1` and tell the jail to dial
 `host.containers.internal`, on the assumption that a container runtime forwards that name to the
-host's **loopback**. Whether it does is a property of *which rootless networking stack is in use* —
-true for slirp4netns, **false for pasta**, which podman has defaulted to since 5.0. So on a pasta
-host every loopback-TLS service has been unreachable from every jail since `58ce9ee` (2026-08-13).
+host's **loopback**. Whether it does is a property of *which rootless networking stack is in use* and
+of *where podman aims that name* — **false for pasta**, which podman has defaulted to since 5.0, and
+false for slirp4netns too until something pins the name at slirp's gateway ([§3.2](#32-both-fixes-measured-from-a-development-jail),
+measured after this was first written). So on a rootless host every loopback-TLS service has been
+unreachable from every jail since `58ce9ee` (2026-08-13).
 The fix is to make the runtime forward loopback rather than to change what yolo binds.
 
 > [!NOTE]
@@ -116,7 +119,8 @@ the packet actually arrive?**
 | :--- | :--- | :--- | :--- | :--- |
 | **pasta** (rootless; podman ≥ 5.0 default) | `169.254.1.2`, a synthetic tunnel address | the host's **global** address ⚠️ | **No** — not an interface on the host; `bind()` returns `EADDRNOTAVAIL` | ❌ **broken** |
 | **pasta** + `--map-host-loopback` | `169.254.1.2` | the host's **loopback** | No — and it does not need to | ✅ the proposed fix |
-| **slirp4netns** (rootless; older default) | `10.0.2.2`, a userspace gateway | host loopback **only if** `allow_host_loopback=true` | No | ⚠️ works *if* that option is set |
+| **slirp4netns** (rootless; older default) | the host's **global** address ⚠️ — *not* the `10.0.2.2` gateway ([§3.2](#32-both-fixes-measured-from-a-development-jail)) | the host's global address | **No** | ❌ **broken**, the same way pasta is |
+| **slirp4netns** + `allow_host_loopback` + a pinned hosts entry | `10.0.2.2`, its userspace gateway | the host's **loopback** | No — and it does not need to | ✅ the old-passt fallback |
 | **netavark bridge** (rootful) | the bridge gateway, e.g. `10.88.0.1` | the host, via a real bridge interface | **Yes** — a genuine host interface | ✅ works |
 | **`--net=host`** (no namespace) | n/a — the jail *shares* the host's stack | itself | Yes, trivially | ✅ works |
 | **nested jail** (podman-in-podman) | forced to `--net=host` | itself | Yes | ✅ works — **and this is why nobody caught it** (§7) |
@@ -129,10 +133,18 @@ the packet actually arrive?**
 
 **Verification status, stated honestly.** The pasta rows are measured on this host (§2 and §3.1).
 The netavark row comes from documented behaviour and from `46d5417`'s findings, **not**
-re-measured. The `--map-host-loopback` row and the slirp4netns row were the proposal when this was
-written and are now **measured** — see [§3.2](#32-both-fixes-measured-from-a-development-jail);
-whether the flag exists on a given *user's* passt build remains OQ-R3, which is why the launcher
-probes for it rather than assuming.
+re-measured. The `--map-host-loopback` row and both slirp4netns rows are now **measured** — see
+[§3.2](#32-both-fixes-measured-from-a-development-jail); whether the flag exists on a given *user's*
+passt build remains OQ-R3, which is why the launcher probes for it rather than assuming.
+
+> [!IMPORTANT]
+> **The original slirp4netns row was wrong, and it was wrong in the direction that costs the most.**
+> It said the jail resolves `host.containers.internal` to `10.0.2.2` and that
+> `allow_host_loopback=true` is therefore sufficient. Measured 2026-08-17: podman aims that name at
+> the host's **global** address under slirp4netns, so the option on its own forwards a loopback
+> nothing in the jail dials. A row that reads "⚠️ works *if* an option is set" is the kind a fix gets
+> built on; this one would have shipped a launcher that switched stacks, changed nothing, and told
+> the jail it had been fixed.
 
 ### 3.1 Where pasta actually forwards — measured
 
@@ -172,8 +184,8 @@ CONNECT
 | :--- | :--- | :--- |
 | `--network=pasta`, dial `169.254.1.2` | **FAIL** | the outage of §1, reproduced on demand |
 | `--network=pasta:--map-host-loopback,169.254.1.2` | **CONNECT** | §6's fix works, with the exact argv the launcher emits |
-| `--network=slirp4netns`, dial `10.0.2.2` | **FAIL** | the slirp row of §3 was right: podman passes `--disable-host-loopback` by default |
-| `--network=slirp4netns:allow_host_loopback=true`, dial `10.0.2.2` | **CONNECT** | the slirp4netns arm of §6 works too |
+| `--network=slirp4netns`, dial `10.0.2.2` | **FAIL** | podman passes `--disable-host-loopback` by default |
+| `--network=slirp4netns:allow_host_loopback=true`, dial `10.0.2.2` | **CONNECT** | the option does forward the host's loopback — **to that address**, which is the whole catch: [§3.2.1](#321-dial-the-name-not-the-gateway--what-that-changed-about-slirp4netns) |
 | `--network=pasta:--bogus-flag` | `Error: pasta failed with exit code 1` (rc 126) | **a wrong option is a failed launch, not a degraded one** — the reason §6's implementation detects positively and emits nothing when unsure |
 
 Measured 2026-08-17 on podman 5.8.4 with the bundled pasta 2026_07_16 and slirp4netns 1.3.4. Two
@@ -185,6 +197,52 @@ where it costs a jail.
 **What this does NOT establish:** that any particular user's passt supports the flag (OQ-R3 — still a
 host fact), or that the launcher picks the right backend on a host it has never seen. Those are the
 two things the implementation probes for rather than assumes.
+
+#### 3.2.1 Dial the NAME, not the gateway — what that changed about slirp4netns
+
+Every probe above dials an **address**. yolo's daemons advertise a **name**
+(`svcendpoint.DefaultAdvertiseHost`), so the address is only half the question: podman also decides
+what that name resolves to inside the jail, and for slirp4netns it does not decide what the table
+above implies. Re-run with `host.containers.internal` as the target:
+
+```console
+$ probe='grep -i containers.internal /etc/hosts
+         (exec 3<>/dev/tcp/host.containers.internal/18081) 2>/dev/null && echo CONNECT || echo FAIL'
+$ podman run --rm --network=slirp4netns:allow_host_loopback=true localhost/yolo-jail:latest bash -c "$probe"
+192.168.1.131   host.containers.internal host.docker.internal
+FAIL
+$ podman run --rm --network=slirp4netns:allow_host_loopback=true \
+    --add-host=host.containers.internal:10.0.2.2 localhost/yolo-jail:latest bash -c "$probe"
+10.0.2.2        host.containers.internal
+CONNECT
+```
+
+| probe | `host.containers.internal` | result | what it establishes |
+| :--- | :--- | :--- | :--- |
+| `--network=slirp4netns:allow_host_loopback=true` | `192.168.1.131` (the host's global address) | **FAIL** | the option alone forwards a loopback **nothing in the jail dials** |
+| … + `--add-host=host.containers.internal:10.0.2.2` | `10.0.2.2` | **CONNECT** | the fallback the launcher emits, measured end to end |
+| `--add-host=…` *without* `allow_host_loopback` | `10.0.2.2` | **FAIL** | the entry is not the fix either — both flags are load-bearing |
+| `--network=pasta:--map-host-loopback,…` | `169.254.1.2` | **CONNECT** | pasta needs no entry: podman already aims the name at the mapped address |
+
+**Why podman does that**, since a measurement without a mechanism invites "it must be the jail":
+`etchosts.GetHostContainersInternalIP` prefers a mapped address only when **pasta** reported one
+(`PreferIP`, fed from `pastaResult.MapGuestAddrIPs` and from nothing else) and rootless otherwise
+falls through to `GetLocalIPExcluding` — the host's global address. Read in containers/common
+`libnetwork/etchosts/ip.go` and podman `libpod/container_internal_common.go`. It also explains why
+`--add-host` wins: user entries are written first and podman skips its own entry for a name already
+present (`writeHostFile` → `addEntriesIfNotExists`), so the pin displaces `host.containers.internal`
+and leaves `host.docker.internal` alone.
+
+> [!WARNING]
+> **Measuring this from a jail needs one precaution, or every stack answers the same.** Podman seeds
+> a container's `/etc/hosts` from the **host's** (`base_hosts_file`), and a jail's own `/etc/hosts`
+> already carries a `169.254.1.2 host.containers.internal` line from the boundary above it — which
+> podman then treats as a user entry and does not override. The first run of this experiment showed
+> `169.254.1.2` under netavark, pasta *and* slirp4netns alike, which is not a podman behaviour at all.
+> Re-run with `CONTAINERS_CONF` pointing at a copy with `base_hosts_file = "/dev/null"` to see
+> podman's own computation. (With the stock config the pin still works — a user entry is written
+> ahead of the inherited line and glibc takes the first match — so this is a hazard for the
+> measurement, not for the fix.)
 
 ---
 
@@ -548,4 +606,27 @@ was first framed: on a host with an old passt, podman can often be asked for **s
 instead — `--network=slirp4netns:allow_host_loopback=true` is already the row-3 option in §3 and it
 forwards loopback correctly. That would make old-passt hosts *work* rather than merely warn. The cost
 is that slirp4netns is slower and is the older stack, so it should be a fallback rather than a
-preference, and only when it is actually installed. **Not built; worth a follow-up.**
+preference, and only when it is actually installed.
+
+> [!IMPORTANT]
+> **BUILT, 2026-08-17 — and it is two flags, not one.** The decision now reads: a pasta that
+> advertises `--map-host-loopback` first; else slirp4netns *if podman itself reports one and that
+> binary advertises host-loopback control*; else today's warn-and-launch. A working pasta always
+> wins — slirp4netns is the older and slower stack, so this is a fallback and never a preference —
+> and a host that cannot prove the fallback keeps exactly the behaviour it had, because the emitted
+> argv is still the one thing here that can stop a jail from starting at all.
+>
+> The paragraph above was wrong about the argv, and finding that out is the whole story of the build:
+> `allow_host_loopback=true` does **not** forward loopback "correctly" for yolo, because podman aims
+> `host.containers.internal` at the host's *global* address under slirp4netns. The launcher therefore
+> emits the option **and** `--add-host=host.containers.internal:10.0.2.2`, measured together in
+> [§3.2.1](#321-dial-the-name-not-the-gateway--what-that-changed-about-slirp4netns). The same
+> correction applies to the pre-existing slirp4netns-host arm, which had been shipping the option
+> alone and reporting `requested` for services that could not answer.
+>
+> **Availability is podman's own answer, never a PATH lookup.** podman is the process that will exec
+> slirp4netns; a binary yolo can see and podman cannot is a container that fails to *start*, which is
+> the one outcome this whole area may not produce. Measured: podman reports
+> `host.slirp4netns.executable` as `""` when it has none, so the empty string is a positive fact.
+> `internal/cli/run/hostloopback.go`; the probe runs only on the degraded path, so a healthy host
+> pays nothing for it.
