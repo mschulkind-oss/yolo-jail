@@ -144,9 +144,18 @@ var reachabilityFatal = true
 // boot to re-learn the same fact. So the whole probe finishes in about a second on
 // the measured failure, and only a blackhole spends the ceiling.
 //
-// reachabilityBudget caps the total regardless of how many services are probed.
-// Services are probed CONCURRENTLY so this stays a true ceiling rather than a
+// reachabilityBudget caps the RETRYING regardless of how many services are probed.
+// Services are probed CONCURRENTLY so it stays one shared window rather than a
 // per-service one that a jail with several loopholes multiplies.
+//
+// It is not a hard ceiling on the probe, and saying so is worth more than rounding
+// the numbers until it looks like one: the first attempt is exempt by construction
+// (see probeService), and the dial timeout is not the whole of one attempt — the
+// authenticated path adds svcendpoint's own handshake deadlines on top, 5s to write
+// the token frame and 5s to read the ack (token.go's handshakeTimeout). So a single
+// blackholed service can spend ~40s before this budget is ever consulted. That is the
+// case the ceiling exists to be generous to, and the alternative — a deadline that can
+// cut an attempt short — is the misfire the whole four-number split is here to avoid.
 var (
 	reachabilityDialTimeout = 30 * time.Second
 	reachabilityRetries     = 2
