@@ -66,7 +66,7 @@ have since been settled and folded into the body.
 | **OQ-A11** | **Gate the broker daemons** on the loophole record; **leave the nix socket** ungated and say why | 2026-08-18 | [§1.3](#13-everything-that-reaches-your-host-and-how-it-turns-on) |
 | **OQ-A12** | `yolo check` learns to read pack-shipped loopholes **in this sprint**, as part of the conversion | 2026-08-18 | [§4](#4-what-it-costs) |
 | **OQ-A13** | **R5 stands** — a workspace may still enable. Mirror the existing OFF-direction disclosure onto ON, and treat it as readability rather than a control | 2026-08-18 | [§2](#2-the-rulings) |
-| **OQ-A9** | **One key, renamed.** `default_enabled` *is* `enabled` with the default flipped, governing all four manifest sources | 2026-08-18 | [§2](#2-the-rulings) |
+| **OQ-A9** | **One key, renamed.** `default_enabled` *is* `enabled` with the default flipped, governing all four manifest sources. `SetEnabled` stops writing manifests; it instructs rather than writing config (see the note in §2) | 2026-08-18 | [§2](#2-the-rulings) |
 
 ---
 
@@ -279,11 +279,24 @@ right thing by default" without yolo guessing on its behalf.
 
 > **RULED (OQ-A9, 2026-08-18): one key, renamed, governing all four manifest sources.**
 > `default_enabled` **is** `enabled` with the default flipped — not a second key beside it. `enabled`
-> becomes a **recognized-and-refused** key whose error names the rename, `SetEnabled` is fixed to
-> write **config** rather than a manifest file, and the four shipped manifests are updated in the same
-> commit. Two booleans over one state would give the manifest, `loopholes list` and `SetEnabled`
-> three ways to disagree.
+> becomes a **recognized-and-refused** key whose error names the rename, `SetEnabled` stops writing
+> manifest files, and the four shipped manifests are updated in the same commit. Two booleans over
+> one state would give the manifest, `loopholes list` and `SetEnabled` three ways to disagree.
+
+> [!NOTE]
+> **Half of this clause shipped differently, deliberately, and the doc is amended rather than the
+> code (2026-08-18).** The ruling as written said `SetEnabled` *"is fixed to write **config** rather
+> than a manifest file"*. The manifest-writing hazard is closed — nothing anywhere writes a manifest
+> now — but the command does **not** write config either: `CmdSetEnabled`
+> ([`loopholescmd.go#L315-L325`](../../internal/loopholes/loopholescmd.go#L315-L325)) prints the
+> exact key to add, names the file, warns that the workspace scope is the weaker place to put it, and
+> exits 1.
 >
+> The argument for stopping there is sound and worth keeping: **having `yolo loopholes enable`
+> silently rewrite a user's own config file is a bigger behaviour than this ruling contemplated**, and
+> it is a separate decision. The ledger records what shipped. If the write is wanted, it is a small
+> follow-up rather than a correction.
+
 > This settles the sweep's headline finding: the design introduced `default_enabled` onto a schema
 > that already had a live `enabled` key with the opposite default, and never said which won.
 

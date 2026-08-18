@@ -255,6 +255,22 @@ one-line deliverable that is decided in all but name.
 
 ---
 
+### Release notes now have a home
+
+Three shipped behaviour changes had nowhere to be announced — a design ruling discharged its residual
+risk as *"a release note"* and no CHANGELOG, NEWS or release-notes file existed anywhere in the repo
+(found 2026-08-18 while verifying the `default_enabled` rename).
+
+📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md) carries the three: **`audio` is now off by default**
+(with its un-fixable downgrade hazard), **an unreachable host service refuses the launch** (a dead
+broker singleton refuses every jail on that host), and **a non-interactive launch stops auto-accepting
+config changes** (CI needs `--accept-config-changes`).
+
+The two rulings still queued in 📦 — no evergreen npm, and a refused contribution refusing the
+launch — get their entries when they ship, not before.
+
+---
+
 # 🔒 Waiting
 
 - 🔒 **The fatal witness is live in the tree, and not on your host until a `just load`.**
