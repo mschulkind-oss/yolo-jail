@@ -261,7 +261,44 @@ if in.InstallerURL != "" && !p.MayAccessHost {
 granted = append(granted, in)
 ```
 
-Two properties of that are load-bearing and worth stating before the defect, because the fix must
+### What `mayAccessHost` is, and what it is protecting
+
+**Origin decides exactly one thing** in this system — the package comment is explicit that a user
+pack and an official pack are the same kind of thing, and that *"the only difference is ORIGIN, and
+origin decides exactly one thing — whether a host-access declaration is honored."*
+
+There are three origins, and they collapse into two answers:
+
+| Origin | What it is | May reach the host |
+| :--- | :--- | :--- |
+| **embedded** | compiled into the yolo binary (`packs/*`) | ✅ always — it *is* yolo |
+| **local** | `file:///path/to/pack` on your own disk | ✅ always — your own files, your own authority |
+| **fetched** | `git+https://…?ref=…`, content someone else controls | ⚠️ **only what you approved** |
+
+`MayAccessHost` is that verdict, carried on the loaded pack. For the first two it is `true` by
+construction ([`packs.go`](../../internal/config/packs.go#L175-L177):
+`MayGrantHostFiles() { return p.Origin() != OriginFetched }`). For a **fetched** pack it is decided
+per launch by `packMayAccessHost`
+([`run/packs.go`](../../internal/cli/run/packs.go#L772-L800)), and it is `true` only when the
+lockfile records approval for **every** host-access claim the staged pack *currently* makes:
+
+- a fresh install never run through `yolo pack install` → **fails closed**;
+- a pin that moved and **gained** a claim → fails closed, and re-prompts;
+- a missing or corrupt lockfile → **approves nothing**.
+
+**So the gate is not "fetched packs may never".** It is *"a fetched pack reaches the host only for the
+things you were shown and said yes to."* The claims are strings computed from the manifest
+([`contributes.go`](../../internal/packdecl/contributes.go#L655-L670)) — `reads-host <path>`,
+`mount <host> -> /ctx/<into>`, `briefing <src>`, and, importantly for §3.1, **`installer <URL>`**.
+
+**What it gates, concretely:** host directory mounts (`HonoredMounts`), `curl`-piped installers
+(`HonoredInstalls`), a wrapped plugin's code-running components, and a shipped loophole's daemon,
+intercepts, binds and devices. All of them flow through one merged helper on purpose — both ends of
+the approval must compute the same union, or the gate disagrees with the prompt.
+
+### The refusal itself
+
+Two properties of it are load-bearing and worth stating before the defect, because the fix must
 preserve both:
 
 - **It is PER CONTRIBUTION, not per pack.** A pack may mix an npm install with a `curl`-to-shell
@@ -313,6 +350,37 @@ decision, false of its enforcement.**
 rules, not safety.** Any new gate proposed in this document inherits this same host-decides /
 jail-executes split, and would need the decision *staged* to mean anything. That is why OQ-T1 asks
 whether to fix this first rather than build on top of it.
+
+### "So should we just remove the gate?"
+
+Asked on review, and it is the right question to ask of any guarantee that turns out not to hold —
+an unenforced gate is worse than no gate, because the warning tells the user something false.
+
+**The answer is no, and one fact decides it: `installer <URL>` is already an approvable claim**
+([`contributes.go`](../../internal/packdecl/contributes.go#L663-L664)). It is enumerated at
+`yolo pack install`, shown in the approval prompt, and recorded in the lockfile's
+`ApprovedHostAccess` alongside every other claim. So this is not a bespoke prohibition sitting off to
+one side — it is one row in a general approval model that already works.
+
+That reframes both options:
+
+- **Removing it** would not delete a rule, it would delete **one entry from the approval prompt**,
+  leaving mounts, `reads-host`, briefing injection, plugin hooks and loophole daemons all approvable
+  and `curl | sh` alone ungated. That is an inconsistency, not a simplification — and it is the one
+  claim in the list whose payload is *arbitrary code from a URL that can serve different bytes
+  tomorrow*.
+- **Enforcing it** does not need new machinery either. The host already computes the refusal; it just
+  stages the pack unmodified afterwards. Having it stage a `pack.json` with the refused contribution
+  **removed** makes the jail's hardcoded `mayAccessHost=true` harmless — there is nothing left to
+  grant — and it matches the principle this subsystem already runs on: *"**The MOUNT is the filter**
+  … a dropped pack has to be UNSTAGED or it keeps rendering"* (`AGENTS.md`). Enforcement by
+  construction rather than by a boolean crossing a boundary.
+
+**Where removal WOULD be the right answer:** if we decided that a jail is a strong enough boundary
+that running unreviewed code inside it needs no approval at all. That is a coherent position — it is
+close to the argument that already leaves npm installs ungated — but it is a decision about the
+**whole** approval model, not about this one claim, and it would retire the prompt rather than one
+line of it. Nobody has proposed that.
 
 ### 3.2 `jail_daemon` is a claim-free crossing to supervised in-jail execution
 
@@ -366,8 +434,18 @@ Carrying the origin decision into the jail could be a marker in the staged tree,
 staging a *modified* `pack.json` with the refused contribution removed. The third is the only one a
 jail cannot ignore.
 
+**A fourth option was raised on review — delete the gate and its warning.** It is answered in
+[§3.1](#so-should-we-just-remove-the-gate) rather than here, because the answer is factual rather
+than a matter of taste: `installer <URL>` is already an approvable claim flowing through the same
+prompt and the same lockfile as every other host-access claim, so removing it would leave `curl | sh`
+as the single unapproved crossing in a model that approves everything else. Removal is only coherent
+as a decision about the whole approval model.
+
 _Leaning:_ **Fix it now, by staging the refusal.** It is the one place where a documented guarantee
-is false rather than weak, and it is load-bearing for every other rule that keys on origin.
+is false rather than weak, and it is load-bearing for every other rule that keys on origin. Staging
+the modified manifest is also the cheapest of the three: no new file, no new variable, and it makes
+the jail's permissive default harmless instead of leaving it as a trap for the next reader — the same
+shape as *"the MOUNT is the filter"*, which this subsystem already relies on for pack selection.
 
 **Answer:**
 > _(empty — fill in when decided)_
