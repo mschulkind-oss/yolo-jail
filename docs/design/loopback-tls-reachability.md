@@ -9,9 +9,11 @@ summary: "The transport assumes one rootless networking stack's behaviour is uni
 # Loopback-TLS reachability — how a jail reaches a host daemon, and why it currently cannot
 
 **Status:** DECIDED, 2026-08-17; the launcher fix (§6), the in-jail witness (§7, still warn-mode per
-§10), and the slirp4netns fallback (§10's follow-up) are BUILT. **OQ-R4 and OQ-R5 are open** — both
-raised by building the witness, and both scope *which* failures the §10 flip may refuse a launch
-over. Absorbs and replaces the operational handoff that originally reported this
+§10), and the slirp4netns fallback (§10's follow-up) are BUILT. **OQ-R4, OQ-R5 and OQ-R6 are open** —
+all three raised by building and then reviewing the witness, and all three scope *which* failures the
+§10 flip may refuse a launch over. R4 and R5 both had a leaning that a reviewer's question defeated on
+2026-08-18; the revised ones point the other way, at a **wider** escalation set than the code has
+today. Absorbs and replaces the operational handoff that originally reported this
 (`docs/plans/handoff-loopback-tls-pasta.md`, deleted in the same commit — its evidence is folded into
 §2 and §3).
 
@@ -661,12 +663,40 @@ counts, and the probe distinguishes three (`reachabilityFault`,
 specifically, or the outcome. A stale token (`faultRejected`) and a daemon that never published
 (`faultUnpublished`) are both services the user asked for and cannot have.
 
-_Leaning:_ **keep the escalation set as it is, and revisit only with evidence.** The narrow set is
-what makes the fatal safe: the other two are **local file states inside the jail's own read-write
-host-services directory**, so escalating them turns a stray file into a jail that will not start —
-and `faultUnpublished` is also what a daemon merely slow to publish looks like. `faultUnreachable` is
-the only one whose cause is the thing OQ-R0..R3 are about. The cost of being wrong here is asymmetric
-and the cheap direction is to warn.
+> [!IMPORTANT]
+> **Reviewer, 2026-08-18: "how would any of this happen aside from a bug that we want to fail loud so
+> we can fix it?"** — checked against the code, and it defeats the leaning this section used to carry.
+> The old leaning rested on `faultUnpublished` also being *"what a daemon merely slow to publish looks
+> like"*. **There is no such race.** `waitServiceReady`
+> ([`loopholesruntime.go#L453`](../../internal/cli/run/loopholesruntime.go#L453)) polls
+> `svcendpoint.Probe` for 5s BEFORE the container starts; a daemon that misses that deadline is
+> SIGKILLed as a group, warned about on the host, and its env var is never wired
+> ([`#L674`](../../internal/cli/run/loopholesruntime.go#L674) returns before the var is set at
+> [`#L701`](../../internal/cli/run/loopholesruntime.go#L701)).
+>
+> So for every non-broker service, an endpoint that is missing, unparseable or stale AT BOOT means it
+> was good enough five seconds earlier and is not now. That is not a race. That is a bug.
+
+_Leaning (revised):_ **escalate all three.** Each one means "this service is enabled and this jail
+cannot use it", the launcher has already proven the endpoint was healthy moments before, and the
+distinctions that remain are about *where to look*, not *how bad it is* — which is what the three
+diagnosis paragraphs are for and what the severity should not duplicate.
+
+Two consequences to accept deliberately rather than discover, because both are real:
+
+- **Self-inflicted lockout.** `faultUnpublished` covers a fifo, a directory or a junk file at the
+  endpoint path, and that directory is bind-mounted **read-write** and keyed on the container name —
+  the same directory every launch of that workspace's jail. Escalating means anything in the jail
+  that corrupts it makes that jail permanently unlaunchable. This is the case
+  `YOLO_ALLOW_UNREACHABLE_SERVICES=1` exists for, and it is the reason the hatch had to be built
+  BEFORE the flip rather than alongside it. Worth stating in the release note.
+- **The broker is not gated like the others.** Its variable is wired on `brokerLoopholeActive(cfg)`
+  alone ([`assemble_parts.go#L408`](../../internal/cli/run/assemble_parts.go#L408)) with no publish
+  gate, because it is a host-wide singleton rather than a per-jail daemon. So "broker configured,
+  singleton down" reaches the jail as `faultUnpublished` **by design**, and under this ruling it
+  becomes a refused launch for every jail on that host. Observed exactly this on 2026-08-18 with a
+  broker whose state files were missing. Correct, arguably — a jail with no Claude auth is the case
+  §1 calls closest to fatal — but it is the single largest behaviour change in the ruling.
 
 > [!NOTE]
 > This is not hypothetical tidiness. A **directory** at an endpoint path used to classify as
@@ -687,14 +717,53 @@ absent-never-escalates rule neither can ever fail a launch. That was the conserv
 
 The argument for changing it: those two shapes share the launcher's own network namespace, so there
 is nothing to forward and *no host-stack excuse available* — an unreachable service there is a plain
-fault, arguably the clearest one in the file. The argument against: a nested jail is exactly where
-this file's own carve-out says reachability cannot be measured honestly
-([§3](#3-the-networking-modes-spelled-out), the nested-jail row), and `network.mode: host` is a user
-override that [OQ-R1](#-oq-r1--may-yolo-emit-a-network-option-on-the-default-path--resolved-2026-08-17)
-already ruled keeps its own bug.
+fault, arguably the clearest one in the file.
 
-_Leaning:_ **leave both non-escalatable.** Failing a launch inside a *nested* jail would break the
-one loop this repo is developed in, for a class it cannot measure — a bad trade at any confidence.
+> [!IMPORTANT]
+> **Reviewer, 2026-08-18: "what is failing? shouldn't these still work, just no localhost issues? so
+> if it's not working, it's not, and should be fatal?"** — yes, and this retires the leaning that was
+> here. It said a fatal would break the dev loop "for a class it cannot measure", which **conflated
+> two different things**: a nested jail cannot measure whether the FORWARDING FIX works (true, and
+> that is the §3 carve-out), but it measures REACHABILITY better than any other mode.
+>
+> The code already commits to exactly that. `advertiseHostFor`
+> ([`loopholesruntime.go#L69`](../../internal/cli/run/loopholesruntime.go#L69)) returns `127.0.0.1`
+> for these two shapes and says why: *"The jail's 127.0.0.1 IS the listener's, so 127.0.0.1 is not
+> merely correct, it is the ONLY thing that works."* No gateway name, no forwarding hop, no rootless
+> stack in the path. A service unreachable there has no ambiguity left to hide in.
+
+_Leaning (revised):_ **make these escalatable — they are the strongest case in the file, not the
+weakest.** The fear of breaking the dev loop is backwards: a nested jail's services are reachable by
+construction, so the fatal can only fire when something is genuinely broken. Producing that state at
+all took deliberately pointing the advertised address at a dead port (2026-08-18).
+
+**This is not a severity tweak — it needs a new fact on the wire.** Today both shapes are *absent*,
+and absent is also what a rootful podman, an unrecognised backend and a pre-variable launcher send.
+Escalating absent would escalate genuine ignorance. So the launcher needs a THIRD positive value —
+`shared`, say — meaning "this jail shares my network namespace; there is nothing to forward and
+nothing to excuse". The predicate already exists and is already trusted for a harder job:
+`advertiseHostFor` computes it to decide what every daemon publishes.
+
+**Answer:**
+> _(unanswered)_
+
+### 💬 OQ-R6 — does the disposition belong on the wire at all, or should the jail measure it?
+
+Raised by R5's shape rather than by a defect. `YOLO_HOST_LOOPBACK` now carries four states —
+`requested`, `unsupported`, absent-because-shared, absent-because-unknown — and the last two are the
+same bytes. Each new distinction costs another value the jail must recognise and another way for an
+old launcher to be misread.
+
+The alternative: the jail derives what it needs. It can see `/run/.containerenv`, its own routing
+table, and whether `host.containers.internal` resolves to something it can reach — enough to
+distinguish "shared stack" without being told.
+
+_Leaning:_ **keep it on the wire.** The whole reason the variable exists is that from inside, "this
+host cannot forward" and "yolo asked and it is still down" are the same observation
+([OQ-R3](#-oq-r3--if-the-hosts-passt-predates---map-host-loopback-what-then--resolved-2026-08-17)),
+and adding jail-side inference re-opens exactly that. But the four-states-in-three-spellings problem
+is real and gets worse with each ruling, so the choice is worth making once, deliberately, rather
+than one value at a time.
 
 **Answer:**
 > _(unanswered)_

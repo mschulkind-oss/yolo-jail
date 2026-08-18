@@ -31,14 +31,32 @@ leaning. **Nothing here asks you to pick an execution order** — sequencing is 
 
 ### 💬 1 — Before the reachability flip: which failures may refuse a launch?
 
-📄 [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) — **OQ-R4 · OQ-R5**
+📄 [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) — **OQ-R4 · OQ-R5 · OQ-R6**
 
-Both raised *by building* OQ-R2's prerequisites, and both gate the one item in 📦 below. OQ-R2 ruled
-that an unreachable service fails the launch; neither question re-opens that. They draw the two
-boundaries it left implicit — **which fault classes** count (only the dial failing, or a stale token
-and a missing endpoint too), and whether a **nested jail** may fail this way at all. Today's answers
-are the conservative ones, arrived at by default rather than by decision, and I lean toward keeping
-both. Cheap to answer, and worth answering before a flip makes them load-bearing.
+Raised *by building* OQ-R2's prerequisites, then sharpened by your review. All three gate the one item
+in 📦 below. OQ-R2 ruled that an unreachable service fails the launch; none of these re-open that —
+they scope **which failures count**.
+
+> [!IMPORTANT]
+> **Both leanings flipped on 2026-08-18, because your review defeated the reasoning under them.** They
+> now point at a **wider** escalation set than the code has today, so this is no longer a "confirm the
+> conservative default" question.
+>
+> - **R4** rested on `faultUnpublished` also being a slow-to-publish race. There is no such race: the
+>   launcher polls for 5s before the container starts and kills the daemon if it misses. Every one of
+>   the three faults means something is broken.
+> - **R5** claimed a nested jail "cannot measure" this. It conflated forwarding with reachability — a
+>   nested jail measures reachability *better* than any other mode, because `127.0.0.1` is the only
+>   thing that can work there and the code already relies on exactly that.
+>
+> **R5 is not a severity tweak — it needs a new value on the wire** (`shared`), because "stack is
+> shared" and "we could not tell" are the same absent-variable today. **R6** asks whether that wire is
+> the right mechanism at all before it grows a fourth state.
+
+Two consequences worth seeing before ruling, both in the doc: escalating `faultUnpublished` makes a
+corrupted services directory a **permanently unlaunchable jail** (what the escape hatch is for), and
+the **broker** reaches the jail unpublished *by design* when its host-wide singleton is down — so
+under R4 that refuses every jail on the host.
 
 ### 💬 2 — Loophole activation: eleven questions, one design
 
