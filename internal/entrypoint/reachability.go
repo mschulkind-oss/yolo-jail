@@ -31,39 +31,50 @@ package entrypoint
 // hours later, with no clue that the fault is the network stack. See
 // docs/design/loopback-tls-reachability.md §2-§3 for the whole map.
 //
-// # WARN MODE — TODO(OQ-R2): make this FATAL
+// # FATAL — an enabled service this jail cannot use is a failed launch
 //
-// docs/design/loopback-tls-reachability.md OQ-R2 ruled the end state: "an enabled
+// docs/design/loopback-tls-reachability.md OQ-R2 rules the severity: "an enabled
 // jail-facing service that the jail cannot reach is a failed launch", scoped by
-// OQ-R3 to mean "yolo TRIED and failed" rather than "this host cannot". This
-// landed in WARN mode on purpose, because §10 sequences the witness BEFORE the
-// fatal — a warning that misfires is noise, but a fatal that misfires costs a
-// jail.
-//
-// Two of the three things the flip needs are now BUILT, and tested in both modes:
+// OQ-R3 to mean "yolo TRIED and failed" rather than "this host cannot". Since
+// 2026-08-18 that is the mode this file SHIPS in. It landed as a warning first,
+// because §10 sequences the witness before the fatal — a warning that misfires is
+// noise, but a fatal that misfires costs a jail — and three things had to be true
+// before the severity could move. All three are:
 //
 //   - THE SCOPING — "unsupported is not broken". The launcher carries its own
 //     decision into the jail (paths.HostLoopbackEnvVar), because from inside a jail
 //     the failures are indistinguishable: a service does not answer whichever it
 //     was. With it, this file separates a KNOWN LIMITATION (yolo could not get this
 //     host's network stack to forward the host's loopback — an old passt) from a
-//     FAULT (yolo asked, and the service is still unreachable) from a launch where
-//     nothing was established at all. Every state is now spelled rather than three
-//     of them sharing one silence (OQ-R6), which is what makes `shared` — a jail on
-//     the launcher's own namespace, where there is no forwarding hop to blame —
-//     sayable at all. Only a fault is escalated today. See loopbackDisposition.
+//     FAULT (yolo asked, or there was nothing to ask for, and the service is still
+//     unusable) from a launch where nothing was established at all. Every state is
+//     spelled rather than three of them sharing one silence (OQ-R6), which is what
+//     makes `shared` — a jail on the launcher's own namespace, where there is no
+//     forwarding hop to blame — sayable at all. See loopbackDisposition.
 //   - THE ESCAPE HATCH — paths.AllowUnreachableServicesEnv, mirroring
 //     YOLO_ALLOW_STALE_IMAGE: honoured loudly, naming what it suppresses. A hard
 //     fatal with no override would leave a user unable to open a shell to fix the
 //     very daemon that is failing.
+//   - THE OBSERVATION, which was the one gate that was never code: until 2026-08-18
+//     this probe had never been watched at a REAL boot, and every green it had was a
+//     unit test dialling an in-process listener. Both directions were observed that
+//     day. Healthy host: `YOLO_HOST_LOOPBACK=requested`, both endpoints published,
+//     both answered through this probe's own path (TLS, cert-pinned,
+//     token-authenticated) in 1-2 ms, nothing on the terminal, the affirmative line
+//     in the boot log. Broken host: a service pointed at a dead port produced the
+//     warning, the address, and the `requested` diagnosis — which correctly points
+//     AWAY from the network stack.
 //
-// WHAT IS STILL OWED is the flip's own gate, and it is not code: THIS PROBE HAS
-// NEVER BEEN OBSERVED AT A REAL BOOT ON A HEALTHY HOST. Every green it has is a
-// unit test dialling an in-process listener. Someone has to launch a jail on a
-// working host and watch it stay silent, and launch one on a broken host and
-// watch it speak, before a false positive here is allowed to cost a jail.
+// # What is escalated, and what is only diagnosed
 //
-// The flip is then one line: reachabilityFatal = true.
+// SEVERITY is the DISPOSITION's decision and nothing else's: requested and shared
+// may fail a launch, unsupported and unknown and an absent variable never may
+// (loopbackDisposition.escalates). All THREE fault classes escalate under it
+// (OQ-R4) — an endpoint that never published and a listener that refused this
+// jail's token are as much "enabled and unusable" as an address that does not
+// answer. What the classes still differ in is WHERE TO LOOK, which is what the
+// per-class warning and the four diagnosis paragraphs are for; severity
+// deliberately does not duplicate that distinction.
 //
 // (An earlier spelling of this note also owed "name the required passt version in
 // the refusal". That is now wrong and is deliberately not carried forward: OQ-R3
@@ -94,15 +105,18 @@ import (
 
 // reachabilityFatal is OQ-R2's flip, deliberately isolated to one boolean.
 //
-// It is false, and the header names the one thing still owed before it may become
-// true: an observation at a real boot on a healthy host. Spelling the mode out as
-// a variable rather than leaving the fatal branch unwritten is the point of this
-// step — the escalation, the escape hatch and the scoping can all be EXERCISED by
-// tests today, so the day this flips is a day of changing one value, not a day of
-// writing the load-bearing branch blind against a user's broken host.
+// It is TRUE: an enabled jail-facing service this jail cannot use refuses the
+// launch. Isolating the mode to a variable is what made the flip day a day of
+// changing one value rather than of writing the load-bearing branch blind against
+// a user's broken host — the escalation, the escape hatch and the scoping were all
+// exercised by tests for the whole time it was false.
 //
-// Nothing in the boot path assigns it; only tests do.
-var reachabilityFatal = false
+// The false side survives ONLY as a test seam, and the warn wording with it, for
+// one property that is otherwise unobservable: the escape hatch may speak only
+// where it is actually suppressing something, and the guard enforcing that
+// (reportUnusableServices) is a tautology in a binary that can never be in warn
+// mode. Nothing in the boot path assigns this; only tests do.
+var reachabilityFatal = true
 
 // The probe's time budget, spelled as four numbers rather than one, because the
 // two failures it has to tell apart have OPPOSITE timing signatures and a single
@@ -256,6 +270,35 @@ func (d loopbackDisposition) String() string {
 	}
 }
 
+// escalates reports whether a service this jail cannot use may FAIL THE LAUNCH,
+// given what the launcher said about host-loopback forwarding. It is the whole of
+// severity's decision table, and it is written as an ALLOWLIST of the two positive
+// claims for the same reason launcherLoopbackDisposition matches its spellings
+// exactly: every value nobody has thought of yet has to land on "never fail a
+// launch" without anyone having to remember to come back here and add it.
+//
+//   - requested — yolo put the forwarding option on this container's argv, so the
+//     network stack is the one thing already ruled out. This is the case OQ-R2's
+//     fatal was written for.
+//   - shared — the jail is on the launcher's own network namespace, so there is no
+//     forwarding hop for a host limitation to hide behind and the address the
+//     daemons published is the launcher's own loopback. OQ-R5 rules this the
+//     STRONGEST case in the set rather than the vaguest.
+//
+// unsupported is excluded by OQ-R3: a host yolo could not get to forward its
+// loopback has done nothing wrong, and refusing it here would reintroduce by the
+// back door exactly the refusal that ruling rejected. unknown and unattributed are
+// excluded one step further out — nothing was positively established about this
+// launch, so there is nothing to escalate on.
+func (d loopbackDisposition) escalates() bool {
+	switch d {
+	case dispositionRequested, dispositionShared:
+		return true
+	default:
+		return false
+	}
+}
+
 func launcherLoopbackDisposition(e *Env) loopbackDisposition {
 	switch e.Getenv(paths.HostLoopbackEnvVar) {
 	case paths.HostLoopbackRequested:
@@ -333,7 +376,15 @@ func ProbeServiceReachability(e *Env) {
 	// gets skimmed past: on a broken host EVERY jail-facing service fails for the
 	// same reason at the same instant, so the diagnosis is a property of the launch
 	// and not of any one of them.
-	var unreachable []string
+	//
+	// TWO LISTS, because severity and diagnosis are scoped differently, and that
+	// difference IS OQ-R4. `unusable` is every fault class — each one means "this
+	// service is enabled and this jail cannot use it", which is the whole of what the
+	// severity rule is about. `unreachable` is the one class the launcher's forwarding
+	// decision can say anything about, and it alone earns the disposition paragraph: a
+	// missing endpoint file printed under a paragraph about pasta sends the reader to
+	// the wrong machine entirely.
+	var unreachable, unusable []string
 	for _, res := range results {
 		if res == nil {
 			continue
@@ -341,61 +392,53 @@ func ProbeServiceReachability(e *Env) {
 		if res.fault == faultUnreachable {
 			unreachable = append(unreachable, res.svc.name)
 		}
+		unusable = append(unusable, res.svc.name)
 		e.warn(reachabilityWarning(*res))
 	}
 
-	if len(unreachable) == 0 {
+	if len(unusable) == 0 {
 		return
 	}
 
-	// The diagnosis, and then — only for the one case that earns it — the verdict.
-	//
-	// The ESCALATION SET is deliberately just the unreachable class. An
-	// unpublished endpoint or a rejected token is also a service the jail cannot
-	// use, but neither has anything to do with what the launcher decided about
-	// forwarding, so the disposition cannot attribute them and they stay warnings
-	// until they get a ruling of their own.
+	// The diagnosis — only for the class it describes — and then the verdict, only
+	// for the launches whose disposition can carry one.
 	disposition := launcherLoopbackDisposition(e)
-	e.warn(reachabilityExplanationFor(disposition))
-	if disposition != dispositionRequested {
+	if len(unreachable) > 0 {
+		e.warn(reachabilityExplanationFor(disposition))
+	}
+	if !disposition.escalates() {
 		// "Unsupported is not broken" (OQ-R3), and "not attributable" is not broken
-		// either. Neither may ever fail a launch, in this mode or any future one.
-		//
-		// dispositionShared is the ONE value in this set that OQ-R5 rules MAY escalate
-		// — a shared namespace has no forwarding hop to blame — and it is not in the
-		// escalating set yet on purpose: the spellings had to exist before the
-		// severity could move, or escalating today's absent would escalate genuine
-		// ignorance. Widening this ships with the flip, and not alone:
-		// unreachableFaultMessage opens with "yolo requested host-loopback
-		// forwarding", which is false for a launch that never needed any.
+		// either. Neither may ever fail a launch, whatever the fault class — the fault
+		// says what is wrong with the service, never whether this host could have been
+		// asked. See loopbackDisposition.escalates for the whole table.
 		return
 	}
-	reportUnreachableFault(e, unreachable)
+	reportUnusableServices(e, disposition, unusable)
 }
 
-// reportUnreachableFault is the escalation point: the ONE place where OQ-R2's
-// ruling changes what happens to the boot, written so that the flip is the value
+// reportUnusableServices is the escalation point: the ONE place where OQ-R2's
+// ruling changes what happens to the boot, written so that the mode is the value
 // of reachabilityFatal and nothing else.
-func reportUnreachableFault(e *Env, names []string) {
+func reportUnusableServices(e *Env, d loopbackDisposition, names []string) {
 	// The hatch is consulted only where it can actually suppress something. In warn
 	// mode the launch was never at risk, so announcing it would be a line about
 	// nothing — and an escape hatch that speaks on launches it is not saving trains
 	// the reader to skip the line it exists to be read on. That is the same rule
 	// internal/cli/run/hostloopback.go's own opt-out follows.
 	if reachabilityFatal && e.Getenv(paths.AllowUnreachableServicesEnv) != "" {
-		e.warn(unreachableOverrideNotice(names))
+		e.warn(unusableOverrideNotice(names))
 		return
 	}
-	e.warn(unreachableFaultMessage(names, reachabilityFatal))
+	e.warn(unusableServicesMessage(d, names, reachabilityFatal))
 	if reachabilityFatal {
 		// genFailuresError (boot.go) turns this into the error that aborts the boot
 		// before the agent is ever exec'd — Main runs this probe immediately above
 		// that gate for exactly this call.
-		e.genFailure("host services unreachable from inside the jail: " + strings.Join(names, ", "))
+		e.genFailure("host services unusable from inside the jail: " + strings.Join(names, ", "))
 	}
 }
 
-// unreachableFaultMessage is the verdict, printed in both modes with only the
+// unusableServicesMessage is the verdict, printed in both modes with only the
 // parts that genuinely differ differing.
 //
 // The fatal form MUST name the escape hatch. A refusal a user cannot get past is
@@ -404,36 +447,69 @@ func reportUnreachableFault(e *Env, names []string) {
 // that just refused to start. The warning form must NOT name it, because there is
 // nothing yet to escape and a hatch advertised before it does anything is a hatch
 // people set once and forget.
-func unreachableFaultMessage(names []string, fatal bool) string {
-	body := "yolo requested host-loopback forwarding for this jail and " +
-		serviceListPhrase(names) + " unreachable.\n" +
-		"  That is a FAULT rather than a limitation of this host: the forwarding WAS\n" +
-		"  asked for, so no network option is missing — something on the other end is\n" +
-		"  down or unreachable for another reason.\n"
+//
+// The LEAD SENTENCE is per-disposition and cannot be shared, which is the one thing
+// widening the escalation set to `shared` (OQ-R5) actually cost. The old single
+// spelling opened "yolo requested host-loopback forwarding for this jail", true of
+// the only value that could reach it then and flatly false of a launch that never
+// needed any forwarding — and a verdict whose first sentence describes machinery the
+// reader's jail does not have is worse than no verdict.
+func unusableServicesMessage(d loopbackDisposition, names []string, fatal bool) string {
+	body := unusableServicesLead(d, names)
 	if !fatal {
 		return "warning: " + body +
-			"  (OQ-R2 rules this a failed launch; this witness is still in warn mode, so the\n" +
-			"  jail is starting anyway.)\n" +
+			"  (OQ-R2 rules this a failed launch; this witness is running in warn mode on\n" +
+			"  this launch, so the jail is starting anyway.)\n" +
 			"  docs/design/loopback-tls-reachability.md"
 	}
 	return "Error: " + body +
-		"  Refusing to start: an enabled jail-facing service the jail cannot reach is a\n" +
+		"  Refusing to start: an enabled jail-facing service the jail cannot use is a\n" +
 		"  failed launch (docs/design/loopback-tls-reachability.md, OQ-R2).\n" +
 		"  If this jail is knowingly fine without those services — you are debugging the\n" +
 		"  host daemon itself, or you only need a shell — launch anyway:\n" +
 		"      " + paths.AllowUnreachableServicesEnv + "=1 <your yolo command>"
 }
 
-// unreachableOverrideNotice is the hatch being honoured, and it says what it is
+// unusableServicesLead states WHAT happened and why it is this host's fault rather
+// than this host's limitation. Only the escalating dispositions reach it, so it has
+// exactly two arms — and the shared arm must not name a forwarding hop, because
+// that is precisely the machinery a shared namespace does not have.
+//
+// It says "unusable" rather than "unreachable" because since OQ-R4 the list can hold
+// any of the three fault classes: an endpoint that never published and a listener
+// that refused this jail's token are both here, and calling either one unreachable
+// would send the reader to the network for a file. The per-service warnings above
+// already carry which is which.
+func unusableServicesLead(d loopbackDisposition, names []string) string {
+	if d == dispositionShared {
+		return "this jail SHARES the network namespace of whatever launched it, and " +
+			serviceListPhrase(names) + " unusable from inside it.\n" +
+			"  That is a FAULT rather than a limitation of this host: there is no forwarding\n" +
+			"  hop in this mode for anything to be missing from — the address is the\n" +
+			"  launcher's own loopback — so the other end is down, never published, or\n" +
+			"  answering with a credential this jail does not hold.\n"
+	}
+	// dispositionRequested, the only other value escalates() lets through. Spelled
+	// as the fallback rather than as a second `if` so that a disposition added to
+	// the escalating set without a lead of its own gets the widest true sentence
+	// instead of silently getting the shared one.
+	return "yolo requested host-loopback forwarding for this jail and " +
+		serviceListPhrase(names) + " unusable from inside it.\n" +
+		"  That is a FAULT rather than a limitation of this host: the forwarding WAS\n" +
+		"  asked for, so no network option is missing — the other end is down, never\n" +
+		"  published, or answering with a credential this jail does not hold.\n"
+}
+
+// unusableOverrideNotice is the hatch being honoured, and it says what it is
 // suppressing rather than going quiet — the whole of what makes an override
 // trustworthy. It mirrors the stale-image report's "CONTINUING ON A STALE IMAGE",
 // including the part that matters most: nothing was repaired.
-func unreachableOverrideNotice(names []string) string {
+func unusableOverrideNotice(names []string) string {
 	return "warning: " + paths.AllowUnreachableServicesEnv + " is set — CONTINUING with " +
-		serviceListPhrase(names) + " unreachable from inside this jail.\n" +
+		serviceListPhrase(names) + " unusable from inside this jail.\n" +
 		"  Nothing was repaired; the launch was merely allowed to proceed, and every\n" +
 		"  in-jail client of those services will still fail. Unset it to have an\n" +
-		"  unreachable service refuse the launch again.\n" +
+		"  unusable service refuse the launch again.\n" +
 		"  docs/design/loopback-tls-reachability.md"
 }
 

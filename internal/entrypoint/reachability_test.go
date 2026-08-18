@@ -243,21 +243,20 @@ func TestReachabilityProbeAttributesAnUnpublishedEndpoint(t *testing.T) {
 }
 
 // TestReachabilityProbeAttributesAStaleToken is the third fault class, and the one
-// with a launch riding on it once OQ-R2 flips.
+// that makes OQ-R4's shape concrete: the class governs the DIAGNOSIS and no longer
+// governs the SEVERITY.
 //
 // A listener that restarts republishes a new token; a jail holding the previous file
-// is REACHABLE and refused. That is a stale file with a one-line fix (relaunch), and
-// it has nothing to do with what the launcher decided about forwarding — which is
-// exactly why the escalation set is the unreachable class alone. Fold this into it,
-// as the default arm of classifyReachability silently would, and two things break at
-// once: the reader is sent after a network stack that is working, and a fatal witness
-// refuses to start a jail over a stale file.
-//
-// Run with the fatal ALREADY ON, because "must never fail a launch" is not a claim a
-// warn-mode run can make.
+// is REACHABLE and refused. Under OQ-R4 that is still a service this jail cannot use,
+// so it refuses the launch exactly like an address that does not answer — the fix is
+// a relaunch and the launch it refuses is the one that would have handed an agent a
+// broken transport. What must NOT follow it across is the wording: the forwarding
+// diagnosis belongs to the unreachable class alone, and printing it here — as folding
+// this into classifyReachability's transport default silently would — sends the
+// reader after a network stack that is demonstrably working, since the address
+// answered.
 func TestReachabilityProbeAttributesAStaleToken(t *testing.T) {
 	shrinkReachabilityBudget(t)
-	withReachabilityFatal(t)
 	dir := servicesDir(t)
 
 	// A live listener, and a SECOND file naming it with the wrong credential — the
@@ -276,21 +275,84 @@ func TestReachabilityProbeAttributesAStaleToken(t *testing.T) {
 
 	got, err := runProbe(t, map[string]string{
 		"JAIL_HOME": t.TempDir(),
-		// The launcher DID request forwarding: the one disposition that escalates,
-		// so nothing but the fault classification is keeping this launch alive.
+		// The launcher DID request forwarding, so the disposition permits escalation
+		// and the fault class is the only thing left that could stop it.
 		paths.HostLoopbackEnvVar: paths.HostLoopbackRequested,
 		paths.ServiceEnvVarPrefix + "HOST_PROCESSES" + paths.ServiceEnvVarSuffix: stale,
 	})
-	if err != nil {
-		t.Errorf("a stale token is not a reachability failure and must never abort a boot; "+
-			"genFailuresError: %v", err)
+	if err == nil {
+		t.Fatal("a service that answers and refuses this jail's credential is enabled and " +
+			"unusable, which OQ-R4 rules a failed launch; genFailuresError returned nil")
+	}
+	if !strings.Contains(err.Error(), "host-processes") {
+		t.Errorf("the abort must name the service that caused it, got: %v", err)
 	}
 	if !strings.Contains(got, "rejected this jail's token") {
 		t.Errorf("the warning must name the fault the user can actually fix, got:\n%s", got)
 	}
-	if strings.Contains(got, "UNREACHABLE") {
+	// The whole PHRASE, not the bare word — unlike its siblings, this launch is
+	// refused, so the refusal prints the escape hatch, and YOLO_ALLOW_UNREACHABLE_
+	// SERVICES carries the word in its own name. A bare-word assertion here would
+	// fail on the hatch rather than on the thing it is about.
+	if strings.Contains(got, "is enabled but UNREACHABLE") {
 		t.Errorf("the address answered — reporting this as unreachable sends the reader "+
 			"after a network stack that is working. got:\n%s", got)
+	}
+	// The severity moved; the diagnosis did not. Neither the fault paragraph's
+	// opening nor the wide paragraph's command may appear for a class that has
+	// nothing to do with forwarding — that is the distinction OQ-R4 says severity
+	// must not duplicate, and it is now the ONLY thing separating the two.
+	for _, misleading := range []string{"yolo DID ask", "podman info --format"} {
+		if strings.Contains(got, misleading) {
+			t.Errorf("the forwarding diagnosis belongs to the unreachable class alone; %q "+
+				"under a stale-credential finding is an afternoon on a working network. got:\n%s",
+				misleading, got)
+		}
+	}
+}
+
+// TestReachabilityProbeRefusesAnUnpublishedEndpointWithoutBlamingTheNetwork is the
+// third fault class under OQ-R4, and the one the design doc flags as the largest
+// behaviour change in the whole document: the broker's env var is wired on the
+// loophole being active with no publish gate, because the broker is a host-wide
+// singleton rather than a per-jail daemon. So "broker configured, singleton down"
+// reaches every jail on the host as an unpublished endpoint — and now refuses every
+// one of them. That was accepted deliberately (2026-08-18): §1 calls a jail with no
+// Claude auth the case closest to fatal.
+//
+// The other half is what must NOT happen. Nothing about a file that was never written
+// is a forwarding failure, so the disposition paragraph — the one that walks pasta and
+// names the command that identifies the rootless stack — must stay out of it even
+// though the disposition is what let the refusal through. Severity reads the
+// disposition; the diagnosis reads the fault; the two answer different questions and
+// this is the launch where a reader would be sent furthest wrong by conflating them.
+func TestReachabilityProbeRefusesAnUnpublishedEndpointWithoutBlamingTheNetwork(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	missing := filepath.Join(servicesDir(t), "claude-oauth-broker"+paths.ServiceEndpointExt)
+
+	got, err := runProbe(t, map[string]string{
+		"JAIL_HOME":              t.TempDir(),
+		paths.HostLoopbackEnvVar: paths.HostLoopbackRequested,
+		paths.ServiceEnvVarPrefix + "CLAUDE_OAUTH_BROKER" + paths.ServiceEnvVarSuffix: missing,
+	})
+	if err == nil {
+		t.Fatal("an enabled service whose endpoint was never published is a transport this " +
+			"jail was promised and does not have (OQ-R4); genFailuresError returned nil")
+	}
+	if !strings.Contains(err.Error(), "claude-oauth-broker") {
+		t.Errorf("the abort must name the service that caused it, got: %v", err)
+	}
+	if !strings.Contains(got, missing) {
+		t.Errorf("the warning must still name the endpoint file that is absent, got:\n%s", got)
+	}
+	for _, misleading := range []string{
+		"RootlessNetworkCmd", // the wide paragraph's command
+		"yolo DID ask",       // the fault paragraph's opening
+	} {
+		if strings.Contains(got, misleading) {
+			t.Errorf("a file the host never wrote has nothing to do with forwarding; %q sends "+
+				"the reader to the network for a missing file. got:\n%s", misleading, got)
+		}
 	}
 }
 
@@ -359,22 +421,23 @@ func TestReachabilityProbeAlwaysDialsAtLeastOnce(t *testing.T) {
 	}
 }
 
-// TestReachabilityProbeNeverAbortsTheBoot is the WARN-MODE contract, asserted
-// through the exact gate that would enforce the other one.
+// TestReachabilityProbeNeverAbortsAnUnattributedBoot is OQ-R3's outer edge, asserted
+// through both of the values a caller could read.
 //
 // Main calls ProbeServiceReachability immediately above genFailuresError, and
-// reachability.go's own TODO names e.genFailure as where OQ-R2's flip plugs in.
-// That proximity is deliberate and it is also the hazard: the difference between
-// "a jail that warns" and "a jail that will not start" is one call, added to a
-// function whose every other failure path is fatal by convention. So the guard is
-// spelled against genFailuresError rather than against the slice — that is the
-// value Main actually branches on, and a probe that learned to fail the boot would
-// have to make it non-nil.
+// e.genFailure is where OQ-R2's fatal plugs in. That proximity is deliberate and it
+// is also the hazard: the difference between "a jail that warns" and "a jail that
+// will not start" is one call, in a function whose every other failure path is fatal
+// by convention. So the guard is spelled against genFailuresError as well as against
+// the slice — that is the value Main actually branches on.
 //
-// The two services below cover BOTH fault classes the probe can produce from a
-// real host (an address that does not answer, and an endpoint the host half never
-// published), because a flip could plausibly be written to escalate only one.
-func TestReachabilityProbeNeverAbortsTheBoot(t *testing.T) {
+// The env below sets NO disposition, which since OQ-R6 means one thing: a launcher
+// older than the variable. Nothing about this launch was established, so nothing may
+// be escalated however broken the services are — and the two below cover BOTH fault
+// classes a real host produces (an address that does not answer, and an endpoint the
+// host half never published), because a widening could plausibly be written to gate
+// one of them on the disposition and not the other.
+func TestReachabilityProbeNeverAbortsAnUnattributedBoot(t *testing.T) {
 	shrinkReachabilityBudget(t)
 	dir := servicesDir(t)
 	dead := deadEndpoint(t, dir, "claude-oauth-broker")
@@ -395,11 +458,12 @@ func TestReachabilityProbeNeverAbortsTheBoot(t *testing.T) {
 		t.Fatal("the fixture is meant to be broken; the probe said nothing")
 	}
 	if fails := e.GenFailures(); len(fails) != 0 {
-		t.Errorf("the witness is in WARN mode (OQ-R2) and must record no generator failure, got: %v", fails)
+		t.Errorf("a launch nothing can be attributed to must record no generator failure "+
+			"(OQ-R3), got: %v", fails)
 	}
 	if err := genFailuresError(e); err != nil {
-		t.Errorf("an unreachable host service must not abort the boot while the witness is a "+
-			"warning; genFailuresError returned: %v", err)
+		t.Errorf("a launcher too old to say what it decided must never cost a jail; "+
+			"genFailuresError returned: %v", err)
 	}
 }
 
@@ -721,20 +785,23 @@ func TestReachabilityProbeStaysWithinItsBudget(t *testing.T) {
 	}
 }
 
-// --- the two prerequisites of OQ-R2's flip: the scoping, and the escape hatch ---
+// --- OQ-R2's severity: the scoping, the escalation set, and the escape hatch ---
 
-// withReachabilityFatal runs the rest of the test in the mode OQ-R2 rules for the
-// end state, and restores warn mode afterwards.
+// withReachabilityWarn runs the rest of the test in the mode this witness SHIPPED in
+// until 2026-08-18, and restores the fatal afterwards.
 //
-// This is the reason the mode is a variable rather than an unwritten branch. The
-// fatal path is the one that costs a jail when it is wrong, so it has to be
-// exercised BEFORE it is turned on — a branch first executed on a user's broken
-// host is a branch nobody has ever seen work.
-func withReachabilityFatal(t *testing.T) {
+// Warn mode is now a test seam and nothing else — no boot path can reach it — and it
+// is kept for one property that is unobservable without it: the escape hatch may
+// speak only where it is actually suppressing a launch failure, and the guard that
+// enforces that (`reachabilityFatal &&` in reportUnusableServices) reads as dead
+// weight in a binary that is always fatal. Deleting the guard is a one-character
+// change that silently turns the override notice into something a user sees on
+// launches it saved nothing on; this is the only thing that would notice.
+func withReachabilityWarn(t *testing.T) {
 	t.Helper()
 	prev := reachabilityFatal
 	t.Cleanup(func() { reachabilityFatal = prev })
-	reachabilityFatal = true
+	reachabilityFatal = false
 }
 
 // runProbe drives the probe over one env matrix and hands back both of its
@@ -772,14 +839,12 @@ func brokenServiceVars(t *testing.T, extra map[string]string) map[string]string 
 // On a host where yolo could not get the network stack to forward the host's
 // loopback, an unreachable service is a KNOWN LIMITATION: the user has done nothing
 // wrong, launching is the correct outcome, and no future severity may change that.
-// The test runs with the fatal ALREADY ON, because that is the only way to assert
-// the second half — a rule that only holds while nothing is at stake is not the
-// rule OQ-R3 needs. Without this scoping the two rulings collide and an old-passt
-// host cannot launch a jail at all, which is precisely the refusal that was
-// rejected.
+// It runs in the SHIPPED mode, which is now the fatal — a rule that only held while
+// nothing was at stake was never the rule OQ-R3 needs. Without this scoping the two
+// rulings collide and an old-passt host cannot launch a jail at all, which is
+// precisely the refusal that was rejected.
 func TestReachabilityProbeScopesAnUnsupportedHostAsALimitation(t *testing.T) {
 	shrinkReachabilityBudget(t)
-	withReachabilityFatal(t)
 
 	got, err := runProbe(t, brokenServiceVars(t, map[string]string{
 		paths.HostLoopbackEnvVar: paths.HostLoopbackUnsupported,
@@ -808,15 +873,21 @@ func TestReachabilityProbeScopesAnUnsupportedHostAsALimitation(t *testing.T) {
 // split. yolo asked this host's stack to forward loopback and the service is still
 // unreachable, so the network option is the one thing already ruled out — saying so
 // is what stops a reader spending an afternoon on pasta flags for a daemon that is
-// simply not running. In warn mode it is still only a warning.
+// simply not running.
+//
+// This is the disposition the fatal was written for, so the verdict and the refusal
+// are asserted together: the same launch that gets the fault WORDING gets the fault
+// SEVERITY, and a change that split them would leave a jail told it has a fault and
+// started anyway.
 func TestReachabilityProbeCallsRequestedForwardingAFault(t *testing.T) {
 	shrinkReachabilityBudget(t)
 
 	got, err := runProbe(t, brokenServiceVars(t, map[string]string{
 		paths.HostLoopbackEnvVar: paths.HostLoopbackRequested,
 	}))
-	if err != nil {
-		t.Errorf("the witness is still in WARN mode and must not abort the boot: %v", err)
+	if err == nil {
+		t.Error("forwarding was requested and the service is still unreachable — the case " +
+			"OQ-R2's fatal exists for; genFailuresError returned nil")
 	}
 	if !strings.Contains(got, "FAULT") {
 		t.Errorf("a launch that requested forwarding and still cannot reach the service must be "+
@@ -825,10 +896,11 @@ func TestReachabilityProbeCallsRequestedForwardingAFault(t *testing.T) {
 	if strings.Contains(got, "KNOWN LIMITATION") {
 		t.Errorf("forwarding was requested, so this is not a host limitation, got:\n%s", got)
 	}
-	// Warn mode has nothing to escape, and a hatch advertised before it does
-	// anything is one people set once and forget.
-	if strings.Contains(got, paths.AllowUnreachableServicesEnv) {
-		t.Errorf("the hatch must stay quiet while it is suppressing nothing, got:\n%s", got)
+	// The refusal has to carry the way past itself; the hatch is only silent where
+	// it is suppressing nothing, and here it is the difference between a shell and
+	// no jail.
+	if !strings.Contains(got, paths.AllowUnreachableServicesEnv) {
+		t.Errorf("a refusal must name the override that gets past it, got:\n%s", got)
 	}
 }
 
@@ -845,14 +917,23 @@ func TestReachabilityProbeCallsRequestedForwardingAFault(t *testing.T) {
 // does not have. The shared text does name pasta and slirp4netns, and that is the
 // opposite failure: it names them to say they are NOT in the path, which is the first
 // thing a reader of this repo will otherwise go and check.
+//
+// OQ-R5 also puts this disposition in the ESCALATING set, and the two halves are
+// asserted together on purpose. `shared` is the strongest case in the set — no
+// forwarding hop means no host limitation to hide behind — so it refuses the launch;
+// and the verdict it refuses with is the reason the widening could not ship before
+// the spellings did, because the single verdict this file used to have opened "yolo
+// requested host-loopback forwarding", which is false of a launch that never needed
+// any. That phrase is in the forbidden list below for exactly that reason.
 func TestReachabilityProbeExplainsASharedNamespaceOnItsOwnTerms(t *testing.T) {
 	shrinkReachabilityBudget(t)
 
 	got, err := runProbe(t, brokenServiceVars(t, map[string]string{
 		paths.HostLoopbackEnvVar: paths.HostLoopbackShared,
 	}))
-	if err != nil {
-		t.Errorf("the witness is still in WARN mode and must not abort the boot: %v", err)
+	if err == nil {
+		t.Error("a shared namespace has no forwarding hop to blame, which OQ-R5 calls the " +
+			"strongest case in the set; genFailuresError returned nil")
 	}
 	if !strings.Contains(got, "claude-oauth-broker") {
 		t.Errorf("the service must still be named, got:\n%s", got)
@@ -862,10 +943,11 @@ func TestReachabilityProbeExplainsASharedNamespaceOnItsOwnTerms(t *testing.T) {
 			"got:\n%s", got)
 	}
 	for _, misleading := range []string{
-		"podman info --format", // the unattributed paragraph's command
-		"--map-host-loopback",  // the flag an old-passt host is told to upgrade for
-		"KNOWN LIMITATION",     // the unsupported verdict
-		"yolo DID ask",         // the fault paragraph's opening
+		"podman info --format",                    // the unattributed paragraph's command
+		"--map-host-loopback",                     // the flag an old-passt host is told to upgrade for
+		"KNOWN LIMITATION",                        // the unsupported verdict
+		"yolo DID ask",                            // the fault paragraph's opening
+		"yolo requested host-loopback forwarding", // the requested verdict's opening
 	} {
 		if strings.Contains(got, misleading) {
 			t.Errorf("this jail has no forwarding hop, so %q sends the reader to check machinery "+
@@ -925,17 +1007,16 @@ func TestReachabilityProbeRecordsWhichLauncherStateItSaw(t *testing.T) {
 	}
 }
 
-// TestReachabilityProbeFatalModeFailsOnlyAFault runs the end state OQ-R2 ruled and
-// asserts both halves of it at once: a fault aborts the boot, and the refusal names
-// the way past itself.
+// TestReachabilityProbeRefusesAFaultAndNamesTheWayPast asserts both halves of
+// OQ-R2's ruling at once: a fault aborts the boot, and the refusal names the way
+// past itself.
 //
 // The escape hatch is not optional politeness here. The daemon the user has to fix
 // is on the HOST, and the shell they would fix it from is in the jail that just
 // refused to start; a fatal with no override is a tool that locks the door and
 // posts the key inside.
-func TestReachabilityProbeFatalModeFailsOnlyAFault(t *testing.T) {
+func TestReachabilityProbeRefusesAFaultAndNamesTheWayPast(t *testing.T) {
 	shrinkReachabilityBudget(t)
-	withReachabilityFatal(t)
 
 	got, err := runProbe(t, brokenServiceVars(t, map[string]string{
 		paths.HostLoopbackEnvVar: paths.HostLoopbackRequested,
@@ -959,7 +1040,6 @@ func TestReachabilityProbeFatalModeFailsOnlyAFault(t *testing.T) {
 // matters most: nothing was repaired.
 func TestReachabilityProbeEscapeHatchKeepsTheJail(t *testing.T) {
 	shrinkReachabilityBudget(t)
-	withReachabilityFatal(t)
 
 	got, err := runProbe(t, brokenServiceVars(t, map[string]string{
 		paths.HostLoopbackEnvVar:          paths.HostLoopbackRequested,
@@ -980,44 +1060,75 @@ func TestReachabilityProbeEscapeHatchKeepsTheJail(t *testing.T) {
 	}
 }
 
-// TestReachabilityProbeHatchStaysQuietInWarnMode is the hatch's OTHER contract, and
-// the one a green suite was not holding: it may only speak where it is actually
-// saving a launch.
+// TestReachabilityProbeHatchStaysQuietWhereItSuppressesNothing is the hatch's OTHER
+// contract, and the one a green suite was not holding: it may only speak where it is
+// actually saving a launch.
 //
 // The sibling tests assert that the hatch is not mentioned — but they never SET it,
-// so they hold whatever the code does with it, and the `reachabilityFatal &&` guard
-// in reportUnreachableFault could be deleted with every test still green. This sets
-// it, in the shipped (warn) mode, where it is suppressing nothing.
-//
-// What goes wrong without the guard is not cosmetic. The override notice REPLACES the
-// finding: a user who set the variable once — on the host, in front of `yolo`, from
-// where it is forwarded into every jail — would get "CONTINUING with … unreachable"
-// on a launch that was never at risk, and would lose the FAULT attribution that says
-// the forwarding is already ruled out. That is the same rule
+// so they hold whatever the code does with it. What goes wrong is not cosmetic: the
+// override notice REPLACES the finding, so a user who set the variable once — on the
+// host, in front of `yolo`, from where it is forwarded into every jail — would get
+// "CONTINUING with … unusable" on a launch that was never at risk, and would lose the
+// attribution that says where to look. That is the same rule
 // internal/cli/run/hostloopback.go's own opt-out follows, and it is pinned there.
-func TestReachabilityProbeHatchStaysQuietInWarnMode(t *testing.T) {
+//
+// There are two ways to be suppressing nothing and they are guarded by two different
+// pieces of code, so both are here:
+//
+//   - A DISPOSITION THAT CANNOT ESCALATE. This is the live one — `unsupported` on a
+//     shipped, fatal binary — and what keeps it quiet is the early return in
+//     ProbeServiceReachability, not the hatch's own guard.
+//   - WARN MODE, which no boot path can reach any more and which exists as a test seam
+//     for precisely this: it is the only thing that would notice `reachabilityFatal &&`
+//     being dropped from reportUnusableServices, since in a binary that is always fatal
+//     that conjunct is a tautology.
+func TestReachabilityProbeHatchStaysQuietWhereItSuppressesNothing(t *testing.T) {
 	shrinkReachabilityBudget(t)
-	// Deliberately NOT withReachabilityFatal: warn mode is what ships today.
 
-	got, err := runProbe(t, brokenServiceVars(t, map[string]string{
-		paths.HostLoopbackEnvVar:          paths.HostLoopbackRequested,
-		paths.AllowUnreachableServicesEnv: "1",
-	}))
-	if err != nil {
-		t.Errorf("the witness is in warn mode; nothing may abort the boot: %v", err)
-	}
-	if !strings.Contains(got, "FAULT") {
-		t.Errorf("the hatch suppressed a finding it was not saving anything from — the "+
-			"fault attribution is the whole content of this warning. got:\n%s", got)
-	}
-	if strings.Contains(got, "CONTINUING") {
-		t.Errorf("nothing was continued past: the launch was never at risk in warn mode, "+
-			"and an override that announces itself on launches it is not saving is one "+
-			"people stop reading. got:\n%s", got)
-	}
-	if strings.Contains(got, paths.AllowUnreachableServicesEnv) {
-		t.Errorf("the hatch must stay quiet while it is suppressing nothing, got:\n%s", got)
-	}
+	t.Run("a disposition that cannot escalate", func(t *testing.T) {
+		got, err := runProbe(t, brokenServiceVars(t, map[string]string{
+			paths.HostLoopbackEnvVar:          paths.HostLoopbackUnsupported,
+			paths.AllowUnreachableServicesEnv: "1",
+		}))
+		if err != nil {
+			t.Errorf("OQ-R3 keeps this launch alive with or without the hatch: %v", err)
+		}
+		if !strings.Contains(got, "KNOWN LIMITATION") {
+			t.Errorf("the hatch suppressed a finding it was not saving anything from — the "+
+				"limitation attribution is the whole content of this warning. got:\n%s", got)
+		}
+		if strings.Contains(got, "CONTINUING") {
+			t.Errorf("nothing was continued past: this host was never going to be refused, "+
+				"and an override that announces itself on launches it is not saving is one "+
+				"people stop reading. got:\n%s", got)
+		}
+		if strings.Contains(got, paths.AllowUnreachableServicesEnv) {
+			t.Errorf("the hatch must stay quiet while it is suppressing nothing, got:\n%s", got)
+		}
+	})
+
+	t.Run("warn mode", func(t *testing.T) {
+		withReachabilityWarn(t)
+
+		got, err := runProbe(t, brokenServiceVars(t, map[string]string{
+			paths.HostLoopbackEnvVar:          paths.HostLoopbackRequested,
+			paths.AllowUnreachableServicesEnv: "1",
+		}))
+		if err != nil {
+			t.Errorf("a warn-mode witness may not abort the boot: %v", err)
+		}
+		if !strings.Contains(got, "FAULT") {
+			t.Errorf("the hatch suppressed a finding it was not saving anything from — the "+
+				"fault attribution is the whole content of this warning. got:\n%s", got)
+		}
+		if strings.Contains(got, "CONTINUING") {
+			t.Errorf("nothing was continued past: the launch was never at risk in warn mode. "+
+				"got:\n%s", got)
+		}
+		if strings.Contains(got, paths.AllowUnreachableServicesEnv) {
+			t.Errorf("the hatch must stay quiet while it is suppressing nothing, got:\n%s", got)
+		}
+	})
 }
 
 // TestReachabilityProbeFatalModeStaysSilentOnAHealthyJail. The single most
@@ -1026,7 +1137,6 @@ func TestReachabilityProbeHatchStaysQuietInWarnMode(t *testing.T) {
 // will not start.
 func TestReachabilityProbeFatalModeStaysSilentOnAHealthyJail(t *testing.T) {
 	shrinkReachabilityBudget(t)
-	withReachabilityFatal(t)
 	dir := servicesDir(t)
 
 	got, err := runProbe(t, map[string]string{
@@ -1042,41 +1152,28 @@ func TestReachabilityProbeFatalModeStaysSilentOnAHealthyJail(t *testing.T) {
 	}
 }
 
-// TestReachabilityWitnessShipsInWarnMode pins the ONE value whose flip costs a jail.
+// TestReachabilityProbeEscalatesOnTheDispositionAndNotTheFault is the whole severity
+// rule stated as a sweep rather than as a handful of examples, in the mode that ships.
+// Every cell of {what shape the endpoint is in} × {what the launcher said} × {is the
+// hatch set} is driven through genFailuresError — the value Main branches on, and so
+// the only honest subject — and the expected answer is computed from the two axes that
+// are allowed to matter.
 //
-// reachability.go names exactly what is still owed before it may become true — an
-// observation at a real boot on a healthy host, which has not happened — and the file
-// is written so that the flip is a one-character edit. That is precisely why it needs
-// a guard: the change that turns every unreachable-service launch into a refusal is
-// indistinguishable, in a diff, from a typo, and nothing else in the tree would fail.
+// The point of the sweep is the SHAPE axis being absent from that computation. Since
+// OQ-R4 the fault class does not enter into severity at all: an endpoint the host never
+// published, one that does not parse, a directory squatting the path and an address
+// that answers nothing are four different things to go and fix and the same thing to a
+// jail, which is a transport it was promised and does not have. Before the widening,
+// three of these four columns were warnings and one was a refusal.
 //
-// This test is not asserting that warn mode is right forever. It is asserting that the
-// flip is a DELIBERATE act: whoever flips it deletes this test and writes down that the
-// observation happened.
-func TestReachabilityWitnessShipsInWarnMode(t *testing.T) {
-	if reachabilityFatal {
-		t.Fatal("reachabilityFatal is true. OQ-R2's flip is gated on one thing that is not " +
-			"code: this probe has never been observed at a real boot on a healthy host. " +
-			"Until it has, a false positive here costs a jail rather than a log line — see " +
-			"the WARN MODE section of reachability.go.")
-	}
-}
-
-// TestReachabilityProbeInShippedModeCannotAbortAnyBoot is the launch-safety property
-// stated as a sweep rather than as three examples: in the mode that SHIPS, no
-// combination of what the launcher said, what shape the endpoint is in, and whether
-// the escape hatch is set may produce an error out of genFailuresError.
-//
-// genFailuresError is the value Main branches on, so it is the only honest subject.
-// The disposition axis includes a value this binary does not know, because the image
-// and the launcher version independently (AGENTS.md: the baked binaries are frozen at
-// the last host `just load`) and an unrecognised spelling must never be read as
-// permission to fail a launch. The hatch axis includes "0" and "false", because the
-// hatch is a "any non-empty value" switch and a reader who assumes otherwise would be
-// wrong in the direction that keeps a jail down.
-func TestReachabilityProbeInShippedModeCannotAbortAnyBoot(t *testing.T) {
+// The disposition axis carries a value this binary does not know, because the image and
+// the launcher version independently (AGENTS.md: the baked binaries are frozen at the
+// last host `just load`), and an unrecognised spelling must never be read as permission
+// to fail a launch. The hatch axis carries "0" and "false" because the hatch is an "any
+// non-empty value" switch, and a reader who assumes otherwise would be wrong in the
+// direction that keeps a jail down.
+func TestReachabilityProbeEscalatesOnTheDispositionAndNotTheFault(t *testing.T) {
 	shrinkReachabilityBudget(t)
-	// Deliberately NOT withReachabilityFatal: the subject is the shipped mode.
 
 	shapes := map[string]func(t *testing.T, dir string) string{
 		"an address that answers nothing": func(t *testing.T, dir string) string {
@@ -1098,35 +1195,53 @@ func TestReachabilityProbeInShippedModeCannotAbortAnyBoot(t *testing.T) {
 			return p
 		},
 	}
-	dispositions := []string{
-		"",
-		paths.HostLoopbackRequested,
-		paths.HostLoopbackShared,
-		paths.HostLoopbackUnsupported,
-		paths.HostLoopbackUnknown,
-		"a-spelling-from-a-newer-launcher",
+	// The second field is the whole of what severity is allowed to depend on. Absent,
+	// unsupported, unknown and a spelling from the future are all false, and OQ-R3 is
+	// the reason: a host yolo could not ask, or a launch nothing was established
+	// about, must never be refused for what it cannot help.
+	dispositions := []struct {
+		value     string
+		escalates bool
+	}{
+		{"", false},
+		{paths.HostLoopbackRequested, true},
+		{paths.HostLoopbackShared, true},
+		{paths.HostLoopbackUnsupported, false},
+		{paths.HostLoopbackUnknown, false},
+		{"a-spelling-from-a-newer-launcher", false},
 	}
 	hatches := []string{"", "1", "0", "false"}
 
 	for shapeName, mkShape := range shapes {
 		for _, disp := range dispositions {
 			for _, hatch := range hatches {
-				name := shapeName + "/disposition=" + orNone(disp) + "/hatch=" + orNone(hatch)
+				name := shapeName + "/disposition=" + orNone(disp.value) + "/hatch=" + orNone(hatch)
 				t.Run(name, func(t *testing.T) {
 					vars := map[string]string{
 						"JAIL_HOME": t.TempDir(),
 						paths.ServiceEnvVarPrefix + "CLAUDE_OAUTH_BROKER" + paths.ServiceEnvVarSuffix: mkShape(t, servicesDir(t)),
 					}
-					if disp != "" {
-						vars[paths.HostLoopbackEnvVar] = disp
+					if disp.value != "" {
+						vars[paths.HostLoopbackEnvVar] = disp.value
 					}
 					if hatch != "" {
 						vars[paths.AllowUnreachableServicesEnv] = hatch
 					}
 					got, err := runProbe(t, vars)
-					if err != nil {
-						t.Errorf("the shipped witness is a WARNING and may not abort a boot for "+
-							"any input: %v", err)
+
+					// The hatch is the second gate and it applies only where there was
+					// something to suppress: an escalating launch with any non-empty value
+					// keeps its jail, and says so.
+					wantAbort := disp.escalates && hatch == ""
+					switch {
+					case wantAbort && err == nil:
+						t.Errorf("this launch is enabled-and-unusable with a disposition that can "+
+							"carry a verdict; it must refuse (OQ-R2/R4). output:\n%s", got)
+					case !wantAbort && err != nil:
+						t.Errorf("nothing here may cost a jail: %v", err)
+					}
+					if disp.escalates && hatch != "" && !strings.Contains(got, "CONTINUING") {
+						t.Errorf("the hatch saved this launch and must say so, got:\n%s", got)
 					}
 					// Guard the guard: a sweep whose fixtures stopped being broken would
 					// pass for the wrong reason and cover nothing.
@@ -1162,7 +1277,6 @@ func orNone(s string) string {
 // thing a future edit might mistake for something to act on.
 func TestReachabilityProbeNeverEscalatesWhatItCannotAttribute(t *testing.T) {
 	shrinkReachabilityBudget(t)
-	withReachabilityFatal(t)
 
 	cases := map[string]map[string]string{
 		"absent":                 {},
@@ -1180,6 +1294,47 @@ func TestReachabilityProbeNeverEscalatesWhatItCannotAttribute(t *testing.T) {
 				t.Errorf("it must still be reported, just not escalated, got:\n%s", got)
 			}
 		})
+	}
+}
+
+// TestBootRunsTheWitnessAboveTheGateThatAbortsTheBoot pins the one property of the
+// flip that lives in boot.go rather than in this file, and that no runtime test in
+// this package can reach: Main ends in execBash, which replaces the process, so
+// nothing here can call it.
+//
+// The property is an ORDERING and it is what makes a refused boot readable. The
+// witness has to run AFTER every generator, so a jail with a broken pack surface and
+// an unreachable daemon reports both on the same boot instead of one per restart
+// (A12's rule, which genStep already follows) — and BEFORE genFailuresError, or its
+// e.genFailure lands after the value Main branches on has already been read and the
+// refusal simply never happens. Neither half is visible in a diff that moves one
+// line, and the second half is a fatal that silently reverts to a warning.
+//
+// Pinned by reading the source, the same way shippedclients_test.go pins the ship set
+// and bootlog_test.go pins the log wiring. Brittle by construction, and cheaper than
+// the failure it prevents.
+func TestBootRunsTheWitnessAboveTheGateThatAbortsTheBoot(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "boot.go"))
+	if err != nil {
+		t.Fatalf("reading boot.go: %v", err)
+	}
+	got := string(src)
+
+	probe := strings.Index(got, "ProbeServiceReachability(e)")
+	gate := strings.Index(got, "if err := genFailuresError(e); err != nil {")
+	lastGen := strings.LastIndex(got, "genStep(e, ")
+	if probe < 0 || gate < 0 || lastGen < 0 {
+		t.Fatalf("boot.go no longer contains the three landmarks this ordering is about "+
+			"(probe=%d, gate=%d, last genStep=%d)", probe, gate, lastGen)
+	}
+	if probe > gate {
+		t.Error("the witness must run BEFORE genFailuresError, or the failure it records is " +
+			"collected after the boot has already decided to continue — a fatal that reverts " +
+			"to a warning with nothing in the diff to show it")
+	}
+	if lastGen > probe {
+		t.Error("every generator must run BEFORE the witness, or a boot with two problems " +
+			"reports one of them per restart (A12)")
 	}
 }
 
