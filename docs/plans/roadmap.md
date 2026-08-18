@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 10 needing you · 2 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
+**Status: 10 needing you · 2 ready · 0 in progress · 3 waiting · 2 broken · 2 icebox.**
 
 Last updated **2026-08-18**. Counts tallied from this file, not asserted.
 
@@ -187,10 +187,21 @@ one-line deliverable that is decided in all but name.
   `reachabilityFatal = true`, both modes are under test, and a **guard test fails if the flip lands
   with the observation still owed** — so it cannot happen by accident or by tidy-up.
 
-  **Still owed, and it is the whole gate:** observe the probe at one real boot on a healthy host. It
-  has never run at a genuine container start — every green is a unit test against an in-process
-  listener — and this host's own services were unreachable until the launcher fix landed. 📄
+  **The healthy half is now observed** (2026-08-18, this host, after a real deploy + restart): the
+  jail was told `YOLO_HOST_LOOPBACK=requested`, both endpoints published as regular files, and both
+  answered through the witness's own path — `svcendpoint.Read` + `Dial`, TLS, cert-pinned,
+  token-authenticated — in 1–2 ms. So the witness had nothing to say, which is the silence the gate
+  asked for. *Measured with a throwaway client on that exact code path, not by watching the witness
+  function itself run; the boot log below is what closes that last inch.*
+
+  **Still owed:** the LOUD half — one boot where a service really is unreachable, confirming the
+  witness says so rather than misfiring or staying quiet. Plus 💬 1 above. 📄
   [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §7, §10.
+
+  *Newly cheap: the entrypoint now writes `<workspace>/.yolo/boot.log` (previous boot kept beside
+  it), so the witness's verdict is readable after the fact from inside the jail and — because
+  `.yolo/` is bind-mounted from the host — after a boot that refused. Takes a host `just load` to
+  appear, since the entrypoint is baked.*
 
 ---
 
@@ -218,17 +229,6 @@ one-line deliverable that is decided in all but name.
 ---
 
 # 🔒 Waiting
-
-- 🔒 **The pasta fix is built but unverified on a real host.** The launcher now reads `podman info`
-  and emits `--network=pasta:--map-host-loopback,…` on the default path, fail-safe in every unproven
-  case. The **flag itself is measured** (a real `podman run` reproduces the outage and the flag fixes
-  it, podman 5.8.4 + pasta 2026_07_16). What is unverified is a real `yolo` launch on the affected
-  host — and a nested jail **cannot** verify it, by construction. The host's passt is `2026_07_16`, which
-  **does** carry the flag — so the degraded path is not exercised here at all.
-
-  *Now covered by 19 adverse host shapes assembled through `assembleRunCmd` and compared byte-for-byte
-  with the pre-feature argv, so "the worst case is today's behaviour" is measured rather than
-  asserted. That is not the same as a real launch.*
 
 - 🔒 **The slirp4netns fallback is built, and it is two flags rather than one.** An old-passt host now
   falls back instead of merely being told why it cannot work — but only when **podman itself** reports
