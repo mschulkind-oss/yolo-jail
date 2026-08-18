@@ -114,7 +114,8 @@ const (
 //
 // So the residual is a RELEASE NOTE, and the population is smaller than it looks.
 // For the three BUNDLED manifests reverse skew is structurally impossible: they are
-// go:embed'd, and internal/loopholes' materializeEmbedded is content-addressed over
+// embedded into the binary with go:embed, and internal/loopholes' materializeEmbedded
+// is content-addressed over
 // the embedded bytes, so a binary reads its own copy and never a newer one. The lone
 // exception is BundledLoopholesDir preferring a repo checkout when one resolves —
 // a yolo-jail developer whose binary predates this change and whose checkout does
