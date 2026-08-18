@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 9 needing you · 3 ready · 0 in progress · 3 waiting · 2 broken · 2 icebox.**
+**Status: 9 needing you · 2 ready · 0 in progress · 3 waiting · 2 broken · 2 icebox.**
 
 Last updated **2026-08-18**. Counts tallied from this file, not asserted.
 
@@ -149,18 +149,6 @@ one-line deliverable that is decided in all but name.
 
 **Ordered by:** what unblocks something else, then what protects a live user, then cost.
 
-- 📦 **Spell every disposition state on the wire (OQ-R6, answered).** *Unblocks OQ-R5's severity.*
-
-  `YOLO_HOST_LOOPBACK` carries four states in three spellings today: `requested`, `unsupported`, and
-  an *absent* that means both "this jail shares my network namespace" and "I could not tell". Split
-  them — add `shared` and `unknown` — leaving absent to mean only "launcher older than the variable",
-  which maps to the same never-escalate default as `unknown`.
-
-  Small and mechanical (the predicate exists: `advertiseHostFor` already computes shared-namespace to
-  decide what every daemon publishes), but it is a **prerequisite, not a companion**: R5's ruling
-  cannot ship before it, because escalating today's absent would escalate genuine ignorance. 📄
-  [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) OQ-R6.
-
 - 📦 **Close the blocking-open hazard in `svcendpoint.Read` itself.** *A real defect, found by
   mutation, fixed only at the boot path.*
 
@@ -182,9 +170,10 @@ one-line deliverable that is decided in all but name.
   The probe landed in **warn mode** and its call site is already immediately above
   `genFailuresError`. **Built since:** the `YOLO_ALLOW_STALE_IMAGE`-shaped opt-out
   (`YOLO_ALLOW_UNREACHABLE_SERVICES=1`, forwarded into the jail because that is where it is
-  honoured), and the **scoping** — the launcher carries `YOLO_HOST_LOOPBACK=requested|unsupported`
-  into the jail so an old-passt host reports a known limitation and launches (OQ-R3) while a launch
-  that *did* request forwarding and still cannot reach a service is a fault. The flip is now literally
+  honoured), and the **scoping** — the launcher carries
+  `YOLO_HOST_LOOPBACK=requested|shared|unsupported|unknown` into the jail so an old-passt host
+  reports a known limitation and launches (OQ-R3) while a launch that *did* request forwarding and
+  still cannot reach a service is a fault. The flip is now literally
   `reachabilityFatal = true`, both modes are under test, and a **guard test fails if the flip lands
   with the observation still owed** — so it cannot happen by accident or by tidy-up.
 
@@ -194,10 +183,13 @@ one-line deliverable that is decided in all but name.
   port produced the warning, the address, the `requested` diagnosis that correctly points **away**
   from the network stack, and the FAULT verdict — with the jail still starting, because warn mode.
 
-  **Ships as three changes together**, because the first is a prerequisite and the other two are
-  invisible until the fatal is on:
+  **The prerequisite has landed:** all four disposition spellings ship, so the launcher now says
+  `shared` on a jail that shares its network namespace and `unknown` where it reached no conclusion,
+  and the witness reads both. What is left is three severity changes, invisible until the fatal is
+  on and therefore shipping together:
 
-  1. the `shared` / `unknown` spellings (the 📦 item above);
+  1. add `shared` to the escalating set (OQ-R5) — and fix `unreachableFaultMessage` with it, which
+     opens *"yolo requested host-loopback forwarding"*, false for a launch that never needed any;
   2. widen the escalation set to **all three** fault classes (OQ-R4) — today only `faultUnreachable`
      escalates;
   3. `reachabilityFatal = true`, plus deleting the guard test that currently blocks it.

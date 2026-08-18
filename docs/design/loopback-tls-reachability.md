@@ -418,9 +418,16 @@ merely correct, it is the ONLY thing that works."* No gateway name, no forwardin
 stack in the path: a service unreachable there has no ambiguity to hide in.
 
 > [!NOTE]
-> **Build status:** `requested` / `unsupported` / absent are shipped. `shared` and `unknown` are
-> **not yet spelled** — both are absent today — so OQ-R5's severity cannot ship until they are.
-> Shipping it first would escalate genuine ignorance.
+> **Build status:** all four spellings ship. The launcher emits one on **every** launch, so absent
+> now means only "older launcher" — `shared` is decided at the emission point in
+> [`assemble.go`](../../internal/cli/run/assemble.go), not inside `decideHostLoopback`, because the
+> shapes that have it branch to `--net=host` *above* that call and never reach it; it reads the same
+> `sharesLauncherNetns` predicate `advertiseHostFor` uses, so the severity the witness applies and
+> the address the daemons publish cannot disagree. The witness recognises both new values and gives
+> `shared` its own diagnosis (naming pasta only to rule it out — there is no forwarding hop in that
+> mode). **What is left of OQ-R5 is the severity:** `shared` is not in the escalating set yet. It
+> joins with the flip, and not alone — the fault verdict opens *"yolo requested host-loopback
+> forwarding"*, which is false for a launch that never needed any.
 
 ### 7.3 Which fault classes escalate
 
@@ -480,8 +487,10 @@ flip lands while anything below is still owed.
   `requested` diagnosis — which correctly points *away* from the network stack — and the FAULT
   verdict, with the jail still starting because warn mode.
 
-**Nothing is left to decide.** What remains is code: the `shared`/`unknown` spellings ([§7.2](#72-what-may-escalate)),
-widening the escalation set ([§7.3](#73-which-fault-classes-escalate)), and the flip itself.
+**Nothing is left to decide.** What remains is code, and the prerequisite of it — the four
+disposition spellings ([§7.2](#72-what-may-escalate)) — has landed: adding `shared` to the escalating
+set, widening the escalation to all three fault classes ([§7.3](#73-which-fault-classes-escalate)),
+and the flip itself.
 
 Boot output is persisted to `<workspace>/.yolo/boot.log` (previous boot kept beside it). That
 directory is bind-mounted from the host, so the log survives a boot that refused — the state the flip
@@ -532,13 +541,14 @@ underlying asymmetry is not closed and cannot be: `yolo check` still cannot fail
 ## 10. Status
 
 **Built:** the launcher fix and its ladder (§6), the in-jail witness in warn mode (§7), the escape
-hatch, the `requested`/`unsupported` spellings, the boot log, `yolo check`'s honesty labels, and the
-`AGENTS.md` carve-out.
+hatch, **all four disposition spellings** ([§7.2](#72-what-may-escalate)) with absent reserved for a
+launcher older than the variable, the boot log, `yolo check`'s honesty labels, and the `AGENTS.md`
+carve-out.
 
-**Not built:** the `shared` and `unknown` spellings ([§7.2](#72-what-may-escalate)), widening the
-escalation set to all three fault classes ([§7.3](#73-which-fault-classes-escalate)), and the flip
-itself ([§7.4](#74-current-mode-and-the-flip)). They ship together: the spellings are a prerequisite,
-and the other two are invisible until the fatal is on.
+**Not built:** the three severity changes, which ship together because two of them are invisible
+until the fatal is on — adding `shared` to the escalating set ([§7.2](#72-what-may-escalate), OQ-R5),
+widening the escalation to all three fault classes ([§7.3](#73-which-fault-classes-escalate)), and
+the flip itself ([§7.4](#74-current-mode-and-the-flip)). Their prerequisite is now in place.
 
 **Blocked on nothing.** Every question this document raised is answered; the remaining work is
 listed above and sequenced in the roadmap.
