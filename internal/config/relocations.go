@@ -33,10 +33,10 @@ type CacheRelocation struct {
 // from a jail-writable file is agent-controlled, and this key hands out
 // read-write host mounts. Of the three places a config key can come from, two
 // are jail-writable: the workspace yolo-jail{,.local}.jsonc (/workspace is
-// bind-mounted rw) and <workspace>/.yolo/config-snapshot.json (same mount, and
+// bind-mounted rw) and <workspace>/.yolo/config-assembled.json (same mount, and
 // read verbatim in-jail by LoadConfig). Only the host user config is not. So
 // this loader must never consult the merged config, the workspace config, or
-// the snapshot — reading paths.UserConfigPath() directly makes workspace scope
+// the delivered assembled config — reading paths.UserConfigPath() directly makes workspace scope
 // inexpressible by construction. validateCacheRelocations' workspace-scope
 // error is defense-in-depth against a silent no-op, not the boundary itself.
 //

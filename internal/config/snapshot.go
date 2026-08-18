@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // SnapshotJSON returns the config-snapshot bytes: 2-space indent, sorted keys,
@@ -15,67 +17,216 @@ func SnapshotJSON(config *jsonx.OrderedMap) (string, error) {
 	return jsonx.DumpsSnapshot(config)
 }
 
-// ConfigSnapshotPath is <workspace>/.yolo/config-snapshot.json.
-func ConfigSnapshotPath(workspace string) string {
+// ApprovalSnapshotPath is the HOST-SIDE record of the merged config a human last
+// approved for a workspace:
+// $HOME/.local/share/yolo-jail/approvals/<container-name>.json.
+//
+// It used to live at <workspace>/.yolo/config-snapshot.json and that was the
+// defect (docs/design/config-safety.md, OQ-D1). The workspace is bind-mounted
+// READ-WRITE, so whatever can edit yolo-jail.jsonc could also rewrite the only
+// record of what was last approved — and the next launch then had nothing to
+// show. Note the shape of it: DELETING the record has always failed safe, so
+// what was missing is integrity, not secrecy, which is why moving the file is
+// the whole fix and signing it or mounting it read-only would be machinery the
+// problem does not need.
+//
+// The key is runtime.FromWorkspace's deterministic container name, the same key
+// paths.ContainerDir and paths.AgentsDir use for their per-workspace state, and
+// for the same reason: the name already resolves symlinks and an absolute path
+// to one stable string, and a second keying scheme would be a second thing to
+// keep in step with it. The one cost of moving host-side is that a workspace
+// copied or moved elsewhere loses its approval baseline and re-prompts — the
+// direction to fail in.
+func ApprovalSnapshotPath(workspace string) string {
+	if workspace == "" {
+		workspace = cwd()
+	}
+	return filepath.Join(paths.ApprovalsDir(), runtime.FromWorkspace(workspace)+".json")
+}
+
+// LegacyWorkspaceSnapshotPath is where the approval snapshot lived BEFORE OQ-D1:
+// <workspace>/.yolo/config-snapshot.json.
+//
+// It survives only as a MIGRATION SIGNAL, and it is never read as a baseline. Its
+// content is exactly what the ruling declares untrustworthy — a file the jail
+// could have written — so adopting it once "to avoid a prompt" would carry the
+// defect across the very change that closes it. Its mere PRESENCE, though, is
+// trustworthy enough for the one thing we use it for: it says this workspace has
+// been launched before, so the absence of a host-side record is a migration and
+// not a first run. That distinction matters, because first run accepts silently
+// and a migration must not.
+func LegacyWorkspaceSnapshotPath(workspace string) string {
+	if workspace == "" {
+		workspace = cwd()
+	}
 	return filepath.Join(workspace, ".yolo", "config-snapshot.json")
 }
+
+// AcceptConfigChangesFlag is the CLI flag that grants config-change approval on a
+// launch with nobody to prompt (docs/design/config-safety.md, OQ-D2).
+//
+// A FLAG AND NOT AN ENVIRONMENT VARIABLE, deliberately, even though this repo's
+// other bypasses (YOLO_ALLOW_STALE_IMAGE, YOLO_ALLOW_UNREACHABLE_SERVICES) are env
+// vars. Those suppress a DIAGNOSIS; this one grants an APPROVAL. An env var is
+// inherited by every child process and survives in a shell for the rest of a
+// session — precisely the property a per-launch approval must not have.
+//
+// The spelling lives here rather than in internal/cli because the REFUSAL MESSAGE
+// has to name it (its reader is by construction someone who cannot be prompted),
+// and the message is composed in this package. internal/cli's parser reads the
+// constant back, so the flag a user is told to pass and the flag the parser
+// accepts cannot drift apart.
+const AcceptConfigChangesFlag = "--accept-config-changes"
 
 // ChangePrompter decides interactive config-change acceptance. It receives the
 // rendered unified diff lines (fromfile "previous config", tofile "current
 // config", lineterm "") and returns true to accept. It is only invoked on a
-// TTY; the non-tty auto-accept path never calls it.
+// TTY; the non-interactive path refuses (or is granted by the flag) without ever
+// calling it.
 type ChangePrompter interface {
 	// Prompt renders the diff and asks "Accept these config changes? [y/N]".
 	// Returns accept=true iff the user answered y/yes.
 	Prompt(diffLines []string) bool
 }
 
-// CheckConfigChanges compares config against the last-seen snapshot; returns
+// ChangedNonInteractiveError is the refused launch of OQ-D2: the merged config
+// changed since the last approval, there is no terminal to ask on, and
+// AcceptConfigChangesFlag was not passed.
+//
+// It carries the diff as LINES rather than as one pre-rendered blob so the caller
+// can colour it exactly as the interactive prompt does — the two paths show the
+// same change to the same reader, and only the ending differs. Error() still
+// renders the whole thing (headline, plain diff, advice) so a caller that only
+// knows how to print an error loses nothing.
+type ChangedNonInteractiveError struct {
+	// WorkspaceConfig and UserConfig name the two files the merged config comes
+	// from. Both are named because either one can be what moved: the snapshot
+	// stores the MERGE, so a user-level edit shows up here exactly like a
+	// workspace-level one, and a reader told only about yolo-jail.jsonc would go
+	// looking in the wrong file.
+	WorkspaceConfig string
+	UserConfig      string
+	// SnapshotPath is the host-side approval record this was diffed against.
+	SnapshotPath string
+	// DiffLines is the unified diff, previous approved config → current.
+	DiffLines []string
+}
+
+// Headline states what happened and why the launch stopped.
+func (e *ChangedNonInteractiveError) Headline() string {
+	return "Jail config changed since the last approved launch, and this launch has no " +
+		"terminal to approve it on."
+}
+
+// Advice names the flag, the files, and the snapshot. It is the half of the
+// message that tells a reader who cannot be prompted what to do next, so the flag
+// is spelled out in full rather than referred to.
+func (e *ChangedNonInteractiveError) Advice() string {
+	return "A changed config is never accepted without a human — an auto-accept here would " +
+		"make the approval promise conditional on somebody happening to have a terminal " +
+		"attached, and a scripted launch is exactly where nobody is watching.\n\n" +
+		"  workspace config: " + e.WorkspaceConfig + "\n" +
+		"  user config:      " + e.UserConfig + "\n" +
+		"  approved config:  " + e.SnapshotPath + "\n\n" +
+		"Revert the change, or approve it for THIS LAUNCH ONLY by re-running with\n" +
+		"  " + AcceptConfigChangesFlag + "\n" +
+		"which records the new config as approved exactly as answering `y` would."
+}
+
+func (e *ChangedNonInteractiveError) Error() string {
+	var b strings.Builder
+	b.WriteString(e.Headline())
+	b.WriteString("\n\n")
+	for _, line := range e.DiffLines {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(e.Advice())
+	return b.String()
+}
+
+// CheckConfigChanges compares config against the last-approved snapshot; returns
 // true to proceed, false to abort.
-//   - First run / no snapshot: write current + "\n", return true.
+//   - First run / no snapshot and no legacy one: write current + "\n", true.
+//   - Migration (no host-side snapshot, a legacy workspace-side one present):
+//     treated as CHANGED against an empty previous config, so the whole config is
+//     shown once and approved once. See LegacyWorkspaceSnapshotPath for why the
+//     legacy file's content is never adopted.
 //   - Unchanged (old.rstrip() == current, no trailing "\n" on the compare):
 //     return true.
-//   - Changed + non-tty (isTTY false): auto-accept, rewrite snapshot, true.
+//   - Changed + non-tty + acceptNonInteractive: accept, rewrite snapshot, true.
+//   - Changed + non-tty without it: (false, *ChangedNonInteractiveError) — the
+//     OQ-D2 refusal. The snapshot is NOT rewritten, so a later interactive launch
+//     still shows the same diff.
 //   - Changed + tty: delegate to prompter; on accept rewrite snapshot + return
 //     true, else return false (snapshot NOT rewritten).
 //
 // The rstrip-compare asymmetry is deliberate: the stored file has a trailing
 // "\n" (written as current+"\n"), but the comparison rstrips the OLD text and
-// compares to current (which has NO trailing "\n"). isTTY and prompter are
-// injected so this is testable without a real terminal.
-func CheckConfigChanges(workspace string, config *jsonx.OrderedMap, isTTY bool, prompter ChangePrompter) (bool, error) {
-	snapshotPath := ConfigSnapshotPath(workspace)
+// compares to current (which has NO trailing "\n"). isTTY, acceptNonInteractive
+// and prompter are injected so every branch is testable without a real terminal.
+func CheckConfigChanges(workspace string, config *jsonx.OrderedMap, isTTY, acceptNonInteractive bool, prompter ChangePrompter) (bool, error) {
+	snapshotPath := ApprovalSnapshotPath(workspace)
 	currentJSON, err := SnapshotJSON(config)
 	if err != nil {
 		return false, err
 	}
 
+	// fromLabel is the diff's "---" line. It doubles as the explanation for the
+	// migration prompt: a human who changed nothing still needs to know why they
+	// are being asked, and the label sits directly above the diff they are
+	// approving, which is cheaper than a second channel through ChangePrompter.
+	oldJSON := ""
+	fromLabel := "previous config"
+
 	oldBytes, readErr := os.ReadFile(snapshotPath)
-	if readErr != nil {
-		if os.IsNotExist(readErr) {
-			// First run or no snapshot — accept and save.
-			if err := writeSnapshot(snapshotPath, currentJSON); err != nil {
-				return false, err
-			}
-			return true, nil
-		}
+	switch {
+	case readErr == nil:
+		oldJSON = pyRstrip(string(oldBytes))
+	case !os.IsNotExist(readErr):
 		return false, readErr
+	// pathExists (helpers.go) asks the only question the legacy record is allowed
+	// to answer: mere presence. Its CONTENT is deliberately never read — see
+	// LegacyWorkspaceSnapshotPath.
+	case !pathExists(LegacyWorkspaceSnapshotPath(workspace)):
+		// Genuine first run — nothing has ever been approved for this workspace
+		// and there is nothing to show. Accept and save.
+		if err := writeSnapshot(snapshotPath, currentJSON); err != nil {
+			return false, err
+		}
+		return true, nil
+	default:
+		// Migration: an approval record exists, in the place the ruling says we
+		// cannot trust. Diff against EMPTY rather than against its content, so the
+		// human approves the whole current config once, on the evidence in front of
+		// them, rather than on a file the jail could have written.
+		fromLabel = "previous config (none — the old workspace-side record is no longer trusted)"
 	}
 
-	oldJSON := pyRstrip(string(oldBytes))
 	if oldJSON == currentJSON {
 		return true, nil
 	}
 
 	diffLines := unifiedDiff(
 		splitLines(oldJSON), splitLines(currentJSON),
-		"previous config", "current config")
+		fromLabel, "current config")
 
 	if !isTTY {
-		// Non-interactive: accept automatically, rewrite snapshot.
+		if !acceptNonInteractive {
+			return false, &ChangedNonInteractiveError{
+				WorkspaceConfig: filepath.Join(workspaceOrCwd(workspace), WorkspaceConfigName),
+				UserConfig:      paths.UserConfigPath(),
+				SnapshotPath:    snapshotPath,
+				DiffLines:       diffLines,
+			}
+		}
+		// Granted by the flag: record it exactly as a `y` does, or the next
+		// launch prompts (or refuses) over the same change all over again.
 		if err := writeSnapshot(snapshotPath, currentJSON); err != nil {
 			return false, err
 		}
+		retireLegacyWorkspaceSnapshot(workspace)
 		return true, nil
 	}
 
@@ -87,9 +238,36 @@ func CheckConfigChanges(workspace string, config *jsonx.OrderedMap, isTTY bool, 
 		if err := writeSnapshot(snapshotPath, currentJSON); err != nil {
 			return false, err
 		}
+		retireLegacyWorkspaceSnapshot(workspace)
 		return true, nil
 	}
 	return false, nil
+}
+
+// workspaceOrCwd is the "" => cwd default LoadConfig and the path helpers share.
+func workspaceOrCwd(workspace string) string {
+	if workspace == "" {
+		return cwd()
+	}
+	return workspace
+}
+
+// retireLegacyWorkspaceSnapshot deletes the pre-OQ-D1 workspace-side record once a
+// trustworthy host-side one exists.
+//
+// Best-effort on purpose: a launch must not fail because a stale file could not be
+// unlinked. It runs only after a successful write, never after a refusal — a
+// rejected change leaves the migration signal in place so the next launch asks
+// again instead of silently sliding into the first-run branch.
+//
+// It is deleted rather than left alone because a file named config-snapshot.json
+// sitting in the workspace is exactly what makes a future reader believe the
+// approval record still lives there. The one thing lost is that a jail booted from
+// a STALE image, whose baked in-jail yolo still looks for that filename as its
+// assembled-config source, falls back to re-assembling — the documented fallback
+// (LoadConfig), not a new failure mode.
+func retireLegacyWorkspaceSnapshot(workspace string) {
+	_ = os.Remove(LegacyWorkspaceSnapshotPath(workspace))
 }
 
 // writeSnapshot writes currentJSON + "\n", creating .yolo/ as needed

@@ -62,9 +62,10 @@ func TestBlockedTools(t *testing.T) {
 }
 
 // TestShimPersistence confirms a shim does not survive its removal from config.
-// The container uses --rm, so the second run is a fresh launch; the non-TTY
-// config-change path auto-accepts (config.CheckConfigChanges), regenerating shims
-// from the new config, so unblocking curl takes effect.
+// The container uses --rm, so the second run is a fresh launch; the harness passes
+// --accept-config-changes (see jailRunArgs — a non-TTY launch with a changed config
+// is otherwise REFUSED, config-safety.md OQ-D2), so the new config is approved and
+// shims regenerate from it, and unblocking curl takes effect.
 //
 // This test was long annotated as a KNOWN in-jail failure, on the theory that
 // LoadConfig's snapshot short-circuit legitimately hid the second config write. That

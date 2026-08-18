@@ -2,6 +2,7 @@ package run
 
 import (
 	"bufio"
+	"errors"
 	"strings"
 	"time"
 
@@ -196,23 +197,68 @@ func (o *Options) runtimeIsConnectable(rt string) bool {
 // wiring the diff-printing prompter. Returns true to proceed, false to abort.
 func (o *Options) checkConfigChanges(cfg *jsonx.OrderedMap) bool {
 	pr := &changePrompter{o: o}
-	ok, err := config.CheckConfigChanges(o.Workspace, cfg, o.IsTTYStdin(), pr)
+	ok, err := config.CheckConfigChanges(o.Workspace, cfg, o.IsTTYStdin(), o.AcceptConfigChanges, pr)
 	if err != nil {
-		// A snapshot IO error is non-fatal in spirit; treat as proceed=false
-		// only when the write genuinely failed. Surface it and
-		// abort so the launch doesn't proceed on an unwritten snapshot.
+		// The OQ-D2 refusal gets rendered rather than dumped: same diff, same
+		// colours as the interactive prompt, so the two paths show the reader the
+		// same change and differ only in how they end. Everything else is a
+		// snapshot IO failure — surface it and abort, so the launch never proceeds
+		// on an unwritten approval record.
+		var changed *config.ChangedNonInteractiveError
+		if errors.As(err, &changed) {
+			o.printChangeRefusal(changed)
+			return false
+		}
 		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
 		return false
 	}
 	return ok
 }
 
-// changePrompter renders the config diff and reads the y/N answer.
-type changePrompter struct{ o *Options }
+// printChangeRefusal renders the non-interactive refusal: headline, the diff in
+// the prompt's own colours, then the advice that names the flag.
+func (o *Options) printChangeRefusal(e *config.ChangedNonInteractiveError) {
+	out := o.pr(o.Stdout)
+	out.printf("\n[bold red]⚠  %s[/bold red]\n", e.Headline())
+	printConfigDiff(out, e.DiffLines)
+	out.print("")
+	out.print(e.Advice())
+}
 
-func (p *changePrompter) Prompt(diffLines []string) bool {
-	out := p.o.pr(p.o.Stdout)
-	out.print("\n[bold yellow]⚠  Jail config changed since last run:[/bold yellow]\n")
+// writeLaunchConfigArtifacts writes the two workspace-side config files a fresh
+// launch owes the jail it is about to start. Both live under <workspace>/.yolo,
+// both are written by the HOST, and neither is the approval record — that moved
+// out of the workspace entirely under OQ-D1 (config.ApprovalSnapshotPath).
+//
+//   - config-assembled.json: the MERGED config this launch is using. The in-jail
+//     LoadConfig reads it back verbatim for the jail's own workspace, because the
+//     user-level `include_if_found` overrides it carries are host-side files the
+//     jail never sees — re-assembling in there silently yields a reduced config.
+//   - config-boot.json: the WORKSPACE-ONLY config, frozen for the jail's life so an
+//     in-jail `yolo config drift` has an immutable thing to diff the live file
+//     against. Loaded through the same loader the in-jail diff uses, so the two
+//     sides compare exactly.
+//
+// Both are best-effort. A jail must not fail to launch because one of these
+// hiccuped: without the assembled copy the in-jail read degrades to the documented
+// re-assemble, and without the baseline `drift` reports "cannot determine" rather
+// than a false "no drift". Neither degradation is worth refusing a launch over.
+func (o *Options) writeLaunchConfigArtifacts(cfg *jsonx.OrderedMap) {
+	out := o.pr(o.Stdout)
+	if err := config.WriteAssembledConfig(o.Workspace, cfg); err != nil {
+		out.printf("[dim]Warning: could not write the assembled config for the jail: %s[/dim]", err.Error())
+	}
+	if wsCfg, wsErr := config.LoadWorkspaceConfig(o.Workspace, false, func(string) {}); wsErr == nil {
+		if err := config.WriteWorkspaceBootBaseline(o.Workspace, wsCfg); err != nil {
+			out.printf("[dim]Warning: could not write config drift baseline: %s[/dim]", err.Error())
+		}
+	}
+}
+
+// printConfigDiff renders a unified config diff in the launcher's colours. Shared
+// by the interactive prompt and the non-interactive refusal so a reader who cannot
+// be prompted sees the change in exactly the form the human at a terminal would.
+func printConfigDiff(out printer, diffLines []string) {
 	for _, line := range diffLines {
 		switch {
 		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
@@ -227,6 +273,15 @@ func (p *changePrompter) Prompt(diffLines []string) bool {
 			out.print(line)
 		}
 	}
+}
+
+// changePrompter renders the config diff and reads the y/N answer.
+type changePrompter struct{ o *Options }
+
+func (p *changePrompter) Prompt(diffLines []string) bool {
+	out := p.o.pr(p.o.Stdout)
+	out.print("\n[bold yellow]⚠  Jail config changed since last run:[/bold yellow]\n")
+	printConfigDiff(out, diffLines)
 	out.print("")
 	// input("Accept these config changes? [y/N] ")
 	if _, err := p.o.Stdout.Write([]byte("Accept these config changes? [y/N] ")); err != nil {

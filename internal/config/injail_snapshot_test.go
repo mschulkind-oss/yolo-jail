@@ -38,7 +38,7 @@ func TestLoadConfigInJailReadsSnapshot(t *testing.T) {
 		`{ "include_if_found": ["overrides.jsonc"], "mcp_presets": ["chrome-devtools"] }`)
 	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "packages": ["ripgrep"] }`)
 	// The host wrote a snapshot WITH the assembled mcp_servers.
-	mustWrite(t, ConfigSnapshotPath(ws), `{
+	mustWrite(t, WorkspaceAssembledConfigPath(ws), `{
   "packages": ["ripgrep"],
   "mcp_servers": { "tavily": { "command": "npx" } }
 }`)
@@ -67,7 +67,7 @@ func TestLoadConfigHostStillAssembles(t *testing.T) {
 		`{ "mcp_presets": ["chrome-devtools"] }`)
 	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "packages": ["ripgrep"] }`)
 	// A stale snapshot with a DIFFERENT value must be ignored on the host.
-	mustWrite(t, ConfigSnapshotPath(ws), `{ "packages": ["stale-should-be-ignored"] }`)
+	mustWrite(t, WorkspaceAssembledConfigPath(ws), `{ "packages": ["stale-should-be-ignored"] }`)
 
 	cfg, err := LoadConfig(ws, true, func(string) {})
 	if err != nil {
@@ -131,7 +131,7 @@ func TestLoadConfigInJailOtherWorkspaceAssembles(t *testing.T) {
 	// The live workspace config says curl is UNBLOCKED...
 	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "security": { "blocked_tools": [] } }`)
 	// ...while the stale snapshot from a previous launch still blocks it.
-	mustWrite(t, ConfigSnapshotPath(ws), `{ "security": { "blocked_tools": ["curl"] } }`)
+	mustWrite(t, WorkspaceAssembledConfigPath(ws), `{ "security": { "blocked_tools": ["curl"] } }`)
 
 	cfg, err := LoadConfig(ws, true, func(string) {})
 	if err != nil {
@@ -161,7 +161,7 @@ func TestLoadConfigInJailIgnoresNonObjectSnapshot(t *testing.T) {
 
 	mustWrite(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{}`)
 	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "packages": ["ripgrep"] }`)
-	mustWrite(t, ConfigSnapshotPath(ws), `["not", "an", "object"]`)
+	mustWrite(t, WorkspaceAssembledConfigPath(ws), `["not", "an", "object"]`)
 
 	cfg, err := LoadConfig(ws, true, func(string) {})
 	if err != nil {

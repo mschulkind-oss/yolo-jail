@@ -8,7 +8,7 @@ package config
 // drift needs just one new artifact — a FROZEN copy of the workspace config as the
 // jail was built — to diff the live config against.
 //
-// Why workspace-only and not the merged config-snapshot.json: the snapshot folds the
+// Why workspace-only and not the merged config-assembled.json: that file folds the
 // user config UNDER the workspace config per key (MergeConfig), and the user half is
 // not visible in-jail, so it cannot be cleanly separated back out. The boot baseline
 // is deliberately just the workspace layer, so the live re-read is an apples-to-apples
@@ -16,7 +16,7 @@ package config
 //
 // The baseline is immutable for a jail's life: the host writes it once at fresh
 // launch (WriteWorkspaceBootBaseline), and nothing in-jail rewrites it — unlike
-// config-snapshot.json, which every launch rewrites. That is what lets "the config
+// config-assembled.json, which every launch rewrites. That is what lets "the config
 // that started THIS jail" stay fixed while the live config moves under it.
 
 import (
@@ -27,8 +27,8 @@ import (
 )
 
 // WorkspaceConfigBootPath is <workspace>/.yolo/config-boot.json — the frozen
-// workspace config a jail was built from. Beside config-snapshot.json, but distinct:
-// the snapshot is the merged (user+workspace) config and is rewritten every launch;
+// workspace config a jail was built from. Beside config-assembled.json, but distinct:
+// that file is the merged (user+workspace) config and is rewritten every launch;
 // this is workspace-only and written once per fresh launch.
 func WorkspaceConfigBootPath(workspace string) string {
 	if workspace == "" {

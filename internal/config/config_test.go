@@ -1,11 +1,14 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // Unit tests for filesystem-backed config loading, includes/cycles, and the
@@ -124,15 +127,65 @@ func TestWorkspaceExplicitIncludeOfLocalNotMergedTwice(t *testing.T) {
 
 // ---- CheckConfigChanges control flow (TestConfigSnapshot) ----
 
-func TestCheckConfigChangesFirstRunSaves(t *testing.T) {
+// approvalWorkspace sets up an isolated HOST for one approval test: a real
+// workspace directory plus a private $HOME, so ApprovalSnapshotPath resolves under
+// a temp state dir instead of the developer's own. The workspace is CREATED rather
+// than merely named because the approval key is runtime.FromWorkspace, which
+// resolves symlinks when the path exists and falls back to the lexical form when
+// it does not — an existing directory keeps the key stable across a test that both
+// writes and reads it (on darwin /tmp is a symlink to /private/tmp, which is
+// exactly where the two forms diverge).
+func approvalWorkspace(t *testing.T) string {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
 	ws := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return ws
+}
+
+// approve is the accept-and-record call every test uses to establish a baseline:
+// non-interactive with the flag granted, which is the one path that both proceeds
+// and rewrites the snapshot without a prompter.
+func approve(t *testing.T, ws string, cfg *jsonx.OrderedMap) {
+	t.Helper()
+	ok, err := CheckConfigChanges(ws, cfg, false, true, nil)
+	if err != nil || !ok {
+		t.Fatalf("establishing the approved baseline: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestCheckConfigChangesFirstRunSaves(t *testing.T) {
+	ws := approvalWorkspace(t)
 	config := decode(t, `{"packages": ["strace"]}`)
-	ok, err := CheckConfigChanges(ws, config, false, nil)
+	ok, err := CheckConfigChanges(ws, config, false, false, nil)
 	if err != nil || !ok {
 		t.Fatalf("first run: ok=%v err=%v", ok, err)
 	}
-	if _, err := os.Stat(ConfigSnapshotPath(ws)); err != nil {
+	if _, err := os.Stat(ApprovalSnapshotPath(ws)); err != nil {
 		t.Errorf("snapshot not written: %v", err)
+	}
+}
+
+// THE APPROVAL RECORD MUST LAND OUTSIDE THE WORKSPACE (OQ-D1). /workspace is
+// bind-mounted read-write, so a record kept in there can be rewritten by the very
+// agent whose edits it exists to gate — the next launch then shows nothing to
+// approve. This pins both halves: the new path is under the host state dir, and
+// the old workspace path is not written at all.
+func TestCheckConfigChangesSnapshotLandsOutsideTheWorkspace(t *testing.T) {
+	ws := approvalWorkspace(t)
+	approve(t, ws, decode(t, `{"packages": ["strace"]}`))
+
+	snap := ApprovalSnapshotPath(ws)
+	if strings.HasPrefix(snap, ws+string(filepath.Separator)) {
+		t.Errorf("approval snapshot is inside the workspace (%s) — an agent could rewrite it", snap)
+	}
+	if want := paths.ApprovalsDir(); !strings.HasPrefix(snap, want+string(filepath.Separator)) {
+		t.Errorf("approval snapshot %s is not under the host approvals dir %s", snap, want)
+	}
+	if _, err := os.Stat(LegacyWorkspaceSnapshotPath(ws)); !os.IsNotExist(err) {
+		t.Errorf("the old workspace-side location was written (err=%v)", err)
 	}
 }
 
@@ -148,52 +201,104 @@ func (p *failPrompter) Prompt(diffLines []string) bool {
 }
 
 func TestCheckConfigChangesUnchangedPasses(t *testing.T) {
-	ws := filepath.Join(t.TempDir(), "project")
+	ws := approvalWorkspace(t)
 	config := decode(t, `{"packages": ["strace"]}`)
-	_, _ = CheckConfigChanges(ws, config, false, nil)
-	ok, err := CheckConfigChanges(ws, config, false, nil)
+	approve(t, ws, config)
+	ok, err := CheckConfigChanges(ws, config, false, false, &failPrompter{t: t})
 	if err != nil || !ok {
 		t.Fatalf("unchanged: ok=%v err=%v", ok, err)
 	}
 }
 
-func TestCheckConfigChangesNonTTYAutoAccepts(t *testing.T) {
-	ws := filepath.Join(t.TempDir(), "project")
-	_, _ = CheckConfigChanges(ws, decode(t, `{"packages": ["strace"]}`), false, nil)
+// NON-INTERACTIVE + CHANGED IS FATAL (OQ-D2). This used to auto-accept and rewrite
+// the snapshot, which made the human-approval promise conditional on somebody
+// happening to have a terminal attached — and the scripted launch is exactly the
+// one nobody is watching.
+func TestCheckConfigChangesNonTTYRefuses(t *testing.T) {
+	ws := approvalWorkspace(t)
+	orig := decode(t, `{"packages": ["strace"]}`)
+	approve(t, ws, orig)
+
 	newCfg := decode(t, `{"packages": ["strace", "htop"]}`)
-	ok, err := CheckConfigChanges(ws, newCfg, false /*non-tty*/, &failPrompter{t: t})
-	if err != nil || !ok {
-		t.Fatalf("non-tty auto-accept: ok=%v err=%v", ok, err)
+	ok, err := CheckConfigChanges(ws, newCfg, false /*non-tty*/, false, &failPrompter{t: t})
+	if ok {
+		t.Fatal("non-tty + changed config must refuse the launch")
 	}
-	// Snapshot must be updated to the new config.
-	want, _ := SnapshotJSON(newCfg)
-	got, _ := os.ReadFile(ConfigSnapshotPath(ws))
+	var refusal *ChangedNonInteractiveError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("want *ChangedNonInteractiveError, got %T: %v", err, err)
+	}
+
+	// The reader of this message is by construction someone who cannot be
+	// prompted, so it has to carry everything they need: the flag, the files, and
+	// what actually changed.
+	msg := refusal.Error()
+	for _, want := range []string{
+		AcceptConfigChangesFlag,
+		filepath.Join(ws, WorkspaceConfigName),
+		paths.UserConfigPath(),
+		ApprovalSnapshotPath(ws),
+		"+    \"htop\"",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("refusal message does not mention %q:\n%s", want, msg)
+		}
+	}
+
+	// The snapshot is untouched, so an interactive launch still has the same
+	// change to show.
+	want, _ := SnapshotJSON(orig)
+	got, _ := os.ReadFile(ApprovalSnapshotPath(ws))
 	if string(got) != want+"\n" {
-		t.Errorf("snapshot not updated on auto-accept")
+		t.Errorf("a refused launch must not rewrite the approval record")
+	}
+}
+
+// The flag is the opt-in Design Goal 5 survives through: non-interactive use still
+// works, via an explicit approval rather than an implicit yes. It must record the
+// approval exactly as a `y` does, or the next run refuses over the same change.
+func TestCheckConfigChangesNonTTYFlagAcceptsAndRecords(t *testing.T) {
+	ws := approvalWorkspace(t)
+	approve(t, ws, decode(t, `{"packages": ["strace"]}`))
+
+	newCfg := decode(t, `{"packages": ["strace", "htop"]}`)
+	ok, err := CheckConfigChanges(ws, newCfg, false /*non-tty*/, true /*flag*/, &failPrompter{t: t})
+	if err != nil || !ok {
+		t.Fatalf("non-tty + flag: ok=%v err=%v", ok, err)
+	}
+	want, _ := SnapshotJSON(newCfg)
+	got, _ := os.ReadFile(ApprovalSnapshotPath(ws))
+	if string(got) != want+"\n" {
+		t.Fatalf("snapshot not updated by the flag: %q", string(got))
+	}
+	// And the recorded approval sticks: the same config now passes with no flag.
+	ok, err = CheckConfigChanges(ws, newCfg, false, false, &failPrompter{t: t})
+	if err != nil || !ok {
+		t.Errorf("re-running the approved config must proceed: ok=%v err=%v", ok, err)
 	}
 }
 
 func TestCheckConfigChangesTTYYesUpdates(t *testing.T) {
-	ws := filepath.Join(t.TempDir(), "project")
-	_, _ = CheckConfigChanges(ws, decode(t, `{"packages": ["strace"]}`), false, nil)
+	ws := approvalWorkspace(t)
+	approve(t, ws, decode(t, `{"packages": ["strace"]}`))
 	newCfg := decode(t, `{"packages": ["strace", "htop"]}`)
-	ok, err := CheckConfigChanges(ws, newCfg, true, yesPrompter{})
+	ok, err := CheckConfigChanges(ws, newCfg, true, false, yesPrompter{})
 	if err != nil || !ok {
 		t.Fatalf("tty yes: ok=%v err=%v", ok, err)
 	}
 	want, _ := SnapshotJSON(newCfg)
-	got, _ := os.ReadFile(ConfigSnapshotPath(ws))
+	got, _ := os.ReadFile(ApprovalSnapshotPath(ws))
 	if string(got) != want+"\n" {
 		t.Errorf("snapshot not updated on tty-yes")
 	}
 }
 
 func TestCheckConfigChangesTTYNoRejectsAndKeepsSnapshot(t *testing.T) {
-	ws := filepath.Join(t.TempDir(), "project")
+	ws := approvalWorkspace(t)
 	orig := decode(t, `{"packages": ["strace"]}`)
-	_, _ = CheckConfigChanges(ws, orig, false, nil)
+	approve(t, ws, orig)
 	newCfg := decode(t, `{"packages": ["strace", "htop"]}`)
-	ok, err := CheckConfigChanges(ws, newCfg, true, noPrompter{})
+	ok, err := CheckConfigChanges(ws, newCfg, true, false, noPrompter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,10 +307,98 @@ func TestCheckConfigChangesTTYNoRejectsAndKeepsSnapshot(t *testing.T) {
 	}
 	// Snapshot NOT updated — still the original.
 	want, _ := SnapshotJSON(orig)
-	got, _ := os.ReadFile(ConfigSnapshotPath(ws))
+	got, _ := os.ReadFile(ApprovalSnapshotPath(ws))
 	if string(got) != want+"\n" {
 		t.Errorf("snapshot changed on tty-no rejection")
 	}
+}
+
+// ---- OQ-D1 migration: an existing workspace's old snapshot ----
+
+// A workspace that has been launched before carries a snapshot at the OLD
+// workspace-side path. Its content is exactly what the ruling declares
+// untrustworthy — a file the jail could have written — so it is never adopted as a
+// baseline. But its PRESENCE is a fact worth acting on: it distinguishes a
+// migration from a first run, and a first run accepts silently. So the migration
+// re-approves, diffing against an empty previous config.
+func TestCheckConfigChangesMigrationReApproves(t *testing.T) {
+	ws := approvalWorkspace(t)
+	cfg := decode(t, `{"packages": ["strace"]}`)
+	// The legacy record says the SAME thing the live config says — the case where
+	// adopting it would be most tempting and least defensible.
+	legacyJSON, _ := SnapshotJSON(cfg)
+	write(t, LegacyWorkspaceSnapshotPath(ws), legacyJSON+"\n")
+
+	prompter := &recordingPrompter{accept: true}
+	ok, err := CheckConfigChanges(ws, cfg, true, false, prompter)
+	if err != nil || !ok {
+		t.Fatalf("migration accept: ok=%v err=%v", ok, err)
+	}
+	if !prompter.called {
+		t.Fatal("a workspace with a legacy snapshot must re-prompt, not silently first-run")
+	}
+	// The diff shows the whole config as new, and its header says why a human who
+	// changed nothing is being asked.
+	joined := strings.Join(prompter.diff, "\n")
+	if !strings.Contains(joined, "no longer trusted") || !strings.Contains(joined, "strace") {
+		t.Errorf("migration diff should explain itself and show the config:\n%s", joined)
+	}
+	// Approval lands host-side, and the legacy file is retired so nothing keeps
+	// pointing readers at the mount the record just left.
+	if _, err := os.Stat(ApprovalSnapshotPath(ws)); err != nil {
+		t.Errorf("host-side snapshot not written after migration: %v", err)
+	}
+	if _, err := os.Stat(LegacyWorkspaceSnapshotPath(ws)); !os.IsNotExist(err) {
+		t.Errorf("legacy workspace snapshot survived the migration (err=%v)", err)
+	}
+}
+
+// A refused migration keeps the legacy file, so the NEXT launch still sees a
+// migration rather than sliding into the silent first-run branch.
+func TestCheckConfigChangesMigrationRefusedKeepsTheSignal(t *testing.T) {
+	ws := approvalWorkspace(t)
+	cfg := decode(t, `{"packages": ["strace"]}`)
+	write(t, LegacyWorkspaceSnapshotPath(ws), "{}\n")
+
+	ok, _ := CheckConfigChanges(ws, cfg, true, false, noPrompter{})
+	if ok {
+		t.Fatal("a rejected migration must not proceed")
+	}
+	if _, err := os.Stat(LegacyWorkspaceSnapshotPath(ws)); err != nil {
+		t.Errorf("the migration signal must survive a rejection: %v", err)
+	}
+	if _, err := os.Stat(ApprovalSnapshotPath(ws)); !os.IsNotExist(err) {
+		t.Errorf("a rejected migration must not record an approval (err=%v)", err)
+	}
+}
+
+// Non-interactive migration is refused like any other unapproved change — the
+// upgrade must not be the one launch that slips a config change through.
+func TestCheckConfigChangesMigrationNonTTYRefuses(t *testing.T) {
+	ws := approvalWorkspace(t)
+	write(t, LegacyWorkspaceSnapshotPath(ws), "{}\n")
+
+	ok, err := CheckConfigChanges(ws, decode(t, `{"packages": ["strace"]}`), false, false, nil)
+	if ok {
+		t.Fatal("non-tty migration must refuse")
+	}
+	var refusal *ChangedNonInteractiveError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("want *ChangedNonInteractiveError, got %T: %v", err, err)
+	}
+}
+
+// recordingPrompter captures the diff it was shown and answers with accept.
+type recordingPrompter struct {
+	accept bool
+	called bool
+	diff   []string
+}
+
+func (p *recordingPrompter) Prompt(diffLines []string) bool {
+	p.called = true
+	p.diff = diffLines
+	return p.accept
 }
 
 // ---- helpers ----

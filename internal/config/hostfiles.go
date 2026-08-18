@@ -242,7 +242,7 @@ func hostFileDefaultMode(sourceBearing, isDir bool) string {
 //
 // That split is the security boundary, not a convenience. Of the places a config
 // key can come from, two are jail-writable: the workspace yolo-jail{,.local}.jsonc
-// (/workspace is bind-mounted rw) and <workspace>/.yolo/config-snapshot.json (same
+// (/workspace is bind-mounted rw) and <workspace>/.yolo/config-assembled.json (same
 // mount, read verbatim in-jail by LoadConfig). Only the host user config is not.
 // So a source-bearing entry is read from the user config DIRECTLY, making
 // workspace scope inexpressible; validateHostFiles' workspace-scope error is

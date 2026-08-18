@@ -223,49 +223,56 @@ func LoadWorkspaceConfig(workspace string, strict bool, warn Warn) (*jsonx.Order
 // LoadConfig merges the user-level config under the workspace config.
 func LoadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
 	// Inside a jail, for THIS JAIL'S OWN workspace, do NOT re-assemble: COPY the
-	// host's already-merged config from the workspace snapshot instead. The
-	// user-level `include_if_found` overrides (e.g. a machine-local overrides.jsonc
-	// carrying mcp_servers) live on the HOST and are never mounted into the jail, so
-	// an in-jail re-merge silently drops them — producing a reduced config that (a)
-	// mismatches the host and (b) rewrites the bind-mounted, host-owned snapshot with
-	// the reduced form, so the host then re-prompts on every run (the ping-pong).
-	// The snapshot IS the assembled config serialized; reading it verbatim keeps
-	// the in-jail view identical to the host's. Falls back to a normal assemble
-	// when the snapshot is absent/unreadable (e.g. never run through approval).
+	// host's already-merged config from the delivered assembled config instead
+	// (<workspace>/.yolo/config-assembled.json — see assembled.go). The user-level
+	// `include_if_found` overrides (e.g. a machine-local overrides.jsonc carrying
+	// mcp_servers) live on the HOST and are never mounted into the jail, so an
+	// in-jail re-merge silently drops them — producing a reduced config that
+	// mismatches the host. That file IS the assembled config serialized; reading it
+	// verbatim keeps the in-jail view identical to the host's. Falls back to a normal
+	// assemble when it is absent/unreadable (e.g. a workspace whose jail was launched
+	// by a yolo that predates the file).
+	//
+	// It used to be the config-SNAPSHOT that was read here, and the second half of the
+	// argument for the short-circuit used to be a ping-pong: an in-jail re-merge wrote
+	// the reduced form back over the bind-mounted, host-owned approval record, so the
+	// host re-prompted on every run. That half is now structural rather than argued —
+	// the approval record moved host-side under OQ-D1 and no in-jail write can reach
+	// it (ApprovalSnapshotPath). What is left here is the reduced-config half, which
+	// is reason enough on its own.
 	//
 	// The jailOwnWorkspace() gate is load-bearing, not defensive. Only the OWN
-	// workspace's snapshot was written by the host FOR THIS JAIL; another
-	// workspace's snapshot is just the newest artifact of that workspace's own jail
-	// lineage, and copying it makes the in-jail CLI act on a config nobody assembled
-	// for this launch. Two things broke without the gate, both when an in-jail CLI
-	// launches a jail for a DIFFERENT workspace (every nested launch, and every
-	// integration test):
+	// workspace's copy was written by the host FOR THIS JAIL; another workspace's copy
+	// is just the newest artifact of that workspace's own jail lineage, and reading it
+	// makes the in-jail CLI act on a config nobody assembled for this launch. Two
+	// things broke without the gate, both when an in-jail CLI launches a jail for a
+	// DIFFERENT workspace (every nested launch, and every integration test):
 	//
-	//   - A workspace-config EDIT never took effect. Launch 1 wrote the snapshot;
+	//   - A workspace-config EDIT never took effect. Launch 1 wrote the file;
 	//     launch 2 read it back instead of the edited yolo-jail.jsonc, so e.g.
 	//     dropping a tool from `blocked_tools` left its shim generated forever
 	//     (the shims are rendered from the config this returns).
-	//   - CheckConfigChanges was silently disabled. It diffs the live config
-	//     against that same snapshot, so with the short-circuit it compared the
-	//     snapshot to ITSELF — always "unchanged", so the config-approval prompt
-	//     could never fire for a nested launch.
+	//   - CheckConfigChanges was silently disabled. It diffed the live config
+	//     against that same file, so with the short-circuit it compared the
+	//     file to ITSELF — always "unchanged", so the config-approval prompt
+	//     could never fire for a nested launch. (Under OQ-D1 the approval record is
+	//     no longer the same file, so this arm no longer follows from the
+	//     short-circuit — but the first one still does, and the gate is one gate.)
 	//
 	// And the short-circuit's own rationale does not reach the other-workspace case,
-	// so the gate gives up nothing. That snapshot was not written by the host; it was
+	// so the gate gives up nothing. That copy was not written by the host; it was
 	// written by an IN-JAIL assemble on a previous launch, through this very function.
-	// So it is already the reduced merge (verified: a nested workspace's snapshot has
+	// So it is already the reduced merge (verified: a nested workspace's copy has
 	// no mcp_servers, the host-only include_if_found key whose loss motivated the
 	// short-circuit) — reading it back recovers no host-only override, it only
-	// substitutes a staler copy of what assembling produces now. The ping-pong cannot
-	// arise either: that snapshot has no host writer to disagree with.
+	// substitutes a staler copy of what assembling produces now.
 	//
-	// The --user-layer carve-out is load-bearing, not defensive. The snapshot is a FROZEN
-	// artifact of a previous launch, so it cannot contain a layer passed to THIS invocation
-	// — returning it would make `yolo --user-layer x.jsonc check` silently ignore the file
-	// the caller explicitly named, which is exactly the invisibility the flag exists to
-	// avoid (a silently-ignored explicit argument is worse than no flag). With a layer set
-	// we fall through and assemble, then merge it in; the ping-pong the short-circuit
-	// guards against does not arise because the layer path never writes a snapshot.
+	// The --user-layer carve-out is load-bearing, not defensive. The delivered copy is a
+	// FROZEN artifact of a previous launch, so it cannot contain a layer passed to THIS
+	// invocation — returning it would make `yolo --user-layer x.jsonc check` silently
+	// ignore the file the caller explicitly named, which is exactly the invisibility the
+	// flag exists to avoid (a silently-ignored explicit argument is worse than no flag).
+	// With a layer set we fall through and assemble, then merge it in.
 	if inJail() && jailOwnWorkspace(workspace) && UserLayerPath() == "" {
 		if snap, ok := loadAssembledSnapshot(workspace); ok {
 			return snap, nil
@@ -292,8 +299,8 @@ func inJail() bool {
 }
 
 // jailOwnWorkspace reports whether workspace is the workspace THIS jail was
-// launched for — i.e. the one whose config-snapshot.json the host wrote for this
-// launch, and the only one the snapshot short-circuit may speak for.
+// launched for — i.e. the one whose config-assembled.json the host wrote for this
+// launch, and the only one the short-circuit may speak for.
 //
 // The jail's own workspace is its bind-mount root: "/workspace", or YOLO_WORKSPACE
 // where the backend puts it elsewhere (the entrypoint resolves it the same way, see
@@ -321,9 +328,9 @@ func jailOwnWorkspace(workspace string) bool {
 	return a == b
 }
 
-// loadAssembledSnapshot reads the host-written config snapshot
-// (<workspace>/.yolo/config-snapshot.json) and returns it as the merged config.
-// The snapshot is the config serialized with sorted keys, so decoding it
+// loadAssembledSnapshot reads the host-delivered assembled config
+// (<workspace>/.yolo/config-assembled.json) and returns it as the merged config.
+// The file is the config serialized with sorted keys, so decoding it
 // yields the same config the host assembled (dict keys sorted — cosmetic;
 // list order, which is the only order that matters, is preserved). Returns
 // ok=false when the file is missing or not a JSON object, so the caller falls
@@ -332,7 +339,7 @@ func loadAssembledSnapshot(workspace string) (*jsonx.OrderedMap, bool) {
 	if workspace == "" {
 		workspace = cwd()
 	}
-	data, err := os.ReadFile(ConfigSnapshotPath(workspace))
+	data, err := os.ReadFile(WorkspaceAssembledConfigPath(workspace))
 	if err != nil {
 		return nil, false
 	}

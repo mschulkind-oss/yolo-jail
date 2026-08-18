@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
 // TestRunHelpRequested pins BOTH halves of the papercut at once.
@@ -130,6 +131,31 @@ func TestParseRunArgsFlags(t *testing.T) {
 	parseRunArgs(strings.Fields("run --network=none -- true"), &opts)
 	if opts.Network != "none" {
 		t.Errorf("--network=none → %q, want none", opts.Network)
+	}
+}
+
+// THE REFUSAL MESSAGE AND THE PARSER MUST NAME THE SAME FLAG (OQ-D2). A launch with
+// no terminal to prompt on is refused, and the only reader of that refusal is
+// someone who cannot be asked anything — so the flag it tells them to pass has to
+// be the flag this parser accepts. The two are spelled separately on purpose
+// (parseRunArgs needs a source-visible literal for the usage/parser drift guard),
+// which is exactly why the equality needs pinning rather than assuming.
+func TestAcceptConfigChangesFlagMatchesTheRefusalMessage(t *testing.T) {
+	var opts run.Options
+	parseRunArgs([]string{"run", config.AcceptConfigChangesFlag, "--", "true"}, &opts)
+	if !opts.AcceptConfigChanges {
+		t.Fatalf("parseRunArgs did not accept %q — the refusal message names a flag "+
+			"run does not parse", config.AcceptConfigChangesFlag)
+	}
+	if !strings.Contains(runUsage, config.AcceptConfigChangesFlag) {
+		t.Errorf("runUsage does not document %q\n%s", config.AcceptConfigChangesFlag, runUsage)
+	}
+	// It must not be on by default: an approval that arrives without being asked
+	// for is the auto-accept this ruling removed.
+	opts = run.Options{}
+	parseRunArgs(strings.Fields("run -- true"), &opts)
+	if opts.AcceptConfigChanges {
+		t.Error("AcceptConfigChanges must default to false")
 	}
 }
 

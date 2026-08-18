@@ -275,6 +275,27 @@ func ContainerDir() string { return filepath.Join(GlobalStorage(), "containers")
 // AgentsDir returns the per-jail briefing staging dir.
 func AgentsDir() string { return filepath.Join(GlobalStorage(), "agents") }
 
+// ApprovalsDir returns $HOME/.local/share/yolo-jail/approvals — where the
+// last-approved config snapshot for each workspace lives, one
+// <container-name>.json per workspace.
+//
+// HOST-SIDE IS THE WHOLE POINT (docs/design/config-safety.md, OQ-D1). The
+// snapshot is the record of what a human approved, and it used to sit at
+// <workspace>/.yolo/config-snapshot.json — inside the bind mount an agent has
+// read-WRITE access to. Anything that can edit yolo-jail.jsonc could therefore
+// also rewrite the only record of what was last approved, and the next launch
+// would show nothing to approve. A record the subject can rewrite is not a
+// record. This directory is never mounted into any jail, so the approval
+// baseline is out of reach by construction rather than by convention.
+//
+// It is a SIBLING of ContainerDir/AgentsDir and keyed the same way they are —
+// by the deterministic container name runtime.FromWorkspace derives from the
+// resolved workspace path — because that is already this repo's answer to "one
+// small piece of host state per workspace". A second keying scheme (a path
+// hash, a slugged path) would be a second thing to keep in step with the
+// container name, and the reap/prune paths already speak that name.
+func ApprovalsDir() string { return filepath.Join(GlobalStorage(), "approvals") }
+
 // PacksDir returns the machine-wide pack store: $HOME/.local/share/yolo-jail/packs.
 // Packs are USER-scope (config/packs.go), so their fetched content is per-machine —
 // one pack serves every workspace. Their EFFECTS (staged trees, composed files) are

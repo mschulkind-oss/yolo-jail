@@ -111,12 +111,12 @@ func TestWorkspaceDriftIgnoresCosmeticReorder(t *testing.T) {
 }
 
 // The baseline is workspace-ONLY: WriteWorkspaceBootBaseline serializes exactly what
-// it is handed, and the path is distinct from the merged snapshot, so the two never
-// clobber each other.
+// it is handed, and the path is distinct from the merged assembled config, so the two
+// never clobber each other.
 func TestBootBaselineIsDistinctFromSnapshot(t *testing.T) {
 	ws := t.TempDir()
-	if WorkspaceConfigBootPath(ws) == ConfigSnapshotPath(ws) {
-		t.Fatal("boot baseline and merged snapshot must be different files")
+	if WorkspaceConfigBootPath(ws) == WorkspaceAssembledConfigPath(ws) {
+		t.Fatal("boot baseline and assembled config must be different files")
 	}
 	m := jsonx.NewOrderedMap()
 	m.Set("packs", []any{"claude"})
@@ -126,8 +126,8 @@ func TestBootBaselineIsDistinctFromSnapshot(t *testing.T) {
 	if _, err := os.Stat(WorkspaceConfigBootPath(ws)); err != nil {
 		t.Errorf("baseline not written: %v", err)
 	}
-	// The merged snapshot must NOT have been written by the baseline call.
-	if _, err := os.Stat(ConfigSnapshotPath(ws)); !os.IsNotExist(err) {
-		t.Errorf("writing the boot baseline must not touch config-snapshot.json (err=%v)", err)
+	// The merged assembled config must NOT have been written by the baseline call.
+	if _, err := os.Stat(WorkspaceAssembledConfigPath(ws)); !os.IsNotExist(err) {
+		t.Errorf("writing the boot baseline must not touch config-assembled.json (err=%v)", err)
 	}
 }

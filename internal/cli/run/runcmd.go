@@ -43,6 +43,15 @@ type Options struct {
 	Profile bool
 	// DryRun is --dry-run (macos-user only; a hard error elsewhere).
 	DryRun bool
+	// AcceptConfigChanges is --accept-config-changes: it grants the config-change
+	// approval on a launch with no terminal to prompt on, which without it is a
+	// REFUSED launch (docs/design/config-safety.md, OQ-D2).
+	//
+	// A flag and not an environment variable, because it grants an APPROVAL rather
+	// than suppressing a diagnosis, and an approval must not be inherited by every
+	// child process or outlive the launch that was approved. See
+	// config.AcceptConfigChangesFlag, which owns the spelling.
+	AcceptConfigChanges bool
 	// Args is ctx.args — the command after `--` (empty → interactive bash).
 	Args []string
 

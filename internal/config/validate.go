@@ -157,7 +157,7 @@ func validateRepoPath(config *jsonx.OrderedMap, errs, warns *[]string) {
 // into, and silently ignoring it would mean they asked for claude, got nothing, and had
 // nowhere to read why (with zero agents no briefing file is written). Inside a jail the
 // config is NOT user-authored — LoadConfig prefers the host-generated, gitignored
-// <workspace>/.yolo/config-snapshot.json, falling back to the host user config mounted
+// <workspace>/.yolo/config-assembled.json, falling back to the host user config mounted
 // read-only. Erroring there refuses every nested launch over a key the in-jail user
 // cannot fix at its source, and it made `yolo check` DISAGREE with launch: check merges
 // the user and workspace files directly and never reads the snapshot, so it called the
@@ -1032,7 +1032,7 @@ func validateCacheRelocations(config *jsonx.OrderedMap, workspace string, errs, 
 	}
 	// The target-parent check is skipped inside a jail. Unlike the loader, this
 	// runs against the MERGED config, which in a jail is the host-written
-	// snapshot (LoadConfig prefers <workspace>/.yolo/config-snapshot.json) or
+	// assembled config (LoadConfig prefers <workspace>/.yolo/config-assembled.json) or
 	// the host user config bind-mounted read-only — either way it carries the
 	// host's cache_relocations, whose targets are host paths deliberately not
 	// present in the jail's mount namespace. Stat'ing them here would turn a

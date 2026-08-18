@@ -46,6 +46,13 @@ Flags:
                      (also --network=<mode>).
   --profile          Report host-side and in-jail startup timings.
   --dry-run          macos-user runtime only: print the plan without launching.
+  --accept-config-changes
+                     Approve a changed jail config on a launch with no terminal
+                     to prompt on (CI, scripts), recording it as approved just
+                     as answering 'y' would. Without it such a launch is
+                     refused. Per-launch by design: it is a flag rather than an
+                     environment variable so an approval cannot be inherited by
+                     child processes or outlive the launch it was given for.
   --help, -h         Show this help. Answered before any config is loaded, so it
                      still works when yolo-jail.jsonc does not parse.
 
@@ -55,7 +62,7 @@ Global options are listed by 'yolo --help'; the full config reference is
 // runFlags is every flag runRun itself consumes. It exists so the usage text and
 // the parser cannot drift apart silently (TestRunUsageListsEveryRunFlag), and so
 // runHelpRequested's "keep scanning past a run flag" branch has one definition.
-var runFlags = []string{"--new", "--profile", "--dry-run", "--network"}
+var runFlags = []string{"--new", "--profile", "--dry-run", "--network", "--accept-config-changes"}
 
 // runHelpRequested reports whether args (the rewritten argv[1:], so it may carry
 // the injected "run" token anywhere before `--`) asks for RUN's help rather than
@@ -138,6 +145,16 @@ func parseRunArgs(args []string, opts *run.Options) {
 			opts.Profile = true
 		case a == "--dry-run":
 			opts.DryRun = true
+		// Spelled as a LITERAL, not as config.AcceptConfigChangesFlag, even though
+		// that constant is the flag's owner and the refusal message's source. The
+		// usage/parser drift guard (TestRunUsageListsEveryRunFlag) reads this
+		// function's SOURCE for long-flag literals, so a constant here would make
+		// the flag invisible to the one check that keeps `run --help` honest.
+		// TestAcceptConfigChangesFlagMatchesTheRefusalMessage pins the two
+		// spellings together instead, so the flag a refused launch is told to pass
+		// is the flag this parser accepts.
+		case a == "--accept-config-changes":
+			opts.AcceptConfigChanges = true
 		case a == "--network":
 			if i+1 < len(args) {
 				i++

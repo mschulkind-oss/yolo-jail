@@ -191,7 +191,7 @@ func TestNoLayerIsInert(t *testing.T) {
 }
 
 // IN-JAIL, THE SNAPSHOT SHORT-CIRCUIT MUST YIELD TO THE LAYER. LoadConfig normally returns
-// the host-written config-snapshot.json verbatim for a jail's own workspace — a FROZEN
+// the host-written config-assembled.json verbatim for a jail's own workspace — a FROZEN
 // artifact of a previous launch, which cannot contain a layer passed to THIS invocation. If
 // it won, `yolo --user-layer x.jsonc check` would silently ignore the file the caller named,
 // which is the exact invisibility the flag exists to avoid.
@@ -204,7 +204,7 @@ func TestUserLayerBeatsTheInJailSnapshotShortCircuit(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A snapshot that does NOT contain the layered key — a previous launch's frozen view.
-	if err := os.WriteFile(ConfigSnapshotPath(ws),
+	if err := os.WriteFile(WorkspaceAssembledConfigPath(ws),
 		[]byte(`{"agents_md_extra": "from the frozen snapshot\n"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}

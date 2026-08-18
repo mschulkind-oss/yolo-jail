@@ -31,6 +31,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -383,7 +384,22 @@ func runCommand(t *testing.T, dir string, args []string, opts ...runOption) resu
 // `yolo run -- bash -lc <script>`.
 func runYolo(t *testing.T, dir, script string, opts ...runOption) result {
 	t.Helper()
-	return runCommand(t, dir, []string{"run", "--", "bash", "-lc", script}, opts...)
+	return runCommand(t, dir, append(jailRunArgs(), "--", "bash", "-lc", script), opts...)
+}
+
+// jailRunArgs is the argv prefix every jail-launching helper shares:
+// `run --accept-config-changes`.
+//
+// The flag is not incidental. Since docs/design/config-safety.md OQ-D2, a launch
+// with a CHANGED config and no terminal to approve it on is REFUSED, and this
+// harness is that launch by definition — `cmd.Stdin` is never a tty. Several tests
+// rewrite yolo-jail.jsonc between two launches of the same workspace on purpose
+// (TestShimPersistence is the canonical one), and without the flag the second
+// launch would refuse instead of applying the edit. Passing it is the scripted
+// caller doing exactly what the ruling asks: saying out loud, per launch, that it
+// means the new config.
+func jailRunArgs() []string {
+	return []string{"run", config.AcceptConfigChangesFlag}
 }
 
 // runYoloDirect runs a command directly (`yolo run -- <args...>`), NOT wrapped
@@ -391,7 +407,7 @@ func runYolo(t *testing.T, dir, script string, opts ...runOption) result {
 // broke `yolo -- copilot` with "command not found".
 func runYoloDirect(t *testing.T, dir string, args ...string) result {
 	t.Helper()
-	return runCommand(t, dir, append([]string{"run", "--"}, args...))
+	return runCommand(t, dir, append(append(jailRunArgs(), "--"), args...))
 }
 
 // runYoloCLI runs a host-side yolo subcommand directly (e.g. `yolo check

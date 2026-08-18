@@ -333,17 +333,8 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		return 1
 	}
 
-	// --- Freeze the workspace-config boot baseline ---
-	// So an in-jail `yolo config drift` has an immutable record of the workspace
-	// config THIS jail was built from. Workspace-only (not the merged cfg) and read
-	// through the same loader the in-jail diff uses, so the two sides compare exactly.
-	// Best-effort: a jail must not fail to launch because a baseline write hiccuped —
-	// drift then reports "cannot determine" rather than a false "no drift".
-	if wsCfg, wsErr := config.LoadWorkspaceConfig(o.Workspace, false, func(string) {}); wsErr == nil {
-		if err := config.WriteWorkspaceBootBaseline(o.Workspace, wsCfg); err != nil {
-			out.printf("[dim]Warning: could not write config drift baseline: %s[/dim]", err.Error())
-		}
-	}
+	// --- Freeze this launch's config artifacts under <workspace>/.yolo ---
+	o.writeLaunchConfigArtifacts(cfg)
 
 	// --- Workspace flock (blocking) ---
 	lockDir := filepath.Join(paths.GlobalStorage(), "locks")
