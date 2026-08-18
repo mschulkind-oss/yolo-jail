@@ -1,8 +1,8 @@
 # Roadmap
 
-**Status: 9 needing you · 1 ready · 0 in progress · 2 waiting · 2 broken · 2 icebox.**
+**Status: 10 needing you · 2 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
 
-Last updated **2026-08-17**. Counts tallied from this file, not asserted.
+Last updated **2026-08-18**. Counts tallied from this file, not asserted.
 
 **What this is.** The forward plan and nothing else. **If it is in this file, it is not done.** Work
 that ships leaves immediately — the record is the commit history. Decisions *not* to build move to
@@ -29,7 +29,18 @@ the real number was closer to 50.
 Grouped by decision, not by question. Each row names its design doc; the doc holds the stakes and my
 leaning. **Nothing here asks you to pick an execution order** — sequencing is mine.
 
-### 💬 1 — Loophole activation: eleven questions, one design
+### 💬 1 — Before the reachability flip: which failures may refuse a launch?
+
+📄 [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) — **OQ-R4 · OQ-R5**
+
+Both raised *by building* OQ-R2's prerequisites, and both gate the one item in 📦 below. OQ-R2 ruled
+that an unreachable service fails the launch; neither question re-opens that. They draw the two
+boundaries it left implicit — **which fault classes** count (only the dial failing, or a stale token
+and a missing endpoint too), and whether a **nested jail** may fail this way at all. Today's answers
+are the conservative ones, arrived at by default rather than by decision, and I lean toward keeping
+both. Cheap to answer, and worth answering before a flip makes them load-bearing.
+
+### 💬 2 — Loophole activation: eleven questions, one design
 
 📄 [`loophole-activation.md`](../design/loophole-activation.md)
 
@@ -56,7 +67,7 @@ user-scope and enable is either; the broker moves inside `packs/claude`). What i
 - ✅ **A1 · A2 · A3 · A7 answered.** Going dark needs no migration machinery, and a loophole-only pack
   is selected like any other — no special case.
 
-### 💬 2 — Trust paths: where we extend trust, and where a pin is theatre
+### 💬 3 — Trust paths: where we extend trust, and where a pin is theatre
 
 📄 [`trust-paths.md`](../design/trust-paths.md) — 25 paths enumerated from the code · partly supersedes
 [`pack-execution-trust.md`](../design/pack-execution-trust.md)
@@ -65,11 +76,15 @@ user-scope and enable is either; the broker moves inside `packs/claude`). What i
 - **OQ-T2** — does agent context (skills, briefings) get gated, or just **disclosed**? Today it is
   neither, by explicit classification, while `env` *is* disclosed on reasoning that applies verbatim.
 - **OQ-T3** — is pinning worth building at all? It changes an outcome in **three of twenty-five** paths.
+  *Its top row is now attemptable:* a pack's `package` string could not express a version at all until
+  today (the launcher appended a literal `@latest`, so `foo@1.2.3` became `foo@1.2.3@latest`). That is
+  fixed as a bug — nothing is pinned by default and no shipped pack changed what it installs — so the
+  question is now a live policy choice rather than a blocked one.
 - **OQ-X1** — does a digest-pinned installer script count, given its own fetches are not pinned?
 - **OQ-LP8 / G2b** — you ruled the shape (approval pinned to a commit); what remains is that
   `LockEntry.Commit` is **never consulted at launch**, so the pin does not yet exist.
 
-### 💬 3 — Auth mode
+### 💬 4 — Auth mode
 
 📄 [`agent-auth-modes.md`](../design/agent-auth-modes.md)
 
@@ -78,7 +93,7 @@ user-scope and enable is either; the broker moves inside `packs/claude`). What i
 subscription OAuth bearer to a non-Anthropic base URL?) and it gates boundary-broker B2. **OQ-2 · 3 ·
 4 · 9** are smaller. **OQ-7 is moot as phrased** — there is no Teams pack — and needs restating.
 
-### 💬 4 — Non-container nix
+### 💬 5 — Non-container nix
 
 📄 [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md)
 
@@ -86,7 +101,7 @@ subscription OAuth bearer to a non-Anthropic base URL?) and it gates boundary-br
 backend? Everything else in that doc is subordinate to it. No longer urgent — the auth thread routed
 around the `env` refusal that motivated it.
 
-### 💬 5 — Boundary broker
+### 💬 6 — Boundary broker
 
 📄 [`boundary-broker.md`](../design/boundary-broker.md)
 
@@ -94,7 +109,7 @@ around the `env` refusal that motivated it.
 **OQ-C** is a real API-shape decision: does the jail see the *result* or just success? **OQ-B1b**
 sizes B1b only. The security half of **OQ-E** is settled; only its packaging half is live.
 
-### 💬 6 — Image staging and baking
+### 💬 7 — Image staging and baking
 
 📄 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md)
 
@@ -102,7 +117,7 @@ sizes B1b only. The security half of **OQ-E** is settled; only its packaging hal
 content-addressed image tag; **OQ-1** blocks two more items; **OQ-4** is a scope ruling on a shipped
 config key. None of these were in this file before today.
 
-### 💬 7 — macOS, and the environment-manager stories
+### 💬 8 — macOS, and the environment-manager stories
 
 📄 [`macos-user-build-step-threat-model.md`](../design/macos-user-build-step-threat-model.md) ·
 [`environment-manager-user-stories.md`](../design/environment-manager-user-stories.md) ·
@@ -113,14 +128,25 @@ whether Linux `guest` is a promise or a hypothesis. **threat-model Q1-Q3** cover
 refusal, `--accept-flake-config`'s substituter surface (now live — see the shipped item), and a macOS
 build sandbox. **OQ-L1** explicitly blocks Track L part 2.
 
-### 💬 8 — The small ones with no design-doc home
+### 💬 9 — The small ones with no design-doc home
 
 These were born in this file and have nowhere else to live: **S5** (a jail resolves a skill-name
 collision silently), **OQ-D1** (the config-approval snapshot is agent-writable — and see 🛑 below,
 where the sweep found the gate also fails open three other ways), **OQ-CO**, **OQ-S4**, **OQ-E4**, and
 **E1/E2/E3/E5** from the backlog. Each is one paragraph; none blocks anything.
 
-### 💬 9 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
+Two more of the same size, both from the `yolo check` honesty pass:
+
+- **`sectionRunningJails` has no in-jail guard.** Run from inside a jail it reports the *nested*
+  podman's view — measured `[PASS] No jails currently running` in here while the host had one — and
+  that line reads as a statement about the host. Left alone because it is *true of the runtime it can
+  see*, and the orphan-cleanup path underneath acts on that same runtime: a behaviour question, not a
+  label. `internal/cli/check/check.go:514`.
+- **Should `yolo check` validate an npm selector's shape?** Now that a `package` string can carry a
+  version, a typo like `foo@@1.2.3` reaches npm and fails at first use *inside* the jail, where the
+  diagnosis is worst. Cheap host-side check; needs a ruling only on how strict to be.
+
+### 💬 10 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
 
 📄 [`pack-host-management-plan.md`](pack-host-management-plan.md) ·
 [`pack-capabilities.md`](../design/pack-capabilities.md)
@@ -134,8 +160,23 @@ one-line deliverable that is decided in all but name.
 
 **Ordered by:** what unblocks something else, then what protects a live user, then cost.
 
-- 📦 **Flip the in-jail reachability probe to fatal (OQ-R2).** *Two of its three gates are now
-  closed; the one left is not code.*
+- 📦 **Close the blocking-open hazard in `svcendpoint.Read` itself.** *A real defect, found by
+  mutation, fixed only at the boot path.*
+
+  `svcendpoint.Read` is `os.ReadFile`, and **`os.ReadFile` opens the path**. Opening a writer-less
+  fifo blocks forever, and there is no ceiling on the read. At the boot probe that meant **PID 1
+  wedged above `genFailuresError` with nothing printed** — a jail that never starts and never says
+  why. That call site is now guarded (stat first, refuse anything not a regular file, cap the size)
+  and the regression test fails by deadline against the old code.
+
+  **Every other caller still has it**, including the in-jail OAuth terminator reading the same
+  read-write-mounted directory: the symptom there is Claude Code never starting, with no error. The
+  fix is a stat gate or `O_NONBLOCK` inside `Read`, which changes error semantics for every caller —
+  which is why the verification pass scoped itself to the boot path and wrote the limitation down
+  rather than landing it unreviewed. `internal/svcendpoint/endpointfile.go`.
+
+- 📦 **Flip the in-jail reachability probe to fatal (OQ-R2).** *Its two code gates are closed. What
+  is left is one observation and 💬 1 above.*
 
   The probe landed in **warn mode** and its call site is already immediately above
   `genFailuresError`. **Built since:** the `YOLO_ALLOW_STALE_IMAGE`-shaped opt-out
@@ -143,7 +184,8 @@ one-line deliverable that is decided in all but name.
   honoured), and the **scoping** — the launcher carries `YOLO_HOST_LOOPBACK=requested|unsupported`
   into the jail so an old-passt host reports a known limitation and launches (OQ-R3) while a launch
   that *did* request forwarding and still cannot reach a service is a fault. The flip is now literally
-  `reachabilityFatal = true`, and both modes are already under test.
+  `reachabilityFatal = true`, both modes are under test, and a **guard test fails if the flip lands
+  with the observation still owed** — so it cannot happen by accident or by tidy-up.
 
   **Still owed, and it is the whole gate:** observe the probe at one real boot on a healthy host. It
   has never run at a genuine container start — every green is a unit test against an in-process
@@ -184,9 +226,33 @@ one-line deliverable that is decided in all but name.
   host — and a nested jail **cannot** verify it, by construction. The host's passt is `2026_07_16`, which
   **does** carry the flag — so the degraded path is not exercised here at all.
 
+  *Now covered by 19 adverse host shapes assembled through `assembleRunCmd` and compared byte-for-byte
+  with the pre-feature argv, so "the worst case is today's behaviour" is measured rather than
+  asserted. That is not the same as a real launch.*
+
+- 🔒 **The slirp4netns fallback is built, and it is two flags rather than one.** An old-passt host now
+  falls back instead of merely being told why it cannot work — but only when **podman itself** reports
+  a slirp4netns binary, never a PATH lookup, because podman is what execs it.
+
+  Building it corrected the design: `allow_host_loopback=true` alone does **not** fix yolo, because
+  podman aims `host.containers.internal` at the host's *global* address under slirp4netns. It needs
+  `--add-host=host.containers.internal:10.0.2.2` alongside — measured here with bare `podman run`. The
+  **pre-existing slirp4netns-host arm had the same defect** and was shipping the option alone while
+  reporting `requested`, i.e. claiming a fix that never reached the advertised name; both arms now
+  emit the pair. **Unverified on a real old-passt host** — nobody here has one. 📄
+  [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §3.2.1.
+
 - 🔒 **On a Mac** — five items: the `macos-user` acceptance matrix, Track D4's download proof, the
   guest-notch handoff, and two lib-farm assertions that only fail on darwin. 📄
   [`handoff-guest-notch-macos.md`](handoff-guest-notch-macos.md).
+
+- 🔒 **On an NVIDIA host** — `sectionGPUNvidia` has no in-jail guard while its AMD twin guards both of
+  its checks, so a jail with `gpu.enabled` prints three `[FAIL]`s for host facts read from the wrong
+  side (`nvidia-ctk not found`, `runc not found`, `No CDI spec found`). Not uniformly wrong, which is
+  why it is here rather than fixed: `nvidia-ctk` *does* inject `nvidia-smi` into a passthrough
+  container, so the enumeration rows are a legitimate in-jail check while the toolkit/runc/CDI rows
+  are not. Deciding which rows to guard needs a host with a card.
+  `internal/cli/check/sections_devices.go:38`.
 
 ---
 
@@ -203,7 +269,7 @@ one-line deliverable that is decided in all but name.
 
 ### Emptying `bundled_loopholes/` — the sprint
 
-The goal is **no inhabitants at sprint end** (OQ-BP4). `host-processes` steps 1–6 shipped today: the
+The goal is **no inhabitants at sprint end** (OQ-BP4). `host-processes` steps 1–6 shipped 2026-08-17: the
 connection preamble end to end, `ServeFrontedUnix`, the daemon behind the framework front, and
 `yolo-ps` no longer self-reporting a `jail_id` nobody trusted.
 
@@ -217,11 +283,3 @@ single decision standing between here and an empty `bundled_loopholes/`.**
 📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) — four of its six questions are answered;
 **OQ-BP5** (build step vs download-only) and **OQ-BP6** (may a fetched pack ship a host-side binary?)
 remain, and BP1 ruled they ship *in* this sprint.
-
-### Claude-shaped code in core — done
-
-All three landable steps shipped today: the credential harvest deleted, the broker's freshness check
-moved behind the `doctor_cmd` it already declared, and the claude names renamed out —
-`internal/agents` is now `internal/jailcontent`, `hostclaude.go` is `hostfiles.go`, and
-`DefaultBriefingFiles()` returns `AGENTS.md` alone. What remains is only the broker's own move, which
-is the sprint above. 📄 [`pack-code-separation.md`](../design/pack-code-separation.md).
