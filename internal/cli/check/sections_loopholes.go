@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -85,6 +86,21 @@ func (o *Options) checkLoopholes(r *reporter) {
 	// than one redundant line. An explicit `enabled` in an agent-editable file is a
 	// deliberate act either way, so this stays off ordinary launches.
 	switches := config.WorkspaceLoopholeSwitches(o.Workspace)
+	// The USER's switch, read separately from the disclosure above and for a different
+	// job. `switches` answers "did an agent-editable file touch this", which is what
+	// decides whether to WARN; this answers "will the loophole run", which is what
+	// decides the ROW. Conflating them is how the section came to report the manifest
+	// default as fact: OQ-A13 fixed the workspace half and left the user half standing,
+	// so `loopholes.audio.enabled: true` in ~/.config/yolo-jail/config.jsonc — the
+	// remedy audio's own manifest prescribes, and the one `yolo loopholes enable`
+	// prints — rendered as `[PASS] loophole audio: disabled` with the doctor_cmd
+	// unrun. R2's flipped default is what made that the ordinary path rather than an
+	// exotic one.
+	//
+	// This adds no disclosure, which is OQ-A13's ruling and not an omission: a
+	// user-scope enable draws no line, because a line under every enabled loophole on
+	// every run is how the one that matters gets skimmed past. Only the verdict moves.
+	userSwitches := loopholeConfigBlock(o.Workspace)
 	for _, e := range entries {
 		if e.Err != "" {
 			r.warn("loophole "+filepath.Base(e.Path)+": invalid manifest", e.Err)
@@ -106,6 +122,9 @@ func (o *Options) checkLoopholes(r *reporter) {
 		// undo OQ-A12 — the reason every loophole's doctor_cmd is reported at all — for
 		// exactly the loopholes whose activation is least expected.
 		enabled := lp.Enabled
+		if v, set := loopholes.ConfigEnabledOverride(userSwitches, lp.Name); set {
+			enabled = v
+		}
 		if wsScoped && sw.Enabled {
 			r.warn("loophole "+lp.Name+": enabled by "+sw.File+" (workspace scope)",
 				"An agent-editable file turned an installed loophole ON; jails "+
@@ -162,6 +181,36 @@ func (o *Options) checkLoopholes(r *reporter) {
 			o.reportBrokerDaemon(r)
 		}
 	}
+}
+
+// loopholeConfigBlock returns the merged (user + workspace) `loopholes` block, or nil
+// when there is no config or no block — which ConfigEnabledOverride reads as "nobody
+// answered", leaving each manifest's own default standing.
+//
+// MERGED, not workspace-only, and that is the whole point of it existing beside
+// config.WorkspaceLoopholeSwitches. The two answer different questions: the switches map
+// is provenance (which agent-editable FILE holds the key, so a disclosure can name it),
+// this is the decision (what a launch will actually do). Reading provenance where the
+// decision was wanted is what left the user-scope half of the row wrong after OQ-A13
+// fixed the workspace half.
+//
+// LOOSE: an unreadable or invalid config yields nil rather than an error, because the
+// config's own validity is a different section's report and `yolo check` must not lose
+// the loophole rows over it.
+func loopholeConfigBlock(workspace string) *jsonx.OrderedMap {
+	cfg := loadConfigLoose(workspace)
+	if cfg == nil {
+		return nil
+	}
+	blockV, ok := cfg.Get("loopholes")
+	if !ok {
+		return nil
+	}
+	block, isMap := blockV.(*jsonx.OrderedMap)
+	if !isMap {
+		return nil
+	}
+	return block
 }
 
 // reportSelfCheckLines renders a self-check's own graded output — "FAIL:" as a
@@ -300,10 +349,25 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 		return
 	}
 	entries := loopholes.ValidateLoopholes(true)
+	// The same resolution the row above needs, for the same reason and with sharper
+	// stakes: this walker reads no config at all, so the record's Enabled is the
+	// manifest default. A loophole the user switched on has a daemon RUNNING — the
+	// launch path resolved the config and spawned it — while this block skipped it and
+	// printed "no host-side daemons to probe". A green line asserting there is nothing
+	// to measure, over a live host process, on the command someone runs when that
+	// process is the thing that broke.
+	userSwitches := loopholeConfigBlock(o.Workspace)
 	var externals []*loopholes.Loophole
 	for _, e := range entries {
 		lp := e.Loophole
-		if lp != nil && e.Err == "" && lp.Enabled && lp.RequirementsMet() && lp.HostDaemon != nil {
+		if lp == nil || e.Err != "" {
+			continue
+		}
+		enabled := lp.Enabled
+		if v, set := loopholes.ConfigEnabledOverride(userSwitches, lp.Name); set {
+			enabled = v
+		}
+		if enabled && lp.RequirementsMet() && lp.HostDaemon != nil {
 			externals = append(externals, lp)
 		}
 	}

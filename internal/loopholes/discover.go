@@ -105,6 +105,50 @@ func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
 	return out
 }
 
+// ConfigEnabledOverride reports what the merged config says about one loophole's
+// `enabled` key: the value, and whether the key was written at all.
+//
+// THE USER'S SWITCH, and the one place its rule is stated. `loopholes.<name>.enabled`
+// is a different key from the manifest's `default_enabled` — the pack author's default
+// versus the user's answer (docs/design/loophole-activation.md OQ-A9) — and it outranks
+// the default in BOTH directions, from either scope, because the merged block this reads
+// is already user-config-plus-workspace with the workspace winning.
+//
+// Exported and factored out because it has TWO readers that must not drift:
+// applyWorkspaceOverrides, which resolves the record a launch acts on, and `yolo check`,
+// which reports what that launch will do. It used to have one, and the reporting surface
+// answered off the manifest default alone — so a loophole the user had switched ON
+// rendered as the greenest line in the section (`[PASS] loophole X: disabled`) and its
+// host daemon was never probed. The absent second reader is what made that possible;
+// a shared rule is what stops it coming back.
+//
+// The "set" bool is load-bearing: "the config said true" and "the config said nothing"
+// are different answers, and only the second may leave the author's default standing.
+//
+// COERCED WITH Truthy rather than type-checked, deliberately and unlike the manifest's
+// `default_enabled`. It is what the launch path has always done here, so tightening it
+// would change which configs activate — and the config key HAS a type check already, one
+// layer up in internal/config (`enabled: expected a boolean`), which refuses the sloppy
+// spelling before this ever sees it.
+func ConfigEnabledOverride(loopholesConfig *jsonx.OrderedMap, name string) (enabled bool, set bool) {
+	if loopholesConfig == nil {
+		return false, false
+	}
+	specV, ok := loopholesConfig.Get(name)
+	if !ok {
+		return false, false
+	}
+	spec, isMap := specV.(*jsonx.OrderedMap)
+	if !isMap {
+		return false, false
+	}
+	enabledV, present := spec.Get("enabled")
+	if !present {
+		return false, false
+	}
+	return loopholedecl.Truthy(enabledV), true
+}
+
 // matching entries of `existing` in place and returns the NEW inline loopholes
 // (in document order) that matched nothing.
 func applyWorkspaceOverrides(existing map[string]*Loophole, loopholesConfig *jsonx.OrderedMap) []*Loophole {
@@ -125,8 +169,8 @@ func applyWorkspaceOverrides(existing map[string]*Loophole, loopholesConfig *jso
 			newInline = append(newInline, synthesizeConfigLoopholes(single)...)
 			continue
 		}
-		if enabledV, ok := spec.Get("enabled"); ok {
-			target.Enabled = loopholedecl.Truthy(enabledV)
+		if v, set := ConfigEnabledOverride(loopholesConfig, name); set {
+			target.Enabled = v
 		}
 		if envV, ok := spec.Get("env"); ok && loopholedecl.Truthy(envV) {
 			if envMap, isMap := envV.(*jsonx.OrderedMap); isMap && target.HostDaemon != nil {

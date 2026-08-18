@@ -464,6 +464,10 @@ func TestHostServiceLivenessSaysWhatItCannotSee(t *testing.T) {
 	loopholes.BundledLoopholesDir = func() string { return fakeBundled }
 	t.Cleanup(func() { loopholes.BundledLoopholesDir = oldBundled })
 	retiredLoopholeDir(t)
+	// And the user config, which the section now resolves `enabled` from: a real
+	// ~/.config/yolo-jail/config.jsonc naming this loophole would decide whether the
+	// probe below runs at all (see isolatedBundledDir for the same reasoning).
+	t.Setenv("HOME", t.TempDir())
 
 	modDir := filepath.Join(fakeBundled, "svc")
 	if err := os.MkdirAll(modDir, 0o755); err != nil {
@@ -558,6 +562,7 @@ func TestHostServiceLivenessNoCaveatWithoutALoopbackTLSProbe(t *testing.T) {
 	loopholes.BundledLoopholesDir = func() string { return fakeBundled }
 	t.Cleanup(func() { loopholes.BundledLoopholesDir = oldBundled })
 	retiredLoopholeDir(t)
+	t.Setenv("HOME", t.TempDir())
 
 	modDir := filepath.Join(fakeBundled, "unixsvc")
 	if err := os.MkdirAll(modDir, 0o755); err != nil {
@@ -649,12 +654,19 @@ func TestHostServiceLivenessInJailSaysWhy(t *testing.T) {
 // would have its doctor_cmds EXECUTED by every test in this file — the broker's among
 // them — which is host execution from a unit test, and the counts would depend on the
 // machine.
+// The USER CONFIG is isolated in the same breath, and for the same kind of reason: the
+// section resolves `loopholes.<name>.enabled` out of the merged config, so a developer
+// whose own ~/.config/yolo-jail/config.jsonc disables a loophole would get a different
+// report than CI from the same code. HOME is where that file is found, so pointing HOME
+// at a throwaway dir is what makes "no config says anything" the fixture rather than an
+// accident of whose machine ran the test.
 func isolatedBundledDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	orig := loopholes.BundledLoopholesDir
 	loopholes.BundledLoopholesDir = func() string { return dir }
 	t.Cleanup(func() { loopholes.BundledLoopholesDir = orig })
+	t.Setenv("HOME", t.TempDir())
 	retiredLoopholeDir(t)
 	return dir
 }
@@ -861,6 +873,130 @@ func TestCheckLoopholesWarnsOnWorkspaceEnable(t *testing.T) {
 	if r.warned != 1 || r.failed != 0 {
 		t.Errorf("warned=%d failed=%d, want exactly the one disclosure and no failure:\n%s",
 			r.warned, r.failed, out)
+	}
+}
+
+// TestCheckLoopholesResolvesUserScopeSwitch is the half OQ-A13 did not reach, and R2's
+// flipped default is what turned it from a curiosity into the ordinary case.
+//
+// OQ-A13 fixed the WORKSPACE half of one bug: this walk resolves manifests and no
+// config, so a loophole the user had switched on rendered as `[PASS] loophole X:
+// disabled` — the greenest line in the section — with its doctor_cmd unrun. The fix read
+// config.WorkspaceLoopholeSwitches, which is a PROVENANCE seam (it names the
+// agent-editable file so a disclosure can point at it) and deliberately reads workspace
+// files only. So the USER scope kept the original defect, and after R2 the user scope is
+// where enablement now happens: `loopholes.audio.enabled: true` in
+// ~/.config/yolo-jail/config.jsonc is what audio's own manifest prescribes and what
+// `yolo loopholes enable` prints, and it is the only way to get audio back at all.
+//
+// Both directions are pinned in one test because they fail apart: reading the merged
+// block for the ON case while leaving OFF on the manifest default would leave the broker
+// self-check FAILING under `yolo check` for a user who switched the broker off.
+//
+// Deliberately NOT pinned: a disclosure line. A user-scope enable draws none — that is
+// OQ-A13's ruling, not an omission — because a line under every enabled loophole on
+// every run is how the one that matters gets skimmed past. Only the verdict moves, so
+// the assertion below is on warned==0.
+func TestCheckLoopholesResolvesUserScopeSwitch(t *testing.T) {
+	bundled := isolatedBundledDir(t)
+	sentinels := t.TempDir()
+
+	// OFF in the manifest, ON in the user config: the audio case after R4.
+	onRan := filepath.Join(sentinels, "on-ran")
+	writeLoopholeManifest(t, bundled, "useron",
+		`"name":"useron","description":"useron","transport":"none","default_enabled":false,`+
+			`"doctor_cmd":["/bin/sh","-c","touch `+onRan+`; echo 'OK: useron wiring present'"]`)
+	// ON in the manifest, OFF in the user config: the broker case, where reporting the
+	// author's default as fact means running (and grading) a self-check for a loophole
+	// that will not be there.
+	offRan := filepath.Join(sentinels, "off-ran")
+	writeLoopholeManifest(t, bundled, "useroff",
+		`"name":"useroff","description":"useroff","transport":"none","default_enabled":true,`+
+			`"doctor_cmd":["/bin/sh","-c","touch `+offRan+`; echo 'FAIL: useroff is broken'"]`)
+
+	userCfgDir := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail")
+	if err := os.MkdirAll(userCfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userCfgDir, "config.jsonc"),
+		[]byte(`{"loopholes": {"useron": {"enabled": true}, "useroff": {"enabled": false}}}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, out := runCheckLoopholes(t, t.TempDir())
+
+	if strings.Contains(out, "loophole useron: disabled") {
+		t.Errorf("a user-scope enable still renders as the green disabled line, read off "+
+			"the manifest default the user overrode:\n%s", out)
+	}
+	if _, err := os.Stat(onRan); err != nil {
+		t.Errorf("the user-enabled loophole's doctor_cmd never ran, so nothing about the "+
+			"loophole that WILL run was reported:\n%s", err)
+	}
+	if !strings.Contains(out, "loophole useron: self-check ok") {
+		t.Errorf("the user-enabled loophole's self-check is not reported:\n%s", out)
+	}
+	if !strings.Contains(out, "loophole useroff: disabled") {
+		t.Errorf("a user-scope disable is not reflected in the row:\n%s", out)
+	}
+	if _, err := os.Stat(offRan); err == nil {
+		t.Errorf("the user-DISABLED loophole's doctor_cmd ran anyway, so `yolo check` "+
+			"grades a loophole no jail will have:\n%s", out)
+	}
+	// The verdict moved and nothing else did: no disclosure for a user-scope switch
+	// (that is OQ-A13's ruling), and no failure from the self-check that must not run.
+	if r.warned != 0 || r.failed != 0 {
+		t.Errorf("warned=%d failed=%d, want a silent verdict change:\n%s", r.warned, r.failed, out)
+	}
+}
+
+// TestHostServiceLivenessResolvesUserScopeEnable is the same defect one function over,
+// and the one with a live host process behind it.
+//
+// checkHostServiceLiveness picks which daemons to probe out of ValidateLoopholes, which
+// reads no config at all — so a loophole switched on in config had its daemon SPAWNED by
+// the launch path while this block skipped it and printed "no host-side daemons to
+// probe". A green asserting there is nothing to measure, over a running daemon, on the
+// command someone reaches for when that daemon is what broke.
+//
+// It asserts the filter rather than a probe result: getting past the filter is the whole
+// property, and what happens next needs a container runtime this test has no business
+// starting.
+func TestHostServiceLivenessResolvesUserScopeEnable(t *testing.T) {
+	bundled := isolatedBundledDir(t)
+	writeLoopholeManifest(t, bundled, "svcoff",
+		`"name":"svcoff","description":"d","transport":"loopback-tls","default_enabled":false,`+
+			`"host_daemon":{"cmd":["/bin/true"]}`)
+
+	userCfgDir := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail")
+	if err := os.MkdirAll(userCfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userCfgDir, "config.jsonc"),
+		[]byte(`{"loopholes": {"svcoff": {"enabled": true}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	r := newReporter(&buf, false)
+	// No runtime: the section stops at "no container runtime found", which is AFTER the
+	// externals filter and therefore proof the filter let the loophole through.
+	o := &Options{
+		Workspace: t.TempDir(),
+		Getenv:    func(string) string { return "" },
+		LookPath:  func(string) (string, bool) { return "", false },
+	}
+	fillDefaults(o)
+	o.checkHostServiceLiveness(r)
+	out := buf.String()
+
+	if strings.Contains(out, "no host-side daemons to probe") {
+		t.Errorf("the daemon of a loophole the user switched ON was not probed — the "+
+			"filter read the manifest default and no config:\n%s", out)
+	}
+	if r.failed != 0 {
+		t.Errorf("failed=%d, want the missing-runtime warning and nothing else:\n%s", r.failed, out)
 	}
 }
 
