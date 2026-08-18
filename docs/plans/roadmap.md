@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 9 needing you · 2 ready · 0 in progress · 3 waiting · 2 broken · 2 icebox.**
+**Status: 9 needing you · 1 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
 
 Last updated **2026-08-18**. Counts tallied from this file, not asserted.
 
@@ -149,54 +149,21 @@ one-line deliverable that is decided in all but name.
 
 **Ordered by:** what unblocks something else, then what protects a live user, then cost.
 
-- 📦 **Close the blocking-open hazard in `svcendpoint.Read` itself.** *A real defect, found by
-  mutation, fixed only at the boot path.*
+- 📦 **The broker singleton cannot start inside a jail, and has been failing silently for months.**
+  *Found 2026-08-18 by the verifier that measured the nested-launch refusal.*
 
-  `svcendpoint.Read` is `os.ReadFile`, and **`os.ReadFile` opens the path**. Opening a writer-less
-  fifo blocks forever, and there is no ceiling on the read. At the boot probe that meant **PID 1
-  wedged above `genFailuresError` with nothing printed** — a jail that never starts and never says
-  why. That call site is now guarded (stat first, refuse anything not a regular file, cap the size)
-  and the regression test fails by deadline against the old code.
+  Every nested launch spawns the host-wide broker daemon, and it exits instantly:
+  `yolo-claude-oauth-broker-host: cannot locate openssl`. The jail image bakes no openssl and the
+  daemon needs it to mint its CA. **Measured in this jail: 2,549 failures, 1.3 MB of log.** Nothing
+  ever consumed the error, so it has been invisible.
 
-  **Every other caller still has it**, including the in-jail OAuth terminator reading the same
-  read-write-mounted directory: the symptom there is Claude Code never starting, with no error. The
-  fix is a stat gate or `O_NONBLOCK` inside `Read`, which changes error semantics for every caller —
-  which is why the verification pass scoped itself to the boot path and wrote the limitation down
-  rather than landing it unreviewed. `internal/svcendpoint/endpointfile.go`.
+  It only became load-bearing when the witness turned fatal — an endpoint nobody can publish is now
+  a refused launch — and that is patched at the promise (`brokerEndpointIsUnpublishable`, below). The
+  spawn itself is still pointless and still growing a log file every launch.
 
-- 📦 **Flip the in-jail reachability probe to fatal (OQ-R2), and widen what it escalates.**
-  *Fully unblocked — every question behind it is answered and both real-boot observations are done.*
-
-  The probe landed in **warn mode** and its call site is already immediately above
-  `genFailuresError`. **Built since:** the `YOLO_ALLOW_STALE_IMAGE`-shaped opt-out
-  (`YOLO_ALLOW_UNREACHABLE_SERVICES=1`, forwarded into the jail because that is where it is
-  honoured), and the **scoping** — the launcher carries
-  `YOLO_HOST_LOOPBACK=requested|shared|unsupported|unknown` into the jail so an old-passt host
-  reports a known limitation and launches (OQ-R3) while a launch that *did* request forwarding and
-  still cannot reach a service is a fault. The flip is now literally
-  `reachabilityFatal = true`, both modes are under test, and a **guard test fails if the flip lands
-  with the observation still owed** — so it cannot happen by accident or by tidy-up.
-
-  **Both halves observed at real boots, 2026-08-18.** *Healthy:* `YOLO_HOST_LOOPBACK=requested`, both
-  endpoints published, both answered through the witness's own path (TLS, cert-pinned,
-  token-authenticated) in 1–2 ms — silent, as the gate asked. *Broken:* a service pointed at a dead
-  port produced the warning, the address, the `requested` diagnosis that correctly points **away**
-  from the network stack, and the FAULT verdict — with the jail still starting, because warn mode.
-
-  **The prerequisite has landed:** all four disposition spellings ship, so the launcher now says
-  `shared` on a jail that shares its network namespace and `unknown` where it reached no conclusion,
-  and the witness reads both. What is left is three severity changes, invisible until the fatal is
-  on and therefore shipping together:
-
-  1. add `shared` to the escalating set (OQ-R5) — and fix `unreachableFaultMessage` with it, which
-     opens *"yolo requested host-loopback forwarding"*, false for a launch that never needed any;
-  2. widen the escalation set to **all three** fault classes (OQ-R4) — today only `faultUnreachable`
-     escalates;
-  3. `reachabilityFatal = true`, plus deleting the guard test that currently blocks it.
-
-  **Release-note item, not a surprise to discover:** the broker's variable is wired with no publish
-  gate, so "broker configured, singleton down" refuses **every jail on that host**. Accepted. 📄
-  [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §7.3, §10.
+  **The narrow fix is not to spawn a daemon that provably cannot start.** Making it actually *work*
+  in a nested jail is a separate call — it needs openssl baked into the image, and a nested jail
+  minting its own CA may not be wanted at all. Don't bundle the two.
 
 ---
 
@@ -224,6 +191,23 @@ one-line deliverable that is decided in all but name.
 ---
 
 # 🔒 Waiting
+
+- 🔒 **The fatal witness is live in the tree, and not on your host until a `just load`.**
+
+  Since 2026-08-18 an enabled jail-facing service the jail cannot use **refuses the launch**, in all
+  three fault classes. Your jails keep the old warn behaviour until the image is reloaded, so this is
+  the moment to know what changes:
+
+  - **A dead broker singleton refuses every jail on the host**, not just one — its endpoint variable
+    is wired with no publish gate, which is deliberate and was accepted. This is the release-note
+    line.
+  - `YOLO_ALLOW_UNREACHABLE_SERVICES=1 yolo …` is the way past any refusal, and the refusal names it.
+  - `unsupported`, `unknown` and an absent disposition **never** refuse — a host yolo could not ask
+    is never punished for what it cannot help.
+
+  Nested launches were refused by this and are not any more (measured both ways, 2026-08-18); the fix
+  is at the promise rather than the severity, so the host case above is untouched. 📄
+  [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §7.
 
 - 🔒 **The slirp4netns fallback is built, and it is two flags rather than one.** An old-passt host now
   falls back instead of merely being told why it cannot work — but only when **podman itself** reports
