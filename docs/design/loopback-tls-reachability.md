@@ -3,15 +3,17 @@ title: "Loopback-TLS reachability — how a jail reaches a host daemon, and why 
 date: 2026-08-17
 status: in-review
 tags: [transport, networking, loopholes, regression]
-summary: "The transport assumes one rootless networking stack's behaviour is universal. It is not. A walk through every networking mode, why 'just bind the right address' has nowhere to go, and the decisions, all now answered."
+summary: "The transport assumes one rootless networking stack's behaviour is universal. It is not. A walk through every networking mode, why 'just bind the right address' has nowhere to go, and the decisions — the original four answered, two more raised by building them."
 ---
 
 # Loopback-TLS reachability — how a jail reaches a host daemon, and why it currently cannot
 
 **Status:** DECIDED, 2026-08-17; the launcher fix (§6), the in-jail witness (§7, still warn-mode per
-§10), and the slirp4netns fallback (§10's follow-up) are BUILT. Absorbs and replaces the operational handoff that
-originally reported this (`docs/plans/handoff-loopback-tls-pasta.md`, deleted in the same commit —
-its evidence is folded into §2 and §3).
+§10), and the slirp4netns fallback (§10's follow-up) are BUILT. **OQ-R4 and OQ-R5 are open** — both
+raised by building the witness, and both scope *which* failures the §10 flip may refuse a launch
+over. Absorbs and replaces the operational handoff that originally reported this
+(`docs/plans/handoff-loopback-tls-pasta.md`, deleted in the same commit — its evidence is folded into
+§2 and §3).
 
 **The short version.** yolo's host daemons bind `127.0.0.1` and tell the jail to dial
 `host.containers.internal`, on the assumption that a container runtime forwards that name to the
@@ -302,7 +304,7 @@ rather than the bind.
 ### 5.1 What binding globally would actually cost
 
 Not "it is less tidy" — three concrete changes, worth reading before rejecting the option, because if
-[OQ-R3](#-oq-r3--if-the-hosts-passt-predates---map-host-loopback-what-then) lands badly this becomes
+[OQ-R3](#-oq-r3--if-the-hosts-passt-predates---map-host-loopback-what-then--resolved-2026-08-17) lands badly this becomes
 the fallback's rival:
 
 - **The port becomes visible to the network.** TLS with a pinned cert and a per-jail bearer token
@@ -520,7 +522,7 @@ per-service level rather than one global rule.
   [`loophole-activation.md`](./loophole-activation.md) nothing is enabled unless you asked for it, so
   the fatal only ever fires for a service the user deliberately turned on. "Enabled but unreachable"
   is a genuine contradiction; "present but unused" no longer exists as a state.
-- **With [OQ-R3](#-oq-r3--if-the-hosts-passt-predates---map-host-loopback-what-then) also ruled
+- **With [OQ-R3](#-oq-r3--if-the-hosts-passt-predates---map-host-loopback-what-then--resolved-2026-08-17) also ruled
   refuse, an old-passt host cannot launch a jail at all** while any jail-facing service is enabled.
   That is the intended reading of both rulings together, and it should be stated in the release note
   rather than discovered.
@@ -641,3 +643,58 @@ preference, and only when it is actually installed.
 > `host.slirp4netns.executable` as `""` when it has none, so the empty string is a positive fact.
 > `internal/cli/run/hostloopback.go`; the probe runs only on the degraded path, so a healthy host
 > pays nothing for it.
+
+### 💬 OQ-R4 — which faults may refuse a launch, once the fatal flips?
+
+OQ-R2 ruled *that* an unreachable service fails the launch. It did not say which **kind** of failure
+counts, and the probe distinguishes three (`reachabilityFault`,
+[`reachability.go`](../../internal/entrypoint/reachability.go#L155-L169)). Only `faultUnreachable`
+— the dial itself failing — is in the escalation set today:
+
+| Fault | What it is | Escalatable today |
+|---|---|---|
+| `faultUnreachable` | the endpoint file is good and the advertised address does not answer | ✅ yes |
+| `faultUnpublished` | no endpoint file, one that does not parse, or one that is not a readable regular file | ❌ no |
+| `faultRejected` | the endpoint parsed and the listener refused this jail's token — a stale file | ❌ no |
+
+**What it decides:** whether "the service is enabled and the jail cannot use it" means the *network*
+specifically, or the outcome. A stale token (`faultRejected`) and a daemon that never published
+(`faultUnpublished`) are both services the user asked for and cannot have.
+
+_Leaning:_ **keep the escalation set as it is, and revisit only with evidence.** The narrow set is
+what makes the fatal safe: the other two are **local file states inside the jail's own read-write
+host-services directory**, so escalating them turns a stray file into a jail that will not start —
+and `faultUnpublished` is also what a daemon merely slow to publish looks like. `faultUnreachable` is
+the only one whose cause is the thing OQ-R0..R3 are about. The cost of being wrong here is asymmetric
+and the cheap direction is to warn.
+
+> [!NOTE]
+> This is not hypothetical tidiness. A **directory** at an endpoint path used to classify as
+> `faultUnreachable` (`os.ReadFile` returns `EISDIR`, which `svcendpoint` claims as neither of its
+> typed errors, so the transport default took it) — a local file shape with nothing to do with
+> forwarding, sitting in the one class the fatal escalates. Found and fixed 2026-08-18 by routing
+> every non-regular shape to `faultUnpublished`; it is why the boundary is worth ruling on
+> deliberately rather than inheriting.
+
+**Answer:**
+> _(unanswered)_
+
+### 💬 OQ-R5 — should a jail that shares the host's network stack be able to fail this way?
+
+A nested jail and an explicit `network.mode: host` both carry **no disposition**, so under
+[OQ-R3](#-oq-r3--if-the-hosts-passt-predates---map-host-loopback-what-then--resolved-2026-08-17)'s
+absent-never-escalates rule neither can ever fail a launch. That was the conservative choice, not a reasoned one.
+
+The argument for changing it: those two shapes share the launcher's own network namespace, so there
+is nothing to forward and *no host-stack excuse available* — an unreachable service there is a plain
+fault, arguably the clearest one in the file. The argument against: a nested jail is exactly where
+this file's own carve-out says reachability cannot be measured honestly
+([§3](#3-the-networking-modes-spelled-out), the nested-jail row), and `network.mode: host` is a user
+override that [OQ-R1](#-oq-r1--may-yolo-emit-a-network-option-on-the-default-path--resolved-2026-08-17)
+already ruled keeps its own bug.
+
+_Leaning:_ **leave both non-escalatable.** Failing a launch inside a *nested* jail would break the
+one loop this repo is developed in, for a class it cannot measure — a bad trade at any confidence.
+
+**Answer:**
+> _(unanswered)_
