@@ -51,9 +51,26 @@ becomes a gate only if three things hold together — (i) enforced at use, (ii) 
 
 1. **`program via npm`** — because nothing *is* pinned and the content changes with **zero user
    action**. Every shipped pack declares a bare package name, which the launcher resolves to
-   `@latest` and re-checks with an hourly `npm view` poll
-   ([`shims.go`](../../internal/entrypoint/shims.go)), so the binary changes between two
-   invocations with nobody present. This is the highest-plausibility silent change in the inventory
+   `@latest` and then keeps current on an hourly poll, so the binary changes between two invocations
+   with nobody present.
+
+   > **What the hourly poll is, since it is ours and it is deliberate.** A pack that declares
+   > `program via npm` does not get its binary at image-build time. The entrypoint generates a
+   > *launcher* script for the command name, and the first invocation installs it
+   > ([`shims.go`](../../internal/entrypoint/shims.go#L320-L390)). That script then keeps the package
+   > fresh: on the first call after a jail boot, and thereafter at most once an hour
+   > (`UPDATE_INTERVAL=3600`), it runs `npm view <pkg> version` and reinstalls if the registry's
+   > latest differs from what is installed.
+   >
+   > **Why we do it:** agent CLIs install lazily into a jail home that *persists across boots*, so
+   > without a refresh they would freeze at whatever was current the day that home was created —
+   > which for a long-lived workspace is indistinguishable from an abandoned tool.
+   >
+   > **What it costs is this row.** For an unpinned declaration the poll is the mechanism by which
+   > content changes with nobody present. A *pinned* declaration skips it entirely and compares the
+   > **declaration** offline instead, which is not merely an optimisation: against a tag or a range
+   > `npm view` never compares equal, so polling a pinned package would reinstall every hour forever
+   > (the reasoning is in the generated script's own comment). This is the highest-plausibility silent change in the inventory
    and it applies to **embedded** packs (pi, copilot, codex, opencode) as much as fetched ones.
    *Caveat, since RETIRED (2026-08-17):* a version used to be **not expressible** — the template
    appended `@latest` to the package string, so `foo@1.2.3` yielded `foo@1.2.3@latest`. The
@@ -66,10 +83,55 @@ becomes a gate only if three things hold together — (i) enforced at use, (ii) 
    string genuinely does not cover the bytes. `["python3","{loophole_dir}/acme.py"]` is one claim
    string forever; `plugin <name> hooks (runs code at agent lifecycle events)` is a **constant** with
    no path and no digest in it. This is OQ-LP8/G2b, already open on purpose.
+
+   > **"Plugin" and "hook body", defined — they are the AGENT's extension mechanism, not yolo's.**
+   > A pack may ship a **Claude Code plugin**: a `.claude-plugin/plugin.json` manifest that the agent
+   > reads directly. yolo delivers it and reports what it declares, but never interprets it.
+   >
+   > A plugin manifest can declare six component kinds, and yolo marks three of them as running code
+   > ([`pluginpack.go`](../../internal/pluginpack/pluginpack.go#L130-L147)):
+   >
+   > | Component | What it does | Runs code |
+   > | :--- | :--- | :--- |
+   > | `hooks` | runs code at agent lifecycle events | ✅ |
+   > | `mcpServers` | starts MCP server processes | ✅ |
+   > | `lspServers` | starts language server processes | ✅ |
+   > | `commands` · `agents` · `outputStyles` | slash commands, sub-agent definitions, output styles | ❌ |
+   >
+   > A **hook body** is the script a `hooks` entry names — the thing the *agent* executes when it
+   > reaches one of its own lifecycle events (before a tool call, after an edit, and so on). yolo
+   > never runs it and never reads it.
+   >
+   > **That is exactly why the claim is uncoverable.** The approval string yolo shows is the table row
+   > above, verbatim and constant. It names the *category*, not the file — so a plugin can rewrite its
+   > hook script and the string a user approved is byte-identical. Compare a loophole's `command`,
+   > which at least names a path: that one is uncovered because the path's *contents* move, where this
+   > one has no path in it at all.
 3. **Editing `?ref=` in config without reinstalling.** The mirror already holds every branch and tag,
    so a config-only edit resolves offline at the next launch and delivers new content with **no
    install, no network and no prompt**. `pack status` calls this drift; nothing on the launch path
    consults it.
+
+   > **What `?ref=` is.** A fetched pack is named by a URL-shaped *address* in your user config, and
+   > `?ref=` is the query parameter on it that selects which git ref to use
+   > ([`addr.go`](../../internal/packsrc/addr.go#L45-L60)):
+   >
+   > ```
+   > git+https://github.com/acme/mono//tools/agent-pack?ref=main
+   > └─ scheme ──┘└──── repo ───────┘└── subpath ────┘└── ref ──┘
+   > ```
+   >
+   > The ref may be a **branch, a tag, or a full commit SHA**, and for a git address it is always
+   > non-empty — there is no "unspecified ref" form to fall back on. (A local `file://` pack has no
+   > ref at all; it is a directory, and none of this row applies to it.) So `?ref=v2.1.0` and
+   > `?ref=6461be6…` are already pins *in the address*; `?ref=main` is a moving target by
+   > construction.
+   >
+   > **Why editing it is a path in this list:** `pack install` syncs a local mirror of the whole
+   > repository, not just the one ref. Every branch and tag is therefore already on disk. Changing
+   > `main` to `some-other-branch` in config is a text edit that resolves against that mirror at the
+   > next launch — no `pack install`, no network fetch, and nothing that prompts. The bytes that run
+   > change because a config line changed.
 
 ### Where it is theatre — the four that matter
 
