@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
@@ -495,6 +496,13 @@ func podmanLinuxGolden(home string) []string {
 		"--cap-add", "SYS_ADMIN", "--cap-add", "MKNOD", "--cap-add", "NET_ADMIN", "--cap-add", "NET_RAW")
 	// no host nix (paths absent), bridge net (no --net flag), no identity env,
 	// no gitignore (~/.config/git/ignore absent), no publish/mounts.
+	//
+	// The host-loopback disposition, on EVERY launch (OQ-R6). This fixture answers no
+	// LookPath, so the decision reaches no conclusion — which is a state with a
+	// spelling of its own now rather than an omission, precisely so that an absent
+	// variable can mean one thing only: a launcher older than it. The in-jail witness
+	// never escalates on this value (internal/entrypoint/reachability.go).
+	add("-e", paths.HostLoopbackEnvVar+"="+paths.HostLoopbackUnknown)
 	// host services sockets dir mount (podman, always).
 	add("-v", hostServiceSocketsDir("yolo-ws-abcd1234", false)+":/run/yolo-services:rw")
 	// devices/gpu/kvm: none. resources: podman always gets --pids-limit 32768.

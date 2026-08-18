@@ -99,9 +99,24 @@ package run
 // container as paths.HostLoopbackEnvVar: `requested` when the option above went
 // out on the argv (an unreachable service is then a FAULT), `unsupported` when
 // yolo identified the stack and could not get it to forward (a KNOWN LIMITATION,
-// never a launch failure), and NOTHING at all for every path that reached no
-// conclusion. Absent is the safe default by construction, which is the same
-// positive-facts-only discipline the argv itself is built on.
+// never a launch failure), and `unknown` for every path that reached no conclusion
+// — a rootful podman, an unrecognised backend, an explicit network.mode, the
+// opt-out, a podman that would not answer.
+//
+// UNKNOWN IS SPELLED RATHER THAN OMITTED (OQ-R6), and the safety argument is
+// unchanged by that. It used to be the absence of the variable, which forced
+// absence to mean both "yolo could not tell" and "this launcher is older than the
+// variable" — and, worse, the same absence covered a jail that SHARES the
+// launcher's network namespace, where there is no forwarding hop at all and an
+// unreachable service is therefore the least ambiguous case there is. The zero
+// value of the plan still lands on `unknown` by construction (jailEnvArgs), so a
+// path added here that names no disposition degrades to "no conclusion" rather than
+// to a claim it never made.
+//
+// THE FOURTH STATE, `shared`, IS NOT THIS FILE'S TO EMIT. The shapes that have it
+// never reach this decision: assemble.go branches to --net=host above the call, and
+// must (podman refuses a container carrying two network selectors). Its emission
+// point is there, beside the branch that creates it — see jailLoopbackEnvArgs.
 
 import (
 	"encoding/json"
@@ -259,21 +274,40 @@ type hostLoopbackPlan struct {
 	// unreachable) — only the second may ever fail a launch, which is OQ-R2 as
 	// scoped by OQ-R3. See paths.HostLoopbackEnvVar.
 	//
-	// "" means NOT ATTRIBUTABLE and is carried as an absent variable rather than as
-	// a value, so every path that reaches no conclusion — an unrecognised backend,
-	// a rootful podman, an explicit network.mode, the opt-out, a podman that would
-	// not answer — lands on the witness's safe default without having to be
-	// enumerated here.
+	// "" means NO CONCLUSION — an unrecognised backend, a rootful podman, an
+	// explicit network.mode, the opt-out, a podman that would not answer — and it is
+	// the ZERO VALUE on purpose: every such path returns a bare hostLoopbackPlan{}
+	// and lands on the witness's safe default without having to be enumerated here.
+	// It reaches the jail as paths.HostLoopbackUnknown rather than as an absent
+	// variable; jailEnvArgs is where that translation lives and why.
 	disposition string
 }
 
-// jailEnvArgs renders the disposition as the `-e` pair the container carries, or
-// nothing at all. Nothing is the common case and the safe one: see disposition.
+// jailEnvArgs renders this plan's disposition as the `-e` pair the container
+// carries. Always exactly one pair — see jailLoopbackEnvArgs.
 func (p hostLoopbackPlan) jailEnvArgs() []string {
-	if p.disposition == "" {
-		return nil
+	return jailLoopbackEnvArgs(p.disposition)
+}
+
+// jailLoopbackEnvArgs renders ONE disposition as the container's `-e` pair, and it
+// is a free function rather than only the method above because two of the four
+// states are not produced by a plan at all: the shared-namespace shapes never reach
+// decideHostLoopback (assemble.go branches to --net=host first), so the assembler
+// renders those directly. One renderer for all four is what makes "every launch
+// carries exactly one disposition" a property of the code instead of an agreement
+// between call sites.
+//
+// The empty disposition renders as `unknown` — the OQ-R6 inversion. Omitting the
+// variable was the old spelling of "no conclusion", and it collided with the two
+// things absence must be free to mean: a launcher older than the variable, and (until
+// this change) a jail sharing the launcher's namespace. Rendering it keeps the zero
+// value on the safe never-escalate answer while freeing absence to mean only version
+// skew.
+func jailLoopbackEnvArgs(disposition string) []string {
+	if disposition == "" {
+		disposition = paths.HostLoopbackUnknown
 	}
-	return []string{"-e", paths.HostLoopbackEnvVar + "=" + p.disposition}
+	return []string{"-e", paths.HostLoopbackEnvVar + "=" + disposition}
 }
 
 // decideHostLoopback maps facts onto the plan. Pure — no exec, no filesystem, no
@@ -289,12 +323,18 @@ func decideHostLoopback(f hostLoopbackFacts) hostLoopbackPlan {
 	if len(plan.args) == 0 {
 		return hostLoopbackPlan{}
 	}
-	// The suppressed plan carries NO disposition, and that is two promises at once.
-	// The hatch's contract is "today's argv, byte for byte" — a jail-side variable
-	// smuggled in under it would not be that. And a user who deliberately turned
-	// the fix off must never have their own choice reported back to them as a
-	// broken jail: with no disposition the witness cannot escalate, which is
-	// exactly right here.
+	// The suppressed plan carries NO POSITIVE disposition, so it reaches the jail as
+	// `unknown` — and the promise that matters survives intact: a user who
+	// deliberately turned the fix off must never have their own choice reported back
+	// to them as a broken jail, and `unknown` never escalates.
+	//
+	// What the hatch promises about the argv is the NETWORK argv — no forwarding
+	// option, no selector, nothing that can make podman refuse the container, which
+	// is the failure it exists for. It stopped being able to promise "not one byte"
+	// when the disposition became unconditional (OQ-R6), and that trade is the right
+	// way round: `unknown` is the TRUE statement about a launch where yolo was told
+	// not to look, and the alternative — an absent variable — is now the one
+	// spelling reserved for a launcher too old to have an opinion at all.
 	return hostLoopbackPlan{warning: "[yellow]Warning: " + hostLoopbackOptOutEnv + " is set — NOT requesting " +
 		"host-loopback forwarding (" + strings.Join(plan.args, " ") + ").\n" +
 		"  Jail-facing services (Claude OAuth broker, yolo-ps, yolo-journalctl) will be\n" +

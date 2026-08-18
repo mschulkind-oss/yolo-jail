@@ -126,11 +126,24 @@ const CgdEndpointName = BuiltinCgroupLoopholeName + ServiceEndpointExt
 // different binaries, one of them BAKED INTO THE IMAGE, must not be able to drift
 // apart by a re-typing.
 //
-// IT IS POSITIVE-ONLY. The launcher sets it when it has a definite statement to
-// make and emits NOTHING otherwise, so an absent variable means "not
-// attributable" — which is what makes an older launcher against a newer image, an
-// Apple Container launch, a nested jail, and any path nobody thought about all
-// default to the safe answer instead of to a launch failure.
+// EVERY STATE IS SPELLED (OQ-R6). This used to be positive-only — set for the two
+// definite outcomes, omitted otherwise — and an ABSENT variable therefore stood for
+// four unrelated launches at once: a jail that SHARES the launcher's network
+// namespace (no forwarding hop exists), a launcher that reached no conclusion (a
+// rootful podman, an unrecognised backend, an explicit network.mode, the
+// YOLO_NO_HOST_LOOPBACK opt-out, Apple Container), a `podman info` that could not be
+// read, and a launcher older than the variable itself. The first of those is the
+// STRONGEST case in the set rather than the weakest — with one namespace there is no
+// forwarding to get wrong, so an unreachable service has no host-stack excuse — and
+// it was indistinguishable from the vaguest. So the launcher now emits one of the
+// four values below on EVERY launch, and absent is left to mean only "this launcher
+// predates the variable", which the consumer reads exactly like Unknown.
+//
+// Safety did not move with it, because it never lived in the omission: the consumer
+// matches the escalating values EXACTLY and every other input — a spelling from a
+// newer launcher, an empty value, an absent one — falls through to the
+// never-escalate default. Adding states is therefore free in the one direction that
+// costs a jail.
 const HostLoopbackEnvVar = "YOLO_HOST_LOOPBACK"
 
 const (
@@ -139,12 +152,34 @@ const (
 	// unreachable jail-facing service on such a launch is a fault.
 	HostLoopbackRequested = "requested"
 
+	// HostLoopbackShared: this jail shares the LAUNCHER'S network namespace —
+	// `network.mode: "host"`, or podman-in-podman, where the launcher forces
+	// --net=host because netavark cannot create a netns without NET_ADMIN. There is
+	// no forwarding hop to ask for and none to get wrong: the jail's 127.0.0.1 IS
+	// the listener's, which is why internal/cli/run's advertiseHostFor publishes
+	// that address for exactly these shapes and nothing else works there. So an
+	// unreachable service on such a launch has no host-stack excuse either, and this
+	// is the strongest of the four rather than the weakest (OQ-R5).
+	HostLoopbackShared = "shared"
+
 	// HostLoopbackUnsupported: yolo identified the rootless stack, could not get
 	// it to forward the host's loopback (an old passt, a capability it could not
 	// confirm), and launched anyway — OQ-R3's ruling that yolo degrades rather
 	// than refusing on the host it is given. An unreachable service here is a
 	// known limitation of the host, and the launch output said so.
 	HostLoopbackUnsupported = "unsupported"
+
+	// HostLoopbackUnknown: yolo reached NO conclusion. A rootful podman, a backend
+	// it does not recognise, a `podman info` it could not read or parse, an explicit
+	// network.mode it will not override (OQ-R1), the YOLO_NO_HOST_LOOPBACK opt-out,
+	// Apple Container. Nothing was positively established, so nothing may be
+	// escalated; the launch output carries whichever specific reason applied.
+	//
+	// It is deliberately DISTINCT from Unsupported even though neither escalates:
+	// "yolo asked this host and it cannot forward" is a fact about the host with an
+	// upgrade behind it, and "yolo never asked" is not — collapsing them would send
+	// a reader to check their passt version over a rootful podman.
+	HostLoopbackUnknown = "unknown"
 )
 
 // AllowUnreachableServicesEnv is the escape hatch out of the in-jail reachability

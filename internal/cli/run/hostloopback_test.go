@@ -38,8 +38,9 @@ func TestDecideHostLoopback(t *testing.T) {
 		args []string
 		// warn is a substring the warning must contain; "" demands silence.
 		warn string
-		// disp is the verdict carried into the jail; "" demands that NOTHING is
-		// carried, which is the value the in-jail witness can never escalate on.
+		// disp is the plan's own verdict; "" demands that this decision reached NO
+		// CONCLUSION, which reaches the jail as paths.HostLoopbackUnknown and is a
+		// value the in-jail witness can never escalate on.
 		disp string
 	}{
 		// --- the fix firing ---
@@ -227,10 +228,16 @@ func TestDecideHostLoopback(t *testing.T) {
 			if got.disposition != tc.disp {
 				t.Errorf("disposition = %q, want %q", got.disposition, tc.disp)
 			}
-			var wantEnv []string
-			if tc.disp != "" {
-				wantEnv = []string{"-e", paths.HostLoopbackEnvVar + "=" + tc.disp}
+			// The rendered pair, which is where "no conclusion" acquires its
+			// spelling: a plan that names no disposition still tells the jail
+			// something, and what it tells it is `unknown` (OQ-R6). Every launch
+			// carries exactly one pair, so ABSENT is left to mean only "the launcher
+			// predates this variable".
+			wantDisp := tc.disp
+			if wantDisp == "" {
+				wantDisp = paths.HostLoopbackUnknown
 			}
+			wantEnv := []string{"-e", paths.HostLoopbackEnvVar + "=" + wantDisp}
 			if env := got.jailEnvArgs(); !slices.Equal(env, wantEnv) {
 				t.Errorf("jailEnvArgs = %v, want %v", env, wantEnv)
 			}
@@ -269,6 +276,24 @@ func TestDecideHostLoopbackDispositionMatchesTheArgv(t *testing.T) {
 			got.disposition != paths.HostLoopbackRequested &&
 			got.disposition != paths.HostLoopbackUnsupported {
 			t.Errorf("%+v: unknown disposition %q", f, got.disposition)
+		}
+		// And what actually reaches the container: one pair, always, whose value is
+		// one of the three spellings THIS file may produce. `shared` is deliberately
+		// not among them — the shapes that have it never reach this decision, so a
+		// plan that claimed it would be claiming something it cannot know (see
+		// jailLoopbackEnvArgs, and the emission point in assembleRunCmd).
+		env := got.jailEnvArgs()
+		if len(env) != 2 || env[0] != "-e" {
+			t.Fatalf("%+v: jailEnvArgs = %v, want one -e pair", f, env)
+		}
+		val, ok := strings.CutPrefix(env[1], paths.HostLoopbackEnvVar+"=")
+		if !ok {
+			t.Fatalf("%+v: jailEnvArgs named the wrong variable: %v", f, env)
+		}
+		switch val {
+		case paths.HostLoopbackRequested, paths.HostLoopbackUnsupported, paths.HostLoopbackUnknown:
+		default:
+			t.Errorf("%+v: rendered disposition %q is not a spelling this file may emit", f, val)
 		}
 	})
 }

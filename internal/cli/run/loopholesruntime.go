@@ -67,13 +67,36 @@ func (o *Options) resolveNetMode(cfg *jsonx.OrderedMap) string {
 //
 // Empty means "leave it to svcendpoint's default", which is the gateway name.
 func (o *Options) advertiseHostFor(rt string, cfg *jsonx.OrderedMap) string {
-	if rt == "container" {
-		return ""
-	}
-	if o.resolveNetMode(cfg) == "host" || (rt == "podman" && o.inContainer()) {
+	if sharesLauncherNetns(rt, o.resolveNetMode(cfg), o.inContainer()) {
 		return "127.0.0.1"
 	}
 	return ""
+}
+
+// sharesLauncherNetns reports whether the jail being launched will share THIS
+// process's network namespace. It has two readers and they must never disagree:
+//
+//   - advertiseHostFor, above, to decide what every loopback-TLS daemon PUBLISHES.
+//   - assembleRunCmd, to tell the jail paths.HostLoopbackShared — the disposition
+//     under which an unreachable service has no host-stack excuse, because with one
+//     namespace there is no forwarding hop to have got wrong (OQ-R5).
+//
+// Which is exactly why it is one function and not two spellings of a predicate. The
+// pair that drifts apart produces a jail told to escalate a failure at an address
+// its daemons never published — a refused launch manufactured out of a healthy host,
+// which is the one outcome the whole host-loopback path is built to avoid.
+//
+// Apple Container is excluded before the mode is read at all: it does its own
+// networking, takes no network selector from the assembler and gets no host-service
+// bind mount, so its jail never shares this namespace whatever `network.mode` says.
+func sharesLauncherNetns(rt, netMode string, inContainer bool) bool {
+	if rt == "container" {
+		return false
+	}
+	// `network.mode: "host"` is the explicit form; podman-in-podman is the forced
+	// one — netavark cannot create a netns without NET_ADMIN, so the assembler emits
+	// --net=host there whatever the config asked for.
+	return netMode == "host" || (rt == "podman" && inContainer)
 }
 
 // inContainer reports whether THIS process is already inside a container — the same

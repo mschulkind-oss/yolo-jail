@@ -107,12 +107,12 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	out := o.pr(o.Stdout)
 
 	// --- Network mode + ports ---
-	netMode := o.Network
-	if netSec := cfgMap(cfg, "network"); netSec != nil {
-		if m := mapStr(netSec, "mode"); m != "" {
-			netMode = m
-		}
-	}
+	//
+	// Through resolveNetMode rather than an inline copy of it: the loophole runtime
+	// resolves the mode the same way to decide what each host daemon PUBLISHES
+	// (advertiseHostFor), and the two now feed one shared predicate
+	// (sharesLauncherNetns) whose whole value is that they cannot disagree.
+	netMode := o.resolveNetMode(cfg)
 	var publishArgs []string
 	if netMode == "bridge" {
 		if netSec := cfgMap(cfg, "network"); netSec != nil {
@@ -221,7 +221,10 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, "--workdir", "/workspace")
 
 	// --- nested-container detection ---
-	inContainer := !o.IsMacOS && (o.PathExists("/run/.containerenv") || o.PathExists("/.dockerenv"))
+	// o.inContainer() rather than a second copy of the same two probes, for the
+	// reason given at netMode above: this answer and the loophole runtime's have to
+	// be one answer, not two that happen to match today.
+	inContainer := o.inContainer()
 
 	// --- GPU availability probe (gates the uidmap/runc branch below) ---
 	gpuRequested := false
@@ -269,6 +272,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// every jail — see hostloopback.go and
 	// docs/design/loopback-tls-reachability.md §6. Every failure path there emits
 	// nothing, so the worst case is exactly the behaviour above.
+	var hostLoopback hostLoopbackPlan
 	if rt == "container" {
 		// Apple Container handles networking internally.
 	} else if rt == "podman" && inContainer {
@@ -282,18 +286,41 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		if netMode != "bridge" {
 			runCmd = append(runCmd, "--net="+netMode)
 		}
-		hostLoopback := decideHostLoopback(o.hostLoopbackFactsFor(rt, netMode))
+		hostLoopback = decideHostLoopback(o.hostLoopbackFactsFor(rt, netMode))
 		runCmd = append(runCmd, hostLoopback.args...)
-		// What the jail is told about that decision. The in-jail witness cannot
-		// recover it for itself — an unreachable service looks the same whether yolo
-		// could not ask this host to forward loopback (a known limitation) or asked
-		// and was ignored (a fault) — and only the second may ever fail a launch.
-		// Absent for every path that reached no conclusion; see hostLoopbackPlan.
-		runCmd = append(runCmd, hostLoopback.jailEnvArgs()...)
 		if hostLoopback.warning != "" {
 			out.print(hostLoopback.warning)
 		}
 	}
+
+	// What the jail is TOLD about all of that, rendered once for every shape a launch
+	// can take — including the two branches above that never reach the decision at
+	// all. The in-jail witness cannot recover any of it for itself: an unreachable
+	// service looks identical whether yolo could not ask this host to forward
+	// loopback (a known limitation), asked and was ignored (a fault), never reached a
+	// conclusion, or had nothing to ask for because the jail shares this process's
+	// namespace. Only some of those may ever fail a launch — OQ-R2 as scoped by
+	// OQ-R3 and OQ-R5 — and none of that survives into the container by itself.
+	//
+	// THE SHARED CASE IS DECIDED HERE, NOT IN hostloopback.go, because the shapes
+	// that have it never reach that file and must not: podman-in-podman is the
+	// branch above (podman refuses a container carrying two network selectors, and
+	// this is also the repo's own dev loop), and `network.mode: host` returns from
+	// the decision before it looks at anything. A disposition computed inside a
+	// function that did not run is a value that never arrives — measured exactly
+	// that way in this repo on 2026-08-18, where the variable stayed absent in the
+	// jail the patch was written for.
+	//
+	// It reads the SAME predicate the loophole runtime uses to choose each daemon's
+	// advertised address, so the severity the witness applies and the address it
+	// dials cannot disagree. It cannot mask a `requested` either: that value is only
+	// ever produced on the default bridge mode, which is disjoint from every shape
+	// sharesLauncherNetns accepts.
+	disposition := hostLoopback.disposition
+	if sharesLauncherNetns(rt, netMode, inContainer) {
+		disposition = paths.HostLoopbackShared
+	}
+	runCmd = append(runCmd, jailLoopbackEnvArgs(disposition)...)
 
 	// The in-jail witness's escape hatch, forwarded from the host environment where
 	// the user types it. Outside the branch above on purpose: the witness runs

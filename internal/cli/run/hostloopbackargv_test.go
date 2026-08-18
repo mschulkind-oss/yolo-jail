@@ -430,28 +430,63 @@ func TestAssembleRunCmdOldPastaWithSlirpLaunchesOnTheOlderStack(t *testing.T) {
 	}
 }
 
-// TestAssembleRunCmdSaysNothingToTheJailWhenItDecidedNothing. Absent is the value
-// the witness can never escalate on, so every path that reached no conclusion must
-// leave the variable off the argv entirely rather than guess at one. Nested podman
-// and Apple Container are the two that never reach the decision at all, and the
-// opt-out is the one that reaches it and throws it away.
-func TestAssembleRunCmdSaysNothingToTheJailWhenItDecidedNothing(t *testing.T) {
+// TestAssembleRunCmdSpellsEveryStateOnTheWire covers the shapes that do NOT go
+// through decideHostLoopback with a positive answer, which is where OQ-R6 actually
+// bites. The variable used to be omitted for all of them, so a single absence stood
+// for a jail that SHARES this process's network namespace, a launcher that reached no
+// conclusion, and a launcher too old to have the variable at all — three different
+// severities collapsed into one silence, the strongest case indistinguishable from
+// the vaguest.
+//
+// The nested row is the one that has to be asserted HERE and not against the decision
+// function: podman-in-podman never reaches it (the branch above emits --net=host and
+// returns), so a `shared` computed inside hostloopback.go would be computed by code
+// that did not run. That mistake was made and MEASURED in this repo on 2026-08-18 —
+// the value never appeared in the jail — which is why the assertion is on the argv.
+func TestAssembleRunCmdSpellsEveryStateOnTheWire(t *testing.T) {
 	cases := []struct {
 		name        string
 		rt          string
+		netMode     string
 		inContainer bool
 		optOut      bool
-	}{
-		{name: "nested podman shares the launcher's stack", rt: "podman", inContainer: true},
-		{name: "apple container does its own networking", rt: "container"},
-		{name: "the opt-out threw the decision away", rt: "podman", optOut: true},
-	}
+		want        string
+	}{{
+		// The forced --net=host: one namespace, so there is no forwarding hop to
+		// have got wrong and an unreachable service has no host-stack excuse.
+		name: "nested podman shares the launcher's stack", rt: "podman", inContainer: true,
+		want: paths.HostLoopbackShared,
+	}, {
+		// The same namespace by choice rather than by force. It reaches the decision
+		// (unlike the row above) and the decision declines to act on it, which used
+		// to leave it absent.
+		name: "network.mode host shares it by choice", rt: "podman", netMode: "host",
+		want: paths.HostLoopbackShared,
+	}, {
+		// Apple Container does its own networking and gets no host services at all,
+		// so it shares nothing — even spelling `host`, which it never receives.
+		name: "apple container shares nothing, whatever the mode says", rt: "container",
+		netMode: "host", want: paths.HostLoopbackUnknown,
+	}, {
+		// An explicit mode yolo will not override (OQ-R1). This host may well support
+		// the forwarding; yolo simply did not ask, and `unsupported` would be a lie.
+		name: "an explicit mode yolo declined to touch", rt: "podman", netMode: "none",
+		want: paths.HostLoopbackUnknown,
+	}, {
+		// The user turned the fix off. Their own choice must never come back to them
+		// as a broken jail, and `unknown` is both true and never escalated.
+		name: "the opt-out threw the decision away", rt: "podman", optOut: true,
+		want: paths.HostLoopbackUnknown,
+	}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			emptyLoopholeDirs(t)
 			o, _ := pastaHostOptions(t, "/ws", home, tc.inContainer)
+			if tc.netMode != "" {
+				o.Network = tc.netMode
+			}
 			if tc.optOut {
 				o.Getenv = func(k string) string {
 					if k == hostLoopbackOptOutEnv {
@@ -464,13 +499,68 @@ func TestAssembleRunCmdSaysNothingToTheJailWhenItDecidedNothing(t *testing.T) {
 			o.Stdout = &stdout
 
 			argv := o.assembleRunCmd(relocationInput(t, tc.rt, t.TempDir(), nil))
-			if val, ok := envValue(argv, paths.HostLoopbackEnvVar); ok {
-				t.Errorf("nothing was decided, yet the jail was told %s=%q — a claim in either "+
-					"direction here is invented, and `requested` costs a jail once OQ-R2 flips",
-					paths.HostLoopbackEnvVar, val)
+			got, ok := envValue(argv, paths.HostLoopbackEnvVar)
+			if !ok {
+				t.Fatalf("every launch carries a disposition; absent is reserved for a launcher "+
+					"older than the variable. argv: %v", argv)
+			}
+			if got != tc.want {
+				t.Errorf("%s = %q, want %q", paths.HostLoopbackEnvVar, got, tc.want)
 			}
 		})
 	}
+}
+
+// TestAssembleRunCmdSharedMatchesWhatTheDaemonsPublish is the property that keeps the
+// new spelling honest, swept over every shape a launch can take: the jail is told
+// `shared` if and ONLY if the loophole runtime publishes 127.0.0.1 to it.
+//
+// The two answers come from one predicate (sharesLauncherNetns) and this is what that
+// is FOR. `shared` is an escalating disposition under OQ-R5 — with one namespace an
+// unreachable service has no host-stack excuse — so a launch told `shared` while its
+// daemons advertised the gateway name would escalate a failure at an address the jail
+// was never given, which is a refused launch manufactured out of a healthy host. The
+// inverse is quieter and just as wrong: daemons on 127.0.0.1 with the jail told
+// something unattributable is a real fault that can never be reported as one.
+func TestAssembleRunCmdSharedMatchesWhatTheDaemonsPublish(t *testing.T) {
+	for _, rt := range []string{"podman", "container"} {
+		for _, inContainer := range []bool{false, true} {
+			for _, netMode := range []string{"bridge", "host", "none", "private"} {
+				name := rt + "/" + netMode
+				if inContainer {
+					name += "/nested"
+				}
+				t.Run(name, func(t *testing.T) {
+					home := t.TempDir()
+					t.Setenv("HOME", home)
+					emptyLoopholeDirs(t)
+					o, _ := pastaHostOptions(t, "/ws", home, inContainer)
+					o.Network = netMode
+					in := relocationInput(t, rt, t.TempDir(), nil)
+
+					argv := o.assembleRunCmd(in)
+					got, _ := envValue(argv, paths.HostLoopbackEnvVar)
+					advertised := o.advertiseHostFor(rt, in.cfg)
+
+					if (got == paths.HostLoopbackShared) != (advertised == "127.0.0.1") {
+						t.Errorf("%s = %q but the daemons publish %q — the severity the witness "+
+							"applies and the address it dials must come from one fact",
+							paths.HostLoopbackEnvVar, got, orDefaultAdvertise(advertised))
+					}
+				})
+			}
+		}
+	}
+}
+
+// orDefaultAdvertise names the empty advertise host in a failure message. "" means
+// "leave it to svcendpoint's default", which is the runtime's gateway name — the
+// thing the reader has to picture to see why the mismatch matters.
+func orDefaultAdvertise(s string) string {
+	if s == "" {
+		return "the gateway name (svcendpoint default)"
+	}
+	return s
 }
 
 // TestAssembleRunCmdForwardsTheWitnessEscapeHatch. The hatch is typed on the host

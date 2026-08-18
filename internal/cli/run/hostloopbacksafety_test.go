@@ -16,11 +16,16 @@ package run
 //     feature existed" are different claims, and only the second is what "the worst case
 //     must be today's behaviour" means (hostloopback.go's opening rule).
 //
-// The one thing an adverse host IS allowed to add is `-e YOLO_HOST_LOOPBACK=…`, an
-// informational variable the in-jail witness reads. It cannot stop a container from
-// starting — podman takes any KEY=VALUE — so the assertion strips it and then demands
-// byte equality on everything else, while separately holding that its value can never be
-// `requested` on a launch that requested nothing.
+// The one thing an adverse host IS allowed to differ in is `-e YOLO_HOST_LOOPBACK=…`,
+// an informational variable the in-jail witness reads. It cannot stop a container from
+// starting — podman takes any KEY=VALUE — so the assertion strips it from BOTH sides and
+// then demands byte equality on everything else, while separately holding that its value
+// can never be `requested` on a launch that requested nothing.
+//
+// Stripping both sides is what keeps "today's argv" meaning what it says now that the
+// variable is unconditional (OQ-R6): every launch carries one, the baseline included, so
+// the claim under test is about the NETWORK argv — the flags that decide whether podman
+// accepts the container — and the disposition is asserted separately as its own value.
 
 import (
 	"slices"
@@ -31,15 +36,20 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// todaysArgv is the launch argv from before the host-loopback feature existed. The
-// golden fixture answers no LookPath and runs no subprocess, so hostLoopbackFactsFor
-// returns at its first gate and the decision contributes nothing at all.
+// todaysArgv is the launch argv from before the host-loopback feature existed, with
+// the disposition pair removed. The golden fixture answers no LookPath and runs no
+// subprocess, so hostLoopbackFactsFor returns at its first gate and the decision
+// contributes no flag at all — only the informational variable every launch now
+// carries, which is stripped here so both sides of the comparison are the same kind
+// of thing.
 //
 // It is rebuilt per case rather than computed once because assembleRunCmd reads the
 // per-case wsState; every other input is the same deterministic fixture.
 func todaysArgv(t *testing.T, home, wsState, rt string) []string {
 	t.Helper()
-	return goldenOptions("/ws", home).assembleRunCmd(relocationInput(t, rt, wsState, nil))
+	argv := goldenOptions("/ws", home).assembleRunCmd(relocationInput(t, rt, wsState, nil))
+	stripped, _ := withoutJailDisposition(argv)
+	return stripped
 }
 
 // withoutJailDisposition splits an argv into "everything that is not the disposition
@@ -93,8 +103,12 @@ func TestAssembleRunCmdAdverseHostsKeepTodaysArgv(t *testing.T) {
 		// run", which is the same safe default the production seams have.
 		lookPath map[string]string
 		exec     map[string]ExecResult
-		// wantDisposition is what the jail may be told. "" demands that NOTHING is
-		// carried — the value the witness can never escalate on.
+		// wantDisposition is what the jail is told. The ZERO VALUE means
+		// paths.HostLoopbackUnknown — "yolo reached no conclusion", the answer every
+		// adverse host below must land on and one the witness can never escalate. It
+		// is spelled that way round deliberately: the table's default and the
+		// production default are the same fact, so a row that says nothing is
+		// asserting the safe answer rather than omitting an assertion.
 		wantDisposition string
 	}{{
 		name: "Apple Container never reaches the decision",
@@ -255,8 +269,12 @@ func TestAssembleRunCmdAdverseHostsKeepTodaysArgv(t *testing.T) {
 				t.Errorf("this host must launch with the pre-feature argv\ngot:  %v\nwant: %v",
 					stripped, want)
 			}
-			if disp != tc.wantDisposition {
-				t.Errorf("%s = %q, want %q", paths.HostLoopbackEnvVar, disp, tc.wantDisposition)
+			wantDisp := tc.wantDisposition
+			if wantDisp == "" {
+				wantDisp = paths.HostLoopbackUnknown
+			}
+			if disp != wantDisp {
+				t.Errorf("%s = %q, want %q", paths.HostLoopbackEnvVar, disp, wantDisp)
 			}
 			// The cross-check that makes the two assertions above one property: the
 			// disposition is the in-jail witness's severity dial, and `requested` on a
@@ -412,16 +430,19 @@ func TestHostLoopbackOptOutNeedsNoSubprocessToBeHonoured(t *testing.T) {
 	var stdout strings.Builder
 	o.Stdout = &stdout
 
-	got := o.assembleRunCmd(relocationInput(t, "podman", wsState, nil))
-	if !slices.Equal(got, base) {
+	stripped, disp := withoutJailDisposition(o.assembleRunCmd(relocationInput(t, "podman", wsState, nil)))
+	if !slices.Equal(stripped, base) {
 		t.Errorf("%s must restore the pre-feature argv for ANY non-empty value\ngot:  %v\nwant: %v",
-			hostLoopbackOptOutEnv, got, base)
+			hostLoopbackOptOutEnv, stripped, base)
 	}
-	// Including the jail-side variable: the hatch's contract is today's argv, and a
-	// disposition smuggled in under it would let the witness escalate a launch the user
-	// deliberately turned the fix off for.
-	if _, disp := withoutJailDisposition(got); disp != "" {
-		t.Errorf("the opt-out carried %s=%q into the jail", paths.HostLoopbackEnvVar, disp)
+	// And the jail-side variable says the true thing about that launch: `unknown`.
+	// The hatch's severity promise is what has to survive — a user who deliberately
+	// turned the fix off must never have their own choice reported back as a broken
+	// jail — and it does, because `unknown` never escalates. What it may NOT be is
+	// `requested`, which is the value that costs a jail once OQ-R2 flips.
+	if disp != paths.HostLoopbackUnknown {
+		t.Errorf("the opt-out carried %s=%q into the jail, want %q",
+			paths.HostLoopbackEnvVar, disp, paths.HostLoopbackUnknown)
 	}
 }
 
