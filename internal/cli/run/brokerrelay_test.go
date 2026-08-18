@@ -232,6 +232,95 @@ func TestBrokerEnvSuppressedWhenLoopholeDisabled(t *testing.T) {
 	}
 }
 
+// TestBrokerEnvSuppressedInANestedJailThatHasNoSingleton is the regression for the
+// measurement that the fatal witness broke this repo's own development loop.
+//
+// MEASURED 2026-08-18, from inside this repo's jail, with a freshly built launcher:
+// `yolo -- bash` REFUSED TO START. The chain has four links and every one of them is
+// working as designed on its own — the broker endpoint variable is wired on loophole
+// activity alone with no publish gate (hostServicesMountArgs, deliberately); a
+// nested launcher's broker singleton never binds, because the jail image bakes no
+// openssl and the daemon exits with `cannot locate openssl` the instant brokerEnsure
+// spawns it; nothing therefore ever writes the endpoint file the variable names; and
+// the witness reads that as faultUnpublished under disposition `shared`, both of
+// which escalate (OQ-R4, OQ-R5). The result is a jail that cannot start, on the one
+// launch shape AGENTS.md makes mandatory for verifying a Go change.
+//
+// THE HOST CASE IS NOT WHAT THIS TESTS AND MUST NOT MOVE. "Broker configured,
+// singleton down" refusing a host's jails is an accepted, documented consequence
+// (loopback-tls-reachability.md §7.3) — the control below holds it in place.
+func TestBrokerEnvSuppressedInANestedJailThatHasNoSingleton(t *testing.T) {
+	brokerFixtureDirs(t, true)
+	o := goldenOptions("/ws", t.TempDir())
+	// The launcher is itself inside a jail (inJail reads YOLO_VERSION), and
+	// brokerEnsure has already run and left no singleton socket behind.
+	o.Getenv = func(k string) string {
+		if k == "YOLO_VERSION" {
+			return "0.8.0+255.gdeadbee"
+		}
+		return ""
+	}
+	o.PathExists = func(string) bool { return false }
+
+	args := o.hostServicesMountArgs("podman", "yolo-ws-abcd1234", jsonx.NewOrderedMap())
+	for _, a := range args {
+		if strings.Contains(a, "CLAUDE_OAUTH_BROKER") {
+			t.Errorf("a nested launch promised an endpoint nothing on this side can publish, "+
+				"which the fatal witness turns into a refused launch: %q", a)
+		}
+	}
+	// The mount is unconditional; only the promise is withheld.
+	if len(args) != 2 || args[0] != "-v" {
+		t.Errorf("want exactly the host-services mount, got %v", args)
+	}
+}
+
+// TestBrokerEnvStillEmittedInANestedJailWithALiveSingleton is half the control: the
+// suppression above keys on "nothing published it", not on nesting. A jail whose
+// image does carry openssl runs its own singleton, so a nested launch there is an
+// ordinary launch and the variable is owed.
+func TestBrokerEnvStillEmittedInANestedJailWithALiveSingleton(t *testing.T) {
+	brokerFixtureDirs(t, true)
+	o := goldenOptions("/ws", t.TempDir())
+	o.Getenv = func(k string) string {
+		if k == "YOLO_VERSION" {
+			return "0.8.0+255.gdeadbee"
+		}
+		return ""
+	}
+	o.PathExists = func(p string) bool { return p == broker.BrokerSingletonSocket }
+
+	args := o.hostServicesMountArgs("podman", "yolo-ws-abcd1234", jsonx.NewOrderedMap())
+	want := hostServiceEnvVar(broker.BrokerLoopholeName) + "=" +
+		paths.JailHostServicesDir + "/" + broker.BrokerLoopholeName + paths.ServiceEndpointExt
+	if !containsStr(args, want) {
+		t.Errorf("a nested launch with a live singleton must still be wired: %v", args)
+	}
+}
+
+// TestBrokerEnvSurvivesAHostWithNoSingleton is the other half, and it is the one that
+// keeps a documented ruling from being reverted by accident.
+//
+// On the HOST the variable is emitted whether or not the singleton is up
+// (TestBrokerEnvEmittedWhenLoopholeActive is the same fact from the other side, and
+// records the restart window it was removed for in 9b77742). §7.3 accepts what that
+// now costs under the fatal witness. Widening the nested-launch suppression to every
+// launcher would silently undo both.
+func TestBrokerEnvSurvivesAHostWithNoSingleton(t *testing.T) {
+	brokerFixtureDirs(t, true)
+	o := goldenOptions("/ws", t.TempDir())
+	// A host launcher: no YOLO_VERSION, and no singleton socket either.
+	o.PathExists = func(string) bool { return false }
+
+	args := o.hostServicesMountArgs("podman", "yolo-ws-abcd1234", jsonx.NewOrderedMap())
+	want := hostServiceEnvVar(broker.BrokerLoopholeName) + "=" +
+		paths.JailHostServicesDir + "/" + broker.BrokerLoopholeName + paths.ServiceEndpointExt
+	if !containsStr(args, want) {
+		t.Errorf("the host's optimistic emission is load-bearing (9b77742) and must not "+
+			"have been narrowed along with the nested one: %v", args)
+	}
+}
+
 // TestNoBrokerTokenEnvEmitted: no token environment variable exists, at all.
 //
 // The deletion is pinned rather than assumed. A fallback would keep the

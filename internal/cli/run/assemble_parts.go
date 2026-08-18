@@ -399,13 +399,17 @@ func (o *Options) fwdSocketDir(cname string) string {
 // all (RuntimeArgsFor's YOLO_JAIL_DAEMONS payload), so the two can no longer
 // disagree — and a relay that is late is now a clear "relay unreachable" from the
 // terminator rather than a missing variable.
+//
+// THE ONE SHAPE THAT IS EXCEPTED IS A NESTED LAUNCH WITH NO SINGLETON — see
+// brokerEndpointIsUnpublishable, and note that it is NOT the socket gate this
+// deliberately replaced.
 func (o *Options) hostServicesMountArgs(rt, cname string, cfg *jsonx.OrderedMap) []string {
 	if rt == "container" {
 		return nil
 	}
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	args := []string{"-v", socketsDir + ":" + paths.JailHostServicesDir + ":rw"}
-	if brokerLoopholeActive(cfg) {
+	if brokerLoopholeActive(cfg) && !o.brokerEndpointIsUnpublishable() {
 		// A PATH to the 0600 endpoint file. Never an address (the port is
 		// kernel-assigned and can change under a running container) and never a
 		// token — there is no token environment variable, deliberately: an env var
@@ -414,6 +418,52 @@ func (o *Options) hostServicesMountArgs(rt, cname string, cfg *jsonx.OrderedMap)
 			hostServiceEnvVar(broker.BrokerLoopholeName)+"="+hostServiceEndpointPath(broker.BrokerLoopholeName))
 	}
 	return args
+}
+
+// brokerEndpointIsUnpublishable reports the one launch shape in which the optimistic
+// emission above is a promise NOTHING ON THIS SIDE CAN EVER KEEP: a launcher that is
+// itself inside a jail, with no broker singleton listening after brokerEnsure has
+// already run and tried to start one (run.go ensures before the argv is built).
+//
+// # Why a nested launch is different from a host whose broker happens to be down
+//
+// The singleton is HOST-WIDE, and for a nested launch "the host" is the outer jail.
+// yolo's image bakes no openssl, and the broker daemon needs it to mint its CA, so the
+// spawn brokerEnsure just performed exits immediately — measured 2026-08-18 in this
+// repo's own jail, `yolo-claude-oauth-broker-host: cannot locate openssl`, once per
+// launch for months. The socket therefore never appears, run.go skips ensureBrokerRelay
+// on exactly this predicate, and nothing is left that could write the endpoint file the
+// variable names. The loophole's own CA state files are not in a nested launcher's
+// storage either, so the in-jail terminator could not have used the address anyway.
+//
+// # What that cost once the witness became fatal, which is why this gate is back
+//
+// Before 2026-08-18 an unbackable promise cost a nested jail its Claude auth, which it
+// had already lost. Now it costs the whole jail: a nested launch's disposition is
+// `shared` and an endpoint nobody published is faultUnpublished, and BOTH escalate
+// (OQ-R4, OQ-R5). MEASURED with a freshly built launcher from inside this jail:
+// `yolo -- bash` refused to start, naming claude-oauth-broker — on the one launch shape
+// AGENTS.md makes mandatory for verifying a change to cmd/ or internal/. A witness that
+// refuses the loop used to fix it is the failure OQ-R2's own implementation note is
+// about.
+//
+// # This is NOT the socket gate that 9b77742 removed
+//
+// That gate was unconditional, and it was removed for a real defect: a HOST jail
+// launched while the singleton was slower to bind than BrokerSpawnTimeout got no broker
+// address for its entire frozen life, and a relay that published a second later could
+// never repair it. That window is unchanged here — a host launcher still emits the
+// variable whether or not the socket is there, which is what
+// TestBrokerEnvEmittedWhenLoopholeActive pins, and with it the accepted consequence in
+// loopback-tls-reachability.md §7.3 that a host with a dead singleton refuses its jails.
+// Only the nested case, where the wait cannot succeed at any timeout because the daemon
+// is already gone, is narrowed.
+//
+// inJail() rather than inContainer(): it is the same YOLO_VERSION signal run.go's other
+// host-only decisions read, and it is injectable, so this is testable without a
+// container.
+func (o *Options) brokerEndpointIsUnpublishable() bool {
+	return o.inJail() && !o.PathExists(broker.BrokerSingletonSocket)
 }
 
 // brokerLoopholeActive reports whether this launch's broker loophole is enabled
