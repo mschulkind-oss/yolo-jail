@@ -50,11 +50,26 @@ func ApprovalSnapshotPath(workspace string) string {
 // It survives only as a MIGRATION SIGNAL, and it is never read as a baseline. Its
 // content is exactly what the ruling declares untrustworthy — a file the jail
 // could have written — so adopting it once "to avoid a prompt" would carry the
-// defect across the very change that closes it. Its mere PRESENCE, though, is
-// trustworthy enough for the one thing we use it for: it says this workspace has
-// been launched before, so the absence of a host-side record is a migration and
-// not a first run. That distinction matters, because first run accepts silently
-// and a migration must not.
+// defect across the very change that closes it. Its PRESENCE is what we read
+// instead: it says this workspace has been launched before, so the absence of a
+// host-side record is a migration and not a first run. That distinction matters,
+// because first run accepts silently and a migration must not.
+//
+// KNOWN RESIDUAL HOLE, stated rather than implied. Presence is not more
+// trustworthy than content — it is the same bit, held by the same rw bind mount.
+// An agent that edits yolo-jail.jsonc AND deletes this file turns its own change
+// into a genuine-looking first run, which accepts silently and records the result
+// as approved. The window is per-workspace and one-shot (it closes the first time
+// a host-side record is written) but it is open on every workspace that has not
+// been launched since OQ-D1 landed, which on upgrade day is all of them.
+//
+// It is documented and not closed because closing it is a DESIGN decision, not a
+// bug fix: there is no host-side per-workspace artifact that predates the ruling
+// and survives (paths.ContainerDir's tracking files are pruned when the container
+// stops, and paths.AgentsDir's staging is recreated by THIS launch before the gate
+// runs), so the only sound repair is to stop letting a missing record mean "first
+// run" — i.e. to prompt on the very first launch of a brand-new workspace, which
+// docs/design/config-safety.md deliberately ruled against.
 func LegacyWorkspaceSnapshotPath(workspace string) string {
 	if workspace == "" {
 		workspace = cwd()
@@ -99,13 +114,22 @@ type ChangePrompter interface {
 // renders the whole thing (headline, plain diff, advice) so a caller that only
 // knows how to print an error loses nothing.
 type ChangedNonInteractiveError struct {
-	// WorkspaceConfig and UserConfig name the two files the merged config comes
-	// from. Both are named because either one can be what moved: the snapshot
-	// stores the MERGE, so a user-level edit shows up here exactly like a
-	// workspace-level one, and a reader told only about yolo-jail.jsonc would go
-	// looking in the wrong file.
-	WorkspaceConfig string
-	UserConfig      string
+	// WorkspaceConfig, WorkspaceLocalConfig and UserConfig name the files the
+	// merged config comes from. All of them are named because ANY of them can be
+	// what moved: the snapshot stores the MERGE, so a user-level edit shows up here
+	// exactly like a workspace-level one, and a reader told only about
+	// yolo-jail.jsonc would go looking in the wrong file.
+	//
+	// WorkspaceLocalConfig is yolo-jail.local.jsonc and is empty when that file does
+	// not exist. It is listed at all because LoadWorkspaceConfig merges it OVER
+	// yolo-jail.jsonc — it is the file that WINS — so a reader who diffs only
+	// yolo-jail.jsonc against git and finds it clean has been sent to the one file
+	// that cannot explain the change. Naming it only when present is deliberate: a
+	// path that does not exist reads as "look here" and would send the same reader
+	// to a second wrong place.
+	WorkspaceConfig      string
+	WorkspaceLocalConfig string
+	UserConfig           string
 	// SnapshotPath is the host-side approval record this was diffed against.
 	SnapshotPath string
 	// DiffLines is the unified diff, previous approved config → current.
@@ -122,12 +146,17 @@ func (e *ChangedNonInteractiveError) Headline() string {
 // message that tells a reader who cannot be prompted what to do next, so the flag
 // is spelled out in full rather than referred to.
 func (e *ChangedNonInteractiveError) Advice() string {
+	files := "  workspace config: " + e.WorkspaceConfig + "\n"
+	if e.WorkspaceLocalConfig != "" {
+		files += "  workspace local:  " + e.WorkspaceLocalConfig + "  (merged OVER the above)\n"
+	}
+	files += "  user config:      " + e.UserConfig + "\n" +
+		"  approved config:  " + e.SnapshotPath + "\n"
 	return "A changed config is never accepted without a human — an auto-accept here would " +
 		"make the approval promise conditional on somebody happening to have a terminal " +
 		"attached, and a scripted launch is exactly where nobody is watching.\n\n" +
-		"  workspace config: " + e.WorkspaceConfig + "\n" +
-		"  user config:      " + e.UserConfig + "\n" +
-		"  approved config:  " + e.SnapshotPath + "\n\n" +
+		files +
+		"\nAny file those configs `include` counts as part of the merge too.\n\n" +
 		"Revert the change, or approve it for THIS LAUNCH ONLY by re-running with\n" +
 		"  " + AcceptConfigChangesFlag + "\n" +
 		"which records the new config as approved exactly as answering `y` would."
@@ -214,11 +243,16 @@ func CheckConfigChanges(workspace string, config *jsonx.OrderedMap, isTTY, accep
 
 	if !isTTY {
 		if !acceptNonInteractive {
+			localPath := filepath.Join(workspaceOrCwd(workspace), WorkspaceLocalConfigName)
+			if !pathExists(localPath) {
+				localPath = ""
+			}
 			return false, &ChangedNonInteractiveError{
-				WorkspaceConfig: filepath.Join(workspaceOrCwd(workspace), WorkspaceConfigName),
-				UserConfig:      paths.UserConfigPath(),
-				SnapshotPath:    snapshotPath,
-				DiffLines:       diffLines,
+				WorkspaceConfig:      filepath.Join(workspaceOrCwd(workspace), WorkspaceConfigName),
+				WorkspaceLocalConfig: localPath,
+				UserConfig:           paths.UserConfigPath(),
+				SnapshotPath:         snapshotPath,
+				DiffLines:            diffLines,
 			}
 		}
 		// Granted by the flag: record it exactly as a `y` does, or the next
