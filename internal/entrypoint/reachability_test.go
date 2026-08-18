@@ -1055,3 +1055,89 @@ func TestReachabilityProbeNeverEscalatesWhatItCannotAttribute(t *testing.T) {
 		})
 	}
 }
+
+// runProbeBothSinks runs the witness with the terminal and the log-only sink kept
+// SEPARATE, which is the whole point of Env.LogOnly: a healthy launch must stay
+// silent for the person watching it while still leaving evidence for the person
+// reading the log afterwards.
+func runProbeBothSinks(t *testing.T, vars map[string]string) (term, log string, err error) {
+	t.Helper()
+	var termBuf, logBuf strings.Builder
+	e := NewEnv(vars)
+	e.Stderr = &termBuf
+	e.LogOnly = &logBuf
+	ProbeServiceReachability(e)
+	return termBuf.String(), logBuf.String(), genFailuresError(e)
+}
+
+// A witness that says nothing when healthy is indistinguishable from a witness that
+// never ran — and once the flip lands, "no complaint" IS the evidence the launch was
+// allowed on. So the healthy boot has to leave a positive record, in the log only.
+//
+// Observed 2026-08-18 at a real boot: the entrypoint's log carried the config-render
+// notices and the cgroup line and NOTHING from this witness, which was correct and
+// unreadable. Establishing that it had run took the perf log and a grep.
+func TestReachabilityProbeRecordsThatItRanOnAHealthyJail(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	dir := servicesDir(t)
+
+	term, log, err := runProbeBothSinks(t, map[string]string{
+		"JAIL_HOME":              t.TempDir(),
+		paths.HostLoopbackEnvVar: paths.HostLoopbackRequested,
+		paths.ServiceEnvVarPrefix + "HOST_PROCESSES" + paths.ServiceEnvVarSuffix: liveEndpoint(t, dir, "host-processes"),
+	})
+	if err != nil {
+		t.Fatalf("a reachable service must not fail the launch: %v", err)
+	}
+
+	// The terminal is unchanged: silence is still the healthy output there.
+	if term != "" {
+		t.Errorf("a healthy jail must stay silent on the TERMINAL, got:\n%s", term)
+	}
+	// The log is not.
+	for _, want := range []string{"reachability:", "1/1", "requested"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("the boot log must record that the witness ran; missing %q\n--- log ---\n%s", want, log)
+		}
+	}
+}
+
+// The record has to be TRUE, not merely present: a count that cannot distinguish a
+// reachable service from a broken one is worse than no count, because it reads as
+// confirmation.
+func TestReachabilityRecordCountsOnlyWhatItReached(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	dir := servicesDir(t)
+
+	_, log, _ := runProbeBothSinks(t, map[string]string{
+		"JAIL_HOME":              t.TempDir(),
+		paths.HostLoopbackEnvVar: paths.HostLoopbackUnsupported,
+		paths.ServiceEnvVarPrefix + "HOST_PROCESSES" + paths.ServiceEnvVarSuffix:      liveEndpoint(t, dir, "host-processes"),
+		paths.ServiceEnvVarPrefix + "CLAUDE_OAUTH_BROKER" + paths.ServiceEnvVarSuffix: deadEndpoint(t, dir, "claude-oauth-broker"),
+	})
+
+	if !strings.Contains(log, "1/2") {
+		t.Errorf("one of two services was unreachable; the log must say so\n--- log ---\n%s", log)
+	}
+	if !strings.Contains(log, "unsupported") {
+		t.Errorf("the record must carry the disposition that governs severity\n--- log ---\n%s", log)
+	}
+}
+
+// A nil LogOnly is every caller that is not a real boot, including every other test
+// in this file. It must not panic and must not leak the record onto the terminal.
+func TestReachabilityRecordIsSilentWithNoLog(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	dir := servicesDir(t)
+
+	got, err := runProbe(t, map[string]string{
+		"JAIL_HOME": t.TempDir(),
+		paths.ServiceEnvVarPrefix + "HOST_PROCESSES" + paths.ServiceEnvVarSuffix: liveEndpoint(t, dir, "host-processes"),
+	})
+	if err != nil {
+		t.Fatalf("unexpected failure: %v", err)
+	}
+	if got != "" {
+		t.Errorf("the log-only record must never reach Stderr, got:\n%s", got)
+	}
+}

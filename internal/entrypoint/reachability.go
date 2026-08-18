@@ -211,6 +211,21 @@ const (
 )
 
 // launcherLoopbackDisposition reads the launcher's verdict for this jail.
+// String names the disposition for the boot log. The spellings match the env-var
+// values the launcher sets (paths.HostLoopback*) rather than inventing a second
+// vocabulary, so a line in the log and a line in the launch output are comparable
+// without a translation table.
+func (d loopbackDisposition) String() string {
+	switch d {
+	case dispositionRequested:
+		return paths.HostLoopbackRequested
+	case dispositionUnsupported:
+		return paths.HostLoopbackUnsupported
+	default:
+		return "unattributed"
+	}
+}
+
 func launcherLoopbackDisposition(e *Env) loopbackDisposition {
 	switch e.Getenv(paths.HostLoopbackEnvVar) {
 	case paths.HostLoopbackRequested:
@@ -271,6 +286,22 @@ func ProbeServiceReachability(e *Env) {
 		}
 		e.warn(reachabilityWarning(*res))
 	}
+
+	// The affirmative record, to the LOG only. A healthy jail's witness is silent on
+	// the terminal by design, and that silence is indistinguishable from a witness
+	// that never ran — an ambiguity that stops being academic once this can refuse a
+	// launch, because "no complaint" is then the evidence the launch was allowed on.
+	// probeService returns nil for a service it reached, so the nil count IS the
+	// reachable count.
+	reached := 0
+	for _, res := range results {
+		if res == nil {
+			reached++
+		}
+	}
+	e.note(fmt.Sprintf("reachability: %d/%d enabled service(s) reachable, disposition=%s",
+		reached, len(results), launcherLoopbackDisposition(e)))
+
 	if len(unreachable) == 0 {
 		return
 	}

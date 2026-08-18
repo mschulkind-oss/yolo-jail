@@ -60,6 +60,35 @@ func TestBootLogCapturesWhatTheBootSaid(t *testing.T) {
 	}
 }
 
+// attachBootLog wires TWO sinks with different reach, and the difference is the
+// feature: Stderr is terminal+file, LogOnly is file only. Nothing else in the tree
+// tests that split at the wiring — the reachability tests set both fields
+// themselves — so pointing LogOnly at the terminal here would silently put a line on
+// every healthy launch, which is exactly what the split exists to prevent.
+func TestBootLogKeepsTheLogOnlySinkOffTheTerminal(t *testing.T) {
+	e, ws := bootLogEnv(t, nil)
+
+	var term bytes.Buffer
+	blog := attachBootLog(e, &term)
+	e.warn("this belongs in BOTH")
+	e.note("this belongs in the LOG ONLY")
+	blog.finish(nil)
+
+	got := readBootLog(t, ws, bootLogName)
+	if !strings.Contains(got, "this belongs in the LOG ONLY") {
+		t.Errorf("the log-only line never reached the log:\n%s", got)
+	}
+	if !strings.Contains(got, "this belongs in BOTH") {
+		t.Errorf("the warning never reached the log:\n%s", got)
+	}
+	if strings.Contains(term.String(), "LOG ONLY") {
+		t.Errorf("the log-only line LEAKED to the terminal:\n%s", term.String())
+	}
+	if !strings.Contains(term.String(), "this belongs in BOTH") {
+		t.Errorf("the warning did not reach the terminal:\n%s", term.String())
+	}
+}
+
 // A refused boot is the case the log exists for — there is no jail left to ask.
 func TestBootLogRecordsARefusedBoot(t *testing.T) {
 	e, ws := bootLogEnv(t, nil)

@@ -96,6 +96,10 @@ func attachBootLog(e *Env, stderr io.Writer) *bootLog {
 	bl := &bootLog{f: f}
 	bl.writeHeader(e)
 	e.Stderr = io.MultiWriter(stderr, f)
+	// The log-only sink is the FILE, deliberately: a check reporting that it ran and
+	// found nothing is what makes this log answer "did it happen?" rather than only
+	// "what went wrong?", and it is noise on a terminal. See Env.LogOnly.
+	e.LogOnly = f
 	return bl
 }
 

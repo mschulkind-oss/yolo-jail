@@ -57,6 +57,18 @@ type Env struct {
 	// file-content golden but ARE part of behavioral parity.
 	Stderr io.Writer
 
+	// LogOnly receives lines that belong in the boot log but NOT on the launch
+	// terminal — the record that a check ran and found nothing wrong. Nil discards
+	// them, which is every caller that is not a real boot.
+	//
+	// It exists because silence is ambiguous exactly where it is most expensive. A
+	// healthy jail's reachability witness says nothing, and "ran and was silent" then
+	// reads identically to "never ran" — a distinction that stops being academic the
+	// moment that witness can refuse a launch. Sending the affirmation to Stderr
+	// instead would put a line on every healthy launch, which is how the ONE line
+	// that matters gets skimmed past.
+	LogOnly io.Writer
+
 	// hostTarget marks this Env as driving the HOST render (`yolo apply --host`) rather
 	// than the in-jail boot, so renderTarget() projects it onto render.Host instead of
 	// render.Jail.
@@ -92,6 +104,15 @@ func (e *Env) GenFailures() []string { return e.genFailures }
 func (e *Env) warn(msg string) {
 	if e.Stderr != nil {
 		_, _ = io.WriteString(e.Stderr, msg+"\n")
+	}
+}
+
+// note writes a line to the boot log ONLY, never the terminal. Use it for the
+// positive record — "this check ran, and here is what it found" — that a reader of
+// the log needs and a user watching a healthy launch does not. See Env.LogOnly.
+func (e *Env) note(msg string) {
+	if e.LogOnly != nil {
+		_, _ = io.WriteString(e.LogOnly, msg+"\n")
 	}
 }
 
