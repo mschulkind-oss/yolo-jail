@@ -1,14 +1,19 @@
 ---
 title: "Letting a pack declare its own config keys"
 date: 2026-08-17
-status: in-review
+status: accepted
 tags: [packs, config, loopholes, design]
 summary: "Core's schema names two loopholes by hand. This is how a pack declares its own settings instead — typed, name-scoped, advisory when unseen, and delivered through a file yolo owns rather than an env channel the workspace controls."
 ---
 
 # Letting a pack declare its own config keys
 
-**Status:** DESIGN, 2026-08-17. Nothing built. Constraints established by reading the code; anchors
+**Status:** DECIDED 2026-08-18, nothing built. All four questions ruled — see the Decision Ledger.
+
+**This unblocks the rest of the loophole sprint.** It was the gate on the three conversions that
+actually empty `bundled_loopholes/`: `host-processes` and `audio` becoming packs, the broker's
+loophole moving into `packs/claude`, and `journal`/`cgroup-delegate` becoming manifest loopholes.
+Sequenced in [`roadmap.md`](../plans/roadmap.md). Constraints established by reading the code; anchors
 inline.
 
 **The short version.** A loophole gets a `settings` block under its own name —
@@ -31,6 +36,17 @@ OQ-A8.
 > (`validate_loopholes.go:11-22, 196-201`). Opacity does not dodge that rule; it launders it. **So the
 > keys must be typed and declared.** This overrules my own earlier leaning in OQ-A8, which proposed
 > exactly the opaque map.
+
+---
+
+## Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| **OQ-K1** | Declarations are **authoritative**. The advisory case does not exist — an unresolvable pack is already a fatal launch, not a degraded one | 2026-08-18 | [§2.2](#22-validation-happens-where-validation-already-happens) |
+| **OQ-K2** | A workspace **may** supply values that reach a host daemon, **gated by the config-change flow** — which became a control only when OQ-D1/D2 shipped | 2026-08-18 | [§3b](#3b-workspace-scope-and-what-makes-it-safe-now) |
+| **OQ-K3** | **Freeze** `host_processes.visible`. No live reload; changing it needs a restart, which is where the approval gate lives | 2026-08-18 | [§5.1](#51-host_processesvisible-stops-being-live) |
+| **OQ-K4** | `journal` becomes a **pack**, settings under `loopholes.journal.settings`, and its top-level core key is deleted | 2026-08-18 | [§5.2](#52-journal-becomes-a-pack-and-its-top-level-key-goes) |
 
 ---
 
@@ -112,6 +128,33 @@ seam by one level: the resolver already answers *"does this loophole exist?"*, a
 > key question, where the identical failure would yield `unknown key` and exit 1 **on a correct
 > config**. So: an unseen declaration means *unvalidated*, never *invalid*. See OQ-K1.
 
+
+**RULED (OQ-K1, 2026-08-18): declarations are AUTHORITATIVE, and the case that argued for advisory
+does not exist.** The question assumed core might be unable to see a pack's declaration at launch and
+therefore had to accept values unvalidated. *"Either we already fetched it previously and we use it,
+or we haven't and need to be online. We don't launch half jails."*
+
+**The code already works that way**, verified 2026-08-18:
+
+- **Launch is strictly offline by design** — it resolves from the local store and never reaches out
+  mid-boot ([`store.go`](../../internal/packsrc/store.go#L5-L12)). A previously-installed pack
+  therefore resolves fine with no network.
+- **A pack that cannot be resolved is a FATAL launch error**, not a degradation:
+  [`packs.go`](../../internal/cli/run/packs.go#L713-L717) — *"Resolution failure is reported later by
+  packRoot as a fatal error naming `yolo pack install`; it is emphatically not a deactivation
+  signal."* The message even names the command that fixes it.
+
+So there is no launch in which a configured pack's declaration is missing and the jail starts anyway.
+Validation keeps its teeth, and the typo protection C2 traded away is not traded away after all.
+
+> [!NOTE]
+> **One narrower case does survive, and it is governed elsewhere.** A pack can resolve perfectly while
+> *this build's decoder* does not understand a declaration — ordinary version skew between a host CLI
+> and a manifest written for a newer one. That is not "unseen because unresolvable"; it is the skew
+> tolerance `packload` already implements, and the same reasoning applies: core must not hand a host
+> daemon a value it could not validate. Treat an undecodable declaration as a refusal, not as a
+> silent pass-through.
+
 ### 2.3 Delivery: a file yolo owns, named by a token
 
 Since no channel exists (C3) and the obvious one is forbidden (C4), yolo creates one:
@@ -163,6 +206,31 @@ be corrected rather than relied upon.
 
 ---
 
+## 3b. Workspace scope, and what makes it safe now
+
+**RULED (OQ-K2, 2026-08-18): yes, a workspace may supply values that reach a host daemon — *as long
+as they go through the config-change gating*.** The conditional is the whole ruling, not a caveat on
+it.
+
+§4.3b refuses `env` at workspace scope on the grounds that a workspace file travels with the repo and
+is agent-editable. A **typed, declared** setting that core validates and writes is a different object
+from an arbitrary key/value pair injected into a process environment — the per-key `scope` field is
+what makes that statable rather than assumed. But "different object" alone would not be enough; what
+closes the gap is that the config-approval gate is now a **control** rather than a courtesy:
+
+- the approval snapshot moved out of the workspace to host-side state the jail never mounts, so the
+  record of what you approved is no longer writable by the thing being approved (`config-safety.md`
+  OQ-D1, shipped 2026-08-18);
+- a non-interactive launch stops auto-accepting a changed config, so the gate cannot be skipped by
+  running without a terminal (OQ-D2, shipped the same day).
+
+> [!IMPORTANT]
+> **This ruling is dated for a reason: it would have been unsafe a day earlier.** Before those two
+> landed, "gated by the config-change flow" meant gated by a diff whose baseline an agent could
+> rewrite, on a launch that auto-accepted with no TTY. If either is ever reverted, this answer goes
+> with it — a workspace-supplied value reaching a host daemon is only as strong as the approval that
+> admits it.
+
 ## 4. What this does not license
 
 - **Not** a top-level key. A sixteenth contribution kind that declares one dies four ways: the inherit
@@ -197,6 +265,49 @@ spelling forever.
 
 ---
 
+### 5.1 `host_processes.visible` stops being live
+
+**RULED (OQ-K3, 2026-08-18): freeze it. No live reload, for now.** Today the host-processes daemon
+re-reads the workspace config **on every request**, so editing `visible` takes effect without a
+restart. That affordance is real, and it is indistinguishable from the hole: the same property that
+lets you widen an allowlist without restarting lets an **agent** widen its own, mid-session, with no
+launch and therefore no approval gate.
+
+Frozen means the value is resolved once, by core, into the settings file the loophole is handed at
+launch. **Changing what `yolo-ps` may show now requires a jail restart** — which is exactly the point,
+because a restart is where the config-approval gate lives.
+
+If live reload is wanted back later, it re-reads **core's file**, refreshed by an explicit act — never
+the workspace config directly.
+
+### 5.2 `journal` becomes a pack, and its top-level key goes
+
+**RULED (OQ-K4, 2026-08-18): pack-declared, like everything else.** *"It should be pack declared and
+turned into a pack, just like all the others. Gating is done by the loophole settings object as with
+others, no special core jsonkey."*
+
+So the answer is not merely "give it a scope rule" — the scope rule arrives for free by making it
+ordinary. Three consequences:
+
+- **The top-level `journal` key is deleted from core's schema.** With `host_processes` going the same
+  way, that removes **both** of the loophole names core currently hardcodes
+  (`config.go:59`, `validate.go:557-570`, `inherit.go:116-121`) — which is what makes the conversion
+  mean something rather than moving a file, per `loophole-activation.md` §1.4.
+- **Its settings live under `loopholes.journal.settings`**, typed and declared in its own manifest,
+  validated and delivered exactly like every other loophole's. `journal: "full"` — today an
+  agent-settable host-journal passthrough with **no scope rule at all** — becomes a declared key with
+  a `scope`, which is the security half of this ruling.
+- **It composes with `loophole-activation.md` OQ-A6**, which already ruled that `journal` and
+  `cgroup-delegate` become manifest loopholes *in* this sprint. K4 supplies the settings half that
+  ruling needed.
+
+> [!WARNING]
+> **Both of these are user-visible breaks and need release notes when they ship**, not before:
+> `host_processes.visible` stops applying without a restart, and a top-level `journal` key stops being
+> recognised. The second needs a migration path — a config that still writes it must be told where it
+> went rather than silently ignored, which is the deletion-shaped-change rule §4 of
+> `loophole-activation.md` already argues for.
+
 ## 6. Risks
 
 | Risk | Mitigation |
@@ -207,58 +318,3 @@ spelling forever.
 | The settings file becomes a second config system | Keep it a flat resolved map, written by core, read once — no includes, no layering, no comments |
 
 ---
-
-## Open Questions
-
-### 💬 OQ-K1 — is an unseen pack declaration advisory, or authoritative?
-
-If a pack cannot be resolved (offline, fetched, older build), core cannot see its declaration.
-**Advisory** — accept the value unvalidated — is the only option that survives an offline launch, a
-nested launch where only embedded packs resolve, and a build older than the manifest. It gives up typo
-protection.
-
-_Leaning:_ **Advisory, and say so once.** A refused launch on a correct config is a worse failure than
-an ignored typo, and C2 says the partial view is normal rather than exceptional. Print a single line
-naming the packs whose settings could not be checked.
-
-**Answer:**
-> _(empty — fill in when decided)_
-
-### 💬 OQ-K2 — may a workspace supply values that reach a host daemon at all?
-
-The §4.3b ruling says **no** for `env`, on the stated grounds of agent-editability. This design says
-**yes** for typed, core-validated, core-written settings. Either settings are meaningfully different
-from `env` — which is the argument in §2.3, and which requires core to inspect them enough to know —
-or the ruling needs amending rather than routing around.
-
-_Leaning:_ **Yes, and the difference is real, but it must be argued in §4.3b rather than assumed.** A
-declared typed value that core validates and writes is not the same object as an arbitrary key/value
-pair injected into a process environment. The per-key `scope` field is what makes it safe to state.
-
-**Answer:**
-> _(empty — fill in when decided)_
-
-### 💬 OQ-K3 — does `host_processes` keep its live per-request re-read?
-
-Today an agent can rewrite the workspace config mid-session and the host daemon's allowlist changes on
-the next request — no relaunch, no gate. Freezing at spawn closes that and removes a documented
-operator affordance (*"edits take effect without a restart"*).
-
-_Leaning:_ **Freeze it.** The affordance is real but it is indistinguishable from the hole: the same
-property that lets you edit an allowlist without restarting lets an agent widen its own. If live
-reload is wanted back, it should re-read **core's** file, refreshed by an explicit act.
-
-**Answer:**
-> _(empty — fill in when decided)_
-
-### 💬 OQ-K4 — is `journal` in scope, and what is its scope rule?
-
-`journal` cannot be pack-declared while it is compiled-in Go (OQ-A6), and it has **no scope rule at
-all** today: `validateJournal` does no scope pass, and `journal: "full"` passes journalctl arguments
-through unchanged. So it is an agent-settable host-journal-passthrough dial right now.
-
-_Leaning:_ **Give it a scope rule immediately, independently of this design.** Whether it becomes
-pack-declared can wait for OQ-A6; that it is currently ungated should not.
-
-**Answer:**
-> _(empty — fill in when decided)_

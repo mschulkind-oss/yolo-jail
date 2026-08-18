@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 9 needing you · 1 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
+**Status: 8 needing you · 2 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
 
 Last updated **2026-08-18**. Counts tallied from this file, not asserted.
 
@@ -29,30 +29,7 @@ the real number was closer to 50.
 Grouped by decision, not by question. Each row names its design doc; the doc holds the stakes and my
 leaning. **Nothing here asks you to pick an execution order** — sequencing is mine.
 
-### 💬 1 — Pack config keys: the four questions gating the loophole sprint
-
-📄 [`pack-config-keys.md`](../design/pack-config-keys.md) — **OQ-K1 · K2 · K3 · K4**
-
-**These lost their attention row when `loophole-activation.md` became fully decided** — that row was
-what pointed at them, and pruning it took the pointer with it. They are now the single thing standing
-between here and an empty `bundled_loopholes/`, so they are back at the top.
-
-The design is written and says *"Nothing built"*: a loophole's settings become **typed and declared
-in its manifest**, supplied under `loopholes.<name>.settings`, validated through the resolver core
-already injects, and delivered through a file core writes. What is unresolved:
-
-- **OQ-K3 and OQ-K4 are the two with teeth.** K3 decides whether `host_processes` keeps its **live
-  per-request re-read** — the only reason `visible` works at all today — so the answer decides
-  whether the conversion is a rename or a rewrite. K4 asks whether `journal` is in scope, and what
-  its scope rule is.
-- **OQ-K1 · K2** — whether an unseen pack declaration is advisory or authoritative, and whether a
-  workspace may supply values that reach a host daemon at all. K2 carries the security edge:
-  `journal: "full"` is an agent-settable host-journal passthrough with no scope rule today.
-
-**What answering them unblocks:** the three conversions that actually empty `bundled_loopholes/` —
-see *Emptying `bundled_loopholes/`* under Open threads.
-
-### 💬 2 — Trust paths: where we extend trust, and where a pin is theatre
+### 💬 1 — Trust paths: where we extend trust, and where a pin is theatre
 
 📄 [`trust-paths.md`](../design/trust-paths.md) — 25 paths enumerated from the code · partly supersedes
 [`pack-execution-trust.md`](../design/pack-execution-trust.md)
@@ -83,7 +60,7 @@ What is still open:
 - **OQ-LP8 / G2b** — you ruled the shape (approval pinned to a commit); what remains is that
   `LockEntry.Commit` is **never consulted at launch**, so the pin does not yet exist.
 
-### 💬 3 — Auth mode
+### 💬 2 — Auth mode
 
 📄 [`agent-auth-modes.md`](../design/agent-auth-modes.md)
 
@@ -92,7 +69,7 @@ What is still open:
 subscription OAuth bearer to a non-Anthropic base URL?) and it gates boundary-broker B2. **OQ-2 · 3 ·
 4 · 9** are smaller. **OQ-7 is moot as phrased** — there is no Teams pack — and needs restating.
 
-### 💬 4 — Non-container nix
+### 💬 3 — Non-container nix
 
 📄 [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md)
 
@@ -100,7 +77,7 @@ subscription OAuth bearer to a non-Anthropic base URL?) and it gates boundary-br
 backend? Everything else in that doc is subordinate to it. No longer urgent — the auth thread routed
 around the `env` refusal that motivated it.
 
-### 💬 5 — Boundary broker
+### 💬 4 — Boundary broker
 
 📄 [`boundary-broker.md`](../design/boundary-broker.md)
 
@@ -108,7 +85,7 @@ around the `env` refusal that motivated it.
 **OQ-C** is a real API-shape decision: does the jail see the *result* or just success? **OQ-B1b**
 sizes B1b only. The security half of **OQ-E** is settled; only its packaging half is live.
 
-### 💬 6 — Image staging and baking
+### 💬 5 — Image staging and baking
 
 📄 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md)
 
@@ -116,7 +93,7 @@ sizes B1b only. The security half of **OQ-E** is settled; only its packaging hal
 content-addressed image tag; **OQ-1** blocks two more items; **OQ-4** is a scope ruling on a shipped
 config key. None of these were in this file before today.
 
-### 💬 7 — macOS, and the environment-manager stories
+### 💬 6 — macOS, and the environment-manager stories
 
 📄 [`macos-user-build-step-threat-model.md`](../design/macos-user-build-step-threat-model.md) ·
 [`environment-manager-user-stories.md`](../design/environment-manager-user-stories.md) ·
@@ -127,7 +104,7 @@ whether Linux `guest` is a promise or a hypothesis. **threat-model Q1-Q3** cover
 refusal, `--accept-flake-config`'s substituter surface (now live — see the shipped item), and a macOS
 build sandbox. **OQ-L1** explicitly blocks Track L part 2.
 
-### 💬 8 — The small ones with no design-doc home
+### 💬 7 — The small ones with no design-doc home
 
 These were born in this file and have nowhere else to live: **S5** (a jail resolves a skill-name
 collision silently), **OQ-CO**, **OQ-S4**, **OQ-E4**, and **E1/E2/E3/E5** from the backlog. Each is
@@ -151,7 +128,7 @@ should *print* for a section it skipped — now has a design-doc home as **OQ-3*
   version, a typo like `foo@@1.2.3` reaches npm and fails at first use *inside* the jail, where the
   diagnosis is worst. Cheap host-side check; needs a ruling only on how strict to be.
 
-### 💬 9 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
+### 💬 8 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
 
 📄 [`pack-host-management-plan.md`](pack-host-management-plan.md) ·
 [`pack-capabilities.md`](../design/pack-capabilities.md)
@@ -164,6 +141,30 @@ one-line deliverable that is decided in all but name.
 # 📦 Up next
 
 **Ordered by:** what unblocks something else, then what protects a live user, then cost.
+
+- 📦 **Empty `bundled_loopholes/` — unblocked 2026-08-18, and it is the largest item here.** 📄
+  [`pack-config-keys.md`](../design/pack-config-keys.md) ·
+  [`loophole-activation.md`](../design/loophole-activation.md) ·
+  [`broker-as-a-pack.md`](../design/broker-as-a-pack.md)
+
+  OQ-K1..K4 are ruled, so the settings mechanism the three conversions all depend on is designed
+  through. In dependency order:
+
+  1. **Typed, manifest-declared loophole settings** (OQ-A8/K1..K4) — declarations are authoritative,
+     a workspace may supply values *through the config-change gate*, and `host_processes.visible`
+     is **frozen** (resolved once at launch, no per-request re-read).
+  2. **`host-processes` and `audio` become packs; the broker's loophole moves into `packs/claude`**
+     (OQ-A10). ⚠ Deleting `bundled_loopholes/claude-oauth-broker/` does **not** free the reserved
+     name — the reservation and the `loopholesruntime.go` name special-case must die in the same
+     commit, or every claude user's launch breaks.
+  3. **`journal` and `cgroup-delegate` become manifest loopholes** (OQ-A6, OQ-K4), with
+     `cgroup-delegate` default-off (OQ-A4). This deletes **both** loophole names core still hardcodes
+     in its own config schema — the thing that makes the conversion mean something.
+
+  ⚠ **Two user-visible breaks that need release notes when they ship:** `host_processes.visible`
+  stops applying without a restart, and the top-level `journal` key stops being recognised (which
+  needs a migration message, not silence). **Accepted cost:** `yolo-cglimit` stops working out of the
+  box.
 
 - 📦 **Two trust-path rulings: no evergreen npm, and no partial packs.** 📄
   [`trust-paths.md`](../design/trust-paths.md)
@@ -297,9 +298,9 @@ connection preamble end to end, `ServeFrontedUnix`, the daemon behind the framew
 pack-shipped loopholes (OQ-A12), the enable-direction disclosure (OQ-A13), the approval snapshot
 moving host-side (OQ-D1), and the non-interactive config fatal (OQ-D2).
 
-**What is left is the part that actually empties the directory, and it is blocked on 💬 1.** All
-three conversions need typed manifest-declared settings first (OQ-A8 → `pack-config-keys.md`,
-unbuilt, carrying OQ-K1..K4):
+**What is left is the part that actually empties the directory, and it is UNBLOCKED as of
+2026-08-18** — OQ-K1..K4 are ruled, so the settings mechanism all three conversions depend on is
+designed through. Queued in 📦 above:
 
 - **`host-processes` and `audio` become packs; the broker's loophole moves into `packs/claude`**
   (OQ-A10). ⚠ Deleting `bundled_loopholes/claude-oauth-broker/` does **not** free the reserved name —
