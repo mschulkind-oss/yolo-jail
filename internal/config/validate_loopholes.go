@@ -224,12 +224,33 @@ func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile str
 //     interactive, TTY-gated offer that appends the snippet to the user config
 //     — that needs a comment-preserving JSONC writer, which does not exist, so
 //     today the human pastes the snippet themselves.
+//   - enabled:true on an INSTALLED loophole is legal and DISCLOSED, mirroring
+//     the OFF line (docs/design/loophole-activation.md OQ-A13). R5 was written
+//     when `enabled: true` was INERT — the manifest default was already true, so
+//     the only meaningful thing a workspace could do was turn a loophole OFF, and
+//     only that direction got a line. R2 flipped the manifest default and made
+//     this key the ACTIVATION VERB, which left the newly dangerous direction as
+//     the silent one.
 //   - enabled:false on an INSTALLED loophole is legal but DISCLOSED: after the
 //     ruling, scope no longer protects the OFF direction, so this line is the
 //     only protection for a default-on loophole (the broker case, §4.3b
 //     consequence 2).
 //   - enabled:false naming an unknown loophole is a harmless no-op and stays
 //     the caller's "treating the entry as an override" warning.
+//
+// Both disclosures are READABILITY rather than a control, and the ON wording is
+// held to that: it names the file that holds the switch and stops. Nothing
+// reachable from here establishes that a human read that file — the approval diff
+// is a separate mechanism with its own integrity story (docs/design/config-safety.md),
+// and a line implying review would be worth less than no line at all.
+//
+// Neither direction consults the loophole's own manifest default, so a workspace
+// file restating a default is disclosed too. That is deliberate on both counts:
+// LoopholeInfo carries no default (it is Name + HasHostDaemon), so this surface
+// could NOT suppress the redundant case, and `yolo check` — which can see the
+// default — must agree with this one or the two disclosures contradict each other
+// over the same file. An explicit `enabled` in an agent-editable file is a
+// deliberate act either way, which is what keeps the line off every launch.
 func loopholeScopeEnableProblems(name string, entries []wsLoopholeEntry, installed bool) (violation, disclosure string) {
 	var enabled *bool
 	var file string
@@ -259,6 +280,12 @@ func loopholeScopeEnableProblems(name string, entries []wsLoopholeEntry, install
 		return "", "config.loopholes." + name + ": disabled by " + file +
 			" (workspace scope) — the installed loophole " + pytext.Repr(name) +
 			" will not run for jails launched from this workspace."
+	}
+	if *enabled && installed {
+		return "", "config.loopholes." + name + ": enabled by " + file +
+			" (workspace scope) — the installed loophole " + pytext.Repr(name) +
+			" runs for jails launched from this workspace because that " +
+			"agent-editable file switched it on."
 	}
 	return "", ""
 }
@@ -343,14 +370,43 @@ func WorkspaceLoopholeOrigins(workspace string) map[string][]string {
 	return out
 }
 
-// WorkspaceDisabledLoopholes maps loophole name → the workspace config file
-// whose `loopholes.<name>.enabled: false` is the effective workspace-scope
-// disable. It is the provenance seam behind the two §4.3b disclosures: the
-// launch-time line (via validateLoopholes) and `yolo check`'s warning instead
-// of a green pass — which together are the only protection left for a
-// default-on loophole now that scope no longer restricts the OFF direction.
-func WorkspaceDisabledLoopholes(workspace string) map[string]string {
-	out := map[string]string{}
+// WorkspaceLoopholeSwitch is one loophole's effective workspace-scope `enabled`
+// decision: what the winning workspace file said, and which file that was.
+type WorkspaceLoopholeSwitch struct {
+	// File is the workspace config file whose `enabled` won the merge — the LAST
+	// one to carry the key, because later files win (yolo-jail.local.jsonc over
+	// yolo-jail.jsonc). It is the file a human has to open, which is the only
+	// thing a disclosure naming the wrong file would be good for.
+	File string
+	// Enabled is that file's value. BOTH directions are carried: OFF is the §4.3b
+	// disclosure, ON is loophole-activation.md OQ-A13's mirror of it.
+	Enabled bool
+}
+
+// WorkspaceLoopholeSwitches maps loophole name → the effective workspace-scope
+// `enabled` decision for it. A name no workspace file mentions, and a name a
+// workspace file mentions without setting `enabled`, are ABSENT from the map:
+// "workspace scope said nothing" and "workspace scope said true" are different
+// answers, and only absence can express the first.
+//
+// It is the provenance seam behind both §4.3b disclosures — the launch-time line
+// (via validateLoopholes) and `yolo check`'s warning instead of a green pass — in
+// both directions. This used to be WorkspaceDisabledLoopholes, which computed the
+// same thing and threw the `true` case away, back when `enabled: true` from a
+// workspace was inert: the manifest default was already on, so the only power the
+// weak scope had was to turn things OFF. R2 flipped that default and made the key
+// the ACTIVATION VERB while R5 kept it at workspace scope, so the direction with
+// no disclosure became the dangerous one (docs/design/loophole-activation.md
+// OQ-A13). Widening the existing seam rather than adding a second one is what
+// keeps the two surfaces reading the same answer — and one vocabulary for a
+// question that was always symmetric.
+//
+// Only WORKSPACE files are read, which is the whole point. A user-scope enable and
+// a manifest's own `default_enabled` are decisions made where an agent cannot
+// reach, and disclosing those would put a line under every loophole on every
+// launch — which is how the one that matters gets skimmed past.
+func WorkspaceLoopholeSwitches(workspace string) map[string]WorkspaceLoopholeSwitch {
+	out := map[string]WorkspaceLoopholeSwitch{}
 	for name, entries := range workspaceLoopholeEntries(workspace) {
 		var enabled *bool
 		var file string
@@ -364,8 +420,8 @@ func WorkspaceDisabledLoopholes(workspace string) map[string]string {
 				file = e.file
 			}
 		}
-		if enabled != nil && !*enabled {
-			out[name] = file
+		if enabled != nil {
+			out[name] = WorkspaceLoopholeSwitch{File: file, Enabled: *enabled}
 		}
 	}
 	return out

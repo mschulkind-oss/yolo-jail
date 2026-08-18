@@ -65,21 +65,56 @@ func (o *Options) checkLoopholes(r *reporter) {
 	// the disclosure is the only protection left for a default-on loophole: a
 	// workspace-sourced disable must WARN and name the file, never render as a
 	// green line. Only a disable from the loophole's own manifest is an ok.
-	wsDisabled := config.WorkspaceDisabledLoopholes(o.Workspace)
+	//
+	// The ON direction is disclosed the same way, for the newer reason
+	// (docs/design/loophole-activation.md OQ-A13). R5 dates from when a workspace
+	// `enabled: true` was INERT — manifests defaulted to on, so the weak scope could
+	// only subtract. R2 flipped that default and made this key the ACTIVATION VERB,
+	// and what a workspace enable rendered as here was the greenest line in the
+	// section: `[PASS] loophole X: disabled`, read off the manifest default (this
+	// walk resolves no config), with the file that overrode it named nowhere.
+	//
+	// Both lines are READABILITY, not a control, and the ON wording is held to that:
+	// it names the file holding the switch and stops. The config-approval diff is the
+	// mechanism that asks a human (docs/design/config-safety.md); a check row implying
+	// review would be worth less than no row.
+	//
+	// A workspace file that merely RESTATES the manifest default is disclosed too.
+	// The launch-time twin cannot suppress that case — its LoopholeInfo carries no
+	// default — and two disclosures contradicting each other over one file is worse
+	// than one redundant line. An explicit `enabled` in an agent-editable file is a
+	// deliberate act either way, so this stays off ordinary launches.
+	switches := config.WorkspaceLoopholeSwitches(o.Workspace)
 	for _, e := range entries {
 		if e.Err != "" {
 			r.warn("loophole "+filepath.Base(e.Path)+": invalid manifest", e.Err)
 			continue
 		}
 		lp := e.Loophole
-		if file, ok := wsDisabled[lp.Name]; ok {
-			r.warn("loophole "+lp.Name+": disabled by "+file+" (workspace scope)",
+		sw, wsScoped := switches[lp.Name]
+		if wsScoped && !sw.Enabled {
+			r.warn("loophole "+lp.Name+": disabled by "+sw.File+" (workspace scope)",
 				"An agent-editable file turned an installed loophole off; jails "+
 					"launched from this workspace run without it. Re-enable it there, "+
 					"or move the override to "+paths.UserConfigPath()+".")
 			continue
 		}
-		if !lp.Enabled {
+		// The ON row DISCLOSES and then falls through, where the OFF row above stops.
+		// That asymmetry is the point rather than an oversight: off means there is
+		// nothing left to measure, on means the loophole is about to run and its
+		// self-check is the next thing a reader wants. Ending the iteration here would
+		// undo OQ-A12 — the reason every loophole's doctor_cmd is reported at all — for
+		// exactly the loopholes whose activation is least expected.
+		enabled := lp.Enabled
+		if wsScoped && sw.Enabled {
+			r.warn("loophole "+lp.Name+": enabled by "+sw.File+" (workspace scope)",
+				"An agent-editable file turned an installed loophole ON; jails "+
+					"launched from this workspace run WITH it. This row says where the "+
+					"switch lives — it is not a record that anyone reviewed it. Turn it "+
+					"off there, or move the override to "+paths.UserConfigPath()+".")
+			enabled = true
+		}
+		if !enabled {
 			r.ok("loophole " + lp.Name + ": disabled")
 			continue
 		}

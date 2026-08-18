@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
@@ -789,6 +790,143 @@ func TestCheckLoopholesDoesNotInventAPackSelfCheck(t *testing.T) {
 	if strings.Contains(out, "self-check ok") || r.warned != 0 || r.failed != 0 {
 		t.Errorf("a loophole declaring no self-check produced a health verdict "+
 			"(warned=%d failed=%d):\n%s", r.warned, r.failed, out)
+	}
+}
+
+// TestCheckLoopholesWarnsOnWorkspaceEnable is OQ-A13's mirror
+// (docs/design/loophole-activation.md §2, under R5): the OFF direction has had a
+// disclosure since §4.3b, and the ON direction — the one R2 turned into the
+// ACTIVATION VERB — had none.
+//
+// What it rendered as before is the part worth pinning: `[PASS] loophole X: disabled`,
+// the greenest line in the section, because this walk resolves the MANIFEST default and
+// never the config that overrode it. So the single loophole an agent-editable file had
+// switched on read as the one thing in the report guaranteed to be harmless.
+//
+// The row DISCLOSES and the section then carries on, which is the deliberate asymmetry
+// with the OFF row: off means there is nothing left to measure, on means the loophole is
+// about to run and its self-check is what a reader wants next. `continue`ing here would
+// undo OQ-A12 for exactly the activations nobody expected.
+func TestCheckLoopholesWarnsOnWorkspaceEnable(t *testing.T) {
+	bundled := isolatedBundledDir(t)
+	sentinels := t.TempDir()
+
+	// default_enabled FALSE — the R2 world, where the workspace file is the only
+	// reason this loophole runs at all.
+	wsonRan := filepath.Join(sentinels, "wson-ran")
+	writeLoopholeManifest(t, bundled, "wson",
+		`"name":"wson","description":"wson","transport":"none","default_enabled":false,`+
+			`"doctor_cmd":["/bin/sh","-c","touch `+wsonRan+`; echo 'OK: wson wiring present'"]`)
+	// The control, and the constraint that keeps the new row worth reading: a
+	// loophole that is on because its own MANIFEST says so, which no workspace file
+	// mentions. It must draw no disclosure — a line under every default-on loophole
+	// prints on every launch for everybody, which is how the one that matters gets
+	// skimmed past.
+	manifestOnRan := filepath.Join(sentinels, "manifeston-ran")
+	selfCheckModule(t, bundled, "manifeston",
+		touchAndSay(manifestOnRan, "OK: manifeston wiring present"))
+
+	ws := t.TempDir()
+	wsCfg := filepath.Join(ws, "yolo-jail.jsonc")
+	if err := os.WriteFile(wsCfg, []byte(`{"loopholes": {"wson": {"enabled": true}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, out := runCheckLoopholes(t, ws)
+
+	if !strings.Contains(out, "loophole wson: enabled by "+wsCfg+" (workspace scope)") {
+		t.Errorf("a workspace-scope enable must WARN and name the file:\n%s", out)
+	}
+	if strings.Contains(out, "loophole wson: disabled") {
+		t.Errorf("the workspace-enabled loophole still renders as a green disabled line, "+
+			"read off the manifest default the workspace overrode:\n%s", out)
+	}
+	// The disclosure replaces the green, not the health report.
+	if _, err := os.Stat(wsonRan); err != nil {
+		t.Errorf("the workspace-enabled loophole's doctor_cmd never ran, so the row that "+
+			"discloses the activation also suppressed everything known about it:\n%s", out)
+	}
+	if !strings.Contains(out, "loophole wson: self-check ok") {
+		t.Errorf("the workspace-enabled loophole's self-check is not reported:\n%s", out)
+	}
+	// The control: default-on from a manifest is business as usual, all green.
+	if strings.Contains(out, "loophole manifeston: enabled by") {
+		t.Errorf("a manifest's own default_enabled drew a workspace disclosure:\n%s", out)
+	}
+	if _, err := os.Stat(manifestOnRan); err != nil {
+		t.Fatalf("the control loophole never ran, so its silence proves nothing:\n%s", out)
+	}
+	// Exactly one warning: the disclosure. Both self-checks graded OK, and this is
+	// disclosure only — it may not fail, and it may not spread.
+	if r.warned != 1 || r.failed != 0 {
+		t.Errorf("warned=%d failed=%d, want exactly the one disclosure and no failure:\n%s",
+			r.warned, r.failed, out)
+	}
+}
+
+// knownLoopholes backs config.LoopholeResolver for the cross-surface test below,
+// standing in for the file-backed set a real launch would have discovered.
+type knownLoopholes map[string]config.LoopholeInfo
+
+func (k knownLoopholes) Known() (map[string]config.LoopholeInfo, bool) { return k, true }
+
+// TestWorkspaceEnableDisclosureAgreesAcrossSurfaces: the launch-time line and the
+// `yolo check` row are two renderings of ONE fact, and the fact is read from one seam
+// (config.WorkspaceLoopholeSwitches) precisely so they cannot drift apart.
+//
+// Drift is the failure worth a test rather than a comment, because the two surfaces
+// resolve DIFFERENT things either side of that seam: `yolo check` resolves manifests
+// and no config, while ValidateConfig resolves the merged config and no manifest.
+// Given one workspace file they must nonetheless name the same loophole, the same
+// file, and the same direction — otherwise a user reading the launch and then running
+// `yolo check` gets two answers and no way to tell which is the machine's.
+func TestWorkspaceEnableDisclosureAgreesAcrossSurfaces(t *testing.T) {
+	// The host path: this suite runs INSIDE a jail, where a set YOLO_VERSION makes
+	// ValidateConfig downgrade scope violations. The disclosure is a warning either
+	// way, but pinning the env keeps the two surfaces compared under one story.
+	t.Setenv("YOLO_VERSION", "")
+	bundled := isolatedBundledDir(t)
+	writeLoopholeManifest(t, bundled, "acme",
+		`"name":"acme","description":"acme","transport":"none","default_enabled":false`)
+
+	ws := t.TempDir()
+	wsCfg := filepath.Join(ws, "yolo-jail.jsonc")
+	if err := os.WriteFile(wsCfg, []byte(`{"loopholes": {"acme": {"enabled": true}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Surface 1 — `yolo check`.
+	_, out := runCheckLoopholes(t, ws)
+
+	// Surface 2 — the launch-time validation warnings.
+	merged, err := config.LoadWorkspaceConfig(ws, false, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, warns := config.ValidateConfig(merged, ws, knownLoopholes{"acme": {Name: "acme"}})
+	var launch string
+	for _, w := range warns {
+		if strings.Contains(w, "config.loopholes.acme") {
+			launch = w
+		}
+	}
+
+	if launch == "" {
+		t.Fatalf("the launch surface disclosed nothing; warnings = %v", warns)
+	}
+	for _, want := range []string{"enabled by", wsCfg} {
+		if !strings.Contains(launch, want) {
+			t.Errorf("launch line %q does not carry %q", launch, want)
+		}
+		if !strings.Contains(out, want) {
+			t.Errorf("the `yolo check` row does not carry %q:\n%s", want, out)
+		}
+	}
+	// Same direction, both places. A surface that read the seam's boolean backwards
+	// would still name the loophole and the file, and only this catches it.
+	if strings.Contains(launch, "disabled by") || strings.Contains(out, "disabled by") {
+		t.Errorf("one surface reported the enable as a disable:\nlaunch: %s\ncheck:\n%s",
+			launch, out)
 	}
 }
 

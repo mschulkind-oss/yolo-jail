@@ -268,6 +268,87 @@ func TestWorkspaceDisableUserInlineIsDisclosed(t *testing.T) {
 	}
 }
 
+// OQ-A13 (loophole-activation.md): the ON direction gets the same launch-time
+// line the OFF direction has had, and for a sharper reason. R5 was written when a
+// workspace `enabled: true` was INERT — manifests defaulted to on, so the only
+// thing the weak, agent-editable scope could do was subtract. R2 flipped that
+// default and made this key the ACTIVATION VERB, which left the newly dangerous
+// direction as the silent one.
+//
+// R5 itself is NOT narrowed: enabling stays legal at workspace scope, so this must
+// be a warning and never an error.
+func TestWorkspaceEnableInstalledIsDisclosed(t *testing.T) {
+	resolver := fakeResolver{"svc": {Name: "svc", HasHostDaemon: true}}
+	ws, errs, warns := validateScoped(t, "",
+		`{"loopholes": {"svc": {"enabled": true}}}`, resolver)
+	if len(errs) != 0 {
+		t.Errorf("errors = %v, want none — R5 stands: a workspace may still enable", errs)
+	}
+	hits := containing(warns, "config.loopholes.svc", "enabled by",
+		filepath.Join(ws, WorkspaceConfigName))
+	if len(hits) != 1 {
+		t.Fatalf("warnings = %v, want one disclosure naming the loophole and the file", warns)
+	}
+	// The caveat, made testable. This ships as READABILITY: the line reports where
+	// the switch lives, and nothing it can observe establishes that a human read the
+	// file. A line that implied review would be worth less than no line, because the
+	// reader would stop looking for the mechanism that actually asks.
+	if !strings.Contains(hits[0], "agent-editable") {
+		t.Errorf("disclosure %q does not say the file is agent-editable, which is the "+
+			"whole reason the direction is worth a line", hits[0])
+	}
+	for _, claim := range []string{"approv", "review", "confirm", "consent"} {
+		if strings.Contains(hits[0], claim) {
+			t.Errorf("disclosure %q claims %q; this line is readability, not a record "+
+				"that anyone signed off", hits[0], claim)
+		}
+	}
+	// And it must not be mistakable for its opposite at a glance.
+	if strings.Contains(hits[0], "disabled by") {
+		t.Errorf("the ON disclosure reads like the OFF one: %q", hits[0])
+	}
+}
+
+// A USER-scope enable produces NO line. Only a workspace enable does.
+//
+// This is the constraint that keeps the disclosure worth reading: the user config
+// is not agent-editable, so an enable there is the ordinary way to turn a loophole
+// on. A line under it would print on every launch for everybody, which is exactly
+// how the one that matters gets skimmed past.
+func TestUserScopeEnableIsNotDisclosed(t *testing.T) {
+	resolver := fakeResolver{"svc": {Name: "svc", HasHostDaemon: true}}
+	_, errs, warns := validateScoped(t,
+		`{"loopholes": {"svc": {"enabled": true}}}`, "", resolver)
+	if len(errs) != 0 {
+		t.Errorf("errors = %v, want none — the user config is where enabling belongs", errs)
+	}
+	if hits := containing(warns, "enabled by"); len(hits) != 0 {
+		t.Errorf("warnings = %v — a user-scope enable is not a workspace-scope one, and "+
+			"disclosing it would put a line under every enabled loophole on every launch", hits)
+	}
+}
+
+// A workspace file that touches an installed loophole WITHOUT setting `enabled`
+// says nothing about the switch, so neither disclosure is due. `jail_env` is legal
+// at workspace scope (§4.3b) and is the shape that makes this non-hypothetical.
+//
+// The seam has to distinguish "workspace scope said nothing" from "workspace scope
+// said false"; reading a missing key as false would disclose a disable nobody wrote.
+func TestWorkspaceEntryWithoutEnabledIsNotDisclosed(t *testing.T) {
+	resolver := fakeResolver{"svc": {Name: "svc", HasHostDaemon: true}}
+	_, errs, warns := validateScoped(t, "",
+		`{"loopholes": {"svc": {"jail_env": {"K": "v"}}}}`, resolver)
+	if len(errs) != 0 {
+		t.Errorf("errors = %v, want none — jail_env is legal at workspace scope", errs)
+	}
+	if hits := containing(warns, "enabled by"); len(hits) != 0 {
+		t.Errorf("warnings = %v, want no ON disclosure for an entry that sets no switch", hits)
+	}
+	if hits := containing(warns, "disabled by"); len(hits) != 0 {
+		t.Errorf("warnings = %v — an absent `enabled` was read as false", hits)
+	}
+}
+
 // In a jail every scope violation DOWNGRADES to a warning — same asymmetry as
 // the retired `agents` key, for the same reason: /workspace is live-mounted,
 // so an in-jail hard error would refuse every nested launch mid-migration.
@@ -313,25 +394,53 @@ func TestWorkspaceLocalScopeAndEnablePrecedence(t *testing.T) {
 	}
 }
 
-// WorkspaceDisabledLoopholes is the provenance seam `yolo check` uses to warn
-// on a workspace-scope disable instead of green-passing it.
-func TestWorkspaceDisabledLoopholesHelper(t *testing.T) {
+// WorkspaceLoopholeSwitches is the provenance seam `yolo check` uses to warn on a
+// workspace-scope switch instead of green-passing it. It carries BOTH directions:
+// it used to be WorkspaceDisabledLoopholes and dropped the `true` case on the floor
+// (loophole-activation.md OQ-A13).
+//
+// The precedence half is what makes it a seam rather than a lookup: `enabled` is
+// resolved the way the merge resolves it, so the file it names is the file that
+// actually decided — including when the two workspace files disagree, which is the
+// case a naive "first hit wins" gets backwards and a human then edits the wrong file.
+func TestWorkspaceLoopholeSwitchesHelper(t *testing.T) {
 	ws := t.TempDir()
 	write(t, filepath.Join(ws, WorkspaceConfigName),
-		`{"loopholes": {"a": {"enabled": false}, "b": {"enabled": true}}}`)
+		`{"loopholes": {"a": {"enabled": false}, "b": {"enabled": true},
+		  "d": {"enabled": false}, "quiet": {"jail_env": {"K": "v"}}}}`)
 	write(t, filepath.Join(ws, WorkspaceLocalConfigName),
-		`{"loopholes": {"b": {"enabled": false}, "c": {"enabled": false}}}`)
-	got := WorkspaceDisabledLoopholes(ws)
-	if file := got["a"]; file != filepath.Join(ws, WorkspaceConfigName) {
-		t.Errorf("a: file = %q, want the tracked workspace config", file)
-	}
-	for _, name := range []string{"b", "c"} {
-		if file := got[name]; file != filepath.Join(ws, WorkspaceLocalConfigName) {
-			t.Errorf("%s: file = %q, want the local workspace config", name, file)
+		`{"loopholes": {"b": {"enabled": false}, "c": {"enabled": false},
+		  "d": {"enabled": true}}}`)
+	got := WorkspaceLoopholeSwitches(ws)
+
+	tracked := filepath.Join(ws, WorkspaceConfigName)
+	local := filepath.Join(ws, WorkspaceLocalConfigName)
+	for _, tc := range []struct {
+		name string
+		WorkspaceLoopholeSwitch
+	}{
+		{"a", WorkspaceLoopholeSwitch{File: tracked, Enabled: false}},
+		{"b", WorkspaceLoopholeSwitch{File: local, Enabled: false}},
+		{"c", WorkspaceLoopholeSwitch{File: local, Enabled: false}},
+		// The ON direction, and the one the old helper discarded: the local file
+		// flipped the tracked file's `false` back to `true`, so both the value and
+		// the file have to come from the LAST writer.
+		{"d", WorkspaceLoopholeSwitch{File: local, Enabled: true}},
+	} {
+		if sw, ok := got[tc.name]; !ok || sw != tc.WorkspaceLoopholeSwitch {
+			t.Errorf("%s: got %+v (present=%v), want %+v", tc.name, sw, ok, tc.WorkspaceLoopholeSwitch)
 		}
 	}
-	if len(got) != 3 {
-		t.Errorf("got = %v, want exactly a, b, c", got)
+	// "workspace scope said nothing about the switch" must be ABSENT, not a zero
+	// value: a `WorkspaceLoopholeSwitch{}` is indistinguishable from `enabled:
+	// false`, and reading it as one would have every workspace that sets `jail_env`
+	// disclose a disable nobody wrote.
+	if sw, ok := got["quiet"]; ok {
+		t.Errorf("an entry with no `enabled` key produced a switch %+v; only absence "+
+			"can say that workspace scope left the decision alone", sw)
+	}
+	if len(got) != 4 {
+		t.Errorf("got = %v, want exactly a, b, c, d", got)
 	}
 }
 
