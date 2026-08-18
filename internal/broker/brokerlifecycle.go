@@ -31,6 +31,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // Singleton path constants — byte-identical to loopholes_runtime:
@@ -121,7 +122,14 @@ type Deps struct {
 	// close_fds=True) + proc.poll().
 	Spawn func(argv []string, logPath string) (pid int, exited func() bool, err error)
 
-	Out io.Writer // launcher warnings (info-parity, Go-native)
+	// Out receives launcher warnings (info-parity, Go-native) — today the one
+	// reportFailedSpawn emits. A nil writer silences them, so a zero-value Deps
+	// in a test stays quiet without wiring anything.
+	Out io.Writer
+	// Color requests ANSI markup on Out. Resolve it to (wanted && on a TTY)
+	// before setting, exactly as CLIDeps does: this layer never probes the
+	// terminal, so a redirected launch log stays clean by the caller's choice.
+	Color bool
 }
 
 // RealDeps returns Deps backed by the real singleton paths and OS effects.
@@ -141,6 +149,7 @@ func RealDeps() Deps {
 		Pgrep:      RealPgrepStrays,
 		Spawn:      realSpawn,
 		Out:        os.Stdout,
+		Color:      isTTYStdoutReal(),
 	}
 }
 
@@ -301,8 +310,47 @@ func BrokerSpawn(deps Deps) string {
 		return deps.SocketPath
 	}
 	_ = os.WriteFile(deps.PIDFilePath, []byte(strconv.Itoa(pid)+"\n"), 0o644)
-	brokerWaitForSocket(deps, deps.SocketPath, BrokerSpawnTimeout, exited)
+	if !brokerWaitForSocket(deps, deps.SocketPath, BrokerSpawnTimeout, exited) {
+		reportFailedSpawn(deps, exited)
+	}
 	return deps.SocketPath
+}
+
+// reportFailedSpawn writes the line brokerWaitForSocket's return value exists
+// FOR. The detector has always been able to separate a dead singleton from a
+// slow one in milliseconds — its own doc comment below says exactly that — and
+// the caller here threw the answer away. That is how a broker which died at
+// startup 2,549 times in a single jail stayed invisible for months: the only
+// record was a log nobody reads, and the consequence surfaced three layers later
+// as a refused launch (docs/design/broker-ca-and-nested-hosts.md §3.1).
+//
+// Deliberately NOT fatal, and BrokerSpawn's return value is unchanged. The
+// broker is a host-wide singleton; a jail without Claude auth is degraded, not
+// unlaunchable, and the reachability witness is already the gate that refuses.
+// This is the diagnostic that names why that gate is about to fire — emitted at
+// the moment the fact is known rather than inferred later from its effects.
+//
+// The wording deliberately reuses the sibling host-service warning's shape
+// (internal/cli/run/loopholesruntime.go: what failed, what was expected, and the
+// log that holds the reason) instead of inventing a second warning grammar for
+// the same class of event — the two print into the same launch output.
+//
+// The two fault classes are told apart because they send the reader to different
+// places: an exit means the log's tail IS the reason (the missing-openssl case
+// is one stderr line), while a timeout means the process is still alive and
+// stuck, and the log may hold nothing at all.
+func reportFailedSpawn(deps Deps, exited func() bool) {
+	if deps.Out == nil {
+		return
+	}
+	reason := "did not bind its socket within " + BrokerSpawnTimeout.String()
+	if exited != nil && exited() {
+		reason = "exited at startup without binding its socket"
+	}
+	richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
+		"[yellow]Warning: the Claude OAuth broker singleton " + reason +
+			" — in-jail Claude auth will fail until it does. Expected " +
+			deps.SocketPath + "; see " + deps.LogPath + "[/yellow]")
 }
 
 // brokerWaitForSocket ports _broker_wait_for_socket: poll until the socket

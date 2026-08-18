@@ -2,6 +2,7 @@ package broker
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -49,7 +50,11 @@ func newLifeDeps(t *testing.T, st *lifeState) Deps {
 			}
 			return st.spawnPID, func() bool { return !st.spawnBind }, nil
 		},
-		Out: os.Stderr,
+		// Discarded, not stderr: the non-binding cases below now make
+		// BrokerSpawn emit its failed-spawn warning, and a passing test must not
+		// print one. The command layer's own verdict line still lands in the
+		// CLIDeps buffer, which is what these tests assert.
+		Out: io.Discard,
 	}
 }
 

@@ -1,10 +1,13 @@
 package broker
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -66,7 +69,10 @@ func newFakeDeps(t *testing.T, st *fakeState) Deps {
 			}
 			return st.spawnPID, func() bool { return st.spawnExited }, nil
 		},
-		Out: os.Stderr,
+		// Discard by default: several spawn cases below fail on purpose, and
+		// their warning is asserted by the tests that care (which install their
+		// own buffer) rather than dumped into every other test's stderr.
+		Out: io.Discard,
 	}
 }
 
@@ -346,6 +352,79 @@ func TestBrokerSpawnDeadChildFast(t *testing.T) {
 	// most one poll interval elapsed.
 	if deps.Now().Sub(start) > SocketPollInterval {
 		t.Errorf("dead child should short-circuit; elapsed %v", deps.Now().Sub(start))
+	}
+}
+
+// The three tests below pin the ONE property the 2,549-failure incident turned
+// on: brokerWaitForSocket's answer must reach a human at spawn time. Before
+// this, every one of these cases printed nothing at all — the detector was
+// right and silent (docs/design/broker-ca-and-nested-hosts.md §3.1).
+
+func TestBrokerSpawnWarnsOnDeadChild(t *testing.T) {
+	// The missing-openssl shape: the daemon exits at startup, so the socket
+	// never appears. The warning must say the child EXITED (which sends the
+	// reader to the log's tail, where the reason is), name the socket the jail
+	// will look for, and name the log.
+	st := &fakeState{spawnPID: 8, spawnExited: true}
+	deps := newFakeDeps(t, st)
+	var buf bytes.Buffer
+	deps.Out = &buf
+	_ = BrokerSpawn(deps)
+
+	out := buf.String()
+	if !strings.Contains(out, "exited at startup") {
+		t.Errorf("dead child must be reported as an exit, got:\n%s", out)
+	}
+	if !strings.Contains(out, deps.SocketPath) {
+		t.Errorf("warning must name the expected socket %q, got:\n%s", deps.SocketPath, out)
+	}
+	if !strings.Contains(out, deps.LogPath) {
+		t.Errorf("warning must name the log %q, got:\n%s", deps.LogPath, out)
+	}
+	// Color is off in fake Deps, so the style markup must be rendered away
+	// rather than printed at the reader.
+	if strings.Contains(out, "[yellow]") || strings.Contains(out, "\x1b[") {
+		t.Errorf("markup leaked with Color off:\n%q", out)
+	}
+}
+
+func TestBrokerSpawnWarnsOnBindTimeout(t *testing.T) {
+	// The other fault class: the child is still alive but never binds. It must
+	// NOT be reported as an exit — a live-but-stuck daemon has a different
+	// cause and often an empty log.
+	st := &fakeState{spawnPID: 9, spawnExited: false}
+	deps := newFakeDeps(t, st)
+	var buf bytes.Buffer
+	deps.Out = &buf
+	_ = BrokerSpawn(deps)
+
+	out := buf.String()
+	if !strings.Contains(out, "did not bind its socket within "+BrokerSpawnTimeout.String()) {
+		t.Errorf("timeout must be reported with the deadline, got:\n%s", out)
+	}
+	if strings.Contains(out, "exited") {
+		t.Errorf("a live child must not be reported as exited, got:\n%s", out)
+	}
+}
+
+func TestBrokerSpawnSilentWhenSocketBinds(t *testing.T) {
+	// A healthy spawn says nothing: a warning on every launch would be noise
+	// that trains the reader to skip the line that matters.
+	st := &fakeState{spawnPID: 4321}
+	deps := newFakeDeps(t, st)
+	var buf bytes.Buffer
+	deps.Out = &buf
+	// The socket has to be created BY the spawn, not before it: BrokerSpawn
+	// unlinks a stale socket on its way past, so a pre-touched file is gone by
+	// the time the wait looks for it.
+	deps.Spawn = func(argv []string, _ string) (int, func() bool, error) {
+		st.spawnArgv = argv
+		touch(t, deps.SocketPath)
+		return st.spawnPID, func() bool { return false }, nil
+	}
+	_ = BrokerSpawn(deps)
+	if buf.Len() != 0 {
+		t.Errorf("successful spawn must be silent, got:\n%s", buf.String())
 	}
 }
 
