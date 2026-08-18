@@ -31,6 +31,12 @@ safety property.
 | **OQ-D1** | The approval snapshot **moves host-side**, out of the rw bind mount — a record the jail can rewrite is not a record | 2026-08-18 | [§ File Locations](#file-locations) |
 | **OQ-D2** | Non-interactive + changed config is **fatal**; CI opts in with an explicit flag rather than an implicit yes | 2026-08-18 | [§ User Responses](#user-responses) |
 
+## Open Questions
+
+| ID | Question | Stakes |
+| :--- | :--- | :--- |
+| **OQ-D3** | The migration signal is in the mount it is signalling about. Deleting `<workspace>/.yolo/config-snapshot.json` converts a changed config into a silent "first run" accept. Do we close it by prompting on a brand-new workspace's first launch — the trade this doc ruled against — or accept a one-shot per-workspace window? | Reopens OQ-D1's hole for exactly as long as a workspace goes un-launched after the upgrade. See [§ Edge Cases](#edge-cases). |
+
 ---
 
 ## Problem
@@ -152,6 +158,15 @@ an existing running container (`podman exec`), the config is not re-checked
 because the container was already started with its config. This is why agents
 must run `yolo check` themselves after every config edit, even mid-session.
 
+**Every backend gates, including `macos-user`.** The check lived inside `runContainer`, which the
+`macos-user` arm of the run pipeline returns before ever reaching — so the one backend with no
+container around it was the one launching agent-edited configs unprompted, and it reads
+`security.blocked_tools`, `mcp_servers`, `lsp_servers` and `packages` straight off that config.
+(`mcp_servers` is a command line the agent's own MCP client executes.) Fixed 2026-08-18: the arm
+calls the same gate before dispatching. It sits in the arm rather than above the backend dispatch
+because "fresh launch only" is a container-path distinction — `macos-user` has no attach, every
+invocation is a fresh sandbox. `--dry-run` is exempt: it renders a plan and launches nothing.
+
 ## Agent Workflow
 
 The intended flow for agents that need additional packages:
@@ -269,9 +284,24 @@ form for inspection.
 - **Config deleted**: Triggers a diff (previous config → empty config).
 - **Snapshot deleted**: fails safe, but not by prompting — an absent record with no legacy file is a
   *first run*, which accepts the current config silently and records it. That is the same trade the
-  first-launch case makes, and it is why the ruling was about integrity (a record that can be
-  *rewritten* to match a change) and not about deletion (which loses the baseline without hiding
-  anything).
+  first-launch case makes. Post-migration this costs nothing: the host-side record is out of the
+  jail's reach, so only the human can delete it, and deleting your own baseline loses it without
+  hiding anything.
+- **⚠ Legacy signal deleted (OQ-D3, open)**: the sentence above does *not* hold during the migration
+  window, and the ruling as written assumes it does. Before a workspace has a host-side record, the
+  ONLY thing separating "migration → show the whole config and ask" from "first run → accept
+  silently" is the presence of `<workspace>/.yolo/config-snapshot.json` — a file in the read-write
+  bind mount. **Presence is not more trustworthy than content; it is the same bit in the same
+  mount.** An agent that edits `yolo-jail.jsonc` and `rm`s that file makes its own change into a
+  genuine-looking first run: silently accepted, and recorded host-side as approved. Confirmed by
+  test 2026-08-18. The window is one-shot per workspace and closes the first time a host-side record
+  is written — but it is open on every workspace not yet launched since OQ-D1, which on upgrade day
+  is all of them, and an agent running on the *pre*-upgrade build can open it pre-emptively.
+  No host-side artifact predates the ruling and survives to replace the signal (`ContainerDir`
+  tracking files are pruned when the container stops; `AgentsDir` staging is recreated by the same
+  launch, before the gate runs), so the only sound repair is to stop letting a missing record mean
+  "first run" — i.e. prompt on a brand-new workspace's first launch, which this document
+  deliberately ruled against. That trade is the open question, not the diagnosis.
 - **Multiple agents**: All share the same config file. If two agents modify
   it, the human sees all changes combined in one diff.
 
