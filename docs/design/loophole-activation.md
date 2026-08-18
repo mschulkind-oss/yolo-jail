@@ -1,6 +1,6 @@
 # Nothing reaches your host because it happened to be there — loophole activation
 
-**Status:** RULED 2026-08-15, nothing built. Six rulings; **thirteen open questions**, three answered
+**Status:** RULED 2026-08-15, nothing built. Six rulings; **thirteen open questions**, five answered
 in review and ten raised by review or by the completeness sweep (§6). The doc grew that way on purpose — every question below
 came from asking "what else reaches the host, and why is it on?", and the answer kept being
 "something different each time". Taken during the `host-processes` conversion; this doc records them and works
@@ -368,10 +368,17 @@ contribution.
      config only**, so they must be *installed* by name where today they are simply present in the
      binary. The broker does not move channels this way — it moves *inside* `packs/claude`, so
      anyone already running claude keeps it.
-   - **Keys.** `loopholes.<name>.enabled` is unchanged: same key, same two scopes, same meaning.
-     What changes is the **default when nobody writes it**. Today every manifest ships
-     `"enabled": true` and `discover.go:50` defaults to true anyway, so a loophole is on unless you
-     turn it off. After R2 the default is off unless the pack declares `default_enabled: true`.
+   - **Keys — and this paragraph conflated two different things, which is a fair thing to be
+     confused by.** There are **two** switches, not one, and only one of them survives R2:
+
+     | | what it is | whose opinion | after R2 |
+     | :--- | :--- | :--- | :--- |
+     | **manifest `enabled`** | a field in the loophole's own manifest, today defaulting to **true** | the pack **author's** | **goes away** — renamed to `default_enabled`, default flipped to false (OQ-A9) |
+     | **config `loopholes.<name>.enabled`** | a key in your user or workspace config | **yours** | **stays, unchanged** — it is the per-workspace switch R5 is about |
+
+     So nothing redundant is being kept. The author declares a default; you override it. The one
+     being deleted is the manifest field, which is exactly the collision OQ-A9 exists to settle —
+     two keys over one state was never intended, it is what the codebase has today.
 
    **So, per loophole:**
 
@@ -391,6 +398,14 @@ contribution.
    and, for `host-processes` specifically, **trigger it on the detectable condition**: a workspace
    with a non-empty `host_processes.visible` and no selected pack is a user who demonstrably wanted
    this and will otherwise file a bug.
+
+   **Answer (2026-08-17):**
+   > **Going dark is fine — build no migration machinery.** *"Even if packs ship built in, the user
+   > still needs to list them in their user config to get them, just like agents. No special case
+   > here."* A loophole you never listed behaving exactly like an agent pack you never listed is the
+   > rule working, and inventing an upgrade notice for it would carve out the special case the whole
+   > document exists to delete. The general "no packs configured" guidance already covers a user who
+   > wonders where something went.
    The alternative worth naming is a migration that writes the currently-active set into user config
    as explicit `enabled: true` entries — but that makes the ruling a no-op for precisely the people
    who already have host daemons running, which is backwards. Silence is cheap for us and expensive
@@ -473,7 +488,17 @@ contribution.
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. **OQ-A7 — does a loophole-only pack need selecting, or is enabling enough?**
+7. **OQ-A7 — does a loophole-only pack need selecting, or is enabling enough? — ✅ RESOLVED (2026-08-17)**
+
+   **Answer:**
+   > **It needs selecting. No special case.** *"Even if packs ship built in, the user still needs to
+   > list them in their user config to get them, just like agents."* My leaning was to let an
+   > embedded loophole-only pack be reachable by `enabled` alone, to save a line of ceremony — that
+   > is overruled, and rightly: "shipped in the binary" is not "installed", and a rule with one
+   > exception is two rules. `host-processes` is listed in `packs` like anything else, and then
+   > enabled.
+
+   *(Original question and leaning preserved below.)*
 
    Official packs are embedded and always present; selection is a separate line
    (`packs.go:69`). For an agent pack, selection means something. For `host-processes` — one pack,
@@ -497,6 +522,20 @@ contribution.
    > _(empty — fill in when decided)_
 
 8. **OQ-A8 — where do a pack-shipped loophole's own settings live?**
+
+   > **Confirmed independently in review, 2026-08-17:** *"I don't understand the yolo-ps visible flag
+   > though — doesn't that mean the yolo config schema has a pack-shipped loophole baked in?"*
+   >
+   > **Yes. That is exactly the finding, arrived at from the other direction.** `host_processes` is a
+   > top-level key in core's own config schema (`config.go:59`, validated at `validate.go:557-570`,
+   > classified in `inherit.go:116-121` as *"RESERVED loophole names carried as their own top-level
+   > keys"*) — and `journal` is the second one. So core's schema names two specific loopholes by
+   > hand.
+   >
+   > Which makes this question sharper than it was filed as: moving the manifest into a pack while
+   > leaving `host_processes` in `knownTopLevelConfigKeys` is the **appearance** of separation with
+   > none of the substance. §1.4 has the three ways out; the reason it is still open is that all
+   > three cost something.
 
    §1.4's three options: leave `host_processes` in core; widen the per-loophole config block with an
    opaque `settings` map; or add a sixteenth contribution kind for config keys. This is the question
