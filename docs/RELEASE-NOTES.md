@@ -119,6 +119,16 @@ $ yolo pack install     # review every claim the pack makes and approve it
 `~/.config/yolo-jail/config.jsonc`. **There is no "run it anyway" flag**, deliberately: a fourth
 choice would be the partial pack this change exists to retire.
 
+> [!NOTE]
+> **The approve path needs an interactive terminal and a reachable remote.** `yolo pack install`
+> refuses to read a piped answer (`yes |` is not consent) and it is the one command that fetches, so
+> in CI or offline only the other two choices are available — edit the pack, or drop it from `packs`.
+> **And `yolo check` does not yet predict this refusal:** it reports the pack `[PASS]` and the launch
+> then refuses, so the preflight is not the place to confirm a pack is approved. Nothing else reports
+> it either — `yolo pack status` shows pins and drift, not approvals — so until that is closed the
+> lockfile's own `approvedHostAccess` (beside your config, `packs.lock.json`) is the only record, and
+> `yolo pack footprint` is what shows the claims it has to cover.
+
 **Why.** The refusal was computed on the host and then *not carried into the jail*, which re-derived
 it from a hardcoded permissive answer — so the curl-to-bash launcher was written for a fetched,
 unapproved pack anyway. The warning was true about the decision and false about the outcome. Refusing

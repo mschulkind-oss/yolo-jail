@@ -12,9 +12,11 @@ summary: "Twenty-five paths, enumerated from the code, each with when trust is e
 by *removing* a mechanism rather than adding a gate — no evergreen npm ([§1 row 1](#where-a-pin-would-change-the-outcome)),
 and a refused contribution refuses the launch ([§3.1](#ruled-2026-08-18-a-refused-contribution-is-a-refused-launch)),
 which obviates OQ-TP1, and one more on 2026-08-18 answering OQ-TP2 with *"nothing explicit — the
-commit pin already closes over it"* (see the Decision Ledger). **Two questions remain: OQ-TP3 and
-OQ-TP4.** **OQ-TP6 is BUILT** (2026-08-18) — everything else here is still inventory. Every row was
-traced in the code; anchors are inline and the check date is today.
+commit pin already closes over it"* (see the Decision Ledger). **Three questions remain: OQ-TP3,
+OQ-TP4 and OQ-TP7** — the last raised by verifying the OQ-TP6 build, which holds, while `yolo check`
+and the approve path it names did not follow it. **OQ-TP6 is BUILT** (2026-08-18) — everything else
+here is still inventory. Every row was traced in the code; anchors are inline and the check date is
+today.
 
 **Why this exists.** A proposal ([`pack-execution-trust.md`](./pack-execution-trust.md)) argued that
 a fetched pack should only execute content it pins. The review response was *"they're all just as
@@ -485,6 +487,13 @@ they are the only three that end with the manifest and the runtime agreeing.
 > refuse the host files, mounts and installers of packs the user did approve, while protecting
 > nothing. It is a named constant (`jailPackHostAccess`) carrying that argument, so the next reader
 > is not misled by a bare literal where a security gate's input goes.
+>
+> **Verified adversarially 2026-08-18, and two things did NOT follow the fatal:** `yolo check` still
+> reports `[PASS]` for a config the very next launch refuses, and the `yolo pack install` the message
+> names needs a terminal and a reachable remote — so the "one command away" argument for having no
+> escape hatch does not hold in CI or offline. Both are
+> [OQ-TP7](#-oq-tp7--the-refusal-is-fatal-the-preflight-and-the-approve-path-are-not-caught-up); the
+> ruling itself measured clean.
 
 > [!IMPORTANT]
 > **Two things that look like partial packs and must NOT become fatal.** Both already exist, both are
@@ -653,6 +662,60 @@ upper bound on how fresh an agent CLI can be, and (c) leaves the default exactly
 The honest cost of (b) is the first run: with no lockfile row yet, *something* has to resolve a
 version, and that act should be `install` recording what it got rather than the launcher resolving
 `latest` behind everyone's back.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 OQ-TP7 — the refusal is fatal; the preflight and the approve path are not caught up
+
+Raised by an adversarial verification of the OQ-TP6 build (2026-08-18). The ruling holds — every path
+to the fatal was walked and each is intended, and the two look-alikes it names are still non-fatal
+and pinned by tests that go red when broken. What the build did not carry with it is the rest of the
+loop around the fatal, in two measured places.
+
+**1. `yolo check` does not predict the refusal.** Measured: a fetched pack selected in `packs`,
+present in the store, never run through `yolo pack install`, declaring a `program via installer` —
+`sectionPacks` reports `[PASS] acme: 3 file(s) stage`, `failed=0`, and the very next launch refuses.
+That is the exact outcome [`check/packs.go`](../../internal/cli/check/packs.go) refuses to allow for a
+config-surface collision, in its own words: *"the launch refuses it, so reporting it as a warning
+would mean `yolo check` passing on a config that cannot start a jail."* It was defensible while the
+refusal was a warning; OQ-TP6 made it a fatal and left the preflight behind. The cause is one line —
+that loop loads the staged tree with `e.MayGrantHostFiles()`, which is `false` for every fetched pack
+whether approved or not, so it cannot ask the question at all.
+
+**It is deliberately not a four-line fix, which is why it is a question and not a bug report.**
+Answering it needs the LAUNCH's gate (`run.packMayAccessHost`: origin, else the lockfile approval over
+`packload.Pack.HostAccessClaims`), and
+[`hostaccessgates_test.go`](../../internal/packload/hostaccessgates_test.go) pins that there are
+**two** gates and that neither may hand-build the claim union. A third gate copied into `check` would
+satisfy that scan *vacuously* — the scan names two files — which is worse than the silence, because
+the next producer would be merged into two of three sites. So the question is **where the gate lives**
+if a third caller needs it: exported from `run` (an inverted import edge, `check` → the run pipeline),
+moved beside `MayGrantHostFiles` in `internal/config` (which then imports `packsrc`, i.e. config grows
+a dependency on approval STATE), or a fourth home. Whichever wins, the `hostAccessGates` row moves
+with it and the refusal fold (`run.packRefusals`) becomes shared the same way.
+
+**2. The APPROVE path the refusal names is not always available.** The ruling's no-escape-hatch
+argument is explicit that this fatal differs from `YOLO_ALLOW_UNREACHABLE_SERVICES` and
+`YOLO_ALLOW_STALE_IMAGE` because *"the approve path is one command the user can run right now."* Two
+states where it is not:
+
+- **No terminal.** `resolveHostApproval` refuses before reading a byte when stdin is not a tty
+  ([`pack.go`](../../internal/cli/pack.go#L1228)) — correct on its own terms (`yes | yolo pack install`
+  is not consent), but it means CI and any scripted run have **FIX and REMOVE only**.
+- **Offline.** `yolo pack install` is the only place network access happens; `store.Sync` failing
+  `continue`s past the `lock.Set`, so no approval is recorded. A launch resolves offline and does not
+  care — until the claim set changes under a fixed lockfile, which a **yolo upgrade that adds a claim
+  producer** does for a pack the user never touched. That user is offline, refused, and cannot approve.
+
+Neither is an argument for a "run it anyway" flag — that is the partial pack the ruling retires. The
+question is whether the refusal message should SAY so (it currently names `yolo pack install` with no
+hint that it wants a terminal and a network), and whether a recorded approval should be expressible
+without a fetch.
+
+**What it decides:** whether OQ-TP6's "the reader can act on it" claim is true from every place a user
+actually reads it — a CI log, an offline laptop, and the preflight command the workflow tells them to
+run before restarting.
 
 **Answer:**
 > _(empty — fill in when decided)_
