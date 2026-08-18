@@ -2,6 +2,9 @@ package run
 
 import (
 	"bytes"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,4 +137,92 @@ func TestAcceptConfigChangesFlagLetsANonInteractiveLaunchThrough(t *testing.T) {
 	if !o.checkConfigChanges(changed) {
 		t.Error("the flag must record the approval, or the next launch refuses again")
 	}
+}
+
+// TestFreshLaunchCallsTheConfigArtifactWriter pins the half of the delivery the
+// test above cannot reach, and the half its own comment promises.
+//
+// TestFreshLaunchDeliversTheAssembledConfigTheJailReadsBack calls
+// writeLaunchConfigArtifacts DIRECTLY, so it pins the helper's body and nothing
+// about who invokes it. Deleting `o.writeLaunchConfigArtifacts(cfg)` from
+// runContainer therefore leaves the whole unit gate green while every jail
+// silently falls back to the reduced in-jail re-assemble — the failure that
+// comment names as the reason the round trip is pinned at all. Verified: the
+// deletion is invisible to `go test -short ./...`.
+//
+// The call site is not reachable any other way from a unit test: runContainer
+// starts a real container, so integration/ is the only runtime witness and it does
+// not run on this gate. Reading the SOURCE is the repo's existing answer to that
+// shape — internal/cli's TestRunUsageListsEveryRunFlag walks parseRunArgs's AST for
+// the same reason — and an AST walk rather than a substring search is what keeps
+// the match off a mention in a comment or a test.
+//
+// ORDER is asserted as well as presence. The write must follow the approval gate:
+// a launch that checkConfigChanges REFUSED has, by construction, a config no human
+// approved, and delivering that config into the workspace on the way out would
+// leave the jail a copy of exactly the thing the refusal exists to withhold.
+func TestFreshLaunchCallsTheConfigArtifactWriter(t *testing.T) {
+	const (
+		approvalGate = "checkConfigChanges"
+		writer       = "writeLaunchConfigArtifacts"
+	)
+	fn := methodDecl(t, "run.go", "runContainer")
+
+	// Collect both call sites by source position. Positions come from one file
+	// parsed in one FileSet, so comparing them is comparing statement order.
+	pos := map[string]token.Pos{}
+	ast.Inspect(fn, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		// FIRST occurrence wins: a later, conditional re-call must not be what
+		// satisfies the ordering assertion below.
+		if _, seen := pos[sel.Sel.Name]; !seen {
+			pos[sel.Sel.Name] = call.Pos()
+		}
+		return true
+	})
+
+	if _, ok := pos[writer]; !ok {
+		t.Fatalf("runContainer no longer calls %s. The merged config is then never "+
+			"delivered to <workspace>/.yolo/config-assembled.json, and every in-jail "+
+			"LoadConfig for the jail's own workspace falls back to a REDUCED re-assemble "+
+			"that has lost the host-only include_if_found overrides — silently, on every "+
+			"launch. If the call moved to another function on the fresh-launch path, move "+
+			"this check with it rather than deleting it.", writer)
+	}
+	if _, ok := pos[approvalGate]; !ok {
+		t.Fatalf("runContainer no longer calls %s — the fresh-launch approval gate is "+
+			"gone, which is a larger regression than the one this test was written for",
+			approvalGate)
+	}
+	if pos[writer] < pos[approvalGate] {
+		t.Errorf("runContainer calls %s BEFORE %s: a launch the approval gate refuses "+
+			"would still deliver the unapproved merged config into the workspace the jail "+
+			"reads it from", writer, approvalGate)
+	}
+}
+
+// methodDecl parses one file of THIS package and returns the method with the
+// given name. Test files are never parsed, so a helper of the same name in a
+// _test.go file cannot stand in for the production one the assertion is about.
+func methodDecl(t *testing.T, file, name string) *ast.FuncDecl {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", file, err)
+	}
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if ok && fd.Recv != nil && fd.Name.Name == name {
+			return fd
+		}
+	}
+	t.Fatalf("%s has no method %s", file, name)
+	return nil
 }

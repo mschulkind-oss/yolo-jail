@@ -428,6 +428,77 @@ func TestBrokerSpawnSilentWhenSocketBinds(t *testing.T) {
 	}
 }
 
+// TestRealDepsDeliversTheFailedSpawnWarning closes the hole the three tests above
+// leave open, and it is the hole the whole change is about.
+//
+// Each of them installs its OWN buffer on Deps.Out, so all three stay green for a
+// RealDeps that wires no writer at all — and reportFailedSpawn returns early on a
+// nil Out by design ("a zero-value Deps in a test stays quiet without wiring
+// anything"). The two production entry points, run's brokerEnsure and the CLI's
+// Restart, both take their Deps from RealDeps. So a one-word edit there —
+// `Out: nil`, or an io.Discard someone reached for to quieten a test — restores
+// the exact silence of the 2,549-failure incident while every test that claims to
+// pin the warning keeps passing. Verified: it does.
+//
+// So this asserts the delivery BEHAVIOURALLY rather than comparing the field to
+// os.Stdout. The one thing taken from production is the writer; every effect that
+// would touch the machine (paths, spawn, liveness) comes from the fake, and
+// os.Stdout is redirected to a pipe first so RealDeps resolves its writer to
+// something this test can read back. Comparing the field would pass just as well
+// for an os.Stdout that reportFailedSpawn never reaches.
+//
+// The pipe is also why the warning must be SMALL: a pipe buffer fills at 64 KiB
+// and this is one line, so a plain read after the restore cannot deadlock.
+func TestRealDepsDeliversTheFailedSpawnWarning(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	// RealDeps is called INSIDE the redirection: it captures os.Stdout by value,
+	// so a Deps built before the swap would hold the real terminal and this test
+	// would hang waiting for a line it can never see.
+	realOut := RealDeps().Out
+	if realOut == nil {
+		os.Stdout = orig
+		_ = w.Close()
+		_ = r.Close()
+		t.Fatal("RealDeps().Out is nil, so reportFailedSpawn returns before writing: " +
+			"a broker that dies at startup is silent again on every real launch")
+	}
+
+	st := &fakeState{spawnPID: 8, spawnExited: true}
+	deps := newFakeDeps(t, st)
+	deps.Out = realOut
+	deps.Color = RealDeps().Color
+	_ = BrokerSpawn(deps)
+
+	os.Stdout = orig
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(got)
+	if !strings.Contains(out, "exited at startup") || !strings.Contains(out, deps.LogPath) {
+		t.Errorf("the failed-spawn warning did not reach the writer RealDeps hands the "+
+			"launcher, so nothing a user can see reports a dead broker singleton:\n%q", out)
+	}
+	// Color is resolved by RealDeps against the real terminal, and a pipe is not
+	// one — so the markup must be rendered away here for the same reason a
+	// redirected launch log stays clean.
+	if strings.Contains(out, "[yellow]") || strings.Contains(out, "\x1b[") {
+		t.Errorf("markup reached a non-terminal writer:\n%q", out)
+	}
+}
+
 func TestBrokerLogPathString(t *testing.T) {
 	t.Setenv("HOME", "/home/x")
 	want := "/home/x/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log"
