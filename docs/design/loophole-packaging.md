@@ -632,11 +632,24 @@ because the *declaration* is what is approved, not the resolved path. Recorded a
 subset stays as it is until it is decided, and the guide states the limit rather than implying a pack
 can do what a bundled loophole does.
 
+> [!IMPORTANT]
+> **SUPERSEDED 2026-08-17 by OQ-LP14's answer, and BUILT 2026-08-18.** The two paragraphs above
+> argue that the path rule is right and the vocabulary is missing. Both halves lost: the rule
+> admits `~/.ssh` and refuses a pulse socket, so its two cases are inverted, and the proposed
+> runtime-socket vocabulary is an allowlist wearing an extension point's clothes. **The rule was
+> withdrawn for `host_bind_mounts[].host`** — what survives there is a correctness rule (a `..`
+> segment or a `:` makes the approved claim and the mounted path differ), and total claim
+> enumeration plus the origin approval do the work the gate was pretending to.
+> `ca_cert` and `requires.file_exists` stay path-scoped, each for a reason the ruling does not
+> reach: a `ca_cert` is a TRUST INSTALL rather than a read, and a `file_exists` probe emits no
+> claim at all, so the enumeration that replaced the rule does not cover it.
+> The text is kept because the argument that lost is worth reading.
+
 Both directions are pinned by test, so the finding cannot rot into an opinion:
-`TestAudioShapedManifestIsRefusedByTheSubset` asserts the real `audio` shape draws **six** subset
-refusals (two `$VAR` bind hosts, two writable binds, one `jail_env`, and the `$VAR` in
-`requires.file_exists`), and `TestBundledAudioIsOutsideThePackShippedSubset` asserts the bundled
-manifests stay outside the subset.
+`TestAudioShapedManifestIsRefusedByTheSubset` asserts the audio shape draws **four** subset
+refusals (two writable binds, one `jail_env`, and the `$VAR` in `requires.file_exists`) — it was
+six until the bind-host rule was withdrawn — and `TestBundledAudioIsOutsideThePackShippedSubset`
+asserts the bundled manifests stay outside the subset.
 
 **Landed 2026-08-14 as a SCHEMA-level subset, and WIRED at three seams.**
 `internal/loopholedecl/packshipped.go` implements all three refusals (`jail_env`, the home-relative

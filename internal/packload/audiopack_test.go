@@ -398,15 +398,28 @@ func TestAudioShapedManifestEnumeratesEveryCrossingClass(t *testing.T) {
 	}
 }
 
-// The audio-shaped manifest is REFUSED by the pack-shipped subset, and the refusal names
-// every violation at once — which is the evidence for the README's finding.
+// What the pack-shipped subset STILL refuses about an audio-shaped manifest, and what
+// it stopped refusing — the second half is the point.
 //
-// This is the test that makes "the subset is too tight for a real loophole" a MEASUREMENT
-// rather than an opinion: the manifest below is bundled audio with only the name changed,
-// and it draws refusals for both `${XDG_RUNTIME_DIR}` bind hosts, both writable binds, and
-// its `jail_env`. Nothing about the pack the repo actually ships can fix that; the socket
-// half of audio is unexpressible for a pack until the subset gains a vocabulary for a
-// runtime-dir socket.
+// This test used to be the evidence for the README's finding that "the socket half of
+// audio is unexpressible for a pack": it pinned SIX refusals, two of them for the
+// `${XDG_RUNTIME_DIR}` bind hosts. OQ-LP14 withdrew that rule on 2026-08-17 (it
+// admitted `~/.ssh` and refused a pulse socket), so the finding is retired and the
+// manifest below draws FOUR.
+//
+// Each of the four has a fix the shipped `audio` pack actually takes, which is why the
+// conversion needed no new vocabulary:
+//
+//	readonly:false ×2   -> declare `readonly: true`. Measured: a :ro bind of an
+//	                       AF_UNIX socket is fully connectable and BIDIRECTIONAL,
+//	                       so the refusal costs a socket nothing.
+//	jail_env            -> the pack's `env` contribution kind, accepting that it
+//	                       becomes unconditional (OQ-LP5).
+//	requires.file_exists-> `platforms: ["linux"]`, which answers the question the
+//	                       probe was really asking and is not path-scoped.
+//
+// The count is pinned so a rule quietly narrowing or widening shows up here, in the
+// test whose whole subject is how much the subset refuses.
 func TestAudioShapedManifestIsRefusedByTheSubset(t *testing.T) {
 	root := writeLoopholePack(t, map[string]string{"audio-shaped": audioShapedManifest})
 	mods, _, _ := loadPack(t, root).LoopholeModules()
@@ -416,30 +429,31 @@ func TestAudioShapedManifestIsRefusedByTheSubset(t *testing.T) {
 	probs := mods[0].Decl.PackShippedProblems(loopholedecl.ManifestPath(mods[0].Dir))
 	joined := strings.Join(probs, "\n")
 	for _, want := range []string{
-		"expands an environment variable", // both ${XDG_RUNTIME_DIR} bind hosts
-		"may not ask for a WRITABLE",      // both readonly:false binds
-		"'jail_env' is not available",     // PULSE_SERVER / PIPEWIRE_REMOTE
+		"may not ask for a WRITABLE",  // both readonly:false binds
+		"'jail_env' is not available", // PULSE_SERVER / PIPEWIRE_REMOTE
+		"'requires.file_exists'",      // the $VAR probe, which stays scoped
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the subset must refuse %q for an audio-shaped pack manifest; got:\n%s",
 				want, joined)
 		}
 	}
-	// SIX refusals, exactly: two $VAR hosts, two writable binds, one jail_env, and the
-	// $VAR in `requires.file_exists`. Pinned as a count so a rule quietly narrowing (or
-	// widening) shows up here, in the test whose whole subject is how much the subset
-	// refuses.
-	//
-	// It was FIVE when this test was written, and the sixth is not a regression: the
-	// path-scope rule was extended to `requires.file_exists` after a verifier measured
-	// that an unscoped value there is a host-filesystem probe WITH A READOUT — `yolo
-	// loopholes list` prints the resolved path beside the loophole's inactive reason, so
-	// a fetched pack could ask "does ~/.ssh/id_ed25519 exist" and read the answer. audio
-	// probes ${XDG_RUNTIME_DIR}/pulse/native, which is the legitimate shape of exactly
-	// that vocabulary, so it is refused for the same reason its bind hosts are.
-	if len(probs) != 6 {
-		t.Errorf("subset refusals = %d, want 6 (2 $VAR hosts + 2 writable binds + jail_env "+
-			"+ $VAR in requires.file_exists):\n%s", len(probs), joined)
+	// AND THE WITHDRAWAL, asserted here rather than only in loopholedecl: this is the
+	// manifest the rule was measured against, so it is where its absence belongs.
+	// PER PROBLEM, not over the joined string: `requires.file_exists` is still
+	// path-scoped and its refusal carries the same "expands an environment variable"
+	// clause, so a substring test on the join cannot tell the two fields apart.
+	for _, prob := range probs {
+		if strings.Contains(prob, "host_bind_mounts") &&
+			strings.Contains(prob, "expands an environment variable") {
+			t.Errorf("a ${XDG_RUNTIME_DIR} BIND HOST is refused again — OQ-LP14 withdrew "+
+				"that rule, and restoring it makes the shipped `audio` pack unloadable:\n%s",
+				prob)
+		}
+	}
+	if len(probs) != 4 {
+		t.Errorf("subset refusals = %d, want 4 (2 writable binds + jail_env + $VAR in "+
+			"requires.file_exists):\n%s", len(probs), joined)
 	}
 }
 

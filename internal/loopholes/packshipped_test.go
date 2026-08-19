@@ -45,18 +45,22 @@ func TestLoadPackLoopholeRefusesJailEnv(t *testing.T) {
 	}
 }
 
-// R2/R3. The bind-mount constraints reach the same loader, on the axis that matters
-// (path scope) and the one that is narrower than it looks (writability).
+// R2/R3. The bind-mount constraints reach the same loader — the two that are LEFT.
+//
+// The path-scope cases (`absolute`, `env var`) were deleted with the rule itself
+// (OQ-LP14, 2026-08-17): they are now legal, and their positive halves live in
+// TestLoadPackLoopholeAcceptsTheAudioSocketShape below, where the loader is what is
+// under test rather than the classifier.
 func TestLoadPackLoopholeRefusesOutOfScopeAndWritableBinds(t *testing.T) {
 	for _, tc := range []struct {
 		what  string
 		mount map[string]any
 		want  []string
 	}{
-		{"absolute", map[string]any{"host": "/var/run/docker.sock", "container": "/ctx/d"},
-			[]string{"absolute host path", "{loophole_dir}/<file>", "relative to your home"}},
-		{"env var", map[string]any{"host": "${XDG_RUNTIME_DIR}/pulse/native", "container": "/ctx/p"},
-			[]string{"expands an environment variable", "rule about spelling"}},
+		{"escaping", map[string]any{"host": "../../var/run/docker.sock", "container": "/ctx/d"},
+			[]string{"'..' segment", "RESOLUTION", "claim you approved"}},
+		{"colon", map[string]any{"host": "data:ro", "container": "/ctx/d"},
+			[]string{"mount-option separator"}},
 		{"writable", map[string]any{"host": "{loophole_dir}/x", "container": "/ctx/x", "readonly": false},
 			[]string{"readonly = false", "omit the key, which defaults to true", "non-REG/DIR/LNK"}},
 	} {
@@ -72,6 +76,34 @@ func TestLoadPackLoopholeRefusesOutOfScopeAndWritableBinds(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The POSITIVE half of OQ-LP14's withdrawal, at the LOADER rather than at the
+// classifier: the exact shape the shipped `audio` pack now declares must LOAD.
+//
+// It is asserted here as well as in internal/loopholedecl because a refusal at this
+// seam does not surface as an error a user sees — LoadPackLoophole's caller warns and
+// drops the loophole, so the symptom is "audio silently does nothing", which is the
+// failure mode this package keeps paying for.
+func TestLoadPackLoopholeAcceptsTheAudioSocketShape(t *testing.T) {
+	mod := packMod(t, "acme", map[string]any{
+		"host_bind_mounts": []any{
+			map[string]any{"host": "${XDG_RUNTIME_DIR}/pulse/native",
+				"container": "/run/pulse/native", "readonly": true},
+			map[string]any{"host": "${XDG_RUNTIME_DIR}/pipewire-0",
+				"container": "/run/pipewire/pipewire-0", "readonly": true},
+		},
+		"host_devices": []any{"/dev/snd"},
+	})
+	lp, err := LoadPackLoophole(mod)
+	if err != nil {
+		t.Fatalf("the audio socket shape was refused by the pack loader, which drops the "+
+			"loophole with a warning rather than failing loudly: %v", err)
+	}
+	if len(lp.HostBindMount) != 2 || len(lp.HostDevices) != 1 {
+		t.Errorf("loaded record lost declarations: binds=%+v devices=%v",
+			lp.HostBindMount, lp.HostDevices)
 	}
 }
 

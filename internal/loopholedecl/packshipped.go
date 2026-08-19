@@ -4,13 +4,21 @@ package loopholedecl
 // (docs/design/loophole-packaging.md §3.1, "The pack-shipped subset of the
 // manifest, corrected", plus §2.1's review ruling).
 //
-// Four declarations a bundled loophole may make are refused when a PACK ships the
+// Several declarations a bundled loophole may make are refused when a PACK ships the
 // loophole. The asymmetry is the point and it is not squeamishness: a bundled
 // manifest is yolo's own code in yolo's own repository, reviewed by whoever
 // reviews yolo, while a pack-shipped manifest is a distributed artifact that
 // lands on a stranger's machine. So the subset is not "the safe fields" — it is
 // "the fields whose enforcement does not depend on reading somebody else's
 // source".
+//
+// ONE OF THEM HAS BEEN WITHDRAWN, and reading why is worth more than reading the
+// rest: the bind-host PATH rule (OQ-LP14, 2026-08-17) admitted `~/.ssh` and refused a
+// pulse socket, which is a gate with its two cases inverted. Its replacement is not a
+// narrower gate but total claim enumeration plus the origin approval — see
+// packBindHostProblem. That is the shape to check a new refusal against before adding
+// one here: can this rule tell a good path from a bad one, or is it only telling
+// spellings apart?
 //
 // # Why the subset lives HERE and not in the pack loader
 //
@@ -156,52 +164,113 @@ func (m *Manifest) packBindMountProblems(manifestPath string) []string {
 	return out
 }
 
-// packBindHostProblem constrains a pack-shipped `host_bind_mounts[].host` to the
-// same namespace the `mount` contribution kind uses (§3.1 requirement 1).
+// packBindHostProblem applies the one rule left on a pack-shipped
+// `host_bind_mounts[].host`: its RESOLUTION MUST BE STABLE.
 //
-// DRAFT 1 AUDITED THE WRONG AXIS. It checked rw-versus-ro and missed PATH SCOPE,
-// which is where a loophole bind really is the back door around `mount` that the
-// design forbids. Compare the two on both axes:
+// # The path-scope rule is WITHDRAWN (OQ-LP14, resolved 2026-08-17)
 //
-//   - `mount` refuses absolute paths, ".." and ":" (packdecl.appendPathProblems),
-//     so it is HOME-RELATIVE ONLY — and packload.HonoredMounts refuses EVERY mount
-//     when the pack may not access the host ("a FETCHED pack cannot read your host
-//     home").
-//   - a loophole's `host` is any non-empty string, and `$HOME`, ".." and "/" all
-//     pass expandEnv on the way to `-v <host>:<container>:ro`.
+// This function used to constrain a bind host to the `mount` kind's namespace —
+// `{loophole_dir}/...` or home-relative — refusing absolute paths and `$VAR`
+// expansion. That rule is gone, and the argument that retired it is one line:
 //
-// So the vocabulary a pack gets here is: a path inside its OWN module dir
-// ({loophole_dir}/...), or a path relative to the user's home. `$VAR` expansion is
-// refused as well as absolute paths, because a manifest saying "${XDG_RUNTIME_DIR}"
-// names an absolute path one indirection later — refusing the literal "/" while
-// admitting the variable that expands to one would be a rule about spelling.
+//	It permitted everything under $HOME and refused ${XDG_RUNTIME_DIR}/pulse/native.
+//	So it ADMITTED ~/.ssh AND BLOCKED A PULSE SOCKET.
 //
-// A BUNDLED loophole keeps the wider vocabulary, and must: `audio` names
-// /run/user/<uid>/pulse, which no home-relative path can reach.
+// A gate whose two cases are inverted — letting through the thing worth protecting
+// and blocking the thing that is not — is not a weak gate; it is not a gate. The
+// `mount`-kind consistency argument does not rescue it either, and that analogy is
+// false: `mount` is relative-only because it stages THE PACK'S OWN CONTENT, which has
+// no business naming a host path. Reaching a host resource is a loophole bind's
+// entire purpose.
+//
+// The proposed fix — a closed, yolo-resolved socket vocabulary — was rejected in the
+// same ruling as worse than nothing: an allowlist wearing an extension point's
+// clothes, where every new socket needs a yolo release.
+//
+// # What actually does the work, and it is not a declaration-keyed gate
+//
+// TOTAL CLAIM ENUMERATION plus the origin approval. Every bind emits an approvable
+// string (packload's moduleClaims, one claim per crossing, socket binds in their own
+// read-write-IPC class), and a FETCHED pack cannot cross without the user having seen
+// and approved that exact string. What a path is worth is a content question, and a
+// rule keyed on the declaration's SPELLING cannot answer one — see
+// docs/design/trust-paths.md for the inventory that shows why.
+//
+// # What survives, and why it is a correctness rule rather than a gate
+//
+// "Does what you approved equal what I mount" is a guarantee yolo must make; "is this
+// path allowed" is a judgement yolo cannot make for a user. So a declaration whose
+// resolution is not stable between approval and launch is still refused:
+//
+//   - a ".." SEGMENT resolves against whatever the path's prefix happens to be at
+//     launch, so the approved string and the mounted path can differ;
+//   - a ":" is parsed by the container runtime as the mount-option separator, so part
+//     of the path silently becomes a flag — the approved string is not even a path.
+//
+// `$VAR` is deliberately NOT in that list. The approval records the RAW declaration
+// (packload keeps `{loophole_dir}` and `${XDG_RUNTIME_DIR}` unexpanded on purpose, or
+// a claim would be machine-specific and re-prompt forever), so what the user approved
+// IS the variable — and yolo mounts exactly what the user approved.
 func packBindHostProblem(manifestPath, field, host string) string {
-	fix := " A pack-shipped loophole may name a path inside its own module dir" +
-		" ('" + TokenLoopholeDir + "/<file>', which is content the pack ships and" +
-		" packstage already vetted) or a path relative to your home ('Documents/x')" +
-		" — the same namespace the `mount` contribution kind uses. For a host path" +
-		" outside both, the loophole has to be bundled with yolo, or declare a" +
-		" `host_daemon` that mediates the access (loophole-packaging.md §3.1)."
-	clause := packPathScopeClause(host)
+	clause := packBindStabilityClause(host)
 	if clause == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s: %s.host = %s %s.%s",
-		manifestPath, field, pytext.Repr(host), clause, fix)
+	return fmt.Sprintf("%s: %s.host = %s %s. A pack-shipped loophole may name any host"+
+		" path — including an absolute one and one that expands ${XDG_RUNTIME_DIR} — and"+
+		" every bind it declares is enumerated as an approvable claim, which is what a"+
+		" FETCHED pack has to get past. What it may not do is name a path whose"+
+		" RESOLUTION differs between the claim you approved and the mount yolo makes"+
+		" (loophole-packaging-overview.md OQ-LP14)",
+		manifestPath, field, pytext.Repr(host), clause)
+}
+
+// packBindStabilityClause classifies a bind host against the resolution-stability
+// rule, returning the clause that says what is wrong or "" when it is stable.
+//
+// SEPARATE from packPathScopeClause, which keeps all four checks, because the two
+// questions came apart when OQ-LP14 withdrew the path rule for BINDS ONLY. `ca_cert`
+// and `requires.file_exists` stay fully scoped, and each has an argument the OQ-LP14
+// ruling does not reach:
+//
+//   - `ca_cert` is not a read, it is a TRUST INSTALL — the file is joined into
+//     NODE_EXTRA_CA_CERTS, so every node client in the jail treats it as a
+//     certificate authority. "Total claim enumeration does the work" is exactly as
+//     true here, and the claim's own text says so; what differs is that the legal
+//     namespace is not a restriction on reach at all but a statement about
+//     PROVENANCE — a CA a pack may install is one the pack SHIPS or one yolo
+//     GENERATED, and there is no third source worth the vocabulary.
+//   - `requires.file_exists` emits NO CLAIM (it crosses nothing: no mount, no exec,
+//     just a stat), so the enumeration that replaced the path rule for binds does not
+//     cover it — while its ANSWER still leaks through `yolo loopholes list`. Widening
+//     it would leave an unclaimed, unapproved host-filesystem probe with a readout.
+//     That is a decision this commit deliberately does not make; the field is not what
+//     `audio` needs.
+func packBindStabilityClause(value string) string {
+	switch {
+	case hasDotDotSegment(value):
+		return "contains a '..' segment, which resolves against whatever the path's" +
+			" prefix happens to be at launch — so the claim you approved and the path" +
+			" yolo mounts can differ"
+	case strings.Contains(value, ":"):
+		// The same reason packdecl refuses it: the container runtime parses a colon
+		// as the mount-option separator, so part of the path silently becomes a flag.
+		return "contains ':', which the container runtime parses as the mount-option" +
+			" separator — part of the path would silently become a flag"
+	}
+	return ""
 }
 
 // packPathScopeClause classifies one path-bearing value against the shapes a
 // pack-shipped loophole may name, returning the clause that says what is wrong (no
 // leading field, no trailing fix) or "" when the value is inside the namespace.
 //
-// SHARED between `host_bind_mounts[].host` and `ca_cert` deliberately: they are the
-// two fields whose value becomes a `-v <host>:...` argument, so one classifier is
-// what keeps them from disagreeing about whether "${HOME}/x" is absolute. The FIX
-// differs per field (the legal namespaces are not the same — a bind host may be
-// home-relative, a ca_cert may name '{state}') so the caller supplies that half.
+// SHARED between `ca_cert` and `requires.file_exists`, which is a smaller set than it
+// once was: `host_bind_mounts[].host` used to be its main caller and left when
+// OQ-LP14 withdrew the path rule for binds (see packBindStabilityClause for why the
+// other two did not follow). The FIX differs per field — a ca_cert may name
+// '{state}', a file_exists probe may be home-relative — so the caller supplies that
+// half.
 func packPathScopeClause(value string) string {
 	switch {
 	case strings.Contains(value, "$"):

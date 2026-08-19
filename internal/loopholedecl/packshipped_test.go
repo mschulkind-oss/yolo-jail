@@ -86,39 +86,36 @@ func TestPackShippedAllowsAbsentAndEmptyJailEnv(t *testing.T) {
 	}
 }
 
-// R2. The axis that matters is PATH SCOPE, not rw-vs-ro. An absolute host path is
-// refused, and the message names both legal namespaces.
-func TestPackShippedRefusesAnAbsoluteBindHost(t *testing.T) {
-	problems := packProblems(t,
-		`"host_bind_mounts": [{"host": "/run/user/1000/pulse/native", "container": "/run/pulse/native"}]`)
-	wantOneProblemWith(t, problems,
-		"host_bind_mounts[0].host",
-		"'/run/user/1000/pulse/native'",
-		"is an absolute host path",
-		"{loophole_dir}/<file>",
-		"relative to your home",
-		"`mount` contribution kind",
-		"has to be bundled with yolo",
-		"`host_daemon` that mediates",
-	)
+// OQ-LP14, THE WITHDRAWAL, asserted in the direction that used to fail. An absolute
+// host path and a ${XDG_RUNTIME_DIR} expansion are both LEGAL for a pack-shipped
+// loophole now, and the second one is the whole argument: the old rule admitted
+// everything under $HOME and refused a pulse socket, so it let through the thing
+// worth protecting and blocked the thing that is not.
+//
+// This is a WIDENING of what a fetched pack may declare, so it is asserted
+// deliberately rather than by the absence of a test. What replaced the rule is not
+// another rule here: it is packload's claim enumeration plus the origin approval,
+// pinned in internal/packload (every bind emits an approvable string, socket binds in
+// their own read-write-IPC class).
+func TestPackShippedAllowsAbsoluteAndEnvVarBindHosts(t *testing.T) {
+	for _, host := range []string{
+		"/run/user/1000/pulse/native",
+		"${XDG_RUNTIME_DIR}/pulse/native",
+		"${XDG_RUNTIME_DIR}/pipewire-0",
+		"/var/run/docker.sock",
+	} {
+		problems := packProblems(t,
+			`"host_bind_mounts": [{"host": "`+host+`", "container": "/ctx/x", "readonly": true}]`)
+		if len(problems) != 0 {
+			t.Errorf("host %q drew %v — the path rule was WITHDRAWN, and re-adding it "+
+				"would make `audio` unshippable as a pack again", host, problems)
+		}
+	}
 }
 
-// $VAR expansion is refused for the same reason and says so: '${XDG_RUNTIME_DIR}'
-// names an absolute path one indirection later, so admitting it while refusing "/"
-// would be a rule about spelling. This is the exact shape the bundled `audio`
-// manifest uses, which is why it is the interesting case.
-func TestPackShippedRefusesAnEnvVarBindHost(t *testing.T) {
-	problems := packProblems(t,
-		`"host_bind_mounts": [{"host": "${XDG_RUNTIME_DIR}/pulse/native", "container": "/run/pulse/native"}]`)
-	wantOneProblemWith(t, problems,
-		"expands an environment variable",
-		"rule about spelling",
-		"{loophole_dir}/<file>",
-		"`host_daemon` that mediates",
-	)
-}
-
-// A ".." segment and a ":" are the other two halves of the `mount` kind's guard.
+// What survives is a CORRECTNESS rule, not a gate: a declaration whose resolution can
+// differ between the claim you approved and the mount yolo makes. Both messages have
+// to say that rather than reciting a namespace the rule no longer has.
 func TestPackShippedRefusesEscapingAndColonBindHosts(t *testing.T) {
 	for _, tc := range []struct{ host, fragment string }{
 		{"../../etc/shadow", "contains a '..' segment"},
@@ -126,11 +123,11 @@ func TestPackShippedRefusesEscapingAndColonBindHosts(t *testing.T) {
 	} {
 		problems := packProblems(t,
 			`"host_bind_mounts": [{"host": "`+tc.host+`", "container": "/ctx/x"}]`)
-		wantOneProblemWith(t, problems, tc.fragment, "{loophole_dir}/<file>")
+		wantOneProblemWith(t, problems, tc.fragment, "RESOLUTION")
 	}
 }
 
-// The two shapes a pack MAY name: its own module dir and a home-relative path. A
+// The shapes a pack names in practice, none of which may draw a false positive: a
 // false positive here refuses a working pack at every launch.
 func TestPackShippedAllowsModuleDirAndHomeRelativeBindHosts(t *testing.T) {
 	for _, host := range []string{
@@ -262,18 +259,22 @@ func TestPackShippedRefusesAWritableBindAndStatesWhatItCovers(t *testing.T) {
 	)
 }
 
-// One mount, two violations — an absolute path AND writable — reports both. They
+// One mount, two violations — an escaping path AND writable — reports both. They
 // are independent declarations with independent fixes, and batching is the whole
 // authoring win.
+//
+// The bind host is `../../var/run/docker.sock` rather than the absolute spelling it
+// used to be: an absolute host is LEGAL since OQ-LP14, and the surviving bind rule is
+// about resolution stability.
 func TestPackShippedReportsEveryProblemAtOnce(t *testing.T) {
 	problems := packProblems(t, `
 		"jail_env": {"A": "1"},
-		"host_bind_mounts": [{"host": "/var/run/docker.sock", "container": "/ctx/d", "readonly": false}],
+		"host_bind_mounts": [{"host": "../../var/run/docker.sock", "container": "/ctx/d", "readonly": false}],
 		"host_daemon": {"cmd": ["python3", "{loophole_dir}/srv.py", "--endpoint", "{endpoint}"]}`)
 	if len(problems) != 4 {
 		t.Fatalf("problems = %#v, want 4 (jail_env, bind host, bind readonly, publishes)", problems)
 	}
-	for _, want := range []string{"'jail_env'", "absolute host path", "readonly = false", "publishes"} {
+	for _, want := range []string{"'jail_env'", "'..' segment", "readonly = false", "publishes"} {
 		if len(containingAll(problems, want)) != 1 {
 			t.Errorf("no single problem mentions %q; got %v", want, problems)
 		}
@@ -357,7 +358,7 @@ func TestPackShippedErrorCarriesTheProblems(t *testing.T) {
 	if err := clean.PackShippedError(loopholedecl.ManifestPath(packDir)); err != nil {
 		t.Fatalf("clean manifest: %v", err)
 	}
-	dirty := decodePack(t, `"jail_env": {"A": "1"}, "host_bind_mounts": [{"host": "/x", "container": "/y"}]`)
+	dirty := decodePack(t, `"jail_env": {"A": "1"}, "host_bind_mounts": [{"host": "../x", "container": "/y"}]`)
 	err := dirty.PackShippedError(loopholedecl.ManifestPath(packDir))
 	if err == nil {
 		t.Fatal("dirty manifest returned no error")
@@ -365,7 +366,7 @@ func TestPackShippedErrorCarriesTheProblems(t *testing.T) {
 	if len(err.Problems()) != 2 {
 		t.Errorf("Problems() = %v, want 2", err.Problems())
 	}
-	if !strings.Contains(err.Error(), "jail_env") || !strings.Contains(err.Error(), "absolute host path") {
+	if !strings.Contains(err.Error(), "jail_env") || !strings.Contains(err.Error(), "'..' segment") {
 		t.Errorf("Error() drops a problem: %s", err.Error())
 	}
 }
