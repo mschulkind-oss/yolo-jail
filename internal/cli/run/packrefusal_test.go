@@ -87,7 +87,7 @@ func TestUnapprovedInstallerRefusesTheLaunch(t *testing.T) {
 	os.Unsetenv("YOLO_VERSION")
 	home := packHome(t)
 	isolatePackModules(t)
-	fakeBundled(t)
+	fakeLoopholes(t)
 	fetchedPackWithClaims(t, home,
 		`{"kind":"program","bin":"acme","via":"installer","url":"https://acme.test/i.sh"},`+
 			`{"kind":"program","bin":"tsx","via":"npm","package":"tsx"}`)
@@ -303,7 +303,7 @@ func TestAbsenceAndSkewAreNotRefusals(t *testing.T) {
 	// guard to pass while measuring nothing, and the one that would have hidden the other four.
 	os.Unsetenv("YOLO_VERSION")
 	isolatePackModules(t)
-	fakeBundled(t)
+	fakeLoopholes(t)
 	packRoot := t.TempDir()
 	mod := filepath.Join(packRoot, "loopholes", "acme-proxy")
 	if err := os.MkdirAll(filepath.Join(mod, "conf"), 0o755); err != nil {

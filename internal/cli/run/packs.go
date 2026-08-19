@@ -366,49 +366,45 @@ type PackLoopholeDecl struct {
 }
 
 // PackLoopholeNameConflicts is the FOURTH launch pre-flight: loophole-name exclusivity
-// across pack declarations AND against the names yolo reserves for itself.
+// across pack declarations.
 //
-// FATAL for both cases, and the message NAMES BOTH SOURCES in both — which is the point.
-// A collision here is not a shadowed config key or a duplicated mount: the loser's
-// manifest still contributes `--add-host`, `ca_cert`, `--device`, bind mounts and
-// `jail_env` to the argv while the winner's daemon is the one that runs. The user sees one
-// trusted name and gets a mixture, with nothing said. That is why the pack-vs-reserved
-// half exists at all (docs/design/loophole-packaging.md §3.1, §5.1).
+// FATAL, and the message NAMES BOTH SOURCES — which is the point. A collision here is not
+// a shadowed config key or a duplicated mount: the loser's manifest still contributes
+// `--add-host`, `ca_cert`, `--device`, bind mounts and `jail_env` to the argv while the
+// winner's daemon is the one that runs. The user sees one trusted name and gets a
+// mixture, with nothing said (docs/design/loophole-packaging.md §3.1, §5.1).
 //
-// WHAT MAKES `claude-oauth-broker` STILL RESERVED HAS CHANGED SHAPE, and the new shape is
-// sharper rather than milder. `startLoopholes` no longer special-cases the name at all —
-// the daemon is dispatched on the record's `host_daemon.scope` like everything else, and
-// the argv that runs is the record's own. So a pack claiming this name would not get half
-// a loophole; it would get yolo ENSURING ITS COMMAND as a host-wide singleton at
-// /tmp/yolo-claude-oauth-broker.sock, with `yolo broker status`, `yolo check`'s broker
-// section and the in-jail terminator all wired to it by name. Everything else that keys on
-// this name — brokerLoopholeActive, brokerEnsure, brokerEndpointIsUnpublishable — reads
-// yolo's own bundled record and can only find it while the reservation stands.
+// IT HAD A SECOND HALF UNTIL 2026-08-19 — pack-vs-RESERVED, against the names yolo
+// answered to itself (loopholes.ReservedLoopholeNames). That set is gone because every
+// name in it became a pack's own: `journal` and `cgroup-delegate` on 2026-08-18,
+// `host-processes` and `audio` the same day, and `claude-oauth-broker` on 2026-08-19 when
+// its manifest moved into `packs/claude`. A reservation left standing over a pack-shipped
+// name is not a warning — this pre-flight is FATAL, so it refuses every launch that
+// selects the pack.
 //
-// THIS SENTENCE USED TO NAME `journal` AND `cgroup-delegate` TOO, and leaving it that way
-// would have been worse than a stale comment: it reads as a justification for reserving
-// those two names, which is exactly the commit that refuses every launch selecting the
-// `journal` or `cgroup-delegate` pack. Both became pack-shipped loopholes on 2026-08-18
-// and their name special-case in startLoopholes was deleted in the same commits — the
-// broker's special-case is gone now too, but its RESERVATION is not, because
-// `broker.BrokerLoopholeName` is appended to ReservedLoopholeNames from its own constant
-// rather than from the bundled directory. See loopholes.ReservedLoopholeNames for the trap
-// that leaves for whoever moves the manifest into `packs/claude`.
+// WHAT NOW PROTECTS `claude-oauth-broker`, the one name yolo still keys on by hand
+// (`yolo broker status`, `yolo check`'s broker section, brokerEnsure, the in-jail
+// terminator's endpoint variable), is this function's REMAINING half plus the origin gate,
+// and both are worth stating because neither is a list:
 //
-// The reserved half is also why this cannot be a row in packload.Collisions: that takes
-// []*packload.Pack, and a bundled loophole is not a pack. It is here, in the run package,
-// rather than exported from packload for the second reason §3.2 measures — packload cannot
-// import internal/loopholes (loopholes → config → packload is a cycle), so the reserved
-// set is not nameable there.
+//   - `packs/claude` OCCUPIES the name. Loophole names are sole-owned across packs, so a
+//     second pack claiming it refuses the launch here, by name, for anyone who selected
+//     claude — which is everyone the broker is for.
+//   - Without claude selected, a pack MAY claim the name, and the bound is the origin
+//     gate: brokerLoopholeActive asks for Honored (Active AND the pack may touch the
+//     host), so an unapproved fetched pack cannot switch the terminator, the CA mount and
+//     the endpoint variable on. An APPROVED pack can, which is precisely the case OQ-A3
+//     already admits — "a fetched pack can declare itself on", bounded by approval rather
+//     than by the declaration — and it is the same bound `cgroup-delegate` took when it
+//     retired its own reservation.
+//
+// This cannot be a row in packload.Collisions for the reason §3.2 measures: packload
+// cannot import internal/loopholes (loopholes → config → packload is a cycle), and the
+// decl type it would need is assembled here from the staged tree.
 //
 // Returns one message per conflict, in a deterministic order (by name, then by pack), so
 // the launch refusal is stable and testable.
 func PackLoopholeNameConflicts(decls []PackLoopholeDecl) []string {
-	reserved := map[string]string{}
-	for _, r := range loopholes.ReservedLoopholeNames() {
-		reserved[r.Name] = r.Origin
-	}
-
 	byName := map[string][]PackLoopholeDecl{}
 	var order []string
 	for _, d := range decls {
@@ -428,17 +424,6 @@ func PackLoopholeNameConflicts(decls []PackLoopholeDecl) []string {
 			}
 			return group[i].From < group[j].From
 		})
-		// PACK-VS-RESERVED first: it is the stronger refusal, and reporting it as a
-		// pack-vs-pack clash as well would name the same mistake twice.
-		if origin, isReserved := reserved[name]; isReserved {
-			out = append(out, fmt.Sprintf(
-				"loophole %q is %s, and %s claims it (%s) — a pack cannot ship a loophole "+
-					"under a name yolo answers to itself: the launch would mount that "+
-					"manifest's binds, devices and jail_env while running yolo's own daemon "+
-					"under the same name. Rename the loophole's directory.",
-				name, origin, declSources(group), declFroms(group)))
-			continue
-		}
 		if len(group) < 2 {
 			continue
 		}

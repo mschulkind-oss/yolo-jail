@@ -1,14 +1,8 @@
 package loopholes
 
 import (
-	"io/fs"
 	"os"
-	"path/filepath"
-	"sort"
-	"strings"
 
-	bundledloopholes "github.com/mschulkind-oss/yolo-jail/bundled_loopholes"
-	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
@@ -204,73 +198,25 @@ func applyWorkspaceOverrides(existing map[string]*Loophole, loopholesConfig *jso
 	return newInline
 }
 
-// hidden/non-dir children and malformed manifests silently. Returns an
-// insertion-ordered slice of names alongside the map so callers can preserve
-// discovery order (sorted directory iteration).
-func loadFromDir(dirPath, source string) (map[string]*Loophole, []string) {
-	out := map[string]*Loophole{}
-	var order []string
-	fi, err := os.Stat(dirPath)
-	if err != nil || !fi.IsDir() {
-		return out, order
-	}
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return out, order
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	sort.Strings(names)
-	for _, childName := range names {
-		child := filepath.Join(dirPath, childName)
-		cfi, err := os.Stat(child)
-		if err != nil || !cfi.IsDir() || strings.HasPrefix(childName, ".") {
-			continue
-		}
-		loophole, err := loadManifest(child)
-		if err != nil {
-			// NOT a silent skip. A manifest the loader rejects makes the whole
-			// loophole VANISH — no host daemon, no endpoint, no injected env var, no
-			// entry in `yolo loopholes list` — and every consumer then fails with a
-			// symptom that names something else entirely. bundled_loopholes is
-			// go:embed'd, so an installed binary breaks identically with no checkout
-			// to go and read. One rejected value (a transport the validator does not
-			// know yet) is enough to do it, which is exactly the shape of a migration
-			// mistake.
-			//
-			// Discovery still CONTINUES: one bad third-party manifest must not take
-			// the others down with it (TestInvalidManifestDoesNotBreakOthers).
-			warnf("loophole manifest %s failed to load, so that loophole is NOT active: %v", child, err)
-			continue
-		}
-		// A key this build does not know is SKEW, not a failure: the loophole loads
-		// and everything the key would have declared is missing. Reported for the
-		// same reason the rejection above is — a degraded loophole whose symptom
-		// names something else is the failure mode this package keeps paying for.
-		for _, note := range loophole.SkewNotes {
-			warnf("loophole %s: %s", loophole.Name, note)
-		}
-		loophole.Source = source
-		if _, seen := out[loophole.Name]; !seen {
-			order = append(order, loophole.Name)
-		}
-		out[loophole.Name] = loophole
-	}
-	return out, order
-}
-
 // loadModuleDirs loads a caller-supplied list of loophole MODULE dirs (each one holding
 // a manifest.jsonc), in the given order, under the given source label.
 //
-// Same warn-and-continue contract as loadFromDir, and for the same reason: one bad
-// manifest must not take the others down with it. Note what that means for a pack-
-// contributed dir — the PACK layer refuses a `from` naming a directory the pack does
+// WARN AND CONTINUE, never refuse: one bad manifest must not take the others down with
+// it. A manifest the loader rejects makes its loophole VANISH — no host daemon, no
+// endpoint, no injected env var, no entry in `yolo loopholes list` — and every consumer
+// then fails with a symptom that names something else entirely, which is why the warning
+// is not optional (TestInvalidManifestDoesNotBreakOthers). Note what that means for a
+// pack-contributed dir — the PACK layer refuses a `from` naming a directory the pack does
 // not contain (a pack.json error, decidable by `yolo pack lint`), while THIS layer only
 // warns about a manifest it cannot parse. That split is deliberate
 // (docs/design/loophole-packaging.md §3.1): the pack layer refuses, the discovery layer
 // warns.
+//
+// IT IS ALSO THE ONLY LOADER LEFT. There used to be a second, loadFromDir, which walked a
+// DIRECTORY OF loopholes for the bundled channel; that channel was retired on 2026-08-19
+// when its last inhabitant became a contribution of `packs/claude`
+// (docs/design/broker-as-a-pack.md OQ-BP4). Every manifest yolo reads now arrives as a
+// named module dir — a pack's contribution — or as a `loopholes:` entry in a config.
 //
 // THE SOURCE LABEL SELECTS THE LOADER, which is how §3.1's pack-shipped subset reaches the
 // launch path at all. LoadPackLoophole applies the subset and had ZERO non-test callers: every
@@ -281,9 +227,10 @@ func loadFromDir(dirPath, source string) (map[string]*Loophole, []string) {
 // `-e LD_PRELOAD=/ctx/evil.so`.
 //
 // Pack-shippedness is the CALLER's fact (load.go says why it cannot be a manifest field), and
-// this function is the caller that knows it — its `source` parameter IS that fact. Bundled and
-// user sources keep the wider vocabulary, which `audio` requires (${XDG_RUNTIME_DIR},
-// readonly:false, jail_env) and the broker requires (publishes: endpoint).
+// this function is the caller that knows it — its `source` parameter IS that fact. It takes
+// SourcePack from every production call site today; the parameter stays because the mapping
+// source → loader is the security property, and a loader hardcoded here would put it back
+// where it was before loaderFor existed (a subset nothing on the launch path applied).
 func loadModuleDirs(dirs []string, source string) (map[string]*Loophole, []string) {
 	out := map[string]*Loophole{}
 	var order []string
@@ -329,112 +276,54 @@ func loaderFor(source string) func(string) (*Loophole, error) {
 	return loadManifest
 }
 
-// ReservedName is one reserved loophole name and where the reservation comes from.
-// Origin is prose for a refusal message, never a key — the whole point of the fatal
-// collision rule is that the message NAMES BOTH SOURCES, so a user reading it knows
-// which of yolo's own things they collided with.
-type ReservedName struct {
-	Name   string
-	Origin string
-}
+// THE RESERVED LOOPHOLE NAMESPACE IS GONE, and its emptiness is the end of a sprint
+// rather than a lapse. `ReservedLoopholeNames()` composed the names a pack could not
+// ship — the ones yolo answered to itself — and every one of them has become a pack's
+// own name, in this order:
+//
+//   - `journal` and `cgroup-delegate` (2026-08-18) were `paths.BuiltinLoopholeNames`,
+//     the builtin services. Their reservations were CONSTANTS, so each had to be
+//     deleted by hand in the commit that shipped its pack.
+//   - `host-processes` and `audio` (2026-08-18) were reserved only as bundled DIRECTORY
+//     names, read off the embed the loader materialized, so `git mv` retired them free.
+//   - `claude-oauth-broker` (2026-08-19) was reserved BOTH ways — from
+//     `broker.BrokerLoopholeName` unconditionally AND as the last bundled directory —
+//     which is why moving it into `packs/claude` had to delete this function in the same
+//     commit (docs/design/broker-as-a-pack.md §6.1's warning). A reservation left
+//     standing over a pack-shipped name is not a warning: the pre-flight is FATAL, so
+//     every launch selecting that pack is refused.
+//
+// What still protects the names yolo keys on by hand — `claude-oauth-broker` above all,
+// which `yolo broker status`, `yolo check` and brokerEnsure each reach by literal — is
+// two things, and neither is a list here. First, run.PackLoopholeNameConflicts' OTHER
+// half: loophole names are exclusive ACROSS PACKS, fatally, so `packs/claude` occupying
+// the name means any other pack claiming it refuses the launch by name. Second, the
+// ORIGIN GATE: a record from a pack yolo has not approved to touch the host is Active
+// but not Honored, and run.brokerLoopholeActive asks for Honored. That is the same bound
+// `cgroup-delegate` took when it retired its own reservation, and the same one OQ-A3
+// already admits for every other pack-declared capability.
+//
+// Restoring a reservation is a small change (a name, an origin string, and the refusal
+// branch in run.PackLoopholeNameConflicts) and should be made deliberately rather than
+// by reviving this comment: a set that reserves a name a pack now ships is the one
+// mistake in this area that breaks every user of that pack at once.
 
-// ReservedLoopholeNames is the reserved loophole namespace, composed ONCE.
+// DiscoverOptions carries the discovery parameters. The zero value discovers nothing,
+// which is the honest answer now that every source is something a caller supplies.
 //
-// TWO contributors now, and it was three. The point of composing them here is that
-// until this existed each was enforced (or not) independently:
-//
-//   - broker.BrokerLoopholeName — `claude-oauth-broker`, whose NAME is special-cased
-//     by startLoopholes (it runs yolo's own broker argv, not the manifest's). A
-//     manifest replacing that record would have assemble_parts.go evaluate the
-//     REPLACEMENT's Active() to decide terminator/CA/endpoint wiring while
-//     loopholesruntime.go still ran yolo's broker — half the broker from one
-//     manifest, again with no message (§5.1).
-//
-//   - the bundled loophole directory names, read from the SAME embed.FS the loader
-//     materializes, so adding a bundled loophole extends the reservation with no
-//     second list to forget.
-//
-// # The contributor that is gone, and why reading this matters before adding one back
-//
-// `paths.BuiltinLoopholeNames` was contributor 1: `cgroup-delegate` and `journal`, the
-// names yolo's own in-process daemons answered to. It is the reason this composition
-// exists at all — `cgroup-delegate` was an explicit config-scope error in
-// internal/config/validate_loopholes.go with no manifest-side equivalent, while
-// `journal` was reserved in fact and refused NOWHERE, so a manifest named `journal`
-// loaded, was discovered, had its daemon silently skipped by startLoopholes, and still
-// contributed --add-host / ca_cert / --device / bind mounts / jail_env to the argv:
-// half a loophole, no message (docs/design/loophole-packaging.md §3.1).
-//
-// BOTH BECAME PACKS on 2026-08-18 (loophole-activation.md OQ-A6), so the whole
-// contributor went with them. A reservation is FATAL at the pack pre-flight, so a name
-// that becomes a pack's must leave this set in the SAME commit or every launch
-// selecting that pack is refused.
-//
-// The manner of leaving is the thing to hold on to. Contributor 2 is derived from the
-// bundled embed, so a name leaving that DIRECTORY leaves the reservation automatically
-// — `host-processes` and `audio` were retired by `git mv` with no code change.
-// Contributor 1's names were CONSTANTS, so each had to be deleted by hand.
-// `broker.BrokerLoopholeName` is the last one with that shape, and a reader
-// generalizing from the free cases will ship a commit that refuses every claude user's
-// launch.
-//
-// Sorted by name for deterministic messages. Composed rather than a literal because a
-// literal is the thing that drifted: `journal` was in paths.go and in nobody's refusal.
-func ReservedLoopholeNames() []ReservedName {
-	out := make([]ReservedName, 0, 1+3)
-	out = append(out, ReservedName{
-		Name:   broker.BrokerLoopholeName,
-		Origin: "reserved for yolo's own bundled " + broker.BrokerLoopholeName + " loophole",
-	})
-	for _, name := range bundledLoopholeNames() {
-		if name == broker.BrokerLoopholeName {
-			continue // already named above, with the more specific origin
-		}
-		out = append(out, ReservedName{
-			Name:   name,
-			Origin: "reserved for the bundled " + name + " loophole",
-		})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
-}
-
-// bundledLoopholeNames returns the bundled loophole directory names off the embed.FS.
-//
-// The EMBED rather than BundledLoopholesDir(): the reservation must be the same on an
-// installed binary with no checkout as in a source tree, and it must not depend on
-// whether the cache materialization happened to succeed. TestEmbedMatchesTree already
-// pins the embed against the on-disk tree, so reading one reads both.
-func bundledLoopholeNames() []string {
-	entries, err := fs.ReadDir(bundledloopholes.FS, ".")
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		out = append(out, e.Name())
-	}
-	sort.Strings(out)
-	return out
-}
-
-// DiscoverOptions carries the discovery parameters. The zero value uses the
-// defaults, with IncludeBundled defaulting true via the Discover entry point.
-//
-// There is no Root any more. It named the hand-placed user loopholes dir, which is
-// retired (OQ-LP10, retired.go) — and while it lived, every caller that did NOT want
-// that channel had to remember to point Root at an empty temp dir, which is the
-// shape of an option nobody should have had to pass.
+// TWO CHANNEL SWITCHES HAVE LEFT THIS STRUCT, and both left the same way — the channel
+// they gated stopped existing. `Root` named the hand-placed user loopholes dir (OQ-LP10,
+// retired.go). `IncludeBundled` named `bundled_loopholes/`, emptied and retired on
+// 2026-08-19 (docs/design/broker-as-a-pack.md OQ-BP4). While each lived, every caller
+// that did NOT want that channel had to remember to switch it off — and, worse for
+// IncludeBundled, every caller that DID want it had to remember to switch it on, with
+// the zero value silently answering "no bundled loopholes on this machine". That is the
+// shape of an option nobody should have had to pass, and NewHostSet exists because of it.
 type DiscoverOptions struct {
 	IncludeDisabled bool
 	LoopholesConfig *jsonx.OrderedMap
-	IncludeBundled  bool
-	// PackModules are loophole MODULE directories contributed from outside the bundled
-	// and user trees — in practice a pack's `loophole` contributions, already resolved
-	// and origin-gated by the caller.
+	// PackModules are loophole MODULE directories — in practice a pack's `loophole`
+	// contributions, already resolved and origin-gated by the caller.
 	//
 	// PATHS AND A BOOL, deliberately, not packs. internal/loopholes never learns what a
 	// pack is (and cannot: loopholes → config → packload, so importing packload here is
@@ -677,17 +566,16 @@ func (s Set) SupersessionProblems() []string {
 	return unmatchedSupersessions(s.all, s.supersessions)
 }
 
-// NewHostSet is THE constructor every host-side consumer uses: bundled + the packs this
-// process recorded (SetPackModules) + the user dir + the given config block.
+// NewHostSet is THE constructor every host-side consumer uses: the packs this process
+// recorded (SetPackModules, or the lazy resolver) plus the given config block.
 //
 // It is the convergence point. A consumer that calls this cannot assemble a DIFFERENT
-// view of what this machine has, cannot forget IncludeBundled (the DiscoverOptions zero
-// value is false, which every existing call site had to remember to set), and cannot
-// bypass the origin gate — so the seven surfaces agree by construction rather than by
-// six call sites happening to pass the same struct literal.
+// view of what this machine has, cannot forget a source (it used to be able to forget
+// IncludeBundled, whose zero value is false, so every call site had to remember to set
+// it), and cannot bypass the origin gate — so the seven surfaces agree by construction
+// rather than by six call sites happening to pass the same struct literal.
 func NewHostSet(loopholesConfig *jsonx.OrderedMap) Set {
 	return NewSet(DiscoverOptions{
-		IncludeBundled:    true,
 		LoopholesConfig:   loopholesConfig,
 		PackModules:       PackModules(),
 		PackSupersessions: PackSupersessions(),
@@ -787,7 +675,9 @@ func (s Set) Lookup(name string) (*Loophole, bool) {
 	return nil, false
 }
 
-// (include_bundled=True) should set IncludeBundled=true.
+// Discover resolves the loophole records this machine has: the caller's pack modules,
+// then the config block's overrides and inline entries. It never errors — a per-manifest
+// failure is warned and skipped (loadModuleDirs), which seven call sites rely on.
 func Discover(opts DiscoverOptions) []*Loophole {
 	// The retired hand-placed directory is not a source; it is only ever a thing to
 	// tell its owner about (retired.go). Warned HERE, at the one function every
@@ -805,12 +695,8 @@ func Discover(opts DiscoverOptions) []*Loophole {
 			byName[k] = m[k]
 		}
 	}
-	if opts.IncludeBundled {
-		bm, bk := loadFromDir(BundledLoopholesDir(), SourceBundled)
-		appendOrdered(bm, bk)
-	}
-	// Pack-contributed module dirs sit ABOVE bundled and below the config block. A
-	// pack-vs-reserved collision never reaches here at all — the launch pre-flight
+	// Pack-contributed module dirs come first and the config block overrides them. A
+	// pack-vs-pack name collision never reaches here at all — the launch pre-flight
 	// refused it (docs/design/loophole-packaging.md §5.1).
 	if len(opts.PackModules) > 0 {
 		dirs := make([]string, 0, len(opts.PackModules))
@@ -830,7 +716,7 @@ func Discover(opts DiscoverOptions) []*Loophole {
 	//
 	// An unmatched claim is WARNED rather than refused; unmatchedSupersessions says at
 	// length why "refused at load" cannot hold for the match half. Warning here rather
-	// than at each consumer follows loadFromDir's precedent: discovery is the one place
+	// than at each consumer follows loadModuleDirs's precedent: discovery is the one place
 	// that knows a declaration did nothing.
 	all := make([]*Loophole, 0, len(order)+len(inline))
 	for _, name := range order {
@@ -852,7 +738,7 @@ func Discover(opts DiscoverOptions) []*Loophole {
 	return out
 }
 
-// ValidateEntry is one result of ValidateLoopholes: the child dir, the loaded
+// ValidateEntry is one result of ValidateLoopholes: the module dir, the loaded
 // loophole (nil on error), and the error string ("" when OK).
 type ValidateEntry struct {
 	Path     string
@@ -860,7 +746,8 @@ type ValidateEntry struct {
 	Err      string
 }
 
-// loophole dir (bundled + PACK), reporting parse errors instead of skipping.
+// ValidateLoopholes walks every loophole MODULE this machine has, reporting parse errors
+// instead of skipping them.
 //
 // It is `yolo check`'s independent walker — census site 7
 // (docs/design/loophole-packaging.md §5.1) — and the reason it is a walker at all rather
@@ -868,20 +755,17 @@ type ValidateEntry struct {
 // contract (resolver.go's invariant), and a preflight whose whole job is reporting bad
 // manifests cannot use a loader that hides them.
 //
+// IT TOOK AN `includeBundled bool` UNTIL 2026-08-19, and both call sites passed true. The
+// bundled channel is retired (docs/design/broker-as-a-pack.md OQ-BP4), so the parameter
+// named a source that no longer exists — and a walker whose only remaining source is the
+// recorded pack modules cannot be asked to exclude them and still be census site 7.
+//
 // It reads the SAME recorded pack modules Discover does (SetPackModules), so the two do
 // not disagree about which sources exist on this machine. It is the one census site whose
 // gate cannot be carried in the return value — a ValidateEntry is a manifest, not a set —
 // so callers that go on to EXECUTE a doctor_cmd must route through
 // SetOf(...).DoctorCandidates or ValidateSet below.
-//
-// It reads through loadManifest, so TOLERANTLY: unknown keys are ignored here exactly as
-// they are in discovery. That is deliberate for now — this function answers "would this
-// loophole load", and a stricter answer than the loader's own would report a manifest as
-// broken that the loader then happily uses. The strict decoder (loopholedecl.Decode, which
-// reports unknown keys) is the right engine for an AUTHORING surface — `yolo pack lint` and
-// the loophole kind's lint — and adopting it here is a behaviour change for `yolo check`
-// that belongs with whichever change makes unknown keys an author-visible error.
-func ValidateLoopholes(includeBundled bool) []ValidateEntry {
+func ValidateLoopholes() []ValidateEntry {
 	// Same reason Discover warns: this walker backs `yolo check`, which is the command
 	// a user runs when a loophole stopped working — precisely the symptom the retired
 	// directory now produces. `yolo check` also renders the notice through its own
@@ -889,44 +773,6 @@ func ValidateLoopholes(includeBundled bool) []ValidateEntry {
 	warnRetiredUserLoopholes()
 
 	out := []ValidateEntry{}
-	type dirSource struct {
-		dir    string
-		source string
-	}
-	var dirs []dirSource
-	if includeBundled {
-		dirs = append(dirs, dirSource{BundledLoopholesDir(), SourceBundled})
-	}
-
-	for _, ds := range dirs {
-		fi, err := os.Stat(ds.dir)
-		if err != nil || !fi.IsDir() {
-			continue
-		}
-		entries, err := os.ReadDir(ds.dir)
-		if err != nil {
-			continue
-		}
-		names := make([]string, 0, len(entries))
-		for _, e := range entries {
-			names = append(names, e.Name())
-		}
-		sort.Strings(names)
-		for _, childName := range names {
-			child := filepath.Join(ds.dir, childName)
-			cfi, err := os.Stat(child)
-			if err != nil || !cfi.IsDir() || strings.HasPrefix(childName, ".") {
-				continue
-			}
-			loophole, err := loadManifest(child)
-			if err != nil {
-				out = append(out, ValidateEntry{Path: child, Loophole: nil, Err: err.Error()})
-				continue
-			}
-			loophole.Source = ds.source
-			out = append(out, ValidateEntry{Path: child, Loophole: loophole, Err: ""})
-		}
-	}
 	// The pack-contributed modules, individually — a pack's `loophole` contribution
 	// points at a directory anywhere inside its staged tree, so there is no parent to
 	// scan. A module dir that is not a directory at all is REPORTED here rather than
@@ -964,8 +810,8 @@ func ValidateLoopholes(includeBundled bool) []ValidateEntry {
 // channel Discover throws away, and the execution needs the gate a ValidateEntry cannot
 // carry. Returning the pair from one function is what stops `yolo check` from having to
 // re-derive either.
-func ValidateSet(includeBundled bool) ([]ValidateEntry, Set) {
-	entries := ValidateLoopholes(includeBundled)
+func ValidateSet() ([]ValidateEntry, Set) {
+	entries := ValidateLoopholes()
 	var loaded []*Loophole
 	for _, e := range entries {
 		if e.Loophole != nil && e.Err == "" {

@@ -18,7 +18,7 @@ import (
 // install a sink", and in the whole tree no caller ever did — so every warning
 // this package emitted went nowhere. That is tolerable for "skipped a bind mount"
 // and NOT tolerable for "this loophole failed to load and is therefore absent",
-// which is otherwise invisible at launch (see loadFromDir). A warning nobody can
+// which is otherwise invisible at launch (see loadModuleDirs). A warning nobody can
 // read is not a diagnostic.
 //
 // infof stays a no-op: its one use is a routine in-jail device skip that happens

@@ -268,9 +268,11 @@ func TestListPrintsTheSettingsDeclarations(t *testing.T) {
 		[]byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	realBundled := BundledLoopholesDir
-	BundledLoopholesDir = func() string { return dir }
-	t.Cleanup(func() { BundledLoopholesDir = realBundled })
+	// Offered as this process's pack modules — the only module source left after
+	// `bundled_loopholes/` was retired (docs/design/broker-as-a-pack.md OQ-BP4).
+	SetPackModuleResolver(nil)
+	SetPackModules(moduleDirsUnder(dir))
+	t.Cleanup(ResetPackModules)
 
 	var out, errOut strings.Builder
 	rc := List(Deps{
@@ -314,9 +316,11 @@ func TestResolverCarriesTheDeclarationsToConfig(t *testing.T) {
 	}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	realBundled := BundledLoopholesDir
-	BundledLoopholesDir = func() string { return dir }
-	t.Cleanup(func() { BundledLoopholesDir = realBundled })
+	// Offered as this process's pack modules — the only module source left after
+	// `bundled_loopholes/` was retired (docs/design/broker-as-a-pack.md OQ-BP4).
+	SetPackModuleResolver(nil)
+	SetPackModules(moduleDirsUnder(dir))
+	t.Cleanup(ResetPackModules)
 
 	known, ok := NewResolver().Known()
 	if !ok {

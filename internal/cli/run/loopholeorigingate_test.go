@@ -146,7 +146,7 @@ func TestUnapprovedFetchedPackLoopholeNeitherSpawnsNorReachesTheArgv(t *testing.
 	os.Unsetenv("YOLO_VERSION")
 	home := packHome(t)
 	isolatePackModules(t)
-	fakeBundled(t)
+	fakeLoopholes(t)
 	sentinel := fetchedLoopholePack(t, home)
 
 	var out bytes.Buffer
@@ -246,7 +246,7 @@ func TestApprovedPackLoopholeReachesTheSpawnAndTheArgv(t *testing.T) {
 	os.Unsetenv("YOLO_VERSION")
 	home := packHome(t)
 	isolatePackModules(t)
-	fakeBundled(t)
+	fakeLoopholes(t)
 
 	root := filepath.Join(t.TempDir(), "localpack")
 	mod := filepath.Join(root, "loopholes", "acme-proxy")
@@ -322,7 +322,7 @@ func TestApprovedPackLoopholeReachesTheSpawnAndTheArgv(t *testing.T) {
 func TestUnapprovedPackLoopholeIsStillListed(t *testing.T) {
 	os.Unsetenv("YOLO_VERSION")
 	isolatePackModules(t)
-	fakeBundled(t)
+	fakeLoopholes(t)
 	mod := writeLoopholeModule(t, t.TempDir(), "acme-proxy", "")
 	loopholes.SetPackModules([]loopholes.PackModule{{Dir: mod, HostExecApproved: false}})
 

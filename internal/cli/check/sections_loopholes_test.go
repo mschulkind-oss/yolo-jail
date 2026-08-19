@@ -148,16 +148,11 @@ func TestCheckLoopbackTLSServiceNamesTheLayer(t *testing.T) {
 // WARN and name the file, never render as a green "disabled" line. A disable
 // from the loophole's own manifest stays a green ok.
 func TestCheckLoopholesWarnsOnWorkspaceDisable(t *testing.T) {
-	// Isolate discovery: a FAKE bundled dir holding this test's two manifests, so no
-	// real bundled loophole's doctor_cmd can ever run from a test. (It used to be an
-	// empty bundled dir plus a hand-placed user dir; that channel is retired — OQ-LP10.)
-	fakeBundled := t.TempDir()
-	oldBundled := loopholes.BundledLoopholesDir
-	loopholes.BundledLoopholesDir = func() string { return fakeBundled }
-	t.Cleanup(func() { loopholes.BundledLoopholesDir = oldBundled })
-	retiredLoopholeDir(t) // absent, so the migration row cannot add a second warning
+	// Isolate discovery: a throwaway module dir holding this test's two manifests, so no
+	// real loophole's doctor_cmd can ever run from a test.
+	moduleRoot := isolatedModuleDir(t)
 	writeManifest := func(name, body string) {
-		dir := filepath.Join(fakeBundled, name)
+		dir := filepath.Join(moduleRoot, name)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -407,10 +402,7 @@ func retiredLoopholeDir(t *testing.T) string {
 // working, so the migration has to be a graded row there — not only a stderr line from
 // discovery, which scrolls past.
 func TestCheckLoopholesReportsTheRetiredDirectory(t *testing.T) {
-	fakeBundled := t.TempDir()
-	oldBundled := loopholes.BundledLoopholesDir
-	loopholes.BundledLoopholesDir = func() string { return fakeBundled }
-	t.Cleanup(func() { loopholes.BundledLoopholesDir = oldBundled })
+	isolatedModuleDir(t)
 
 	retired := retiredLoopholeDir(t)
 	mod := filepath.Join(retired, "leftover")
@@ -459,24 +451,16 @@ func TestCheckLoopholesReportsTheRetiredDirectory(t *testing.T) {
 // cannot be fixed by dialling differently, so what is pinned here is the wording: a
 // green that labels itself, and the once-per-run pointer at the in-jail probe.
 func TestHostServiceLivenessSaysWhatItCannotSee(t *testing.T) {
-	fakeBundled := t.TempDir()
-	oldBundled := loopholes.BundledLoopholesDir
-	loopholes.BundledLoopholesDir = func() string { return fakeBundled }
-	t.Cleanup(func() { loopholes.BundledLoopholesDir = oldBundled })
-	retiredLoopholeDir(t)
-	// And the user config, which the section now resolves `enabled` from: a real
-	// ~/.config/yolo-jail/config.jsonc naming this loophole would decide whether the
-	// probe below runs at all (see isolatedBundledDir for the same reasoning).
-	t.Setenv("HOME", t.TempDir())
+	moduleRoot := isolatedModuleDir(t)
 
-	modDir := filepath.Join(fakeBundled, "svc")
+	modDir := filepath.Join(moduleRoot, "svc")
 	if err := os.MkdirAll(modDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// host_daemon is what puts it in the "externals" set this section probes at all.
 	if err := os.WriteFile(filepath.Join(modDir, "manifest.jsonc"), []byte(
 		`{"name": "svc", "description": "x", "transport": "loopback-tls", `+
-			`"default_enabled": true, "host_daemon": {"cmd": ["true"]}}`), 0o644); err != nil {
+			`"default_enabled": true, "host_daemon": {"cmd": ["true"], "publishes": "socket"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -557,14 +541,9 @@ func TestHostServiceLivenessSaysWhatItCannotSee(t *testing.T) {
 // that does not apply, under a section whose whole point is now saying exactly what
 // it does and does not know.
 func TestHostServiceLivenessNoCaveatWithoutALoopbackTLSProbe(t *testing.T) {
-	fakeBundled := t.TempDir()
-	oldBundled := loopholes.BundledLoopholesDir
-	loopholes.BundledLoopholesDir = func() string { return fakeBundled }
-	t.Cleanup(func() { loopholes.BundledLoopholesDir = oldBundled })
-	retiredLoopholeDir(t)
-	t.Setenv("HOME", t.TempDir())
+	moduleRoot := isolatedModuleDir(t)
 
-	modDir := filepath.Join(fakeBundled, "unixsvc")
+	modDir := filepath.Join(moduleRoot, "unixsvc")
 	if err := os.MkdirAll(modDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -573,7 +552,7 @@ func TestHostServiceLivenessNoCaveatWithoutALoopbackTLSProbe(t *testing.T) {
 	// other than loopback-tls is probed as a plain socket.
 	if err := os.WriteFile(filepath.Join(modDir, "manifest.jsonc"), []byte(
 		`{"name": "unixsvc", "description": "x", "transport": "none", `+
-			`"default_enabled": true, "host_daemon": {"cmd": ["true"]}}`), 0o644); err != nil {
+			`"default_enabled": true, "host_daemon": {"cmd": ["true"], "publishes": "socket"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -647,25 +626,47 @@ func TestHostServiceLivenessInJailSaysWhy(t *testing.T) {
 	}
 }
 
-// isolatedBundledDir points discovery at an EMPTY bundled dir and clears the retired
-// one, so a test's own manifests are the only loopholes `yolo check` can find.
+// isolatedModuleDir points loophole discovery at a throwaway directory of module dirs and
+// returns it, so no real loophole's doctor_cmd can ever run from a test.
 //
-// Isolation is not politeness here: without it a developer's real bundled_loopholes/
-// would have its doctor_cmds EXECUTED by every test in this file — the broker's among
-// them — which is host execution from a unit test, and the counts would depend on the
-// machine.
+// A LAZY PACK-MODULE RESOLVER over the dir. It used to override BundledLoopholesDir; that
+// channel is retired (docs/design/broker-as-a-pack.md OQ-BP4) and a pack contribution is
+// the only module source left, so the record is what has to be replaced. Lazy because the
+// caller writes its manifests AFTER this returns.
+//
+// Two consequences for every fixture below: the manifests are read through the
+// PACK-SHIPPED SUBSET (so a host_daemon must declare `publishes: "socket"`, the default
+// being refused), and the modules are marked APPROVED — an unapproved one is discovered
+// but crosses nothing, which would turn each of these reports into a test of the origin
+// gate.
+//
 // The USER CONFIG is isolated in the same breath, and for the same kind of reason: the
 // section resolves `loopholes.<name>.enabled` out of the merged config, so a developer
 // whose own ~/.config/yolo-jail/config.jsonc disables a loophole would get a different
-// report than CI from the same code. HOME is where that file is found, so pointing HOME
-// at a throwaway dir is what makes "no config says anything" the fixture rather than an
-// accident of whose machine ran the test.
-func isolatedBundledDir(t *testing.T) string {
+// report than CI from the same code.
+func isolatedModuleDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	orig := loopholes.BundledLoopholesDir
-	loopholes.BundledLoopholesDir = func() string { return dir }
-	t.Cleanup(func() { loopholes.BundledLoopholesDir = orig })
+	loopholes.SetPackModuleResolver(func() []loopholes.PackModule {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return nil
+		}
+		var out []loopholes.PackModule
+		for _, e := range entries {
+			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			out = append(out, loopholes.PackModule{
+				Dir: filepath.Join(dir, e.Name()), HostExecApproved: true})
+		}
+		return out
+	})
+	loopholes.ResetPackModules()
+	t.Cleanup(func() {
+		loopholes.SetPackModuleResolver(nil)
+		loopholes.ResetPackModules()
+	})
 	t.Setenv("HOME", t.TempDir())
 	retiredLoopholeDir(t)
 	return dir
@@ -742,20 +743,21 @@ func runCheckLoopholes(t *testing.T, workspace string) (*reporter, string) {
 // construction, so on the day that conversion lands the broker's cert freshness,
 // liveness and self-check would have gone unreported under an all-green check.
 //
-// A BUNDLED loophole is present alongside the pack one, and asserted in the same run:
-// the fix is "the pack source is seen too", never "the pack source replaced the ones
-// that already worked".
+// A SECOND loophole is present alongside the one under test and asserted in the same
+// run: the fix is "the pack source is seen too", never "the pack source replaced the
+// ones that already worked". That second one used to be a BUNDLED loophole; the channel
+// is retired (docs/design/broker-as-a-pack.md OQ-BP4), so it is a second recorded module
+// and what it still proves is that one loophole's self-check does not shadow another's.
 func TestCheckLoopholesReportsAPackShippedSelfCheck(t *testing.T) {
-	bundled := isolatedBundledDir(t)
+	moduleRoot := isolatedModuleDir(t)
 	sentinels := t.TempDir()
 
 	packRan := filepath.Join(sentinels, "pack-ran")
-	packMod := selfCheckModule(t, t.TempDir(), "acme-proxy",
+	selfCheckModule(t, moduleRoot, "acme-proxy",
 		touchAndSay(packRan, "NOTE: acme relay certificate expires in 3h"))
-	recordPackModule(t, packMod, true)
 
-	bundledRan := filepath.Join(sentinels, "bundled-ran")
-	selfCheckModule(t, bundled, "corehole", touchAndSay(bundledRan, "OK: core wiring present"))
+	otherRan := filepath.Join(sentinels, "other-ran")
+	selfCheckModule(t, moduleRoot, "corehole", touchAndSay(otherRan, "OK: core wiring present"))
 
 	r, out := runCheckLoopholes(t, t.TempDir())
 
@@ -772,13 +774,13 @@ func TestCheckLoopholesReportsAPackShippedSelfCheck(t *testing.T) {
 		t.Errorf("the pack self-check's NOTE line did not render as a warning "+
 			"(warned=%d):\n%s", r.warned, out)
 	}
-	// And the non-pack source is untouched: same walk, same rendering, still executed.
-	if _, err := os.Stat(bundledRan); err != nil {
-		t.Fatalf("the BUNDLED doctor_cmd stopped running:\n%s", out)
+	// And the second loophole is untouched: same walk, same rendering, still executed.
+	if _, err := os.Stat(otherRan); err != nil {
+		t.Fatalf("the second loophole's doctor_cmd stopped running:\n%s", out)
 	}
 	if !strings.Contains(out, "loophole corehole: self-check ok") ||
 		!strings.Contains(out, "core wiring present") {
-		t.Errorf("the bundled self-check's reporting changed:\n%s", out)
+		t.Errorf("the second self-check's reporting changed:\n%s", out)
 	}
 	if r.failed != 0 {
 		t.Errorf("failed=%d — two passing self-checks:\n%s", r.failed, out)
@@ -790,7 +792,7 @@ func TestCheckLoopholesReportsAPackShippedSelfCheck(t *testing.T) {
 // until now — so the "no self-check declared" line is the state the fix must leave
 // exactly as it found it, rather than a green that implies something was measured.
 func TestCheckLoopholesDoesNotInventAPackSelfCheck(t *testing.T) {
-	isolatedBundledDir(t)
+	isolatedModuleDir(t)
 	mod := selfCheckModule(t, t.TempDir(), "acme-quiet", nil)
 	recordPackModule(t, mod, true)
 
@@ -820,7 +822,7 @@ func TestCheckLoopholesDoesNotInventAPackSelfCheck(t *testing.T) {
 // about to run and its self-check is what a reader wants next. `continue`ing here would
 // undo OQ-A12 for exactly the activations nobody expected.
 func TestCheckLoopholesWarnsOnWorkspaceEnable(t *testing.T) {
-	bundled := isolatedBundledDir(t)
+	bundled := isolatedModuleDir(t)
 	sentinels := t.TempDir()
 
 	// default_enabled FALSE — the R2 world, where the workspace file is the only
@@ -898,7 +900,7 @@ func TestCheckLoopholesWarnsOnWorkspaceEnable(t *testing.T) {
 // every run is how the one that matters gets skimmed past. Only the verdict moves, so
 // the assertion below is on warned==0.
 func TestCheckLoopholesResolvesUserScopeSwitch(t *testing.T) {
-	bundled := isolatedBundledDir(t)
+	bundled := isolatedModuleDir(t)
 	sentinels := t.TempDir()
 
 	// OFF in the manifest, ON in the user config: the audio case after R4.
@@ -964,10 +966,10 @@ func TestCheckLoopholesResolvesUserScopeSwitch(t *testing.T) {
 // property, and what happens next needs a container runtime this test has no business
 // starting.
 func TestHostServiceLivenessResolvesUserScopeEnable(t *testing.T) {
-	bundled := isolatedBundledDir(t)
+	bundled := isolatedModuleDir(t)
 	writeLoopholeManifest(t, bundled, "svcoff",
 		`"name":"svcoff","description":"d","transport":"loopback-tls","default_enabled":false,`+
-			`"host_daemon":{"cmd":["/bin/true"]}`)
+			`"host_daemon":{"cmd":["/bin/true"],"publishes":"socket"}`)
 
 	userCfgDir := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail")
 	if err := os.MkdirAll(userCfgDir, 0o755); err != nil {
@@ -1021,7 +1023,7 @@ func TestWorkspaceEnableDisclosureAgreesAcrossSurfaces(t *testing.T) {
 	// ValidateConfig downgrade scope violations. The disclosure is a warning either
 	// way, but pinning the env keeps the two surfaces compared under one story.
 	t.Setenv("YOLO_VERSION", "")
-	bundled := isolatedBundledDir(t)
+	bundled := isolatedModuleDir(t)
 	writeLoopholeManifest(t, bundled, "acme",
 		`"name":"acme","description":"acme","transport":"none","default_enabled":false`)
 
@@ -1077,7 +1079,7 @@ func TestWorkspaceEnableDisclosureAgreesAcrossSurfaces(t *testing.T) {
 // and the fix (`yolo pack install` records the approval) is not discoverable from an
 // absence.
 func TestCheckLoopholesWithholdsAnUnapprovedPackSelfCheck(t *testing.T) {
-	isolatedBundledDir(t)
+	isolatedModuleDir(t)
 	ran := filepath.Join(t.TempDir(), "ran")
 	mod := selfCheckModule(t, t.TempDir(), "acme-evil", touchAndSay(ran, "OK: harmless"))
 	recordPackModule(t, mod, false)

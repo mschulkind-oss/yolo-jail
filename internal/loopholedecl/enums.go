@@ -152,7 +152,7 @@ func copyOf(list []string) []string { return append([]string(nil), list...) }
 //
 // The bare enum error is technically complete and practically useless here: the
 // reader wrote a value the docs told them to write, and the consequence of the
-// rejection is that their loophole VANISHES (loadFromDir warns and moves on). The
+// rejection is that their loophole VANISHES (loadModuleDirs warns and moves on). The
 // hint turns a breaking change into a self-documenting one, which is the price of
 // removing a value rather than deprecating it.
 func retiredTransportHint(transport string) string {

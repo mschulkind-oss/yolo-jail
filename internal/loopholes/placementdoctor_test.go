@@ -75,17 +75,20 @@ func TestDoctorRefusesADoctorCmdInsideTheJailHomeTree(t *testing.T) {
 	script := touchScript(t, agentTree, sentinel)
 
 	mod := writeDoctorModule(t, t.TempDir(), "probehole", script)
-	lp, err := LoadLoophole(mod)
-	if err != nil {
-		t.Fatal(err)
+	// Through an APPROVED pack module, which is the production shape: every module
+	// manifest yolo reads is pack-shipped now, and the ungated RunDoctorChecks refuses a
+	// SourcePack record outright. It used to relabel the record SourceBundled to get past
+	// that; the bundled channel is retired (docs/design/broker-as-a-pack.md OQ-BP4), and
+	// the gated Set is a better answer than the relabel ever was — it exercises the pair
+	// of gates in the order production applies them, ORIGIN then PLACEMENT, so a
+	// placement refusal here cannot be an origin refusal wearing its message.
+	set := NewSet(DiscoverOptions{PackModules: []PackModule{{Dir: mod, HostExecApproved: true}}})
+	lp, ok := set.Lookup("probehole")
+	if !ok {
+		t.Fatalf("fixture module %s was not discovered", mod)
 	}
-	// A BUNDLED record, so the ungated RunDoctorChecks will actually attempt it (it
-	// refuses a SourcePack record outright, which is LoadLoophole's fail-safe default) —
-	// and the ARGV face is judged for every source. Only the MODULE DIR face is exempt
-	// for bundled content, which is the next test's subject.
-	lp.Source = SourceBundled
 
-	results := RunDoctorChecks([]*Loophole{lp}, 5*time.Second)
+	results := set.RunDoctorChecks([]*Loophole{lp}, 5*time.Second)
 	if len(results) != 1 {
 		t.Fatalf("want one result, got %d", len(results))
 	}
@@ -162,12 +165,12 @@ func TestDoctorStillRunsALegitimatelyPlacedLoophole(t *testing.T) {
 	script := touchScript(t, outside, sentinel)
 
 	mod := writeDoctorModule(t, filepath.Join(home, "modules"), "goodhole", script)
-	lp, err := LoadLoophole(mod)
-	if err != nil {
-		t.Fatal(err)
+	set := NewSet(DiscoverOptions{PackModules: []PackModule{{Dir: mod, HostExecApproved: true}}})
+	lp, ok := set.Lookup("goodhole")
+	if !ok {
+		t.Fatalf("fixture module %s was not discovered", mod)
 	}
-	lp.Source = SourceBundled // see the argv-face test above
-	results := RunDoctorChecks([]*Loophole{lp}, 5*time.Second)
+	results := set.RunDoctorChecks([]*Loophole{lp}, 5*time.Second) // see the argv-face test above
 	if results[0].RC == nil || *results[0].RC != 0 {
 		t.Fatalf("a legitimately-placed doctor_cmd must run and report: rc=%v out=%q",
 			results[0].RC, results[0].Output)

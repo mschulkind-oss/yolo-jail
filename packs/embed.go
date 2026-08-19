@@ -11,7 +11,7 @@
 // into a release binary. The cost is that a NEW pack directory must be added below;
 // TestEmbedMatchesTree fails the build the moment the tree and this directive drift, so
 // the sync is test-enforced rather than convention-enforced — the same trade
-// bundled_loopholes makes.
+// `bundled_loopholes/embed.go` made until that channel was retired.
 //
 // FLAKE TRAP: packs/ must also be listed in the goSrc fileset in flake.nix. The image
 // build is hermetic and only sees the paths that fileset names, so a pack dir missing
@@ -24,15 +24,33 @@
 // about "the six agent packs" (a comment, a test's name list) is describing the agent
 // SUBSET, not this list.
 //
-// TWO DIFFERENT ARRIVALS, and the difference is the thing to hold on to. `host-processes`
-// and `audio` MOVED here from bundled_loopholes/ (2026-08-18): a name that leaves that
-// directory also leaves the reserved set, because the reservation is read off that
-// embed.FS, so `git mv` retired it for free. `journal` and `cgroup-delegate` (2026-08-18)
-// were never bundled at all — they were BUILTIN SERVICES with hardcoded names in
-// paths.BuiltinLoopholeNames, so each reservation had to be deleted BY HAND in the commit
-// that shipped its manifest. A reservation left standing over a pack-shipped name is not
-// a warning: the name pre-flight is fatal, so every launch that selects the pack fails.
-// `broker.BrokerLoopholeName` is the last name with that shape.
+// AND THE CONVERSE: `claude` is an agent pack that ALSO ships a loophole
+// (`loopholes/claude-oauth-broker`). So "agent pack" and "loophole pack" are not a
+// partition of this list, and a test that assumed they were would miss the one pack in
+// both sets.
+//
+// THIS EMBED IS THE ONLY CHANNEL LEFT. There were two — `bundled_loopholes/embed.go`
+// carried the loophole manifests yolo shipped — and emptying it was the sprint's goal
+// rather than a side effect (docs/design/broker-as-a-pack.md OQ-BP4). Five loopholes made
+// the trip and they arrived by three different routes, which is worth remembering only
+// because each route had a different way of going wrong:
+//
+//	host-processes, audio (2026-08-18)   reserved ONLY as bundled directory names, read
+//	                                     off that embed.FS, so `git mv` retired the
+//	                                     reservation for free.
+//	journal, cgroup-delegate (2026-08-18) never bundled — BUILTIN SERVICES with hardcoded
+//	                                     names in paths.BuiltinLoopholeNames, so each
+//	                                     reservation had to be deleted BY HAND.
+//	claude-oauth-broker (2026-08-19)     reserved BOTH ways at once, and it is a
+//	                                     CONTRIBUTION OF `packs/claude` rather than a pack
+//	                                     of its own (loophole-activation.md OQ-A10) —
+//	                                     because the dependency is structural and a
+//	                                     separate pack would reinstate a second selection
+//	                                     step. Its move deleted the reserved namespace
+//	                                     entirely, since it was the last name in it.
+//
+// A reservation left standing over a pack-shipped name is not a warning: the name
+// pre-flight is fatal, so every launch that selects the pack fails.
 package packs
 
 import "embed"

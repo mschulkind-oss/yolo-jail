@@ -30,7 +30,7 @@ import (
 //     is the derivation that bakes the four shipped binaries plus the flake
 //     bundle into the image, so its store path is a hash of exactly the inputs
 //     that decide the image's yolo-jail content: the goSrc fileset (go.mod/sum,
-//     vendor/, cmd/, internal/, bundled_loopholes/, packs/) and flake.nix. It is
+//     vendor/, cmd/, internal/, packs/) and flake.nix. It is
 //     an EVAL, not a build: ~0.3s, so it can run on every suite start (the
 //     constraint that the suite must not rebuild the image every run is about the
 //     multi-minute `nix build`, which this deliberately avoids).

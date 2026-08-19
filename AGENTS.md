@@ -11,15 +11,20 @@ selected by BARE NAME — `"packs": ["claude"]`. Six install an agent (`claude`,
 `audio`, `host-processes`, `journal` and `cgroup-delegate` each ship a LOOPHOLE and
 nothing else. Anything that says "the six" is describing the agent SUBSET.
 
-**There are no "builtin service" loopholes left** (2026-08-18). `journal` and
-`cgroup-delegate` were Go functions the run pipeline called by hand — one switched by
-a top-level `journal` config key, the other by nothing at all — and both are packs
-now, which is what emptied core's config schema of loophole names. `audio` and
-`host-processes` made the shorter trip out of `bundled_loopholes/` the same day.
-Two consequences worth knowing before touching either: `paths.BuiltinLoopholeNames`
-is GONE (a reserved name and a pack-shipped name cannot be the same name — the
-pre-flight is fatal), and the top-level `journal` and `host_processes` keys are now
-REFUSALS that name their replacements.
+**Every loophole yolo ships is a pack's, and there is no other channel** (2026-08-19).
+`journal` and `cgroup-delegate` were Go functions the run pipeline called by hand — one
+switched by a top-level `journal` config key, the other by nothing at all. `audio` and
+`host-processes` came out of `bundled_loopholes/`. `claude-oauth-broker` was the last
+inhabitant of that directory and is now a **contribution of `packs/claude`**, not a pack
+of its own: the dependency is structural, so selecting the claude pack is the dependency
+(loophole-activation.md OQ-A10). `bundled_loopholes/` and its embed are DELETED.
+Three consequences worth knowing before touching any of this: `paths.BuiltinLoopholeNames`
+and `loopholes.ReservedLoopholeNames` are both GONE (a reserved name and a pack-shipped
+name cannot be the same name — the pre-flight is fatal, so it refuses every launch that
+selects the pack); the top-level `journal` and `host_processes` keys are now REFUSALS that
+name their replacements; and the pack-shipped SUBSET is the only vocabulary left, so
+`publishes: "endpoint"`, `jail_env` and an absolute `requires.file_exists` are refused for
+every manifest yolo reads — there is no wider-vocabulary source to fall back to.
 
 **Nothing is active by default**: an empty config yields a
 jail with no coding agent, and says so at launch (`run.warnIfNoPacks`).
@@ -141,13 +146,13 @@ there is no sync step.
     load` — so host-gating is real for **shipping** a flake change to the
     maintainer's day-to-day jails, not for **validating** it.
 - **The `goSrc` fileset trap** (`flake.nix`): the hermetic image build only sees
-  `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`, and `bundled_loopholes/`.
+  `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`, and `packs/`.
   A Go package outside that set **silently vanishes from the image**; the moment
   anything under `cmd/` imports it the build fails with "cannot find module
   providing package" while `go build ./...` stays green. Add it to the fileset
-  by hand. `bundled_loopholes/` is the live example of an explicit entry;
-  `tools/` and `integration/` are excluded on purpose (nothing in `cmd/` imports
-  them).
+  by hand. `packs/` is the live example of an explicit entry (`bundled_loopholes/`
+  was the other until it was deleted on 2026-08-19); `tools/` and `integration/`
+  are excluded on purpose (nothing in `cmd/` imports them).
 - **A failed nix build stops the jail** (fatal since 2026-08-15). `AutoLoadImage`
   prints nix's own stderr plus a classification, then exits — it does NOT fall
   back to the already-loaded image or the newest cached tar. It used to, and a

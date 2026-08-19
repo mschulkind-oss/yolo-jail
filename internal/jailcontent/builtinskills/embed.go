@@ -5,7 +5,7 @@
 // binary carries them without a repo checkout.
 //
 // The list is EXPLICIT (not a glob) so stray editor droppings never get baked
-// into a release binary — mirroring bundled_loopholes/embed.go. The cost is
+// into a release binary — mirroring packs/embed.go. The cost is
 // that a NEW skill directory must be added to the directive below;
 // TestBuiltinSkillsEmbedMatchesTree fails the build the moment the on-disk tree
 // and this embed drift, so the sync is test-enforced, not convention-enforced.

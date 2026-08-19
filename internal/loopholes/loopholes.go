@@ -19,64 +19,38 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
-	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
-// Source labels, ordered weakest -> strongest: bundled < pack < config.
+// Source labels, ordered weakest -> strongest: pack < config.
 //
-// THERE USED TO BE A FOURTH, `user`, for a manifest hand-placed in
-// RetiredUserLoopholesDir. It is gone with the channel (OQ-LP10) and must not come
-// back under another name: it was the one source that started a host daemon with no
-// selection step at all — drop a directory in and every launch discovered it — which
-// contradicts AGENTS.md's "nothing is active by default" in the one place it matters
-// most. A pack (the conventional local one included) carries the same manifest with
-// the same loader, and reaches the per-launch disclosure on the way.
+// THERE USED TO BE FOUR, and both departures are channels that stopped existing rather
+// than labels that got tidied away.
 //
-// SourcePack sits between bundled and config, and that placement is NOT a precedence
-// rule anybody may lean on for the bundled half: a pack loophole whose name collides
-// with a RESERVED name (bundled, or one of yolo's own in-process daemons) is refused
-// by the launch pre-flight (run.PackLoopholeNameConflicts) and therefore never reaches
-// an ordering at all. What the position expresses is the half that IS live — a config
-// entry overrides a pack's loophole, exactly as bundled/config already behaved
-// (docs/design/loophole-packaging.md §5.1, "Precedence — draft 1's line is DELETED").
+// `user` labelled a manifest hand-placed in RetiredUserLoopholesDir. It went with the
+// channel (OQ-LP10) and must not come back under another name: it was the one source
+// that started a host daemon with no selection step at all — drop a directory in and
+// every launch discovered it — which contradicts AGENTS.md's "nothing is active by
+// default" in the one place it matters most.
+//
+// `bundled` labelled a manifest inside `bundled_loopholes/`, embedded in the binary. It
+// went the same way on 2026-08-19, when the last of them — `claude-oauth-broker` —
+// became a contribution of `packs/claude` (docs/design/broker-as-a-pack.md OQ-BP4). Two
+// things that hung off the label went with it: the pack-shipped subset's exemption
+// (`publishes: "endpoint"` was available to a bundled manifest and refused to a pack's),
+// and the placement rule's exemption (yolo's own content inside the mounted workspace).
+// Both were true of `bundled` because it meant "the yolo binary's own content", and a
+// PACK — official or not — is judged rather than exempted. A pack (the conventional
+// local one included) carries the same manifest with the same loader, and reaches the
+// per-launch disclosure on the way.
+//
+// What the remaining order expresses: a config entry overrides a pack's loophole, which
+// is what bundled/config already behaved like (docs/design/loophole-packaging.md §5.1,
+// "Precedence — draft 1's line is DELETED"). Name collisions never reach an ordering at
+// all — the launch pre-flight (run.PackLoopholeNameConflicts) is fatal on them.
 const (
-	SourceBundled = "bundled"
-	SourcePack    = "pack"
-	SourceConfig  = "config"
+	SourcePack   = "pack"
+	SourceConfig = "config"
 )
-
-// fileExists reports whether path exists (a file or dir).
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-// BundledLoopholesDir returns the loopholes that ship with the binary. Package
-// var so tests can override. Repo discovery uses the single shared resolver
-// (internal/reporoot) — the SAME method run/check use — so a bundled_loopholes
-// checkout is found identically inside and outside the jail (a source checkout
-// by cwd-walk, self-hosting /workspace included). The shipped "two files and a
-// binary" bundle carries NO bundled_loopholes tree, so an installed binary
-// resolves the manifests from the go:embed copy (materializeEmbedded) — that is
-// the normal production path, not a fallback.
-var BundledLoopholesDir = func() string {
-	root, ok := reporoot.Resolve(os.Getenv)
-	if ok {
-		if dir := filepath.Join(root, "bundled_loopholes"); fileExists(dir) {
-			return dir
-		}
-	}
-	if mat, err := materializeEmbedded(); err == nil {
-		return mat
-	}
-	// Embed materialization failed (cache dir unwritable etc.): degrade to the
-	// resolved repo's bundled_loopholes path (may not exist — pre-embed
-	// behavior), or a bare relative name when nothing resolved.
-	if ok {
-		return filepath.Join(root, "bundled_loopholes")
-	}
-	return "bundled_loopholes"
-}
 
 // RetiredUserLoopholesDir returns the hand-placed loopholes directory that yolo
 // used to DISCOVER from and no longer reads at all (OQ-LP10, ruled yes in
@@ -156,7 +130,7 @@ type Loophole struct {
 	// line per manifest key this build does not know, so the declaration is not
 	// honored. NOT errors — a manifest key only a newer yolo knows must not make
 	// the loophole vanish, which is exactly what the tolerant read exists for — but
-	// never silent either: loadFromDir warns each one, so a DEGRADED loophole (a
+	// never silent either: loadModuleDirs warns each one, so a DEGRADED loophole (a
 	// key this build cannot act on) is as visible as a rejected one. Always empty
 	// on the strict authoring path, where the same manifest is refused outright.
 	// Mirrors packload.Pack.SkewNotes.

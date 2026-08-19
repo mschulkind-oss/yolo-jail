@@ -255,7 +255,7 @@ func TestValidateLoopholesSeesPackModules(t *testing.T) {
 	mod := writeModule(t, t.TempDir(), "acme-proxy", nil)
 	SetPackModules([]PackModule{{Dir: mod, HostExecApproved: true}})
 
-	entries := ValidateLoopholes(false)
+	entries := ValidateLoopholes()
 	var found *ValidateEntry
 	for i := range entries {
 		if entries[i].Loophole != nil && entries[i].Loophole.Name == "acme-proxy" {
@@ -279,7 +279,7 @@ func TestValidateLoopholesReportsAMissingPackModule(t *testing.T) {
 	isolateModules(t)
 	SetPackModules([]PackModule{{Dir: filepath.Join(t.TempDir(), "gone"), HostExecApproved: true}})
 
-	entries := ValidateLoopholes(false)
+	entries := ValidateLoopholes()
 	found := false
 	for _, e := range entries {
 		if strings.HasSuffix(e.Path, "gone") && e.Err != "" {
@@ -391,28 +391,37 @@ func TestPackageLevelRuntimeSurfacesHonorNoPackRecord(t *testing.T) {
 	}
 }
 
-// A BUNDLED/config record is unaffected by the ungated refusal above, which is what
-// keeps `audio` and the broker working through the package-level functions: they carry the
-// user's own authority by construction and need no origin decision.
-func TestPackageLevelRuntimeSurfacesStillHonorNonPackRecords(t *testing.T) {
+// THE NON-PACK EXEMPTION, on the one surface where a non-pack record still reaches the
+// gate at all.
+//
+// It used to be asserted over a SourceBundled record on RuntimeArgsFor and
+// ManifestHostDaemonSpecs — "this is what keeps `audio` and the broker working through the
+// package-level functions". Both halves of that premise are gone as of 2026-08-19: the
+// bundled channel is retired (docs/design/broker-as-a-pack.md OQ-BP4), so SourcePack and
+// SourceConfig are the whole population, and BOTH runtime surfaces drop a config record
+// before the gate is consulted (TestRuntimeArgsSkipConfigBacked — a config entry
+// contributes no binds, devices or intercepts by construction).
+//
+// So the exemption's only live subject is the DOCTOR face, where a config entry's
+// `doctor_cmd` genuinely does run. That is worth pinning rather than dropping: the gate is
+// `m.Source == SourcePack`, and a change that made it "anything not explicitly exempt"
+// would silently stop running the self-check of every loophole a user declared in their
+// own config — a refusal with a message about pack approval, for something no pack shipped.
+func TestConfigRecordsAreExemptFromTheOriginGate(t *testing.T) {
 	unsetJail(t)
-	// SourceBundled is the whole non-pack, non-config population now: `user` is retired
-	// (OQ-LP10) and a SourceConfig record deliberately contributes no runtime args at all
-	// (TestRuntimeArgsSkipConfigBacked), so it cannot stand in for this assertion.
-	for _, source := range []string{SourceBundled} {
-		lp := &Loophole{
-			Name: "fine", Source: source, Enabled: true, Transport: TransportNone,
-			Intercepts: []Intercept{{Host: "api.fine.test"}}, BrokerIP: DefaultBrokerIP,
-			JailEnv:    NewEnvMap(),
-			HostDaemon: &HostDaemon{Cmd: []string{"/bin/true"}, Env: NewEnvMap()},
-		}
-		if args := RuntimeArgsFor([]*Loophole{lp}, "podman"); len(args) == 0 {
-			t.Errorf("a %s loophole contributed nothing to the argv — the origin gate is for "+
-				"PACK records only", source)
-		}
-		if specs := ManifestHostDaemonSpecs([]*Loophole{lp}); specs.Len() != 1 {
-			t.Errorf("a %s loophole's daemon was dropped from the spawn list", source)
-		}
+	sentinel := filepath.Join(t.TempDir(), "ran")
+	lp := &Loophole{
+		Name: "from-config", Source: SourceConfig, Enabled: true,
+		Path:      "<yolo-jail.jsonc:loopholes.from-config>",
+		DoctorCmd: []string{"/bin/sh", "-c", "touch " + sentinel}, DoctorCmdSet: true,
+	}
+	results := RunDoctorChecks([]*Loophole{lp}, 5*time.Second)
+	if results[0].RC == nil || *results[0].RC != 0 {
+		t.Fatalf("a CONFIG record's self-check must run — it carries the user's own authority "+
+			"and no pack shipped it; got rc=%v out=%q", results[0].RC, results[0].Output)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Errorf("the doctor_cmd did not execute: %v", err)
 	}
 }
 
@@ -432,13 +441,12 @@ func TestApprovedPackDoctorCmdRuns(t *testing.T) {
 	}
 }
 
-// A bundled/config record needs no origin decision (both carry the user's own authority
-// by construction), so the gate must not accidentally withhold them — which would break
-// every bundled loophole's self-check.
+// A config record needs no origin decision (it carries the user's own authority by
+// construction), so the gate must not accidentally withhold it — which would break the
+// self-check of every loophole a user declared in their own yolo-jail.jsonc.
 func TestNonPackRecordsAreAlwaysAllowedToRunHostCode(t *testing.T) {
 	unsetJail(t)
 	set := SetOf([]*Loophole{
-		{Name: "b", Source: SourceBundled},
 		{Name: "c", Source: SourceConfig},
 		{Name: "p", Source: SourcePack},
 	})
@@ -456,8 +464,12 @@ func TestNonPackRecordsAreAlwaysAllowedToRunHostCode(t *testing.T) {
 func TestActiveExcludesEnabledButUnmetRequirements(t *testing.T) {
 	unsetJail(t)
 	dir := t.TempDir()
+	// {loophole_dir}-relative, which is the ONE probe shape the pack-shipped subset
+	// permits — and packs are the only module source left. An absolute host path here
+	// makes the manifest refused at load, so the loophole vanishes and Enabled() reads 0:
+	// the same symptom as the bug under test, arriving for the opposite reason.
 	body := `{"name":"needy","default_enabled":true,"transport":"none","lifecycle":"external",` +
-		`"requires":{"file_exists":"` + filepath.Join(dir, "definitely-absent") + `"}}`
+		`"requires":{"file_exists":"{loophole_dir}/definitely-absent"}}`
 	mod := filepath.Join(dir, "needy")
 	if err := os.MkdirAll(mod, 0o755); err != nil {
 		t.Fatal(err)
@@ -466,8 +478,7 @@ func TestActiveExcludesEnabledButUnmetRequirements(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	defer withBundledDir(dir)()
-	set := NewSet(DiscoverOptions{IncludeBundled: true})
+	set := NewSet(DiscoverOptions{PackModules: moduleDirsUnder(dir)})
 	if len(set.Enabled()) != 1 {
 		t.Fatalf("Enabled() = %d records, want 1", len(set.Enabled()))
 	}
@@ -478,30 +489,41 @@ func TestActiveExcludesEnabledButUnmetRequirements(t *testing.T) {
 	}
 }
 
-// NewHostSet is the CONVERGENCE POINT, and its defaults are the ones every hand-built
-// DiscoverOptions had to remember: bundled INCLUDED (the zero value is false), the recorded
-// pack modules, and the include-disabled superset so the narrow views can be derived rather
-// than re-walked.
-func TestNewHostSetIncludesBundledAndRecordedPacks(t *testing.T) {
+// NewHostSet is the CONVERGENCE POINT, and what it supplies is the thing every hand-built
+// DiscoverOptions had to remember: the RECORDED pack modules (never a caller's own list),
+// the supersession claims, and the include-disabled superset so the narrow views are
+// derived rather than re-walked.
+//
+// It used to also have to remember `IncludeBundled: true`, whose zero value is false — the
+// flag all six call sites had to set and any new one would forget. That channel is retired
+// (docs/design/broker-as-a-pack.md OQ-BP4), which removes the trap rather than the
+// convergence: reading the recorded modules instead of PackModules() passed in by the
+// caller is still the property, because a launch that validated against one set and
+// mounted another is the disagreement this type exists to make unrepresentable.
+func TestNewHostSetReadsTheRecordedPackModules(t *testing.T) {
 	unsetJail(t)
 	isolateModules(t)
-	bundled := t.TempDir()
-	writeModule(t, bundled, "fake-bundled", nil)
-	orig := BundledLoopholesDir
-	BundledLoopholesDir = func() string { return bundled }
-	t.Cleanup(func() { BundledLoopholesDir = orig })
 
 	mod := writeModule(t, t.TempDir(), "from-a-pack", nil)
 	SetPackModules([]PackModule{{Dir: mod, HostExecApproved: true}})
 
 	set := NewHostSet(nil)
-	if _, ok := set.Lookup("fake-bundled"); !ok {
-		t.Error("NewHostSet must include bundled loopholes — the DiscoverOptions zero value is " +
-			"IncludeBundled:false, which is exactly the flag every one of the six call sites had " +
-			"to remember to set")
+	lp, ok := set.Lookup("from-a-pack")
+	if !ok {
+		t.Fatal("NewHostSet must include the recorded pack modules — that is the convergence")
 	}
-	if _, ok := set.Lookup("from-a-pack"); !ok {
-		t.Error("NewHostSet must include the recorded pack modules — that is the convergence")
+	if !set.MayRunHostCode(lp) {
+		t.Error("NewHostSet dropped the origin gate the record was recorded with — a Set whose " +
+			"gate is empty refuses every pack loophole's host crossing, which reads as the " +
+			"pack being broken rather than ungated")
+	}
+	// And a module the process never recorded is NOT in it, whatever is on disk. That is
+	// the half that makes the record authoritative rather than advisory.
+	other := writeModule(t, t.TempDir(), "never-recorded", nil)
+	_ = other
+	if _, ok := set.Lookup("never-recorded"); ok {
+		t.Error("NewHostSet found a module nobody recorded — the staged record is what the " +
+			"jail will mount, and discovery must not widen it")
 	}
 }
 
@@ -521,8 +543,7 @@ func TestSetHoldsTheDisabledSupersetAndOffersNarrowViews(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	defer withBundledDir(dir)()
-	set := NewSet(DiscoverOptions{IncludeBundled: true})
+	set := NewSet(DiscoverOptions{PackModules: moduleDirsUnder(dir)})
 	if len(set.All()) != 2 {
 		t.Fatalf("All() = %d, want both records (list has to show the disabled one)", len(set.All()))
 	}

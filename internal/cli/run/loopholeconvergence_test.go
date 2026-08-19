@@ -24,15 +24,44 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// fakeBundled points BundledLoopholesDir at a temp dir and returns it, so a test can define
-// the whole bundled set. Without this the real bundled manifests (audio, the broker,
-// host-processes) leak into every assertion and make them host-dependent.
-func fakeBundled(t *testing.T) string {
+// fakeLoopholes makes a temp dir THE source of every loophole this process discovers, and
+// returns it, so a test can define the whole set. Without it this machine's real packs
+// (audio, the broker, host-processes) leak into every assertion and make them
+// host-dependent.
+//
+// A LAZY PACK-MODULE RESOLVER, for two reasons that used not to apply. Pack modules,
+// because `bundled_loopholes/` is retired (docs/design/broker-as-a-pack.md OQ-BP4) and a
+// pack contribution is the only module source left — which also means every fixture here
+// is read through the PACK-SHIPPED SUBSET, so a manifest declaring `jail_env` or the
+// default `publishes: "endpoint"` now vanishes instead of loading. Lazy, because the
+// caller writes its module dirs AFTER this returns: a record taken here would be empty and
+// the test would pass over nothing.
+//
+// Approved, because the fixtures stand in for content the user selected; the origin gate
+// has its own tests (loopholeorigingate_test.go).
+func fakeLoopholes(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	orig := loopholes.BundledLoopholesDir
-	loopholes.BundledLoopholesDir = func() string { return dir }
-	t.Cleanup(func() { loopholes.BundledLoopholesDir = orig })
+	loopholes.SetPackModuleResolver(func() []loopholes.PackModule {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return nil
+		}
+		var out []loopholes.PackModule
+		for _, e := range entries {
+			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			out = append(out, loopholes.PackModule{
+				Dir: filepath.Join(dir, e.Name()), HostExecApproved: true})
+		}
+		return out
+	})
+	loopholes.ResetPackModules()
+	t.Cleanup(func() {
+		loopholes.ResetPackModules()
+		loopholes.SetPackModuleResolver(resolvePackLoopholeModules)
+	})
 	return dir
 }
 
@@ -81,9 +110,9 @@ func TestBriefingAdvertisesOnlyActiveLoopholes(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	os.Unsetenv("YOLO_VERSION")
 	isolatePackModules(t)
-	bundled := fakeBundled(t)
-	writeLoopholeModule(t, bundled, "live-one", "")
-	writeLoopholeModule(t, bundled, "inactive-one", filepath.Join(t.TempDir(), "definitely-absent"))
+	modules := fakeLoopholes(t)
+	writeLoopholeModule(t, modules, "live-one", "")
+	writeLoopholeModule(t, modules, "inactive-one", "{loophole_dir}/definitely-absent")
 
 	set := loopholes.NewHostSet(nil)
 	// Preconditions: both are ENABLED, only one is ACTIVE. Without this the assertion
@@ -119,7 +148,7 @@ func TestBriefingAdvertisesOnlyActiveLoopholes(t *testing.T) {
 func TestRunPathSurfacesSeeARecordedPackLoophole(t *testing.T) {
 	os.Unsetenv("YOLO_VERSION")
 	isolatePackModules(t)
-	fakeBundled(t)
+	fakeLoopholes(t)
 	mod := writeLoopholeModule(t, t.TempDir(), "acme-proxy", "")
 	loopholes.SetPackModules([]loopholes.PackModule{{Dir: mod, HostExecApproved: true}})
 
@@ -146,20 +175,39 @@ func TestRunPathSurfacesSeeARecordedPackLoophole(t *testing.T) {
 	}
 }
 
-// TestBrokerLookupIsUnshadowable: brokerLoopholeActive looks up a RESERVED name, so it can
-// only ever find yolo's own bundled record. That is what closes §5.1's half-the-broker
-// hazard — this predicate evaluating a PACK's Active() to decide the terminator/CA/endpoint
-// wiring while loopholesruntime.go special-cased the NAME and ran yolo's own broker argv.
+// TestBrokerLookupIsPackExclusive replaces TestBrokerLookupIsUnshadowable, and the
+// replacement is the whole story of the broker's move.
 //
-// Pinned at the pre-flight, which is where the guarantee actually lives.
-func TestBrokerLookupIsUnshadowable(t *testing.T) {
+// The old test asserted that `claude-oauth-broker` was RESERVED, so brokerLoopholeActive
+// could only ever find yolo's own bundled record. That reservation had to be retired in
+// the same commit the manifest moved into `packs/claude` — a pack claiming a reserved name
+// fails the pre-flight FATALLY, so leaving it would have refused every claude user's launch
+// (docs/design/broker-as-a-pack.md §6.1).
+//
+// What protects the lookup now is the pre-flight's OTHER half, which is stronger for the
+// case that actually matters: loophole names are sole-owned ACROSS PACKS, so once
+// `packs/claude` occupies the name, any other pack claiming it refuses the launch by name
+// for everyone who selected claude — which is everyone the broker is for. The residual
+// case, a pack claiming the name with claude NOT selected, is bounded by the origin gate
+// (TestBrokerEnvSuppressedForAnUnapprovedPack).
+func TestBrokerLookupIsPackExclusive(t *testing.T) {
 	got := PackLoopholeNameConflicts([]PackLoopholeDecl{
+		decl("claude", "loopholes/"+broker.BrokerLoopholeName),
 		decl("sneaky", "loopholes/"+broker.BrokerLoopholeName),
 	})
 	if len(got) != 1 {
-		t.Fatalf("a pack shipping loopholes/%s must be refused at staging, or brokerLoopholeActive "+
-			"would evaluate the PACK's Active() while startLoopholes still ran yolo's own broker "+
-			"argv — half the broker from one manifest, no message", broker.BrokerLoopholeName)
+		t.Fatalf("a second pack claiming loopholes/%s must be refused: brokerLoopholeActive, "+
+			"brokerEnsure, `yolo broker status` and `yolo check` all reach this name by "+
+			"literal, so two claimants is half the broker from one manifest — got %d "+
+			"conflicts", broker.BrokerLoopholeName, len(got))
+	}
+	// And the shipped pack ALONE is fine, which is the half that breaks every claude user
+	// if the retired reservation ever comes back.
+	if got := PackLoopholeNameConflicts([]PackLoopholeDecl{
+		decl("claude", "loopholes/"+broker.BrokerLoopholeName),
+	}); len(got) != 0 {
+		t.Errorf("the claude pack's own loophole is refused by the pre-flight, so every launch "+
+			"selecting it fails to start:\n%s", strings.Join(got, "\n"))
 	}
 }
 
@@ -190,8 +238,8 @@ func TestBrokerLookupIsUnshadowable(t *testing.T) {
 func TestFormerBuiltinNamesAreSpawnedNotSkipped(t *testing.T) {
 	os.Unsetenv("YOLO_VERSION")
 	isolatePackModules(t)
-	bundledRoot := fakeBundled(t)
-	writeHostDaemonModule(t, bundledRoot, "journal")
+	moduleRoot := fakeLoopholes(t)
+	writeHostDaemonModule(t, moduleRoot, "journal")
 
 	var out bytes.Buffer
 	o := goldenOptions(t.TempDir(), t.TempDir())
@@ -231,8 +279,14 @@ func TestCgroupDelegateNeedsItsLoophole(t *testing.T) {
 			"every launch before 2026-08-18")
 	}
 
+	// SourceConfig for the two hand-built records, because a Set assembled with SetOf
+	// carries NO origin gate — so a SourcePack record would be refused for its provenance
+	// and the positive case below could never distinguish "the switch works" from "the
+	// gate refused it". A config record needs no origin decision, which is exactly the
+	// property that makes it the right stand-in here. (It was SourceBundled until that
+	// label was retired with the channel; the pack case is asserted separately below.)
 	disabled := &loopholes.Loophole{
-		Name: paths.BuiltinCgroupLoopholeName, Enabled: false, Source: loopholes.SourceBundled,
+		Name: paths.BuiltinCgroupLoopholeName, Enabled: false, Source: loopholes.SourceConfig,
 	}
 	if o.cgroupDelegateHonored(loopholes.SetOf([]*loopholes.Loophole{disabled})) {
 		t.Error("a DISABLED cgroup-delegate record still honors the delegate — the user's " +
@@ -240,7 +294,7 @@ func TestCgroupDelegateNeedsItsLoophole(t *testing.T) {
 	}
 
 	enabled := &loopholes.Loophole{
-		Name: paths.BuiltinCgroupLoopholeName, Enabled: true, Source: loopholes.SourceBundled,
+		Name: paths.BuiltinCgroupLoopholeName, Enabled: true, Source: loopholes.SourceConfig,
 	}
 	if !o.cgroupDelegateHonored(loopholes.SetOf([]*loopholes.Loophole{enabled})) {
 		t.Error("an ENABLED, active, non-pack record does not honor the delegate — the " +
@@ -251,8 +305,9 @@ func TestCgroupDelegateNeedsItsLoophole(t *testing.T) {
 	// no gate, so MayRunHostCode is false — the fail-safe direction, and the reason this
 	// predicate is Honored-shaped rather than a bare Active(). Starting a host-side
 	// listener on the strength of a PACK's record is exactly the crossing that gate
-	// governs, and the broker's equivalent may skip it only because its record is
-	// bundled under a name no pack may claim.
+	// governs. The broker's equivalent used to be allowed to skip it, because its record
+	// was bundled under a name no pack could claim; since 2026-08-19 it is pack-shipped
+	// too and brokerLoopholeActive asks the same question this does.
 	fromPack := &loopholes.Loophole{
 		Name: paths.BuiltinCgroupLoopholeName, Enabled: true, Source: loopholes.SourcePack,
 		Path: "/nowhere/cgroup-delegate",

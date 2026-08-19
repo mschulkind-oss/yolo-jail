@@ -121,15 +121,14 @@ const (
 //	added today can only bind the NEXT deletion-shaped change, never this one.
 //
 // So the residual is a RELEASE NOTE, and the population is smaller than it looks.
-// For the three BUNDLED manifests reverse skew is structurally impossible: they are
-// embedded into the binary with go:embed, and internal/loopholes' materializeEmbedded
-// is content-addressed over
-// the embedded bytes, so a binary reads its own copy and never a newer one. The lone
-// exception is BundledLoopholesDir preferring a repo checkout when one resolves —
-// a yolo-jail developer whose binary predates this change and whose checkout does
-// not, one `just load` from fixed. For PACK-shipped manifests, written by third
-// parties and updated independently of the binary, it is real and unclosable from
-// inside this package.
+// For the manifests yolo SHIPS reverse skew is structurally impossible: they ride the
+// OFFICIAL PACK embed into the binary with go:embed, and a staged official pack is
+// materialized from that embed, so a binary reads its own copy and never a newer one.
+// (This paragraph used to say the same of `bundled_loopholes/`, whose embed is retired —
+// docs/design/broker-as-a-pack.md OQ-BP4 — and named BundledLoopholesDir's repo-checkout
+// preference as the lone exception. That preference is gone with the function.) For
+// FETCHED packs' manifests, written by third parties and updated independently of the
+// binary, it is real and unclosable from inside this package.
 
 // retiredTopKeyRefusal returns the refusal text for a retired TOP-LEVEL key, or ""
 // when the key is not retired. Written as a lookup over all keys rather than an `if`

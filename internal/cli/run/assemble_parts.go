@@ -466,20 +466,29 @@ func (o *Options) brokerEndpointIsUnpublishable() bool {
 	return o.inJail() && !o.PathExists(broker.BrokerSingletonSocket)
 }
 
-// brokerLoopholeActive reports whether this launch's broker loophole is enabled
-// and its requirements are met — Active(), the same predicate RuntimeArgsFor uses
-// to decide whether the in-jail terminator runs at all.
+// brokerLoopholeActive reports whether this launch's broker loophole is enabled, its
+// requirements are met, AND the pack that shipped it may touch the host.
 //
-// Census site 2, through the converged set (loopholes.NewHostSet). The name it looks up is
-// RESERVED, so this lookup can only ever find yolo's own bundled record: a pack shipping
-// `loopholes/claude-oauth-broker` is refused by the launch pre-flight
-// (PackLoopholeNameConflicts) and never reaches discovery. That is what closes §5.1's
-// half-the-broker hazard — this function evaluating a PACK's Active() to decide the
-// terminator/CA/endpoint wiring while loopholesruntime.go special-cased the NAME and ran
-// yolo's own broker argv.
+// Census site 2, through the converged set (loopholes.NewHostSet).
+//
+// HONORED, NOT Active(), AND THE UPGRADE IS THE PACK MOVE'S OWN CONSEQUENCE. Until
+// 2026-08-19 this stopped at Active(), and the reason it could was written down beside
+// cgroupDelegateHonored: the broker's record was BUNDLED — yolo's own manifest, in yolo's
+// own tree, under a name no pack could claim, so there was no origin to gate. The manifest
+// is a contribution of `packs/claude` now (docs/design/broker-as-a-pack.md §10 step 5) and
+// the reservation is retired, so both halves of that reason are gone in the same commit:
+// the record comes from a pack, and the name is claimable by another one.
+//
+// What this predicate switches on is not cosmetic — the in-jail TLS terminator, the CA
+// mount, the endpoint environment variable, and (through run.go) the host singleton spawn
+// itself. Starting all of that on the strength of a pack record whose origin nobody
+// evaluated is exactly the crossing the gate exists to govern. For yolo's own official
+// `claude` pack the gate passes by construction (an embedded pack carries yolo's own
+// authority), so nothing changes for the user this loophole is for.
 func brokerLoopholeActive(cfg *jsonx.OrderedMap) bool {
-	if lp, ok := loopholes.NewHostSet(cfgMap(cfg, "loopholes")).Lookup(broker.BrokerLoopholeName); ok {
-		return lp.Active()
+	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+	if lp, ok := set.Lookup(broker.BrokerLoopholeName); ok {
+		return lp.Active() && set.MayRunHostCode(lp)
 	}
 	return false
 }

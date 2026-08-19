@@ -68,7 +68,7 @@ import (
 // state dir, so that is where the copy goes.
 //
 // DOT-PREFIXED so it can never be mistaken for a loophole. Discovery skips dot-children
-// (loopholes.loadFromDir) and a manifest's `name` must equal its directory basename, so no
+// (loopholes.loadModuleDirs) and a manifest's `name` must equal its directory basename, so no
 // loophole can be called ".retired" — the collision is unrepresentable rather than merely
 // avoided.
 const RetiredLoopholeStateDir = ".retired"

@@ -448,7 +448,7 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	//
 	// The cost, named rather than discovered: an already-shipped third-party manifest
 	// carrying `enabled` now FAILS TO LOAD, so its loophole vanishes with a warning
-	// (loadFromDir) instead of quietly changing meaning. That is the fail-CLOSED
+	// (loadModuleDirs) instead of quietly changing meaning. That is the fail-CLOSED
 	// direction in both readings — `enabled: true` wanted on and gets off, `enabled:
 	// false` wanted off and gets off — which is what makes a refusal affordable here
 	// where R3's `requires` deletion could not have one.
@@ -470,7 +470,7 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	// `version` is RECOGNIZED and not type-checked. Recognized so the strict
 	// decoder does not report the key all three bundled manifests declare as a
 	// typo; not type-checked because nothing reads the value, and a manifest must
-	// not VANISH (loadFromDir warns and moves on) over a field no consumer has.
+	// not VANISH (loadModuleDirs warns and moves on) over a field no consumer has.
 	version, versionSet := 0, false
 	if vv, ok := data.Get(keyVersion); ok && vv != nil {
 		if lit, isInt := jsonx.AsIntLiteral(vv); isInt {

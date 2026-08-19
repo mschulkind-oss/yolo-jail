@@ -166,7 +166,7 @@ func SettingKeys(settings []Setting) []string {
 //
 // The blast radius of that refusal is the same one the retired-key refusal in walk()
 // already accepts and is bounded the same way: the manifest fails to load, so
-// loadFromDir warns and the loophole VANISHES. No loophole means no daemon and no
+// loadModuleDirs warns and the loophole VANISHES. No loophole means no daemon and no
 // values — fail-closed in every direction, which is what makes a refusal affordable
 // here.
 func parseSettings(manifestPath string, raw any) ([]Setting, error) {
@@ -354,7 +354,7 @@ func CoerceSettingValue(typ string, v any) (any, string) {
 //
 // Both directions are refused: the whole-dir mount (no `state_files`), and a
 // `state_files` that names the settings file outright. Fail-closed either way — the
-// manifest does not load, so loadFromDir warns and the loophole vanishes, taking its
+// manifest does not load, so loadModuleDirs warns and the loophole vanishes, taking its
 // daemon and its values with it.
 func refuseSettingsFileCrossingIntoTheJail(manifestPath string, declared int, hasJailDaemon bool, stateFiles []string) error {
 	if declared == 0 || !hasJailDaemon {

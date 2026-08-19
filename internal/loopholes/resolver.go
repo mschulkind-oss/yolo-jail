@@ -3,20 +3,22 @@ package loopholes
 import "github.com/mschulkind-oss/yolo-jail/internal/config"
 
 // Resolver implements config.LoopholeResolver, backing _validate_config's
-// _known_loopholes() with real file-backed discovery (bundled + the recorded pack
-// modules, include_disabled=True). config.ValidateConfig consults only Name +
-// HasHostDaemon per loophole.
+// _known_loopholes() with real file-backed discovery (the recorded pack modules,
+// include_disabled=True). config.ValidateConfig consults only Name + HasHostDaemon
+// per loophole.
 // This is the integration seam config declared as a stage-14 placeholder: the
 // config package owns the interface, this package supplies the implementation.
-type Resolver struct {
-	// IncludeBundled toggles the bundled dir (default: true).
-	IncludeBundled bool
-}
+//
+// IT HAD ONE FIELD, `IncludeBundled`, and it always held true. The bundled channel is
+// retired (docs/design/broker-as-a-pack.md OQ-BP4), so the switch named a source that
+// no longer exists; the struct is kept empty rather than replaced by a bare function
+// because it is the type config.LoopholeResolver is satisfied by.
+type Resolver struct{}
 
 // NewResolver returns a Resolver matching _known_loopholes()'s call:
-// discover_loopholes(include_disabled=True) with bundled included.
+// discover_loopholes(include_disabled=True).
 func NewResolver() *Resolver {
-	return &Resolver{IncludeBundled: true}
+	return &Resolver{}
 }
 
 // discovered with include_disabled=True. Discovery never errors (per-manifest
@@ -41,7 +43,6 @@ func NewResolver() *Resolver {
 func (r *Resolver) Known() (map[string]config.LoopholeInfo, bool) {
 	loaded := Discover(DiscoverOptions{
 		IncludeDisabled: true,
-		IncludeBundled:  r.IncludeBundled,
 		PackModules:     PackModules(),
 	})
 	out := make(map[string]config.LoopholeInfo, len(loaded))

@@ -18,24 +18,31 @@ import (
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
-// emptyLoopholeDirs points BundledLoopholesDir at an empty temp dir so the golden argv
-// is hermetic (no bundled-loophole runtime args). Real production discovers the bundled
-// loopholes; the loophole runtime-args builder is exercised by internal/loopholes' own
-// tests.
+// emptyLoopholeDirs empties every loophole source this process can see, so the golden
+// argv is hermetic (no loophole runtime args at all). Real production discovers the
+// official packs' loopholes; the loophole runtime-args builder is exercised by
+// internal/loopholes' own tests.
 //
-// It also points the RETIRED hand-placed dir (OQ-LP10) at the same empty tree. That
-// directory contributes no loopholes any more, but it does produce a one-off migration
-// WARNING when it is populated — and a developer whose real home still has one would
-// otherwise see that line inside these tests.
+// It used to point BundledLoopholesDir at an empty temp dir. With that channel retired
+// (docs/design/broker-as-a-pack.md OQ-BP4), the source that would otherwise leak in is the
+// PACK-MODULE RECORD — including this package's own lazily-registered resolver, which
+// reads the developer's real user config — so that is what has to be emptied.
+//
+// It also points the RETIRED hand-placed dir (OQ-LP10) at an empty tree. That directory
+// contributes no loopholes any more, but it does produce a one-off migration WARNING when
+// it is populated — and a developer whose real home still has one would otherwise see that
+// line inside these tests.
 func emptyLoopholeDirs(t *testing.T) {
 	t.Helper()
 	empty := t.TempDir()
-	origB, origR := loopholes.BundledLoopholesDir, loopholes.RetiredUserLoopholesDir
-	loopholes.BundledLoopholesDir = func() string { return empty }
+	origR := loopholes.RetiredUserLoopholesDir
 	loopholes.RetiredUserLoopholesDir = func() string { return empty }
+	loopholes.SetPackModuleResolver(nil)
+	loopholes.ResetPackModules()
 	t.Cleanup(func() {
-		loopholes.BundledLoopholesDir = origB
 		loopholes.RetiredUserLoopholesDir = origR
+		loopholes.ResetPackModules()
+		loopholes.SetPackModuleResolver(resolvePackLoopholeModules)
 	})
 }
 

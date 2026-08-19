@@ -26,7 +26,7 @@ import (
 //
 // An alias, not a wrapper: the errors now come from the schema package, and one
 // error type means a caller that already knows this name keeps working. Discovery
-// warns and continues on it (loadFromDir); ValidateLoopholes surfaces its message.
+// warns and continues on it (loadModuleDirs); ValidateLoopholes surfaces its message.
 type LoopholeError = loopholedecl.Error
 
 // LoadLoophole loads a single loophole from its directory.
@@ -38,7 +38,7 @@ func LoadLoophole(modulePath string) (*Loophole, error) {
 //
 // It reads TOLERANTLY (loopholedecl.LoadDirTolerant) because that is discovery's
 // contract: a manifest key this build does not know must not make the loophole
-// VANISH — loadFromDir's failure mode is "no host daemon, no endpoint, no env var,
+// VANISH — loadModuleDirs's failure mode is "no host daemon, no endpoint, no env var,
 // no entry in `yolo loopholes list`, and a downstream error that names something
 // else". A key only a newer yolo knows is version skew, not corruption, so it is
 // skipped rather than refused. The STRICT decoder (loopholedecl.Decode) is for
@@ -70,7 +70,7 @@ func loadManifest(modulePath string) (*Loophole, error) {
 // cannot declare that a pack shipped it (it would just lie), and every caller that
 // reads one already knows which of the four sources it came from. The returned
 // record's Source is whatever resolve() sets; the caller labels it, exactly as
-// loadFromDir does today.
+// loadModuleDirs does today.
 func LoadPackLoophole(modulePath string) (*Loophole, error) {
 	m, skipped, err := loopholedecl.LoadDirTolerant(modulePath)
 	if err != nil {
@@ -291,7 +291,7 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		Settings:      m.Settings,
 		// SOURCE IS THE CALLER'S FACT and this is only the fail-safe default. A
 		// manifest cannot say who shipped it (it would just lie), so every discovery
-		// path relabels the record immediately — loadFromDir, loadModuleDirs and
+		// path relabels the record immediately — loadModuleDirs, loadModuleDirs and
 		// ValidateLoopholes each assign the source they walked.
 		//
 		// It defaults to SourcePack because that is the LEAST-PRIVILEGED of the three

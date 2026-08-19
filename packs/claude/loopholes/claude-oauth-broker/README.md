@@ -1,40 +1,75 @@
-# claude-oauth-broker loophole (bundled)
+# claude-oauth-broker loophole
 
-Ships with the yolo-jail wheel. Serializes Claude OAuth refreshes so multi-jail setups don't burn the single-use refresh token. See [`docs/research/claude-oauth-refresh-mechanics.md`](../../docs/research/claude-oauth-refresh-mechanics.md) for design rationale, [`docs/research/claude-token-logouts.md`](../../docs/research/claude-token-logouts.md) for operator triage, [`docs/guides/loopholes.md`](../../docs/guides/loopholes.md) for the loophole system.
+A contribution of the official **`claude` pack** — `packs/claude/pack.json` declares
+`{"kind": "loophole", "from": "loopholes/claude-oauth-broker"}`, so selecting `packs: ["claude"]` is
+what installs it. Serializes Claude OAuth refreshes so multi-jail setups don't burn the single-use
+refresh token. See [`docs/research/claude-oauth-refresh-mechanics.md`](../../../../docs/research/claude-oauth-refresh-mechanics.md) for design rationale, [`docs/research/claude-token-logouts.md`](../../../../docs/research/claude-token-logouts.md) for operator triage, [`docs/guides/loopholes.md`](../../../../docs/guides/loopholes.md) for the loophole system.
 
-## Architecture — two daemons + a per-jail relay, no privileged ports
+It was `bundled_loopholes/claude-oauth-broker/` until 2026-08-19, and it was the **last** inhabitant
+of that channel: this move is what emptied and retired it
+([`docs/design/broker-as-a-pack.md`](../../../../docs/design/broker-as-a-pack.md) §10 step 5).
+Nothing about the loophole's own paths changed — same name, same `{state}` dir, same endpoint file —
+so an upgrading host keeps its CA and every jail keeps trusting it.
 
-- **Host daemon** (`yolo internal daemon claude-oauth-broker`) — a host-wide **singleton** serving every jail. Holds the flock, reads/writes the shared credentials file. Listens only on `/tmp/yolo-claude-oauth-broker.sock`; that socket is never exposed to jails.
-- **Per-jail relay** (`yolo internal daemon broker-relay`) — a supervised standalone host process, one per running jail, re-ensured on every `yolo` invocation that targets the jail. It dials the singleton's socket **per connection** — so a restarted broker is picked up on the very next request, no jail relaunch. The relay is also the attribution point: it injects `jail_id` into each connection's first length-prefixed request message, so the broker log names the jail (host-side injection — trustworthy, unlike an in-jail self-report).
+## Architecture — two daemons, one shared across every jail, no privileged ports
 
-  The relay has two faces. Its own Unix socket, `/tmp/yolo-broker-relay-<hash>.sock`, is **host-only** and beside its pid and lock files — no jail can reach it. What the jail reaches is a **loopback-TLS front**: a `127.0.0.1` listener on a kernel-assigned port, serving a throwaway certificate whose private key never leaves the relay's memory, which splices each authenticated connection into that socket.
-- **Jail daemon** (`yolo-jaild oauth-terminator`) — supervised inside the jail at boot. Binds `127.0.0.1:443` in the container network namespace (unprivileged there), terminates TLS for `platform.claude.com` with a CA-signed leaf cert, and forwards refresh/proxy requests to the relay's front, which it finds via `YOLO_SERVICE_CLAUDE_OAUTH_BROKER_ENDPOINT=/run/yolo-services/claude-oauth-broker.endpoint`.
+- **Host daemon** (`yolo internal daemon claude-oauth-broker`) — a host-wide **singleton** serving
+  every jail, declared by `host_daemon.scope: "host"`. Holds the flock, reads/writes the shared
+  credentials file. Binds `/tmp/yolo-claude-oauth-broker.sock`; that socket is never exposed to
+  jails.
+- **The framework front** — not a process of this loophole's at all. Because the manifest declares
+  `publishes: "socket"`, yolo runs a `svcendpoint` loopback-TLS front **per jail** over that one
+  socket: a `127.0.0.1` listener on a kernel-assigned port, serving a throwaway certificate whose
+  private key never leaves the launching `yolo` process, splicing each authenticated connection into
+  the singleton. It dials per connection, so a restarted broker is picked up on the very next
+  request with no jail relaunch.
+
+  It is also the attribution point: the front prepends yolo's **connection preamble**, carrying a
+  host-asserted `jail_id`, so the broker's audit line names the jail and that name cannot be forged
+  from inside one.
+
+  A **per-jail relay** (`yolo internal daemon broker-relay`) used to do all of this. It is deleted
+  ([`broker-as-a-pack.md`](../../../../docs/design/broker-as-a-pack.md) §7); the front is a goroutine
+  in the launching process and there is no second host daemon to supervise, reap or leak.
+- **Jail daemon** (`yolo-jaild oauth-terminator`) — supervised inside the jail at boot. Binds
+  `127.0.0.1:443` in the container network namespace (unprivileged there), terminates TLS for
+  `platform.claude.com` with a CA-signed leaf cert, and forwards refresh/proxy requests to the front,
+  which it finds via
+  `YOLO_SERVICE_CLAUDE_OAUTH_BROKER_ENDPOINT=/run/yolo-services/claude-oauth-broker.endpoint`.
 
 ## The endpoint file is a credential
 
-That file is one line — `<host:port> <base64 cert> <token>` — written **0600** into this jail's own host-services dir (`/tmp/yolo-host-services-<hash>/`, mounted at `/run/yolo-services/`). It is re-read **fresh on every dial**, so a restarted relay on a new port with a new certificate and a new token is picked up with no jail relaunch.
+That file is one line — `<host:port> <base64 cert> <token>` — written **0600** into this jail's own host-services dir (`/tmp/yolo-host-services-<hash>/`, mounted at `/run/yolo-services/`). It is re-read **fresh on every dial**, so a front on a new port with a new certificate and a new token is picked up with no jail relaunch.
 
 - The client trusts **exactly** the certificate in that file, via a dedicated root pool — not a CA, and specifically not this loophole's own CA ([#33](https://github.com/mschulkind-oss/yolo-jail/issues/33) is why).
-- The **token** is what `0600` means on a port: reachability is not authorization. It is minted in the relay's memory, per jail and per service, and compared in constant time.
+- The **token** is what `0600` means on a port: reachability is not authorization. It is minted in the front's memory, per jail and per service, and compared in constant time.
 - **There is no token environment variable, deliberately.** An env var is inherited by every child process the terminator spawns; a file is read at the moment of use by the one process that needs it. `YOLO_SERVICE_CLAUDE_OAUTH_BROKER_TOKEN` does not exist and no fallback reads one.
 - Never copy an endpoint file between jails, and never paste one into a log or a bug report.
 
-Failure layers in the jail daemon's log, four now rather than three:
+Failure layers in the jail daemon's log. The word *relay* survives in these strings and now names
+the **front** — the layer split they encode is unchanged, and renaming them is a separate change:
 
 | Message | Meaning |
 |---|---|
-| `relay unreachable — …` | the endpoint file is not published, or nothing is listening at the address it names — the host-side relay for this jail is down |
-| `relay auth rejected — …` | the endpoint file's token does not match the running relay: the file is stale (the relay restarted and republished, or a predecessor's file was left behind) |
+| `relay unreachable — …` | the endpoint file is not published, or nothing is listening at the address it names — this jail's front is down |
+| `relay auth rejected — …` | the endpoint file's token does not match the running front: the file is stale (a predecessor's file was left behind) |
 | `host broker endpoint …: malformed endpoint file` | the file exists but is truncated or was written by an older yolo |
-| `host broker unreachable through the relay …` / `host broker exited N` | the relay answered but the broker behind it failed |
+| `host broker unreachable through the relay …` / `host broker exited N` | the front answered but the singleton behind it failed |
 
-Any `yolo` invocation against the jail respawns the relay and republishes the file.
+Any `yolo` invocation against the jail re-runs the front and republishes the file.
 
 ## Activation
 
-The manifest's `requires.command_on_path: claude` predicate gates activation: when `claude` isn't on the host's PATH, the loophole is *present but inactive* — visible in `yolo loopholes list`, but not wired into any jail. No errors, no noise.
+**Selecting the pack is the activation.** `default_enabled: true` — the one shipped loophole that
+stays on by default, because a jail-only claude user who loses it is not merely without a feature,
+they are running unserialized single-use refresh-token races against Anthropic.
 
-To explicitly disable even when Claude is installed, override from `yolo-jail.jsonc`:
+The manifest's `requires.command_on_path: claude` predicate is **gone** as of the pack move. It was a
+host-side `exec.LookPath`, and it read false for exactly the user yolo exists for: someone who
+installs claude *inside* the jail and never on the host. Selecting `packs: ["claude"]` is the
+dependency it was approximating.
+
+To disable it while keeping the claude pack, override from `yolo-jail.jsonc`:
 
 ```jsonc
 {
@@ -48,7 +83,7 @@ To explicitly disable even when Claude is installed, override from `yolo-jail.js
 
 | File | Location | Reaches a jail? | Purpose |
 |---|---|---|---|
-| `manifest.jsonc` | bundled (in wheel, read-only) | yes (`/etc/yolo-jail/loopholes/…`) | Loophole definition |
+| `manifest.jsonc` | the `claude` pack's staged tree (read-only) | yes (`/etc/yolo-jail/loopholes/…`) | Loophole definition |
 | `ca.crt` | state dir | **yes** | Root CA generated by `--init-ca`, valid 10 years. Trusted inside jails via `NODE_EXTRA_CA_CERTS`. |
 | `server.crt`, `server.key` | state dir | **yes** | Leaf cert for `platform.claude.com`, issued by the CA. Used by the in-jail TLS terminator. |
 | `ca.key` | state dir | **no** | The CA's **private key**. Signing happens host-side only (`internal/oauthbroker/cert.go`); nothing in a jail reads it. |
@@ -70,8 +105,8 @@ yolo internal daemon claude-oauth-broker --force-init-ca
 # Self-check (also runs automatically via `yolo doctor` → manifest.doctor_cmd)
 yolo internal daemon claude-oauth-broker --self-check
 
-# Singleton host daemon log (one file, all jails; per-jail relay logs
-# live in the same directory)
+# Singleton host daemon log — ONE file for every jail on the machine, which is
+# what "host-wide singleton" means. There are no per-jail relay logs any more.
 tail -F ~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log
 
 # Jail daemon logs (from inside a jail)

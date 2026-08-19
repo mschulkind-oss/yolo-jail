@@ -162,7 +162,13 @@ func List(deps Deps) int {
 	all := loopholesWithConfig(deps, true).All()
 	if len(all) == 0 {
 		fmt.Fprintln(deps.Out, "No loopholes installed.")
-		fmt.Fprintf(deps.Out, "  • bundled: %s\n", BundledLoopholesDir())
+		// TWO SOURCES, not three. There used to be a `bundled:` line naming
+		// BundledLoopholesDir(), and dropping it is the point rather than a trim: the
+		// empty-list message is the one surface that tells a user WHERE a loophole
+		// could come from, and naming a channel that no longer exists would send them
+		// to look in a directory yolo does not read (docs/design/broker-as-a-pack.md
+		// OQ-BP4). Every loophole yolo ships is a pack's now, so `packs:` is the
+		// answer to "why is this list empty".
 		fmt.Fprintf(deps.Out, "  • pack: a `loophole` contribution from a selected pack; "+
 			"%s is selected implicitly when it exists\n", paths.LocalPackDir())
 		fmt.Fprintf(deps.Out, "  • config: loopholes: block in %s "+

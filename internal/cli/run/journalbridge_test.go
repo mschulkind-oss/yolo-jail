@@ -95,7 +95,6 @@ func TestShippedJournalPackRunsBehindTheFront(t *testing.T) {
 
 	var lp *loopholes.Loophole
 	for _, cand := range loopholes.Discover(loopholes.DiscoverOptions{
-		IncludeBundled:  true,
 		IncludeDisabled: true,
 		PackModules:     []loopholes.PackModule{shippedPackLoopholeModule(t, "journal")},
 	}) {

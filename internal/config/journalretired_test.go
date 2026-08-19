@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	bundledloopholes "github.com/mschulkind-oss/yolo-jail/bundled_loopholes"
 	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
@@ -150,12 +149,15 @@ func TestTheInheritCensusStopsEmittingJournal(t *testing.T) {
 // knownTopLevelConfigKeys AND classifying it into both scopes left the entire unit gate
 // green, which is exactly the regression this test's own comment promises to catch.
 //
-// So the names come off the two EMBEDS that decide what a loophole is: bundled_loopholes/
-// (one directory per loophole) and packs/<pack>/loopholes/<name>/. Both are already in
-// internal/config's dependency graph — `packs` because PackEntry resolves embedded packs,
-// and neither embed imports anything of yolo's, so reading them here adds no cycle. A
-// loophole that ships tomorrow is in the set the day it ships, with nobody editing this
-// file.
+// So the names come off the EMBED that decides what a loophole is:
+// packs/<pack>/loopholes/<name>/. It is already in internal/config's dependency graph
+// (PackEntry resolves embedded packs) and imports nothing of yolo's, so reading it here
+// adds no cycle. A loophole that ships tomorrow is in the set the day it ships, with
+// nobody editing this file.
+//
+// IT USED TO READ TWO EMBEDS. `bundled_loopholes/` was the other, and it is retired
+// (docs/design/broker-as-a-pack.md OQ-BP4) — every loophole yolo ships is a pack's now,
+// which is why one read covers the same set it always did.
 //
 // BOTH SPELLINGS, because the collision is a spelling apart: a loophole's name is
 // hyphenated (`host-processes`) and a top-level config key is not (`host_processes`), and
@@ -203,10 +205,10 @@ func TestCoresSchemaNamesNoLoopholeInEitherInheritScope(t *testing.T) {
 	}
 }
 
-// shippedLoopholeNames reads every loophole yolo ships out of the two embeds that
-// define the answer, so the property above cannot go stale.
+// shippedLoopholeNames reads every loophole yolo ships out of the embed that defines
+// the answer, so the property above cannot go stale.
 //
-// The EMBEDS rather than the on-disk tree, for the reason the loopholedecl tests give:
+// The EMBED rather than the on-disk tree, for the reason the loopholedecl tests give:
 // an installed binary carries these and no checkout, and a walk of `packs/` would pass
 // in this working copy while saying nothing about what a release contains.
 //
@@ -215,16 +217,6 @@ func TestCoresSchemaNamesNoLoopholeInEitherInheritScope(t *testing.T) {
 func shippedLoopholeNames(t *testing.T) []string {
 	t.Helper()
 	var out []string
-
-	bundled, err := fs.ReadDir(bundledloopholes.FS, ".")
-	if err != nil {
-		t.Fatalf("reading the bundled loophole embed: %v", err)
-	}
-	for _, e := range bundled {
-		if e.IsDir() {
-			out = append(out, e.Name())
-		}
-	}
 
 	packDirs, err := fs.ReadDir(packs.FS, ".")
 	if err != nil {

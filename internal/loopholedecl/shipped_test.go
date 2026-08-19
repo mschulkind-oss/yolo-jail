@@ -6,26 +6,30 @@ import (
 	"reflect"
 	"testing"
 
-	bundledloopholes "github.com/mschulkind-oss/yolo-jail/bundled_loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
-// shippedManifestHome records WHICH EMBED each manifest yolo ships lives in, and it
-// is a table rather than a probe because the answer is the sprint's whole subject:
-// `bundled_loopholes/` is being emptied one conversion at a time
-// (docs/design/broker-as-a-pack.md OQ-BP4), so a manifest that changes homes must
-// change a line here rather than be found wherever it happens to be.
+// shippedManifestHome records WHICH OFFICIAL PACK each manifest yolo ships lives in.
 //
-// An empty pack name means the bundled embed. When the last one goes, this table
-// loses its second column and the bundled reader with it.
+// IT USED TO RECORD WHICH EMBED, with an empty value meaning `bundled_loopholes/`. That
+// was the sprint's whole subject: the channel was emptied one conversion at a time and
+// `claude-oauth-broker` was the last one out on 2026-08-19
+// (docs/design/broker-as-a-pack.md OQ-BP4), so every value now names a pack and the
+// bundled reader is gone with the choice it recorded.
 //
-// `journal` is the odd one and is worth spotting here: it never lived in
-// `bundled_loopholes/` at all, because it was not a bundled loophole — it was a
-// BUILTIN SERVICE with no manifest anywhere, switched by a top-level config key. It
-// enters this table straight into a pack (loophole-activation.md OQ-A6).
+// The broker's row is the one to read twice: `claude`, the AGENT pack, not a
+// `claude-oauth-broker` pack of its own (loophole-activation.md OQ-A10). The dependency is
+// structural — the broker exists to serve claude — so selecting the claude pack IS the
+// dependency, and a pack of its own would reinstate the second selection step that ruling
+// deletes.
+//
+// `journal` is still worth spotting: it never lived in `bundled_loopholes/` at all,
+// because it was not a bundled loophole — it was a BUILTIN SERVICE with no manifest
+// anywhere, switched by a top-level config key. It entered this table straight into a pack
+// (loophole-activation.md OQ-A6).
 var shippedManifestHome = map[string]string{
-	"claude-oauth-broker": "",
+	"claude-oauth-broker": "claude",
 	"audio":               "audio",
 	"host-processes":      "host-processes",
 	"journal":             "journal",
@@ -33,35 +37,19 @@ var shippedManifestHome = map[string]string{
 }
 
 // TestShippedManifestHomeIsTotal is the forcing function the table above needs to be
-// worth having: EVERY loophole in either embed must have a row.
+// worth having: EVERY loophole in the pack embed must have a row.
 //
 // Without it the table is a whitelist of what somebody remembered, and the tests it
 // drives — the strict/tolerant decode bar, the per-manifest field pins, the
 // default_enabled census — all iterate the table, so a NEW shipped loophole is covered by
 // none of them and nothing says so. Measured 2026-08-18: adding a directory to
 // bundled_loopholes/ AND to its embed directive passed the entire unit gate, including
-// TestEmbedMatchesTree, whose job is only to catch a directive that was NOT updated.
-//
-// It matters most for the BUNDLED embed, which is the channel this sprint spent itself
-// closing. Three doc comments now assert "claude-oauth-broker is the only inhabitant
-// left" (bundled_loopholes/embed.go, loopholes/discover.go, loopholedecl/packshipped.go),
-// and prose is not a tripwire: the bundled directory names ARE the reserved loophole
-// namespace, and `publishes: "endpoint"` is available to a bundled manifest and refused
-// to a pack-shipped one. A second inhabitant arriving unnoticed would quietly widen both.
+// that channel's own drift test, whose job was only to catch a directive that was NOT
+// updated.
 //
 // Adding a loophole is not a defect, so the failure asks for a ROW rather than a revert.
 func TestShippedManifestHomeIsTotal(t *testing.T) {
 	found := map[string]string{}
-
-	bundled, err := fs.ReadDir(bundledloopholes.FS, ".")
-	if err != nil {
-		t.Fatalf("reading the bundled loophole embed: %v", err)
-	}
-	for _, e := range bundled {
-		if e.IsDir() {
-			found[e.Name()] = ""
-		}
-	}
 
 	packDirs, err := fs.ReadDir(packs.FS, ".")
 	if err != nil {
@@ -71,7 +59,7 @@ func TestShippedManifestHomeIsTotal(t *testing.T) {
 		if !p.IsDir() {
 			continue
 		}
-		// Most official packs ship no loophole at all (the six agent packs), so an
+		// Most official packs ship no loophole at all (the agent packs), so an
 		// unreadable loopholes/ dir is the ordinary case rather than a fault.
 		mods, err := fs.ReadDir(packs.FS, p.Name()+"/loopholes")
 		if err != nil {
@@ -85,65 +73,45 @@ func TestShippedManifestHomeIsTotal(t *testing.T) {
 	}
 
 	if len(found) == 0 {
-		t.Fatal("neither embed yielded a loophole — this test would then pass over an " +
+		t.Fatal("the pack embed yielded no loophole — this test would then pass over an " +
 			"empty table, which is the one outcome it must not have")
 	}
 	for name, pack := range found {
 		home, listed := shippedManifestHome[name]
 		if !listed {
-			t.Errorf("the loophole %q ships (from %s) and shippedManifestHome has no row for "+
-				"it. Every test in this file iterates that table, so an unlisted loophole's "+
-				"manifest is never decoded, never field-checked and never in the "+
+			t.Errorf("the loophole %q ships (from packs/%s/loopholes/) and shippedManifestHome "+
+				"has no row for it. Every test in this file iterates that table, so an unlisted "+
+				"loophole's manifest is never decoded, never field-checked and never in the "+
 				"default_enabled census — add the row rather than deleting this check.",
-				name, embedDescription(pack))
+				name, pack)
 			continue
 		}
 		if home != pack {
-			t.Errorf("shippedManifestHome[%q] = %q but the manifest is in %s — the table is "+
-				"the record of WHICH EMBED each one lives in, and a stale row sends every "+
-				"reader of it to the wrong tree", name, home, embedDescription(pack))
+			t.Errorf("shippedManifestHome[%q] = %q but the manifest is in packs/%s/loopholes/ — "+
+				"the table is the record of WHICH PACK each one lives in, and a stale row sends "+
+				"every reader of it to the wrong tree", name, home, pack)
 		}
 	}
 	for name, home := range shippedManifestHome {
 		if _, ok := found[name]; !ok {
-			t.Errorf("shippedManifestHome lists %q (home %q) but neither embed carries it — a "+
-				"row for a loophole that no longer ships makes bundledManifest fail with "+
-				"'embedded manifest for %s' rather than saying the loophole was removed",
-				name, home, name)
+			t.Errorf("shippedManifestHome lists %q (pack %q) but the embed does not carry it — a "+
+				"row for a loophole that no longer ships makes shippedManifest fail with "+
+				"'embedded manifest for pack ...' rather than saying the loophole was removed",
+				name, home)
 		}
 	}
 }
 
-// embedDescription names where a loophole was found, for the messages above.
-func embedDescription(pack string) string {
-	if pack == "" {
-		return "bundled_loopholes/"
-	}
-	return "packs/" + pack + "/loopholes/"
-}
-
-// bundledManifest reads one shipped manifest out of the embedded tree — the same
-// source internal/loopholes reads through BundledLoopholesDir, so this test holds
-// for an installed binary with no checkout, not just for this working copy.
-func bundledManifest(t *testing.T, name string) []byte {
-	t.Helper()
-	if pack := shippedManifestHome[name]; pack != "" {
-		return packLoopholeManifest(t, pack, name)
-	}
-	data, err := fs.ReadFile(bundledloopholes.FS, name+"/"+loopholedecl.ManifestName)
-	if err != nil {
-		t.Fatalf("embedded manifest for %s: %v", name, err)
-	}
-	return data
-}
-
-// packLoopholeManifest reads a loophole manifest out of an OFFICIAL PACK's embed.
+// shippedManifest reads one shipped manifest out of the OFFICIAL PACK embed.
 //
-// The pack embed rather than the on-disk tree, for the same reason bundledManifest
-// reads its own: an installed binary carries the packs and no checkout, so a test
-// that walked packs/ would pass here and say nothing about what ships.
-func packLoopholeManifest(t *testing.T, pack, name string) []byte {
+// The embed rather than the on-disk tree: an installed binary carries the packs and no
+// checkout, so a test that walked packs/ would pass here and say nothing about what ships.
+func shippedManifest(t *testing.T, name string) []byte {
 	t.Helper()
+	pack, ok := shippedManifestHome[name]
+	if !ok {
+		t.Fatalf("no shippedManifestHome row for %q", name)
+	}
 	data, err := fs.ReadFile(packs.FS, pack+"/loopholes/"+name+"/"+loopholedecl.ManifestName)
 	if err != nil {
 		t.Fatalf("embedded manifest for pack %s loophole %s: %v", pack, name, err)
@@ -151,16 +119,16 @@ func packLoopholeManifest(t *testing.T, pack, name string) []byte {
 	return data
 }
 
-// TestBundledManifestsDecodeStrictly is the extraction's acceptance bar: all three
-// manifests yolo SHIPS must decode through the new package with ZERO problems —
+// TestShippedManifestsDecodeStrictly is the extraction's acceptance bar: every
+// manifest yolo SHIPS must decode through the new package with ZERO problems —
 // including no unknown-key complaint about `"version": 1`, which every one of them
 // declares and nothing reads. If the strict decoder rejected a shipped manifest,
 // `yolo pack lint` would fail on yolo's own loopholes.
 //
-// "Shipped" is deliberately not "bundled" any more: `host-processes` moved into an
-// official pack on 2026-08-18 and is read through shippedManifestHome above. The
-// acceptance bar is about what a release CARRIES, which both embeds are.
-func TestBundledManifestsDecodeStrictly(t *testing.T) {
+// "Shipped" is deliberately not "bundled" any more, and as of 2026-08-19 there is no
+// bundled embed left to mean: every one of these is read out of the official pack embed
+// through shippedManifestHome above. The acceptance bar is about what a release CARRIES.
+func TestShippedManifestsDecodeStrictly(t *testing.T) {
 	// The declared default, PER MANIFEST, because after OQ-A9 they no longer agree —
 	// and each disagreement is a ruling rather than an accident:
 	//
@@ -200,7 +168,7 @@ func TestBundledManifestsDecodeStrictly(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join("/loopholes", name)
-			m, err := loopholedecl.Decode(bundledManifest(t, name), dir)
+			m, err := loopholedecl.Decode(shippedManifest(t, name), dir)
 			if err != nil {
 				t.Fatalf("strict decode: %v", err)
 			}
@@ -216,7 +184,7 @@ func TestBundledManifestsDecodeStrictly(t *testing.T) {
 			}
 			// The tolerant path must agree, key for key: these manifests cross the
 			// version boundary into a jail whose baked entrypoint may be older.
-			tol, skipped, err := loopholedecl.DecodeTolerant(bundledManifest(t, name), dir)
+			tol, skipped, err := loopholedecl.DecodeTolerant(shippedManifest(t, name), dir)
 			if err != nil {
 				t.Fatalf("tolerant decode: %v", err)
 			}
@@ -230,7 +198,7 @@ func TestBundledManifestsDecodeStrictly(t *testing.T) {
 	}
 }
 
-// TestBundledAudioFields pins the shape of the one shipped loophole that is all
+// TestShippedAudioFields pins the shape of the one shipped loophole that is all
 // declarations and no daemon: bind mounts and a device — and every path still RAW,
 // because ${XDG_RUNTIME_DIR} and {loophole_dir} resolve per machine.
 //
@@ -253,8 +221,8 @@ func TestBundledManifestsDecodeStrictly(t *testing.T) {
 // What did NOT change is the one that matters most: the `${XDG_RUNTIME_DIR}` bind
 // hosts survive decoding unexpanded, which is what OQ-LP14's withdrawal made
 // expressible for a pack at all.
-func TestBundledAudioFields(t *testing.T) {
-	m, err := loopholedecl.Decode(bundledManifest(t, "audio"), "/loopholes/audio")
+func TestShippedAudioFields(t *testing.T) {
+	m, err := loopholedecl.Decode(shippedManifest(t, "audio"), "/loopholes/audio")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,13 +264,13 @@ func TestBundledAudioFields(t *testing.T) {
 	}
 }
 
-// TestBundledBrokerFields pins the sharpest shipped manifest: a host daemon, a
+// TestShippedBrokerFields pins the sharpest shipped manifest: a host daemon, a
 // jail daemon, an intercept, a {state}-relative CA, and the state_files narrowing
 // that keeps the CA's private key host-side (issue #33). Every one of these is a
 // field the pack footprint has to report as a claim, so a decode that dropped one
 // would silently shrink the consent string.
-func TestBundledBrokerFields(t *testing.T) {
-	m, err := loopholedecl.Decode(bundledManifest(t, "claude-oauth-broker"), "/loopholes/claude-oauth-broker")
+func TestShippedBrokerFields(t *testing.T) {
+	m, err := loopholedecl.Decode(shippedManifest(t, "claude-oauth-broker"), "/loopholes/claude-oauth-broker")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,12 +338,26 @@ func TestBundledBrokerFields(t *testing.T) {
 		t.Errorf("doctor_cmd = %v (set=%v) — host execution the footprint must claim",
 			m.DoctorCmd, m.DoctorCmdSet)
 	}
-	if !m.Requires.CommandOnPathSet || m.Requires.CommandOnPath != "claude" {
-		t.Errorf("requires.command_on_path = %q (set=%v)", m.Requires.CommandOnPath, m.Requires.CommandOnPathSet)
+	// NO `requires` PROBE, and its absence is a ruling rather than an omission (R3, made
+	// free by R6 — loophole-activation.md). It used to read
+	// `requires.command_on_path: "claude"`, a HOST-side exec.LookPath standing in for "is
+	// there a claude to refresh for". That is wrong for the product's main case in the
+	// direction that costs a user their credentials: a jail-only user installs claude
+	// INSIDE the jail via the lazy launcher and never on the host, so the probe read false,
+	// the loophole went inactive on every surface with no reason given, and the refresh
+	// serialization went with it. Selecting `packs: ["claude"]` is the dependency the
+	// sniff approximated, and it is a declaration rather than a guess.
+	//
+	// Reinstating it would be silent: an inactive loophole is not an error anywhere.
+	if m.Requires.CommandOnPathSet || m.Requires.FileExistsSet {
+		t.Errorf("requires = %+v, want none — the host-side `claude` probe was deleted when "+
+			"this manifest moved into packs/claude, because selecting the pack IS the "+
+			"dependency and the probe read false for the jail-only user it matters most to",
+			m.Requires)
 	}
 }
 
-// TestBundledHostProcessesFields pins the third manifest: a host daemon that binds
+// TestShippedHostProcessesFields pins the third manifest: a host daemon that binds
 // a plain AF_UNIX socket and lets yolo publish the endpoint file in front of it,
 // and no intercepts at all.
 //
@@ -387,8 +369,8 @@ func TestBundledBrokerFields(t *testing.T) {
 // `preamble` is asserted at its DEFAULT rather than declared in the manifest: the
 // decoder is where the default lives, and this daemon is yolo's own code reading
 // the preamble through hostservice.ServeFrontedUnix.
-func TestBundledHostProcessesFields(t *testing.T) {
-	m, err := loopholedecl.Decode(bundledManifest(t, "host-processes"), "/loopholes/host-processes")
+func TestShippedHostProcessesFields(t *testing.T) {
+	m, err := loopholedecl.Decode(shippedManifest(t, "host-processes"), "/loopholes/host-processes")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -474,7 +456,7 @@ func TestBundledHostProcessesFields(t *testing.T) {
 // manifest does not surface as an error at launch — the loophole simply goes missing.
 func TestShippedJournalFields(t *testing.T) {
 	dir := filepath.Join("/loopholes", "journal")
-	m, err := loopholedecl.Decode(bundledManifest(t, "journal"), dir)
+	m, err := loopholedecl.Decode(shippedManifest(t, "journal"), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,7 +543,7 @@ func TestShippedJournalFields(t *testing.T) {
 // implementation: the spawn loop would start it BESIDE the in-process delegate, both
 // answering to the same name.
 func TestShippedCgroupDelegateFields(t *testing.T) {
-	m, err := loopholedecl.Decode(bundledManifest(t, "cgroup-delegate"), "/loopholes/cgroup-delegate")
+	m, err := loopholedecl.Decode(shippedManifest(t, "cgroup-delegate"), "/loopholes/cgroup-delegate")
 	if err != nil {
 		t.Fatal(err)
 	}

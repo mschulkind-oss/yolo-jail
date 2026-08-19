@@ -73,7 +73,7 @@ func TestRetiredUserDirIsNotDiscovered(t *testing.T) {
 	// And `yolo check`'s independent walker agrees. It is a SEPARATE walk (it needs the
 	// error channel Discover throws away), which is precisely how the two came to
 	// disagree about sources before the convergence — so it is pinned separately.
-	for _, e := range ValidateLoopholes(false) {
+	for _, e := range ValidateLoopholes() {
 		if strings.Contains(e.Path, "old-hand-placed") {
 			t.Errorf("ValidateLoopholes still walks the retired directory: %+v", e)
 		}

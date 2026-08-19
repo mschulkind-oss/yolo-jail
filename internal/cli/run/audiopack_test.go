@@ -42,21 +42,18 @@ func shippedAudioPack(t *testing.T) *packload.Pack {
 
 // THE R5 ASSERTION at the launch face: the shipped pack survives the fourth pre-flight.
 //
-// This is the test that decides the "one name or two" question with the REAL reserved set
-// rather than a literal — `loopholes.ReservedLoopholeNames()` composes paths.Builtin*,
-// broker.BrokerLoopholeName and the bundled directory names off the embed.FS.
+// IT USED TO ALSO ASSERT THAT "audio" WAS NOT IN loopholes.ReservedLoopholeNames(). That
+// function is gone: every name yolo reserved has become a pack's own, `claude-oauth-broker`
+// last (docs/design/broker-as-a-pack.md §10 step 5), so the reserved namespace was deleted
+// with its final entry. The property the absence-check protected is unchanged and is now
+// carried entirely by the call below — PackLoopholeNameConflicts is the thing that would
+// refuse the launch, so asserting over IT rather than over the set it consulted is the
+// stronger of the two spellings and the one that survives the mechanism's removal.
 //
-// IT USED TO ASSERT THAT "audio" WAS STILL RESERVED, and it deliberately does not any
-// more. The bundled copy was deleted on 2026-08-18 and the pack took the plain name back,
-// which the old comment named as the one legitimate way for this to change: "if the
-// BUNDLED audio loophole was removed, this pack may take the plain name — but that is a
-// deliberate decision to make here, in this test, not a silent consequence." This is that
-// decision, made here.
-//
-// A pack shipping `loopholes/audio` while `bundled_loopholes/audio` existed was refused
-// FATALLY, which means every jail selecting the pack failed to start. That is why the
-// reservation has to leave in the SAME commit as the manifest — and why it did here for
-// free, being derived from the directory rather than listed beside it.
+// The history is worth keeping because it is the shape of the trap: a pack shipping
+// `loopholes/audio` while `bundled_loopholes/audio` existed was refused FATALLY, so every
+// jail selecting the pack failed to start. That is why a reservation has to leave in the
+// SAME commit as the manifest.
 func TestShippedAudioPackDoesNotClaimAReservedName(t *testing.T) {
 	p := shippedAudioPack(t)
 	decls := packLoopholeDecls([]*packload.Pack{p})
@@ -66,21 +63,6 @@ func TestShippedAudioPackDoesNotClaimAReservedName(t *testing.T) {
 	if conflicts := PackLoopholeNameConflicts(decls); len(conflicts) > 0 {
 		t.Errorf("the SHIPPED audio pack is refused by the loophole-name pre-flight, so every "+
 			"jail selecting it would fail to launch:\n%s", strings.Join(conflicts, "\n"))
-	}
-
-	reserved := map[string]bool{}
-	for _, r := range loopholes.ReservedLoopholeNames() {
-		reserved[r.Name] = true
-	}
-	if reserved["audio"] {
-		t.Error(`"audio" is reserved again. The pack ships a loophole under that exact ` +
-			`name, so the launch pre-flight refuses it FATALLY and every jail selecting ` +
-			`the pack fails to start. If a bundled audio loophole came back, the pack has ` +
-			`to be renamed in the same commit — and note what that costs: ` +
-			`loopholes.audio.enabled is the key the release notes tell users to write.`)
-	}
-	if reserved[decls[0].Name] {
-		t.Errorf("the pack's loophole name %q is reserved", decls[0].Name)
 	}
 }
 
@@ -93,7 +75,11 @@ func TestShippedAudioPackDoesNotClaimAReservedName(t *testing.T) {
 // dangerous direction: two loopholes both claiming a bind on one destination is a jail
 // that REFUSES TO START (podman's "duplicate mount destination", measured), so "additive"
 // stopped being the safety property and "exactly one" became it.
-func TestShippedAudioPackCoexistsWithTheBundledLoophole(t *testing.T) {
+//
+// There is no `IncludeBundled` to pass any more (the channel is retired, OQ-BP4), which
+// makes the "exactly one" assertion stricter rather than weaker: the pack module is the
+// only input, so a second `audio` could only come from the pack itself.
+func TestShippedAudioPackIsTheOnlyAudioLoophole(t *testing.T) {
 	p := shippedAudioPack(t)
 	mods := packLoopholeModules([]*packload.Pack{p})
 	if len(mods) != 1 {
@@ -110,7 +96,6 @@ func TestShippedAudioPackCoexistsWithTheBundledLoophole(t *testing.T) {
 
 	found := map[string]string{}
 	for _, lp := range loopholes.Discover(loopholes.DiscoverOptions{
-		IncludeBundled:  true,
 		IncludeDisabled: true,
 		PackModules:     mods,
 	}) {

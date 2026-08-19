@@ -48,7 +48,8 @@ func (o *Options) checkLoopholes(r *reporter) {
 	// fix would have printed a cheerful all-green while a pack-shipped loophole's
 	// self-check went unreported — on exactly the command a user reaches for when a
 	// loophole has silently stopped. The broker is the other one that declares a
-	// doctor_cmd and it is still bundled, so this section covers both today.
+	// doctor_cmd, and as of 2026-08-19 it is a pack's too — so both of yolo's own
+	// doctor_cmds now reach the screen only through this fix.
 	//
 	// It is also the honest completion of docs/design/pack-code-separation.md's doctor
 	// ruling: `check` reads loophole health through the manifest surface rather than
@@ -56,7 +57,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 	// origin and placement gates still live in the callee, where a slice cannot forget
 	// them, and an unapproved pack is still refused WITH its reason (below, in the
 	// RC==nil branch). Only which loopholes this section can see changes.
-	entries, set := loopholes.ValidateSet(true)
+	entries, set := loopholes.ValidateSet()
 	if len(entries) == 0 {
 		r.ok(fmt.Sprintf("No loopholes installed (install one as a pack; %s is "+
 			"selected implicitly when it exists)", paths.LocalPackDir()))
@@ -363,7 +364,7 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 		r.ok("Inside jail — host-service liveness skipped (these probes run host-side)")
 		return
 	}
-	entries := loopholes.ValidateLoopholes(true)
+	entries := loopholes.ValidateLoopholes()
 	// The same resolution the row above needs, for the same reason and with sharper
 	// stakes: this walker reads no config at all, so the record's Enabled is the
 	// manifest default. A loophole the user switched on has a daemon RUNNING — the

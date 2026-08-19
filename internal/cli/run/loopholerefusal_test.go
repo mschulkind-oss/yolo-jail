@@ -38,7 +38,7 @@ func TestUnapprovedLoopholeRefusesTheLaunch(t *testing.T) {
 	os.Unsetenv("YOLO_VERSION")
 	home := packHome(t)
 	isolatePackModules(t)
-	fakeBundled(t)
+	fakeLoopholes(t)
 	fetchedLoopholePack(t, home)
 
 	var out bytes.Buffer

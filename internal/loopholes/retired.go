@@ -6,7 +6,7 @@ package loopholes
 //
 // WHY THE CHANNEL WENT (OQ-LP10, docs/design/loophole-packaging.md §8, ruled yes).
 // `~/.local/share/yolo-jail/loopholes/` was the only source that could start a HOST
-// DAEMON with no selection step whatsoever: loadFromDir walked it and every manifest
+// DAEMON with no selection step whatsoever: loadModuleDirs walked it and every manifest
 // it found was discovered, enabled, spawned and wired into the argv. Nothing in the
 // user's config mentioned it, nothing in the per-launch disclosure named it, and
 // `yolo pack`'s approval machinery never saw it. That is the direct contradiction of
@@ -28,7 +28,7 @@ package loopholes
 // WHY A LOUD NOTICE RATHER THAN A SILENT DROP. Whatever sat here was running a daemon
 // on the host until the upgrade that removed this channel. A capability that vanishes
 // with no message is the failure mode the rest of this package keeps paying for (see
-// loadFromDir's warn-and-continue, and pack-capabilities.md §5: anything that turns
+// loadModuleDirs's warn-and-continue, and pack-capabilities.md §5: anything that turns
 // something off must name who did it and why). The notice therefore names the
 // directory, every module still in it, and the exact commands to migrate.
 

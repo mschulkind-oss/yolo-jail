@@ -37,10 +37,25 @@ func TestBrokerEndpointEnvVarDoesNotDrift(t *testing.T) {
 	}
 }
 
-// brokerFixtureDirs points loophole discovery at a bundled dir holding ONLY a
-// broker manifest, so the env-emission gate is exercised without depending on the
-// real bundled set or on `claude` being installed.
+// brokerFixtureDirs makes a lone broker manifest THIS process's whole pack-module
+// record, so the env-emission gate is exercised without depending on this machine's
+// real packs.
+//
+// A PACK MODULE, not a bundled dir. The broker's manifest is a contribution of
+// `packs/claude` as of 2026-08-19 (docs/design/broker-as-a-pack.md §10 step 5) and the
+// bundled channel it used to live in is retired, so a fixture in the old shape would be
+// testing a source that no longer exists. Two consequences the fixture has to honor:
+// `publishes: "socket"` is REQUIRED of a pack-shipped daemon (the default, "endpoint", is
+// refused at load and the loophole silently vanishes), and the module needs an approving
+// ORIGIN GATE or brokerLoopholeActive answers false — which is a real gate now, not an
+// artifact of the fixture (see TestBrokerEnvSuppressedForAnUnapprovedPack).
 func brokerFixtureDirs(t *testing.T, enabled bool) {
+	t.Helper()
+	brokerFixtureModule(t, enabled, true)
+}
+
+// brokerFixtureModule is brokerFixtureDirs with the origin gate as a parameter.
+func brokerFixtureModule(t *testing.T, enabled, approved bool) {
 	t.Helper()
 	dir := t.TempDir()
 	lp := filepath.Join(dir, broker.BrokerLoopholeName)
@@ -51,14 +66,47 @@ func brokerFixtureDirs(t *testing.T, enabled bool) {
 	  "version": 1, "default_enabled": ` + map[bool]string{true: "true", false: "false"}[enabled] + `,
 	  "transport": "` + loopholes.TransportLoopbackTLS + `", "lifecycle": "spawned",
 	  "intercepts": [{"host": "platform.claude.com"}], "broker_ip": "127.0.0.1",
-	  "host_daemon": {"cmd": ["yolo", "internal", "daemon", "` + broker.BrokerLoopholeName + `", "--socket", "{socket}"]},
+	  "host_daemon": {"cmd": ["yolo", "internal", "daemon", "` + broker.BrokerLoopholeName + `", "--socket", "{socket}"],
+	    "publishes": "socket", "scope": "host"},
 	  "jail_daemon": {"cmd": ["yolo-jaild", "oauth-terminator"], "restart": "on-failure"}}`
 	if err := os.WriteFile(filepath.Join(lp, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	origB := loopholes.BundledLoopholesDir
-	loopholes.BundledLoopholesDir = func() string { return dir }
-	t.Cleanup(func() { loopholes.BundledLoopholesDir = origB })
+	loopholes.SetPackModuleResolver(nil)
+	loopholes.SetPackModules([]loopholes.PackModule{{Dir: lp, HostExecApproved: approved}})
+	t.Cleanup(func() {
+		loopholes.ResetPackModules()
+		loopholes.SetPackModuleResolver(resolvePackLoopholeModules)
+	})
+}
+
+// TestBrokerEnvSuppressedForAnUnapprovedPack is the ORIGIN GATE at the broker's own
+// predicate, and it is the half the pack move made necessary.
+//
+// brokerLoopholeActive stopped at Active() while the broker's record was BUNDLED — yolo's
+// own manifest, under a name no pack could claim, with no origin to judge. Both halves of
+// that reason went in one commit: the manifest is a pack's contribution now and the
+// reserved namespace is retired, so the name is claimable and the record has a provenance.
+//
+// What this predicate switches is not cosmetic — the in-jail TLS terminator, the CA mount,
+// the endpoint variable below, and (through run.go) the host singleton spawn. Starting all
+// of that on the strength of a pack record whose origin nobody evaluated is exactly the
+// crossing the gate exists to govern, and nothing else in the launch path would catch it:
+// the loophole is enabled, its requirements are met, and the argv would simply carry a
+// promise the front never keeps.
+func TestBrokerEnvSuppressedForAnUnapprovedPack(t *testing.T) {
+	brokerFixtureModule(t, true, false)
+	o := goldenOptions("/ws", t.TempDir())
+	o.PathExists = func(string) bool { return true } // the singleton IS up
+
+	args := o.hostServicesMountArgs("podman", "yolo-ws-abcd1234", jsonx.NewOrderedMap())
+	for _, a := range args {
+		if strings.Contains(a, "CLAUDE_OAUTH_BROKER") {
+			t.Errorf("the broker endpoint variable was emitted for a pack whose host access "+
+				"nobody approved: %v — Active() is not enough now that the record comes from "+
+				"a pack, and MayRunHostCode is what says the pack may touch the host", args)
+		}
+	}
 }
 
 // TestBrokerEnvEmittedWhenLoopholeActive: the broker's endpoint env is emitted

@@ -292,7 +292,12 @@ func TestPackShippedRefusesPublishesEndpoint(t *testing.T) {
 		"transport belongs to the framework",
 		"{socket}",
 		"constant-time compare",
-		"BUNDLED with yolo",
+		// The message names what USED to be exempt and no longer is. It said
+		// "self-publishing stays available to a loophole BUNDLED with yolo", which was a
+		// real escape hatch until 2026-08-19; asserting the retirement here is what stops
+		// the message going stale in the direction that sends an author looking for a
+		// channel to move into.
+		"is retired",
 	)
 }
 
@@ -394,7 +399,7 @@ func TestBundledManifestsAreInsideThePackShippedSubset(t *testing.T) {
 	for _, name := range []string{"claude-oauth-broker"} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join("/loopholes", name)
-			m, err := loopholedecl.Decode(bundledManifest(t, name), dir)
+			m, err := loopholedecl.Decode(shippedManifest(t, name), dir)
 			if err != nil {
 				t.Fatalf("strict decode: %v", err)
 			}
@@ -420,7 +425,7 @@ func TestBundledManifestsAreInsideThePackShippedSubset(t *testing.T) {
 // error at launch, it goes MISSING, so the symptom would be "audio does nothing".
 func TestShippedAudioLoopholeIsInsideThePackShippedSubset(t *testing.T) {
 	dir := filepath.Join("/loopholes", "audio")
-	m, err := loopholedecl.Decode(bundledManifest(t, "audio"), dir)
+	m, err := loopholedecl.Decode(shippedManifest(t, "audio"), dir)
 	if err != nil {
 		t.Fatalf("strict decode: %v", err)
 	}
@@ -449,7 +454,7 @@ func TestShippedAudioLoopholeIsInsideThePackShippedSubset(t *testing.T) {
 //
 // The flip to publishes:"socket" removed this manifest's ONE subset violation, so
 // it became shippable by a pack unchanged — and on 2026-08-18 it MOVED, into the
-// official `host-processes` pack (bundledManifest now reads it from there).
+// official `host-processes` pack (shippedManifest now reads it from there).
 //
 // The assertion is kept, and it is worth more after the move than before: this is
 // the property that made the move a file rename rather than a redesign, and it is
@@ -462,7 +467,7 @@ func TestShippedAudioLoopholeIsInsideThePackShippedSubset(t *testing.T) {
 // PATH whether a PROGRAM NAME resolves rather than probing the user's files.
 func TestBundledHostProcessesIsInsideThePackShippedSubset(t *testing.T) {
 	dir := filepath.Join("/loopholes", "host-processes")
-	m, err := loopholedecl.Decode(bundledManifest(t, "host-processes"), dir)
+	m, err := loopholedecl.Decode(shippedManifest(t, "host-processes"), dir)
 	if err != nil {
 		t.Fatalf("strict decode: %v", err)
 	}
@@ -548,7 +553,7 @@ func containingAll(list []string, fragments ...string) []string {
 // `ca_cert`, and no `requires` probe of either kind.
 func TestShippedJournalIsInsideThePackShippedSubset(t *testing.T) {
 	dir := filepath.Join("/loopholes", "journal")
-	m, err := loopholedecl.Decode(bundledManifest(t, "journal"), dir)
+	m, err := loopholedecl.Decode(shippedManifest(t, "journal"), dir)
 	if err != nil {
 		t.Fatalf("strict decode: %v", err)
 	}
@@ -566,7 +571,7 @@ func TestShippedJournalIsInsideThePackShippedSubset(t *testing.T) {
 // subset refuses including as a default.
 func TestShippedCgroupDelegateIsInsideThePackShippedSubset(t *testing.T) {
 	dir := filepath.Join("/loopholes", "cgroup-delegate")
-	m, err := loopholedecl.Decode(bundledManifest(t, "cgroup-delegate"), dir)
+	m, err := loopholedecl.Decode(shippedManifest(t, "cgroup-delegate"), dir)
 	if err != nil {
 		t.Fatalf("strict decode: %v", err)
 	}

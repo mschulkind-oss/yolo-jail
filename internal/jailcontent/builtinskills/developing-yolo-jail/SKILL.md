@@ -42,7 +42,7 @@ for the full detail.
 ## Traps that fail silently
 
 - **The goSrc fileset trap** (`flake.nix`): the hermetic image build only sees
-  `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`, and `bundled_loopholes/`.
+  `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`, and `packs/`.
   A Go package outside that set vanishes from the image while `go build ./...`
   stays green. Add new top-level packages to the fileset by hand. (Content under
   `internal/` and `cmd/` is already covered.)

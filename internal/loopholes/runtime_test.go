@@ -7,8 +7,42 @@ import (
 	"testing"
 )
 
+// argsFor builds the container argv for every ENABLED loophole module under root.
+//
+// THE UNRESTRICTED LOADER PLUS AN APPROVING GATE, and both halves are deliberate.
+//
+// Unrestricted (LoadLoophole, not LoadPackLoophole) because this file's subject is the
+// ARGV BUILDER over a resolved record — every field it can emit, `jail_env`, an absolute
+// `ca_cert`, a writable bind, `publishes: "endpoint"` included. Packs are the only module
+// source discovery has left since `bundled_loopholes/` was retired
+// (docs/design/broker-as-a-pack.md OQ-BP4), and the pack-shipped subset refuses several of
+// those, so routing these through discovery would silently turn "does RuntimeArgsFor emit
+// the device flag" into "does the subset permit a device" — a question packshipped_test.go
+// already owns, and one whose failure looks identical here (the loophole vanishes).
+//
+// Approving gate because LoadLoophole's fail-safe default label is SourcePack, which the
+// ungated package-level RuntimeArgsFor withholds outright: without it every assertion below
+// would pass against an empty argv.
 func argsFor(root string, runtime string) []string {
-	return RuntimeArgsFor(discoverDir(root, false), runtime)
+	set := approvedSetFrom(root)
+	return set.RuntimeArgsFor(set.Enabled(), runtime)
+}
+
+// approvedSetFrom loads root's module dirs through the unrestricted loader and hands the
+// result a gate that approves each one. Unloadable modules are skipped, matching
+// discovery's warn-and-continue contract.
+func approvedSetFrom(root string) Set {
+	var all []*Loophole
+	gate := map[string]bool{}
+	for _, m := range moduleDirsUnder(root) {
+		lp, err := LoadLoophole(m.Dir)
+		if err != nil {
+			continue
+		}
+		all = append(all, lp)
+		gate[lp.Path] = true
+	}
+	return Set{all: all, gate: gate}
 }
 
 func joinArgs(args []string) string { return strings.Join(args, " ") }
@@ -537,11 +571,12 @@ func TestHostDevicesSkippedInJail(t *testing.T) {
 		"host_bind_mounts": []any{map[string]any{"host": sock, "container": "/tmp", "readonly": false}},
 		"jail_env":         map[string]any{"PULSE_SERVER": "unix:/run/pulse/native"},
 	})
-	loaded := discoverDir(md, false)
+	set := approvedSetFrom(md)
+	loaded := set.Enabled()
 	if !loaded[0].Active() {
 		t.Fatalf("should be active in-jail (container path /tmp exists)")
 	}
-	args := RuntimeArgsFor(loaded, "")
+	args := set.RuntimeArgsFor(loaded, "")
 	if containsArg(args, "--device") {
 		t.Errorf("device passthrough must be skipped in-jail: %v", args)
 	}
@@ -577,8 +612,8 @@ func TestManifestHostDaemonSpecs(t *testing.T) {
 		"name": "with-hd", "description": "the broker host daemon",
 		"host_daemon": map[string]any{"cmd": []any{"daemon", "--socket", "{socket}"}},
 	})
-	loaded := discoverDir(md, false)
-	specs := ManifestHostDaemonSpecs(loaded)
+	set := approvedSetFrom(md)
+	specs := set.ManifestHostDaemonSpecs(set.Enabled())
 	if specs.Len() != 1 {
 		t.Fatalf("want 1 spec, got %d", specs.Len())
 	}
@@ -605,8 +640,8 @@ func TestDoctorChecks(t *testing.T) {
 	mkAndWrite("falsecmd", map[string]any{"doctor_cmd": []any{"false"}})
 	mkAndWrite("missing", map[string]any{"doctor_cmd": []any{"/no/such/binary/anywhere"}})
 
-	loaded := discoverDir(md, false)
-	results := RunDoctorChecks(loaded, 0)
+	set := approvedSetFrom(md)
+	results := set.RunDoctorChecks(set.Enabled(), 0)
 	byName := map[string]DoctorResult{}
 	for _, r := range results {
 		byName[r.Loophole.Name] = r

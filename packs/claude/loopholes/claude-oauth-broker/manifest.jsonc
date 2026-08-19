@@ -1,7 +1,20 @@
-// Bundled yolo-jail loophole — embedded in the yolo binary.
-// See internal/loopholes for the schema.  Generated CA + leaf state live
-// under ~/.local/share/yolo-jail/state/claude-oauth-broker/ (writable);
-// this manifest is in the read-only package dir.
+// A loophole contributed by the OFFICIAL `claude` pack.  See
+// internal/loopholedecl for the schema.  Generated CA + leaf state live under
+// ~/.local/share/yolo-jail/state/claude-oauth-broker/ (writable); this manifest
+// is in the pack's staged tree, mounted :ro.
+//
+// IT WAS `bundled_loopholes/claude-oauth-broker/` UNTIL 2026-08-19, and it was the
+// LAST inhabitant of that channel — moving it is what emptied and retired it
+// (docs/design/broker-as-a-pack.md §10 step 5, OQ-BP4).
+//
+// A CONTRIBUTION OF `packs/claude`, NOT A PACK OF ITS OWN (loophole-activation.md
+// OQ-A10, correcting broker-as-a-pack.md §6).  The dependency is structural — this
+// loophole exists to serve claude and serves nothing else — so SELECTING THE CLAUDE
+// PACK is the dependency, and a `packs/claude-oauth-broker` would reinstate exactly
+// the second selection step R6 deletes.  A user who does not want it (a Bedrock
+// setup, where no OAuth token is ever refreshed) declares `supersedes` on the
+// `claude-oauth-refresh` capability below, or sets
+// `loopholes.claude-oauth-broker.enabled: false`.
 {
   "name": "claude-oauth-broker",
   "description": "Serializes Claude OAuth refreshes so multi-jail setups don't burn the single-use refresh token. TLS termination lives inside each jail; a host-side daemon owns the flock + shared credentials file.",
@@ -11,16 +24,27 @@
   // The broker is the one loophole that must not gain a way to be silently off: a
   // jail-only claude user who loses it is not merely without a feature, they are
   // running unserialized single-use refresh-token races against Anthropic
-  // (agent-credentials.md §2.5).  When R6 moves this manifest inside `packs/claude`,
-  // SELECTING THE CLAUDE PACK becomes the thing that turns it on and this value is
-  // what makes that selection sufficient.
+  // (agent-credentials.md §2.5).  R6 has now moved this manifest inside
+  // `packs/claude`, so SELECTING THE CLAUDE PACK is what turns it on — and this
+  // value is what makes that selection SUFFICIENT.  It is the one shipped manifest
+  // that stays `true` while `audio`, `host-processes`, `journal` and
+  // `cgroup-delegate` all ship `false` (R4): those four are host access you ask
+  // for, this one is the thing that keeps the credential you already asked for
+  // from being burnt.
   "default_enabled": true,
-  // Activation precondition.  Bundled → always *present*; inactive when
-  // Claude Code isn't installed on the host (no point running the
-  // broker with nothing to refresh for).
-  "requires": {
-    "command_on_path": "claude"
-  },
+  // `requires.command_on_path: "claude"` USED TO BE HERE AND IS DELETED (R3, made
+  // free by R6).  It was a HOST-side `exec.LookPath("claude")`, standing in for
+  // "is there a claude to refresh for" — and it was wrong for the product's main
+  // case in both directions once this became a pack.  A jail-only user (the case
+  // yolo exists for) installs claude INSIDE the jail via the lazy launcher and
+  // never on the host, so the probe read false and the loophole vanished from
+  // every surface with no reason given, taking the refresh serialization with it.
+  // Selecting `packs: ["claude"]` is the dependency the sniff was approximating,
+  // and it is a declaration rather than a guess.
+  //
+  // Nothing replaces it: a loophole whose program is missing must fail LOUDLY at
+  // spawn, not disappear from `yolo loopholes list`.
+  //
   // The named JOB this loophole implements — "serializing OAuth token refreshes so
   // concurrent consumers do not burn a single-use refresh token"
   // (docs/design/pack-capabilities.md).  A capability is the job, not a name for
@@ -29,13 +53,14 @@
   // ON ITS OWN THIS CHANGES NOTHING.  It becomes load-bearing only when a selected
   // pack declares `supersedes` for this capability with a reason — e.g. a Bedrock
   // auth pack, under which no OAuth token is ever refreshed, so the job does not
-  // exist rather than being done differently.  Until then this loophole activates
-  // exactly as before, `requires` and all.
+  // exist rather than being done differently.  It is also the ONLY off switch that
+  // does not require editing a `loopholes:` block, which is what makes it the
+  // answer for a Bedrock user rather than deselecting a pack they need.
   "serves": ["claude-oauth-refresh"],
-  // The transport is the hop a JAIL dials, which is the per-jail relay's
-  // loopback-TLS front (see host_daemon below).  This used to say
-  // "tls-intercept", which named the in-jail TLS terminator instead — hop A, the
-  // one hop that never crosses the boundary — and so could not select anything.
+  // The transport is the hop a JAIL dials, which is the framework's loopback-TLS
+  // FRONT over the host-wide singleton's socket (see host_daemon below).  This used
+  // to say "tls-intercept", which named the in-jail TLS terminator instead — hop A,
+  // the one hop that never crosses the boundary — and so could not select anything.
   // Interception is declared by `intercepts` + `broker_ip` + `ca_cert`, unchanged
   // below and still the only thing that wires it.
   "transport": "loopback-tls",
@@ -47,8 +72,11 @@
   // 127.0.0.1:443 inside the container network namespace (unprivileged
   // there).  No host port binding.
   "broker_ip": "127.0.0.1",
-  // {state} → per-loophole writable state dir; the generated CA/leaf
-  // pair lives there, not in the read-only bundled dir.
+  // {state} → per-loophole writable state dir; the generated CA/leaf pair lives
+  // there, not in the pack's staged tree, which is mounted :ro.  {state} is keyed
+  // by the loophole NAME and is deliberately unchanged by the move out of
+  // bundled_loopholes/, which is why an upgrading host keeps its existing CA and
+  // every already-running jail keeps trusting it.
   "ca_cert": "{state}/ca.crt",
   // The ONLY files from {state} that cross into a jail (issue #33). Without
   // this key the whole state dir is mounted :ro — which put the CA's PRIVATE

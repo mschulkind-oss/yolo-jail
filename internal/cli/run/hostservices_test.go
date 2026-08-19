@@ -484,10 +484,10 @@ func TestFrontedServiceComesUpBehindFront(t *testing.T) {
 // pins the compatibility claim the flip rests on rather than arguing it.
 //
 // It discovers through PACK MODULES since 2026-08-18: the manifest moved out of
-// `bundled_loopholes/` into the official `host-processes` pack, so `IncludeBundled`
-// no longer finds it. Nothing else about the record changed, which is the point —
-// the same manifest, read through the pack loader (hence the pack-shipped subset),
-// still spawns and still answers.
+// `bundled_loopholes/` into the official `host-processes` pack. Nothing else about
+// the record changed, which is the point — the same manifest, read through the pack
+// loader (hence the pack-shipped subset), still spawns and still answers. (There is
+// no `IncludeBundled` left to pass at all now; the channel is retired.)
 //
 // WHAT THE CLAIM IS: nothing jail-facing moves. The env var name, the in-jail
 // path, the endpoint leaf in the mounted services dir and therefore cmd/yolo-ps
@@ -517,7 +517,6 @@ func TestBundledHostProcessesRunsBehindTheFront(t *testing.T) {
 
 	var lp *loopholes.Loophole
 	for _, cand := range loopholes.Discover(loopholes.DiscoverOptions{
-		IncludeBundled:  true,
 		IncludeDisabled: true,
 		PackModules:     []loopholes.PackModule{shippedPackLoopholeModule(t, "host-processes")},
 	}) {
@@ -796,15 +795,13 @@ func TestManifestEOFDaemonRoundTripsBehindFront(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("spawns a host process")
 	}
-	// Through the BUNDLED root: it is the remaining on-disk source that reads a manifest
-	// with the full vocabulary (the hand-placed user dir is retired, OQ-LP10, and the
-	// pack-shipped subset would refuse `publishes: "socket"`'s sibling keys elsewhere).
-	// The loophole is discovered by the REAL loader either way, which is the point.
-	bundledDir := t.TempDir()
-	origB := loopholes.BundledLoopholesDir
-	loopholes.BundledLoopholesDir = func() string { return bundledDir }
-	t.Cleanup(func() { loopholes.BundledLoopholesDir = origB })
-	mod := filepath.Join(bundledDir, "eofd")
+	// Through a PACK MODULE: it is the only on-disk module source left (the hand-placed
+	// user dir went with OQ-LP10 and `bundled_loopholes/` with OQ-BP4), and the manifest
+	// below is inside the pack-shipped subset — `publishes: "socket"` plus two keys the
+	// subset has no opinion about. The loophole is discovered by the REAL loader, which is
+	// the point.
+	moduleRoot := t.TempDir()
+	mod := filepath.Join(moduleRoot, "eofd")
 	if err := os.MkdirAll(mod, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -829,7 +826,8 @@ func TestManifestEOFDaemonRoundTripsBehindFront(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	discovered := loopholes.Discover(loopholes.DiscoverOptions{IncludeBundled: true})
+	discovered := loopholes.Discover(loopholes.DiscoverOptions{
+		PackModules: []loopholes.PackModule{{Dir: mod, HostExecApproved: true}}})
 	if len(discovered) != 1 || discovered[0].HostDaemon == nil {
 		t.Fatalf("discovered %+v, want the one eofd loophole", discovered)
 	}

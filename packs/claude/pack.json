@@ -10,6 +10,10 @@
       "via": "installer"
     },
     {
+      "from": "loopholes/claude-oauth-broker",
+      "kind": "loophole"
+    },
+    {
       "after": "host:.claude/CLAUDE.md",
       "into": ".claude/CLAUDE.md",
       "kind": "briefing"

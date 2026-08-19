@@ -106,11 +106,18 @@ func must(t *testing.T, err error) {
 	}
 }
 
-// isolateDirs points bundled loophole discovery at a throwaway dir, so no real
-// manifest (and no real doctor_cmd) can leak into a test.
+// isolateDirs clears the process-wide pack-module record, so no real manifest (and no
+// real doctor_cmd) can leak into a test.
+//
+// It used to point BUNDLED discovery at a throwaway dir. With that channel retired
+// (docs/design/broker-as-a-pack.md OQ-BP4) the leak this guards against comes from the
+// recorded pack modules — including the LAZY RESOLVER, which reads this machine's real
+// user config — so the record is what has to be emptied.
 func isolateDirs(t *testing.T) {
 	t.Helper()
-	t.Cleanup(withBundledDir(t.TempDir()))
+	t.Cleanup(func() { ResetPackModules() })
+	SetPackModuleResolver(nil)
+	ResetPackModules()
 }
 
 // cmdDeps builds Deps whose config loaders return the given JSONC bodies

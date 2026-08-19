@@ -45,32 +45,31 @@ func (l *Loophole) PlacementProblems(workspace string) []string {
 // resolved as one. Its `command` is checked by the config faces, which is where a
 // config entry belongs.
 //
-// A BUNDLED loophole is exempt, and the reason is the SELF-HOSTING case rather than
-// a trust concession. BundledLoopholesDir prefers the repo checkout when yolo runs
-// from its own source tree (loopholes.go's reporoot.Resolve branch), so in THIS repo's
-// own jail all three bundled loopholes resolve to /workspace/bundled_loopholes/* —
-// inside the tree the launch mounts :rw. Judging them refuses the broker, the audio
-// pass-through and host-processes on every launch of yolo's own development jail, which
-// a nested-jail smoke caught and no unit test could: the tests build module dirs in
-// t.TempDir(), so the one configuration where the paths coincide is the one nobody
-// constructs.
+// A BUNDLED loophole USED TO BE EXEMPT, and the exemption is gone because its subject
+// is. `BundledLoopholesDir` preferred the repo checkout when yolo ran from its own
+// source tree, so in THIS repo's own jail every bundled loophole resolved to
+// /workspace/bundled_loopholes/* — inside the tree the launch mounts :rw — and judging
+// them refused the broker, audio and host-processes on every launch of yolo's own
+// development jail. A nested-jail smoke caught that and no unit test could: the tests
+// build module dirs in t.TempDir(), so the one configuration where the paths coincide is
+// the one nobody constructs. The exemption was also right on the merits, because a
+// bundled loophole WAS the yolo binary's own content — the same artifact implementing
+// this check — so an agent that could rewrite it had already rewritten the checker.
 //
-// It is also the right answer on the merits, not just the expedient one. The rule
-// exists because installed content in an agent-writable tree can be swapped between
-// launches by an actor with none of the authority that installed it
-// (docs/design/gate-placement-principle.md's two tests). A bundled loophole IS the
-// yolo binary's own content — the same artifact that implements the check — so an
-// agent that can rewrite it has already rewritten the checker. The gate protects
-// nothing it does not already presuppose, which is Test 1 exactly.
+// Both halves stopped applying on 2026-08-19, when `bundled_loopholes/` was emptied
+// (docs/design/broker-as-a-pack.md OQ-BP4). yolo's own loopholes are OFFICIAL PACKS now,
+// and a pack's module dir is its STAGED copy under paths.AgentsDir() — outside every
+// workspace by construction — so the self-hosting collision cannot recur through them.
+// What replaced the trust half is not an exemption but the origin gate: an official
+// pack's content carries yolo's authority through MayRunHostCode, which is a decision
+// about the pack rather than about where its files happen to sit.
 //
-// PACK loopholes stay judged: their content is not yolo's, and a pack whose module dir
-// sits in the workspace is the case the rule was written for. Since OQ-LP10 retired the
-// hand-placed user directory, PACK is the ONLY source this face applies to — bundled is
-// exempt above and a config entry has no module dir. That is not a narrowing of the rule:
-// the retired directory's manifests are not read at all any more, which is strictly
-// stronger than judging where they sat.
+// PACK loopholes are therefore judged, all of them: their module dir being inside the
+// mounted workspace is the case the rule was written for, and a locally-developed pack
+// is exactly how it happens. Since OQ-LP10 retired the hand-placed user directory, PACK
+// is the ONLY source this face applies to — a config entry has no module dir.
 func (l *Loophole) moduleDirForPlacement() string {
-	if l.FromConfig() || l.Source == SourceBundled {
+	if l.FromConfig() {
 		return ""
 	}
 	return l.Path

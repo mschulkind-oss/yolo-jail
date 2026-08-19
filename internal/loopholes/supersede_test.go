@@ -31,23 +31,35 @@ func servingLoophole(t *testing.T, root, name string, serves []string) {
 }
 
 func discoverWith(root string, claims []PackSupersession) Set {
-	defer withBundledDir(root)()
-	return NewSet(DiscoverOptions{IncludeBundled: true, PackSupersessions: claims})
+	return NewSet(DiscoverOptions{PackModules: moduleDirsUnder(root), PackSupersessions: claims})
 }
 
-// onlyBundled points BundledLoopholesDir at a tree the caller controls, and returns it.
+// onlyModules makes a tree the caller controls THE process's whole pack-module record,
+// and returns it.
 //
-// It does BOTH halves of what these command tests need. The command tests go through
-// NewHostSet, which always includes the bundled set — and `yolo loopholes status`
-// EXECUTES each record's doctor_cmd, so against the REAL bundled tree the broker's
-// `yolo internal daemon claude-oauth-broker --self-check` would really run, twice,
-// under a 10s timeout. A unit test must not spawn yolo's own daemons. And since
-// OQ-LP10 retired the hand-placed user dir, bundled is also the only remaining source
-// that reads a manifest a test can write.
-func onlyBundled(t *testing.T) string {
+// It does BOTH halves of what these command tests need. They go through NewHostSet, which
+// reads the recorded modules — and `yolo loopholes status` EXECUTES each record's
+// doctor_cmd, so against this machine's real packs the broker's `yolo internal daemon
+// claude-oauth-broker --self-check` would really run, twice, under a 10s timeout. A unit
+// test must not spawn yolo's own daemons.
+//
+// It replaces an `onlyBundled` that pointed BundledLoopholesDir at the tree; with the
+// bundled channel retired (docs/design/broker-as-a-pack.md OQ-BP4), a pack module dir is
+// the only source left that reads a manifest a test can write. The manifests written here
+// stay inside the pack-shipped subset, which is what makes the substitution honest rather
+// than merely compiling.
+func onlyModules(t *testing.T) string {
 	t.Helper()
 	root := modsDir(t)
-	t.Cleanup(withBundledDir(root))
+	// Registered as the LAZY RESOLVER rather than a staged record, because the caller
+	// writes its module dirs AFTER this returns: a record taken here would be empty, and
+	// the test would pass over a set with nothing in it.
+	SetPackModuleResolver(func() []PackModule { return moduleDirsUnder(root) })
+	ResetPackModules()
+	t.Cleanup(func() {
+		SetPackModuleResolver(nil)
+		ResetPackModules()
+	})
 	return root
 }
 
@@ -204,7 +216,9 @@ func TestSupersededLoopholeCrossesNothing(t *testing.T) {
 		"serves":     []string{"claude-oauth-refresh"},
 		"intercepts": []map[string]any{{"host": "platform.claude.com"}},
 		"broker_ip":  "127.0.0.1",
-		"jail_env":   map[string]any{"ACME": "1"},
+		// NO `jail_env`: the fixture is read through the pack loader (packs are the only
+		// module source left) and the pack-shipped subset refuses it, which would make the
+		// manifest vanish and every assertion below pass over an empty set.
 		"host_daemon": map[string]any{
 			"cmd": []string{"/bin/true", "--socket", "{socket}"}, "publishes": "socket"},
 	})
@@ -220,7 +234,7 @@ func TestSupersededLoopholeCrossesNothing(t *testing.T) {
 	off := discoverWith(root, []PackSupersession{bedrock()})
 	if args := off.RuntimeArgsFor(off.All(), "podman"); len(args) != 0 {
 		t.Errorf("a superseded loophole still contributes container args: %v — the "+
-			"--add-host, the CA and the jail_env are exactly what §7 removes", args)
+			"--add-host and the CA are exactly what §7 removes", args)
 	}
 	if specs := off.ManifestHostDaemonSpecs(off.All()); specs.Len() != 0 {
 		t.Errorf("a superseded loophole's host daemon is still in the spawn list: %v",
@@ -403,7 +417,7 @@ func TestListNamesThePackAndTheReason(t *testing.T) {
 	t.Cleanup(ResetPackSupersessions)
 	captureWarnings(t)
 
-	servingLoophole(t, onlyBundled(t), "broker-like",
+	servingLoophole(t, onlyModules(t), "broker-like",
 		[]string{"claude-oauth-refresh"})
 	SetPackSupersessions([]PackSupersession{bedrock()})
 
@@ -433,7 +447,7 @@ func TestStatusLabelsSuperseded(t *testing.T) {
 	t.Cleanup(ResetPackSupersessions)
 	captureWarnings(t)
 
-	servingLoophole(t, onlyBundled(t), "broker-like",
+	servingLoophole(t, onlyModules(t), "broker-like",
 		[]string{"claude-oauth-refresh"})
 	SetPackSupersessions([]PackSupersession{bedrock()})
 
@@ -462,10 +476,10 @@ func TestValidateSetAppliesSupersession(t *testing.T) {
 	unsetJail(t)
 	t.Cleanup(ResetPackSupersessions)
 	captureWarnings(t)
-	servingLoophole(t, onlyBundled(t), "broker-like", []string{"claude-oauth-refresh"})
+	servingLoophole(t, onlyModules(t), "broker-like", []string{"claude-oauth-refresh"})
 	SetPackSupersessions([]PackSupersession{bedrock()})
 
-	_, set := ValidateSet(true)
+	_, set := ValidateSet()
 	lp, ok := set.Lookup("broker-like")
 	if !ok {
 		t.Fatal("loophole not in the validate set")

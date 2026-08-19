@@ -7,12 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
-	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
 // writeManifest writes a manifest.jsonc built from a Go map via
@@ -63,40 +63,82 @@ func modsDir(t *testing.T) string {
 	return mkdir(t, filepath.Join(t.TempDir(), "loopholes"))
 }
 
-// discoverDir runs discovery over ONE directory of loophole modules, by pointing
-// the BUNDLED root at it.
+// discoverDir runs discovery over ONE directory of loophole modules, by offering each
+// child as a pack-contributed module.
 //
-// It used to point DiscoverOptions.Root at it — the hand-placed user loopholes dir,
-// retired with OQ-LP10 (retired.go). Bundled is the substitute rather than a pack
-// module because these tests exercise the FULL manifest vocabulary (`jail_env`,
-// absolute bind hosts, `publishes: "endpoint"`), and the pack loader refuses exactly
-// those under the pack-shipped subset. Routing them through it would silently turn
-// "does the loader read this key" into "does the subset permit it".
+// TWO SUBSTITUTIONS DEEP, and the history is the reason the helper exists at all. It
+// pointed DiscoverOptions.Root at the directory until OQ-LP10 retired the hand-placed
+// user loopholes channel; then it pointed the BUNDLED root at it, chosen over pack
+// modules because these tests exercise the FULL manifest vocabulary (`jail_env`,
+// absolute bind hosts, `publishes: "endpoint"`) that the pack loader refuses. The
+// bundled channel is retired too now (docs/design/broker-as-a-pack.md OQ-BP4), so PACK
+// MODULES ARE THE ONLY MODULE SOURCE LEFT and the subset is not avoidable any more.
+//
+// That is not a loss of coverage, it is a relocation of it: a test whose subject IS the
+// wider vocabulary now says so by calling LoadLoophole (the tolerant, unrestricted
+// loader, which internal/cli/run's inert-loophole report still uses in production)
+// rather than by picking a discovery source that happened to be lenient. What
+// discoverDir covers is discovery — ordering, precedence, the config overlay, the
+// enabled filter — over manifests a pack could actually ship.
 func discoverDir(root string, includeDisabled bool) []*Loophole {
 	return discoverWithConfig(root, includeDisabled, nil)
 }
 
 // discoverWithConfig is discoverDir plus a `loopholes:` config block.
 func discoverWithConfig(root string, includeDisabled bool, cfg *jsonx.OrderedMap) []*Loophole {
-	defer withBundledDir(root)()
 	return Discover(DiscoverOptions{
 		IncludeDisabled: includeDisabled,
-		IncludeBundled:  true,
 		LoopholesConfig: cfg,
+		PackModules:     moduleDirsUnder(root),
 	})
 }
 
 // validateDir is `yolo check`'s walker over ONE directory, same substitution.
 func validateDir(root string) []ValidateEntry {
-	defer withBundledDir(root)()
-	return ValidateLoopholes(true)
+	defer withModuleDir(root)()
+	return ValidateLoopholes()
 }
 
-// withBundledDir points BundledLoopholesDir at root and returns the restore func.
-func withBundledDir(root string) func() {
-	prev := BundledLoopholesDir
-	BundledLoopholesDir = func() string { return root }
-	return func() { BundledLoopholesDir = prev }
+// withModuleDir records root's children as this process's pack modules and returns the
+// restore func — for the surfaces that read the RECORD (ValidateLoopholes, NewHostSet)
+// rather than taking DiscoverOptions.
+func withModuleDir(root string) func() {
+	SetPackModules(moduleDirsUnder(root))
+	return func() { ResetPackModules() }
+}
+
+// moduleDirsUnder lists root's loophole module dirs — every non-hidden child holding a
+// manifest.jsonc — in sorted order, each APPROVED to touch the host.
+//
+// Approved because these fixtures stand in for yolo's own content: an unapproved module
+// is still discovered but crosses nothing, which would turn every argv assertion in this
+// file into a test of the origin gate instead of its own subject. The gate has its own
+// tests (packshipped_test.go, loopholeorigingate_test.go).
+func moduleDirsUnder(root string) []PackModule {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	var out []PackModule
+	for _, name := range names {
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		dir := filepath.Join(root, name)
+		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, "manifest.jsonc")); err != nil {
+			continue
+		}
+		out = append(out, PackModule{Dir: dir, HostExecApproved: true})
+	}
+	return out
 }
 
 func names(loaded []*Loophole) []string {
@@ -290,11 +332,11 @@ func TestConfigLoopholePreambleOptIn(t *testing.T) {
 
 func TestWorkspaceOverrideMergesEnabled(t *testing.T) {
 	md := modsDir(t)
-	mod := mkdir(t, filepath.Join(md, "bundled-like"))
-	writeManifest(t, mod, map[string]any{"name": "bundled-like", "description": "x", "default_enabled": false})
-	cfg := orderedFromPairs("bundled-like", map[string]any{"enabled": true})
+	mod := mkdir(t, filepath.Join(md, "module-like"))
+	writeManifest(t, mod, map[string]any{"name": "module-like", "description": "x", "default_enabled": false})
+	cfg := orderedFromPairs("module-like", map[string]any{"enabled": true})
 	loaded := discoverWithConfig(md, true, cfg)
-	if len(loaded) != 1 || loaded[0].Name != "bundled-like" || !loaded[0].Enabled || loaded[0].Source != SourceBundled {
+	if len(loaded) != 1 || loaded[0].Name != "module-like" || !loaded[0].Enabled || loaded[0].Source != SourcePack {
 		t.Errorf("override merge wrong: %+v", loaded)
 	}
 }
@@ -304,7 +346,13 @@ func TestWorkspaceOverrideMergesHostDaemonEnv(t *testing.T) {
 	mod := mkdir(t, filepath.Join(md, "swaymsg-like"))
 	writeManifest(t, mod, map[string]any{
 		"name": "swaymsg-like", "description": "x",
-		"host_daemon": map[string]any{"cmd": []any{"some-daemon", "--socket", "{socket}"}, "env": map[string]any{"DEFAULT_KEY": "default"}},
+		"host_daemon": map[string]any{"cmd": []any{"some-daemon", "--socket", "{socket}"},
+			// `publishes: "socket"` is DECLARED rather than defaulted because the fixture is
+			// read through the pack loader now: the default is "endpoint", which the
+			// pack-shipped subset refuses, and a refused manifest does not fail loudly — the
+			// loophole simply vanishes and the assertions below read as an env-merge bug.
+			"publishes": "socket",
+			"env":       map[string]any{"DEFAULT_KEY": "default"}},
 	})
 	cfg := orderedFromPairs("swaymsg-like", map[string]any{"env": map[string]any{"SWAYSOCK": "/run/user/1000/sway.sock"}})
 	loaded := discoverWithConfig(md, false, cfg)
@@ -365,6 +413,20 @@ func TestRequiresCommandOnPath(t *testing.T) {
 	}
 }
 
+// TestRequiresFileExistsEnvCollapse pins the ${VAR} expansion in `requires.file_exists`,
+// through the UNRESTRICTED loader.
+//
+// LoadLoophole rather than discovery, and the reason is worth stating because it looks
+// like a weakening. A pack-shipped loophole may not write `${XDG_RUNTIME_DIR}/...` at all
+// — the subset refuses it, since a variable naming an absolute host path one indirection
+// later would make the rule about spelling — and packs are the only module source left
+// after `bundled_loopholes/` was retired (docs/design/broker-as-a-pack.md OQ-BP4). So
+// routing this through discovery would silently stop testing expansion and start testing
+// the refusal, which packshipped_test.go already owns.
+//
+// What is under test is the LOADER's resolution of the key, which is live for every
+// manifest yolo reads: internal/cli/run's inert-loophole report calls LoadLoophole in
+// production, and `audio` carried exactly this spelling until it became a pack.
 func TestRequiresFileExistsEnvCollapse(t *testing.T) {
 	unsetJail(t)
 	md := modsDir(t)
@@ -372,10 +434,18 @@ func TestRequiresFileExistsEnvCollapse(t *testing.T) {
 	writeManifest(t, mod, map[string]any{"name": "audio-like", "description": "x",
 		"requires": map[string]any{"file_exists": "${XDG_RUNTIME_DIR}/pulse/native"}})
 
+	active := func() bool {
+		lp, err := LoadLoophole(mod)
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		return lp.Active()
+	}
+
 	// Unset -> collapses to /pulse/native (empty var), which won't exist.
 	t.Setenv("XDG_RUNTIME_DIR", "")
 	os.Unsetenv("XDG_RUNTIME_DIR")
-	if discoverDir(md, false)[0].Active() {
+	if active() {
 		t.Errorf("unset XDG_RUNTIME_DIR should be inactive")
 	}
 
@@ -386,11 +456,11 @@ func TestRequiresFileExistsEnvCollapse(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("XDG_RUNTIME_DIR", runtime)
-	if !discoverDir(md, false)[0].Active() {
+	if !active() {
 		t.Errorf("present socket should be active")
 	}
 	os.Remove(filepath.Join(runtime, "pulse", "native"))
-	if discoverDir(md, false)[0].Active() {
+	if active() {
 		t.Errorf("removed socket should be inactive")
 	}
 }
@@ -426,26 +496,22 @@ func containsStr(list []string, s string) bool {
 	return false
 }
 
-// TestRepoRootHostModeFindsBundled is the audit §B3 regression: with
-// YOLO_REPO_ROOT unset (host mode, no shim), the shared resolver
-// (reporoot.Resolve, now the single method BundledLoopholesDir uses) must walk
-// up to the real yolo-jail checkout and resolve bundled_loopholes there — NOT
-// fall back to an empty in-jail path and drop every bundled loophole. Does NOT
-// monkeypatch BundledLoopholesDir (per the audit).
-func TestRepoRootHostModeFindsBundled(t *testing.T) {
-	t.Setenv("YOLO_REPO_ROOT", "")
-	os.Unsetenv("YOLO_REPO_ROOT")
-	// cwd during `go test` is the package dir (a descendant of the repo), so the
-	// walk should reach the real checkout.
-	rr, ok := reporoot.Resolve(os.Getenv)
-	if !ok || !fileExists(filepath.Join(rr, "go.mod")) {
-		t.Fatalf("reporoot.Resolve=%q,%v is not a yolo-jail checkout (host-mode B3 regression)", rr, ok)
-	}
-	got := Discover(DiscoverOptions{IncludeDisabled: true, IncludeBundled: true})
-	if len(got) == 0 {
-		t.Fatal("host-mode discovery found ZERO loopholes — audit §B3 regression")
-	}
-}
+// TestRepoRootHostModeFindsBundled WAS HERE AND IS DELETED, 2026-08-19, and the deletion
+// is worth a note because a regression test is otherwise never removed.
+//
+// Its subject was audit §B3: with YOLO_REPO_ROOT unset (host mode, no shim), the shared
+// resolver had to walk up to the real yolo-jail checkout so `BundledLoopholesDir` found
+// `bundled_loopholes/` there instead of degrading to an empty in-jail path and dropping
+// every bundled loophole. Both halves of that sentence are gone — the function and the
+// directory — because the bundled channel is retired
+// (docs/design/broker-as-a-pack.md OQ-BP4). Nothing resolves a loophole manifest through
+// reporoot any more; a pack's module dir is its STAGED copy under paths.AgentsDir(), which
+// no repo walk is involved in finding.
+//
+// The property it protected did not evaporate, it moved: "the launch sees the loopholes
+// yolo ships" is now a question about pack staging, pinned by
+// internal/cli/run's TestTheOfficialLoopholePacksAreNotRefusedByTheirOwnReservation and by
+// the pack embed's own drift test.
 
 // captureWarnings swaps the package's warn sink for the duration of a test and
 // returns the accumulated lines.
@@ -461,7 +527,7 @@ func captureWarnings(t *testing.T) *[]string {
 // TestRejectedManifestIsReportedNotVanished pins the loudness of the worst failure
 // mode in the loophole framework.
 //
-// loadFromDir used to `continue` on any load error, so ONE rejected field made the
+// loadModuleDirs used to `continue` on any load error, so ONE rejected field made the
 // entire loophole disappear: no host daemon, no endpoint, no injected env var, no
 // entry in `yolo loopholes list`, and no message anywhere saying why. Every
 // downstream failure then named something else. bundled_loopholes is go:embed'd, so
@@ -1040,7 +1106,7 @@ func TestListKeysInterceptsOnTheInterceptList(t *testing.T) {
 		"intercepts": []any{map[string]any{"host": "example.test"}},
 	})
 
-	t.Cleanup(withBundledDir(md))
+	t.Cleanup(withModuleDir(md))
 
 	var out strings.Builder
 	nilCfg := func() *jsonx.OrderedMap { return nil }

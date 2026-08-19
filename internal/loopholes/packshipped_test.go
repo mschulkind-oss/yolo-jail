@@ -116,7 +116,10 @@ func TestLoadPackLoopholeRefusesSelfPublishing(t *testing.T) {
 	if err == nil {
 		t.Fatal("a self-publishing pack daemon loaded")
 	}
-	for _, want := range []string{`"publishes": "socket"`, "{socket}", "framework", "BUNDLED with yolo"} {
+	// "is retired" rather than the message's old "BUNDLED with yolo": self-publishing was
+	// a real escape hatch for a bundled loophole until 2026-08-19, and the refusal now
+	// says the channel is gone rather than naming one to move into.
+	for _, want := range []string{`"publishes": "socket"`, "{socket}", "framework", "is retired"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal does not carry %q: %v", want, err)
 		}
@@ -348,15 +351,20 @@ func TestDiscoveryAppliesTheSubsetToAPackModule(t *testing.T) {
 		}
 	}
 
-	// The SAME manifest as a BUNDLED loophole still loads: the subset is pack-scoped, and
-	// yolo's own content keeps the wider vocabulary — `audio` depends on it. (This used to
-	// be asserted through the hand-placed user dir, retired with OQ-LP10; bundled is the
-	// remaining non-pack source that reads a manifest off disk.)
-	defer withBundledDir(filepath.Dir(mod))()
-	bundledSet := NewSet(DiscoverOptions{IncludeBundled: true})
-	if _, ok := bundledSet.Lookup("grabby"); !ok {
-		t.Error("the subset leaked onto the BUNDLED source — a bundled loophole keeps the " +
-			"wider vocabulary, and `audio` depends on it")
+	// THE CONTROL USED TO LIVE HERE and it no longer can: the same manifest was loaded as
+	// a BUNDLED loophole to show the subset is pack-SCOPED rather than universal. There is
+	// no non-pack source that reads a manifest off disk any more — the hand-placed user
+	// dir went with OQ-LP10 and `bundled_loopholes/` with OQ-BP4
+	// (docs/design/broker-as-a-pack.md) — so every module manifest yolo reads is judged by
+	// the subset, and a control asserting otherwise would have to invent a source.
+	//
+	// What survives of it is the loader-level statement, which is where the scoping
+	// actually lives: LoadLoophole is the unrestricted read and LoadPackLoophole is the
+	// subset one, and internal/cli/run's inert-loophole report still uses the former.
+	if _, err := LoadLoophole(mod); err != nil {
+		t.Errorf("LoadLoophole refused a manifest outside the pack-shipped subset (%v) — the "+
+			"subset belongs to LoadPackLoophole, and folding it into the general loader would "+
+			"make it a schema rule rather than a pack rule", err)
 	}
 }
 
@@ -374,7 +382,7 @@ func TestValidateLoopholesAppliesTheSubsetToAPackModule(t *testing.T) {
 	SetPackModules([]PackModule{{Dir: mod, HostExecApproved: true}})
 
 	var found bool
-	for _, e := range ValidateLoopholes(false) {
+	for _, e := range ValidateLoopholes() {
 		if e.Path != mod {
 			continue
 		}

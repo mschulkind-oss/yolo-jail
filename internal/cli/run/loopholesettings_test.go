@@ -157,12 +157,16 @@ func TestStartLoopholesWritesTheSettingsFile(t *testing.T) {
 	}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	origB, origR := loopholes.BundledLoopholesDir, loopholes.RetiredUserLoopholesDir
-	loopholes.BundledLoopholesDir = func() string { return dir }
+	origR := loopholes.RetiredUserLoopholesDir
 	loopholes.RetiredUserLoopholesDir = func() string { return t.TempDir() }
+	loopholes.SetPackModuleResolver(nil)
+	loopholes.SetPackModules([]loopholes.PackModule{{Dir: mod, HostExecApproved: true}})
 	t.Cleanup(func() {
-		loopholes.BundledLoopholesDir, loopholes.RetiredUserLoopholesDir = origB, origR
+		loopholes.RetiredUserLoopholesDir = origR
+		loopholes.ResetPackModules()
+		loopholes.SetPackModuleResolver(resolvePackLoopholeModules)
 	})
+	_ = dir
 
 	cname := "yolo-settings-" + t.Name()
 	socketsDir := hostServiceSocketsDir(cname, false)

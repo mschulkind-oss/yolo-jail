@@ -325,9 +325,15 @@ func TestStartLoopholesRoutesByScope(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(lp, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	orig := loopholes.BundledLoopholesDir
-	loopholes.BundledLoopholesDir = func() string { return dir }
-	t.Cleanup(func() { loopholes.BundledLoopholesDir = orig })
+	// Recorded as this process's only pack module — the one module source left after
+	// `bundled_loopholes/` was retired (docs/design/broker-as-a-pack.md OQ-BP4), and
+	// approved because the origin gate is a separate question with its own tests.
+	loopholes.SetPackModuleResolver(nil)
+	loopholes.SetPackModules([]loopholes.PackModule{{Dir: lp, HostExecApproved: true}})
+	t.Cleanup(func() {
+		loopholes.ResetPackModules()
+		loopholes.SetPackModuleResolver(resolvePackLoopholeModules)
+	})
 
 	var buf strings.Builder
 	o := &Options{}

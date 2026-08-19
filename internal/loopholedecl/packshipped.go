@@ -311,8 +311,11 @@ func packPathScopeClause(value string) string {
 // pack-shipped CA possible at all: a CA regenerated on every launch would break every
 // long-lived TLS client in the jail.
 //
-// A BUNDLED loophole keeps the wider vocabulary, and the broker needs it: it names
-// '{state}/ca.crt' (inside the subset anyway) while `audio` shows the general case.
+// THE BROKER IS THE PROOF THAT THIS SUBSET IS LIVEABLE. It ships in `packs/claude` and
+// names '{state}/ca.crt' — inside the subset, and only because {state} is name-keyed and
+// survives restaging. There is no wider-vocabulary source left to fall back to: the
+// bundled channel that used to keep one is retired
+// (docs/design/broker-as-a-pack.md OQ-BP4).
 func (m *Manifest) packCACertProblems(manifestPath string) []string {
 	if !m.CACertSet {
 		return nil
@@ -361,9 +364,12 @@ func (m *Manifest) packCACertProblems(manifestPath string) []string {
 //
 // `command_on_path` is untouched: it asks PATH whether a PROGRAM NAME resolves, which is
 // a question about this machine's tooling rather than about the user's files, and the whole
-// point of the field is that the answer names something installable. A BUNDLED loophole
-// keeps the wider vocabulary — `audio` probes ${XDG_RUNTIME_DIR}/pulse/native, which no
-// home-relative path can reach.
+// point of the field is that the answer names something installable.
+//
+// There is no wider-vocabulary source to fall back to any more (the bundled channel is
+// retired, OQ-BP4), and the two loopholes that used this key have both stopped needing it:
+// `audio` probed ${XDG_RUNTIME_DIR}/pulse/native and now declares `platforms: ["linux"]`,
+// and the broker probed `claude` on the HOST and now relies on pack selection (R3/R6).
 func (m *Manifest) packRequiresProblems(manifestPath string) []string {
 	if !m.Requires.FileExistsSet {
 		return nil
@@ -449,12 +455,13 @@ func packWritableBindProblem(manifestPath, field string, bm HostBindMount) strin
 // `publishes: "socket"` a third party cannot get any of those wrong because they
 // never write them: they bind a plain AF_UNIX socket and yolo runs the front.
 //
-// `publishes: "endpoint"` stays available to a BUNDLED loophole, because that is yolo's
-// own code publishing yolo's own credential. THERE IS ONE BUNDLED LOOPHOLE LEFT — this
-// said "all three use it", which was true until 2026-08-18, when `host-processes` and
-// `audio` moved into official packs of their own names and the whole `journal` /
-// cgroup-delegate builtin-service channel became packs too. Only `claude-oauth-broker`
-// is left in bundled_loopholes/, and converting it is what closes this branch.
+// `publishes: "endpoint"` USED TO STAY AVAILABLE to a BUNDLED loophole, because that was
+// yolo's own code publishing yolo's own credential. As of 2026-08-19 NO LOOPHOLE ANYWHERE
+// CAN DECLARE IT: the bundled channel is empty and retired (broker-as-a-pack.md OQ-BP4),
+// so every module manifest yolo reads is pack-shipped and reaches this refusal. The value
+// survives in the enum with no possible declarer, which is a genuine follow-on the design
+// names and does not require: retiring the key itself is a two-line deletion once someone
+// decides the enum should not carry an unreachable member.
 //
 // THE DEFAULT IS REFUSED TOO, and that is deliberate rather than an oversight: an
 // absent `publishes` decodes to PublishesEndpoint, so a pack-shipped daemon that
@@ -472,8 +479,8 @@ func (m *Manifest) packPublishesProblems(manifestPath string) []string {
 			" '%s' and yolo runs the TLS front over it and publishes the endpoint file"+
 			" for you, so the endpoint's file mode, its key persistence, its"+
 			" constant-time compare and its length cap are yolo's code rather than"+
-			" yours. Self-publishing stays available to a loophole BUNDLED with yolo,"+
-			" which is yolo's own code publishing yolo's own credential"+
-			" (loophole-packaging.md §2.1)",
+			" yours. NO loophole may self-publish now: the bundled channel that used to"+
+			" permit it — yolo's own code publishing yolo's own credential — is retired"+
+			" (loophole-packaging.md §2.1, broker-as-a-pack.md OQ-BP4)",
 		manifestPath, pytext.Repr(m.HostDaemon.Publishes), "{socket}")}
 }

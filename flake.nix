@@ -91,18 +91,19 @@
             ++ pkgs.lib.optionals (builtins.pathExists ./vendor) [ ./vendor ]
             ++ pkgs.lib.optionals (builtins.pathExists ./cmd) [ ./cmd ]
             ++ pkgs.lib.optionals (builtins.pathExists ./internal) [ ./internal ]
-            # bundled_loopholes is a top-level package (embed.FS of loophole
-            # manifests) imported by internal/loopholes/embedfallback.go. It
-            # lives OUTSIDE cmd/ and internal/, so it must be listed explicitly
-            # or the hermetic -mod=vendor build fails with "cannot find module
-            # providing package .../bundled_loopholes".
-            ++ pkgs.lib.optionals (builtins.pathExists ./bundled_loopholes) [ ./bundled_loopholes ]
-            # packs/ is the same shape of trap as bundled_loopholes: a top-level
-            # package (embed.FS of the OFFICIAL pack manifests) imported by
-            # internal/packload, living outside cmd/ and internal/. Omitted here it
+            # packs/ is a TOP-LEVEL package (embed.FS of the OFFICIAL pack manifests)
+            # imported by internal/packload, living outside cmd/ and internal/, so it
+            # must be listed explicitly or the hermetic -mod=vendor build fails with
+            # "cannot find module providing package .../packs". Omitted here it
             # VANISHES from the image while `go build` stays green — and the failure
             # is worse than a build error, because a jail would come up with no packs
             # and therefore no agent, looking like a config problem.
+            #
+            # `bundled_loopholes/` was the OTHER entry of this shape and is deleted
+            # (2026-08-19): its last manifest became a contribution of `packs/claude`
+            # and the channel was retired (docs/design/broker-as-a-pack.md OQ-BP4).
+            # It was listed under `pathExists`, so removing the directory alone would
+            # have left a working build and a stale comment — this is the comment.
             ++ pkgs.lib.optionals (builtins.pathExists ./packs) [ ./packs ]
           );
         };
