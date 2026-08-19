@@ -497,6 +497,27 @@ gating it. 📄 [`trust-paths.md`](design/trust-paths.md) §1 row 1 (OQ-TP5).
 > only that two jails updated at different times can hold different versions — which was already
 > true, and is now at least the result of somebody asking.
 
+### ⚠️ `macos-user`: launchers stop hitting the network on every single invocation
+
+**What changed.** The generated lazy-install launchers aged their throttle stamp with
+`stat -c %Y`, which is **GNU-only**. The `macos-user` backend runs those launchers *natively* on
+your Mac, where BSD `stat` rejects `-c` — and the error was swallowed, so the stamp's mtime read
+as epoch 0 and every age came out ~56 years. That is permanently past `UPDATE_INTERVAL` and
+permanently under `RETRY_INTERVAL`, so **every throttle was defeated**: each launch polled the
+npm registry, ran a native agent's self-update, or retried an install that had already failed.
+
+**Who is affected.** `macos-user` users only, and every launcher on that backend. The container
+backends were never affected — the jail image is Linux, so `stat -c` worked there and the
+throttles behaved as designed.
+
+**What to do.** Nothing. The fix is in the generated launchers, so it applies on the next launch
+that regenerates them.
+
+**Why it went unnoticed.** No test exercised these scripts under BSD `stat`, and the failure mode
+was extra traffic rather than an error — the launchers still worked, just noisily and slowly. It
+surfaced only when `TestUnpinnedNpmLauncherTimeline` (added for the no-evergreen-npm ruling above)
+ran on a Mac and asserted that a fresh stamp keeps the launcher off the network entirely.
+
 ### ⚠️ `audio` is now off by default, and it needs a pack
 
 **What changed.** Two things, in two steps, and the second one landed after the first.

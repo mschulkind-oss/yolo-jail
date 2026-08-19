@@ -1,8 +1,8 @@
 # Roadmap
 
-**Status: 9 needing you · 1 ready · 0 in progress · 4 waiting · 1 broken · 2 icebox.**
+**Status: 9 needing you · 1 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
 
-Last updated **2026-08-18**. Counts tallied from this file, not asserted.
+Last updated **2026-08-19**. Counts tallied from this file, not asserted.
 
 **What this is.** The forward plan and nothing else. **If it is in this file, it is not done.** Work
 that ships leaves immediately — the record is the commit history. Decisions *not* to build move to
@@ -213,11 +213,33 @@ one-line deliverable that is decided in all but name.
 
 # 🛑 Broken
 
-- 🛑 **The macOS nightly cannot build an image.** Five consecutive failures since v0.8.0.
+- 🛑 **The macOS nightly: root cause found and fixed on a Mac 2026-08-19, awaiting the run that
+  proves it.** Every guess in the previous version of this entry was wrong, which is the part worth
+  keeping.
 
-  `TestImageSkewOracleAnswers` fails on `nix eval .#installPrefix failed`, and the two lib-farm tests
-  fail because the build failed. Plausibly one root cause — nix is broken on that runner — and not in
-  our tree, so a re-trigger reproduces it. Needs a Mac. 📄
+  **What it actually was:** nixpkgs 26.11 **throws** on `x86_64-darwin` ("has dropped support"), and
+  `flake.nix` evaluates `pkgs` for every system flake-utils enumerates — so every host-side nix call
+  on the Intel runner died, `nix eval .#installPrefix` included. Fixed in `927fb9f` by pinning a
+  second nixpkgs input to `nixpkgs-26.05-darwin` for that one system; the other three stay on 26.11,
+  asserted per system, so real Mac users and the shipped image are untouched.
+
+  **Four corrections to what this entry claimed:**
+
+  - **29 consecutive failures, not five** — last green 2026-07-21, the morning of the flake.lock bump
+    that crossed into 26.11 (`9637326`, 11:38 EDT, after that day's run). Not "since v0.8.0"; v0.8.0
+    was three weeks later.
+  - **29 failing tests, not three.** The skew oracle and the two lib-farm tests were the three that
+    NAMED nix; the other 26 failed on the same dead image without saying so.
+  - **"nix is broken on that runner, not in our tree" was exactly backwards.** It was our flake, on
+    every Intel Mac, and `nix eval .#installPrefix` reproduces it in 0.2s — the "needs a Mac" gate was
+    real but the diagnosis behind it was a guess recorded as a finding.
+  - **A re-trigger could never have fixed it**, so the four nights spent re-triggering were spent on
+    the wrong hypothesis.
+
+  **Still open, and it is a deadline rather than a bug:** 26.05 is the LAST nixpkgs supporting
+  x86_64-darwin, security-fixed only to end of 2026. The nightly needs `macos-26-intel` because
+  GitHub's Apple Silicon runners cannot nest a VM for Podman Machine, so when 26.05 lapses the choice
+  is a self-hosted arm64 Mac runner or macos-user-only macOS tests. 💬 **Needs you, but not yet.** 📄
   [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §7.
 
 ---
@@ -269,9 +291,35 @@ launch — get their entries when they ship, not before.
   emit the pair. **Unverified on a real old-passt host** — nobody here has one. 📄
   [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §3.2.1.
 
-- 🔒 **On a Mac** — five items: the `macos-user` acceptance matrix, Track D4's download proof, the
-  guest-notch handoff, and two lib-farm assertions that only fail on darwin. 📄
+- 🔒 **On a Mac** — **the two lib-farm assertions have left this row.** They were never darwin
+  assertions: they failed because the image build did, and both went green the moment
+  `x86_64-darwin` could evaluate again (see 🛑 above). Nothing about the lib farm was wrong.
+
+  Three items remain, all genuinely host-gated: the `macos-user` acceptance matrix, Track D4's
+  download proof, and the guest-notch handoff (whose §2 item 1.4 — do packs reach a macos-user
+  sandbox? — is still the first thing to run there). 📄
   [`handoff-guest-notch-macos.md`](handoff-guest-notch-macos.md).
+
+  **What a Mac session on 2026-08-19 did settle, beyond the nightly:** `go test -short ./...` had
+  **two** failures no Linux run could see, both now fixed — the GNU-`stat` throttle above
+  (`c411650`, a real `macos-user` defect) and a `yolo ps` runtime-default assertion that hardcoded
+  Linux's answer (`a35f8c7`, test-only; the resolver was right). `ci.yml`'s `check-macos` job was red
+  on `main` for the second of those.
+
+- 🛑 **`TestNoTruncationRace` (`internal/journald`) is red on `main` in CI, on BOTH Linux and macOS**
+  — the remaining reason `check-go` and `check-macos` fail after the two fixes above. Found 2026-08-19
+  while reading CI; **not diagnosed, and it should not be dismissed as a flake.**
+
+  The evidence points at a real regression rather than a slow runner. It fails as
+  `main_test.go:81: daemon socket never appeared` at **~30.8s every time** — the exact readiness
+  ceiling in `startServe` — in three consecutive runs across two operating systems, i.e. the daemon
+  never becomes dialable at all rather than occasionally missing a budget. And that budget was
+  **already raised from 5s to 30s** for this same symptom, with the comment recording that the poll
+  "normally succeeds in single-digit milliseconds". Raising it again would be the wrong move twice.
+
+  It passes locally on a Mac (`-count=3`), so whatever it needs is present here and absent on a
+  GitHub runner. Next step is `Serve`'s error path: the goroutine reports via `t.Errorf`, which a
+  `t.Fatalf` on the polling goroutine can mask, so the real bind error may never be printed.
 
 - 🔒 **On an NVIDIA host** — `sectionGPUNvidia` has no in-jail guard while its AMD twin guards both of
   its checks, so a jail with `gpu.enabled` prints three `[FAIL]`s for host facts read from the wrong
