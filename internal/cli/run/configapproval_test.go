@@ -208,6 +208,88 @@ func TestFreshLaunchCallsTheConfigArtifactWriter(t *testing.T) {
 	}
 }
 
+// TestFreshLaunchENFORCESTheApprovalGate is the assertion the presence check above
+// cannot make, and the gap was measured rather than imagined: replacing
+//
+//	if !o.checkConfigChanges(cfg) { return 1 }
+//
+// with a bare `_ = o.checkConfigChanges(cfg)` left the ENTIRE unit gate green
+// (2026-08-18). The call is still there, so the AST presence check above is satisfied,
+// the ordering check is satisfied, and every container launch proceeds on a config no
+// human approved — which is the whole of OQ-D2, switched off by deleting two characters.
+//
+// A CALL IS NOT A GATE. `TestNonInteractiveConfigChangeRefusalIsActionable` and
+// `TestAcceptConfigChangesFlagLetsANonInteractiveLaunchThrough` drive
+// o.checkConfigChanges directly and pin what it DECIDES; `TestMacosUserLaunchGatesOnConfigApproval`
+// pins that the macos-user arm obeys the decision. Nothing pinned that the CONTAINER
+// arm — the primary path, and the only one integration/ ever exercises — obeys it, and
+// integration/ cannot stand in either: the harness passes --accept-config-changes on
+// every launch by construction, so a deleted gate looks identical to an honoured one.
+//
+// So this asserts the SHAPE: the call is the condition of an `if` whose body leaves
+// runContainer. That is a structural claim rather than a behavioural one, for the reason
+// the test above already states — runContainer starts a real container, so reading the
+// source is the only witness a unit test has. It is deliberately loose about the
+// spelling (any `if` whose condition mentions the call, any body that returns), so a
+// refactor that keeps the gate keeps the test.
+func TestFreshLaunchENFORCESTheApprovalGate(t *testing.T) {
+	const approvalGate = "checkConfigChanges"
+	fn := methodDecl(t, "run.go", "runContainer")
+
+	enforced := false
+	ast.Inspect(fn, func(n ast.Node) bool {
+		ifStmt, ok := n.(*ast.IfStmt)
+		if !ok || ifStmt.Cond == nil || ifStmt.Body == nil {
+			return true
+		}
+		if !subtreeCalls(ifStmt.Cond, approvalGate) || !bodyReturns(ifStmt.Body) {
+			return true
+		}
+		enforced = true
+		return false
+	})
+	if !enforced {
+		t.Errorf("runContainer calls %s but nothing branches on the answer: the gate has to "+
+			"be the condition of an `if` that RETURNS, or a refused approval is computed, "+
+			"printed and then ignored while the container starts anyway. This is the exact "+
+			"mutation the presence check in the test above walks straight through "+
+			"(`_ = o.%s(cfg)`). If the enforcement moved — to an early-return helper, or up "+
+			"into Run — move this check with it rather than deleting it.",
+			approvalGate, approvalGate)
+	}
+}
+
+// subtreeCalls reports whether any call to a method named `name` appears anywhere in
+// the expression — so `!o.f(x)`, `a && o.f(x)` and a bare `o.f(x)` all count. The
+// receiver is deliberately not matched: runContainer has one receiver, and pinning its
+// spelling would fail a rename that changed nothing.
+func subtreeCalls(e ast.Expr, name string) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == name {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+// bodyReturns reports whether a block's own statements include a return — not a nested
+// one inside a closure, which would leave runContainer running.
+func bodyReturns(b *ast.BlockStmt) bool {
+	for _, stmt := range b.List {
+		if _, ok := stmt.(*ast.ReturnStmt); ok {
+			return true
+		}
+	}
+	return false
+}
+
 // methodDecl parses one file of THIS package and returns the method with the
 // given name. Test files are never parsed, so a helper of the same name in a
 // _test.go file cannot stand in for the production one the assertion is about.
