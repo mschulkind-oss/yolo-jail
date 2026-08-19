@@ -12,5 +12,5 @@ import "embed"
 // on-disk tree and this embed drift, so the sync is test-enforced, not
 // convention-enforced.
 //
-//go:embed all:audio all:claude-oauth-broker
+//go:embed all:claude-oauth-broker
 var FS embed.FS

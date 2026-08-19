@@ -371,16 +371,19 @@ func TestPackShippedErrorCarriesTheProblems(t *testing.T) {
 	}
 }
 
-// THE ASYMMETRY IS THE POINT: these BUNDLED manifests violate the subset, and must
-// keep working. `audio` names /run/user/<uid>/pulse through ${XDG_RUNTIME_DIR} with
-// readonly:false and sets jail_env; the broker publishes its own endpoint. If a
-// future change applied the subset unconditionally, this test is what says so.
+// THE ASYMMETRY IS THE POINT: the one BUNDLED manifest left violates the subset, and
+// must keep working — the broker publishes its own endpoint. If a future change
+// applied the subset unconditionally, this test is what says so.
 //
-// `host-processes` USED TO BE IN THIS LIST and deliberately is not any more — see
-// TestBundledHostProcessesIsInsideThePackShippedSubset below. It left the list by
-// declaring publishes:"socket", which was its only violation.
+// The list is down to ONE, and both departures were conversions rather than
+// relaxations of this rule. `host-processes` left by declaring publishes:"socket"
+// (its only violation) and then moving into a pack; `audio` left on 2026-08-18, when
+// OQ-LP14 withdrew the bind-host path rule and the remaining three refusals each got
+// a fix the manifest could take. Their positives are asserted deliberately below and
+// in TestShippedAudioLoopholeIsInsideThePackShippedSubset, rather than by a name
+// quietly dropping out of this loop.
 func TestBundledManifestsAreOutsideThePackShippedSubset(t *testing.T) {
-	for _, name := range []string{"audio", "claude-oauth-broker"} {
+	for _, name := range []string{"claude-oauth-broker"} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join("/loopholes", name)
 			m, err := loopholedecl.Decode(bundledManifest(t, name), dir)
@@ -393,6 +396,42 @@ func TestBundledManifestsAreOutsideThePackShippedSubset(t *testing.T) {
 					" test should assert it deliberately rather than by accident", name)
 			}
 		})
+	}
+}
+
+// TestShippedAudioLoopholeIsInsideThePackShippedSubset is the OTHER deliberate
+// positive, and the one OQ-LP14 exists for.
+//
+// `audio` is the loophole the withdrawn path rule made unshippable: its two sockets
+// are `${XDG_RUNTIME_DIR}/pulse/native` and `${XDG_RUNTIME_DIR}/pipewire-0`, which
+// had no legal spelling for a pack — the variable was refused, the literal was
+// refused as absolute, and neither is under $HOME. Asserting the manifest yolo now
+// ships draws NO refusal is what says the ruling actually landed, and it is the
+// assertion that fails if anyone re-adds the rule: a refused pack loophole does not
+// error at launch, it goes MISSING, so the symptom would be "audio does nothing".
+func TestShippedAudioLoopholeIsInsideThePackShippedSubset(t *testing.T) {
+	dir := filepath.Join("/loopholes", "audio")
+	m, err := loopholedecl.Decode(bundledManifest(t, "audio"), dir)
+	if err != nil {
+		t.Fatalf("strict decode: %v", err)
+	}
+	if problems := m.PackShippedProblems(loopholedecl.ManifestPath(dir)); len(problems) != 0 {
+		t.Errorf("the shipped audio loophole draws %v — a pack loophole refused by the "+
+			"subset is dropped with a warning rather than failing loudly, so this would "+
+			"ship as \"audio silently does nothing\"", problems)
+	}
+	// And the declarations the subset had to admit for that to be true, named so the
+	// test cannot pass by the manifest having quietly given up the socket half.
+	var sockets int
+	for _, bm := range m.HostBindMounts {
+		if strings.Contains(bm.Host, "${XDG_RUNTIME_DIR}") {
+			sockets++
+		}
+	}
+	if sockets != 2 {
+		t.Errorf("the shipped audio loophole names %d ${XDG_RUNTIME_DIR} bind hosts, want 2 "+
+			"— passing this test with none would mean the pack gave up the sockets rather "+
+			"than the rule giving way", sockets)
 	}
 }
 

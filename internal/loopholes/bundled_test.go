@@ -36,12 +36,13 @@ func withRepoBundled(t *testing.T) string {
 // so a test over "yolo's own loopholes" keeps meaning that while the sprint empties
 // `bundled_loopholes/` one conversion at a time (broker-as-a-pack.md OQ-BP4).
 //
-// An empty pack name means the bundled directory. `host-processes` moved into the
-// official pack of the same name on 2026-08-18; the rows below are the only place a
-// further move has to be recorded.
+// An empty pack name means the bundled directory. `host-processes` and `audio` both
+// moved into official packs of the same name on 2026-08-18, leaving the broker as the
+// channel's last inhabitant; the rows below are the only place a further move has to
+// be recorded.
 var shippedLoopholes = []struct{ name, pack string }{
-	{"audio", ""},
 	{"claude-oauth-broker", ""},
+	{"audio", "audio"},
 	{"host-processes", "host-processes"},
 }
 

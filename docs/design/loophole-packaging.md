@@ -2066,6 +2066,19 @@ i.e. trading a `:ro` bind for arbitrary host execution. Draft 1's *"the one bund
 could carry with zero new vocabulary"* was therefore half right: the claim classes need no new
 vocabulary, and the *host paths* need one that does not exist.
 
+> [!IMPORTANT]
+> **SUPERSEDED 2026-08-18 — both shapes were undone by the things that forced them, and the
+> FINDING is retired.** OQ-LP14 withdrew the bind-host path rule (it admitted `~/.ssh` and refused
+> a pulse socket), so the sockets became expressible for a pack; deleting `bundled_loopholes/audio`
+> then freed the reserved name, because the reservation was DERIVED from the directory rather than
+> listed beside it. The two audio loopholes merged into one pack-shipped `audio`, and the pack is
+> now a REPLACEMENT rather than additive. The `conf.d` destination survives the collision it was
+> chosen to avoid: it is the spelling measured working, and moving to the freed path would be an
+> unmeasured edit. What remains true is the `jail_env`/`env` cost below, and one thing this text
+> did not anticipate — the subset's surviving `readonly: false` refusal costs a socket bind its
+> read-write-IPC CLAIM CLASS, because `packload.bindIsIPC` splits on that bit. See
+> `packs/audio/README.md`.
+
 **Two shapes of the pack were forced by measurement, and each would otherwise look like a stylistic
 choice:**
 

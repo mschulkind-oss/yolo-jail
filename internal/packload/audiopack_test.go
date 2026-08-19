@@ -38,11 +38,16 @@ import (
 // audioPackName is the pack's slug, which is also its directory name under packs/.
 const audioPackName = "audio"
 
-// audioLoopholeName is the loophole the pack ships. NOT "audio": that name is RESERVED
-// (the bundled loophole owns it) and the launch pre-flight refuses a pack claiming a
-// reserved name. TestAudioPackAvoidsTheReservedBundledName is the assertion; this
-// constant exists so the rename cannot be done halfway.
-const audioLoopholeName = "audio-alsa"
+// audioLoopholeName is the loophole the pack ships.
+//
+// It was `audio-alsa` until 2026-08-18 — `audio` was a RESERVED name (the bundled
+// loophole owned it) and the launch pre-flight refuses a pack claiming a reserved name,
+// fatally. Deleting the bundled copy freed the name, so the pack took it back:
+// `loopholes.audio.enabled` is the config key users have always written, and a pack
+// whose loophole answered to a different name would have stranded it.
+// TestAudioPackTakesTheFormerlyReservedName is the assertion; this constant exists so
+// the rename cannot be done halfway.
+const audioLoopholeName = "audio"
 
 // embeddedAudioPack materializes the EMBEDDED pack set and returns the audio pack, so
 // every assertion below reads what the binary actually carries rather than the worktree.
@@ -85,16 +90,23 @@ func TestAudioPackIsEmbeddedWithHostAuthority(t *testing.T) {
 
 // THE R3 ASSERTION: the claim enumeration over the shipped pack, exact.
 //
-// One `loophole` contribution + one `env` contribution → three claims, and each one is
+// One `loophole` contribution + one `env` contribution → six claims, and each one is
 // pinned by TARGET (the footprint key) rather than by prose, because the target is what
 // the approval lockfile compares and what a second declaration would collide on.
 //
-// The bind lands in the MOUNT class, not the IPC class, and that is correct rather than a
-// weakening: `bindIsIPC` splits on the manifest's own `readonly` bit plus a socket-shaped
-// basename, and asound.conf is a REGULAR FILE bound `:ro`. The class's text still carries
-// the socket caveat verbatim, so nothing is understated. See
-// TestAudioShapedManifestEnumeratesEveryCrossingClass for the four-claim audio-SHAPED
-// case §7 describes, which is a different (and unshippable) manifest.
+// It was THREE until the two audio loopholes merged on 2026-08-18. The pack now carries
+// the whole loophole — two host sockets, the ALSA fragment and /dev/snd — which is three
+// new crossings, and every one of them has to be separately approvable or the
+// enumeration is not total.
+//
+// ALL THREE BINDS LAND IN THE MOUNT CLASS, AND TWO OF THEM ARE SOCKETS. That is the one
+// thing here worth reading twice. `bindIsIPC` splits on the manifest's own `readonly`
+// bit plus a socket-shaped basename, and the pack-shipped subset refuses
+// `readonly: false` — so the sockets, which are named `native` and `pipewire-0`, cannot
+// reach the IPC class at all. Nothing is UNDERSTATED (the mount class's text carries the
+// socket caveat verbatim), but the discriminator is coarser than the design's "a socket
+// bind is its own claim class" wanted. The precise fix is a declared socket bit in the
+// schema, which bindIsIPC's own comment names.
 func TestAudioPackClaimTargetsAreExact(t *testing.T) {
 	fp := packload.FootprintOf(embeddedAudioPack(t))
 	got := map[string]packload.Claim{}
@@ -109,26 +121,48 @@ func TestAudioPackClaimTargetsAreExact(t *testing.T) {
 	want := []string{
 		"env PIPEWIRE_REMOTE",
 		"env PULSE_SERVER",
+		"loophole " + audioLoopholeName + ":device:/dev/snd",
 		"loophole " + audioLoopholeName + ":mount:/etc/alsa/conf.d/50-yolo-audio-alsa.conf",
+		"loophole " + audioLoopholeName + ":mount:/run/pipewire/pipewire-0",
+		"loophole " + audioLoopholeName + ":mount:/run/pulse/native",
 	}
 	if strings.Join(targets, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("claim targets:\n got: %v\nwant: %v", targets, want)
 	}
 
-	// The loophole claim is REVIEW-WORTHY (every loophole claim is: the enumeration only
-	// emits one for something that crosses), and it does NOT run host code — this pack
-	// declares no `host_daemon` and no `doctor_cmd`. Both halves matter for WHEN the
-	// launch discloses it: disclosureClassOfClaim degrades a non-exec loophole claim to
-	// the read block, so pinning RunsHostCode=false here is pinning that the pack does
-	// not print in the pre-spawn "runs pack code on your machine" block.
-	lc := got["loophole "+audioLoopholeName+":mount:/etc/alsa/conf.d/50-yolo-audio-alsa.conf"]
-	if !lc.ReviewWorthy {
-		t.Error("a loophole claim must be review-worthy — it crosses the host boundary")
+	// Every loophole claim is REVIEW-WORTHY (the enumeration only emits one for
+	// something that crosses), and NONE of them runs host code — this pack declares no
+	// `host_daemon` and no `doctor_cmd`. Both halves matter for WHEN the launch
+	// discloses them: disclosureClassOfClaim degrades a non-exec loophole claim to the
+	// read block, so pinning RunsHostCode=false is pinning that the pack does not print
+	// in the pre-spawn "runs pack code on your machine" block and cry wolf.
+	for _, key := range want {
+		if !strings.HasPrefix(key, "loophole ") {
+			continue
+		}
+		c := got[key]
+		if !c.ReviewWorthy {
+			t.Errorf("%s is not review-worthy — every loophole claim crosses the host "+
+				"boundary", key)
+		}
+		if c.RunsHostCode {
+			t.Errorf("%s says it runs host code; this pack declares no host_daemon and no "+
+				"doctor_cmd, and a true RunsHostCode would put it in the pre-spawn exec "+
+				"block", key)
+		}
 	}
-	if lc.RunsHostCode {
-		t.Error("this pack declares no host_daemon and no doctor_cmd, so nothing it ships " +
-			"runs host code; a true RunsHostCode would put it in the pre-spawn exec block " +
-			"and cry wolf")
+
+	// The socket caveat, asserted on the two claims that need it: a reader approving
+	// `/run/pulse/native` has to be told that `:ro` buys nothing for a socket, because
+	// the class's own name no longer tells them.
+	for _, key := range []string{
+		"loophole " + audioLoopholeName + ":mount:/run/pulse/native",
+		"loophole " + audioLoopholeName + ":mount:/run/pipewire/pipewire-0",
+	} {
+		if !strings.Contains(got[key].Detail, "AF_UNIX SOCKET here is read-write host IPC") {
+			t.Errorf("%s does not disclose that a bound socket is read-write regardless of "+
+				"`:ro`; detail = %q", key, got[key].Detail)
+		}
 	}
 }
 
@@ -143,23 +177,34 @@ func TestAudioPackClaimTargetsAreExact(t *testing.T) {
 // fails closed on a non-TTY — would refuse the loophole permanently.
 func TestAudioPackApprovalClaimsAreRawAndSpecific(t *testing.T) {
 	claims := embeddedAudioPack(t).HostAccessClaims()
-	if len(claims) != 1 {
-		t.Fatalf("host-access claims = %v; want exactly the one loophole bind (env is "+
-			"static and ungated, so it is not an approval claim)", claims)
+	if len(claims) != 4 {
+		t.Fatalf("host-access claims = %v; want the three loophole binds plus the device "+
+			"(env is static and ungated, so it is not an approval claim)", claims)
 	}
-	claim := claims[0]
+	joined := strings.Join(claims, "\n")
 	for _, want := range []string{
-		"loophole " + audioLoopholeName,
 		loopholedecl.TokenLoopholeDir + "/asound.conf",
 		"/etc/alsa/conf.d/50-yolo-audio-alsa.conf",
+		// RAW, with the variable UNEXPANDED — this is the G2a rule doing the work that
+		// OQ-LP14's ruling leans on: the approval records the DECLARATION, so it stays
+		// machine-independent even though the resolved path is /run/user/<uid>/....
+		"${XDG_RUNTIME_DIR}/pulse/native",
+		"${XDG_RUNTIME_DIR}/pipewire-0",
+		"/dev/snd",
 	} {
-		if !strings.Contains(claim, want) {
-			t.Errorf("approval claim %q must contain %q", claim, want)
+		if !strings.Contains(joined, want) {
+			t.Errorf("approval claims must mention %q:\n%s", want, joined)
 		}
 	}
-	if strings.Contains(claim, "/tmp/") || strings.Contains(claim, packsRootHint) {
-		t.Errorf("approval claim %q leaked a staging path — it must stay machine-independent "+
-			"(G2a), or it can never match a recorded approval", claim)
+	// The resolved spelling must NOT appear: an expanded claim carries a per-machine
+	// path, could never match a recorded approval, and — since promptYesNo fails closed
+	// on a non-TTY — would refuse the loophole permanently.
+	if strings.Contains(joined, "/run/user/") {
+		t.Errorf("an approval claim expanded ${XDG_RUNTIME_DIR}:\n%s", joined)
+	}
+	if strings.Contains(joined, "/tmp/") || strings.Contains(joined, packsRootHint) {
+		t.Errorf("approval claim leaked a staging path — it must stay machine-independent "+
+			"(G2a), or it can never match a recorded approval:\n%s", joined)
 	}
 }
 
@@ -193,22 +238,22 @@ func TestAudioPackLoopholeIsInsideThePackShippedSubset(t *testing.T) {
 	if mod.Decl == nil {
 		t.Fatalf("manifest did not decode: %s", mod.Problem)
 	}
-	// The fourth shipped manifest's enablement default, after the OQ-A9 rename
-	// (docs/design/loophole-activation.md). TRUE, unlike its bundled sibling `audio`
-	// which R4 flips to false in the same commit, and the asymmetry is the ruling
-	// rather than an oversight: R4's subject is HOST ACCESS, and this loophole reaches
-	// none — its one crossing is a :ro bind of a file the pack itself ships. The
-	// deliberate act R1 wants has also already happened by the time this manifest is
-	// read, because a pack-shipped loophole is discovered only when its pack is
-	// SELECTED, and `packs: ["audio"]` is user-scope and hand-written (OQ-A7).
+	// FALSE, and the value FLIPPED when the two audio loopholes merged
+	// (docs/design/loophole-activation.md R4, and the entry in docs/RELEASE-NOTES.md).
+	//
+	// The `audio-alsa` sibling shipped `default_enabled: true` on an argument that was
+	// sound for what it was: R4's subject is HOST ACCESS, and an ALSA config fragment
+	// the pack itself ships reaches none. That argument does not survive the merge —
+	// this loophole now binds two host sockets and passes /dev/snd through, which is
+	// host access and nothing else. Selecting the pack is no longer sufficient consent
+	// for what the pack does.
 	//
 	// Asserted through the EMBEDDED pack, so the value the binary carries is what is
 	// pinned — the same reason every other assertion in this file reads the embed.
-	if !mod.Decl.DefaultEnabled {
-		t.Errorf("default_enabled = false; selecting the `audio` pack is already the "+
-			"deliberate act, so the pack's own loophole must not need a second one. "+
-			"If this was flipped on purpose, R4 is about host access and %q reaches none.",
-			audioLoopholeName)
+	if mod.Decl.DefaultEnabled {
+		t.Errorf("default_enabled = true; %q binds the host's audio sockets and passes "+
+			"/dev/snd through, and R4 is that host access is never on by default. The "+
+			"switch is `\"loopholes\": {\"audio\": {\"enabled\": true}}`.", audioLoopholeName)
 	}
 	if probs := mod.Decl.PackShippedProblems(loopholedecl.ManifestPath(mod.Dir)); len(probs) > 0 {
 		t.Errorf("the SHIPPED pack's loophole is outside the pack-shipped subset, so a "+
@@ -222,97 +267,82 @@ func TestAudioPackLoopholeIsInsideThePackShippedSubset(t *testing.T) {
 	}
 }
 
-// THE R5 ASSERTION, half one: the pack does NOT claim the reserved name `audio`.
+// THE R5 ASSERTION, INVERTED BY THE CONVERSION: the pack DOES claim the name `audio`,
+// and that is now correct rather than fatal.
 //
-// The name-exclusivity pre-flight (run.PackLoopholeNameConflicts) refuses a pack claiming
-// any reserved name, FATALLY — and the bundled loophole directory names are part of the
-// reserved set, read off the same embed.FS the loader materializes. So a pack shipping
-// `loopholes/audio` while bundled_loopholes/audio exists is a launch that does not start.
+// This test used to assert the opposite. The name-exclusivity pre-flight
+// (run.PackLoopholeNameConflicts) refuses a pack claiming a reserved name FATALLY, and
+// the bundled loophole directory names were part of the reserved set — read off the same
+// embed.FS the loader materializes. So while `bundled_loopholes/audio/` existed, a pack
+// shipping `loopholes/audio` was a launch that did not start, and the pack shipped
+// `audio-alsa` for exactly that reason.
 //
-// Asserted HERE, in packload, rather than only in the run package: this is a property of
-// the pack's CONTENT, and it must fail in the package that owns the content even if the
-// pre-flight is ever restructured. The run-package half (over the real reserved set) is
-// TestShippedAudioPackDoesNotClaimAReservedName.
-func TestAudioPackAvoidsTheReservedBundledName(t *testing.T) {
+// Deleting the bundled copy retired the reservation in the same commit, because the
+// reservation was DERIVED from the directory rather than listed beside it. Taking the
+// name back is not cosmetic: `loopholes.audio.enabled` is the config key the release
+// notes tell users to write, and a loophole answering to `audio-alsa` would have made
+// that key name nothing.
+//
+// Asserted HERE, in packload, as a property of the pack's CONTENT; the run-package half
+// (over the real composed reserved set) is TestShippedAudioPackDoesNotClaimAReservedName.
+func TestAudioPackTakesTheFormerlyReservedName(t *testing.T) {
+	var got []string
 	for _, from := range embeddedAudioPack(t).Decl.LoopholeSources() {
-		if filepath.Base(from) == "audio" {
-			t.Errorf("the pack declares `from: %q`, whose basename is the RESERVED loophole "+
-				"name \"audio\" (the bundled loophole owns it). The launch pre-flight refuses "+
-				"this fatally, so every jail selecting this pack would fail to start. Rename "+
-				"the module directory.", from)
-		}
+		got = append(got, filepath.Base(from))
+	}
+	if len(got) != 1 || got[0] != audioLoopholeName {
+		t.Errorf("the pack declares loophole module basenames %v, want [%q] — the config "+
+			"key users write is `loopholes.audio.enabled`, so the module directory has to "+
+			"be `audio`", got, audioLoopholeName)
 	}
 }
 
-// THE R5 ASSERTION, half two: the pack's bind DESTINATION does not collide with the
-// bundled audio loophole's.
+// THE DESTINATION ASSERTION, RETARGETED: nothing else claims the pack's bind
+// destinations, and the /etc/asound.conf spelling stays deliberately unused.
 //
-// MEASURED, and it is why the pack delivers a conf.d fragment instead of /etc/asound.conf:
+// MEASURED, and it is why the pack delivers a conf.d fragment rather than
+// /etc/asound.conf:
 //
 //	$ podman run -v A:/x.txt:ro -v B:/x.txt:ro alpine cat /x.txt
 //	Error: /x.txt: duplicate mount destination
 //
-// Two binds on one destination with DIFFERENT sources is refused by podman, so a jail with
-// both the bundled loophole and this pack would REFUSE TO START — a regression far worse
-// than the pack not existing. alsa-lib loads /etc/alsa/conf.d before /etc/asound.conf (its
-// own alsa.conf include list), so the fragment routes identically at a destination nothing
-// else claims. Measured with sox in this repo's jail image: neither file → "cannot find
-// card '0'"; fragment only → reaches the pipewire shim; BOTH together → identical to
-// fragment only, with no duplicate-definition error.
-func TestAudioPackDoesNotCollideWithTheBundledAudioDestinations(t *testing.T) {
-	bundled := bundledAudioManifest(t)
-	bundledDests := map[string]bool{}
-	for _, bm := range bundled.HostBindMounts {
-		bundledDests[bm.Container] = true
-	}
-	if !bundledDests["/etc/asound.conf"] {
-		t.Fatalf("the bundled audio loophole no longer binds /etc/asound.conf (destinations: "+
-			"%v) — this test's premise moved, so re-derive the collision analysis rather "+
-			"than deleting the test", bundledDests)
-	}
-
-	mods, _, _ := embeddedAudioPack(t).LoopholeModules()
-	for _, mod := range mods {
-		if mod.Decl == nil {
-			continue
-		}
-		for _, bm := range mod.Decl.HostBindMounts {
-			if bundledDests[bm.Container] {
-				t.Errorf("the pack binds %q, which the BUNDLED audio loophole also binds. "+
-					"podman refuses two binds on one destination whose sources differ "+
-					"(\"duplicate mount destination\", measured), so a jail with both would "+
-					"refuse to start", bm.Container)
-			}
-		}
-		// The same rule for devices: the bundled loophole passes /dev/snd through, and a
-		// duplicate --device is only observable OFF a jail host (RuntimeArgsFor skips
-		// device passthrough whenever the launcher is itself in a jail), which makes it
-		// exactly the kind of regression the mandated verification loop cannot catch.
-		for _, dev := range mod.Decl.HostDevices {
-			for _, bundledDev := range bundled.HostDevices {
-				if dev == bundledDev {
-					t.Errorf("the pack passes through %q, which the bundled audio loophole "+
-						"already passes through. A duplicate --device is unobservable in a "+
-						"nested jail, so this would only break on a real host", dev)
-				}
-			}
-		}
-	}
-}
-
-// bundledAudioManifest decodes bundled_loopholes/audio/manifest.jsonc off the repo tree.
+// Two binds on one destination with DIFFERENT sources is refused by podman, so a jail
+// with two things claiming /etc/asound.conf REFUSES TO START — worse than either of them
+// not existing. That is why the fragment path was chosen, and it is why the choice
+// SURVIVES the bundled loophole's deletion even though the collision it avoided is gone:
+// alsa-lib loads /etc/alsa/conf.d before /etc/asound.conf (its own alsa.conf include
+// list), the fragment is the spelling measured working in this repo's jail with sox, and
+// moving back to the freed path would be an unmeasured edit made for tidiness.
 //
-// Read from the TREE rather than the embed.FS because this package cannot import
-// internal/loopholes' bundled embed (packload is below it), and TestEmbedMatchesTree
-// already pins the two against each other — so reading one reads both.
-func bundledAudioManifest(t *testing.T) *loopholedecl.Manifest {
-	t.Helper()
-	dir := filepath.Join(repoRootForAudioTest(t), "bundled_loopholes", "audio")
-	m, _, err := loopholedecl.LoadDirTolerant(dir)
-	if err != nil {
-		t.Fatalf("decoding the bundled audio manifest at %s: %v", dir, err)
+// The bundled comparison this test used to make went with the bundled manifest. What
+// replaced it is the property that actually protects a user: the destinations are pinned,
+// so a change to them has to be made here.
+func TestAudioPackDoesNotCollideWithTheBundledAudioDestinations(t *testing.T) {
+	mods, _, _ := embeddedAudioPack(t).LoopholeModules()
+	if len(mods) != 1 || mods[0].Decl == nil {
+		t.Fatalf("expected one decodable module, got %+v", mods)
 	}
-	return m
+	var dests []string
+	for _, bm := range mods[0].Decl.HostBindMounts {
+		dests = append(dests, bm.Container)
+		if bm.Container == "/etc/asound.conf" {
+			t.Error("the pack binds /etc/asound.conf. The destination is FREE now that the " +
+				"bundled loophole is gone, so this is no longer fatal — but the conf.d " +
+				"fragment is the spelling measured working with a real libasound client, " +
+				"and podman refuses two binds on one destination whose sources differ, so " +
+				"anything else that writes /etc/asound.conf would make a jail refuse to " +
+				"start. Re-measure before taking it.")
+		}
+	}
+	sort.Strings(dests)
+	want := []string{
+		"/etc/alsa/conf.d/50-yolo-audio-alsa.conf",
+		"/run/pipewire/pipewire-0",
+		"/run/pulse/native",
+	}
+	if strings.Join(dests, "\n") != strings.Join(want, "\n") {
+		t.Errorf("bind destinations:\n got: %v\nwant: %v", dests, want)
+	}
 }
 
 // repoRootForAudioTest walks up to the dir holding go.mod. A separate helper from

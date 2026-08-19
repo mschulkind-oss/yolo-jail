@@ -1,0 +1,144 @@
+// The `audio` loophole, shipped by the OFFICIAL `audio` pack — the whole of it.
+//
+// READ THE PACK'S README BEFORE CHANGING ANYTHING HERE. Two things about this file
+// are surprising and both are forced by measurement rather than taste; a third used
+// to be and is not any more.
+//
+//  1. IT WAS TWO LOOPHOLES UNTIL 2026-08-18. `bundled_loopholes/audio` carried the
+//     sockets, the device and /etc/asound.conf, while this pack shipped an
+//     ALSA-only sibling called `audio-alsa` — because `audio` was a RESERVED name
+//     (the bundled directory owned it) and a pack claiming a reserved name is a
+//     FATAL launch refusal. Deleting the bundled copy freed the name, so the two
+//     merged back into one loophole under the name the config key has always used:
+//     `loopholes.audio.enabled`.
+//
+//  2. THE SOCKET BINDS SAY `readonly: true` AND ARE STILL BIDIRECTIONAL. The
+//     pack-shipped subset refuses `readonly: false`, and for a socket that costs
+//     nothing: measured twice in this repo, a read-only bind of an AF_UNIX socket is
+//     fully connectable and read-write, because the kernel's read-only check exempts
+//     inodes that are not REG/DIR/LNK (the well-known docker.sock:ro result). Audio
+//     frames flow both ways through these binds exactly as they did.
+//
+//     THE ONE THING IT COSTS IS THE CLAIM'S CLASS, and it is worth knowing before
+//     someone "fixes" it: packload's bindIsIPC splits the read-write-host-IPC claim
+//     from the mount claim on `readonly: false` OR a `.sock`/`.socket` basename, and
+//     these two sockets are called `native` and `pipewire-0`. So they land in the
+//     MOUNT class — whose text carries the socket caveat verbatim ("an AF_UNIX
+//     SOCKET here is read-write host IPC regardless of `:ro`"), so nothing is
+//     understated; only the discriminator is coarser. The precise fix is a declared
+//     socket bit in the schema, which packload's own comment names.
+//
+//  3. `jail_env` IS ABSENT and the variables live in the pack's `env` contribution.
+//     `jail_env` is refused for a pack-shipped loophole, so PULSE_SERVER and
+//     PIPEWIRE_REMOTE are UNCONDITIONAL — set on every launch that selects this
+//     pack, including on a machine where no socket ever crossed. That is §3.1's
+//     named honest cost and OQ-LP5's trigger; the README says what it costs. The
+//     bundled manifest already accepted half of it ("both are unconditional because
+//     the bind mounts above use a stable container path").
+//
+// AND THE THING THAT STOPPED BEING TRUE: the pack-shipped subset used to refuse a
+// bind host that expands ${XDG_RUNTIME_DIR}, which made the socket half of audio
+// literally unexpressible for a pack. That rule was withdrawn (OQ-LP14) because it
+// admitted ~/.ssh and refused a pulse socket. The sockets below are the reason the
+// ruling exists, so if they ever draw a subset refusal again, read that OQ before
+// changing this file.
+{
+  "name": "audio",
+  "description": "PipeWire/PulseAudio socket pass-through + ALSA→PipeWire routing — enables microphone and playback inside the jail (Claude Code /voice, sox, ffmpeg, pipewire-rs, libasound clients).",
+  "version": 1,
+
+  // OFF unless somebody asks for it (docs/design/loophole-activation.md R4: "host
+  // access is never on by default"). Audio used to be on for everyone whose host had
+  // a pulse socket — presence deciding activation, which is precisely what R1 deletes
+  // — and "being useful is not a reason to be automatic".
+  //
+  // Written out rather than omitted even though absent already means false: this is
+  // the manifest a reader checks when they wonder why their microphone stopped
+  // working, and a key that is not there answers nothing. The switch back on is
+  // `"loopholes": {"audio": {"enabled": true}}` in ~/.config/yolo-jail/config.jsonc —
+  // and `"packs": ["audio"]`, which is the gate that arrived with the pack.
+  "default_enabled": false,
+
+  // Linux-only, DECLARED rather than left to a `requires` probe. THIS REPLACED
+  // `requires.file_exists: "${XDG_RUNTIME_DIR}/pulse/native"`, which the bundled
+  // manifest used to keep the loophole silently inactive on macOS and on a host with
+  // no audio socket. Three reasons the probe did not come across:
+  //
+  //   - The two fields answer different questions. `requires` is "is the thing I need
+  //     present" (fix: install it); `platforms` is "does this exist for this machine
+  //     at all" (no fix). ALSA and the PipeWire/Pulse socket layout are Linux, so on
+  //     darwin there is nothing to install — and saying so is what makes the inert
+  //     report actionable instead of sending a macOS reader after a package.
+  //   - `requires.file_exists` is one of the two fields the pack-shipped subset still
+  //     path-scopes, and deliberately: it emits no approval CLAIM (it crosses
+  //     nothing), while its ANSWER leaks through `yolo loopholes list`. Widening it
+  //     for this manifest would leave an unclaimed host-filesystem probe with a
+  //     readout, which is a bigger decision than audio needs.
+  //   - What the probe bought is now nearly free. The loophole is OFF by default, so
+  //     the only reader who reaches a missing socket is one who asked for audio on a
+  //     host that has none — and a per-mount "skipping bind mount, host source
+  //     missing" warning is the better answer for them than silence. RuntimeArgsFor
+  //     already skips each absent bind and device with exactly that line.
+  "platforms": [
+    "linux"
+  ],
+
+  // No TLS intercept, no daemon — this loophole grants the jail access to existing
+  // host sockets and ships a config file.
+  "transport": "none",
+  "lifecycle": "external",
+
+  "host_bind_mounts": [
+    {
+      // The PulseAudio socket. Works for both PipeWire (which ships a
+      // Pulse-compatible socket via pipewire-pulse) and classic PulseAudio.
+      "host": "${XDG_RUNTIME_DIR}/pulse/native",
+      "container": "/run/pulse/native",
+      // Bidirectional in fact — see note 2 in the header. `true` is what the subset
+      // requires and what the kernel ignores for a socket inode.
+      "readonly": true
+    },
+    {
+      // Native PipeWire socket. On a pure-PulseAudio host this path does not exist
+      // and RuntimeArgsFor skips the mount with a warning.
+      "host": "${XDG_RUNTIME_DIR}/pipewire-0",
+      "container": "/run/pipewire/pipewire-0",
+      "readonly": true
+    },
+    {
+      // {loophole_dir} — content the pack ships, which packstage already vetted for
+      // exec bits and escaping symlinks.
+      "host": "{loophole_dir}/asound.conf",
+      // NOT /etc/asound.conf, even though the bundled loophole that claimed that
+      // destination is gone and the path is free again. alsa-lib reads
+      // /etc/alsa/conf.d BEFORE /etc/asound.conf (measured in alsa.conf's own include
+      // list), this spelling is the one measured working in this repo's jail with a
+      // real libasound client, and changing it now would be an unmeasured edit made
+      // for tidiness. It also stays out of the way of anything else that writes
+      // /etc/asound.conf — podman refuses two binds on one destination whose sources
+      // differ ("duplicate mount destination", measured), which makes a collision
+      // there a jail that REFUSES TO START rather than a file that loses.
+      "container": "/etc/alsa/conf.d/50-yolo-audio-alsa.conf",
+      "readonly": true
+    }
+  ],
+
+  // /dev/snd character-device tree: ALSA-seq for MIDI, raw hardware ALSA, mixers.
+  // Passed through via --device so the cgroup device-allow rules permit reads and
+  // writes (a bare bind mount would surface the nodes but rootless podman would deny
+  // the cgroup access). Skipped silently on hosts where the snd kernel module is not
+  // loaded.
+  //
+  // THIS IS THE ONE DECLARATION HERE THAT NO VERIFICATION LOOP IN THIS REPO CAN
+  // OBSERVE: RuntimeArgsFor skips device passthrough whenever the launcher is itself
+  // in a jail ("devices cannot nest under rootless podman"), and nested-jail
+  // verification is the mandated loop. It moved across from the bundled manifest
+  // unchanged, and the claim class is pinned by test over an audio-shaped manifest —
+  // but a CHANGE to it can only be proven on a real desktop.
+  "host_devices": [
+    "/dev/snd"
+  ]
+
+  // `jail_env` is deliberately ABSENT — see note 3 in the header. PULSE_SERVER and
+  // PIPEWIRE_REMOTE are the pack's `env` contribution.
+}

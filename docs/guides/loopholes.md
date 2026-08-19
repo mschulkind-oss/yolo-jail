@@ -4,8 +4,9 @@ A **loophole** is a single controlled permeability point between the jail and th
 
 Examples:
 
-- [`claude-oauth-broker`](../../bundled_loopholes/claude-oauth-broker/) — MITM proxy that serializes Claude OAuth refreshes (transport: `loopback-tls`, lifecycle: `spawned`, plus an `intercepts` list).
-- `host-processes` — allowlisted read-only view of host processes (transport: `loopback-tls`, lifecycle: `spawned`).
+- [`claude-oauth-broker`](../../bundled_loopholes/claude-oauth-broker/) — MITM proxy that serializes Claude OAuth refreshes (transport: `loopback-tls`, lifecycle: `spawned`, plus an `intercepts` list). The last inhabitant of `bundled_loopholes/`.
+- [`host-processes`](../../packs/host-processes/) — allowlisted read-only view of host processes, shipped by the official pack of the same name (transport: `loopback-tls`, lifecycle: `spawned`).
+- [`audio`](../../packs/audio/) — PipeWire/PulseAudio pass-through plus ALSA routing, shipped by the official `audio` pack (transport: `none`, lifecycle: `external`).
 - `journal`, `cgroup-delegate` — built-in loopholes surfaced from `loopholes` in `yolo-jail.jsonc`.
 - Hypothetical future: `llm-audit` (logs every inference request), `secret-gate` (scrubs outbound traffic).
 
@@ -479,7 +480,7 @@ else's source*. Each row is a rule with a reason, not a nervous restriction:
 | **`platforms` declaration** (not a refusal — a field to use) | the front makes the *transport* portable; it does not make the *daemon* portable, and packs will ship native code. `requires` says *"the thing I need is present"* — a runtime probe — and cannot say *"I only exist for this platform."* Without the distinction, a compiled Linux daemon on macOS reads as an unmet requirement ("install the missing thing", advice that can never succeed) or fails five seconds later through a silent spawn path | declare the platforms (OS, and architecture where it matters) — see [`platforms`](#platforms--where-the-loophole-can-run-at-all) above. An unsupported loophole is reported **by name**, once, with the platforms it does support, through the *same one-line report* that names an inert backend: *"this loophole does nothing here, and here is why"* is one user-visible situation, not two |
 | `ca_cert` **module-relative or `{state}` only** — no absolute path, no `$VAR`, no `..`, no `:`; still scoped, and it did **not** follow the bind rule out | the sharpest of the path-bearing fields, not the mildest. It is not a read but a TRUST INSTALL, so the legal namespace is a statement about PROVENANCE rather than about reach — a CA a pack may install is one it SHIPS or one yolo GENERATED, and there is no third source worth the vocabulary. The file is bind-mounted from your host AND its container path is joined into `NODE_EXTRA_CA_CERTS`, so an absolute value hands **every node client in the jail** a certificate authority the user never chose — and the resolver passes an absolute value through as-is (it deliberately discards the module dir, or `filepath.Join` would produce `<module>/<abs>`) | a certificate your pack SHIPS (`"ca.crt"`, which resolves inside your module dir) or one in your own state dir (`"{state}/ca.crt"` — name-keyed, so it survives restaging, which is what makes a pack-shipped CA possible at all: a CA regenerated on every launch would break every long-lived TLS client in the jail) |
 | `requires.file_exists` **module-relative or home-relative only** — still scoped, and it did **not** follow the bind rule out | the one scoped field that crosses NOTHING — no mount, no exec, just a `stat` whose boolean decides whether the loophole is active. It is scoped because the **answer leaks**: `yolo loopholes list` prints the resolved absolute path beside the inactive reason, so an unscoped field is an arbitrary host-filesystem probe with a readout — `"$HOME/.ssh/id_ed25519"`, and the pack reads the result out of the user's own command. (It gets no approval CLAIM, for the same reason: a claim is for a crossing, and a line in the prompt for a stat dilutes a prompt whose value is that every line is a real capability) | a path inside your module dir or relative to the user's home. To require a PROGRAM, use `requires.command_on_path`, which is untouched — it asks PATH about a name, and the answer names something installable |
-| **reserved names refused** | a shadowed loophole name means a daemon nobody audited running under a name the user trusts — and it would be *half* a loophole: yolo's own daemon runs while the manifest's binds, devices and `jail_env` still cross into the jail. The reserved set is larger than "the bundled three": `audio`, `claude-oauth-broker`, `host-processes`, plus `cgroup-delegate` and `journal`, which are built-in service names with no manifest at all | pick another name (the loophole's name is its directory basename, so rename the directory). Refused at launch, fatally, naming both sides — the same pre-flight that refuses two packs claiming one name |
+| **reserved names refused** | a shadowed loophole name means a daemon nobody audited running under a name the user trusts — and it would be *half* a loophole: yolo's own daemon runs while the manifest's binds, devices and `jail_env` still cross into the jail. The set is **composed**, not listed: the bundled loophole directory names, plus `claude-oauth-broker` from the broker's own constant, plus `cgroup-delegate` and `journal`, which are built-in service names with no manifest at all. **A name LEAVES the set when its manifest leaves `bundled_loopholes/`** — that is how `host-processes` and `audio` came to be shippable by packs under their own names | pick another name (the loophole's name is its directory basename, so rename the directory). Refused at launch, fatally, naming both sides — the same pre-flight that refuses two packs claiming one name |
 
 **Where each rule fires, and it is everywhere now.** The reserved-name and
 name-exclusivity refusals are the launch pre-flight. The schema-level rules above
@@ -508,19 +509,17 @@ had no production callers), so a `jail_env` or a `publishes: "endpoint"` manifes
 was accepted where the rules said it should be refused. If you wrote a pack
 against that behaviour, `yolo pack lint` now tells you exactly what to change.
 
-**A KNOWN LIMIT of the bind-host rule, so you do not spend an afternoon looking for
-a spelling that does not exist.** There is **no way for a pack to name a socket in
-your session's runtime dir** — `${XDG_RUNTIME_DIR}/pulse/native` is refused as a
-`$VAR`, the literal `/run/user/<uid>/pulse/native` is refused as absolute, and it is
-not under `$HOME`, so home-relative cannot reach it either. That is not an oversight
-in your manifest; it is a gap in the vocabulary, and it is why the official `audio`
-pack ships only the **ALSA half** of audio while the bundled `audio` loophole keeps
-doing the sockets (`packs/audio/README.md` has the measurements). The table's
-suggested alternative — *"a `host_daemon` that mediates"* — is a poor fit here: for a
-PipeWire socket it means writing an audio proxy, i.e. asking for arbitrary host
-execution in order to get a read-only bind. Tracked as **OQ-LP14** in
-[`loophole-packaging.md`](../design/loophole-packaging.md) §3.1; until it is decided,
-runtime-dir IPC is a bundled-only capability.
+**THAT LIMIT IS RETIRED, and it is worth knowing it existed.** Until 2026-08-17 the
+rule was *"module-dir or home-relative"*, and there was **no way for a pack to name a
+socket in your session's runtime dir** — `${XDG_RUNTIME_DIR}/pulse/native` was refused
+as a `$VAR`, the literal `/run/user/<uid>/pulse/native` as absolute, and it is not
+under `$HOME`. The official `audio` pack shipped only the **ALSA half** while the
+bundled `audio` loophole did the sockets, which is what made the gap a measurement
+rather than an opinion. **OQ-LP14 withdrew the rule** on exactly that evidence: it
+admitted `~/.ssh` and refused a pulse socket, so its two cases were inverted. Both
+audio loopholes then merged into one pack-shipped `audio` (`packs/audio/README.md`
+has the whole story). What replaced the rule is not a narrower one — it is the claim
+enumeration you already read in the approval prompt.
 
 Two backends make the whole thing inert regardless of your manifest: Apple
 Container starts no loophole host services at all (a wider skip than the
@@ -797,7 +796,8 @@ Keeps the briefing tight and prevents drift when loopholes come and go.
 
 - [`docs/design/loophole-protocol.md`](../design/loophole-protocol.md) — wire protocol spec.
 - [`bundled_loopholes/claude-oauth-broker/`](../../bundled_loopholes/claude-oauth-broker/) — reference intercepting loophole (`loopback-tls` + `intercepts`).
-- [`packs/audio/`](../../packs/audio) — the **shipped example of a pack carrying a loophole**: one `loophole` contribution plus one `env` contribution, and a README recording why it is `audio-alsa` rather than `audio`, why it binds a `conf.d` fragment, and the one thing the pack-shipped subset cannot express.
+- [`packs/audio/`](../../packs/audio) — the **shipped example of a pack carrying a loophole**: one `loophole` contribution plus one `env` contribution, and a README recording why it was `audio-alsa` until the bundled copy went, why it binds a `conf.d` fragment, and what the `readonly: true` rule costs a socket's claim class.
+- [`packs/host-processes/`](../../packs/host-processes) — the **conversion's proving ground**: a loophole with a `host_daemon`, a `doctor_cmd` and its own declared `settings`, whose manifest the pack-shipped subset accepted unchanged.
 - [`internal/loopholedecl/`](../../internal/loopholedecl) — the manifest schema itself: decode + static validation, no filesystem, no predicates. The authority on every key's shape.
 - [`internal/loopholes/`](../../internal/loopholes) — the host-side registry: token resolution, `requires` evaluation, discovery order, runtime argv.
 - [`internal/hostservice/`](../../internal/hostservice) — helper package.

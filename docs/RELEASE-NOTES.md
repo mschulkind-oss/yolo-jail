@@ -190,23 +190,48 @@ gating it. 📄 [`trust-paths.md`](design/trust-paths.md) §1 row 1 (OQ-TP5).
 > only that two jails updated at different times can hold different versions — which was already
 > true, and is now at least the result of somebody asking.
 
-### ⚠️ `audio` is now off by default
+### ⚠️ `audio` is now off by default, and it needs a pack
 
-**What changed.** A loophole's manifest declares `default_enabled`, and absent now means **off**.
-`audio` ships `default_enabled: false`, where it was previously on whenever the host's PulseAudio
-socket existed.
+**What changed.** Two things, in two steps, and the second one landed after the first.
+
+A loophole's manifest declares `default_enabled`, and absent now means **off**. `audio` ships
+`default_enabled: false`, where it was previously on whenever the host's PulseAudio socket existed.
+
+And the loophole **moved into the official `audio` pack**. It used to be bundled into the binary,
+so it was present on every machine; now it arrives only if you select the pack — the same rule as
+any agent pack you never listed. (If you had already selected `audio` for its `audio-alsa`
+loophole: that loophole is **gone**, merged back into the plain `audio` name it only ever avoided
+because the bundled copy had reserved it. `loopholes.audio-alsa.*` names nothing now.)
 
 **Who is affected.** Anyone relying on sound in a jail — `/voice`, `sox`, `ffmpeg`, any ALSA client.
 
-**What to do.** Enable it explicitly:
+**What to do.** Both lines, in your user config:
 
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc
-"loopholes": { "audio": { "enabled": true } }
+{
+  "packs": ["claude", "audio"],
+  "loopholes": { "audio": { "enabled": true } }
+}
 ```
 
+Everything the bundled loophole did, the pack does: both host sockets, `/dev/snd`, and the
+ALSA→PipeWire routing. Two details differ and neither changes what works:
+
+- The ALSA fragment lands at `/etc/alsa/conf.d/50-yolo-audio-alsa.conf` rather than
+  `/etc/asound.conf`. alsa-lib reads the first before the second, so the routing is identical.
+- `PULSE_SERVER` and `PIPEWIRE_REMOTE` are now set on **every** launch that selects the pack,
+  rather than only when the loophole is active — a pack may not declare a loophole's `jail_env`, so
+  they travel as the pack's `env` contribution. On a machine with no audio socket they point at
+  something that is not there, which fails the same way it would on a host with no daemon.
+- The Linux-only gate is now a `platforms: ["linux"]` declaration rather than a probe for the Pulse
+  socket. On a Linux host with no audio you will see one `skipping bind mount, host source missing`
+  warning per socket instead of the loophole quietly going inactive — which is the better answer
+  for someone who just asked for audio.
+
 **Why.** *"We don't give host access by default."* Being useful is not a reason to be automatic —
-[`loophole-activation.md`](design/loophole-activation.md) R1 and R4.
+[`loophole-activation.md`](design/loophole-activation.md) R1 and R4. The move out of the binary is
+the same rule one level up: shipped-in-the-binary is not installed.
 
 > [!WARNING]
 > **Downgrade hazard, and it cannot be fixed from inside the new build.** An **older** yolo reading a

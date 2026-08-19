@@ -94,24 +94,22 @@ func TestOnePackCollidingWithItselfIsRefused(t *testing.T) {
 // TestReservedLoopholeNamesAreRefused is measured hole #3 plus §3.1's correction that the
 // reserved namespace is LARGER than "bundled" and draft 1 missed two names.
 //
-// All four must be refused, and the two the design caught matter most: `cgroup-delegate`
+// All three must be refused, and the two the design caught matter most: `cgroup-delegate`
 // was an explicit config-scope error with NO manifest-side equivalent, and `journal` was
 // reserved in paths.go and enforced NOWHERE — a pack shipping `loopholes/journal` loaded,
 // was discovered, had its daemon silently skipped, and still contributed --add-host,
 // ca_cert, --device, bind mounts and jail_env to the argv.
 //
-// `host-processes` WAS in this list and deliberately is not any more: it became an
-// official pack on 2026-08-18, and a name a pack ships cannot also be a name a pack may
-// not ship. Its half of the property moved to
-// TestTheOfficialHostProcessesPackIsNotRefusedByItsOwnReservation below, which is the
-// assertion that actually protects a user — a reservation left standing over a converted
-// loophole refuses the whole launch for everyone who selects the pack.
+// `host-processes` and `audio` WERE in this list and deliberately are not any more: both
+// became official packs on 2026-08-18, and a name a pack SHIPS cannot also be a name a
+// pack may not ship. Their half of the property moved to the two tests below, which are
+// the assertions that actually protect a user — a reservation left standing over a
+// converted loophole refuses the whole launch for everyone who selects the pack.
 func TestReservedLoopholeNamesAreRefused(t *testing.T) {
 	reserved := []string{
 		paths.BuiltinCgroupLoopholeName,  // "cgroup-delegate" — config-scope error, no manifest equivalent
 		paths.BuiltinJournalLoopholeName, // "journal" — reserved in paths.go, refused nowhere
 		broker.BrokerLoopholeName,        // "claude-oauth-broker" — startLoopholes special-cases the NAME
-		"audio",                          // bundled
 	}
 	for _, name := range reserved {
 		got := PackLoopholeNameConflicts([]PackLoopholeDecl{decl("grabby", "loopholes/"+name)})
@@ -135,9 +133,12 @@ func TestReservedLoopholeNamesAreRefused(t *testing.T) {
 // claim it — naming the same mistake twice (once as pack-vs-reserved, once as pack-vs-pack)
 // would make the stronger message the easier one to miss.
 func TestReservedClashIsReportedOnceNotTwice(t *testing.T) {
+	// `journal` rather than `audio`: audio stopped being a reserved name when it became
+	// an official pack, and a fixture that reads as "two packs fighting over an ordinary
+	// name" would assert the wrong branch while still passing the count check.
 	got := PackLoopholeNameConflicts([]PackLoopholeDecl{
-		decl("alpha", "loopholes/audio"),
-		decl("beta", "loopholes/audio"),
+		decl("alpha", "loopholes/"+paths.BuiltinJournalLoopholeName),
+		decl("beta", "loopholes/"+paths.BuiltinJournalLoopholeName),
 	})
 	if len(got) != 1 {
 		t.Fatalf("want one message for one mistake, got %d: %v", len(got), got)
@@ -377,8 +378,10 @@ func TestReservedSetCoversAllThreeContributors(t *testing.T) {
 	}
 	for _, want := range []string{
 		paths.BuiltinCgroupLoopholeName, paths.BuiltinJournalLoopholeName, // paths
-		broker.BrokerLoopholeName, // broker
-		"audio",                   // bundled dir, read off the embed.FS
+		broker.BrokerLoopholeName, // broker, TWICE over: its own constant and the
+		// bundled dir that is still there. Contributor 2 is
+		// appended UNCONDITIONALLY, which is why deleting the
+		// directory will NOT free this one.
 	} {
 		if !got[want] {
 			t.Errorf("reserved set is missing %q — every name yolo answers to itself has to be "+
@@ -388,11 +391,13 @@ func TestReservedSetCoversAllThreeContributors(t *testing.T) {
 	// AND THE OTHER DIRECTION, which is the half that breaks users. Contributor 3 is
 	// read off the bundled embed.FS, so a loophole that LEAVES that directory must
 	// leave the reservation with it — automatically, in the same commit, because the
-	// two are one fact. `host-processes` made that trip on 2026-08-18.
-	if got["host-processes"] {
-		t.Error("\"host-processes\" is still reserved after moving into an official pack — " +
-			"every launch that selects `packs: [\"host-processes\"]` is refused, because a " +
-			"pack claiming a reserved name is fatal at the pre-flight")
+	// two are one fact. `host-processes` and `audio` both made that trip on 2026-08-18.
+	for _, gone := range []string{"host-processes", "audio"} {
+		if got[gone] {
+			t.Errorf("%q is still reserved after moving into an official pack — every launch "+
+				"that selects `packs: [%q]` is refused, because a pack claiming a reserved "+
+				"name is fatal at the pre-flight", gone, gone)
+		}
 	}
 }
 

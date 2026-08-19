@@ -1,7 +1,7 @@
 {
   "contributes": [
     {
-      "from": "loopholes/audio-alsa",
+      "from": "loopholes/audio",
       "kind": "loophole"
     },
     {

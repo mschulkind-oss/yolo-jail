@@ -10,6 +10,7 @@ package loopholes
 
 import (
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -167,26 +168,40 @@ func TestMalformedPlatformsIsRefusedOnTheTolerantPath(t *testing.T) {
 	}
 }
 
-// The shipped loopholes declare no `platforms`, so they are supported everywhere and
-// gate exactly as they did. `audio` is the interesting one: it is Linux-only in fact
-// and says so through `requires.file_exists` on a Linux socket path, which is the
-// PROBE. Migrating it to `platforms` is a behaviour change to the audio loophole and
-// belongs with whoever owns that migration, not with the field.
+// What each shipped loophole says about `platforms`, and the table is a decision
+// record rather than a blanket rule.
 //
-// The set is shippedLoopholes, which follows a manifest that changes homes — a
-// conversion to a pack must not quietly drop a name from this walk.
-func TestBundledLoopholesDeclareNoPlatforms(t *testing.T) {
+// It USED to assert that none of them declared the field, with `audio` named as the
+// interesting exception-in-waiting: Linux-only in fact, saying so through a
+// `requires.file_exists` PROBE on a Linux socket path, and migrating it called "a
+// behaviour change that belongs with whoever owns that migration".
+//
+// That migration happened on 2026-08-18, forced by the pack conversion rather than
+// chosen: `requires.file_exists` is one of the two fields the pack-shipped subset
+// still path-scopes, so `${XDG_RUNTIME_DIR}/pulse/native` could not come across —
+// while `platforms` answers the question the probe was really asking and is not
+// scoped at all. The other two are unchanged.
+func TestShippedLoopholePlatformDeclarations(t *testing.T) {
+	wantPlatforms := map[string][]string{"audio": {"linux"}}
 	for _, s := range shippedLoopholes {
 		lp, err := LoadLoophole(shippedLoopholeModule(t, s.name, s.pack))
 		if err != nil {
 			t.Fatalf("%s: %v", s.name, err)
 		}
-		if lp.PlatformsSet {
-			t.Errorf("%s declares platforms=%v; the shipped set is untouched by this field "+
-				"(audio's Linux-onlyness is a `requires` probe, and migrating it is its own change)",
-				s.name, lp.Platforms)
+		want, declares := wantPlatforms[s.name]
+		if lp.PlatformsSet != declares {
+			t.Errorf("%s: PlatformsSet = %v (platforms=%v), want %v — this field is a "+
+				"per-loophole decision, so a change here has to move a row in the table above",
+				s.name, lp.PlatformsSet, lp.Platforms, declares)
+			continue
 		}
-		if !lp.SupportedHere() {
+		if declares && !reflect.DeepEqual(lp.Platforms, want) {
+			t.Errorf("%s: platforms = %v, want %v", s.name, lp.Platforms, want)
+		}
+		// SupportedHere is asserted only where nothing was declared: `audio` is
+		// legitimately unsupported on darwin, and a test that demanded otherwise would
+		// fail on the platform the declaration exists for.
+		if !declares && !lp.SupportedHere() {
 			t.Errorf("%s reports unsupported on %s/%s with no declaration",
 				s.name, runtime.GOOS, runtime.GOARCH)
 		}

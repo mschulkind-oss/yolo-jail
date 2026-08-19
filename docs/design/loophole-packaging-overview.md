@@ -704,6 +704,19 @@ sharpest capability in the system in order to obtain the mildest one. The propor
 only the socket; the claim is emitted in the host-IPC class that already exists) — recorded as
 **OQ-LP14**, named and not designed.
 
+> [!IMPORTANT]
+> **SUPERSEDED 2026-08-18 — both shapes were undone by the things that forced them, and the
+> FINDING is retired.** OQ-LP14 withdrew the bind-host path rule (it admitted `~/.ssh` and refused
+> a pulse socket), so the sockets became expressible for a pack; deleting `bundled_loopholes/audio`
+> then freed the reserved name, because the reservation was DERIVED from the directory rather than
+> listed beside it. The two audio loopholes merged into one pack-shipped `audio`, and the pack is
+> now a REPLACEMENT rather than additive. The `conf.d` destination survives the collision it was
+> chosen to avoid: it is the spelling measured working, and moving to the freed path would be an
+> unmeasured edit. What remains true is the `jail_env`/`env` cost below, and one thing this text
+> did not anticipate — the subset's surviving `readonly: false` refusal costs a socket bind its
+> read-write-IPC CLAIM CLASS, because `packload.bindIsIPC` splits on that bit. See
+> `packs/audio/README.md`.
+
 **So the shipped pack is ADDITIVE, and two of its shapes were forced rather than chosen.** The bundled
 `audio` is kept and untouched — do nothing and nothing changes. The pack's loophole is named
 `audio-alsa`, because `audio` is a **reserved** name and a pack claiming one refuses the launch
@@ -980,6 +993,14 @@ all**. So the honest pack ships the ALSA half under the name `audio-alsa`.
 it did; for `audio` that is now known to be false, and the fix is **OQ-LP14**'s runtime-socket
 vocabulary. LP11's consolidation therefore *depends on LP14*, where before it looked independent of
 everything except the kind.
+
+> [!IMPORTANT]
+> **RESOLVED 2026-08-18 — and the dependency discharged in the direction this predicted.** OQ-LP14
+> was answered by WITHDRAWING the rule rather than by adding the vocabulary, which made `audio`
+> expressible with no new manifest keys at all. `bundled_loopholes/audio` is deleted, the pack took
+> the plain name back (the reservation was derived from the directory), and LP11's consolidation is
+> two thirds done: `bundled_loopholes/` holds only `claude-oauth-broker`, which is blocked on its
+> own conversion rather than on any vocabulary.
 
 **The broker still waits, on a stated blocker rather than caution:** its manifest is not what runs —
 the spawn is reconstructed in Go and the per-jail relay has no manifest vocabulary at all — so

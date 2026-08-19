@@ -20,8 +20,8 @@ import (
 // An empty pack name means the bundled embed. When the last one goes, this table
 // loses its second column and the bundled reader with it.
 var shippedManifestHome = map[string]string{
-	"audio":               "",
 	"claude-oauth-broker": "",
+	"audio":               "audio",
 	"host-processes":      "host-processes",
 }
 
@@ -119,10 +119,29 @@ func TestBundledManifestsDecodeStrictly(t *testing.T) {
 	}
 }
 
-// TestBundledAudioFields pins the shape of the one bundled loophole that is all
-// declarations and no daemon: bind mounts, a device, jail env, and a `requires`
-// gate — and every path still RAW, because ${XDG_RUNTIME_DIR} and {loophole_dir}
-// resolve per machine.
+// TestBundledAudioFields pins the shape of the one shipped loophole that is all
+// declarations and no daemon: bind mounts and a device — and every path still RAW,
+// because ${XDG_RUNTIME_DIR} and {loophole_dir} resolve per machine.
+//
+// FOUR of its fields changed when the two audio loopholes merged into the official
+// `audio` pack on 2026-08-18, and each is a decision rather than a port:
+//
+//	readonly: true on both sockets  the pack-shipped subset refuses `readonly: false`,
+//	                                and for a socket that refusal costs nothing — the
+//	                                kernel exempts non-REG/DIR/LNK inodes from the
+//	                                read-only check, so the bind stays bidirectional.
+//	no jail_env                     refused for a pack; PULSE_SERVER/PIPEWIRE_REMOTE
+//	                                are the pack's `env` contribution now, and
+//	                                therefore unconditional (OQ-LP5).
+//	platforms instead of requires   `requires.file_exists` is still path-scoped for a
+//	                                pack, and `platforms: ["linux"]` answers the
+//	                                question the probe was really asking.
+//	the conf.d destination          kept from the audio-alsa sibling, which is the
+//	                                spelling measured working in this repo's jail.
+//
+// What did NOT change is the one that matters most: the `${XDG_RUNTIME_DIR}` bind
+// hosts survive decoding unexpanded, which is what OQ-LP14's withdrawal made
+// expressible for a pack at all.
 func TestBundledAudioFields(t *testing.T) {
 	m, err := loopholedecl.Decode(bundledManifest(t, "audio"), "/loopholes/audio")
 	if err != nil {
@@ -137,20 +156,22 @@ func TestBundledAudioFields(t *testing.T) {
 	if m.HostDaemon != nil || m.JailDaemon != nil {
 		t.Errorf("audio declares no daemon; got host=%+v jail=%+v", m.HostDaemon, m.JailDaemon)
 	}
-	if m.Requires.CommandOnPathSet {
-		t.Errorf("audio gates on a FILE, not a command: %+v", m.Requires)
+	if m.Requires.CommandOnPathSet || m.Requires.FileExistsSet {
+		t.Errorf("requires = %+v — the probe was replaced by `platforms`, and reinstating "+
+			"it would draw a pack-shipped subset refusal (file_exists is still scoped)",
+			m.Requires)
 	}
-	if !m.Requires.FileExistsSet || m.Requires.FileExists != "${XDG_RUNTIME_DIR}/pulse/native" {
-		t.Errorf("requires.file_exists = %q (set=%v); the $VAR must survive decoding unexpanded",
-			m.Requires.FileExists, m.Requires.FileExistsSet)
+	if !m.PlatformsSet || !reflect.DeepEqual(m.Platforms, []string{"linux"}) {
+		t.Errorf("platforms = %v (set=%v), want [linux]", m.Platforms, m.PlatformsSet)
 	}
 	if len(m.HostBindMounts) != 3 {
 		t.Fatalf("host_bind_mounts = %+v, want 3", m.HostBindMounts)
 	}
 	want := []loopholedecl.HostBindMount{
-		{Host: "${XDG_RUNTIME_DIR}/pulse/native", Container: "/run/pulse/native", Readonly: false},
-		{Host: "${XDG_RUNTIME_DIR}/pipewire-0", Container: "/run/pipewire/pipewire-0", Readonly: false},
-		{Host: "{loophole_dir}/asound.conf", Container: "/etc/asound.conf", Readonly: true},
+		{Host: "${XDG_RUNTIME_DIR}/pulse/native", Container: "/run/pulse/native", Readonly: true},
+		{Host: "${XDG_RUNTIME_DIR}/pipewire-0", Container: "/run/pipewire/pipewire-0", Readonly: true},
+		{Host: "{loophole_dir}/asound.conf",
+			Container: "/etc/alsa/conf.d/50-yolo-audio-alsa.conf", Readonly: true},
 	}
 	if !reflect.DeepEqual(m.HostBindMounts, want) {
 		t.Errorf("host_bind_mounts =\n %+v\nwant\n %+v", m.HostBindMounts, want)
@@ -158,12 +179,9 @@ func TestBundledAudioFields(t *testing.T) {
 	if !reflect.DeepEqual(m.HostDevices, []string{"/dev/snd"}) {
 		t.Errorf("host_devices = %v, want [/dev/snd]", m.HostDevices)
 	}
-	if got, _ := m.JailEnv.Get("PULSE_SERVER"); got != "unix:/run/pulse/native" {
-		t.Errorf("jail_env PULSE_SERVER = %q", got)
-	}
-	// Key ORDER is load-bearing: RuntimeArgsFor emits `-e K=V` in it.
-	if got := m.JailEnv.Keys(); !reflect.DeepEqual(got, []string{"PULSE_SERVER", "PIPEWIRE_REMOTE"}) {
-		t.Errorf("jail_env key order = %v; argv byte-stability depends on the manifest's order", got)
+	if m.JailEnv != nil && m.JailEnv.Len() != 0 {
+		t.Errorf("jail_env = %v — refused for a pack-shipped loophole; the variables are "+
+			"the pack's `env` contribution", m.JailEnv.Keys())
 	}
 }
 
