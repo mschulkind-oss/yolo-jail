@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 8 needing you · 1 ready · 0 in progress · 4 waiting · 1 broken · 2 icebox.**
+**Status: 9 needing you · 1 ready · 0 in progress · 4 waiting · 1 broken · 2 icebox.**
 
 Last updated **2026-08-18**. Counts tallied from this file, not asserted.
 
@@ -29,7 +29,38 @@ the real number was closer to 50.
 Grouped by decision, not by question. Each row names its design doc; the doc holds the stakes and my
 leaning. **Nothing here asks you to pick an execution order** — sequencing is mine.
 
-### 💬 1 — Trust paths: where we extend trust, and where a pin is theatre
+### 💬 1 — Program delivery: eight questions, and the research corrected both of us
+
+📄 [`program-delivery.md`](../design/program-delivery.md) — **OQ-PD1 … OQ-PD8**
+
+New doc, written because you said this needed research before a decision. It supersedes the framing
+of trust-paths' OQ-TP3/TP4 rather than answering them: the goal is **uniformity, not security** — the
+security half was settled when OQ-TP5 killed silent npm updates.
+
+**Four findings that change the question, each measured rather than argued:**
+
+- **"Realization is per-workspace" is only half true, and the other half is worse.** npm programs,
+  installer programs, LSP and MCP packages do land per-workspace. But **mise is machine-global and
+  evergreen on every single launch** — `mise install && mise upgrade --yes` runs unconditionally
+  (`command.go:14-19`), `/mise` is one bind shared by every workspace and nesting depth, and version
+  aliases are **symlinks repointed in place** (`/mise/installs/node/22 -> ./22.23.2`). A launch in
+  workspace B changes the toolchain workspace A resolves through. **A per-workspace lockfile cannot
+  reach it.**
+- **npm was never special — it was just the first kind anyone looked at.** mise already carries the
+  Go module proxy and PyPI (via `pipx:`) alongside its core backends, all unpinned, all reached
+  through a key yolo itself composes. That is your *"too special case for npm"* worry, confirmed.
+- **"Pack set + lockfile makes jails uniform" is false today**, and this jail proves it: its user
+  config is `"packs": ["claude"]`, yet `~/.npm-global/lib/node_modules/` holds pi, copilot, codex and
+  a stray `fzf` from a deleted test pack. **Dropping a pack removes its launcher and never uninstalls
+  its program**, so a jail is the union of every pack ever selected, not the current set.
+- **The launcher is PATH-shadowed after first use**, so the poll-and-report OQ-TP5 built is
+  unreachable in steady state. The freeze is **total, not throttled** — and the resolve that decides
+  everything is the cold one, per workspace.
+
+**The cheapest single win, if you want one before ruling:** mise supports a lockfile and yolo never
+enables it. There is no mise lockfile anywhere in the tree.
+
+### 💬 2 — Trust paths: where we extend trust, and where a pin is theatre
 
 📄 [`trust-paths.md`](../design/trust-paths.md) — 25 paths enumerated from the code · partly supersedes
 [`pack-execution-trust.md`](../design/pack-execution-trust.md)
@@ -60,7 +91,7 @@ What is still open:
 - **OQ-LP8 / G2b** — you ruled the shape (approval pinned to a commit); what remains is that
   `LockEntry.Commit` is **never consulted at launch**, so the pin does not yet exist.
 
-### 💬 2 — Auth mode
+### 💬 3 — Auth mode
 
 📄 [`agent-auth-modes.md`](../design/agent-auth-modes.md)
 
@@ -69,7 +100,7 @@ What is still open:
 subscription OAuth bearer to a non-Anthropic base URL?) and it gates boundary-broker B2. **OQ-2 · 3 ·
 4 · 9** are smaller. **OQ-7 is moot as phrased** — there is no Teams pack — and needs restating.
 
-### 💬 3 — Non-container nix
+### 💬 4 — Non-container nix
 
 📄 [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md)
 
@@ -77,7 +108,7 @@ subscription OAuth bearer to a non-Anthropic base URL?) and it gates boundary-br
 backend? Everything else in that doc is subordinate to it. No longer urgent — the auth thread routed
 around the `env` refusal that motivated it.
 
-### 💬 4 — Boundary broker
+### 💬 5 — Boundary broker
 
 📄 [`boundary-broker.md`](../design/boundary-broker.md)
 
@@ -85,7 +116,7 @@ around the `env` refusal that motivated it.
 **OQ-C** is a real API-shape decision: does the jail see the *result* or just success? **OQ-B1b**
 sizes B1b only. The security half of **OQ-E** is settled; only its packaging half is live.
 
-### 💬 5 — Image staging and baking
+### 💬 6 — Image staging and baking
 
 📄 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md)
 
@@ -93,7 +124,7 @@ sizes B1b only. The security half of **OQ-E** is settled; only its packaging hal
 content-addressed image tag; **OQ-1** blocks two more items; **OQ-4** is a scope ruling on a shipped
 config key. None of these were in this file before today.
 
-### 💬 6 — macOS, and the environment-manager stories
+### 💬 7 — macOS, and the environment-manager stories
 
 📄 [`macos-user-build-step-threat-model.md`](../design/macos-user-build-step-threat-model.md) ·
 [`environment-manager-user-stories.md`](../design/environment-manager-user-stories.md) ·
@@ -104,7 +135,7 @@ whether Linux `guest` is a promise or a hypothesis. **threat-model Q1-Q3** cover
 refusal, `--accept-flake-config`'s substituter surface (now live — see the shipped item), and a macOS
 build sandbox. **OQ-L1** explicitly blocks Track L part 2.
 
-### 💬 7 — The small ones with no design-doc home
+### 💬 8 — The small ones with no design-doc home
 
 These were born in this file and have nowhere else to live: **S5** (a jail resolves a skill-name
 collision silently), **OQ-CO**, **OQ-S4**, **OQ-E4**, and **E1/E2/E3/E5** from the backlog. Each is
@@ -128,7 +159,7 @@ should *print* for a section it skipped — now has a design-doc home as **OQ-3*
   version, a typo like `foo@@1.2.3` reaches npm and fails at first use *inside* the jail, where the
   diagnosis is worst. Cheap host-side check; needs a ruling only on how strict to be.
 
-### 💬 8 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
+### 💬 9 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
 
 📄 [`pack-host-management-plan.md`](pack-host-management-plan.md) ·
 [`pack-capabilities.md`](../design/pack-capabilities.md)
