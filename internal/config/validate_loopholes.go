@@ -40,6 +40,70 @@ const loopholeScopeInJailSuffix = " (warning in-jail: an error here would refuse
 // loopholeUserConfigHint is the fix every scope violation names.
 const loopholeUserConfigHint = "~/.config/yolo-jail/config.jsonc"
 
+// retiredLoopholeNames maps a loophole name yolo NO LONGER SHIPS to the name that
+// replaced it, so the two "no loophole called that is installed here" messages below
+// can name the replacement instead of describing the absence.
+//
+// It is the same migration artifact `knownTopLevelConfigKeys` keeps for `agents` and
+// `repo_path`, and it does NOT reintroduce the property the activation sprint just
+// removed. "Core's config schema names no loophole" is about the SCHEMA — a key whose
+// meaning is one specific loophole — and there is none left. This table is the
+// opposite: it holds only names that are gone, exists to point at their replacements,
+// and shrinks to nothing once nobody is upgrading across the rename.
+//
+// WITHOUT IT THE RENAME IS A SILENT DEMOTION IN ONE SCOPE AND A DEAD END IN THE OTHER,
+// which is exactly the shape validateJournalRetired and validateHostProcessesRetired
+// exist to prevent one level up. `audio-alsa` was the measured case: in a user config
+// it warned "if the loophole was removed, this entry is a no-op" (true, and it never
+// says the capability still exists under another name), and in a WORKSPACE config it
+// REFUSED THE LAUNCH while advising the reader to hand-write `command:
+// ["<host daemon argv>"]` — an argv for a daemon yolo ships, under a name yolo retired.
+var retiredLoopholeNames = map[string]struct{ replacement, why string }{
+	"audio-alsa": {
+		replacement: "audio",
+		why: "the audio pack's two loopholes were merged into one under the plain " +
+			"'audio' name, which was free the moment the bundled loophole that had " +
+			"reserved it became that pack",
+	},
+}
+
+// loopholeNotInstalledRemedy is the ACTIONABLE half of both "not installed" messages:
+// what to actually write, for a name that resolved to no loophole.
+//
+// IT LEADS WITH THE PACK, because since the activation sprint that is how every
+// loophole yolo itself ships arrives — the manifests moved into official packs, so
+// `loopholes.<name>.enabled` is now half of a two-part act and the other half is
+// `packs`. The message it replaced predated packs entirely and offered exactly one
+// remedy, an inline `command` with a host daemon argv, which for a pack-shipped
+// loophole is both wrong and worse than wrong: a user who followed it would install a
+// hand-written daemon of their own under a name yolo answers to.
+//
+// IT NAMES NO LOOPHOLE AND NO PACK, deliberately — `<pack>` is a placeholder, not a
+// lookup. internal/config cannot resolve a loophole name to the pack that ships it
+// (loopholes -> config -> packload is an import cycle, which is why the resolver is
+// pushed IN from internal/cli/run), and hardcoding the four official names here would
+// put loophole knowledge back in core's schema for the sake of a hint. The retired
+// table above is the one exception and it is not a lookup of what EXISTS.
+//
+// AND IT SAYS THAT `packs` IS USER-SCOPE TOO. The workspace caller is a file that can
+// do neither thing, so a remedy naming only the user config's `loopholes` block still
+// leaves the reader hunting for why their `packs` edit in the same file did nothing.
+func loopholeNotInstalledRemedy(name string) string {
+	if r, retired := retiredLoopholeNames[name]; retired {
+		return "The loophole " + pytext.Repr(name) + " was RETIRED and replaced by " +
+			pytext.Repr(r.replacement) + " — " + r.why + ". Write the entry under the " +
+			"new name instead (" + `"loopholes": {"` + r.replacement + `": {"enabled": true}}` +
+			"), and select the pack that ships it in " + loopholeUserConfigHint + ": " +
+			`"packs": ["` + r.replacement + `"]. ` + pytext.Repr(name) + " names nothing now."
+	}
+	return "Installing is user-scope, and there are two shapes of it — this file can do " +
+		"neither. If the loophole SHIPS IN A PACK (every loophole yolo itself ships " +
+		"does), the install is the selection: add " + `"packs": ["<pack>"]` + " to " +
+		loopholeUserConfigHint + ", which is user-scope only, and leave the " +
+		`"enabled"` + " key where it is. If it ships in no pack, install it inline in " +
+		"that same file: " + `"loopholes": {"` + name + `": {"command": ["<host daemon argv>"]}}.`
+}
+
 // validateLoopholes runs the `host_services = config.get("loopholes")` block
 // of _validate_config, plus the §4.3b scope pass. Names matching a file-backed
 // loophole are overrides (enabled/env/jail_env only); unknown override-shaped
@@ -188,11 +252,18 @@ func validateLoopholeEntryShape(name string, specV any, info *LoopholeInfo, supp
 	if spec.Len() > 0 && !hasKey(spec, "command") && keysSubsetOf(spec, knownLoopholeOverrideKeys) {
 		validateLoopholeOverride(name, spec, path, errs, nil)
 		if !suppressFallbackWarn {
+			// THE REMEDY IS THE SAME ONE THE WORKSPACE ERROR CARRIES, and sharing it is
+			// the point: this is the user-config half of one situation, and the two
+			// halves used to disagree about what a reader should do. The error said
+			// "write a command"; this said "if the loophole was removed, this entry is a
+			// no-op" — which is true of a RENAMED loophole in the only sense that does
+			// not help, and true of an unselected pack in no sense at all. A user who
+			// wrote `loopholes.<pack-loophole>.enabled: true` and never added the pack
+			// got this line at every launch and a loophole that never ran.
 			add(warns, path+": no loophole named "+pytext.Repr(name)+" is installed on "+
 				"this machine — treating the entry as an override of "+
-				"a host-side loophole. If the loophole was removed, "+
-				"this entry is a no-op; an inline service would need "+
-				"a 'command'.")
+				"a host-side loophole, so it does nothing as written. "+
+				loopholeNotInstalledRemedy(name))
 		}
 		return
 	}
@@ -296,9 +367,7 @@ func loopholeScopeEnableProblems(name string, entries []wsLoopholeEntry, install
 	}
 	if *enabled && !installed {
 		return "config.loopholes." + name + ": " + file + " enables a loophole that is " +
-			"not installed on this machine. Installing is user-scope: add the entry to " +
-			loopholeUserConfigHint + " yourself, e.g. " +
-			`"loopholes": {"` + name + `": {"command": ["<host daemon argv>"]}}.`, ""
+			"not installed on this machine. " + loopholeNotInstalledRemedy(name), ""
 	}
 	if !*enabled && installed {
 		return "", "config.loopholes." + name + ": disabled by " + file +

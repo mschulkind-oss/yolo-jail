@@ -373,9 +373,18 @@ type PackLoopholeDecl struct {
 // manifest still contributes `--add-host`, `ca_cert`, `--device`, bind mounts and
 // `jail_env` to the argv while the winner's daemon is the one that runs. The user sees one
 // trusted name and gets a mixture, with nothing said. That is why the pack-vs-reserved
-// half exists at all: `startLoopholes` special-cases `claude-oauth-broker`, `journal` and
-// `cgroup-delegate` BY NAME, so a manifest claiming one of those names is not an override,
-// it is half a loophole (docs/design/loophole-packaging.md §3.1, §5.1).
+// half exists at all: `startLoopholes` special-cases `claude-oauth-broker` BY NAME (it
+// runs yolo's own broker argv rather than the record's host_daemon), so a manifest
+// claiming that name is not an override, it is half a loophole
+// (docs/design/loophole-packaging.md §3.1, §5.1).
+//
+// THIS SENTENCE USED TO NAME `journal` AND `cgroup-delegate` TOO, and leaving it that way
+// would have been worse than a stale comment: it reads as a justification for reserving
+// those two names, which is exactly the commit that refuses every launch selecting the
+// `journal` or `cgroup-delegate` pack. Both became pack-shipped loopholes on 2026-08-18
+// and their name special-case in startLoopholes was deleted in the same commits — the
+// broker is the last name with this shape. See loopholes.ReservedLoopholeNames for the
+// trap that leaves behind for whoever converts it.
 //
 // The reserved half is also why this cannot be a row in packload.Collisions: that takes
 // []*packload.Pack, and a bundled loophole is not a pack. It is here, in the run package,

@@ -21,6 +21,84 @@ changelog; this is the subset that bites.
 
 ## Unreleased
 
+### ⚠️ A workspace config that enables a loophole now needs the pack selected, or the jail will not start
+
+**What changed.** Every loophole yolo ships is now carried by a pack (`audio`,
+`cgroup-delegate`, `host-processes`, `journal` — see the entries below), and selecting the
+pack is what *installs* it. `packs` is **user-config only**. So a workspace
+`yolo-jail.jsonc` that says `"loopholes": {"journal": {"enabled": true}}` while
+`~/.config/yolo-jail/config.jsonc` does not say `"packs": ["journal"]` is a config **error**,
+and a config error refuses the launch:
+
+```
+Invalid jail config:
+  • config.loopholes.journal: …/yolo-jail.jsonc enables a loophole that is
+    not installed on this machine. …
+```
+
+This rule is not new — enabling an uninstalled loophole from an agent-editable file has
+always been refused — but until now none of yolo's own loopholes could *be* uninstalled.
+Three of the four were bundled into the binary or were builtin services, so the name always
+resolved.
+
+**Who is affected.** Anyone whose **committed** `yolo-jail.jsonc` switches one of those four
+loopholes on. That file is shared, so this hits every clone whose owner has not selected the
+pack — including teammates and CI, not just the person who wrote the line.
+
+**What to do.** Put the selection in your user config; leave the switch wherever it is
+(`enabled` is honored from either scope):
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc
+{ "packs": ["journal"] }
+```
+
+**The refusal now says this.** It used to offer exactly one remedy — write
+`"loopholes": {"journal": {"command": ["<host daemon argv>"]}}` — which predates packs, was
+unwritable in the file being refused (installing is user-scope too), and would have had you
+hand-roll a daemon yolo already ships. It names `packs` first now, and says that key is
+user-scope as well. The user-config half of the same situation was a warning saying the entry
+"is a no-op"; it carries the same remedy.
+
+> [!NOTE]
+> **`loopholes.audio-alsa` is answered by name.** That loophole was merged into `audio` (see
+> the `audio` entry below), and an entry still using the old name got the generic message
+> above — a launch refusal in a workspace file, a "this entry is a no-op" warning in a user
+> file, and in neither case the word `audio`. It is now reported as retired, naming its
+> replacement and the pack that ships it.
+
+### ⚠️ A loophole manifest with both `settings` and a `jail_daemon` must now declare `state_files`
+
+**What changed.** yolo writes a loophole's resolved settings — the values your config supplied
+under `loopholes.<name>.settings` — into a file in that loophole's own state dir. A loophole
+that also runs a **jail daemon** gets that state dir bind-mounted into the container, and with
+`state_files` **absent** the mount is the whole directory, settings file included. Such a
+manifest is now **refused at load**, naming `state_files`; so is a `state_files` that lists
+`settings.json` outright.
+
+**Who is affected.** Authors of third-party loopholes that declare `settings` *and* a
+`jail_daemon`. No pack yolo ships does both, so nothing in a stock install changes. A manifest
+that does will fail to load, which makes the loophole vanish with a warning naming the file.
+
+**What to do.** List the state files that genuinely have to cross, and leave the settings file
+out:
+
+```jsonc
+// manifest.jsonc
+"state_files": ["ca.crt", "server.crt"]
+```
+
+A jail-side process that needs configuration gets it through `jail_env`, which is the channel
+that was always meant for it.
+
+**Why.** `scope: "user"` on a setting exists to keep a value out of a file the agent can reach.
+Publishing the *resolved* value into the jail read-only hands the agent the same value one
+directory over — and the file's `0600` mode protects nothing there, because a jail's agent runs
+as UID 0 by design. Requiring the manifest to say what crosses is the least-privilege spelling
+`state_files` was introduced for; the alternative — quietly subtracting one file from a mount
+the author declared — would be a carve-out the author cannot see.
+📄 [`pack-config-keys.md`](design/pack-config-keys.md) §2.3.
+
 ### ⚠️ `yolo-cglimit` stops working out of the box
 
 **What changed.** The cgroup delegate — the host-side helper that lets a jail set limits on
