@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 9 needing you · 1 ready · 0 in progress · 4 waiting · 2 broken · 2 icebox.**
+**Status: 9 needing you · 1 ready · 0 in progress · 4 waiting · 1 broken · 2 icebox.**
 
 Last updated **2026-08-19**. Counts tallied from this file, not asserted.
 
@@ -213,34 +213,38 @@ one-line deliverable that is decided in all but name.
 
 # 🛑 Broken
 
-- 🛑 **The macOS nightly: root cause found and fixed on a Mac 2026-08-19, awaiting the run that
-  proves it.** Every guess in the previous version of this entry was wrong, which is the part worth
-  keeping.
+- 🛑 **The macOS nightly is down to ONE failing test, and it is a 20-minute timeout rather than a
+  breakage.** Measured on run `32213209710` (2026-08-19), the first nightly since 07-21 to get past
+  nix at all: `build-image` **success**, and `integration-macos` **29 failures → 1**.
 
-  **What it actually was:** nixpkgs 26.11 **throws** on `x86_64-darwin` ("has dropped support"), and
-  `flake.nix` evaluates `pkgs` for every system flake-utils enumerates — so every host-side nix call
-  on the Intel runner died, `nix eval .#installPrefix` included. Fixed in `927fb9f` by pinning a
-  second nixpkgs input to `nixpkgs-26.05-darwin` for that one system; the other three stay on 26.11,
-  asserted per system, so real Mac users and the shipped image are untouched.
+  The one left is `TestAgentToolsAvailable`, and it does not fail an assertion — it never finishes:
 
-  **Four corrections to what this entry claimed:**
+  ```
+  agents_test.go:25: yolo timed out after 20m0s:
+    yolo run --accept-config-changes -- bash -lc codex --version && copilot --version
+  ```
 
-  - **29 consecutive failures, not five** — last green 2026-07-21, the morning of the flake.lock bump
-    that crossed into 26.11 (`9637326`, 11:38 EDT, after that day's run). Not "since v0.8.0"; v0.8.0
-    was three weeks later.
-  - **29 failing tests, not three.** The skew oracle and the two lib-farm tests were the three that
-    NAMED nix; the other 26 failed on the same dead image without saying so.
-  - **"nix is broken on that runner, not in our tree" was exactly backwards.** It was our flake, on
-    every Intel Mac, and `nix eval .#installPrefix` reproduces it in 0.2s — the "needs a Mac" gate was
-    real but the diagnosis behind it was a guess recorded as a finding.
-  - **A re-trigger could never have fixed it**, so the four nights spent re-triggering were spent on
-    the wrong hypothesis.
+  **What makes it a budget problem rather than a bug:** the neighbours that install the *same* CLIs
+  through the *same* lazy launchers all pass, and slowly — `TestPackInstallsVersionsAndConfigures`
+  takes **981s** for five packs (codex 173s, copilot 185s), and `TestAgentToolsAvailableDirect`
+  passes copilot alone in 177s. So two-CLIs-in-one-jail on a cold Intel runner is being asked to fit
+  a budget its own siblings nearly exhaust one at a time. `YOLO_TEST_JAIL_TIMEOUT` (default 300s;
+  the nightly raises it to 20m) is the knob, and the fix is either a bigger budget for this test, a
+  warm npm cache, or splitting it — **but not before somebody confirms where the 20 minutes go**,
+  because "it is merely slow" is exactly the assumption the last diagnosis got wrong.
 
   **Still open, and it is a deadline rather than a bug:** 26.05 is the LAST nixpkgs supporting
   x86_64-darwin, security-fixed only to end of 2026. The nightly needs `macos-26-intel` because
   GitHub's Apple Silicon runners cannot nest a VM for Podman Machine, so when 26.05 lapses the choice
   is a self-hosted arm64 Mac runner or macos-user-only macOS tests. 💬 **Needs you, but not yet.** 📄
   [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §7.
+
+  *(The flake fix that got us here — `927fb9f`, pinning `nixpkgs-26.05-darwin` for `x86_64-darwin`
+  only — is shipped and proven, so its entry is gone. What is worth keeping is why it took 29 nights:
+  the recorded diagnosis, "nix is broken on that runner and not in our tree", was exactly backwards
+  and had never been measured. It was our flake, on every Intel Mac, reproducible in 0.2s with
+  `nix eval .#installPrefix`. Four nights were spent re-triggering a run that could not have
+  passed.)*
 
 ---
 
@@ -306,20 +310,26 @@ launch — get their entries when they ship, not before.
   Linux's answer (`a35f8c7`, test-only; the resolver was right). `ci.yml`'s `check-macos` job was red
   on `main` for the second of those.
 
-- 🛑 **`TestNoTruncationRace` (`internal/journald`) is red on `main` in CI, on BOTH Linux and macOS**
-  — the remaining reason `check-go` and `check-macos` fail after the two fixes above. Found 2026-08-19
-  while reading CI; **not diagnosed, and it should not be dismissed as a flake.**
+  **And a third, which was neither macOS-specific nor a flake** (`8e77580`): `TestNoTruncationRace`
+  was red on `main` on BOTH Linux and macOS at a flat ~30.8s, and the cause was a real daemon bug —
+  `journald.Serve`'s stop watcher unlinked the socket in a goroutine **nothing waits for**, so a
+  caller re-serving the same path had its new socket file deleted by its predecessor and every dial
+  failed forever. Three things about how it hid are worth carrying forward:
 
-  The evidence points at a real regression rather than a slow runner. It fails as
-  `main_test.go:81: daemon socket never appeared` at **~30.8s every time** — the exact readiness
-  ceiling in `startServe` — in three consecutive runs across two operating systems, i.e. the daemon
-  never becomes dialable at all rather than occasionally missing a budget. And that budget was
-  **already raised from 5s to 30s** for this same symptom, with the comment recording that the poll
-  "normally succeeds in single-digit milliseconds". Raising it again would be the wrong move twice.
+  - **`GOMAXPROCS=1` is the variable a fast dev box hides.** It passed here `-count=3` and reproduced
+    3/3 the moment the scheduler was pinned to one thread. Reach for that before calling a
+    CI-only failure a slow runner.
+  - **A green test that never ran is not evidence.** `18f2330` removed this test's `-short` skip, and
+    every recipe in this repo passes `-short` — so it had never executed in CI in its life. Nothing
+    regressed on 08-17; a latent bug became visible. That commit's own thesis ("they read as coverage
+    and were not") landed on the commit itself.
+  - **The readiness budget had already been raised 5s→30s for this same symptom.** Raising a timeout
+    is what you do to a slow test; doing it twice is a signal you are looking at the wrong layer.
 
-  It passes locally on a Mac (`-count=3`), so whatever it needs is present here and absent on a
-  GitHub runner. Next step is `Serve`'s error path: the goroutine reports via `t.Errorf`, which a
-  `t.Fatalf` on the polling goroutine can mask, so the real bind error may never be printed.
+  Also declared while fixing it: `t.TempDir()` embeds the test's own name, and macOS's 104-byte
+  `sun_path` left that test **14 bytes of headroom** — a rename could have spent it and produced
+  `bind: invalid argument`, which is what a socket test looks like when it is really measuring the
+  length of its own identifier.
 
 - 🔒 **On an NVIDIA host** — `sectionGPUNvidia` has no in-jail guard while its AMD twin guards both of
   its checks, so a jail with `gpu.enabled` prints three `[FAIL]`s for host facts read from the wrong
