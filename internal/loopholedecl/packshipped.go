@@ -449,8 +449,12 @@ func packWritableBindProblem(manifestPath, field string, bm HostBindMount) strin
 // `publishes: "socket"` a third party cannot get any of those wrong because they
 // never write them: they bind a plain AF_UNIX socket and yolo runs the front.
 //
-// `publishes: "endpoint"` stays available to a BUNDLED loophole (all three use it),
-// because that is yolo's own code publishing yolo's own credential.
+// `publishes: "endpoint"` stays available to a BUNDLED loophole, because that is yolo's
+// own code publishing yolo's own credential. THERE IS ONE BUNDLED LOOPHOLE LEFT — this
+// said "all three use it", which was true until 2026-08-18, when `host-processes` and
+// `audio` moved into official packs of their own names and the whole `journal` /
+// cgroup-delegate builtin-service channel became packs too. Only `claude-oauth-broker`
+// is left in bundled_loopholes/, and converting it is what closes this branch.
 //
 // THE DEFAULT IS REFUSED TOO, and that is deliberate rather than an oversight: an
 // absent `publishes` decodes to PublishesEndpoint, so a pack-shipped daemon that
