@@ -18,12 +18,37 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+
+    # x86_64-darwin ONLY.  nixpkgs 26.11 THROWS on that system ("Nixpkgs 26.11
+    # has dropped support for x86_64-darwin"), and because `pkgs` below is
+    # evaluated for every system flake-utils enumerates, that throw took out
+    # every host-side nix call on an Intel Mac — `nix eval .#installPrefix`
+    # included, which is what the integration suite's staleness oracle runs.
+    #
+    # That is not a hypothetical Intel-Mac-user problem; it is CI.  The macOS
+    # nightly has to run on `macos-26-intel` because GitHub's Apple Silicon
+    # runners cannot nest a VM for Podman Machine (see nightly-macos.yml), so
+    # the ONLY hosted runner exercising the macOS code paths is x86_64.  It went
+    # red for 29 consecutive nights (last green 2026-07-21, the morning of the
+    # flake.lock bump that crossed 26.11) with 29 failing tests, and the roadmap
+    # recorded it as "nix is broken on that runner, not in our tree" — the
+    # opposite of true.
+    #
+    # 26.05 is the LAST nixpkgs release supporting x86_64-darwin and is
+    # security-fixed only to the end of 2026, so this is a deadline and not a
+    # fix: when it lapses the choice is a self-hosted arm64 Mac runner (nested
+    # virt) or dropping the container-backend macOS tests to macos-user only.
+    # Deliberately NOT used for aarch64-darwin — real Mac users stay on 26.11.
+    nixpkgs-x86-darwin.url = "github:nixos/nixpkgs/nixpkgs-26.05-darwin";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, nixpkgs-x86-darwin, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
+        # See the nixpkgs-x86-darwin input comment: 26.11 throws on x86_64-darwin,
+        # and every attribute below reaches `pkgs`.
+        hostNixpkgs = if system == "x86_64-darwin" then nixpkgs-x86-darwin else nixpkgs;
+        pkgs = hostNixpkgs.legacyPackages.${system};
 
         # OCI images are always Linux containers.  When building on macOS
         # (darwin), map to the equivalent Linux system so the image gets native
