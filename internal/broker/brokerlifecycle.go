@@ -109,10 +109,19 @@ type Status struct {
 // clobbering a real host broker — and so SingletonDeps can derive them from a
 // loophole name that is not the broker's.
 type Deps struct {
+	// Name is the LOOPHOLE this singleton belongs to, and it exists for the
+	// diagnostics rather than for the mechanics: every path below is already
+	// derived from it, so nothing in the lifecycle reads it back. What reads it is
+	// reportFailedSpawn, whose warning used to say "the Claude OAuth broker
+	// singleton" unconditionally — true of the only `scope: "host"` loophole that
+	// ships today, and a lie the moment a second one declares it, printed at
+	// exactly the moment its daemon failed to start. An empty Name degrades to the
+	// generic phrasing rather than to a wrong one.
+	Name        string
 	SocketPath  string
 	PIDFilePath string
 	LockPath    string
-	LogPath     string // GLOBAL_STORAGE/logs/host-service-claude-oauth-broker.log
+	LogPath     string // GLOBAL_STORAGE/logs/host-service-<name>.log
 	Now         func() time.Time
 	Sleep       func(time.Duration)
 	PathExists  func(string) bool
@@ -174,6 +183,7 @@ func RealDeps() Deps {
 // and the run pipeline's front would each ensure or inspect a different file.
 func SingletonDeps(name string, argv []string) Deps {
 	return Deps{
+		Name:        name,
 		SocketPath:  paths.HostSingletonSocket(name),
 		PIDFilePath: paths.HostSingletonPIDFile(name),
 		LockPath:    paths.HostSingletonLock(name),
@@ -398,6 +408,14 @@ func BrokerSpawn(deps Deps) string {
 // places: an exit means the log's tail IS the reason (the missing-openssl case
 // is one stderr line), while a timeout means the process is still alive and
 // stuck, and the log may hold nothing at all.
+//
+// IT NAMES THE LOOPHOLE FROM THE RECORD, not "the Claude OAuth broker" as it did
+// while this engine was the broker's alone. `host_daemon.scope: "host"` made the
+// lifecycle general (SingletonDeps), and a warning that hardcodes one loophole's
+// name is the half of a generalization that gets left behind — the second
+// host-scoped daemon to fail its spawn would send its owner to `yolo broker
+// status` for a daemon that is not the broker. Deps.Name is empty only on a
+// hand-built Deps, which degrades to the generic phrase rather than a wrong one.
 func reportFailedSpawn(deps Deps, exited func() bool) {
 	if deps.Out == nil {
 		return
@@ -406,9 +424,13 @@ func reportFailedSpawn(deps Deps, exited func() bool) {
 	if exited != nil && exited() {
 		reason = "exited at startup without binding its socket"
 	}
+	subject := "the host-wide daemon"
+	if deps.Name != "" {
+		subject = "the host-wide daemon for '" + deps.Name + "'"
+	}
 	richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
-		"[yellow]Warning: the Claude OAuth broker singleton " + reason +
-			" — in-jail Claude auth will fail until it does. Expected " +
+		"[yellow]Warning: " + subject + " " + reason +
+			" — every in-jail client of it will fail until it does. Expected " +
 			deps.SocketPath + "; see " + deps.LogPath + "[/yellow]")
 }
 
