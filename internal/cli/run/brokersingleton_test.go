@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthterminator"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -431,5 +432,99 @@ func TestBrokerLoopholeActiveIsTrueWhenEnabled(t *testing.T) {
 		t.Error("brokerLoopholeActive = false for an enabled, requirement-free broker record " +
 			"— the gate would suppress the singleton on every launch and no jail would ever " +
 			"get a serialized refresh")
+	}
+}
+
+// TestTheTwoBrokerArgvSourcesAgree ties the launch path's TWO spawners of one daemon
+// together, which nothing else does.
+//
+// # There really are two, and both can spawn
+//
+// `brokerEnsure` (run.go, before the argv is assembled) spawns
+// `broker.RealDeps().Argv` — a HARDCODED argv composed in internal/broker from
+// BrokerSpawnArgv. `startHostSingleton` (the `host_daemon.scope: "host"` path, a few
+// phases later) spawns `resolveDaemonArgv`'s expansion of the MANIFEST's
+// `host_daemon.cmd`. Both call broker.BrokerSpawn against the same
+// paths.HostSingleton* files, so which one's argv actually runs is decided by whether
+// the first ensure left a live daemon behind: normally brokerEnsure wins and the
+// manifest's argv is never executed, but when its spawn does not bind in time
+// (BrokerSpawnTimeout, a slow or failing daemon) startHostSingleton's `if
+// !BrokerIsAlive { BrokerSpawn }` runs the manifest's instead. Two sources for one
+// daemon is exactly the "half the broker" shape docs/design/broker-as-a-pack.md §5.1
+// warns about, and the sprint left it in place deliberately (brokerEnsure has no
+// record to read: it is reached before discovery, and from `yolo broker restart`,
+// which has no launch at all).
+//
+// # Why the two existing pins are not this pin
+//
+// Each side is asserted against its own literal, in its own package:
+// broker/singletondeps_test.go pins RealDeps().Argv, and
+// loopholedecl/shipped_test.go pins the manifest's `cmd`. MEASURED by mutation —
+// adding a flag to BrokerSpawnArgv fails those two tests and NOTHING ELSE, and both
+// failures print the literal to change. An author following them updates the two
+// literals, ships a tree where the manifest declares one argv and the launch path
+// executes another, and the divergence surfaces only on the rare failure path above,
+// as a daemon started with flags nobody wrote down.
+//
+// # What this asserts
+//
+// The SHIPPED manifest (packload.Embedded, not a fixture — a fixture would only prove
+// the fixture agrees with itself) resolved through the exact call startHostSingleton
+// makes, equal to the exact argv brokerEnsure spawns. If they must differ one day,
+// that is a decision to record here rather than a drift to discover in a log.
+func TestTheTwoBrokerArgvSourcesAgree(t *testing.T) {
+	var claudePack *packload.Pack
+	for _, p := range packload.Embedded() {
+		if p.Name == "claude" {
+			claudePack = p
+		}
+	}
+	if claudePack == nil {
+		t.Skip("no embedded packs registered in this test binary")
+	}
+	decls := packLoopholeDecls([]*packload.Pack{claudePack})
+	if len(decls) != 1 || decls[0].Name != broker.BrokerLoopholeName {
+		t.Fatalf("packs/claude must contribute exactly the %s loophole, got %+v",
+			broker.BrokerLoopholeName, decls)
+	}
+	// Register the SHIPPED module as this process's pack record, approved — the gate
+	// has to admit it or ManifestHostDaemonSpecs drops the daemon and the comparison
+	// below would silently have nothing to compare.
+	loopholes.SetPackModuleResolver(nil)
+	loopholes.SetPackModules([]loopholes.PackModule{{Dir: decls[0].Dir, HostExecApproved: true}})
+	t.Cleanup(func() {
+		loopholes.ResetPackModules()
+		loopholes.SetPackModuleResolver(resolvePackLoopholeModules)
+	})
+
+	// The spec exactly as startLoopholes builds it.
+	set := loopholes.NewHostSet(jsonx.NewOrderedMap())
+	specs := set.ManifestHostDaemonSpecs(set.Enabled())
+	v, _ := specs.Get(broker.BrokerLoopholeName)
+	spec, _ := v.(*jsonx.OrderedMap)
+	if spec == nil {
+		t.Fatalf("the shipped broker manifest contributed no host_daemon spec; "+
+			"startHostSingleton would never run. specs=%v", specs.Keys())
+	}
+
+	// The workspace is a path the argv cannot be inside, so the placement rule in
+	// resolveDaemonArgv judges the argv on its merits rather than refusing the test
+	// binary's own location.
+	o := goldenOptions(filepath.Join(t.TempDir(), "ws"), t.TempDir())
+	got, ok := o.resolveDaemonArgv(broker.BrokerLoopholeName, spec,
+		paths.HostSingletonSocket(broker.BrokerLoopholeName))
+	if !ok {
+		t.Fatal("resolveDaemonArgv refused the SHIPPED broker manifest's host_daemon.cmd — " +
+			"startHostSingleton would return without fronting the singleton, so every jail " +
+			"selecting packs: [\"claude\"] loses its credential path")
+	}
+	want := broker.RealDeps().Argv
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("the two broker argv sources have drifted.\n"+
+			"  startHostSingleton (manifest host_daemon.cmd): %v\n"+
+			"  brokerEnsure       (broker.RealDeps().Argv):   %v\n"+
+			"One daemon, one socket, one pid file — but which argv starts it depends on "+
+			"whether brokerEnsure's spawn bound in time. Change both, or record why they "+
+			"must differ.", got, want)
 	}
 }
