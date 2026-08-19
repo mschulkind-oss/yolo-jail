@@ -58,15 +58,11 @@ type Options struct {
 	// --- seams ---
 	// Now is the clock seam. nil => time.Now.
 	Now func() time.Time
-	// RelayKillGrace is the SIGTERM→SIGKILL drain window in relayKill. 0 =>
-	// relayKillGraceDefault (3s). Injectable ONLY to shrink it in tests (the
-	// drain always waits the real wall clock, so 3s of real sleep otherwise
-	// dominates the unit suite); production always uses the default.
-	RelayKillGrace time.Duration
 	// ServiceReadyTimeout bounds each spawned host service's readiness wait
 	// (endpoint publish / socket bind). 0 => serviceReadyTimeoutDefault (5s).
-	// Injectable ONLY to shrink it in tests, for the same wall-clock reason as
-	// RelayKillGrace; production always uses the default.
+	// Injectable ONLY to shrink it in tests — the wait runs on the real wall
+	// clock, so the default would otherwise cost the unit suite five real seconds
+	// per unreachable daemon; production always uses the default.
 	ServiceReadyTimeout time.Duration
 	// Getenv reads environment variables. nil => os.Getenv.
 	Getenv func(string) string
@@ -108,10 +104,10 @@ type Options struct {
 	Getpid func() int
 	// PIDAlive probes whether a recorded PID is still running — the gate in
 	// front of every kill/reap decision. nil => pidAlive. Injectable because a
-	// test that hands real PIDs to relayKill is signalling real processes: a
+	// test that hands real PIDs to a kill path is signalling real processes: a
 	// PID reaped moments earlier can already have been RECYCLED (macOS wraps at
 	// PID_MAX 99999, four orders of magnitude below Linux's default 4194304),
-	// and the drain loop then SIGTERMs — and 3s later SIGKILLs — some unrelated
+	// and a drain loop then SIGTERMs — and seconds later SIGKILLs — some unrelated
 	// process, quite possibly a sibling `go test` binary.
 	PIDAlive func(int) bool
 	// IsTTYStdout / IsTTYStdin report tty-ness (the -t flag, the approval
@@ -167,9 +163,6 @@ func fillDefaults(o *Options) {
 	}
 	if o.Now == nil {
 		o.Now = time.Now
-	}
-	if o.RelayKillGrace == 0 {
-		o.RelayKillGrace = relayKillGraceDefault
 	}
 	if o.Getenv == nil {
 		o.Getenv = os.Getenv

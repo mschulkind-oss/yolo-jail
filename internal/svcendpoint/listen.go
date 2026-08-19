@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// Logger is where this package's diagnostics go. Matching internal/hostservice and
-// internal/brokerrelay so a daemon can point all three at one file.
+// Logger is where this package's diagnostics go. Matching internal/hostservice so
+// a daemon can point both at one file.
 //
 // EVERY line it emits is payload-free by construction. Never add a line that
 // prints an endpoint line, a token, or a cert: that would write a live credential
@@ -115,8 +115,16 @@ func Listen(publishPath, advertiseHost string) (*Listener, error) {
 //
 // preamble is TRUE for Listen, so the framework default is ON everywhere and a
 // daemon that is taught to read one never has to ask which shape delivered it.
-// The single opt-out in the tree is the broker relay's front (brokerrelay.go),
-// which consumes the first frame off the wire itself.
+//
+// THERE IS NO OPT-OUT LEFT IN THE TREE, and its disappearance is worth a line
+// because it was on the credential path. The broker relay's front set it: the
+// relay consumed the first frame off the wire itself to stamp a jail_id into it,
+// so a preamble in front would have been stamped INSTEAD of the request and every
+// jail's Claude OAuth refresh would have failed. The broker conversion deleted the
+// relay and its parse together (docs/design/broker-as-a-pack.md §7) — the preamble
+// is what replaced them. The knob stays, for a config-declared daemon yolo did not
+// write (internal/loopholes' discover.go defaults it OFF for those), but no yolo
+// daemon sets it.
 func listenWith(publishPath, advertiseHost, via string, preamble bool) (*Listener, error) {
 	if advertiseHost == "" {
 		advertiseHost = AdvertiseHost()

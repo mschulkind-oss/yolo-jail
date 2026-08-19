@@ -217,7 +217,13 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 	// because its default is TRUE, so the drop is a silent DOWNGRADE to a
 	// preamble-free connection rather than an obvious nil. It is the ca_cert drop
 	// (see subsetManifest above) one type down.
-	// TestManifestPreambleDefaultSurvivesLoad pins the round trip.
+	//
+	// IT HAS NOW BITTEN TWICE. `Scope` was added to the schema, decoded correctly,
+	// asserted in loopholedecl's own tests — and dropped HERE, so every manifest
+	// declaring `scope: "host"` arrived at the run pipeline with Scope="" and the
+	// spawn path started a SECOND broker per jail. The prose above did not stop it;
+	// TestHostDaemonFieldsSurviveLoad now does, by walking the struct with reflect
+	// rather than by listing what somebody remembered.
 	var hostDaemon *HostDaemon
 	if m.HostDaemon != nil {
 		hostDaemon = &HostDaemon{
@@ -228,6 +234,7 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 			Publishes:  m.HostDaemon.Publishes,
 			RequestEnd: m.HostDaemon.RequestEnd,
 			Preamble:   m.HostDaemon.Preamble,
+			Scope:      m.HostDaemon.Scope,
 		}
 	}
 

@@ -95,10 +95,25 @@ func Main(argv []string) int {
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	go func() { <-sigCh; close(stop) }()
 
-	// ServeUnix, not ServeEndpoint: this singleton is host-to-host (the relay dials it
-	// per connection, the CLI pings it) and never crosses a jail boundary. See the
-	// no-`Serve` note in internal/hostservice for why this is spelled out.
-	if err := hostservice.ServeUnix(BuildHandler(*credsFile), *socket, stop); err != nil {
+	// ServeFrontedUnix, and the third name is the whole point — see the no-`Serve`
+	// note in internal/hostservice for the outage a signature-preserving change to
+	// a shared helper caused here once.
+	//
+	// This used to be ServeUnix, on the true premise that the singleton was
+	// host-to-host: the per-jail relay dialed it and stamped a jail_id into the
+	// request. The relay is GONE (docs/design/broker-as-a-pack.md §7). The manifest
+	// now declares `publishes: "socket"` + `scope: "host"`, so yolo runs one
+	// svcendpoint front PER JAIL over this one socket, and every connection that
+	// arrives here has crossed a jail boundary and carries yolo's CONNECTION
+	// PREAMBLE. Reading it is what replaces the relay's stamp: the jail_id on this
+	// daemon's audit line stays host-asserted (invariant I1), and the ~100 lines
+	// that re-serialized someone else's JSON to keep it that way are deleted rather
+	// than moved.
+	//
+	// Leaving ServeUnix here would be the silent-CORRUPTION direction: the preamble
+	// would be consumed AS the client's request, and every Claude OAuth refresh in
+	// every jail would fail on a connection both ends believe is healthy.
+	if err := hostservice.ServeFrontedUnix(BuildHandler(*credsFile), *socket, stop); err != nil {
 		fmt.Fprintln(os.Stderr, "yolo-claude-oauth-broker-host:", err)
 		return 1
 	}

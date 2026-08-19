@@ -1,11 +1,20 @@
 // Package broker provides the Claude OAuth broker singleton — both the lifecycle
 // engine and the `yolo broker {status,stop,restart,logs}` command bodies. The
 // broker is a host-wide daemon — one per host, serving every running jail — so
-// the lifecycle helpers inspect, ping, spawn, and kill that singleton.
+// the lifecycle helpers inspect, probe, spawn, and kill that singleton.
+//
+// THE ENGINE IS NO LONGER THE BROKER'S ALONE. `host_daemon.scope: "host"`
+// (loopholedecl.ScopeHost) is the manifest vocabulary for "one daemon per host,
+// serving every jail", and the run pipeline honors it through SingletonDeps below
+// — which is this same flock-recheck-spawn-wait sequence with the paths and the
+// argv supplied by the loophole's own record instead of by the constants here.
+// The broker is the only loophole that declares it today, and the package keeps
+// its name because the `yolo broker` COMMAND is genuinely broker-specific; what
+// generalized is the lifecycle, not the CLI.
 //
 // The lifecycle engine (this file) is consumed by the command layer (brokercmd.go)
 // in the same package. Every side effect (process liveness, kill, spawn, socket
-// ping, filesystem, clock) is behind an injectable Deps seam so the whole
+// reachability, filesystem, clock) is behind an injectable Deps seam so the whole
 // lifecycle is unit-testable against a fake socket/pid without a live host daemon
 // (the pscmd/loopholes precedent). The command layer wraps that lifecycle Deps in
 // its own CLIDeps (console writers + tail runner).
@@ -28,8 +37,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
-	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
-	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -74,28 +81,33 @@ const (
 	// BrokerKillTimeout is _broker_kill's default SIGTERM grace before SIGKILL
 	// (the `timeout: float = 3.0` default).
 	BrokerKillTimeout = 3 * time.Second
-	// PingTimeout is _broker_ping's default `timeout=2.0`.
-	PingTimeout = 2 * time.Second
+	// ReachTimeout is the singleton reachability probe's deadline (the historical
+	// `timeout=2.0` the frame-protocol ping used).
+	ReachTimeout = 2 * time.Second
 )
 
 // Status is the snapshot _broker_status returns: pid (present?), pid liveness,
-// socket presence, ping result, and the display path strings. Python models
+// socket presence, reachability, and the display path strings. Python models
 // absent pid as None; here PIDPresent=false plays that role.
 type Status struct {
 	PID          int
 	PIDPresent   bool // pid is not None
 	PIDLive      bool
 	SocketExists bool
-	PingOK       bool
-	Socket       string // display path (== Deps.SocketPath)
-	PIDFile      string // display path (== Deps.PIDFilePath)
+	// Reachable is the socket's ACCEPT answer, not a protocol round trip — see
+	// SingletonReachable for why the frame-protocol ping this replaced can no
+	// longer be spoken from the host side.
+	Reachable bool
+	Socket    string // display path (== Deps.SocketPath)
+	PIDFile   string // display path (== Deps.PIDFilePath)
 }
 
 // Deps are the injectable seams. RealDeps wires them to the real singleton
-// paths, process signals, socket ping, filesystem, and clock; tests substitute
-// fakes. The path fields default to the /tmp singleton constants but are fields
-// (not consts) so a test can retarget them at a temp dir instead of clobbering a
-// real host broker.
+// paths, process signals, socket reachability, filesystem, and clock; tests
+// substitute fakes. The path fields default to the /tmp singleton constants but
+// are fields (not consts) so a test can retarget them at a temp dir instead of
+// clobbering a real host broker — and so SingletonDeps can derive them from a
+// loophole name that is not the broker's.
 type Deps struct {
 	SocketPath  string
 	PIDFilePath string
@@ -105,8 +117,9 @@ type Deps struct {
 	Sleep       func(time.Duration)
 	PathExists  func(string) bool
 
-	// Ping dials socketPath and runs the frame-protocol ping (see BrokerPing).
-	Ping func(socketPath string, timeout time.Duration) bool
+	// Reachable reports whether the singleton's socket accepts a connection (see
+	// SingletonReachable).
+	Reachable func(socketPath string, timeout time.Duration) bool
 	// Alive reports process liveness (kill(pid,0) tri-state collapsed to bool:
 	// EPERM counts as alive).
 	Alive func(pid int) bool
@@ -122,6 +135,17 @@ type Deps struct {
 	// close_fds=True) + proc.poll().
 	Spawn func(argv []string, logPath string) (pid int, exited func() bool, err error)
 
+	// Argv is the singleton's spawn argv, already fully substituted (the running
+	// yolo's own path at argv[0] where the manifest wrote the bare `yolo` token,
+	// and SocketPath in place of `{socket}`).
+	//
+	// IT IS A FIELD RATHER THAN A CONSTRUCTION so the argv can come from the
+	// loophole's MANIFEST — which is what makes `scope: "host"` a declaration
+	// rather than a second name for the broker. RealDeps fills it with the
+	// broker's own for the `yolo broker` command paths, which have no record to
+	// read; SingletonDeps fills it from the record.
+	Argv []string
+
 	// Out receives launcher warnings (info-parity, Go-native) — today the one
 	// reportFailedSpawn emits. A nil writer silences them, so a zero-value Deps
 	// in a test stays quiet without wiring anything.
@@ -134,16 +158,32 @@ type Deps struct {
 
 // RealDeps returns Deps backed by the real singleton paths and OS effects.
 func RealDeps() Deps {
+	return SingletonDeps(BrokerLoopholeName,
+		BrokerSpawnArgv(execx.SelfExecArgv([]string{"yolo"}), BrokerSingletonSocket))
+}
+
+// SingletonDeps returns Deps for the host-wide daemon of the loophole named
+// `name`, spawned with `argv`. It is the general form of RealDeps: every path is
+// derived from the loophole name (paths.HostSingleton*) and the argv comes from
+// the caller, so a `host_daemon.scope: "host"` record drives this engine without
+// anything here knowing which loophole it is.
+//
+// For claude-oauth-broker the derived paths are BYTE-IDENTICAL to the
+// BrokerSingleton* constants — TestSingletonPathsMatchTheBrokerConstants pins
+// that, and it has to hold or `yolo broker status`, `yolo check`'s broker section
+// and the run pipeline's front would each ensure or inspect a different file.
+func SingletonDeps(name string, argv []string) Deps {
 	return Deps{
-		SocketPath:  BrokerSingletonSocket,
-		PIDFilePath: BrokerSingletonPIDFile,
-		LockPath:    BrokerSingletonLock,
-		LogPath:     BrokerLogPath(),
+		SocketPath:  paths.HostSingletonSocket(name),
+		PIDFilePath: paths.HostSingletonPIDFile(name),
+		LockPath:    paths.HostSingletonLock(name),
+		LogPath:     SingletonLogPath(name),
+		Argv:        argv,
 
 		Now:        time.Now,
 		Sleep:      time.Sleep,
 		PathExists: func(p string) bool { _, err := os.Lstat(p); return err == nil },
-		Ping:       BrokerPing,
+		Reachable:  SingletonReachable,
 		Alive:      execx.IsAlive,
 		Kill:       func(pid int, sig syscall.Signal) error { return syscall.Kill(pid, sig) },
 		Pgrep:      RealPgrepStrays,
@@ -155,8 +195,14 @@ func RealDeps() Deps {
 
 // BrokerLogPath returns GLOBAL_STORAGE/logs/host-service-claude-oauth-broker.log
 // the singleton's shared log (one across every jail).
-func BrokerLogPath() string {
-	return filepath.Join(paths.GlobalStorage(), "logs", "host-service-claude-oauth-broker.log")
+func BrokerLogPath() string { return SingletonLogPath(BrokerLoopholeName) }
+
+// SingletonLogPath returns a host-wide daemon's shared log — ONE file across
+// every jail, unlike a per-jail daemon's, and spelled `host-service-<name>.log`
+// so it lands beside them and `yolo check`'s "see <log>" advice reads the same
+// either way (internal/cli/run's startExternalService builds the same path).
+func SingletonLogPath(loopholeName string) string {
+	return filepath.Join(paths.GlobalStorage(), "logs", "host-service-"+loopholeName+".log")
 }
 
 // BrokerReadPID ports _broker_read_pid: the integer PID from the singleton PID
@@ -174,26 +220,26 @@ func BrokerReadPID(deps Deps) (int, bool) {
 }
 
 // BrokerStatus ports _broker_status: pid (present?), pid_live, socket_exists,
-// ping_ok, plus the display paths. ping is probed only when the socket exists
-// (matching the Python `sock_exists and _broker_ping(...)`).
+// reachable, plus the display paths. Reachability is probed only when the socket
+// exists (matching the Python `sock_exists and _broker_ping(...)`).
 func BrokerStatus(deps Deps) Status {
 	pid, present := BrokerReadPID(deps)
 	pidLive := present && deps.Alive(pid)
 	sockExists := deps.PathExists(deps.SocketPath)
-	pingOK := sockExists && deps.Ping(deps.SocketPath, PingTimeout)
+	reachable := sockExists && deps.Reachable(deps.SocketPath, ReachTimeout)
 	return Status{
 		PID:          pid,
 		PIDPresent:   present,
 		PIDLive:      pidLive,
 		SocketExists: sockExists,
-		PingOK:       pingOK,
+		Reachable:    reachable,
 		Socket:       deps.SocketPath,
 		PIDFile:      deps.PIDFilePath,
 	}
 }
 
 // BrokerIsAlive ports _broker_is_alive: PID file present + PID live + socket
-// present + ping round-trips. All four must hold.
+// present + socket reachable. All four must hold.
 func BrokerIsAlive(deps Deps) bool {
 	pid, present := BrokerReadPID(deps)
 	if !present || !deps.Alive(pid) {
@@ -202,7 +248,7 @@ func BrokerIsAlive(deps Deps) bool {
 	if !deps.PathExists(deps.SocketPath) {
 		return false
 	}
-	return deps.Ping(deps.SocketPath, PingTimeout)
+	return deps.Reachable(deps.SocketPath, ReachTimeout)
 }
 
 // BrokerKill ports _broker_kill: send sig to the singleton (PID file first, else
@@ -294,16 +340,29 @@ func BrokerSpawn(deps Deps) string {
 		return deps.SocketPath
 	}
 
+	// A Deps with no argv cannot spawn anything, and saying so beats handing an
+	// empty argv to exec.Command — which indexes argv[0] and panics. It is
+	// reachable only through a hand-built Deps (both constructors fill the field),
+	// so the report is for whoever built one, not for a user.
+	if len(deps.Argv) == 0 {
+		if deps.Out != nil {
+			richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
+				"[yellow]Warning: the host-wide daemon at " + deps.SocketPath +
+					" has no spawn argv; nothing was started.[/yellow]")
+		}
+		return deps.SocketPath
+	}
+
 	// Clean any stale socket left by a crashed prior broker; a second bind(2)
 	// on a stale path fails with EADDRINUSE.
 	removeIgnoreMissing(deps.SocketPath)
 
-	// Self-exec: the launcher is the running yolo binary, so the spawned
-	// `yolo internal daemon claude-oauth-broker` re-execs THIS process rather
-	// than resolving "yolo" on PATH.
-	launcher := execx.SelfExecArgv([]string{"yolo"})
-	argv := BrokerSpawnArgv(launcher, deps.SocketPath)
-	pid, exited, err := deps.Spawn(argv, deps.LogPath)
+	// The argv is the CALLER'S, and for the broker it is self-exec'd: the launcher
+	// is the running yolo binary, so the spawned
+	// `yolo internal daemon claude-oauth-broker` re-execs THIS process rather than
+	// resolving "yolo" on PATH (RealDeps and the run pipeline's record-driven
+	// SingletonDeps both apply execx.SelfExecArgv before they get here).
+	pid, exited, err := deps.Spawn(deps.Argv, deps.LogPath)
 	if err != nil {
 		// Popen would raise in Python; return the socket path and let the
 		// caller's liveness re-check report the failure (divergence D12).
@@ -370,48 +429,46 @@ func brokerWaitForSocket(deps Deps, sock string, timeout time.Duration, exited f
 	return deps.PathExists(sock)
 }
 
-// BrokerPing ports _broker_ping: connect to socketPath, send the length-prefixed
-// {"action":"ping"} request byte-for-byte, and expect a pong:true data frame
-// (stream 0) before the exit frame (stream 2). Any error → false (a boolean
-// liveness probe). Reuses internal/frameproto for the frozen frame protocol and
-// internal/jsonx for the pong decode.
-func BrokerPing(socketPath string, timeout time.Duration) bool {
+// SingletonReachable reports whether the host-wide daemon's socket ACCEPTS a
+// connection. Connect, then close — no bytes are written and none are read.
+//
+// # It used to be a frame-protocol ping, and it cannot be one any more
+//
+// This function was `BrokerPing`: dial, write `{"action":"ping"}` as a framed
+// request, expect a `pong:true` data frame. That worked while the singleton's
+// socket was host-to-host and the first thing on the wire was the client's own
+// request. It is now a FRONTED socket (`publishes: "socket"` + `scope: "host"`),
+// so every connection the daemon accepts begins with yolo's CONNECTION PREAMBLE
+// (svcendpoint/preamble.go) and a bare `{"action":"ping"}` is read as a preamble
+// with no `v` — rejected, connection dropped, no pong. The ping would report every
+// healthy broker as dead, and brokerEnsure would respawn the singleton on every
+// single launch.
+//
+// The obvious repair — have the prober write a preamble too — is the wrong one and
+// is deliberately not taken: the preamble is yolo asserting WHICH JAIL is on the
+// other end, and a host-side liveness probe belongs to no jail. Forging one would
+// put a fabricated jail_id in the daemon's audit line and would make
+// svcendpoint's "yolo is the only producer" a convention instead of a property of
+// the type system (encodePreamble is unexported for exactly that reason).
+//
+// So liveness for a fronted daemon is what it already is everywhere else in the
+// tree: its socket accepts a connection (internal/cli/run's socketConnectable,
+// the readiness predicate for every other `publishes: "socket"` daemon). The
+// preamble reader is built to survive this — a connect-and-close "degrades exactly
+// as 'closed before a request' already does", one log line and nothing else.
+//
+// WHAT THIS NO LONGER CATCHES, stated rather than glossed: a daemon whose accept
+// loop is alive but whose handler is wedged now reads as reachable, where the ping
+// would have called it dead. The end-to-end protocol check survives in the one
+// place it can still be spoken — `yolo check`'s per-jail probe, which goes THROUGH
+// the front and therefore sends a real preamble before its ping (internal/cli/check).
+func SingletonReachable(socketPath string, timeout time.Duration) bool {
 	conn, err := net.DialTimeout("unix", socketPath, timeout)
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
-
-	// Send the exact bytes Python sends (b'{"action":"ping"}'), not a
-	// re-serialized map, so the request is byte-faithful.
-	if err := frameproto.WriteRequest(conn, []byte(`{"action":"ping"}`)); err != nil {
-		return false
-	}
-	for {
-		frame, err := frameproto.ReadFrame(conn)
-		if err != nil {
-			return false
-		}
-		switch frame.StreamID {
-		case frameproto.StreamStdout:
-			decoded, err := jsonx.Decode(frame.Payload)
-			if err != nil {
-				return false
-			}
-			obj, ok := decoded.(*jsonx.OrderedMap)
-			if !ok {
-				return false
-			}
-			pong, _ := obj.Get("pong")
-			b, _ := pong.(bool)
-			return b
-		case frameproto.StreamExit:
-			// Exit frame without a pong on stream 0 → not alive.
-			return false
-		}
-		// Any other stream id (e.g. 1=stderr): keep reading (Python loops).
-	}
+	_ = conn.Close()
+	return true
 }
 
 // RealPgrepStrays ports _broker_pgrep_strays: PIDs of running broker-host

@@ -19,10 +19,10 @@ import (
 // removeIgnoreMissing exercise the real code), but liveness / ping / kill /
 // pgrep / spawn are fakes.
 type fakeState struct {
-	alive  map[int]bool
-	pingOK bool
-	pgrep  []int
-	killed []struct { // ordered log of (pid, sig)
+	alive   map[int]bool
+	reachOK bool
+	pgrep   []int
+	killed  []struct { // ordered log of (pid, sig)
 		pid int
 		sig syscall.Signal
 	}
@@ -43,10 +43,16 @@ func newFakeDeps(t *testing.T, st *fakeState) Deps {
 		PIDFilePath: filepath.Join(dir, "broker.pid"),
 		LockPath:    filepath.Join(dir, "broker.lock"),
 		LogPath:     filepath.Join(dir, "broker.log"),
-		Now:         func() time.Time { return st.now },
-		Sleep:       func(d time.Duration) { st.now = st.now.Add(d) },
-		PathExists:  func(p string) bool { _, err := os.Lstat(p); return err == nil },
-		Ping:        func(string, time.Duration) bool { return st.pingOK },
+		// A DISTINCTIVE argv, deliberately not the broker's own. The engine is
+		// general now (SingletonDeps builds one of these from any loophole's
+		// manifest), so what the spawn tests must pin is that it launches WHAT IT
+		// WAS GIVEN. RealDeps' broker-specific argv is pinned separately, at the
+		// call site that produces it.
+		Argv:       []string{"/fixture/daemon", "--socket", filepath.Join(dir, "broker.sock")},
+		Now:        func() time.Time { return st.now },
+		Sleep:      func(d time.Duration) { st.now = st.now.Add(d) },
+		PathExists: func(p string) bool { _, err := os.Lstat(p); return err == nil },
+		Reachable:  func(string, time.Duration) bool { return st.reachOK },
 		Alive: func(pid int) bool {
 			st.mu.Lock()
 			defer st.mu.Unlock()
@@ -113,15 +119,15 @@ func TestBrokerReadPID(t *testing.T) {
 }
 
 func TestBrokerStatusShape(t *testing.T) {
-	// Fully healthy: pid live + socket + ping.
-	st := &fakeState{alive: map[int]bool{99: true}, pingOK: true}
+	// Fully healthy: pid live + socket + the socket accepting.
+	st := &fakeState{alive: map[int]bool{99: true}, reachOK: true}
 	deps := newFakeDeps(t, st)
 	writePID(t, deps, 99)
 	touch(t, deps.SocketPath)
 	got := BrokerStatus(deps)
 	want := Status{
 		PID: 99, PIDPresent: true, PIDLive: true,
-		SocketExists: true, PingOK: true,
+		SocketExists: true, Reachable: true,
 		Socket: deps.SocketPath, PIDFile: deps.PIDFilePath,
 	}
 	if got != want {
@@ -132,7 +138,7 @@ func TestBrokerStatusShape(t *testing.T) {
 	st2 := &fakeState{}
 	deps2 := newFakeDeps(t, st2)
 	got2 := BrokerStatus(deps2)
-	if got2.PIDPresent || got2.PIDLive || got2.SocketExists || got2.PingOK {
+	if got2.PIDPresent || got2.PIDLive || got2.SocketExists || got2.Reachable {
 		t.Errorf("empty status wrong: %+v", got2)
 	}
 	if got2.Socket != deps2.SocketPath || got2.PIDFile != deps2.PIDFilePath {
@@ -140,28 +146,28 @@ func TestBrokerStatusShape(t *testing.T) {
 	}
 }
 
-func TestBrokerStatusPingGatedOnSocket(t *testing.T) {
-	// ping is probed only when the socket exists. Even if Ping would return
-	// true, a missing socket must yield PingOK=false without dialing.
-	pinged := false
+func TestBrokerStatusReachabilityGatedOnSocket(t *testing.T) {
+	// Reachability is probed only when the socket exists. Even if Reachable would
+	// return true, a missing socket must yield Reachable=false without dialing.
+	probed := false
 	st := &fakeState{alive: map[int]bool{5: true}}
 	deps := newFakeDeps(t, st)
-	deps.Ping = func(string, time.Duration) bool { pinged = true; return true }
+	deps.Reachable = func(string, time.Duration) bool { probed = true; return true }
 	writePID(t, deps, 5)
 	// No socket touched.
 	got := BrokerStatus(deps)
-	if got.PingOK {
-		t.Error("PingOK must be false when socket absent")
+	if got.Reachable {
+		t.Error("Reachable must be false when socket absent")
 	}
-	if pinged {
-		t.Error("Ping must not be dialed when socket absent")
+	if probed {
+		t.Error("Reachable must not be dialed when socket absent")
 	}
 }
 
 func TestBrokerIsAliveAllFourGates(t *testing.T) {
 	mk := func(pidLive, sock, ping bool) Deps {
 		alive := map[int]bool{7: pidLive}
-		st := &fakeState{alive: alive, pingOK: ping}
+		st := &fakeState{alive: alive, reachOK: ping}
 		deps := newFakeDeps(t, st)
 		writePID(t, deps, 7)
 		if sock {
@@ -291,15 +297,13 @@ func TestBrokerSpawnHappy(t *testing.T) {
 	if sock != deps.SocketPath {
 		t.Errorf("spawn returned %q, want %q", sock, deps.SocketPath)
 	}
-	// Argv is the self-exec'd `yolo internal daemon claude-oauth-broker`: argv[0]
-	// is THIS test binary (os.Executable), the tail is the daemon invocation.
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatalf("os.Executable: %v", err)
-	}
-	wantArgv := []string{exe, "internal", "daemon", "claude-oauth-broker", "--socket", deps.SocketPath}
-	if !reflect.DeepEqual(st.spawnArgv, wantArgv) {
-		t.Errorf("spawn argv = %v, want %v", st.spawnArgv, wantArgv)
+	// The engine spawns THE ARGV IT WAS HANDED, verbatim. That is what makes
+	// `host_daemon.scope: "host"` a declaration rather than a second name for the
+	// broker: the run pipeline builds this argv from the manifest's own
+	// host_daemon.cmd (SingletonDeps), and nothing in here knows which loophole it
+	// belongs to.
+	if !reflect.DeepEqual(st.spawnArgv, deps.Argv) {
+		t.Errorf("spawn argv = %v, want the Deps.Argv %v", st.spawnArgv, deps.Argv)
 	}
 	// PID file written.
 	pid, ok := BrokerReadPID(deps)
@@ -311,7 +315,7 @@ func TestBrokerSpawnHappy(t *testing.T) {
 func TestBrokerSpawnSkipsWhenAlreadyAlive(t *testing.T) {
 	// Inside the lock, a live broker means the race loser returns without
 	// spawning.
-	st := &fakeState{alive: map[int]bool{11: true}, pingOK: true}
+	st := &fakeState{alive: map[int]bool{11: true}, reachOK: true}
 	deps := newFakeDeps(t, st)
 	writePID(t, deps, 11)
 	touch(t, deps.SocketPath)

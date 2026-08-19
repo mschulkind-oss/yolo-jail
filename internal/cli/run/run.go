@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -421,9 +420,6 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	if rt != "container" && brokerLoopholeActive(cfg) {
 		mkdirHostServicesDir(socketsDir)
 		o.brokerEnsure()
-		if o.PathExists(broker.BrokerSingletonSocket) {
-			o.ensureBrokerRelay(cname, rt, cfg)
-		}
 	} else if rt != "container" {
 		// The services dir is NOT the broker's — every loophole's endpoint file lands
 		// there and the assembler mounts it unconditionally — so it is created either
@@ -432,25 +428,21 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		mkdirHostServicesDir(socketsDir)
 	}
 
-	// Store-prune gate + orphan-relay reap (host-only; never from inside a jail
-	// — an inner CLI can't see its siblings). Both piggyback on the single
-	// live-container enumeration.
+	// Store-prune gate (host-only; never from inside a jail — an inner CLI can't
+	// see its siblings).
+	//
+	// THE ORPHAN-RELAY REAP THAT SHARED THIS ENUMERATION IS GONE. It existed
+	// because a per-jail relay outlived the yolo process that spawned it, so a jail
+	// ended from an attach session leaked one. There are no per-jail relays any
+	// more: the front that replaced them is a goroutine in this process and dies
+	// with it, and the daemon behind it is host-wide on purpose. A relay left over
+	// from a PRE-UPGRADE yolo is swept by `yolo prune --apply`, which keeps that
+	// sweep for exactly one release.
 	storePruneOK := false
 	if !o.inJail() {
 		live, known := o.liveYoloContainers(rt)
 		if known && len(live) == 0 {
 			storePruneOK = true
-		}
-		// Backstop reap of orphaned per-jail broker relays: a relay outlives the
-		// yolo process that spawned it, and stopLoopholes only reaps the current
-		// jail's relay in the original process's graceful tail — jails ended from
-		// attach sessions leak their relay otherwise. Declines when liveness is
-		// unknown (known==false); excludes the current jail's just-ensured relay.
-		if known {
-			func() {
-				defer func() { _ = recover() }() // cleanup must never block a run
-				o.relayReapOrphans(known, live, cname)
-			}()
 		}
 	}
 
@@ -568,6 +560,17 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	hostServices := o.startLoopholesDisclosed(cname, rt, cfg, loadedPacks)
 	imageRef := jailImageRef(rt)
 	for _, svc := range hostServices {
+		// An EMPTY envVarName means "this handle has no variable to insert", which
+		// today is the HOST-SCOPED loophole's front (startHostSingleton). Its
+		// variable is emitted much earlier, by hostServicesMountArgs at argv-assembly
+		// time, and deliberately OPTIMISTICALLY: a jail told about a service whose
+		// front never published is refused by the in-jail reachability witness, where
+		// a jail never told at all just runs without Claude auth and says nothing
+		// (loopback-tls-reachability.md §7.3). Inserting it here as well would put
+		// the same `-e` in the argv twice.
+		if svc.envVarName == "" {
+			continue
+		}
 		idx := indexOfSlice(runCmd, imageRef)
 		if idx < 0 {
 			continue
@@ -676,14 +679,15 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// jail is up, attaching is how a user re-enters it, so a fresh-launch-only notice
 	// is one a user with a long-lived jail may never see.
 	o.warnIfNoPacks()
-	// Heal the per-jail relay before handing the session over — behind the SAME gate
-	// the launch path uses (OQ-A11). An attach that healed a relay a launch would not
-	// have started is how one predicate becomes two that disagree, and the relay is
-	// per-jail state: reviving it here would leave it running for a jail whose config
-	// says the loophole is off.
-	if brokerLoopholeActive(cfg) {
-		o.ensureBrokerRelay(cname, rt, cfg)
-	}
+	// NOTHING TO HEAL HERE ANY MORE, and the absence is worth a note because the
+	// call this replaces was deliberate. An attach used to re-ensure the per-jail
+	// broker relay (behind the same gate the launch path uses, OQ-A11), because the
+	// relay was a separate process that could have died since launch. The jail's
+	// half of the credential path is now a front owned by the yolo process that
+	// LAUNCHED the jail; a different process attaching cannot heal it, and starting
+	// a second front over the same endpoint file would hand the jail a credential
+	// its terminator never asked for. A jail whose launcher is gone is relaunched,
+	// not attached-and-repaired.
 
 	execFlags := []string{"-i"}
 	if o.IsTTYStdout() {

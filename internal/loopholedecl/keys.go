@@ -173,7 +173,13 @@ var (
 	// nothing for a transport:"none" loophole and nothing for a manifest with no
 	// host_daemon at all. A top-level spelling would be a key an author could
 	// write in a place where it silently declares nothing.
-	hostDaemonKeys    = []string{keyCmd, keyEnv, keyPublishes, keyRequestEnd, keyPreamble}
+	// `scope` is spelled with the SAME constant the settings declaration uses, and
+	// the two vocabularies are different (`user`/`workspace` there, `jail`/`host`
+	// here) because the objects are different. That is the existing convention in
+	// this block, not an exception to it — `cmd`, `host` and `description` are all
+	// already shared across objects — and the word means the same thing in both
+	// places: what is this value shared across.
+	hostDaemonKeys    = []string{keyCmd, keyEnv, keyPublishes, keyRequestEnd, keyPreamble, keyScope}
 	jailDaemonKeys    = []string{keyCmd, keyRestart}
 	interceptKeys     = []string{keyHost}
 	hostBindMountKeys = []string{keyHost, keyContainer, keyReadonly}

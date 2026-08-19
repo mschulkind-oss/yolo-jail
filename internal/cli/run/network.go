@@ -57,7 +57,7 @@ func (o *Options) startHostPortForwarding(forwardHostPorts []any, cname string, 
 
 	// Wait for the socket files (condition-poll, fast path + deadline).
 	if len(procs) > 0 {
-		// Real wall clock, deliberately NOT o.Now() — see relayKill's rationale
+		// Real wall clock, deliberately NOT o.Now() — see waitServiceReady's rationale
 		// in loopholesruntime.go. o.Now is an injectable logical clock that
 		// tests freeze to make decisions deterministic; a drain/poll loop built
 		// on it never advances past its deadline and spins forever.

@@ -245,6 +245,21 @@ func relayShortHash(cname string) string { return paths.JailShortHash(cname) }
 // ReapRelayOrphans sweeps per-jail broker-relay PID files under `base` whose jail
 // is no longer live, returning the PID-file paths reaped (or, in dry-run, that
 // WOULD be).
+//
+// # THIS IS A LEGACY SWEEP AS OF THE BROKER CONVERSION
+//
+// yolo no longer spawns per-jail relays at all: the broker singleton sits behind
+// one svcendpoint front per jail, owned by the yolo process that launched that jail
+// and dying with it (docs/design/broker-as-a-pack.md §7). Nothing this sweep looks
+// for will ever be created again by this binary.
+//
+// It is kept, and kept for one release, because the upgrade is the case it was
+// always for: a host that was running jails under a PRE-conversion yolo has live
+// relay processes and their pid/lock/socket files in /tmp right now, and the run
+// pipeline's own backstop reap — which used to piggyback on this — went away with
+// the machinery. `yolo prune --apply` is what collects them (a reboot also does,
+// since these live in /tmp). Delete this and its callers once that release has
+// shipped; a sweep for files nothing writes is otherwise a decision nobody made.
 // - liveKnown==false (liveness unenumerable) → reap NOTHING (same fail-safe
 // polarity as the agent-staging sweep — unknown must never read as "nothing
 // live");

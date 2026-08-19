@@ -48,14 +48,15 @@ type relayDouble struct {
 // every double in this package can stay "read one framed request" — one fix
 // rather than one per double, including the doubles that read nothing at all.
 //
-// One honest difference from production, worth knowing when reading these tests:
-// the REAL per-jail relay's front opts OUT of the preamble (brokerrelay.go), so
-// this double is a preamble-bearing listener where production has a
-// preamble-free one. It costs these tests nothing, and the reason is the property
-// they exist to check: the preamble is host→daemon only, so the CLIENT — which is
-// all of this package — cannot see, forge or suppress it either way. The
-// terminator needed no change for it, and that is exactly what "unchanged in
-// assertion" below means.
+// It used to be the one honest difference from production — the real per-jail
+// relay's front opted OUT of the preamble, so this double was preamble-bearing
+// where production was not. THE DIFFERENCE IS GONE: the relay is deleted and the
+// broker sits behind an ordinary preamble-bearing front
+// (docs/design/broker-as-a-pack.md §7), which is exactly what this double already
+// modelled. It cost these tests nothing either way, for the property they exist to
+// check: the preamble is host→daemon only, so the CLIENT — which is all of this
+// package — cannot see, forge or suppress it. The terminator needed no change for
+// the conversion, and that is what "unchanged in assertion" below means.
 func startRelayDouble(t *testing.T, handle func(net.Conn)) *relayDouble {
 	t.Helper()
 	endpointPath := filepath.Join(privateDir(t), "claude-oauth-broker.endpoint")

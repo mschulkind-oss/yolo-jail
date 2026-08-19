@@ -81,6 +81,15 @@ func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
 					Publishes:  PublishesSocket,
 					RequestEnd: RequestEndFramed,
 					Preamble:   preamble,
+					// SPELLED OUT rather than left to the zero value, even though ""
+					// and ScopeJail behave identically at every reader. A config
+					// entry is an argv for a program yolo did not write, running on
+					// this user's machine — the one kind of daemon that must never
+					// become a host-wide singleton, because "ensure this" means yolo
+					// declining to start a process the config asked it to start.
+					// There is no config key for it, and writing the answer here is
+					// what makes that absence a decision rather than an omission.
+					Scope: ScopeJail,
 				}
 				transport = TransportLoopbackTLS
 			}

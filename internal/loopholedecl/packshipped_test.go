@@ -371,18 +371,26 @@ func TestPackShippedErrorCarriesTheProblems(t *testing.T) {
 	}
 }
 
-// THE ASYMMETRY IS THE POINT: the one BUNDLED manifest left violates the subset, and
-// must keep working — the broker publishes its own endpoint. If a future change
-// applied the subset unconditionally, this test is what says so.
+// THE LAST BUNDLED MANIFEST IS NOW INSIDE THE SUBSET, and that is a measured
+// milestone rather than a tidy-up — which is why this test asserts it deliberately
+// instead of quietly losing its only name.
 //
-// The list is down to ONE, and both departures were conversions rather than
-// relaxations of this rule. `host-processes` left by declaring publishes:"socket"
-// (its only violation) and then moving into a pack; `audio` left on 2026-08-18, when
-// OQ-LP14 withdrew the bind-host path rule and the remaining three refusals each got
-// a fix the manifest could take. Their positives are asserted deliberately below and
-// in TestShippedAudioLoopholeIsInsideThePackShippedSubset, rather than by a name
-// quietly dropping out of this loop.
-func TestBundledManifestsAreOutsideThePackShippedSubset(t *testing.T) {
+// It used to say the opposite. `claude-oauth-broker` published its own endpoint
+// file (`publishes` defaulting to "endpoint"), which the pack-shipped subset
+// refuses in every spelling INCLUDING the default, so the manifest could not move
+// into a pack at all — the blocker docs/design/broker-as-a-pack.md §6.1 was written
+// about. Flipping it to `publishes: "socket"` + `scope: "host"` removed the last
+// violation, and what this test now pins is that the removal STAYS removed: the
+// next commit in the sequence is the one that relocates this manifest into
+// `packs/claude`, and `LoadPackLoophole` applies exactly these rules at load, so a
+// regression here would surface there as a claude user's loophole silently going
+// missing rather than as a decode error anyone reads.
+//
+// The two departures before it were conversions rather than relaxations of the
+// rule: `host-processes` left by declaring publishes:"socket" and then moving into
+// a pack; `audio` left on 2026-08-18, when OQ-LP14 withdrew the bind-host path rule
+// and the remaining three refusals each got a fix the manifest could take.
+func TestBundledManifestsAreInsideThePackShippedSubset(t *testing.T) {
 	for _, name := range []string{"claude-oauth-broker"} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join("/loopholes", name)
@@ -391,9 +399,10 @@ func TestBundledManifestsAreOutsideThePackShippedSubset(t *testing.T) {
 				t.Fatalf("strict decode: %v", err)
 			}
 			problems := m.PackShippedProblems(loopholedecl.ManifestPath(dir))
-			if len(problems) == 0 {
-				t.Fatalf("%s is inside the pack-shipped subset — if that is now true, this"+
-					" test should assert it deliberately rather than by accident", name)
+			if len(problems) != 0 {
+				t.Errorf("%s is OUTSIDE the pack-shipped subset: %v\nThat is what blocks it "+
+					"from moving into packs/claude, and the fix is in the manifest rather "+
+					"than in this test.", name, problems)
 			}
 		})
 	}

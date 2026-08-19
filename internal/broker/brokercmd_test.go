@@ -15,7 +15,7 @@ import (
 // lifeState is a controllable Deps backed by a temp dir.
 type lifeState struct {
 	alive     map[int]bool
-	pingOK    bool
+	reachOK   bool
 	killed    []int
 	spawnPID  int
 	spawnBind bool // does the spawned daemon bind the socket?
@@ -32,11 +32,14 @@ func newLifeDeps(t *testing.T, st *lifeState) Deps {
 		PIDFilePath: filepath.Join(dir, "broker.pid"),
 		LockPath:    filepath.Join(dir, "broker.lock"),
 		LogPath:     filepath.Join(dir, "broker.log"),
-		Now:         time.Now,
-		Sleep:       func(time.Duration) {},
-		PathExists:  func(p string) bool { _, err := os.Lstat(p); return err == nil },
-		Ping:        func(string, time.Duration) bool { return st.pingOK },
-		Alive:       func(pid int) bool { return st.alive[pid] },
+		// See newFakeDeps: a fixture argv, because the engine is general and what
+		// these tests drive is the COMMAND layer, not the broker's own argv.
+		Argv:       []string{"/fixture/daemon", "--socket", filepath.Join(dir, "broker.sock")},
+		Now:        time.Now,
+		Sleep:      func(time.Duration) {},
+		PathExists: func(p string) bool { _, err := os.Lstat(p); return err == nil },
+		Reachable:  func(string, time.Duration) bool { return st.reachOK },
+		Alive:      func(pid int) bool { return st.alive[pid] },
 		Kill: func(pid int, _ syscall.Signal) error {
 			st.killed = append(st.killed, pid)
 			st.alive[pid] = false
@@ -74,7 +77,7 @@ func newDeps(t *testing.T, st *lifeState) (CLIDeps, *bytes.Buffer) {
 }
 
 func TestStatusHealthy(t *testing.T) {
-	st := &lifeState{alive: map[int]bool{77: true}, pingOK: true}
+	st := &lifeState{alive: map[int]bool{77: true}, reachOK: true}
 	deps, buf := newDeps(t, st)
 	// pid file + socket present.
 	_ = os.WriteFile(deps.Life.PIDFilePath, []byte("77\n"), 0o644)
@@ -88,7 +91,7 @@ func TestStatusHealthy(t *testing.T) {
 		"Claude OAuth broker (singleton)",
 		"pid:          77  live",
 		"socket:       " + deps.Life.SocketPath + "  present",
-		"ping:         ok",
+		"socket accept: accepting",
 		"pid file:     " + deps.Life.PIDFilePath,
 		"Broker healthy.",
 	} {
@@ -112,8 +115,8 @@ func TestStatusNotRunning(t *testing.T) {
 	if !strings.Contains(out, "socket:") || !strings.Contains(out, "missing") {
 		t.Errorf("missing socket-missing line:\n%s", out)
 	}
-	if !strings.Contains(out, "ping:") || !strings.Contains(out, "no response") {
-		t.Errorf("missing ping line:\n%s", out)
+	if !strings.Contains(out, "socket accept:") || !strings.Contains(out, "not accepting") {
+		t.Errorf("missing socket-accept line:\n%s", out)
 	}
 	if !strings.Contains(out, "Broker not fully healthy.") || !strings.Contains(out, "yolo broker restart") {
 		t.Errorf("missing cycle hint:\n%s", out)
@@ -164,7 +167,7 @@ func TestStopNothingRunning(t *testing.T) {
 
 func TestRestartSuccess(t *testing.T) {
 	// Old broker (pid 1) running; kill it, spawn pid 2 which binds + becomes live.
-	st := &lifeState{alive: map[int]bool{1: true}, pingOK: true, spawnPID: 2, spawnBind: true}
+	st := &lifeState{alive: map[int]bool{1: true}, reachOK: true, spawnPID: 2, spawnBind: true}
 	deps, buf := newDeps(t, st)
 	_ = os.WriteFile(deps.Life.PIDFilePath, []byte("1\n"), 0o644)
 	_ = os.WriteFile(deps.Life.SocketPath, nil, 0o644)
@@ -264,7 +267,7 @@ func TestBuildTailArgv(t *testing.T) {
 }
 
 func TestColorMarkupRendersANSI(t *testing.T) {
-	st := &lifeState{alive: map[int]bool{1: true}, pingOK: true}
+	st := &lifeState{alive: map[int]bool{1: true}, reachOK: true}
 	deps, buf := newDeps(t, st)
 	deps.Color = true
 	deps.IsTTYStdout = func() bool { return true }

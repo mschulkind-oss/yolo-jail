@@ -14,12 +14,13 @@ import (
 )
 
 // sha1Hex8 returns the per-jail 8-hex key for a container name — the hash that
-// names the host-services dir and the relay's pid/lock/socket files.
+// names the host-services dir and each fronted daemon's upstream socket.
 //
 // It delegates to paths rather than recomputing: this repo carried three
 // hand-copied implementations of it (here, internal/cli/check, internal/prune) and
-// the reap path matches a pid file back to a live container THROUGH this value, so
-// a divergence would silently either orphan every relay or reap a live one.
+// `yolo prune`'s sweep matches a pid file back to a live container THROUGH this
+// value, so a divergence would silently either orphan or reap the wrong jail's
+// files.
 func sha1Hex8(s string) string { return paths.JailShortHash(s) }
 
 // hostServiceSocketsDir returns this jail's host-side endpoint-file directory,

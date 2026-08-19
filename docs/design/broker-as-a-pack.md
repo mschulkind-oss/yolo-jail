@@ -1,6 +1,6 @@
 # Emptying `bundled_loopholes/` — the broker, the identity rule, and the proving ground
 
-**Status:** DESIGN SETTLED, 2026-08-15. **Two of the three conversions shipped 2026-08-18** — `host-processes` (§12, the proving ground) and `audio`; `bundled_loopholes/` now holds only this doc's own subject. The broker's move is **blocked on §6.1**, a mechanism gap found by attempting it: `publishes: "socket"` spawns a daemon per jail and this one is a host-wide singleton. Code claims verified against the tree on 2026-08-15 unless dated otherwise.
+**Status:** DESIGN SETTLED, 2026-08-15. **Two of the three conversions shipped 2026-08-18** — `host-processes` (§12, the proving ground) and `audio`; `bundled_loopholes/` now holds only this doc's own subject. **§10 step 4 shipped 2026-08-19**: §6.1's mechanism gap is closed by `host_daemon.scope` (see §6.1), the broker declares `publishes: "socket"` + `scope: "host"`, and `internal/brokerrelay` is deleted. **What is left is step 5 alone** — moving the manifest into `packs/claude`, with the reservation trap §6.1's warning names. Code claims verified against the tree on 2026-08-15 unless dated otherwise.
 
 **Four review rounds, same day.** Round 0: §3.1 grew from a deferral into a design — pack-shipped binaries are wanted as a general capability. Round 1 **retracted this doc's central claim** (§5.2a): the front is *not* a component that never parses. Rounds 2 and 3 settled identity (§5.5) by rejecting, in turn, my payload stamp, my mandatory version of it, and my `framed`/`raw` compromise — arriving somewhere none of the three reached: **yolo never parses a daemon's payload at all.** The title has changed twice and the scope grew from one loophole to the whole channel.
 
@@ -328,11 +328,62 @@ Everything else in the manifest — `serves`, `intercepts`, `broker_ip`, `ca_cer
 survive a restage (`loopholedecl/tokens.go:20-28`), which is what makes a pack-shipped CA possible at
 all.
 
-### 6.1 ⚠ MEASURED BLOCKER — `publishes: "socket"` and the singleton are incompatible today
+### 6.1 ✅ RESOLVED 2026-08-19 — `host_daemon.scope` is the vocabulary the spawn path lacked
 
-*Found 2026-08-18 by implementing the sprint's other two conversions and then attempting this one.
-It is not a new decision; it is a mechanism that does not exist, and §10's sequencing does not say
-so.*
+*The blocker below was found 2026-08-18 by implementing the sprint's other two conversions and then
+attempting this one. It was never a decision to make; it was a mechanism that did not exist. It
+exists now — here is what was built, then the original statement of the gap, kept because it is the
+argument for the shape.*
+
+**What shipped.** One manifest key, in the grammar `publishes` and `request_end` already use:
+
+```jsonc
+"host_daemon": {
+  "cmd": ["yolo", "internal", "daemon", "claude-oauth-broker", "--socket", "{socket}"],
+  "publishes": "socket",
+  "scope": "host"          // ← ScopeJail (default) | ScopeHost
+}
+```
+
+`scope` names the dimension — *what is this daemon shared across* — rather than today's only
+interesting answer, for §5.5's reason for calling the preamble a preamble: naming a key for its
+current single use makes the second use look like a violation. `ScopeJail` is the default, so no
+already-shipped manifest changes, and readers compare against `ScopeHost` so a dropped field costs
+a spawn rather than a shared daemon nobody ensured.
+
+Four consequences, each of which is where a defect would have gone:
+
+- **The spawn path DISPATCHES on the record, not the name.** `startLoopholes`'
+  `if name == broker.BrokerLoopholeName { o.brokerEnsure(); continue }` is gone; the branch reads
+  `hd.Scope == ScopeHost` and calls `startHostSingleton`, which ENSURES the daemon (the existing
+  `internal/broker` flock/pid/recheck engine, generalized by one `Deps.Argv` field so the argv
+  comes from the manifest) and then fronts it with `svcendpoint.ServeFront`.
+- **The framework owns the singleton's path.** `paths.HostSingletonSocket(name)` =
+  `/tmp/yolo-<name>.sock`, derived from the loophole NAME and nothing else, because a singleton has
+  no jail to be keyed by. For `claude-oauth-broker` that is byte-identical to the existing
+  `broker.BrokerSingletonSocket`, which is why the move needed no migration — a test pins the three
+  pairs equal, and it has to hold or `yolo broker status`, `yolo check` and the front would each
+  reach a different file.
+- **`scope: "host"` REQUIRES `publishes: "socket"`, refused at load.** An endpoint file carries one
+  jail's bearer token, so a host-wide daemon publishing one would hand every jail the same
+  credential. Under `socket` the daemon binds once and each jail gets its own front and its own
+  token — the only shape in which "one daemon, N jails" and "one credential per jail" are both true.
+- **A jail ending closes ITS FRONT and nothing else.** `startHostSingleton`'s `stop()` deliberately
+  does not do what the spawned path's does (SIGKILL the process group, unlink the socket); doing so
+  would cut every other live jail off its credential path.
+
+**And the daemon had to learn to read the preamble in the same commit.** `internal/oauthbroker`
+called `hostservice.ServeUnix`; behind a front that is the silent-CORRUPTION direction §12 names —
+the preamble is consumed AS the request and every refresh fails. It calls `ServeFrontedUnix` now,
+which is also what makes its `jail_id` host-asserted again after the relay's stamp was deleted (I1).
+The knock-on: `broker.BrokerPing` could no longer speak the protocol from the host side without
+forging a jail identity, so liveness became a connect probe (`SingletonReachable`) — the same
+predicate every other fronted daemon already uses. The protocol round trip survives in `yolo
+check`'s per-jail probe, which goes through a real front and therefore sends a real preamble.
+
+---
+
+*The original statement of the gap follows.*
 
 **The chain, each link verified in the tree:**
 
@@ -374,6 +425,8 @@ path"; what is added here is that step 5 cannot precede it either.
 ## 7. What this deletes, what it costs, what it forecloses
 
 **Deletes:** `internal/brokerrelay` (~4 files plus its lifecycle in `loopholesruntime.go` — pid file, lock, socket path, reaping, the `relayKill` ordering comments) · one of the four bundled loopholes · the last consumer of the `relayEnsure` special case in the run pipeline.
+
+**DELETED 2026-08-19, and the tally came out larger than this line predicted.** Also gone: the `broker-relay` entry in `yolo internal daemon`'s dispatch, `Options.RelayKillGrace`, the run pipeline's orphan-relay backstop reap and its piggyback on the live-container enumeration, the attach path's relay healing, the pre-loopback-TLS "spare a live legacy relay" upgrade decision, and `svcendpoint`'s only `NoPreamble` user. `internal/prune`'s `ReapRelayOrphans` is KEPT for one release and re-documented as a legacy sweep — a host upgrading has live relays in `/tmp` right now, and the run-path backstop that used to collect them went with the machinery.
 
 **Costs:** the front gains a declared, opt-in parse (§5.4) · the broker's `--socket` becomes a *fronted* socket rather than a host-to-host one, so its threat model changes from "nothing in a jail can reach this" to "the front is what stands in front of this" — the same position every other fronted daemon is already in · one more official pack in the set the "six official packs" tests count.
 
@@ -419,11 +472,11 @@ What I would build, in order.
 
 **Third, the stamp.** Add the declared stamp to the front (§5.4-D) with I1 and I2 as its tests, while the relay is still in place and still the thing running. Two implementations of the stamp can coexist for exactly one commit.
 
-**Fourth, flip the broker to `publishes: "socket"`** and delete `internal/brokerrelay` plus its lifecycle in `loopholesruntime.go`. This is the step that must not be split — a half-flipped broker is a jail with no credential path.
+**Fourth, flip the broker to `publishes: "socket"`** and delete `internal/brokerrelay` plus its lifecycle in `loopholesruntime.go`. This is the step that must not be split — a half-flipped broker is a jail with no credential path. **SHIPPED 2026-08-19**, in one commit, and it needed §6.1's `scope` vocabulary plus two things this sequencing did not name: the daemon moving to `ServeFrontedUnix` (or the front's preamble is eaten as the request), and the host-side liveness ping becoming a connect probe (or every healthy broker reads as dead and is respawned on every launch).
 
 **Fifth, move the manifest into an official pack** — `packs/claude`, per OQ-A10, not a pack of its own — and retire the bundled copy. This is also the step where OQ-LP11's consolidation finally gets one channel emptier, which it has been owed since 2026-08-14.
 
-> **Step 5 CANNOT precede steps 3–4, measured 2026-08-18 (§6.1).** The pack-shipped subset requires `publishes: "socket"`, and yolo's spawn path answers that by spawning a daemon **per jail** at a per-jail socket — while the broker is a host-wide singleton by design. The ordering above already implies it; what was not stated is that it is a hard dependency rather than a preference, and that attempting 5 first produces a manifest yolo refuses to load rather than a broker that runs twice.
+> **Step 5 CANNOT precede steps 3–4, measured 2026-08-18 (§6.1).** The pack-shipped subset requires `publishes: "socket"`, and yolo's spawn path answers that by spawning a daemon **per jail** at a per-jail socket — while the broker is a host-wide singleton by design. The ordering above already implies it; what was not stated is that it is a hard dependency rather than a preference, and that attempting 5 first produces a manifest yolo refuses to load rather than a broker that runs twice. **Both dependencies are discharged as of 2026-08-19**, and step 5 is unblocked.
 
 **Sixth — and it landed FIRST, on 2026-08-18, because it is independent of all five:** gate `brokerEnsure` and `ensureBrokerRelay` on the loophole record (OQ-A11). Until then the singleton ran on every launch for every user with no lookup at all, while the jail was wired to it only when the loophole was Active. Doing it early matters for a reason the ruling names: after the move, a jail that does not select `packs: ["claude"]` has no broker in any surface, and yolo spawning the singleton anyway would be a daemon none of its own surfaces name.
 
@@ -437,7 +490,7 @@ The second ruling is the larger one: `bundled_loopholes/` should be **empty** at
 
 | Loophole | What blocks it becoming a pack | Size |
 |---|---|---|
-| **claude-oauth-broker** | `publishes` defaults to `endpoint`; the pack-shipped subset accepts **only `socket`** (`packshipped.go`). Plus folding the relay away — and, found by trying it, the fact that `publishes: "socket"` spawns a daemon PER JAIL while this one is a host-wide singleton (§6.1) | this doc · **NOT DONE** |
+| **claude-oauth-broker** | ~~`publishes` defaults to `endpoint`; the pack-shipped subset accepts **only `socket`**. Plus folding the relay away — and, found by trying it, the fact that `publishes: "socket"` spawns a daemon PER JAIL while this one is a host-wide singleton (§6.1)~~ | this doc · **UNBLOCKED 2026-08-19.** `scope: "host"` closed §6.1, the manifest declares `publishes: "socket"`, the relay is deleted, and `TestBundledManifestsAreInsideThePackShippedSubset` now measures the manifest as subset-clean. **Step 5 (the move into `packs/claude`) is all that is left**, and the §6.1 reservation warning is still live for it |
 | **host-processes** | The same `publishes` problem and nothing else: its `host_daemon.cmd` passes `{endpoint}` and publishes for itself, so it converts to `{socket}` + the framework front with no relay and no per-jail anything | ✅ **SHIPPED 2026-08-18** as `packs/host-processes`; the subset accepted the manifest unchanged |
 | **audio** | ~~**OQ-LP14.**~~ Its `host_bind_mounts` and `requires.file_exists` both name `${XDG_RUNTIME_DIR}/pulse/native` and `pipewire-0`, which the pack-shipped path rule refused in every spelling | ✅ **SHIPPED 2026-08-18.** LP14 withdrew the rule rather than adding vocabulary; the two audio loopholes merged into `packs/audio` under the plain name, which deleting the bundled copy freed |
 

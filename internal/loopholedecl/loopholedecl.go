@@ -137,6 +137,20 @@ type HostDaemon struct {
 	// is a silent DOWNGRADE. A test pins the round trip; an inverted spelling
 	// would have made the drop the safe direction and the bug invisible.
 	Preamble bool
+	// Scope is who the daemon belongs to: ScopeJail (the default — one per jail,
+	// spawned and reaped with it) or ScopeHost (one per HOST, ensured rather than
+	// spawned, fronted per jail, never killed when a jail ends). Always one of the
+	// two after a successful decode.
+	//
+	// The zero value of the FIELD is "", not ScopeJail, and every reader must
+	// therefore compare against ScopeHost rather than against ScopeJail — a
+	// struct built by hand (internal/loopholes' discover.go synthesizes one for a
+	// `loopholes:` config entry) then defaults to per-jail, which is the direction
+	// where a dropped field costs a spawn rather than a shared daemon nobody
+	// ensured. The opposite comparison would turn the same drop into "this config
+	// entry is a host-wide singleton", which is the one answer no config entry may
+	// ever give.
+	Scope string
 }
 
 // HostBindMount is one host path made visible in the container. Readonly
@@ -881,6 +895,29 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 		return nil, Errorf("%s: 'host_daemon.request_end' = %s not in %s",
 			manifestPath, pytext.Repr(requestEnd), sortedListRepr(validRequestEnds))
 	}
+	scope := ScopeJail
+	if sv, ok := m.Get(keyScope); ok {
+		scope = Str(sv)
+	}
+	if !inList(scope, validScopes) {
+		return nil, Errorf("%s: 'host_daemon.scope' = %s not in %s",
+			manifestPath, pytext.Repr(scope), sortedListRepr(validScopes))
+	}
+	// A host-wide daemon cannot publish its own endpoint file, and this is refused
+	// rather than documented because the failure it prevents is a CREDENTIAL one.
+	// An endpoint file carries one jail's bearer token (svcendpoint), so a single
+	// daemon publishing one would either hand every jail the same credential or
+	// hand all but one of them a credential minted for another jail. Under
+	// PublishesSocket the daemon binds one socket and yolo gives each jail its own
+	// front — which is the only shape in which "one daemon, N jails" and
+	// "one credential per jail" are both true.
+	if scope == ScopeHost && publishes != PublishesSocket {
+		return nil, Errorf(
+			"%s: 'host_daemon.scope' = 'host' requires 'publishes': 'socket' (got %s) —"+
+				" a host-wide daemon serves every jail on the machine, and an endpoint"+
+				" file carries ONE jail's bearer token; bind the socket and let yolo"+
+				" publish a front per jail", manifestPath, pytext.Repr(publishes))
+	}
 	cmd := StringSlice(cmdList)
 	if err := refuseControlCharsIn(manifestPath, "'host_daemon.cmd'", cmd); err != nil {
 		return nil, err
@@ -904,7 +941,8 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 		}
 	}
 	return &HostDaemon{
-		Cmd: cmd, Env: env, Publishes: publishes, RequestEnd: requestEnd, Preamble: preamble,
+		Cmd: cmd, Env: env, Publishes: publishes, RequestEnd: requestEnd,
+		Preamble: preamble, Scope: scope,
 	}, nil
 }
 

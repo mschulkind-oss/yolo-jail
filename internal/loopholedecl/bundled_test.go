@@ -326,8 +326,36 @@ func TestBundledBrokerFields(t *testing.T) {
 	if m.HostDaemon == nil || !reflect.DeepEqual(m.HostDaemon.Cmd, wantCmd) {
 		t.Fatalf("host_daemon = %+v, want cmd %v", m.HostDaemon, wantCmd)
 	}
-	if m.HostDaemon.Publishes != loopholedecl.PublishesEndpoint {
-		t.Errorf("publishes = %q, want the default %q", m.HostDaemon.Publishes, loopholedecl.PublishesEndpoint)
+	// THE THREE FIELDS THAT CARRY THE CREDENTIAL PATH, and they are asserted here
+	// because a half-applied edit to any one of them is silent everywhere else.
+	//
+	// publishes:"socket" + scope:"host" is the pair that replaced the per-jail
+	// broker relay (docs/design/broker-as-a-pack.md §7): the daemon binds ONE
+	// host-wide socket and yolo runs a front per jail over it. Flipping `publishes`
+	// back to the default would make yolo wait for an endpoint file this daemon
+	// never writes; dropping `scope` would make the run pipeline SPAWN a second
+	// broker per jail, which is the concurrent single-use-refresh-token race the
+	// flock exists to prevent (agent-credentials.md §2.5) — and neither shows up as
+	// an error, only as a jail that cannot refresh.
+	//
+	// `preamble` is asserted at its DEFAULT rather than declared: the daemon reads
+	// yolo's connection preamble through hostservice.ServeFrontedUnix, and that is
+	// the whole of what makes the jail_id on its audit line host-asserted now that
+	// the relay's stamp is deleted (invariant I1). A manifest writing
+	// `"preamble": false` here would blind it silently.
+	if m.HostDaemon.Publishes != loopholedecl.PublishesSocket {
+		t.Errorf("publishes = %q, want %q — the daemon binds the host-wide socket and yolo "+
+			"fronts it per jail", m.HostDaemon.Publishes, loopholedecl.PublishesSocket)
+	}
+	if m.HostDaemon.Scope != loopholedecl.ScopeHost {
+		t.Errorf("scope = %q, want %q — ONE broker per host serving every jail; a per-jail "+
+			"scope means a second copy of the daemon holding the refresh flock",
+			m.HostDaemon.Scope, loopholedecl.ScopeHost)
+	}
+	if !m.HostDaemon.Preamble {
+		t.Errorf("preamble = false; this manifest declares nothing, so it must decode to the " +
+			"default ON — the broker reads the frame, and its jail= is host-asserted only " +
+			"because of it")
 	}
 	if m.HostDaemon.RequestEnd != loopholedecl.RequestEndFramed {
 		t.Errorf("request_end = %q, want the default %q", m.HostDaemon.RequestEnd, loopholedecl.RequestEndFramed)

@@ -37,26 +37,27 @@ func hostServiceSocketsDir(cname string, isMacOS bool) string {
 	return paths.HostServicesDir(cname, isMacOS)
 }
 
-// brokerStatus holds the broker liveness snapshot: pid, pid_live, socket_exists, ping_ok.
+// brokerStatus holds the broker liveness snapshot: pid, pid_live, socket_exists,
+// socket_accepts.
 type brokerStatus struct {
-	pid          int
-	pidPresent   bool
-	pidLive      bool
-	socketExists bool
-	pingOK       bool
+	pid           int
+	pidPresent    bool
+	pidLive       bool
+	socketExists  bool
+	socketAccepts bool
 }
 
 func (o *Options) brokerStatus() brokerStatus {
 	pid, present := brokerReadPID()
 	pidLive := present && execx.IsAlive(pid)
 	sockExists := o.PathExists(brokerSingletonSocket)
-	pingOK := sockExists && brokerPing(brokerSingletonSocket, 2*time.Second)
+	accepts := sockExists && brokerSocketAccepts(brokerSingletonSocket, 2*time.Second)
 	return brokerStatus{
-		pid:          pid,
-		pidPresent:   present,
-		pidLive:      pidLive,
-		socketExists: sockExists,
-		pingOK:       pingOK,
+		pid:           pid,
+		pidPresent:    present,
+		pidLive:       pidLive,
+		socketExists:  sockExists,
+		socketAccepts: accepts,
 	}
 }
 
@@ -73,26 +74,39 @@ func brokerReadPID() (int, bool) {
 	return n, true
 }
 
-// brokerPing connects to socketPath, sends a length-prefixed
-// {"action":"ping"} request, and expect a data frame (stream 0) whose JSON has
-// pong:true, before the exit frame (stream 2). Any error → false.
+// brokerSocketAccepts reports whether the host-wide singleton's socket accepts a
+// connection. Connect, then close — nothing is written and nothing is read.
 //
-// Still a Unix dial: this probes the host-wide SINGLETON directly (hop D), which
-// the transport change does not touch. The per-jail relay is probed by
-// brokerPingConn over an already-authenticated loopback-TLS connection.
-func brokerPing(socketPath string, timeout time.Duration) bool {
+// IT USED TO BE A PROTOCOL PING on this socket and cannot be one any more, for the
+// reason spelled out at broker.SingletonReachable: the singleton sits behind
+// yolo's front now (`publishes: "socket"` + `scope: "host"`), so its first read on
+// every connection is yolo's CONNECTION PREAMBLE, and a bare `{"action":"ping"}`
+// is rejected as a preamble with no version. Writing a forged preamble from here
+// would mean `yolo check` asserting a jail identity for a connection that belongs
+// to no jail.
+//
+// The protocol round trip is not lost — it moved to the probe that can still
+// legitimately make it. checkBrokerEndpoint dials the per-jail ENDPOINT, so the
+// front writes a real preamble and brokerPingConn's ping reaches the handler
+// exactly as a jail's would. That probe is also the one that tests the hop a jail
+// actually travels, which is why it is the one worth having.
+func brokerSocketAccepts(socketPath string, timeout time.Duration) bool {
 	conn, err := net.DialTimeout("unix", socketPath, timeout)
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
-	return brokerPingConn(conn, timeout)
+	_ = conn.Close()
+	return true
 }
 
-// brokerPingConn is brokerPing over a connection the caller already opened — the
-// shape the relay probe needs, because reaching a relay now means reading its
-// endpoint file, pinning its certificate and presenting its token before a single
-// protocol byte is written.
+// brokerPingConn sends the length-prefixed {"action":"ping"} request over a
+// connection the caller already opened and expects a data frame (stream 0) whose
+// JSON has pong:true, before the exit frame (stream 2). Any error → false.
+//
+// The caller opens the connection because reaching the broker means reading a
+// jail's endpoint file, pinning its certificate and presenting its token before a
+// single protocol byte is written — and because the front, not this function, is
+// what puts the connection preamble ahead of these bytes.
 func brokerPingConn(conn net.Conn, timeout time.Duration) bool {
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 
@@ -149,15 +163,15 @@ func readFull(conn net.Conn, buf []byte) (int, error) {
 	return total, nil
 }
 
-// relayEndpointVisibleInJail reports whether the RUNNING
-// container sees the relay's endpoint file. Returns tri-state: visible=true,
+// brokerEndpointVisibleInJail reports whether the RUNNING
+// container sees the broker's endpoint file. Returns tri-state: visible=true,
 // absent=false, unknown=nil (exec unavailable / exec-level failure). Represented
 // as (*bool).
 //
 // `test -f`, not `test -S`: what crosses into the jail is a regular file naming
-// the relay's loopback listener, not a socket. The old -S probe would report every
+// the front's loopback listener, not a socket. The old -S probe would report every
 // healthy jail as broken.
-func (o *Options) relayEndpointVisibleInJail(rt, cname string) *bool {
+func (o *Options) brokerEndpointVisibleInJail(rt, cname string) *bool {
 	if rt == "" || cname == "" {
 		return nil
 	}

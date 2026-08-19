@@ -359,7 +359,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// --- host port forwarding flags (the socat lifecycle is separate) ---
 	runCmd = append(runCmd, o.forwardHostPortsArgs(rt, in.cname, forwardHostPorts)...)
 
-	// --- host services sockets dir + broker relay env ---
+	// --- host services sockets dir + broker endpoint env ---
 	runCmd = append(runCmd, o.hostServicesMountArgs(rt, in.cname, cfg)...)
 
 	// --- device passthrough ---
@@ -407,8 +407,8 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, "-e", "MISE_DISABLE_TOOLS="+miseDisabled)
 
 	// --- store-prune gate (host-only) --- handled by the lifecycle phase
-	// (needs live-container enumeration + relay reaping); the -e is inserted
-	// there. Placeholder here keeps argv order: it is appended before skills.
+	// (needs live-container enumeration); the -e is inserted there. Placeholder
+	// here keeps argv order: it is appended before skills.
 	runCmd = append(runCmd, in.storePruneEnv()...)
 
 	// --- skills mounts (selected agents with a skills dir) ---

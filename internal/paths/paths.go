@@ -210,10 +210,15 @@ const AllowUnreachableServicesEnv = "YOLO_ALLOW_UNREACHABLE_SERVICES"
 const hostServicesDirPrefix = "yolo-host-services-"
 
 // JailShortHash is the 8-hex key derived from a container name. It identifies a
-// jail's host-services directory AND its broker-relay pid/lock/socket files, and
-// the reap path matches a pid file back to a live container name through it — so
-// every producer and consumer must compute it identically. It lived in three
-// packages before this, copied by hand.
+// jail's host-services directory and the upstream sockets of its fronted daemons,
+// and `yolo prune`'s legacy sweep matches a leftover broker-relay pid file back to
+// a live container name through it — so every producer and consumer must compute it
+// identically. It lived in three packages before this, copied by hand.
+//
+// It does NOT key a host-wide singleton's paths. Those are derived from the
+// LOOPHOLE NAME (HostSingletonSocket below), because one daemon serving every jail
+// has no jail to be keyed by — which is also what stops a jail's teardown, which
+// sweeps by this hash, from reaching it.
 func JailShortHash(cname string) string {
 	sum := sha1.Sum([]byte(cname))
 	return hex.EncodeToString(sum[:])[:8]
@@ -223,6 +228,41 @@ func JailShortHash(cname string) string {
 // is already known — the reap path's shape, which sweeps by hash without ever
 // holding a container name.
 func HostServicesDirName(shortHash string) string { return hostServicesDirPrefix + shortHash }
+
+// HostSingletonSocket / HostSingletonPIDFile / HostSingletonLock are the fixed
+// host-wide paths a `host_daemon.scope: "host"` loophole's ONE daemon owns
+// (loopholedecl.ScopeHost). They are keyed by the LOOPHOLE NAME and nothing else:
+// a singleton has no jail to be keyed by, and deriving them from the name is what
+// makes two yolo processes launching two different jails at the same moment agree
+// on which file to flock and which socket to ensure.
+//
+// THE FRAMEWORK OWNS THESE PATHS, not the manifest, for the reason
+// startExternalService already states about `{socket}`: yolo decides what the path
+// IS, which is the whole point of owning the transport. A manifest naming its own
+// host-wide socket would be a host path claim yolo would then have to gate, and
+// two manifests could name the same one.
+//
+// They live under /tmp so AF_UNIX sun_path limits are never a concern (108 bytes
+// on Linux, 104 on darwin) and a host reboot leaves a clean slate — the same
+// reasoning, and for claude-oauth-broker the same BYTES, as the broker singleton
+// constants these generalize (internal/broker; a test pins the three pairs equal,
+// because `yolo broker status`, `yolo check` and the run pipeline's front all have
+// to reach one file).
+func HostSingletonSocket(loopholeName string) string {
+	return "/tmp/yolo-" + loopholeName + ".sock"
+}
+
+// HostSingletonPIDFile returns the singleton's PID file — see HostSingletonSocket.
+func HostSingletonPIDFile(loopholeName string) string {
+	return "/tmp/yolo-" + loopholeName + ".pid"
+}
+
+// HostSingletonLock returns the singleton's spawn lock — see HostSingletonSocket.
+// It is the flock two concurrent launches contend for, so that the loser observes
+// the winner's daemon instead of starting a second one.
+func HostSingletonLock(loopholeName string) string {
+	return "/tmp/yolo-" + loopholeName + ".lock"
+}
 
 // HostServicesDir returns the per-jail host-side directory holding this jail's
 // published endpoint files: /tmp/yolo-host-services-<8hex>.

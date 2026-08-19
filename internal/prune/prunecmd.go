@@ -111,7 +111,9 @@ type Options struct {
 	// consumer on the machine vanishes from the report and the heavy purge
 	// no-ops while claiming success.
 	CacheRelocations map[string]string
-	// RelayBase is the dir scanned for orphaned broker-relay PID files. "" =>
+	// RelayBase is the dir scanned for orphaned broker-relay PID files left by a
+	// PRE-broker-conversion yolo (see ReapRelayOrphans — this is a legacy sweep;
+	// nothing writes these files any more). "" =>
 	// "/tmp" (the default base).
 	RelayBase string
 	// RelayKill reaps one relay by PID file (SIGTERM/SIGKILL + pid-file removal).

@@ -1,7 +1,6 @@
 package run
 
 import (
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,7 +13,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthterminator"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
 // TestBrokerEndpointEnvVarDoesNotDrift ties the run pipeline's PRODUCER to the
@@ -36,128 +34,6 @@ func TestBrokerEndpointEnvVarDoesNotDrift(t *testing.T) {
 	// The retired spelling must not be what either side settled on.
 	if strings.HasSuffix(oauthterminator.BrokerEndpointEnv, "_SOCKET") {
 		t.Error("the broker env var still says _SOCKET; its value is an endpoint file")
-	}
-}
-
-// TestRelayHealthyRequiresPublishedEndpoint: a relay that is ALIVE but has
-// published nothing usable is UNHEALTHY.
-//
-// The relay's own socket is host-only now, so the endpoint file is the jail's only
-// route in. Health-by-liveness would call an unpublished relay fine forever: never
-// respawned, and the jail permanently unable to authenticate. A pre-upgrade relay
-// is in exactly that state after a yolo upgrade, so this is the upgrade path, not a
-// hypothetical — which is why the check is unconditional rather than gated on a
-// platform.
-func TestRelayHealthyRequiresPublishedEndpoint(t *testing.T) {
-	// shortSocketDir, not t.TempDir(): case 3 binds a real socket in here, and
-	// on darwin a TMPDIR-rooted path overruns sun_path.
-	dir := shortSocketDir(t)
-	if err := os.Chmod(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	pidFile := filepath.Join(dir, "relay.pid")
-	endpointPath := filepath.Join(dir, "claude-oauth-broker.endpoint")
-
-	// A real listener stands in for the relay's own socket probe: relayIsAlive
-	// answers true when no pid file exists and the socket connects. Here we drive
-	// the pid path instead, with a PID the harness reports as alive.
-	o := &Options{}
-	fillDefaults(o)
-	o.PIDAlive = func(int) bool { return true }
-	if err := os.WriteFile(pidFile, []byte("4242\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	// 1. Alive, nothing published.
-	if o.relayHealthy(pidFile, filepath.Join(dir, "nope.sock"), endpointPath) {
-		t.Error("a relay that published no endpoint was reported healthy")
-	}
-	// 2. Alive, a 2-field endpoint (an older publisher, or a truncated write).
-	if err := os.WriteFile(endpointPath, []byte("127.0.0.1:1 Y29zdA==\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if o.relayHealthy(pidFile, filepath.Join(dir, "nope.sock"), endpointPath) {
-		t.Error("a 2-field endpoint file was reported healthy; existence is not health")
-	}
-	// 3. Alive AND a complete publication: healthy. Without this control the two
-	//    negatives above would also pass if relayHealthy simply always said false.
-	//    relayIsAlive additionally needs the relay's own socket to connect, so both
-	//    halves are stood up and only the endpoint half varies between the cases.
-	sockPath := filepath.Join(dir, "relay.sock")
-	sockLn, err := listenUnixForTest(t, sockPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sockLn.Close()
-	ln, err := svcendpoint.Listen(endpointPath, "127.0.0.1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	if !o.relayHealthy(pidFile, sockPath, endpointPath) {
-		t.Error("a live relay with a complete published endpoint was reported unhealthy")
-	}
-	// 4. And the endpoint half alone flips it back: retire the publication, keep
-	//    everything else, and health must go false.
-	if err := os.Remove(endpointPath); err != nil {
-		t.Fatal(err)
-	}
-	if o.relayHealthy(pidFile, sockPath, endpointPath) {
-		t.Error("removing the published endpoint did not make the relay unhealthy")
-	}
-}
-
-// TestRelaySpawnArgvCarriesEndpointAndNoToken: the spawn argv names the endpoint
-// FILE and carries nothing secret.
-//
-// #32 passed a --token-file path specifically so the secret would not show up in
-// `ps`; with the token minted in-process and written inside the 0600 file there is
-// no second artifact at all, so the property to hold is the stronger one. YOLO_DEBUG
-// prints this argv verbatim into logs and transcripts.
-func TestRelaySpawnArgvCarriesEndpointAndNoToken(t *testing.T) {
-	o := &Options{}
-	fillDefaults(o)
-	argv := o.relaySpawnArgv("/tmp/yolo-broker-relay-deadbeef.sock", "/tmp/yolo-claude-oauth-broker.sock",
-		"yolo-ws-abcd1234", "/tmp/yolo-host-services-deadbeef/claude-oauth-broker.endpoint")
-	joined := strings.Join(argv, " ")
-	if !strings.Contains(joined, "--endpoint /tmp/yolo-host-services-deadbeef/claude-oauth-broker.endpoint") {
-		t.Errorf("argv does not pass the endpoint file: %q", joined)
-	}
-	// The relay's own socket must be the host-only one, not a path inside the
-	// jail's mounted dir — leaving it there keeps the retired transport reachable
-	// from inside the jail, and lets the jail unlink the relay's socket.
-	if strings.Contains(joined, "--socket /tmp/yolo-host-services-") {
-		t.Errorf("the relay's socket is inside the jail's mounted dir: %q", joined)
-	}
-	if regexp.MustCompile(`\b[0-9a-f]{64}\b`).MatchString(joined) {
-		t.Errorf("a 64-hex run (a token) is on the relay argv: %q", joined)
-	}
-	for _, a := range argv {
-		if strings.Contains(a, "--token") {
-			t.Errorf("the relay argv carries a token flag: %q", a)
-		}
-	}
-}
-
-// TestRelaySocketIsHostOnly: the relay's socket lives beside its pid and lock
-// files, never in the per-jail dir that is bind-mounted :rw into the jail.
-func TestRelaySocketIsHostOnly(t *testing.T) {
-	const hash = "deadbeef"
-	sock := relaySocketFile(hash)
-	if !strings.HasPrefix(sock, "/tmp/yolo-broker-relay-") || !strings.HasSuffix(sock, ".sock") {
-		t.Errorf("relaySocketFile = %q, want /tmp/yolo-broker-relay-<hash>.sock", sock)
-	}
-	if strings.Contains(sock, "yolo-host-services-") {
-		t.Errorf("the relay socket is inside the mounted host-services dir: %q", sock)
-	}
-	// It sits with the pid and lock files it is reaped alongside.
-	if filepath.Dir(sock) != filepath.Dir(relayPIDFile(hash)) {
-		t.Errorf("socket dir %q != pid file dir %q", filepath.Dir(sock), filepath.Dir(relayPIDFile(hash)))
-	}
-	// And the endpoint file — the ONE thing the jail needs — is in the mounted dir.
-	ep := relayEndpointFile("/tmp/yolo-host-services-deadbeef")
-	if ep != "/tmp/yolo-host-services-deadbeef/claude-oauth-broker.endpoint" {
-		t.Errorf("relayEndpointFile = %q", ep)
 	}
 }
 
@@ -357,14 +233,6 @@ func containsStr(ss []string, want string) bool {
 	return false
 }
 
-// listenUnixForTest stands up the relay's own socket so the health control can
-// isolate the endpoint half of relayHealthy from the liveness half.
-func listenUnixForTest(t *testing.T, path string) (io.Closer, error) {
-	t.Helper()
-	assertSockPathFits(t, path)
-	return net.Listen("unix", path)
-}
-
 // sunPathMax is the longest AF_UNIX path that binds on the tighter of the two
 // platforms: darwin's sun_path is 104 bytes INCLUDING the NUL, Linux's is 108.
 const sunPathMax = 103
@@ -426,101 +294,55 @@ func TestSocketDirIgnoresALongTMPDIR(t *testing.T) {
 	_ = ln.Close()
 }
 
-// TestRetireStaleRelayFilesRemovesBoth: a respawn clears BOTH of the dead
-// predecessor's artifacts.
-//
-// Forgetting either is silent. A surviving socket makes the fresh relay's bind
-// fail with EADDRINUSE. A surviving endpoint file is worse: the publication wait
-// is satisfied instantly by a file naming a port nobody is on, so the "this jail
-// cannot reach its relay" warning never fires and every in-jail dial hits a dead
-// address until the new front happens to republish over it.
-func TestRetireStaleRelayFilesRemovesBoth(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.Chmod(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	sock := filepath.Join(dir, "relay.sock")
-	endpointPath := filepath.Join(dir, "claude-oauth-broker.endpoint")
-
-	// A COMPLETE-looking predecessor publication: a real listener's file, kept after
-	// the listener died, which is exactly what a crashed relay leaves behind.
-	dead, err := svcendpoint.Listen(endpointPath, "127.0.0.1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ep, err := svcendpoint.Read(endpointPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = dead.Close() // Close unlinks, so republish the same bytes.
-	if err := svcendpoint.Publish(endpointPath, ep); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(sock, []byte("stale"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// It reads as healthy until it is retired — which is the whole hazard.
-	if !svcendpoint.Probe(endpointPath) {
-		t.Fatal("the fixture's stale endpoint does not parse; the test would prove nothing")
-	}
-
-	retireStaleRelayFiles(sock, endpointPath)
-
-	if _, err := os.Stat(sock); err == nil {
-		t.Error("the predecessor's socket survived; the fresh relay's bind would EADDRINUSE")
-	}
-	if _, err := os.Stat(endpointPath); err == nil {
-		t.Error("the predecessor's endpoint file survived; the publication wait would pass on it")
-	}
-	if svcendpoint.Probe(endpointPath) {
-		t.Error("the stale endpoint still probes healthy after retirement")
-	}
-}
-
-// TestBrokerLifecycleIsGatedOnTheLoopholeRecord is OQ-A11 at the two CALL SITES that
-// decide whether a host daemon runs at all.
+// TestBrokerLifecycleIsGatedOnTheLoopholeRecord is OQ-A11 at the CALL SITE that
+// decides whether the host singleton runs at all.
 //
 // # Why this is a source assertion and not a behavioural one
 //
-// `brokerEnsure` spawns a detached host process under a flock and `ensureBrokerRelay`
-// spawns a second one; neither is injectable, and driving `runNormal` needs a
-// container. What CAN be driven is the predicate — the two tests below do that — and
-// what a predicate's own tests cannot see is the call going missing, which is exactly
-// the state this ruling found: `brokerLoopholeActive` already existed and was already
-// correct, and the run pipeline called `brokerEnsure()` beside it with no lookup at
-// all. So the host singleton and one relay per jail ran for EVERYBODY, including a
-// user with `packs: []` who has never heard of claude, while the jail was wired to it
-// only when the loophole was Active — both halves failing, in opposite directions
-// (loophole-activation.md §1.1, §1.3's first table row).
+// `brokerEnsure` spawns a detached host process under a flock; it is not injectable,
+// and driving `runNormal` needs a container. What CAN be driven is the predicate —
+// the two tests below do that — and what a predicate's own tests cannot see is the
+// call going missing, which is exactly the state this ruling found:
+// `brokerLoopholeActive` already existed and was already correct, and the run
+// pipeline called `brokerEnsure()` beside it with no lookup at all. So the host
+// singleton ran for EVERYBODY, including a user with `packs: []` who has never heard
+// of claude, while the jail was wired to it only when the loophole was Active — both
+// halves failing, in opposite directions (loophole-activation.md §1.1, §1.3's first
+// table row).
 //
 // # The property, stated so a reader knows what may be edited
 //
 // ONE predicate governs the spawn AND the wiring. `hostServicesMountArgs` already
-// consults `brokerLoopholeActive`; the two lifecycle sites must consult the same
-// function rather than a second spelling of it. A jail that is not given the broker's
-// address must not leave a broker running on the host either — which is a stronger
-// requirement than "both are gated", because two gates that agree today are two gates
+// consults `brokerLoopholeActive`; the lifecycle site must consult the same function
+// rather than a second spelling of it. A jail that is not given the broker's address
+// must not leave a broker running on the host either — which is a stronger
+// requirement than "it is gated", because two gates that agree today are two gates
 // that can disagree tomorrow.
+//
+// THE ATTACH HALF OF THIS TEST IS GONE with the per-jail relay it guarded. An attach
+// used to re-ensure a relay behind the same gate; there is no per-jail broker process
+// left to heal, and the front that replaced it belongs to the yolo process that
+// launched the jail. What survives is the launch gate, which is the one that governs
+// a host daemon.
 func TestBrokerLifecycleIsGatedOnTheLoopholeRecord(t *testing.T) {
 	body, err := os.ReadFile("run.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(body)
-	// The LAUNCH path: the ensure pair sits behind the gate.
+	// The LAUNCH path: the ensure sits behind the gate.
 	if !strings.Contains(src, `rt != "container" && brokerLoopholeActive(cfg)`) {
-		t.Error("the launch path no longer gates the broker singleton + relay on " +
+		t.Error("the launch path no longer gates the broker singleton on " +
 			"brokerLoopholeActive(cfg). Ungated, yolo spawns a host daemon on every launch " +
 			"for every user — including one with `packs: []` — while the jail is wired to it " +
 			"only when the loophole is Active (OQ-A11)")
 	}
-	// The ATTACH path: same gate, and it is the one most likely to be forgotten,
-	// because attaching feels like it changes nothing.
-	if !strings.Contains(src, "if brokerLoopholeActive(cfg) {\n\t\to.ensureBrokerRelay(cname, rt, cfg)") {
-		t.Error("attachExisting heals the per-jail relay without consulting " +
-			"brokerLoopholeActive. An attach that revives a relay the launch would not have " +
-			"started leaves per-jail state running for a jail whose config says the loophole " +
-			"is off — one predicate becoming two that disagree")
+	if !strings.Contains(src, "o.brokerEnsure()") {
+		t.Error("run.go no longer ensures the broker singleton before assembling the argv. " +
+			"brokerEndpointIsUnpublishable reads the singleton socket to decide whether the " +
+			"argv may promise the jail an endpoint at all, so the ensure has to happen while " +
+			"the argv is still being written — startHostSingleton is too late for that " +
+			"decision even though it ensures the same daemon")
 	}
 	// And the services DIR is created either way: it holds every loophole's endpoint
 	// file and the assembler mounts it unconditionally, so folding it into the gate
@@ -531,6 +353,13 @@ func TestBrokerLifecycleIsGatedOnTheLoopholeRecord(t *testing.T) {
 			"broker's — every loophole publishes its endpoint file there and the assembler " +
 			"mounts it on every launch — so a jail with the broker off would mount a path " +
 			"that does not exist")
+	}
+	// AND NOTHING SPAWNS A RELAY. The deletion is asserted rather than assumed: a
+	// resurrected per-jail relay would splice the same endpoint file the front now
+	// publishes, and the loser of that race is the jail's credential path.
+	if strings.Contains(src, "ensureBrokerRelay") || strings.Contains(src, "relayReapOrphans") {
+		t.Error("run.go references the per-jail broker relay, which is deleted " +
+			"(docs/design/broker-as-a-pack.md §7)")
 	}
 }
 

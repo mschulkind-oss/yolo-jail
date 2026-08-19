@@ -53,9 +53,12 @@
 //     sends a spoofed `jail_id` sees it overridden in both.
 //   - On a bare ServeUnix connection there is no preamble, so `jail=` falls back
 //     to the CLIENT's `jail_id` exactly as it always did — which the protocol
-//     says daemons must not trust. That fallback is still load-bearing: the
-//     broker singleton is reached through the relay, which stamps the field
-//     in-payload and opts out of the preamble until it is deleted.
+//     says daemons must not trust. NOTHING YOLO SHIPS IS ON THAT PATH ANY MORE:
+//     the broker singleton was its last user, reached through a relay that stamped
+//     the field in-payload, and the broker conversion moved it to ServeFrontedUnix
+//     when that relay was deleted (docs/design/broker-as-a-pack.md §7). The
+//     fallback stays for a host-to-host caller of ServeUnix, where no jail
+//     boundary was crossed and there is nothing for yolo to assert.
 //
 // When the two disagree, tier 1 is still the one that means something.
 package hostservice

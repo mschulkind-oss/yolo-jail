@@ -109,8 +109,8 @@ const (
 // length, never a value.
 type Crossing struct {
 	// Service is the host service / loophole name, derived from the endpoint file
-	// YOLO published — never self-reported by the client. Same property that
-	// makes the relay's host-side jail_id stamp trustworthy.
+	// YOLO published — never self-reported by the client. Same property that makes
+	// the connection preamble's host-asserted jail_id trustworthy.
 	Service string
 	// Jail is the per-jail publication directory's name (in production
 	// "yolo-host-services-<8hex>"), likewise derived host-side.

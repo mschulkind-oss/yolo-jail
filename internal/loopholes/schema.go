@@ -38,6 +38,8 @@ const (
 	PublishesSocket      = loopholedecl.PublishesSocket
 	RequestEndFramed     = loopholedecl.RequestEndFramed
 	RequestEndEOF        = loopholedecl.RequestEndEOF
+	ScopeJail            = loopholedecl.ScopeJail
+	ScopeHost            = loopholedecl.ScopeHost
 
 	SettingTypeString     = loopholedecl.SettingTypeString
 	SettingTypeBool       = loopholedecl.SettingTypeBool

@@ -91,15 +91,18 @@ func PrintStatus(deps CLIDeps) int {
 		sockMark = "[green]present[/green]"
 	}
 	out.printf("  socket:       %s  %s", st.Socket, sockMark)
-	pingMark := "[red]no response[/red]"
-	if st.PingOK {
-		pingMark = "[green]ok[/green]"
+	// "accepting", not "ping": the singleton sits behind yolo's front now, so the
+	// host side can no longer speak its protocol without forging a jail identity
+	// (broker.SingletonReachable). The column says what was measured.
+	reachMark := "[red]not accepting[/red]"
+	if st.Reachable {
+		reachMark = "[green]accepting[/green]"
 	}
-	out.printf("  ping:         %s", pingMark)
+	out.printf("  socket accept: %s", reachMark)
 	out.printf("  pid file:     %s", st.PIDFile)
 	out.print("")
 
-	if st.PIDLive && st.PingOK {
+	if st.PIDLive && st.Reachable {
 		out.print("[green]Broker healthy.[/green]")
 		return 0
 	}

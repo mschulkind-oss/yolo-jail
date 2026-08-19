@@ -21,6 +21,41 @@ changelog; this is the subset that bites.
 
 ## Unreleased
 
+### ⚠️ The per-jail Claude OAuth broker relay is gone; `yolo broker status` reports differently
+
+**What changed.** The broker's jail-facing hop used to be a **per-jail relay process**
+(`yolo internal daemon broker-relay`), one per running jail, with its own pid, lock and socket
+files in `/tmp`. It is deleted. The host-wide broker singleton is unchanged and still lives at
+`/tmp/yolo-claude-oauth-broker.sock`; what fronts it is now yolo's ordinary loopback-TLS front,
+one per jail, owned by the `yolo` process that launched that jail. The jail sees exactly what it
+saw before — the same `YOLO_SERVICE_CLAUDE_OAUTH_BROKER_ENDPOINT` naming the same
+`/run/yolo-services/claude-oauth-broker.endpoint` — and refresh serialization across multiple
+jails on one host is unchanged, because it was always the singleton's flock doing it.
+
+**Three things a user can notice.**
+
+1. **`yolo broker status` no longer has a `ping:` line.** It has `socket accept:` instead, and
+   `yolo check`'s broker row says `daemon live (pid=…, socket accepting)` rather than `ping ok`.
+   The singleton now expects yolo's connection preamble on every connection, so a host-side
+   prober cannot speak its protocol without asserting a jail identity it does not have — liveness
+   is "the socket accepts" for the same reason it already was for every other fronted daemon.
+   The end-to-end protocol check is still run by `yolo check`, which reaches the broker through
+   a real jail's endpoint and therefore gets a real preamble. **Consequence to know:** a broker
+   that is listening but wedged in its handler now reads as live where the old ping called it
+   dead.
+2. **`yolo check`'s wording changed.** Rows that said `relay` now say `broker endpoint` or
+   `front`; the layers they distinguish are the same ones.
+3. **An upgrade leaves stale relay processes behind.** A host that was running jails under the
+   previous version still has those relays and their `/tmp` files. Nothing kills them at the next
+   launch any more — `yolo prune --apply` sweeps them (so does a reboot, since they live in
+   `/tmp`). They are harmless meanwhile: nothing publishes to them.
+
+**Attaching to a jail no longer repairs its broker wiring.** `yolo` attaching to a running jail
+used to re-spawn a dead relay. The front belongs to the launching process, so a jail whose
+launcher is gone is **relaunched**, not attached-and-repaired.
+
+**No config changes.** No manifest, no `yolo-jail.jsonc` key, and no environment variable moved.
+
 ### ⚠️ A workspace config that enables a loophole now needs the pack selected, or the jail will not start
 
 **What changed.** Every loophole yolo ships is now carried by a pack (`audio`,

@@ -136,8 +136,9 @@ func verifyTokenFrame(conn net.Conn, token string) error {
 //
 // A TIMEOUT or a RESET is not a verdict, it is the connection dying: the listener
 // accepted TCP and TLS and then went away mid-handshake. That is exactly what a
-// relay RESTART looks like, and relayEnsure opens that window on every attach — so
-// mapping it to ErrAuthRejected hands the most common transient the message
+// front RESTART looks like — a relaunch republishing over a jail's endpoint file
+// while a client is mid-dial — so mapping it to ErrAuthRejected hands a transient
+// the message
 // reserved for the one fault that needs a human ("your token does not match").
 // An earlier version wrapped every read error, which moved that misattribution
 // rather than removing it.

@@ -773,6 +773,90 @@ func TestManifestPreambleDefaultSurvivesLoad(t *testing.T) {
 	}
 }
 
+// TestHostDaemonFieldsSurviveLoad is the GENERAL form of the tripwire above, and
+// it exists because the specific form was not enough: the prose in resolve() warns
+// about exactly this drop, `Preamble` has a test of its own, and `Scope` was still
+// added to the schema and left out of the literal — arriving at the run pipeline as
+// "" so a `scope: "host"` manifest got a SECOND daemon spawned per jail, which for
+// the broker is two processes racing to burn one single-use refresh token.
+//
+// So this walks HostDaemon with reflect instead of listing fields. Every exported
+// field is declared in a manifest with a NON-ZERO value, and every one must come
+// back non-zero after LoadLoophole. A new field added to the struct and forgotten in
+// resolve() fails here by construction; a new field added and forgotten in the TABLE
+// below fails too, because the table is checked for totality against the type.
+//
+// It deliberately asserts "not the zero value" rather than an exact value: exact
+// values belong in the per-field tests (Cmd is token-substituted at load, so it is
+// not equal to what was written), while the failure this catches is always the same
+// one — a field that silently became its zero value.
+func TestHostDaemonFieldsSurviveLoad(t *testing.T) {
+	// One non-zero declaration per exported field of HostDaemon. `preamble` is the
+	// odd one: its DEFAULT is true, so the only non-zero value is the default, and
+	// declaring it changes nothing — which is fine, the assertion is that it
+	// survives.
+	declared := map[string]any{
+		"Cmd":        []any{"d", "{socket}"},
+		"Env":        map[string]any{"K": "V"},
+		"Publishes":  "socket",
+		"RequestEnd": "eof",
+		"Preamble":   true,
+		"Scope":      "host",
+	}
+	typ := reflect.TypeOf(HostDaemon{})
+	for i := 0; i < typ.NumField(); i++ {
+		f := typ.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		if _, ok := declared[f.Name]; !ok {
+			t.Fatalf("HostDaemon gained the field %q and this table has no non-zero value "+
+				"for it. Add one: resolve() in load.go rebuilds the struct field by field, so "+
+				"an unlisted field arrives as its zero value with nothing reporting a problem.",
+				f.Name)
+		}
+	}
+
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "survives"))
+	writeManifest(t, mod, map[string]any{
+		"name": "survives", "description": "x",
+		"host_daemon": map[string]any{
+			"cmd":         declared["Cmd"],
+			"env":         declared["Env"],
+			"publishes":   declared["Publishes"],
+			"request_end": declared["RequestEnd"],
+			"preamble":    declared["Preamble"],
+			"scope":       declared["Scope"],
+		},
+	})
+	lp, err := LoadLoophole(mod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lp.HostDaemon == nil {
+		t.Fatal("no host daemon on the record")
+	}
+	got := reflect.ValueOf(*lp.HostDaemon)
+	for i := 0; i < typ.NumField(); i++ {
+		f := typ.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		v := got.Field(i)
+		if v.IsZero() {
+			t.Errorf("HostDaemon.%s is the zero value after load, though the manifest declared "+
+				"a non-zero one — resolve() in load.go dropped it, and nothing else reports that",
+				f.Name)
+		}
+	}
+	// Env is a pointer, so IsZero only catches a nil. Check the CONTENT too, or a
+	// resolve that handed back an empty map would pass the loop above.
+	if lp.HostDaemon.Env == nil || lp.HostDaemon.Env.Len() == 0 {
+		t.Error("HostDaemon.Env lost its entries at load")
+	}
+}
+
 // TestHostDaemonInvalidPublishesAndRequestEndRejected: an invalid enum value is
 // a LOAD error naming the valid set — never a silent fallback to a default,
 // which would quietly select the other publication mechanism.

@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -16,7 +15,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -233,12 +231,26 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 		// none at all so it never enters `order`. Keeping the branch would have inverted
 		// the original defect — refusing to start the very daemon the manifest exists to
 		// declare — which is what "do not recreate that shape in reverse" means.
-		if name == broker.BrokerLoopholeName {
-			// Host-wide singleton — ensure it, but no per-jail handle.
-			o.brokerEnsure()
+		if placementRefused[name] {
 			continue
 		}
-		if placementRefused[name] {
+		// THE NAME TEST IS GONE, and the declaration that replaced it is the point
+		// of this branch rather than a tidier spelling of it.
+		//
+		// It used to read `if name == broker.BrokerLoopholeName { o.brokerEnsure();
+		// continue }` — core knowing one loophole by name, ensuring yolo's own
+		// singleton, and returning NO handle, so the front over it did not exist and
+		// a whole per-jail relay had to be supervised beside this loop instead. The
+		// question that test was really asking is "is this daemon shared across
+		// jails?", and `host_daemon.scope` is now the manifest's way to answer it
+		// (loopholedecl.ScopeHost). Compared against ScopeHost rather than ScopeJail
+		// deliberately: a record with no scope at all is per-jail, which is the
+		// direction where a dropped field costs a spawn instead of silently
+		// declining to start a daemon somebody asked for.
+		if hd := daemonOf[name]; hd != nil && hd.Scope == loopholes.ScopeHost {
+			if h, ok := o.startHostSingleton(name, external[name], socketsDir, advertise, hd); ok {
+				handles = append(handles, h)
+			}
 			continue
 		}
 		if h, ok := o.startExternalService(name, external[name], socketsDir, transportOf[name], advertise, daemonOf[name]); ok {
@@ -283,10 +295,17 @@ func (o *Options) cgroupDelegateHonored(set loopholes.Set) bool {
 
 // stopLoopholes tears down handles WITH THE FROZEN GUARD STACK (do not
 // reorder): stop each handle, then — when cname/rt are given — take the
-// per-workspace flock NON-BLOCKING; if busy, a relaunch is mid-flight → leave
-// the relay + sockets dir alone. Else, if the container is STILL RUNNING, leave
-// them alone. Else reap the per-jail relay BEFORE rmtree'ing the sockets dir (so
-// the relay's SIGTERM socket cleanup targets a dir that still exists).
+// per-workspace flock NON-BLOCKING; if busy, a relaunch is mid-flight → leave the
+// sockets dir alone. Else, if the container is STILL RUNNING, leave it alone.
+// Else retire the fronted daemons' host-only upstream sockets and rmtree the
+// sockets dir.
+//
+// THE RELAY REAP THAT USED TO SIT HERE IS GONE with internal/brokerrelay: a
+// SIGTERM-and-wait on a pid file, an unlink of the relay's own socket, and an
+// ordering comment about doing both before the rmtree. Nothing replaced it,
+// because the front that took the relay's place is a goroutine in THIS process
+// whose stop() ran in the loop above — and the one daemon behind it is host-wide
+// and must survive this jail (startHostSingleton).
 func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt string) {
 	out := o.pr(o.Stdout)
 	for _, h := range handles {
@@ -310,7 +329,7 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 			if ferr := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); ferr != nil {
 				_ = f.Close()
 				out.printf("[dim]Another yolo invocation is launching %s; "+
-					"leaving its relay and sockets dir alone.[/dim]", cname)
+					"leaving its sockets dir alone.[/dim]", cname)
 				return
 			}
 			lock = &workspaceLock{f: f}
@@ -325,22 +344,18 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 	if cname != "" {
 		if o.findRunningContainer(cname, rt) != "" {
 			out.printf("[dim]Container %s is still running; leaving its "+
-				"relay and sockets dir alone.[/dim]", cname)
+				"sockets dir alone.[/dim]", cname)
 			return
 		}
 	}
-	// Reap the per-jail relay BEFORE the rmtree.
+	// Fronted daemons' upstream sockets are host-only, so the rmtree below does
+	// not cover them: a SIGTERMed daemon may unlink its own, a SIGKILLed one
+	// cannot, and the leftover file would litter /tmp forever. A HOST-SCOPED
+	// daemon's socket is not in this set and must not be — it is keyed by loophole
+	// name, not by this jail's hash, and other jails are still using it.
 	base := filepath.Base(socketsDir)
 	if strings.HasPrefix(base, hostServicesDirPrefix) {
-		shortHash := strings.TrimPrefix(base, hostServicesDirPrefix)
-		o.relayKill(relayPIDFile(shortHash))
-		// The relay's socket is host-only now, so the rmtree below no longer covers
-		// it. A SIGTERMed relay unlinks it itself (dev/ino-guarded); a SIGKILLed one
-		// cannot, and the file would then litter /tmp forever.
-		_ = os.Remove(relaySocketFile(shortHash))
-		// Fronted daemons' upstream sockets are host-only for the same reason,
-		// and their daemons never unlink after a SIGKILL either.
-		retireFrontSockets(shortHash)
+		retireFrontSockets(strings.TrimPrefix(base, hostServicesDirPrefix))
 	}
 	if fileExists(socketsDir) {
 		_ = os.RemoveAll(socketsDir)
@@ -507,6 +522,173 @@ func (o *Options) waitServiceReady(reachable func() bool, exited <-chan struct{}
 // transport still lands there, which is the live path for a `loopholes:` config
 // entry that declares only a `command`.
 
+// resolveDaemonArgv turns a host daemon's declared `command` into the argv that
+// will actually run: ~ expanded, {endpoint}/{socket} substituted with daemonPath,
+// the placement rule applied, and the bare `yolo` launcher token self-exec'd.
+// Returns ok=false having already printed the refusal.
+//
+// EXTRACTED, not duplicated, when the host-wide singleton path arrived. The four
+// steps below are a sequence whose ORDER carries two separate decisions — the
+// placement check runs after substitution and before SelfExecArgv (see its
+// comment) — and a second copy of that ordering is exactly the kind of drift that
+// leaves one spawn path gated and the other not.
+func (o *Options) resolveDaemonArgv(name string, spec *jsonx.OrderedMap, daemonPath string) ([]string, bool) {
+	cmdTemplate := asAnyList(mapGet(spec, "command"))
+	if len(cmdTemplate) == 0 {
+		o.pr(o.Stdout).print("[red]Host service '" + name + "' has no command; skipping[/red]")
+		return nil, false
+	}
+	var cmdArgs []string
+	for _, a := range cmdTemplate {
+		s := pyStrCoerce(a)
+		if strings.HasPrefix(s, "~") {
+			s = expandUser(s)
+		}
+		// {endpoint} is canonical; {socket} stays an accepted alias so a
+		// third-party manifest written against the older name keeps working. Both
+		// expand to the same host-side path — the framework decides what that path
+		// IS, which is the whole point of owning the transport. (Under
+		// publishes:"socket" that path is the upstream socket; a MANIFEST naming
+		// {endpoint} there was already refused at load, so the alias only ever
+		// fires for a config entry, whose daemon wants the socket path whichever
+		// spelling it used.)
+		s = strings.ReplaceAll(s, "{endpoint}", daemonPath)
+		cmdArgs = append(cmdArgs, strings.ReplaceAll(s, "{socket}", daemonPath))
+	}
+	// The §4.3a PLACEMENT rule, applied to what is about to be EXECUTED: a daemon
+	// program living inside the workspace this launch mounts :rw (or inside the
+	// jail-home tree) is rewritable by the agent between launches, so no earlier
+	// gate — who declared it, what the lockfile recorded, what the banner printed —
+	// says anything about the bytes that will run. Checked here rather than only in
+	// config validation because a MANIFEST's host_daemon.cmd never passes through
+	// that validator, and deliberately BEFORE SelfExecArgv: after the substitution
+	// argv[0] is yolo's own path, which during nested-jail verification legitimately
+	// lives in the workspace.
+	if probs := config.LoopholePlacementProblems(
+		"loopholes."+name+".command", cmdArgs, o.Workspace); len(probs) > 0 {
+		p := o.pr(o.Stdout)
+		for _, prob := range probs {
+			p.print("[red]Refusing to start host service '" + name + "': " + prob + "[/red]")
+		}
+		return nil, false
+	}
+	// A manifest host_daemon.cmd of the form
+	// ["yolo","internal","daemon",<name>,"--socket",…] re-execs the running yolo
+	// binary as the daemon. Substituting os.Executable() for the bare "yolo"
+	// token makes the spawn immune to PATH divergence — the jail agent's PATH
+	// need not contain "yolo" (the old console-script name `yolo-host-processes`
+	// wasn't on it, which broke the spawn). A config loophole's own command
+	// (argv[0] != "yolo") is left untouched.
+	return execx.SelfExecArgv(cmdArgs), true
+}
+
+// startHostSingleton is the `host_daemon.scope: "host"` path: ONE daemon per
+// host, N fronts — one per jail — over its single socket.
+//
+// It is deliberately NOT startExternalService with a flag. Three of that
+// function's four jobs are wrong here, and each one is wrong in a way that would
+// be a real fault rather than a wasted step:
+//
+//   - it SPAWNS. This daemon may already be running for another jail, and a second
+//     copy of the broker is not a second daemon, it is the concurrent single-use
+//     refresh-token race the flock exists to prevent (agent-credentials.md §2.5).
+//     So the daemon is ENSURED — liveness first, then a spawn under the host-wide
+//     flock, with the loser of that race observing the winner (internal/broker).
+//   - it binds the upstream at a PER-JAIL path (frontSocketFile). The whole point
+//     of a singleton is one rendezvous every jail's front and every `yolo broker`
+//     invocation agree on, so the path is derived from the loophole NAME
+//     (paths.HostSingletonSocket) and from nothing else.
+//   - its stop() KILLS the daemon's process group and unlinks the socket. Here
+//     that would tear down a daemon other live jails are still using. stop() below
+//     closes THIS JAIL'S FRONT and touches nothing else — which is what makes
+//     "one singleton, N jails, one lock" survive a jail ending.
+//
+// What it does share is the half that is genuinely the same: the front. The
+// endpoint file, its 0600 per-jail bearer token, the publication wait and the
+// unlink-on-close are svcendpoint's exactly as they are for any other
+// `publishes: "socket"` daemon.
+//
+// The returned handle carries NO env var name. The jail-facing variable for a
+// host-scoped loophole is emitted at ARGV-ASSEMBLY time instead
+// (hostServicesMountArgs), optimistically and before this function has run at all
+// — deliberately, so that a launch whose front never publishes is REFUSED by the
+// in-jail reachability witness rather than quietly becoming a jail that was never
+// told the service exists (loopback-tls-reachability.md §7.3). Emitting it from
+// here as well would put the same `-e` in the argv twice.
+func (o *Options) startHostSingleton(
+	name string, spec *jsonx.OrderedMap, socketsDir, advertiseHost string,
+	hd *loopholes.HostDaemon,
+) (loopholeDaemon, bool) {
+	if spec == nil {
+		return loopholeDaemon{}, false
+	}
+	hostPath := filepath.Join(socketsDir, name+paths.ServiceEndpointExt)
+	// A dead predecessor's endpoint file names a port nobody is on; leaving it
+	// would satisfy the publication wait below instantly. Same removal, same
+	// reason, as the spawned path's.
+	_ = os.Remove(hostPath)
+	daemonPath := paths.HostSingletonSocket(name)
+	// NO pre-emptive unlink of daemonPath here, and the asymmetry with the spawned
+	// path is the point: that socket may belong to a LIVE daemon serving another
+	// jail. A stale one is the ensure's problem, and internal/broker already clears
+	// it inside the flock, after deciding nothing is alive.
+	cmdArgs, ok := o.resolveDaemonArgv(name, spec, daemonPath)
+	if !ok {
+		return loopholeDaemon{}, false
+	}
+	deps := broker.SingletonDeps(name, cmdArgs)
+	deps.Out = o.Stdout
+	if !broker.BrokerIsAlive(deps) {
+		broker.BrokerSpawn(deps)
+	}
+	// The daemon's readiness is its socket ACCEPTING A CONNECT — never bare
+	// existence, which a stale file satisfies instantly. BrokerSpawn has already
+	// waited and already warned if it never bound; this re-asks because the ensure
+	// may have been a no-op that observed a PID file whose process has since died.
+	if !socketConnectable(daemonPath, time.Second) {
+		o.pr(o.Stdout).print("[yellow]Warning: the host-wide daemon for '" + name +
+			"' is not accepting connections at " + daemonPath +
+			" — the jail cannot reach it. See " + deps.LogPath + "[/yellow]")
+		return loopholeDaemon{}, false
+	}
+	frontStop := make(chan struct{})
+	frontDone := make(chan struct{})
+	go func() {
+		defer close(frontDone)
+		_ = svcendpoint.ServeFrontWithOptions(hostPath, advertiseHost, daemonPath, frontStop,
+			svcendpoint.FrontOptions{
+				HalfCloseUpstream: hd.RequestEnd == loopholes.RequestEndEOF,
+				NoPreamble:        !hd.Preamble,
+			})
+	}()
+	if !waitForEndpoint(hostPath, o.serviceReadyTimeout()) {
+		close(frontStop)
+		// The DAEMON is not killed on this failure either. It was already running
+		// (or was just ensured for everyone, not for us), and our front failing to
+		// publish says nothing about whether another jail's is fine.
+		o.pr(o.Stdout).print("[yellow]Warning: the front for host-wide service '" + name +
+			"' did not publish " + hostPath + " — the jail cannot reach it. See " +
+			deps.LogPath + "[/yellow]")
+		return loopholeDaemon{}, false
+	}
+	return loopholeDaemon{
+		name:     name,
+		hostPath: hostPath,
+		jailPath: hostServiceEndpointPath(name),
+		stop: func() {
+			// Close the front and WAIT for its listener's Close, which unlinks the
+			// endpoint file and retires this jail's credential. Bounded, for the
+			// spawned path's reason: a wedged front must not hold up teardown, and
+			// the sockets-dir rmtree is the backstop.
+			close(frontStop)
+			select {
+			case <-frontDone:
+			case <-time.After(frontStopGrace):
+			}
+		},
+	}, true
+}
+
 // startExternalService is the common host-service path: substitute the host-side
 // path into the argv, expand ~, spawn, wait for the service to become REACHABLE.
 // Returns the handle on success.
@@ -568,53 +750,10 @@ func (o *Options) startExternalService(
 		// wait instantly (the wait below is a connect for exactly that reason).
 		_ = os.Remove(daemonPath)
 	}
-	cmdTemplate := asAnyList(mapGet(spec, "command"))
-	if len(cmdTemplate) == 0 {
-		o.pr(o.Stdout).print("[red]Host service '" + name + "' has no command; skipping[/red]")
+	cmdArgs, ok := o.resolveDaemonArgv(name, spec, daemonPath)
+	if !ok {
 		return loopholeDaemon{}, false
 	}
-	var cmdArgs []string
-	for _, a := range cmdTemplate {
-		s := pyStrCoerce(a)
-		if strings.HasPrefix(s, "~") {
-			s = expandUser(s)
-		}
-		// {endpoint} is canonical; {socket} stays an accepted alias so a
-		// third-party manifest written against the older name keeps working. Both
-		// expand to the same host-side path — the framework decides what that path
-		// IS, which is the whole point of owning the transport. (Under
-		// publishes:"socket" that path is the upstream socket; a MANIFEST naming
-		// {endpoint} there was already refused at load, so the alias only ever
-		// fires for a config entry, whose daemon wants the socket path whichever
-		// spelling it used.)
-		s = strings.ReplaceAll(s, "{endpoint}", daemonPath)
-		cmdArgs = append(cmdArgs, strings.ReplaceAll(s, "{socket}", daemonPath))
-	}
-	// The §4.3a PLACEMENT rule, applied to what is about to be EXECUTED: a daemon
-	// program living inside the workspace this launch mounts :rw (or inside the
-	// jail-home tree) is rewritable by the agent between launches, so no earlier
-	// gate — who declared it, what the lockfile recorded, what the banner printed —
-	// says anything about the bytes that will run. Checked here rather than only in
-	// config validation because a MANIFEST's host_daemon.cmd never passes through
-	// that validator, and deliberately BEFORE SelfExecArgv: after the substitution
-	// argv[0] is yolo's own path, which during nested-jail verification legitimately
-	// lives in the workspace.
-	if probs := config.LoopholePlacementProblems(
-		"loopholes."+name+".command", cmdArgs, o.Workspace); len(probs) > 0 {
-		p := o.pr(o.Stdout)
-		for _, prob := range probs {
-			p.print("[red]Refusing to start host service '" + name + "': " + prob + "[/red]")
-		}
-		return loopholeDaemon{}, false
-	}
-	// A manifest host_daemon.cmd of the form
-	// ["yolo","internal","daemon",<name>,"--socket",…] re-execs the running yolo
-	// binary as the daemon. Substituting os.Executable() for the bare "yolo"
-	// token makes the spawn immune to PATH divergence — the jail agent's PATH
-	// need not contain "yolo" (the old console-script name `yolo-host-processes`
-	// wasn't on it, which broke the spawn). A config loophole's own command
-	// (argv[0] != "yolo") is left untouched.
-	cmdArgs = execx.SelfExecArgv(cmdArgs)
 	logDir := filepath.Join(paths.GlobalStorage(), "logs")
 	_ = os.MkdirAll(logDir, 0o755)
 	logPath := filepath.Join(logDir, "host-service-"+name+".log")
@@ -777,13 +916,25 @@ func (o *Options) startExternalService(
 	}, true
 }
 
-// --- broker singleton + relay (minimal ensure; supervision keyed per jail) ---
+// --- the broker singleton, ensured before the argv is built ---
 
 // brokerEnsure is a no-op if the host-wide broker singleton is alive; else it
 // spawns it under a flock. The spawn/liveness/launcher/path-constant
 // implementation lives ONCE in internal/broker — run just drives it via
 // RealDeps (BrokerSpawn re-checks liveness inside its own flock). Best-effort;
 // never fails the caller.
+//
+// IT IS NOT REDUNDANT WITH startHostSingleton, which ensures the same daemon from
+// the loophole record a few phases later. This one runs BEFORE assembleRunCmd,
+// because brokerEndpointIsUnpublishable reads the singleton socket to decide
+// whether the argv may promise the jail an endpoint at all — a decision that has
+// to be made while the argv is still being written. The second ensure is
+// idempotent by construction (liveness, then a flock whose loser observes the
+// winner), so the cost of both is one Lstat.
+//
+// This is also the one caller with NO record to read, which is why RealDeps still
+// carries the broker's own argv: it is reached from the launch path before
+// discovery has run, and from `yolo broker restart`, which has no launch at all.
 func (o *Options) brokerEnsure() {
 	deps := broker.RealDeps()
 	if broker.BrokerIsAlive(deps) {
@@ -792,172 +943,20 @@ func (o *Options) brokerEnsure() {
 	broker.BrokerSpawn(deps)
 }
 
-// ensureBrokerRelay heals the per-jail relay on every path that targets the
-// jail. Skipped for Apple Container and when the singleton
-// socket is absent.
-//
-// cfg is read only to resolve the advertise host — what the relay's front should
-// PUBLISH depends on whether the jail will share this process's network namespace.
-func (o *Options) ensureBrokerRelay(cname, rt string, cfg *jsonx.OrderedMap) {
-	if rt == "container" || !o.PathExists(broker.BrokerSingletonSocket) {
-		return
-	}
-	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
-	o.relayEnsure(cname, socketsDir, o.advertiseHostFor(rt, cfg))
-}
-
-// relayEnsure is idempotent per-jail relay supervision under a
-// flock. Spawns the self-exec'd `yolo internal daemon broker-relay` (see
-// relaySpawnArgv).
-func (o *Options) relayEnsure(cname, socketsDir, advertiseHost string) {
-	shortHash := relayShortHash(cname)
-	pidFile := relayPIDFile(shortHash)
-	sockPath := relaySocketFile(shortHash)
-	endpointPath := relayEndpointFile(socketsDir)
-	if o.relayHealthy(pidFile, sockPath, endpointPath) {
-		return
-	}
-	lf, err := os.OpenFile(relayLockFile(shortHash), os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer lf.Close()
-	if syscall.Flock(int(lf.Fd()), syscall.LOCK_EX) != nil {
-		return
-	}
-	// The post-lock re-check must use the SAME predicate as the pre-lock one.
-	// Checking only the cheap half here would let two racing invocations disagree
-	// about what "healthy" means and respawn a relay the other just fixed.
-	if o.relayHealthy(pidFile, sockPath, endpointPath) {
-		return
-	}
-	// The upgrade spare: if a PRE-loopback-TLS relay is alive, leave it alone and say
-	// why. The decision is relaySpareLegacy's (a predicate over the four paths, so it
-	// is testable without spawning or flocking anything); this is where it is acted on.
-	if o.relaySpareLegacy(pidFile, sockPath, endpointPath, socketsDir) {
-		o.pr(o.Stdout).print("[yellow]This jail predates the loopback-TLS relay transport; " +
-			"leaving its existing relay running. Claude auth keeps working, and the jail " +
-			"picks up the new transport when you next relaunch it.[/yellow]")
-		return
-	}
-
-	o.relayKill(pidFile)
-	mkdirHostServicesDir(socketsDir)
-	retireStaleRelayFiles(sockPath, endpointPath)
-	// Also retire the LEGACY socket. relayKill closes the listener but
-	// SetUnlinkOnClose(false) leaves the file, so a pre-upgrade container whose
-	// frozen env still names it would dial a dead file and get ECONNREFUSED —
-	// indistinguishable from "the relay crashed". Removing it turns that into
-	// ENOENT, which the terminator already reports as the clean "not wired up in
-	// this jail" case.
-	_ = os.Remove(legacyRelaySocketFile(socketsDir))
-	argv := o.relaySpawnArgv(sockPath, broker.BrokerSingletonSocket, cname, endpointPath)
-	if argv == nil {
-		return
-	}
-	logDir := filepath.Join(paths.GlobalStorage(), "logs")
-	_ = os.MkdirAll(logDir, 0o755)
-	cmd := exec.Command(argv[0], argv[1:]...)
-	if l, err := os.OpenFile(filepath.Join(logDir, "broker-relay-"+shortHash+".log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
-		cmd.Stdout, cmd.Stderr = l, l
-	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	// The advertise host reaches the front as an env var on THIS HOST-SIDE CHILD —
-	// never inside a jail, so it carries none of the inheritance objection that
-	// keeps the token out of any environment.
-	if advertiseHost != "" {
-		cmd.Env = append(os.Environ(), svcendpoint.AdvertiseHostEnv+"="+advertiseHost)
-	}
-	if err := cmd.Start(); err != nil {
-		return
-	}
-	_ = os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644)
-	o.waitForSocket(sockPath, broker.BrokerSpawnTimeout)
-	if !waitForEndpoint(endpointPath, broker.BrokerSpawnTimeout) {
-		// Not fatal — the jail still starts, and any later `yolo` invocation
-		// re-ensures. But it IS the state in which every in-jail Claude auth request
-		// 502s, and the failure is otherwise silent until the agent hits it, so say
-		// so here and name the log that has the reason.
-		o.pr(o.Stdout).print("[yellow]Warning: the broker relay for this jail did not publish " +
-			endpointPath + " — in-jail Claude auth will fail until it does. See " +
-			filepath.Join(logDir, "broker-relay-"+shortHash+".log") + "[/yellow]")
-	}
-}
-
-// relayHealthy reports whether the per-jail relay is usable BY THE JAIL, which is
-// strictly more than "the process is alive and its socket accepts".
-//
-// The Unix socket is host-only now; the jail's only route in is the published
-// endpoint file. A relay that is alive and accepting on that socket but has
-// published nothing — or a truncated, or an older-format, file — is unreachable
-// from inside the jail, and existence-based health would call it fine forever:
-// never respawned, and the jail permanently unable to authenticate. That is
-// exactly the state a PRE-UPGRADE relay is in after a yolo upgrade, so it is not
-// hypothetical, and the check is unconditional rather than gated on a platform.
-//
-// Probe first: it reads one small file, where relayIsAlive may spend up to two
-// seconds on a connect probe.
-func (o *Options) relayHealthy(pidFile, sockPath, endpointPath string) bool {
-	if !svcendpoint.Probe(endpointPath) {
-		return false
-	}
-	return o.relayIsAlive(pidFile, sockPath)
-}
-
-// relaySpareLegacy is THE UPGRADE DECISION: leave a pre-loopback-TLS relay running rather
-// than reaping it.
-//
-// A jail launched by a PRE-UPGRADE yolo has a relay that works and publishes no endpoint
-// file, so relayHealthy says "unhealthy" and the reap path below it would kill the relay and
-// respawn on the new scheme — which THE CONTAINER CAN NEVER REACH, because its environment
-// was frozen at launch naming YOLO_SERVICE_..._SOCKET at the legacy path inside the mounted
-// host-services dir. That converts a working jail into a broken one MID-SESSION, recoverable
-// only by relaunching. The upgrade completes at the next relaunch, which is the only moment
-// the container's environment can pick up the new variable.
-//
-// EXTRACTED AS A PURE PREDICATE over the four paths, and that is the whole reason it exists
-// as a function: relayEnsure spawns processes and takes a flock, so nobody tested it — and
-// MEASURED, the five-line branch this replaces could be DELETED WHOLESALE with
-// `go test ./internal/cli/run/` still green. The regression the design calls "a working jail
-// converted into a broken one mid-session" was defended by inspection only. Its ingredients
-// were pinned (the legacy path, relayIsAlive on a real harness, the absent endpoint file);
-// the DECISION they feed was not, because there was no seam to ask.
-//
-// It is deliberately the whole condition, not just the legacy-liveness half: sparing depends
-// on the NEW relay being unhealthy as well, or a healthy current relay beside a stale legacy
-// socket file would take the spare path and never republish. relayEnsure reaches here only
-// after two relayHealthy checks, so this re-asks the cheap question rather than trusting call
-// position — which is what makes the predicate answerable in isolation at all.
-func (o *Options) relaySpareLegacy(pidFile, sockPath, endpointPath, socketsDir string) bool {
-	if o.relayHealthy(pidFile, sockPath, endpointPath) {
-		return false
-	}
-	return o.relayIsAlive(pidFile, legacyRelaySocketFile(socketsDir))
-}
-
-// retireStaleRelayFiles removes BOTH of a dead predecessor's artifacts before a
-// respawn. Named rather than inlined because forgetting either one is silent:
-//
-//   - the socket, or the fresh relay's bind fails with EADDRINUSE;
-//   - the endpoint file, or the publication wait is satisfied INSTANTLY by a file
-//     naming a port nobody is on. The warning that says "this jail cannot reach its
-//     relay" then never fires, and until the new front happens to republish, every
-//     dial from inside the jail hits a dead address.
-func retireStaleRelayFiles(sockPath, endpointPath string) {
-	_ = os.Remove(sockPath)
-	_ = os.Remove(endpointPath)
-}
-
 // hostServicesDirPrefix names the per-jail host-services dir:
 // <prefix><8hex-of-cname>. See paths.HostServicesDirName.
 const hostServicesDirPrefix = "yolo-host-services-"
 
-// frontSocketFile is the upstream AF_UNIX socket a publishes:"socket" daemon
-// binds — HOST-ONLY, in /tmp beside the relay's socket and for the relay's
-// reasons (see relaySocketFile): leaving it in the :rw-mounted services dir
-// would keep the retired socket transport reachable from inside the jail —
-// which is what retiring it forbids — and would let the jail unlink the
-// daemon's own socket. That directory holds endpoint files and nothing else.
+// frontSocketFile is the upstream AF_UNIX socket a PER-JAIL publishes:"socket"
+// daemon binds — HOST-ONLY, in /tmp: leaving it in the :rw-mounted services dir
+// would keep the retired socket transport reachable from inside the jail — which
+// is what retiring it forbids — and would let the jail unlink the daemon's own
+// socket. That directory holds endpoint files and nothing else.
+//
+// A HOST-SCOPED daemon's socket is NOT one of these. It is keyed by loophole name
+// (paths.HostSingletonSocket) rather than by a jail's hash, precisely so every
+// jail's front and every `yolo broker` invocation rendezvous on one file — which
+// is also why retireFrontSockets below cannot reach it.
 func frontSocketFile(shortHash, name string) string {
 	return "/tmp/yolo-front-" + shortHash + "-" + name + ".sock"
 }
@@ -974,178 +973,26 @@ func frontShortHash(socketsDir string) string {
 	return sha1Hex8(socketsDir)
 }
 
-// retireFrontSockets removes every fronted daemon's upstream socket for one
-// jail, beside the relay-socket removal it mirrors: a SIGTERMed daemon may
-// unlink its own socket, a SIGKILLed one cannot, and the leftover file would
-// make the next launch's fresh daemon fail its bind with EADDRINUSE (the
-// pre-spawn unlink in startExternalService covers relaunch; this covers a jail
-// that simply ends).
+// retireFrontSockets removes every PER-JAIL fronted daemon's upstream socket for
+// one jail: a SIGTERMed daemon may unlink its own socket, a SIGKILLed one cannot,
+// and the leftover file would make the next launch's fresh daemon fail its bind
+// with EADDRINUSE (the pre-spawn unlink in startExternalService covers relaunch;
+// this covers a jail that simply ends).
+//
+// The glob is keyed by the jail's hash, so a host-scoped daemon's socket is
+// unreachable from here BY CONSTRUCTION rather than by a check somebody has to
+// remember — which is the property that keeps one jail ending from cutting off
+// every other jail's credential path.
+// frontStopGrace bounds how long a fronted service's stop() waits for the front
+// goroutine to close its listener (which unlinks the endpoint file). Short
+// because the wait is for a Close, not for I/O: past it, stopLoopholes'
+// sockets-dir rmtree is the backstop.
+const frontStopGrace = 2 * time.Second
+
 func retireFrontSockets(shortHash string) {
 	matches, _ := filepath.Glob(frontSocketFile(shortHash, "*"))
 	for _, m := range matches {
 		_ = os.Remove(m)
-	}
-}
-
-// relaySocketFile is the relay's own Unix socket — HOST-ONLY, beside its pid and
-// lock files.
-//
-// It deliberately no longer lives in the jail's :rw-mounted host-services dir.
-// Leaving it there would keep the retired transport reachable from inside the jail
-// (which is what retiring it forbids) and would let the jail unlink the relay's
-// own socket. That directory now holds endpoint files and nothing else.
-func relaySocketFile(shortHash string) string {
-	return "/tmp/yolo-broker-relay-" + shortHash + ".sock"
-}
-
-// legacyRelaySocketFile is where a PRE-loopback-TLS relay bound its socket: inside
-// the per-jail host-services dir, so the jail could dial it directly. The new relay
-// binds host-only in /tmp and publishes an endpoint file here instead.
-//
-// Kept because a running container launched by an older yolo still names this path
-// in its frozen environment, and both halves of relayEnsure's upgrade handling need
-// it — the "do not kill a working legacy relay" check, and the retirement that
-// turns a dead legacy file into an honest ENOENT.
-func legacyRelaySocketFile(socketsDir string) string {
-	return filepath.Join(socketsDir, broker.BrokerLoopholeName+".sock")
-}
-
-// relayEndpointFile is where the relay's front publishes, inside the per-jail
-// host-services dir — the ONE thing in that dir the jail needs, and a credential.
-func relayEndpointFile(socketsDir string) string {
-	return filepath.Join(socketsDir, broker.BrokerLoopholeName+paths.ServiceEndpointExt)
-}
-
-// relaySpawnArgv builds the per-jail broker-relay spawn argv: the running yolo
-// re-exec'd as `yolo internal daemon broker-relay --socket … --broker … --jail
-// …`. SelfExecArgv substitutes os.Executable() for the bare "yolo" launcher
-// token so the relay is tied to THIS binary regardless of PATH.
-//
-// The former YOLO_BROKER_RELAY_BIN gate and its script fallback are gone. That
-// path was effectively dead — neither YOLO_BROKER_RELAY_BIN
-// nor YOLO_REPO_ROOT was set in production, so relaySpawnArgv returned nil and
-// the relay never started. Now it always yields a runnable argv, so relayEnsure
-// actually spawns the relay whenever a broker loophole is active.
-func (o *Options) relaySpawnArgv(sockPath, brokerSocket, cname, endpointPath string) []string {
-	argv := []string{
-		"yolo", "internal", "daemon", "broker-relay",
-		"--socket", sockPath, "--broker", brokerSocket, "--jail", cname,
-	}
-	if endpointPath != "" {
-		// A PATH, never a token: the front mints its own credential and writes it
-		// inside this 0600 file. Nothing secret crosses this argv, so nothing here
-		// needs redacting before YOLO_DEBUG prints it.
-		argv = append(argv, "--endpoint", endpointPath)
-	}
-	return execx.SelfExecArgv(argv)
-}
-
-func (o *Options) relayIsAlive(pidFile, sockPath string) bool {
-	pid, ok := readPIDFile(pidFile)
-	if !ok {
-		return socketConnectable(sockPath, 2*time.Second)
-	}
-	if !o.PIDAlive(pid) {
-		return false
-	}
-	if !o.PathExists(sockPath) {
-		return false
-	}
-	return socketConnectable(sockPath, 2*time.Second)
-}
-
-// relayKill SIGTERMs the relay PID (SIGKILL straggler), then removes the PID
-// file. Identity/pgrep-fallback guards are omitted — the PID file is the common
-// case; a recycled-PID misfire is bounded by the pidAlive check.
-//
-// It takes the PID FILE ONLY. It used to take a socket path as well and ignore it,
-// which made every caller responsible for passing a value that could not matter —
-// and left a site that a socket-path change would have to chase for no effect.
-// Unlinking the socket is the relay's own SIGTERM job (under its dev/ino guard, so
-// a successor that healed over the same path is never disturbed); a caller that
-// wants the file gone after a SIGKILL removes it itself.
-//
-// relayKillGraceDefault is the production SIGTERM→SIGKILL drain window. Tests
-// override it via Options.RelayKillGrace to avoid a real 3s sleep.
-const relayKillGraceDefault = 3 * time.Second
-
-// frontStopGrace bounds how long a fronted service's stop() waits for the front
-// goroutine to close its listener (which unlinks the endpoint file). Short because
-// the wait is for a Close, not for I/O: past it, stopLoopholes' sockets-dir rmtree
-// is the backstop.
-const frontStopGrace = 2 * time.Second
-
-func (o *Options) relayKill(pidFile string) {
-	pid, ok := readPIDFile(pidFile)
-	if ok && o.PIDAlive(pid) {
-		_ = syscall.Kill(pid, syscall.SIGTERM)
-		// Real wall clock, deliberately NOT o.Now(). o.Now is an injectable
-		// logical clock that tests freeze to make reap decisions
-		// deterministic; draining against a frozen clock never advances past
-		// the deadline, so this loop would spin until the target happens to
-		// die. internal/prune.realRelayKill uses time.Now() for the same
-		// reason. The grace MAGNITUDE is a separate seam (o.RelayKillGrace,
-		// default relayKillGraceDefault): tests shrink it so this isn't 3s of
-		// real sleep in the unit suite, but the clock SOURCE stays the wall
-		// clock so the frozen-clock regression is still caught.
-		deadline := time.Now().Add(o.RelayKillGrace)
-		for time.Now().Before(deadline) {
-			if !o.PIDAlive(pid) {
-				break
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
-		if o.PIDAlive(pid) {
-			_ = syscall.Kill(pid, syscall.SIGKILL)
-		}
-	}
-	_ = os.Remove(pidFile)
-}
-
-// grace floor: a relay whose PID file's mtime is younger than this is spared, so
-// one spawned for a jail mid-startup (ensured before its container is visible) is
-// never reaped.
-const relayOrphanGraceSeconds = 3600.0
-
-// relayReapOrphans runs the backstop reap, piggybacking on the store-prune
-// gate's live-container enumeration.
-// A per-jail relay outlives the yolo process that spawned it by design, and
-// stopLoopholes only reaps the current jail's relay in that original process's
-// graceful tail — jails ended from attach sessions would leak their relay
-// forever otherwise. The current jail's relay (just ensured, container not yet
-// started) is excluded by folding cname into the live set. liveKnown==false
-// (liveness unenumerable) declines the sweep (unknown never reads as "nothing
-// live"). Best-effort: reuses the byte-verified prune engine and the run path's
-// own relayKill machinery, called with no socket path.
-func (o *Options) relayReapOrphans(liveKnown bool, liveCnames map[string]struct{}, cname string) {
-	o.relayReapOrphansIn("/tmp", liveKnown, liveCnames, cname)
-}
-
-// relayReapOrphansIn is relayReapOrphans with an injectable scan base (the pid-
-// file dir). Production always passes "/tmp" (the hardcoded default); tests
-// pass a temp dir. Returns the pid files reaped, so the cname-fold decision is
-// assertable without touching /tmp.
-func (o *Options) relayReapOrphansIn(base string, liveKnown bool, liveCnames map[string]struct{}, cname string) []string {
-	// Fold in the current jail's cname so its freshly-ensured relay is never
-	// reaped (the live set is `live_jails | {cname}`).
-	live := map[string]struct{}{cname: {}}
-	for c := range liveCnames {
-		live[c] = struct{}{}
-	}
-	return prune.ReapRelayOrphans(
-		base, liveKnown, live, relayOrphanGraceSeconds, true, o.Now(),
-		func(pidFile string) { o.relayKill(pidFile) },
-	)
-}
-
-func (o *Options) waitForSocket(sockPath string, timeout time.Duration) {
-	// Real wall clock, deliberately NOT o.Now() — see relayKill above.
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if o.PathExists(sockPath) {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -1166,26 +1013,6 @@ func waitForEndpoint(endpointPath string, timeout time.Duration) bool {
 		time.Sleep(50 * time.Millisecond)
 	}
 	return svcendpoint.Probe(endpointPath)
-}
-
-func relayShortHash(cname string) string { return sha1Hex8(cname) }
-func relayPIDFile(shortHash string) string {
-	return "/tmp/yolo-broker-relay-" + shortHash + ".pid"
-}
-func relayLockFile(shortHash string) string {
-	return "/tmp/yolo-broker-relay-" + shortHash + ".lock"
-}
-
-func readPIDFile(p string) (int, bool) {
-	data, err := os.ReadFile(p)
-	if err != nil {
-		return 0, false
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return 0, false
-	}
-	return pid, true
 }
 
 // socketConnectable is a plain connect() probe.

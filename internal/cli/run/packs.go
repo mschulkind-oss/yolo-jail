@@ -373,18 +373,27 @@ type PackLoopholeDecl struct {
 // manifest still contributes `--add-host`, `ca_cert`, `--device`, bind mounts and
 // `jail_env` to the argv while the winner's daemon is the one that runs. The user sees one
 // trusted name and gets a mixture, with nothing said. That is why the pack-vs-reserved
-// half exists at all: `startLoopholes` special-cases `claude-oauth-broker` BY NAME (it
-// runs yolo's own broker argv rather than the record's host_daemon), so a manifest
-// claiming that name is not an override, it is half a loophole
-// (docs/design/loophole-packaging.md §3.1, §5.1).
+// half exists at all (docs/design/loophole-packaging.md §3.1, §5.1).
+//
+// WHAT MAKES `claude-oauth-broker` STILL RESERVED HAS CHANGED SHAPE, and the new shape is
+// sharper rather than milder. `startLoopholes` no longer special-cases the name at all —
+// the daemon is dispatched on the record's `host_daemon.scope` like everything else, and
+// the argv that runs is the record's own. So a pack claiming this name would not get half
+// a loophole; it would get yolo ENSURING ITS COMMAND as a host-wide singleton at
+// /tmp/yolo-claude-oauth-broker.sock, with `yolo broker status`, `yolo check`'s broker
+// section and the in-jail terminator all wired to it by name. Everything else that keys on
+// this name — brokerLoopholeActive, brokerEnsure, brokerEndpointIsUnpublishable — reads
+// yolo's own bundled record and can only find it while the reservation stands.
 //
 // THIS SENTENCE USED TO NAME `journal` AND `cgroup-delegate` TOO, and leaving it that way
 // would have been worse than a stale comment: it reads as a justification for reserving
 // those two names, which is exactly the commit that refuses every launch selecting the
 // `journal` or `cgroup-delegate` pack. Both became pack-shipped loopholes on 2026-08-18
 // and their name special-case in startLoopholes was deleted in the same commits — the
-// broker is the last name with this shape. See loopholes.ReservedLoopholeNames for the
-// trap that leaves behind for whoever converts it.
+// broker's special-case is gone now too, but its RESERVATION is not, because
+// `broker.BrokerLoopholeName` is appended to ReservedLoopholeNames from its own constant
+// rather than from the bundled directory. See loopholes.ReservedLoopholeNames for the trap
+// that leaves for whoever moves the manifest into `packs/claude`.
 //
 // The reserved half is also why this cannot be a row in packload.Collisions: that takes
 // []*packload.Pack, and a bundled loophole is not a pack. It is here, in the run package,

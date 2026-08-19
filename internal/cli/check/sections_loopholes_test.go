@@ -195,20 +195,20 @@ func TestCheckLoopholesWarnsOnWorkspaceDisable(t *testing.T) {
 	}
 }
 
-// brokerRelayProbeOnce runs the broker-relay probe with the in-jail visibility
+// brokerEndpointProbeOnce runs the broker endpoint probe with the in-jail visibility
 // exec stubbed out (rt/cname empty => the tri-state probe returns unknown, which
 // the caller treats as "don't second-guess the host-side answer").
-func brokerRelayProbeOnce(t *testing.T, endpointPath string) (*reporter, string) {
+func brokerEndpointProbeOnce(t *testing.T, endpointPath string) (*reporter, string) {
 	t.Helper()
 	var buf bytes.Buffer
 	r := newReporter(&buf, false)
 	o := &Options{}
 	fillDefaults(o)
-	o.checkBrokerRelay(r, "loophole claude-oauth-broker @ jail", endpointPath, "", "")
+	o.checkBrokerEndpoint(r, "loophole claude-oauth-broker @ jail", endpointPath, "", "")
 	return r, buf.String()
 }
 
-// TestCheckBrokerRelayProbesTheHopTheJailUses: the relay probe must go through the
+// TestCheckBrokerEndpointProbesTheHopTheJailUses: the probe must go through the
 // endpoint file — pin, token, then ping — not through the relay's own socket.
 //
 // That socket is host-only now, so probing it would test a path no jail travels: it
@@ -216,12 +216,12 @@ func brokerRelayProbeOnce(t *testing.T, endpointPath string) (*reporter, string)
 // mismatched, which is exactly the outage this probe exists to name. The probe
 // authenticates as the same uid that published the file, which is possible only
 // because the token lives in the file rather than in the jail's environment.
-func TestCheckBrokerRelayProbesTheHopTheJailUses(t *testing.T) {
+func TestCheckBrokerEndpointProbesTheHopTheJailUses(t *testing.T) {
 	dir := privateDir(t)
 
 	t.Run("endpoint missing", func(t *testing.T) {
-		r, out := brokerRelayProbeOnce(t, filepath.Join(dir, "absent.endpoint"))
-		if r.failed != 1 || !strings.Contains(out, "relay endpoint missing") {
+		r, out := brokerEndpointProbeOnce(t, filepath.Join(dir, "absent.endpoint"))
+		if r.failed != 1 || !strings.Contains(out, "broker endpoint missing") {
 			t.Errorf("failed=%d out=%q", r.failed, out)
 		}
 	})
@@ -231,8 +231,8 @@ func TestCheckBrokerRelayProbesTheHopTheJailUses(t *testing.T) {
 		if err := os.WriteFile(p, []byte("127.0.0.1:1 Y29zdA==\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		r, out := brokerRelayProbeOnce(t, p)
-		if r.failed != 1 || !strings.Contains(out, "relay endpoint incomplete") {
+		r, out := brokerEndpointProbeOnce(t, p)
+		if r.failed != 1 || !strings.Contains(out, "broker endpoint incomplete") {
 			t.Errorf("failed=%d out=%q", r.failed, out)
 		}
 	})
@@ -253,7 +253,7 @@ func TestCheckBrokerRelayProbesTheHopTheJailUses(t *testing.T) {
 		if err := svcendpoint.Publish(bad, ep); err != nil {
 			t.Fatal(err)
 		}
-		r, out := brokerRelayProbeOnce(t, bad)
+		r, out := brokerEndpointProbeOnce(t, bad)
 		if r.failed != 1 || !strings.Contains(out, "rejected this jail's token") {
 			t.Errorf("failed=%d out=%q", r.failed, out)
 		}
@@ -279,7 +279,7 @@ func TestCheckBrokerRelayProbesTheHopTheJailUses(t *testing.T) {
 				_ = c.Close() // authenticated, then nothing: the broker behind it is down
 			}
 		}()
-		r, out := brokerRelayProbeOnce(t, p)
+		r, out := brokerEndpointProbeOnce(t, p)
 		if r.failed != 1 || !strings.Contains(out, "broker unreachable") {
 			t.Errorf("failed=%d out=%q", r.failed, out)
 		}
@@ -296,7 +296,7 @@ func TestCheckBrokerRelayProbesTheHopTheJailUses(t *testing.T) {
 		}
 		defer ln.Close()
 		go serveBrokerPong(ln)
-		r, out := brokerRelayProbeOnce(t, p)
+		r, out := brokerEndpointProbeOnce(t, p)
 		if r.failed != 0 || r.passed != 1 || !strings.Contains(out, "broker answers through it") {
 			t.Errorf("a live relay with a live broker did not pass: passed=%d failed=%d out=%q",
 				r.passed, r.failed, out)
@@ -372,7 +372,7 @@ func TestJailEndpointProbeUsesTestF(t *testing.T) {
 		gotArgv = argv
 		return ExecResult{Ran: true, RC: 0}
 	}
-	v := o.relayEndpointVisibleInJail("podman", "yolo-ws-abcd1234")
+	v := o.brokerEndpointVisibleInJail("podman", "yolo-ws-abcd1234")
 	if v == nil || !*v {
 		t.Fatalf("rc=0 should read as visible, got %v", v)
 	}

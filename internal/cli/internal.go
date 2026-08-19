@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/brokerrelay"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostmigrate"
@@ -108,13 +107,20 @@ func firstNonEmptyEnv(keys ...string) string {
 }
 
 // runInternalDaemon dispatches the hidden `yolo internal daemon <name>` group —
-// the four host daemons, callable in-process so a single yolo binary can serve
+// the three host daemons, callable in-process so a single yolo binary can serve
 // as each one. The remaining argv is passed through verbatim, so each daemon's
 // flag surface (--socket, --self-check, --init-ca, …) is byte-identical to its
 // standalone binary.
+//
+// `broker-relay` was the fourth and is GONE. It fronted the broker singleton for
+// one jail and stamped a host-asserted jail_id into the request; both jobs are the
+// framework's now — svcendpoint's front publishes the endpoint, and its connection
+// preamble carries the identity — so the daemon was deleted rather than moved
+// (docs/design/broker-as-a-pack.md §7). A name removed from this switch reports
+// "unknown daemon", which is the right answer for an argv nothing emits any more.
 func runInternalDaemon(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <claude-oauth-broker|host-processes|broker-relay|journal> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <claude-oauth-broker|host-processes|journal> [args...]")
 		return 2
 	}
 	rest := args[1:]
@@ -123,8 +129,6 @@ func runInternalDaemon(args []string) int {
 		return oauthbroker.Main(rest)
 	case "host-processes":
 		return hostprocesses.Main(rest)
-	case "broker-relay":
-		return brokerrelay.Main(rest)
 	case "journal":
 		return journald.Main(rest)
 	default:

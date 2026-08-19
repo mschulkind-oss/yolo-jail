@@ -56,18 +56,37 @@
   // in internal/oauthbroker/cert.go.  ca.key, ca.srl, leaf.cnf and
   // refresh.lock are all host-side bookkeeping and stay host-side.
   "state_files": ["ca.crt", "server.crt", "server.key"],
-  // The host-wide SINGLETON broker, not the per-jail relay.  Its socket is
-  // host-to-host (the relay dials it per connection) and never crosses into a
-  // jail, so it stays a plain Unix socket and {socket} still means one here.
+  // The host-wide SINGLETON broker.  `scope: "host"` is the declaration that says
+  // so: ONE daemon per machine serving every jail on it, ensured under a host-wide
+  // flock rather than spawned per jail.  That is not a preference — the flock this
+  // daemon holds is what stops two jails burning the same single-use refresh token
+  // (docs/design/agent-credentials.md §2.5), so a second copy of it IS the race the
+  // loophole exists to prevent.  The run pipeline used to express this by testing
+  // the loophole's NAME; `scope` is what replaced that.
   //
-  // The jail-facing hop is the per-jail relay's loopback-TLS ENDPOINT FILE at
+  // `publishes: "socket"` is required of a host-scoped daemon and is refused
+  // otherwise at load: an endpoint file carries ONE jail's bearer token, so a
+  // single daemon publishing one would hand every jail the same credential.  The
+  // daemon binds {socket} — the fixed host-wide path yolo derives from this
+  // loophole's name — and yolo runs a loopback-TLS FRONT per jail over it.  The
+  // per-jail relay that used to do that job is deleted
+  // (docs/design/broker-as-a-pack.md §7).
+  //
+  // The jail-facing hop is therefore that front's ENDPOINT FILE at
   // /run/yolo-services/claude-oauth-broker.endpoint, named by
   // YOLO_SERVICE_CLAUDE_OAUTH_BROKER_ENDPOINT.  That file carries this jail's
   // bearer token, so it is written 0600 into the jail's own directory — and
   // there is deliberately NO token environment variable, because an env var is
   // inherited by every child process the in-jail terminator spawns.
+  //
+  // `preamble` is NOT declared, which is how it stays true.  The daemon reads
+  // yolo's connection preamble (hostservice.ServeFrontedUnix) and that is what
+  // makes the jail_id on its audit line host-asserted now that the relay's stamp
+  // is gone — writing `false` here would silently blind it.
   "host_daemon": {
-    "cmd": ["yolo", "internal", "daemon", "claude-oauth-broker", "--socket", "{socket}"]
+    "cmd": ["yolo", "internal", "daemon", "claude-oauth-broker", "--socket", "{socket}"],
+    "publishes": "socket",
+    "scope": "host"
   },
   "jail_daemon": {
     "cmd": ["yolo-jaild", "oauth-terminator"],
