@@ -38,9 +38,74 @@ func TestSeatbeltProfile(t *testing.T) {
 	if idx(p, `(deny file-read* (subpath "/Users"))`) >= idx(p, `(literal "/Users")`) {
 		t.Error("/Users read deny must precede re-allow")
 	}
-	// No ancestor-metadata block.
-	if contains(p, "file-read-metadata") {
-		t.Error("no per-ancestor metadata block expected")
+	// A one-level workspace needs no extra ancestor grant: /Users and
+	// /Users/Shared are already literal-allowed above, and they are the whole
+	// chain for /Users/Shared/proj. See TestSeatbeltGrantsWorkspaceAncestors for
+	// the deeper case, which is NOT covered by those two literals.
+	if contains(p, `(literal "/Users/Shared/proj")`) {
+		t.Error("a one-level workspace needs no ancestor literal beyond /Users/Shared")
+	}
+}
+
+// TestSeatbeltGrantsWorkspaceAncestors is the regression for a workspace nested
+// deeper than /Users/Shared/<one>. The profile allowed exactly three read paths
+// under the /Users deny — "/Users", "/Users/Shared", and the workspace subpath —
+// and the comment above them asserted "no ancestor grant is needed". That is true
+// only at depth one. For /Users/Shared/yolo/yolo-jail the INTERMEDIATE
+// /Users/Shared/yolo is denied, so anything that stats the chain fails while the
+// workspace itself reads fine.
+//
+// Measured, not hypothesized: `just format` died in a real sandbox with
+//
+//	fatal: Invalid path '/Users/Shared/yolo': Operation not permitted
+//
+// because `git ls-files` walks up looking for the repository boundary. The
+// failure is nastier than a plain denial — git reports the path as INVALID, so it
+// reads as a broken repo rather than a sandbox rule, and `gofmt -w` then got an
+// empty file list and refused with "cannot use -w with standard input".
+//
+// Traversal needs (literal), not (subpath): a subpath grant on an ancestor would
+// re-allow reads of every SIBLING under it — for /Users/Shared/yolo that is every
+// other checkout in the same tree — which is the isolation this deny exists for.
+func TestSeatbeltGrantsWorkspaceAncestors(t *testing.T) {
+	p := SeatbeltProfile("/Users/Shared/yolo/yolo-jail", "")
+	if !contains(p, `(literal "/Users/Shared/yolo")`) {
+		t.Errorf("intermediate ancestor /Users/Shared/yolo not granted; git ls-files "+
+			"cannot walk up to the repo boundary:\n%s", p)
+	}
+	// The ancestor gets traversal only. A subpath grant here would expose every
+	// sibling checkout under /Users/Shared/yolo.
+	if contains(p, `(subpath "/Users/Shared/yolo")`) {
+		t.Error("ancestor granted as subpath — that re-allows every sibling under it")
+	}
+	// The grant must still land AFTER the deny it re-allows (last match wins).
+	if idx(p, `(deny file-read* (subpath "/Users"))`) >= idx(p, `(literal "/Users/Shared/yolo")`) {
+		t.Error("ancestor re-allow must follow the /Users deny")
+	}
+	// The sandbox user's own home must not acquire ancestor literals from this:
+	// /Users/_yolojail is depth one, so /Users alone already covers its chain.
+	if contains(p, `(literal "/Users/_yolojail")`) {
+		t.Error("sandbox home is depth-one; it needs no ancestor literal")
+	}
+}
+
+// TestSeatbeltAncestorsForDeepWorkspace pins that EVERY intermediate level is
+// granted, not just the parent — a three-deep workspace needs both middle links.
+func TestSeatbeltAncestorsForDeepWorkspace(t *testing.T) {
+	p := SeatbeltProfile("/Users/Shared/a/b/c", "")
+	for _, want := range []string{
+		`(literal "/Users/Shared/a")`,
+		`(literal "/Users/Shared/a/b")`,
+		`(subpath "/Users/Shared/a/b/c")`,
+	} {
+		if !contains(p, want) {
+			t.Errorf("deep workspace missing %q:\n%s", want, p)
+		}
+	}
+	// The workspace itself is a subpath grant, never a bare literal — a literal
+	// would allow the dir entry and deny everything inside it.
+	if contains(p, `(literal "/Users/Shared/a/b/c")`) {
+		t.Error("workspace must be granted as subpath, not literal")
 	}
 }
 
