@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 9 needing you · 1 ready · 0 in progress · 4 waiting · 1 broken · 2 icebox.**
+**Status: 9 needing you · 2 ready · 0 in progress · 4 waiting · 1 broken · 2 icebox.**
 
 Last updated **2026-08-19**. Counts tallied from this file, not asserted.
 
@@ -295,6 +295,39 @@ launch — get their entries when they ship, not before.
   emit the pair. **Unverified on a real old-passt host** — nobody here has one. 📄
   [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §3.2.1.
 
+- 📦 **Developing yolo-jail inside its own `macos-user` sandbox: measured 2026-08-19, and the
+  sandbox half is DONE.** The motivating ask was a host-side jail good enough to work in without
+  approving every command. Measured by extracting the profile a real `--dry-run` emits for this
+  workspace and running the actual work under `sandbox-exec`:
+
+  - ✅ **`go build ./...` and the full `go test -short ./...` — all 58 packages — pass**, as does
+    `just test-fast`. `git status`/`log`/`ls-files` work; nix reaches the daemon (`Trusted: 1`).
+  - ✅ **The isolation holds where it matters.** Host SSH keys, `~/.claude`, `~/.aws`, `~/.dotfiles`,
+    `/Library/Keychains` and the login keychain are all `Operation not permitted`; writes outside the
+    workspace are refused. Network is open, by SandVault-parity design.
+  - ✅ **One real profile bug found and fixed** (`533ccc1`): intermediate workspace dirs were denied,
+    so `git ls-files` could not walk to the repo boundary and `just format` died claiming
+    `Invalid path '/Users/Shared/yolo'`. See the Mac row below for why it stayed hidden.
+
+  **Two things stand between that and a working `yolo -- claude`, and only the first needs you:**
+
+  1. 💬 **Your `~/.config/yolo-jail/config.jsonc` still uses the REMOVED `agents` key**, so *no*
+     current yolo launches on this host, on any backend — `yolo check` and every `yolo` run refuse
+     with the config-invalid fatal. All four names (`claude`, `pi`, `codex`, `agy`) exist as packs,
+     so the fix is renaming the key to `packs`; nothing else in that file needs to change. **Not
+     applied — your config, your call.** (Note the installed host `yolo` is **531 commits stale**,
+     which is why the refusal has not surfaced in daily use.)
+  2. **A toolchain has to come from `packages:`, not your home.** `deny file-read* (subpath "/Users")`
+     blocks `~/.local/share/mise`, so the host's mise-shimmed `go`/`just` are invisible inside the
+     sandbox — correctly. Everything above was measured with `go`, `just` and `git` realized from
+     nix, which is exactly what `packages:` materializes (`yoloNoncontainerPackages`); this workspace
+     declares only `just` today, so `go` and `git` need adding. Not a gap, just unconfigured.
+
+  Cost of entry: one sudo password per launch, prompted inline through the TTY proxy — not per
+  command. **What is NOT yet proven end-to-end** is the launch itself (the `sudo -u _yolojail` +
+  bootstrap path); the Seatbelt confinement is proven, the user-switch around it is not, and that is
+  the remaining item in the row below.
+
 - 🔒 **On a Mac** — **the two lib-farm assertions have left this row.** They were never darwin
   assertions: they failed because the image build did, and both went green the moment
   `x86_64-darwin` could evaluate again (see 🛑 above). Nothing about the lib farm was wrong.
@@ -302,7 +335,9 @@ launch — get their entries when they ship, not before.
   Three items remain, all genuinely host-gated: the `macos-user` acceptance matrix, Track D4's
   download proof, and the guest-notch handoff (whose §2 item 1.4 — do packs reach a macos-user
   sandbox? — is still the first thing to run there). 📄
-  [`handoff-guest-notch-macos.md`](handoff-guest-notch-macos.md).
+  [`handoff-guest-notch-macos.md`](handoff-guest-notch-macos.md). **Item 1.4 is now half-answered:**
+  the sandbox can read the staged pack root and run the toolchain, so what is untested is the
+  `sudo -u _yolojail` staging step above it, not the confinement.
 
   **What a Mac session on 2026-08-19 did settle, beyond the nightly:** `go test -short ./...` had
   **two** failures no Linux run could see, both now fixed — the GNU-`stat` throttle above
@@ -326,7 +361,18 @@ launch — get their entries when they ship, not before.
   - **The readiness budget had already been raised 5s→30s for this same symptom.** Raising a timeout
     is what you do to a slow test; doing it twice is a signal you are looking at the wrong layer.
 
-  Also declared while fixing it: `t.TempDir()` embeds the test's own name, and macOS's 104-byte
+  **And a fourth, from the sandbox measurement above** (`533ccc1`): the Seatbelt profile granted
+  `/Users`, `/Users/Shared` and the workspace subpath, and its comment asserted "the workspace is NOT
+  under any `/Users/<name>` home, so **no ancestor grant is needed**". That is true only at depth
+  ONE — and the shipped test used `/Users/Shared/proj`, the single depth where the gap is invisible,
+  while *asserting the absence of an ancestor grant as if it were the invariant*. A real workspace at
+  `/Users/Shared/yolo/yolo-jail` therefore left `/Users/Shared/yolo` denied. **The same test-fixture
+  lesson as the entry above, on a different mechanism: a fixture chosen for convenience picked the one
+  input that cannot fail.** Worth noting how it presented — `git ls-files` walks up for the repo
+  boundary and reported `fatal: Invalid path …`, i.e. a *broken repo*, and gofmt then failed on the
+  empty list. Two errors, neither naming the sandbox.
+
+  Also declared while fixing the socket bug: `t.TempDir()` embeds the test's own name, and macOS's 104-byte
   `sun_path` left that test **14 bytes of headroom** — a rename could have spent it and produced
   `bind: invalid argument`, which is what a socket test looks like when it is really measuring the
   length of its own identifier.
