@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -212,6 +213,38 @@ func TestRefreshRunsOnlyNpmDeclaredLaunchers(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "npmtool") {
 		t.Errorf("the refresh must say which program it resolved:\n%s", out.String())
+	}
+}
+
+// TestRefreshReportsALauncherThatFailed is the CONSUMER half of "an update that failed is
+// not an update that happened", and it was the unpinned half.
+//
+// The launcher side of that rule is held by internal/entrypoint's script tests: update
+// mode exits non-zero for a failed `npm install` and for a registry that did not answer.
+// Nothing held the side that READS that exit code. `TestUpdateReportsAFailedRefresh`
+// stubs npmRefresh out wholesale, so it pins packUpdate -> npmRefresh and says nothing
+// about run() -> rc; `TestRefreshReportsAProgramWithNoLauncher` covers the launcher that
+// is ABSENT, which is a different branch. Deleting the `rc = 1` beside the run error left
+// the whole unit gate green (measured 2026-08-18) with the launcher correctly reporting a
+// failure nobody read — the silent no-op the split exists to delete, one layer up from
+// where it was fixed.
+func TestRefreshReportsALauncherThatFailed(t *testing.T) {
+	e := stageNpmPackRoot(t, `{"name":"acme","contributes":[`+
+		`{"kind":"program","bin":"npmtool","via":"npm","package":"npmtool"}]}`, "npmtool")
+
+	var out, errw bytes.Buffer
+	rc := refreshNpmPrograms(e, richtext.Printer{W: &out}, &errw,
+		func(bin, path string) error { return errors.New("exit status 1") })
+
+	if rc == 0 {
+		t.Error("a launcher that exited non-zero must fail the refresh: `yolo pack update` " +
+			"is the ONLY act allowed to resolve a version now, so a scripted " +
+			"`yolo pack update && …` that proceeds after a failed resolve leaves the jail " +
+			"running the old CLI while reporting success")
+	}
+	if !strings.Contains(errw.String(), "npmtool") {
+		t.Errorf("the failure must name the program — a refresh walks every npm-declared "+
+			"program in turn, so 'something failed' does not say which:\n%s", errw.String())
 	}
 }
 

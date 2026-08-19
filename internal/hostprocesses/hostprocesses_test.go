@@ -83,6 +83,36 @@ func TestLoadSettingsEmptyFieldsFallsBackToDefaults(t *testing.T) {
 	}
 }
 
+// TestLoadSettingsUnreadableFileIsNotADIAGNOSIS pins loadSettings' second return for
+// the branch nothing else reaches: a path that EXISTS and cannot be read.
+//
+// loadSettings splits its failures into "absence, which is not a fault" (ok=true) and
+// "present and unparseable, which is" (ok=false), and SelfCheck is the only consumer of
+// that bit. But SelfCheck screens with isFile() first, so the read-error branch is
+// unreachable from there — flipping `return disabled(), true` to `false` on os.ReadFile's
+// error left the whole unit gate green (measured 2026-08-18), which would turn a
+// transient read failure into a `yolo check` FAIL claiming the file does not parse.
+//
+// A DIRECTORY at the path is the failure mode chosen because the suite runs as UID 0: a
+// permission-bit fixture would simply be readable and the test would pass vacuously,
+// whereas os.ReadFile on a directory returns EISDIR for root too.
+func TestLoadSettingsUnreadableFileIsNotADIAGNOSIS(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg, ok := loadSettings(dir)
+	if !ok {
+		t.Error("a settings path that could not be READ is reported as a parse fault. " +
+			"ok=false is `yolo check`'s FAIL line, and it says the file is present and " +
+			"corrupt — a claim a read error does not support")
+	}
+	if len(cfg.Visible) != 0 {
+		t.Errorf("visible = %v — every failure resolves to the fail-closed allowlist, "+
+			"whatever it is reported as", cfg.Visible)
+	}
+}
+
 // TestSelfCheckMissingFileIsNotAFailure guards the one thing that would make `yolo
 // check` red on every fresh machine. The settings file is written when a jail LAUNCHES
 // this loophole, so before the first launch it is absent — a normal state, not a fault,
