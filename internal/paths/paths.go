@@ -45,43 +45,45 @@ const (
 	// internal/svcendpoint and docs/design/loophole-transport.md §3.2.
 	JailHostServicesDir = "/run/yolo-services"
 
-	// BuiltinCgroupLoopholeName is the reserved cgroup-delegate service name.
+	// BuiltinCgroupLoopholeName is the cgroup-delegate service name.
+	//
+	// STILL A CONSTANT, AND NO LONGER A RESERVATION — the two used to be the same
+	// fact and are now separate ones. The name is the loophole's, declared by the
+	// official `cgroup-delegate` pack's manifest; this constant survives because
+	// CgdSocketName and CgdEndpointName are COMPOSED from it and the entrypoint
+	// (baked into the image) expects those exact filenames. See CgdSocketName below
+	// for what a drift there costs.
 	BuiltinCgroupLoopholeName = "cgroup-delegate"
 )
 
-// `BuiltinJournalLoopholeName` and `JournalSocketName` were deleted on 2026-08-18, and
-// the deletion is the point rather than a tidy-up. The journal bridge became a
-// manifest loophole shipped by the official `journal` pack (loophole-activation.md
-// OQ-A6, pack-config-keys.md OQ-K4), so `journal` is a name a PACK ships — and a name a
-// pack ships cannot also be a name yolo answers to itself. The pack pre-flight
-// (PackLoopholeNameConflicts) is FATAL, so a reservation left standing over that
-// manifest would refuse the whole launch for everyone who selects the pack.
+// `BuiltinLoopholeNames`, `BuiltinJournalLoopholeName` and `JournalSocketName` were all
+// deleted on 2026-08-18, and the deletion is the sprint's point rather than a tidy-up.
 //
-// It did not come free the way `host-processes` and `audio` did. Those two were
-// reserved only as BUNDLED DIRECTORY NAMES, read off the same embed.FS the loader
-// materializes, so `git mv` retired them with no code change. This one was a constant
-// here, so it had to be deleted by hand in the commit that shipped the manifest —
-// which is the same shape `broker.BrokerLoopholeName` still has.
-
-// BuiltinLoopholeNames is the reserved slice of the service names yolo's OWN in-process
-// daemons answer to — the part of the reserved loophole namespace THIS package owns.
+// The slice was the part of the reserved loophole namespace this package owned: the
+// names yolo's OWN in-process daemons answered to, which no manifest anywhere could
+// claim. It existed because both of its entries were reserved in fact and enforced
+// nowhere — the config validator refused `loopholes.cgroup-delegate` by name and said
+// nothing about `journal`, and internal/loopholes never mentioned either one. A pack or
+// user manifest named `journal` therefore loaded, was discovered, had its daemon skipped
+// without a word, and still contributed its --add-host / ca_cert / --device / bind
+// mounts / jail_env to the argv — half a loophole, silently
+// (docs/design/loophole-packaging.md §3.1).
 //
-// ONE ENTRY LEFT, and the list is on its way out. It exists because both of its
-// original constants were reserved in fact and enforced nowhere: the config validator
-// refused `loopholes.cgroup-delegate` by name and said nothing about `journal`, and
-// internal/loopholes never mentioned either one. A pack or user manifest named
-// `journal` therefore loaded, was discovered, had its daemon skipped without a word,
-// and still contributed its --add-host / ca_cert / --device / bind mounts / jail_env to
-// the argv — half a loophole, silently (docs/design/loophole-packaging.md §3.1).
-// `journal` left on 2026-08-18 by becoming a pack; `cgroup-delegate` is queued to
-// follow it (OQ-A6), and this variable goes with it.
+// BOTH NAMES ARE PACKS' NOW (`journal`, `cgroup-delegate`), and a name a pack ships
+// cannot also be a name yolo answers to itself: the pack pre-flight
+// (PackLoopholeNameConflicts) is FATAL, so a reservation left standing over either
+// manifest would refuse the whole launch for everyone who selects that pack.
 //
-// It is deliberately NOT the whole reserved set: the full namespace also covers
-// internal/broker's loophole name and every bundled loophole directory, neither of
-// which this leaf package can see (broker imports paths, so paths cannot import
-// broker). loopholes.ReservedLoopholeNames composes the union ONCE and is the only
-// thing that should be refused against.
-var BuiltinLoopholeNames = []string{BuiltinCgroupLoopholeName}
+// Neither came free the way `host-processes` and `audio` did. Those two were reserved
+// only as BUNDLED DIRECTORY NAMES, read off the same embed.FS the loader materializes,
+// so `git mv` retired them with no code change. These were constants here, so each had
+// to be deleted by hand in the commit that shipped its manifest — which is the same
+// shape `broker.BrokerLoopholeName` still has, and the trap whoever converts the broker
+// will walk into if they generalize from the easy cases.
+//
+// What is left of the reserved namespace lives entirely in
+// loopholes.ReservedLoopholeNames: the broker's own constant plus the bundled loophole
+// directory names.
 
 // CgdSocketName MUST be "<BuiltinCgroupLoopholeName>.sock": the entrypoint
 // (baked into the image) and YOLO_SERVICE_CGROUP_DELEGATE_SOCKET both expect

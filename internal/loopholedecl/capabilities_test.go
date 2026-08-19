@@ -133,6 +133,7 @@ func TestBundledServesDeclarations(t *testing.T) {
 		"audio":               nil,
 		"host-processes":      nil,
 		"journal":             nil,
+		"cgroup-delegate":     nil,
 	}
 	for name, capabilities := range want {
 		t.Run(name, func(t *testing.T) {

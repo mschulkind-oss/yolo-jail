@@ -90,7 +90,7 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 		suppressFallback := false
 		scopeViolated := false
 		spec, isMap := asMap(specV)
-		if isMap && hostServiceName.MatchString(name) && name != paths.BuiltinCgroupLoopholeName {
+		if isMap && hostServiceName.MatchString(name) {
 			entries := wsEntries[name]
 			scoped := func(msg string) {
 				scopeViolated = true
@@ -157,11 +157,23 @@ func validateLoopholeEntryShape(name string, specV any, info *LoopholeInfo, supp
 			" must match ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
 		return
 	}
-	if name == paths.BuiltinCgroupLoopholeName {
-		add(errs, path+": '"+paths.BuiltinCgroupLoopholeName+"' is reserved "+
-			"for the built-in cgroup delegate service")
-		return
-	}
+	// `cgroup-delegate` USED TO BE REFUSED HERE BY NAME, and the refusal was deleted on
+	// 2026-08-18 rather than relaxed. It said the name was "reserved for the built-in
+	// cgroup delegate service" — and that service is a pack-shipped loophole now
+	// (docs/design/loophole-activation.md OQ-A4/OQ-A6), so the sentence is false and the
+	// refusal would make the delegate's own switch UNWRITABLE: `"loopholes":
+	// {"cgroup-delegate": {"enabled": true}}` is the only way to turn it back on.
+	//
+	// Nothing replaced it, because the general machinery already answers both cases
+	// better than a name check did. With the pack selected the entry is an OVERRIDE, so
+	// validateLoopholeOverride refuses `command` and `doctor_cmd` by name — a config
+	// cannot redefine the delegate. Without it, the entry is an ordinary inline loophole
+	// under a name yolo's in-process delegate is not currently answering to, which is
+	// the user's own business.
+	//
+	// This function no longer names ANY loophole, which is the same property
+	// knownTopLevelConfigKeys just gained: core's config schema does not know that a
+	// specific loophole exists.
 	spec, ok := asMap(specV)
 	if !ok {
 		add(errs, path+": expected an object")
@@ -461,7 +473,7 @@ func LoopholeEntryErrors(name string, specV any, info *LoopholeInfo, userInstall
 	warns := &[]string{}
 	validateLoopholeEntryShape(name, specV, info, true, errs, warns)
 	spec, isMap := asMap(specV)
-	named := isMap && hostServiceName.MatchString(name) && name != paths.BuiltinCgroupLoopholeName
+	named := isMap && hostServiceName.MatchString(name)
 	scopeRefused := false
 	if fromWorkspace && !inJail && named {
 		beforeScope := len(*errs)

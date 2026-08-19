@@ -608,10 +608,13 @@ func (o *Options) sectionInlineLoopholes(r *reporter, merged *jsonx.OrderedMap) 
 		r.blank()
 		return
 	}
+	// THE `cgroup-delegate` SKIP IS GONE (2026-08-18). It existed because the name was
+	// reserved — a config entry could never carry a `command` under it, so the loop's
+	// own "no command, nothing to resolve" branch never saw one. The name belongs to a
+	// pack-shipped loophole now, and an entry under it is an OVERRIDE (`enabled`,
+	// `settings`), which that same branch already skips. Keeping a name check here
+	// would only teach the next reader that this section knows what a loophole is.
 	for _, name := range loopholesCfg.Keys() {
-		if name == paths.BuiltinCgroupLoopholeName {
-			continue
-		}
 		specV, _ := loopholesCfg.Get(name)
 		spec, ok := specV.(*jsonx.OrderedMap)
 		if !ok {

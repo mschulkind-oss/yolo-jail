@@ -24,7 +24,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // decl is a PackLoopholeDecl for a pack-relative `from`, with the name derived exactly as
@@ -94,21 +93,22 @@ func TestOnePackCollidingWithItselfIsRefused(t *testing.T) {
 // TestReservedLoopholeNamesAreRefused is measured hole #3 plus §3.1's correction that the
 // reserved namespace is LARGER than "bundled" and draft 1 missed two names.
 //
-// Both must be refused. `cgroup-delegate` is an explicit config-scope error with NO
-// manifest-side equivalent, which is half of why the composed set exists at all.
+// ONE NAME IS LEFT, and the shrinking is the sprint working rather than the rule eroding.
+// `host-processes`, `audio`, `journal` and `cgroup-delegate` were all in this list and
+// deliberately are not any more: each became an official pack on 2026-08-18, and a name a
+// pack SHIPS cannot also be a name a pack may not ship. Their half of the property moved
+// to the tests below, which are the assertions that actually protect a user — a
+// reservation left standing over a converted loophole refuses the whole launch for
+// everyone who selects the pack.
 //
-// `host-processes`, `audio` and `journal` WERE in this list and deliberately are not any
-// more: all three became official packs on 2026-08-18, and a name a pack SHIPS cannot
-// also be a name a pack may not ship. Their half of the property moved to the tests
-// below, which are the assertions that actually protect a user — a reservation left
-// standing over a converted loophole refuses the whole launch for everyone who selects
-// the pack. `journal` is the one worth remembering: it was the design's own worst case
-// (reserved in paths.go and enforced nowhere), so its reservation was a CONSTANT rather
-// than a directory listing and had to be deleted by hand.
+// The two former builtins are the ones worth remembering, because they were the design's
+// own worst cases (`journal` reserved in paths.go and enforced nowhere, `cgroup-delegate`
+// a config-scope error with no manifest-side equivalent): their reservations were
+// CONSTANTS rather than directory listings, so each had to be deleted by hand.
+// `claude-oauth-broker` is the last one with that shape.
 func TestReservedLoopholeNamesAreRefused(t *testing.T) {
 	reserved := []string{
-		paths.BuiltinCgroupLoopholeName, // "cgroup-delegate" — config-scope error, no manifest equivalent
-		broker.BrokerLoopholeName,       // "claude-oauth-broker" — startLoopholes special-cases the NAME
+		broker.BrokerLoopholeName, // "claude-oauth-broker" — startLoopholes special-cases the NAME
 	}
 	for _, name := range reserved {
 		got := PackLoopholeNameConflicts([]PackLoopholeDecl{decl("grabby", "loopholes/"+name)})
@@ -132,13 +132,13 @@ func TestReservedLoopholeNamesAreRefused(t *testing.T) {
 // claim it — naming the same mistake twice (once as pack-vs-reserved, once as pack-vs-pack)
 // would make the stronger message the easier one to miss.
 func TestReservedClashIsReportedOnceNotTwice(t *testing.T) {
-	// A name that IS still reserved. `audio` and `journal` both stopped being reserved
-	// when they became official packs, and a fixture built on either would read as "two
-	// packs fighting over an ordinary name" — asserting the wrong branch while still
-	// passing the count check.
+	// A name that IS still reserved, which is now only the broker's. `audio`, `journal`
+	// and `cgroup-delegate` all stopped being reserved when they became official packs,
+	// and a fixture built on any of them would read as "two packs fighting over an
+	// ordinary name" — asserting the wrong branch while still passing the count check.
 	got := PackLoopholeNameConflicts([]PackLoopholeDecl{
-		decl("alpha", "loopholes/"+paths.BuiltinCgroupLoopholeName),
-		decl("beta", "loopholes/"+paths.BuiltinCgroupLoopholeName),
+		decl("alpha", "loopholes/"+broker.BrokerLoopholeName),
+		decl("beta", "loopholes/"+broker.BrokerLoopholeName),
 	})
 	if len(got) != 1 {
 		t.Fatalf("want one message for one mistake, got %d: %v", len(got), got)
@@ -322,22 +322,23 @@ func TestStagePacksRefusesLoopholeNameCollision(t *testing.T) {
 }
 
 // The RESERVED half at the real call site. It used to use `journal` — the name the
-// design measured as the worst case, reserved in paths.go and refused nowhere — and
-// that name is an official PACK's now, so the last builtin stands in for it.
+// design measured as the worst case, reserved in paths.go and refused nowhere — then
+// `cgroup-delegate`; both are official PACKS' names now, so the broker's is the only
+// one left to stand in.
 func TestStagePacksRefusesReservedLoopholeName(t *testing.T) {
 	home := packHome(t)
-	grabby := loopholePackDir(t, "grabby", "loopholes/"+paths.BuiltinCgroupLoopholeName)
+	grabby := loopholePackDir(t, "grabby", "loopholes/"+broker.BrokerLoopholeName)
 	writeUserPacks(t, home, `["file://`+grabby+`"]`)
 
 	o := &Options{Workspace: t.TempDir()}
 	_, _, _, err := o.stagePacks("yolo-test-loophole-reserved")
 	if err == nil {
 		t.Fatalf("a pack shipping loopholes/%s must fail the launch — otherwise it loads, is "+
-			"discovered, has its daemon silently skipped, and still contributes --add-host, "+
-			"ca_cert, --device, bind mounts and jail_env to the argv",
-			paths.BuiltinCgroupLoopholeName)
+			"discovered, and assemble_parts.go evaluates ITS Active() to decide the "+
+			"terminator/CA/endpoint wiring while loopholesruntime.go still runs yolo's own "+
+			"broker argv: half the broker from one manifest", broker.BrokerLoopholeName)
 	}
-	if !strings.Contains(err.Error(), paths.BuiltinCgroupLoopholeName) {
+	if !strings.Contains(err.Error(), broker.BrokerLoopholeName) {
 		t.Errorf("refusal must name the reserved name; got:\n%s", err.Error())
 	}
 }
@@ -366,8 +367,14 @@ func loopholePackDir(t *testing.T, name, from string) string {
 	return root
 }
 
-// The reserved set is COMPOSED, not a literal, and it must cover all three contributors.
-// A literal is what drifted: `journal` lived in paths.go and in nobody's refusal.
+// The reserved set is COMPOSED, not a literal, and it must cover every contributor it
+// still has. A literal is what drifted: `journal` lived in paths.go and in nobody's
+// refusal.
+//
+// IT HAD THREE CONTRIBUTORS AND NOW HAS TWO. `paths.BuiltinLoopholeNames` — the names
+// yolo's own in-process daemons answered to — is gone entirely, because both of its
+// entries became pack-shipped loopholes (loophole-activation.md OQ-A6). The name is kept
+// for the history it carries; what it asserts is the current set.
 func TestReservedSetCoversAllThreeContributors(t *testing.T) {
 	got := map[string]bool{}
 	for _, r := range loopholes.ReservedLoopholeNames() {
@@ -378,29 +385,29 @@ func TestReservedSetCoversAllThreeContributors(t *testing.T) {
 		got[r.Name] = true
 	}
 	for _, want := range []string{
-		paths.BuiltinCgroupLoopholeName, // paths — the last one left there
-		broker.BrokerLoopholeName,       // broker, TWICE over: its own constant and the
-		// bundled dir that is still there. Contributor 2 is
-		// appended UNCONDITIONALLY, which is why deleting the
-		// directory will NOT free this one.
+		broker.BrokerLoopholeName, // TWICE over: its own constant and the bundled dir
+		// that is still there. The constant is appended
+		// UNCONDITIONALLY, which is why deleting the directory
+		// will NOT free this one.
 	} {
 		if !got[want] {
 			t.Errorf("reserved set is missing %q — every name yolo answers to itself has to be "+
 				"in the ONE composed set, or it is reserved in fact and enforced nowhere", want)
 		}
 	}
-	// AND THE OTHER DIRECTION, which is the half that breaks users. Contributor 3 is
-	// read off the bundled embed.FS, so a loophole that LEAVES that directory must
-	// leave the reservation with it — automatically, in the same commit, because the
-	// two are one fact. `host-processes` and `audio` both made that trip on 2026-08-18.
+	// AND THE OTHER DIRECTION, which is the half that breaks users. The bundled-directory
+	// contributor is read off the embed.FS, so a loophole that LEAVES that directory must
+	// leave the reservation with it — automatically, in the same commit, because the two
+	// are one fact. `host-processes` and `audio` both made that trip on 2026-08-18.
 	//
-	// `journal` is in this list for the OPPOSITE reason and that is why it is worth
-	// having: it was never a bundled directory, it was a CONSTANT in paths.go, so
-	// nothing retired it automatically and the same commit that shipped the pack had to
-	// delete it by hand. A reader who generalized from the two above would have shipped
-	// a `journal` pack that refuses every launch selecting it — which is exactly the
-	// trap `broker.BrokerLoopholeName` still sets for whoever converts the broker.
-	for _, gone := range []string{"host-processes", "audio", "journal"} {
+	// `journal` and `cgroup-delegate` are in this list for the OPPOSITE reason, and that
+	// is why they are worth having: neither was ever a bundled directory, both were
+	// CONSTANTS in paths.go, so nothing retired them automatically and each pack's own
+	// commit had to delete its reservation by hand. A reader who generalized from the two
+	// free cases would have shipped a pack that refuses every launch selecting it — which
+	// is exactly the trap `broker.BrokerLoopholeName` still sets for whoever converts the
+	// broker.
+	for _, gone := range []string{"host-processes", "audio", "journal", "cgroup-delegate"} {
 		if got[gone] {
 			t.Errorf("%q is still reserved after moving into an official pack — every launch "+
 				"that selects `packs: [%q]` is refused, because a pack claiming a reserved "+
@@ -429,7 +436,7 @@ func TestReservedSetCoversAllThreeContributors(t *testing.T) {
 // packLoopholeDecls the launch path uses — not hand-built decls, which would only
 // assert that a string is absent from a set.
 func TestTheOfficialLoopholePacksAreNotRefusedByTheirOwnReservation(t *testing.T) {
-	for _, name := range []string{"host-processes", "audio", "journal"} {
+	for _, name := range []string{"host-processes", "audio", "journal", "cgroup-delegate"} {
 		t.Run(name, func(t *testing.T) {
 			var pack *packload.Pack
 			for _, p := range packload.Embedded() {

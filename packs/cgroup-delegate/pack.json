@@ -1,0 +1,9 @@
+{
+  "contributes": [
+    {
+      "from": "loopholes/cgroup-delegate",
+      "kind": "loophole"
+    }
+  ],
+  "name": "cgroup-delegate"
+}

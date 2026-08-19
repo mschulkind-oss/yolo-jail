@@ -169,7 +169,11 @@
     validates it; the KEY is "loopholes" — config.go's known-key list has no
     "host_services", so writing that spelling is an unknown-key error.)
     Each key is a service name (must match ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$).
-    The name "cgroup-delegate" is reserved for the built-in cgroup daemon.
+    One name is reserved and cannot be used: "claude-oauth-broker", which yolo
+    answers to itself.  "cgroup-delegate" and "journal" were reserved until
+    2026-08-18 and are now ordinary pack-shipped loopholes — writing
+    "loopholes": {"cgroup-delegate": {"enabled": true}} is how you switch the
+    cgroup delegate on, and it is OFF until you do.
 
     A key here does one of two things, and which one depends on whether a loophole
     of that name already EXISTS on this machine (bundled, or shipped by a selected
@@ -892,17 +896,22 @@
       Maps to --pids-limit flag.
 
     [bold]In-jail sub-process limits (cgroup v2 delegation)[/bold]:
-    A host-side cgroup delegate daemon runs alongside the container and
-    performs all privileged cgroup operations on behalf of agents inside the
-    jail.  No CAP_SYS_ADMIN or writable cgroup mount is needed inside the
-    container — the daemon validates every request and operates securely on
-    the host cgroup filesystem via a Unix socket.
-    Use the [bold]yolo-cglimit[/bold] helper inside the jail:
+    A host-side cgroup delegate runs alongside the container and performs all
+    privileged cgroup operations on behalf of agents inside the jail.  No
+    CAP_SYS_ADMIN or writable cgroup mount is needed inside the container — it
+    validates every request and operates on the host cgroup filesystem via a
+    Unix socket.
+    [bold]OPT-IN since 2026-08-18[/bold] — two lines in your USER config, and
+    until you write them yolo-cglimit reports that it is not wired up:
+      "packs": ["cgroup-delegate"],
+      "loopholes": { "cgroup-delegate": { "enabled": true } }
+    Then, inside the jail:
       yolo-cglimit --cpu 75 -- python train.py           # 75% of all CPUs
       yolo-cglimit --cpu 50 --memory 2g -- make -j8      # 50% CPU + 2GB RAM
       yolo-cglimit --pids 100 -- ./script.sh             # Max 100 processes
-    The daemon is started automatically by the yolo CLI.  Podman is the
-    primary supported runtime.
+    It used to start whenever the platform allowed it, with no config key at
+    all — which is the "presence activates" default the loophole rules delete.
+    Podman is the primary supported runtime.
     Falls back to nice/timeout/ulimit if delegation is unavailable.
     Subject to config change safety (human approval required).
 

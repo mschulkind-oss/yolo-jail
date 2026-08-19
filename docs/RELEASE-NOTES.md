@@ -21,6 +21,44 @@ changelog; this is the subset that bites.
 
 ## Unreleased
 
+### ⚠️ `yolo-cglimit` stops working out of the box
+
+**What changed.** The cgroup delegate — the host-side helper that lets a jail set limits on
+its own sub-processes — is **opt-in**. It used to start whenever the platform allowed
+(*"Linux only, cgroup v2 only"*) with **no config key anywhere**: there was nothing to turn
+on and nothing to turn off. It is now an ordinary pack-shipped loophole, off until you ask.
+
+**Who is affected.** Anyone who runs `yolo-cglimit` inside a jail, and anyone whose agents
+do. On upgrade the jail's boot output says `cgroup delegate: not available (no host daemon
+socket)` and `yolo-cglimit` reports that it is not wired up.
+
+**What to do.** Two lines, in your user config:
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc
+{
+  "packs": ["claude", "cgroup-delegate"],
+  "loopholes": { "cgroup-delegate": { "enabled": true } }
+}
+```
+
+Nothing else changes: the socket, the client and the per-job limits are what they were.
+
+**Why.** This is a **stated, accepted cost** rather than a discovered one — the ruling that
+made it opt-in named it in the same sentence. The delegate was the last presence-activated
+host-side service in the tree, and *"the moment one builtin stays presence-activated,
+'presence never activates' stops being a rule anyone can rely on while reading the code."*
+The counter-argument was heard and overruled: the delegate hands a jail control of **its
+own** cgroup rather than reading host state, so the severity is genuinely lower — but the
+rule is about the mechanism, not the severity, and a rule with one exception is two rules.
+📄 [`loophole-activation.md`](design/loophole-activation.md) OQ-A4, R1.
+
+> [!NOTE]
+> **`loopholes.cgroup-delegate` used to be a config ERROR** — the name was reserved for the
+> built-in — and that refusal is gone, because it would have made the new switch
+> unwritable. A config **cannot** redefine the delegate: with the pack selected, `command`
+> and `doctor_cmd` under that name are refused by the ordinary override rule.
+
 ### ⚠️ The top-level `journal` key is gone, and `yolo-journalctl` needs a pack now
 
 **What changed.** Two things, and either one alone stops `yolo-journalctl` working.

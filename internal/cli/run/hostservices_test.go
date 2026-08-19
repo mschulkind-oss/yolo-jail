@@ -110,14 +110,14 @@ func TestOnlyTheCgroupDelegateStillPublishesASocket(t *testing.T) {
 	if !strings.HasSuffix(paths.CgdSocketName, ".sock") {
 		t.Errorf("CgdSocketName = %q, want a .sock name", paths.CgdSocketName)
 	}
-	// Every OTHER built-in service name is on loopback-tls and must therefore
-	// advertise an endpoint file.
-	for _, name := range paths.BuiltinLoopholeNames {
-		if name == paths.BuiltinCgroupLoopholeName {
-			continue
-		}
+	// Every OTHER service yolo ships is on loopback-tls and must therefore advertise an
+	// endpoint file. This used to iterate paths.BuiltinLoopholeNames minus the delegate
+	// — a one-element loop over `journal`. That list is GONE (both its names became
+	// pack-shipped loopholes on 2026-08-18), so the names are spelled out: they are what
+	// yolo ships, and no runtime list enumerates them any more.
+	for _, name := range []string{"journal", "host-processes", "claude-oauth-broker"} {
 		if got := hostServiceEnvVar(name); !strings.HasSuffix(got, "_ENDPOINT") {
-			t.Errorf("built-in %q advertises %q — every service but the cgroup "+
+			t.Errorf("service %q advertises %q — every service but the cgroup "+
 				"delegate is on loopback-tls now", name, got)
 		}
 	}

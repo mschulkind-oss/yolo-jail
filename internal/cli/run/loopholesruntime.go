@@ -1,7 +1,6 @@
 package run
 
 import (
-	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -109,17 +108,20 @@ func (o *Options) inContainer() bool {
 
 // startLoopholes starts all host services for this jail and returns handles.
 // Apple Container gets none (no socket bind-mount there).
-// Otherwise: the builtin cgroup delegate (Linux + cgroup v2 only) and external
-// services from config.loopholes + manifest host_daemon specs. The broker
-// singleton is ensured but returns NO handle (host-wide, not per-jail).
+// Otherwise: the in-process cgroup delegate (Linux + cgroup v2 only, and now only
+// when its own loophole says so) and external services from config.loopholes +
+// manifest host_daemon specs. The broker singleton is ensured but returns NO handle
+// (host-wide, not per-jail).
 //
-// THE JOURNAL BRIDGE USED TO HAVE ITS OWN STEP HERE and no longer does. It was
-// started by hand off a top-level `journal` config key — a builtin service, in the
-// sense the loophole-activation sprint set out to delete — and it is now an
-// ordinary manifest loophole shipped by the official `journal` pack, spawned by the
-// same loop as every other host daemon. Nothing about it is special-cased any more,
-// which is the whole point: §1.3's table had two rows answering "why is it on?"
-// differently from every other row, and this is one of them going.
+// THERE IS NO "BUILTIN SERVICE" STEP LEFT, and that is the point of the whole
+// activation sprint rather than a tidy-up of this function. Two services used to sit
+// at the top of this list answering "why is it on?" differently from every other row
+// of §1.3's table: the JOURNAL BRIDGE, started off a top-level `journal` config key,
+// and the CGROUP DELEGATE, started because the platform allowed it and nothing asked.
+// Both are manifest loopholes now, shipped by official packs of their own names. The
+// journal bridge went all the way through the ordinary spawn loop below; the delegate
+// keeps its in-process start (see startCgroupDelegate for the SO_PEERCRED reason it
+// cannot be a spawned daemon at all) but is GATED on its record like everything else.
 func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loopholeDaemon {
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	mkdirHostServicesDir(socketsDir)
@@ -130,12 +132,7 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	advertise := o.advertiseHostFor(rt, cfg)
 	var handles []loopholeDaemon
 
-	// 1. Built-in cgroup delegate (Linux only, cgroup v2 only).
-	if h, ok := o.startCgroupDelegate(cname, rt, socketsDir); ok {
-		handles = append(handles, h)
-	}
-
-	// 2. External services from config.loopholes (+ manifest host_daemon specs).
+	// 1. External services from config.loopholes (+ manifest host_daemon specs).
 	//    Census site 4 — the host daemon SPAWN — through the converged set.
 	//
 	// THE SET's ManifestHostDaemonSpecs, not the package-level one. This is the list the
@@ -144,8 +141,22 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	// gate had one reader (RunDoctorChecks) and this was not it. The package-level function
 	// now admits no pack record at all, and going through the Set is how this call site
 	// says it evaluated the gate.
+	//
+	// BUILT FIRST NOW, before the cgroup delegate rather than after it, because the
+	// delegate's own switch is a record in this set. The delegate used to start before
+	// any discovery happened at all — which is exactly what "presence activates" looked
+	// like in code.
 	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
 	discovered := set.Enabled()
+
+	// 2. The in-process cgroup delegate, gated on its loophole (Linux + cgroup v2 still
+	//    checked inside, because that is a fact about this kernel rather than a
+	//    declaration anyone can make).
+	if o.cgroupDelegateHonored(set) {
+		if h, ok := o.startCgroupDelegate(cname, rt, socketsDir); ok {
+			handles = append(handles, h)
+		}
+	}
 	// BEFORE the spawn, because a daemon's argv already names the file: {settings}
 	// resolved to a real path at record-load time, so by the time this loop reaches
 	// exec.Command the file has to hold this launch's values (loopholesettings.go).
@@ -191,10 +202,6 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 			}
 		}
 	}
-	// sourceOf lets the builtin-name skip below say WHERE the name came from. Only the
-	// manifest/pack sources are interesting; a config entry claiming a builtin name is
-	// already refused by internal/config/validate_loopholes.go.
-	sourceOf := map[string]string{}
 	// placementRefused: a loophole whose MANIFEST names host code living where an agent
 	// can rewrite it (§4.3a's placement rule, landing item 1a's manifest faces). The
 	// config faces are refused earlier, at validation; a manifest's own host_daemon.cmd
@@ -209,34 +216,23 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	// face that executes.
 	placementRefused := map[string]bool{}
 	for _, lp := range discovered {
-		sourceOf[lp.Name] = lp.Source
 		for _, problem := range lp.PlacementProblems(o.Workspace) {
 			placementRefused[lp.Name] = true
 			o.pr(o.Stdout).print("[red]Refusing to start loophole " + lp.Name + ": " + problem + "[/red]")
 		}
 	}
 	for _, name := range order {
-		if isBuiltinLoopholeName(name) {
-			// PRINTED, not silent, when the name did NOT come from yolo's own builtin
-			// (docs/design/loophole-packaging.md §3.1). This skip used to be bare: a
-			// manifest named `journal` or `cgroup-delegate` loaded, was discovered, had its
-			// daemon dropped here without a word — while RuntimeArgsFor had ALREADY emitted
-			// its --add-host, ca_cert, --device, bind mounts and jail_env into the argv.
-			// Half a loophole, silently, and the visible half is the half that changes what
-			// crosses into the jail.
-			//
-			// A pack cannot reach here any more (PackLoopholeNameConflicts refuses the name
-			// at staging), which leaves the USER loophole dir — a hand-placed directory, so
-			// it is not refused, and it is exactly the case that needs saying out loud.
-			if src := sourceOf[name]; src != "" && src != loopholes.SourceConfig {
-				o.pr(o.Stdout).print(fmt.Sprintf(
-					"[yellow]Warning: loophole %q (%s) shares a name with yolo's own built-in "+
-						"service, so its host daemon is NOT started — but its bind mounts, "+
-						"devices and jail_env DID cross into this jail. Rename its directory.[/yellow]",
-					name, src))
-			}
-			continue
-		}
+		// THE BUILTIN-NAME SKIP IS GONE, and its absence is the last piece of the
+		// activation sprint rather than a simplification.
+		//
+		// It used to drop the host daemon of any loophole whose name matched
+		// paths.BuiltinLoopholeNames — `journal` or `cgroup-delegate` — with a warning
+		// saying the declarations had crossed anyway. There is no builtin name left for
+		// it to fire on: both are pack-shipped manifests now, `journal` declares a
+		// host_daemon that this loop is SUPPOSED to spawn, and `cgroup-delegate` declares
+		// none at all so it never enters `order`. Keeping the branch would have inverted
+		// the original defect — refusing to start the very daemon the manifest exists to
+		// declare — which is what "do not recreate that shape in reverse" means.
 		if name == broker.BrokerLoopholeName {
 			// Host-wide singleton — ensure it, but no per-jail handle.
 			o.brokerEnsure()
@@ -252,17 +248,37 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	return handles
 }
 
-// isBuiltinLoopholeName reports whether name is one of the two service names yolo's own
-// in-process daemons answer to. Reads paths.BuiltinLoopholeNames rather than comparing the
-// two constants inline, so a third builtin cannot be added without this skip seeing it —
-// which is precisely how `journal` came to be reserved in paths.go and enforced nowhere.
-func isBuiltinLoopholeName(name string) bool {
-	for _, builtin := range paths.BuiltinLoopholeNames {
-		if name == builtin {
-			return true
-		}
+// cgroupDelegateHonored is the cgroup delegate's SWITCH — the thing that replaced
+// "the platform allows it, so it is running".
+//
+// HONORED, NOT Active(), and the difference is the whole reason this is not a copy of
+// brokerLoopholeActive. That predicate may stop at Active() because the broker's record
+// is BUNDLED — yolo's own manifest, in yolo's own tree, under a name no pack may claim.
+// This record comes from a PACK, so the origin gate is live: `Honored` is `Active` plus
+// "the pack it came from may touch the host", and starting a host-side listener on the
+// strength of a pack's record is exactly the crossing that gate exists to govern.
+//
+// THE LOOKUP IS SHADOWABLE NOW, which is a consequence of retiring the reservation
+// rather than an oversight, and it is worth stating because the broker's equivalent is
+// NOT (TestBrokerLookupIsUnshadowable pins that, and it is only true while the name
+// stays reserved). A pack a user installs may ship a `cgroup-delegate` loophole and
+// turn this on. That is precisely the case OQ-A3 already admits — "a fetched pack can
+// declare itself on", bounded by the origin gate rather than by the declaration — and
+// the bound here is unusually comfortable: installing a pack is a user-scope act, and
+// the most this switch can buy is a capability the same user could grant with one
+// config line. The delegate hands a jail control of ITS OWN cgroup and reads no host
+// state (OQ-A4's own severity argument).
+//
+// It deliberately does NOT ask whether the record declares a host_daemon. A pack
+// claiming this name with a daemon of its own gets that daemon spawned by the ordinary
+// loop AND, if enabled, yolo's in-process delegate — which is two services rather than
+// half of one, and is the shape the sprint prefers: nothing is silently dropped.
+func (o *Options) cgroupDelegateHonored(set loopholes.Set) bool {
+	lp, ok := set.Lookup(paths.BuiltinCgroupLoopholeName)
+	if !ok {
+		return false
 	}
-	return false
+	return lp.Active() && set.MayRunHostCode(lp)
 }
 
 // stopLoopholes tears down handles WITH THE FROZEN GUARD STACK (do not

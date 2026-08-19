@@ -1,0 +1,80 @@
+// The `cgroup-delegate` loophole, shipped by the OFFICIAL `cgroup-delegate` pack —
+// the jail's own control over its own cgroup, which is what `yolo-cglimit` uses.
+//
+// THIS MANIFEST DECLARES NO DAEMON, AND THAT IS NOT AN OMISSION.  The delegate is
+// yolo's own IN-PROCESS goroutine on the launcher side (startCgroupDelegateInProc),
+// bound to an AF_UNIX socket, and it is the LAST service in the tree that is not on
+// the loopback-TLS transport.  The reason is SO_PEERCRED: `create_and_join` writes the
+// peer's HOST-NAMESPACE pid — read off the connection by the kernel, never sent by the
+// caller — into the job cgroup's cgroup.procs, and that write is what moves the caller
+// into the cgroup.  A TCP connection carries no peer credential at all, and a
+// loopback-TLS FRONT would be worse than nothing, because SO_PEERCRED on the upstream
+// socket would then attest YOLO'S OWN pid (see startCgroupDelegate in
+// internal/cli/run/loopholesruntime.go, and docs/design/security-shim.md §2).
+//
+// So what this file IS, precisely: a SWITCH and an identity.  It is the thing that
+// makes the delegate opt-in like everything else, and the thing that puts it in `yolo
+// loopholes list`, `yolo check` and the briefing under the same vocabulary as every
+// other loophole.  It declares no daemon, no bind mount, no device and no jail_env,
+// because yolo's own run pipeline still does all of that — what it no longer does is
+// decide, by itself, that the delegate should be running.
+//
+// IT WAS PRESENCE-ACTIVATED UNTIL 2026-08-18, and that is the whole reason it is here.
+// The delegate started whenever the platform allowed — "Linux only, cgroup v2 only" —
+// with NO CONFIG KEY ANYWHERE.  That is precisely the shape R1 deletes, in a host-side
+// service, and it was the last one left.  OQ-A4 ruled it opt-in with no exception:
+// "the moment one builtin stays presence-activated, 'presence never activates' stops
+// being a rule anyone can rely on while reading the code."
+{
+  "name": "cgroup-delegate",
+  "description": "Lets a jail set its own cgroup limits (yolo-cglimit). The delegate hands the jail control of ITS OWN cgroup; it reads no host state.",
+  "version": 1,
+
+  // OFF, and this one has a STATED, ACCEPTED COST rather than a migration: yolo-cglimit
+  // stops working out of the box (docs/design/loophole-activation.md OQ-A4, said in the
+  // ruling itself rather than discovered afterwards).  Nothing in the jail restores it
+  // except asking:
+  //
+  //   "packs": ["cgroup-delegate"],
+  //   "loopholes": { "cgroup-delegate": { "enabled": true } }
+  //
+  // R4's subject is HOST ACCESS, and the delegate is the weakest host crossing yolo
+  // has — it delegates the jail's OWN cgroup rather than reading anything about the
+  // machine.  OQ-A4 says so and rules it opt-in anyway, because R1 is about the
+  // MECHANISM rather than the severity.  A rule with one exception is two rules.
+  "default_enabled": false,
+
+  // Linux-only, DECLARED rather than probed, exactly as `audio` and `journal` declare
+  // it: cgroups are a Linux kernel feature, so on darwin there is nothing to install
+  // and `platforms` is the field that says so without sending a macOS reader after a
+  // package.
+  //
+  // THE cgroup-v2 CHECK IS NOT HERE and must not be moved here.  "Linux" is a property
+  // of the machine class; "this kernel is booted with cgroup v2 and the controllers are
+  // delegated" is a runtime fact about one host, and it stays where it is —
+  // startCgroupDelegateInProc, which is also the only place that can report it in the
+  // terms an operator can act on.  `requires.file_exists` could probe a path, but its
+  // ANSWER leaks through `yolo loopholes list` as an inactive reason and it would still
+  // not cover the delegation question.
+  "platforms": [
+    "linux"
+  ],
+
+  // `none` means NO DAEMON, not a different transport — see the header for why this
+  // loophole's socket is yolo's own in-process listener and why it stays AF_UNIX.
+  // Declaring `loopback-tls` here would be a claim about a publication that never
+  // happens: nothing writes cgroup-delegate.endpoint, and the jail reads
+  // YOLO_SERVICE_CGROUP_DELEGATE_SOCKET, which is the _SOCKET spelling precisely
+  // because the value IS a socket.
+  "transport": "none",
+  "lifecycle": "external"
+
+  // No `settings`.  What the delegate may do is not configurable — it is one operation
+  // (create a job cgroup and move the caller into it) against the jail's own subtree,
+  // and the limits themselves are arguments the jail passes per call.
+  //
+  // No `doctor_cmd` either.  The health question is "is the socket there", which the
+  // entrypoint already answers in the jail's own boot output ("cgroup delegate:
+  // available / not available"), and a host-side check that only ever printed the
+  // platform back would make `yolo check` longer without making it more informative.
+}

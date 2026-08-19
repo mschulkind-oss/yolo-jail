@@ -191,7 +191,9 @@ func TestMalformedPlatformsIsRefusedOnTheTolerantPath(t *testing.T) {
 // should hear "journalctl not found on host" per request rather than watch the
 // loophole vanish from `yolo loopholes list` (R3).
 func TestShippedLoopholePlatformDeclarations(t *testing.T) {
-	wantPlatforms := map[string][]string{"audio": {"linux"}, "journal": {"linux"}}
+	wantPlatforms := map[string][]string{
+		"audio": {"linux"}, "journal": {"linux"}, "cgroup-delegate": {"linux"},
+	}
 	for _, s := range shippedLoopholes {
 		lp, err := LoadLoophole(shippedLoopholeModule(t, s.name, s.pack))
 		if err != nil {

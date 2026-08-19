@@ -838,7 +838,7 @@ This is exactly the pattern used by the built-in cgroup delegate daemon: a host-
 }
 ```
 
-The service name (`auth-broker` above) must match `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$`. The name `cgroup-delegate` is reserved for the built-in.
+The service name (`auth-broker` above) must match `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$`. One name is still reserved and cannot be used: `claude-oauth-broker`, which yolo answers to itself. `cgroup-delegate` **stopped being reserved on 2026-08-18** — it is an ordinary pack-shipped loophole now, and `"loopholes": {"cgroup-delegate": {"enabled": true}}` is how you turn it on (see below).
 
 ### Lifecycle
 
@@ -1149,7 +1149,7 @@ YOLO Jail runs on Linux and macOS as first-class platforms. Everything in this g
 | Container isolation | ✅ native | ✅ via VM | ✅ per-container VM |
 | Workspace mount (`/workspace`) | Native bind | VirtioFS | VirtioFS |
 | Auto-detect priority | podman | container → podman (via VM) | same |
-| Cgroup limits (`yolo-cglimit`) | ✅ | ❌ — use VM resource controls | ✅ (own kernel) |
+| Cgroup limits (`yolo-cglimit`) | ✅ **opt-in** — needs `packs: ["cgroup-delegate"]` + `loopholes.cgroup-delegate.enabled` | ❌ — use VM resource controls | ✅ (own kernel) |
 | Per-container CPU/memory | Via cgroups | VM-level only | ✅ native (`--cpus`, `--memory`) |
 | GPU passthrough (NVIDIA) | ✅ | ❌ (no CUDA on Apple Silicon) | ❌ |
 | USB / serial device passthrough | ✅ | ❌ | ❌ |

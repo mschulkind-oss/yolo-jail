@@ -549,3 +549,21 @@ func TestShippedJournalIsInsideThePackShippedSubset(t *testing.T) {
 			"a jail that was never wired up", problems)
 	}
 }
+
+// And the same for `cgroup-delegate`, which passes the subset for the least interesting
+// reason available: it declares almost nothing. That is worth an assertion anyway,
+// because the one field it COULD have drawn a problem on is the one a future edit is
+// most likely to add — `host_daemon` with the default `publishes: "endpoint"`, which the
+// subset refuses including as a default.
+func TestShippedCgroupDelegateIsInsideThePackShippedSubset(t *testing.T) {
+	dir := filepath.Join("/loopholes", "cgroup-delegate")
+	m, err := loopholedecl.Decode(bundledManifest(t, "cgroup-delegate"), dir)
+	if err != nil {
+		t.Fatalf("strict decode: %v", err)
+	}
+	if problems := m.PackShippedProblems(loopholedecl.ManifestPath(dir)); len(problems) != 0 {
+		t.Errorf("cgroup-delegate draws %v; a refused manifest does not error at launch — the "+
+			"loophole simply goes missing, and with it the only switch `yolo-cglimit` has",
+			problems)
+	}
+}

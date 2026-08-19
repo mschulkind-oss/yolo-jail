@@ -2,8 +2,13 @@ package run
 
 // loopholeconvergence_test.go pins the RUN-PATH half of docs/design/loophole-packaging.md
 // §5.1 (landing item 5d): the four launch-side census surfaces read the converged loophole
-// set, the briefing filters on Active() rather than Enabled(), and a manifest claiming a
-// builtin service name gets its silently-skipped daemon PRINTED (§3.1).
+// set, and the briefing filters on Active() rather than Enabled().
+//
+// §3.1's builtin-name rule USED to be pinned here too — a manifest claiming a builtin
+// service name had its daemon skipped, and the skip had to be PRINTED. There are no
+// builtin service names left (loophole-activation.md OQ-A6), so what is pinned now is the
+// inverse: such a manifest is spawned like any other, and the cgroup delegate's own
+// in-process start is gated on its loophole record.
 
 import (
 	"bytes"
@@ -11,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -157,100 +163,103 @@ func TestBrokerLookupIsUnshadowable(t *testing.T) {
 	}
 }
 
-// TestBuiltinNameSkipIsAudible is §3.1's requirement: make the loopholesruntime.go skip
-// PRINT when the name did not come from the builtin.
+// TestFormerBuiltinNamesAreSpawnedNotSkipped is what THREE tests used to be, inverted.
 //
-// The silent version is worse than it looks. A manifest named `cgroup-delegate` loaded,
-// was discovered, had its daemon dropped here without a word — while RuntimeArgsFor
-// had ALREADY emitted its --add-host, ca_cert, --device, bind mounts and jail_env into the
-// argv. Half a loophole, and the half that DID happen is the half that changes what crosses
-// into the jail.
+// They pinned the builtin-name skip: `paths.BuiltinLoopholeNames` was read by
+// `isBuiltinLoopholeName`, a manifest claiming one of those names had its host daemon
+// dropped, and §3.1's requirement was that the drop be AUDIBLE — because RuntimeArgsFor
+// had already emitted that manifest's --add-host, ca_cert, --device, bind mounts and
+// jail_env into the argv. Half a loophole, and the half that happened was the half that
+// changes what crosses into the jail.
 //
-// IT USED TO USE `journal` FOR THIS, and it cannot any more: `journal` is a name an
-// official PACK ships as of 2026-08-18, so it is no longer a builtin and the skip must
-// not fire for it. `cgroup-delegate` is the last name that still reaches this branch,
-// which is exactly as long as this test has left to live (OQ-A6).
-func TestBuiltinNameSkipIsAudible(t *testing.T) {
+// The list, the predicate and the skip are all GONE (2026-08-18): `journal` and
+// `cgroup-delegate` are pack-shipped manifests now, so there is no builtin name for the
+// branch to fire on. What has to be pinned is the OPPOSITE property, and it is the one
+// that breaks users rather than merely puzzling them: a loophole under either name must
+// have its daemon STARTED. Keeping the skip would have inverted the original defect —
+// refusing to run the very daemon the manifest exists to declare — which is what "do not
+// recreate that shape in reverse" means.
+//
+// Evidenced by the readiness warning, which only a daemon that was actually spawned can
+// produce: the fixture's cmd is /bin/true, so it exits immediately and never publishes.
+//
+// `journal` rather than `cgroup-delegate` for the fixture, deliberately: the delegate
+// has an IN-PROCESS branch that this call would also reach, and on a cgroup-v2 host that
+// binds a real socket and leaks a goroutine the test cannot stop. Its own gate is pinned
+// by TestCgroupDelegateNeedsItsLoophole.
+func TestFormerBuiltinNamesAreSpawnedNotSkipped(t *testing.T) {
 	os.Unsetenv("YOLO_VERSION")
 	isolatePackModules(t)
-	// A manifest named `cgroup-delegate` reaching discovery. A PACK cannot get here (the
-	// launch pre-flight refuses the name at staging) and the hand-placed user directory is
-	// retired (OQ-LP10), so what remains is a BUNDLED manifest claiming the name — yolo
-	// shipping its own collision, or version skew between the reservation list and the
-	// bundled tree. Rarer than the case this test was written for, and the branch still
-	// has to be audible: the daemon is skipped while the manifest's binds/devices/jail_env
-	// already crossed.
 	bundledRoot := fakeBundled(t)
-	writeHostDaemonModule(t, bundledRoot, paths.BuiltinCgroupLoopholeName)
+	writeHostDaemonModule(t, bundledRoot, "journal")
 
 	var out bytes.Buffer
 	o := goldenOptions(t.TempDir(), t.TempDir())
 	o.Stdout = &out
-	// rt "container" returns before the loop; use podman, and let every probe fail so
-	// nothing is actually spawned.
-	o.startLoopholes("yolo-test-builtin-skip", "podman", jsonx.NewOrderedMap())
+	o.ServiceReadyTimeout = 200 * time.Millisecond
+	o.startLoopholes("yolo-test-former-builtin", "podman", jsonx.NewOrderedMap())
 
 	got := out.String()
-	if !strings.Contains(got, paths.BuiltinCgroupLoopholeName) {
-		t.Errorf("the skip must NAME the loophole; got:\n%s", got)
+	if strings.Contains(got, "shares a name with yolo's own") {
+		t.Errorf("the builtin-name skip fired for %q — that name belongs to an official "+
+			"PACK now, so skipping it drops the daemon the manifest exists to declare while "+
+			"its binds/devices/jail_env still cross; got:\n%s", "journal", got)
 	}
-	for _, want := range []string{"built-in", "NOT started", "jail_env"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("skip message missing %q — it has to say both halves: the daemon did not "+
-				"start AND the manifest's binds/devices/jail_env DID cross. Only saying the "+
-				"first is how this became invisible; got:\n%s", want, got)
-		}
+	if !strings.Contains(got, "host service 'journal'") {
+		t.Errorf("the daemon was never spawned: nothing reported on it at all. A former "+
+			"builtin name must take the ORDINARY path now; got:\n%s", got)
 	}
 }
 
-// The builtin skip must stay SILENT for yolo's own builtins, which reach the same branch on
-// every launch. A warning printed unconditionally is a warning nobody reads.
-func TestBuiltinNameSkipIsSilentForYolosOwn(t *testing.T) {
-	os.Unsetenv("YOLO_VERSION")
-	isolatePackModules(t)
-	fakeBundled(t)
-
-	var out bytes.Buffer
+// TestCgroupDelegateNeedsItsLoophole is the OQ-A4 ruling, pinned at the one place it can
+// be observed without a cgroup-v2 host: the delegate's gate.
+//
+// It used to start because the platform allowed it — "Linux only, cgroup v2 only", no
+// config key anywhere — which is the presence-activation R1 deletes, in a host-side
+// service, and the last one left. Now it starts only when a loophole record named
+// `cgroup-delegate` is enabled, active and origin-approved.
+//
+// A gate is a hard thing to test from the positive side here (the in-process start needs
+// a real cgroup-v2 delegation), so what is pinned is the predicate itself over three
+// sets: no record at all, a disabled record, an enabled one.
+func TestCgroupDelegateNeedsItsLoophole(t *testing.T) {
 	o := goldenOptions(t.TempDir(), t.TempDir())
-	o.Stdout = &out
-	o.startLoopholes("yolo-test-builtin-quiet", "podman", jsonx.NewOrderedMap())
 
-	if strings.Contains(out.String(), "shares a name with yolo's own") {
-		t.Errorf("no manifest claimed a builtin name, so nothing must be said; got:\n%s", out.String())
+	if o.cgroupDelegateHonored(loopholes.SetOf(nil)) {
+		t.Error("the delegate is honored with NO loophole record at all — that is the " +
+			"presence activation OQ-A4 deletes, and it is how the delegate behaved for " +
+			"every launch before 2026-08-18")
 	}
-}
 
-// isBuiltinLoopholeName reads paths.BuiltinLoopholeNames rather than comparing the two
-// constants inline — which is how `journal` came to be reserved in paths.go and enforced
-// nowhere in the first place.
-func TestIsBuiltinLoopholeNameReadsTheSharedList(t *testing.T) {
-	for _, name := range paths.BuiltinLoopholeNames {
-		if !isBuiltinLoopholeName(name) {
-			t.Errorf("%q is in paths.BuiltinLoopholeNames but the skip does not recognize it — "+
-				"that divergence is the original defect", name)
-		}
+	disabled := &loopholes.Loophole{
+		Name: paths.BuiltinCgroupLoopholeName, Enabled: false, Source: loopholes.SourceBundled,
 	}
-	if isBuiltinLoopholeName("acme-proxy") {
-		t.Error("an ordinary loophole name must not be treated as a builtin")
+	if o.cgroupDelegateHonored(loopholes.SetOf([]*loopholes.Loophole{disabled})) {
+		t.Error("a DISABLED cgroup-delegate record still honors the delegate — the user's " +
+			"switch has to reach it, or `default_enabled: false` means nothing")
 	}
-	// ONE, since `journal` became a pack on 2026-08-18. The count is asserted in the
-	// direction that matters now: a name ADDED here without the config validator, this
-	// skip and the reserved set learning about it together is the original defect, and a
-	// name that leaves without its reservation leaving too is the launch-breaking one —
-	// `PackLoopholeNameConflicts` is fatal, so a pack shipping a still-reserved name
-	// refuses every launch that selects it.
-	if len(paths.BuiltinLoopholeNames) != 1 {
-		t.Errorf("paths.BuiltinLoopholeNames has %d entries, want 1 (`cgroup-delegate` alone). "+
-			"If one was ADDED, check that the config validator, this skip and the reserved set "+
-			"learned about it together. If one LEFT — became a pack — check that its "+
-			"reservation left with it, or every jail selecting that pack fails to launch",
-			len(paths.BuiltinLoopholeNames))
+
+	enabled := &loopholes.Loophole{
+		Name: paths.BuiltinCgroupLoopholeName, Enabled: true, Source: loopholes.SourceBundled,
 	}
-	if isBuiltinLoopholeName("journal") {
-		t.Error("`journal` is still treated as a builtin, but it ships in the official " +
-			"`journal` pack now: the spawn loop would skip its host daemon while its " +
-			"declarations had already crossed into the jail — half a loophole, which is the " +
-			"exact shape this list was created to end")
+	if !o.cgroupDelegateHonored(loopholes.SetOf([]*loopholes.Loophole{enabled})) {
+		t.Error("an ENABLED, active, non-pack record does not honor the delegate — the " +
+			"switch is unreachable, so `yolo-cglimit` can never be turned back on")
+	}
+
+	// AND THE ORIGIN GATE BITES. A SourcePack record in a Set assembled by hand carries
+	// no gate, so MayRunHostCode is false — the fail-safe direction, and the reason this
+	// predicate is Honored-shaped rather than a bare Active(). Starting a host-side
+	// listener on the strength of a PACK's record is exactly the crossing that gate
+	// governs, and the broker's equivalent may skip it only because its record is
+	// bundled under a name no pack may claim.
+	fromPack := &loopholes.Loophole{
+		Name: paths.BuiltinCgroupLoopholeName, Enabled: true, Source: loopholes.SourcePack,
+		Path: "/nowhere/cgroup-delegate",
+	}
+	if o.cgroupDelegateHonored(loopholes.SetOf([]*loopholes.Loophole{fromPack})) {
+		t.Error("an UNGATED pack record honors the delegate — Active() alone is not the " +
+			"predicate here: the record comes from a pack now, so the origin gate applies")
 	}
 }
 

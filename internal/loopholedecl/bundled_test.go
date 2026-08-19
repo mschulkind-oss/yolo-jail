@@ -29,6 +29,7 @@ var shippedManifestHome = map[string]string{
 	"audio":               "audio",
 	"host-processes":      "host-processes",
 	"journal":             "journal",
+	"cgroup-delegate":     "cgroup-delegate",
 }
 
 // bundledManifest reads one shipped manifest out of the embedded tree — the same
@@ -83,6 +84,11 @@ func TestBundledManifestsDecodeStrictly(t *testing.T) {
 	//                         and this is the commit that pays: the pack is what turns
 	//                         it back on, so the capability is no longer removed with
 	//                         nothing to restore it.
+	//   cgroup-delegate       R4/OQ-A4, and the only one whose flip has a STATED,
+	//                         ACCEPTED COST rather than a migration: yolo-cglimit stops
+	//                         working out of the box. It was PRESENCE-ACTIVATED — no
+	//                         config key existed at all — so this value is the whole
+	//                         switch rather than a default over one.
 	//   journal               false, and unlike the two above it takes nothing away:
 	//                         the bridge was ALREADY off unless a top-level `journal`
 	//                         key said otherwise, so this is the same answer written in
@@ -97,8 +103,11 @@ func TestBundledManifestsDecodeStrictly(t *testing.T) {
 		"claude-oauth-broker": true,
 		"host-processes":      false,
 		"journal":             false,
+		"cgroup-delegate":     false,
 	}
-	for _, name := range []string{"audio", "claude-oauth-broker", "host-processes", "journal"} {
+	for _, name := range []string{
+		"audio", "claude-oauth-broker", "host-processes", "journal", "cgroup-delegate",
+	} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join("/loopholes", name)
 			m, err := loopholedecl.Decode(bundledManifest(t, name), dir)
@@ -418,5 +427,54 @@ func TestShippedJournalFields(t *testing.T) {
 		len(m.HostBindMounts) != 0 || len(m.HostDevices) != 0 {
 		t.Errorf("unexpected extras: ca=%v jail=%+v state=%v binds=%v devices=%v",
 			m.CACertSet, m.JailDaemon, m.StateFiles, m.HostBindMounts, m.HostDevices)
+	}
+}
+
+// TestShippedCgroupDelegateFields pins the manifest that is a SWITCH AND NOTHING ELSE,
+// and the emptiness is the assertion rather than a shrug.
+//
+// The delegate is yolo's own in-process goroutine on an AF_UNIX socket — the last
+// service in the tree not on loopback-tls, because its whole security model is
+// SO_PEERCRED and a TCP hop carries no peer credential. So this manifest declares no
+// host_daemon, no bind mount, no device, no jail_env and no settings; what it declares
+// is `default_enabled: false`, which is the entire content of OQ-A4.
+//
+// A `host_daemon` appearing here later would not be an addition, it would be a second
+// implementation: the spawn loop would start it BESIDE the in-process delegate, both
+// answering to the same name.
+func TestShippedCgroupDelegateFields(t *testing.T) {
+	m, err := loopholedecl.Decode(bundledManifest(t, "cgroup-delegate"), "/loopholes/cgroup-delegate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Transport != loopholedecl.TransportNone {
+		t.Errorf("transport = %q, want %q — this manifest declares no daemon, and claiming "+
+			"loopback-tls would advertise a publication that never happens (nothing writes "+
+			"cgroup-delegate.endpoint; the jail reads the _SOCKET variable)",
+			m.Transport, loopholedecl.TransportNone)
+	}
+	if m.HostDaemon != nil {
+		t.Errorf("host_daemon = %+v — the delegate is an IN-PROCESS goroutine, so a declared "+
+			"daemon would be spawned BESIDE it under the same name rather than instead of it",
+			m.HostDaemon)
+	}
+	if !m.PlatformsSet || !reflect.DeepEqual(m.Platforms, []string{"linux"}) {
+		t.Errorf("platforms = %v (set=%v), want [linux]", m.Platforms, m.PlatformsSet)
+	}
+	// The cgroup-v2 check deliberately did NOT move into the manifest: "Linux" is a
+	// machine class, "this kernel delegates cgroup v2" is a runtime fact about one host,
+	// and it stays in startCgroupDelegateInProc where it can be reported in terms an
+	// operator can act on.
+	if m.Requires.CommandOnPathSet || m.Requires.FileExistsSet {
+		t.Errorf("requires = %+v, want none", m.Requires)
+	}
+	if len(m.Settings) != 0 {
+		t.Errorf("settings = %+v, want none — what the delegate may do is not configurable; "+
+			"the limits are arguments the jail passes per call", m.Settings)
+	}
+	if m.DoctorCmdSet || m.CACertSet || m.JailDaemon != nil ||
+		len(m.StateFiles) != 0 || len(m.HostBindMounts) != 0 || len(m.HostDevices) != 0 {
+		t.Errorf("unexpected extras: doctor=%v ca=%v jail=%+v state=%v binds=%v devices=%v",
+			m.DoctorCmdSet, m.CACertSet, m.JailDaemon, m.StateFiles, m.HostBindMounts, m.HostDevices)
 	}
 }
