@@ -306,6 +306,33 @@ func GeneratePackageManagerLaunchers(e *Env) error {
 	return nil
 }
 
+// stampMtimeFn is the `_stamp_mtime` helper every launcher template embeds, and it exists
+// because `stat -c %Y` is GNU-only.
+//
+// THE BUG IT FIXES WAS NOT A MISSING NUMBER, IT WAS A DEFEATED THROTTLE. macos-user runs
+// these generated launchers NATIVELY on the host (RunDarwinBootstrap calls the same three
+// generators the container's boot path does), where BSD stat rejects `-c` and the old
+// `|| echo 0` swallowed it. The stamp's mtime then read as epoch 0, so every
+// `$(date +%s) - 0` age was ~56 years — permanently `-gt UPDATE_INTERVAL` and
+// permanently `-lt RETRY_INTERVAL`. Every launch polled the registry (npm agent), ran a
+// self-update (native agent), or re-attempted a failed install (package manager): the
+// exact per-invocation network traffic all three throttles exist to prevent, silently, on
+// the one backend with no image to hide it.
+//
+// GNU first, then BSD, then 0. The order matters: the container is Linux and is the common
+// case, so it takes the first branch and pays no extra process. `date -r` is deliberately
+// NOT used as the BSD arm — GNU `date -r` means "read the format from a file" rather than
+// "use the file's mtime", so a coreutils host would answer a different question rather than
+// fail over. The final `echo 0` is kept for a genuinely absent stamp, which is the one case
+// where "infinitely old" is the right answer; every CALLER guards `-f "$STAMP"` first, so it
+// no longer doubles as an error path.
+const stampMtimeFn = `
+# Portable stamp mtime in epoch seconds: GNU stat, then BSD stat, then 0.
+_stamp_mtime() {
+    stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0
+}
+`
+
 // npmLauncherTemplate is the npm agent launcher body, with the per-agent
 // fields replaced by __YOLO_*__ sentinels.
 //
@@ -333,7 +360,7 @@ PINNED="__YOLO_PINNED__"   # 1 when the declaration carried a version selector
 UPDATE_INTERVAL=3600  # seconds between update CHECKS — a check reports, it never installs
 
 mkdir -p "$STAMP_DIR"
-
+` + stampMtimeFn + `
 _installed_version() {
     jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$PKG/package.json" 2>/dev/null || echo "0"
 }
@@ -495,7 +522,7 @@ elif [ ! -f "$STAMP" ]; then
     _poll_and_report
 else
     # Check if stamp is stale (older than UPDATE_INTERVAL)
-    STAMP_AGE=$(( $(date +%s) - $(stat -c %Y "$STAMP" 2>/dev/null || echo 0) ))
+    STAMP_AGE=$(( $(date +%s) - $(_stamp_mtime "$STAMP") ))
     if [ "$STAMP_AGE" -gt "$UPDATE_INTERVAL" ]; then
         _poll_and_report
     fi
@@ -519,7 +546,7 @@ REAL_BIN="$HOME/.local/bin/__YOLO_BIN__"
 UPDATE_INTERVAL=3600
 
 mkdir -p "$STAMP_DIR"
-
+` + stampMtimeFn + `
 _do_install() {
     echo "  Installing __YOLO_BIN__..." >&2
     # Download to a file BEFORE running it, rather than curl | bash. A stale or moved
@@ -562,7 +589,7 @@ elif [ ! -f "$STAMP" ]; then
     YOLO_BYPASS_SHIMS=1 "$REAL_BIN" install 2>&1 || true
     touch "$STAMP"
 else
-    STAMP_AGE=$(( $(date +%s) - $(stat -c %Y "$STAMP" 2>/dev/null || echo 0) ))
+    STAMP_AGE=$(( $(date +%s) - $(_stamp_mtime "$STAMP") ))
     if [ "$STAMP_AGE" -gt "$UPDATE_INTERVAL" ]; then
         YOLO_BYPASS_SHIMS=1 "$REAL_BIN" install 2>&1 || true
         touch "$STAMP"
@@ -593,13 +620,13 @@ SPEC="__YOLO_SPEC__"  # what npm install is handed: name@<selector>
 RETRY_INTERVAL=3600  # seconds before retrying a failed install
 
 mkdir -p "$STAMP_DIR"
-
+` + stampMtimeFn + `
 if [ ! -x "$REAL_BIN" ]; then
     # Throttle repeated install attempts after a failure — without this, every
     # invocation would re-hit npm registry when offline / install is broken.
     SHOULD_INSTALL=1
     if [ -f "$STAMP" ]; then
-        STAMP_AGE=$(( $(date +%s) - $(stat -c %Y "$STAMP" 2>/dev/null || echo 0) ))
+        STAMP_AGE=$(( $(date +%s) - $(_stamp_mtime "$STAMP") ))
         if [ "$STAMP_AGE" -lt "$RETRY_INTERVAL" ]; then
             SHOULD_INSTALL=0
         fi
