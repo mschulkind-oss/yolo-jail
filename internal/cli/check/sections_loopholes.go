@@ -42,13 +42,13 @@ func (o *Options) checkLoopholes(r *reporter) {
 	// self-check therefore reported "could not run" and its output never reached the
 	// screen.
 	//
-	// That costs nothing today, because the one pack-shipped loophole (audio-alsa)
-	// declares no doctor_cmd — and it costs everything the moment the activation sprint
-	// moves the only two that DO declare one, the broker and host-processes, out of
-	// bundled_loopholes/ (docs/design/loophole-activation.md OQ-A12). On the day that
-	// conversion lands this section would print a cheerful all-green while the broker's
-	// cert freshness, liveness and self-check went unreported — on exactly the command a
-	// user reaches for when a loophole has silently stopped.
+	// IT COST NOTHING WHEN IT LANDED AND IT DOES NOW: `host-processes` moved into a pack
+	// on 2026-08-18 and it DOES declare a doctor_cmd, which is the case OQ-A12 was built
+	// ahead of (docs/design/loophole-activation.md). Landing the conversion without this
+	// fix would have printed a cheerful all-green while a pack-shipped loophole's
+	// self-check went unreported — on exactly the command a user reaches for when a
+	// loophole has silently stopped. The broker is the other one that declares a
+	// doctor_cmd and it is still bundled, so this section covers both today.
 	//
 	// It is also the honest completion of docs/design/pack-code-separation.md's doctor
 	// ruling: `check` reads loophole health through the manifest surface rather than
