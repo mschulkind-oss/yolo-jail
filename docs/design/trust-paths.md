@@ -226,6 +226,38 @@ false of its enforcement.*
    > re-approval and no prompt, because nothing on the launch path compares the ref they are now
    > running against the ref they approved. Same missing enforcement as the lockfile finding above.
 
+### P1. Trust flows DOWNWARD, and a parent controlling its child is not a finding
+
+**Each level is the host for the next: user → jail → nested jail.** A user configures their jail; a
+jail configures the jails it launches. That is the model, not a leak in it, and this principle exists
+because the inventory below will otherwise keep growing rows that are the model working.
+
+**The worked example, since it looks alarming until the direction is stated.** The implicit local
+pack directory — `~/.config/yolo-jail/local`, which needs no config line, is appended last so it
+outranks every configured entry, and carries `file://` origin and therefore unconditional host access
+— **is writable from inside a jail.** Measured 2026-08-18: `/home/agent` is a `ro` bind of host-side
+state, but `/home/agent/.config` is a **rw** bind of `<workspace>/.yolo/home/config`, with only
+`config.jsonc` and `inherited-launch.jsonc` pinned `ro` file-by-file. So an agent can create that
+directory, and a **nested** launch — whose `yolo` runs inside this jail and therefore resolves
+`LocalPackDir()` to this path — loads it at full local-pack authority with no prompt.
+
+**That is correct.** An agent that can already run arbitrary code in this jail configuring a jail it
+launches is exactly the direction trust is supposed to travel. Refusing it would mean a jail could
+not set up its own children, which is the dev loop this repo runs on.
+
+**What the principle does NOT license**, and the boundary that stays load-bearing:
+
+- **Nothing flows upward.** The host's own `~/.config/yolo-jail/` is not mounted into a jail at all —
+  verified in the same measurement — so none of this reaches the machine. A path that let a jail
+  change what its PARENT runs would be a finding, and a serious one.
+- **It is not a licence to stop gating what enters from OUTSIDE.** A fetched pack's content is
+  someone else's, at every level. P1 is about the *relationship between levels*, not about origin.
+
+> [!NOTE]
+> **This principle is why a measurement can be true and still not be a finding.** "The directory is
+> writable" is a fact; "therefore it is a hole" needs the direction of trust, and downward is the
+> permitted one. Anyone re-deriving the measurement should stop here rather than filing it.
+
 ### Where it is theatre — the four that matter
 
 - **Pinning a pack tree at all**, in the dominant case: see the same-loop-iteration finding above.
