@@ -256,3 +256,35 @@ func TestSettingsIsAnOverrideKeyNotAnInlineKey(t *testing.T) {
 		t.Errorf("errors = %v, want a refusal of 'settings' on an inline service", errs)
 	}
 }
+
+// TestLoopholeEntryErrorsAppliesTheSettingsScopeRule pins the SECOND call site.
+//
+// `yolo loopholes list` and `status` read the config WITHOUT the full schema pass,
+// through LoopholeEntryErrors — and `status` EXECUTES each entry's doctor_cmd from
+// what it reads. Every other test in this file goes through ValidateConfig, so the
+// scope rule could be dropped from this path with the whole suite green, and the two
+// surfaces would then disagree about whether a workspace may set a user-scope key.
+func TestLoopholeEntryErrorsAppliesTheSettingsScopeRule(t *testing.T) {
+	info := &LoopholeInfo{
+		Name: "acme", HasHostDaemon: true,
+		Settings: []loopholedecl.Setting{userSetting("visible", loopholedecl.SettingTypeStringList)},
+	}
+	ws := t.TempDir()
+	src := filepath.Join(ws, WorkspaceConfigName)
+	spec := decode(t, `{"settings": {"visible": ["sway"]}}`)
+
+	errs := LoopholeEntryErrors("acme", spec, info, false, true, false, src, ws)
+	if len(containing(errs, "settings.visible", "user-scope only")) != 1 {
+		t.Errorf("errors = %v, want the scope refusal — `yolo loopholes status` executes "+
+			"doctor_cmd from what it reads, so an entry this path honors is an entry that "+
+			"runs host code", errs)
+	}
+	// From the USER config the same entry is clean, and in-jail it downgrades to the
+	// warning this function deliberately does not return.
+	if errs := LoopholeEntryErrors("acme", spec, info, false, false, false, src, ws); len(errs) != 0 {
+		t.Errorf("user-scope errors = %v, want none", errs)
+	}
+	if errs := LoopholeEntryErrors("acme", spec, info, false, true, true, src, ws); len(errs) != 0 {
+		t.Errorf("in-jail errors = %v, want none — the launch path honors the entry in-jail", errs)
+	}
+}

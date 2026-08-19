@@ -172,3 +172,58 @@ func TestLegacyBridgeIsScopedToHostProcesses(t *testing.T) {
 		t.Errorf("the legacy bridge fired for a different loophole: %v", got.Keys())
 	}
 }
+
+// TestStartLoopholesWritesTheSettingsFile pins the CALL SITE, not the callee.
+//
+// Every other test in this file drives writeLoopholeSettings directly, so deleting
+// the one line in startLoopholes that calls it would leave the whole unit gate green
+// while the feature was switched off wholesale — the shape AGENTS.md says this repo
+// has shipped five times. This is the test that fails if that line goes.
+//
+// The fixture loophole declares settings and NO host_daemon, so startLoopholes runs
+// its real body — the discovery, the write, the spawn loop — without starting a
+// single process. `transport: "none"` keeps it out of every endpoint path too.
+func TestStartLoopholesWritesTheSettingsFile(t *testing.T) {
+	redirectState(t)
+	dir := t.TempDir()
+	mod := filepath.Join(dir, "acme")
+	if err := os.MkdirAll(mod, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(`{
+		"name": "acme", "default_enabled": true, "transport": "none",
+		"settings": {"names": {"type": "string_list", "scope": "workspace", "default": []}}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	origB, origR := loopholes.BundledLoopholesDir, loopholes.RetiredUserLoopholesDir
+	loopholes.BundledLoopholesDir = func() string { return dir }
+	loopholes.RetiredUserLoopholesDir = func() string { return t.TempDir() }
+	t.Cleanup(func() {
+		loopholes.BundledLoopholesDir, loopholes.RetiredUserLoopholesDir = origB, origR
+	})
+
+	cname := "yolo-settings-" + t.Name()
+	socketsDir := hostServiceSocketsDir(cname, false)
+	t.Cleanup(func() { _ = os.RemoveAll(socketsDir) })
+
+	o := &Options{}
+	fillDefaults(o)
+	o.Stdout = discardBuf()
+	o.Stderr = discardBuf()
+	o.PathExists = func(string) bool { return false } // no cgroup delegate
+
+	handles := o.startLoopholes(cname, "podman", settingsCfg(t, "acme", "names", []any{"sway"}))
+	for _, h := range handles {
+		if h.stop != nil {
+			h.stop()
+		}
+	}
+
+	got := readSettings(t, "acme")
+	names, _ := got["names"].([]any)
+	if len(names) != 1 || names[0] != "sway" {
+		t.Errorf("settings file = %v — startLoopholes must resolve and write settings BEFORE "+
+			"the spawn loop, because a daemon's argv already names the file", got)
+	}
+}

@@ -293,3 +293,46 @@ func TestListPrintsTheSettingsDeclarations(t *testing.T) {
 		}
 	}
 }
+
+// TestResolverCarriesTheDeclarationsToConfig pins the SEAM, which is the only place
+// a declaration crosses from this package into the validator.
+//
+// Nothing else fails if `Settings: lp.Settings` is dropped from Resolver.Known():
+// internal/config's own tests build a fakeResolver, so they would stay green while
+// every real loophole's declarations vanished and every correct `settings` block
+// started erroring "declares no settings". That is the call-site-unpinned shape
+// AGENTS.md warns about, pointed at a struct literal instead of a function call.
+func TestResolverCarriesTheDeclarationsToConfig(t *testing.T) {
+	dir := t.TempDir()
+	mod := filepath.Join(dir, "acme")
+	if err := os.MkdirAll(mod, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mod, loopholedecl.ManifestName), []byte(`{
+		"name": "acme", "transport": "none",
+		"settings": {"names": {"type": "string_list", "scope": "workspace"}}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	realBundled := BundledLoopholesDir
+	BundledLoopholesDir = func() string { return dir }
+	t.Cleanup(func() { BundledLoopholesDir = realBundled })
+
+	known, ok := NewResolver().Known()
+	if !ok {
+		t.Fatal("Known() reported discovery failure")
+	}
+	info, present := known["acme"]
+	if !present {
+		t.Fatalf("Known() = %v, missing the fixture loophole", known)
+	}
+	if len(info.Settings) != 1 || info.Settings[0].Key != "names" {
+		t.Fatalf("LoopholeInfo.Settings = %+v — without the declarations the validator "+
+			"cannot tell a declared key from a typo, and every correct settings block "+
+			"becomes an error", info.Settings)
+	}
+	if info.Settings[0].Scope != SettingScopeWorkspace {
+		t.Errorf("scope = %q, want the manifest's %q — the per-key scope rule is enforced "+
+			"from THIS copy", info.Settings[0].Scope, SettingScopeWorkspace)
+	}
+}
