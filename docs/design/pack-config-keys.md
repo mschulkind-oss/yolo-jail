@@ -18,11 +18,11 @@ they describe now exists end to end:
 | core RESOLVES + WRITES (`{settings}`) | [`internal/loopholes/settings.go`](../../internal/loopholes/settings.go), [`internal/cli/run/loopholesettings.go`](../../internal/cli/run/loopholesettings.go) |
 | the first consumer, frozen (OQ-K3) | [`internal/hostprocesses/`](../../internal/hostprocesses) |
 
-**What is NOT done, and is not this doc's to do:** neither loophole has become a pack, and neither
-top-level key has been deleted. `host_processes` stays in `knownTopLevelConfigKeys`, still works, and
-now warns naming `loopholes.host-processes.settings`; `journal` is untouched. Those are the next two
-steps of the sprint ([`roadmap.md`](../plans/roadmap.md)), and §5 is why they must not be folded in
-early.
+**Both of those steps have since SHIPPED (2026-08-18)**, which is what the mechanism was for.
+`host-processes` and `journal` are official packs, and both top-level keys are REFUSALS naming their
+replacements — so core's config schema names no loophole at all, which is §1.4's whole point in
+[`loophole-activation.md`](./loophole-activation.md). `journal`'s settings landed as ONE BOOLEAN
+rather than the ported three-valued string; §5.2 says why.
 
 **One thing the build tightened past what §2.2 wrote.** The design left an undecodable declaration as
 "treat as a refusal"; the implementation makes that refusal apply in the TOLERANT decoder too, which
@@ -64,7 +64,7 @@ OQ-A8.
 | **OQ-K1** | Declarations are **authoritative**. The advisory case does not exist — an unresolvable pack is already a fatal launch, not a degraded one | 2026-08-18 | [§2.2](#22-validation-happens-where-validation-already-happens) |
 | **OQ-K2** | A workspace **may** supply values that reach a host daemon, **gated by the config-change flow** — which became a control only when OQ-D1/D2 shipped | 2026-08-18 | [§3b](#3b-workspace-scope-and-what-makes-it-safe-now) |
 | **OQ-K3** | **Freeze** `host_processes.visible`. No live reload; changing it needs a restart, which is where the approval gate lives | 2026-08-18 | [§5.1](#51-host_processesvisible-stops-being-live) |
-| **OQ-K4** | `journal` becomes a **pack**, settings under `loopholes.journal.settings`, and its top-level core key is deleted | 2026-08-18 | [§5.2](#52-journal-becomes-a-pack-and-its-top-level-key-goes) |
+| **OQ-K4** | `journal` becomes a **pack**, settings under `loopholes.journal.settings`, and its top-level core key is deleted · ✅ **BUILT 2026-08-18** | 2026-08-18 | [§5.2](#52-journal-becomes-a-pack-and-its-top-level-key-goes) |
 
 ---
 
@@ -343,6 +343,15 @@ ordinary. Three consequences:
   validated and delivered exactly like every other loophole's. `journal: "full"` — today an
   agent-settable host-journal passthrough with **no scope rule at all** — becomes a declared key with
   a `scope`, which is the security half of this ruling.
+
+  **BUILT as `full: bool`, `scope: "user"`, and the TYPE is a second security decision the ruling
+  did not name.** The obvious port — a `string` mode carrying `off | user | full` — is
+  unvalidatable: the type set is closed and has no `enum`, so core could not refuse `"usr"`, and
+  `ParseRequest` narrows on the exact literal `"user"`, meaning **every other spelling behaves as
+  full**. A config typo would have been a silent widening of host access. Two of the three values
+  were also saying something `enabled` already says, so what was left to declare was one bit.
+  `off` is `enabled: false`; `user` is `enabled: true`; `full` is that plus the setting, from the
+  user config only.
 - **It composes with `loophole-activation.md` OQ-A6**, which already ruled that `journal` and
   `cgroup-delegate` become manifest loopholes *in* this sprint. K4 supplies the settings half that
   ruling needed.
@@ -353,6 +362,13 @@ ordinary. Three consequences:
 > recognised. The second needs a migration path — a config that still writes it must be told where it
 > went rather than silently ignored, which is the deletion-shaped-change rule §4 of
 > `loophole-activation.md` already argues for.
+>
+> **All of them are written, 2026-08-18** — 📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md) carries four
+> entries from this sprint. The `journal` one has to carry THREE instructions rather than the
+> expected one, and that is the thing to copy for the next conversion: migrating the value alone
+> leaves `yolo-journalctl` just as broken, so the message names the pack selection, the `enabled`
+> switch, and the setting — plus the FILE the setting has to go in, because `full` is user-scope and
+> a workspace supplying it is refused by name.
 
 ## 6. Risks
 

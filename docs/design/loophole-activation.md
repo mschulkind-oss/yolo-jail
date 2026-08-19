@@ -8,9 +8,11 @@ summary: "A loophole is active today because it was present and something it nam
 
 # Nothing reaches your host because it happened to be there — loophole activation
 
-**Status:** DECIDED 2026-08-18, nothing built. Six rulings (§2) and **all thirteen questions
-settled** (Decision Ledger below). What remains is building it — sequenced in
-[`roadmap.md`](../plans/roadmap.md).
+**Status:** DECIDED 2026-08-18, and **substantially BUILT the same day**. Six rulings (§2) and
+**all thirteen questions settled** (Decision Ledger below). §1.3's table is the honest progress
+report: seven of its eight rows are ✅, and the one that is not — the broker's jail wiring — is
+blocked on a mechanism gap rather than a decision ([`broker-as-a-pack.md`](broker-as-a-pack.md)
+§6.1). Sequenced in [`roadmap.md`](../plans/roadmap.md).
 
 **The one real gap is closed.** `default_enabled` collided with a live `enabled` key and the design
 never said which won; OQ-A9 ruled one key, renamed, governing all four manifest sources.
@@ -23,12 +25,15 @@ never said which won; OQ-A9 ruled one key, renamed, governing all four manifest 
 > tolerance: an older yolo ignores `default_enabled` and runs `audio` **on** ([§2](#2-the-rulings),
 > [§4](#4-what-it-costs)).
 >
-> **The first trap is now HALF-DISCHARGED, and the discharged half is the misleading one.**
-> `host-processes` and `audio` became packs on 2026-08-18 and their reservations retired
-> **automatically** — both were reserved only as bundled DIRECTORY names, read off the same embed.FS
-> the loader materializes, so `git mv` did it. The broker's is the one that does not work that way:
-> `broker.BrokerLoopholeName` is appended unconditionally, from the broker's own constant. A reader
-> generalizing from the two that shipped would ship the launch-breaking commit.
+> **The first trap is now DISCHARGED FOR EVERYTHING BUT THE BROKER, and the discharged part is
+> only half misleading — read which half.** Four names left the reserved set on 2026-08-18 by two
+> different mechanisms. `host-processes` and `audio` were reserved only as bundled DIRECTORY names,
+> read off the same embed.FS the loader materializes, so `git mv` retired them with no code change.
+> `journal` and `cgroup-delegate` were **constants** (`paths.BuiltinLoopholeNames`), so each had to
+> be deleted BY HAND in the commit that shipped its manifest — and that list is now gone entirely.
+> The broker's has the second shape: `broker.BrokerLoopholeName` is appended unconditionally, from
+> the broker's own constant. A reader generalizing from the two FREE cases would ship the
+> launch-breaking commit; a reader who follows what `journal` and `cgroup-delegate` did will not.
 
 The doc grew thirteen questions on purpose: every one came from asking *"what else reaches the host,
 and why is it on?"*, and the answer kept being "something different each time".
@@ -46,6 +51,9 @@ it is currently on. No two rows agree, and that is the whole argument.
 
 §1.4 is the finding that should worry you most: core's config schema names two loopholes by hand —
 and after OQ-A6 both of those names go, which is what makes the conversion mean something.
+**Both went on 2026-08-18.** `host_processes` and `journal` are refusals now, `paths.BuiltinLoopholeNames`
+is deleted, and core's schema names no loophole at all. §1.3's table has one row left that is not
+✅ — the broker's jail wiring, blocked on a mechanism gap (see `broker-as-a-pack.md` §6.1).
 
 **Reads with:** [`broker-as-a-pack.md`](broker-as-a-pack.md) (the sprint this came out of; §5.5 is
 the connection preamble, §12 the `host-processes` conversion),
@@ -64,9 +72,9 @@ have since been settled and folded into the body.
 | **OQ-A1** | The broker ships `default_enabled: true` **inside `packs/claude`** — selecting the pack is what turns it on | 2026-08-16 | [§4](#4-what-it-costs) |
 | **OQ-A2** | **Going dark is fine.** No migration machinery, no upgrade notice — a loophole you never listed behaves like an agent pack you never listed | 2026-08-17 | [§4](#4-what-it-costs) |
 | **OQ-A3** | `default_enabled: true` stays available to **fetched** packs, unrestricted — the origin gate is the gate | 2026-08-16 | [§3](#3-what-this-does-not-license) |
-| **OQ-A4** | The cgroup delegate becomes **opt-in**, like everything else — no presence-activated exception | 2026-08-18 | [§1.2](#12-the-three-things-this-doc-first-ignored--raised-in-review-and-one-is-a-real-hole), [§1.3](#13-everything-that-reaches-your-host-and-how-it-turns-on) |
+| **OQ-A4** | The cgroup delegate becomes **opt-in**, like everything else — no presence-activated exception · ✅ **BUILT 2026-08-18** | 2026-08-18 | [§1.2](#12-the-three-things-this-doc-first-ignored--raised-in-review-and-one-is-a-real-hole), [§1.3](#13-everything-that-reaches-your-host-and-how-it-turns-on) |
 | **OQ-A5** | **Keep all three gates** for `yolo-ps` — they answer different questions, and only two of them are new | 2026-08-18 | [§1.2](#12-the-three-things-this-doc-first-ignored--raised-in-review-and-one-is-a-real-hole) |
-| **OQ-A6** | `journal` and `cgroup-delegate` **become manifest loopholes — in this sprint**, not after it | 2026-08-18 | [§5](#5-the-structural-questions-this-opened) |
+| **OQ-A6** | `journal` and `cgroup-delegate` **become manifest loopholes — in this sprint**, not after it · ✅ **BUILT 2026-08-18** | 2026-08-18 | [§5](#5-the-structural-questions-this-opened) |
 | **OQ-A7** | A loophole-only pack **needs selecting**. No special case: shipped in the binary is not installed | 2026-08-17 | [§5](#5-the-structural-questions-this-opened) |
 | **OQ-A8** | A loophole's settings are **typed and declared in its manifest**, not an opaque map — 📄 [`pack-config-keys.md`](pack-config-keys.md) | 2026-08-17 | [§1.4](#14-the-finding-that-undercuts-the-conversion--core-hardcodes-two-loopholes-by-name) |
 | **OQ-A10** | The broker's loophole is a contribution of **`packs/claude`**, not its own pack — and `broker-as-a-pack.md` §6 is corrected rather than left standing | 2026-08-18 | [§2](#2-the-rulings) |
@@ -194,8 +202,8 @@ is the argument for unifying them.*
 | **broker jail wiring** | bundled loophole | manifest `enabled: true` **and** host `claude` on PATH | `loopholes.claude-oauth-broker.enabled` | inside `packs/claude`, `default_enabled: true` — 🛑 **blocked**, see [`broker-as-a-pack.md`](broker-as-a-pack.md) §6.1 |
 | **host-processes** | bundled loophole | manifest `enabled: true` **and** host `ps` | `loopholes.host-processes.enabled` **plus** top-level `host_processes.visible` | ✅ **DONE 2026-08-18** — own pack, `default_enabled: false`, and the top-level key is now REFUSED |
 | **audio** | bundled loophole *and* an official pack beside it | manifest `enabled: true` **and** the pulse socket exists | `loopholes.audio.enabled` | ✅ **DONE 2026-08-18** — own pack, `default_enabled: false`; the two merged under the plain name and the `requires` probe became `platforms: ["linux"]` |
-| **journal** | **builtin service**, hardcoded in the run pipeline | the top-level `journal` key says so | top-level `journal` | **manifest loophole** (OQ-A6); its top-level key goes, settings become typed manifest keys (OQ-A8) |
-| **cgroup-delegate** | **builtin service**, hardcoded | Linux + cgroup v2. No key exists. | *none* | **manifest loophole** (OQ-A6) with `default_enabled: false` (OQ-A4) — stops starting itself |
+| **journal** | **builtin service**, hardcoded in the run pipeline | the top-level `journal` key says so | top-level `journal` | ✅ **DONE 2026-08-18** — own pack, `default_enabled: false`; the top-level key is REFUSED and the mode is the typed `full` setting, `scope: "user"` (OQ-K4) |
+| **cgroup-delegate** | **builtin service**, hardcoded | Linux + cgroup v2. No key exists. | *none* | ✅ **DONE 2026-08-18** — own pack, `default_enabled: false`, gated on `Honored` (its record is a pack's, so the origin gate is live). `yolo-cglimit` is opt-in, as ruled |
 | **host nix daemon** | mounted by the run pipeline | the socket exists on the host | *none* | **stays ungated** (OQ-A11) — image infrastructure, not a capability a jail reaches for; gating it is a `--no-nix` feature |
 | a user's own | `loopholes:` config block | `enabled` defaults true | `loopholes.<name>.*` | unchanged |
 
@@ -237,6 +245,16 @@ Chasing "how would a workspace enable this?" turns up something worse than a mis
 `host_processes.visible` against `knownHostProcessesKeys`; `inherit.go:116-121` classifies both as
 *"RESERVED loophole names carried as their own top-level keys"*. So core's config schema names two
 specific loopholes.
+
+> [!NOTE]
+> **FIXED 2026-08-18, both of them, and the second one is what made it mean something.** Each key is
+> now a targeted REFUSAL naming its replacement (`validateHostProcessesRetired`,
+> `validateJournalRetired`), both are classified into NEITHER inherit scope so no generated inner
+> config can carry a key this build refuses, `knownHostProcessesKeys` and `journalModes` are gone
+> with their validators, and the `cgroup-delegate` name-refusal in `validate_loopholes.go` went too
+> — it would have made the delegate's own switch unwritable. Pinned as a PROPERTY rather than as
+> two absences (`TestCoresSchemaNamesNoLoopholeInEitherInheritScope`), so a third loophole name
+> creeping into core's schema fails even though nobody thought to name it in a test.
 
 **That is exactly the residue [`pack-code-separation.md`](pack-code-separation.md) exists to
 delete**, recurring one layer down: core does not know what an *agent* is any more, but it very much
@@ -501,6 +519,10 @@ tolerance that shrugs at it.
 them. Each gets an OQ; this section is the context they share.*
 
 **RULED (OQ-A6, 2026-08-18): they become manifest loopholes, and it happens IN this sprint.**
+*(BUILT 2026-08-18. `packs/journal` and `packs/cgroup-delegate` ship, `paths.BuiltinLoopholeNames`
+is deleted, the spawn loop's builtin-name skip is deleted, and core's config schema names no
+loophole. Three things the ruling did not anticipate and the implementation had to settle are
+recorded at the end of this section.)*
 *"Make them manifests, and do it as part of this work."* My leaning was to file it and convert them
 afterwards, on the grounds that the sprint was already carrying a preamble, a pack conversion, a
 schema change and a deletion. **Overruled on scope, and the reason is sound**: the unification is the
@@ -520,6 +542,29 @@ Three consequences to carry, since this is now in scope rather than filed:
 - **The sprint's honest size grows.** Recorded rather than argued: the reason I wanted this deferred
   does not disappear because the ruling went the other way, and a sprint that silently absorbs a
   fifth workstream is how the other four slip.
+
+> [!NOTE]
+> **Three things the build had to settle that the ruling did not name** (2026-08-18). None
+> reopens it; each is the kind of question only implementing it asks.
+>
+> - **The mode is a BOOLEAN, not the old `off | user | full` string.** The settings type set is
+>   closed and has no `enum`, so a `string` mode is unvalidatable by core — while `ParseRequest`
+>   narrows on the exact literal `"user"`, meaning *every other spelling behaves as full*. A
+>   config typo that silently widens host access is the shape this sprint deletes, so the
+>   declared key is `full: bool` and `off` is `enabled: false`. The three-valued vocabulary was
+>   two questions wearing one key.
+> - **The delegate's gate is `Honored`, not `Active` — and it is SHADOWABLE.** `brokerLoopholeActive`
+>   may stop at `Active()` because the broker's record is bundled under a reserved name; retiring
+>   this reservation means a pack a user installs can ship a `cgroup-delegate` loophole and turn
+>   yolo's own in-process delegate on. That is not a new hole — it is exactly what **OQ-A3**
+>   already admits (*"a fetched pack can declare itself on"*, bounded by the origin gate rather
+>   than by the declaration) — but it is a property the broker deliberately does **not** have, and
+>   the difference is the reservation. Worth knowing before OQ-A10 retires the broker's.
+> - **The retired config keys are not symmetric.** `host_processes` CONFIGURED a daemon;
+>   `journal` TURNED ONE ON. A silently-ignored `journal: "full"` leaves an agent that cannot read
+>   the host's logs with no thread back to the key, which is why both are refusals and why the
+>   `journal` message has to carry three instructions (select, enable, and — for `full` only —
+>   write the setting **in the user config**).
 
 *The original framing, kept because it is the argument for the ruling:*
 

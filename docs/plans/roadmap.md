@@ -216,15 +216,24 @@ one-line deliverable that is decided in all but name.
      `broker.BrokerLoopholeName` is appended **unconditionally**, so it, the
      `loopholesruntime.go` name special-case and the contribution must die in one commit or every
      claude user's launch breaks.
-  3. **`journal` and `cgroup-delegate` become manifest loopholes** (OQ-A6, OQ-K4), with
-     `cgroup-delegate` default-off (OQ-A4). This deletes **both** loophole names core still hardcodes
-     in its own config schema — the thing that makes the conversion mean something.
+  3. ~~**`journal` and `cgroup-delegate` become manifest loopholes**~~ — **DONE 2026-08-18** (OQ-A6,
+     OQ-K4, OQ-A4). Both ship as official packs, both default-OFF, and **core's config schema now
+     names no loophole at all**: the top-level `journal` key is refused beside `host_processes`, and
+     `paths.BuiltinLoopholeNames` is deleted along with the spawn loop's builtin-name skip and the
+     `loopholes.cgroup-delegate` name refusal. That last deletion is not tidying — the refusal would
+     have made the delegate's own switch unwritable.
+     ⚠ Two things worth carrying forward. The mode became a **boolean** (`full`, `scope: "user"`)
+     rather than the ported `off|user|full` string, because the closed type set has no `enum` and
+     `ParseRequest` narrows on the literal `"user"` — so every misspelling would have read as FULL.
+     And the delegate's gate is now **shadowable**: retiring its reservation means a pack you install
+     can turn it on, which is exactly what OQ-A3 already admits, and is a property the broker's
+     lookup deliberately does NOT have.
 
-  ⚠ **User-visible breaks and their release notes.** All of step 2's are written up in
-  📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md): the top-level `host_processes` key is refused, `audio`
-  needs a pack as well as a switch, and the broker singleton stops running on hosts that were not
-  using it. Still owed: the top-level `journal` key stops being recognised (which needs a migration
-  message, not silence). **Accepted cost:** `yolo-cglimit` stops working out of the box.
+  ⚠ **User-visible breaks and their release notes.** All FOUR are written up in
+  📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md): the top-level `host_processes` and `journal` keys are
+  refused, `audio` needs a pack as well as a switch, the broker singleton stops running on hosts that
+  were not using it, and **`yolo-cglimit` stops working out of the box** (the sprint's one accepted
+  cost, stated in OQ-A4 rather than discovered).
 
 ---
 
@@ -329,11 +338,14 @@ designed through. Queued in 📦 above:
   withdrawal and OQ-A11's gate. **The broker's move is BLOCKED** on a mechanism gap found by trying
   it (§6.1 there): `publishes: "socket"` spawns a daemon per jail, and the broker is a host-wide
   singleton. ⚠ Its reservation still does not come free with the directory.
-- **`journal` and `cgroup-delegate` become manifest loopholes** (OQ-A6), with `cgroup-delegate`
-  default-off (OQ-A4). **Accepted cost:** `yolo-cglimit` stops working out of the box.
+- ~~**`journal` and `cgroup-delegate` become manifest loopholes**~~ — **DONE 2026-08-18** (OQ-A6,
+  OQ-A4). **Accepted cost, as ruled:** `yolo-cglimit` stops working out of the box.
 
-Both conversions remove core's last hardcoded loophole names, which is what makes this mean something
-rather than moving files around.
+Those two removed core's last hardcoded loophole names, which is what makes this mean something
+rather than moving files around. **What is left of the sprint is the broker alone** — one inhabitant
+in `bundled_loopholes/`, blocked on §6.1's mechanism gap rather than on a decision. Note what that
+means for OQ-BP4's finish line: the channel is down to one, but "no inhabitants" is not reached, and
+the last reservation (`broker.BrokerLoopholeName`) is the one that does not retire itself.
 
 📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) — four of its six questions are answered;
 **OQ-BP5** (build step vs download-only) and **OQ-BP6** (may a fetched pack ship a host-side binary?)
