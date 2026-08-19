@@ -136,7 +136,7 @@ can reach a host daemon, so silence is the strict answer; a key a workspace
 `yolo-jail.jsonc` may set has to say `"scope": "workspace"` out loud. 📄
 [`pack-config-keys.md`](design/pack-config-keys.md).
 
-### ⚠️ Agent CLIs no longer update themselves
+### ⚠️ npm-installed agent CLIs no longer update themselves
 
 **What changed.** A pack's `program via npm` — every agent CLI yolo ships (`pi`, `copilot`,
 `codex`, `opencode`) — used to keep itself current. Its launcher polled the npm registry on the
@@ -162,6 +162,19 @@ so on the host there is nothing to refresh (it says so rather than doing nothing
 
 A pack that pins its own version (`"package": "@scope/tool@1.2.3"`) is unaffected in both
 directions: it never polled, and `update` honours the pin rather than overriding it.
+
+> [!IMPORTANT]
+> **`claude` and `agy` are NOT covered by this, and the heading was narrowed to say so.** They are
+> declared `program via installer`, not `via npm`, and that launcher is untouched: it still runs the
+> vendor's own updater (`"$REAL_BIN" install`) on the first invocation after a boot and hourly after
+> that. Measured in a development jail on 2026-08-18 — four `claude` binaries dating from June to
+> July, ~250 MB each, none of them installed by a `yolo` command.
+>
+> This is a **gap, not a decision**. Two reasons it was not simply closed alongside the npm half:
+> an `installer` declaration has **no version or digest field at all**, so there is nothing yolo could
+> pin even if it wanted to; and the updater belongs to the vendor, so suppressing it is a different
+> act from declining to run one ourselves. Which of those to do is being worked out in
+> [`program-delivery.md`](design/program-delivery.md).
 
 **Why.** *"I don't want magical evergreen npm packages."* A binary that changes between two
 invocations with nobody present is a silent-change path that no pin, lockfile or approval prompt
