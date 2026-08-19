@@ -181,6 +181,19 @@ there is no sync step.
   never match a darwin eval). **`git add` before rebuilding** — nix sees tracked
   files only, so an untracked new file moves neither side and the check reports a
   false "matches" (same trap as nested-jail verification).
+- **A test that pins the CALLEE while the CALL SITE is unpinned is not a test**, and this
+  repo has shipped that shape five times. Two spellings of it:
+  - the test exercises a function directly and nothing fails when its production
+    caller is deleted — so the feature can be switched off wholesale with the unit
+    gate green (measured: patching `hostLoopbackPlanFor` changed nothing, because
+    the shared-namespace path never calls it);
+  - the test asserts the SENTENCE a comment makes rather than the system —
+    `packsurfaces_test.go` said *"the JAIL loader trusts the staged tree (the host
+    already applied the gate)"* and then bypassed the jail loader, so it verified
+    the assumption instead of the behaviour, and the gate was unenforced for months.
+  When adding a test, ask: **does it fail if I delete the call site?** If not, add the
+  one that does. Adversarial mutation runs in this repo find this class more often
+  than they find wrong logic.
 - **No agent tests.** Automated tests must never start `claude`/`copilot`/
   `codex`/etc. interactively or make API calls. `--version` probes only.
 - **Nested-jail verification is mandatory** for `cmd/` and `internal/` changes:
