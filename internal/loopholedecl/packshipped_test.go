@@ -10,6 +10,7 @@ package loopholedecl_test
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -376,27 +377,42 @@ func TestPackShippedErrorCarriesTheProblems(t *testing.T) {
 	}
 }
 
-// THE LAST BUNDLED MANIFEST IS NOW INSIDE THE SUBSET, and that is a measured
-// milestone rather than a tidy-up — which is why this test asserts it deliberately
-// instead of quietly losing its only name.
+// EVERY MANIFEST YOLO SHIPS IS INSIDE THE SUBSET, which stopped being a milestone
+// and became a totality on 2026-08-19 — and the name of this test changed with it.
 //
-// It used to say the opposite. `claude-oauth-broker` published its own endpoint
-// file (`publishes` defaulting to "endpoint"), which the pack-shipped subset
-// refuses in every spelling INCLUDING the default, so the manifest could not move
-// into a pack at all — the blocker docs/design/broker-as-a-pack.md §6.1 was written
-// about. Flipping it to `publishes: "socket"` + `scope: "host"` removed the last
-// violation, and what this test now pins is that the removal STAYS removed: the
-// next commit in the sequence is the one that relocates this manifest into
-// `packs/claude`, and `LoadPackLoophole` applies exactly these rules at load, so a
-// regression here would surface there as a claude user's loophole silently going
-// missing rather than as a decode error anyone reads.
+// It was TestBundledManifestsAreInsideThePackShippedSubset, iterating one hardcoded
+// name, and both halves of that were already false when it landed: there is no
+// bundled channel left to have manifests in (docs/design/broker-as-a-pack.md
+// OQ-BP4, same sprint), and a list of one is a whitelist rather than a rule. It
+// drives `shippedManifestHome` now, which TestShippedManifestHomeIsTotal forces to
+// cover every loophole in the pack embed — so a NEW shipped manifest is judged by
+// this bar the moment it gets its row.
 //
-// The two departures before it were conversions rather than relaxations of the
-// rule: `host-processes` left by declaring publishes:"socket" and then moving into
-// a pack; `audio` left on 2026-08-18, when OQ-LP14 withdrew the bind-host path rule
-// and the remaining three refusals each got a fix the manifest could take.
-func TestBundledManifestsAreInsideThePackShippedSubset(t *testing.T) {
-	for _, name := range []string{"claude-oauth-broker"} {
+// WHAT THE BAR IS FOR. `LoadPackLoophole` applies exactly these rules at load, and
+// every shipped manifest is now read through it (loopholes.TestShippedManifestsParse
+// pins that). A refused pack loophole does not error at launch — it goes MISSING, no
+// daemon, no endpoint, no env var, no row in `yolo loopholes list` — so a manifest
+// that drifts outside the subset ships as "the feature silently does nothing", and
+// for `claude-oauth-broker` that is a jail with no serialized credential refresh.
+//
+// The history each row carries, because the subset is a rule these manifests
+// predate rather than one that was ever relaxed for them: `claude-oauth-broker`
+// published its own endpoint file (`publishes` defaulting to "endpoint", which the
+// subset refuses in every spelling INCLUDING the default) and that was the blocker
+// §6.1 was written about — `publishes: "socket"` + `scope: "host"` removed it;
+// `host-processes` left the same way; `audio` left on 2026-08-18, when OQ-LP14
+// withdrew the bind-host path rule and its remaining three refusals each got a fix
+// the manifest could take.
+func TestShippedManifestsAreInsideThePackShippedSubset(t *testing.T) {
+	if len(shippedManifestHome) == 0 {
+		t.Fatal("shippedManifestHome is empty, so this test would assert over nothing")
+	}
+	names := make([]string, 0, len(shippedManifestHome))
+	for name := range shippedManifestHome {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join("/loopholes", name)
 			m, err := loopholedecl.Decode(shippedManifest(t, name), dir)
@@ -405,9 +421,10 @@ func TestBundledManifestsAreInsideThePackShippedSubset(t *testing.T) {
 			}
 			problems := m.PackShippedProblems(loopholedecl.ManifestPath(dir))
 			if len(problems) != 0 {
-				t.Errorf("%s is OUTSIDE the pack-shipped subset: %v\nThat is what blocks it "+
-					"from moving into packs/claude, and the fix is in the manifest rather "+
-					"than in this test.", name, problems)
+				t.Errorf("%s is OUTSIDE the pack-shipped subset: %v\nLoadPackLoophole applies "+
+					"these rules at load and DROPS what fails them, so this ships as the "+
+					"loophole silently doing nothing. The fix is in the manifest rather than "+
+					"in this test.", name, problems)
 			}
 		})
 	}
