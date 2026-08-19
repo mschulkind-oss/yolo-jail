@@ -167,25 +167,28 @@ func TestMalformedPlatformsIsRefusedOnTheTolerantPath(t *testing.T) {
 	}
 }
 
-// The bundled loopholes declare no `platforms`, so they are supported everywhere and
+// The shipped loopholes declare no `platforms`, so they are supported everywhere and
 // gate exactly as they did. `audio` is the interesting one: it is Linux-only in fact
 // and says so through `requires.file_exists` on a Linux socket path, which is the
 // PROBE. Migrating it to `platforms` is a behaviour change to the audio loophole and
 // belongs with whoever owns that migration, not with the field.
+//
+// The set is shippedLoopholes, which follows a manifest that changes homes — a
+// conversion to a pack must not quietly drop a name from this walk.
 func TestBundledLoopholesDeclareNoPlatforms(t *testing.T) {
-	for _, name := range []string{"audio", "claude-oauth-broker", "host-processes"} {
-		lp, err := LoadLoophole(filepath.Join(withRepoBundled(t), name))
+	for _, s := range shippedLoopholes {
+		lp, err := LoadLoophole(shippedLoopholeModule(t, s.name, s.pack))
 		if err != nil {
-			t.Fatalf("%s: %v", name, err)
+			t.Fatalf("%s: %v", s.name, err)
 		}
 		if lp.PlatformsSet {
-			t.Errorf("%s declares platforms=%v; the bundled set is untouched by this field "+
+			t.Errorf("%s declares platforms=%v; the shipped set is untouched by this field "+
 				"(audio's Linux-onlyness is a `requires` probe, and migrating it is its own change)",
-				name, lp.Platforms)
+				s.name, lp.Platforms)
 		}
 		if !lp.SupportedHere() {
 			t.Errorf("%s reports unsupported on %s/%s with no declaration",
-				name, runtime.GOOS, runtime.GOARCH)
+				s.name, runtime.GOOS, runtime.GOARCH)
 		}
 	}
 }

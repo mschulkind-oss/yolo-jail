@@ -18,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
@@ -477,10 +478,16 @@ func TestFrontedServiceComesUpBehindFront(t *testing.T) {
 	}
 }
 
-// TestBundledHostProcessesRunsBehindTheFront drives the REAL bundled
+// TestBundledHostProcessesRunsBehindTheFront drives the REAL shipped
 // host-processes record — DISCOVERED, not hand-built, so the manifest's own argv
 // and its publishes/preamble values are on the path — through the spawn, and
 // pins the compatibility claim the flip rests on rather than arguing it.
+//
+// It discovers through PACK MODULES since 2026-08-18: the manifest moved out of
+// `bundled_loopholes/` into the official `host-processes` pack, so `IncludeBundled`
+// no longer finds it. Nothing else about the record changed, which is the point —
+// the same manifest, read through the pack loader (hence the pack-shipped subset),
+// still spawns and still answers.
 //
 // WHAT THE CLAIM IS: nothing jail-facing moves. The env var name, the in-jail
 // path, the endpoint leaf in the mounted services dir and therefore cmd/yolo-ps
@@ -512,13 +519,14 @@ func TestBundledHostProcessesRunsBehindTheFront(t *testing.T) {
 	for _, cand := range loopholes.Discover(loopholes.DiscoverOptions{
 		IncludeBundled:  true,
 		IncludeDisabled: true,
+		PackModules:     []loopholes.PackModule{shippedHostProcessesModule(t)},
 	}) {
 		if cand.Name == "host-processes" {
 			lp = cand
 		}
 	}
 	if lp == nil || lp.HostDaemon == nil {
-		t.Fatal("the bundled host-processes loophole did not discover with a host_daemon")
+		t.Fatal("the shipped host-processes loophole did not discover with a host_daemon")
 	}
 	if lp.HostDaemon.Publishes != loopholes.PublishesSocket {
 		t.Fatalf("publishes = %q; the manifest flip did not survive load", lp.HostDaemon.Publishes)
@@ -1254,4 +1262,27 @@ func TestExternalServiceReportsCleanExitWithNoService(t *testing.T) {
 			t.Errorf("warning %q does not carry %q", buf.String(), want)
 		}
 	}
+}
+
+// shippedHostProcessesModule locates the official `host-processes` pack's loophole
+// module, materialized from the binary's own embed.
+//
+// The EMBED rather than the repo tree, matching what the launch path stages: a test
+// that walked packs/ would pass in this checkout and say nothing about the manifest a
+// release carries. HostExecApproved is true because an embedded pack's origin carries
+// yolo's own authority — the same answer packLoopholeModules gives it.
+func shippedHostProcessesModule(t *testing.T) loopholes.PackModule {
+	t.Helper()
+	for _, p := range packload.Embedded() {
+		if p.Name != "host-processes" {
+			continue
+		}
+		decls := packLoopholeDecls([]*packload.Pack{p})
+		if len(decls) != 1 {
+			t.Fatalf("the host-processes pack declares %d loopholes, want 1", len(decls))
+		}
+		return loopholes.PackModule{Dir: decls[0].Dir, HostExecApproved: true}
+	}
+	t.Skip("no embedded packs registered in this test binary")
+	return loopholes.PackModule{}
 }

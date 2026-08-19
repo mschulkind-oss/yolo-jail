@@ -399,10 +399,14 @@ func TestBundledManifestsAreOutsideThePackShippedSubset(t *testing.T) {
 // the comment above asks for, rather than a name quietly dropped from a loop.
 //
 // The flip to publishes:"socket" removed this manifest's ONE subset violation, so
-// it is now shippable by a pack unchanged. Nothing here selects or moves it — it is
-// still bundled and still active by default — but the property is what a later move
-// to packs/ depends on, and it is worth one assertion now so that move is a file
-// rename rather than a redesign.
+// it became shippable by a pack unchanged — and on 2026-08-18 it MOVED, into the
+// official `host-processes` pack (bundledManifest now reads it from there).
+//
+// The assertion is kept, and it is worth more after the move than before: this is
+// the property that made the move a file rename rather than a redesign, and it is
+// what a change to either the subset or the manifest would have to break for the
+// pack to start refusing at load — where a refused loophole does not error, it
+// simply goes missing.
 //
 // `requires.command_on_path: "ps"` is part of what is being asserted: the subset
 // scopes `requires.file_exists` and leaves `command_on_path` alone, because it asks

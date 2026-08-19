@@ -1,6 +1,17 @@
-// Bundled yolo-jail loophole — allowlisted read-only view of host
-// processes.  See internal/hostprocesses for the daemon and
-// cmd/yolo-ps for the jail-side CLI wrapper.
+// The `host-processes` loophole, shipped by the OFFICIAL `host-processes` pack —
+// an allowlisted read-only view of host processes.  See internal/hostprocesses for
+// the daemon and cmd/yolo-ps for the jail-side CLI wrapper, both of which stay
+// BAKED: an official pack may name a baked client, so nothing here waits on the
+// pack-shipped-binary capability (broker-as-a-pack.md §12).
+//
+// It was `bundled_loopholes/host-processes/` until 2026-08-18.  It is the sprint's
+// PROVING GROUND (broker-as-a-pack.md §12) — the conversion with none of the
+// broker's complexity: no relay, no CA, no intercept, no credential file.  Four of
+// its five changes shipped earlier; this file is change 4, and change 5 is the
+// verification that the pack-shipped subset accepts the manifest UNCHANGED.  It
+// does: `publishes: "socket"` was already the declaration, `requires.command_on_path`
+// is not path-scoped, and there is no `jail_env`, no bind mount and no `ca_cert` for
+// the subset to refuse.  The only edits below are `default_enabled` and this header.
 {
   "name": "host-processes",
   "description": "Allowlisted view of host processes (yolo-ps). Visibility is controlled by this loophole's own `visible` setting.",
@@ -8,9 +19,9 @@
   // THE LOOPHOLE OWNS ITS CONFIG KEYS NOW (docs/design/pack-config-keys.md).
   // These used to be the top-level `host_processes` block in core's own config
   // schema — one of the two loophole names core hardcoded, and the thing that made
-  // "convert the loophole to a pack" separation in appearance only.  The old key
-  // still WORKS (it is folded in at launch and warns, naming this spelling); it is
-  // deleted when this loophole becomes a pack.
+  // "convert the loophole to a pack" separation in appearance only.  The old key is
+  // now REFUSED, naming this spelling: it was honored through the step that moved
+  // the keys and deleted by the step that moved the manifest, which is this one.
   //
   // Two behaviours moved with them, and both are the point rather than side effects:
   //
@@ -46,20 +57,28 @@
       "description": "ps -o columns returned to the jail"
     }
   },
-  // `enabled` renamed, default flipped, behaviour deliberately UNCHANGED for now
-  // (docs/design/loophole-activation.md OQ-A9).  This is a RENAME COMMIT, so every
-  // manifest keeps the effective state it had except `audio`, which R4 names.
+  // OFF, and this is the commit §1.3's table was waiting for
+  // (docs/design/loophole-activation.md R1/R4, the `host-processes` row: "own pack,
+  // `default_enabled: false`").  The rename commit kept it TRUE deliberately —
+  // flipping it before the pack existed would have taken the capability away with
+  // nothing but a config key to restore it.  Now the restore is the thing that turns
+  // it on: `packs: ["host-processes"]` in your user config.
   //
-  // §1.3's table does say this ends at `default_enabled: false` — but that lands with
-  // the PACK CONVERSION, where "off" is paid for by `packs: ["host-processes"]` being
-  // the thing that turns it on.  Flipping it here, before the pack exists, would take
-  // the capability away with nothing to turn it back on except a config key, which is
-  // the going-dark OQ-A2 accepted for a *converted* loophole and not for one mid-move.
+  // So this loophole has THREE gates, and OQ-A5 keeps all three on purpose because
+  // they answer different questions: select the pack (is it installed), enable the
+  // loophole (is it running), list the names (what may it show).  Collapsing the
+  // first two would mean a non-empty `visible` list SILENTLY STARTING A HOST
+  // DAEMON — presence-activation wearing a different hat.
   //
-  // Note what is already true and keeps this honest in the meantime: the daemon shows
-  // NOTHING until the workspace lists names in the `visible` setting above, which
-  // defaults to empty (§1.2a).  Enabled here is a daemon with an empty allowlist.
-  "default_enabled": true,
+  // Written out rather than omitted even though absent already means false: this is
+  // the manifest a reader checks when they wonder why `yolo-ps` stopped working, and
+  // a key that is not there answers nothing.  The switch is
+  // `"loopholes": {"host-processes": {"enabled": true}}`.
+  //
+  // R4's subject is HOST ACCESS, and this loophole is nothing BUT host access — a
+  // daemon on the real machine reading the real process table.  Selecting a pack
+  // whose entire content is that daemon is not, on its own, the request to run it.
+  "default_enabled": false,
   // ``ps`` is a POSIX staple on any host that can run yolo-jail, but
   // gating here keeps us honest — if something pathological has it
   // missing, the loophole goes inactive rather than crashing.

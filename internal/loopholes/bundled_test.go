@@ -32,6 +32,32 @@ func withRepoBundled(t *testing.T) string {
 	return dir
 }
 
+// shippedLoopholes names every loophole yolo SHIPS and where its module dir lives,
+// so a test over "yolo's own loopholes" keeps meaning that while the sprint empties
+// `bundled_loopholes/` one conversion at a time (broker-as-a-pack.md OQ-BP4).
+//
+// An empty pack name means the bundled directory. `host-processes` moved into the
+// official pack of the same name on 2026-08-18; the rows below are the only place a
+// further move has to be recorded.
+var shippedLoopholes = []struct{ name, pack string }{
+	{"audio", ""},
+	{"claude-oauth-broker", ""},
+	{"host-processes", "host-processes"},
+}
+
+// shippedLoopholeModule resolves one shipped loophole's on-disk module directory.
+//
+// The REPO tree rather than an embed, unlike its loopholedecl twin, because these
+// tests drive LoadLoophole — which reads a directory, resolves {loophole_dir}
+// against it, and (for the broker) needs sibling files to exist.
+func shippedLoopholeModule(t *testing.T, name, pack string) string {
+	t.Helper()
+	if pack == "" {
+		return filepath.Join(withRepoBundled(t), name)
+	}
+	return filepath.Join(repoRootDir(t), "packs", pack, "loopholes", name)
+}
+
 // TestBundledBrokerNeverMountsItsPrivateKey is the INVARIANT for issue #33,
 // pinned against the manifest that actually ships. The broker's state dir holds
 // the CA's private key; only ca.crt / server.crt / server.key are read in-jail
@@ -104,15 +130,14 @@ func TestBundledBrokerNeverMountsItsPrivateKey(t *testing.T) {
 }
 
 func TestBundledManifestsParse(t *testing.T) {
-	dir := withRepoBundled(t)
-	for _, name := range []string{"audio", "claude-oauth-broker", "host-processes"} {
-		lp, err := LoadLoophole(filepath.Join(dir, name))
+	for _, s := range shippedLoopholes {
+		lp, err := LoadLoophole(shippedLoopholeModule(t, s.name, s.pack))
 		if err != nil {
-			t.Errorf("load %s: %v", name, err)
+			t.Errorf("load %s: %v", s.name, err)
 			continue
 		}
-		if lp.Name != name {
-			t.Errorf("%s: name = %q", name, lp.Name)
+		if lp.Name != s.name {
+			t.Errorf("%s: name = %q", s.name, lp.Name)
 		}
 	}
 }

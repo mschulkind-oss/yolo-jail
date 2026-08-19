@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 )
 
 // captureStdout redirects os.Stdout for the duration of body and returns what was
@@ -47,13 +49,33 @@ func captureStdout(t *testing.T, body func()) string {
 	return out
 }
 
-// A workspace enabling a loophole that IS installed on this machine (host-processes
-// is bundled, hence always resolvable) must dump clean and exit 0 — the same verdict
-// `yolo check` gives it.
+// A workspace enabling a loophole that IS installed on this machine must dump clean
+// and exit 0 — the same verdict `yolo check` gives it.
+//
+// "Installed" USED TO MEAN "bundled, hence unconditionally resolvable", and this test
+// named `host-processes` for exactly that reason. It stopped being true on 2026-08-18:
+// that loophole ships in an official PACK now, so it resolves only for a config that
+// SELECTS the pack — which is what the user config below does, and what makes this the
+// stronger version of the same assertion. The lazy pack-module resolver
+// (internal/cli/run's init) is the thing under test: without it, selecting the pack and
+// enabling its loophole would still warn "not installed on this machine" and exit 1.
 func TestConfigDumpResolvesInstalledLoopholes(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// The record is process-wide by design (it IS the convergence point), so a
+	// recording leaked in from another test would decide this one.
+	loopholes.ResetPackModules()
+	t.Cleanup(loopholes.ResetPackModules)
+
+	userCfg := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(userCfg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userCfg, "config.jsonc"),
+		[]byte(`{"packs": ["host-processes"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	ws := t.TempDir()
 	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"),
 		[]byte(`{"loopholes": {"host-processes": {"enabled": true}}}`), 0o644); err != nil {
@@ -66,6 +88,6 @@ func TestConfigDumpResolvesInstalledLoopholes(t *testing.T) {
 		t.Errorf("config-dump rc = %d, want 0 for a config the launch path accepts:\n%s", rc, out)
 	}
 	if strings.Contains(out, "not installed on this machine") {
-		t.Errorf("a bundled loophole was reported as uninstalled:\n%s", out)
+		t.Errorf("a SELECTED pack's loophole was reported as uninstalled:\n%s", out)
 	}
 }

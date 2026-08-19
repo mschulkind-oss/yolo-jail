@@ -1,0 +1,9 @@
+{
+  "contributes": [
+    {
+      "from": "loopholes/host-processes",
+      "kind": "loophole"
+    }
+  ],
+  "name": "host-processes"
+}

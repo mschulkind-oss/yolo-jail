@@ -17,14 +17,18 @@
 // build is hermetic and only sees the paths that fileset names, so a pack dir missing
 // from it VANISHES from the image while `go build` stays green.
 //
-// NOT EVERY OFFICIAL PACK IS AN AGENT. `audio` ships a LOOPHOLE (the 15th contribution
-// kind) and installs no CLI at all — it is the dogfood for
+// NOT EVERY OFFICIAL PACK IS AN AGENT. `audio` and `host-processes` ship LOOPHOLES (the
+// 15th contribution kind) and install no CLI at all — they are the dogfood for
 // docs/design/loophole-packaging.md §7 / OQ-LP11, whose prize is that "AGENTS ARE PACKS"
 // becomes true of loopholes too. Anything here that reasons about "the six agent packs"
 // (a comment, a test's name list) is describing the agent SUBSET, not this list.
+//
+// `host-processes` arrived by MOVING here from bundled_loopholes/ (2026-08-18), which is
+// the one thing to hold on to when reading its manifest: a name that leaves that directory
+// also leaves the reserved set, because the reservation is read off that embed.FS.
 package packs
 
 import "embed"
 
-//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:audio
+//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:audio all:host-processes
 var FS embed.FS

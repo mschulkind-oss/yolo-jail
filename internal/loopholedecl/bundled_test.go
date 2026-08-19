@@ -8,16 +8,48 @@ import (
 
 	bundledloopholes "github.com/mschulkind-oss/yolo-jail/bundled_loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/packs"
 )
+
+// shippedManifestHome records WHICH EMBED each manifest yolo ships lives in, and it
+// is a table rather than a probe because the answer is the sprint's whole subject:
+// `bundled_loopholes/` is being emptied one conversion at a time
+// (docs/design/broker-as-a-pack.md OQ-BP4), so a manifest that changes homes must
+// change a line here rather than be found wherever it happens to be.
+//
+// An empty pack name means the bundled embed. When the last one goes, this table
+// loses its second column and the bundled reader with it.
+var shippedManifestHome = map[string]string{
+	"audio":               "",
+	"claude-oauth-broker": "",
+	"host-processes":      "host-processes",
+}
 
 // bundledManifest reads one shipped manifest out of the embedded tree — the same
 // source internal/loopholes reads through BundledLoopholesDir, so this test holds
 // for an installed binary with no checkout, not just for this working copy.
 func bundledManifest(t *testing.T, name string) []byte {
 	t.Helper()
+	if pack := shippedManifestHome[name]; pack != "" {
+		return packLoopholeManifest(t, pack, name)
+	}
 	data, err := fs.ReadFile(bundledloopholes.FS, name+"/"+loopholedecl.ManifestName)
 	if err != nil {
 		t.Fatalf("embedded manifest for %s: %v", name, err)
+	}
+	return data
+}
+
+// packLoopholeManifest reads a loophole manifest out of an OFFICIAL PACK's embed.
+//
+// The pack embed rather than the on-disk tree, for the same reason bundledManifest
+// reads its own: an installed binary carries the packs and no checkout, so a test
+// that walked packs/ would pass here and say nothing about what ships.
+func packLoopholeManifest(t *testing.T, pack, name string) []byte {
+	t.Helper()
+	data, err := fs.ReadFile(packs.FS, pack+"/loopholes/"+name+"/"+loopholedecl.ManifestName)
+	if err != nil {
+		t.Fatalf("embedded manifest for pack %s loophole %s: %v", pack, name, err)
 	}
 	return data
 }
@@ -27,6 +59,10 @@ func bundledManifest(t *testing.T, name string) []byte {
 // including no unknown-key complaint about `"version": 1`, which every one of them
 // declares and nothing reads. If the strict decoder rejected a shipped manifest,
 // `yolo pack lint` would fail on yolo's own loopholes.
+//
+// "Shipped" is deliberately not "bundled" any more: `host-processes` moved into an
+// official pack on 2026-08-18 and is read through shippedManifestHome above. The
+// acceptance bar is about what a release CARRIES, which both embeds are.
 func TestBundledManifestsDecodeStrictly(t *testing.T) {
 	// The declared default, PER MANIFEST, because after OQ-A9 they no longer agree —
 	// and each disagreement is a ruling rather than an accident:
@@ -36,10 +72,11 @@ func TestBundledManifestsDecodeStrictly(t *testing.T) {
 	//   claude-oauth-broker   OQ-A1. It must not gain a way to be silently off; a
 	//                         jail-only claude user without it races the single-use
 	//                         refresh token rather than merely losing a feature.
-	//   host-processes        unchanged pending the pack conversion (§1.3 has it
-	//                         ending at false, paid for by `packs:` selection). Its
-	//                         capability is empty anyway until the workspace lists
-	//                         names in `host_processes.visible` (§1.2a).
+	//   host-processes        R4 as of the pack conversion (2026-08-18). §1.3's table
+	//                         had it ending at false, paid for by `packs:` selection,
+	//                         and this is the commit that pays: the pack is what turns
+	//                         it back on, so the capability is no longer removed with
+	//                         nothing to restore it.
 	//
 	// A table rather than one blanket assertion because the blanket one — "every
 	// bundled manifest declares enabled:true" — is what this change had to delete, and
@@ -47,7 +84,7 @@ func TestBundledManifestsDecodeStrictly(t *testing.T) {
 	wantDefaultEnabled := map[string]bool{
 		"audio":               false,
 		"claude-oauth-broker": true,
-		"host-processes":      true,
+		"host-processes":      false,
 	}
 	for _, name := range []string{"audio", "claude-oauth-broker", "host-processes"} {
 		t.Run(name, func(t *testing.T) {
