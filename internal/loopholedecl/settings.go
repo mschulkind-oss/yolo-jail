@@ -77,6 +77,15 @@ var validSettingScopes = []string{SettingScopeUser, SettingScopeWorkspace}
 // than discoverable by reading core.
 const DefaultSettingScope = SettingScopeUser
 
+// SettingsFileName is the basename of the resolved settings file yolo writes into a
+// loophole's state dir — the file {settings} names.
+//
+// Spelled HERE, in the schema package, rather than only where it is written
+// (internal/loopholes), for the reason JailLoopholeDir is: the refusal below has to
+// name it, and a literal spelled in two packages is a literal that drifts. The write
+// side aliases this constant rather than repeating the string.
+const SettingsFileName = "settings.json"
+
 // settingKeyRe bounds a setting's KEY NAME. Lowercase snake_case, matching how every
 // config key in this project is already spelled (`visible`, `fields`,
 // `default_enabled`) — a closed shape rather than a general identifier, because these
@@ -314,6 +323,69 @@ func CoerceSettingValue(typ string, v any) (any, string) {
 	}
 	// Unreachable: every caller checked the type against validSettingTypes first.
 	return nil, "has an unknown declared type " + pytext.Repr(typ)
+}
+
+// refuseSettingsFileCrossingIntoTheJail keeps the RESOLVED settings file host-side.
+//
+// # The leak this closes, which the mount rule and the write rule disagreed about
+//
+// yolo writes the resolved values into the loophole's own state dir, 0600, on the
+// grounds that "nothing in the schema says a setting is not a credential". The MOUNT
+// rule says something else: a loophole with a `jail_daemon` gets its state dir
+// bind-mounted into the container, and an ABSENT `state_files` means the WHOLE dir
+// crosses (internal/loopholes/runtime.go — the historical whole-directory mount,
+// narrowed by issue #33 only for manifests that name their files). So a manifest
+// declaring BOTH `settings` and a `jail_daemon` published its settings file to the
+// jail, and 0600 is no barrier at all there: a jail's agent runs as UID 0 by design.
+//
+// That is the confidentiality half of `scope: "user"` defeated by a different rule.
+// A key is declared user-scope precisely to keep its value out of a file the agent
+// can reach; handing the agent the RESOLVED value read-only gives it the value
+// anyway, just one directory over.
+//
+// # Why a refusal at load rather than an exclusion at mount time
+//
+// Because the alternative is a rule the author cannot see. Silently subtracting one
+// file from a mount they declared would make `state_files: absent` mean "everything
+// except the file yolo happens to write", which is exactly the kind of implicit
+// carve-out this package refuses elsewhere. Naming the file in `state_files` is
+// already the least-privilege spelling issue #33 introduced, so the fix is to require
+// it — and the manifest then STATES what crosses instead of inheriting it.
+//
+// Both directions are refused: the whole-dir mount (no `state_files`), and a
+// `state_files` that names the settings file outright. Fail-closed either way — the
+// manifest does not load, so loadFromDir warns and the loophole vanishes, taking its
+// daemon and its values with it.
+func refuseSettingsFileCrossingIntoTheJail(manifestPath string, declared int, hasJailDaemon bool, stateFiles []string) error {
+	if declared == 0 || !hasJailDaemon {
+		// No settings means no file to leak; no jail daemon means no state mount at
+		// all, which is why `host-processes` and `journal` — settings and no jail
+		// daemon — are untouched by this rule.
+		return nil
+	}
+	if len(stateFiles) == 0 {
+		return Errorf(
+			"%s: this manifest declares 'settings' AND a 'jail_daemon', and with no"+
+				" 'state_files' the WHOLE per-loophole state dir crosses into the container —"+
+				" including %s, the resolved settings file yolo writes there. A setting"+
+				" declared scope '%s' is declared that way to keep its value out of the"+
+				" agent's reach, and a jail's agent runs as UID 0, so the file's mode protects"+
+				" nothing. List the files that must cross in 'state_files'",
+			manifestPath, pytext.Repr(SettingsFileName), SettingScopeUser)
+	}
+	for _, rel := range stateFiles {
+		if rel == SettingsFileName {
+			return Errorf(
+				"%s: 'state_files' names %s, the resolved settings file yolo writes for this"+
+					" loophole — it must not cross into the container. The values in it are"+
+					" whatever a user's config supplied, a jail's agent runs as UID 0, and a"+
+					" key declared scope '%s' would be readable by the very file-editor it was"+
+					" scoped away from; a jail-side process gets its configuration through"+
+					" 'jail_env'",
+				manifestPath, pytext.Repr(SettingsFileName), SettingScopeUser)
+		}
+	}
+	return nil
 }
 
 // SettingTypes returns the closed type set, sorted. Exported so a validator in

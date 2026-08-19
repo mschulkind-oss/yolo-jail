@@ -278,3 +278,77 @@ func TestCoerceSettingValueRefusesTruthyCoercion(t *testing.T) {
 }
 
 func errFrom(_ *loopholedecl.Manifest, err error) error { return err }
+
+// TestSettingsFileMayNotCrossIntoTheJail is a REGRESSION test: the settings file
+// used to reach the container, and nothing said so.
+//
+// internal/loopholes writes the resolved values into the loophole's state dir at
+// 0600, justified by "nothing in the schema says a setting is not a credential". The
+// MOUNT rule contradicted it: a loophole with a `jail_daemon` gets that state dir
+// bind-mounted into the container, and an ABSENT `state_files` means the WHOLE dir
+// crosses — settings file included. 0600 protects nothing there, because a jail's
+// agent runs as UID 0.
+//
+// The value at stake is exactly the one `scope: "user"` exists to protect: a key is
+// declared user-scope to keep it out of a file the agent can WRITE, and publishing
+// the RESOLVED value read-only hands the agent the same secret one directory over.
+//
+// Both spellings are refused, because both produce the mount: no `state_files` at
+// all, and a `state_files` naming the file outright.
+func TestSettingsFileMayNotCrossIntoTheJail(t *testing.T) {
+	decl := map[string]any{"token": map[string]any{"type": "string", "scope": "user"}}
+	jailDaemon := map[string]any{"cmd": []any{"{jail_loophole_dir}/d"}}
+
+	// 1. No state_files at all: the historical whole-directory mount.
+	err := errFrom(loopholedecl.Decode(
+		settingsManifest(t, decl, map[string]any{"jail_daemon": jailDaemon}), "/loopholes/acme"))
+	if err == nil || !strings.Contains(err.Error(), "state_files") {
+		t.Errorf("settings + jail_daemon with no state_files gave %v, want a refusal naming "+
+			"'state_files' — with it absent the whole state dir crosses, and the resolved "+
+			"settings file lives in it", err)
+	}
+
+	// 2. state_files naming the file: the same crossing, spelled out.
+	err = errFrom(loopholedecl.Decode(
+		settingsManifest(t, decl, map[string]any{
+			"jail_daemon": jailDaemon,
+			"state_files": []any{loopholedecl.SettingsFileName},
+		}), "/loopholes/acme"))
+	if err == nil || !strings.Contains(err.Error(), loopholedecl.SettingsFileName) {
+		t.Errorf("state_files naming the settings file gave %v, want a refusal naming it", err)
+	}
+
+	// 3. The legal shape: a jail daemon that declares which of its state files cross,
+	//    and does not name this one.
+	if _, err := loopholedecl.Decode(settingsManifest(t, decl, map[string]any{
+		"jail_daemon": jailDaemon,
+		"state_files": []any{"ca.crt"},
+	}), "/loopholes/acme"); err != nil {
+		t.Errorf("a jail daemon naming its own state files was refused: %v — the rule is "+
+			"about the settings file, not about having a jail daemon", err)
+	}
+
+	// 4. The two shapes the rule must NOT touch, and the reason it does not: with no
+	//    jail_daemon there is no state mount, which is exactly what `host-processes`
+	//    and `journal` are — settings, a host daemon, and nothing crossing.
+	if _, err := loopholedecl.Decode(
+		settingsManifest(t, decl, nil), "/loopholes/acme"); err != nil {
+		t.Errorf("settings with no jail_daemon was refused: %v", err)
+	}
+	if _, err := loopholedecl.Decode(settingsManifest(t, nil, map[string]any{
+		"jail_daemon": jailDaemon,
+	}), "/loopholes/acme"); err != nil {
+		t.Errorf("a jail_daemon declaring no settings was refused: %v — there is no settings "+
+			"file to keep out", err)
+	}
+}
+
+// TestSettingsFileNameIsSpelledOnce guards the alias: internal/loopholes writes the
+// file and this package refuses the mount that would carry it, so the two must agree
+// on its name by construction rather than by both being edited on the same day.
+func TestSettingsFileNameIsSpelledOnce(t *testing.T) {
+	if loopholedecl.SettingsFileName != "settings.json" {
+		t.Errorf("SettingsFileName = %q — the write side aliases this constant, so changing "+
+			"it moves the file; that is a deliberate act, not a rename", loopholedecl.SettingsFileName)
+	}
+}

@@ -206,6 +206,23 @@ allowlist changes on the next request — no relaunch, no gate, and the config d
 causal path at all. Reading a core-written file makes the value **launch-frozen**, which is a
 deliberate behaviour change and the subject of OQ-K3.
 
+> [!WARNING]
+> **The state dir is where the file lives, and the state dir is also a thing that CROSSES —
+> found 2026-08-18, adversarially.** A loophole with a `jail_daemon` gets its state dir
+> bind-mounted into the container, and an ABSENT `state_files` means the *whole directory*
+> crosses (the historical whole-dir mount, narrowed by issue #33 only for manifests that name
+> their files). So "core writes it into the loophole's state dir" quietly published the resolved
+> settings of any loophole that also ran a jail daemon — including a key declared `scope:
+> "user"`, whose entire purpose is to keep its value out of the agent's reach. The `0600` the
+> writer relies on is no barrier: a jail's agent runs as UID 0.
+>
+> The file stays in the state dir; what changed is that the combination is now **unrepresentable**.
+> A manifest declaring `settings` AND a `jail_daemon` must declare `state_files`, and may not
+> list the settings file in it — both refused at load, so the manifest fails and the loophole
+> vanishes rather than leaking (`loopholedecl.refuseSettingsFileCrossingIntoTheJail`, pinned by
+> `TestSettingsFileMayNotCrossIntoTheJail`). The alternative — excluding one file from a mount
+> the author declared — was rejected as a carve-out the author cannot see.
+
 ### 2.4 `enabled` stays core's, and OQ-A9 falls out
 
 `enabled` is **not** pack-declared — it is universal, and core declares it for every loophole. What

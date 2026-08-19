@@ -42,7 +42,12 @@ import (
 
 // SettingsFileName is the basename of the resolved settings file inside a
 // loophole's state dir.
-const SettingsFileName = "settings.json"
+//
+// An ALIAS rather than a second spelling: loopholedecl owns the literal because its
+// schema refusal has to name the file (refuseSettingsFileCrossingIntoTheJail), and
+// two packages spelling one filename is how the write side and the rule about it come
+// to disagree.
+const SettingsFileName = loopholedecl.SettingsFileName
 
 // SettingsFileFor returns the path {settings} resolves to for a loophole: a file in
 // its own per-loophole STATE dir.
@@ -120,8 +125,15 @@ func ResolveSettings(lp *Loophole, supplied *jsonx.OrderedMap) (*jsonx.OrderedMa
 // truncated file; the write goes to a temp name in the same dir and renames over,
 // so a reader sees the old bytes or the new ones. 0600 because the values are
 // whatever a user's config put there — nothing in the schema says a setting is not
-// a credential, and the state dir is host-side, single-user, and never mounted into
-// a jail unless `state_files` names the file (it must not name this one).
+// a credential.
+//
+// THE MODE IS NOT WHAT KEEPS IT OUT OF THE JAIL, and reading it that way was a live
+// defect until 2026-08-18. A jail's agent runs as UID 0, so a file the container can
+// see at all it can read. What keeps this one host-side is a SCHEMA rule: the state
+// dir crosses into a jail only for a loophole with a `jail_daemon`, and such a
+// manifest may no longer leave `state_files` absent (the whole-dir mount) or name
+// this file in it — loopholedecl.refuseSettingsFileCrossingIntoTheJail refuses both
+// at load. The mode is the host-side, single-user half of the story only.
 func WriteSettings(lp *Loophole, supplied *jsonx.OrderedMap) (string, []string, error) {
 	if lp == nil || len(lp.Settings) == 0 {
 		return "", nil, nil

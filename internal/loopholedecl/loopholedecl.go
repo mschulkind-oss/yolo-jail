@@ -581,6 +581,15 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 			return nil, err
 		}
 	}
+	// The settings FILE is held to the same host/container split as the token that
+	// names it, and this is the half a token check cannot see: the file crosses
+	// through the STATE MOUNT rather than through an argv. Placed after the token
+	// refusals so a manifest doing both is told about the token first — that is the
+	// mistake the author actually made.
+	if err := refuseSettingsFileCrossingIntoTheJail(
+		manifestPath, len(settings), jailDaemon != nil, stateFiles); err != nil {
+		return nil, err
+	}
 
 	// ABSENT MEANS OFF, and the default lives HERE rather than at any reader, which is
 	// what makes "a manifest that says nothing activates nothing" literally true
