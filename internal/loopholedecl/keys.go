@@ -40,6 +40,14 @@ const (
 	keyRequires       = "requires"
 	keyPlatforms      = "platforms"
 	keyServes         = "serves"
+	keySettings       = "settings"
+
+	// The `settings.<key>` DECLARATION keys (settings.go). `description` is shared
+	// with the top level and spelled once, which is the whole reason this block of
+	// constants exists.
+	keyType    = "type"
+	keyScope   = "scope"
+	keyDefault = "default"
 
 	keyCmd           = "cmd"
 	keyEnv           = "env"
@@ -151,8 +159,15 @@ var (
 		keyName, keyDescription, keyVersion, keyDefaultEnabled, keyTransport, keyLifecycle,
 		keyIntercepts, keyBrokerIP, keyCACert, keyJailEnv, keyDoctorCmd, keyHostDaemon,
 		keyJailDaemon, keyHostBindMounts, keyHostDevices, keyStateFiles, keyRequires,
-		keyPlatforms, keyServes,
+		keyPlatforms, keyServes, keySettings,
 	}
+	// settingDeclKeys is the census for ONE `settings.<key>` declaration. It is
+	// enforced by parseSettings and DELIBERATELY NOT descended into by
+	// unknownKeyNotes: every other census in this file has two voices (strict says
+	// "unknown key", tolerant says "ignoring unknown key"), and a settings
+	// declaration has exactly one — refusal, in both decoders. See parseSettings for
+	// why the version-boundary tolerance stops here.
+	settingDeclKeys = []string{keyType, keyScope, keyDefault, keyDescription}
 	// `preamble` is a host_daemon key and DELIBERATELY not a top-level one: it
 	// describes the connection yolo serves in FRONT of a daemon, so it says
 	// nothing for a transport:"none" loophole and nothing for a manifest with no

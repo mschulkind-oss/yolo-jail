@@ -260,6 +260,19 @@ type Manifest struct {
 	// the key (every third-party one written before it existed) behaves exactly as it
 	// did.
 	Serves []string
+	// Settings are the CONFIG KEYS this loophole owns — the mechanism that lets a
+	// pack declare a key instead of core naming it by hand
+	// (docs/design/pack-config-keys.md). A user supplies values under
+	// `loopholes.<name>.settings.<key>`; core validates them against these
+	// declarations and writes the resolved result to the file {settings} names.
+	//
+	// In DECLARATION order, which the settings file preserves — see settings.go for
+	// the type set, the per-key scope rule, and why an undecodable declaration is a
+	// refusal rather than a tolerated unknown.
+	//
+	// NIL AND EMPTY MEAN THE SAME THING: this loophole owns no config keys, which is
+	// every manifest written before the block existed.
+	Settings []Setting
 }
 
 // Decode parses and validates manifest bytes STRICTLY: an unknown key is
@@ -542,6 +555,32 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	if err != nil {
 		return nil, err
 	}
+	settings, err := parseSettings(manifestPath, getOrNil(data, keySettings))
+	if err != nil {
+		return nil, err
+	}
+
+	// The {settings} PLACEMENT rules, applied here rather than inside each field's
+	// parser because they need a fact no single field has: how many settings the
+	// manifest declared. Same shape as the two dir-token refusals — this field
+	// resolves on the host, that one inside the container, and a token in the wrong
+	// half is refused at load naming the fix.
+	if err := refuseSettingsTokenWithoutDeclaration(
+		manifestPath, "'doctor_cmd'", doctorCmd, len(settings)); err != nil {
+		return nil, err
+	}
+	if hostDaemon != nil {
+		if err := refuseSettingsTokenWithoutDeclaration(
+			manifestPath, "'host_daemon.cmd'", hostDaemon.Cmd, len(settings)); err != nil {
+			return nil, err
+		}
+	}
+	if jailDaemon != nil {
+		if err := refuseSettingsTokenInJailField(
+			manifestPath, "'jail_daemon.cmd'", jailDaemon.Cmd); err != nil {
+			return nil, err
+		}
+	}
 
 	// ABSENT MEANS OFF, and the default lives HERE rather than at any reader, which is
 	// what makes "a manifest that says nothing activates nothing" literally true
@@ -595,6 +634,7 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 		Platforms:      platforms,
 		PlatformsSet:   platformsSet,
 		Serves:         serves,
+		Settings:       settings,
 	}, nil
 }
 

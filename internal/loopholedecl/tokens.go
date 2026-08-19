@@ -28,6 +28,70 @@ const (
 // literal spelled in two packages is a literal that drifts.
 const TokenState = "{state}"
 
+// TokenSettings is the RESOLVED SETTINGS FILE token, legal in `host_daemon.cmd` and
+// `doctor_cmd`. It resolves (in internal/loopholes) to a JSON file under the
+// loophole's own state dir that YOLO WRITES after validating the user's values
+// against this manifest's `settings` declarations.
+//
+// # Why a path, and why this is allowed where an `env` map is not
+//
+// There was no channel at all from core to a loophole's host daemon — the manifest
+// spawns `--socket {socket}` and nothing else, and nothing set a config env var —
+// so delivering settings needed a new one, and the obvious one is forbidden:
+// `loopholes.<name>.env` is user-scope-only precisely because it reaches a host
+// daemon's spawn ENVIRONMENT, which is how LD_PRELOAD would get there.
+//
+// A PATH is the one thing a spawn may carry, and the difference is not cosmetic:
+// the workspace supplies VALUES, which core validates and then writes itself; it
+// never supplies environment. Whoever edited the config decides what the numbers
+// are, and yolo decides what the file says.
+//
+// # Refused when the manifest declares no settings
+//
+// A `{settings}` in an argv with an empty `settings` block would name a file core
+// has no reason to write, and the daemon would be handed a path to nothing. Refused
+// at load rather than resolved to a missing file, because "this token means nothing
+// in this manifest" is a statement about the schema.
+const TokenSettings = "{settings}"
+
+// refuseSettingsTokenWithoutDeclaration rejects {settings} in a host-side field of a
+// manifest that declares no settings keys.
+func refuseSettingsTokenWithoutDeclaration(manifestPath, field string, args []string, declared int) error {
+	if declared > 0 {
+		return nil
+	}
+	for _, s := range args {
+		if strings.Contains(s, TokenSettings) {
+			return Errorf(
+				"%s: %s names '%s', but this manifest declares no 'settings' — the token"+
+					" resolves to a file yolo writes from the settings DECLARATIONS, so with"+
+					" none there is nothing to write and the daemon would be handed a path to"+
+					" a missing file; declare the keys or drop the token",
+				manifestPath, field, TokenSettings)
+		}
+	}
+	return nil
+}
+
+// refuseSettingsTokenInJailField rejects {settings} in a field that runs INSIDE the
+// container. The settings file lives in the loophole's HOST-side state dir and is
+// not among the paths that cross into a jail (StateFiles decides that, and a
+// jail-side process reading its own settings is not a case anything has asked for),
+// so the token would resolve to a host path the container cannot see.
+func refuseSettingsTokenInJailField(manifestPath, field string, args []string) error {
+	for _, s := range args {
+		if strings.Contains(s, TokenSettings) {
+			return Errorf(
+				"%s: %s names '%s', which resolves to a HOST-side file in the loophole's"+
+					" state dir — this command runs inside the container, where that path"+
+					" does not exist; a jail-side process gets its configuration through"+
+					" 'jail_env'",
+				manifestPath, field, TokenSettings)
+		}
+	}
+	return nil
+}
+
 // JailLoopholeDir returns the CONTAINER path where a loophole's module dir is
 // bind-mounted (RuntimeArgsFor emits the -v). It is what {jail_loophole_dir}
 // resolves to in jail_daemon.cmd, and it lives here because the refusal message
