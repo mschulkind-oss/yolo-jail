@@ -180,60 +180,34 @@ one-line deliverable that is decided in all but name.
 
 **Ordered by:** what unblocks something else, then what protects a live user, then cost.
 
-- 📦 **Empty `bundled_loopholes/` — unblocked 2026-08-18, and it is the largest item here.** 📄
-  [`pack-config-keys.md`](../design/pack-config-keys.md) ·
-  [`loophole-activation.md`](../design/loophole-activation.md) ·
-  [`broker-as-a-pack.md`](../design/broker-as-a-pack.md)
+- 📦 **One inhabitant left in `bundled_loopholes/`: the broker.** *Needs no ruling — it needs three
+  steps in one order.* 📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) §6.1, §10
 
-  OQ-K1..K4 are ruled, so the settings mechanism the three conversions all depend on is designed
-  through. In dependency order:
+  **Shipped 2026-08-18:** typed manifest-declared settings (OQ-A8/K1..K4), `host-processes` and
+  `audio` converted, `journal` and `cgroup-delegate` converted with the delegate now opt-in (OQ-A6,
+  OQ-A4), **core's config schema stops naming any loophole**, and the broker singleton stopped
+  spawning on every launch for every user (OQ-A11).
 
-  1. ~~**Typed, manifest-declared loophole settings** (OQ-A8/K1..K4)~~ — **DONE 2026-08-18.** A
-     loophole's manifest declares `settings` (typed, per-key `scope`, `user` by default); core
-     validates `loopholes.<name>.settings` against the declaration and writes the resolved values to
-     a file it owns, named by the `{settings}` token. `host_processes.visible` is **frozen** — the
-     daemon reads that file once at startup instead of re-reading the workspace config per request —
-     and the top-level key still works, folded in at launch with a warning naming the replacement.
-     An undecodable declaration is refused in BOTH decoders, which is the only placement that keeps
-     OQ-K1's "never hand a host daemon a value you could not validate" true across version skew.
-  2. ~~**`host-processes` and `audio` become packs**~~ — **DONE 2026-08-18.** Both ship as official
-     packs, both default-OFF, and `bundled_loopholes/` is down to the broker. The top-level
-     `host_processes` key is **refused** now, naming `loopholes.host-processes.settings.visible`.
-     Two things came with it: OQ-LP14's withdrawal was **built** (the bind-host path rule admitted
-     `~/.ssh` and refused a pulse socket), which is what made the socket half of `audio`
-     expressible; and OQ-A11 shipped early (the broker singleton no longer spawns on every launch
-     for every user).
+  **Why the broker did not follow, measured rather than judged.** A pack-shipped loophole must
+  declare `publishes: "socket"` (`packPublishesProblems` refuses every other value, including the
+  default), and yolo answers that value by spawning a daemon at a **per-jail** socket
+  (`loopholesruntime.go:564`). The broker is a **host-wide singleton** — that is its entire reason to
+  exist. So the move needs one daemon behind N per-jail fronts, which is §10 steps 3 and 4 turning
+  out to be a hard *prerequisite* for step 5 rather than merely earlier than it.
 
-  2b. 🛑 **The broker's loophole moves into `packs/claude`** (OQ-A10) — **BLOCKED, and the blocker
-     is a mechanism gap rather than a ruling.** Found by attempting it: a pack-shipped loophole must
-     declare `publishes: "socket"`, and yolo's spawn path answers that by spawning a daemon **per
-     jail** at a per-jail socket, while the broker is a host-wide singleton by design. So
-     [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) §10 steps **3–4** (the stamp, then the
-     `publishes` flip plus deleting `internal/brokerrelay`) are a hard prerequisite for step 5,
-     which its own sequencing does not say. Written up as §6.1 there.
-     ⚠ And the reservation trap is unchanged and is NOT what the two shipped conversions taught:
-     those names were reserved as bundled DIRECTORY names, so `git mv` retired them for free.
-     `broker.BrokerLoopholeName` is appended **unconditionally**, so it, the
-     `loopholesruntime.go` name special-case and the contribution must die in one commit or every
-     claude user's launch breaks.
-  3. ~~**`journal` and `cgroup-delegate` become manifest loopholes**~~ — **DONE 2026-08-18** (OQ-A6,
-     OQ-K4, OQ-A4). Both ship as official packs, both default-OFF, and **core's config schema now
-     names no loophole at all**: the top-level `journal` key is refused beside `host_processes`, and
-     `paths.BuiltinLoopholeNames` is deleted along with the spawn loop's builtin-name skip and the
-     `loopholes.cgroup-delegate` name refusal. That last deletion is not tidying — the refusal would
-     have made the delegate's own switch unwritable.
-     ⚠ Two things worth carrying forward. The mode became a **boolean** (`full`, `scope: "user"`)
-     rather than the ported `off|user|full` string, because the closed type set has no `enum` and
-     `ParseRequest` narrows on the literal `"user"` — so every misspelling would have read as FULL.
-     And the delegate's gate is now **shadowable**: retiring its reservation means a pack you install
-     can turn it on, which is exactly what OQ-A3 already admits, and is a property the broker's
-     lookup deliberately does NOT have.
+  Order, and it is not negotiable:
 
-  ⚠ **User-visible breaks and their release notes.** All FOUR are written up in
-  📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md): the top-level `host_processes` and `journal` keys are
-  refused, `audio` needs a pack as well as a switch, the broker singleton stops running on hosts that
-  were not using it, and **`yolo-cglimit` stops working out of the box** (the sprint's one accepted
-  cost, stated in OQ-A4 rather than discovered).
+  1. the connection preamble and stamp work (§10 step 3);
+  2. the `publishes` flip **plus** the relay deletion — *"must not be split: a half-flipped broker is
+     a jail with no credential path"*;
+  3. then the contribution moves into `packs/claude`.
+
+  ⚠ **And the reservation is still the trap, differently from the two that just shipped.**
+  `host-processes` and `audio` were reserved only as bundled *directory* names, so `git mv` retired
+  their reservations for free. `broker.BrokerLoopholeName` is appended **unconditionally** from the
+  broker's own constant. A reader generalising from the two easy ones ships a commit that refuses
+  **every claude user's launch**. The reservation, the `startLoopholes` name special-case and the
+  contribution land in ONE commit.
 
 ---
 
@@ -320,32 +294,15 @@ launch — get their entries when they ship, not before.
 
 # Open threads
 
-### Emptying `bundled_loopholes/` — the sprint
+### Emptying `bundled_loopholes/` — one inhabitant left
 
-The goal is **no inhabitants at sprint end** (OQ-BP4). `host-processes` steps 1–6 shipped 2026-08-17: the
-connection preamble end to end, `ServeFrontedUnix`, the daemon behind the framework front, and
-`yolo-ps` no longer self-reporting a `jail_id` nobody trusted.
+The goal is **no inhabitants at sprint end** (OQ-BP4). As of 2026-08-18 the directory holds exactly
+one: `claude-oauth-broker`.
 
-**Five more steps shipped 2026-08-18** — the `default_enabled` rename (OQ-A9), `yolo check` reading
-pack-shipped loopholes (OQ-A12), the enable-direction disclosure (OQ-A13), the approval snapshot
-moving host-side (OQ-D1), and the non-interactive config fatal (OQ-D2).
-
-**What is left is the part that actually empties the directory, and it is UNBLOCKED as of
-2026-08-18** — OQ-K1..K4 are ruled, so the settings mechanism all three conversions depend on is
-designed through. Queued in 📦 above:
-
-- ~~**`host-processes` and `audio` become packs**~~ — **DONE 2026-08-18**, along with OQ-LP14's
-  withdrawal and OQ-A11's gate. **The broker's move is BLOCKED** on a mechanism gap found by trying
-  it (§6.1 there): `publishes: "socket"` spawns a daemon per jail, and the broker is a host-wide
-  singleton. ⚠ Its reservation still does not come free with the directory.
-- ~~**`journal` and `cgroup-delegate` become manifest loopholes**~~ — **DONE 2026-08-18** (OQ-A6,
-  OQ-A4). **Accepted cost, as ruled:** `yolo-cglimit` stops working out of the box.
-
-Those two removed core's last hardcoded loophole names, which is what makes this mean something
-rather than moving files around. **What is left of the sprint is the broker alone** — one inhabitant
-in `bundled_loopholes/`, blocked on §6.1's mechanism gap rather than on a decision. Note what that
-means for OQ-BP4's finish line: the channel is down to one, but "no inhabitants" is not reached, and
-the last reservation (`broker.BrokerLoopholeName`) is the one that does not retire itself.
+`host-processes` and `audio` are packs; `journal` and `cgroup-delegate` are manifest loopholes and
+the "builtin service" channel no longer exists; core's own config schema names no loophole at all,
+which was the point of the exercise rather than a side effect. The broker's remaining move is queued
+in 📦 above with the order it has to happen in.
 
 📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) — four of its six questions are answered;
 **OQ-BP5** (build step vs download-only) and **OQ-BP6** (may a fetched pack ship a host-side binary?)
