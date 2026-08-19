@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -168,18 +169,37 @@ func TestDetectListingRuntimeHonorsConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("YOLO_RUNTIME", "")
 	os.Unsetenv("YOLO_RUNTIME")
+	// `macos-user` rather than `container` on purpose. The probe can return ONLY podman or
+	// container, so pinning to container made this assertion VACUOUS wherever the platform
+	// default already was container — verified on a macOS host with Apple Container
+	// installed, where deleting the config lookup outright still passed. macos-user is in
+	// AllRuntimes but is never auto-detected on any platform, so the assertion can only be
+	// satisfied by config precedence actually working.
 	ws := t.TempDir()
-	if err := os.WriteFile(ws+"/yolo-jail.jsonc", []byte(`{"runtime":"container"}`), 0o644); err != nil {
+	if err := os.WriteFile(ws+"/yolo-jail.jsonc", []byte(`{"runtime":"macos-user"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := detectListingRuntime(ws); got != "container" {
-		t.Errorf("detectListingRuntime honoring config = %q, want container", got)
+	if got := detectListingRuntime(ws); got != "macos-user" {
+		t.Errorf("detectListingRuntime honoring config = %q, want macos-user", got)
 	}
 
-	// A workspace with no config and no override → the Linux platform default.
+	// A workspace with no config and no override → whatever the PLATFORM PROBE says.
+	//
+	// Asserted against the probe rather than the literal "podman": this test ran on a
+	// Linux host for its whole life, and hardcoding the Linux answer made it fail on
+	// macOS — where the correct result is "container" if Apple Container is installed —
+	// reporting a broken resolver when the resolver was right. The platform matrix
+	// itself is not this test's job and is already pinned exhaustively by
+	// runtime.TestResolveRuntimeConfigAware; what belongs HERE is that a config-less
+	// workspace reaches the probe at all instead of the previous line's "container"
+	// leaking across, which is the wiring audit finding 5 was about.
 	empty := t.TempDir()
-	if got := detectListingRuntime(empty); got != "podman" {
-		t.Errorf("detectListingRuntime default = %q, want podman", got)
+	want := runtime.ResolveRuntime("", "", paths.IsMacOS, func(bin string) bool {
+		_, err := exec.LookPath(bin)
+		return err == nil
+	})
+	if got := detectListingRuntime(empty); got != want {
+		t.Errorf("detectListingRuntime with no config = %q, want the platform probe's %q", got, want)
 	}
 }
 
