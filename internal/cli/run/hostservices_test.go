@@ -519,7 +519,7 @@ func TestBundledHostProcessesRunsBehindTheFront(t *testing.T) {
 	for _, cand := range loopholes.Discover(loopholes.DiscoverOptions{
 		IncludeBundled:  true,
 		IncludeDisabled: true,
-		PackModules:     []loopholes.PackModule{shippedHostProcessesModule(t)},
+		PackModules:     []loopholes.PackModule{shippedPackLoopholeModule(t, "host-processes")},
 	}) {
 		if cand.Name == "host-processes" {
 			lp = cand
@@ -1264,22 +1264,26 @@ func TestExternalServiceReportsCleanExitWithNoService(t *testing.T) {
 	}
 }
 
-// shippedHostProcessesModule locates the official `host-processes` pack's loophole
-// module, materialized from the binary's own embed.
+// shippedPackLoopholeModule locates an official loophole-only pack's module,
+// materialized from the binary's own embed.
 //
 // The EMBED rather than the repo tree, matching what the launch path stages: a test
 // that walked packs/ would pass in this checkout and say nothing about the manifest a
 // release carries. HostExecApproved is true because an embedded pack's origin carries
 // yolo's own authority — the same answer packLoopholeModules gives it.
-func shippedHostProcessesModule(t *testing.T) loopholes.PackModule {
+//
+// Takes the pack NAME because there are three such packs now (`audio`,
+// `host-processes`, `journal`) and two of them are driven through the spawn path by
+// tests that must not each grow their own copy of this loop.
+func shippedPackLoopholeModule(t *testing.T, pack string) loopholes.PackModule {
 	t.Helper()
 	for _, p := range packload.Embedded() {
-		if p.Name != "host-processes" {
+		if p.Name != pack {
 			continue
 		}
 		decls := packLoopholeDecls([]*packload.Pack{p})
 		if len(decls) != 1 {
-			t.Fatalf("the host-processes pack declares %d loopholes, want 1", len(decls))
+			t.Fatalf("the %s pack declares %d loopholes, want 1", pack, len(decls))
 		}
 		return loopholes.PackModule{Dir: decls[0].Dir, HostExecApproved: true}
 	}

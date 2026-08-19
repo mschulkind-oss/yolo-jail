@@ -40,10 +40,16 @@ func withRepoBundled(t *testing.T) string {
 // moved into official packs of the same name on 2026-08-18, leaving the broker as the
 // channel's last inhabitant; the rows below are the only place a further move has to
 // be recorded.
+//
+// `journal` ARRIVED the same day and never had a bundled row, because it was not a
+// bundled loophole: it was a builtin service with no manifest at all. A list of "yolo's
+// own loopholes" that omitted it would be describing the old channel rather than what
+// ships.
 var shippedLoopholes = []struct{ name, pack string }{
 	{"claude-oauth-broker", ""},
 	{"audio", "audio"},
 	{"host-processes", "host-processes"},
+	{"journal", "journal"},
 }
 
 // shippedLoopholeModule resolves one shipped loophole's on-disk module directory.

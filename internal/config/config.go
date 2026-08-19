@@ -44,17 +44,20 @@ const (
 
 // knownTopLevelConfigKeys is the accepted top-level key set.
 var knownTopLevelConfigKeys = set(
-	// `repo_path`, `agents` and `host_processes` are RETIRED but stay listed: a key in
-	// this set gets only its own targeted retirement message (validateRepoPath /
-	// validateAgentsRetired / validateHostProcessesRetired), whereas removing it here
-	// would ALSO trigger the generic "unknown key" error and the user would see the
-	// same problem reported twice — once uselessly.
+	// `repo_path`, `agents`, `host_processes` and `journal` are RETIRED but stay listed:
+	// a key in this set gets only its own targeted retirement message (validateRepoPath /
+	// validateAgentsRetired / validateHostProcessesRetired / validateJournalRetired),
+	// whereas removing it here would ALSO trigger the generic "unknown key" error and the
+	// user would see the same problem reported twice — once uselessly.
 	//
-	// `host_processes` is the newest of the three and the one whose retirement is a
-	// MOVE rather than a deletion: its keys are now declared by the host-processes
-	// loophole's own manifest, which ships in the official pack of the same name, so
-	// core's config schema no longer names a loophole (docs/design/pack-config-keys.md,
-	// loophole-activation.md §1.4).
+	// `host_processes` and `journal` are the two newest, they retired within a day of
+	// each other, and their retirement is a MOVE rather than a deletion: each key's
+	// values are now declared by its own loophole's manifest, shipped in the official
+	// pack of the same name (docs/design/pack-config-keys.md, loophole-activation.md
+	// §1.4). THEY WERE ALSO THE ONLY TWO LOOPHOLES THIS SCHEMA NAMED, which is what
+	// makes the pair worth reading together: with both gone, core's config schema names
+	// no loophole at all, and "convert the loophole to a pack" stops being a separation
+	// in appearance only.
 	"runtime", "confinement", "repo_path", "agents", "packages", "mounts", "workspace_readonly",
 	"per_side_paths", "network", "security", "mise_tools", "lsp_servers",
 	"mcp_servers", "mcp_presets", "devices", "gpu", "resources", "env_sources",
@@ -63,7 +66,14 @@ var knownTopLevelConfigKeys = set(
 	"cache_relocations", "writable_home_dirs", "host_files", "packs",
 )
 
-var journalModes = []string{"off", "user", "full"}
+// `journalModes` — the off/user/full vocabulary — went with the key on 2026-08-18.
+// TYPE AND ENUM CHECKS GO WITH A RETIRED KEY, always: reporting
+// `config.journal: expected one of ['off', 'user', 'full']` beside "this key was
+// removed" asks the user to fix the shape of something they must delete. The mode is
+// now the `journal` loophole's own `full` setting, a BOOLEAN core type-checks through
+// the settings declaration (validateLoopholeSettings), which is a narrower vocabulary
+// than the string ever was — see the manifest for why a string could not be validated
+// at all.
 
 var ephemeralStorageModes = []string{"volume", "tmpfs"}
 

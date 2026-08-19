@@ -526,3 +526,26 @@ func containingAll(list []string, fragments ...string) []string {
 	}
 	return out
 }
+
+// TestShippedJournalIsInsideThePackShippedSubset is the same deliberate positive for
+// the conversion that had the furthest to travel: `journal` was not a bundled loophole
+// that needed a rename, it was a BUILTIN SERVICE with no manifest at all, so this is
+// the first time the subset has ever had an opinion about it.
+//
+// It draws no problems for three reasons, and two of them were edits rather than
+// luck: the daemon's `publishes` was flipped to "socket" (it used to publish its own
+// loopback-TLS endpoint, which the subset refuses INCLUDING as a default), and there is
+// nothing else here for the subset to scope — no `jail_env`, no bind mounts, no
+// `ca_cert`, and no `requires` probe of either kind.
+func TestShippedJournalIsInsideThePackShippedSubset(t *testing.T) {
+	dir := filepath.Join("/loopholes", "journal")
+	m, err := loopholedecl.Decode(bundledManifest(t, "journal"), dir)
+	if err != nil {
+		t.Fatalf("strict decode: %v", err)
+	}
+	if problems := m.PackShippedProblems(loopholedecl.ManifestPath(dir)); len(problems) != 0 {
+		t.Errorf("journal draws %v; a pack-shipped loophole that draws any problem is not "+
+			"refused loudly at launch — it simply goes missing, and `yolo-journalctl` reports "+
+			"a jail that was never wired up", problems)
+	}
+}

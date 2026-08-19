@@ -94,22 +94,21 @@ func TestOnePackCollidingWithItselfIsRefused(t *testing.T) {
 // TestReservedLoopholeNamesAreRefused is measured hole #3 plus §3.1's correction that the
 // reserved namespace is LARGER than "bundled" and draft 1 missed two names.
 //
-// All three must be refused, and the two the design caught matter most: `cgroup-delegate`
-// was an explicit config-scope error with NO manifest-side equivalent, and `journal` was
-// reserved in paths.go and enforced NOWHERE — a pack shipping `loopholes/journal` loaded,
-// was discovered, had its daemon silently skipped, and still contributed --add-host,
-// ca_cert, --device, bind mounts and jail_env to the argv.
+// Both must be refused. `cgroup-delegate` is an explicit config-scope error with NO
+// manifest-side equivalent, which is half of why the composed set exists at all.
 //
-// `host-processes` and `audio` WERE in this list and deliberately are not any more: both
-// became official packs on 2026-08-18, and a name a pack SHIPS cannot also be a name a
-// pack may not ship. Their half of the property moved to the two tests below, which are
-// the assertions that actually protect a user — a reservation left standing over a
-// converted loophole refuses the whole launch for everyone who selects the pack.
+// `host-processes`, `audio` and `journal` WERE in this list and deliberately are not any
+// more: all three became official packs on 2026-08-18, and a name a pack SHIPS cannot
+// also be a name a pack may not ship. Their half of the property moved to the tests
+// below, which are the assertions that actually protect a user — a reservation left
+// standing over a converted loophole refuses the whole launch for everyone who selects
+// the pack. `journal` is the one worth remembering: it was the design's own worst case
+// (reserved in paths.go and enforced nowhere), so its reservation was a CONSTANT rather
+// than a directory listing and had to be deleted by hand.
 func TestReservedLoopholeNamesAreRefused(t *testing.T) {
 	reserved := []string{
-		paths.BuiltinCgroupLoopholeName,  // "cgroup-delegate" — config-scope error, no manifest equivalent
-		paths.BuiltinJournalLoopholeName, // "journal" — reserved in paths.go, refused nowhere
-		broker.BrokerLoopholeName,        // "claude-oauth-broker" — startLoopholes special-cases the NAME
+		paths.BuiltinCgroupLoopholeName, // "cgroup-delegate" — config-scope error, no manifest equivalent
+		broker.BrokerLoopholeName,       // "claude-oauth-broker" — startLoopholes special-cases the NAME
 	}
 	for _, name := range reserved {
 		got := PackLoopholeNameConflicts([]PackLoopholeDecl{decl("grabby", "loopholes/"+name)})
@@ -133,12 +132,13 @@ func TestReservedLoopholeNamesAreRefused(t *testing.T) {
 // claim it — naming the same mistake twice (once as pack-vs-reserved, once as pack-vs-pack)
 // would make the stronger message the easier one to miss.
 func TestReservedClashIsReportedOnceNotTwice(t *testing.T) {
-	// `journal` rather than `audio`: audio stopped being a reserved name when it became
-	// an official pack, and a fixture that reads as "two packs fighting over an ordinary
-	// name" would assert the wrong branch while still passing the count check.
+	// A name that IS still reserved. `audio` and `journal` both stopped being reserved
+	// when they became official packs, and a fixture built on either would read as "two
+	// packs fighting over an ordinary name" — asserting the wrong branch while still
+	// passing the count check.
 	got := PackLoopholeNameConflicts([]PackLoopholeDecl{
-		decl("alpha", "loopholes/"+paths.BuiltinJournalLoopholeName),
-		decl("beta", "loopholes/"+paths.BuiltinJournalLoopholeName),
+		decl("alpha", "loopholes/"+paths.BuiltinCgroupLoopholeName),
+		decl("beta", "loopholes/"+paths.BuiltinCgroupLoopholeName),
 	})
 	if len(got) != 1 {
 		t.Fatalf("want one message for one mistake, got %d: %v", len(got), got)
@@ -321,11 +321,12 @@ func TestStagePacksRefusesLoopholeNameCollision(t *testing.T) {
 	}
 }
 
-// The RESERVED half at the real call site, for the name the design measured as the worst
-// case: `journal` was reserved in paths.go and refused nowhere.
+// The RESERVED half at the real call site. It used to use `journal` — the name the
+// design measured as the worst case, reserved in paths.go and refused nowhere — and
+// that name is an official PACK's now, so the last builtin stands in for it.
 func TestStagePacksRefusesReservedLoopholeName(t *testing.T) {
 	home := packHome(t)
-	grabby := loopholePackDir(t, "grabby", "loopholes/"+paths.BuiltinJournalLoopholeName)
+	grabby := loopholePackDir(t, "grabby", "loopholes/"+paths.BuiltinCgroupLoopholeName)
 	writeUserPacks(t, home, `["file://`+grabby+`"]`)
 
 	o := &Options{Workspace: t.TempDir()}
@@ -334,9 +335,9 @@ func TestStagePacksRefusesReservedLoopholeName(t *testing.T) {
 		t.Fatalf("a pack shipping loopholes/%s must fail the launch — otherwise it loads, is "+
 			"discovered, has its daemon silently skipped, and still contributes --add-host, "+
 			"ca_cert, --device, bind mounts and jail_env to the argv",
-			paths.BuiltinJournalLoopholeName)
+			paths.BuiltinCgroupLoopholeName)
 	}
-	if !strings.Contains(err.Error(), paths.BuiltinJournalLoopholeName) {
+	if !strings.Contains(err.Error(), paths.BuiltinCgroupLoopholeName) {
 		t.Errorf("refusal must name the reserved name; got:\n%s", err.Error())
 	}
 }
@@ -377,8 +378,8 @@ func TestReservedSetCoversAllThreeContributors(t *testing.T) {
 		got[r.Name] = true
 	}
 	for _, want := range []string{
-		paths.BuiltinCgroupLoopholeName, paths.BuiltinJournalLoopholeName, // paths
-		broker.BrokerLoopholeName, // broker, TWICE over: its own constant and the
+		paths.BuiltinCgroupLoopholeName, // paths — the last one left there
+		broker.BrokerLoopholeName,       // broker, TWICE over: its own constant and the
 		// bundled dir that is still there. Contributor 2 is
 		// appended UNCONDITIONALLY, which is why deleting the
 		// directory will NOT free this one.
@@ -392,7 +393,14 @@ func TestReservedSetCoversAllThreeContributors(t *testing.T) {
 	// read off the bundled embed.FS, so a loophole that LEAVES that directory must
 	// leave the reservation with it — automatically, in the same commit, because the
 	// two are one fact. `host-processes` and `audio` both made that trip on 2026-08-18.
-	for _, gone := range []string{"host-processes", "audio"} {
+	//
+	// `journal` is in this list for the OPPOSITE reason and that is why it is worth
+	// having: it was never a bundled directory, it was a CONSTANT in paths.go, so
+	// nothing retired it automatically and the same commit that shipped the pack had to
+	// delete it by hand. A reader who generalized from the two above would have shipped
+	// a `journal` pack that refuses every launch selecting it — which is exactly the
+	// trap `broker.BrokerLoopholeName` still sets for whoever converts the broker.
+	for _, gone := range []string{"host-processes", "audio", "journal"} {
 		if got[gone] {
 			t.Errorf("%q is still reserved after moving into an official pack — every launch "+
 				"that selects `packs: [%q]` is refused, because a pack claiming a reserved "+
@@ -401,35 +409,45 @@ func TestReservedSetCoversAllThreeContributors(t *testing.T) {
 	}
 }
 
-// TestTheOfficialHostProcessesPackIsNotRefusedByItsOwnReservation is the trap this
-// sprint exists to avoid, asserted over the pack yolo actually ships.
+// TestTheOfficialLoopholePacksAreNotRefusedByTheirOwnReservation is the trap this
+// sprint exists to avoid, asserted over the packs yolo actually ships.
 //
 // A reservation and a pack-shipped loophole of the same name is not a warning and not
 // a degraded loophole: PackLoopholeNameConflicts is FATAL, so the jail does not start
-// at all for anyone who selected the pack. `host-processes` gets this right for free —
-// its reservation came from the bundled DIRECTORY NAME, so `git mv` retired it — which
-// is exactly what makes it worth pinning: the same move for the broker does NOT free
-// the name (broker.BrokerLoopholeName is appended unconditionally), and a reader
-// generalizing from this case would ship a launch-breaking commit.
-// The SHIPPED pack, materialized from the binary's embed and read through the same
-// packLoopholeDecls the launch path uses — not a hand-built decl, which would only
+// at all for anyone who selected the pack.
+//
+// THE TWO CASES HERE FAIL DIFFERENTLY, which is why both are pinned rather than one
+// standing for the pair. `host-processes` got it right FOR FREE: its reservation came
+// from the bundled DIRECTORY NAME, read off the same embed.FS the loader materializes,
+// so `git mv` retired it with no code change. `journal` did not: its reservation was a
+// CONSTANT (`paths.BuiltinJournalLoopholeName`), so shipping the pack without deleting
+// it by hand would have refused every launch that selected it. The broker still has the
+// second shape — `broker.BrokerLoopholeName` is appended unconditionally — so a reader
+// generalizing from the first case alone would ship the launch-breaking commit.
+//
+// The SHIPPED packs, materialized from the binary's embed and read through the same
+// packLoopholeDecls the launch path uses — not hand-built decls, which would only
 // assert that a string is absent from a set.
-func TestTheOfficialHostProcessesPackIsNotRefusedByItsOwnReservation(t *testing.T) {
-	var pack *packload.Pack
-	for _, p := range packload.Embedded() {
-		if p.Name == "host-processes" {
-			pack = p
-		}
-	}
-	if pack == nil {
-		t.Skip("no embedded packs registered in this test binary")
-	}
-	decls := packLoopholeDecls([]*packload.Pack{pack})
-	if len(decls) != 1 {
-		t.Fatalf("the host-processes pack must declare exactly one loophole, got %d", len(decls))
-	}
-	if got := PackLoopholeNameConflicts(decls); len(got) != 0 {
-		t.Errorf("the official host-processes pack is refused by yolo's own reserved set, "+
-			"so every jail selecting it fails to launch:\n%s", strings.Join(got, "\n"))
+func TestTheOfficialLoopholePacksAreNotRefusedByTheirOwnReservation(t *testing.T) {
+	for _, name := range []string{"host-processes", "audio", "journal"} {
+		t.Run(name, func(t *testing.T) {
+			var pack *packload.Pack
+			for _, p := range packload.Embedded() {
+				if p.Name == name {
+					pack = p
+				}
+			}
+			if pack == nil {
+				t.Skip("no embedded packs registered in this test binary")
+			}
+			decls := packLoopholeDecls([]*packload.Pack{pack})
+			if len(decls) != 1 {
+				t.Fatalf("the %s pack must declare exactly one loophole, got %d", name, len(decls))
+			}
+			if got := PackLoopholeNameConflicts(decls); len(got) != 0 {
+				t.Errorf("the official %s pack is refused by yolo's own reserved set, "+
+					"so every jail selecting it fails to launch:\n%s", name, strings.Join(got, "\n"))
+			}
+		})
 	}
 }

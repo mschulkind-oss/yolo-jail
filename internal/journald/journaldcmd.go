@@ -16,108 +16,134 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
-// Main is the builtin journal-bridge daemon entry point. It accepts
-// connections, reads a newline-terminated JSON request, validates the
-// journalctl args, execs journalctl, and streams stdout/stderr/exit back as
-// ">BI" frames with stream IDs 1/2/3.
+// Main is the journal-bridge daemon entry point. It accepts connections, reads a
+// newline-terminated JSON request, validates the journalctl args, execs
+// journalctl, and streams stdout/stderr/exit back as ">BI" frames with stream IDs
+// 1/2/3.
 //
-// CLI contract: exactly one of --endpoint (jail-facing loopback-TLS) or
-// --socket (host-to-host AF_UNIX), plus --mode ("user"|"full") and --log-file.
+// CLI contract: --socket (the AF_UNIX socket yolo's own front dials) plus
+// --settings and --log-file.
 //
-// TWO TRANSPORTS, NAMED BY THE CALLER, never guessed from the path. The same
-// split hostservice draws between ServeEndpoint and ServeUnix, and for the same
-// reason: a daemon that inferred its transport would be one refactor away from
-// publishing a bearer-token file where a socket was meant, or binding a socket
-// no jail can cross (docs/design/loophole-transport.md §2).
+// # ONE TRANSPORT NOW, and both of the flags it replaced REFUSE rather than fall back
+//
+// This daemon used to publish its own loopback-TLS endpoint (--endpoint) and take
+// its mode from an argv yolo computed (--mode), because it was a BUILTIN service the
+// run pipeline started by hand off a top-level `journal` config key. It is an
+// ordinary manifest loophole now, shipped by the official `journal` pack, and a
+// pack-shipped loophole must declare `publishes: "socket"`
+// (internal/loopholedecl/packshipped.go): it binds a plain socket and yolo runs the
+// TLS front over it, so the endpoint file's mode, its key persistence, its
+// constant-time token compare and its length cap are the framework's code rather
+// than this daemon's.
+//
+// Both retired flags REFUSE, and neither falls back, for hostprocesses' `--config`
+// reason: a silent fallback would be wrong in the widening direction. `--mode full`
+// ignored in favour of a settings file would silently DROP the escalation somebody
+// asked for; `--endpoint` honoured would publish a bearer-token regular FILE at the
+// path the front expects to find a socket at, which fails the run pipeline's
+// socket-connectable readiness probe with no diagnosis.
 func Main(argv []string) int {
 	fs := flag.NewFlagSet("yolo-journald", flag.ExitOnError)
-	socket := fs.String("socket", "", "AF_UNIX socket to bind (host-to-host)")
-	endpoint := fs.String("endpoint", "", "loopback-TLS endpoint file to publish (jail-facing)")
-	mode := fs.String("mode", "user", `"user" or "full"`)
+	socket := fs.String("socket", "", "AF_UNIX socket to bind (behind yolo's front)")
+	settings := fs.String("settings", "", "Resolved settings file written by yolo (see --help)")
+	retiredEndpoint := fs.String("endpoint", "", "RETIRED — use --socket")
+	retiredMode := fs.String("mode", "", "RETIRED — use --settings")
 	logFile := fs.String("log-file", "", "append per-request audit log here (default: stderr)")
 	_ = fs.Parse(argv)
-	switch {
-	case *socket == "" && *endpoint == "":
-		fmt.Fprintln(os.Stderr, "yolo-journald: one of --endpoint or --socket is required")
+
+	if *retiredMode != "" {
+		fmt.Fprintln(os.Stderr, "yolo-journald: --mode is retired — the mode is no longer an "+
+			"argv yolo computes from a top-level `journal` config key. Pass --settings <file>, "+
+			"the resolved settings file yolo writes from loopholes.journal.settings; the "+
+			"manifest's host_daemon.cmd names it with the {settings} token, and the escalation "+
+			"that was --mode full is now {\"full\": true} in there (user config only).")
 		return 2
-	case *socket != "" && *endpoint != "":
-		fmt.Fprintln(os.Stderr, "yolo-journald: --endpoint and --socket are mutually exclusive")
+	}
+	if *retiredEndpoint != "" {
+		fmt.Fprintln(os.Stderr, "yolo-journald: --endpoint is retired — this daemon no longer "+
+			"publishes its own loopback-TLS endpoint. Bind a plain AF_UNIX socket with --socket "+
+			"and let yolo run the front over it (the manifest declares "+
+			"host_daemon.publishes = \"socket\"); the jail still reads "+
+			"/run/yolo-services/journal.endpoint and nothing jail-facing moved.")
+		return 2
+	}
+	if *socket == "" {
+		fmt.Fprintln(os.Stderr, "yolo-journald: --socket is required")
 		return 2
 	}
 	setupLog(*logFile)
+
+	// READ ONCE, HERE, before a single connection is accepted — the freeze
+	// internal/hostprocesses states at length. Everything downstream holds a mode,
+	// not a path.
+	mode := LoadSettings(*settings)
 
 	stop := make(chan struct{})
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	go func() { <-sigCh; close(stop) }()
 
-	serve := func() error { return Serve(*socket, *mode, stop) }
-	if *endpoint != "" {
-		serve = func() error { return ServeEndpoint(*endpoint, *mode, stop) }
-	}
-	if err := serve(); err != nil {
+	if err := ServeFrontedUnix(*socket, mode, stop); err != nil {
 		fmt.Fprintln(os.Stderr, "yolo-journald:", err)
 		return 1
 	}
 	return 0
 }
 
-// ServeEndpoint publishes a loopback-TLS endpoint at endpointPath and serves it
-// until stop is closed. svcendpoint.Listen's Accept returns ONLY connections
-// that presented the right token, so this daemon cannot forget to
-// authenticate — the failure is unrepresentable rather than handled.
+// ServeFrontedUnix binds the AF_UNIX socket ONLY YOLO'S OWN FRONT DIALS and serves
+// it until stop is closed — the `publishes: "socket"` shape, the same one
+// hostservice.ServeFrontedUnix implements for the frame-protocol daemons.
 //
-// Nothing below the accept loop differs from Serve: handleConn is net.Conn-based
-// and never learns which transport carried its bytes. That is the whole point
-// (docs/design/loophole-transport.md §8.1), and it is why Serve's own test suite
-// still pins the protocol with its assertions unchanged.
+// The socket is host-only (yolo binds it outside the jail's :rw-mounted services
+// dir) and the jail reaches it through svcendpoint's TLS front, so authentication,
+// the pinned certificate and the per-jail bearer token are all the framework's.
 //
-// The ONE thing that does differ is above the accept loop: a jail-facing
-// connection carries yolo's CONNECTION PREAMBLE (svcendpoint/preamble.go) and
-// this daemon has to consume it before handleConn reads a byte. Serve's AF_UNIX
-// path has no preamble and is untouched — both ends there are host processes.
-func ServeEndpoint(endpointPath, mode string, stop <-chan struct{}) error {
-	ln, err := svcendpoint.Listen(endpointPath, "")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = ln.Close() }()
-	go func() { <-stop; _ = ln.Close() }()
-
-	for {
-		conn, aerr := ln.Accept()
-		if aerr != nil {
-			return nil // listener closed on stop, or the accept loop ended
+// THE PREAMBLE IS CONSUMED HERE, and forgetting it is not a subtle failure: yolo
+// prepends its connection preamble to every spliced connection (a manifest's
+// `preamble` defaults ON), so a daemon that did not read the frame would hand those
+// bytes to readHeaderCapped and answer every request with "malformed request".
+// This daemon reads it and DISCARDS the value — it keeps its own per-request audit
+// line and asserts no jail identity of its own — but the frame still has to leave
+// the stream.
+func ServeFrontedUnix(socket, mode string, stop <-chan struct{}) error {
+	return serveUnixConns(socket, stop, func(conn net.Conn) {
+		// INSIDE THE PER-CONNECTION GOROUTINE, NEVER IN THE ACCEPT LOOP: reading in
+		// the loop would let one client that connects and never writes stall every
+		// other client for the handshake timeout — the denial of service
+		// svcendpoint's own accept loop is structured to avoid.
+		//
+		// AND ON THE RAW conn, never through a bufio.Reader: readHeaderCapped reads
+		// the request one byte at a time, so a buffered read here would swallow the
+		// head of the client's header into a buffer handleConn never sees.
+		// ReadPreamble is io.ReadFull-based and consumes exactly the frame, which is
+		// what makes the raw read safe.
+		if _, perr := svcendpoint.ReadPreamble(conn); perr != nil {
+			// Drop the connection; never re-read these bytes as a request. yolo's own
+			// readiness probe is a bare connect-and-close on this socket
+			// (socketConnectable, internal/cli/run/loopholesruntime.go), so it lands
+			// here on every launch and must not be louder than it is. Payload-free by
+			// classification.
+			logf("[journal] connection preamble rejected; connection dropped")
+			_ = conn.Close()
+			return
 		}
-		go func(conn net.Conn) {
-			// INSIDE THE GOROUTINE, NEVER IN THE ACCEPT LOOP: reading in the loop
-			// would let one client that connects and never writes stall every
-			// other client for the handshake timeout — the denial of service
-			// svcendpoint's own accept loop is structured to avoid.
-			//
-			// AND ON THE RAW conn, never through a bufio.Reader: readHeaderCapped
-			// reads the request one byte at a time, so a buffered read here would
-			// swallow the head of the client's header into a buffer handleConn
-			// never sees. ReadPreamble is io.ReadFull-based and consumes exactly
-			// the frame, which is what makes the raw read safe.
-			if _, perr := svcendpoint.ReadPreamble(conn); perr != nil {
-				// Drop the connection; never re-read these bytes as a request.
-				// A bare connect-and-close probe lands here and must not be
-				// louder than it is. Payload-free by classification.
-				logf("[journal] connection preamble rejected; connection dropped")
-				_ = conn.Close()
-				return
-			}
-			handleConn(conn, mode)
-		}(conn)
-	}
+		handleConn(conn, mode)
+	})
 }
 
-// Serve binds the Unix socket, accepts connections, and serves each journal
-// request in its own goroutine until stop is closed (or the listener fails).
-// The socket is chmod 0777 (frozen) so any jail UID can dial it. Callers wire
-// their own signal handling to close stop.
-func Serve(socket, mode string, stop <-chan struct{}) error {
+// serveUnixConns binds the Unix socket, accepts connections, and runs onConn in its
+// own goroutine for each until stop is closed (or the listener fails). The socket is
+// chmod 0777 (frozen) so any jail UID can dial it. Callers wire their own signal
+// handling to close stop.
+//
+// UNEXPORTED, and the one exported socket entry point above it is the fronted one.
+// A bare `Serve` used to sit here and it now has no caller: the endpoint half went
+// with the pack conversion, and there is no host-to-host client of this bridge —
+// leaving a preamble-less exported entry point beside a preamble-bearing one is how
+// a future spawn picks the wrong door and answers every request with "malformed
+// request". The accept loop is still shared, and the truncation-race harness in
+// main_test.go drives it directly with handleConn, which is where that race lives.
+func serveUnixConns(socket string, stop <-chan struct{}, onConn func(net.Conn)) error {
 	_ = os.Remove(socket)
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
@@ -133,7 +159,7 @@ func Serve(socket, mode string, stop <-chan struct{}) error {
 		if err != nil {
 			break
 		}
-		go handleConn(conn, mode)
+		go onConn(conn)
 	}
 	os.Remove(socket)
 	return nil

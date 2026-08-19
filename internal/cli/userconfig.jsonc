@@ -18,10 +18,19 @@
   // },
 
   // Expose `journalctl` from the host inside the jail as `yolo-journalctl`.
-  // "off"  (default) — disabled, no shim generated
-  // "user" — forces --user on every invocation (safe for unprivileged agents)
-  // "full" — passes args through unchanged (needs host journal read access)
-  // "journal": "user",
+  // Two lines, because the bridge is a pack-shipped loophole: select it, then
+  // switch it on.  The top-level "journal" key it replaced is REFUSED.
+  // "packs": ["journal"],
+  // "loopholes": {
+  //   "journal": {
+  //     "enabled": true,
+  //     // Off by default: every request is forced to --user, so the bridge sees
+  //     // only your own journal.  true passes args through unchanged and needs
+  //     // host journal read access.  Settable HERE only, never in a workspace
+  //     // yolo-jail.jsonc.
+  //     "settings": { "full": false }
+  //   }
+  // },
 
   // Expose /dev/kvm inside the jail for nested hardware-accelerated VMs.
   // Requires your host user to be in the kvm group.  Linux only.

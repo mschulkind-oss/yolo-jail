@@ -123,15 +123,16 @@ func TestPackShippedLoopholeMayServe(t *testing.T) {
 
 // TestBundledServesDeclarations pins the FIRST-PARTY INSTANCE (design §7) and, in
 // the same assertion, the blast radius: exactly one manifest yolo SHIPS declares
-// `serves`, and the other two are untouched — wherever each one now lives, which
+// `serves`, and the others are untouched — wherever each one now lives, which
 // bundledManifest resolves through shippedManifestHome. If a future change adds `serves` to
-// `audio` or `host-processes` this fails, which is the point — every declaration
-// makes a loophole retirable by a pack, so each one is a decision.
+// `audio`, `host-processes` or `journal` this fails, which is the point — every
+// declaration makes a loophole retirable by a pack, so each one is a decision.
 func TestBundledServesDeclarations(t *testing.T) {
 	want := map[string][]string{
 		"claude-oauth-broker": {"claude-oauth-refresh"},
 		"audio":               nil,
 		"host-processes":      nil,
+		"journal":             nil,
 	}
 	for name, capabilities := range want {
 		t.Run(name, func(t *testing.T) {

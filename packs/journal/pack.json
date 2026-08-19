@@ -1,0 +1,9 @@
+{
+  "contributes": [
+    {
+      "from": "loopholes/journal",
+      "kind": "loophole"
+    }
+  ],
+  "name": "journal"
+}

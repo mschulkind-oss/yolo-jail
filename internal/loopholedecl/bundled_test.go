@@ -19,10 +19,16 @@ import (
 //
 // An empty pack name means the bundled embed. When the last one goes, this table
 // loses its second column and the bundled reader with it.
+//
+// `journal` is the odd one and is worth spotting here: it never lived in
+// `bundled_loopholes/` at all, because it was not a bundled loophole — it was a
+// BUILTIN SERVICE with no manifest anywhere, switched by a top-level config key. It
+// enters this table straight into a pack (loophole-activation.md OQ-A6).
 var shippedManifestHome = map[string]string{
 	"claude-oauth-broker": "",
 	"audio":               "audio",
 	"host-processes":      "host-processes",
+	"journal":             "journal",
 }
 
 // bundledManifest reads one shipped manifest out of the embedded tree — the same
@@ -77,6 +83,11 @@ func TestBundledManifestsDecodeStrictly(t *testing.T) {
 	//                         and this is the commit that pays: the pack is what turns
 	//                         it back on, so the capability is no longer removed with
 	//                         nothing to restore it.
+	//   journal               false, and unlike the two above it takes nothing away:
+	//                         the bridge was ALREADY off unless a top-level `journal`
+	//                         key said otherwise, so this is the same answer written in
+	//                         the new vocabulary. What the conversion adds is the pack
+	//                         selection, not the switch.
 	//
 	// A table rather than one blanket assertion because the blanket one — "every
 	// bundled manifest declares enabled:true" — is what this change had to delete, and
@@ -85,8 +96,9 @@ func TestBundledManifestsDecodeStrictly(t *testing.T) {
 		"audio":               false,
 		"claude-oauth-broker": true,
 		"host-processes":      false,
+		"journal":             false,
 	}
-	for _, name := range []string{"audio", "claude-oauth-broker", "host-processes"} {
+	for _, name := range []string{"audio", "claude-oauth-broker", "host-processes", "journal"} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join("/loopholes", name)
 			m, err := loopholedecl.Decode(bundledManifest(t, name), dir)
@@ -313,5 +325,98 @@ func TestBundledHostProcessesFields(t *testing.T) {
 	}
 	if m.CACertSet || m.JailDaemon != nil || len(m.StateFiles) != 0 {
 		t.Errorf("unexpected extras: ca=%v jail=%+v state=%v", m.CACertSet, m.JailDaemon, m.StateFiles)
+	}
+}
+
+// TestShippedJournalFields pins the manifest that turned a BUILTIN SERVICE into a
+// loophole, and pins the two declarations that carry the ruling rather than the port.
+//
+// `scope: "user"` on `full` IS OQ-K4's security half. `"journal": "full"` — read the
+// whole host journal, every unit, every user — used to be settable from a workspace
+// `yolo-jail.jsonc`, a file the agent inside the jail can rewrite, with no scope rule
+// anywhere. Nothing in core enforces that any more; the manifest does, and a silent
+// drift to `workspace` here would re-open the hole with no other test failing.
+//
+// The TYPE is the other one. The settings type set is closed and has no `enum`, so a
+// `string` mode would be unvalidatable by core — and ParseRequest narrows on the exact
+// literal "user", meaning every other spelling behaves as FULL. `bool` is what makes a
+// config typo unable to widen host access.
+//
+// The {socket}/publishes pair is asserted TOGETHER because the two halves are one fact:
+// parseHostDaemon REFUSES a {endpoint} argv under publishes:"socket", and a refused
+// manifest does not surface as an error at launch — the loophole simply goes missing.
+func TestShippedJournalFields(t *testing.T) {
+	dir := filepath.Join("/loopholes", "journal")
+	m, err := loopholedecl.Decode(bundledManifest(t, "journal"), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Transport != loopholedecl.TransportLoopbackTLS {
+		t.Errorf("transport = %q", m.Transport)
+	}
+	if !m.PlatformsSet || !reflect.DeepEqual(m.Platforms, []string{"linux"}) {
+		t.Errorf("platforms = %v (set=%v), want [linux] — journalctl is Linux, and DECLARING "+
+			"it is what tells a macOS reader there is nothing to install",
+			m.Platforms, m.PlatformsSet)
+	}
+	// NO `requires` probe, and its absence is a decision (R3). A Linux host without
+	// systemd should hear "journalctl not found on host" per request rather than watch
+	// the loophole vanish from `yolo loopholes list` with no reason given.
+	if m.Requires.CommandOnPathSet || m.Requires.FileExistsSet {
+		t.Errorf("requires = %+v, want none — a missing program must fail loudly at spawn, "+
+			"not make the loophole disappear from every surface", m.Requires)
+	}
+	wantCmd := []string{
+		"yolo", "internal", "daemon", "journal",
+		"--socket", "{socket}", "--settings", "{settings}",
+	}
+	if m.HostDaemon == nil || !reflect.DeepEqual(m.HostDaemon.Cmd, wantCmd) {
+		t.Fatalf("host_daemon = %+v, want cmd %v", m.HostDaemon, wantCmd)
+	}
+	if m.HostDaemon.Publishes != loopholedecl.PublishesSocket {
+		t.Errorf("publishes = %q, want %q — a pack-shipped loophole may not self-publish, "+
+			"and the daemon's --endpoint flag is retired accordingly",
+			m.HostDaemon.Publishes, loopholedecl.PublishesSocket)
+	}
+	if !m.HostDaemon.Preamble {
+		t.Errorf("preamble = false; this manifest declares nothing, so it must decode to the " +
+			"default ON — journald.ServeFrontedUnix consumes the frame, and a daemon that " +
+			"did not would parse the preamble AS the request and answer every call " +
+			"\"malformed request\"")
+	}
+	if m.HostDaemon.RequestEnd != loopholedecl.RequestEndFramed {
+		t.Errorf("request_end = %q, want the default %q — the request is one newline-terminated "+
+			"line and the daemon never reads to EOF",
+			m.HostDaemon.RequestEnd, loopholedecl.RequestEndFramed)
+	}
+	if len(m.Settings) != 1 {
+		t.Fatalf("settings = %+v, want exactly the one declared key (full)", m.Settings)
+	}
+	full, ok := loopholedecl.SettingByKey(m.Settings, "full")
+	if !ok {
+		t.Fatalf("settings has no %q; got %+v", "full", m.Settings)
+	}
+	if full.Type != loopholedecl.SettingTypeBool {
+		t.Errorf("settings.full type = %q, want %q — a string mode is unvalidatable (no enum "+
+			"in the closed type set) and every misspelling of it reads as FULL",
+			full.Type, loopholedecl.SettingTypeBool)
+	}
+	if full.Scope != loopholedecl.SettingScopeUser {
+		t.Errorf("settings.full scope = %q, want %q — this is OQ-K4's security half: reading "+
+			"the whole host journal must not be settable from an agent-editable workspace file",
+			full.Scope, loopholedecl.SettingScopeUser)
+	}
+	if full.Default != false {
+		t.Errorf("settings.full default = %#v, want false — silence must not escalate", full.Default)
+	}
+	// A doctor_cmd would run on the HOST on every `yolo check`, and there is nothing
+	// here it could ask that the jail's first request does not answer better.
+	if m.DoctorCmdSet {
+		t.Errorf("doctor_cmd = %v, want none", m.DoctorCmd)
+	}
+	if m.CACertSet || m.JailDaemon != nil || len(m.StateFiles) != 0 ||
+		len(m.HostBindMounts) != 0 || len(m.HostDevices) != 0 {
+		t.Errorf("unexpected extras: ca=%v jail=%+v state=%v binds=%v devices=%v",
+			m.CACertSet, m.JailDaemon, m.StateFiles, m.HostBindMounts, m.HostDevices)
 	}
 }

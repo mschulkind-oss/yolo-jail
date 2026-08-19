@@ -335,26 +335,44 @@ type ReservedName struct {
 // Three contributors, and the point of composing them here is that until this
 // existed each was enforced (or not) independently:
 //
-//   - paths.BuiltinLoopholeNames — `cgroup-delegate` and `journal`, the two names
-//     yolo's own in-process daemons answer to. `cgroup-delegate` was an explicit
-//     config-scope error in internal/config/validate_loopholes.go with no
-//     manifest-side equivalent; `journal` was reserved in fact and refused NOWHERE,
-//     so a manifest named `journal` loaded, was discovered, had its daemon silently
-//     skipped by startLoopholes, and still contributed --add-host / ca_cert /
-//     --device / bind mounts / jail_env to the argv. Half a loophole, no message
-//     (docs/design/loophole-packaging.md §3.1).
+//   - paths.BuiltinLoopholeNames — `cgroup-delegate`, the last name yolo's own
+//     in-process daemons answer to. It is an explicit config-scope error in
+//     internal/config/validate_loopholes.go with no manifest-side equivalent, which is
+//     half of why this composition exists. The other half was `journal`, which was
+//     reserved in fact and refused NOWHERE, so a manifest named `journal` loaded, was
+//     discovered, had its daemon silently skipped by startLoopholes, and still
+//     contributed --add-host / ca_cert / --device / bind mounts / jail_env to the argv
+//     — half a loophole, no message (docs/design/loophole-packaging.md §3.1).
+//
+//     `journal` LEFT THIS SET on 2026-08-18, and the departure is the thing to read
+//     before touching it. It became a manifest loophole shipped by the official
+//     `journal` pack (loophole-activation.md OQ-A6), and a reservation is fatal at the
+//     pack pre-flight — so a name that becomes a pack's must leave here in the SAME
+//     commit or every launch selecting that pack is refused. It did not leave for free
+//     the way `host-processes` and `audio` did: those were contributor-3 names, read
+//     off the bundled embed, so `git mv` retired them. This one was a constant in
+//     paths.go and had to be deleted by hand.
+//
 //   - broker.BrokerLoopholeName — `claude-oauth-broker`, whose NAME is special-cased
 //     by startLoopholes (it runs yolo's own broker argv, not the manifest's). A
 //     manifest replacing that record would have assemble_parts.go evaluate the
 //     REPLACEMENT's Active() to decide terminator/CA/endpoint wiring while
 //     loopholesruntime.go still ran yolo's broker — half the broker from one
 //     manifest, again with no message (§5.1).
+//
 //   - the bundled loophole directory names, read from the SAME embed.FS the loader
 //     materializes, so adding a bundled loophole extends the reservation with no
 //     second list to forget.
 //
 // Sorted by name for deterministic messages. Composed rather than a literal because a
 // literal is the thing that drifted: `journal` was in paths.go and in nobody's refusal.
+//
+// TWO OF THE THREE CONTRIBUTORS SHRINK WHEN A LOOPHOLE BECOMES A PACK, and only one of
+// them does it by itself. Contributor 3 is derived from the bundled embed, so a name
+// leaving that directory leaves the reservation automatically; contributors 1 and 2 are
+// constants, so a name leaving either has to be deleted by hand in the same commit that
+// ships the manifest. Three names have made the trip so far — `host-processes` and
+// `audio` (contributor 3, free) and `journal` (contributor 1, by hand).
 func ReservedLoopholeNames() []ReservedName {
 	out := make([]ReservedName, 0, len(paths.BuiltinLoopholeNames)+1+3)
 	for _, name := range paths.BuiltinLoopholeNames {

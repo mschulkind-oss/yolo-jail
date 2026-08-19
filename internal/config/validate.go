@@ -74,7 +74,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateWorkspaceReadonly(config, errs)
 	validatePerSidePaths(config, errs)
 	validateLoopholes(config, workspace, resolver, errs, warns)
-	validateJournal(config, errs)
+	validateJournalRetired(config, errs, warns)
 	validateKVM(config, errs)
 	validateEphemeralStorage(config, errs)
 	validateNetwork(config, errs, warns)
@@ -376,19 +376,57 @@ func validatePerSidePaths(config *jsonx.OrderedMap, errs *[]string) {
 	}
 }
 
-func validateJournal(config *jsonx.OrderedMap, errs *[]string) {
-	journal, present := config.Get("journal")
-	if !present || journal == nil {
+// validateJournalRetired reports the DELETED top-level `journal` key.
+//
+// It was the SECOND of exactly two loopholes core's own config schema named by hand
+// (docs/design/loophole-activation.md §1.4), and with `host_processes` already gone
+// this is the one whose removal makes the sprint mean something: core's schema now
+// names no loophole at all. The bridge ships as the official `journal` pack, and its
+// mode is that loophole's own declared setting.
+//
+// A REFUSAL, NOT A WARNING, AND NOT SILENCE — the same three-way choice
+// validateHostProcessesRetired describes, landing the same way for a sharper reason.
+// This key did not merely configure a daemon: it TURNED ONE ON. A config that still
+// says `"journal": "full"` and gets nothing has been silently denied a host
+// capability it asked for, and "my logs stopped working" is not a symptom that leads
+// anyone back to a key that was quietly ignored.
+//
+// THE MESSAGE HAS TO CARRY THREE THINGS, because migrating the value alone leaves
+// `yolo-journalctl` just as broken: select the pack, enable the loophole, and — only
+// for the `full` case — write the setting. It also has to say WHERE: `full` is
+// declared `scope: "user"`, so writing it in a workspace `yolo-jail.jsonc` is itself
+// refused. That scope IS the ruling (OQ-K4's "security half"), because
+// `"journal": "full"` was settable from an agent-editable file with no scope rule of
+// any kind.
+//
+// TYPE CHECKS WENT WITH THE KEY (the off/user/full enum and the bool alias). Telling
+// someone their removed key has the wrong shape is two contradictory instructions
+// about one line.
+//
+// ERROR ON THE HOST, WARNING INSIDE A JAIL, for the reason validateAgentsRetired
+// states at length: in-jail the config is the HOST-GENERATED snapshot, so erroring
+// there refuses every nested launch over a key the in-jail user cannot fix at its
+// source, and it would make `yolo check` disagree with the launch. inherit.go stops
+// emitting the key, so the downgrade covers exactly one population: a jail whose
+// snapshot was written by a launcher older than this change.
+func validateJournalRetired(config *jsonx.OrderedMap, errs, warns *[]string) {
+	if _, present := config.Get("journal"); !present {
 		return
 	}
-	if isBool(journal) {
+	msg := "config.journal: REMOVED — this top-level key was retired when the journal " +
+		"bridge became a pack-shipped loophole, and yolo's config schema no longer names " +
+		"a loophole. The bridge is now selected and switched on like anything else: " +
+		`"packs": ["journal"] plus "loopholes": {"journal": {"enabled": true}}, which is ` +
+		`what "journal": "user" (and the bare true) used to mean. The old "full" is one ` +
+		`more key — "loopholes": {"journal": {"settings": {"full": true}}} — and it is ` +
+		"USER-CONFIG-ONLY on purpose: reading the whole host journal used to be settable " +
+		"from a workspace file the agent inside the jail can rewrite, and now it is not."
+	if inJail() {
+		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
+			"so remove the key from the HOST config.)")
 		return
 	}
-	s, ok := asStr(journal)
-	if !ok || !inStrSlice(journalModes, s) {
-		add(errs, fmt.Sprintf("config.journal: expected one of %s or a boolean (got %s)",
-			pyListRepr(journalModes), pyReprValue(journal)))
-	}
+	add(errs, msg)
 }
 
 func validateKVM(config *jsonx.OrderedMap, errs *[]string) {

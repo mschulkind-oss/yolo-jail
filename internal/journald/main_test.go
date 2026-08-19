@@ -206,17 +206,26 @@ func writeFakeJournalctlTailed(t *testing.T, path string, n int, tail string) {
 	}
 }
 
-// startServe launches journald.Serve in a goroutine on sock and blocks until the
-// socket is dialable. It returns the stop channel and a done channel that closes
-// when Serve returns; pass both to stopServe.
+// startServe launches the bare accept loop in a goroutine on sock and blocks until
+// the socket is dialable. It returns the stop channel and a done channel that closes
+// when the loop returns; pass both to stopServe.
+//
+// serveUnixConns + handleConn DIRECTLY, deliberately, rather than the exported
+// ServeFrontedUnix: this harness measures the AF_UNIX send buffer and then stalls the
+// client so the daemon's write blocks with the payload's tail still in the pipe, and
+// the front is two more buffers between those two facts — it would not merely make
+// the sizing approximate, it would put a process that always drains between the
+// client and the socket the sizing is about. What is under test lives inside
+// handleConn (the Wait/pipe ordering), and this reaches it with nothing in the way.
+// The preamble-consuming door is covered by TestFrontedJournalConsumesThePreamble.
 func startServe(t *testing.T, sock, mode string) (chan struct{}, chan struct{}) {
 	t.Helper()
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := Serve(sock, mode, stop); err != nil {
-			t.Errorf("Serve: %v", err)
+		if err := serveUnixConns(sock, stop, func(c net.Conn) { handleConn(c, mode) }); err != nil {
+			t.Errorf("serveUnixConns: %v", err)
 		}
 	}()
 	// 30s, not 5s. This poll normally succeeds in single-digit milliseconds — the

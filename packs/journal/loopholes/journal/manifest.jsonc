@@ -1,0 +1,143 @@
+// The `journal` loophole, shipped by the OFFICIAL `journal` pack — a read-only
+// window onto the host's systemd journal, reached from inside the jail as
+// `yolo-journalctl`.  See internal/journald for the daemon and cmd/yolo-journalctl
+// for the jail-side client, both of which stay BAKED: an official pack may name a
+// baked client (broker-as-a-pack.md §12).
+//
+// IT WAS NOT A LOOPHOLE AT ALL UNTIL 2026-08-18, and that is the whole point of this
+// file.  It was a BUILTIN SERVICE — a Go function the run pipeline called by hand
+// (`startJournal`, loopholesruntime.go), switched by a top-level `journal` key in
+// yolo's own config schema, with a name reserved in `paths.BuiltinLoopholeNames` and
+// refused nowhere.  Three things follow from the conversion, and each is a ruling
+// rather than a port:
+//
+//  1. THE TOP-LEVEL KEY IS DELETED.  `journal` was one of exactly two loopholes core's
+//     config schema named by hand (`host_processes` was the other, retired the same
+//     day), and deleting the second is what makes "convert the loophole" mean
+//     something rather than move a file: core's schema now names NO loophole at all
+//     (docs/design/loophole-activation.md §1.4, OQ-A6; pack-config-keys.md OQ-K4).
+//     A config that still writes the key is REFUSED, naming this block.
+//
+//  2. THE MODE GETS A SCOPE, WHICH IS THE SECURITY HALF.  `"journal": "full"` was an
+//     agent-settable host-journal passthrough — a workspace `yolo-jail.jsonc` is a
+//     file the agent inside the jail can rewrite, and nothing anywhere said the key
+//     was user-scope.  It is now the declared `full` setting below, `scope: "user"`.
+//
+//  3. THE RESERVATION GOES WITH IT.  A name yolo answers to itself and a name a pack
+//     SHIPS cannot be the same name: `PackLoopholeNameConflicts` is FATAL, so a
+//     reservation left standing over this manifest would refuse the whole launch for
+//     everyone who selects the pack.  `journal` left `paths.BuiltinLoopholeNames` in
+//     the same commit that added this file.
+{
+  "name": "journal",
+  "description": "Read the host's systemd journal from inside the jail (yolo-journalctl). Every request is forced to --user unless this loophole's own `full` setting says otherwise.",
+  "version": 1,
+
+  // OFF unless somebody asks for it — and unlike `audio` and `host-processes`, this
+  // one was ALREADY off: an absent top-level `journal` key resolved to "off", so
+  // `default_enabled: false` is the same answer in the new vocabulary rather than a
+  // capability being taken away.  What IS new is the pack: the bridge used to be
+  // compiled in and reachable from any config, and now it arrives only if you select
+  // `packs: ["journal"]`.
+  //
+  // Written out rather than omitted even though absent already means false: this is
+  // the manifest a reader checks when they wonder why `yolo-journalctl` stopped
+  // working, and a key that is not there answers nothing.  The switch is
+  // `"loopholes": {"journal": {"enabled": true}}`.
+  "default_enabled": false,
+
+  // Linux-only, DECLARED rather than probed, for the reason the `audio` manifest
+  // states at length: `requires` asks "is the thing I need present" (fix: install it)
+  // and `platforms` asks "does this exist for this machine at all" (no fix).  systemd's
+  // journal is Linux; on darwin there is nothing to install, and the macOS
+  // unified-logging analog is a separate thing living in internal/entrypoint/darwin.go.
+  //
+  // `journalctl` itself is deliberately NOT a `requires.command_on_path` probe.  A
+  // Linux host without systemd is a real machine, and the honest report there is the
+  // daemon answering "journalctl not found on host" (exit 127, which it already does,
+  // per request) rather than a loophole that vanishes from `yolo loopholes list` with
+  // no explanation — R3's argument, and the same reason the probe is being deleted
+  // from the schema (docs/design/loophole-activation.md R3).
+  "platforms": [
+    "linux"
+  ],
+
+  "transport": "loopback-tls",
+  "lifecycle": "spawned",
+
+  // THE LOOPHOLE OWNS ITS CONFIG KEY NOW (docs/design/pack-config-keys.md §5.2).
+  //
+  // ONE BOOLEAN, WHERE THERE USED TO BE THREE STRINGS.  The old vocabulary was
+  // `off | user | full` (plus the bool `true` meaning "user").  Two of those three are
+  // now said by `enabled` — off IS `"enabled": false` — so the only thing left to
+  // declare is whether this bridge may read past the launching user's own journal.
+  //
+  // A `string` here would have been the obvious port and it is the unsafe one: the
+  // settings type set is closed (`string`, `bool`, `int`, `string_list`) with no
+  // `enum`, so core could not refuse `"mode": "usr"` — and ParseRequest's test is
+  // `mode == "user"`, meaning EVERY other spelling behaves as FULL.  A typo that
+  // silently widens host access is exactly the shape this sprint deletes.  A bool
+  // cannot spell itself wrong, and core type-checks it before it is written.
+  "settings": {
+    "full": {
+      "type": "bool",
+      // USER CONFIG ONLY, which is the ruling rather than the default landing here by
+      // accident (OQ-K4: "the declared key gets a scope, which is the security half").
+      // The asymmetry with `host-processes`.`visible` is deliberate: that key kept
+      // `scope: "workspace"` because that is what it had always been and narrowing it
+      // would have been a second, silent break.  This one had NO scope rule at all, so
+      // there is no established workspace behaviour to preserve — only the hole.
+      //
+      // Note what a workspace CAN still do: `enabled` is either-scope (R5), so a
+      // workspace may switch the bridge on and get the narrow view.  What it cannot do
+      // is widen what the bridge may read.
+      "scope": "user",
+      "default": false,
+      "description": "pass journalctl args through unchanged, reading the WHOLE host journal (needs host journal read access); false forces --user onto every request"
+    }
+  },
+
+  // `publishes: "socket"` — REQUIRED of a pack-shipped loophole
+  // (internal/loopholedecl/packshipped.go), and the one change to how this daemon
+  // reaches the jail.  It used to publish its own loopback-TLS endpoint via
+  // svcendpoint.Listen; now it binds a plain AF_UNIX socket at the path yolo
+  // substitutes into `{socket}` and yolo runs the front over it, so the endpoint
+  // file's mode, its key persistence, its constant-time token compare and its length
+  // cap are the framework's code rather than this daemon's.
+  //
+  // NOTHING JAIL-FACING MOVES: the env var is still YOLO_SERVICE_JOURNAL_ENDPOINT and
+  // the in-jail path is still /run/yolo-services/journal.endpoint, because both are
+  // functions of the loophole NAME and the transport alone.  What moves is upstream
+  // and host-only — the socket is bound outside the :rw-mounted services dir, so the
+  // retired socket transport stays unreachable from inside the jail.
+  //
+  // `preamble` is left at its manifest default (ON), and internal/journald's
+  // ServeFrontedUnix consumes the frame.  Getting that pairing wrong is total rather
+  // than subtle: the daemon's request parser reads to the first newline, so an
+  // unconsumed preamble becomes the request and every call answers "malformed
+  // request".
+  //
+  // `request_end` is likewise left at its default ("framed"): the request is one
+  // newline-terminated line and the daemon never reads to EOF, so "eof" would
+  // half-close the upstream for no benefit.
+  //
+  // `{settings}` resolves to the file yolo WRITES from the `settings` declarations
+  // above, after validating the user's values.  It is a PATH and not an env map on
+  // purpose: `loopholes.<name>.env` is user-scope-only precisely because it reaches a
+  // host daemon's spawn environment, and a path is the one thing a spawn may carry.
+  "host_daemon": {
+    "cmd": [
+      "yolo", "internal", "daemon", "journal",
+      "--socket", "{socket}",
+      "--settings", "{settings}"
+    ],
+    "publishes": "socket"
+  }
+
+  // No `doctor_cmd`.  There is nothing this daemon could self-check that the jail's
+  // own first request does not answer better: whether `journalctl` exists on the host
+  // is reported per request (exit 127, naming it), and whether the bridge is reachable
+  // is what the run pipeline's readiness probe and the in-jail reachability witness
+  // already measure.  An invented check that only ever said "yes" would make
+  // `yolo check` greener without making it more informative.
+}

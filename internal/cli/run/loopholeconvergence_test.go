@@ -160,23 +160,28 @@ func TestBrokerLookupIsUnshadowable(t *testing.T) {
 // TestBuiltinNameSkipIsAudible is §3.1's requirement: make the loopholesruntime.go skip
 // PRINT when the name did not come from the builtin.
 //
-// The silent version is worse than it looks. A manifest named `journal` or `cgroup-delegate`
-// loaded, was discovered, had its daemon dropped here without a word — while RuntimeArgsFor
+// The silent version is worse than it looks. A manifest named `cgroup-delegate` loaded,
+// was discovered, had its daemon dropped here without a word — while RuntimeArgsFor
 // had ALREADY emitted its --add-host, ca_cert, --device, bind mounts and jail_env into the
 // argv. Half a loophole, and the half that DID happen is the half that changes what crosses
 // into the jail.
+//
+// IT USED TO USE `journal` FOR THIS, and it cannot any more: `journal` is a name an
+// official PACK ships as of 2026-08-18, so it is no longer a builtin and the skip must
+// not fire for it. `cgroup-delegate` is the last name that still reaches this branch,
+// which is exactly as long as this test has left to live (OQ-A6).
 func TestBuiltinNameSkipIsAudible(t *testing.T) {
 	os.Unsetenv("YOLO_VERSION")
 	isolatePackModules(t)
-	// A manifest named `journal` reaching discovery. A PACK cannot get here (the launch
-	// pre-flight refuses the name at staging) and the hand-placed user directory is
+	// A manifest named `cgroup-delegate` reaching discovery. A PACK cannot get here (the
+	// launch pre-flight refuses the name at staging) and the hand-placed user directory is
 	// retired (OQ-LP10), so what remains is a BUNDLED manifest claiming the name — yolo
 	// shipping its own collision, or version skew between the reservation list and the
 	// bundled tree. Rarer than the case this test was written for, and the branch still
 	// has to be audible: the daemon is skipped while the manifest's binds/devices/jail_env
 	// already crossed.
 	bundledRoot := fakeBundled(t)
-	writeHostDaemonModule(t, bundledRoot, paths.BuiltinJournalLoopholeName)
+	writeHostDaemonModule(t, bundledRoot, paths.BuiltinCgroupLoopholeName)
 
 	var out bytes.Buffer
 	o := goldenOptions(t.TempDir(), t.TempDir())
@@ -186,7 +191,7 @@ func TestBuiltinNameSkipIsAudible(t *testing.T) {
 	o.startLoopholes("yolo-test-builtin-skip", "podman", jsonx.NewOrderedMap())
 
 	got := out.String()
-	if !strings.Contains(got, paths.BuiltinJournalLoopholeName) {
+	if !strings.Contains(got, paths.BuiltinCgroupLoopholeName) {
 		t.Errorf("the skip must NAME the loophole; got:\n%s", got)
 	}
 	for _, want := range []string{"built-in", "NOT started", "jail_env"} {
@@ -228,10 +233,24 @@ func TestIsBuiltinLoopholeNameReadsTheSharedList(t *testing.T) {
 	if isBuiltinLoopholeName("acme-proxy") {
 		t.Error("an ordinary loophole name must not be treated as a builtin")
 	}
-	if len(paths.BuiltinLoopholeNames) != 2 {
-		t.Errorf("paths.BuiltinLoopholeNames has %d entries; if a THIRD builtin was added, check "+
-			"that the config validator, this skip and the reserved set all learned about it "+
-			"together — the whole point of the shared list", len(paths.BuiltinLoopholeNames))
+	// ONE, since `journal` became a pack on 2026-08-18. The count is asserted in the
+	// direction that matters now: a name ADDED here without the config validator, this
+	// skip and the reserved set learning about it together is the original defect, and a
+	// name that leaves without its reservation leaving too is the launch-breaking one —
+	// `PackLoopholeNameConflicts` is fatal, so a pack shipping a still-reserved name
+	// refuses every launch that selects it.
+	if len(paths.BuiltinLoopholeNames) != 1 {
+		t.Errorf("paths.BuiltinLoopholeNames has %d entries, want 1 (`cgroup-delegate` alone). "+
+			"If one was ADDED, check that the config validator, this skip and the reserved set "+
+			"learned about it together. If one LEFT — became a pack — check that its "+
+			"reservation left with it, or every jail selecting that pack fails to launch",
+			len(paths.BuiltinLoopholeNames))
+	}
+	if isBuiltinLoopholeName("journal") {
+		t.Error("`journal` is still treated as a builtin, but it ships in the official " +
+			"`journal` pack now: the spawn loop would skip its host daemon while its " +
+			"declarations had already crossed into the jail — half a loophole, which is the " +
+			"exact shape this list was created to end")
 	}
 }
 

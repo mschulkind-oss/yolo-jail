@@ -180,9 +180,18 @@ func TestMalformedPlatformsIsRefusedOnTheTolerantPath(t *testing.T) {
 // chosen: `requires.file_exists` is one of the two fields the pack-shipped subset
 // still path-scopes, so `${XDG_RUNTIME_DIR}/pulse/native` could not come across —
 // while `platforms` answers the question the probe was really asking and is not
-// scoped at all. The other two are unchanged.
+// scoped at all.
+//
+// `journal` joined the same day and CHOSE the declaration rather than being forced
+// into it. The bridge forwards `journalctl`, so it is Linux in the "there is nothing
+// to install on darwin" sense `platforms` is for — and the run pipeline's old hand-
+// written guard (the `container` runtime returning before the journal step) is not a
+// thing a manifest loophole has. Note what it deliberately did NOT declare: a
+// `requires.command_on_path: journalctl` probe, because a Linux host without systemd
+// should hear "journalctl not found on host" per request rather than watch the
+// loophole vanish from `yolo loopholes list` (R3).
 func TestShippedLoopholePlatformDeclarations(t *testing.T) {
-	wantPlatforms := map[string][]string{"audio": {"linux"}}
+	wantPlatforms := map[string][]string{"audio": {"linux"}, "journal": {"linux"}}
 	for _, s := range shippedLoopholes {
 		lp, err := LoadLoophole(shippedLoopholeModule(t, s.name, s.pack))
 		if err != nil {

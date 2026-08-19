@@ -21,6 +21,66 @@ changelog; this is the subset that bites.
 
 ## Unreleased
 
+### ⚠️ The top-level `journal` key is gone, and `yolo-journalctl` needs a pack now
+
+**What changed.** Two things, and either one alone stops `yolo-journalctl` working.
+
+The **top-level `journal` key is no longer recognised** — a config that still carries it
+is **refused**, naming the replacement. Unlike `host_processes`, this one got no
+warning release first: the key had no migration window because the thing it switched on
+did not exist as a loophole until now.
+
+And the bridge **ships in a pack**, `journal`, instead of being a service compiled into
+yolo and started by hand. Nothing is on by default, so it is off until you select the
+pack — the same rule as any agent pack you never listed.
+
+**Who is affected.** Anyone whose config sets `journal` at all, in either scope, to any
+value — including `"journal": "off"` and `"journal": false`, which were previously inert.
+
+**What to do.** Two lines for what `"journal": "user"` (or the bare `true`) used to do:
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc
+{
+  "packs": ["claude", "journal"],
+  "loopholes": { "journal": { "enabled": true } }
+}
+```
+
+`"journal": "off"` / `false` / absent needs nothing at all — don't select the pack.
+
+**`"journal": "full"` needs one more key, and it has to be in your USER config:**
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc  — NOT a workspace yolo-jail.jsonc
+"loopholes": { "journal": { "enabled": true, "settings": { "full": true } } }
+```
+
+That scope is the point rather than a detail. `"journal": "full"` reads the **whole host
+journal** — every unit, every user — and it was settable from a workspace
+`yolo-jail.jsonc`, which is a file the agent inside the jail can rewrite, with no scope
+rule anywhere. The setting declares `"scope": "user"`, so a workspace file supplying it
+is now refused by name. A workspace may still switch the bridge **on** (`enabled` is
+honored from either scope) and gets the narrow, `--user`-forced view.
+
+It is a **boolean** rather than the old three-valued string on purpose: the settings type
+set has no `enum`, so a string mode could carry any word — and the daemon narrows on the
+exact literal `"user"`, meaning every *other* spelling, including a typo, would have read
+as **full**.
+
+**Why.** Core's config schema named exactly two loopholes by hand, and `host_processes`
+(above) was the first to go. With this one gone, **yolo's config schema names no loophole
+at all** — which is what makes converting a loophole to a pack mean something rather than
+moving a file. 📄 [`loophole-activation.md`](design/loophole-activation.md) §1.4, OQ-A6 ·
+[`pack-config-keys.md`](design/pack-config-keys.md) OQ-K4.
+
+> [!NOTE]
+> **Nothing jail-facing moved.** `yolo-journalctl` is unchanged, the env var is still
+> `YOLO_SERVICE_JOURNAL_ENDPOINT`, and the endpoint is still
+> `/run/yolo-services/journal.endpoint`. Under the hood the daemon stopped publishing its
+> own loopback-TLS endpoint and now binds a plain socket behind yolo's front, because a
+> pack-shipped loophole must — but that is invisible from inside a jail.
+
 ### ⚠️ The Claude OAuth broker no longer runs on every host
 
 **What changed.** yolo used to start the broker singleton — and one relay per jail — on

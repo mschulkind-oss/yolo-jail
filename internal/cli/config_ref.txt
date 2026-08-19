@@ -290,39 +290,56 @@
     but how the endpoint file crosses into an AC guest is an unmade decision, so
     host services stay explicitly DEFERRED there rather than quietly enabled.
 
-  [bold]host_processes[/bold] (object): RETIRED, still honored.  Its keys moved to
-    the host-processes loophole's own "settings" block, where they are declared by
-    that loophole's manifest rather than by yolo's config schema:
+  [bold]host_processes[/bold] (object): REMOVED — a config carrying it is REFUSED.
+    Its keys moved to the host-processes loophole's own "settings" block, where they
+    are declared by that loophole's manifest rather than by yolo's config schema:
 
-      "loopholes": { "host-processes": { "settings": {
-        "visible": ["sway"],          // process comm names yolo-ps may show
-        "fields":  ["pid", "comm"]    // ps -o columns
-      }}}
+      "packs": ["host-processes"],
+      "loopholes": { "host-processes": {
+        "enabled": true,
+        "settings": {
+          "visible": ["sway"],          // process comm names yolo-ps may show
+          "fields":  ["pid", "comm"]    // ps -o columns
+        }
+      }}
 
-    NOTE THE SPELLING: the loophole is "host-processes" (hyphen); the retired
-    top-level key is "host_processes" (underscore).  The old key still works and
-    warns; where both are present, the new spelling wins PER KEY.  Two behaviours
-    changed with the move: the allowlist is resolved once at launch (so an edit
-    needs a jail restart), and a workspace file supplying it is disclosed and
-    gated by the config-change approval flow.
+    NOTE THE SPELLING: the loophole is "host-processes" (hyphen); the removed
+    top-level key is "host_processes" (underscore).  All three lines are needed —
+    the loophole ships in a PACK now, so migrating the keys alone leaves yolo-ps
+    just as broken.  Two behaviours changed with the move: the allowlist is
+    resolved once at launch (so an edit needs a jail restart), and a workspace file
+    supplying it is disclosed and gated by the config-change approval flow.
 
-  [bold]journal[/bold] (string, default "off"): Enable the built-in journal bridge.
-    Exposes [bold]yolo-journalctl[/bold] inside the jail, which forwards its args to
-    [cyan]journalctl[/cyan] running on the host and streams stdout/stderr back to the
-    terminal.  Useful when an agent needs to inspect systemd logs (e.g.
-    the Claude token refresher's own output) without mounting the host
-    journal rw into the jail.
-    Values:
-      • "off"  (default) — no daemon, no shim
-      • "user" — daemon forces [cyan]--user[/cyan] on every invocation (recommended)
-      • "full" — args pass through unchanged (requires host journal read access)
+  [bold]journal[/bold] (string): REMOVED — a config carrying it is REFUSED.
+    The journal bridge is an ordinary pack-shipped loophole now, so it is selected
+    and switched on like anything else, and its mode is its own declared setting.
+    yolo's config schema no longer names a loophole at all.
+
+      "packs": ["journal"],
+      "loopholes": { "journal": {
+        "enabled": true,                // was "journal": "user" (or the bare true)
+        "settings": { "full": true }    // was "journal": "full" — USER CONFIG ONLY
+      }}
+
+    What it does is unchanged: [bold]yolo-journalctl[/bold] inside the jail forwards
+    its args to [cyan]journalctl[/cyan] running on the host and streams
+    stdout/stderr back, so an agent can inspect systemd logs without the host
+    journal being mounted rw into the jail.
+      • off      — don't select the pack, or "enabled": false
+      • narrow   — enabled; the daemon forces [cyan]--user[/cyan] on every
+                   invocation (this is the default, and what "user" meant)
+      • full     — enabled + "settings": {"full": true}; args pass through
+                   unchanged, which needs host journal read access
+    THE "full" SETTING IS USER-SCOPE.  A workspace yolo-jail.jsonc may switch the
+    bridge on ("enabled" is honored from either scope) but may NOT widen what it
+    reads: reading the whole host journal used to be settable from a file the agent
+    inside the jail can rewrite, and the declared scope is what ended that.
     Endpoint file: /run/yolo-services/journal.endpoint
     Env var: YOLO_SERVICE_JOURNAL_ENDPOINT
     The value is a PATH to the endpoint file, not an address: the bridge is on
     the loopback-TLS transport, so the address lives inside the file and a
     restarted daemon is picked up without relaunching the jail.  The file also
     carries this jail's bearer token, which is why it is 0600.
-    "journal" is reserved as a loopholes name — you cannot shadow it.
 
   [bold]env_sources[/bold] (array): Environment variables set inside the jail.
     Ordered list; each entry is either:

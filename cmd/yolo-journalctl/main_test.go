@@ -269,14 +269,22 @@ func TestEndpointFaultsAreAttributed(t *testing.T) {
 
 // TestEndToEndOverLoopbackTLS drives the WHOLE stack: this client, over the
 // framework's real transport (pinned cert + token + accept ack), into the REAL
-// journal daemon (journald.ServeEndpoint), which execs a fake journalctl and
-// streams its output back framed.
+// journal daemon, which execs a fake journalctl and streams its output back framed.
 //
 // The converse tests above are transport-agnostic by construction, so they
 // would still pass if the dialer were wrong; only this one catches a wrong env
 // var, an unpublished endpoint, or a daemon that never authenticates. It also
 // proves the flip changed the DIALER and nothing else: the framing assertions
 // are the same ones the AF_UNIX version made.
+//
+// THE SERVER SIDE MOVED ON 2026-08-18 AND THIS CLIENT DID NOT, which is the claim
+// the rewrite below is now also pinning. The daemon used to publish the endpoint
+// itself (journald.ServeEndpoint); the journal bridge is a pack-shipped loophole
+// now, and a pack-shipped loophole must declare `publishes: "socket"` — so the
+// daemon binds a plain AF_UNIX socket and yolo's own svcendpoint front holds the
+// jail-facing listener. Every assertion below is unchanged, because nothing
+// jail-facing moved: the env var, the endpoint path and the framing are functions of
+// the loophole name and the transport alone.
 func TestEndToEndOverLoopbackTLS(t *testing.T) {
 	dir := shortSocketDir(t)
 
@@ -295,15 +303,34 @@ func TestEndToEndOverLoopbackTLS(t *testing.T) {
 	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
 
 	endpoint := filepath.Join(dir, "journal.endpoint")
+	upstream := filepath.Join(dir, "journal-upstream.sock")
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := journald.ServeEndpoint(endpoint, "full", stop); err != nil {
-			t.Errorf("ServeEndpoint: %v", err)
+		if err := journald.ServeFrontedUnix(upstream, journald.ModeFull, stop); err != nil {
+			t.Errorf("ServeFrontedUnix: %v", err)
 		}
 	}()
-	t.Cleanup(func() { close(stop); <-done })
+	// Wait for the BIND by type rather than by dialing: a connect-and-close poll is
+	// the readiness probe's shape, and it would log a preamble rejection for nothing.
+	bindDeadline := time.Now().Add(10 * time.Second)
+	for {
+		if fi, err := os.Lstat(upstream); err == nil && fi.Mode()&os.ModeSocket != 0 {
+			break
+		}
+		if time.Now().After(bindDeadline) {
+			t.Fatal("the daemon never bound its upstream socket")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	frontStop := make(chan struct{})
+	frontDone := make(chan struct{})
+	go func() {
+		defer close(frontDone)
+		_ = svcendpoint.ServeFront(endpoint, "127.0.0.1", upstream, frontStop)
+	}()
+	t.Cleanup(func() { close(frontStop); <-frontDone; close(stop); <-done })
 
 	deadline := time.Now().Add(10 * time.Second)
 	for !svcendpoint.Probe(endpoint) {
