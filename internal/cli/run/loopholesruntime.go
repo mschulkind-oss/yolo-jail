@@ -144,6 +144,10 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 	// says it evaluated the gate.
 	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
 	discovered := set.Enabled()
+	// BEFORE the spawn, because a daemon's argv already names the file: {settings}
+	// resolved to a real path at record-load time, so by the time this loop reaches
+	// exec.Command the file has to hold this launch's values (loopholesettings.go).
+	o.writeLoopholeSettings(discovered, cfg)
 	manifestSpecs := set.ManifestHostDaemonSpecs(discovered)
 	// The TRANSPORT comes from the Loophole record, not from the config-shaped spec
 	// map, because it is the framework's decision and not a user-supplied key. A name
