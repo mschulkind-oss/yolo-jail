@@ -42,17 +42,19 @@ const (
 // Schema constants
 // ---------------------------------------------------------------------------
 
-// knownTopLevelConfigKeys is the accepted top-level key set. `agents` is
-// deliberately ABSENT — the key was deleted (an agent arrives as a pack now), so
-// a config still carrying it must be rejected, not silently ignored. See
-// validateAgentsRetired, which supplies the retirement message on top of the bare
-// "unknown key" this omission produces.
+// knownTopLevelConfigKeys is the accepted top-level key set.
 var knownTopLevelConfigKeys = set(
-	// `repo_path` and `agents` are RETIRED but stay listed: a key in this set gets
-	// only its own targeted retirement message (validateRepoPath /
-	// validateAgentsRetired), whereas removing it here would ALSO trigger the generic
-	// "unknown key" error and the user would see the same problem reported twice —
-	// once uselessly.
+	// `repo_path`, `agents` and `host_processes` are RETIRED but stay listed: a key in
+	// this set gets only its own targeted retirement message (validateRepoPath /
+	// validateAgentsRetired / validateHostProcessesRetired), whereas removing it here
+	// would ALSO trigger the generic "unknown key" error and the user would see the
+	// same problem reported twice — once uselessly.
+	//
+	// `host_processes` is the newest of the three and the one whose retirement is a
+	// MOVE rather than a deletion: its keys are now declared by the host-processes
+	// loophole's own manifest, which ships in the official pack of the same name, so
+	// core's config schema no longer names a loophole (docs/design/pack-config-keys.md,
+	// loophole-activation.md §1.4).
 	"runtime", "confinement", "repo_path", "agents", "packages", "mounts", "workspace_readonly",
 	"per_side_paths", "network", "security", "mise_tools", "lsp_servers",
 	"mcp_servers", "mcp_presets", "devices", "gpu", "resources", "env_sources",
@@ -66,15 +68,14 @@ var journalModes = []string{"off", "user", "full"}
 var ephemeralStorageModes = []string{"volume", "tmpfs"}
 
 var (
-	knownNetworkKeys       = set("mode", "ports", "forward_host_ports")
-	knownSecurityKeys      = set("blocked_tools")
-	knownBlockedToolKeys   = set("name", "message", "suggestion", "block_flags")
-	knownHostProcessesKeys = set("visible", "fields")
-	knownPackageKeys       = set("name", "nixpkgs", "version", "url", "hash", "outputs")
-	knownLSPServerKeys     = set("command", "args", "fileExtensions")
-	knownMCPServerKeys     = set("command", "args", "env", "requires_env")
-	knownDeviceKeys        = set("usb", "description", "cgroup_rule")
-	knownResourcesKeys     = set("memory", "cpus", "pids_limit")
+	knownNetworkKeys     = set("mode", "ports", "forward_host_ports")
+	knownSecurityKeys    = set("blocked_tools")
+	knownBlockedToolKeys = set("name", "message", "suggestion", "block_flags")
+	knownPackageKeys     = set("name", "nixpkgs", "version", "url", "hash", "outputs")
+	knownLSPServerKeys   = set("command", "args", "fileExtensions")
+	knownMCPServerKeys   = set("command", "args", "env", "requires_env")
+	knownDeviceKeys      = set("usb", "description", "cgroup_rule")
+	knownResourcesKeys   = set("memory", "cpus", "pids_limit")
 	// knownHostServiceKeys is the INLINE loophole entry's key census. It must
 	// cover every key the loader reads: `description` and `doctor_cmd` are read
 	// by discover.go's synthesizeConfigLoopholes, and `jail_endpoint` is the

@@ -373,10 +373,12 @@ no longer protects:
 > the front** (see `request_end` above). A daemon of that shape needs a
 > `manifest.jsonc`, where the field exists.
 
-The example above matches the bundled manifest — compare
-[`bundled_loopholes/host-processes/manifest.jsonc`](../../bundled_loopholes/host-processes/manifest.jsonc),
-which is `loopback-tls` because its daemon is `yolo` itself.
-The bundled daemons live behind `yolo internal daemon <name>` rather than
+The example above matches the shipped manifest — compare
+[`packs/host-processes/loopholes/host-processes/manifest.jsonc`](../../packs/host-processes/loopholes/host-processes/manifest.jsonc),
+which is `loopback-tls` because its daemon is `yolo` itself. (It moved out of
+`bundled_loopholes/` on 2026-08-18, otherwise unchanged — which is the point: the
+pack-shipped subset accepted the manifest as written.)
+yolo's own daemons live behind `yolo internal daemon <name>` rather than
 separate binaries, because the host ship set is deliberately just `yolo`.
 Third-party daemons are any executable on the host's PATH.
 
@@ -634,8 +636,8 @@ refused by name. **One exemption: a BUNDLED loophole's module dir is not judged*
 it is the yolo binary's own content, the same artifact performing this check, so an
 agent that could rewrite it has already rewritten the checker (and it matters in
 practice: a yolo running from its own source tree reads `bundled_loopholes/` out of
-the very workspace it mounts `:rw`, which refused the broker, audio and
-host-processes on every launch until the exemption landed). Pack-shipped loopholes
+the very workspace it mounts `:rw`, which refused the broker, audio and — while it
+was still bundled — host-processes on every launch until the exemption landed). Pack-shipped loopholes
 are judged, which is the case the rule was written for — and since the hand-placed
 directory was retired they are the only module dirs the rule has left to judge.
 A refused **module dir** suppresses the argv refusals under it:

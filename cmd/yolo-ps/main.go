@@ -61,10 +61,19 @@ func run() int {
 		ep = os.Getenv("YOLO_SERVICE_HOST_PROCESSES_ENDPOINT")
 	}
 	if ep == "" {
+		// THREE GATES, NAMED IN ORDER, because "not wired up" has three causes and
+		// only one of them used to exist. The loophole ships in a pack now, so the
+		// old single line ("add host_processes.visible") would send a reader to a
+		// key that no longer exists AND leave the two gates in front of it unmet.
 		fmt.Fprintln(os.Stderr,
-			"yolo-ps: no endpoint.  The host-processes loophole isn't wired "+
-				"up in this jail.  Add `host_processes.visible: [...]` to your "+
-				"yolo-jail.jsonc and restart the jail.")
+			"yolo-ps: no endpoint.  The host-processes loophole isn't wired up in "+
+				"this jail.  Three things turn it on, and all three are needed:\n"+
+				"  1. ~/.config/yolo-jail/config.jsonc:  \"packs\": [..., \"host-processes\"]\n"+
+				"  2. ~/.config/yolo-jail/config.jsonc:  \"loopholes\": {\"host-processes\": {\"enabled\": true}}\n"+
+				"  3. this workspace's yolo-jail.jsonc:   \"loopholes\": {\"host-processes\": "+
+				"{\"settings\": {\"visible\": [\"...\"]}}}\n"+
+				"Then restart the jail.  (The top-level `host_processes` key is gone; "+
+				"step 3 is where it went.)")
 		return 2
 	}
 

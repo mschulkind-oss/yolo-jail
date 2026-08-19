@@ -79,7 +79,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateEphemeralStorage(config, errs)
 	validateNetwork(config, errs, warns)
 	validateSecurity(config, errs)
-	validateHostProcesses(config, errs, warns)
+	validateHostProcessesRetired(config, errs, warns)
 	validateMiseTools(config, errs)
 	validateLSPServers(config, errs)
 	validateMCPPresets(config, errs)
@@ -573,50 +573,58 @@ func validateSecurity(config *jsonx.OrderedMap, errs *[]string) {
 	}
 }
 
-// validateHostProcesses handles the top-level `host_processes` block, which is
-// MID-RETIREMENT: its keys are moving to `loopholes.host-processes.settings`, where
-// they are declared by the loophole's own manifest instead of being named by hand in
-// core's schema (docs/design/pack-config-keys.md).
+// validateHostProcessesRetired reports the DELETED top-level `host_processes` block.
 //
-// STILL ACCEPTED, and still HONORED — the value is folded into the resolved settings
-// at launch (internal/cli/run/loopholesettings.go). Deleting the key before its
-// loophole is a pack would strand every user who has one, so the key stays in
-// knownTopLevelConfigKeys and this pass keeps its type checks, exactly as
-// `repo_path` and `agents` did through their own retirements.
+// It was one of exactly two loopholes core's own config schema named by hand
+// (docs/design/loophole-activation.md §1.4), and that is what made "convert the
+// loophole to a pack" a separation in appearance only: the manifest would move out
+// of core while core's schema went on naming it. The keys now live in the loophole's
+// own manifest, in the official `host-processes` pack, under
+// `loopholes.host-processes.settings` (docs/design/pack-config-keys.md).
 //
-// The WARNING is the part that is not optional. A retired key that keeps working in
-// silence is a key nobody migrates, and the deletion that follows then arrives as a
-// surprise — so the message names the replacement spelling, which is the only thing
-// that makes the eventual deletion a non-event.
-func validateHostProcesses(config *jsonx.OrderedMap, errs, warns *[]string) {
-	v, present := config.Get("host_processes")
-	if !present || v == nil {
+// A REFUSAL, NOT A WARNING, AND NOT SILENCE. The previous step honored the key —
+// folded it into the resolved settings at launch, with a warning naming the
+// replacement — precisely so this step could delete it without stranding anybody.
+// What must not happen is the third option: an ignored key. This block used to
+// decide what a host daemon would reveal about the user's machine, so a config that
+// still writes it and gets nothing has been silently DENIED a capability it asked
+// for, in the one direction where silence reads as "it worked".
+//
+// The key STAYS in knownTopLevelConfigKeys so this is the only message it earns —
+// the same treatment `agents` and `repo_path` get. A bare "unknown key" reads like a
+// typo and sends people hunting for the correct spelling of a key that no longer
+// exists.
+//
+// TYPE CHECKS ARE GONE with the key: there is nothing left to type-check for, and
+// reporting `config.host_processes.visible: expected a list of strings` beside "this
+// key was removed" would ask the user to fix the shape of something they must delete.
+//
+// ERROR ON THE HOST, WARNING INSIDE A JAIL, for the reason validateAgentsRetired
+// states at length: in-jail the config is the HOST-GENERATED snapshot, so erroring
+// there refuses every nested launch over a key the in-jail user cannot fix at its
+// source — and it would make `yolo check` disagree with the launch. The snapshot no
+// longer carries the key at all (inherit.go moved it to the retired block), so this
+// downgrade covers exactly one population: a jail whose snapshot was written by a
+// launcher older than this change.
+func validateHostProcessesRetired(config *jsonx.OrderedMap, errs, warns *[]string) {
+	if _, present := config.Get("host_processes"); !present {
 		return
 	}
-	hp, ok := asMap(v)
-	if !ok {
-		add(errs, "config.host_processes: expected an object")
+	msg := "config.host_processes: REMOVED — this top-level key was retired when the " +
+		"host-processes loophole became a pack, and yolo's config schema no longer names " +
+		"a loophole. Write the values under the loophole's own name instead: " +
+		`"loopholes": {"host-processes": {"settings": {"visible": [...], "fields": [...]}}}. ` +
+		"NOTE THE SPELLING: the loophole is 'host-processes' (hyphen), not 'host_processes' " +
+		"(underscore). Two more things changed with the move, and both need doing: the " +
+		"loophole now ships in a pack, so `packs` must list \"host-processes\" and " +
+		`"loopholes": {"host-processes": {"enabled": true}} must switch it on; and the ` +
+		"allowlist is resolved ONCE at launch, so editing it needs a jail restart."
+	if inJail() {
+		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
+			"so remove the key from the HOST config.)")
 		return
 	}
-	reportUnknownKeys(hp, knownHostProcessesKeys, "config.host_processes", errs)
-	for _, listKey := range []string{"visible", "fields"} {
-		if val, ok := hp.Get(listKey); ok {
-			if !isStrList(val) {
-				add(errs, "config.host_processes."+listKey+": expected a list of strings")
-			}
-		}
-	}
-	if hp.Len() == 0 {
-		return
-	}
-	add(warns, "config.host_processes: this top-level key is RETIRED and moving to "+
-		`"loopholes": {"host-processes": {"settings": {…}}} — the keys are now declared `+
-		"by the host-processes loophole's own manifest rather than by yolo's config schema. "+
-		"It is still honored, and the new spelling wins per key where both are present. "+
-		"NOTE THE NAME CHANGE: the loophole is spelled 'host-processes' (hyphen), not "+
-		"'host_processes'. Two behaviours also changed with the move: the allowlist is "+
-		"resolved ONCE at launch, so editing it now needs a jail restart, and a workspace "+
-		"yolo-jail.jsonc supplying it is disclosed and gated by the config-change approval.")
+	add(errs, msg)
 }
 
 func validateMiseTools(config *jsonx.OrderedMap, errs *[]string) {

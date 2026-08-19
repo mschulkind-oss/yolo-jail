@@ -12,10 +12,21 @@ import (
 // # Once, at launch, is the whole point (OQ-K3)
 //
 // The host-processes daemon used to re-read the raw workspace config on EVERY
-// REQUEST. That is what made `host_processes.visible` editable without a restart —
-// a real affordance, and indistinguishable from the hole: the same property let an
-// AGENT widen its own allowlist mid-session, with no launch and therefore no
-// approval gate, while the config diff was not in that causal path at all.
+// REQUEST. That is what made the retired `host_processes.visible` editable without a
+// restart — a real affordance, and indistinguishable from the hole: the same
+// property let an AGENT widen its own allowlist mid-session, with no launch and
+// therefore no approval gate, while the config diff was not in that causal path at
+// all.
+//
+// # There is no legacy fold-in any more (2026-08-18)
+//
+// This file briefly carried one: the retired top-level `host_processes` block was
+// merged into the settings supplied to the `host-processes` loophole, per key, so
+// the key kept WORKING while its replacement landed. It was deleted in the step that
+// moved the loophole into a pack, which is the step it was always scheduled for.
+// The key is now a REFUSAL (config.validateHostProcessesRetired), which is the only
+// alternative to honoring it that does not silently deny a capability someone asked
+// for.
 //
 // Resolving here freezes it. Changing what a loophole may do now needs a restart,
 // which is exactly where the config-approval gate lives — and that gate is a control
@@ -47,9 +58,7 @@ func (o *Options) writeLoopholeSettings(discovered []*loopholes.Loophole, cfg *j
 		if len(lp.Settings) == 0 {
 			continue
 		}
-		supplied := suppliedSettings(loopCfg, lp.Name)
-		supplied = withLegacyHostProcessesSettings(lp.Name, supplied, cfg, o)
-		_, problems, err := loopholes.WriteSettings(lp, supplied)
+		_, problems, err := loopholes.WriteSettings(lp, suppliedSettings(loopCfg, lp.Name))
 		for _, prob := range problems {
 			o.pr(o.Stdout).print("[yellow]Warning: " + prob + "[/yellow]")
 		}
@@ -76,69 +85,4 @@ func suppliedSettings(loopCfg *jsonx.OrderedMap, name string) *jsonx.OrderedMap 
 		return nil
 	}
 	return cfgMap(entry, "settings")
-}
-
-// ---------------------------------------------------------------------------
-// TEMPORARY: the top-level `host_processes` key, honored at the point of READ.
-// ---------------------------------------------------------------------------
-
-// legacyHostProcessesLoophole is the one loophole whose settings used to live in a
-// top-level config key of their own.
-const legacyHostProcessesLoophole = "host-processes"
-
-// withLegacyHostProcessesSettings folds the RETIRED top-level `host_processes`
-// block into the settings supplied to the `host-processes` loophole.
-//
-// # Why this exists, and when it goes
-//
-// `host_processes.visible` and `host_processes.fields` are becoming
-// `loopholes.host-processes.settings.{visible,fields}`. The old key must keep
-// WORKING through the migration — deleting it before its loophole is a pack would
-// strand every user who has one — so it is honored here, where the value is READ.
-// A validator-only alias would make `yolo check` go green while the daemon honored
-// the old spelling forever, which is the failure docs/design/pack-config-keys.md §5
-// names explicitly. The user-facing message naming the replacement is emitted by
-// internal/config's validateHostProcesses, at every launch.
-//
-// Delete this function together with the top-level key, in the step that turns
-// `host-processes` into a pack.
-//
-// # The new spelling wins, per key
-//
-// Not "whole block wins": a config mid-migration can name `visible` under the new
-// spelling and still carry an old `fields`, and the surprising answer would be for
-// the untouched key to vanish. So the legacy block fills in only the keys the new
-// spelling did not supply.
-func withLegacyHostProcessesSettings(
-	name string, supplied *jsonx.OrderedMap, cfg *jsonx.OrderedMap, o *Options,
-) *jsonx.OrderedMap {
-	if name != legacyHostProcessesLoophole {
-		return supplied
-	}
-	legacy := cfgMap(cfg, "host_processes")
-	if legacy == nil || legacy.Len() == 0 {
-		return supplied
-	}
-	out := jsonx.NewOrderedMap()
-	if supplied != nil {
-		for _, k := range supplied.Keys() {
-			v, _ := supplied.Get(k)
-			out.Set(k, v)
-		}
-	}
-	carried := []string{}
-	for _, k := range legacy.Keys() {
-		if _, already := out.Get(k); already {
-			continue
-		}
-		v, _ := legacy.Get(k)
-		out.Set(k, v)
-		carried = append(carried, k)
-	}
-	if len(carried) > 0 && o != nil {
-		o.pr(o.Stdout).print("[dim]Using the retired top-level 'host_processes' key for " +
-			joinComma(carried) + " — write them under " +
-			"\"loopholes\": {\"host-processes\": {\"settings\": {…}}} instead.[/dim]")
-	}
-	return out
 }

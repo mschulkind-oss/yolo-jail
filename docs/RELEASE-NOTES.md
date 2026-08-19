@@ -21,6 +21,53 @@ changelog; this is the subset that bites.
 
 ## Unreleased
 
+### ⚠️ The top-level `host_processes` key is gone, and `yolo-ps` needs a pack now
+
+**What changed.** Two things, and either one alone stops `yolo-ps` working.
+
+The **top-level `host_processes` block is no longer recognised** — a config that still
+carries it is now **refused**, naming the replacement. It was honored-with-a-warning
+through the previous release; this is the deletion that warning was for.
+
+And the loophole itself **ships in a pack**, `host-processes`, instead of being bundled
+into the binary. Nothing is on by default, so it is off until you select the pack — the
+same rule as any agent pack you never listed.
+
+**Who is affected.** Anyone using `yolo-ps`, and anyone whose config carries
+`host_processes` at all — including a config where it was already inert.
+
+**What to do.** Three lines, in two files, and all three are needed:
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc   — user scope
+{
+  "packs": ["claude", "host-processes"],
+  "loopholes": { "host-processes": { "enabled": true } }
+}
+```
+
+```jsonc
+// <workspace>/yolo-jail.jsonc        — workspace scope
+{
+  "loopholes": {
+    "host-processes": { "settings": { "visible": ["sway", "waykeeper"] } }
+  }
+}
+```
+
+**Note the spelling.** The loophole is `host-processes` (hyphen); the retired key was
+`host_processes` (underscore). And the allowlist is still resolved once at launch, so
+editing it needs a jail restart.
+
+**Why.** Core's config schema named two loopholes by hand, and that is what made
+"convert the loophole to a pack" a separation in appearance only — the manifest would
+leave core while core went on naming it. The keys now belong to the loophole's own
+manifest. The refusal exists rather than silence because this block decided what a host
+daemon would reveal about your machine: a config that still writes it and gets nothing
+has been denied a capability it asked for, in the one direction where silence reads as
+success. 📄 [`loophole-activation.md`](design/loophole-activation.md) §1.4 ·
+[`pack-config-keys.md`](design/pack-config-keys.md).
+
 ### ⚠️ `host_processes.visible` moved, and it no longer applies without a restart
 
 **What changed.** Two things, and the second is the one that bites.
@@ -37,10 +84,11 @@ It now reads a file yolo writes once, at jail start, so **an edit needs a jail
 restart**.
 
 **Who is affected.** Anyone who has ever put names in `host_processes.visible` — the
-allowlist behind `yolo-ps`. The old key **still works**: it is folded into the new
-settings at launch and warns, naming the replacement. Where both spellings are present
-the new one wins **per key**, so a half-migrated config does not lose the key it did
-not touch.
+allowlist behind `yolo-ps`. The old key **still worked in this release**: it was folded
+into the new settings at launch and warned, naming the replacement. Where both
+spellings were present the new one won **per key**, so a half-migrated config did not
+lose the key it did not touch. *(It stopped working in the entry above, which is the
+deletion this migration window existed for.)*
 
 **What to do.** Rewrite the block, and expect to restart the jail after changing it:
 
@@ -60,10 +108,10 @@ the change back behind the gate that already exists. 📄
 [`pack-config-keys.md`](design/pack-config-keys.md) OQ-K3.
 
 > [!NOTE]
-> **This is the first half of a two-step move.** The top-level `host_processes` key is
-> deleted when `host-processes` becomes a pack; deleting it now — before there is a
-> pack to carry it — would strand every existing config. That deletion gets its own
-> entry here when it ships.
+> **This was the first half of a two-step move, and the second half has now shipped** —
+> see the entry above. The top-level key was deleted once `host-processes` became a
+> pack; deleting it before there was a pack to carry it would have stranded every
+> existing config.
 
 ### `settings` — a loophole can declare its own config keys
 

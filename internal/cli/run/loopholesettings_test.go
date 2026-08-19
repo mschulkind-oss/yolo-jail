@@ -13,8 +13,10 @@ import (
 
 // loopholesettings_test.go pins the LAUNCH half of
 // docs/design/pack-config-keys.md — where the merged config's values become the
-// file the daemon's argv names — plus the temporary bridge from the retired
-// top-level `host_processes` key.
+// file the daemon's argv names — plus, since 2026-08-18, the fact that the retired
+// top-level `host_processes` key no longer reaches it. The three tests that pinned
+// the temporary bridge were replaced by the one that pins its absence: a bridge left
+// standing would feed a host daemon values the validator now refuses.
 
 // settingsCfg builds a merged-config shape carrying one loophole's settings.
 func settingsCfg(t *testing.T, name string, pairs ...any) *jsonx.OrderedMap {
@@ -90,14 +92,20 @@ func TestWriteLoopholeSettingsWritesTheMergedValues(t *testing.T) {
 	}
 }
 
-// TestLegacyHostProcessesKeyStillReachesTheDaemon is the migration's load-bearing
-// half. pack-config-keys.md §5 warns that honoring a retired key only in the
-// VALIDATOR makes `yolo check` go green while the daemon honors the old spelling
-// forever — the inverse of that mistake is just as bad, and this pins the read.
+// TestRetiredHostProcessesKeyNoLongerReachesTheDaemon is the migration's END,
+// pinned from the READ side.
 //
-// The old top-level `host_processes` block still WORKS: deleting it before its
-// loophole is a pack would strand every user who has one.
-func TestLegacyHostProcessesKeyStillReachesTheDaemon(t *testing.T) {
+// pack-config-keys.md §5 warns that honoring a retired key only in the VALIDATOR
+// makes `yolo check` go green while the daemon honors the old spelling forever. The
+// deletion has the same two halves and this is the one a validator test cannot see:
+// the bridge that folded the top-level block into the loophole's settings is gone,
+// so a config carrying ONLY the retired spelling gets the manifest's declared
+// defaults — an empty allowlist, which is the fail-closed direction.
+//
+// The other half is config.TestRetiredHostProcessesKeyIsRefusedAndNamesItsReplacement:
+// the launch never gets here with that config on a host, because validation refuses
+// it first. This test is what says the read agrees.
+func TestRetiredHostProcessesKeyNoLongerReachesTheDaemon(t *testing.T) {
 	redirectState(t)
 	cfg := jsonx.NewOrderedMap()
 	legacy := jsonx.NewOrderedMap()
@@ -112,64 +120,17 @@ func TestLegacyHostProcessesKeyStillReachesTheDaemon(t *testing.T) {
 	o.writeLoopholeSettings([]*loopholes.Loophole{hpLoophole()}, cfg)
 
 	got := readSettings(t, "host-processes")
-	names, _ := got["visible"].([]any)
-	if len(names) != 1 || names[0] != "sway" {
-		t.Errorf("visible = %v — the retired top-level key must still reach the daemon "+
-			"until it is deleted", got["visible"])
+	if names, _ := got["visible"].([]any); len(names) != 0 {
+		t.Errorf("visible = %v — the retired top-level key still reaches the daemon. "+
+			"The key is REFUSED on the host now, so a value that arrived here anyway "+
+			"would be one no validator ever saw", got["visible"])
 	}
+	// `fields` proves the same thing about the key whose declared default is NOT the
+	// type zero: a bridge still firing would show the fixture's ["pid"] rather than the
+	// DECLARED default, so this arm cannot pass by the write having silently failed.
 	fields, _ := got["fields"].([]any)
-	if len(fields) != 1 || fields[0] != "pid" {
-		t.Errorf("fields = %v", got["fields"])
-	}
-	// And the reader is told where the key went, at the point of use.
-	if !strings.Contains(buf.String(), "loopholes") ||
-		!strings.Contains(buf.String(), "host-processes") {
-		t.Errorf("output = %q, want a note naming the replacement spelling", buf.String())
-	}
-}
-
-// TestNewSpellingWinsPerKeyOverTheLegacyBlock: not "whole block wins". A config
-// mid-migration can name `visible` under the new spelling and still carry an old
-// `fields`, and the surprising answer would be for the untouched key to vanish.
-func TestNewSpellingWinsPerKeyOverTheLegacyBlock(t *testing.T) {
-	redirectState(t)
-	cfg := settingsCfg(t, "host-processes", "visible", []any{"new"})
-	legacy := jsonx.NewOrderedMap()
-	legacy.Set("visible", []any{"old"})
-	legacy.Set("fields", []any{"pid"})
-	cfg.Set("host_processes", legacy)
-
-	o := &Options{}
-	fillDefaults(o)
-	var buf strings.Builder
-	o.Stdout = &buf
-	o.writeLoopholeSettings([]*loopholes.Loophole{hpLoophole()}, cfg)
-
-	got := readSettings(t, "host-processes")
-	names, _ := got["visible"].([]any)
-	if len(names) != 1 || names[0] != "new" {
-		t.Errorf("visible = %v, want the NEW spelling to win", got["visible"])
-	}
-	fields, _ := got["fields"].([]any)
-	if len(fields) != 1 || fields[0] != "pid" {
-		t.Errorf("fields = %v, want the legacy block to still supply the key the new "+
-			"spelling did not mention", got["fields"])
-	}
-}
-
-// TestLegacyBridgeIsScopedToHostProcesses: the bridge is a named, temporary
-// migration for ONE key, not a general "top-level block feeds a loophole" rule.
-// OQ-K4 explicitly warns against building anything that assumes only
-// `host_processes` will ever use the settings mechanism, and the inverse — a bridge
-// that quietly applied to other loopholes — would be the same mistake pointed the
-// other way.
-func TestLegacyBridgeIsScopedToHostProcesses(t *testing.T) {
-	cfg := jsonx.NewOrderedMap()
-	legacy := jsonx.NewOrderedMap()
-	legacy.Set("visible", []any{"sway"})
-	cfg.Set("host_processes", legacy)
-	if got := withLegacyHostProcessesSettings("audio", nil, cfg, nil); got != nil {
-		t.Errorf("the legacy bridge fired for a different loophole: %v", got.Keys())
+	if len(fields) != 2 || fields[0] != "pid" || fields[1] != "comm" {
+		t.Errorf("fields = %v, want the declaration's own default [pid comm]", got["fields"])
 	}
 }
 

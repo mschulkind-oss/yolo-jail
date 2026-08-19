@@ -113,12 +113,11 @@ var inheritCensus = map[string]keyDisposition{
 	// resolved BEFORE the render — see FilterInherit, which consumes it exactly as
 	// LoadJSONCWithIncludes does. Listed for the census, never emitted.
 	"include_if_found": {reason: "already resolved into the rendered config; emitting it would re-resolve host-relative paths against the jail"},
-	// `journal` and `host_processes` are the two RESERVED loophole names carried as their
-	// own top-level keys. Both consumers: `yolo loopholes` reports the mode/visible-list
-	// in-jail, and an inner launcher starts the daemon (journalBridge / the host-processes
-	// endpoint) from the same value.
-	"journal":        {preflight: true, nested: true, reason: "a reserved loophole `yolo loopholes` reports and an inner launcher starts"},
-	"host_processes": {preflight: true, nested: true, reason: "a reserved loophole whose visible-list is reported in-jail and enforced by the launcher's daemon"},
+	// `journal` is now the LAST reserved loophole name carried as its own top-level key.
+	// Both consumers: `yolo loopholes` reports the mode in-jail, and an inner launcher
+	// starts the journalBridge from the same value. (`host_processes` was the other one
+	// until 2026-08-18 — see the retired block below.)
+	"journal": {preflight: true, nested: true, reason: "a reserved loophole `yolo loopholes` reports and an inner launcher starts"},
 	// THE IN-JAIL-PROVISIONING KEYS, all five in BOTH — and the preflight half is MEASURED,
 	// not judged. `yolo check`'s entrypoint dry-run (check/entrypoint.go) feeds exactly
 	// these into a temp home as YOLO_BLOCK_CONFIG / YOLO_MISE_TOOLS / YOLO_LSP_SERVERS /
@@ -202,6 +201,12 @@ var inheritCensus = map[string]keyDisposition{
 	// generated file would resurrect a key yolo refuses.
 	"agents":    {reason: "RETIRED — an agent arrives as a pack; emitting it would re-trigger the retirement error"},
 	"repo_path": {reason: "RETIRED"},
+	// `host_processes` joined them on 2026-08-18. Its exclusion is the one that MATTERS
+	// rather than merely tidying: the key is now a hard error on the host, so emitting it
+	// into a generated inner scope would hand a nested launcher a config that refuses
+	// itself — and the in-jail downgrade to a warning exists for snapshots written by an
+	// OLDER launcher, not for ones this build writes.
+	"host_processes": {reason: "RETIRED — the keys moved to loopholes.host-processes.settings; emitting it would re-trigger the retirement error"},
 }
 
 // InheritDisposition returns the census entry for a key, and ok=false for a key the census

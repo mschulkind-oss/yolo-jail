@@ -204,36 +204,101 @@ func TestSettingsOnAnUnknownLoopholeIsNotValidated(t *testing.T) {
 	}
 }
 
-// TestRetiredHostProcessesKeyNamesItsReplacement pins the migration half. The key
-// still WORKS (it stays in knownTopLevelConfigKeys and keeps its type checks), and it
-// must say where it went — a retired key that keeps working in silence is a key
-// nobody migrates.
-func TestRetiredHostProcessesKeyNamesItsReplacement(t *testing.T) {
+// TestRetiredHostProcessesKeyIsRefusedAndNamesItsReplacement pins the DELETION.
+//
+// The key was honored-with-a-warning through the step that moved its values into
+// `loopholes.host-processes.settings`; it is deleted by the step that moved the
+// loophole into a pack. What this asserts is that deletion did not become SILENCE:
+// this block decided what a host daemon would reveal about the user's machine, so a
+// config that still writes it and gets nothing has been denied a capability it asked
+// for, in the one direction where silence reads as success.
+//
+// The message has four jobs, all asserted: name the replacement path, warn about the
+// hyphen (the two spellings differ by one character and the loophole's is not the
+// key's), say that the loophole now needs SELECTING as a pack, and repeat that the
+// value is frozen at launch. The last one is the behaviour change a reader who
+// migrates correctly still gets wrong.
+func TestRetiredHostProcessesKeyIsRefusedAndNamesItsReplacement(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	cfg := decode(t, `{"host_processes": {"visible": ["sway"]}}`)
 	errs, warns := ValidateConfig(cfg, t.TempDir(), nil)
-	if len(errs) != 0 {
-		t.Fatalf("errors = %v — the key is retired, not deleted; deleting it before its "+
-			"loophole is a pack would strand every user who has one", errs)
-	}
-	hits := containing(warns, "config.host_processes")
+	hits := containing(errs, "config.host_processes")
 	if len(hits) != 1 {
-		t.Fatalf("warnings = %v, want one retirement notice", warns)
+		t.Fatalf("errors = %v, want ONE refusal naming the retired key; a key that stopped "+
+			"working must not be ignored, and it must not be reported twice either "+
+			"(it stays in knownTopLevelConfigKeys so the generic unknown-key error "+
+			"does not fire beside this one)", errs)
 	}
 	for _, want := range []string{
+		"REMOVED",
 		"loopholes",
 		"host-processes",
 		"settings",
+		"packs",   // the loophole is a pack now; migrating the keys alone is not enough
 		"restart", // the freeze is a behaviour change and has to be said here too
 	} {
 		if !strings.Contains(hits[0], want) {
-			t.Errorf("retirement notice %q does not mention %q", hits[0], want)
+			t.Errorf("refusal %q does not mention %q", hits[0], want)
 		}
 	}
-	// A type error is still a type error.
+	if len(containing(warns, "config.host_processes")) != 0 {
+		t.Errorf("warnings = %v — on the host this is an error, not a warning", warns)
+	}
+	// TYPE CHECKS ARE GONE WITH THE KEY, deliberately: asking a user to fix the shape
+	// of a block they must delete is two contradictory instructions about one line.
 	bad := decode(t, `{"host_processes": {"visible": "sway"}}`)
-	if errs, _ := ValidateConfig(bad, t.TempDir(), nil); len(containing(errs, "list of strings")) == 0 {
-		t.Errorf("errors = %v, want the surviving type check", errs)
+	badErrs, _ := ValidateConfig(bad, t.TempDir(), nil)
+	if len(containing(badErrs, "list of strings")) != 0 {
+		t.Errorf("errors = %v — a removed key has no shape left to be wrong", badErrs)
+	}
+	if len(containing(badErrs, "REMOVED")) != 1 {
+		t.Errorf("errors = %v, want the refusal regardless of the block's shape", badErrs)
+	}
+}
+
+// TestRetiredHostProcessesKeyIsAWarningInsideAJail is the same asymmetry
+// validateAgentsRetired carries, and it exists for the same measured reason: in-jail
+// the config is the HOST-GENERATED snapshot, so an error there refuses every nested
+// launch over a key the in-jail user cannot fix at its source — and it would make
+// `yolo check` (which merges the real files) disagree with the launch.
+//
+// The population is narrow by construction: inherit.go stops emitting the key, so
+// only a snapshot written by an OLDER launcher can still carry it. That is exactly
+// the population an error would strand with no way out.
+func TestRetiredHostProcessesKeyIsAWarningInsideAJail(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "0.0.0-test")
+	cfg := decode(t, `{"host_processes": {"visible": ["sway"]}}`)
+	errs, warns := ValidateConfig(cfg, t.TempDir(), nil)
+	if len(containing(errs, "config.host_processes")) != 0 {
+		t.Errorf("errors = %v — in-jail this must not refuse: the file is the host's "+
+			"snapshot, not something the in-jail user typed", errs)
+	}
+	hits := containing(warns, "config.host_processes")
+	if len(hits) != 1 {
+		t.Fatalf("warnings = %v, want the downgraded notice", warns)
+	}
+	if !strings.Contains(hits[0], "HOST config") {
+		t.Errorf("in-jail notice %q does not say where the key actually has to be "+
+			"removed, which is the only actionable thing about it", hits[0])
+	}
+}
+
+// TestTheInheritCensusStopsEmittingTheRetiredKey closes the loop the two tests above
+// open: the key is now a host ERROR, so a generated inner scope that still carried it
+// would hand a nested launcher a config that refuses itself.
+func TestTheInheritCensusStopsEmittingTheRetiredKey(t *testing.T) {
+	for _, scope := range []InheritScope{InheritPreflight, InheritNested} {
+		for _, k := range InheritKeys(scope) {
+			if k == "host_processes" {
+				t.Errorf("the %s scope still emits host_processes — a nested launcher would "+
+					"read a key this build refuses", scope)
+			}
+		}
+	}
+	if _, _, reason, ok := InheritDisposition("host_processes"); !ok || reason == "" {
+		t.Error("host_processes has no census entry — a key in NO scope is still listed, " +
+			"with the reason it is excluded, because \"assigned to neither\" has to be a " +
+			"decision on the record rather than an omission")
 	}
 }
 
