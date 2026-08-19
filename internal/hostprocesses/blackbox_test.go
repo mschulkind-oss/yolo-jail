@@ -27,7 +27,7 @@ import (
 // connection is obtained changed. That is the proof the daemon never learns which
 // transport carried its bytes.
 
-func startDaemon(t *testing.T, configPath, fakePSDir string) (endpoint string, stop func()) {
+func startDaemon(t *testing.T, cfg Config, fakePSDir string) (endpoint string, stop func()) {
 	t.Helper()
 	// Publish 127.0.0.1 rather than the runtime's gateway name: the client here is on
 	// the same machine as the listener. Only the name inside the file differs from
@@ -46,7 +46,7 @@ func startDaemon(t *testing.T, configPath, fakePSDir string) (endpoint string, s
 	stopCh := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		_ = hostservice.ServeEndpoint(BuildHandler(configPath), endpoint, stopCh)
+		_ = hostservice.ServeEndpoint(BuildHandler(cfg), endpoint, stopCh)
 		close(done)
 	}()
 	waitEndpoint(t, endpoint)
@@ -68,7 +68,7 @@ func startDaemon(t *testing.T, configPath, fakePSDir string) (endpoint string, s
 // The client below is the SAME query() the endpoint suite uses, unchanged. That
 // is the demonstration: neither the daemon nor its client learns which of the two
 // shapes carried the bytes.
-func startFrontedDaemon(t *testing.T, configPath, fakePSDir string) (endpoint string, stop func()) {
+func startFrontedDaemon(t *testing.T, cfg Config, fakePSDir string) (endpoint string, stop func()) {
 	t.Helper()
 	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
 	// 0700, as svcendpoint requires of a directory it publishes a credential into.
@@ -85,7 +85,7 @@ func startFrontedDaemon(t *testing.T, configPath, fakePSDir string) (endpoint st
 	daemonStop := make(chan struct{})
 	daemonDone := make(chan struct{})
 	go func() {
-		_ = hostservice.ServeFrontedUnix(BuildHandler(configPath), sock, daemonStop)
+		_ = hostservice.ServeFrontedUnix(BuildHandler(cfg), sock, daemonStop)
 		close(daemonDone)
 	}()
 	waitSocket(t, sock)
@@ -216,13 +216,25 @@ func accessLine(t *testing.T, buf *accessLog) string {
 	return ""
 }
 
-func writeConfig(t *testing.T, dir, content string) string {
+// writeSettings writes the flat settings file yolo produces for this loophole and
+// returns its path — the daemon's ONLY input now. It deliberately goes through a
+// real file plus LoadSettings rather than building a Config literal: the read is
+// half of what changed, and a suite that skipped it would pass against a daemon
+// that could not parse what yolo writes.
+func writeSettings(t *testing.T, dir, content string) string {
 	t.Helper()
-	p := filepath.Join(dir, "yolo-jail.jsonc")
-	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+	p := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// settings is writeSettings + LoadSettings: the two steps Main runs at startup,
+// collapsed for the tests that only care about the resulting allowlist.
+func settings(t *testing.T, content string) Config {
+	t.Helper()
+	return LoadSettings(writeSettings(t, t.TempDir(), content))
 }
 
 // fakePS writes a fake `ps` that echoes its argv (deterministic; real ps has
@@ -242,8 +254,7 @@ func fakePS(t *testing.T, extra string) string {
 }
 
 func TestBlackboxListMode(t *testing.T) {
-	cfgDir := t.TempDir()
-	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway","waykeeper"],"fields":["pid","comm"]}}`)
+	cfg := settings(t, `{"visible":["sway","waykeeper"],"fields":["pid","comm"]}`)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
 	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
@@ -267,8 +278,7 @@ func TestBlackboxListMode(t *testing.T) {
 // this file's header claims, that the daemon never learns which transport carried
 // its bytes.
 func TestBlackboxFrontedListModeIsIdentical(t *testing.T) {
-	cfgDir := t.TempDir()
-	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway","waykeeper"],"fields":["pid","comm"]}}`)
+	cfg := settings(t, `{"visible":["sway","waykeeper"],"fields":["pid","comm"]}`)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
 	ep, stop := startFrontedDaemon(t, cfg, ps)
 	defer stop()
@@ -300,8 +310,7 @@ func TestBlackboxFrontedListModeIsIdentical(t *testing.T) {
 //     what makes this deletion a no-op for operators and not a lost column.
 func TestBlackboxAccessLineIsHostAttributed(t *testing.T) {
 	logs := captureAccessLog(t)
-	cfgDir := t.TempDir()
-	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"],"fields":["pid","comm"]}}`)
+	cfg := settings(t, `{"visible":["sway"],"fields":["pid","comm"]}`)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
 	ep, stop := startFrontedDaemon(t, cfg, ps)
 	defer stop()
@@ -334,8 +343,7 @@ func TestBlackboxAccessLineIsHostAttributed(t *testing.T) {
 // as a thing that is true.
 func TestBlackboxSpoofedJailIDIsOverridden(t *testing.T) {
 	logs := captureAccessLog(t)
-	cfgDir := t.TempDir()
-	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"],"fields":["pid","comm"]}}`)
+	cfg := settings(t, `{"visible":["sway"],"fields":["pid","comm"]}`)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
 	ep, stop := startFrontedDaemon(t, cfg, ps)
 	defer stop()
@@ -359,8 +367,7 @@ func TestBlackboxSpoofedJailIDIsOverridden(t *testing.T) {
 }
 
 func TestBlackboxEmptyAllowlistExit3(t *testing.T) {
-	cfgDir := t.TempDir()
-	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":[]}}`)
+	cfg := settings(t, `{"visible":[]}`)
 	ps := fakePS(t, "echo x\n")
 	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
@@ -368,14 +375,25 @@ func TestBlackboxEmptyAllowlistExit3(t *testing.T) {
 	if rc != 3 {
 		t.Errorf("empty allowlist rc=%d, want 3", rc)
 	}
-	if string(stderr) != "host_processes.visible is empty in yolo-jail.jsonc — nothing to show\n" {
-		t.Errorf("stderr = %q", stderr)
+	// The message names the CURRENT spelling and says the restart is required —
+	// both halves matter at the one moment a user is about to go edit a file. The
+	// retired top-level key still works, but a message naming it would teach it.
+	got := string(stderr)
+	for _, want := range []string{
+		"loopholes.host-processes.settings.visible is empty",
+		"RESTART the jail",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("stderr = %q, want it to contain %q", got, want)
+		}
+	}
+	if strings.Contains(got, "host_processes.visible") {
+		t.Errorf("stderr names the RETIRED spelling: %q", got)
 	}
 }
 
 func TestBlackboxNonStringModeExit2(t *testing.T) {
-	cfgDir := t.TempDir()
-	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"]}}`)
+	cfg := settings(t, `{"visible":["sway"]}`)
 	ps := fakePS(t, "echo x\n")
 	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
@@ -390,8 +408,7 @@ func TestBlackboxNonStringModeExit2(t *testing.T) {
 }
 
 func TestBlackboxUnknownModeExit2(t *testing.T) {
-	cfgDir := t.TempDir()
-	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"]}}`)
+	cfg := settings(t, `{"visible":["sway"]}`)
 	ps := fakePS(t, "echo x\n")
 	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
@@ -402,8 +419,7 @@ func TestBlackboxUnknownModeExit2(t *testing.T) {
 }
 
 func TestBlackboxTreeNonzeroEmptyExit0(t *testing.T) {
-	cfgDir := t.TempDir()
-	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"]}}`)
+	cfg := settings(t, `{"visible":["sway"]}`)
 	// fake ps exits 1 with EMPTY stdout -> stdout is read regardless ->
 	// exit 0 empty, NOT an error.
 	ps := fakePS(t, "exit 1\n")
@@ -428,8 +444,7 @@ func TestBlackboxPidModeNotAllowlisted(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("handlePid reads /proc/<pid>/comm; procfs is Linux-only")
 	}
-	cfgDir := t.TempDir()
-	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":["definitely-not-our-comm"]}}`)
+	cfg := settings(t, `{"visible":["definitely-not-our-comm"]}`)
 	ps := fakePS(t, "echo x\n")
 	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
@@ -440,23 +455,41 @@ func TestBlackboxPidModeNotAllowlisted(t *testing.T) {
 	}
 }
 
-func TestBlackboxConfigReReadBetweenRequests(t *testing.T) {
-	cfgDir := t.TempDir()
-	cfg := writeConfig(t, cfgDir, `{"host_processes":{"visible":[]}}`)
+// TestBlackboxAllowlistIsFrozenAtStart is the INVERSION of what this suite used to
+// assert, and the inversion is the ruling (docs/design/pack-config-keys.md OQ-K3).
+//
+// The old test was TestBlackboxConfigReReadBetweenRequests: it wrote an empty
+// allowlist, got exit 3, rewrote the config file, and demanded that the very next
+// request honor the edit. That behaviour was real and it was the hole — the same
+// property that let an operator widen an allowlist without a restart let an AGENT
+// widen its own, mid-session, with no launch and therefore no config-approval gate.
+//
+// So the assertion flips: the daemon reads its settings ONCE, and a file rewritten
+// underneath a running daemon changes nothing until the jail restarts. The edit here
+// is the WIDENING direction on purpose — an edit that would grant, ignored.
+func TestBlackboxAllowlistIsFrozenAtStart(t *testing.T) {
+	dir := t.TempDir()
+	path := writeSettings(t, dir, `{"visible":[]}`)
+	// Loaded once, exactly as Main does before it accepts a connection.
+	cfg := LoadSettings(path)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
 	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
-	// First request: empty allowlist -> exit 3.
 	if _, _, rc := query(t, ep, map[string]any{"mode": "list"}); rc != 3 {
-		t.Fatalf("pre-edit rc=%d, want 3", rc)
+		t.Fatalf("pre-edit rc=%d, want 3 (empty allowlist)", rc)
 	}
-	// Edit config between requests — daemon re-reads per request.
-	writeConfig(t, cfgDir, `{"host_processes":{"visible":["sway"],"fields":["pid"]}}`)
-	out, _, rc := query(t, ep, map[string]any{"mode": "list"})
-	if rc != 0 {
-		t.Fatalf("post-edit rc=%d, want 0", rc)
+	// Widen the file under the running daemon. Nothing may change.
+	writeSettings(t, dir, `{"visible":["sway"],"fields":["pid"]}`)
+	out, stderr, rc := query(t, ep, map[string]any{"mode": "list"})
+	if rc != 3 {
+		t.Fatalf("post-edit rc=%d, want 3 — the allowlist is resolved once at launch, so "+
+			"rewriting the file must NOT widen a running daemon (out=%q stderr=%q)",
+			rc, out, stderr)
 	}
-	if string(out) != "ARGS: -o pid -C sway\n" {
-		t.Errorf("post-edit argv = %q (config not re-read?)", out)
+	// Reloading is what a restart does, and it must pick the new value up — the
+	// freeze is about the running process, not about the file being ignored.
+	if reloaded := LoadSettings(path); len(reloaded.Visible) != 1 || reloaded.Visible[0] != "sway" {
+		t.Errorf("a fresh load did not see the edit: %v — the freeze must be the daemon "+
+			"holding values, not the settings file being unread", reloaded.Visible)
 	}
 }

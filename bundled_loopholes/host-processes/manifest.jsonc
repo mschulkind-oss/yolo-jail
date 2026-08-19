@@ -3,8 +3,49 @@
 // cmd/yolo-ps for the jail-side CLI wrapper.
 {
   "name": "host-processes",
-  "description": "Allowlisted view of host processes (yolo-ps). Workspace controls visibility via the top-level host_processes.visible list in yolo-jail.jsonc.",
+  "description": "Allowlisted view of host processes (yolo-ps). Visibility is controlled by this loophole's own `visible` setting.",
   "version": 1,
+  // THE LOOPHOLE OWNS ITS CONFIG KEYS NOW (docs/design/pack-config-keys.md).
+  // These used to be the top-level `host_processes` block in core's own config
+  // schema — one of the two loophole names core hardcoded, and the thing that made
+  // "convert the loophole to a pack" separation in appearance only.  The old key
+  // still WORKS (it is folded in at launch and warns, naming this spelling); it is
+  // deleted when this loophole becomes a pack.
+  //
+  // Two behaviours moved with them, and both are the point rather than side effects:
+  //
+  //   FROZEN AT LAUNCH.  The daemon used to re-read the raw workspace config on
+  //   every request, so an AGENT could widen its own allowlist mid-session with no
+  //   relaunch and therefore no config-approval gate.  yolo now resolves these once
+  //   and writes them to the file {settings} names, so a change needs a restart
+  //   (OQ-K3).
+  //
+  //   SCOPE IS DECLARED, PER KEY.  Both are `workspace`, which preserves exactly
+  //   what these keys have always been — the manifest's old description said
+  //   "workspace controls visibility" and that stays true.  It is safe because a
+  //   workspace value reaches this host daemon only through the config-change
+  //   approval flow (OQ-K2), and it is now SAID rather than assumed: the default
+  //   for an undeclared scope is `user`, so a widening key has to ask.
+  "settings": {
+    "visible": {
+      "type": "string_list",
+      "scope": "workspace",
+      "default": [],
+      // Empty means the loophole shows NOTHING, which is why "enabled" here is a
+      // daemon with an empty allowlist rather than a view of the host.
+      "description": "process comm names yolo-ps may reveal (empty = show nothing)"
+    },
+    "fields": {
+      "type": "string_list",
+      "scope": "workspace",
+      // The `ps -o` column list.  Declared here rather than left to the daemon's
+      // DefaultFields so that `yolo config-dump` and the settings file both show
+      // what is actually in force.  The daemon keeps the same list as its fallback
+      // for a settings file it cannot read at all.
+      "default": ["pid", "comm", "args", "etime", "%cpu", "%mem", "rss"],
+      "description": "ps -o columns returned to the jail"
+    }
+  },
   // `enabled` renamed, default flipped, behaviour deliberately UNCHANGED for now
   // (docs/design/loophole-activation.md OQ-A9).  This is a RENAME COMMIT, so every
   // manifest keeps the effective state it had except `audio`, which R4 names.
@@ -16,7 +57,7 @@
   // the going-dark OQ-A2 accepted for a *converted* loophole and not for one mid-move.
   //
   // Note what is already true and keeps this honest in the meantime: the daemon shows
-  // NOTHING until the workspace lists names in `host_processes.visible`, which
+  // NOTHING until the workspace lists names in the `visible` setting above, which
   // defaults to empty (§1.2a).  Enabled here is a daemon with an empty allowlist.
   "default_enabled": true,
   // ``ps`` is a POSIX staple on any host that can run yolo-jail, but
@@ -57,9 +98,28 @@
   // is not an oversight: hostservice reads exactly one 4+N-byte frame
   // and never to EOF, so "eof" would half-close the upstream for no
   // benefit.
+  //
+  // ``{settings}`` is the third token yolo substitutes, alongside
+  // ``{loophole_dir}`` and ``{state}``, and it resolves to the file yolo WRITES
+  // from the ``settings`` declarations above after validating the user's values.
+  // It is a PATH and not an env map on purpose: ``loopholes.<name>.env`` is
+  // user-scope-only precisely because it reaches a host daemon's spawn
+  // environment, and a path is the one thing a spawn may carry.  The workspace
+  // supplies VALUES; yolo decides what the file says.
   "host_daemon": {
-    "cmd": ["yolo", "internal", "daemon", "host-processes", "--socket", "{socket}"],
+    "cmd": [
+      "yolo", "internal", "daemon", "host-processes",
+      "--socket", "{socket}",
+      "--settings", "{settings}"
+    ],
     "publishes": "socket"
   },
-  "doctor_cmd": ["yolo", "internal", "daemon", "host-processes", "--self-check"]
+  // The doctor reads the SAME file the daemon does.  It used to hunt for a
+  // yolo-jail.jsonc of its own via $YOLO_HOST_PROCESSES_CONFIG or the cwd, so the
+  // doctor's answer and the daemon's behaviour came from two different searches and
+  // could disagree about which file was in force.
+  "doctor_cmd": [
+    "yolo", "internal", "daemon", "host-processes", "--self-check",
+    "--settings", "{settings}"
+  ]
 }

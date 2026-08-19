@@ -499,6 +499,15 @@ func TestBundledHostProcessesRunsBehindTheFront(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("spawns a host process")
 	}
+	// The manifest's argv now names {settings}, which resolves at RECORD LOAD to a
+	// file under the loophole's state dir — so the redirect has to be in place before
+	// Discover runs, or the record bakes in a path under the real ~/.local/share and
+	// the test writes its allowlist somewhere the daemon is not reading.
+	stateRoot := t.TempDir()
+	realStateDir := loopholes.StateDirFor
+	loopholes.StateDirFor = func(name string) string { return filepath.Join(stateRoot, name) }
+	t.Cleanup(func() { loopholes.StateDirFor = realStateDir })
+
 	var lp *loopholes.Loophole
 	for _, cand := range loopholes.Discover(loopholes.DiscoverOptions{
 		IncludeBundled:  true,
@@ -519,18 +528,27 @@ func TestBundledHostProcessesRunsBehindTheFront(t *testing.T) {
 			"must survive internal/loopholes' field-by-field resolve (the ca_cert silent-drop class)")
 	}
 
-	// The daemon resolves its allowlist from $YOLO_HOST_PROCESSES_CONFIG, and the
-	// spawn's `env` is per-child — no process-wide Setenv, so nothing here depends
-	// on this test binary's own cwd or environment. A visible list that matches no
-	// real process keeps the `ps` exec deterministic; PATH carries a fake one so it
-	// does not run at all on a host whose `ps` prints something else.
-	cfgDir := t.TempDir()
-	cfgPath := filepath.Join(cfgDir, "yolo-jail.jsonc")
-	if err := os.WriteFile(cfgPath,
-		[]byte(`{"host_processes":{"visible":["yolo-fake-proc"],"fields":["pid","comm"]}}`),
-		0o644); err != nil {
-		t.Fatal(err)
-	}
+	// THE ALLOWLIST ARRIVES THROUGH THE SETTINGS FILE, written by the same launch-path
+	// function the run pipeline calls — not through $YOLO_HOST_PROCESSES_CONFIG, which
+	// the daemon no longer reads at all (docs/design/pack-config-keys.md OQ-K3). Going
+	// through writeLoopholeSettings rather than hand-writing the JSON is deliberate:
+	// the manifest declaration, the resolver, the writer and the daemon's reader are
+	// four pieces that have to agree on one file, and only an end-to-end path proves
+	// they do.
+	//
+	// A visible list that matches no real process keeps the `ps` exec deterministic;
+	// PATH carries a fake one so it does not run at all on a host whose `ps` prints
+	// something else.
+	settingsCfg := jsonx.NewOrderedMap()
+	loopBlock := jsonx.NewOrderedMap()
+	hpEntry := jsonx.NewOrderedMap()
+	hpSettings := jsonx.NewOrderedMap()
+	hpSettings.Set("visible", []any{"yolo-fake-proc"})
+	hpSettings.Set("fields", []any{"pid", "comm"})
+	hpEntry.Set("settings", hpSettings)
+	loopBlock.Set("host-processes", hpEntry)
+	settingsCfg.Set("loopholes", loopBlock)
+
 	psDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(psDir, "ps"),
 		[]byte("#!/bin/sh\necho \"$@\"\n"), 0o755); err != nil {
@@ -542,7 +560,6 @@ func TestBundledHostProcessesRunsBehindTheFront(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := jsonx.NewOrderedMap()
-	env.Set("YOLO_HOST_PROCESSES_CONFIG", cfgPath)
 	env.Set("PATH", psDir+":"+os.Getenv("PATH"))
 	spec := jsonx.NewOrderedMap()
 	spec.Set("command", toAnyList(lp.HostDaemon.Cmd))
@@ -551,6 +568,11 @@ func TestBundledHostProcessesRunsBehindTheFront(t *testing.T) {
 	fillDefaults(o)
 	var buf strings.Builder
 	o.Stdout = &buf
+	o.writeLoopholeSettings([]*loopholes.Loophole{lp}, settingsCfg)
+	if !fileExists(loopholes.SettingsFileFor("host-processes")) {
+		t.Fatalf("no settings file at %s; output: %q",
+			loopholes.SettingsFileFor("host-processes"), buf.String())
+	}
 	h, ok := o.startExternalService("host-processes", spec, socketsDir,
 		lp.Transport, "127.0.0.1", lp.HostDaemon)
 	if !ok {

@@ -1,10 +1,27 @@
 // Package hostprocesses is the allowlisted host-process viewer daemon. It
-// answers ps-style requests from the jail against an allowlist configured in
-// yolo-jail.jsonc, via internal/hostservice (the frame-protocol server).
-// Frozen contracts: the config load (host_processes
-// section, re-read PER REQUEST so operator edits take effect without restart),
-// the DEFAULT_FIELDS, the list/tree/pid mode argv + allowlist construction, and
-// the exit codes (3 empty-allowlist, 2 bad-mode/bad-pid/not-allowlisted).
+// answers ps-style requests from the jail against an allowlist yolo resolved at
+// launch, via internal/hostservice (the frame-protocol server).
+// Frozen contracts: the DEFAULT_FIELDS, the list/tree/pid mode argv + allowlist
+// construction, and the exit codes (3 empty-allowlist, 2 bad-mode/bad-pid/
+// not-allowlisted).
+//
+// # The allowlist is FROZEN at launch, and that is a deliberate change
+//
+// This daemon used to open the raw workspace `yolo-jail.jsonc` itself, from an
+// inherited cwd, ON EVERY REQUEST — which is the only reason editing
+// `host_processes.visible` took effect without a restart. That affordance is real
+// and it is indistinguishable from the hole: the same property let an AGENT widen
+// its own allowlist mid-session, with no launch and therefore no config-approval
+// gate, and the config diff was not in that causal path at all.
+//
+// It now reads ONE file, ONCE, at startup: the settings file yolo writes after
+// validating the values against the loophole manifest's `settings` declarations
+// (docs/design/pack-config-keys.md OQ-K3). Changing what yolo-ps may show requires a
+// jail restart, which is exactly where the approval gate lives.
+//
+// The daemon therefore never parses a config file, never knows where the workspace
+// is, and never sees a key it was not handed. What it reads is a flat JSON object
+// of already-validated values.
 package hostprocesses
 
 import (
@@ -21,49 +38,72 @@ import (
 
 var DefaultFields = []string{"pid", "comm", "args", "etime", "%cpu", "%mem", "rss"}
 
-// Config is the loaded host_processes section.
+// Config is the resolved settings this daemon runs on.
 type Config struct {
 	Visible []string
 	Fields  []string
 }
 
-// LoadConfig reads the host_processes section from the jsonc config at
-// configPath. A missing file or missing/unreadable section → empty allowlist
-// with DEFAULT_FIELDS (feature effectively disabled). The visible/fields lists
-// are filtered to their string elements.
-func LoadConfig(configPath string) Config {
-	data, err := os.ReadFile(configPath)
+// disabled is the fail-closed Config: no allowlist, so every request exits 3.
+//
+// It is what an absent, unreadable or malformed settings file resolves to, and the
+// three cases share an answer on purpose. A daemon that could not read its
+// allowlist has no basis for showing anything, and the alternative — refusing to
+// start — would turn a transient read failure into a launch that fails with the
+// daemon's readiness probe rather than with a sentence naming the file.
+func disabled() Config {
+	return Config{Visible: []string{}, Fields: append([]string(nil), DefaultFields...)}
+}
+
+// LoadSettings reads the flat settings file yolo wrote for this loophole: a JSON
+// object of already-validated values, keyed by the names the manifest declares.
+//
+// It does NOT parse a yolo-jail.jsonc and does not know one exists. Every value here
+// was type-checked against the manifest declaration before it was written, so this
+// read is defensive rather than validating: anything of the wrong shape falls back
+// to the same place an absent key does.
+//
+// `fields` falls back to DefaultFields when absent OR EMPTY, which is the one place
+// an empty list is not taken literally — an empty `ps -o` column list is not a
+// narrower view, it is a broken invocation. `visible` empty is taken literally and means the feature is off,
+// which is what it has always meant.
+func LoadSettings(settingsPath string) Config {
+	cfg, _ := loadSettings(settingsPath)
+	return cfg
+}
+
+// loadSettings is LoadSettings plus the DIAGNOSIS the health check needs and the
+// daemon must not have.
+//
+// The daemon collapses every failure to `disabled()` on purpose: a running daemon
+// with no readable allowlist has no basis for showing anything, and branching on why
+// would only give it more ways to be wrong. `yolo check` has the opposite need — it
+// exists to tell a human what is wrong — and the two cases it must not confuse are
+// "no jail has launched this loophole yet", which is the normal state of a fresh
+// machine, and "the file is there and does not parse", which is a real fault.
+//
+// ok is false only for the second. A MISSING file returns ok=true with the
+// fail-closed Config, because absence is not a failure of anything.
+func loadSettings(settingsPath string) (cfg Config, ok bool) {
+	if settingsPath == "" {
+		return disabled(), true
+	}
+	data, err := os.ReadFile(settingsPath)
 	if err != nil {
-		return Config{Visible: []string{}, Fields: append([]string(nil), DefaultFields...)}
+		return disabled(), true
 	}
 	decoded, err := json5.Decode(data)
 	if err != nil {
-		// Unreadable config is treated as empty (feature disabled).
-		return Config{Visible: []string{}, Fields: append([]string(nil), DefaultFields...)}
+		return disabled(), false
 	}
-	root, ok := decoded.(*jsonx.OrderedMap)
-	if !ok {
-		return Config{Visible: []string{}, Fields: append([]string(nil), DefaultFields...)}
+	root, isMap := decoded.(*jsonx.OrderedMap)
+	if !isMap {
+		return disabled(), false
 	}
-	hp := getMap(root, "host_processes")
-	visible := strListOrEmpty(hp, "visible")
-	fields := strListOrDefault(hp, "fields", DefaultFields)
-	return Config{Visible: visible, Fields: fields}
-}
-
-func getMap(m *jsonx.OrderedMap, key string) *jsonx.OrderedMap {
-	if m == nil {
-		return nil
-	}
-	v, ok := m.Get(key)
-	if !ok || v == nil {
-		return nil
-	}
-	sub, ok := v.(*jsonx.OrderedMap)
-	if !ok {
-		return nil
-	}
-	return sub
+	return Config{
+		Visible: strListOrEmpty(root, "visible"),
+		Fields:  strListOrDefault(root, "fields", DefaultFields),
+	}, true
 }
 
 // strListOrEmpty returns the string elements of m[key], or [] if absent,
@@ -118,16 +158,20 @@ func strListOrDefault(m *jsonx.OrderedMap, key string, def []string) []string {
 	return out
 }
 
-// BuildHandler returns the hostservice.Handler, re-reading the config on
-// every request (cheap; operator edits take effect without a restart).
-func BuildHandler(configPath string) hostservice.Handler {
+// BuildHandler returns the hostservice.Handler for an ALREADY-RESOLVED config.
+//
+// It takes the values, not a path, and that signature is the freeze: there is no
+// file for a request to re-read, so the "editing the allowlist takes effect on the
+// next request" behaviour is not merely turned off, it is unrepresentable. The
+// allowlist is closed over once, at startup, from the settings file yolo wrote at
+// launch (see the package comment for what that trades away and why).
+func BuildHandler(cfg Config) hostservice.Handler {
+	visible := map[string]struct{}{}
+	for _, c := range cfg.Visible {
+		visible[c] = struct{}{}
+	}
+	fields := append([]string(nil), cfg.Fields...)
 	return func(s *hostservice.Session) {
-		cfg := LoadConfig(configPath)
-		visible := map[string]struct{}{}
-		for _, c := range cfg.Visible {
-			visible[c] = struct{}{}
-		}
-		fields := cfg.Fields
 		// mode = str(request["mode"] or "list"). A truthy NON-string (e.g. 5,
 		// {...}) is stringified and falls through to the unknown-mode exit-2
 		// branch — it must NOT silently run list mode. Falsy (absent, "", 0,
@@ -135,7 +179,13 @@ func BuildHandler(configPath string) hostservice.Handler {
 		mode := pyStrOrList(func() (any, bool) { return s.Get("mode") })
 
 		if len(visible) == 0 {
-			s.Stderr("host_processes.visible is empty in yolo-jail.jsonc — nothing to show\n")
+			// Names the CURRENT spelling. The old top-level `host_processes.visible`
+			// still works and is folded in at launch, but a message naming the retired
+			// key would teach the retired key — and this is the one line a user reads
+			// at the moment they are about to go edit a config.
+			s.Stderr("loopholes.host-processes.settings.visible is empty — nothing to show. " +
+				"Add process names to it and RESTART the jail: the allowlist is resolved " +
+				"once at launch, so an edit does not take effect in a running jail.\n")
 			s.Exit(3)
 			return
 		}

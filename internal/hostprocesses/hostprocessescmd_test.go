@@ -93,13 +93,37 @@ func TestMainRequiresExactlyOneTransport(t *testing.T) {
 	}
 }
 
+// TestMainRefusesTheRetiredConfigFlag pins the deletion-shaped half of the settings
+// move: --config named a yolo-jail.jsonc this daemon parsed itself, and it is gone.
+//
+// A REFUSAL rather than an alias, and the difference is measurable rather than
+// stylistic. The two flags name files with different SHAPES — a settings file says
+// {"visible": …}, a config file says {"host_processes": {"visible": …}} — so quietly
+// treating one as the other reads the outer object, finds no `visible`, and starts a
+// daemon with an EMPTY allowlist that looks entirely healthy. Refusing at flag-parse
+// time is the only outcome that says what happened.
+//
+// It also refuses BEFORE binding anything, so a mis-spawned daemon leaves no artifact
+// for the run pipeline's readiness probe to succeed against.
+func TestMainRefusesTheRetiredConfigFlag(t *testing.T) {
+	dir := privateDir(t)
+	sock := filepath.Join(dir, "hp.sock")
+	if rc := Main([]string{"--socket", sock, "--config", filepath.Join(dir, "yolo-jail.jsonc")}); rc != 2 {
+		t.Errorf("Main with --config = %d, want 2 — a retired flag must refuse and name "+
+			"its replacement, never fall back", rc)
+	}
+	if _, err := os.Lstat(sock); err == nil {
+		t.Error("a refused invocation still bound the socket")
+	}
+}
+
 // TestMainSocketBindsASocket is the anti-alias assertion. `--socket` must produce
 // a SOCKET — the artifact yolo's front dials and its readiness probe connects to
 // — and must not produce the endpoint file the alias produced.
 func TestMainSocketBindsASocket(t *testing.T) {
 	dir := privateDir(t)
 	sock := filepath.Join(dir, "hp.sock")
-	rc := serveInBackground(t, "--socket", sock, "--config", filepath.Join(dir, "yolo-jail.jsonc"))
+	rc := serveInBackground(t, "--socket", sock, "--settings", filepath.Join(dir, "settings.json"))
 
 	if mode := waitArtifact(t, sock, rc); mode&os.ModeSocket == 0 {
 		t.Fatalf("--socket produced mode %v, want a socket; an alias for --endpoint "+
@@ -118,7 +142,7 @@ func TestMainEndpointPublishesAnEndpointFile(t *testing.T) {
 	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
 	dir := privateDir(t)
 	ep := filepath.Join(dir, "hp.endpoint")
-	rc := serveInBackground(t, "--endpoint", ep, "--config", filepath.Join(dir, "yolo-jail.jsonc"))
+	rc := serveInBackground(t, "--endpoint", ep, "--settings", filepath.Join(dir, "settings.json"))
 
 	if mode := waitArtifact(t, ep, rc); mode&os.ModeSocket != 0 {
 		t.Fatalf("--endpoint bound a socket (mode %v); it must publish an endpoint file", mode)

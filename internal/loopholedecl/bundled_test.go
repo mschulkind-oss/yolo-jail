@@ -207,9 +207,42 @@ func TestBundledHostProcessesFields(t *testing.T) {
 	if m.BrokerIP != loopholedecl.DefaultBrokerIP {
 		t.Errorf("broker_ip = %q, want the default %q", m.BrokerIP, loopholedecl.DefaultBrokerIP)
 	}
-	wantCmd := []string{"yolo", "internal", "daemon", "host-processes", "--socket", "{socket}"}
+	wantCmd := []string{
+		"yolo", "internal", "daemon", "host-processes",
+		"--socket", "{socket}", "--settings", "{settings}",
+	}
 	if m.HostDaemon == nil || !reflect.DeepEqual(m.HostDaemon.Cmd, wantCmd) {
 		t.Fatalf("host_daemon = %+v, want cmd %v", m.HostDaemon, wantCmd)
+	}
+	// The SETTINGS half, pinned together with the argv that consumes it, because the
+	// two are one fact: the {settings} token resolves to a file yolo writes FROM these
+	// declarations, so a manifest carrying the token with no declarations is refused at
+	// load and a manifest carrying declarations no argv names writes a file nobody
+	// reads. Both keys are `workspace` scope, which is what preserves the one thing
+	// this loophole has always let a workspace do.
+	if len(m.Settings) != 2 {
+		t.Fatalf("settings = %+v, want the two declared keys (visible, fields)", m.Settings)
+	}
+	for _, want := range []struct {
+		key, typ, scope string
+		def             any
+	}{
+		{"visible", loopholedecl.SettingTypeStringList, loopholedecl.SettingScopeWorkspace,
+			[]string{}},
+		{"fields", loopholedecl.SettingTypeStringList, loopholedecl.SettingScopeWorkspace,
+			[]string{"pid", "comm", "args", "etime", "%cpu", "%mem", "rss"}},
+	} {
+		got, ok := loopholedecl.SettingByKey(m.Settings, want.key)
+		if !ok {
+			t.Fatalf("settings has no %q", want.key)
+		}
+		if got.Type != want.typ || got.Scope != want.scope {
+			t.Errorf("settings.%s = type %q scope %q, want %q/%q",
+				want.key, got.Type, got.Scope, want.typ, want.scope)
+		}
+		if !reflect.DeepEqual(got.Default, want.def) {
+			t.Errorf("settings.%s default = %#v, want %#v", want.key, got.Default, want.def)
+		}
 	}
 	if m.HostDaemon.Publishes != loopholedecl.PublishesSocket {
 		t.Errorf("publishes = %q, want %q — the daemon binds the socket and yolo fronts it",
