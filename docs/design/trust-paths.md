@@ -8,15 +8,20 @@ summary: "Twenty-five paths, enumerated from the code, each with when trust is e
 
 # Every path by which someone else's content runs in your jail
 
-**Status:** INVENTORY, 2026-08-17; **two rulings since**, both 2026-08-18 and both closing a finding
-by *removing* a mechanism rather than adding a gate — no evergreen npm ([§1 row 1](#where-a-pin-would-change-the-outcome)),
-and a refused contribution refuses the launch ([§3.1](#ruled-2026-08-18-a-refused-contribution-is-a-refused-launch)),
-which obviates OQ-TP1, and one more on 2026-08-18 answering OQ-TP2 with *"nothing explicit — the
-commit pin already closes over it"* (see the Decision Ledger). **Three questions remain: OQ-TP3,
-OQ-TP4 and OQ-TP7** — the last raised by verifying the OQ-TP6 build, which holds, while `yolo check`
-and the approve path it names did not follow it. **OQ-TP6 is BUILT** (2026-08-18) — everything else
-here is still inventory. Every row was traced in the code; anchors are inline and the check date is
-today.
+**Status:** INVENTORY, 2026-08-17. Four questions settled since, two of them BUILT (all 2026-08-18);
+anchors re-verified against the code 2026-08-18. **Three remain open — [OQ-TP3](#-oq-tp3--given-1-is-pinning-worth-building-at-all-and-where-first),
+[OQ-TP4](#-oq-tp4--where-does-an-embedded-packs-npm-version-get-pinned) and
+[OQ-TP7](#-oq-tp7--the-refusal-is-fatal-the-preflight-and-the-approve-path-are-not-caught-up)** —
+and the first two are one question wearing two hats: *where does an npm pin live, and who is required
+to carry one?* This document is organised to answer them. Beyond the two rulings that shipped,
+**everything here is inventory** — traced in the code, with the anchors inline.
+
+**The short version.** Twenty-five paths deliver someone else's content into a jail.
+**Pinning changes an outcome in three of them** ([§1](#1-the-verdict)); everywhere else it is
+theatre, because **every gate in this system keys on a DECLARATION and none on CONTENT.** Of the
+three, row 1 (`program via npm`) is ruled and half built: the silent-change half is gone, and what is
+left is that nothing records *which* version an update landed on — because the lockfile exists per
+**fetched** pack and every npm-declaring pack is **embedded**. That gap is the live question.
 
 **Why this exists.** A proposal ([`pack-execution-trust.md`](./pack-execution-trust.md)) argued that
 a fetched pack should only execute content it pins. The review response was *"they're all just as
@@ -27,10 +32,9 @@ proposal should have been built on.
 > [!IMPORTANT]
 > **The proposal's central premise is false, and I verified it myself.** §3 of
 > [`pack-execution-trust.md`](./pack-execution-trust.md) says the commit pin "is the rule already
-> applied one level up". It is not applied anywhere. `LockEntry.Commit` has exactly **four readers,
-> all display-only** — the moved-pin message and `pack status`
-> ([`pack.go`](../../internal/cli/pack.go#L1095)). The launch path never consults it: it re-resolves
-> the **config's ref** against the local mirror. The lockfile is a receipt, not a gate.
+> applied one level up". It is not applied anywhere. See
+> [§1's lockfile finding](#the-lockfile-is-a-receipt-not-a-gate) — which is also the crux of both
+> npm questions.
 
 **What pinning actually buys, stated honestly:** it bounds trust in **time**, never in scope. It
 cannot make code safe; a pinned malicious binary is malicious. Its only claim is *"the thing you
@@ -41,15 +45,12 @@ against exactly one threat, the silent update.
 
 ## Decision Ledger
 
-Two rulings and one obviated question. IDs are `OQ-TP*` **and that prefix is load-bearing** — see the
-note below.
-
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| **OQ-TP1** | **Obviated.** There is no decision to carry into a jail, because a refused contribution refuses the launch (OQ-TP6). The hardcoded `mayAccessHost=true` stays worth fixing as tidiness, not as a broken guarantee | 2026-08-18 | [§3.1](#31-the-origin-gate-is-not-enforced-where-it-executes-) |
-| **OQ-TP2** | **Nothing explicit.** Agent context needs no gate and no separate disclosure — the lockfile's commit pin closes over it, because it closes over the whole tree | 2026-08-18 | [§2 row 17+](#2-the-inventory) |
+| **OQ-TP1** | **Obviated.** There is no decision to carry into a jail, because a refused contribution refuses the launch (OQ-TP6). The hardcoded `mayAccessHost=true` stays — deriving it would be a regression | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
+| **OQ-TP2** | **Nothing explicit.** Agent context needs no gate and no separate disclosure — the lockfile's commit pin closes over it, because it closes over the whole tree | 2026-08-18 | [§2](#agent-context-needs-no-gate-of-its-own) |
 | **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report*. **Built 2026-08-18**, minus the pin it has nowhere to record (OQ-TP4) | 2026-08-18 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
-| **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **BUILT 2026-08-18** | 2026-08-18 | [§3.1](#ruled-2026-08-18-a-refused-contribution-is-a-refused-launch) |
+| **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **Built 2026-08-18** | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
 
 > [!WARNING]
 > **This document's questions were renumbered on 2026-08-18, and the reason is worth keeping.** They
@@ -64,6 +65,12 @@ note below.
 > did not move. **A stale `OQ-T1..T4` referring to trust-paths therefore means "written before
 > 2026-08-18" — it is not a dangling reference, it is an old spelling of `OQ-TP1..TP4`.**
 
+> [!NOTE]
+> **The section numbers are an API too.** `§1 row 1` is cited from `internal/cli/packupdate.go`,
+> `internal/cli/pack.go`, `internal/entrypoint/shims.go` and two tests; `§3.1` from
+> `internal/cli/run/packrefusal.go`, `internal/entrypoint/packsurfaces.go`, `internal/cli/run/packs.go`
+> and `docs/RELEASE-NOTES.md`. Renumber a section only with a grep in hand.
+
 ## 1. The verdict
 
 **Pinning changes an outcome in three of twenty-five paths.** Everywhere else it is theatre, and the
@@ -73,98 +80,85 @@ the footprint grow?"* well. It cannot answer *"is this the same code I looked at
 
 **And the sharpest form of your instinct, which I had not seen:** `pack install` syncs the mirror and
 writes the lockfile **in the same loop iteration**
-([`pack.go`](../../internal/cli/pack.go#L1076-L1109)). The act that moves the content *is* the act
+([`pack.go`](../../internal/cli/pack.go#L1104-L1131)). The act that moves the content *is* the act
 that moves the pin. A pin advanced by the same command that changes the bytes is a receipt. It
 becomes a gate only if three things hold together — (i) enforced at use, (ii) advanced by a
 *different* act than the one that changes content, (iii) that act shows you what changed. Today
 **none** hold, and nobody is proposing to fix (ii).
 
+### The lockfile is a receipt, not a gate
+
+This is the finding both open questions turn on, so it gets stated once, here, rather than repeated
+per row. `LockEntry` ([`lock.go`](../../internal/packsrc/lock.go#L32-L55)) records `Name`, `Source`,
+`Commit`, `Ref` and `ApprovedHostAccess`. Its two halves behave completely differently:
+
+| Field | Enforced at launch? | Evidence |
+| :--- | :--- | :--- |
+| `ApprovedHostAccess` | **Yes** — `packMayAccessHost` ([`run/packs.go`](../../internal/cli/run/packs.go#L787)) grants a fetched pack host access only for claims recorded here, and a claim set that grew re-prompts | this is a real gate |
+| `Commit` · `Ref` | **No.** Every reader is **display-only**: the moved-pin message ([`pack.go:1110-1112`](../../internal/cli/pack.go#L1110-L1112)) and the `pack status` listing ([`pack.go:1335-1338`](../../internal/cli/pack.go#L1335-L1338)). The launch path never consults either — it re-resolves the **config's ref** against the local mirror | verified 2026-08-18: four readers, all printing |
+
+That split is **OQ-LP8 / G2b**, already open and already ruled in shape. It is the same shape the
+origin gate had before [§3.1](#31-a-refused-contribution-refuses-the-launch-): *true of the decision,
+false of its enforcement.*
+
+**Two structural facts about the file itself, which is where OQ-TP4 comes from:**
+
+- **There is nowhere to put an npm version.** `LockEntry`'s fields are everything about a *git* pin
+  and nothing about a package one. It needs a new field, and `LockSchema` is versioned precisely so
+  this kind of change is a bump rather than a silent misread.
+- **The file exists per FETCHED pack.** `Commit` is *"empty for a local pack — a directory has no
+  commit, and pretending otherwise would invent a pin"*
+  ([`lock.go`](../../internal/packsrc/lock.go#L39-L41)), and an embedded pack has no row at all
+  (`ApprovedHostAccess` is *"unused for embedded/local packs"*). The four packs that declare npm
+  programs — **pi, copilot, codex, opencode** — are all embedded.
+
 ### Where a pin would change the outcome
 
-1. **`program via npm`** — because nothing *is* pinned and the content changed with **zero user
-   action**. Every shipped pack declares a bare package name, which the launcher resolves to
-   `@latest` and then kept current on an hourly poll, so the binary changed between two invocations
-   with nobody present. **The zero-user-action half was removed on 2026-08-18** (see the ruling
-   below); what survives of this row is that the version an explicit update lands on is still not
-   recorded anywhere, which is OQ-TP4.
+1. **`program via npm`** — because nothing *is* pinned. Every shipped pack declares a bare package
+   name, which the launcher resolves to `@latest`. **The zero-user-action half was removed on
+   2026-08-18** (OQ-TP5, below); what survives of this row is that the version an explicit update
+   lands on is **not recorded anywhere**, which is OQ-TP4.
 
-   > **What the hourly poll was, since it is ours and it was deliberate — and it has been removed.**
-   > A pack that declares `program via npm` does not get its binary at image-build time. The
-   > entrypoint generates a *launcher* script for the command name, and the first invocation installs
-   > it ([`shims.go`](../../internal/entrypoint/shims.go)). That script then kept the package fresh
-   > on its own: on the first call after a jail boot, and thereafter at most once an hour
-   > (`UPDATE_INTERVAL=3600`), it ran `npm view <pkg> version` and **reinstalled** if the registry's
-   > latest differed from what was installed.
-   >
-   > It was built for a real problem, and the problem did not go away: agent CLIs install lazily into
-   > a jail home that *persists across boots*, so with no refresh they freeze at whatever was current
-   > the day that home was created. `yolo pack update` is what answers it now — the same refresh,
-   > asked for rather than assumed.
-
-   > **RULED, 2026-08-18: no evergreen npm packages. Install and update become different acts.**
-   > *"This is not something we can keep with pack-sourced things. I don't want magical evergreen npm
-   > packages. We need to split to an install/update thing. If there's a committed lockfile, install
+   > **RULED and BUILT, 2026-08-18: no evergreen npm packages. Install and update are different
+   > acts.** *"I don't want magical evergreen npm packages. If there's a committed lockfile, install
    > installs from that version, update is how you get new versions. Let's just downgrade to
    > informational messages if there are updates available, since we already have this mech."*
    >
-   > This retires row 1 as a *silent-change* path — which makes it the first row in this document to
-   > be closed by removing the mechanism rather than by adding a gate.
+   > | | Rule | State |
+   > | :--- | :--- | :--- |
+   > | **install** | installs the version the lockfile records, and **never asks the registry what is latest** | built — but there is no version to record yet (OQ-TP4), so it leaves what is there alone |
+   > | **update** | the only act that resolves a new version, and it **writes the lockfile** | resolves; does not yet write (OQ-TP4) |
+   > | **the poll** | keeps running, but may only **say** that a newer version exists | built |
    >
-   > **The three rules:**
+   > **What the system does now.** The launcher's `_poll_and_report`
+   > ([`shims.go`](../../internal/entrypoint/shims.go)) keeps the same `npm view` and the same hourly
+   > throttle (`UPDATE_INTERVAL=3600`) and prints `<installed> → <latest> is available. Run 'yolo pack
+   > update'` instead of reinstalling. The ONE input that still resolves a version is
+   > `YOLO_PACK_UPDATE=1`, which `yolo pack update` sets and nothing else does; in that mode the
+   > launcher installs and **exits without exec'ing**, so refreshing a list of agent CLIs never starts
+   > one. The **cold path is untouched by design** — a first install is not a poll, and without it a
+   > fresh jail would have no agent CLI at all. `internal/cli/packupdate.go` is the whole of the
+   > difference, and it walks the **staged packs** rather than the launcher dir, which also holds
+   > native and package-manager launchers.
    >
-   > | | Rule |
-   > | :--- | :--- |
-   > | **install** | installs the version the lockfile records, and **never asks the registry what is latest** |
-   > | **update** | the only act that resolves a new version, and it **writes the lockfile** |
-   > | **the poll** | keeps running, but may only **say** that a newer version exists. It may never reinstall |
-   >
-   > The poll surviving as informational is the reason this is cheap: the mechanism already exists,
-   > already runs on a sane schedule, and already knows the answer. What changes is that it reports
-   > instead of acting.
-   >
-   > **BUILT, 2026-08-18 — the two behavioural halves, not the record.** The launcher's
-   > `_poll_and_update` is now `_poll_and_report`
-   > ([`shims.go`](../../internal/entrypoint/shims.go)): same `npm view`, same hourly throttle, and
-   > it prints `<installed> → <latest> is available. Run 'yolo pack update'` instead of reinstalling.
-   > The ONE input that still resolves a version is `YOLO_PACK_UPDATE=1`, which
-   > `yolo pack update` sets and nothing else does; in that mode the launcher installs and **exits
-   > without exec'ing**, so refreshing a list of agent CLIs never starts one. The cold path is
-   > untouched by design — a first install is not a poll, and without it a fresh jail would have no
-   > agent CLI at all. `internal/cli/pack.go`'s `case "install", "update":` is split, and
-   > `internal/cli/packupdate.go` is the whole of the difference: it walks the staged packs (not the
-   > launcher dir, which also holds native and package-manager launchers), and runs each
-   > npm-declared program's launcher in update mode.
-   >
-   > **What stands in the way today, stated so nobody is surprised mid-implementation** — the first
-   > bullet is now closed, the rest are what the build deliberately did not touch:
-   >
-   > - ~~**`install` and `update` are literally the same code path.**~~ **CLOSED 2026-08-18.** They
-   >   are two case arms reaching two functions, and the difference is behavioural: `update`
-   >   refreshes an npm-declared program and `install` never does.
-   > - **The lockfile has nowhere to put an npm version.** `LockEntry`
-   >   ([`lock.go`](../../internal/packsrc/lock.go#L32-L55)) records `Name`, `Source`, `Commit`, `Ref`
-   >   and `ApprovedHostAccess` — everything about a *git* pin and nothing about a package one. It
-   >   needs a new field, and `LockSchema` is versioned precisely so this kind of change is a bump
-   >   rather than a silent misread.
-   > - **Embedded packs have no lockfile entry at all.** The comment on `ApprovedHostAccess` says the
-   >   lockfile is "unused for embedded/local packs". But this row's own text says the silent-change
-   >   problem *"applies to embedded packs (pi, copilot, codex, opencode) as much as fetched ones"* —
-   >   and those four are exactly the packs that declare npm programs. **So the ruling has no home for
-   >   the pin it depends on for the majority case.** That is OQ-TP4 below; it is not a detail, it is
-   >   the question of whether this ruling can be implemented as stated.
-   > - **npm installs are deliberately NOT origin-gated** — `HonoredInstalls`
-   >   ([`packload.go`](../../internal/packload/packload.go#L258-L276)) gates a `curl`-piped installer
-   >   and lets an npm install through, on the reasoning that a registry package is *"the same trust
-   >   as any dependency the user already installs"*. That reasoning is untouched by this ruling and
-   >   should stay: this is about **when the bytes change**, not about **whose bytes they are**.
+   > The evergreen poll was ours and it was deliberate, and **the problem it solved did not go away**:
+   > agent CLIs install lazily into a jail home that *persists across boots*, so with no refresh they
+   > freeze at whatever was current the day that home was created. `yolo pack update` is that same
+   > refresh, asked for rather than assumed.
 
-   *Caveat, since RETIRED (2026-08-17):* a version used to be **not expressible** — the template
-   appended `@latest` to the package string, so `foo@1.2.3` yielded `foo@1.2.3@latest`. The
-   launcher now splits the declaration (`internal/entrypoint/npmspec.go`), honours a version,
-   dist-tag or range, and skips the poll for anything it did not resolve to `latest` itself. That
-   was a bug fix and **not** the decision: nothing is pinned by default and the shipped packs
-   resolve exactly as before. What changed is that the row can now be *attempted* — the question
-   is once again "should a pack pin?" rather than "can it?".
+   > [!WARNING]
+   > **npm installs are deliberately NOT origin-gated, and this ruling does not change that.**
+   > `HonoredInstalls` ([`packload.go`](../../internal/packload/packload.go#L268)) gates a
+   > `curl`-piped installer and lets an npm install through, on the reasoning that a registry package
+   > is *"the same trust as any dependency the user already installs."* That reasoning should stay:
+   > this row is about **when the bytes change**, not about **whose bytes they are.**
+
+   **A version is expressible, and nothing takes it.** The launcher splits the declaration
+   ([`npmspec.go`](../../internal/entrypoint/npmspec.go)) and honours a version, dist-tag or range,
+   skipping the poll for anything it did not resolve to `latest` itself. (It used to append `@latest`
+   unconditionally, so `foo@1.2.3` yielded `foo@1.2.3@latest`.) That was a bug fix and **not** a
+   decision: every shipped pack still declares a bare name. The question is once again *"should a
+   pack pin?"* rather than *"can it?"* — which is OQ-TP3.
 2. **A loophole's daemon FILE, and a plugin's HOOK BODIES** — the two gated crossings whose approval
    string genuinely does not cover the bytes. `["python3","{loophole_dir}/acme.py"]` is one claim
    string forever; `plugin <name> hooks (runs code at agent lifecycle events)` is a **constant** with
@@ -172,9 +166,8 @@ becomes a gate only if three things hold together — (i) enforced at use, (ii) 
 
    > **"Plugin" and "hook body", defined — they are the AGENT's extension mechanism, not yolo's.**
    > A pack may ship a **Claude Code plugin**: a `.claude-plugin/plugin.json` manifest that the agent
-   > reads directly. yolo delivers it and reports what it declares, but never interprets it.
-   >
-   > A plugin manifest can declare six component kinds, and yolo marks three of them as running code
+   > reads directly. yolo delivers it and reports what it declares, but never interprets it. A
+   > manifest can declare six component kinds, and yolo marks three of them as running code
    > ([`pluginpack.go`](../../internal/pluginpack/pluginpack.go#L130-L147)):
    >
    > | Component | What it does | Runs code |
@@ -185,8 +178,7 @@ becomes a gate only if three things hold together — (i) enforced at use, (ii) 
    > | `commands` · `agents` · `outputStyles` | slash commands, sub-agent definitions, output styles | ❌ |
    >
    > A **hook body** is the script a `hooks` entry names — the thing the *agent* executes when it
-   > reaches one of its own lifecycle events (before a tool call, after an edit, and so on). yolo
-   > never runs it and never reads it.
+   > reaches one of its own lifecycle events. yolo never runs it and never reads it.
    >
    > **That is exactly why the claim is uncoverable.** The approval string yolo shows is the table row
    > above, verbatim and constant. It names the *category*, not the file — so a plugin can rewrite its
@@ -211,35 +203,28 @@ becomes a gate only if three things hold together — (i) enforced at use, (ii) 
    > non-empty — there is no "unspecified ref" form to fall back on. (A local `file://` pack has no
    > ref at all; it is a directory, and none of this row applies to it.) So `?ref=v2.1.0` and
    > `?ref=6461be6…` are already pins *in the address*; `?ref=main` is a moving target by
-   > construction.
-   >
-   > **Why editing it is a path in this list:** `pack install` syncs a local mirror of the whole
-   > repository, not just the one ref. Every branch and tag is therefore already on disk. Changing
-   > `main` to `some-other-branch` in config is a text edit that resolves against that mirror at the
-   > next launch — no `pack install`, no network fetch, and nothing that prompts. The bytes that run
-   > change because a config line changed.
+   > construction. `pack install` syncs a mirror of the **whole repository**, so every branch and tag
+   > is already on disk: changing `main` to `some-other-branch` is a text edit that resolves against
+   > that mirror at the next launch. The bytes that run change because a config line changed.
 
-   > **Who can make that edit, since the row read as though anyone could — and the answer is
-   > stronger than "not without reapproval".** A pack address is **inexpressible from a workspace**,
-   > by construction rather than by validation. `packs` is USER-SCOPE ONLY and is read from
-   > `paths.UserConfigPath()` **directly, not from the merged config**
-   > ([`packs.go`](../../internal/config/packs.go#L1-L20)) — so a workspace file cannot name a pack
-   > even to be refused. The package comment states the reason in the same terms this document uses:
-   > *"a workspace config travels with the repo and is agent-editable, so it must not be able to name
-   > content that enters the jail."*
+   > [!IMPORTANT]
+   > **This is a HUMAN path, not an agent-escalation path — and the reason is stronger than "not
+   > without reapproval".** A pack address is **inexpressible from a workspace**, by construction
+   > rather than by validation. `packs` is USER-SCOPE ONLY and is read from `paths.UserConfigPath()`
+   > **directly, not from the merged config** ([`packs.go`](../../internal/config/packs.go#L1-L20)) —
+   > so a workspace file cannot name a pack even to be refused. The package comment states the reason
+   > in this document's own terms: *"a workspace config travels with the repo and is agent-editable,
+   > so it must not be able to name content that enters the jail."*
    >
-   > And an agent cannot reach the file where it *is* expressible. The host's
-   > `~/.config/yolo-jail/config.jsonc` is **never mounted into a jail**; the `config.jsonc` a jail
-   > sees at that path is **generated per consumer** from the merged result
-   > (`assemble_test.go` pins both facts: *"user config mount: none"*). Editing the in-jail copy
-   > changes a generated artifact and nothing else.
+   > And an agent cannot reach the file where it *is* expressible: the host's
+   > `~/.config/yolo-jail/config.jsonc` is **never mounted into a jail**, and the `config.jsonc` a
+   > jail sees at that path is **generated per consumer** from the merged result (`assemble_test.go`
+   > pins both facts: *"user config mount: none"*). Editing the in-jail copy changes a generated
+   > artifact and nothing else.
    >
-   > **So this row is a HUMAN path, not an agent-escalation path**, and the doc should not have left
-   > that ambiguous. The gap is real but narrower than it read: a person who edits `?ref=` gets new
-   > code **with no re-approval and no prompt**, because nothing on the launch path compares the ref
-   > they are now running against the ref they approved. It is the same missing enforcement as
-   > OQ-LP8/G2b — the lockfile records `Ref` *and* the `Commit` it resolved to, and every reader of
-   > those fields is display-only.
+   > The gap is real but narrower than it reads: a **person** who edits `?ref=` gets new code with no
+   > re-approval and no prompt, because nothing on the launch path compares the ref they are now
+   > running against the ref they approved. Same missing enforcement as the lockfile finding above.
 
 ### Where it is theatre — the four that matter
 
@@ -251,13 +236,15 @@ becomes a gate only if three things hold together — (i) enforced at use, (ii) 
 - **Pinning anything while `~/.config/yolo-jail/local` exists.** The implicit local pack needs no
   config line, has no lockfile entry, no commit, no claim, gets **full trust**, and is appended
   **last** so it outranks everything — selected by one `os.Stat` that follows symlinks.
-- **Pinning a refusal that is not enforced where it executes.** See §3.
+- **Pinning a refusal that is not enforced where it executes.** Retired as of §3.1's ruling, and kept
+  in this list because it is the shape to check any *new* gate against.
 
 ---
 
 ## 2. The inventory
 
-Ordered from most-trusted origin to least. "Silent change" is the column the exercise exists for.
+Ordered from most-trusted origin to least. "Silent change" is the column the exercise exists for, and
+this table is the evidence for §1's "three of twenty-five".
 
 | # | Path | Grants | Trust extended | Can change silently? |
 | :-- | :--- | :--- | :--- | :--- |
@@ -272,79 +259,72 @@ Ordered from most-trusted origin to least. "Silent change" is the column the exe
 | 9 | workspace `mounts` | host read | implicit at the config diff; **never on a fresh clone** | yes — `git pull`, the agent's own edit, or the host dir's contents |
 | 10 | workspace `env_sources` | host read, exfiltration-shaped | implicit; never on a fresh clone | yes — re-read live each launch; a missing file warns and skips |
 | 11 | workspace `mcp_servers` / `lsp_servers` / `packages` / `mise_tools` | in-jail exec | implicit at a diff that shows the NAME, never what it resolves to | mixed — the most useful contrast in the table |
-| 12 | **the config gate itself** (`CheckConfigChanges`) | — it *is* the gate | — | **fails open three ways in 40 lines** (§3) |
+| 12 | **the config gate itself** (`CheckConfigChanges`) | — it *is* the gate | — | **fails open three ways in 40 lines** (§3.3) |
 | 13 | workspace `yolo-jail.config.lua` — **activated by existing** | agent context, transitively in-jail exec | **never**; not a config key, so outside the diff, drift and snapshot | yes, every boot, with nothing to diff against |
 | 14 | workspace `mise.toml` | in-jail exec | **never** — trust asserted *for* you on the podman argv | yes — `git pull`, and `latest` resolves at install |
 | 15 | `agents_md_extra`, blocked-tool messages, source-less `host_files` | agent context | implicit at the diff, which does carry the prose | covered by the diff; the finding is scope asymmetry |
 | 16 | **`.yolo/handover.md`** | agent context, framed as an authoritative task list | **never** — no key, no prompt, no validation, no attribution | **yes, continuously** — an ordinary file any agent can write |
 | 17 | fetched pack — **content** (skills, briefing, files, config-overlay) | agent context | **never** for a claim-free pack | yes, on every mechanism at once |
 | 18 | fetched pack — `env` | in-jail exec in practice (no key allowlist, so `LD_PRELOAD` etc.) | **never**, explicitly | yes; no claim, so nothing to compare |
-| 19 | **fetched pack — loophole with only a `jail_daemon`** | in-jail exec, supervised, restart-policied, UID 0 | **never** — excluded from the claim table by design | yes trivially; it was never approved |
-| 20 | **fetched pack — `program via installer`** | in-jail exec as UID 0 | nominally a prompt; **in fact never** (§3) | yes — unpinned URL plus hourly self-update |
-| 21 | fetched pack — wrapped agent plugin (hooks / MCP / LSP) | in-jail exec at lifecycle events | explicit prompt for the code-running components | **yes — the weakest claim string in the system**, a constant with no path or digest |
+| 19 | **fetched pack — loophole with only a `jail_daemon`** | in-jail exec, supervised, restart-policied, UID 0 | **never** — excluded from the claim table by design | yes trivially; it was never approved (§3.2) |
+| 20 | **fetched pack — `program via installer`** | in-jail exec as UID 0 | explicit prompt, and since 2026-08-18 an unapproved one refuses the launch (§3.1) | yes — unpinned URL plus hourly self-update |
+| 21 | fetched pack — wrapped agent plugin (hooks / MCP / LSP) | in-jail exec at lifecycle events | explicit prompt for the code-running components — **first enforced at launch 2026-08-18** (§3.1) | **yes — the weakest claim string in the system**, a constant with no path or digest |
 | 22 | fetched pack — `reads-host` / `mount` / host-prepending `briefing` | host read | **explicit, once** | yes — a moved ref with unchanged claim strings carries the approval forward |
 | 23 | fetched pack — loophole with a `host_daemon` | **host execution** + a CA trusted in-jail | explicit, per crossing | yes — the claim pins the argv, not the file (OQ-LP8) |
 | 24 | `yolo apply --host` | **host write** into your real home | explicit per invocation, `--assert` required | for a local pack, yes — source re-read each apply |
 | 25 | the mirror + ref resolution behind rows 17–23 | selects which bytes every row above delivers | — | **three verified mechanisms** |
 
----
-
 ### Agent context needs no gate of its own
 
 **RULED (OQ-TP2, 2026-08-18): nothing explicit.** Skills, briefing prose and the rest of the
-agent-facing surface get no gate and no separate disclosure line, because **the lockfile already pins
-a commit, and a commit closes over the whole tree** — prose included. A second mechanism aimed at the
-same bytes would be the halfway-measure shape this repo keeps deleting.
+agent-facing surface (rows 17, 15, 16) get no gate and no separate disclosure line, because **the
+lockfile already pins a commit, and a commit closes over the whole tree** — prose included. A second
+mechanism aimed at the same bytes would be the halfway-measure shape this repo keeps deleting.
 
 **The scope is exactly right, which is worth stating because it looks narrower than it is.** A commit
-pin covers *fetched* packs only: `LockEntry.Commit` is *"empty for a local pack — a directory has no
-commit, and pretending otherwise would invent a pin"*
-([`lock.go`](../../internal/packsrc/lock.go#L39-L41)), and embedded packs have no lockfile row at
-all. That is not a gap — **fetched packs are the only ones whose content someone else controls.** A
-local pack is your own files under your own authority, and an embedded one is yolo's own code. So the
-one kind a pin can cover is the one kind that needs covering.
+pin covers *fetched* packs only. That is not a gap: **fetched packs are the only ones whose content
+someone else controls.** A local pack is your own files under your own authority, and an embedded one
+is yolo's own code. (An embedded pack's *tree* is yolo's own code; the npm **package** it names is
+not — which is the whole of why OQ-TP4 exists alongside this ruling.)
 
-> [!WARNING]
-> **This ruling inherits an enforcement gap, and is worth exactly as much as that gap is closed.**
-> The lockfile *records* the resolved commit; **nothing consults it at launch.** Every reader of
-> `LockEntry.Commit` is display-only — `pack.go:1096` reports whether an update moved the pin,
-> `pack.go:1313-1316` prints it in a listing. So today the commit pin closes over agent context *on
-> paper*.
->
-> That is **OQ-LP8 / G2b**, already open and already ruled in shape. Nothing here needs a new
-> mechanism — but until the pin is enforced at use, "the pin covers it" is a statement about the
-> design rather than about a running system.
+**This ruling inherits the enforcement gap**, and is worth exactly as much as that gap is closed:
+until `LockEntry.Commit` is consulted at launch ([§1](#the-lockfile-is-a-receipt-not-a-gate)), "the
+pin covers it" is a statement about the design rather than about a running system.
 
 ---
 
 ## 3. Three findings that outrank the entire pinning question
 
-### 3.1 The origin gate is not enforced where it executes ⚠
+### 3.1 A refused contribution refuses the launch ⚠
 
-**The only verified break of a guarantee the codebase actively claims.**
+**RULED and BUILT 2026-08-18 (OQ-TP6, which obviates OQ-TP1).** *"If the installer is refused, that
+should be fatal. We can't run packs with selective things disabled by refusals. Fix the pack, remove
+the pack, approve. Those are the choices."*
 
-#### What the gate is supposed to do
+This began as the only verified break of a guarantee the codebase actively claims: the host computed
+a refusal, printed `Warning: refused installer …`, and then staged the unmodified `pack.json` anyway,
+so the jail — which loads packs with a hardcoded permissive `mayAccessHost` — wrote the `curl → bash`
+launcher regardless. The warning was true about the *decision* and false about the *outcome*. **The
+ruling does not close that gap; it deletes the problem.** There is nothing to carry across the
+boundary if no jail starts.
 
-`HonoredInstalls` ([`packload.go`](../../internal/packload/packload.go#L266-L277)) walks a pack's
-install contributions and refuses one specific thing:
+`stagePacks` now collects every refusal the `Honored*` family reports and returns
+[`refusedLaunchError`](../../internal/cli/run/packrefusal.go) instead of the four warnings it used to
+print — **before** the mechanical pre-flights, because this one is about CONSENT and those are about
+pack mechanics. Refusals accumulate across the whole configured set, so two broken packs cost one
+launch rather than two.
 
-```go
-if in.InstallerURL != "" && !p.MayAccessHost {
-    refused = append(refused, fmt.Sprintf(
-        "pack %s: refused installer %q — a FETCHED pack cannot run a curl-piped "+
-            "installer in the jail.", p.Name, in.InstallerURL))
-    continue
-}
-granted = append(granted, in)
-```
+**It also retires the partial-pack concept**, which is the deeper change. A pack that half-loads is a
+pack whose behaviour nobody can predict from reading it: the manifest says one thing, the running
+system does another, and the difference is a warning scrolled past ten minutes ago. The three choices
+— **fix the pack, remove the pack, approve it** — are exhaustive precisely because they are the only
+three that end with the manifest and the runtime agreeing.
 
-#### What `mayAccessHost` is, and what it is protecting
+#### What the gate decides, and what must not be simplified away
 
 **Origin decides exactly one thing** in this system — the package comment is explicit that a user
 pack and an official pack are the same kind of thing, and that *"the only difference is ORIGIN, and
 origin decides exactly one thing — whether a host-access declaration is honored."*
-
-There are three origins, and they collapse into two answers:
 
 | Origin | What it is | May reach the host |
 | :--- | :--- | :--- |
@@ -353,159 +333,46 @@ There are three origins, and they collapse into two answers:
 | **fetched** | `git+https://…?ref=…`, content someone else controls | ⚠️ **only what you approved** |
 
 `MayAccessHost` is that verdict, carried on the loaded pack. For the first two it is `true` by
-construction ([`packs.go`](../../internal/config/packs.go#L175-L177):
+construction ([`packs.go`](../../internal/config/packs.go#L175):
 `MayGrantHostFiles() { return p.Origin() != OriginFetched }`). For a **fetched** pack it is decided
-per launch by `packMayAccessHost`
-([`run/packs.go`](../../internal/cli/run/packs.go#L772-L800)), and it is `true` only when the
-lockfile records approval for **every** host-access claim the staged pack *currently* makes:
+per launch by `packMayAccessHost` ([`run/packs.go`](../../internal/cli/run/packs.go#L787)), and it is
+`true` only when the lockfile records approval for **every** host-access claim the staged pack
+*currently* makes: a fresh install never run through `yolo pack install` **fails closed**; a pin that
+moved and **gained** a claim fails closed and re-prompts; a missing or corrupt lockfile **approves
+nothing**. So the gate is not *"fetched packs may never"* — it is *"a fetched pack reaches the host
+only for the things you were shown and said yes to."* The claims are strings computed from the
+manifest ([`contributes.go`](../../internal/packdecl/contributes.go#L655-L670)) — `reads-host <path>`,
+`mount <host> -> /ctx/<into>`, `briefing <src>`, and **`installer <URL>`** — and they gate host
+directory mounts, `curl`-piped installers, a wrapped plugin's code-running components, and a shipped
+loophole's daemon, intercepts, binds and devices. All of them flow through one merged helper on
+purpose: **both ends of the approval must compute the same union, or the gate disagrees with the
+prompt.**
 
-- a fresh install never run through `yolo pack install` → **fails closed**;
-- a pin that moved and **gained** a claim → fails closed, and re-prompts;
-- a missing or corrupt lockfile → **approves nothing**.
-
-**So the gate is not "fetched packs may never".** It is *"a fetched pack reaches the host only for the
-things you were shown and said yes to."* The claims are strings computed from the manifest
-([`contributes.go`](../../internal/packdecl/contributes.go#L655-L670)) — `reads-host <path>`,
-`mount <host> -> /ctx/<into>`, `briefing <src>`, and, importantly for §3.1, **`installer <URL>`**.
-
-**What it gates, concretely:** host directory mounts (`HonoredMounts`), `curl`-piped installers
-(`HonoredInstalls`), a wrapped plugin's code-running components, and a shipped loophole's daemon,
-intercepts, binds and devices. All of them flow through one merged helper on purpose — both ends of
-the approval must compute the same union, or the gate disagrees with the prompt.
-
-#### The refusal itself
-
-Two properties of it are load-bearing and worth stating before the defect, because the fix must
-preserve both:
+Two properties of the refusal are load-bearing, and any future change must preserve both:
 
 - **It is PER CONTRIBUTION, not per pack.** A pack may mix an npm install with a `curl`-to-shell
-  installer, and only the second is gated. The comment says why deciding once for the whole pack is
-  worse in both directions: it would either refuse the innocent npm install, or — *"far worse"* — let
-  a fetched pack **smuggle an installer URL through beside one**.
+  installer, and only the second is gated. Deciding once for the whole pack is worse in both
+  directions: it would either refuse the innocent npm install, or — *"far worse"* — let a fetched
+  pack **smuggle an installer URL through beside one**.
 - **An npm install is deliberately ungated.** *"An npm install names a registry package and is not
   origin-gated — it is the same trust as any dependency the user already installs."* The gate is
   about `curl | sh` specifically, not about installing things.
 
-#### What actually happened, until the ruling below was built (2026-08-18)
-
-The decision was made **twice, on two sides of the boundary, from different inputs** — and only the
-first side had the input that matters. Kept in the present tense below because it is the finding as
-measured; what replaced it is the RULED section further down.
-
-| | Host, at launch | Jail, at boot |
-| :--- | :--- | :--- |
-| What loads the pack | the run pipeline | [`packsurfaces.go:89`](../../internal/entrypoint/packsurfaces.go#L89) |
-| `mayAccessHost` | derived from the pack's **origin** and the lockfile approval | **the literal `true`** |
-| `HonoredInstalls` verdict | *refused* for a fetched, unapproved installer | *granted* — the refusal branch is unreachable |
-| What it does about it | prints `Warning: refused installer …` | writes the launcher |
-
-The host computes the refusal, prints it, and then **stages the unmodified `pack.json` anyway**.
-Nothing carries the decision across the boundary — no marker file, no env var, no rewritten
-manifest. The jail re-derives the same verdict from an input that is hardcoded to the permissive
-answer, so `GenerateAgentLaunchers` writes the `curl → bash` launcher for a **fetched, unapproved**
-pack. The warning the user saw was true about the *decision* and false about the *outcome*.
-
-#### Why the tests do not catch it
-
-The test that "asserts" the split states the assumption in its own words — *"The JAIL loader trusts
-the staged tree (the host already applied the gate)"* — and then **bypasses the jail loader**, so it
-verifies the sentence rather than the system. That sentence is the whole bug: the staged tree is
-exactly where the gate's decision is *not* recorded.
-
-This is the identical shape `gateAdmitsCrossing` was written to close for loopholes: **true of the
-decision, false of its enforcement.**
-
-#### What it is and is not
-
-- **It is not remote code execution by a stranger.** A fetched pack must still be *selected* by name
-  in the user's own user-scope config (§ row 3 above), so someone deliberately installed this pack.
-- **It is the failure of the specific promise made to that person.** They were told, in a warning
-  they can quote, that the installer was refused. It ran.
-- **The blast radius is the jail, not the host.** The launcher executes inside the container — which
-  is the point of the container, and is why this is a broken guarantee rather than a breach.
-
-**Consequence for the pinning proposal: extending an unenforced refusal to more mechanisms adds
-rules, not safety.** Any new gate proposed in this document inherits this same host-decides /
-jail-executes split, and would need the decision *staged* to mean anything. That is why OQ-TP1 asks
-whether to fix this first rather than build on top of it.
-
-#### RULED (2026-08-18): a refused contribution is a REFUSED LAUNCH
-
-*"If the installer is refused, that should be fatal. We can't run packs with selective things
-disabled by refusals. Fix the pack, remove the pack, approve. Those are the choices."*
-
-**This does not fix the enforcement gap — it deletes the problem.** Everything above describes a
-decision made on the host and then *carried*, badly, into a jail that re-derives it from a hardcoded
-input. Under this ruling there is nothing to carry: the host refuses, and **no jail starts**.
-
 > [!IMPORTANT]
-> **The hardcoded `true` must STAY, and an earlier draft of this section was wrong to call it merely
-> untidy.** It said the value was "worth fixing anyway, as defence in depth". Building the ruling
-> showed that **deriving it would be a regression**, for a reason the jail side cannot work around:
+> **The jail's hardcoded `mayAccessHost = true` must STAY. Deriving it would be a REGRESSION** — and
+> an earlier draft of this section was wrong to call it merely untidy "defence in depth".
 >
 > From inside a jail, an **embedded** pack, a **local** pack and an **approved fetched** pack are
 > three identical directories under `YOLO_PACK_ROOT`. Origin is a fact about the *user config*, which
-> the jail deliberately cannot read — that is the same credential boundary that makes `packs`
-> user-scope-only in the first place. So passing `false` for anything outside `_official/` would
-> refuse the host files, mounts and installers of packs the user **did** approve, while protecting
-> nothing: a pack with an unapproved claim never reaches the jail at all now.
+> the jail deliberately cannot read — the same credential boundary that makes `packs` user-scope-only
+> in the first place. So passing `false` for anything outside `_official/` would refuse the host
+> files, mounts and installers of packs the user **did** approve, while protecting nothing: a pack
+> with an unapproved claim never reaches the jail at all now.
 >
-> It is now a named constant carrying that argument, which is the defence-in-depth that was actually
-> available here — the next reader is protected by the name and the comment, not by a derivation that
-> cannot be made correct.
-
-**It also retires the partial-pack concept**, which is the deeper change. A pack that half-loads is a
-pack whose behaviour nobody can predict from reading it: the manifest says one thing, the running
-system does another, and the difference is a warning scrolled past ten minutes ago. The three choices
-the ruling names — **fix the pack, remove the pack, approve it** — are exhaustive precisely because
-they are the only three that end with the manifest and the runtime agreeing.
-
-> [!WARNING]
-> **This is a behaviour change, and the direction is deliberate.** Today a user with a selected but
-> unapproved fetched pack gets a warning and a working jail; afterwards they get no jail. That is the
-> point — but it means the refusal message is now the entire user experience of the failure, so it
-> must name all three choices, the pack, and the specific claim that was not approved. A fatal the
-> reader cannot act on would be worse than the warning it replaces.
-
-> [!NOTE]
-> **BUILT, 2026-08-18.** `stagePacks` collects every refusal the `Honored*` family reports and
-> returns [`refusedLaunchError`](../../internal/cli/run/packrefusal.go) instead of the four warnings
-> it used to print — before the mechanical pre-flights, because this one is about CONSENT and those
-> are about pack mechanics. Refusals accumulate across the whole configured set, so two broken packs
-> cost one launch rather than two.
->
-> **Three things the implementation found that this section did not say.**
->
-> 1. **`briefing after: host:<path>` had no reporter at all.** It is an approvable claim like the
->    other four, and the launch withheld it in a single `&& p.MayAccessHost` inside
->    `run/prepare.go` — silently. A pack whose only host claim was *"prepend the user's own
->    AGENTS.md before my prose"* produced a jail with the pack's prose and none of the user's, and
->    nothing anywhere said so. It now has `packload.RefusedBriefingOverlays`, which is a REPORTER
->    rather than a gate: the gate stays in `prepare.go`, which is the only place that knows the host
->    home.
-> 2. **The launch never consulted `HonoredPlugins`** — its one production caller was
->    `apply --host`'s skills compose. So [row 21](#2-the-inventory)'s hook bodies travelled into a
->    jail inside the pack's skills tree with the refusal computed nowhere on that path. It is in the
->    fatal now, which is the first time that row is enforced at launch at all.
-> 3. **No escape hatch, deliberately.** Every other fatal in this system has one
->    (`YOLO_ALLOW_UNREACHABLE_SERVICES`, `YOLO_ALLOW_STALE_IMAGE`) because the user may be unable to
->    repair the cause from where they are standing. That does not hold here — the approve path is
->    one command away — and a fourth choice would be the partial pack this ruling retires.
->
-> **`packsurfaces.go`'s hardcoded `true` was NOT removed**, and the honest reason is wider than
-> "tidiness": it is the only value the jail can compute, and it is now correct for every input it
-> can receive. From inside, an embedded pack, a local `file://` pack and an APPROVED fetched pack
-> are three identical directories — so passing `false` for anything outside `_official/` would
-> refuse the host files, mounts and installers of packs the user did approve, while protecting
-> nothing. It is a named constant (`jailPackHostAccess`) carrying that argument, so the next reader
-> is not misled by a bare literal where a security gate's input goes.
->
-> **Verified adversarially 2026-08-18, and two things did NOT follow the fatal:** `yolo check` still
-> reports `[PASS]` for a config the very next launch refuses, and the `yolo pack install` the message
-> names needs a terminal and a reachable remote — so the "one command away" argument for having no
-> escape hatch does not hold in CI or offline. Both are
-> [OQ-TP7](#-oq-tp7--the-refusal-is-fatal-the-preflight-and-the-approve-path-are-not-caught-up); the
-> ruling itself measured clean.
+> It is a named constant, `jailPackHostAccess`
+> ([`packsurfaces.go`](../../internal/entrypoint/packsurfaces.go#L41-L64)), carrying that argument —
+> which is the defence-in-depth actually available here. The next reader is protected by the name and
+> the comment, not by a derivation that cannot be made correct.
 
 > [!IMPORTANT]
 > **Two things that look like partial packs and must NOT become fatal.** Both already exist, both are
@@ -516,12 +383,38 @@ they are the only three that end with the manifest and the runtime agreeing.
 >   capability the user already consented to* — nothing was refused, the thing simply is not there.
 > - **A contribution whose KIND this build does not recognise** is skipped, not fatal, because the
 >   host CLI and the baked entrypoint legitimately differ in age
->   ([`packload.go`](../../internal/packload/packload.go#L283-L296): every read in the jail is a
->   cross-version read, and *"the wrong one is the boot path, where the cost is a jail that will not
->   start"*). That is **skew tolerance**, not a refusal.
+>   ([`packdecl.go`](../../internal/packdecl/packdecl.go#L219-L246): a newer build's kind staged for
+>   an older baked entrypoint *"is skew, not corruption"*, and the boot path treats any problem as
+>   fatal). That is **skew tolerance**, not a refusal.
 >
 > The distinction that keeps these separate: **this ruling is about a claim yolo UNDERSTOOD and
 > declined.** Something absent, or something from the future, is neither.
+
+> [!WARNING]
+> **The refusal message is now the entire user experience of the failure.** A user with a selected
+> but unapproved fetched pack used to get a warning and a working jail; now they get no jail. That is
+> the point — but it means the message must name all three choices, the pack, and the specific claim
+> that was not approved. A fatal the reader cannot act on would be worse than the warning it
+> replaces. Whether it succeeds at that from every place a user reads it is
+> [OQ-TP7](#-oq-tp7--the-refusal-is-fatal-the-preflight-and-the-approve-path-are-not-caught-up).
+
+#### Three things the build found that this section did not say
+
+1. **`briefing after: host:<path>` had no reporter at all.** It is an approvable claim like the other
+   four, and the launch withheld it in a single `&& p.MayAccessHost` inside `run/prepare.go` —
+   silently. A pack whose only host claim was *"prepend the user's own AGENTS.md before my prose"*
+   produced a jail with the pack's prose and none of the user's, and nothing anywhere said so. It now
+   has `packload.RefusedBriefingOverlays`, which is a **REPORTER rather than a gate**: the gate stays
+   in `prepare.go`, the only place that knows the host home.
+2. **The launch never consulted `HonoredPlugins`** — its one production caller was `apply --host`'s
+   skills compose. So [row 21](#2-the-inventory)'s hook bodies travelled into a jail inside the
+   pack's skills tree with the refusal computed nowhere on that path. It is in the fatal now, which
+   is the first time that row is enforced at launch at all.
+3. **No escape hatch, deliberately.** Every other fatal in this system has one
+   (`YOLO_ALLOW_UNREACHABLE_SERVICES`, `YOLO_ALLOW_STALE_IMAGE`) because the user may be unable to
+   repair the cause from where they are standing. The argument that it does not hold here — *the
+   approve path is one command away* — is exactly what OQ-TP7 disputes for CI and offline runs. A
+   fourth choice would be the partial pack this ruling retires.
 
 #### "So should we just remove the gate?"
 
@@ -529,30 +422,20 @@ Asked on review, and it is the right question to ask of any guarantee that turns
 an unenforced gate is worse than no gate, because the warning tells the user something false.
 
 **The answer is no, and one fact decides it: `installer <URL>` is already an approvable claim**
-([`contributes.go`](../../internal/packdecl/contributes.go#L663-L664)). It is enumerated at
+([`contributes.go`](../../internal/packdecl/contributes.go#L664)). It is enumerated at
 `yolo pack install`, shown in the approval prompt, and recorded in the lockfile's
 `ApprovedHostAccess` alongside every other claim. So this is not a bespoke prohibition sitting off to
-one side — it is one row in a general approval model that already works.
-
-That reframes both options:
-
-- **Removing it** would not delete a rule, it would delete **one entry from the approval prompt**,
-  leaving mounts, `reads-host`, briefing injection, plugin hooks and loophole daemons all approvable
-  and `curl | sh` alone ungated. That is an inconsistency, not a simplification — and it is the one
-  claim in the list whose payload is *arbitrary code from a URL that can serve different bytes
-  tomorrow*.
-- **Enforcing it** does not need new machinery either. The host already computes the refusal; it just
-  stages the pack unmodified afterwards. Having it stage a `pack.json` with the refused contribution
-  **removed** makes the jail's hardcoded `mayAccessHost=true` harmless — there is nothing left to
-  grant — and it matches the principle this subsystem already runs on: *"**The MOUNT is the filter**
-  … a dropped pack has to be UNSTAGED or it keeps rendering"* (`AGENTS.md`). Enforcement by
-  construction rather than by a boolean crossing a boundary.
+one side — it is one row in a general approval model that already works. **Removing it** would not
+delete a rule, it would delete **one entry from the approval prompt**, leaving mounts, `reads-host`,
+briefing injection, plugin hooks and loophole daemons all approvable and `curl | sh` alone ungated —
+an inconsistency, not a simplification, and it is the one claim whose payload is *arbitrary code from
+a URL that can serve different bytes tomorrow*.
 
 **Where removal WOULD be the right answer:** if we decided that a jail is a strong enough boundary
-that running unreviewed code inside it needs no approval at all. That is a coherent position — it is
-close to the argument that already leaves npm installs ungated — but it is a decision about the
-**whole** approval model, not about this one claim, and it would retire the prompt rather than one
-line of it. Nobody has proposed that.
+that running unreviewed code inside it needs no approval at all. That is a coherent position — close
+to the argument that already leaves npm installs ungated — but it is a decision about the **whole**
+approval model, not about this one claim, and it would retire the prompt rather than one line of it.
+Nobody has proposed that.
 
 ### 3.2 `jail_daemon` is a claim-free crossing to supervised in-jail execution
 
@@ -580,21 +463,19 @@ write. The only four user-scope-only things are `packs`, source-bearing `host_fi
 
 [`pack-execution-trust.md`](./pack-execution-trust.md) should be read with three corrections:
 
-1. **Its §3 premise is false** — no commit pin is enforced anywhere (see the callout at the top).
-2. ~~**Its permit/refuse table's top row is not expressible**~~ — **RETIRED 2026-08-17.** It was
-   true: `npm` could not carry a version through the launcher template, which appended `@latest` to
-   whatever the pack declared. The launcher now splits the declaration and honours a version,
-   dist-tag or range ([`npmspec.go`](../../internal/entrypoint/npmspec.go)). Kept as a correction
-   rather than deleted, because the correction it becomes is narrower and still bites: the row is
-   *expressible*, not *taken* — nothing pins by default, so §1's ranking is untouched and the
-   proposal gains an option it never had, not an argument.
+1. **Its §3 premise is false** — no commit pin is enforced anywhere
+   ([§1](#the-lockfile-is-a-receipt-not-a-gate)).
+2. **Its permit/refuse table's top row is expressible but not taken.** It used to be flatly
+   inexpressible — `npm` could not carry a version through the launcher template — and that was fixed
+   on 2026-08-17 ([`npmspec.go`](../../internal/entrypoint/npmspec.go)). The correction it becomes is
+   narrower and still bites: nothing pins by default, so §1's ranking is untouched and the proposal
+   gains an option it never had, not an argument.
 3. **Its scope is too narrow to matter.** It gates execution kinds while `skills`, `briefing` and
    `env` — all of which reach the agent, and `env` of which reaches execution — stay ungated and
    undisclosed.
 
 **What survives:** P1's *shape* is right — content-addressing is the only answer to "is this the same
-code" — but it is worth building in the three places of §1 and nowhere else, and only after §3.1 is
-closed. A refusal that does not hold where the code runs is not a foundation to build on.
+code" — but it is worth building in the three places of §1 and nowhere else.
 
 ---
 
@@ -602,59 +483,41 @@ closed. A refusal that does not hold where the code runs is not a foundation to 
 
 ### 💬 OQ-TP3 — given §1, is pinning worth building at all, and where first?
 
-The honest ranking from this inventory is: **npm `@latest` first** (highest plausibility, affects
-embedded packs, changes with nobody present), then the OQ-LP8 file/hook bodies, then `?ref=` drift.
-Everything else is theatre until §3.1 is closed — **and it now closes by ruling rather than by
-machinery**: a refused contribution refuses the launch (2026-08-18), so the unenforced-gate finding
-stops being a prerequisite for anything else in this list.
+The honest ranking from this inventory is: **npm first** (highest plausibility, affects embedded
+packs, used to change with nobody present), then the OQ-LP8 file/hook bodies, then `?ref=` drift.
 
-_Leaning:_ **Yes, but only #1, and only after the launcher can express a version.** The other two are
-real and rarer; do them when their consumers exist.
-
-> **The leaning's precondition is met as of 2026-08-17** and the question is therefore live rather
-> than blocked. A `package` string may now carry a version, dist-tag or range, the launcher honours
-> it, and a pinned launcher stops polling the registry
-> ([`npmspec.go`](../../internal/entrypoint/npmspec.go)). That was a bug fix, **not** an answer to
-> this question: nothing pins by default and every shipped pack still declares a bare name, so #1's
-> risk is exactly what §1 describes. What is now decidable — and is what this OQ is asking — is
-> whether yolo should pin its OWN packs, and whether a *fetched* pack should be required to.
+_Leaning:_ **Yes, but only #1.** The other two are real and rarer; do them when their consumers
+exist.
 
 **Answer (partial, 2026-08-18):**
-> **Row 1 is decided: yes, and by removing the mechanism rather than adding a gate.** No evergreen
-> npm — `install` installs the lockfile's version, `update` is the only act that resolves a new one,
-> and the launcher's hourly poll is downgraded to an informational "an update is available". See the
-> ruling in [§1 row 1](#where-a-pin-would-change-the-outcome). **The two behavioural halves are
-> built** (same date): the poll reports, and `yolo pack update` is the only resolver. The unbuilt
-> half is the record — see OQ-TP4 immediately below, which is now the ONLY thing between this
-> ruling and its stated form.
+> **Row 1's BEHAVIOUR is decided: no evergreen npm, closed by removing the mechanism rather than
+> adding a gate** — `install` obeys the lockfile, `update` is the only act that resolves a new
+> version, and the poll is downgraded to informational
+> ([§1 row 1](#where-a-pin-would-change-the-outcome), built the same day).
 >
-> **What that leaves of this question, still open:** it settles the *behaviour* and not the two scope
-> halves the paragraph above names — whether yolo pins its OWN embedded packs (which is
-> [OQ-TP4](#-oq-tp4--where-does-an-embedded-packs-npm-version-get-pinned), and the ruling cannot be
-> implemented for the majority case until it is answered), and whether a **fetched** pack is
-> *required* to pin rather than merely permitted to. Rows 2 and 3 are also untouched: both are
-> enforcement gaps on pins that already exist, not missing pins.
+> **What is still open is SCOPE**, in two halves:
+> 1. Does yolo pin its **OWN** embedded packs? That is inseparable from
+>    [OQ-TP4](#-oq-tp4--where-does-an-embedded-packs-npm-version-get-pinned) — the ruling cannot be
+>    implemented for the majority case until TP4 has a home for the pin.
+> 2. Is a **fetched** pack *required* to pin, or merely permitted to? A `package` string may carry a
+>    version, dist-tag or range today; no shipped pack does.
+>
+> Rows 2 and 3 are untouched either way: both are enforcement gaps on pins that already exist, not
+> missing pins.
 
 ### 💬 OQ-TP4 — where does an EMBEDDED pack's npm version get pinned?
 
-Raised by the 2026-08-18 ruling in §1 row 1, and it decides whether that ruling is implementable as
-stated rather than only for the minority of packs.
+Raised by the OQ-TP5 ruling and **sharpened by its build, which stopped exactly here.** The
+behavioural halves shipped; what is missing is the **RECORD**. `update` resolves a version and
+nothing writes it down, so `install` has no version to install and falls back to "leave what is there
+alone". That is a coherent state — nothing changes without being asked — but it is not the ruling as
+stated: rule 1 says *install installs the version the lockfile records*, and today there is no such
+version.
 
-**Sharpened by the build (2026-08-18), which stopped exactly here.** The behavioural halves shipped
-without it: the poll reports, and `yolo pack update` resolves. So what is missing is no longer the
-mechanism but the RECORD — `update` resolves a version and nothing writes it down, which means
-`install` has no version to install and falls back to "leave what is there alone". That is a
-coherent state (nothing changes without being asked) and it is not the ruling as stated: rule 1
-says *install installs the version the lockfile records*, and today there is no such version.
-
-The ruling is *"if there's a committed lockfile, install installs from that version."* The lockfile
-is `packsrc`'s, and it exists **per fetched pack** — `LockEntry`'s own comment says the approval
-field is *"unused for embedded/local packs (their origin already permits host access)"*. But the four
-packs that actually declare npm programs — **pi, copilot, codex, opencode** — are **embedded**, and
-row 1 says the silent-change problem applies to them *as much as* to fetched ones.
-
-So the majority case has no lockfile row to install from, and the ruling needs somewhere to put the
-pin.
+The lockfile is `packsrc`'s and it exists **per fetched pack**
+([§1](#the-lockfile-is-a-receipt-not-a-gate)), while the four packs that declare npm programs — **pi,
+copilot, codex, opencode** — are **embedded**. So the majority case has no lockfile row to install
+from.
 
 **What it decides:** whether "no evergreen npm" is true of yolo's own shipped agent CLIs, or only of
 third-party packs — which would be the reverse of where the risk concentrates, since the embedded
@@ -681,9 +544,9 @@ version, and that act should be `install` recording what it got rather than the 
 ### 💬 OQ-TP7 — the refusal is fatal; the preflight and the approve path are not caught up
 
 Raised by an adversarial verification of the OQ-TP6 build (2026-08-18). The ruling holds — every path
-to the fatal was walked and each is intended, and the two look-alikes it names are still non-fatal
-and pinned by tests that go red when broken. What the build did not carry with it is the rest of the
-loop around the fatal, in two measured places.
+to the fatal was walked and each is intended, and the two look-alikes [§3.1](#31-a-refused-contribution-refuses-the-launch-)
+names are still non-fatal and pinned by tests that go red when broken. What the build did not carry
+with it is the rest of the loop around the fatal, in two measured places.
 
 **1. `yolo check` does not predict the refusal.** Measured: a fetched pack selected in `packs`,
 present in the store, never run through `yolo pack install`, declaring a `program via installer` —
