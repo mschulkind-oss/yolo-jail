@@ -428,6 +428,9 @@ func TestSubsetManifestProjectsEveryField(t *testing.T) {
 		Requires:  Requires{CommandOnPath: "python3", CommandOnPathSet: true},
 		Platforms: []string{"linux"}, PlatformsSet: true,
 		Serves: []string{"acme-capability"},
+		Settings: []Setting{{
+			Key: "opt", Type: SettingTypeString, Scope: SettingScopeUser, Default: "",
+		}},
 		Source: SourcePack, SkewNotes: []string{"note"},
 		SupersededBy: []PackSupersession{{Pack: "p", Capability: "acme-capability", Because: "b"}},
 	}

@@ -216,6 +216,23 @@ func List(deps Deps) int {
 		for _, s := range lh.SupersededBy {
 			fmt.Fprintf(deps.Out, "      %s\n", s.Line())
 		}
+		// THE SETTINGS DECLARATIONS ARE PRINTED HERE BECAUSE THERE IS NOWHERE ELSE
+		// LEFT (docs/design/pack-config-keys.md). `yolo config-ref` is generated from
+		// core's own schema, and the entire point of this mechanism is that these keys
+		// are NOT in core's schema — a pack declares them. So a user who cannot see
+		// them here can only discover a key by guessing it wrong and reading the
+		// validation error, which is a poor substitute for a list.
+		//
+		// One line per key, carrying the three facts a config author needs and no
+		// others: the type (what to write), the scope (WHICH FILE may write it, which
+		// is the half that is refused rather than ignored), and the default (what
+		// happens if you write nothing). The description trails, because it is the
+		// only free-text field and the only one that can be long.
+		for _, st := range lh.Settings {
+			fmt.Fprintf(deps.Out, "      settings.%s: %s, %s-scope, default %s%s\n",
+				st.Key, st.Type, st.Scope, settingValueRepr(st.Default),
+				descriptionSuffix(st.Description))
+		}
 	}
 	// A claim that matched no served capability is NOT reprinted here: Discover already
 	// warned it to stderr while applying the claims, which covers this command and every
@@ -339,4 +356,26 @@ func rcStr(rc *int) string {
 		return "None"
 	}
 	return fmt.Sprintf("%d", *rc)
+}
+
+// settingValueRepr renders a declared default for `loopholes list`, in the JSON
+// spelling a user would type into their config — `[]` and not `[]string{}`, `""` and
+// not the empty output an unquoted string gives. The listing is read by someone about
+// to write the value, so it has to be in the language they will write it in.
+func settingValueRepr(v any) string {
+	out, err := jsonx.DumpsCompact(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return out
+}
+
+// descriptionSuffix appends a setting's description, or nothing. Separated so the
+// format string above stays one line and the empty case cannot leave a dangling
+// separator.
+func descriptionSuffix(description string) string {
+	if description == "" {
+		return ""
+	}
+	return " — " + description
 }

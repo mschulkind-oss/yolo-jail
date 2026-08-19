@@ -49,6 +49,13 @@ func (r *Resolver) Known() (map[string]config.LoopholeInfo, bool) {
 		out[lp.Name] = config.LoopholeInfo{
 			Name:          lp.Name,
 			HasHostDaemon: lp.HostDaemon != nil,
+			// The SETTINGS DECLARATIONS travel with the name, which is what turns
+			// `loopholes.<name>.settings` from an opaque map into a checked one. They
+			// ride this existing seam rather than a second resolver because the two
+			// questions have exactly one right answer between them: a validator that
+			// learned the name from here and the declarations from somewhere else
+			// could accept a key for a loophole that is not the one it is validating.
+			Settings: lp.Settings,
 		}
 	}
 	return out, true

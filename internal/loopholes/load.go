@@ -161,6 +161,7 @@ func (l *Loophole) subsetManifest() *loopholedecl.Manifest {
 		Platforms:      l.Platforms,
 		PlatformsSet:   l.PlatformsSet,
 		Serves:         l.Serves,
+		Settings:       l.Settings,
 	}
 }
 
@@ -193,9 +194,20 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		}
 	}
 
+	// {settings} resolves HERE, next to {loophole_dir}, and not in the run pipeline
+	// where {socket}/{endpoint} are substituted — the difference is what the token is
+	// a function OF. A socket path is a per-launch fact (it names this jail's sockets
+	// dir), so only the launcher can know it; the settings file is a function of the
+	// loophole's NAME alone, exactly like {state} in ca_cert three lines up. Resolving
+	// it at load means every consumer of a record gets a real path: the spawn list,
+	// `yolo check`'s doctor run, and `yolo loopholes status`, none of which share a
+	// substitution site.
+	settingsPath := SettingsFileFor(m.Name)
+
 	var doctorCmd []string
 	if m.DoctorCmdSet {
 		doctorCmd = substituteAll(m.DoctorCmd, loopholedecl.TokenLoopholeDir, hostDir)
+		doctorCmd = substituteAll(doctorCmd, loopholedecl.TokenSettings, settingsPath)
 	}
 
 	// EVERY field, listed. This literal is the same shape as subsetManifest's, and
@@ -209,7 +221,9 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 	var hostDaemon *HostDaemon
 	if m.HostDaemon != nil {
 		hostDaemon = &HostDaemon{
-			Cmd:        substituteAll(m.HostDaemon.Cmd, loopholedecl.TokenLoopholeDir, hostDir),
+			Cmd: substituteAll(
+				substituteAll(m.HostDaemon.Cmd, loopholedecl.TokenLoopholeDir, hostDir),
+				loopholedecl.TokenSettings, settingsPath),
 			Env:        m.HostDaemon.Env,
 			Publishes:  m.HostDaemon.Publishes,
 			RequestEnd: m.HostDaemon.RequestEnd,
@@ -267,6 +281,7 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		Platforms:     m.Platforms,
 		PlatformsSet:  m.PlatformsSet,
 		Serves:        m.Serves,
+		Settings:      m.Settings,
 		// SOURCE IS THE CALLER'S FACT and this is only the fail-safe default. A
 		// manifest cannot say who shipped it (it would just lie), so every discovery
 		// path relabels the record immediately — loadFromDir, loadModuleDirs and

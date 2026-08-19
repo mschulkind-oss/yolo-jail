@@ -26,6 +26,7 @@ type (
 	HostBindMount = loopholedecl.HostBindMount
 	Requires      = loopholedecl.Requires
 	EnvMap        = loopholedecl.EnvMap
+	Setting       = loopholedecl.Setting
 )
 
 // Manifest enum values and the broker_ip default.
@@ -37,6 +38,13 @@ const (
 	PublishesSocket      = loopholedecl.PublishesSocket
 	RequestEndFramed     = loopholedecl.RequestEndFramed
 	RequestEndEOF        = loopholedecl.RequestEndEOF
+
+	SettingTypeString     = loopholedecl.SettingTypeString
+	SettingTypeBool       = loopholedecl.SettingTypeBool
+	SettingTypeInt        = loopholedecl.SettingTypeInt
+	SettingTypeStringList = loopholedecl.SettingTypeStringList
+	SettingScopeUser      = loopholedecl.SettingScopeUser
+	SettingScopeWorkspace = loopholedecl.SettingScopeWorkspace
 )
 
 // NewEnvMap returns an empty EnvMap.

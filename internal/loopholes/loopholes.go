@@ -136,6 +136,15 @@ type Loophole struct {
 	// empty means "not participating", which is what makes this mechanism unable to
 	// change the behaviour of any manifest that does not opt in.
 	Serves []string
+	// Settings carries the manifest's `settings` declarations verbatim: the config
+	// keys THIS loophole owns, under `loopholes.<name>.settings`
+	// (docs/design/pack-config-keys.md). Nil or empty means it owns none, which is
+	// every manifest written before the block existed.
+	//
+	// Verbatim rather than resolved, because a declaration is a fact about the
+	// manifest and the VALUES are a fact about the config — they meet in
+	// ResolveSettings (settings.go), which is the only place that combines the two.
+	Settings []Setting
 	// SupersededBy is the claims that retired every capability this loophole serves —
 	// set at DISCOVERY, where the selected packs' claims and the loophole records are
 	// both in hand. Never a manifest declaration: the same manifest is superseded under
