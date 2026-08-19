@@ -1,6 +1,6 @@
 # Emptying `bundled_loopholes/` — the broker, the identity rule, and the proving ground
 
-**Status:** DESIGN SETTLED, 2026-08-15. Nothing built; **`host-processes` is ready to implement** (§12). All code claims verified against the tree on that date.
+**Status:** DESIGN SETTLED, 2026-08-15. **Two of the three conversions shipped 2026-08-18** — `host-processes` (§12, the proving ground) and `audio`; `bundled_loopholes/` now holds only this doc's own subject. The broker's move is **blocked on §6.1**, a mechanism gap found by attempting it: `publishes: "socket"` spawns a daemon per jail and this one is a host-wide singleton. Code claims verified against the tree on 2026-08-15 unless dated otherwise.
 
 **Four review rounds, same day.** Round 0: §3.1 grew from a deferral into a design — pack-shipped binaries are wanted as a general capability. Round 1 **retracted this doc's central claim** (§5.2a): the front is *not* a component that never parses. Rounds 2 and 3 settled identity (§5.5) by rejecting, in turn, my payload stamp, my mandatory version of it, and my `framed`/`raw` compromise — arriving somewhere none of the three reached: **yolo never parses a daemon's payload at all.** The title has changed twice and the scope grew from one loophole to the whole channel.
 
@@ -302,22 +302,74 @@ That last row is the one that decides it. The relay's protocol-aware trick does 
 
 ## 6. What the pack looks like
 
-Under the recommended path (D + the OQ-BP1 "keep the daemons baked" reading):
+> [!IMPORTANT]
+> **CORRECTED 2026-08-18 by OQ-A10 in [`loophole-activation.md`](loophole-activation.md).** This
+> section designed a separate `packs/claude-oauth-broker/`. That is **wrong**: the broker's loophole
+> is a **contribution of `packs/claude`**, not a pack of its own. R6's whole argument is that the
+> dependency is structural — the broker exists to serve claude — and a separate pack reinstates the
+> second selection step R6 deletes. A Bedrock user's escape is `supersedes` on the
+> `claude-oauth-refresh` capability, which is already built and already declared, not deselection.
+> The layout below is amended accordingly.
 
 ```
-packs/claude-oauth-broker/           # an OFFICIAL pack, embedded in the binary
-  pack.json                          # { "kind": "loophole", "from": "loophole/broker" }
-  loophole/broker/
-    manifest.jsonc                   # unchanged from bundled_loopholes/, except:
-                                     #   host_daemon.publishes: "socket"      (new, required of packs)
-                                     #   platforms: [...]                     (if a binary ships)
+packs/claude/                        # the EXISTING official pack, one more contribution
+  pack.json                          # + { "kind": "loophole", "from": "loopholes/claude-oauth-broker" }
+  loopholes/claude-oauth-broker/
+    manifest.jsonc                   # from bundled_loopholes/, except:
+                                     #   host_daemon.publishes: "socket"      (required of packs)
+                                     #   requires.command_on_path: DELETED    (R3/R6 — selecting
+                                     #     the pack IS the dependency the sniff approximated)
                                      # preamble defaults to true (§5.5) —
                                      # nothing to declare; only a dumb pipe writes false
 ```
 
-Everything else in the manifest — `serves`, `intercepts`, `broker_ip`, `ca_cert`, `state_files`, `requires`, `doctor_cmd` — is already correct and moves unchanged. The `{state}` token is explicitly designed to survive a restage (`loopholedecl/tokens.go:20-28`), which is what makes a pack-shipped CA possible at all.
+Everything else in the manifest — `serves`, `intercepts`, `broker_ip`, `ca_cert`, `state_files`,
+`doctor_cmd` — is already correct and moves unchanged. The `{state}` token is explicitly designed to
+survive a restage (`loopholedecl/tokens.go:20-28`), which is what makes a pack-shipped CA possible at
+all.
 
----
+### 6.1 ⚠ MEASURED BLOCKER — `publishes: "socket"` and the singleton are incompatible today
+
+*Found 2026-08-18 by implementing the sprint's other two conversions and then attempting this one.
+It is not a new decision; it is a mechanism that does not exist, and §10's sequencing does not say
+so.*
+
+**The chain, each link verified in the tree:**
+
+1. A pack-shipped loophole **must** declare `publishes: "socket"`. `LoadPackLoophole` applies
+   `PackShippedProblems`, and `packPublishesProblems` refuses every other value **including the
+   default** (`internal/loopholedecl/packshipped.go`). So the manifest cannot move without the flip.
+2. `startLoopholes` builds its spawn list from `set.ManifestHostDaemonSpecs(discovered)` — every
+   loophole that declares a `host_daemon`. Under `publishes: "socket"` it calls
+   `startExternalService`, which **spawns a fresh daemon** and binds it at
+   `frontSocketFile(frontShortHash(socketsDir), name)` — a path **keyed per jail**
+   (`internal/cli/run/loopholesruntime.go`).
+3. The broker is a **host-wide singleton by design** (§5.2: *"one host-wide process serving every
+   jail on the machine — that is its entire reason to exist"*), reached at the fixed
+   `broker.BrokerSingletonSocket`, with `yolo broker status`/`stop`, `yolo check`'s broker section
+   and `brokerEndpointIsUnpublishable` all reading that one path.
+
+**So the conversion as designed needs a fourth thing nobody has designed: ONE daemon behind N
+per-jail fronts.** §7 says the broker's `--socket` "becomes a *fronted* socket rather than a
+host-to-host one" and stops there. The spawn path has no vocabulary for *ensure this host-wide
+daemon* as against *spawn one for this jail*, and inventing one in a sprint whose subject is
+deleting keys is the wrong shape of answer.
+
+**What that does NOT mean.** It is not an argument against the move, and it is not blocked on a
+ruling — it is §10 steps 3 and 4 (the preamble/stamp work and the `publishes` flip plus the relay
+deletion) turning out to be a **hard prerequisite** for step 5 rather than merely earlier than it.
+§10 already says step 4 "must not be split — a half-flipped broker is a jail with no credential
+path"; what is added here is that step 5 cannot precede it either.
+
+> [!WARNING]
+> **And the reservation is still the trap.** Deleting `bundled_loopholes/claude-oauth-broker/` does
+> **not** free the name: `broker.BrokerLoopholeName` is appended to `ReservedLoopholeNames()`
+> **unconditionally**, from the broker's own constant, not from the bundled directory. That is what
+> makes this move different from the two that shipped on 2026-08-18 — `host-processes` and `audio`
+> were reserved only as bundled DIRECTORY names, so `git mv` retired their reservations for free,
+> and a reader generalizing from them would ship a commit that refuses every claude user's launch
+> (`run.PackLoopholeNameConflicts` is fatal). The reservation, the `startLoopholes` name special-case
+> and the contribution must land in ONE commit.
 
 ## 7. What this deletes, what it costs, what it forecloses
 
@@ -369,7 +421,11 @@ What I would build, in order.
 
 **Fourth, flip the broker to `publishes: "socket"`** and delete `internal/brokerrelay` plus its lifecycle in `loopholesruntime.go`. This is the step that must not be split — a half-flipped broker is a jail with no credential path.
 
-**Fifth, move the manifest into an official pack** and retire the bundled copy. This is also the step where OQ-LP11's consolidation finally gets one channel emptier, which it has been owed since 2026-08-14.
+**Fifth, move the manifest into an official pack** — `packs/claude`, per OQ-A10, not a pack of its own — and retire the bundled copy. This is also the step where OQ-LP11's consolidation finally gets one channel emptier, which it has been owed since 2026-08-14.
+
+> **Step 5 CANNOT precede steps 3–4, measured 2026-08-18 (§6.1).** The pack-shipped subset requires `publishes: "socket"`, and yolo's spawn path answers that by spawning a daemon **per jail** at a per-jail socket — while the broker is a host-wide singleton by design. The ordering above already implies it; what was not stated is that it is a hard dependency rather than a preference, and that attempting 5 first produces a manifest yolo refuses to load rather than a broker that runs twice.
+
+**Sixth — and it landed FIRST, on 2026-08-18, because it is independent of all five:** gate `brokerEnsure` and `ensureBrokerRelay` on the loophole record (OQ-A11). Until then the singleton ran on every launch for every user with no lookup at all, while the jail was wired to it only when the loophole was Active. Doing it early matters for a reason the ruling names: after the move, a jail that does not select `packs: ["claude"]` has no broker in any surface, and yolo spawning the singleton anyway would be a daemon none of its own surfaces name.
 
 **And the binary capability (§3.1) runs alongside, not after** — OQ-BP1 was ruled *ship both at once*, overruling my "adopt it later". Its own order is unchanged: selection convention, then download-with-digest, then the two gates. What the ruling changes is that it must be *finished* in this sprint rather than queued behind a working broker, so its slowest piece — the release matrix producing per-platform artifacts — should start early rather than last. The one thing I would preserve from the rejected sequencing is **separability in the tree**: the broker's manifest is correct on a baked daemon, so the two can land as independent commits inside one sprint without either blocking the other's review.
 
@@ -381,9 +437,9 @@ The second ruling is the larger one: `bundled_loopholes/` should be **empty** at
 
 | Loophole | What blocks it becoming a pack | Size |
 |---|---|---|
-| **claude-oauth-broker** | `publishes` defaults to `endpoint`; the pack-shipped subset accepts **only `socket`** (`packshipped.go:371-405`). Plus folding the relay away | this doc |
-| **host-processes** | The same `publishes` problem and nothing else: its `host_daemon.cmd` passes `{endpoint}` and publishes for itself, so it converts to `{socket}` + the framework front with no relay and no per-jail anything | small |
-| **audio** | **OQ-LP14.** Its `host_bind_mounts` and `requires.file_exists` both name `${XDG_RUNTIME_DIR}/pulse/native` and `pipewire-0`, which the pack-shipped path rule refuses in every spelling. The official `audio` pack today therefore sits *beside* the bundled copy rather than replacing it | blocked on a ruling |
+| **claude-oauth-broker** | `publishes` defaults to `endpoint`; the pack-shipped subset accepts **only `socket`** (`packshipped.go`). Plus folding the relay away — and, found by trying it, the fact that `publishes: "socket"` spawns a daemon PER JAIL while this one is a host-wide singleton (§6.1) | this doc · **NOT DONE** |
+| **host-processes** | The same `publishes` problem and nothing else: its `host_daemon.cmd` passes `{endpoint}` and publishes for itself, so it converts to `{socket}` + the framework front with no relay and no per-jail anything | ✅ **SHIPPED 2026-08-18** as `packs/host-processes`; the subset accepted the manifest unchanged |
+| **audio** | ~~**OQ-LP14.**~~ Its `host_bind_mounts` and `requires.file_exists` both name `${XDG_RUNTIME_DIR}/pulse/native` and `pipewire-0`, which the pack-shipped path rule refused in every spelling | ✅ **SHIPPED 2026-08-18.** LP14 withdrew the rule rather than adding vocabulary; the two audio loopholes merged into `packs/audio` under the plain name, which deleting the bundled copy freed |
 
 Three things follow, and the first is the one to notice:
 

@@ -22,6 +22,13 @@ never said which won; OQ-A9 ruled one key, renamed, governing all four manifest 
 > launch breaks ([§2](#2-the-rulings)). And the key rename needs a **refusal** for reverse skew, not a
 > tolerance: an older yolo ignores `default_enabled` and runs `audio` **on** ([§2](#2-the-rulings),
 > [§4](#4-what-it-costs)).
+>
+> **The first trap is now HALF-DISCHARGED, and the discharged half is the misleading one.**
+> `host-processes` and `audio` became packs on 2026-08-18 and their reservations retired
+> **automatically** — both were reserved only as bundled DIRECTORY names, read off the same embed.FS
+> the loader materializes, so `git mv` did it. The broker's is the one that does not work that way:
+> `broker.BrokerLoopholeName` is appended unconditionally, from the broker's own constant. A reader
+> generalizing from the two that shipped would ship the launch-breaking commit.
 
 The doc grew thirteen questions on purpose: every one came from asking *"what else reaches the host,
 and why is it on?"*, and the answer kept being "something different each time".
@@ -183,10 +190,10 @@ is the argument for unifying them.*
 
 | | channel | on today because… | its config key | after the rulings |
 |---|---|---|---|---|
-| **broker daemon + relay** | *not gated at all* | `run.go:395` spawns the singleton every launch, no lookup | *none* | **gated on the loophole record** (OQ-A11) — `brokerEnsure` routes through the same record as everything else |
-| **broker jail wiring** | bundled loophole | manifest `enabled: true` **and** host `claude` on PATH | `loopholes.claude-oauth-broker.enabled` | inside `packs/claude`, `default_enabled: true` |
-| **host-processes** | bundled loophole | manifest `enabled: true` **and** host `ps` | `loopholes.host-processes.enabled` **plus** top-level `host_processes.visible` | own pack, `default_enabled: false` |
-| **audio** | bundled loophole *and* an official pack beside it | manifest `enabled: true` **and** the pulse socket exists | `loopholes.audio.enabled` | own pack, `default_enabled: false` |
+| **broker daemon + relay** | *not gated at all* | `run.go` spawned the singleton every launch, no lookup | *none* | ✅ **DONE 2026-08-18** — gated on the loophole record (OQ-A11), launch path and attach path both |
+| **broker jail wiring** | bundled loophole | manifest `enabled: true` **and** host `claude` on PATH | `loopholes.claude-oauth-broker.enabled` | inside `packs/claude`, `default_enabled: true` — 🛑 **blocked**, see [`broker-as-a-pack.md`](broker-as-a-pack.md) §6.1 |
+| **host-processes** | bundled loophole | manifest `enabled: true` **and** host `ps` | `loopholes.host-processes.enabled` **plus** top-level `host_processes.visible` | ✅ **DONE 2026-08-18** — own pack, `default_enabled: false`, and the top-level key is now REFUSED |
+| **audio** | bundled loophole *and* an official pack beside it | manifest `enabled: true` **and** the pulse socket exists | `loopholes.audio.enabled` | ✅ **DONE 2026-08-18** — own pack, `default_enabled: false`; the two merged under the plain name and the `requires` probe became `platforms: ["linux"]` |
 | **journal** | **builtin service**, hardcoded in the run pipeline | the top-level `journal` key says so | top-level `journal` | **manifest loophole** (OQ-A6); its top-level key goes, settings become typed manifest keys (OQ-A8) |
 | **cgroup-delegate** | **builtin service**, hardcoded | Linux + cgroup v2. No key exists. | *none* | **manifest loophole** (OQ-A6) with `default_enabled: false` (OQ-A4) — stops starting itself |
 | **host nix daemon** | mounted by the run pipeline | the socket exists on the host | *none* | **stays ungated** (OQ-A11) — image infrastructure, not a capability a jail reaches for; gating it is a `--no-nix` feature |
@@ -196,7 +203,12 @@ Read down the "on today because…" column and the diagnosis writes itself: **no
 the same way**, and only one of them was ever a decision the user made deliberately.
 
 **RULED (OQ-A11, 2026-08-18): gate the broker daemons on the loophole record; leave nix ungated, and
-say why.** The broker is squarely in scope — it is the loophole R6 is already moving, and the fix is
+say why.** *(BUILT 2026-08-18, ahead of the move it was meant to precede — it is independent of every
+other step, and each launch it went unbuilt was a host daemon nobody asked for. `brokerEnsure` and
+`ensureBrokerRelay` now sit behind `brokerLoopholeActive(cfg)`, the same predicate
+`hostServicesMountArgs` already consulted, on the launch path and the attach path both. The
+services DIRECTORY is deliberately outside the gate: it is not the broker's, and every loophole's
+endpoint file lands in it.)* The broker is squarely in scope — it is the loophole R6 is already moving, and the fix is
 to route `brokerEnsure` through the same record everything else consults, rather than calling it from
 the run pipeline with only an `rt != "container"` guard. Without that, R6 makes things *worse* before
 better: after the move, a jail that does not select the claude pack has no broker in any surface

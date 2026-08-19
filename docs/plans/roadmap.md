@@ -158,19 +158,35 @@ one-line deliverable that is decided in all but name.
      and the top-level key still works, folded in at launch with a warning naming the replacement.
      An undecodable declaration is refused in BOTH decoders, which is the only placement that keeps
      OQ-K1's "never hand a host daemon a value you could not validate" true across version skew.
-  2. **`host-processes` and `audio` become packs; the broker's loophole moves into `packs/claude`**
-     (OQ-A10). ⚠ Deleting `bundled_loopholes/claude-oauth-broker/` does **not** free the reserved
-     name — the reservation and the `loopholesruntime.go` name special-case must die in the same
-     commit, or every claude user's launch breaks.
+  2. ~~**`host-processes` and `audio` become packs**~~ — **DONE 2026-08-18.** Both ship as official
+     packs, both default-OFF, and `bundled_loopholes/` is down to the broker. The top-level
+     `host_processes` key is **refused** now, naming `loopholes.host-processes.settings.visible`.
+     Two things came with it: OQ-LP14's withdrawal was **built** (the bind-host path rule admitted
+     `~/.ssh` and refused a pulse socket), which is what made the socket half of `audio`
+     expressible; and OQ-A11 shipped early (the broker singleton no longer spawns on every launch
+     for every user).
+
+  2b. 🛑 **The broker's loophole moves into `packs/claude`** (OQ-A10) — **BLOCKED, and the blocker
+     is a mechanism gap rather than a ruling.** Found by attempting it: a pack-shipped loophole must
+     declare `publishes: "socket"`, and yolo's spawn path answers that by spawning a daemon **per
+     jail** at a per-jail socket, while the broker is a host-wide singleton by design. So
+     [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) §10 steps **3–4** (the stamp, then the
+     `publishes` flip plus deleting `internal/brokerrelay`) are a hard prerequisite for step 5,
+     which its own sequencing does not say. Written up as §6.1 there.
+     ⚠ And the reservation trap is unchanged and is NOT what the two shipped conversions taught:
+     those names were reserved as bundled DIRECTORY names, so `git mv` retired them for free.
+     `broker.BrokerLoopholeName` is appended **unconditionally**, so it, the
+     `loopholesruntime.go` name special-case and the contribution must die in one commit or every
+     claude user's launch breaks.
   3. **`journal` and `cgroup-delegate` become manifest loopholes** (OQ-A6, OQ-K4), with
      `cgroup-delegate` default-off (OQ-A4). This deletes **both** loophole names core still hardcodes
      in its own config schema — the thing that makes the conversion mean something.
 
-  ⚠ **Two user-visible breaks that need release notes when they ship:** `host_processes.visible`
-  stops applying without a restart (**shipped with step 1 — the entry is in
-  📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md)**), and the top-level `journal` key stops being
-  recognised (which needs a migration message, not silence). **Accepted cost:** `yolo-cglimit` stops
-  working out of the box.
+  ⚠ **User-visible breaks and their release notes.** All of step 2's are written up in
+  📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md): the top-level `host_processes` key is refused, `audio`
+  needs a pack as well as a switch, and the broker singleton stops running on hosts that were not
+  using it. Still owed: the top-level `journal` key stops being recognised (which needs a migration
+  message, not silence). **Accepted cost:** `yolo-cglimit` stops working out of the box.
 
 ---
 
@@ -271,10 +287,10 @@ moving host-side (OQ-D1), and the non-interactive config fatal (OQ-D2).
 2026-08-18** — OQ-K1..K4 are ruled, so the settings mechanism all three conversions depend on is
 designed through. Queued in 📦 above:
 
-- **`host-processes` and `audio` become packs; the broker's loophole moves into `packs/claude`**
-  (OQ-A10). ⚠ Deleting `bundled_loopholes/claude-oauth-broker/` does **not** free the reserved name —
-  the reservation and the `loopholesruntime.go` name special-case must die in the same commit, or
-  every claude user's launch breaks.
+- ~~**`host-processes` and `audio` become packs**~~ — **DONE 2026-08-18**, along with OQ-LP14's
+  withdrawal and OQ-A11's gate. **The broker's move is BLOCKED** on a mechanism gap found by trying
+  it (§6.1 there): `publishes: "socket"` spawns a daemon per jail, and the broker is a host-wide
+  singleton. ⚠ Its reservation still does not come free with the directory.
 - **`journal` and `cgroup-delegate` become manifest loopholes** (OQ-A6), with `cgroup-delegate`
   default-off (OQ-A4). **Accepted cost:** `yolo-cglimit` stops working out of the box.
 
