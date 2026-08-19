@@ -101,7 +101,16 @@ var (
 	// override applyWorkspaceOverrides honors it too.
 	knownHostServiceKeys = set("command", "env", "jail_socket", "jail_endpoint",
 		"doctor_cmd", "description", "preamble", "enabled")
-	knownLoopholeOverrideKeys = set("enabled", "env", "jail_env")
+	// `settings` is the pack-declared config-key block
+	// (docs/design/pack-config-keys.md): a NESTED map whose inner keys are checked
+	// against the loophole's manifest declarations, which is what keeps THIS census
+	// closed while still letting a pack own a key. It is deliberately NOT in
+	// knownHostServiceKeys: an INLINE config loophole has no manifest, hence no
+	// declarations, hence nothing core could validate a value against — and the one
+	// rule this whole mechanism rests on is that core never hands a host daemon a
+	// value it could not validate (OQ-K1). An inline entry writes its daemon's argv
+	// by hand and can put the values there.
+	knownLoopholeOverrideKeys = set("enabled", "env", "jail_env", "settings")
 	knownGPUKeys              = set(
 		"enabled", "devices", "capabilities", "vendor", "mode",
 		"hsa_override_gfx_version", "seccomp_unconfined", "vaapi",

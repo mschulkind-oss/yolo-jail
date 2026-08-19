@@ -104,7 +104,15 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 				if e.spec == nil {
 					continue
 				}
-				for _, viol := range loopholeScopeKeyViolations(name, e.spec, e.file, infoPtr != nil) {
+				for _, viol := range loopholeScopeKeyViolations(name, e.spec, e.file, infoPtr) {
+					scoped(viol)
+				}
+				// The per-key `settings` scope rule rides the SAME downgrade as the
+				// §4.3b key rows above: a workspace file supplying a user-scope
+				// setting is an error host-side and a warning in-jail, for the reason
+				// at the top of this file — /workspace is live-mounted, so a hard
+				// error here would refuse every nested launch over the same file.
+				for _, viol := range loopholeSettingsScopeViolations(name, e.spec, e.file, infoPtr) {
 					scoped(viol)
 				}
 			}
@@ -183,9 +191,13 @@ func validateLoopholeEntryShape(name string, specV any, info *LoopholeInfo, supp
 // table to ONE workspace file's contribution to a `loopholes.<name>` entry.
 // The returned messages are host-side errors (the caller downgrades in-jail).
 //
-// manifestBacked says the name resolves to a file-backed loophole, which changes
-// what is true of doctor_cmd: see the doctor_cmd note at the top of this file.
-func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile string, manifestBacked bool) []string {
+// info is the file-backed loophole the name resolves to (nil when none), which
+// changes what is true of doctor_cmd: see the doctor_cmd note at the top of this
+// file. It arrives as the record rather than a bare `manifestBacked` bool because
+// the SETTINGS scope rule next door needs the declarations, and one caller passing
+// two views of one fact is how the two come to disagree.
+func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile string, info *LoopholeInfo) []string {
+	manifestBacked := info != nil
 	path := "config.loopholes." + name
 	if hasKey(spec, "command") {
 		// The whole entry is an install; one message covers it (its env and
@@ -453,7 +465,8 @@ func LoopholeEntryErrors(name string, specV any, info *LoopholeInfo, userInstall
 	scopeRefused := false
 	if fromWorkspace && !inJail && named {
 		beforeScope := len(*errs)
-		*errs = append(*errs, loopholeScopeKeyViolations(name, spec, srcFile, info != nil)...)
+		*errs = append(*errs, loopholeScopeKeyViolations(name, spec, srcFile, info)...)
+		*errs = append(*errs, loopholeSettingsScopeViolations(name, spec, srcFile, info)...)
 		installed := info != nil || userInstalledInline
 		entry := []wsLoopholeEntry{{file: srcFile, spec: spec}}
 		if violation, _ := loopholeScopeEnableProblems(name, entry, installed); violation != "" {
@@ -476,7 +489,7 @@ func validateLoopholeOverride(name string, spec *jsonx.OrderedMap, path string, 
 	if hasKey(spec, "command") {
 		add(errs, path+".command: not overridable — "+pytext.Repr(name)+" is an existing "+
 			"loophole whose command is fixed by its manifest; only "+
-			"'enabled', 'env', and 'jail_env' may be overridden")
+			"'enabled', 'env', 'jail_env' and 'settings' may be overridden")
 	}
 	if hasKey(spec, "doctor_cmd") {
 		// Not a scope rule: nothing reads doctor_cmd off an override
@@ -485,12 +498,13 @@ func validateLoopholeOverride(name string, spec *jsonx.OrderedMap, path string, 
 		// reader with the wrong theory — that it belonged somewhere else.
 		add(errs, path+".doctor_cmd: not overridable — "+pytext.Repr(name)+" is an existing "+
 			"loophole whose doctor_cmd is fixed by its manifest; only "+
-			"'enabled', 'env', and 'jail_env' may be overridden, so remove this key")
+			"'enabled', 'env', 'jail_env' and 'settings' may be overridden, so remove this key")
 	}
 	// "command" and "doctor_cmd" are allowed through here (each gets its own
 	// dedicated error above).
-	allowed := set("enabled", "env", "jail_env", "command", "doctor_cmd")
+	allowed := set("enabled", "env", "jail_env", "settings", "command", "doctor_cmd")
 	reportUnknownKeys(spec, allowed, path, errs)
+	validateLoopholeSettings(spec, path, info, errs)
 	if enabledV, ok := spec.Get("enabled"); ok && !isBool(enabledV) {
 		add(errs, path+".enabled: expected a boolean (got "+pyReprValue(enabledV)+")")
 	}

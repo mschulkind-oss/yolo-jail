@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
@@ -17,6 +18,25 @@ import (
 type LoopholeInfo struct {
 	Name          string
 	HasHostDaemon bool
+	// Settings are the loophole's manifest-declared config keys, in declaration
+	// order — what makes `loopholes.<name>.settings` checkable rather than an
+	// opaque map (docs/design/pack-config-keys.md).
+	//
+	// The DECLARATIONS travel rather than a pre-digested answer, because this
+	// validator asks three different questions of them (does the key exist, does
+	// the value have the declared type, may THIS file supply it) and a boolean per
+	// question would be three chances for the resolver and the validator to
+	// disagree about one manifest.
+	//
+	// An EMPTY list on a known loophole is meaningful and is not "unknown": it says
+	// the loophole owns no config keys, so every supplied key is a typo. That is
+	// only sound because OQ-K1 ruled declarations AUTHORITATIVE — launch resolves
+	// packs from the local store with no network, and a pack that cannot be
+	// resolved is already a fatal launch error, so there is no launch in which a
+	// configured pack's declarations are missing and the jail starts anyway. The
+	// "the loophole is not known at all" case (info == nil) is the one that stays
+	// unvalidated, and it already has its own warning.
+	Settings []loopholedecl.Setting
 }
 
 // LoopholeResolver supplies the file-backed loophole set (including disabled
@@ -59,7 +79,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateEphemeralStorage(config, errs)
 	validateNetwork(config, errs, warns)
 	validateSecurity(config, errs)
-	validateHostProcesses(config, errs)
+	validateHostProcesses(config, errs, warns)
 	validateMiseTools(config, errs)
 	validateLSPServers(config, errs)
 	validateMCPPresets(config, errs)
@@ -553,7 +573,22 @@ func validateSecurity(config *jsonx.OrderedMap, errs *[]string) {
 	}
 }
 
-func validateHostProcesses(config *jsonx.OrderedMap, errs *[]string) {
+// validateHostProcesses handles the top-level `host_processes` block, which is
+// MID-RETIREMENT: its keys are moving to `loopholes.host-processes.settings`, where
+// they are declared by the loophole's own manifest instead of being named by hand in
+// core's schema (docs/design/pack-config-keys.md).
+//
+// STILL ACCEPTED, and still HONORED — the value is folded into the resolved settings
+// at launch (internal/cli/run/loopholesettings.go). Deleting the key before its
+// loophole is a pack would strand every user who has one, so the key stays in
+// knownTopLevelConfigKeys and this pass keeps its type checks, exactly as
+// `repo_path` and `agents` did through their own retirements.
+//
+// The WARNING is the part that is not optional. A retired key that keeps working in
+// silence is a key nobody migrates, and the deletion that follows then arrives as a
+// surprise — so the message names the replacement spelling, which is the only thing
+// that makes the eventual deletion a non-event.
+func validateHostProcesses(config *jsonx.OrderedMap, errs, warns *[]string) {
 	v, present := config.Get("host_processes")
 	if !present || v == nil {
 		return
@@ -571,6 +606,17 @@ func validateHostProcesses(config *jsonx.OrderedMap, errs *[]string) {
 			}
 		}
 	}
+	if hp.Len() == 0 {
+		return
+	}
+	add(warns, "config.host_processes: this top-level key is RETIRED and moving to "+
+		`"loopholes": {"host-processes": {"settings": {…}}} — the keys are now declared `+
+		"by the host-processes loophole's own manifest rather than by yolo's config schema. "+
+		"It is still honored, and the new spelling wins per key where both are present. "+
+		"NOTE THE NAME CHANGE: the loophole is spelled 'host-processes' (hyphen), not "+
+		"'host_processes'. Two behaviours also changed with the move: the allowlist is "+
+		"resolved ONCE at launch, so editing it now needs a jail restart, and a workspace "+
+		"yolo-jail.jsonc supplying it is disclosed and gated by the config-change approval.")
 }
 
 func validateMiseTools(config *jsonx.OrderedMap, errs *[]string) {
