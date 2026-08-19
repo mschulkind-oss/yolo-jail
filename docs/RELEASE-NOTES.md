@@ -21,6 +21,45 @@ changelog; this is the subset that bites.
 
 ## Unreleased
 
+### The Claude OAuth broker ships inside the `claude` pack — nothing to do, unless you had it disabled
+
+**What changed.** `claude-oauth-broker`'s manifest moved out of `bundled_loopholes/` and into the
+official **`claude` pack**, as a `loophole` contribution. `bundled_loopholes/` is now empty and
+deleted: every loophole yolo ships is a pack's.
+
+**Do you have to do anything? No.** The broker is a contribution of the pack you already select to
+get Claude Code — `packs: ["claude"]` — so if you use claude in a jail, the broker installs and
+activates exactly as before. It keeps `default_enabled: true`, the one shipped loophole that does,
+because a jail-only claude user who loses it is not merely without a feature: they are running
+unserialized single-use refresh-token races against Anthropic. There is **no new config line**, no
+`packs` entry to add, and no state to migrate — the loophole keeps its name, so its CA and leaf
+certs stay where they are (`~/.local/share/yolo-jail/state/claude-oauth-broker/`) and running jails
+keep trusting them.
+
+**If you do NOT select the `claude` pack, the broker is gone** — no host singleton, no in-jail
+terminator, no CA. That is the intended shape (yolo does not run a daemon no selected pack names),
+and it is the one case where the move is visible. Selecting the pack restores it.
+
+**If you had `loopholes.claude-oauth-broker.enabled: false`, keep it.** The key is unchanged and
+still wins over the manifest default, from either config scope. Nothing about disabling it moved.
+
+**One activation change, and it is a widening.** The manifest used to declare
+`requires.command_on_path: "claude"` — a probe for `claude` on the **host's** PATH. That read false
+for exactly the user yolo exists for: someone who installs claude *inside* the jail (via the lazy
+launcher) and never on the host. Those users were silently losing refresh serialization, with the
+loophole showing as inactive in `yolo loopholes list` and no reason given. The probe is deleted;
+selecting the pack is the dependency it was approximating. **Consequence:** on a host without
+`claude` installed, selecting the claude pack now starts the broker singleton where it previously
+did not. It is idle until a jail asks it for a token.
+
+**For pack authors: the pack-shipped subset is now universal.** It used to be an asymmetry between
+two channels — a *bundled* manifest could declare `publishes: "endpoint"`, `jail_env`, an absolute
+`ca_cert` and an unscoped `requires.file_exists`; a pack-shipped one could not. With the bundled
+channel retired, **every module manifest yolo reads is held to the subset, including its own**.
+Two other rules changed shape with it: `loopholes.ReservedLoopholeNames` is deleted (no name is
+reserved any more — exclusivity across packs is what refuses a duplicate), and the §4.3a placement
+rule no longer exempts anything, since yolo's own loopholes are staged outside every workspace.
+
 ### ⚠️ The per-jail Claude OAuth broker relay is gone; `yolo broker status` reports differently
 
 **What changed.** The broker's jail-facing hop used to be a **per-jail relay process**
@@ -59,8 +98,9 @@ launcher is gone is **relaunched**, not attached-and-repaired.
 ### ⚠️ A workspace config that enables a loophole now needs the pack selected, or the jail will not start
 
 **What changed.** Every loophole yolo ships is now carried by a pack (`audio`,
-`cgroup-delegate`, `host-processes`, `journal` — see the entries below), and selecting the
-pack is what *installs* it. `packs` is **user-config only**. So a workspace
+`cgroup-delegate`, `host-processes`, `journal` — see the entries below — plus
+`claude-oauth-broker`, which rides the `claude` pack), and selecting the pack is what
+*installs* it. `packs` is **user-config only**. So a workspace
 `yolo-jail.jsonc` that says `"loopholes": {"journal": {"enabled": true}}` while
 `~/.config/yolo-jail/config.jsonc` does not say `"packs": ["journal"]` is a config **error**,
 and a config error refuses the launch:
