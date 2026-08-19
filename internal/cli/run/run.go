@@ -403,13 +403,33 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 
 	// Broker singleton + relay: ensure BEFORE building the argv (the sockets-dir
 	// mount + broker env are emitted by the assembler when the socket exists).
+	//
+	// GATED ON THE LOOPHOLE RECORD (docs/design/loophole-activation.md OQ-A11), which
+	// is the same predicate the assembler already consults to decide the endpoint
+	// variable, the CA mount and the in-jail terminator. Until this gate existed the
+	// broker was THE counterexample to R1 sitting in the run pipeline: brokerEnsure was
+	// called on every launch with no lookup at all, so the host singleton and one relay
+	// per jail ran for EVERYBODY — including a user with `packs: []` who has never heard
+	// of claude — while the jail was wired to it only when the loophole was Active. Both
+	// halves failed, in opposite directions (§1.1).
+	//
+	// One predicate for the spawn and the wiring is the property to keep: they used to
+	// disagree, and the disagreement is what made a daemon nobody's surfaces named. A
+	// jail that does not get the broker's address must not leave a broker running on the
+	// host either.
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
-	if rt != "container" {
+	if rt != "container" && brokerLoopholeActive(cfg) {
 		mkdirHostServicesDir(socketsDir)
 		o.brokerEnsure()
 		if o.PathExists(broker.BrokerSingletonSocket) {
 			o.ensureBrokerRelay(cname, rt, cfg)
 		}
+	} else if rt != "container" {
+		// The services dir is NOT the broker's — every loophole's endpoint file lands
+		// there and the assembler mounts it unconditionally — so it is created either
+		// way. Folding it into the gate above would leave the mount naming a directory
+		// that does not exist on any launch where the broker is off.
+		mkdirHostServicesDir(socketsDir)
 	}
 
 	// Store-prune gate + orphan-relay reap (host-only; never from inside a jail
@@ -656,8 +676,14 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// jail is up, attaching is how a user re-enters it, so a fresh-launch-only notice
 	// is one a user with a long-lived jail may never see.
 	o.warnIfNoPacks()
-	// Heal the per-jail relay before handing the session over.
-	o.ensureBrokerRelay(cname, rt, cfg)
+	// Heal the per-jail relay before handing the session over — behind the SAME gate
+	// the launch path uses (OQ-A11). An attach that healed a relay a launch would not
+	// have started is how one predicate becomes two that disagree, and the relay is
+	// per-jail state: reviving it here would leave it running for a jail whose config
+	// says the loophole is off.
+	if brokerLoopholeActive(cfg) {
+		o.ensureBrokerRelay(cname, rt, cfg)
+	}
 
 	execFlags := []string{"-i"}
 	if o.IsTTYStdout() {

@@ -476,3 +476,83 @@ func TestRetireStaleRelayFilesRemovesBoth(t *testing.T) {
 		t.Error("the stale endpoint still probes healthy after retirement")
 	}
 }
+
+// TestBrokerLifecycleIsGatedOnTheLoopholeRecord is OQ-A11 at the two CALL SITES that
+// decide whether a host daemon runs at all.
+//
+// # Why this is a source assertion and not a behavioural one
+//
+// `brokerEnsure` spawns a detached host process under a flock and `ensureBrokerRelay`
+// spawns a second one; neither is injectable, and driving `runNormal` needs a
+// container. What CAN be driven is the predicate — the two tests below do that — and
+// what a predicate's own tests cannot see is the call going missing, which is exactly
+// the state this ruling found: `brokerLoopholeActive` already existed and was already
+// correct, and the run pipeline called `brokerEnsure()` beside it with no lookup at
+// all. So the host singleton and one relay per jail ran for EVERYBODY, including a
+// user with `packs: []` who has never heard of claude, while the jail was wired to it
+// only when the loophole was Active — both halves failing, in opposite directions
+// (loophole-activation.md §1.1, §1.3's first table row).
+//
+// # The property, stated so a reader knows what may be edited
+//
+// ONE predicate governs the spawn AND the wiring. `hostServicesMountArgs` already
+// consults `brokerLoopholeActive`; the two lifecycle sites must consult the same
+// function rather than a second spelling of it. A jail that is not given the broker's
+// address must not leave a broker running on the host either — which is a stronger
+// requirement than "both are gated", because two gates that agree today are two gates
+// that can disagree tomorrow.
+func TestBrokerLifecycleIsGatedOnTheLoopholeRecord(t *testing.T) {
+	body, err := os.ReadFile("run.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+	// The LAUNCH path: the ensure pair sits behind the gate.
+	if !strings.Contains(src, `rt != "container" && brokerLoopholeActive(cfg)`) {
+		t.Error("the launch path no longer gates the broker singleton + relay on " +
+			"brokerLoopholeActive(cfg). Ungated, yolo spawns a host daemon on every launch " +
+			"for every user — including one with `packs: []` — while the jail is wired to it " +
+			"only when the loophole is Active (OQ-A11)")
+	}
+	// The ATTACH path: same gate, and it is the one most likely to be forgotten,
+	// because attaching feels like it changes nothing.
+	if !strings.Contains(src, "if brokerLoopholeActive(cfg) {\n\t\to.ensureBrokerRelay(cname, rt, cfg)") {
+		t.Error("attachExisting heals the per-jail relay without consulting " +
+			"brokerLoopholeActive. An attach that revives a relay the launch would not have " +
+			"started leaves per-jail state running for a jail whose config says the loophole " +
+			"is off — one predicate becoming two that disagree")
+	}
+	// And the services DIR is created either way: it holds every loophole's endpoint
+	// file and the assembler mounts it unconditionally, so folding it into the gate
+	// would make the mount name a directory that does not exist whenever the broker is
+	// off. Asserted because it is the exact mistake the narrowing invites.
+	if strings.Count(src, "mkdirHostServicesDir(socketsDir)") < 2 {
+		t.Error("mkdirHostServicesDir is inside the broker gate. That directory is not the " +
+			"broker's — every loophole publishes its endpoint file there and the assembler " +
+			"mounts it on every launch — so a jail with the broker off would mount a path " +
+			"that does not exist")
+	}
+}
+
+// The predicate itself, in the direction that used to be unreachable: a DISABLED
+// broker loophole answers false, so the gate above suppresses the spawn.
+//
+// Driven through the same fixture the env-emission tests use, so the record this reads
+// is built the way discovery builds one rather than by hand.
+func TestBrokerLoopholeActiveIsFalseWhenDisabled(t *testing.T) {
+	brokerFixtureDirs(t, false)
+	if brokerLoopholeActive(jsonx.NewOrderedMap()) {
+		t.Error("brokerLoopholeActive = true for a manifest declaring default_enabled: false")
+	}
+}
+
+// The control, without which the test above would pass on a predicate wired to
+// `return false`.
+func TestBrokerLoopholeActiveIsTrueWhenEnabled(t *testing.T) {
+	brokerFixtureDirs(t, true)
+	if !brokerLoopholeActive(jsonx.NewOrderedMap()) {
+		t.Error("brokerLoopholeActive = false for an enabled, requirement-free broker record " +
+			"— the gate would suppress the singleton on every launch and no jail would ever " +
+			"get a serialized refresh")
+	}
+}

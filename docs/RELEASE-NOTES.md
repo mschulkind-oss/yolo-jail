@@ -21,6 +21,33 @@ changelog; this is the subset that bites.
 
 ## Unreleased
 
+### ⚠️ The Claude OAuth broker no longer runs on every host
+
+**What changed.** yolo used to start the broker singleton — and one relay per jail — on
+**every launch, for every user**, with no lookup of any kind. It now starts only when this
+launch's `claude-oauth-broker` loophole is active, which is the same predicate that already
+decided whether the jail was *wired* to it.
+
+**Who is affected.** Anyone whose jails were not using the broker anyway, which included
+everyone with `packs: []`, everyone who had set
+`"loopholes": {"claude-oauth-broker": {"enabled": false}}`, and everyone with no `claude` on
+the **host's** PATH. All three were getting a host daemon they never asked for *and* no
+protection from it — the jail wiring was gated even while the daemon was not.
+
+**What to do.** Nothing, unless you were relying on the singleton for something outside a
+jail. If you want it back on a host where the loophole is inactive, the switch is the
+loophole's own:
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc
+"loopholes": { "claude-oauth-broker": { "enabled": true } }
+```
+
+Note the remaining gate this does **not** remove: the loophole still requires `claude` on the
+host's PATH, so a jail-only Claude user is still unprotected. That is a live defect with its
+own fix pending — the loophole moving inside `packs/claude`, where selecting the pack is the
+dependency. 📄 [`loophole-activation.md`](design/loophole-activation.md) §1.1, OQ-A11.
+
 ### ⚠️ The top-level `host_processes` key is gone, and `yolo-ps` needs a pack now
 
 **What changed.** Two things, and either one alone stops `yolo-ps` working.
