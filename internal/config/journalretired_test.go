@@ -1,8 +1,13 @@
 package config
 
 import (
+	"io/fs"
+	"path"
 	"strings"
 	"testing"
+
+	bundledloopholes "github.com/mschulkind-oss/yolo-jail/bundled_loopholes"
+	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // journalretired_test.go pins the SECOND half of loophole-activation.md §1.4: core's
@@ -137,18 +142,47 @@ func TestTheInheritCensusStopsEmittingJournal(t *testing.T) {
 // Pinned as a property over the census rather than as two absences, so a THIRD loophole
 // name creeping into core's schema fails here even though nobody thought to name it in
 // a test.
+//
+// THE CANDIDATE SET IS DERIVED, NOT LISTED, and that is the whole difference between
+// this test and the two-name table it replaced (2026-08-18). A hardcoded
+// {host_processes, journal} pair is not a property: it is the two absences, wearing a
+// property's name. Measured — adding a third loophole-named top-level key to
+// knownTopLevelConfigKeys AND classifying it into both scopes left the entire unit gate
+// green, which is exactly the regression this test's own comment promises to catch.
+//
+// So the names come off the two EMBEDS that decide what a loophole is: bundled_loopholes/
+// (one directory per loophole) and packs/<pack>/loopholes/<name>/. Both are already in
+// internal/config's dependency graph — `packs` because PackEntry resolves embedded packs,
+// and neither embed imports anything of yolo's, so reading them here adds no cycle. A
+// loophole that ships tomorrow is in the set the day it ships, with nobody editing this
+// file.
+//
+// BOTH SPELLINGS, because the collision is a spelling apart: a loophole's name is
+// hyphenated (`host-processes`) and a top-level config key is not (`host_processes`), and
+// the retired key that motivated all of this was the underscore form. Checking only one
+// would miss the exact shape that shipped.
 func TestCoresSchemaNamesNoLoopholeInEitherInheritScope(t *testing.T) {
-	loopholeShaped := map[string]string{
-		"host_processes": "loopholes.host-processes.settings",
-		"journal":        "loopholes.journal.enabled + .settings",
+	loopholeShaped := map[string]bool{}
+	for _, name := range shippedLoopholeNames(t) {
+		loopholeShaped[name] = true
+		loopholeShaped[strings.ReplaceAll(name, "-", "_")] = true
+	}
+	// The two RETIRED keys are in the set by construction (their loopholes still ship
+	// under those names), which is the continuity with what this test used to assert.
+	// Belt and braces so an embed that somehow read empty cannot make this vacuous.
+	for _, k := range []string{"host_processes", "journal"} {
+		if !loopholeShaped[k] {
+			t.Fatalf("%q is not in the derived set — the embeds read empty, so this test "+
+				"would pass over any schema at all", k)
+		}
 	}
 	for _, scope := range []InheritScope{InheritPreflight, InheritNested} {
 		for _, k := range InheritKeys(scope) {
-			if replacement, isLoophole := loopholeShaped[k]; isLoophole {
+			if loopholeShaped[k] {
 				t.Errorf("the %s scope emits %q, a key that names ONE SPECIFIC LOOPHOLE. "+
 					"Core's config schema is not supposed to know a loophole exists any more "+
-					"— the values belong under %s, declared by that loophole's own manifest",
-					scope, k, replacement)
+					"— the values belong under loopholes.<name>.enabled / .settings, declared "+
+					"by that loophole's own manifest (loophole-activation.md §1.4)", scope, k)
 			}
 		}
 	}
@@ -167,4 +201,55 @@ func TestCoresSchemaNamesNoLoopholeInEitherInheritScope(t *testing.T) {
 				"INTO it, so dropping it would take both capabilities with them", scope)
 		}
 	}
+}
+
+// shippedLoopholeNames reads every loophole yolo ships out of the two embeds that
+// define the answer, so the property above cannot go stale.
+//
+// The EMBEDS rather than the on-disk tree, for the reason the loopholedecl tests give:
+// an installed binary carries these and no checkout, and a walk of `packs/` would pass
+// in this working copy while saying nothing about what a release contains.
+//
+// A read failure is a FATAL, never a skip. An empty set would make the caller's
+// assertion vacuously true, which is the failure mode the caller exists to prevent.
+func shippedLoopholeNames(t *testing.T) []string {
+	t.Helper()
+	var out []string
+
+	bundled, err := fs.ReadDir(bundledloopholes.FS, ".")
+	if err != nil {
+		t.Fatalf("reading the bundled loophole embed: %v", err)
+	}
+	for _, e := range bundled {
+		if e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+
+	packDirs, err := fs.ReadDir(packs.FS, ".")
+	if err != nil {
+		t.Fatalf("reading the official pack embed: %v", err)
+	}
+	for _, p := range packDirs {
+		if !p.IsDir() {
+			continue
+		}
+		// A pack without a loopholes/ dir is the ordinary case (the agent packs), so
+		// the error is ignored rather than reported: "this pack ships no loophole" is
+		// not a fault.
+		mods, err := fs.ReadDir(packs.FS, path.Join(p.Name(), "loopholes"))
+		if err != nil {
+			continue
+		}
+		for _, m := range mods {
+			if m.IsDir() {
+				out = append(out, m.Name())
+			}
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("no shipped loopholes found in either embed — the derived property above " +
+			"would be vacuous, so this is a fault in the reader rather than in the schema")
+	}
+	return out
 }

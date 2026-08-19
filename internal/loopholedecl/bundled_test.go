@@ -32,6 +32,96 @@ var shippedManifestHome = map[string]string{
 	"cgroup-delegate":     "cgroup-delegate",
 }
 
+// TestShippedManifestHomeIsTotal is the forcing function the table above needs to be
+// worth having: EVERY loophole in either embed must have a row.
+//
+// Without it the table is a whitelist of what somebody remembered, and the tests it
+// drives — the strict/tolerant decode bar, the per-manifest field pins, the
+// default_enabled census — all iterate the table, so a NEW shipped loophole is covered by
+// none of them and nothing says so. Measured 2026-08-18: adding a directory to
+// bundled_loopholes/ AND to its embed directive passed the entire unit gate, including
+// TestEmbedMatchesTree, whose job is only to catch a directive that was NOT updated.
+//
+// It matters most for the BUNDLED embed, which is the channel this sprint spent itself
+// closing. Three doc comments now assert "claude-oauth-broker is the only inhabitant
+// left" (bundled_loopholes/embed.go, loopholes/discover.go, loopholedecl/packshipped.go),
+// and prose is not a tripwire: the bundled directory names ARE the reserved loophole
+// namespace, and `publishes: "endpoint"` is available to a bundled manifest and refused
+// to a pack-shipped one. A second inhabitant arriving unnoticed would quietly widen both.
+//
+// Adding a loophole is not a defect, so the failure asks for a ROW rather than a revert.
+func TestShippedManifestHomeIsTotal(t *testing.T) {
+	found := map[string]string{}
+
+	bundled, err := fs.ReadDir(bundledloopholes.FS, ".")
+	if err != nil {
+		t.Fatalf("reading the bundled loophole embed: %v", err)
+	}
+	for _, e := range bundled {
+		if e.IsDir() {
+			found[e.Name()] = ""
+		}
+	}
+
+	packDirs, err := fs.ReadDir(packs.FS, ".")
+	if err != nil {
+		t.Fatalf("reading the official pack embed: %v", err)
+	}
+	for _, p := range packDirs {
+		if !p.IsDir() {
+			continue
+		}
+		// Most official packs ship no loophole at all (the six agent packs), so an
+		// unreadable loopholes/ dir is the ordinary case rather than a fault.
+		mods, err := fs.ReadDir(packs.FS, p.Name()+"/loopholes")
+		if err != nil {
+			continue
+		}
+		for _, m := range mods {
+			if m.IsDir() {
+				found[m.Name()] = p.Name()
+			}
+		}
+	}
+
+	if len(found) == 0 {
+		t.Fatal("neither embed yielded a loophole — this test would then pass over an " +
+			"empty table, which is the one outcome it must not have")
+	}
+	for name, pack := range found {
+		home, listed := shippedManifestHome[name]
+		if !listed {
+			t.Errorf("the loophole %q ships (from %s) and shippedManifestHome has no row for "+
+				"it. Every test in this file iterates that table, so an unlisted loophole's "+
+				"manifest is never decoded, never field-checked and never in the "+
+				"default_enabled census — add the row rather than deleting this check.",
+				name, embedDescription(pack))
+			continue
+		}
+		if home != pack {
+			t.Errorf("shippedManifestHome[%q] = %q but the manifest is in %s — the table is "+
+				"the record of WHICH EMBED each one lives in, and a stale row sends every "+
+				"reader of it to the wrong tree", name, home, embedDescription(pack))
+		}
+	}
+	for name, home := range shippedManifestHome {
+		if _, ok := found[name]; !ok {
+			t.Errorf("shippedManifestHome lists %q (home %q) but neither embed carries it — a "+
+				"row for a loophole that no longer ships makes bundledManifest fail with "+
+				"'embedded manifest for %s' rather than saying the loophole was removed",
+				name, home, name)
+		}
+	}
+}
+
+// embedDescription names where a loophole was found, for the messages above.
+func embedDescription(pack string) string {
+	if pack == "" {
+		return "bundled_loopholes/"
+	}
+	return "packs/" + pack + "/loopholes/"
+}
+
 // bundledManifest reads one shipped manifest out of the embedded tree — the same
 // source internal/loopholes reads through BundledLoopholesDir, so this test holds
 // for an installed binary with no checkout, not just for this working copy.
