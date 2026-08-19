@@ -41,11 +41,18 @@ security half was settled when OQ-TP5 killed silent npm updates.
 
 - **"Realization is per-workspace" is only half true, and the other half is worse.** npm programs,
   installer programs, LSP and MCP packages do land per-workspace. But **mise is machine-global and
-  evergreen on every single launch** — `mise install && mise upgrade --yes` runs unconditionally
-  (`command.go:14-19`), `/mise` is one bind shared by every workspace and nesting depth, and version
-  aliases are **symlinks repointed in place** (`/mise/installs/node/22 -> ./22.23.2`). A launch in
-  workspace B changes the toolchain workspace A resolves through. **A per-workspace lockfile cannot
+  evergreen on every single launch**, so a launch in workspace B changes the toolchain workspace A
+  resolves through — including a jail that is already running. **A per-workspace lockfile cannot
   reach it.**
+
+  📄 **[Exactly what mise shares, and why the sharing is inverted](../design/program-delivery.md#421-exactly-what-mise-shares--and-the-sharing-is-inverted)**
+  — you asked whether mise was only meant to share CAS-type caches. That is the right expectation and
+  the reality is its **exact inverse**: `MISE_CACHE_DIR` is `/tmp/mise-cache`, **per-container and
+  ephemeral**, while `MISE_DATA_DIR` is the machine-wide `/mise`. So the content-addressed part is
+  thrown away and the mutable part is shared. Inside `installs/`, the versioned directories are
+  effectively CAS and sharing them is the win; the **alias symlinks beside them are mutable
+  pointers** that `mise upgrade --yes` repoints, and this repo's own `mise.toml` resolves through
+  three of them (`node = "24"`, `go = "1.26"`, `just = "latest"`).
 - **npm was never special — it was just the first kind anyone looked at.** mise already carries the
   Go module proxy and PyPI (via `pipx:`) alongside its core backends, all unpinned, all reached
   through a key yolo itself composes. That is your *"too special case for npm"* worry, confirmed.

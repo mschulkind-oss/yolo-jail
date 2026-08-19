@@ -197,6 +197,86 @@ lockfile format survives a mise upgrade.
 > `/mise/installs`: `go-honnef-co-go-tools-cmd-staticcheck` (Go module proxy),
 > `pipx-mypy` and `pipx-swarf` (PyPI). Any design scoped to `program via npm` misses all of them.
 
+#### 4.2.1 Exactly what mise shares — and the sharing is inverted
+
+*Added on review: "I thought mise and similar were only supposed to share CAS-type caches?" That is
+the right expectation, and it is worth writing out because **the reality is the exact inverse of
+it.** yolo shares the mutable part and isolates the cacheable one.*
+
+**What yolo sets** (verified 2026-08-18 by reading the launch env inside a jail):
+
+| Variable | Points at | Scope | Content |
+| :--- | :--- | :--- | :--- |
+| `MISE_DATA_DIR` | `/mise` → `<GlobalStorage>/mise` (`paths.GlobalMise`) | **machine-wide**, one bind for every workspace and every nesting depth | installs, shims, downloads |
+| `MISE_CACHE_DIR` | `/tmp/mise-cache` | **per container, ephemeral** | mise's own metadata cache |
+
+**So the download/metadata cache — the one thing that is safely shareable, because it is keyed by
+content and never resolved through — is thrown away with the container. And the install tree, which
+contains mutable pointers, is the thing every workspace shares.**
+
+**What lives under the shared `/mise`:**
+
+```
+/mise/installs/       ← versioned dirs AND mutable alias symlinks  (the problem)
+/mise/downloads/      ← fetched archives — genuinely cache-shaped
+/mise/shims/          ← generated shims, regenerated on change
+/mise/conda-packages/ /mise/migrations/
+```
+
+**`installs/` is two different things wearing one directory.** Measured, verbatim:
+
+```console
+$ ls -l /mise/installs/node/
+22        -> ./22.23.2          # alias — MUTABLE
+22.20     -> ./22.20.0          # alias — MUTABLE
+22.20.0/                        # content — immutable once written
+22.23     -> ./22.23.2
+22.23.2/                        # content
+24        -> ./24.19.0
+latest    -> ./24.19.0          # alias — MUTABLE
+lts       -> ./24.19.0
+```
+
+The **versioned directories are effectively content-addressed**: `22.20.0/` means one thing forever,
+and two workspaces sharing it is exactly the win a CAS gives you. The **aliases beside them are
+not** — they are mutable pointers, shared machine-wide, and `mise upgrade --yes` repoints them.
+
+**The evidence that they do move, rather than merely could:** `node/22` points at `22.23.2` while
+`22.20.0` still sits beside it, and `go/1.26` points at `1.26.6` while `1.26.2` remains. Those older
+directories are the fossils of what those aliases used to mean. Nothing deleted them; an upgrade
+simply repointed the name.
+
+> [!WARNING]
+> **This repo resolves through exactly those mutable aliases.** `/workspace/mise.toml` declares
+> `node = "24"`, `go = "1.26"`, `just = "latest"` — three fuzzy pins, each of which is a symlink any
+> other workspace's launch can move. `mise install && mise upgrade --yes` runs unconditionally on
+> every launch (`internal/cli/run/command.go:14-19`), so the mutation is not rare: it is once per
+> launch, per workspace, against shared state.
+>
+> The failure this produces is the nastiest kind — **a jail's toolchain can change while it is
+> running**, because a *different* workspace's launch repointed an alias the running jail resolves
+> through. Nothing in the running jail was touched, and nothing recorded that anything changed.
+
+**Why this matters for the design rather than being a mise complaint.** It splits the fix cleanly,
+and the split is the same one §3 draws for every delivery class:
+
+- the **content** half is already right — sharing immutable versioned installs across workspaces is
+  the download-once-reuse-everywhere property this design wants everywhere else;
+- the **resolution** half is what is missing — a name (`24`, `latest`) resolved per launch against
+  shared mutable state, with no receipt of what it resolved to.
+
+So mise does not need a different mechanism from the one this document proposes. It needs the same
+one: **resolve once, record the exact version, and materialize from the record** — the aliases become
+an implementation detail nobody resolves through, and the shared install tree stays shared, which is
+where its value was all along.
+
+> [!NOTE]
+> **The cheapest available step, and it is not this design.** mise supports a lockfile of its own and
+> yolo never enables it — a repo-wide search finds no `mise.lock` and no `MISE_LOCK*` setting
+> anywhere in the tree. That would pin the resolution half for mise alone without waiting on
+> OQ-PD1..PD8. It is not a substitute for the general answer, because it covers one resolver, but it
+> is one setting against the mechanism currently least controlled. See OQ-PD3.
+
 ### 4.3 History: a jail is the union of every pack ever selected, not the current pack set
 
 **MEASURED:** this jail's user config selects `"packs": ["claude"]` and `~/.yolo-launchers/` holds
