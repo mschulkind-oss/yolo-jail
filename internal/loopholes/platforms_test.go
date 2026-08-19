@@ -46,7 +46,9 @@ func TestPlatformsReachTheResolvedRecord(t *testing.T) {
 }
 
 // An absent key means every platform, so no manifest written before the key existed
-// changes meaning — including all three bundled ones.
+// changes meaning — including every manifest yolo itself ships. (This said "all three
+// bundled ones" until 2026-08-19; the bundled channel is gone and the five shipped
+// manifests are pack contributions.)
 func TestNoPlatformsDeclarationIsSupportedEverywhere(t *testing.T) {
 	lp := loadWithPlatforms(t, "anywhere", nil)
 	for _, pair := range [][2]string{{"linux", "amd64"}, {"darwin", "arm64"}, {"windows", "386"}} {

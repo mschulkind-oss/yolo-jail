@@ -294,13 +294,19 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		// path relabels the record immediately — loadModuleDirs, loadModuleDirs and
 		// ValidateLoopholes each assign the source they walked.
 		//
-		// It defaults to SourcePack because that is the LEAST-PRIVILEGED of the three
-		// labels, on both axes that read it: MayRunHostCode refuses a SourcePack record
-		// whose module dir carries no recorded gate decision, and moduleDirForPlacement
-		// judges it rather than exempting it the way SourceBundled is exempted. So a
-		// record that somehow reached a consumer unlabelled crosses nothing, instead of
-		// inheriting the trust of yolo's own bundled content. It used to default to the
-		// now-retired `user` label, which was the opposite direction.
+		// It defaults to SourcePack because that is the LEAST-PRIVILEGED of the two
+		// labels left, on both axes that read it: MayRunHostCode refuses a SourcePack
+		// record whose module dir carries no recorded gate decision, and
+		// moduleDirForPlacement judges its module dir rather than skipping it the way a
+		// SourceConfig record's is skipped (a config entry has no module dir to judge).
+		// So a record that somehow reached a consumer unlabelled crosses nothing.
+		//
+		// TWO LABELS, AND NO EXEMPTION LEFT. `SourceUser` went with OQ-LP10's
+		// hand-placed directory and `SourceBundled` went with `bundled_loopholes/` on
+		// 2026-08-19 (docs/design/broker-as-a-pack.md OQ-BP4) — and the placement
+		// exemption that label carried went with it, so "least-privileged" is now the
+		// only property this default is leaning on. It used to default to the retired
+		// `user` label, which was the opposite direction.
 		Source: SourcePack,
 	}
 }

@@ -16,8 +16,11 @@ package loopholes
 //     job to do.
 //   - NON-EMPTY `serves` is required, and this is the load-bearing half: SILENCE
 //     MEANS "NOT PARTICIPATING", never a default claim. A manifest without the key
-//     — every third-party one ever written, and two of the three bundled ones —
-//     behaves byte-identically to before this file existed.
+//     — every third-party one ever written, and all but one of the five yolo itself
+//     ships — behaves byte-identically to before this file existed. (It used to read
+//     "two of the three bundled ones"; there is no bundled channel any more, and the
+//     five manifests are pack contributions now: loopholedecl's shippedManifestHome
+//     is the list.)
 //
 // # Why the claims arrive as DATA
 //

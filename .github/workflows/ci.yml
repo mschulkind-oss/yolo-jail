@@ -37,8 +37,9 @@ jobs:
   # and the hook can't drift, and it was drift that let staticcheck/gofmt go
   # unenforced on any push from a machine without the hook.  The short suite
   # carries guards nothing else enforces automatically (TestEmbedMatchesTree —
-  # the go:embed/tree sync for bundled loopholes; the version stamp contract;
-  # the config/argv regression suites).
+  # the go:embed/tree sync for the official PACKS, which is where every loophole
+  # yolo ships lives since `bundled_loopholes/` was deleted on 2026-08-19; the
+  # version stamp contract; the config/argv regression suites).
   check-go:
     runs-on: ubuntu-latest
     steps:

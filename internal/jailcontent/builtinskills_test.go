@@ -31,7 +31,9 @@ func repoBuiltinSkillsDir(t *testing.T) string {
 // skill list: every skill dir on disk (a non-hidden subdir with a SKILL.md)
 // must exist in the embed with byte-identical recursive contents, and vice
 // versa. Adding a new built-in skill without extending the go:embed directive
-// fails here. Mirrors internal/loopholes/TestEmbedMatchesTree.
+// fails here. Mirrors internal/packload/TestEmbedMatchesTree (which lived in
+// internal/loopholes while `bundled_loopholes/` was a channel, and moved with the
+// embed when that channel was deleted on 2026-08-19).
 func TestBuiltinSkillsEmbedMatchesTree(t *testing.T) {
 	treeRoot := repoBuiltinSkillsDir(t)
 

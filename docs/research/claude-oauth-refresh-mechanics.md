@@ -6,8 +6,10 @@ as "Please run /login" with zero broker activity. Companion to:
 
 - [`claude-token-logouts.md`](claude-token-logouts.md) — user-facing
   operational triage.
-- [`bundled_loopholes/claude-oauth-broker/README.md`](../../bundled_loopholes/claude-oauth-broker/README.md)
-  — the live broker architecture + operator ops.
+- [`packs/claude/loopholes/claude-oauth-broker/README.md`](../../packs/claude/loopholes/claude-oauth-broker/README.md)
+  — the live broker architecture + operator ops. It moved there from
+  `bundled_loopholes/` on 2026-08-19, when the broker became a `loophole`
+  contribution of the official `claude` pack and that channel was deleted.
 
 Everything below is grounded in strings extracted from
 `/home/agent/.local/share/claude/versions/2.1.143` (the 233 MB
