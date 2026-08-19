@@ -304,6 +304,7 @@ func BrokerKill(deps Deps, sig syscall.Signal, timeout time.Duration) bool {
 	// Cleanup: PID file then socket (unlink, ignore missing).
 	removeIgnoreMissing(deps.PIDFilePath)
 	removeIgnoreMissing(deps.SocketPath)
+	removeIgnoreMissing(singletonStampPath(deps))
 	return true
 }
 
@@ -379,6 +380,10 @@ func BrokerSpawn(deps Deps) string {
 		return deps.SocketPath
 	}
 	_ = os.WriteFile(deps.PIDFilePath, []byte(strconv.Itoa(pid)+"\n"), 0o644)
+	// Stamp the singleton as one THIS build started, so a later launch can tell a
+	// compatible daemon from one predating the fronted conversion. See
+	// SingletonSpeaksPreamble.
+	_ = os.WriteFile(singletonStampPath(deps), []byte(singletonStamp+"\n"), 0o644)
 	if !brokerWaitForSocket(deps, deps.SocketPath, BrokerSpawnTimeout, exited) {
 		reportFailedSpawn(deps, exited)
 	}
@@ -484,6 +489,55 @@ func brokerWaitForSocket(deps Deps, sock string, timeout time.Duration, exited f
 // would have called it dead. The end-to-end protocol check survives in the one
 // place it can still be spoken — `yolo check`'s per-jail probe, which goes THROUGH
 // the front and therefore sends a real preamble before its ping (internal/cli/check).
+// singletonStamp marks a singleton as started by a build whose daemon sits BEHIND A
+// FRONT and therefore expects yolo's connection preamble. Bump it only if that wire
+// contract changes again.
+const singletonStamp = "fronted-preamble-v1"
+
+// singletonStampPath is the stamp file, a sibling of the PID file so the lifecycle
+// that already owns that path creates, finds and removes it.
+func singletonStampPath(deps Deps) string { return deps.PIDFilePath + ".capability" }
+
+// SingletonSpeaksPreamble reports whether a RUNNING singleton was started by a build
+// that expects the connection preamble.
+//
+// # The failure this exists to make loud
+//
+// The singleton's socket path deliberately did not change when the broker moved behind
+// a front (2026-08-19) — that is what makes the upgrade seamless, and it is also what
+// makes this failure possible. A pre-conversion daemon is still listening there,
+// speaking the raw protocol.
+//
+// EVERY LIVENESS SURFACE SAYS HEALTHY, because every one of them is a CONNECT:
+// BrokerIsAlive dials and closes, and the in-jail reachability witness does the same
+// through the front. Both succeed. The break is one layer up — the front prepends a
+// host-asserted preamble frame, and a daemon that predates the front consumes it AS THE
+// REQUEST. Reproduced 2026-08-19: a framed ping returns {"error":"creds_unreadable"}
+// while the daemon logs the preamble's own keys, so EVERY Claude OAuth refresh on that
+// host fails and the only surface that notices is `yolo check`'s per-jail row, which
+// makes the full round trip.
+//
+// # Why a stamp rather than asking the daemon
+//
+// Speaking the protocol to test it would mean FORGING a jail identity in the preamble —
+// the one thing the front exists to assert honestly, and the reason the liveness probe
+// became a connect-and-close in the first place. The stamp answers "did a build like
+// mine start this?" without a byte of protocol.
+//
+// # Why this only REPORTS
+//
+// It deliberately does not kill and respawn. Two yolo versions sharing one host would
+// then take turns killing each other's daemon on every launch, trading a loud failure
+// for an invisible restart loop. Whether an upgrade should replace the daemon outright
+// is a maintainer call; making the broken state SAY so is not.
+func SingletonSpeaksPreamble(deps Deps) bool {
+	b, err := os.ReadFile(singletonStampPath(deps))
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(b)) == singletonStamp
+}
+
 func SingletonReachable(socketPath string, timeout time.Duration) bool {
 	conn, err := net.DialTimeout("unix", socketPath, timeout)
 	if err != nil {

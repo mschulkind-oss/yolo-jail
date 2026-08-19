@@ -655,6 +655,19 @@ func (o *Options) startHostSingleton(
 	deps.Out = o.Stdout
 	if !broker.BrokerIsAlive(deps) {
 		broker.BrokerSpawn(deps)
+	} else if !broker.SingletonSpeaksPreamble(deps) {
+		// ALIVE BUT INCOMPATIBLE — the one state every other surface calls healthy.
+		// A daemon started before this loophole moved behind a front is still
+		// listening at the same path, and it will consume the front's preamble as
+		// the client's request: every refresh fails while connect-based liveness,
+		// including the in-jail witness, reports green. We do not kill it (two yolo
+		// versions on one host would take turns restarting each other's daemon);
+		// we say so, and name the one command that fixes it.
+		o.pr(o.Stdout).print("[yellow]Warning: the host-wide daemon for '" + name +
+			"' predates this yolo and does not speak the connection preamble.\n" +
+			"  It will accept connections and fail every request — for the broker that means\n" +
+			"  Claude token refresh is broken on this host, silently.\n" +
+			"  Fix it with: yolo broker restart[/yellow]")
 	}
 	// The daemon's readiness is its socket ACCEPTING A CONNECT — never bare
 	// existence, which a stale file satisfies instantly. BrokerSpawn has already
