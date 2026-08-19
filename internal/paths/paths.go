@@ -78,12 +78,15 @@ const (
 // only as BUNDLED DIRECTORY NAMES, read off the same embed.FS the loader materializes,
 // so `git mv` retired them with no code change. These were constants here, so each had
 // to be deleted by hand in the commit that shipped its manifest — which is the same
-// shape `broker.BrokerLoopholeName` still has, and the trap whoever converts the broker
-// will walk into if they generalize from the easy cases.
+// shape `broker.BrokerLoopholeName` had, and the trap whoever converted the broker had
+// to avoid rather than generalize past.
 //
-// What is left of the reserved namespace lives entirely in
-// loopholes.ReservedLoopholeNames: the broker's own constant plus the bundled loophole
-// directory names.
+// THERE IS NO RESERVED LOOPHOLE NAMESPACE LEFT. `loopholes.ReservedLoopholeNames`, which
+// composed what survived this slice's deletion, is itself deleted (2026-08-19): the
+// broker was its last entry, and moving that manifest into `packs/claude` emptied both
+// of its contributors at once (docs/design/broker-as-a-pack.md §13). What refuses a
+// duplicate loophole name now is exclusivity ACROSS PACKS, plus the origin gate for what
+// a claimed name is allowed to switch on.
 
 // CgdSocketName MUST be "<BuiltinCgroupLoopholeName>.sock": the entrypoint
 // (baked into the image) and YOLO_SERVICE_CGROUP_DELEGATE_SOCKET both expect
