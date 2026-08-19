@@ -143,6 +143,22 @@ func ServeFrontedUnix(socket, mode string, stop <-chan struct{}) error {
 // a future spawn picks the wrong door and answers every request with "malformed
 // request". The accept loop is still shared, and the truncation-race harness in
 // main_test.go drives it directly with handleConn, which is where that race lives.
+//
+// THIS FUNCTION'S RETURN MEANS THE SOCKET PATH IS RELEASED. Exactly one place unlinks
+// it — the post-loop os.Remove below, which is ordered before the return. The
+// stop-watching goroutine only closes the listener.
+//
+// It used to unlink there too (`<-stop; ln.Close(); os.Remove(socket)`), and that
+// goroutine is not waited for by anything: closing stop breaks the accept loop, the
+// accept loop unlinks and returns, and the goroutine's own os.Remove could still be
+// waiting to be scheduled. A caller that then re-served the SAME path got its
+// brand-new socket file deleted by its predecessor's leftover goroutine, leaving
+// a listener bound to an unlinked inode — bound, accepting, and unreachable by
+// name, so every dial fails forever with no error anywhere. Measured under
+// GOMAXPROCS=1, where the descheduling window is wide: 3/3 runs, first hit within
+// 34 iterations. On a many-core host it is rare enough to look like a slow
+// machine, which is exactly how it was read for two days
+// (docs/plans/roadmap.md, TestNoTruncationRace).
 func serveUnixConns(socket string, stop <-chan struct{}, onConn func(net.Conn)) error {
 	_ = os.Remove(socket)
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
@@ -152,7 +168,7 @@ func serveUnixConns(socket string, stop <-chan struct{}, onConn func(net.Conn)) 
 	ln.SetUnlinkOnClose(false)
 	_ = os.Chmod(socket, 0o777)
 
-	go func() { <-stop; ln.Close(); os.Remove(socket) }()
+	go func() { <-stop; ln.Close() }()
 
 	for {
 		conn, err := ln.AcceptUnix()
