@@ -345,27 +345,6 @@ func TestAudioPackDoesNotCollideWithTheBundledAudioDestinations(t *testing.T) {
 	}
 }
 
-// repoRootForAudioTest walks up to the dir holding go.mod. A separate helper from
-// embeddrift_test.go's findRepoRoot only because that one lives in package packload and
-// this file is the external test package.
-func repoRootForAudioTest(t *testing.T) string {
-	t.Helper()
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for {
-		if _, statErr := os.Stat(filepath.Join(dir, "go.mod")); statErr == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("go.mod not found")
-		}
-		dir = parent
-	}
-}
-
 // THE R3 ASSERTION over an AUDIO-SHAPED manifest: §7's four review-worthy claims, with
 // host IPC marked distinguishably from a host read.
 //
