@@ -5,9 +5,12 @@ workspace, without exposing host credentials or identity.
 
 **AGENTS ARE PACKS. Core does not know what an agent is.** There is no agent
 registry, no `agents` config key, and no `YOLO_AGENTS`. Config carries ONE list
-of `packs`; the six that ship with yolo (`claude`, `copilot`, `opencode`, `pi`,
-`codex`, `agy`) live in `packs/*/pack.json` and are selected by BARE NAME —
-`"packs": ["claude"]`. **Nothing is active by default**: an empty config yields a
+of `packs`; the eight that ship with yolo live in `packs/*/pack.json` and are
+selected by BARE NAME — `"packs": ["claude"]`. Six install an agent (`claude`,
+`copilot`, `opencode`, `pi`, `codex`, `agy`) and **two install no CLI at all**:
+`audio` and `host-processes` each ship a LOOPHOLE and nothing else (they moved out
+of `bundled_loopholes/` on 2026-08-18). Anything that says "the six" is describing
+the agent SUBSET. **Nothing is active by default**: an empty config yields a
 jail with no coding agent, and says so at launch (`run.warnIfNoPacks`).
 `internal/config/validate.go` hard-errors on `agents` on the host (and warns
 in-jail, where the config is the generated snapshot).
@@ -333,7 +336,7 @@ there is no sync step.
 | Mounts, overlays, home layout | `docs/design/jail-home.md` |
 | Per-agent briefing generation | `docs/design/agent-briefings.md` |
 | MCP/LSP config, node wrappers, `LD_LIBRARY_PATH` story | `docs/design/mcp-configuration.md` |
-| Loopholes (`audio`, `claude-oauth-broker`, `host-processes`) | `docs/guides/loopholes.md`, `docs/design/loophole-protocol.md` |
+| Loopholes (`audio` and `host-processes` in packs; `claude-oauth-broker` the last bundled one) | `docs/guides/loopholes.md`, `docs/design/loophole-protocol.md` |
 | Config-change confirmation flow | `docs/design/config-safety.md` |
 | Storage paths and state separation | `docs/design/storage-and-config.md` |
 | What the image must bake vs. what a launch delivers; the rebuild/reload cost model | `docs/design/image-staging-vs-baking.md` |
