@@ -696,17 +696,23 @@ does not resolve the `/tmp` symlink itself. YOLO Jail automatically calls
 ### Podman Machine: broker socket bind-mount fails (`EOPNOTSUPP`)
 
 Podman Machine cannot bind-mount Unix socket *files* directly — Podman returns
-`Error: statfs ...: operation not supported` or `EOPNOTSUPP`. YOLO Jail works
-around this by running a per-jail broker relay: a supervised standalone host
-process (`internal/brokerrelay`, used on macOS *and* Linux) that listens on a
-relay socket created *inside* the already-mounted `/run/yolo-services/`
-directory — visible to Podman through the virtiofs directory mount — and dials
-the broker singleton per connection. The relay is **not** a thread inside
-`yolo run`: it deliberately outlives the process that spawned it (the container
-does too), with its own PID file at `/tmp/yolo-broker-relay-<hash>.pid` and log
-at `~/.local/share/yolo-jail/logs/broker-relay-<hash>.log`. Any `yolo`
-invocation that targets the jail (run or attach) heals a dead relay. No manual
-action is needed.
+`Error: statfs ...: operation not supported` or `EOPNOTSUPP`. Nothing crosses
+that boundary as a socket any more: the jail reaches the host-wide broker
+singleton over **loopback-TLS**, through a per-jail `svcendpoint` front that
+publishes a plain *file* (`/run/yolo-services/claude-oauth-broker.endpoint`)
+into the already-mounted directory. A file is what virtiofs carries fine, and
+the address lives inside it rather than in the mount.
+
+**There is no broker relay any more** (deleted 2026-08-19,
+`docs/design/broker-as-a-pack.md` §7). `internal/brokerrelay`, its
+`/tmp/yolo-broker-relay-<hash>.{pid,lock,sock}` files and its
+`~/.local/share/yolo-jail/logs/broker-relay-<hash>.log` are gone, and so is the
+attach-time healing that used to restart one. The front is a **goroutine inside
+the `yolo` process that launched the jail**, so it dies with that process: a jail
+whose launcher is gone is **relaunched**, not attached-and-repaired. The daemon
+behind it is host-wide and survives — one singleton, one front per jail. A host
+upgrading across this change still has old relay processes and files in `/tmp`;
+`yolo prune --apply` sweeps them, and so does a reboot.
 
 ### Podman Machine: TTY error (`crun: unlink /dev/console: Read-only file system`)
 

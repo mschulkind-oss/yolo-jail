@@ -92,7 +92,7 @@ and nothing else. The other four are image-side only.
 
 **Daemons are subcommands, not separate binaries.** Host daemons are hidden
 self-exec subcommands of `yolo`:
-`yolo internal daemon <claude-oauth-broker|host-processes|broker-relay|journal>`,
+`yolo internal daemon <claude-oauth-broker|host-processes|journal>`,
 under `yolo internal <config-dump|daemon|migrate-host>`. In-jail daemons are
 `yolo-jaild <supervise|oauth-terminator>` (`supervise` reads `YOLO_JAIL_DAEMONS`).
 Both dispatch on plain `args[0]` — **not** argv[0]/symlink. Easy to get wrong.
@@ -352,7 +352,7 @@ there is no sync step.
 | Mounts, overlays, home layout | `docs/design/jail-home.md` |
 | Per-agent briefing generation | `docs/design/agent-briefings.md` |
 | MCP/LSP config, node wrappers, `LD_LIBRARY_PATH` story | `docs/design/mcp-configuration.md` |
-| Loopholes (`audio`, `host-processes`, `journal`, `cgroup-delegate` in packs; `claude-oauth-broker` the last bundled one) | `docs/guides/loopholes.md`, `docs/design/loophole-protocol.md` |
+| Loopholes (`audio`, `host-processes`, `journal`, `cgroup-delegate` in packs of their own; `claude-oauth-broker` contributed by `packs/claude`) | `docs/guides/loopholes.md`, `docs/design/loophole-protocol.md` |
 | Config-change confirmation flow | `docs/design/config-safety.md` |
 | Storage paths and state separation | `docs/design/storage-and-config.md` |
 | What the image must bake vs. what a launch delivers; the rebuild/reload cost model | `docs/design/image-staging-vs-baking.md` |

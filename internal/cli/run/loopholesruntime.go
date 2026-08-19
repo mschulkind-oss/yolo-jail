@@ -263,23 +263,27 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 // cgroupDelegateHonored is the cgroup delegate's SWITCH — the thing that replaced
 // "the platform allows it, so it is running".
 //
-// HONORED, NOT Active(), and the difference is the whole reason this is not a copy of
-// brokerLoopholeActive. That predicate may stop at Active() because the broker's record
-// is BUNDLED — yolo's own manifest, in yolo's own tree, under a name no pack may claim.
-// This record comes from a PACK, so the origin gate is live: `Honored` is `Active` plus
-// "the pack it came from may touch the host", and starting a host-side listener on the
-// strength of a pack's record is exactly the crossing that gate exists to govern.
+// HONORED, NOT Active(), and it is now the SAME shape as brokerLoopholeActive rather
+// than the contrast this comment used to draw. It said that predicate "may stop at
+// Active() because the broker's record is BUNDLED — yolo's own manifest, in yolo's own
+// tree, under a name no pack may claim"; all three clauses expired on 2026-08-19, when
+// the manifest moved into `packs/claude` and the reserved namespace was deleted with
+// it (docs/design/broker-as-a-pack.md §13). Both predicates ask `Active() &&
+// MayRunHostCode` for one reason: the record comes from a PACK, so the origin gate is
+// live, and starting a host-side listener on the strength of a pack's record is exactly
+// the crossing that gate exists to govern.
 //
-// THE LOOKUP IS SHADOWABLE NOW, which is a consequence of retiring the reservation
-// rather than an oversight, and it is worth stating because the broker's equivalent is
-// NOT (TestBrokerLookupIsUnshadowable pins that, and it is only true while the name
-// stays reserved). A pack a user installs may ship a `cgroup-delegate` loophole and
-// turn this on. That is precisely the case OQ-A3 already admits — "a fetched pack can
-// declare itself on", bounded by the origin gate rather than by the declaration — and
-// the bound here is unusually comfortable: installing a pack is a user-scope act, and
-// the most this switch can buy is a capability the same user could grant with one
-// config line. The delegate hands a jail control of ITS OWN cgroup and reads no host
-// state (OQ-A4's own severity argument).
+// THE LOOKUP IS SHADOWABLE, and so is the broker's — the asymmetry this paragraph used
+// to name is gone with the reservation (TestBrokerLookupIsUnshadowable was replaced by
+// TestBrokerLookupIsPackExclusive, which asserts the surviving half: loophole names are
+// sole-owned ACROSS PACKS, fatally, so a second claimant refuses the launch for everyone
+// who selected the pack that already owns the name). A pack a user installs may ship a
+// `cgroup-delegate` loophole and turn this on. That is precisely the case OQ-A3 already
+// admits — "a fetched pack can declare itself on", bounded by the origin gate rather
+// than by the declaration — and the bound here is unusually comfortable: installing a
+// pack is a user-scope act, and the most this switch can buy is a capability the same
+// user could grant with one config line. The delegate hands a jail control of ITS OWN
+// cgroup and reads no host state (OQ-A4's own severity argument).
 //
 // It deliberately does NOT ask whether the record declares a host_daemon. A pack
 // claiming this name with a daemon of its own gets that daemon spawned by the ordinary
@@ -473,7 +477,18 @@ func (o *Options) serviceReadyTimeout() time.Duration {
 // wrapper exits 0 while its detached child comes up shortly after, and failing
 // on the wrapper's exit would break every daemon of that shape.
 func (o *Options) waitServiceReady(reachable func() bool, exited <-chan struct{}, cmd *exec.Cmd) string {
-	// Real wall clock, deliberately NOT o.Now() — see relayKill below.
+	// REAL WALL CLOCK, deliberately NOT o.Now(), and this is the one place the reason
+	// is written down — the two other readiness deadlines in this file used to point at
+	// relayKill for it, and relayKill went with internal/brokerrelay.
+	//
+	// o.Now is an INJECTABLE LOGICAL CLOCK that tests freeze to make reap decisions
+	// deterministic. A drain or a readiness poll measured against a frozen clock never
+	// advances past its deadline, so the loop spins until the thing it is waiting for
+	// happens on its own — a unit suite that hangs rather than fails. The timeout
+	// MAGNITUDE stays a seam (o.ServiceReadyTimeout) so tests need not sleep for real;
+	// only the clock SOURCE is pinned to the wall, which is what keeps the frozen-clock
+	// regression catchable. internal/prune's own kill path takes time.Now() for the
+	// identical reason.
 	deadline := time.Now().Add(o.serviceReadyTimeout())
 	for {
 		if reachable() {
@@ -745,7 +760,7 @@ func (o *Options) startExternalService(
 	if fronted {
 		daemonPath = frontSocketFile(frontShortHash(socketsDir), name)
 		// Retire a dead predecessor's upstream socket BEFORE the spawn, for
-		// retireStaleRelayFiles' reasons: a leftover file would fail the fresh
+		// retireFrontSockets' reasons: a leftover file would fail the fresh
 		// daemon's bind with EADDRINUSE, and would satisfy any existence-shaped
 		// wait instantly (the wait below is a connect for exactly that reason).
 		_ = os.Remove(daemonPath)
@@ -802,7 +817,7 @@ func (o *Options) startExternalService(
 	go func() { _ = cmd.Wait(); close(exited) }()
 
 	// Wait for the service to become reachable. Real wall clock inside,
-	// deliberately NOT o.Now() — see relayKill below.
+	// deliberately NOT o.Now() — see waitServiceReady.
 	reachable := func() bool { return fileExists(hostPath) }
 	awaited := hostPath
 	if loopbackTLS {
@@ -824,7 +839,7 @@ func (o *Options) startExternalService(
 		// Not fatal — the jail still starts. But it IS the state in which every
 		// in-jail client of this loophole fails, and the failure is otherwise
 		// silent until the agent hits it, so say so here and name the log that
-		// has the reason (mirrors relayEnsure's unpublished-endpoint warning).
+		// has the reason (the same shape startHostSingleton's two warnings take).
 		o.pr(o.Stdout).print("[yellow]Warning: host service '" + name + "' " + failure +
 			" — the jail cannot reach it. Expected " + awaited +
 			"; see " + logPath + "[/yellow]")
@@ -996,15 +1011,16 @@ func retireFrontSockets(shortHash string) {
 	}
 }
 
-// waitForEndpoint polls until the relay's front has published a COMPLETE endpoint
-// file, returning whether it landed.
+// waitForEndpoint polls until a front has published a COMPLETE endpoint file,
+// returning whether it landed. Both spawn paths use it — the per-jail one in
+// startExternalService and the host-wide one in startHostSingleton.
 //
 // Content, not existence (svcendpoint.Probe): the file is written temp+rename so a
 // reader cannot see a torn line, but an older or crashed publisher can still leave
 // a file that parses as nothing usable — and treating that as "published" hands the
 // jail an address it can never dial.
 func waitForEndpoint(endpointPath string, timeout time.Duration) bool {
-	// Real wall clock, deliberately NOT o.Now() — see relayKill above.
+	// Real wall clock, deliberately NOT o.Now() — see waitServiceReady.
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if svcendpoint.Probe(endpointPath) {
