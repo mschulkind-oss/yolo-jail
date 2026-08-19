@@ -18,7 +18,9 @@ import (
 
 // The black-box suite: drive the daemon over the REAL TRANSPORT (cert-pinned,
 // token-authenticated loopback TLS) with a PATH-shimmed fake `ps`, covering
-// list/tree/pid, the exit-code contract (0/1/2/3/124), per-request config re-read,
+// list/tree/pid, the exit-code contract (0/1/2/3/124), the LAUNCH FREEZE (this line
+// used to read "per-request config re-read", which is the behaviour OQ-K3 deleted —
+// see TestBlackboxAllowlistIsFrozenAtStart, which is that test inverted),
 // empty-allowlist, and the failure/edge paths (non-string mode, tree timeout, tree
 // ps-nonzero-empty -> exit 0). Byte-level where the fake ps makes output
 // deterministic. The daemon runs in-process (BuildHandler + hostservice.ServeEndpoint).

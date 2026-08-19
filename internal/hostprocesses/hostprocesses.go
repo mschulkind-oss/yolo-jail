@@ -179,10 +179,12 @@ func BuildHandler(cfg Config) hostservice.Handler {
 		mode := pyStrOrList(func() (any, bool) { return s.Get("mode") })
 
 		if len(visible) == 0 {
-			// Names the CURRENT spelling. The old top-level `host_processes.visible`
-			// still works and is folded in at launch, but a message naming the retired
-			// key would teach the retired key — and this is the one line a user reads
-			// at the moment they are about to go edit a config.
+			// Names the CURRENT spelling, and ONLY it. The old top-level
+			// `host_processes.visible` does not work any more — it was honored through the
+			// step that moved the keys and REFUSED by the step that deleted it
+			// (config.validateHostProcessesRetired), so there is no fold-in left to
+			// mention. Naming the retired key here would teach it, and this is the one
+			// line a user reads at the moment they are about to go edit a config.
 			s.Stderr("loopholes.host-processes.settings.visible is empty — nothing to show. " +
 				"Add process names to it and RESTART the jail: the allowlist is resolved " +
 				"once at launch, so an edit does not take effect in a running jail.\n")
