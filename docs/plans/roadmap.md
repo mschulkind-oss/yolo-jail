@@ -150,9 +150,14 @@ one-line deliverable that is decided in all but name.
   OQ-K1..K4 are ruled, so the settings mechanism the three conversions all depend on is designed
   through. In dependency order:
 
-  1. **Typed, manifest-declared loophole settings** (OQ-A8/K1..K4) — declarations are authoritative,
-     a workspace may supply values *through the config-change gate*, and `host_processes.visible`
-     is **frozen** (resolved once at launch, no per-request re-read).
+  1. ~~**Typed, manifest-declared loophole settings** (OQ-A8/K1..K4)~~ — **DONE 2026-08-18.** A
+     loophole's manifest declares `settings` (typed, per-key `scope`, `user` by default); core
+     validates `loopholes.<name>.settings` against the declaration and writes the resolved values to
+     a file it owns, named by the `{settings}` token. `host_processes.visible` is **frozen** — the
+     daemon reads that file once at startup instead of re-reading the workspace config per request —
+     and the top-level key still works, folded in at launch with a warning naming the replacement.
+     An undecodable declaration is refused in BOTH decoders, which is the only placement that keeps
+     OQ-K1's "never hand a host daemon a value you could not validate" true across version skew.
   2. **`host-processes` and `audio` become packs; the broker's loophole moves into `packs/claude`**
      (OQ-A10). ⚠ Deleting `bundled_loopholes/claude-oauth-broker/` does **not** free the reserved
      name — the reservation and the `loopholesruntime.go` name special-case must die in the same
@@ -162,9 +167,10 @@ one-line deliverable that is decided in all but name.
      in its own config schema — the thing that makes the conversion mean something.
 
   ⚠ **Two user-visible breaks that need release notes when they ship:** `host_processes.visible`
-  stops applying without a restart, and the top-level `journal` key stops being recognised (which
-  needs a migration message, not silence). **Accepted cost:** `yolo-cglimit` stops working out of the
-  box.
+  stops applying without a restart (**shipped with step 1 — the entry is in
+  📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md)**), and the top-level `journal` key stops being
+  recognised (which needs a migration message, not silence). **Accepted cost:** `yolo-cglimit` stops
+  working out of the box.
 
 ---
 

@@ -291,6 +291,54 @@ A workspace `yolo-jail.jsonc` may then route within the installed set:
 }
 ```
 
+### `settings` — the keys a loophole declares for itself
+
+A loophole's `manifest.jsonc` may declare its own config keys, so making one configurable no longer
+means adding a key to yolo's schema:
+
+```jsonc
+// in the manifest — the author declares WHAT is configurable
+"settings": {
+  "visible": {
+    "type": "string_list",     // string | bool | int | string_list
+    "scope": "workspace",      // "workspace" (either file) or "user" (user config only)
+    "default": [],
+    "description": "process names this loophole may reveal"
+  }
+}
+```
+
+```jsonc
+// in a config — the user supplies values, under the loophole's own name
+"loopholes": {
+  "host-processes": { "settings": { "visible": ["sway", "waykeeper"] } }
+}
+```
+
+Three properties are worth knowing before you use it, because each one is a rule rather than a
+default you can talk yourself out of:
+
+- **It is typed, never opaque.** An undeclared key is a config **error** naming the keys that do
+  exist; a value of the wrong type is an error too. An opaque map would not be able to tell
+  `settings.visible` from `settings.ld_preload`, which is exactly what the user-scope-only rule on
+  `env` exists to prevent — opacity does not dodge that rule, it launders it.
+- **Scope is per key, and silence is strict.** A key with no declared `scope` is **user-config
+  only**; a key a workspace `yolo-jail.jsonc` may set has to say `"scope": "workspace"`. A workspace
+  can only ever *widen* a merged list (`MergeConfig` union-merges every list at every depth), so for
+  an allowlist there is no "the workspace narrows the user's ceiling" to fall back on.
+- **Values are resolved ONCE, at launch.** yolo merges your values over the declared defaults, writes
+  the result to a file it owns in the loophole's state dir, and substitutes that path into the
+  manifest's `{settings}` token. So a settings change takes effect on the next jail **start**, not on
+  the next request — which is the point: a restart is where the config-change approval prompt lives,
+  and a value that could change under a running daemon could be changed by the agent inside it.
+
+`{settings}` is legal in `host_daemon.cmd` and `doctor_cmd` (both host-side) and refused in
+`jail_daemon.cmd` (the file is a host path). It is also refused in a manifest that declares no
+settings — it would name a file yolo has no reason to write.
+
+📄 [`../design/pack-config-keys.md`](../design/pack-config-keys.md) for the whole argument, including
+why an unrecognised key *inside* a declaration is refused rather than tolerated as version skew.
+
 Because `enabled` stays workspace-writable, two disclosures replace what scope
 no longer protects:
 

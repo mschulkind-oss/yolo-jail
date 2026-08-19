@@ -21,6 +21,73 @@ changelog; this is the subset that bites.
 
 ## Unreleased
 
+### ⚠️ `host_processes.visible` moved, and it no longer applies without a restart
+
+**What changed.** Two things, and the second is the one that bites.
+
+The keys moved. `host_processes.visible` and `host_processes.fields` are now
+`loopholes.host-processes.settings.visible` and `.fields` — declared by the
+host-processes loophole's own `manifest.jsonc` instead of by yolo's config schema.
+**Note the spelling:** the loophole is `host-processes` (hyphen); the retired top-level
+key is `host_processes` (underscore).
+
+And the allowlist is **frozen at launch**. The daemon used to re-read your workspace
+`yolo-jail.jsonc` on *every request*, so editing `visible` took effect immediately.
+It now reads a file yolo writes once, at jail start, so **an edit needs a jail
+restart**.
+
+**Who is affected.** Anyone who has ever put names in `host_processes.visible` — the
+allowlist behind `yolo-ps`. The old key **still works**: it is folded into the new
+settings at launch and warns, naming the replacement. Where both spellings are present
+the new one wins **per key**, so a half-migrated config does not lose the key it did
+not touch.
+
+**What to do.** Rewrite the block, and expect to restart the jail after changing it:
+
+```jsonc
+"loopholes": {
+  "host-processes": {
+    "settings": { "visible": ["sway", "waykeeper"] }
+  }
+}
+```
+
+**Why.** The live re-read was an affordance and a hole wearing the same face. The
+property that let *you* widen an allowlist without restarting let the **agent in the
+jail** widen its own — mid-session, with no launch, and therefore with no
+config-approval prompt anywhere in the causal path. Freezing the value at launch puts
+the change back behind the gate that already exists. 📄
+[`pack-config-keys.md`](design/pack-config-keys.md) OQ-K3.
+
+> [!NOTE]
+> **This is the first half of a two-step move.** The top-level `host_processes` key is
+> deleted when `host-processes` becomes a pack; deleting it now — before there is a
+> pack to carry it — would strand every existing config. That deletion gets its own
+> entry here when it ships.
+
+### `settings` — a loophole can declare its own config keys
+
+**What changed.** A loophole's `manifest.jsonc` may declare a `settings` block naming
+the config keys it owns, each with a `type` (`string`, `bool`, `int`, `string_list`), an
+optional `default`, and a `scope`. Users supply values under
+`loopholes.<name>.settings`, and yolo validates them against the declaration before
+writing them to a file it hands the daemon.
+
+**Who is affected.** Nobody's existing config changes meaning — the block is new and
+optional. It matters to **pack authors**, who no longer need a key in yolo's own schema
+to make a loophole configurable, and it is what the `host_processes` move above is built
+on.
+
+**What to do.** Nothing, unless you write a loophole. If you do, declare the keys rather
+than expecting an opaque map: an undeclared key is a config **error** naming the keys
+that do exist, and an unrecognised key *inside* a declaration is refused rather than
+ignored — yolo will not hand a host daemon a value it could not validate.
+
+One default worth knowing: **an undeclared `scope` means user-config-only.** A setting
+can reach a host daemon, so silence is the strict answer; a key a workspace
+`yolo-jail.jsonc` may set has to say `"scope": "workspace"` out loud. 📄
+[`pack-config-keys.md`](design/pack-config-keys.md).
+
 ### ⚠️ Agent CLIs no longer update themselves
 
 **What changed.** A pack's `program via npm` — every agent CLI yolo ships (`pi`, `copilot`,

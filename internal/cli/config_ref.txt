@@ -209,11 +209,42 @@
         Default: /run/yolo-services/<name>.endpoint
         ("jail_socket" is accepted as an alias.)
 
-    OVERRIDING an existing loophole takes only "enabled", "env" and "jail_env"
-    ("jail_env" being extra env vars set INSIDE the jail, merged over whatever the
-    manifest declared).  "command" and "doctor_cmd" are REFUSED there by name:
-    they are fixed by the loophole's manifest, and a config that appeared to
-    change them would change nothing.
+    OVERRIDING an existing loophole takes only "enabled", "env", "jail_env" and
+    "settings" ("jail_env" being extra env vars set INSIDE the jail, merged over
+    whatever the manifest declared).  "command" and "doctor_cmd" are REFUSED there
+    by name: they are fixed by the loophole's manifest, and a config that appeared
+    to change them would change nothing.
+
+    "settings" (object, optional) is THE LOOPHOLE'S OWN CONFIG KEYS.  Unlike every
+    other key here, what may go inside it is not fixed by yolo: the loophole's
+    [cyan]manifest.jsonc[/cyan] DECLARES its settable keys, each with a type, an
+    optional default and a scope, and yolo validates what you write against that
+    declaration.
+
+      "loopholes": {
+        "host-processes": {
+          "settings": { "visible": ["sway", "waykeeper"] }
+        }
+      }
+
+      An undeclared key is an ERROR naming the keys that do exist, and a value of
+      the wrong type is an error too — the block is typed, never opaque.  Declared
+      types are "string", "bool", "int" and "string_list".  See what a loophole
+      declares with [cyan]yolo loopholes list[/cyan].
+
+      SCOPE IS PER KEY, and it is the manifest that decides.  A key declared
+      "workspace" may be set from a workspace yolo-jail.jsonc as well as the user
+      config; a key declared "user" — the DEFAULT when the manifest says nothing —
+      may only be set from ~/.config/yolo-jail/config.jsonc, and writing it in a
+      workspace file is refused naming both files.  The default is the strict one
+      because a setting can reach a host daemon, and silence must not grant.
+
+      RESOLVED ONCE, AT LAUNCH.  yolo merges your values over the declared
+      defaults, writes the result to a file it owns in the loophole's state dir,
+      and hands the daemon that PATH.  So editing a setting takes effect on the
+      next jail START, not on the next request — which is deliberate: a restart is
+      where the config-change approval prompt lives, and a value that could change
+      under a running daemon could be changed by the agent inside it.
 
     Each service gets:
       • Its published path bind-mounted into the jail under /run/yolo-services/
@@ -258,6 +289,22 @@
     Unix-socket bind-mount through virtiofs); loopback-tls removes that obstacle,
     but how the endpoint file crosses into an AC guest is an unmade decision, so
     host services stay explicitly DEFERRED there rather than quietly enabled.
+
+  [bold]host_processes[/bold] (object): RETIRED, still honored.  Its keys moved to
+    the host-processes loophole's own "settings" block, where they are declared by
+    that loophole's manifest rather than by yolo's config schema:
+
+      "loopholes": { "host-processes": { "settings": {
+        "visible": ["sway"],          // process comm names yolo-ps may show
+        "fields":  ["pid", "comm"]    // ps -o columns
+      }}}
+
+    NOTE THE SPELLING: the loophole is "host-processes" (hyphen); the retired
+    top-level key is "host_processes" (underscore).  The old key still works and
+    warns; where both are present, the new spelling wins PER KEY.  Two behaviours
+    changed with the move: the allowlist is resolved once at launch (so an edit
+    needs a jail restart), and a workspace file supplying it is disclosed and
+    gated by the config-change approval flow.
 
   [bold]journal[/bold] (string, default "off"): Enable the built-in journal bridge.
     Exposes [bold]yolo-journalctl[/bold] inside the jail, which forwards its args to

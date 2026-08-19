@@ -8,7 +8,25 @@ summary: "Core's schema names two loopholes by hand. This is how a pack declares
 
 # Letting a pack declare its own config keys
 
-**Status:** DECIDED 2026-08-18, nothing built. All four questions ruled — see the Decision Ledger.
+**Status:** BUILT 2026-08-18. All four questions ruled — see the Decision Ledger — and the mechanism
+they describe now exists end to end:
+
+| Half | Where |
+| :--- | :--- |
+| the manifest DECLARES (`settings`, typed, per-key `scope`) | [`internal/loopholedecl/settings.go`](../../internal/loopholedecl/settings.go) |
+| core VALIDATES (`loopholes.<name>.settings`) | [`internal/config/validate_loopholesettings.go`](../../internal/config/validate_loopholesettings.go) |
+| core RESOLVES + WRITES (`{settings}`) | [`internal/loopholes/settings.go`](../../internal/loopholes/settings.go), [`internal/cli/run/loopholesettings.go`](../../internal/cli/run/loopholesettings.go) |
+| the first consumer, frozen (OQ-K3) | [`internal/hostprocesses/`](../../internal/hostprocesses) |
+
+**What is NOT done, and is not this doc's to do:** neither loophole has become a pack, and neither
+top-level key has been deleted. `host_processes` stays in `knownTopLevelConfigKeys`, still works, and
+now warns naming `loopholes.host-processes.settings`; `journal` is untouched. Those are the next two
+steps of the sprint ([`roadmap.md`](../plans/roadmap.md)), and §5 is why they must not be folded in
+early.
+
+**One thing the build tightened past what §2.2 wrote.** The design left an undecodable declaration as
+"treat as a refusal"; the implementation makes that refusal apply in the TOLERANT decoder too, which
+is the only placement that achieves it — see the note under OQ-K1 below.
 
 **This unblocks the rest of the loophole sprint.** It was the gate on the three conversions that
 actually empty `bundled_loopholes/`: `host-processes` and `audio` becoming packs, the broker's
@@ -155,6 +173,19 @@ Validation keeps its teeth, and the typo protection C2 traded away is not traded
 > daemon a value it could not validate. Treat an undecodable declaration as a refusal, not as a
 > silent pass-through.
 
+**Built, and it needed to be sharper than "treat as a refusal" reads.** The refusal lives in
+`parseSettings` and fires in **`DecodeTolerant` as well as `Decode`** — the one placement that
+actually delivers the paragraph above. Every other cross-version tolerance in `loopholedecl` exists
+because a key only a newer build knows must not make a loophole vanish; a settings declaration
+inverts that, because the unknown key is a CONSTRAINT and dropping it means validating a value
+against half a rule. A manifest writing `{"type": "string", "enum": ["a","b"]}` under an older yolo
+must not have its `enum` ignored and then have core accept anything.
+
+The cost is named rather than discovered, and it is the same one the `enabled` retirement already
+accepts: the manifest fails to load, so `loadFromDir` warns and the loophole is ABSENT. No loophole
+means no daemon and no values — fail-closed in every direction, which is what makes the refusal
+affordable here. Pinned by `TestUnknownSettingDeclarationKeyIsRefusedByBOTHDecoders`.
+
 ### 2.3 Delivery: a file yolo owns, named by a token
 
 Since no channel exists (C3) and the obvious one is forbidden (C4), yolo creates one:
@@ -203,6 +234,21 @@ its default (`default_enabled`), and the collision dissolves rather than needing
 The design's answer is the per-key `scope` field: a capability-widening list can be declared
 `scope: "user"`, and then the workspace cannot contribute to it at all. But R5's general claim has to
 be corrected rather than relied upon.
+
+> [!NOTE]
+> **What shipped for `visible`, and why it is not the `user` this paragraph reaches for.** The
+> manifest declares **`scope: "workspace"`**, matching §2.1's own example and — more importantly —
+> matching what the key has always been: the old manifest's description read *"Workspace controls
+> visibility via the top-level `host_processes.visible` list"*, and every existing config that uses
+> the feature at all uses it from a workspace file. Declaring `user` here would have made the
+> migration a **second** break on top of the freeze, silently un-configuring every such workspace at
+> the moment the new spelling was adopted, and OQ-K3 froze only the key's LIVENESS.
+>
+> The paragraph above is still the argument that decides it, and what it decides is that the
+> **default** is `user`: an author who says nothing gets the strict answer, and a widening key has to
+> ask in writing. `visible` asks. If the ceiling-vs-widening question is to be answered differently
+> for this key, that is a deliberate second break with its own release note — not a side effect of
+> moving where the key is spelled.
 
 ---
 
