@@ -95,6 +95,35 @@ launcher is gone is **relaunched**, not attached-and-repaired.
 
 **No config changes.** No manifest, no `yolo-jail.jsonc` key, and no environment variable moved.
 
+### ⚠️ Restart the broker singleton after upgrading, or every OAuth refresh on that host fails
+
+**This is the one thing on this page that needs a command run.** `just deploy` runs it for you
+(`yolo broker restart`, at the end of the recipe). If you upgraded any other way — a plain
+`just install`, a shipped bundle, a package — do it by hand **once**:
+
+```console
+$ yolo broker restart
+```
+
+**Why.** The singleton's socket path is deliberately unchanged (`/tmp/yolo-claude-oauth-broker.sock`),
+which is what makes the move need no state migration — and it is also what makes a *previous
+version's* broker, still running from before the upgrade, get picked up and reused. That daemon
+was written for a host-to-host socket where the first bytes on a connection were the client's own
+request. It now sits behind yolo's front, which prepends a **connection preamble**, so the old
+daemon reads yolo's preamble **as the request**, answers it, and the jail's real request is never
+read. Every Claude OAuth token refresh on that host then fails.
+
+**And it does not look broken.** Liveness is "the socket accepts" now, so the pre-upgrade daemon
+reports healthy everywhere it is asked: `yolo broker status`'s `socket accept:` row is green,
+`yolo check`'s `daemon live (pid=…, socket accepting)` row is green, the front publishes its
+endpoint, and the in-jail reachability witness — which connects and closes — passes, so the launch
+is not refused. The one probe that catches it is `yolo check`'s **per-jail** row, which makes the
+full protocol round trip through a real front and reports `front up, broker unreachable`. A reboot
+also fixes it, since the daemon lives in `/tmp`.
+
+**Nothing needs doing on a host that was not running a broker** — a fresh install, or a machine
+rebooted since. The next launch spawns the current daemon, which reads the preamble.
+
 ### ⚠️ A workspace config that enables a loophole now needs the pack selected, or the jail will not start
 
 **What changed.** Every loophole yolo ships is now carried by a pack (`audio`,
