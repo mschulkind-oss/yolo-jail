@@ -169,16 +169,26 @@
     validates it; the KEY is "loopholes" — config.go's known-key list has no
     "host_services", so writing that spelling is an unknown-key error.)
     Each key is a service name (must match ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$).
-    One name is reserved and cannot be used: "claude-oauth-broker", which yolo
-    answers to itself.  "cgroup-delegate" and "journal" were reserved until
-    2026-08-18 and are now ordinary pack-shipped loopholes — writing
+    NO NAME IS RESERVED any more.  "cgroup-delegate" and "journal" stopped being
+    reserved on 2026-08-18 and "claude-oauth-broker" on 2026-08-19, when the last
+    of yolo's own loopholes became a pack's manifest — writing
     "loopholes": {"cgroup-delegate": {"enabled": true}} is how you switch the
-    cgroup delegate on, and it is OFF until you do.
+    cgroup delegate on, and it is OFF until you do.  What refuses a duplicate now
+    is exclusivity ACROSS PACKS (two packs claiming one loophole name refuses the
+    launch), not a list of names yolo holds back.
+
+    "claude-oauth-broker" is still the one name yolo reaches by literal — "yolo
+    broker status", "yolo check"'s broker section, the host-singleton spawn and
+    the in-jail terminator's endpoint variable all name it — so declaring an
+    INLINE service under that name is accepted and is almost certainly not what
+    you want: yolo will ensure its own broker singleton alongside your daemon.
+    Select "packs": ["claude"] to get the real one, and use "enabled" below to
+    switch it off.
 
     A key here does one of two things, and which one depends on whether a loophole
-    of that name already EXISTS on this machine (bundled, or shipped by a selected
-    pack).  A new name DECLARES an inline host service; an existing name OVERRIDES
-    that loophole.  The two accept different keys, because you cannot replace a
+    of that name already EXISTS on this machine (shipped by a selected pack).  A
+    new name DECLARES an inline host service; an existing name OVERRIDES that
+    loophole.  The two accept different keys, because you cannot replace a
     manifest's daemon from config.
 
     "enabled" (boolean, optional) is accepted by BOTH, and it is THE SWITCH:
