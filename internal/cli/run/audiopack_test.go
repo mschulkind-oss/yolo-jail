@@ -512,6 +512,21 @@ func TestShippedAudioPackEmitsAReadOnlyBindIntoTheContainerArgv(t *testing.T) {
 		}
 		return
 	}
+	// RuntimeArgsFor has a SECOND skip, independent of nesting: a device node that
+	// does not exist on this machine is warned about and dropped. Asserting the
+	// argv without modelling that made this test fail on every machine with no
+	// sound card — including this repo's own jail, where /dev/snd is absent AND
+	// the nesting branch above is unreachable because the fixture deliberately
+	// clears YOLO_VERSION (line ~436) to exercise the host-launcher path. Read
+	// the node the same way the production code does, so the two cannot disagree
+	// about which branch is under test.
+	if _, err := os.Stat("/dev/snd"); err != nil {
+		if strings.Contains(joined, "--device") {
+			t.Errorf("device passthrough must be skipped when the host node is missing; "+
+				"got:\n%s", joined)
+		}
+		return
+	}
 	if !strings.Contains(joined, "--device /dev/snd") {
 		t.Errorf("the merged loophole passes /dev/snd through (ALSA-seq MIDI has no "+
 			"userspace shim, so rtmidi and gomidi open /dev/snd/seq directly); got:\n%s",
