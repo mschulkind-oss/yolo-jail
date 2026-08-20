@@ -190,6 +190,71 @@
         # derivations before recursing.
         isDerivation = p:
           p != null && builtins.isAttrs p && (p ? outPath);
+
+        # A `packages` entry can name a nixpkgs attribute that is not a package:
+        # a COLLECTION of packages (`xorg`, `python3Packages`, `llvmPackages`,
+        # `gst_all_1`), or something that was never installable at all (`lib`,
+        # `fetchurl`, `system`).  Nothing downstream can notice.  The value flows
+        # into the image's `contents` and into the /lib farm's `map toString`,
+        # and the first thing that TOUCHES it is nix's own string coercion:
+        #     error: cannot coerce a set to a string:
+        #       { appres = «thunk»; bdftopcf = «thunk»; «218 attributes elided» }
+        # reported from inside pkgs/build-support/docker/default.nix, two layers
+        # from its cause — 228 elided attribute names and not one mention of
+        # `packages`, of yolo, or of the entry the user actually wrote.  Naming
+        # that entry is the whole point of this guard; the member sample makes
+        # the fix legible, because "xorg is a collection" only helps someone who
+        # can see what a collection holds.
+        #
+        # `attr` is the nixpkgs attribute; `entry` is the config entry verbatim,
+        # which differs when the dotted output shorthand was used ("xorg.libX11"
+        # parses as attr `xorg` + output `libX11`, so it lands here too — and
+        # must, since the /lib farm applies getLib to the BASE attr and would
+        # coerce the collection even though the image contents came out right).
+        nonPackageError = attr: entry: v:
+          let
+            names = builtins.attrNames v;
+            # Bounded window: a collection can hold ~12k attrs (python3Packages)
+            # and this runs on the way to an abort, so sample rather than scan.
+            # `? outPath` is a membership test, so it never forces a build.
+            window = pkgs.lib.take 40 names;
+            members = pkgs.lib.take 3 (builtins.filter
+              (n: let a = builtins.tryEval (isDerivation v.${n}); in a.success && a.value)
+              window);
+            # NOTE the parens: `optionalString cond a + b` applies the function
+            # before the concat, so an unparenthesized tail leaks into the
+            # message even when the condition is false.
+            viaShorthand = pkgs.lib.optionalString (entry != attr)
+              (" (from the `packages` entry \"${entry}\" — the part after the"
+               + " dot selects an OUTPUT, not a collection member)");
+          in
+            if !builtins.isAttrs v then
+              "yolo: `packages` entry \"${entry}\" resolves to nixpkgs."
+              + "${attr}, which is not a package (it is a "
+              + builtins.typeOf v + ", not a derivation). Remove it from"
+              + " `packages`."
+            # A set with nothing derivation-shaped in it is not a package
+            # collection either (`lib`, `stdenvNoCC.hostPlatform`), so it gets
+            # no member sample and no "name a member" advice to act on.
+            else if members == [] then
+              "yolo: `packages` entry \"${entry}\" resolves to nixpkgs."
+              + "${attr}, which is a set, not a package — it has no derivation"
+              + " to install and holds no packages."
+              + "${viaShorthand} Remove it from `packages`."
+            else
+              "yolo: `packages` entry \"${entry}\" resolves to nixpkgs."
+              + "${attr}, which is a package COLLECTION of "
+              + toString (builtins.length names) + " attributes, not a package"
+              + " — it has no derivation to install.${viaShorthand}\n"
+              + "  Members include: "
+              + builtins.concatStringsSep ", " members + ", ...\n"
+              + "  A collection member is NOT selectable from `packages`: use"
+              + " the member's own top-level attribute if nixpkgs has one"
+              + " (`nix search nixpkgs <member>` to check — most of xorg.* is"
+              + " top-level today, e.g. libX11), and drop \"${entry}\".";
+        requireDerivation = attr: entry: v:
+          if isDerivation v then v else throw (nonPackageError attr entry v);
+
         propagatedClosure = drv:
           builtins.genericClosure {
             startSet = [ { key = drv.outPath; pkg = drv; } ];
@@ -234,11 +299,15 @@
         # contents) and extraLibPackages (the /lib symlink farm) both
         # derive from this, so they can make different output choices
         # from the same spec.
+        # Every branch resolves its attribute through requireDerivation, so a
+        # collection or a non-package aborts HERE, naming the config entry —
+        # including the version-override branch, whose `.overrideAttrs` on a
+        # collection would otherwise report a missing attribute instead.
         resolvedPackageSpecs = map (spec:
           if builtins.isString spec then
             let parsed = parseDottedSpec spec;
             in {
-              drv = imagePkgs.${parsed.base};
+              drv = requireDerivation parsed.base spec imagePkgs.${parsed.base};
               outputs = if parsed.output == null then null else [ parsed.output ];
             }
           else if spec ? nixpkgs then
@@ -247,11 +316,15 @@
               pinnedPkgs = import (builtins.fetchTarball {
                 url = "https://github.com/NixOS/nixpkgs/archive/${spec.nixpkgs}.tar.gz";
               }) { system = imageSystem; };
-            in { drv = pinnedPkgs.${spec.name}; outputs = spec.outputs or null; }
+            in {
+              drv = requireDerivation spec.name spec.name pinnedPkgs.${spec.name};
+              outputs = spec.outputs or null;
+            }
           else if spec ? version && spec ? url && spec ? hash then
             # Version override: rebuild existing package with different source
             {
-              drv = imagePkgs.${spec.name}.overrideAttrs (old: {
+              drv = (requireDerivation spec.name spec.name
+                      imagePkgs.${spec.name}).overrideAttrs (old: {
                 version = spec.version;
                 src = imagePkgs.fetchurl {
                   url = spec.url;
@@ -261,7 +334,10 @@
               outputs = spec.outputs or null;
             }
           else
-            { drv = imagePkgs.${spec.name}; outputs = spec.outputs or null; }
+            {
+              drv = requireDerivation spec.name spec.name imagePkgs.${spec.name};
+              outputs = spec.outputs or null;
+            }
         ) extraPackageSpecs;
 
         extraPackages = builtins.concatMap
@@ -377,11 +453,20 @@
               else
                 "nixpkgs refuses it: marked broken, insecure, or "
                 + "licence-blocklisted";
-          in {
-            inherit name outputs drv skipReason;
-            available = present && metaOK
-              && okAttempt.success && okAttempt.value;
-          }
+          in
+            # A collection or a non-package is a CONFIG error, not a platform
+            # fact, so it is fatal here rather than warn-and-skip — and the test
+            # sits OUTSIDE okAttempt, whose tryEval would otherwise swallow the
+            # throw and relabel a typo'd `packages` entry "no ${system} build".
+            if present && !(isDerivation baseDrv)
+            then throw (nonPackageError attr
+                          (if builtins.isString spec then spec else spec.name)
+                          baseDrv)
+            else {
+              inherit name outputs drv skipReason;
+              available = present && metaOK
+                && okAttempt.success && okAttempt.value;
+            }
         ) extraPackageSpecs;
 
         noncontainerKept = builtins.filter (r: r.available) noncontainerResolved;
