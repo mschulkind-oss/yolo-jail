@@ -608,6 +608,38 @@ func requireJail(t *testing.T) {
 	}
 }
 
+// realPackInstallsEnv gates the tests that install a SHIPPED pack's real program from its
+// vendor, as opposed to the mechanism cells that install pinned bytes
+// (installmechanism_test.go).
+const realPackInstallsEnv = "YOLO_TEST_REAL_PACK_INSTALLS"
+
+// requireRealPackInstalls skips a test that installs a shipped pack's program from the
+// vendor unless the caller asked for that class of work.
+//
+// The question these tests answer is real but it is not one a commit can raise: whether six
+// third-party vendors' CURRENT releases still install. Asking it on every push made a green
+// main go red with no commit — on 2026-08-20 codex's linux-arm64 tarball was published 37
+// minutes after the parent `@latest` resolved to, and three tests failed for a defect in
+// nobody's repository (docs/design/agent-install-in-ci.md §5, Mode A).
+//
+// So the trigger moves to where the causation is (§6.1.1): a `packs/**` change, which CAN
+// break this and is commit-caused, and a weekly schedule, which catches vendor drift. The
+// every-push gate keeps the assertions that a commit can break — config rendering, pack
+// selection, and the two install MECHANISMS from pinned bytes.
+//
+// This is a gate on WHICH QUESTION is asked, not a switch that weakens an assertion: the
+// tests below are unchanged and still run, in CI, on two triggers. `just test` sets the
+// variable so a local full run keeps everything, and the skip message names it — a silent
+// skip would be the version of this that rots.
+func requireRealPackInstalls(t *testing.T) {
+	t.Helper()
+	if os.Getenv(realPackInstallsEnv) == "" {
+		t.Skipf("skipping real-vendor pack install: this question is asked on a `packs/**` "+
+			"change and weekly, not on every push (docs/design/agent-install-in-ci.md §6.1.1). "+
+			"Set %s=1 to run it here; `just test` already does.", realPackInstallsEnv)
+	}
+}
+
 // skipIfCgroupReadonly skips when cgroup v2 is absent or read-only (e.g. a
 // nested jail), probing with an mkdir/rmdir under /sys/fs/cgroup.
 func skipIfCgroupReadonly(t *testing.T) {

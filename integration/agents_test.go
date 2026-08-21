@@ -21,6 +21,7 @@ import (
 // `packs` name them.
 func TestAgentToolsAvailable(t *testing.T) {
 	requireJail(t)
+	requireRealPackInstalls(t)
 	dir := writeProjectWithPacks(t, `{}`, "codex", "copilot")
 	r := runYolo(t, dir, "codex --version && copilot --version")
 	if r.rc != 0 {
@@ -35,9 +36,15 @@ func TestAgentToolsAvailable(t *testing.T) {
 func TestAgentToolsAvailableDirect(t *testing.T) {
 	requireJail(t)
 	dir := writeProjectWithPacks(t, `{}`, "copilot")
-	r := runYoloDirect(t, dir, "copilot", "--version")
+	// `command -v`, not `--version`: the bug this test exists for was "copilot: command not
+	// found" — /mise/shims missing from the NON-LOGIN-shell PATH — and resolution is exactly
+	// what that bug broke. Running the binary would additionally install it from the vendor,
+	// which is a different question on a different trigger (§6.1.1), and would put this
+	// assertion behind a network fetch it never needed.
+	r := runYoloDirect(t, dir, "bash", "-c", "command -v copilot")
 	if r.rc != 0 {
-		t.Fatalf("copilot --version failed: rc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
+		t.Fatalf("copilot did not resolve on the non-login PATH: rc %d\nstdout: %s\nstderr: %s",
+			r.rc, r.stdout, r.stderr)
 	}
 }
 
@@ -75,8 +82,42 @@ var packMatrix = []packCase{
 // launchers is generated from the pack's `install` declaration, and every config file from
 // its `surfaces`, with no Go code naming any of these tools. The matrix entries are PACK
 // names now, not agent names — the only registry left is the packs/ directory.
+// TestPackRendersConfigAndLauncher is the EVERY-PUSH half of the per-pack matrix: for each
+// shipped agent pack, one jail proves that the pack's `surfaces` rendered its config with the
+// expected auto-approve marker, and that the pack's `install` declaration produced a launcher.
+//
+// It installs NOTHING, and separating it out is the point (docs/design/agent-install-in-ci.md
+// §3). Of the three assertions its sibling makes, only this one is genuinely per-pack — five
+// packs have five codecs, paths and marker keys, and a render bug in one says nothing about
+// the others — and it was the one held hostage by a network install it never needed, because
+// the sibling bundled `<bin> --version` and the config grep into a single shell command.
+//
+// Asserting the LAUNCHER exists rather than that the binary runs is the P3 line: the
+// launcher's existence proves the pack's `install` declaration was read and rendered, which
+// is yolo's job. Whether the vendor's current release then installs is the vendor's, and it
+// is asked by TestPackInstallsVersionsAndConfigures on the triggers that can cause it.
+func TestPackRendersConfigAndLauncher(t *testing.T) {
+	requireJail(t)
+	for _, tc := range packMatrix {
+		t.Run(tc.pack, func(t *testing.T) {
+			requireJail(t)
+			dir := writeProjectWithPacks(t, `{}`, tc.pack)
+			cmd := fmt.Sprintf(
+				"grep -q '%s' \"$HOME/%s\" && test -x \"$HOME/.yolo-launchers/%s\"",
+				tc.marker, tc.configRel, tc.binary,
+			)
+			r := runYolo(t, dir, cmd)
+			if r.rc != 0 {
+				t.Fatalf("%s: config/launcher render failed: rc %d\nstdout: %s\nstderr: %s",
+					tc.pack, r.rc, r.stdout, r.stderr)
+			}
+		})
+	}
+}
+
 func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 	requireJail(t)
+	requireRealPackInstalls(t)
 	for _, tc := range packMatrix {
 		t.Run(tc.pack, func(t *testing.T) {
 			requireJail(t)
@@ -111,9 +152,12 @@ func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 func TestPackSelectionPrunesUnselected(t *testing.T) {
 	requireJail(t)
 	dir := writeProjectWithPacks(t, `{}`, "codex")
+	// No `codex --version` here. Every assertion below is about which launchers and configs
+	// yolo GENERATED for the selected pack and withheld for the others, and none of them
+	// needs the vendor's tarball — the install was incidental to the test's subject and put
+	// its pruning assertion behind a network fetch (§6.1.1).
 	cmd := strings.Join([]string{
-		"codex --version",
-		"test -e $HOME/.yolo-launchers/codex",
+		"test -x $HOME/.yolo-launchers/codex",
 		"! test -e $HOME/.yolo-launchers/copilot",
 		"! test -e $HOME/.yolo-launchers/claude",
 		"! test -e $HOME/.yolo-shims/codex",

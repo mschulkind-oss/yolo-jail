@@ -3,13 +3,14 @@ title: "Nine cold installs a run — what CI buys by downloading six agent CLIs"
 date: 2026-08-21
 status: accepted
 tags: [ci, packs, testing, npm, cost]
-summary: "The integration suite installs agent CLIs from the live npm registry nine times per run, unpinned and with --prefer-online, because the npm prefix is per-workspace and every test gets a fresh workspace. That buys two mechanisms' worth of coverage nine times over, and imports every registry hazard into the blocking gate. Two CI failures in two days, neither of them a bug in this repo. All six questions settled; the design is decided and nothing is built. One claim retracted along the way."
+summary: "The integration suite installs agent CLIs from the live npm registry nine times per run, unpinned and with --prefer-online, because the npm prefix is per-workspace and every test gets a fresh workspace. That buys two mechanisms' worth of coverage nine times over, and imports every registry hazard into the blocking gate. Two CI failures in two days, neither of them a bug in this repo. All six questions settled; steps 1-3 built the same day. One claim retracted along the way."
 ---
 
 # Nine cold installs a run — what CI buys by downloading six agent CLIs
 
-**Status:** DECIDED 2026-08-21. **Nothing built.** All six questions are settled and compacted into
-the [Decision Ledger](#decision-ledger); §11 is the build order. **One claim was retracted along the
+**Status:** DECIDED 2026-08-21; **§11 steps 1–3 BUILT** the same day (`0890a80`, `6e536c5`, and the
+commit adding `.github/workflows/packs.yml`). All six questions are settled and compacted into the
+[Decision Ledger](#decision-ledger); §11 marks what shipped and what remains. **One claim was retracted along the
 way:** the argument that a lockfile pin could not serve CI was wrong, and the manifest-pin shape it
 motivated is withdrawn ([§5.1](#51-mode-a-is-already-ruled-and-waiting-on-a-field)) — the trap that
 made it plausible is preserved there, because it is easy to re-derive. Every claim about current
@@ -578,37 +579,44 @@ and the gate wants frozen ones, and today they share one mechanism.** §5.1 spli
 | A fixture pack diverges from how real packs are shaped, so the gate passes on a manifest form no shipped pack uses | The shipped packs' `surfaces` still render in every run (§3, row 3); what the fixture replaces is only the *install*. If a fixture ever needs a field no real pack declares, that is the signal it has drifted. |
 | The two `installer` packs stay thinly covered | Called out in §2.3; `agy` has no cell at all today. Adding one is in scope for §6.1's "one cell per mechanism". |
 
-## 11. What I would build, in order
+## 11. Build order — what shipped, and what is left
 
-First, move suite warmup out of the first timed test (§5.2). Mode B is entirely ours, it needs no
+**Steps 1–3 shipped 2026-08-21.** Measured on real containers in a nested jail: the two mechanism
+cells cost 4.96s (npm) and 3.84s (installer); the new every-push `TestPackRendersConfigAndLauncher`
+covers all five packs' surfaces in 19.8s with no network; and the push path now performs **zero**
+vendor installs, down from nine. What CI has to confirm is the effect on its own baselines (§4) —
+this box is faster and its npm cache was warm.
+
+**✅ First, move suite warmup out of the first timed test (§5.2).** Mode B is entirely ours, it needs no
 ruling on pinning, and it is the only item here that makes the *existing* numbers trustworthy — until
 it lands, every duration in §4 overstates the first test and understates the rest. I would not split
 `TestAgentToolsAvailable` to achieve it: two agents in one jail is the assertion that test exists to
 make, and its cost was never really about the second install.
 
-Second, the blocking matrix points at pinned bytes: one npm cell, one `installer` cell (§6.1), from
+**✅ Second**, the blocking matrix points at pinned bytes: one npm cell, one `installer` cell (§6.1), from
 fixture packs. Per OQ-CI6 this needs nothing from `trust-paths.md` — a fixture pinned via its
 `package` string uses only shipped mechanisms (§5.1.1) — so the previous revision of this section was
 wrong to put "wait for the `LockEntry` field" ahead of it. The npm half is close to free; the
 `installer` half, which needs an installer URL the test controls, is the real work.
 
-Third, the `packs/**` path-filtered job (§6.1.1), which is what makes step two safe to take — it is
+**✅ Third**, the `packs/**` path-filtered job (§6.1.1), which is what makes step two safe to take — it is
 the trigger that keeps a manifest typo from reaching main once the every-push gate stops installing
 real packs. Land it in the same change as step two, not after: between the two, the shipped manifests
 have no install coverage at all. Read the required-check warning in §6.1.1 before marking it required.
 
-Fourth, and independently of all the above, `LockEntry` grows OQ-TP4's npm-version field so the
+**Fourth (not started)**, and independently of all the above, `LockEntry` grows OQ-TP4's npm-version field so the
 **shipped** packs can be pinned for users. That belongs to `trust-paths.md` and is no longer a blocker
 here — it is what makes "no evergreen npm" true of the product rather than only of CI, and it is also
 what finally removes Mode A from the `packs/**` trigger.
 
-Fifth, the weekly maintenance workflow (§6, §6.0): separate vendor × arch jobs, hard-failing,
-fanning out to a collector that lands the pins which verified and leaves the rest alone. This is what
-replaces "advisory", and it is deliberately after the pin — before it, the workflow would have nothing
-to advance. Build the collector's partial-failure path first, or the "bump what passed" ruling is
+**Fifth (half shipped)**, the weekly maintenance workflow (§6, §6.0). The VERIFY half is in
+`packs.yml`: separate vendor × arch jobs, `fail-fast: false`, hard-failing, on a weekly cron as well as
+the `packs/**` trigger. The BUMP half is not, and cannot be until step four — `yolo pack update`
+resolves a version but has nowhere to record it, so a collector would have nothing to write. When it
+is built, build the collector's partial-failure path FIRST, or the "bump what passed" ruling is
 unobservable until the week something breaks.
 
-Sixth, re-measure, and only then decide whether §6.2's warm-prefix seam has anything left to remove
+**Sixth (waiting on CI data)**, re-measure, and only then decide whether §6.2's warm-prefix seam has anything left to remove
 (OQ-CI5 defers exactly this).
 
 ## Open Questions

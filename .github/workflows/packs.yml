@@ -1,0 +1,191 @@
+name: Pack Installs
+
+# Asks ONE question the every-push gate deliberately does not: do the shipped packs'
+# programs still install from their vendors?
+#
+# It is a separate workflow because the trigger is the whole point
+# (docs/design/agent-install-in-ci.md §6.1.1 — "the trigger should match the causation"):
+#
+#   * a `packs/**` change CAN break this and is commit-caused, so it is gated on the commit;
+#   * a vendor's release breaking is NOT commit-caused, so it gets a weekly cadence;
+#   * everything else about installing lives on the push path as pinned mechanism cells
+#     (integration/installmechanism_test.go), which cannot go red without a commit.
+#
+# Asking this on every push is what turned an upstream publish race into three red tests on
+# 2026-08-20: `@openai/codex@latest` resolved to a parent whose linux-arm64 tarball was
+# published 37 minutes later, npm silently skipped the optional platform dependency, and main
+# went red for a defect in nobody's repository.
+#
+# It FAILS LIKE ANY OTHER JOB — no `continue-on-error` anywhere. Schedule and severity are
+# separate dials, and "advisory" welds them together: a yellow cell nobody is paged for
+# teaches the next reader only that this job is allowed to be yellow.
+on:
+  push:
+    branches: [main]
+    paths: ['packs/**']
+  pull_request:
+    branches: [main]
+    paths: ['packs/**']
+  schedule:
+    # Weekly, offset from the nightly macOS run (06:40) and the flake.lock bump.
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+# > [!WARNING]
+# > Do NOT add this to branch protection as a required check while it is path-filtered.
+# > GitHub reports no status for a job a `paths` filter skipped, so a check that is both
+# > required and filtered leaves every PR that does not touch `packs/**` waiting forever for
+# > a status that will never arrive. Making it required needs a companion always-runs job
+# > that reports success when this one is skipped.
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  # KNOWN DUPLICATION of ci.yml's build-image, kept deliberately rather than hidden.
+  # Artifacts do not cross workflow runs, so this workflow cannot consume ci.yml's image.
+  # The honest fix is to extract one reusable `workflow_call` job and have both callers use
+  # it; until then these steps can drift from ci.yml's, and that is the maintenance cost of
+  # the split. Change one, check the other.
+  build-image:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      "$AGENT_TOOLSDIRECTORY" || true
+          sudo docker image prune --all --force || true
+          sudo apt-get clean
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Build image
+        run: nix build --impure .#ociImageMinimal && ./result > /tmp/jail-image.tar
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packs-jail-image-${{ matrix.os }}
+          path: /tmp/jail-image.tar
+          retention-days: 1
+
+  # One job per PACK x ARCH, and the fan-out is the ruling (§6, OQ-CI3): a single
+  # sequential job dies on the first bad `npm install` and masks the other five vendors,
+  # so a break must name its own vendor. `fail-fast: false` is what makes that true.
+  #
+  # Both arches, because the 2026-08-20 outage was arch-specific — the same version was
+  # fine on linux-x64 and broken on linux-arm64 AT THE SAME INSTANT. A vendor that passes
+  # on one arch has not passed.
+  install:
+    needs: build-image
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+        pack: [claude, copilot, opencode, pi, codex]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      "$AGENT_TOOLSDIRECTORY" || true
+          sudo docker image prune --all --force || true
+          sudo apt-get clean
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Install Podman and socat
+        run: sudo apt-get update && sudo apt-get install -y podman socat
+
+      - name: Download jail image
+        uses: actions/download-artifact@v8
+        with:
+          name: packs-jail-image-${{ matrix.os }}
+          path: /tmp
+
+      - name: Load jail image
+        run: podman load < /tmp/jail-image.tar
+
+      # -run selects this pack's subtest only, so a red cell names its vendor in the job
+      # name rather than in a log nobody opens. YOLO_TEST_REAL_PACK_INSTALLS is what
+      # un-skips the vendor-install tests; without it they skip themselves and say so
+      # (integration/harness_test.go, requireRealPackInstalls).
+      - name: Install ${{ matrix.pack }} from its vendor
+        run: |
+          go test -count=1 -timeout 0 -v ./integration \
+            -run 'TestPackInstallsVersionsAndConfigures/${{ matrix.pack }}'
+        env:
+          YOLO_RUNTIME: podman
+          YOLO_TEST_REAL_PACK_INSTALLS: "1"
+          YOLO_TEST_JAIL_TIMEOUT: "1200"
+
+  # The multi-pack coexistence case, which is not per-pack and so is not in the matrix
+  # above: one jail whose `packs` names two agents must end up with both installed.
+  coexistence:
+    needs: build-image
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      "$AGENT_TOOLSDIRECTORY" || true
+          sudo docker image prune --all --force || true
+          sudo apt-get clean
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Install Podman and socat
+        run: sudo apt-get update && sudo apt-get install -y podman socat
+      - name: Download jail image
+        uses: actions/download-artifact@v8
+        with:
+          name: packs-jail-image-${{ matrix.os }}
+          path: /tmp
+      - name: Load jail image
+        run: podman load < /tmp/jail-image.tar
+      - name: Two agents in one jail
+        run: go test -count=1 -timeout 0 -v ./integration -run 'TestAgentToolsAvailable$'
+        env:
+          YOLO_RUNTIME: podman
+          YOLO_TEST_REAL_PACK_INSTALLS: "1"
+          YOLO_TEST_JAIL_TIMEOUT: "1200"

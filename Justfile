@@ -193,7 +193,12 @@ cachix-push CACHE="yolo-jail":
 # Run all tests (Go unit + Go container integration suite)
 test:
     go test -short ./...
-    go test -count=1 -timeout 0 ./integration
+    # YOLO_TEST_REAL_PACK_INSTALLS keeps the tests that install a shipped pack's program
+    # from its VENDOR. CI does not set it on the push path — that question is asked on a
+    # `packs/**` change and weekly instead, because no commit can cause a vendor's release
+    # to break (docs/design/agent-install-in-ci.md §6.1.1). A local full run wants
+    # everything, so this recipe asks for it.
+    YOLO_TEST_REAL_PACK_INSTALLS=1 go test -count=1 -timeout 0 ./integration
 
 # Run fast tests only (skip container integration tests).
 test-fast:
