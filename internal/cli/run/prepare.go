@@ -34,10 +34,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 			netMode = m
 		}
 	}
-	var forwardHostPorts []any
-	if netMode == "bridge" && netSec != nil {
-		forwardHostPorts = asAnyList(mapGet(netSec, "forward_host_ports"))
-	}
+	publishPorts, forwardHostPorts := briefingPortsFor(netMode, netSec)
 
 	// Blocked-tools → jailcontent.BlockedTool records.
 	blocked := blockedToolRecords(config.NormalizeBlockedTools(cfgMap(cfg, "security")))
@@ -86,6 +83,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		BlockedTools:       blocked,
 		MountDescriptions:  mountDescriptions,
 		NetMode:            netMode,
+		PublishPorts:       publishPorts,
 		ForwardHostPorts:   forwardHostPorts,
 		Loopholes:          loops,
 		Resources:          resources,
@@ -124,6 +122,25 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	}
 	_ = rt
 	return staging, nil
+}
+
+// briefingPortsFor is the two port lists the jail's briefing advertises, in
+// (publish, forward) order — network.ports is HOST → JAIL, forward_host_ports is
+// JAIL → HOST, and they are returned as separate values because they are separate
+// directions with opposite entry orders. A jail used to be told only the second
+// one, leaving an agent unable to see which of its own ports were published.
+//
+// Both are gated on bridge mode, matching the launch: under host networking the
+// stacks are shared and assembleRunCmd honors neither key, so advertising them
+// would describe forwarding that is not happening.
+//
+// A FUNCTION rather than six inline lines, for the reason briefingLoopholes gives
+// below: the same expression retyped in a test asserts nothing about this file.
+func briefingPortsFor(netMode string, netSec *jsonx.OrderedMap) (publish, forward []any) {
+	if netMode != "bridge" || netSec == nil {
+		return nil, nil
+	}
+	return asAnyList(mapGet(netSec, "ports")), asAnyList(mapGet(netSec, "forward_host_ports"))
 }
 
 // briefingLoopholes is the loophole list the jail's briefing advertises — census site 1

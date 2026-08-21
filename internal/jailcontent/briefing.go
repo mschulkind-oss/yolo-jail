@@ -42,10 +42,18 @@ type Loophole struct {
 // ProvisioningFailed is true when the last boot's .yolo/startup.log contained
 // "PROVISIONING FAILED" (the caller reads the log — see ReadProvisioningFailed).
 type BriefingInput struct {
-	Workspace          string
-	BlockedTools       []BlockedTool
-	MountDescriptions  []string
-	NetMode            string
+	Workspace         string
+	BlockedTools      []BlockedTool
+	MountDescriptions []string
+	NetMode           string
+	// PublishPorts and ForwardHostPorts are the two DIRECTIONS, and they are
+	// rendered as separate sections on purpose: a jail that showed only the
+	// second one let an agent see which host ports had been imported while
+	// leaving it blind to which of its own ports were published outward. Their
+	// entry orders are opposite — PublishPorts (network.ports) is "HOST:JAIL",
+	// ForwardHostPorts is "JAIL:HOST" — so neither may be rendered as a bare
+	// pair; every line names which side each port belongs to.
+	PublishPorts       []any
 	ForwardHostPorts   []any
 	Loopholes          []Loophole
 	Resources          map[string]any
@@ -205,19 +213,36 @@ func BriefingContent(in BriefingInput) string {
 			"(`requested`/`shared` = forwarding is in place)."
 	}
 
+	// Both port sections are suppressed under host networking, where the stacks are
+	// shared and neither key is honored at launch — rendering them would describe
+	// forwarding that is not happening.
+	var publishedPorts []string
+	if len(in.PublishPorts) > 0 && netMode != "host" {
+		publishedPorts = append(publishedPorts,
+			"- **Published Ports** (the HOST connects IN to a server you run in here). Only works if "+
+				"the server binds `0.0.0.0`; a `127.0.0.1` listener in here is not publishable:")
+		for _, entry := range in.PublishPorts {
+			hp, jp, ok := publishEntry(entry)
+			if !ok {
+				continue
+			}
+			publishedPorts = append(publishedPorts,
+				"  - jail port "+jp+" → `localhost:"+hp+"` on the host")
+		}
+	}
+
 	var forwardedPorts []string
 	if len(in.ForwardHostPorts) > 0 && netMode != "host" {
 		forwardedPorts = append(forwardedPorts,
-			"- **Forwarded Host Ports**: The following host services are available on `localhost` inside this container:")
+			"- **Forwarded Host Ports** (YOU connect OUT to a service on the host). These answer on "+
+				"the JAIL's own `localhost`, so a client in here can use `localhost:<port>` directly:")
 		for _, entry := range in.ForwardHostPorts {
 			lp, hp, kind := portEntry(entry)
 			switch kind {
-			case portInt:
-				forwardedPorts = append(forwardedPorts, "  - `localhost:"+lp+"` → host port "+lp)
+			case portInt, portPlain:
+				forwardedPorts = append(forwardedPorts, "  - `localhost:"+lp+"` in here → host port "+lp)
 			case portMapped:
-				forwardedPorts = append(forwardedPorts, "  - `localhost:"+lp+"` → host port "+hp)
-			case portPlain:
-				forwardedPorts = append(forwardedPorts, "  - `localhost:"+lp+"` → host port "+lp)
+				forwardedPorts = append(forwardedPorts, "  - `localhost:"+lp+"` in here → host port "+hp)
 			}
 		}
 	}
@@ -265,6 +290,7 @@ func BriefingContent(in BriefingInput) string {
 		"- **OS**: NixOS-based minimal container (no systemd, no sudo)",
 		networkLine,
 	)
+	lines = append(lines, publishedPorts...)
 	lines = append(lines, forwardedPorts...)
 	lines = append(lines, resourceLine...)
 	lines = append(lines,
@@ -406,6 +432,40 @@ func portEntry(entry any) (local, host string, kind portKind) {
 		return str, str, portPlain
 	}
 	return "", "", portNone
+}
+
+// publishEntry classifies a network.ports entry, returning the rendered HOST and
+// JAIL port strings. The order is podman's `-p`: host side FIRST, the reverse of
+// forwardHostPorts (see portEntry). Accepted shapes, all with an optional
+// "/tcp"|"/udp" suffix that belongs to neither port:
+//
+//	an int or a bare string → the same port on both sides
+//	"host:jail"             → two fields
+//	"ip:host:jail"          → three fields; the MIDDLE one is the host port
+//
+// Anything else returns ok=false and is skipped: `yolo check` rejects those
+// shapes, so a briefing is not the place to complain about them a second time.
+func publishEntry(entry any) (host, jail string, ok bool) {
+	if s, isInt := intString(entry); isInt {
+		return s, s, true
+	}
+	str, isStr := entry.(string)
+	if !isStr {
+		return "", "", false
+	}
+	if i := strings.LastIndex(str, "/"); i >= 0 {
+		str = str[:i]
+	}
+	parts := strings.Split(str, ":")
+	switch len(parts) {
+	case 1:
+		return parts[0], parts[0], true
+	case 2:
+		return parts[0], parts[1], true
+	case 3:
+		return parts[1], parts[2], true
+	}
+	return "", "", false
 }
 
 // loopholeFirst extracts the first-sentence summary of a loophole description:
