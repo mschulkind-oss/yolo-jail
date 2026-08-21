@@ -473,28 +473,64 @@ This is mechanical to fix now that `seedPackHome` exists as a non-`*testing.T` h
 isolated `HOME` the default for every container test and let the ambient config be an explicit opt-in
 that names its reason. It does not wait on any ruling in §10.4.
 
-### 10.4 Options for the inheritance half
+### 10.4 First: what is a nested jail FOR?
+
+I reached for an answer to §10.4 before asking this, and the answer changes it. Searched
+2026-08-21 across `docs/design/`, `docs/guides/` and `AGENTS.md`:
+
+- **`USER_GUIDE.md` — the end-user documentation — never mentions nesting as a feature.** Not once.
+- Every design-doc mention is one of two things: the **development verification path**
+  (`AGENTS.md`: *"Verify Go changes by launching a nested jail (`yolo -- bash`)"*), or a **bug
+  condition** that only manifests when the host is a jail
+  ([`broker-ca-and-nested-hosts.md`](broker-ca-and-nested-hosts.md) §2, and `AGENTS.md`'s
+  reachability carve-out).
+
+So there is **no documented product use case for jail-in-jail.** It is a developer affordance whose
+job is to run the *freshly built* code — a new image, a new argv — and not to be a faithful replica of
+its parent.
+
+> [!WARNING]
+> That retires the premise this section was originally written on. An earlier revision leaned toward
+> **rewriting** local pack paths (option (b) below) so that *"a nested jail keeps its parent's
+> content,"* and objected to option (c) on the grounds that *"a nested jail then has no agent, which
+> is most of what nested verification is for."* **Both were wrong.** The mandated command is
+> `yolo -- bash`, not an agent, so no-agent is not a cost of the documented workflow; and "should
+> resemble its parent" was an assumption, never a requirement anyone wrote down. Preserved because it
+> is an easy assumption to re-make: nesting *feels* like it should be transparent, and nothing about
+> the feature says it must be.
+
+### 10.5 Options for the inheritance half
 
 | | Option | Cost |
 | :--- | :--- | :--- |
 | **(a)** | Drop local `file://` entries from the **nested** projection only; preflight keeps them | Simple, fails closed, keeps `yolo pack ls` honest. A nested jail silently gets **less** than its parent — here, no `matt-fzf` file-suggestion finder and no `matt-local` pi config |
 | **(b)** | **Rewrite** local entries to the staged copy (`file:///ctx/packs/<name>`) in the nested projection | Verified viable: `/ctx/packs/` holds `matt-core`, `matt-fzf`, `matt-local` already staged, so the referent exists. Preserves content across nesting. Costs a value-level rewrite and care that re-staging a staged copy is faithful (`allow_exec` rides on the config entry, so it is inherited alongside) |
-| **(c)** | Do not inherit `packs` into **nested** at all | Consistent with *nothing is active by default* — but a nested jail then has **no agent**, which is most of what nested verification is for |
+| **(c)** | Do not inherit `packs` into **nested** at all | Consistent with *nothing is active by default*, and cheaper than (a) since it needs no value-level filter at all. Costs more than (a) for no gain: an EMBEDDED pack's referent is reachable in the child, so dropping it discards something that would have worked |
 | **(d)** | Keep inheriting; make a missing local pack a warning the launch survives | Rejected: fails open and silently drops declared content, which is what the fatal exists to prevent |
 
-_Leaning:_ **(b).** The content is demonstrably present in the child; (a) and (c) both make a nested
-jail a weaker copy of its parent, which undercuts the reason nested jails are the mandated
-verification path. (d) is not on the table.
+_Leaning:_ **(a), with the drop REPORTED rather than silent.** Revised after §10.4 — I leaned (b)
+first and no longer do.
+
+Three reasons. (a) is the census's own rule — *is the referent reachable in the child?* — applied one
+level down, so it needs no new principle: an embedded pack's tree comes from the binary's `embed.FS`
+and IS reachable, a `file://` host path is not, and that distinction is the whole filter. (b) by
+contrast invents an equivalence — *the staged copy is the pack* — which would have to answer its own
+questions about re-staging a copy (exec bits re-derived, `allow_exec`, an `only` filter applied
+twice); §10.4 says the fidelity that buys is not something any use case asks for. And the one real
+objection to (a), that the loss is silent, is not inherent: a line naming what was dropped and why
+removes it, and matches how yolo reports every other withheld contribution. (d) is not on the table.
 
 ### Open Questions
 
-1. 💬 **OQ-SC1: drop, rewrite, or stop inheriting `packs` into the nested scope?** §10.4. This is the
+1. 💬 **OQ-SC1: drop, rewrite, or stop inheriting `packs` into the nested scope?** §10.5. This is the
    ruling; the implementation is contained either way.
 
    **What it decides:** whether a nested jail carries its parent's local packs, and whether
-   `inherit.go` grows its first value-level rewrite.
+   `inherit.go` grows its first value-level rewrite (only (b) requires one).
 
-   _Leaning:_ (b), rewrite to the staged path. Stated in §10.4.
+   _Leaning:_ **(a)** — drop the entries whose referent the child cannot reach, and say so out loud.
+   Revised from (b) once §10.4 established that nesting has no documented product use case, so
+   "resembles its parent" is not a requirement. Full reasoning in §10.5.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -517,8 +553,14 @@ verification path. (d) is not on the table.
 
    **What it decides:** whether the container suite measures the repository or the machine it runs on.
 
-   _Leaning:_ yes, default-isolate, with any ambient-config test opting in explicitly and saying why.
-   I know of no test that needs the machine's config.
+   _Leaning:_ **yes**, and this is less a new rule than the completion of one the harness already
+   started. `writeProject` already **refuses** a workspace config containing a `packs` key —
+   `t.Fatalf`'s with *"which is USER SCOPE ONLY … Use writeProjectWithPacks so the key lands in the
+   user config where it is read"* — i.e. the harness already forces a test to state its pack
+   selection explicitly, and is then silent about `security`, `mise_tools`, `mcp_servers` and
+   `loopholes`, which merge in from the machine unannounced. A test should specify its inputs;
+   default-isolating `HOME` is what makes the half-enforced rule total. I know of no test that wants
+   the machine's config, and any that does can opt in and name its reason.
 
    **Answer:**
    > _(empty — fill in when decided)_
