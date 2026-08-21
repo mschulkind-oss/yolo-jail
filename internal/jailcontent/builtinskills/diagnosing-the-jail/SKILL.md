@@ -58,7 +58,28 @@ yolo broker status       # for the claude-oauth-broker loophole specifically
 yolo broker logs         # recent broker output
 ```
 
-## 5. "My fix isn't taking effect" → you're running stale code
+## 5. Can't reach something on the host
+
+Before concluding it is impossible: in the default bridge mode the host **is**
+reachable, at `host.containers.internal` — and so are host services bound to the
+host's own `127.0.0.1`, because yolo asks the rootless network stack to forward
+the host's loopback in. What is *not* the host is `localhost` inside the jail;
+that is the jail's own loopback.
+
+```
+echo $YOLO_HOST_LOOPBACK     # requested | shared → forwarding is in place
+                             # unsupported | unknown → it may genuinely be absent
+(exec 3<>/dev/tcp/host.containers.internal/<port>) && echo CONNECT || echo FAIL
+```
+
+`requested` plus a service that does not answer is a **fault**, not a
+limitation — the jail-facing services yolo itself ships would have refused the
+launch, so suspect the service, its bind address, or its port. If you need the
+service to appear at `localhost:<port>` in here specifically (a client with no
+host setting), that is `network.forward_host_ports` — see
+**configuring-the-jail**.
+
+## 6. "My fix isn't taking effect" → you're running stale code
 
 Config edits refresh on the next `yolo` invocation, but the running container's
 mounts/limits do NOT change until a restart — the briefing text can be ahead of
@@ -67,7 +88,7 @@ baked image, not your freshly built one (see the **developing-yolo-jail** skill
 for the build/load split). Re-run `YOLO_DEBUG=1 <cmd>` for verbose output when a
 command behaves unexpectedly.
 
-## 6. Orphans and logs
+## 7. Orphans and logs
 
 - `yolo ps` — list running jails (catches orphaned containers).
 - Agent logs, for debugging a specific agent:

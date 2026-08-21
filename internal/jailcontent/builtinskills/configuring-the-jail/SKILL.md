@@ -108,6 +108,63 @@ file you want composed into the jail belongs in `host_files` (user config only �
 `yolo config-ref` has the shape). If you edited a composed file and want to undo
 it, `yolo config reset <agent>` discards the captured edits.
 
+## Four things agents reliably get wrong
+
+Every one of these was a real wrong belief that reached a config edit. They are
+all *confidently* wrong — the shape of the mistake is being sure enough not to
+check, so check these even when you are sure.
+
+### 1. A `mounts` entry lands at `/ctx/<basename>` — of the RESOLVED path
+
+`"mounts": ["~/code/sysadmin"]` mounts at `/ctx/sysadmin`. But the basename is
+taken **after symlink resolution**, so if `~/code/sysadmin` is a link to
+`~/src/sysadmin-config` it lands at `/ctx/sysadmin-config` instead. Write the
+explicit `"~/code/sysadmin:/ctx/sysadmin"` form whenever you care about the name
+— which is any time you are about to tell someone the path.
+
+### 2. `mounts` is read-only, and `:ro` is NOT a suffix you write
+
+Read-only is the only mode there is; every entry gets `:ro` appended for you.
+There is no writable form. And a docker-style third field **silently breaks the
+mount**: `"~/x:/ctx/x:ro"` parses as one host path literally named
+`~/x:/ctx/x:ro`, which does not exist, so the entry is skipped with a warning.
+`yolo check` only *warns* about it too — so the config looks accepted and mounts
+nothing. Two fields maximum.
+
+### 3. An in-jail `yolo check` CANNOT judge a `mounts` path
+
+`mounts` paths are resolved on the **host**, at launch. From inside a jail, `~`
+is the jail's home, so an in-jail `yolo check` warns
+
+```
+config.mounts[0]: host path does not exist and will be skipped: /home/agent/code/sysadmin
+```
+
+for every entry you add. **That warning is expected in here and is not a
+failure** — do not "fix" it by rewriting the path, and do not conclude the mount
+won't work. Only a host `yolo check` can judge these. (Same reason `mounts` is
+stripped from the in-jail user-config snapshot and is not inherited by a nested
+jail.)
+
+### 4. The host IS reachable in the default bridge mode
+
+Bridge mode gives the jail its own netns; it does not cut it off from the host.
+Three distinct things, and picking the wrong one is what makes people add config
+they don't need:
+
+- **The host** → `host.containers.internal`. Always there. No config.
+- **A host service bound to the host's `127.0.0.1`** → also
+  `host.containers.internal:<port>`. yolo asks the rootless network stack to
+  forward the host's loopback into the jail; this is how yolo's own host daemons
+  are reached. **This was not true before 2026-08-17** — if you "know" the host's
+  localhost is unreachable from a jail, that memory is stale. Check
+  `$YOLO_HOST_LOOPBACK` (`requested`/`shared` = fine) before believing otherwise.
+- **`localhost:<port>` inside the jail, literally** → `network.forward_host_ports`.
+  Only for a client you cannot point at another host.
+
+`localhost` inside the jail is still the *jail's* loopback. That is the part that
+is true, and probably the seed of the whole confusion.
+
 ## Don't guess at keys — the schema lives in the CLI
 
 This skill shows two shapes on purpose. For **every** other key — `resources`,
