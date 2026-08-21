@@ -1,20 +1,19 @@
 ---
 title: "Nine cold installs a run — what CI buys by downloading six agent CLIs"
 date: 2026-08-21
-status: in-review
+status: accepted
 tags: [ci, packs, testing, npm, cost]
-summary: "The integration suite installs agent CLIs from the live npm registry nine times per run, unpinned and with --prefer-online, because the npm prefix is per-workspace and every test gets a fresh workspace. That buys two mechanisms' worth of coverage nine times over, and imports every registry hazard into the blocking gate. Two CI failures in two days, neither of them a bug in this repo. Five questions settled, one new one open, one claim retracted."
+summary: "The integration suite installs agent CLIs from the live npm registry nine times per run, unpinned and with --prefer-online, because the npm prefix is per-workspace and every test gets a fresh workspace. That buys two mechanisms' worth of coverage nine times over, and imports every registry hazard into the blocking gate. Two CI failures in two days, neither of them a bug in this repo. All six questions settled; the design is decided and nothing is built. One claim retracted along the way."
 ---
 
 # Nine cold installs a run — what CI buys by downloading six agent CLIs
 
-**Status:** DESIGN SKETCH, 2026-08-21. Nothing built. **Five questions settled** — OQ-CI1 through
-OQ-CI5, compacted into the [Decision Ledger](#decision-ledger) — and **one new one open**
-([OQ-CI6](#open-questions)), raised by a finding that may take this doc off `trust-paths.md`'s critical
-path entirely (§5.1.1). **One claim retracted:** the argument that a lockfile pin could not serve CI
-was wrong, and the manifest-pin shape it motivated is withdrawn
-([§5.1](#51-mode-a-is-already-ruled-and-waiting-on-a-field)). Every claim about current behaviour is
-traced to code and dated; the cost figures are read off two real CI runs.
+**Status:** DECIDED 2026-08-21. **Nothing built.** All six questions are settled and compacted into
+the [Decision Ledger](#decision-ledger); §11 is the build order. **One claim was retracted along the
+way:** the argument that a lockfile pin could not serve CI was wrong, and the manifest-pin shape it
+motivated is withdrawn ([§5.1](#51-mode-a-is-already-ruled-and-waiting-on-a-field)) — the trap that
+made it plausible is preserved there, because it is easy to re-derive. Every claim about current
+behaviour is traced to code and dated; the cost figures are read off two real CI runs.
 
 **The short version.** The integration suite performs **nine agent-CLI installs per run**, each
 into a cold, per-workspace npm prefix, each resolving an **unpinned `@latest`** with
@@ -27,7 +26,8 @@ two-thirds of that budget being suite warmup it pays for by running first ([§4.
 Neither was a defect in this repo. My proposal is a principle with three consequences: **the
 blocking gate is a pure function of this repo's contents**, so it installs pinned bytes, once per
 mechanism rather than once per test, and upstream drift is checked by a **weekly maintenance job that
-fails like any other job** — never by an "advisory" cell.
+fails like any other job** — never by an "advisory" cell. The gate's three triggers, each matched to a
+cause no other trigger can raise, are [§6.1.1](#611-three-triggers-matched-to-three-causes).
 
 **The most important section is [§6](#6-what-advisory-gets-wrong)** — it is the one that decides
 whether the rest is worth building, and it is where I think the usual answer to this problem is
@@ -464,6 +464,42 @@ Spending a container install to re-cover what a unit-test table already covers i
 this doc is about, so it would be self-defeating to argue for a third cell on those grounds. Pick
 either spelling for the integration cell; the parsing is not what the integration test is measuring.
 
+### 6.1.1 Three triggers, matched to three causes
+
+**Ruled 2026-08-21 (OQ-CI6): fixture pack for the blocking gate — and the real packs get a
+path-filtered trigger.** That second half is what closes the coverage hole the fixture opens, and it is
+a sharper statement of P1 than the version I wrote: *the trigger should match the causation.*
+
+| Trigger | What runs | Why |
+| :--- | :--- | :--- |
+| **Every push / PR** | fixture cells: one pinned npm, one pinned `installer` | Mechanism coverage, fully deterministic. A pure function of the repo (P1). |
+| **Push / PR touching `packs/**`** | real install for the **changed** packs | A manifest change *is* commit-caused. This is the only trigger on which "does `packs/codex/pack.json`'s declared package install?" is a question the commit raises. |
+| **Weekly schedule** | all six vendors × arch, hard-fail, bump what passed (§6, §6.0) | Vendor drift is not commit-caused, so it does not belong on the push path (P4). |
+
+Each row answers a question no other row can, and no row asks a question its trigger cannot cause.
+That is the whole design in three lines, and the middle row is the reviewer's contribution — without it
+a typo in a pack manifest would reach main and surface a week later, which was the honest cost of the
+fixture route.
+
+**What the middle row does not fix.** It is exposed to Mode A, because the shipped packs remain
+unpinned until OQ-TP4's field lands, so it installs `@latest` and the registry still chooses the bytes.
+That exposure is now *narrow* rather than eliminated: it lands only on PRs that touch `packs/**`, which
+are rare, and it is diagnosable in one question — *did you change the package name?* If no, it is
+upstream. Scoping the job to the **changed** packs rather than all six narrows it further. Worth
+stating plainly rather than letting the three-row table imply Mode A is gone from the push path
+entirely.
+
+> [!WARNING]
+> **A required check behind a `paths` filter can wedge a PR.** GitHub does not report a status for a
+> job that a path filter skipped, so a check that is both *required* and *path-filtered* leaves every
+> PR that does not touch `packs/**` waiting forever for a status that will never arrive. The escapes
+> are a companion always-runs job that reports success when the real one is skipped, or not marking it
+> required. Do not discover this by making it required and wondering why unrelated PRs stopped merging.
+>
+> On whether it *should* be required: yes, and the blast radius argument is what makes that safe. A
+> vendor's bad publish can then block one rare PR instead of main — and the person who just edited
+> `packs/**` is exactly the person equipped to say "that failure is not my change."
+
 ### 6.2 Warm prefix, one cold install (P3) — DEFERRED
 
 > [!NOTE]
@@ -550,47 +586,40 @@ it lands, every duration in §4 overstates the first test and understates the re
 `TestAgentToolsAvailable` to achieve it: two agents in one jail is the assertion that test exists to
 make, and its cost was never really about the second install.
 
-Second, the blocking matrix points at pinned bytes: one npm cell, one `installer` cell (§6.1). Under
-OQ-CI6's leaning this needs nothing from `trust-paths.md` — a fixture pack pinned via its `package`
-string uses only shipped mechanisms (§5.1.1) — so the previous revision of this section was wrong to
-put "wait for the `LockEntry` field" ahead of it. The npm half is close to free; the `installer` half,
-which needs an installer URL the test controls, is the real work.
+Second, the blocking matrix points at pinned bytes: one npm cell, one `installer` cell (§6.1), from
+fixture packs. Per OQ-CI6 this needs nothing from `trust-paths.md` — a fixture pinned via its
+`package` string uses only shipped mechanisms (§5.1.1) — so the previous revision of this section was
+wrong to put "wait for the `LockEntry` field" ahead of it. The npm half is close to free; the
+`installer` half, which needs an installer URL the test controls, is the real work.
 
-Third, and independently, `LockEntry` grows OQ-TP4's npm-version field so the **shipped** packs can be
-pinned for users. That belongs to `trust-paths.md` and is no longer a blocker here — it is what makes
-"no evergreen npm" true of the product rather than only of CI.
+Third, the `packs/**` path-filtered job (§6.1.1), which is what makes step two safe to take — it is
+the trigger that keeps a manifest typo from reaching main once the every-push gate stops installing
+real packs. Land it in the same change as step two, not after: between the two, the shipped manifests
+have no install coverage at all. Read the required-check warning in §6.1.1 before marking it required.
 
-Fourth, the weekly maintenance workflow (§6, §6.0): separate vendor × arch jobs, hard-failing,
+Fourth, and independently of all the above, `LockEntry` grows OQ-TP4's npm-version field so the
+**shipped** packs can be pinned for users. That belongs to `trust-paths.md` and is no longer a blocker
+here — it is what makes "no evergreen npm" true of the product rather than only of CI, and it is also
+what finally removes Mode A from the `packs/**` trigger.
+
+Fifth, the weekly maintenance workflow (§6, §6.0): separate vendor × arch jobs, hard-failing,
 fanning out to a collector that lands the pins which verified and leaves the rest alone. This is what
 replaces "advisory", and it is deliberately after the pin — before it, the workflow would have nothing
 to advance. Build the collector's partial-failure path first, or the "bump what passed" ruling is
 unobservable until the week something breaks.
 
-Fifth, re-measure, and only then decide whether §6.2's warm-prefix seam has anything left to remove
+Sixth, re-measure, and only then decide whether §6.2's warm-prefix seam has anything left to remove
 (OQ-CI5 defers exactly this).
 
 ## Open Questions
 
-1. 💬 **OQ-CI6: does the blocking npm cell use a fixture pack or a pinned shipped pack?**
-   §5.1.1 establishes that a synthetic pack declaring `"package": "<pkg>@1.2.3"` gives the gate a
-   pinned, deterministic install **today**, using only shipped mechanisms — while a pinned *shipped*
-   pack (`packs/codex` at a recorded version) waits on OQ-TP4's `LockEntry` field.
+**None.** All six are settled — see the Decision Ledger below. The design is decided; nothing is built.
 
-   **What it decides:** whether the P1 fix is unblocked or queued behind another doc's build — and what
-   the required gate covers. A fixture proves the install **mechanism**; only a shipped pack also
-   proves that `packs/<name>/pack.json`'s declared package installs. Under P2 that second property
-   belongs to the weekly workflow (§6) rather than the merge path, which is the argument for the
-   fixture; the argument against is that a manifest typo would then reach main and be caught a week
-   later.
-
-   _Leaning:_ **fixture pack**, and treat the OQ-TP4 dependency as belonging to the *product* half of
-   §5.1 rather than to this gate. It is unblocked, it is faster (a small binary-shipping npm package
-   instead of a 100 MB CLI), and it puts each question where P2 says it goes. Worth noting I would have
-   said "blocked on OQ-TP4" an hour ago — the `file://` pack fixture already in
-   `launcherdir_test.go:129-145` is what changed my mind, and it is easy to miss.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+The one *external* dependency that remains is not a question of this doc's: OQ-TP4 in
+[`trust-paths.md`](trust-paths.md) still owns the `LockEntry` npm-version field, which is what would
+let the **shipped** packs be pinned for users. Per OQ-CI6 the blocking gate no longer waits on it
+(§5.1.1), so it is product work rather than a blocker — but until it lands, the path-filtered
+`packs/**` job installs `@latest` and Mode A survives on that one narrow trigger (§6.1.1).
 
 ## Decision Ledger
 
@@ -601,3 +630,4 @@ Fifth, re-measure, and only then decide whether §6.2's warm-prefix seam has any
 | OQ-CI3 | Weekly maintenance workflow: **separate jobs per vendor**, hard-failing, and **bump what passed** — a broken vendor does not hold the other five back. Forces fan-out-then-collect, a collector that survives partial failure, and verify-then-pin on every arch served | 2026-08-21 | [§6](#6-what-advisory-gets-wrong), [§6.0](#60-the-shape-bump-what-passed-forces) |
 | OQ-CI4 | Suite warmup is paid in `TestMain`'s existing seam, before any timed assertion. The macOS cap raise (1200→2400s) is **withdrawn**: it padded a misattribution rather than fixing it | 2026-08-21 | [§5.2](#52-mode-b-is-ours-alone-and-the-fix-is-attribution), [§4.1](#41-the-first-test-is-the-suites-warmup-sink) |
 | OQ-CI5 | Warm-prefix seeding **deferred**. Land §6.1 + OQ-CI4, re-measure, build the seam only if a residual per-test install cost survives | 2026-08-21 | [§6.2](#62-warm-prefix-one-cold-install-p3--deferred) |
+| OQ-CI6 | **Fixture pack** for the blocking gate — unblocked today via the `file://` pack fixture and `npmspec`'s selector parsing — **plus a path-filtered trigger** so a `packs/**` change runs the real install for the packs it changed. Three triggers, each matched to a cause no other trigger can raise | 2026-08-21 | [§6.1.1](#611-three-triggers-matched-to-three-causes), [§5.1.1](#511-and-the-blocking-gate-may-not-need-to-wait-for-it-at-all) |
