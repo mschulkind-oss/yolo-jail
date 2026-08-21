@@ -43,9 +43,24 @@ import (
 // POSITIVE. A jail whose service is genuinely unreachable no longer starts, so the
 // script never runs and the failure surfaces at the "never reported a count" bail
 // above it instead.
+//
+// THE PACK SELECTION IS THE TEST'S SUBJECT, not decoration. This test has nothing to
+// measure unless the jail publishes at least one endpoint, and nothing is active by
+// default — so with the harness's empty isolated user config it would probe zero
+// services and SKIP, every run, everywhere. It used to inherit whatever the machine
+// enabled, which is the §10.5 defect pointing the other way: the coverage existed only
+// on hosts whose own config happened to switch a jail-facing service on, and never in
+// CI.
+//
+// `claude` is the cheapest thing to name: the pack contributes the claude-oauth-broker
+// loophole, which is the one shipped manifest with `default_enabled: true`, and its
+// transport is loopback-tls — so selecting the pack is sufficient to publish
+// /run/yolo-services/claude-oauth-broker.endpoint, on both platforms, with no
+// `loopholes` block. It installs no agent CLI (launchers are lazy), and several tests in
+// this suite already boot with it.
 func TestInJailServiceReachability(t *testing.T) {
 	requireJail(t)
-	dir := writeProject(t, `{"network": {"mode": "bridge"}}`)
+	dir := writeProjectWithPacks(t, `{"network": {"mode": "bridge"}}`, "claude")
 
 	// Only the FIRST whitespace-separated field of an endpoint file is ever read
 	// or echoed. That file is a credential — the per-jail bearer token sits in it
@@ -92,10 +107,14 @@ echo "PROBED $probed"
 			r.stdout, r.stderr)
 	}
 	if probed == 0 {
-		// Not a failure: nothing is enabled unless it was asked for
-		// (loophole-activation.md), so a jail with no jail-facing services has
-		// nothing to reach and this test has nothing to say.
-		t.Skip("this jail published no endpoints — no jail-facing service is enabled")
+		// Still a skip rather than a failure — nothing is enabled unless it was asked
+		// for (loophole-activation.md), and this test cannot dial what does not exist.
+		// But it is no longer the EXPECTED outcome anywhere: the fixture selects the
+		// claude pack precisely so one endpoint is published, so reaching here means the
+		// selection did not take (superseded capability, an inactive loophole) and the
+		// reachability question went unasked rather than answered.
+		t.Skip("this jail published no endpoints despite selecting `claude`, whose broker " +
+			"is default-enabled on loopback-tls — nothing to dial, so nothing measured")
 	}
 
 	var unreachable []string

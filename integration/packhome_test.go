@@ -3,6 +3,7 @@ package integration
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -92,5 +93,97 @@ func TestPackHomeSharesHostStores(t *testing.T) {
 		if got != want {
 			t.Errorf("%s: resolves to %s, want the host store %s", store, got, want)
 		}
+	}
+}
+
+// TestIsolatedHomeCarriesOnlyItsOwnConfig pins the two properties the DEFAULT isolation
+// adds on top of the store rule above (docs/design/storage-and-config.md §10.5):
+//
+//  1. the isolated home carries the config the caller stated and nothing else, so a
+//     machine-local `security`/`mise_tools`/`mcp_servers`/`loopholes` block cannot merge
+//     into the jail a test launches;
+//  2. a SECOND isolation inside one test links its stores to the MACHINE's home, not to
+//     the first temp home's symlinks. That is the whole job of hostHome: every container
+//     test now isolates twice whenever it needs packs (requireJail, then packHome), and
+//     a chain through a t.TempDir() that may be removed first is the dangling-link
+//     failure the test above documents, one indirection further out.
+//
+// Runs under -short: a harness invariant, like TestPackHomeSharesHostStores.
+func TestIsolatedHomeCarriesOnlyItsOwnConfig(t *testing.T) {
+	realHome := t.TempDir()
+	t.Setenv("HOME", realHome)
+
+	isolateHome(t, "{}")
+	first := os.Getenv("HOME")
+	cfg, err := os.ReadFile(filepath.Join(first, ".config", "yolo-jail", "config.jsonc"))
+	if err != nil {
+		t.Fatalf("isolated home has no user config: %v", err)
+	}
+	if strings.TrimSpace(string(cfg)) != "{}" {
+		t.Errorf("isolated home carries %q, want the stated empty config — a test's "+
+			"user-scope inputs must be the ones it states", cfg)
+	}
+
+	// Second isolation, the requireJail-then-packHome shape.
+	packHome(t, `{"packs": ["claude"]}`)
+	second := os.Getenv("HOME")
+	if second == first {
+		t.Fatal("the second isolation did not redirect HOME again")
+	}
+	cfg2, err := os.ReadFile(filepath.Join(second, ".config", "yolo-jail", "config.jsonc"))
+	if err != nil {
+		t.Fatalf("second isolated home has no user config: %v", err)
+	}
+	if !strings.Contains(string(cfg2), `"claude"`) {
+		t.Errorf("the second isolation lost the caller's config: %q", cfg2)
+	}
+	for _, store := range packHomeSharedStores {
+		link := filepath.Join(second, filepath.FromSlash(store))
+		target, err := os.Readlink(link)
+		if err != nil {
+			t.Errorf("%s: not a symlink in the second isolated home: %v", store, err)
+			continue
+		}
+		// Readlink, not EvalSymlinks: the chain RESOLVES either way while both temp
+		// homes exist, so only the immediate target can tell the two apart.
+		if want := filepath.Join(realHome, filepath.FromSlash(store)); target != want {
+			t.Errorf("%s: second isolated home links to %s, want the machine's store %s "+
+				"— a link through the first temp home dangles as soon as it is removed",
+				store, target, want)
+		}
+	}
+
+	// The escape hatch hands HOME back, and takes a reason so the need is stated.
+	ambientHome(t, "pinning the opt-out itself")
+	if got := os.Getenv("HOME"); got != realHome {
+		t.Errorf("ambientHome left HOME at %s, want the machine's %s", got, realHome)
+	}
+}
+
+// TestRequireJailIsolatesHomeByDefault pins requireJail's CALL SITE, which is the half
+// that can silently disappear: every helper below it could keep working perfectly while
+// the default was switched off, and the suite would go back to reading machine state
+// with TestIsolatedHomeCarriesOnlyItsOwnConfig still green (AGENTS.md: "does it fail if
+// I delete the call site?").
+//
+// It sits in the CONTAINER suite because requireJail's contract is to skip under -short,
+// so -short cannot observe what it does afterwards. It launches no container and costs
+// nothing.
+func TestRequireJailIsolatesHomeByDefault(t *testing.T) {
+	ambient := os.Getenv("HOME")
+	requireJail(t) // the call under test
+	home := os.Getenv("HOME")
+	if home == ambient {
+		t.Fatalf("requireJail left HOME at the machine's %s — every container test's "+
+			"user-scope inputs are whatever this machine's config says, and CI (which has "+
+			"no user config) structurally cannot see it either way", ambient)
+	}
+	cfg, err := os.ReadFile(filepath.Join(home, ".config", "yolo-jail", "config.jsonc"))
+	if err != nil {
+		t.Fatalf("requireJail redirected HOME but seeded no user config there: %v", err)
+	}
+	if strings.TrimSpace(string(cfg)) != "{}" {
+		t.Errorf("the default isolation carries %q, want an empty config: nothing may be "+
+			"active in a container test unless the test asks for it", cfg)
 	}
 }

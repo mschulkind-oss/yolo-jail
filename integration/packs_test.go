@@ -180,8 +180,9 @@ func TestPackFilesCollisionFailsPreflight(t *testing.T) {
 	}
 }
 
-// packHomeSharedStores are the HOME-relative store paths packHome re-links back to
-// the real home. Both entries are load-bearing; TestPackHomeSharesHostStores pins them.
+// packHomeSharedStores are the HOME-relative store paths every isolated home re-links
+// back to the real home. Every entry is load-bearing; TestPackHomeSharesHostStores pins
+// them.
 //
 //   - yolo's own store, because paths.GlobalStorage() is $HOME/.local/share/yolo-jail:
 //     redirecting it moves the podman IMAGE CACHE and its last-load sentinel, so a pack
@@ -203,15 +204,53 @@ func TestPackFilesCollisionFailsPreflight(t *testing.T) {
 //     packHome test dies with "Configured runtime 'podman' is installed but not
 //     started" — while the interleaved real-HOME tests pass against the very same
 //     running machine. That contradiction is the tell; the machine was never down.
+//
+//   - NIX's cache ($HOME/.cache/nix; nix honors XDG_CACHE_HOME first, and where that
+//     is set outside HOME this link is simply inert) and NIX's user config
+//     ($HOME/.config/nix). Both added when isolation became the DEFAULT for every
+//     container test, which put nix-driven tests behind the redirect for the first time:
+//     TestImageSkewOracleAnswers and packagecollection_test.go's twelve `nix eval`s, plus
+//     the child's --impure image rebuild in packages_test.go. The nix STORE is shared
+//     regardless (the daemon socket + /nix/store:ro), so no derivation would be REBUILT
+//     — but the fetcher cache that maps a locked flake input to its store path lives in
+//     the cache dir, and a cold one sends nix back to the network for inputs it already
+//     has, while the config dir is where `cachix use` wrote the substituter that decides
+//     whether a build is a download or a compile. Neither carries anything yolo reads.
+//     This is the `.config/containers` precedent, not an exception to the rule: the
+//     redirect's subject is yolo's OWN user config, and hiding a third-party tool's
+//     config only breaks the tool.
 var packHomeSharedStores = []string{
 	".local/share/yolo-jail",
 	".local/share/containers",
 	".config/containers",
+	".cache/nix",
+	".config/nix",
 }
 
-// packHome points HOME at a temp dir carrying only the given user config, and
-// RE-LINKS the real home's stores into it (see packHomeSharedStores for which, and
-// why each one matters). Packs need a custom CONFIG, not a custom store.
+// hostHome is the MACHINE's home — the one whose stores every isolated home re-links
+// back to, and the one ambientHome hands back. It is captured the first time a test
+// redirects HOME and cleared when that test ends.
+//
+// It exists because a test redirects TWICE now: requireJail isolates with an empty user
+// config, and a test that needs packs then calls packHome for its own. Reading
+// os.Getenv("HOME") the second time would re-link the second home's stores to the FIRST
+// temp home's SYMLINKS — a chain that resolves while both live and dangles the moment
+// the first temp dir is removed, reintroducing the "mkdir: file exists" failure
+// TestPackHomeSharesHostStores exists to pin. Capturing the machine's home once makes
+// every isolated home link straight to it.
+var hostHome string
+
+// isolateHome points HOME at a temp dir carrying ONLY the given user config, and
+// RE-LINKS the real home's stores into it (see packHomeSharedStores for which, and why
+// each one matters). A test needs a custom CONFIG, not a custom store.
+//
+// This is the harness's DEFAULT for every container test (requireJail calls it), so a
+// test's inputs are what the test states. It finishes the rule writeProject already
+// half-enforces by refusing a workspace `packs` key: `security.blocked_tools`,
+// `mise_tools`, `mcp_servers`, `loopholes` and the conventional local pack all merge
+// into a launched jail from ~/.config/yolo-jail/config.jsonc, so an ambient config does
+// not merely break assertions — it can SATISFY them, for a reason the test never states.
+// See docs/design/storage-and-config.md §10.5 / OQ-SC3.
 //
 // Each link's TARGET IS CREATED FIRST, and that is not defensive tidying. A symlink
 // to a missing directory is DANGLING, and os.MkdirAll — which
@@ -222,18 +261,60 @@ var packHomeSharedStores = []string{
 // test that ran before the first real-HOME test died in setup. MkdirAll on the real
 // path is the fix and is safe: it is the same call, on the same paths, that a normal
 // yolo run makes anyway.
-func packHome(t *testing.T, userConfig string) {
+func isolateHome(t *testing.T, userConfig string) {
 	t.Helper()
+	if hostHome == "" {
+		hostHome = os.Getenv("HOME")
+		t.Cleanup(func() { hostHome = "" })
+	}
 	home := t.TempDir()
-	if err := seedPackHome(home, os.Getenv("HOME"), userConfig); err != nil {
+	if err := seedPackHome(home, hostHome, userConfig); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
 }
 
+// packHome is isolateHome for a test that needs a SPECIFIC user config — in practice a
+// `packs` selection, which is user-scope only (see writeProjectWithPacks).
+//
+// It stays a name of its own because that is what the call sites are saying: the
+// default isolation carries `{}`, and these tests are overriding it. Calling it after
+// requireJail's isolation is fine and is the normal path — the second redirect simply
+// wins, and hostHome keeps its store links pointed at the machine.
+func packHome(t *testing.T, userConfig string) {
+	t.Helper()
+	isolateHome(t, userConfig)
+}
+
+// ambientHome is the ESCAPE HATCH: it hands HOME back to the machine's own, for a test
+// that genuinely wants whatever ~/.config/yolo-jail/config.jsonc the machine has.
+//
+// The reason is required and logged rather than optional, because the whole failure mode
+// this default exists to close is a test whose real inputs are unstated. No test in this
+// repo needs this today (checked when the default landed, 2026-08-21) — it is here so
+// that a test which does has to say so out loud, and so a reviewer can grep for the one
+// call site instead of auditing forty absences.
+//
+// Read what it CANNOT promise before using it: a machine-local config makes the test
+// unreproducible on any other machine and structurally invisible in CI, where a fresh
+// runner has no user config at all.
+func ambientHome(t *testing.T, reason string) {
+	t.Helper()
+	if reason == "" {
+		t.Fatal("ambientHome needs a stated reason: it makes this test's inputs whatever " +
+			"the machine's ~/.config/yolo-jail/config.jsonc says, which is exactly the " +
+			"failure mode the default isolation closes (storage-and-config.md §10.5)")
+	}
+	if hostHome == "" {
+		return // nothing ever redirected: HOME already is the machine's
+	}
+	t.Logf("reading the MACHINE's user config on purpose: %s", reason)
+	t.Setenv("HOME", hostHome)
+}
+
 // seedPackHome writes userConfig into home and re-links realHome's shared stores into it.
-// It is packHome without the *testing.T, so warmJail (which runs from TestMain and has no
-// T) obeys the SAME store rule instead of carrying a second copy of it.
+// It is isolateHome without the *testing.T, so warmJail (which runs from TestMain and has
+// no T) obeys the SAME store rule instead of carrying a second copy of it.
 //
 // Splitting it out is not tidiness: the rule is subtle enough that
 // TestPackHomeSharedStores documents three separate CI outages caused by getting it wrong,

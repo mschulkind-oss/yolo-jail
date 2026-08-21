@@ -19,6 +19,13 @@ import (
 // The source-bearing render path itself is covered by
 // internal/entrypoint/hostfiles_test.go (against a fake /ctx/host-user mount) and
 // its mount emission by internal/cli/run/hostfiles_test.go.
+//
+// THE "developer's real user config" OBSTACLE IS GONE as of the harness's default HOME
+// isolation (2026-08-21, storage-and-config.md §10.5): the user config a container test
+// writes is a temp file in a temp home, and the "host home" a source-bearing entry reads
+// from is that same temp home — so such an entry IS testable now, seeding its own source
+// file. Nobody has written that test; the split above describes where the coverage is,
+// and is no longer a limit on where it could be.
 
 // TestHostFilesSourceLessModes drives every source-less mode through a real jail
 // in ONE launch: `once` seeds and then survives an in-jail edit, `copy` is
@@ -178,9 +185,11 @@ func TestHostFilesConfigLsAndReset(t *testing.T) {
 	// to the other one: it drives the host-side CLI against a TEMP workspace, so the
 	// surfaces it would truncate live in the inner jail's home while `~` resolves to the
 	// harness's own home. That is the guard's target case, not an exemption — hence the
-	// documented escape hatch. It is safe here only because packHome() has already
-	// pointed HOME at a temp dir, where the destination does not exist (reset leaves an
-	// absent surface absent), so nothing outside the fixture is written.
+	// documented escape hatch. It is safe here only because HOME is a temp dir, where the
+	// destination does not exist (reset leaves an absent surface absent), so nothing
+	// outside the fixture is written. That is now guaranteed twice over: requireJail
+	// isolates HOME for every container test, and writeProjectWithPacks re-states it.
+	// Do not run this without either — the --force below truncates whatever `~` names.
 	//
 	// First assert the guard actually fires, so this test also pins the refusal
 	// end-to-end rather than just tunnelling through it.

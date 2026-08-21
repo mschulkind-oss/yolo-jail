@@ -4,6 +4,12 @@
 // `go test -short` (pre-commit, `just test-fast`, the check-go CI job); the
 // full suite runs under `just test` and the CI integration job.
 //
+// That same call ISOLATES HOME (isolateHome), so a container test's user-scope
+// inputs are the ones it states rather than whatever ~/.config/yolo-jail/config.jsonc
+// the machine happens to have. A test that needs a `packs` selection asks for it
+// (writeProjectWithPacks/packHome); a test that wants the machine's own config opts in
+// by name and states why (ambientHome). docs/design/storage-and-config.md §10.5.
+//
 // The package is deliberately test-only (all files are *_test.go), so it stays
 // outside the flake's goSrc fileset — editing a test never invalidates the jail
 // image derivation — while still living inside the Go module, so it is covered
@@ -516,6 +522,11 @@ func forceRemoveContainer(dir string) {
 
 // writeProject creates a temp workspace containing yolo-jail.jsonc with the
 // given JSONC body and registers container cleanup, returning the workspace dir.
+//
+// It writes the WORKSPACE half of a test's inputs only. The user half is requireJail's
+// empty isolated config unless the test overrode it (packHome), so this function needs
+// no ordering rule with respect to it: the two write different files, and a packHome
+// call before or after this one is equally correct.
 func writeProject(t *testing.T, configJSON string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -599,13 +610,31 @@ func section(s, start, end string) string {
 	return s[i : i+j]
 }
 
-// requireJail skips the calling test under `go test -short`. Every test that
-// creates a container must call it first.
+// requireJail skips the calling test under `go test -short`, and — for every test that
+// does run — ISOLATES HOME so the test's inputs are what the test states.
+//
+// The isolation is here, rather than in writeProject, for one reason: this is the line
+// every container test already has to write, and two tests never call writeProject at
+// all (imageskew_test.go, packagecollection_test.go drive nix and podman directly). A
+// NEW test therefore cannot read machine state by forgetting a helper — it would have to
+// skip the gate that makes it a container test in the first place. See
+// docs/design/storage-and-config.md §10.5 / OQ-SC3, and isolateHome for what an ambient
+// config can do to an assertion (satisfy it, not just break it).
+//
+// The user config it delivers is EMPTY, so nothing is active unless the test asks:
+// writeProjectWithPacks/packHome for a `packs` selection, the workspace config for
+// everything else, and ambientHome (with a stated reason) to opt out entirely.
+//
+// Skip FIRST: under -short nothing runs, so nothing should be seeded — a redirect there
+// would create podman's and nix's dirs in the real home during `just test-fast`. The
+// call site is pinned by TestRequireJailIsolatesHomeByDefault, which runs in the
+// container suite for exactly that reason.
 func requireJail(t *testing.T) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping container integration test (-short)")
 	}
+	isolateHome(t, "{}")
 }
 
 // realPackInstallsEnv gates the tests that install a SHIPPED pack's real program from its
