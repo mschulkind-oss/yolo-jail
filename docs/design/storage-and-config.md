@@ -509,6 +509,30 @@ the property (ii) leaves to each caller's memory and (iii) abandons. The honest 
 smudge in the (i) row, and it is worth naming when it lands rather than pretending resolution and
 delivery are cleanly separable.
 
+**LANDED (2026-08-21), option (i).** `Store.Resolve(a Addr, name string)` tries the address first and
+falls back to the delivered tree only when that fails; `Resolved.StagedFrom` names the tree it fell
+back to, and is empty for every ordinary resolve. `check` reports off that field and keeps its
+`staged at <path>` line plus the host-side note; `run/packRoot` passes the same name and stays silent,
+because for a nested launch the delivered copy is the NORMAL source rather than a degradation.
+`Store.Getenv` (nil ⇒ `os.Getenv`) is the seam the tests drive, since this repo's own jail always has
+`YOLO_PACK_ROOT` set and an ambient read would measure the machine. The layering cost from the (i)
+row is real and is now written where it happens, in `Resolve`'s doc comment.
+
+Three things the section above did not say, found while landing it:
+
+- **The fallback is not local-only.** A jail cannot see the pack STORE either, so a fetched pack
+  resolves to `pack %s has never been fetched` in here for the same structural reason. Keying on the
+  failure rather than on `IsLocal()` fixes both, and `run`'s loophole/supersession resolvers — which
+  `continue` silently past an unresolvable pack — stop dropping local packs' loopholes in a jail as a
+  side effect.
+- **The delivered dir is named by the entry's SLUG, not its Name** (`run` stages into
+  `stagingRoot/<entry.Slug()>`). `check`'s original lookup used `e.Name`, which agrees for every
+  conventional name and silently misses one needing escaping (`a_b` stages as `a_5fb`). Both callers
+  now pass `Slug()`.
+- **The name has to be threaded, not derived.** It is a config fact (an explicit `name:`, else the
+  source URL's last path segment), so `packsrc` cannot recover it from an `Addr` — deriving it there
+  would be a second spelling of a rule `internal/config` owns, i.e. the same defect one layer down.
+
 ### 10.5 The separate defect: integration tests read machine state
 
 Unchanged by the above, and worth fixing on its own merits — though note that fixing §10.4 makes the
