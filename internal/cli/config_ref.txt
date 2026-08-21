@@ -7,6 +7,16 @@
   User defaults: ~/.config/yolo-jail/config.jsonc
   Local overrides: yolo-jail.local.jsonc (sibling, auto-merged when present)
 
+  [bold]THE WORKSPACE IS THE DIRECTORY YOU RUN `yolo` IN[/bold], and it is
+  bind-mounted [bold]read-write and LIVE[/bold] at [bold]/workspace[/bold].
+  `cd ~/code/sysadmin && yolo` makes ~/code/sysadmin *be* /workspace — the same
+  files, not a copy, with no sync step in either direction.  It does NOT appear
+  under /ctx/, and it must NOT be listed in `mounts`: that key is for paths
+  OUTSIDE the workspace, and it is read-only.
+  It is literally the cwd — there is no `--workspace` flag and no walk up the
+  tree looking for yolo-jail.jsonc.  Launch from a subdirectory and THAT
+  subdirectory is the whole workspace, with its own config and its own jail.
+
   Workspace config merges over user defaults; a sibling
   `yolo-jail.local.jsonc` merges over the workspace config automatically —
   no include_if_found entry needed. Keep it out of git (global gitignore)
@@ -378,6 +388,10 @@
     ]
 
   [bold]mounts[/bold] (array of strings): Extra host paths mounted read-only.
+    [bold]For paths OUTSIDE the workspace only.[/bold]  The workspace itself is
+    already /workspace, read-write and live (see the top of this reference) —
+    listing it here gets you a second, read-only view of a tree you can already
+    write, under a name nobody expects.
     Simple path → mounted at /ctx/<basename>
     "host:container" → custom container path
     Example: ["/path/to/repo", "~/lib:/ctx/lib"]

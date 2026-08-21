@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -147,6 +148,32 @@ func TestCtxMountDockerStyleROSuffixIsSkipped(t *testing.T) {
 	}
 	if !strings.Contains(printed, "mount path does not exist") {
 		t.Errorf("expected a skip warning naming the bad path; printed: %q", printed)
+	}
+}
+
+// TestWorkspaceIsReadWriteWhileCtxMountsAreNot pins the distinction the
+// configuring-the-jail skill now leans on: the WORKSPACE (the cwd you launch
+// from) is bound read-WRITE at /workspace, and a `mounts` entry is a separate,
+// read-ONLY thing under /ctx. An agent that conflates the two reaches for
+// `mounts` to get at the very directory it is already standing in.
+func TestWorkspaceIsReadWriteWhileCtxMountsAreNot(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sysadmin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	argv, _ := assembleWithMounts(t, "podman", []any{dir})
+
+	// The workspace bind carries no mode suffix at all.
+	if !slices.Contains(argv, "/ws:/workspace") {
+		t.Errorf("workspace must be bound read-write at /workspace; argv: %v", argv)
+	}
+	if slices.Contains(argv, "/ws:/workspace:ro") {
+		t.Error("the workspace bind must not be read-only")
+	}
+	// The mounts entry is somewhere else entirely, and it IS read-only.
+	if got := ctxMountArgs(argv); len(got) != 1 || !strings.HasSuffix(got[0], ":ro") {
+		t.Errorf("ctx mounts = %v, want exactly one :ro entry", got)
 	}
 }
 

@@ -108,13 +108,33 @@ file you want composed into the jail belongs in `host_files` (user config only �
 `yolo config-ref` has the shape). If you edited a composed file and want to undo
 it, `yolo config reset <agent>` discards the captured edits.
 
-## Four things agents reliably get wrong
+## Five things agents reliably get wrong
 
 Every one of these was a real wrong belief that reached a config edit. They are
 all *confidently* wrong — the shape of the mistake is being sure enough not to
 check, so check these even when you are sure.
 
-### 1. A `mounts` entry lands at `/ctx/<basename>` — of the RESOLVED path
+### 1. The directory you launch from IS `/workspace`. Don't mount it.
+
+`yolo` takes the **current working directory** as the workspace and bind-mounts
+it **read-write and live** at `/workspace`. Configuring a jail for
+`~/code/sysadmin` means `cd ~/code/sysadmin && yolo`, and that directory then
+*is* `/workspace` — the same files, not a copy, no sync step either way.
+
+It does **not** appear at `/ctx/sysadmin`, and putting it in `mounts` is wrong
+twice over: redundant, and `mounts` is read-only, so you would be asking for a
+crippled second view of a tree you can already write. **`mounts` is for paths
+outside the workspace.**
+
+Two consequences that follow from "it is literally the cwd":
+
+- There is no `--workspace` flag and no walk up the tree looking for
+  `yolo-jail.jsonc`. Launch from a subdirectory and *that subdirectory* is the
+  whole workspace, with its own config and its own jail.
+- `yolo-jail.jsonc` sits at the workspace root, so from inside a jail it is
+  always `/workspace/yolo-jail.jsonc` — whatever it is called on the host.
+
+### 2. A `mounts` entry lands at `/ctx/<basename>` — of the RESOLVED path
 
 `"mounts": ["~/code/sysadmin"]` mounts at `/ctx/sysadmin`. But the basename is
 taken **after symlink resolution**, so if `~/code/sysadmin` is a link to
@@ -122,7 +142,7 @@ taken **after symlink resolution**, so if `~/code/sysadmin` is a link to
 explicit `"~/code/sysadmin:/ctx/sysadmin"` form whenever you care about the name
 — which is any time you are about to tell someone the path.
 
-### 2. `mounts` is read-only, and `:ro` is NOT a suffix you write
+### 3. `mounts` is read-only, and `:ro` is NOT a suffix you write
 
 Read-only is the only mode there is; every entry gets `:ro` appended for you.
 There is no writable form. And a docker-style third field **silently breaks the
@@ -131,7 +151,7 @@ mount**: `"~/x:/ctx/x:ro"` parses as one host path literally named
 `yolo check` only *warns* about it too — so the config looks accepted and mounts
 nothing. Two fields maximum.
 
-### 3. An in-jail `yolo check` CANNOT judge a `mounts` path
+### 4. An in-jail `yolo check` CANNOT judge a `mounts` path
 
 `mounts` paths are resolved on the **host**, at launch. From inside a jail, `~`
 is the jail's home, so an in-jail `yolo check` warns
@@ -146,7 +166,7 @@ won't work. Only a host `yolo check` can judge these. (Same reason `mounts` is
 stripped from the in-jail user-config snapshot and is not inherited by a nested
 jail.)
 
-### 4. The host IS reachable in the default bridge mode
+### 5. The host IS reachable in the default bridge mode
 
 Bridge mode gives the jail its own netns; it does not cut it off from the host.
 Three distinct things, and picking the wrong one is what makes people add config
