@@ -85,37 +85,9 @@ func TestHydrateEnvFromUserEnvFile(t *testing.T) {
 	}
 }
 
-func TestForwardEntryPort(t *testing.T) {
-	// JSON integers decode to jsonInt; strings stay strings; floats/bools/nil
-	// are invalid (warn + skip).
-	cases := []struct {
-		raw       string // JSON array with one element
-		wantPort  int
-		wantOK    bool
-		wantPanic bool
-	}{
-		{`[8080]`, 8080, true, false},
-		{`["8080"]`, 8080, true, false},
-		{`["8080:80"]`, 8080, true, false},
-		{`["127.0.0.1:5000:5000"]`, 0, true, true}, // "127.0.0.1" head -> int() crashes
-		{`["nope"]`, 0, true, true},                // bare non-numeric -> boot crash quirk
-		{`[3.5]`, 0, false, false},                 // float -> invalid
-		{`[true]`, 0, false, false},                // bool -> invalid
-		{`[null]`, 0, false, false},                // null -> invalid
-	}
-	for _, c := range cases {
-		// Decode through jsonx so integers are jsonInt (matching runtime).
-		entry := decodeFirst(t, c.raw)
-		if c.wantPanic {
-			assertPanics(t, func() { forwardEntryPort(entry) }, c.raw)
-			continue
-		}
-		got, ok := forwardEntryPort(entry)
-		if ok != c.wantOK || got != c.wantPort {
-			t.Errorf("forwardEntryPort(%s) = (%d, %v), want (%d, %v)", c.raw, got, ok, c.wantPort, c.wantOK)
-		}
-	}
-}
+// The entry-parsing table moved to portforwardtarget_test.go's
+// TestForwardEntryPortsSplitsLocalFromHost when forwardEntryPort widened to
+// return both ports — same cases, plus the host port each one resolves to.
 
 func TestEnvWith(t *testing.T) {
 	base := []string{"A=1", "B=2", "PYTHONPATH=old"}

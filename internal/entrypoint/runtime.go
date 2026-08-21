@@ -185,7 +185,7 @@ func startContainerPortForwarding(e *Env) {
 	// fd). We intentionally do NOT close it — the forked children write to it.
 
 	for _, entry := range ports {
-		localPort, ok := forwardEntryPort(entry)
+		localPort, hostPort, ok := forwardEntryPorts(entry)
 		if !ok {
 			e.warn("Warning: invalid port forward entry: " + pyStr(entry))
 			continue
@@ -195,18 +195,10 @@ func startContainerPortForwarding(e *Env) {
 			continue
 		}
 
-		var target string
-		if hostGateway != "" {
-			// TCP gateway mode: connect directly to host via host gateway.
-			target = "TCP:" + hostGateway + ":" + strconv.Itoa(localPort)
-		} else {
-			// Unix socket mode: connect to bind-mounted socket from host.
-			sockPath := filepath.Join(forwardSocketDir, "port-"+strconv.Itoa(localPort)+".sock")
-			if !pathExists(sockPath) {
-				e.warn("Warning: socket " + sockPath + " not found for port " + strconv.Itoa(localPort))
-				continue
-			}
-			target = "UNIX-CONNECT:" + sockPath
+		target, sockPath := containerForwardTarget(hostGateway, forwardSocketDir, localPort, hostPort)
+		if sockPath != "" && !pathExists(sockPath) {
+			e.warn("Warning: socket " + sockPath + " not found for port " + strconv.Itoa(localPort))
+			continue
 		}
 
 		cmd := exec.Command("socat",
@@ -231,24 +223,52 @@ func startContainerPortForwarding(e *Env) {
 	}
 }
 
-// forwardEntryPort resolves a port-forward entry: an int is the port; a string
-// with ":" takes the part before the first colon; a bare string is parsed as an
-// int; anything else is invalid (warn + skip). jsonx.Decode of a JSON array
-// yields string / float64 / bool / nil / jsonInt elements — JSON integers
-// decode to jsonInt, JSON floats to float64 (which hits the warn branch).
-// INVARIANT: a bare non-numeric string is a hard error — mustAtoiPort panics so
-// boot aborts before the exec rather than starting bash with a broken forward.
-func forwardEntryPort(entry any) (int, bool) {
+// forwardEntryPorts resolves a port-forward entry into the port the JAIL listens
+// on and the HOST port it reaches. A forward_host_ports string is
+// "<local>:<host>" — jail side FIRST, the opposite order from `network.ports`
+// (podman's "<host>:<container>"). An int, or a string with no colon, is the same
+// port on both sides. Anything else is invalid (warn + skip).
+//
+// jsonx.Decode of a JSON array yields string / float64 / bool / nil / jsonInt
+// elements — JSON integers decode to jsonInt, JSON floats to float64 (which hits
+// the warn branch). INVARIANT: a bare non-numeric string is a hard error —
+// mustAtoiPort panics so boot aborts before the exec rather than starting bash
+// with a broken forward. That is also what catches a publish-style
+// "ip:host:container" string that got past `yolo check`.
+func forwardEntryPorts(entry any) (local, host int, ok bool) {
 	if isJSONInt(entry) {
-		return mustAtoiPort(pyStr(entry)), true
+		p := mustAtoiPort(pyStr(entry))
+		return p, p, true
 	}
 	if v, ok := entry.(string); ok {
 		if strings.Contains(v, ":") {
-			return mustAtoiPort(strings.SplitN(v, ":", 2)[0]), true
+			parts := strings.SplitN(v, ":", 2)
+			return mustAtoiPort(parts[0]), mustAtoiPort(parts[1]), true
 		}
-		return mustAtoiPort(v), true
+		p := mustAtoiPort(v)
+		return p, p, true
 	}
-	return 0, false
+	return 0, 0, false
+}
+
+// containerForwardTarget returns the socat destination for one forwarded port,
+// plus the Unix socket that must exist first ("" when there is none).
+//
+// It takes BOTH ports because the two backends need different ones, and the bug
+// this function exists to make unrepresentable was a caller reaching for the
+// wrong one:
+//
+//   - TCP-gateway mode (macOS podman, hostGateway set) has no host-side socat, so
+//     nothing has applied the remap yet — it must dial the HOST port.
+//   - Unix-socket mode (Linux podman, Apple Container) connects to the host-side
+//     socat, which already targets the host port and named its socket after the
+//     LOCAL port. Re-applying the remap here would look for a socket nobody made.
+func containerForwardTarget(hostGateway, socketDir string, localPort, hostPort int) (target, sockPath string) {
+	if hostGateway != "" {
+		return "TCP:" + hostGateway + ":" + strconv.Itoa(hostPort), ""
+	}
+	sockPath = filepath.Join(socketDir, "port-"+strconv.Itoa(localPort)+".sock")
+	return "UNIX-CONNECT:" + sockPath, sockPath
 }
 
 // mustAtoiPort parses a valid integer; garbage panics, aborting boot rather
