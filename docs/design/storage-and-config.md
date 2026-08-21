@@ -384,15 +384,14 @@ declared `program` to shadow a binary the image already bakes.
 
 ---
 
-## 10. Follow-up (2026-08-21): the generated user scope can name paths the jail cannot reach
+## 10. Follow-up (2026-08-21): the launcher refuses a pack `yolo check` already calls delivered
 
-**Status:** DIAGNOSED, not fixed. Two defects share one symptom, and they are independently
-actionable. §1.1 above describes the generated user scope; this section is what happens when what it
-generates points outside the container.
+**Status:** DIAGNOSED, not fixed. Two independent defects share one symptom. §1.1 above describes the
+generated user scope; this section is about what the *launcher* does with what it generates — and,
+after two wrong turns, the answer is that the generated config was never the problem (§10.2).
 
-**Reads with:** [`trust-paths.md`](trust-paths.md) (OQ-TP7 is the same check-passes/launch-refuses
-shape, for a different cause), [`agent-install-in-ci.md`](agent-install-in-ci.md) (whose integration
-work surfaced this).
+**Reads with:** [`trust-paths.md`](trust-paths.md) (OQ-TP7 refuses a copied gate for the same reason
+§10.4 does), [`agent-install-in-ci.md`](agent-install-in-ci.md) (whose integration work surfaced this).
 
 ### 10.1 What was measured
 
@@ -426,141 +425,146 @@ whether it covers this.
 > maintainer's own setup does exactly that (`matt-core`, `matt-fzf`, `matt-local`), so the mandated
 > path is broken for the person the instruction is written for.
 
-### 10.2 Diagnosis: a key-level filter, and a key whose two consumers disagree
+### 10.2 Diagnosis: not inheritance — a fix that landed at one call site
 
-`internal/config/inherit.go` classifies every top-level key across two consumers, and `packs` claims
-both:
+> [!WARNING]
+> **The inheritance framing was wrong, and two earlier revisions of this section were built on it.**
+> They argued that the generated user scope should not carry a host path the child cannot reach, and
+> weighed four options for filtering or rewriting `packs` in the nested projection. **None of them is
+> the bug.** The generated config is *correct*: `file:///home/matt/.dotfiles/packs/matt-core` is the
+> pack's true provenance, and `yolo pack ls` showing it is right. Preserved because the symptom
+> ("config names an unreachable path") points straight at inheritance, and it took reading the other
+> caller to see that the config was never the problem.
 
-```go
-"packs": {preflight: true, nested: true,
-  reason: "reported by `yolo pack ls/status` and staged by an inner launcher"},
-```
+The real shape: **`Store.Resolve` has two callers, and only one of them knows what a jail is.**
 
-The reason names the two consumers correctly and the disposition treats them as one. Only the second
-breaks, because only the second *evaluates* the path.
+Both ask `packsrc` to resolve a local pack address, and both get the same error from
+[`store.go:223`](../../internal/packsrc/store.go#L223) — `local pack %s is not a directory`. Then they
+diverge:
 
-The `loopholes` entry immediately above rules the analogous question the other way, and that ruling is
-sound where it stands: its host-shaped `command`/`doctor_cmd` innards *"are not a reason to drop it:
-those are evaluated host-side only… dropping the key would make `yolo loopholes list` blind to the
-human's own installs — a visible omission, which §5.1 rules worse than a stale path."* The
-distinction is **evaluation**, not shape: a stale path a consumer only prints is harmless, and a stale
-path a consumer stages from is fatal. So "drop anything host-shaped" is the wrong generalisation, and
-so is "keep it, readers cope."
+| Caller | On that error | Result |
+| :--- | :--- | :--- |
+| `yolo check` ([`check/packs.go:127`](../../internal/cli/check/packs.go#L127)) | asks `stagedPackDir(name)` — is there a delivered copy under `YOLO_PACK_ROOT`? | `[PASS] matt-core: staged at /ctx/packs/matt-core` |
+| `yolo run` ([`run/packs.go`](../../internal/cli/run/packs.go)) | nothing | refuses the launch |
 
-What this needs is therefore a **value-level** treatment of one key in one projection, which the
-current filter does not do — it is key-level throughout. The seam was built in anticipation:
+**And this exact bug was already found, ruled, and fixed — in `check` alone.** Its regression test
+records the identical symptom, character for character:
 
-> `FilterInheritErr` … *"The error is always nil today and exists so a future filter that can fail — a
-> value-level rewrite rather than a key-level projection — does not change every call site."*
+> The reported symptom: `yolo check` run inside a jail printed
+> `[FAIL] matt-core: local pack /home/matt/.dotfiles/packs/matt-core is not a directory`
+> for three packs that were functioning normally, staged at /ctx/packs.
+> — [`check/packs_test.go:300-311`](../../internal/cli/check/packs_test.go#L300-L311)
 
-### 10.3 The separate defect: integration tests read machine state
+The ruling is in the code, and it is the right one: *"A SOURCE THAT IS NOT VISIBLE FROM HERE IS NOT A
+BROKEN PACK … What was actually delivered is the STAGED TREE the launcher mounted, so ask that
+instead. Keyed on the filesystem rather than on 'am I in a jail' deliberately: the question is whether
+a staged copy exists, which is the thing that decides whether the pack works, and it cannot misfire on
+a host (where no staged tree is mounted, so this branch never fires)."*
 
-The same symptom produced six failures in the container suite, and the cause there is not
-inheritance — it is that **only some container tests isolate `HOME`**. `packHome` gives a test its own
-user config; tests reaching it through `writeProjectWithPacks`/`tempProject` inherit that isolation,
-and everything else reads whatever the machine has. Counted 2026-08-21: six files with jail tests have
-no `HOME` isolation at all (`cgroup`, `imageskew`, `network`, `packagecollection`, `packages`,
-`reachability` — 11 tests), and `cli_test.go` isolates 3 of its 9.
+So there is nothing to decide about *what* the answer is. `grep stagedPackDir` returns **one call
+site**, in `check`. The launch path never learned it, and the test pins only the caller that did —
+the failure class `AGENTS.md` names under Testing, in its second spelling: the fix is real, the test is
+real, and deleting the *other* call site's absence changes nothing that goes red.
+
+### 10.3 Why `yolo check` in a jail was never going to catch it
+
+`yolo check` run inside a jail has two uses, and they are wildly unequal in frequency:
+
+1. **Check a nested config before launching a jail-in-jail** — rare.
+2. **Check a workspace config after editing it, before asking a human to restart the host jail** —
+   this is what `AGENTS.md` and the `configuring-the-jail` skill instruct on every config edit, and
+   it is essentially the only use.
+
+For use 2 the pack list is **structurally irrelevant**: `packs` is user-scope-only by construction —
+`LoadPacks` *"deliberately takes no merged config: reading the user file directly is what makes
+workspace scope inexpressible"* ([`config/packs.go:179-183`](../../internal/config/packs.go#L179-L183))
+— so a workspace config being checked cannot name a pack at all. `sectionPacks` is reporting on the
+OUTER jail's inherited selection, which is true, and beside the point of the thing the agent changed.
+
+That is why "make `check` predict the refusal" was the wrong instinct (and why the OQ that proposed it
+is withdrawn below). `check` is not behind the launcher here — it is **ahead** of it. It already
+computed the staged path the launcher needs.
+
+### 10.4 The one question left: where does the fallback live?
+
+Porting `stagedPackDir` into `run/packs.go` would fix the launch and create the defect this repo has
+already written down once. [`trust-paths.md`](trust-paths.md) OQ-TP7 poses the same shape for the host-access
+gate and rejects the copy outright: *"A third gate copied into `check` would satisfy that scan
+vacuously … So the question is **where the gate lives** if a third caller needs it."* Two
+implementations of one resolution rule is the drift, not the fix.
+
+Three homes, and the choice is a real one:
+
+| | Home | Consequence |
+| :--- | :--- | :--- |
+| **(i)** | `packsrc.Store.Resolve` itself consults `YOLO_PACK_ROOT` | One writer, every caller fixed at once, including any future one. Costs `packsrc` an awareness of the jail's delivery convention — a store that resolves *addresses* would start knowing about *mounts* |
+| **(ii)** | A shared resolver beside `Resolve` (`ResolveOrStaged`) that both callers use | Keeps `Resolve` address-only and makes the fallback explicit at each call site. Costs a second entry point that a new caller can forget — the same way `run` forgot this one |
+| **(iii)** | Keep it in `check`, and have `run` refuse only when no staged tree exists | Smallest diff, and exactly the two-implementations outcome OQ-TP7 refuses |
+
+_Leaning:_ **(i).** The predicate is already filesystem-keyed and already argued to be safe on a host
+(*"it cannot misfire on a host, where no staged tree is mounted, so this branch never fires"*), so
+putting it in the one place that owns resolution makes every caller correct by construction — which is
+the property (ii) leaves to each caller's memory and (iii) abandons. The honest cost is the layering
+smudge in the (i) row, and it is worth naming when it lands rather than pretending resolution and
+delivery are cleanly separable.
+
+### 10.5 The separate defect: integration tests read machine state
+
+Unchanged by the above, and worth fixing on its own merits — though note that fixing §10.4 makes the
+six observed failures disappear as a side effect, since the launch would succeed.
+
+**Only some container tests isolate `HOME`.** `packHome` gives a test its own user config, and tests
+reaching it through `writeProjectWithPacks`/`tempProject` inherit that isolation; everything else reads
+whatever the machine has. Counted 2026-08-21: six files with jail tests have no isolation at all
+(`cgroup`, `imageskew`, `network`, `packagecollection`, `packages`, `reachability` — 11 tests), and
+`cli_test.go` isolates 3 of its 9.
 
 **The failure mode is worse than the failures.** An ambient user config does not only break
 assertions; it can satisfy them. `security.blocked_tools`, `mise_tools`, `mcp_servers` and `loopholes`
 all merge into the jail a test launches, so a machine-local config can make a test pass for a reason
 the test never states. And it is **asymmetric with CI**: a fresh runner has no user config, so CI
-structurally cannot observe either direction. That is the same invisible-in-CI/fatal-locally shape
-that bit `warmJail`'s first draft (`agent-install-in-ci.md` §11, step one).
+structurally cannot observe either direction — the same invisible-in-CI/fatal-locally shape that bit
+`warmJail`'s first draft ([`agent-install-in-ci.md`](agent-install-in-ci.md) §11).
 
-This is mechanical to fix now that `seedPackHome` exists as a non-`*testing.T` helper: make an
-isolated `HOME` the default for every container test and let the ambient config be an explicit opt-in
-that names its reason. It does not wait on any ruling in §10.4.
-
-### 10.4 First: what is a nested jail FOR?
-
-I reached for an answer to §10.4 before asking this, and the answer changes it. Searched
-2026-08-21 across `docs/design/`, `docs/guides/` and `AGENTS.md`:
-
-- **`USER_GUIDE.md` — the end-user documentation — never mentions nesting as a feature.** Not once.
-- Every design-doc mention is one of two things: the **development verification path**
-  (`AGENTS.md`: *"Verify Go changes by launching a nested jail (`yolo -- bash`)"*), or a **bug
-  condition** that only manifests when the host is a jail
-  ([`broker-ca-and-nested-hosts.md`](broker-ca-and-nested-hosts.md) §2, and `AGENTS.md`'s
-  reachability carve-out).
-
-So there is **no documented product use case for jail-in-jail.** It is a developer affordance whose
-job is to run the *freshly built* code — a new image, a new argv — and not to be a faithful replica of
-its parent.
-
-> [!WARNING]
-> That retires the premise this section was originally written on. An earlier revision leaned toward
-> **rewriting** local pack paths (option (b) below) so that *"a nested jail keeps its parent's
-> content,"* and objected to option (c) on the grounds that *"a nested jail then has no agent, which
-> is most of what nested verification is for."* **Both were wrong.** The mandated command is
-> `yolo -- bash`, not an agent, so no-agent is not a cost of the documented workflow; and "should
-> resemble its parent" was an assumption, never a requirement anyone wrote down. Preserved because it
-> is an easy assumption to re-make: nesting *feels* like it should be transparent, and nothing about
-> the feature says it must be.
-
-### 10.5 Options for the inheritance half
-
-| | Option | Cost |
-| :--- | :--- | :--- |
-| **(a)** | Drop local `file://` entries from the **nested** projection only; preflight keeps them | Simple, fails closed, keeps `yolo pack ls` honest. A nested jail silently gets **less** than its parent — here, no `matt-fzf` file-suggestion finder and no `matt-local` pi config |
-| **(b)** | **Rewrite** local entries to the staged copy (`file:///ctx/packs/<name>`) in the nested projection | Verified viable: `/ctx/packs/` holds `matt-core`, `matt-fzf`, `matt-local` already staged, so the referent exists. Preserves content across nesting. Costs a value-level rewrite and care that re-staging a staged copy is faithful (`allow_exec` rides on the config entry, so it is inherited alongside) |
-| **(c)** | Do not inherit `packs` into **nested** at all | Consistent with *nothing is active by default*, and cheaper than (a) since it needs no value-level filter at all. Costs more than (a) for no gain: an EMBEDDED pack's referent is reachable in the child, so dropping it discards something that would have worked |
-| **(d)** | Keep inheriting; make a missing local pack a warning the launch survives | Rejected: fails open and silently drops declared content, which is what the fatal exists to prevent |
-
-_Leaning:_ **(a), with the drop REPORTED rather than silent.** Revised after §10.4 — I leaned (b)
-first and no longer do.
-
-Three reasons. (a) is the census's own rule — *is the referent reachable in the child?* — applied one
-level down, so it needs no new principle: an embedded pack's tree comes from the binary's `embed.FS`
-and IS reachable, a `file://` host path is not, and that distinction is the whole filter. (b) by
-contrast invents an equivalence — *the staged copy is the pack* — which would have to answer its own
-questions about re-staging a copy (exec bits re-derived, `allow_exec`, an `only` filter applied
-twice); §10.4 says the fidelity that buys is not something any use case asks for. And the one real
-objection to (a), that the loss is silent, is not inherent: a line naming what was dropped and why
-removes it, and matches how yolo reports every other withheld contribution. (d) is not on the table.
+This completes a rule the harness already half-enforces rather than inventing one. `writeProject`
+already **refuses** a workspace config containing `packs` — *"which is USER SCOPE ONLY … Use
+writeProjectWithPacks so the key lands in the user config where it is read"* — so a test is already
+forced to state its pack selection explicitly, while `security`, `mise_tools`, `mcp_servers` and
+`loopholes` merge in from the machine unannounced. A test should specify its inputs.
 
 ### Open Questions
 
-1. 💬 **OQ-SC1: drop, rewrite, or stop inheriting `packs` into the nested scope?** §10.5. This is the
-   ruling; the implementation is contained either way.
+1. 💬 **OQ-SC1: where does the staged-tree fallback live?** §10.4 — `packsrc.Resolve` itself, a shared
+   `ResolveOrStaged` beside it, or a copy in `run`.
 
-   **What it decides:** whether a nested jail carries its parent's local packs, and whether
-   `inherit.go` grows its first value-level rewrite (only (b) requires one).
+   > This question previously asked whether to drop, rewrite, or stop inheriting `packs` in the nested
+   > scope, and went through two leanings before the framing itself turned out to be wrong (§10.2).
+   > **Withdrawn and restated under the same ID** — nothing outside this doc referenced it. The
+   > inherited config was never the defect.
 
-   _Leaning:_ **(a)** — drop the entries whose referent the child cannot reach, and say so out loud.
-   Revised from (b) once §10.4 established that nesting has no documented product use case, so
-   "resembles its parent" is not a requirement. Full reasoning in §10.5.
+   **What it decides:** whether a future caller of `Store.Resolve` is correct by construction or by
+   remembering, and whether `packsrc` is allowed to know about the jail's delivery convention.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-SC2: should `yolo check` predict this refusal, and is that the same fix as OQ-TP7?**
-   §10.1 measured `check` passing on a config whose next launch is refused — the shape
-   [`trust-paths.md`](trust-paths.md) OQ-TP7 already has open for the fetched-pack/installer case.
-
-   **What it decides:** whether these are one fix or two, and therefore whether OQ-TP7's answer is
-   allowed to be narrow.
-
-   _Leaning:_ ask it as one question. Two independent causes producing "check passes, launch refuses"
-   is evidence about the preflight's coverage rather than about either cause.
+   _Leaning:_ **(i)**, in `Resolve`. Reasoning and its honest cost in §10.4.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-SC3: does the harness isolate `HOME` by default?** §10.3, and independent of OQ-SC1 — it
-   is a test-hygiene change, not a product one.
+2. ✅ **OQ-SC2: should `yolo check` predict this refusal? — WITHDRAWN (2026-08-21)**
+
+   **Answer:**
+   > Wrong question. `check` is ahead of the launcher here, not behind it: it already resolves the
+   > staged tree and reports `[PASS]`. The general OQ-TP7 concern — a preflight that does not predict a
+   > launch refusal — stands on its own for the fetched-pack/installer case; this was not an instance
+   > of it. See §10.3.
+
+3. 💬 **OQ-SC3: does the harness isolate `HOME` by default?** §10.5. Independent of OQ-SC1, and now a
+   hygiene change rather than a fix for the observed failures.
 
    **What it decides:** whether the container suite measures the repository or the machine it runs on.
 
-   _Leaning:_ **yes**, and this is less a new rule than the completion of one the harness already
-   started. `writeProject` already **refuses** a workspace config containing a `packs` key —
-   `t.Fatalf`'s with *"which is USER SCOPE ONLY … Use writeProjectWithPacks so the key lands in the
-   user config where it is read"* — i.e. the harness already forces a test to state its pack
-   selection explicitly, and is then silent about `security`, `mise_tools`, `mcp_servers` and
-   `loopholes`, which merge in from the machine unannounced. A test should specify its inputs;
-   default-isolating `HOME` is what makes the half-enforced rule total. I know of no test that wants
-   the machine's config, and any that does can opt in and name its reason.
+   _Leaning:_ **yes**. It finishes the rule `writeProject` already half-enforces, and no test I know of
+   wants the machine's config. Any that does can opt in and name its reason.
 
    **Answer:**
    > _(empty — fill in when decided)_
