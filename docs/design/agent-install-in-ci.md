@@ -17,8 +17,9 @@ into a cold, per-workspace npm prefix, each resolving an **unpinned `@latest`** 
 package string. What that buys is real but small — two install mechanisms and one config-render
 assertion — and we re-buy it nine times while importing the public registry's uptime, publish
 ordering, and throughput into a **blocking** gate. On 2026-08-20 an upstream publish race turned
-three tests red; on 2026-08-21 the heaviest of them blew a 20-minute cap it was already using 86%
-of. Neither was a defect in this repo. My proposal is a principle with three consequences: **the
+three tests red; on 2026-08-21 the *first* of them blew a 20-minute cap it was already using 86% of —
+two-thirds of that budget being suite warmup it pays for by running first ([§4.1](#41-the-first-test-is-the-suites-warmup-sink)).
+Neither was a defect in this repo. My proposal is a principle with three consequences: **the
 blocking gate is a pure function of this repo's contents**, so it installs pinned bytes, once per
 mechanism rather than once per test, and upstream drift is discovered by a job that **produces an
 artifact with an owner** — never by an "advisory" cell.
@@ -109,9 +110,12 @@ the per-workspace prefix is the jail-isolation property working as designed. The
 > ([`assemble_parts.go:48,81`](../../internal/cli/run/assemble_parts.go#L48)) and
 > `NPM_CONFIG_CACHE=/home/agent/.cache/npm`
 > ([`assemble.go:564`](../../internal/cli/run/assemble.go#L564)). So tarball *bytes* can be reused
-> within a run. This is the one thing that keeps the current cost from being far worse — and
-> `--prefer-online` still spends a registry round-trip per install to revalidate, and a fresh CI
-> runner starts with the cache empty regardless. Do not "fix" the cost by deleting the global
+> within a run. This is the one thing that keeps the current cost from being far worse: measured on
+> x64, a marginal install once the cache is warm is **~12s**, against 124.5s for the first test
+> ([§4.1](#41-the-first-test-is-the-suites-warmup-sink)). So the nine installs are cold in the
+> *prefix* sense — every one re-unpacks and re-links — but warm in the *download* sense after the
+> first. `--prefer-online` still spends a registry round-trip per install to revalidate, and a fresh
+> CI runner starts with the cache empty regardless. Do not "fix" the cost by deleting the global
 > `.cache` mount; it is load-bearing in the right direction.
 
 ### 2.3 Two mechanisms, six packs, nine installs
@@ -193,12 +197,40 @@ nightly, 2026-08-20 pass and 2026-08-21 fail).
 On macOS the same work is ~8× slower than on x64 (124.5s → 1032.9s for the same test), because
 every byte goes through podman's VM.
 
-This is not merely slow; it is what makes the suite *fragile*. `TestAgentToolsAvailable` is the
-heaviest test in the tree — the only one installing two CLIs in one jail session — and on a healthy
-night it consumed **1033s of the nightly's 1200s cap**
-([`nightly-macos.yml:103`](../../.github/workflows/nightly-macos.yml#L103)). 14% headroom. On
-2026-08-21 every test ran 1.6–2.1× slower (`PackInstalls/claude` 179.5s → 384.9s), and it blew the
-cap. Nothing hung; the runner had a bad night and the test had no margin to absorb it.
+This is not merely slow; it is what makes the suite *fragile*. `TestAgentToolsAvailable` consumed
+**1033s of the nightly's 1200s cap**
+([`nightly-macos.yml:103`](../../.github/workflows/nightly-macos.yml#L103)) on a healthy night — 14%
+headroom. On 2026-08-21 every test ran 1.6–2.1× slower (`PackInstalls/claude` 179.5s → 384.9s) and
+it blew the cap.
+
+### 4.1 The first test is the suite's warmup sink
+
+The obvious reading of that number — *"it is the heaviest test, being the only one that installs two
+CLIs"* — is **wrong**, and it took a second look at the ordering to see it.
+`TestAgentToolsAvailable` is the **first** container test to run, and whatever runs first pays for
+podman's image load, the first container start, mise provisioning, and the cold shared npm cache.
+
+| x64, same run | installs | position | time |
+| :--- | ---: | :--- | ---: |
+| `TestAgentToolsAvailable` | 2 | **first** | **124.5s** |
+| `TestAgentToolsAvailableDirect` | 1 | second | 12.9s |
+| `PackInstalls/codex` | 1 | later | 11.6s |
+| `PackInstalls/copilot` | 1 | later | 12.2s |
+| `PackInstalls` (whole matrix) | 5 | later | 68.9s |
+
+Two installs cost 124.5s at the head of the suite; the same two cost ~24s anywhere else, and *five*
+cost 68.9s. So ~100s of that first test is not its own work — and the penalty is confined to the
+very first test, since the second is already down to 12.9s. The macOS numbers say the same thing
+more loudly: 1033s against an expected ~350s for two installs plus a boot, i.e. **roughly 680s of
+the timing that blew the cap was suite warmup.**
+
+> [!WARNING]
+> This is a **measurement** defect, not a cost defect. A per-command cap sized for steady-state work
+> is being applied to a test that also carries a one-time suite cost, so the cap has to be large
+> enough for warmup + work while every later test is judged against work alone. Widening the cap
+> preserves the misattribution and buys nothing else; §5.2 says what to do instead. Note also that
+> nothing in §6.1 touches this — cutting the pack matrix shrinks `PackInstalls`, while
+> `TestAgentToolsAvailable` keeps its two installs and keeps running first.
 
 ## 5. Diagnosis: two failure modes, one cause
 
@@ -227,8 +259,9 @@ The publish-ordering lag per stable release, from the registry's own `time` map:
 > it changes. This is also why the failure is **not arm-specific** — 0.149.0 had x64 at +2m and the
 > intervening alphas showed x64 lags of +20m and +57m. The arm cell simply drew the short straw.
 
-**Mode B — the work is too big to have margin.** §4. A test at 86% of its cap is a test that fails
-on runner variance. The install *is* the work.
+**Mode B — a one-time cost is charged to a per-test budget.** §4.1. A test at 86% of its cap fails on
+runner variance — but two-thirds of what filled that budget was suite warmup the test happens to run
+first and therefore pays for.
 
 ### 5.1 Mode A is already ruled, and stuck on where a pin lives
 
@@ -261,10 +294,25 @@ That is [OQ-CI1](#-oq-ci1--does-this-doc-presuppose-a-fourth-shape-for-oq-tp4) b
 **blocked on the maintainer's ruling in `trust-paths.md`** — I am not going to fork a second pinning
 policy in a second doc.
 
-### 5.2 Mode B is ours alone
+### 5.2 Mode B is ours alone, and the fix is attribution
 
-No upstream involvement. Two levers: shrink the work (§6.2) or widen the cap. They are not
-exclusive and the cap is the cheaper one.
+No upstream involvement, and — given §4.1 — no coverage question either. The suite's one-time costs
+should be paid **outside any timed test**: a suite-level warmup that launches one jail and installs
+nothing of consequence, run once before the first assertion is timed. `TestMain` already does
+suite-level work (it builds a fresh host `yolo` and reconciles the image), so this is a third thing
+in an existing seam rather than a new concept.
+
+What that buys, in order of importance: the per-command cap goes back to measuring what it was sized
+for; every test's reported duration becomes comparable to every other's; and the cap stops needing
+headroom for a cost only one test pays.
+
+> [!NOTE]
+> I originally proposed simply raising the cap to 2400s, on the grounds that Mode B is ours and one
+> line is cheap. **Withdrawn** — §4.1 is why. Widening a budget to fit a misattributed cost hides the
+> thing worth knowing (the first test is 10× the others for reasons unrelated to its assertions) and
+> would have to be re-widened the next time suite warmup grows. A stopgap is still available if the
+> nightly's redness is costing something while the real change is in flight, but it is a stopgap and
+> should be labelled one.
 
 Baking the CLIs into the image is **not** a lever — `image-staging-vs-baking.md` deliberately keeps
 agent CLIs out of the image so a jail launch delivers them lazily, and reversing that to speed up a
@@ -363,7 +411,7 @@ and the gate wants frozen ones, and today they share one mechanism.** §5.1 spli
 | Vendor/bake the CLIs into the image | **Rejected**, §5.2 — reverses a deliberate design and is pinning-by-staleness. |
 | Pin in the manifest only (OQ-TP4 option (a)) | **Rejected** on the doc's own grounds: yolo's release cadence becomes the ceiling on CLI freshness. §5.1's shape keeps (a)'s CI benefit without that ceiling. |
 | Lockfile-only pin (OQ-TP4 option (b), as written) | **Insufficient alone** for CI: the lockfile is user-scoped and `.yolo/` is gitignored, so a fresh runner has nothing to obey (§5.1). |
-| Raise the macOS cap and change nothing else | **Accepted as a stopgap, rejected as the answer.** It fixes Mode B and leaves Mode A untouched. Do it anyway — it is one line and Mode B is ours. |
+| Raise the macOS cap and change nothing else | **Rejected**, §5.2. It does not fix Mode B, it *hides* it: §4.1 shows two-thirds of the blown budget was suite warmup, so a wider cap preserves the misattribution and must be re-widened whenever warmup grows. Available as a labelled stopgap, not as the answer. |
 | Drop the macOS nightly's agent tests entirely | **Rejected.** macOS is the only place the podman-VM install path runs at all; deleting it trades a slow signal for none. |
 
 ## 10. Risks
@@ -378,10 +426,11 @@ and the gate wants frozen ones, and today they share one mechanism.** §5.1 spli
 
 ## 11. What I would build, in order
 
-First, raise the macOS nightly's per-command cap. Mode B is entirely ours, the fix is one line, and
-it stops a nightly that is currently red for arithmetic reasons. I would not split
-`TestAgentToolsAvailable` to achieve it — two agents in one jail is the assertion that test exists to
-make.
+First, move suite warmup out of the first timed test (§5.2). Mode B is entirely ours, it needs no
+ruling on pinning, and it is the only item here that makes the *existing* numbers trustworthy — until
+it lands, every duration in §4 overstates the first test and understates the rest. I would not split
+`TestAgentToolsAvailable` to achieve it: two agents in one jail is the assertion that test exists to
+make, and its cost was never really about the second install.
 
 Second, settle OQ-CI1 by settling OQ-TP4, because everything about pinning downstream of it is
 unbuildable until the record has a home. That is a ruling, not a build.
@@ -445,15 +494,22 @@ Fifth, the weekly bump PR, replacing "advisory" with an artifact that has an own
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 🤷 **OQ-CI4: how much headroom should the macOS per-command cap have?** Today 1200s against a
-   1033s healthy-night peak (14%). Last night's runner ran 1.6–2.1× slower.
+4. 💬 **OQ-CI4: where does suite warmup get paid?** §4.1 measured that the first container test
+   carries ~100s (x64) / ~680s (macOS) of one-time suite cost — image load, first container start,
+   mise provisioning, cold npm cache — and is then judged against a per-command cap sized for
+   steady-state work.
 
-   **What it decides:** only how long a genuinely hung nightly takes to report. It is a nightly that
-   already runs 1–2 hours, so the cost of being generous is small.
+   > This question originally asked *"how much headroom should the macOS cap have?"* and leaned
+   > 2400s. That was the wrong question: it accepted the misattribution and negotiated its size.
+   > Same ID, restated — nothing outside this doc referenced it.
 
-   _Leaning:_ 2400s — 2.3× the measured healthy peak, which covers the observed 2.1× worst case with
-   margin. Pure judgement call on how long you're willing to wait for a hang; no technical argument
-   picks a number here.
+   **What it decides:** whether Mode B is fixed or merely padded, and whether per-test durations in
+   this suite are comparable to each other at all.
+
+   _Leaning:_ an explicit **suite-level warmup** in `TestMain`'s existing seam, before any timed
+   assertion. It changes no coverage, makes every test's duration mean the same thing, and leaves the
+   1200s cap measuring what it was sized for. The alternative — keep warmup inside whichever test
+   happens to sort first and widen the cap to fit — needs re-widening every time warmup grows.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -465,10 +521,11 @@ Fifth, the weekly bump PR, replacing "advisory" with an artifact that has an own
 
    **What it decides:** whether step four of §11 happens at all.
 
-   _Leaning:_ **defer it.** I think §6.1 alone takes the x64 agent-install cost from 218s to well
-   under 100s and the macOS cost from 35 min to ~10, which likely makes Mode B a non-issue without
-   any harness surgery. I would rather re-measure after §6.1 than build the seam on a prediction —
-   and if the numbers land where I expect, this question closes as "not needed".
+   _Leaning:_ **defer it.** §6.1 cuts the `PackInstalls` matrix from five install cells to two or
+   three — on x64 that is 68.9s → ~28s, on macOS 802s → ~320s — and OQ-CI4 relocates the warmup that
+   dominates the rest. Between them I expect little residual per-test install cost for a seam to
+   remove. I would rather re-measure after those two land than build the seam on a prediction; if the
+   numbers land where I expect, this question closes as "not needed".
 
    **Answer:**
    > _(empty — fill in when decided)_
