@@ -166,24 +166,41 @@ won't work. Only a host `yolo check` can judge these. (Same reason `mounts` is
 stripped from the in-jail user-config snapshot and is not inherited by a nested
 jail.)
 
-### 5. The host IS reachable in the default bridge mode
+### 5. Networking: name the DIRECTION before you touch a port key
 
 Bridge mode gives the jail its own netns; it does not cut it off from the host.
-Three distinct things, and picking the wrong one is what makes people add config
-they don't need:
+Two directions, one key each, and **the two keys put the ports in opposite
+orders**. Decide which row you are in before writing anything:
 
-- **The host** → `host.containers.internal`. Always there. No config.
-- **A host service bound to the host's `127.0.0.1`** → also
-  `host.containers.internal:<port>`. yolo asks the rootless network stack to
-  forward the host's loopback into the jail; this is how yolo's own host daemons
-  are reached. **This was not true before 2026-08-17** — if you "know" the host's
-  localhost is unreachable from a jail, that memory is stale. Check
-  `$YOLO_HOST_LOOPBACK` (`requested`/`shared` = fine) before believing otherwise.
-- **`localhost:<port>` inside the jail, literally** → `network.forward_host_ports`.
-  Only for a client you cannot point at another host.
+| Who connects | Who listens | Key | Entry order |
+|---|---|---|---|
+| the host | the jail | `network.ports` | `"HOST:JAIL"` |
+| the jail | the host | *nothing* — dial `host.containers.internal:<port>` | — |
+| the jail | the host | `network.forward_host_ports` | `"JAIL:HOST"` |
 
-`localhost` inside the jail is still the *jail's* loopback. That is the part that
-is true, and probably the seed of the whole confusion.
+`network.ports` goes to podman's `-p` verbatim, and podman is host-first.
+`forward_host_ports` is yolo's own and is jail-first — the port you write is the
+one you will dial from in here. A transposed entry usually does not error; it
+forwards the wrong port and presents as a broken service, so **check the order
+before you debug the service.**
+
+**There are two loopbacks.** `localhost` / `127.0.0.1` inside the jail is the
+*jail's* loopback, always. The host's is a different interface reached by name.
+That single fact is true and is the seed of most of the confusion here.
+
+Two corollaries worth having:
+
+- **You usually need no config to reach the host.**
+  `host.containers.internal:<port>` already reaches host services *including*
+  ones bound only to the host's `127.0.0.1` — yolo has the rootless network stack
+  forward the host's loopback in, which is how yolo's own host daemons are
+  reached. **Not true before 2026-08-17**: if you "know" the host's localhost is
+  unreachable from a jail, that memory is stale. `$YOLO_HOST_LOOPBACK`
+  (`requested`/`shared` = forwarding is in place) settles it. Reach for
+  `forward_host_ports` only when something must literally see `localhost:<port>`.
+- **To publish a server *out* of the jail, bind `0.0.0.0` in here**, not
+  `127.0.0.1` — `network.ports` cannot publish a jail-loopback-only listener.
+  Binding wide inside the jail is safe: the published port is the only way in.
 
 ## Don't guess at keys — the schema lives in the CLI
 

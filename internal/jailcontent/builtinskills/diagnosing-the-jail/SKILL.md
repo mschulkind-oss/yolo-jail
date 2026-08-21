@@ -58,13 +58,16 @@ yolo broker status       # for the claude-oauth-broker loophole specifically
 yolo broker logs         # recent broker output
 ```
 
-## 5. Can't reach something on the host
+## 5. A port isn't reachable → establish the DIRECTION first
 
-Before concluding it is impossible: in the default bridge mode the host **is**
-reachable, at `host.containers.internal` — and so are host services bound to the
-host's own `127.0.0.1`, because yolo asks the rootless network stack to forward
-the host's loopback in. What is *not* the host is `localhost` inside the jail;
-that is the jail's own loopback.
+Half the time this is not a broken service, it is the wrong key or a transposed
+entry. **`network.ports` is `"HOST:JAIL"`, `network.forward_host_ports` is
+`"JAIL:HOST"` — opposite orders.** And there are two loopbacks: `localhost`
+inside the jail is the *jail's*, never the host's.
+
+**Jail → host** (you are in here, the service is out there). It should work with
+no config at all: `host.containers.internal` reaches the host, including services
+bound only to the host's `127.0.0.1`.
 
 ```
 echo $YOLO_HOST_LOOPBACK     # requested | shared → forwarding is in place
@@ -74,10 +77,27 @@ echo $YOLO_HOST_LOOPBACK     # requested | shared → forwarding is in place
 
 `requested` plus a service that does not answer is a **fault**, not a
 limitation — the jail-facing services yolo itself ships would have refused the
-launch, so suspect the service, its bind address, or its port. If you need the
-service to appear at `localhost:<port>` in here specifically (a client with no
-host setting), that is `network.forward_host_ports` — see
-**configuring-the-jail**.
+launch — so suspect the service, its bind address, or its port. Only if something
+must literally see `localhost:<port>` in here do you need
+`network.forward_host_ports`; check that entry reads jail-port-first.
+
+**Host → jail** (your server is in here and the host's browser can't load it).
+Two causes, in this order:
+
+1. **It's bound to the jail's loopback.** `network.ports` cannot publish a
+   `127.0.0.1` listener. Confirm with `ss -ltnp` — you want `0.0.0.0:<port>`,
+   not `127.0.0.1:<port>` — and rebind. Most dev servers need an explicit flag
+   (`--host 0.0.0.0`). Binding wide inside the jail is safe.
+2. **The mapping is inverted or absent.** `"HOST:JAIL"`, host side first, and it
+   is applied at launch — adding it to the config does nothing until a restart.
+
+```
+ss -ltnp                                    # what is actually listening, and where
+(exec 3<>/dev/tcp/127.0.0.1/<port>) && echo LISTENING-IN-JAIL || echo NOT-LISTENING
+```
+
+That second probe splits the two: if the server does not even answer inside the
+jail, no port mapping was ever going to help.
 
 ## 6. "My fix isn't taking effect" → you're running stale code
 
