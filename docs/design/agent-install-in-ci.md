@@ -3,16 +3,18 @@ title: "Nine cold installs a run — what CI buys by downloading six agent CLIs"
 date: 2026-08-21
 status: in-review
 tags: [ci, packs, testing, npm, cost]
-summary: "The integration suite installs agent CLIs from the live npm registry nine times per run, unpinned and with --prefer-online, because the npm prefix is per-workspace and every test gets a fresh workspace. That buys two mechanisms' worth of coverage nine times over, and imports every registry hazard into the blocking gate. Two CI failures in two days, neither of them a bug in this repo. Three questions settled, two open, one claim retracted."
+summary: "The integration suite installs agent CLIs from the live npm registry nine times per run, unpinned and with --prefer-online, because the npm prefix is per-workspace and every test gets a fresh workspace. That buys two mechanisms' worth of coverage nine times over, and imports every registry hazard into the blocking gate. Two CI failures in two days, neither of them a bug in this repo. Five questions settled, one new one open, one claim retracted."
 ---
 
 # Nine cold installs a run — what CI buys by downloading six agent CLIs
 
-**Status:** DESIGN SKETCH, 2026-08-21. Nothing built. **Three questions settled** (OQ-CI3, OQ-CI4,
-OQ-CI5 — see the [Decision Ledger](#decision-ledger)), **two open**, and **one claim retracted**: the
-argument that a lockfile pin could not serve CI was wrong, and the manifest-pin shape it motivated is
-withdrawn ([§5.1](#51-mode-a-is-already-ruled-and-waiting-on-a-field)). Every claim about current
-behaviour is traced to code and dated; the cost figures are read off two real CI runs.
+**Status:** DESIGN SKETCH, 2026-08-21. Nothing built. **Five questions settled** — OQ-CI1 through
+OQ-CI5, compacted into the [Decision Ledger](#decision-ledger) — and **one new one open**
+([OQ-CI6](#open-questions)), raised by a finding that may take this doc off `trust-paths.md`'s critical
+path entirely (§5.1.1). **One claim retracted:** the argument that a lockfile pin could not serve CI
+was wrong, and the manifest-pin shape it motivated is withdrawn
+([§5.1](#51-mode-a-is-already-ruled-and-waiting-on-a-field)). Every claim about current behaviour is
+traced to code and dated; the cost figures are read off two real CI runs.
 
 **The short version.** The integration suite performs **nine agent-CLI installs per run**, each
 into a cold, per-workspace npm prefix, each resolving an **unpinned `@latest`** with
@@ -31,9 +33,9 @@ fails like any other job** — never by an "advisory" cell.
 whether the rest is worth building, and it is where I think the usual answer to this problem is
 actively wrong.
 
-**Reads with:** [`trust-paths.md`](trust-paths.md) (OQ-TP4 owns the one hard dependency — a
-`LockEntry` field to record an npm version; this doc needs that field to ship, not any particular
-ruling on the policy around it),
+**Reads with:** [`trust-paths.md`](trust-paths.md) (OQ-TP4 owns pinning for the **shipped** packs — a
+`LockEntry` field to record an npm version. Whether *this* doc depends on it is now OQ-CI6: a fixture
+pack can be pinned with mechanisms that already ship),
 [`image-staging-vs-baking.md`](image-staging-vs-baking.md) (why the CLIs are not baked into the
 image, which is the constraint §5.2 works inside).
 
@@ -291,8 +293,39 @@ path, read by the same loader, with no new concept anywhere. **A partial lockfil
 missing row is *"the normal state"* for `LoadLock` and simply falls back to current behaviour, so CI
 needs rows only for the packs whose install the blocking gate exercises (§6.1: two of them).
 
-So the mechanism CI wants is **OQ-TP4 option (b), unmodified**, and this doc's only dependency on
-that question is that the field ship — not how the ruling comes out.
+So the mechanism CI wants for **the shipped packs** is **OQ-TP4 option (b), unmodified**, and its only
+dependency on that question is that the field ship — not how the ruling comes out.
+
+### 5.1.1 …and the blocking gate may not need to wait for it at all
+
+**Ruled 2026-08-21 (OQ-CI1): the pin is a committed fixture, bumped weekly.** A per-run resolve is
+deterministic *within* a run, which is not the property P1 asks for — a green main that goes red
+tomorrow with no commit is exactly what it still permits. And once the weekly workflow (§6) is what
+moves the pin, committing it is what makes that movement a reviewable diff instead of an invisible
+resolve. There is no argument left for the harness authoring rows itself.
+
+But "committed" does not have to mean "a lockfile row", and there is a route using only **shipped**
+mechanisms:
+
+- The suite already builds a **synthetic pack** in a temp dir, writes a `pack.json` declaring
+  `{"kind": "program", "via": "npm", "package": "fzf"}`, and selects it with `packs: ["file://<path>"]`
+  ([`launcherdir_test.go:129-145`](../../integration/launcherdir_test.go#L129-L145)).
+- A pack's `package` string has carried a version selector since 2026-08-17
+  ([`npmspec.go`](../../internal/entrypoint/npmspec.go)).
+
+Compose those and a fixture pack declaring `"package": "<pkg>@1.2.3"` gives the blocking gate a
+**pinned, in-repo, deterministic** npm install today — no `LockEntry` field, no OQ-TP4 dependency.
+
+The trade is what the gate then covers. A fixture exercises the install **mechanism**; it does not
+prove that `packs/codex/pack.json`'s declared package installs. Under P2 that is the correct split —
+the shipped manifests' real installability is precisely the weekly workflow's question, not the merge
+path's — but it is a real difference and it is [OQ-CI6](#open-questions) below.
+
+A fixture also lets the specimen be chosen for the job: a **small, stable, binary-shipping npm
+package** is a better mechanism test than a 100 MB agent CLI, and a much faster one. The `fzf`
+precedent above is already exactly that shape. The `installer` mechanism is the harder half — a
+deterministic fixture needs an installer URL the test controls, not a vendor's — and that asymmetry is
+called out in §6.1.
 
 > [!WARNING]
 > ### ⚠ Retracted: "(b) fixes the product and leaves CI where it is"
@@ -404,10 +437,20 @@ the cadence is weekly, and the severity is ordinary.
 
 ### 6.1 The blocking gate: pinned, and one cell per mechanism
 
-Under P1 + P2 the required matrix becomes: **one npm pack and one `installer` pack**, installed from
-**pinned** bytes. Two cells, both deterministic. The other packs keep their config-render assertion
-(§3, row 3) which needs no install at all, so per-pack surface coverage is *unchanged* — that is the
-coverage worth having, and today it is hostage to an install it does not need.
+**Ruled 2026-08-21 (OQ-CI2): two cells.** Under P1 + P2 the required matrix is **one npm and one
+`installer`**, installed from **pinned** bytes — not three, and not five. The other packs keep their
+config-render assertion (§3, row 3) which needs no install at all, so per-pack surface coverage is
+*unchanged* — that is the coverage worth having, and today it is hostage to an install it does not
+need.
+
+**The saving goes to the thin side, not to a fourth npm name.** §2.3 counts eight npm installs against
+one `installer` install, with `agy` — the other `installer` pack — having no cell at all. So the
+mechanism with one-eighth the coverage should get the second cell.
+
+That is also where the work is, and the doc should not pretend otherwise: a pinned npm fixture is a
+version string (§5.1.1), while a pinned `installer` fixture needs an installer URL the test controls
+rather than a vendor's — a local server, or a `file://`-shaped equivalent if the declaration permits
+one. The npm half is nearly free; the `installer` half is the actual engineering.
 
 Which npm pack is the representative does not matter much, and an earlier revision of this section
 overthought it. The four packs differ in one way that has a bug history — a scoped name
@@ -480,7 +523,8 @@ and the gate wants frozen ones, and today they share one mechanism.** §5.1 spli
 | Retry the install on failure | **Rejected.** The window was 37 minutes and a retry re-resolves the same absent tarball. |
 | Gate codex out of the arm matrix, per the existing policy note (`agents_test.go:17`, `ci.yml:149`) | **Rejected for this case.** That policy is written for an agent with *no* linux-arm64 build; codex ships one. Applying it here surrenders real coverage to a transient. |
 | Vendor/bake the CLIs into the image | **Rejected**, §5.2 — reverses a deliberate design and is pinning-by-staleness. |
-| Lockfile pin (OQ-TP4 option (b), as written) | **Adopted** as the mechanism this doc needs. The harness already owns the directory the lockfile lives in, so CI can author rows at the same path with no new concept (§5.1). |
+| Lockfile pin (OQ-TP4 option (b), as written) | **Adopted for the SHIPPED packs.** The harness already owns the directory the lockfile lives in, so CI can author rows at the same path with no new concept (§5.1) — but it needs the `LockEntry` field first. |
+| Fixture pack pinned via its `package` string | **Leading candidate for the blocking gate** (OQ-CI6). Uses only shipped mechanisms — the `file://` pack fixture and `npmspec`'s selector parsing — so it is unblocked today, and it lets the specimen be a small fast package instead of a 100 MB CLI (§5.1.1). Costs coverage of the shipped manifests, which §6 moves to the weekly job. |
 | Manifest pin, or manifest-pin-plus-lockfile-override | **Withdrawn**, §5.1 — proposed in an earlier revision on reasoning that turned out to be wrong. Not needed for CI; any remaining argument for it is about a *user's* first run and belongs to OQ-TP4. |
 | Have CI resolve a version once per run and reuse it across tests | **Rejected as insufficient**, OQ-CI1. Deterministic within a run, but a green main can still go red tomorrow with no commit — which is the P1 property being bought. |
 | Raise the macOS cap and change nothing else | **Rejected**, §5.2. It does not fix Mode B, it *hides* it: §4.1 shows two-thirds of the blown budget was suite warmup, so a wider cap preserves the misattribution and must be re-widened whenever warmup grows. Available as a labelled stopgap, not as the answer. |
@@ -492,8 +536,10 @@ and the gate wants frozen ones, and today they share one mechanism.** §5.1 spli
 | :--- | :--- |
 | Seeding a warm prefix silently removes install-path coverage | The §6.2 invariant: one named cold-prefix test per mechanism, and it must fail if the launcher's install branch is deleted. |
 | A pinned version gets unpublished (npm permits it within 72h) or the registry is down | P1 is about *who chooses* the bytes, not about eliminating the network. This reduces exposure to a publish race; it does not make CI offline-capable. Say so rather than implying immunity. |
-| A pinned CI representative drifts far from what users run, hiding a real incompatibility | The bump PR (§6) is the detector, and it runs on a cadence rather than never. |
-| Reducing the matrix to one npm pack hides a per-pack install quirk | The quirk that plausibly differs is scoped-vs-bare naming (§6.1); whichever representative is chosen, the other spelling should keep a cell. |
+| A pinned CI representative drifts far from what users run, hiding a real incompatibility | The weekly maintenance workflow (§6) is the detector, and it runs on a cadence rather than never. |
+| Reducing the matrix to one npm pack hides a per-pack install quirk | The quirk that plausibly differs is scoped-vs-bare naming, and that is already a unit-test table (`npmlauncher_test.go:36-55`), not a container concern — §6.1. |
+| A fixture pin, never bumped, eventually names a tarball that is unpublished or incompatible with the image's node | Deliberate for a *mechanism* test — stability is the point, and freshness is the weekly job's question (§6). But it is a pin with no owner unless the weekly workflow also touches it, so it should not be silently exempt from the bump. |
+| A fixture pack diverges from how real packs are shaped, so the gate passes on a manifest form no shipped pack uses | The shipped packs' `surfaces` still render in every run (§3, row 3); what the fixture replaces is only the *install*. If a fixture ever needs a field no real pack declares, that is the signal it has drifted. |
 | The two `installer` packs stay thinly covered | Called out in §2.3; `agy` has no cell at all today. Adding one is in scope for §6.1's "one cell per mechanism". |
 
 ## 11. What I would build, in order
@@ -504,15 +550,15 @@ it lands, every duration in §4 overstates the first test and understates the re
 `TestAgentToolsAvailable` to achieve it: two agents in one jail is the assertion that test exists to
 make, and its cost was never really about the second install.
 
-Second, `LockEntry` grows the npm-version field OQ-TP4 has been waiting on. This is the one hard
-dependency and it belongs to `trust-paths.md`, not here — but it is a small field on a schema that is
-versioned precisely for this, and everything below is blocked on it.
+Second, the blocking matrix points at pinned bytes: one npm cell, one `installer` cell (§6.1). Under
+OQ-CI6's leaning this needs nothing from `trust-paths.md` — a fixture pack pinned via its `package`
+string uses only shipped mechanisms (§5.1.1) — so the previous revision of this section was wrong to
+put "wait for the `LockEntry` field" ahead of it. The npm half is close to free; the `installer` half,
+which needs an installer URL the test controls, is the real work.
 
-Third, the harness delivers a lockfile beside the user config it already writes, and the blocking
-matrix points at pinned bytes: one npm cell, one `installer` cell, plus the `installer` cell `agy`
-has never had (§2.3). This is the P1 fix, and per OQ-CI2 it is smaller than the previous revision of
-this section assumed — no third npm cell, because the parsing distinction that seemed to justify one
-is already a unit-test table.
+Third, and independently, `LockEntry` grows OQ-TP4's npm-version field so the **shipped** packs can be
+pinned for users. That belongs to `trust-paths.md` and is no longer a blocker here — it is what makes
+"no evergreen npm" true of the product rather than only of CI.
 
 Fourth, the weekly maintenance workflow (§6, §6.0): separate vendor × arch jobs, hard-failing,
 fanning out to a collector that lands the pins which verified and leaves the rest alone. This is what
@@ -525,80 +571,33 @@ Fifth, re-measure, and only then decide whether §6.2's warm-prefix seam has any
 
 ## Open Questions
 
-1. 💬 **OQ-CI1: does CI write its own lockfile, or does the repo commit one?** §5.1 (as revised)
-   establishes that CI needs nothing more than OQ-TP4 option (b)'s `LockEntry` field: the harness
-   already owns `~/.config/yolo-jail/`, so a pin can be delivered by the same mechanism, at the same
-   path, that already delivers the user config. What remains is *who authors the rows*.
+1. 💬 **OQ-CI6: does the blocking npm cell use a fixture pack or a pinned shipped pack?**
+   §5.1.1 establishes that a synthetic pack declaring `"package": "<pkg>@1.2.3"` gives the gate a
+   pinned, deterministic install **today**, using only shipped mechanisms — while a pinned *shipped*
+   pack (`packs/codex` at a recorded version) waits on OQ-TP4's `LockEntry` field.
 
-   > The earlier version of this question asked whether to adopt a *manifest-pin-plus-lockfile-override*
-   > fourth shape, on the reasoning that a fresh CI runner has no lockfile to obey. **That reasoning is
-   > retracted** (§5.1) — the harness writes its own config, so "no committed lockfile" was never a
-   > constraint on it. Same ID, restated.
+   **What it decides:** whether the P1 fix is unblocked or queued behind another doc's build — and what
+   the required gate covers. A fixture proves the install **mechanism**; only a shipped pack also
+   proves that `packs/<name>/pack.json`'s declared package installs. Under P2 that second property
+   belongs to the weekly workflow (§6) rather than the merge path, which is the argument for the
+   fixture; the argument against is that a manifest typo would then reach main and be caught a week
+   later.
 
-   **What it decides:** whether the pinned versions are a **committed fixture** (a checked-in
-   `packs.lock.json` the harness copies, so the pin is reviewable in a diff and moves by PR) or
-   **harness-generated** (resolved once per run and reused across tests, deterministic *within* a run
-   but not across them).
-
-   _Leaning:_ **committed fixture.** Determinism within a run is not the property P1 asks for — a
-   green main that goes red tomorrow with no commit is exactly what a per-run resolve still permits.
-   A checked-in fixture also makes the weekly maintenance workflow (§6) a diff someone reviews rather
-   than an invisible resolve.
-
-   **Depends on, to build but not to decide:** the `LockEntry` npm-version field from OQ-TP4 in
-   [`trust-paths.md`](trust-paths.md). This question was marked 🔒 in the previous revision, when it
-   asked whether to adopt a fourth pinning shape — that genuinely could not be answered before OQ-TP4
-   ruled. As restated it is answerable now: where the pin's source of truth lives is a call about this
-   repo's own workflow, and the field only gates when the answer can be implemented.
+   _Leaning:_ **fixture pack**, and treat the OQ-TP4 dependency as belonging to the *product* half of
+   §5.1 rather than to this gate. It is unblocked, it is faster (a small binary-shipping npm package
+   instead of a 100 MB CLI), and it puts each question where P2 says it goes. Worth noting I would have
+   said "blocked on OQ-TP4" an hour ago — the `file://` pack fixture already in
+   `launcherdir_test.go:129-145` is what changed my mind, and it is easy to miss.
 
    **Answer:**
    > _(empty — fill in when decided)_
-
-2. 💬 **OQ-CI2: does the blocking matrix keep one npm cell or two?** P2 says coverage is per
-   mechanism, which gives **two** cells total (one npm, one `installer`).
-
-   > This question previously leaned **three** cells, to keep both scoped (`@openai/codex`) and bare
-   > (`opencode-ai`) npm spellings in the integration matrix. **Withdrawn** — §6.1 as revised: that
-   > distinction is pure string parsing and `npmlauncher_test.go:36-55` already tables both spellings
-   > with the real package names, no container involved. Arguing for a container install to re-cover a
-   > unit-test table contradicts the whole doc. Same ID, restated.
-
-   **What it decides:** whether 7 of today's 9 installs disappear or 6 — and, more usefully, whether
-   the `installer` mechanism finally gets a second cell (today `claude` is its only one and `agy` has
-   none, §2.3).
-
-   _Leaning:_ **two cells, and spend the saving on the thin side.** One npm (either spelling), one
-   `installer`, and consider a second `installer` cell for `agy` — that is where coverage is actually
-   missing, not in a fourth npm package name.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. ✅ **OQ-CI3: how is the weekly maintenance workflow split, and does it hard-fail? — RESOLVED
-   (2026-08-21)**
-
-   **Answer:**
-   > Separate jobs per vendor, hard-failing, and **bump what passed** — a broken vendor does not hold
-   > the other five back. See §6 and §6.0 for the two invariants partial commit forces (the collector
-   > must survive partial failure; the committed pin must be the verified pin, on every arch it will
-   > serve).
-
-4. ✅ **OQ-CI4: where does suite warmup get paid? — RESOLVED (2026-08-21)**
-
-   **Answer:**
-   > Yes — explicit suite-level warmup in `TestMain`'s existing seam, before any timed assertion. The
-   > macOS cap raise is withdrawn; see §5.2 and the Decision Ledger.
-
-5. ✅ **OQ-CI5: does the warm-prefix seam (§6.2) earn its complexity? — RESOLVED (2026-08-21)**
-
-   **Answer:**
-   > Defer it. Land §6.1 and OQ-CI4 first, then re-measure; the seam is only built if a residual
-   > per-test install cost survives. See §6.2 and the Decision Ledger.
 
 ## Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
+| OQ-CI1 | The pin is a **committed fixture, bumped weekly** — not harness-generated. Determinism within a run is not P1; and once the weekly workflow moves the pin, committing it makes that movement a reviewable diff rather than an invisible resolve. Supersedes a retracted manifest-pin proposal (§5.1) | 2026-08-21 | [§5.1.1](#511-and-the-blocking-gate-may-not-need-to-wait-for-it-at-all) |
+| OQ-CI2 | **Two** install cells in the required matrix (one npm, one `installer`) — not three. The third-npm-cell idea is withdrawn: scoped-vs-bare parsing is already a unit-test table. The saving goes to the thin mechanism, where `agy` has no cell at all | 2026-08-21 | [§6.1](#61-the-blocking-gate-pinned-and-one-cell-per-mechanism), [§2.3](#23-two-mechanisms-six-packs-nine-installs) |
 | OQ-CI3 | Weekly maintenance workflow: **separate jobs per vendor**, hard-failing, and **bump what passed** — a broken vendor does not hold the other five back. Forces fan-out-then-collect, a collector that survives partial failure, and verify-then-pin on every arch served | 2026-08-21 | [§6](#6-what-advisory-gets-wrong), [§6.0](#60-the-shape-bump-what-passed-forces) |
 | OQ-CI4 | Suite warmup is paid in `TestMain`'s existing seam, before any timed assertion. The macOS cap raise (1200→2400s) is **withdrawn**: it padded a misattribution rather than fixing it | 2026-08-21 | [§5.2](#52-mode-b-is-ours-alone-and-the-fix-is-attribution), [§4.1](#41-the-first-test-is-the-suites-warmup-sink) |
 | OQ-CI5 | Warm-prefix seeding **deferred**. Land §6.1 + OQ-CI4, re-measure, build the seam only if a residual per-test install cost survives | 2026-08-21 | [§6.2](#62-warm-prefix-one-cold-install-p3--deferred) |
