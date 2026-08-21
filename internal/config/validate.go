@@ -510,7 +510,7 @@ func validatePortNumber(value any, path string, errs *[]string) {
 func validatePublishPort(value any, path string, errs *[]string) {
 	s, ok := asStr(value)
 	if !ok {
-		add(errs, path+": expected a string like '8000:8000'")
+		add(errs, path+": expected a '<host>:<jail>' string like '8000:8000'")
 		return
 	}
 	base := s
@@ -529,7 +529,10 @@ func validatePublishPort(value any, path string, errs *[]string) {
 	} else if len(parts) == 3 {
 		hostPort, containerPort = parts[1], parts[2]
 	} else {
-		add(errs, path+": expected 'host:container' or 'ip:host:container'")
+		// Host side FIRST — this is handed to podman's -p verbatim. The reverse of
+		// network.forward_host_ports; see the direction table in `yolo config-ref`.
+		add(errs, path+": expected '<host>:<jail>' or '<ip>:<host>:<jail>' "+
+			"(host side FIRST — the reverse of network.forward_host_ports)")
 		return
 	}
 	validatePortNumber(hostPort, path+".host", errs)
@@ -557,11 +560,16 @@ func validateForwardHostPort(value any, path string, errs *[]string) {
 		return
 	}
 	if len(parts) == 2 {
-		validatePortNumber(parts[0], path+".local", errs)
+		validatePortNumber(parts[0], path+".jail", errs)
 		validatePortNumber(parts[1], path+".host", errs)
 		return
 	}
-	add(errs, path+": expected '<port>' or '<local>:<host>'")
+	// "<jail>:<host>", never "<local>:<host>": "local" names whichever side the
+	// reader is standing on, and this key's order is the REVERSE of
+	// network.ports' "host:container". An error message is the worst place to
+	// leave that ambiguous — see the direction table in `yolo config-ref`.
+	add(errs, path+": expected '<port>' or '<jail>:<host>' "+
+		"(jail side FIRST — the reverse of network.ports)")
 }
 
 func validateSecurity(config *jsonx.OrderedMap, errs *[]string) {
