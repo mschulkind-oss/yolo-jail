@@ -381,6 +381,30 @@
     Simple path → mounted at /ctx/<basename>
     "host:container" → custom container path
     Example: ["/path/to/repo", "~/lib:/ctx/lib"]
+    [bold]Read-only is the ONLY mode[/bold], not a default: every entry gets
+    :ro appended.  There is no writable form of a `mounts` entry — for a
+    writable host dir see `cache_relocations` (caches only), or put the path
+    in the workspace.
+    [bold yellow]Do NOT write a docker-style ":ro" suffix.[/bold yellow]  The
+    split takes the last colon followed by "/", so "~/x:/ctx/x:ro" parses as
+    ONE host path literally named "~/x:/ctx/x:ro".  It does not exist, so the
+    mount is silently SKIPPED with a warning — and `yolo check` only warns
+    too, so a config that mounts nothing looks accepted.
+    <basename> is the basename AFTER symlink resolution.  A link whose name
+    differs from its target's mounts under the TARGET's name: "~/code/sysadmin"
+    lands at /ctx/sysadmin-config if that is where the link points.  Use the
+    explicit "host:/ctx/name" form when you want to pin the name.
+    [bold]Host paths are resolved on the HOST, at launch.[/bold]  An IN-JAIL
+    `yolo check` resolves "~" against the JAIL's home, so it warns "host path
+    does not exist and will be skipped" for every entry an agent adds from
+    inside a jail.  [bold]That warning is expected in there and is not a
+    failure[/bold] — only a host `yolo check` can judge these paths.  For the
+    same reason `mounts` is dropped from the in-jail user-config snapshot and
+    is not inherited by a nested jail.
+    Runtime support: podman only.  Apple Container ("container") ignores :ro, so
+    rather than hand out a writable context mount yolo SKIPS every `mounts`
+    entry and says so; use YOLO_RUNTIME=podman for read-only context mounts.
+    "macos-user" has no bind mounts at all.
 
   [bold]cache_relocations[/bold] (object): Put a jail cache subdir on other storage.
     Keys are cache SUBDIR NAMES, not paths — a single path segment, no "/",
@@ -556,8 +580,37 @@
     Example: [".cargo"]
 
   [bold]network.mode[/bold] (string): Network isolation mode.
-    "bridge" (default): Isolated. Use network.ports for access.
+    "bridge" (default): the jail gets its OWN network namespace, so `localhost`
+      inside the jail is the JAIL's loopback, not the host's.  It is not cut off
+      from the host, though — see "Reaching the host" below.  Use network.ports
+      to let the host reach a service in the jail.
     "host": Share host network stack (localhost works directly).
+
+  [bold cyan]Reaching the host from a bridge-mode jail[/bold cyan]
+    Three separate things, routinely confused:
+    • [bold]The host itself[/bold]: `host.containers.internal`, which podman writes
+      into the jail's /etc/hosts (169.254.1.2 today).  Use this by default.
+    • [bold]A host service on the host's 127.0.0.1[/bold]: also reachable at
+      `host.containers.internal:<port>`.  On a rootless podman yolo asks the
+      network stack to forward the host's loopback
+      (--network=pasta:--map-host-loopback / slirp4netns allow_host_loopback).
+      This is how yolo's own host daemons are reached, so it is load-bearing,
+      not best-effort.  It was NOT true before 2026-08-17 — an agent "knowing"
+      the host's localhost is unreachable is remembering the old behaviour.
+      What yolo decided rides into the jail as YOLO_HOST_LOOPBACK:
+        requested   — the forwarding option went out; a service that does not
+                      answer is a FAULT, not a limitation
+        shared      — the jail shares the host's network stack, so the two
+                      loopbacks are already one and `localhost` IS the host
+        unsupported — yolo identified the stack and could not get it to forward
+                      (a known limitation; upgrade passt)
+        unknown     — no conclusion reached (rootful podman, unrecognised
+                      backend, explicit network.mode, YOLO_NO_HOST_LOOPBACK)
+      Only "unsupported"/"unknown" mean the forwarding may genuinely be absent.
+    • [bold]A host port on the jail's OWN localhost[/bold]: network.forward_host_ports
+      (below).  Only needed when something must literally see the service at
+      `localhost:<port>` inside the jail — a hardcoded client, a tool with no
+      host setting.  Prefer host.containers.internal; it needs no config.
 
   [bold]network.ports[/bold] (array of strings): Port mappings in bridge mode.
     Format: "host_port:container_port"
