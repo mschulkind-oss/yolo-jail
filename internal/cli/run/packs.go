@@ -183,7 +183,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	}
 
 	for _, entry := range configured {
-		root, err := packRoot(entry)
+		root, err := packRoot(entry, o.Getenv)
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -600,7 +600,11 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 			}
 			continue
 		}
-		root, rootErr := packRoot(entry)
+		// nil getenv: these resolvers run behind read-only commands with no Options to
+		// thread one from, so the store reads the real environment — which is exactly
+		// right, since the staged tree it looks for is the one this process is running
+		// against.
+		root, rootErr := packRoot(entry, nil)
 		if rootErr != nil {
 			continue // never fetched, moved remote, offline — not a deactivation signal
 		}
@@ -676,7 +680,7 @@ func resolvePackSupersessions() []loopholes.PackSupersession {
 				continue
 			}
 		} else {
-			root, rootErr := packRoot(entry)
+			root, rootErr := packRoot(entry, nil) // read-only surface; see above
 			if rootErr != nil {
 				continue
 			}
@@ -831,13 +835,25 @@ func packMayAccessHost(entry config.PackEntry, dest string, lock *packsrc.Lock) 
 // jail start must not depend on a reachable git server, and a missing pin must be a
 // clear error pointing at `yolo pack install` rather than a surprise network call
 // mid-boot — or worse, a 30-second askpass hang that reads as yolo wedging.
-func packRoot(entry config.PackEntry) (string, error) {
+//
+// It passes the entry's SLUG to Resolve, which is what makes a NESTED launch work: a
+// jail's inherited config names the host path a pack came from, so resolution from the
+// address fails for every local pack in here and Resolve falls back to the tree the
+// outer launcher delivered under YOLO_PACK_ROOT. That fallback used to exist only in
+// `yolo check`, so `yolo run` refused the launch and the nested verification AGENTS.md
+// mandates was impossible with a local pack selected (docs/design/storage-and-config.md
+// §10). Deliberately silent here, unlike check: staging the delivered copy is the
+// NORMAL case for a nested launch, not a degradation worth a line of output.
+//
+// getenv is threaded for testability and may be nil (the store then reads the real
+// environment, which is what a launch wants).
+func packRoot(entry config.PackEntry, getenv func(string) string) (string, error) {
 	addr, err := packsrc.Parse(entry.Source)
 	if err != nil {
 		return "", fmt.Errorf("packs: %s: %w", entry.Name, err)
 	}
-	store := &packsrc.Store{Dir: paths.PacksDir()}
-	res, err := store.Resolve(addr)
+	store := &packsrc.Store{Dir: paths.PacksDir(), Getenv: getenv}
+	res, err := store.Resolve(addr, entry.Slug())
 	if err != nil {
 		return "", fmt.Errorf("packs: %s: %w", entry.Name, err)
 	}

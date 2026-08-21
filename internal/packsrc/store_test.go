@@ -8,6 +8,36 @@ import (
 	"testing"
 )
 
+// noStagedTree is the "this is an ordinary host" environment: no YOLO_PACK_ROOT, so
+// Resolve's staged-tree fallback has nothing to find.
+//
+// Every Resolve test states its delivery situation through this seam rather than
+// reading the process environment, because this repo is developed from inside its own
+// jail — where YOLO_PACK_ROOT really is set to a populated tree — so an ambient read
+// would silently make the outcome depend on the machine running the suite.
+func noStagedTree(string) string { return "" }
+
+// stagedTree writes a delivered pack tree named `name` under a fresh root and returns
+// a getenv that names the root, i.e. what a launcher mounted at /ctx/packs looks like.
+func stagedTree(t *testing.T, name string) (string, func(string) string) {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"),
+		[]byte(`{"name":"`+name+`"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir, func(k string) string {
+		if k == "YOLO_PACK_ROOT" {
+			return root
+		}
+		return ""
+	}
+}
+
 // gitRepo builds a real local git repository to fetch from, so these tests exercise
 // actual git rather than a mock. A mocked git would pass while the real invocations
 // were wrong, which is the only failure mode that matters here.
@@ -105,12 +135,12 @@ func TestSyncAndMaterializeSubdirectory(t *testing.T) {
 // A missing pin at LAUNCH must be a clear error, never a network call: a jail start
 // cannot depend on a reachable git server.
 func TestResolveIsOfflineAndErrorsOnUnfetchedRepo(t *testing.T) {
-	store := &Store{Dir: t.TempDir()}
+	store := &Store{Dir: t.TempDir(), Getenv: noStagedTree}
 	a, err := Parse("git+https://example.invalid/o/r//p?ref=main")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.Resolve(a)
+	_, err = store.Resolve(a, "p")
 	if err == nil {
 		t.Fatal("Resolve should fail for a never-fetched repo")
 	}
@@ -122,25 +152,115 @@ func TestResolveIsOfflineAndErrorsOnUnfetchedRepo(t *testing.T) {
 // A local pack resolves with no git at all.
 func TestResolveLocalNeedsNoGit(t *testing.T) {
 	pack := t.TempDir()
-	store := &Store{Dir: t.TempDir(), Git: "/nonexistent/git"}
+	store := &Store{Dir: t.TempDir(), Git: "/nonexistent/git", Getenv: noStagedTree}
 	a, err := Parse("file://" + pack)
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := store.Resolve(a)
+	res, err := store.Resolve(a, filepath.Base(pack))
 	if err != nil {
 		t.Fatalf("local resolve should not need git: %v", err)
 	}
 	if res.Root != pack {
 		t.Errorf("root = %q, want %q", res.Root, pack)
 	}
+	if res.StagedFrom != "" {
+		t.Errorf("StagedFrom = %q for a source that resolved normally; the fallback must "+
+			"report only what it actually fell back to", res.StagedFrom)
+	}
 }
 
 func TestResolveLocalRejectsMissingDir(t *testing.T) {
-	store := &Store{Dir: t.TempDir()}
+	store := &Store{Dir: t.TempDir(), Getenv: noStagedTree}
 	a, _ := Parse("file://" + filepath.Join(t.TempDir(), "nope"))
-	if _, err := store.Resolve(a); err == nil {
+	if _, err := store.Resolve(a, "nope"); err == nil {
 		t.Error("expected an error for a missing local pack dir")
+	}
+}
+
+// THE FALLBACK, at the one place that owns resolution.
+//
+// Inside a jail every pack address in the inherited config names a HOST path, so a
+// local pack's source is never a directory in here — and the pack is nonetheless
+// working, out of the tree the launcher delivered under YOLO_PACK_ROOT. `yolo check`
+// knew that and `yolo run` did not, so a nested launch was refused outright and the
+// nested verification AGENTS.md mandates was impossible with a local pack selected
+// (docs/design/storage-and-config.md §10, OQ-SC1 ruled option (i)).
+//
+// Delete the fallback from Resolve and this goes red, at BOTH callers at once — which
+// is the property the ruling bought and the reason the test lives here rather than in
+// one caller's package.
+func TestResolveFallsBackToTheDeliveredTree(t *testing.T) {
+	// A source path that does not exist, exactly as a host path looks from in-jail.
+	missing := filepath.Join(t.TempDir(), "matt-core")
+	staged, getenv := stagedTree(t, "matt-core")
+	store := &Store{Dir: t.TempDir(), Git: "/nonexistent/git", Getenv: getenv}
+
+	a, err := Parse("file://" + missing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := store.Resolve(a, "matt-core")
+	if err != nil {
+		t.Fatalf("a pack whose source is invisible but whose staged copy is present is "+
+			"working, and must resolve: %v", err)
+	}
+	if res.Root != staged {
+		t.Errorf("root = %q, want the delivered tree %q", res.Root, staged)
+	}
+	// The PROVENANCE, which is how a caller reports "staged at <path>" without
+	// recomputing the answer it was just handed.
+	if res.StagedFrom != staged {
+		t.Errorf("StagedFrom = %q, want %q — a caller cannot tell the fallback fired",
+			res.StagedFrom, staged)
+	}
+}
+
+// The same fallback for a FETCHED pack, which §10 does not mention and which has the
+// identical shape: the pack STORE is host-side too, so `pack %s has never been fetched`
+// is what a jail says about a mirror that exists one filesystem away. The delivered
+// tree answers that question as well as it answers the local one.
+func TestResolveFallsBackToTheDeliveredTreeForAFetchedPack(t *testing.T) {
+	staged, getenv := stagedTree(t, "r")
+	store := &Store{Dir: t.TempDir(), Getenv: getenv}
+
+	a, err := Parse("git+https://example.invalid/o/r?ref=main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := store.Resolve(a, "r")
+	if err != nil {
+		t.Fatalf("a fetched pack with no mirror in here but a delivered tree is working: %v", err)
+	}
+	if res.StagedFrom != staged {
+		t.Errorf("StagedFrom = %q, want %q", res.StagedFrom, staged)
+	}
+}
+
+// THE ANTI-VACUITY CONTROLS: the fallback must not become "never report a missing
+// pack". Two shapes, because they fail differently — no staged tree at all (a host),
+// and a staged tree that holds no pack of this name (a jail where staging really did
+// fail).
+func TestResolveStillErrorsWithNoDeliveredTree(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "gone")
+	a, err := Parse("file://" + missing)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// (a) No YOLO_PACK_ROOT: the ordinary host, where the predicate must never fire.
+	store := &Store{Dir: t.TempDir(), Getenv: noStagedTree}
+	if _, err := store.Resolve(a, "gone"); err == nil {
+		t.Error("a pack that is neither resolvable nor delivered is broken, and on a host " +
+			"the fallback must not fire at all")
+	}
+
+	// (b) A pack root that exists and holds a DIFFERENT pack. Keyed on the filesystem,
+	// so the question is "is THIS pack delivered", not "am I in a jail".
+	_, getenv := stagedTree(t, "somebody-else")
+	store = &Store{Dir: t.TempDir(), Getenv: getenv}
+	if _, err := store.Resolve(a, "gone"); err == nil {
+		t.Error("a staged tree holding no pack of this name must not rescue it")
 	}
 }
 

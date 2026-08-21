@@ -39,6 +39,14 @@ type Store struct {
 	Timeout time.Duration
 	// Env, when non-nil, replaces the git subprocess environment.
 	Env []string
+	// Getenv reads environment variables. Nil means os.Getenv.
+	//
+	// One variable is read, YOLO_PACK_ROOT, for Resolve's staged-tree fallback. It is
+	// an injectable seam rather than a direct os.Getenv call because the fallback's
+	// tests have to state the delivery situation they are testing: this repo is
+	// developed from inside its own jail, where YOLO_PACK_ROOT is always set to a real
+	// tree, so a test reading the ambient environment would be measuring the machine.
+	Getenv func(string) string
 }
 
 // Resolved is a fetched, materialized source ready to stage.
@@ -49,6 +57,16 @@ type Resolved struct {
 	// Commit is the full SHA the ref resolved to. This is what the lockfile records:
 	// a branch name says what you asked for, a SHA says what you got.
 	Commit string
+	// StagedFrom is the DELIVERED tree this resolution fell back to, and is empty for
+	// every resolution that came from the address itself.
+	//
+	// Non-empty means Root is a copy a launcher already staged under YOLO_PACK_ROOT
+	// rather than the source the address names — the pack works, but its source is not
+	// visible from here (see Resolve). It exists so a caller can report that
+	// distinctly: `yolo check` prints "staged at <path>" plus a note naming the
+	// host-side source, and would otherwise have to re-derive the answer it was just
+	// given, which is the second implementation this field exists to prevent.
+	StagedFrom string
 }
 
 // mirrorSlug is a filesystem-safe, collision-free name for a repo URL. Hashed rather
@@ -262,7 +280,54 @@ func (s *Store) Materialize(a Addr, commit string) (*Resolved, error) {
 // Resolve materializes an address using ONLY what is already in the store — no
 // network. This is the launch path: a jail start must not depend on a reachable git
 // server, and a missing pin must be a clear error rather than a hang.
-func (s *Store) Resolve(a Addr) (*Resolved, error) {
+//
+// name is the pack's STAGED DIRECTORY NAME — config.PackEntry.Slug(), what a launcher
+// named the tree it delivered. It is threaded in rather than derived here because the
+// name is a CONFIG fact (an explicit `name:`, else the source URL's last path
+// segment) that an Addr does not carry, and re-deriving it in this package would be a
+// second spelling of a rule config already owns.
+//
+// A SOURCE THAT IS NOT VISIBLE FROM HERE IS NOT A BROKEN PACK.
+//
+// Run inside a jail, every pack address in the inherited config names a HOST path or
+// a host-side store — `/home/you/.dotfiles/packs/foo` is not a directory in here and
+// never will be, and the mirror for a fetched pack is not mounted either. Reporting
+// that as a failure told the user three of their working packs were broken while the
+// delivered copies sat in /ctx/packs, and it REFUSED a nested launch outright — which
+// breaks the nested-verification workflow AGENTS.md mandates.
+//
+// What was actually delivered is the STAGED TREE the launcher mounted, so ask that
+// when resolution from the address fails. Keyed on the FILESYSTEM rather than on "am
+// I in a jail" deliberately: the question is whether a staged copy exists, which is
+// the thing that decides whether the pack works, and it cannot misfire on a host
+// (where no staged tree is mounted, so this branch never fires).
+//
+// It lives HERE, in the one function that owns resolution, rather than at a call site
+// (docs/design/storage-and-config.md OQ-SC1, ruled option (i)). The fallback was
+// written once in `yolo check` and the launcher never learned it — two callers of one
+// resolution rule, only one of them correct, with the test pinning only the caller
+// that was. Every caller is now correct by construction, including a future one. The
+// honest cost, named rather than pretended away: a store that resolves ADDRESSES now
+// knows about the jail's DELIVERY convention.
+func (s *Store) Resolve(a Addr, name string) (*Resolved, error) {
+	res, err := s.resolveFromStore(a)
+	if err == nil {
+		return res, nil
+	}
+	if staged, ok := s.stagedPackDir(name); ok {
+		return &Resolved{Root: staged, StagedFrom: staged}, nil
+	}
+	// No staged copy either: the pack really is unusable, and the address's own error
+	// is the one that names what to fix.
+	return nil, err
+}
+
+// resolveFromStore is resolution from the ADDRESS alone — the store's mirrors and
+// trees for a fetched pack, the named path for a local one.
+//
+// Split out of Resolve so the staged-tree fallback is the only thing wrapping it, and
+// so "what the address says" stays answerable on its own.
+func (s *Store) resolveFromStore(a Addr) (*Resolved, error) {
 	if a.IsLocal() {
 		return s.Materialize(a, "")
 	}
@@ -275,6 +340,37 @@ func (s *Store) Resolve(a Addr) (*Resolved, error) {
 		return nil, err
 	}
 	return s.Materialize(a, commit)
+}
+
+// stagedPackDir reports where a pack was actually DELIVERED, when it was.
+//
+// The launcher mounts the staged tree and names it in YOLO_PACK_ROOT rather than
+// hardcoding a path, because the mount point differs by backend (on Apple Container
+// and macos-user the trees are read from their host path, with no nested mount).
+// Absent that variable — the ordinary host case — there is no staged tree and the
+// answer is no.
+func (s *Store) stagedPackDir(name string) (string, bool) {
+	if name == "" {
+		return "", false
+	}
+	root := s.getenv("YOLO_PACK_ROOT")
+	if root == "" {
+		return "", false
+	}
+	dir := filepath.Join(root, name)
+	if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+		return dir, true
+	}
+	return "", false
+}
+
+// getenv is nil-safe: most callers build a Store with Dir alone, and a nil func there
+// must read the real environment rather than panic.
+func (s *Store) getenv(key string) string {
+	if s.Getenv != nil {
+		return s.Getenv(key)
+	}
+	return os.Getenv(key)
 }
 
 func min(a, b int) int {

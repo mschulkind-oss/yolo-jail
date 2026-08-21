@@ -17,7 +17,6 @@ package check
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -71,7 +70,10 @@ func (o *Options) sectionPacks(r *reporter) {
 		r.fail("Lockfile: "+lockErr.Error(), "")
 		lock = &packsrc.Lock{Packs: map[string]packsrc.LockEntry{}}
 	}
-	store := &packsrc.Store{Dir: paths.PacksDir()}
+	// Getenv threaded into the store because Resolve consults YOLO_PACK_ROOT for its
+	// staged-tree fallback (see below), and check's tests drive this section with an
+	// injected environment rather than the process's.
+	store := &packsrc.Store{Dir: paths.PacksDir(), Getenv: o.getenv}
 
 	configured := map[string]string{}
 	for _, e := range entries {
@@ -108,31 +110,26 @@ func (o *Options) sectionPacks(r *reporter) {
 			r.fail(e.Name+": "+err.Error(), "")
 			continue
 		}
-		// Offline resolve: reports "never fetched" rather than fetching.
-		res, err := store.Resolve(addr)
+		// Offline resolve: reports "never fetched" rather than fetching. The pack's slug
+		// is passed because Resolve falls back to the DELIVERED tree under
+		// YOLO_PACK_ROOT when the address is not visible from here — a jail's inherited
+		// config names host paths, so that is every local pack, every time.
+		res, err := store.Resolve(addr, e.Slug())
 		if err != nil {
-			// A SOURCE THAT IS NOT VISIBLE FROM HERE IS NOT A BROKEN PACK.
-			//
-			// Run inside a jail, every pack address in the config names a HOST path or a
-			// host-side store — `/home/you/.dotfiles/packs/foo` is not a directory in
-			// here and never will be. Reporting that as a failure told the user three of
-			// their working packs were broken while the delivered copies sat in
-			// /ctx/packs, which is the opposite of what a check is for.
-			//
-			// What was actually delivered is the STAGED TREE the launcher mounted, so ask
-			// that instead. Keyed on the filesystem rather than on "am I in a jail"
-			// deliberately: the question is whether a staged copy exists, which is the
-			// thing that decides whether the pack works, and it cannot misfire on a host
-			// (where no staged tree is mounted, so this branch never fires).
-			if staged, ok := o.stagedPackDir(e.Name); ok {
-				r.ok(e.Name + ": staged at " + staged)
-				r.note("  source " + res0Path(addr, e.Source) + " is host-side and not visible from in here")
-				if p, probs := packload.LoadDir(staged, e.Name, e.MayGrantHostFiles()); len(probs) == 0 && p != nil {
-					loaded = append(loaded, p)
-				}
-				continue
-			}
 			r.fail(e.Name+": "+err.Error(), "")
+			continue
+		}
+		// A SOURCE THAT IS NOT VISIBLE FROM HERE IS NOT A BROKEN PACK — Resolve already
+		// found the staged copy, and StagedFrom is how it says so. The ruling and the
+		// reason the predicate is filesystem-keyed rather than "am I in a jail" live with
+		// the fallback, in packsrc.Store.Resolve; this branch is only the REPORTING half,
+		// which is check's alone (the launcher stages the same tree silently).
+		if res.StagedFrom != "" {
+			r.ok(e.Name + ": staged at " + res.StagedFrom)
+			r.note("  source " + res0Path(addr, e.Source) + " is host-side and not visible from in here")
+			if p, probs := packload.LoadDir(res.StagedFrom, e.Name, e.MayGrantHostFiles()); len(probs) == 0 && p != nil {
+				loaded = append(loaded, p)
+			}
 			continue
 		}
 		// Stage into a throwaway dir with the REAL executor, so the exec-bit and
@@ -198,24 +195,6 @@ func (o *Options) sectionPacks(r *reporter) {
 				"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason)
 		}
 	}
-}
-
-// stagedPackDir reports where a pack was actually delivered, when it was.
-//
-// The launcher mounts the staged tree and names it in YOLO_PACK_ROOT rather than
-// hardcoding a path, because the mount point differs by backend (Apple Container).
-// Absent that variable — the ordinary host case — there is no staged tree and the
-// answer is no.
-func (o *Options) stagedPackDir(name string) (string, bool) {
-	root := o.getenv("YOLO_PACK_ROOT")
-	if root == "" {
-		return "", false
-	}
-	dir := filepath.Join(root, name)
-	if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
-		return dir, true
-	}
-	return "", false
 }
 
 // getenv is nil-safe: several tests drive a zero Options directly rather than
