@@ -3,13 +3,13 @@ title: "Nine cold installs a run — what CI buys by downloading six agent CLIs"
 date: 2026-08-21
 status: in-review
 tags: [ci, packs, testing, npm, cost]
-summary: "The integration suite installs agent CLIs from the live npm registry nine times per run, unpinned and with --prefer-online, because the npm prefix is per-workspace and every test gets a fresh workspace. That buys two mechanisms' worth of coverage nine times over, and imports every registry hazard into the blocking gate. Two CI failures in two days, neither of them a bug in this repo. Two questions settled, three open, one claim retracted."
+summary: "The integration suite installs agent CLIs from the live npm registry nine times per run, unpinned and with --prefer-online, because the npm prefix is per-workspace and every test gets a fresh workspace. That buys two mechanisms' worth of coverage nine times over, and imports every registry hazard into the blocking gate. Two CI failures in two days, neither of them a bug in this repo. Three questions settled, two open, one claim retracted."
 ---
 
 # Nine cold installs a run — what CI buys by downloading six agent CLIs
 
-**Status:** DESIGN SKETCH, 2026-08-21. Nothing built. **Two questions settled** (OQ-CI4, OQ-CI5 —
-see the [Decision Ledger](#decision-ledger)), **three open**, and **one claim retracted**: the
+**Status:** DESIGN SKETCH, 2026-08-21. Nothing built. **Three questions settled** (OQ-CI3, OQ-CI4,
+OQ-CI5 — see the [Decision Ledger](#decision-ledger)), **two open**, and **one claim retracted**: the
 argument that a lockfile pin could not serve CI was wrong, and the manifest-pin shape it motivated is
 withdrawn ([§5.1](#51-mode-a-is-already-ruled-and-waiting-on-a-field)). Every claim about current
 behaviour is traced to code and dated; the cost figures are read off two real CI runs.
@@ -360,19 +360,47 @@ stop failing loudly. **A scheduled job that hard-fails is a normal failure that 
 weekly cadence**, and it has everything `continue-on-error` lacks: a red cell means something, a
 human is expected to look, and the history is legible.
 
-So the shape is a **weekly maintenance workflow**, not merely a version bump:
+So the shape is a **weekly maintenance workflow**, not merely a version bump. **Ruled 2026-08-21
+(OQ-CI3):**
 
 - **It fails like anything else.** No `continue-on-error`. If codex genuinely stopped installing, that
   is a real failure and should read as one.
-- **Per-vendor jobs, not one job.** Six packs, six cells (or a matrix over them). One vendor's break
-  must not mask the other five, which is exactly what a single sequential job does when it dies on the
+- **Separate jobs per vendor, fanned out.** Six packs, six independent cells. One vendor's break must
+  not mask the other five, which is exactly what a single sequential job does when it dies on the
   first `npm install`.
-- **It carries the bump.** Running `yolo pack update` and committing the resolved versions is the same
-  act as checking that they install, so the workflow that verifies is the workflow that advances the
-  pin. This repo already runs a weekly `flake.lock` bump, so the cadence and the review habit exist.
+- **It advances the pins that passed, and only those.** A broken vendor does not hold the other five
+  back. The run still reports failure — the red cell is the report — while the bump it produces
+  carries every vendor that verified.
 
-That satisfies P4 without a second reporting channel: the artifact is the run, the cadence is weekly,
-and the severity is ordinary.
+### 6.0 The shape "bump what passed" forces
+
+Partial commit is not a flag on the previous bullet; it decides the workflow's topology, and it has
+two invariants worth stating before anyone builds it.
+
+**Fan-out, then collect.** Each per-vendor cell verifies *and emits the version it verified*; one
+downstream job collects the emissions and writes the lockfile rows. The alternative — each cell
+committing for itself — is either six PRs a week or six jobs racing to write one branch.
+
+> [!WARNING]
+> **The collector must not be gated on the fan-out succeeding.** A collector that runs only when every
+> upstream job is green turns "bump what passed" back into "hold the whole set" the first time one
+> vendor breaks — and it does so silently, because the workflow is already red for an unrelated
+> reason, so nobody reads the skipped collector as the bug. The whole ruling lives or dies on the
+> collector running after partial failure while the run still reports failure overall.
+
+**The pin that gets committed is the pin that was verified.** *"Passed for sure"* has to mean a real
+jail installed that exact version and ran it — not that `npm view` reported a `latest` which was then
+committed unexercised. Resolving and verifying must be one act in one job, or the workflow becomes a
+new way to land the 2026-08-20 failure: a pin nobody ran, chosen by the registry, committed by us.
+
+**Verification spans the arches the pin will serve.** This doc exists because a version was fine on
+linux-x64 and broken on linux-arm64 *at the same instant* (§5, Mode A). A bump verified on one arch
+and committed for both would have cheerfully pinned `0.149.0` during the 37-minute window. So the
+fan-out is vendor × arch, not vendor — and a vendor that passes on one arch and fails on the other has
+**not** passed.
+
+That satisfies P4 without a second reporting channel: the artifact is the run and the bump it lands,
+the cadence is weekly, and the severity is ordinary.
 
 ### 6.1 The blocking gate: pinned, and one cell per mechanism
 
@@ -486,16 +514,18 @@ has never had (§2.3). This is the P1 fix, and per OQ-CI2 it is smaller than the
 this section assumed — no third npm cell, because the parsing distinction that seemed to justify one
 is already a unit-test table.
 
-Fourth, the weekly maintenance workflow (§6): per-vendor jobs, hard-failing, carrying the version
-bump. This is what replaces "advisory", and it is deliberately after the pin — before it, the
-workflow would have nothing to advance.
+Fourth, the weekly maintenance workflow (§6, §6.0): separate vendor × arch jobs, hard-failing,
+fanning out to a collector that lands the pins which verified and leaves the rest alone. This is what
+replaces "advisory", and it is deliberately after the pin — before it, the workflow would have nothing
+to advance. Build the collector's partial-failure path first, or the "bump what passed" ruling is
+unobservable until the week something breaks.
 
 Fifth, re-measure, and only then decide whether §6.2's warm-prefix seam has anything left to remove
 (OQ-CI5 defers exactly this).
 
 ## Open Questions
 
-1. 🔒 **OQ-CI1: does CI write its own lockfile, or does the repo commit one?** §5.1 (as revised)
+1. 💬 **OQ-CI1: does CI write its own lockfile, or does the repo commit one?** §5.1 (as revised)
    establishes that CI needs nothing more than OQ-TP4 option (b)'s `LockEntry` field: the harness
    already owns `~/.config/yolo-jail/`, so a pin can be delivered by the same mechanism, at the same
    path, that already delivers the user config. What remains is *who authors the rows*.
@@ -515,8 +545,11 @@ Fifth, re-measure, and only then decide whether §6.2's warm-prefix seam has any
    A checked-in fixture also makes the weekly maintenance workflow (§6) a diff someone reviews rather
    than an invisible resolve.
 
-   **Blocked on:** OQ-TP4 in [`trust-paths.md`](trust-paths.md) — specifically on the `LockEntry`
-   npm-version field shipping. Not on how that question's *policy* comes out.
+   **Depends on, to build but not to decide:** the `LockEntry` npm-version field from OQ-TP4 in
+   [`trust-paths.md`](trust-paths.md). This question was marked 🔒 in the previous revision, when it
+   asked whether to adopt a fourth pinning shape — that genuinely could not be answered before OQ-TP4
+   ruled. As restated it is answerable now: where the pin's source of truth lives is a call about this
+   repo's own workflow, and the field only gates when the answer can be implemented.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -541,27 +574,14 @@ Fifth, re-measure, and only then decide whether §6.2's warm-prefix seam has any
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-CI3: how is the weekly maintenance workflow split, and does it hard-fail?** §6 (as revised)
-   separates schedule from severity: the push-path gate is wrong for this question because of its
-   *cadence*, not because the check should stop failing loudly.
-
-   > This question previously asked "where does upstream drift get *reported*", leaning a bump PR whose
-   > redness was the signal. **Reframed** on the maintainer's steer (2026-08-21): it is a weekly
-   > *maintenance* job that also carries the bump, and it should fail like a normal failure if a vendor
-   > really broke. Same ID, restated.
-
-   **What it decides:** whether one vendor's breakage can mask the other five (one sequential job dies
-   on the first bad `npm install`), and whether a red weekly cell is a real failure or another thing
-   people learn to skim past.
-
-   _Leaning:_ **per-vendor jobs, hard-failing, carrying the bump.** Six cells over the six packs so a
-   break names its vendor; no `continue-on-error` anywhere; and the same run that verifies installs is
-   the one that advances the pin, so there is one artifact rather than a report plus a bump. The open
-   part I have no strong view on is whether a failing cell should still commit the *other* vendors'
-   bumps or hold the whole set — holding is simpler, partial-commit is friendlier.
+3. ✅ **OQ-CI3: how is the weekly maintenance workflow split, and does it hard-fail? — RESOLVED
+   (2026-08-21)**
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Separate jobs per vendor, hard-failing, and **bump what passed** — a broken vendor does not hold
+   > the other five back. See §6 and §6.0 for the two invariants partial commit forces (the collector
+   > must survive partial failure; the committed pin must be the verified pin, on every arch it will
+   > serve).
 
 4. ✅ **OQ-CI4: where does suite warmup get paid? — RESOLVED (2026-08-21)**
 
@@ -579,5 +599,6 @@ Fifth, re-measure, and only then decide whether §6.2's warm-prefix seam has any
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
+| OQ-CI3 | Weekly maintenance workflow: **separate jobs per vendor**, hard-failing, and **bump what passed** — a broken vendor does not hold the other five back. Forces fan-out-then-collect, a collector that survives partial failure, and verify-then-pin on every arch served | 2026-08-21 | [§6](#6-what-advisory-gets-wrong), [§6.0](#60-the-shape-bump-what-passed-forces) |
 | OQ-CI4 | Suite warmup is paid in `TestMain`'s existing seam, before any timed assertion. The macOS cap raise (1200→2400s) is **withdrawn**: it padded a misattribution rather than fixing it | 2026-08-21 | [§5.2](#52-mode-b-is-ours-alone-and-the-fix-is-attribution), [§4.1](#41-the-first-test-is-the-suites-warmup-sink) |
 | OQ-CI5 | Warm-prefix seeding **deferred**. Land §6.1 + OQ-CI4, re-measure, build the seam only if a residual per-test install cost survives | 2026-08-21 | [§6.2](#62-warm-prefix-one-cold-install-p3--deferred) |
