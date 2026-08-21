@@ -386,8 +386,9 @@ declared `program` to shadow a binary the image already bakes.
 
 ## 10. Follow-up (2026-08-21): the launcher refuses a pack `yolo check` already calls delivered
 
-**Status:** DECIDED and IN IMPLEMENTATION, 2026-08-21. Both questions ruled (Decision Ledger below);
-two independent defects share one symptom. §1.1 above describes the
+**Status:** DECIDED and BUILT, 2026-08-21 (`9424284d`, `a2f2126d`). Both questions ruled and
+implemented; the Decision Ledger is below and §10.4/§10.5 record what landed. Two independent defects
+shared one symptom, and both are fixed. §1.1 above describes the
 generated user scope; this section is about what the *launcher* does with what it generates — and,
 after two wrong turns, the answer is that the generated config was never the problem (§10.2).
 
@@ -541,8 +542,13 @@ six observed failures disappear as a side effect, since the launch would succeed
 **Only some container tests isolate `HOME`.** `packHome` gives a test its own user config, and tests
 reaching it through `writeProjectWithPacks`/`tempProject` inherit that isolation; everything else reads
 whatever the machine has. Counted 2026-08-21: six files with jail tests have no isolation at all
-(`cgroup`, `imageskew`, `network`, `packagecollection`, `packages`, `reachability` — 11 tests), and
-`cli_test.go` isolates 3 of its 9.
+(`cgroup`, `imageskew`, `network`, `packagecollection`, `packages`, `reachability` — **10** tests),
+`cli_test.go` isolates 3 of its **8**, and the list above **misses two**:
+`isolation_test.go:TestMiseVenvActivation` and `mcp_test.go:TestSameFilePresetAndNullOverrideIsRejected`
+both use a bare `t.TempDir()`. Recounted while implementing OQ-SC3 — the first pass undercounted the
+per-file totals and overcounted the file list, so the exposure is **wider** than stated, not narrower.
+That is also why the isolation went into `requireJail` rather than `writeProject`: four of the exposed
+tests never call `writeProject` at all, so a hook there would have missed them.
 
 **The failure mode is worse than the failures.** An ambient user config does not only break
 assertions; it can satisfy them. `security.blocked_tools`, `mise_tools`, `mcp_servers` and `loopholes`
@@ -550,6 +556,29 @@ all merge into the jail a test launches, so a machine-local config can make a te
 the test never states. And it is **asymmetric with CI**: a fresh runner has no user config, so CI
 structurally cannot observe either direction — the same invisible-in-CI/fatal-locally shape that bit
 `warmJail`'s first draft ([`agent-install-in-ci.md`](agent-install-in-ci.md) §11).
+
+**LANDED (2026-08-21).** The isolation sits in `requireJail`, not `writeProject` — it is the line
+every container test already writes, so a NEW test cannot read machine state by forgetting a helper;
+it would have to skip the gate that makes it a container test. `isolateHome` wraps the existing
+`seedPackHome`, so there is still one implementation of the shared-store rule, and `ambientHome(t,
+reason)` is the opt-out (no test needs it). Two things the landing added that this section did not
+foresee:
+
+- **A `hostHome` capture.** Every packs-needing test now isolates TWICE (once in `requireJail`, again
+  in `packHome`), and reading `os.Getenv("HOME")` the second time would link the second home's stores
+  to the FIRST temp home's symlinks — a chain that dangles as soon as that tempdir is removed, i.e.
+  the `mkdir: file exists` CI outage one indirection further out. The host home is captured on first
+  redirect so every isolated home links straight to the machine.
+- **`.cache/nix` and `.config/nix` joined `packHomeSharedStores`.** Isolation put the nix-driven tests
+  behind the redirect for the first time; the nix STORE is shared regardless, but the fetcher cache
+  mapping a locked flake input to its store path is HOME-rooted, and `.config/nix` holds the
+  substituter that decides download-vs-compile. Hiding them would have sent nix to the network for
+  inputs it already had.
+
+Two tests were passing for a machine-local reason and now state their inputs: `TestCgroupDelegation`
+selects the `cgroup-delegate` pack and sets its `enabled` switch, and `TestInJailServiceReachability`
+selects `claude` — without a selection nothing publishes an endpoint, so it would have skipped
+everywhere and silently deleted the coverage that exists because a loopback-TLS outage shipped.
 
 This completes a rule the harness already half-enforces rather than inventing one. `writeProject`
 already **refuses** a workspace config containing `packs` — *"which is USER SCOPE ONLY … Use
