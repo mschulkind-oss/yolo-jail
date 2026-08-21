@@ -386,7 +386,8 @@ declared `program` to shadow a binary the image already bakes.
 
 ## 10. Follow-up (2026-08-21): the launcher refuses a pack `yolo check` already calls delivered
 
-**Status:** DIAGNOSED, not fixed. Two independent defects share one symptom. §1.1 above describes the
+**Status:** DECIDED and IN IMPLEMENTATION, 2026-08-21. Both questions ruled (Decision Ledger below);
+two independent defects share one symptom. §1.1 above describes the
 generated user scope; this section is about what the *launcher* does with what it generates — and,
 after two wrong turns, the answer is that the generated config was never the problem (§10.2).
 
@@ -534,21 +535,18 @@ forced to state its pack selection explicitly, while `security`, `mise_tools`, `
 
 ### Open Questions
 
-1. 💬 **OQ-SC1: where does the staged-tree fallback live?** §10.4 — `packsrc.Resolve` itself, a shared
-   `ResolveOrStaged` beside it, or a copy in `run`.
+1. ✅ **OQ-SC1: where does the staged-tree fallback live? — RESOLVED (2026-08-21)**
 
    > This question previously asked whether to drop, rewrite, or stop inheriting `packs` in the nested
    > scope, and went through two leanings before the framing itself turned out to be wrong (§10.2).
-   > **Withdrawn and restated under the same ID** — nothing outside this doc referenced it. The
-   > inherited config was never the defect.
-
-   **What it decides:** whether a future caller of `Store.Resolve` is correct by construction or by
-   remembering, and whether `packsrc` is allowed to know about the jail's delivery convention.
-
-   _Leaning:_ **(i)**, in `Resolve`. Reasoning and its honest cost in §10.4.
+   > Withdrawn and restated under the same ID before being answered — the inherited config was never
+   > the defect.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Delegated to the implementer's judgement ("your call — I don't care about code design"), and the
+   > call is **(i): inside `Resolve`**, so every caller is correct by construction rather than by
+   > remembering. §10.4 has the reasoning and the honest cost — `packsrc` gains an awareness of the
+   > jail's delivery convention, which is a layering smudge worth naming rather than hiding.
 
 2. ✅ **OQ-SC2: should `yolo check` predict this refusal? — WITHDRAWN (2026-08-21)**
 
@@ -558,13 +556,17 @@ forced to state its pack selection explicitly, while `security`, `mise_tools`, `
    > launch refusal — stands on its own for the fetched-pack/installer case; this was not an instance
    > of it. See §10.3.
 
-3. 💬 **OQ-SC3: does the harness isolate `HOME` by default?** §10.5. Independent of OQ-SC1, and now a
-   hygiene change rather than a fix for the observed failures.
-
-   **What it decides:** whether the container suite measures the repository or the machine it runs on.
-
-   _Leaning:_ **yes**. It finishes the rule `writeProject` already half-enforces, and no test I know of
-   wants the machine's config. Any that does can opt in and name its reason.
+3. ✅ **OQ-SC3: does the harness isolate `HOME` by default? — RESOLVED (2026-08-21)**
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Yes. It finishes the rule `writeProject` already half-enforces by refusing a workspace `packs`
+   > key, and no known test wants the machine's config; any that does opts in explicitly and names its
+   > reason. §10.5.
+
+## Decision Ledger — §10
+
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| OQ-SC1 | The staged-tree fallback lives **inside `packsrc.Store.Resolve`**, not copied into `run` — one writer, every caller correct by construction. Supersedes four withdrawn *inheritance* options; the generated config was never the defect | 2026-08-21 | [§10.2](#102-diagnosis-not-inheritance--a-fix-that-landed-at-one-call-site), [§10.4](#104-the-one-question-left-where-does-the-fallback-live) |
+| OQ-SC2 | **Withdrawn.** "Should `check` predict the refusal" was the wrong question — `check` is ahead of the launcher, already resolving the staged tree and reporting `[PASS]`. The general OQ-TP7 concern stands on its own for the fetched-pack case | 2026-08-21 | [§10.3](#103-why-yolo-check-in-a-jail-was-never-going-to-catch-it) |
+| OQ-SC3 | The harness **isolates `HOME` by default** for every container test; an ambient-config test must opt in and name its reason | 2026-08-21 | [§10.5](#105-the-separate-defect-integration-tests-read-machine-state) |
