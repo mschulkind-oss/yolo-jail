@@ -199,7 +199,10 @@ func BriefingContent(in BriefingInput) string {
 	if netMode == "host" {
 		networkLine = "- **Network**: Host networking — the container shares the host network stack. `localhost` / `127.0.0.1` resolves directly to the host. No port mapping needed."
 	} else {
-		networkLine = "- **Network**: Bridge mode. Use `host.containers.internal` (resolves to 169.254.1.2) to reach the host."
+		networkLine = "- **Network**: Bridge mode. `localhost` in here is the JAIL's loopback. Reach the host at " +
+			"`host.containers.internal` (169.254.1.2) — including host services bound to the host's own " +
+			"`127.0.0.1`, which yolo has the network stack forward in. `$YOLO_HOST_LOOPBACK` says what it decided " +
+			"(`requested`/`shared` = forwarding is in place)."
 	}
 
 	var forwardedPorts []string
