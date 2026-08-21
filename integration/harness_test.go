@@ -75,10 +75,93 @@ func TestMain(m *testing.M) {
 	}
 
 	ensureJailImage()
+	warmJail()
 
 	code := m.Run()
 	os.RemoveAll(binDir)
 	os.Exit(code)
+}
+
+// warmJail pays the suite's ONE-TIME container costs here, where nothing is being
+// timed, instead of inside whichever test happens to run first.
+//
+// The defect it exists for (docs/design/agent-install-in-ci.md §4.1, measured on CI run
+// 32419507352): the first container test absorbs podman's first-container create, the
+// entrypoint's mise install/upgrade, and bootstrap's MCP npm downloads — and is then judged
+// against YOLO_TEST_JAIL_TIMEOUT, a PER-COMMAND cap sized for steady-state work.
+// TestAgentToolsAvailable sorts first, so on x64 it cost 124.5s for two installs that cost
+// ~12s each anywhere later in the same run; on the macOS nightly it cost 1033s of a 1200s
+// cap on a healthy night, and blew the cap the first time the runner ran 1.6x slow.
+//
+// This is a MEASUREMENT fix, not a cost fix: the suite's wall clock barely moves, because
+// the warmup still costs whatever it costs. What changes is that no single test's budget
+// contains it, so the cap measures what it was sized for and per-test durations become
+// comparable to each other. Widening the cap instead was considered and rejected — it
+// preserves the misattribution and has to be re-widened every time warmup grows.
+//
+// It runs under its OWN redirected HOME (seedPackHome, shared with packHome) carrying an
+// EMPTY user config, and that is not optional. The first version used the ambient HOME and
+// died instantly on a developer machine: the real config selected a local pack at
+// /home/matt/.dotfiles/..., a HOST path that does not exist inside the jail. CI would never
+// have caught it — a fresh runner's HOME has no yolo config at all — so this is the rare
+// defect that is invisible in CI and fatal locally. An empty config also means no packs are
+// selected, so the warmup installs no agent CLI; the npm HTTP cache IS shared
+// (paths.GlobalCache()), so bootstrap's own downloads still land warm for every later test.
+//
+// FAILURE IS NON-FATAL AND MUST STAY THAT WAY. A warmup is an attribution fix, not a gate:
+// if it cannot launch, every test still runs and still reports its own diagnosis against its
+// own assertions. Making this fatal would convert one unexplained environment problem into a
+// suite that refuses to say anything at all.
+func warmJail() {
+	if detectRuntime() == "" {
+		return // ensureJailImage already reported the absence
+	}
+	dir, err := os.MkdirTemp("", "yolo-warmup-")
+	if err != nil {
+		degraded("warmup: creating temp workspace: %v — the first container test will absorb "+
+			"the suite's one-time costs", err)
+		return
+	}
+	defer os.RemoveAll(dir)
+	if err := os.WriteFile(filepath.Join(dir, "yolo-jail.jsonc"), []byte("{}"), 0o644); err != nil {
+		degraded("warmup: writing workspace config: %v", err)
+		return
+	}
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		degraded("warmup: creating temp home: %v", err)
+		return
+	}
+	if err := seedPackHome(home, os.Getenv("HOME"), `{}`); err != nil {
+		degraded("warmup: seeding temp home: %v", err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), jailTimeout())
+	defer cancel()
+	args := append(jailRunArgs(), "--", "bash", "-lc", "true")
+	cmd := exec.CommandContext(ctx, yoloBin, args...)
+	cmd.Dir = dir
+	// HOME goes to the SUBPROCESS only — never os.Setenv — because this runs before
+	// m.Run() and a process-wide HOME would silently redirect every test that expects the
+	// ambient one.
+	cmd.Env = append(os.Environ(), "TERM=dumb", "HOME="+home)
+	cmd.Env = append(cmd.Env, childRepoRootEnv()...)
+
+	start := time.Now()
+	out, err := cmd.CombinedOutput()
+	elapsed := time.Since(start).Round(time.Second)
+	forceRemoveContainer(dir)
+
+	if err != nil {
+		degraded("warmup jail failed after %s (%v) — tests still run, but the first "+
+			"container test will absorb the suite's one-time costs:\n%s", elapsed, err, out)
+		return
+	}
+	// Printed unconditionally: this number is the whole point of the change, and the only
+	// way to tell from a CI log whether warmup is actually absorbing anything.
+	log.Printf("[integration] warmed the jail in %s — one-time container costs are paid "+
+		"here, outside any test's timing", elapsed)
 }
 
 // moduleRoot returns the repository root — the parent of this file's directory

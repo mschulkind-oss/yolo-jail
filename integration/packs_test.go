@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -223,32 +224,46 @@ var packHomeSharedStores = []string{
 // yolo run makes anyway.
 func packHome(t *testing.T, userConfig string) {
 	t.Helper()
-	realHome := os.Getenv("HOME")
-
 	home := t.TempDir()
-	cfgDir := filepath.Join(home, ".config", "yolo-jail")
-	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+	if err := seedPackHome(home, os.Getenv("HOME"), userConfig); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("HOME", home)
+}
+
+// seedPackHome writes userConfig into home and re-links realHome's shared stores into it.
+// It is packHome without the *testing.T, so warmJail (which runs from TestMain and has no
+// T) obeys the SAME store rule instead of carrying a second copy of it.
+//
+// Splitting it out is not tidiness: the rule is subtle enough that
+// TestPackHomeSharedStores documents three separate CI outages caused by getting it wrong,
+// and warmJail's first version skipped the redirect entirely and inherited the developer's
+// own `packs` selection — which named a host path invisible inside the jail. A second
+// implementation of this would have been a third outage waiting for its turn.
+func seedPackHome(home, realHome, userConfig string) error {
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		return err
+	}
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"), []byte(userConfig), 0o644); err != nil {
-		t.Fatal(err)
+		return err
 	}
 	for _, store := range packHomeSharedStores {
 		rel := filepath.FromSlash(store)
 		target := filepath.Join(realHome, rel)
 		if err := os.MkdirAll(target, 0o755); err != nil {
-			t.Fatalf("creating host store %s (a symlink to a missing dir is dangling, "+
-				"and MkdirAll rejects that as \"file exists\"): %v", target, err)
+			return fmt.Errorf("creating host store %s (a symlink to a missing dir is dangling, "+
+				"and MkdirAll rejects that as %q): %w", target, "file exists", err)
 		}
 		link := filepath.Join(home, rel)
 		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-			t.Fatal(err)
+			return err
 		}
 		if err := os.Symlink(target, link); err != nil {
-			t.Fatal(err)
+			return err
 		}
 	}
-	t.Setenv("HOME", home)
+	return nil
 }
 
 // TestFzfAcceptanceCaseInJail is THE acceptance test for the pack/host-render work
