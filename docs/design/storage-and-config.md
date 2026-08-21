@@ -381,3 +381,144 @@ Blocked tool shims are first in PATH to intercept blocked commands. Lazy-install
 launchers are LAST, after `/bin`: an installer only needs to run when nothing else
 provides the name, so ordering it there makes it structurally impossible for a pack's
 declared `program` to shadow a binary the image already bakes.
+
+---
+
+## 10. Follow-up (2026-08-21): the generated user scope can name paths the jail cannot reach
+
+**Status:** DIAGNOSED, not fixed. Two defects share one symptom, and they are independently
+actionable. §1.1 above describes the generated user scope; this section is what happens when what it
+generates points outside the container.
+
+**Reads with:** [`trust-paths.md`](trust-paths.md) (OQ-TP7 is the same check-passes/launch-refuses
+shape, for a different cause), [`agent-install-in-ci.md`](agent-install-in-ci.md) (whose integration
+work surfaced this).
+
+### 10.1 What was measured
+
+Inside a jail whose parent's user config selects a **local** (`file://`) pack, a nested launch is
+refused outright:
+
+```console
+$ cd /tmp/nesttest && echo '{}' > yolo-jail.jsonc
+$ yolo run --accept-config-changes -- bash -lc 'echo NESTED_OK'
+packs: matt-core: local pack /home/matt/.dotfiles/packs/matt-core is not a directory
+```
+
+The generated inner config faithfully carries `file:///home/matt/.dotfiles/packs/matt-core` — a HOST
+path with no referent in the container. Three observations, all measured 2026-08-21:
+
+| Consumer | Behaviour | Why |
+| :--- | :--- | :--- |
+| `yolo pack ls` (reader) | **works**, lists all three local packs with their host paths | it only reports; a stale path costs nothing |
+| `yolo check --no-build` (preflight) | **passes** — 27 passed, 2 warnings, rc 0 | it never asks whether the entry could be staged |
+| `yolo run` (inner launcher) | **refuses** | staging a nonexistent directory is fatal |
+
+So the preflight gives no warning that the very next launch cannot start. That is the same shape as
+[`trust-paths.md`](trust-paths.md) OQ-TP7 — *"`yolo check` does not predict the refusal"* — arrived at
+by a different route, and it is the second instance of it. Whatever fixes that one should be asked
+whether it covers this.
+
+> [!WARNING]
+> This breaks the verification workflow `AGENTS.md` **mandates**: a nested `yolo -- bash` is how a
+> `cmd/`/`internal/` change is supposed to be checked. It is not a test-only inconvenience. The blast
+> radius is bounded — it bites only when the parent's config selects a local pack — but the
+> maintainer's own setup does exactly that (`matt-core`, `matt-fzf`, `matt-local`), so the mandated
+> path is broken for the person the instruction is written for.
+
+### 10.2 Diagnosis: a key-level filter, and a key whose two consumers disagree
+
+`internal/config/inherit.go` classifies every top-level key across two consumers, and `packs` claims
+both:
+
+```go
+"packs": {preflight: true, nested: true,
+  reason: "reported by `yolo pack ls/status` and staged by an inner launcher"},
+```
+
+The reason names the two consumers correctly and the disposition treats them as one. Only the second
+breaks, because only the second *evaluates* the path.
+
+The `loopholes` entry immediately above rules the analogous question the other way, and that ruling is
+sound where it stands: its host-shaped `command`/`doctor_cmd` innards *"are not a reason to drop it:
+those are evaluated host-side only… dropping the key would make `yolo loopholes list` blind to the
+human's own installs — a visible omission, which §5.1 rules worse than a stale path."* The
+distinction is **evaluation**, not shape: a stale path a consumer only prints is harmless, and a stale
+path a consumer stages from is fatal. So "drop anything host-shaped" is the wrong generalisation, and
+so is "keep it, readers cope."
+
+What this needs is therefore a **value-level** treatment of one key in one projection, which the
+current filter does not do — it is key-level throughout. The seam was built in anticipation:
+
+> `FilterInheritErr` … *"The error is always nil today and exists so a future filter that can fail — a
+> value-level rewrite rather than a key-level projection — does not change every call site."*
+
+### 10.3 The separate defect: integration tests read machine state
+
+The same symptom produced six failures in the container suite, and the cause there is not
+inheritance — it is that **only some container tests isolate `HOME`**. `packHome` gives a test its own
+user config; tests reaching it through `writeProjectWithPacks`/`tempProject` inherit that isolation,
+and everything else reads whatever the machine has. Counted 2026-08-21: six files with jail tests have
+no `HOME` isolation at all (`cgroup`, `imageskew`, `network`, `packagecollection`, `packages`,
+`reachability` — 11 tests), and `cli_test.go` isolates 3 of its 9.
+
+**The failure mode is worse than the failures.** An ambient user config does not only break
+assertions; it can satisfy them. `security.blocked_tools`, `mise_tools`, `mcp_servers` and `loopholes`
+all merge into the jail a test launches, so a machine-local config can make a test pass for a reason
+the test never states. And it is **asymmetric with CI**: a fresh runner has no user config, so CI
+structurally cannot observe either direction. That is the same invisible-in-CI/fatal-locally shape
+that bit `warmJail`'s first draft (`agent-install-in-ci.md` §11, step one).
+
+This is mechanical to fix now that `seedPackHome` exists as a non-`*testing.T` helper: make an
+isolated `HOME` the default for every container test and let the ambient config be an explicit opt-in
+that names its reason. It does not wait on any ruling in §10.4.
+
+### 10.4 Options for the inheritance half
+
+| | Option | Cost |
+| :--- | :--- | :--- |
+| **(a)** | Drop local `file://` entries from the **nested** projection only; preflight keeps them | Simple, fails closed, keeps `yolo pack ls` honest. A nested jail silently gets **less** than its parent — here, no `matt-fzf` file-suggestion finder and no `matt-local` pi config |
+| **(b)** | **Rewrite** local entries to the staged copy (`file:///ctx/packs/<name>`) in the nested projection | Verified viable: `/ctx/packs/` holds `matt-core`, `matt-fzf`, `matt-local` already staged, so the referent exists. Preserves content across nesting. Costs a value-level rewrite and care that re-staging a staged copy is faithful (`allow_exec` rides on the config entry, so it is inherited alongside) |
+| **(c)** | Do not inherit `packs` into **nested** at all | Consistent with *nothing is active by default* — but a nested jail then has **no agent**, which is most of what nested verification is for |
+| **(d)** | Keep inheriting; make a missing local pack a warning the launch survives | Rejected: fails open and silently drops declared content, which is what the fatal exists to prevent |
+
+_Leaning:_ **(b).** The content is demonstrably present in the child; (a) and (c) both make a nested
+jail a weaker copy of its parent, which undercuts the reason nested jails are the mandated
+verification path. (d) is not on the table.
+
+### Open Questions
+
+1. 💬 **OQ-SC1: drop, rewrite, or stop inheriting `packs` into the nested scope?** §10.4. This is the
+   ruling; the implementation is contained either way.
+
+   **What it decides:** whether a nested jail carries its parent's local packs, and whether
+   `inherit.go` grows its first value-level rewrite.
+
+   _Leaning:_ (b), rewrite to the staged path. Stated in §10.4.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+2. 💬 **OQ-SC2: should `yolo check` predict this refusal, and is that the same fix as OQ-TP7?**
+   §10.1 measured `check` passing on a config whose next launch is refused — the shape
+   [`trust-paths.md`](trust-paths.md) OQ-TP7 already has open for the fetched-pack/installer case.
+
+   **What it decides:** whether these are one fix or two, and therefore whether OQ-TP7's answer is
+   allowed to be narrow.
+
+   _Leaning:_ ask it as one question. Two independent causes producing "check passes, launch refuses"
+   is evidence about the preflight's coverage rather than about either cause.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+3. 💬 **OQ-SC3: does the harness isolate `HOME` by default?** §10.3, and independent of OQ-SC1 — it
+   is a test-hygiene change, not a product one.
+
+   **What it decides:** whether the container suite measures the repository or the machine it runs on.
+
+   _Leaning:_ yes, default-isolate, with any ambient-config test opting in explicitly and saying why.
+   I know of no test that needs the machine's config.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
