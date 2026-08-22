@@ -43,8 +43,19 @@ func startDaemon(t *testing.T, cfg Config, fakePSDir string) (endpoint string, s
 	}
 	endpoint = filepath.Join(dir, "hp.endpoint")
 	// Prepend the fake-ps dir to PATH for the daemon's exec of `ps`.
-	oldPath := os.Getenv("PATH")
-	os.Setenv("PATH", fakePSDir+":"+oldPath)
+	//
+	// t.Setenv, NOT os.Setenv, and the difference is a flake. This was a global mutation
+	// hand-restored inside stop() — and stop() restored PATH BEFORE closing stopCh, so the
+	// daemon went on serving with the REAL ps on PATH for the whole teardown window. Any
+	// exec in that window runs `ps -o pid,comm -C sway -C waykeeper`, which on a host with
+	// no such processes prints NOTHING and still succeeds: rc=0 with empty stdout, which is
+	// exactly what TestBlackboxFrontedListModeIsIdentical saw in CI on 2026-08-22
+	// (bytes_out=9 — one 9-byte exit frame, zero stdout frames).
+	//
+	// t.Setenv restores in test cleanup, which runs AFTER the test's deferred stop(), so the
+	// fake outlives the daemon by construction. It also PANICS if this test is ever made
+	// parallel, which turns the same race into a loud failure instead of a rare empty read.
+	t.Setenv("PATH", fakePSDir+":"+os.Getenv("PATH"))
 	stopCh := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
@@ -53,7 +64,6 @@ func startDaemon(t *testing.T, cfg Config, fakePSDir string) (endpoint string, s
 	}()
 	waitEndpoint(t, endpoint)
 	return endpoint, func() {
-		os.Setenv("PATH", oldPath)
 		close(stopCh)
 		<-done
 		os.RemoveAll(dir)
@@ -81,8 +91,9 @@ func startFrontedDaemon(t *testing.T, cfg Config, fakePSDir string) (endpoint st
 	sock := filepath.Join(dir, "hp.sock")
 	endpoint = filepath.Join(dir, "hp.endpoint")
 
-	oldPath := os.Getenv("PATH")
-	os.Setenv("PATH", fakePSDir+":"+oldPath)
+	// t.Setenv for the same reason as startDaemon above: the fake must outlive the daemon,
+	// and a global mutation restored inside stop() does the opposite.
+	t.Setenv("PATH", fakePSDir+":"+os.Getenv("PATH"))
 
 	daemonStop := make(chan struct{})
 	daemonDone := make(chan struct{})
@@ -101,7 +112,6 @@ func startFrontedDaemon(t *testing.T, cfg Config, fakePSDir string) (endpoint st
 	waitEndpoint(t, endpoint)
 
 	return endpoint, func() {
-		os.Setenv("PATH", oldPath)
 		close(frontStop)
 		<-frontDone
 		close(daemonStop)
@@ -248,11 +258,35 @@ func fakePS(t *testing.T, extra string) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	script := "#!/bin/sh\n" + extra
+	// Every invocation records itself BEFORE running the body, so a test that gets no
+	// output can tell "the fake ran and produced nothing" from "the fake never ran".
+	//
+	// A file rather than stderr, because several tests below assert stderr BYTE-EXACTLY
+	// ("unknown mode: '5'\n") and a marker there would break them. It appends, so a test
+	// expecting exactly one exec can see two.
+	script := "#!/bin/sh\nprintf '%s %s\\n' \"$0\" \"$*\" >> " +
+		filepath.Join(dir, psInvocationLog) + "\n" + extra
 	if err := os.WriteFile(filepath.Join(dir, "ps"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+// psInvocationLog is where fakePS records each exec, relative to the dir fakePS returns.
+const psInvocationLog = "invoked.log"
+
+// psInvocations reports what the fake ps was actually asked to do, for a failure message.
+//
+// This exists because the 2026-08-22 CI flake reported only `argv = ""` and left no way to
+// tell whether the fake had run at all — the one datum that would have distinguished a
+// transport bug from a PATH bug, discarded by the assertion that needed it.
+func psInvocations(fakePSDir string) string {
+	b, err := os.ReadFile(filepath.Join(fakePSDir, psInvocationLog))
+	if err != nil {
+		return "(the fake ps was NEVER INVOKED — the daemon exec'd some other ps, " +
+			"or none at all)"
+	}
+	return string(b)
 }
 
 func TestBlackboxListMode(t *testing.T) {
@@ -261,13 +295,15 @@ func TestBlackboxListMode(t *testing.T) {
 	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
 
-	out, _, rc := query(t, ep, map[string]any{"mode": "list"})
+	out, errOut, rc := query(t, ep, map[string]any{"mode": "list"})
 	if rc != 0 {
-		t.Fatalf("list rc=%d, want 0", rc)
+		t.Fatalf("list rc=%d, want 0\nstderr=%q\nps invocations: %s", rc, errOut, psInvocations(ps))
 	}
-	// sorted comms, -C per comm.
+	// sorted comms, -C per comm. Same diagnostics as the fronted twin below: these two
+	// exist to be compared, so they must FAIL comparably.
 	if string(out) != "ARGS: -o pid,comm -C sway -C waykeeper\n" {
-		t.Errorf("list argv = %q", out)
+		t.Errorf("list argv = %q, want %q\nstderr=%q\nps invocations: %s",
+			out, "ARGS: -o pid,comm -C sway -C waykeeper\n", errOut, psInvocations(ps))
 	}
 }
 
@@ -285,13 +321,19 @@ func TestBlackboxFrontedListModeIsIdentical(t *testing.T) {
 	ep, stop := startFrontedDaemon(t, cfg, ps)
 	defer stop()
 
-	out, _, rc := query(t, ep, map[string]any{"mode": "list"})
+	out, errOut, rc := query(t, ep, map[string]any{"mode": "list"})
 	if rc != 0 {
-		t.Fatalf("fronted list rc=%d, want 0", rc)
+		t.Fatalf("fronted list rc=%d, want 0\nstderr=%q\nps invocations: %s",
+			rc, errOut, psInvocations(ps))
 	}
+	// The failure message carries stderr AND the fake's invocation log on purpose. This
+	// assertion flaked once in CI (2026-08-22) reporting only `argv = ""`, which was
+	// consistent with a transport bug, a handler bug and a PATH bug at the same time —
+	// and the daemon's own bytes_out=9 (one exit frame, no stdout frame) could only be
+	// read afterwards, from a log nobody keeps. These two fields separate the cases.
 	if string(out) != "ARGS: -o pid,comm -C sway -C waykeeper\n" {
-		t.Errorf("fronted list argv = %q (endpoint shape gives %q)", out,
-			"ARGS: -o pid,comm -C sway -C waykeeper\n")
+		t.Errorf("fronted list argv = %q, want %q\nstderr=%q\nps invocations: %s",
+			out, "ARGS: -o pid,comm -C sway -C waykeeper\n", errOut, psInvocations(ps))
 	}
 }
 
