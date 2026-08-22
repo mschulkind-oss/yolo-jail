@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // Agent library-model tests. They prove the selectable-agent surface: each
@@ -71,6 +73,43 @@ var packMatrix = []packCase{
 	{"opencode", "opencode", "--version", ".config/opencode/opencode.json", "allow"},
 	{"pi", "pi", "--version", ".pi/agent/settings.json", "defaultProjectTrust"},
 	{"codex", "codex", "--version", ".codex/config.toml", "danger-full-access"},
+	{"agy", "agy", "--version", ".gemini/antigravity-cli/settings.json", "permissionMode"},
+}
+
+// TestPackMatrixCoversEveryShippedProgram is the forcing function this file spent its whole
+// life without, and `agy` is what it costs.
+//
+// agy shipped in the very commit that created the pack system ("the pack manifest, the SIX
+// official packs, and the loader") and was never in the matrix — not once, `git log -S agy`
+// on this file is empty. The rows above are byte-identical before and after the conversion
+// from the retired `agents` key: that change translated the list MECHANICALLY instead of
+// re-deriving it, so a matrix written when there were five agents stayed five while the
+// packs became six. It survived the pack reform, `pack footprint`, the ten-kind refactor,
+// and a restructuring that WROTE DOWN that agy had no cell without adding one.
+//
+// The defect is not the missing row, it is that the row list is a hand-maintained mirror of
+// something the filesystem already owns: packs/<name>/pack.json is the authority on which
+// packs declare a program. This test makes the mirror checkable, the same way
+// TestInheritCensusIsTotal does for config keys and TestEmbedMatchesTree does for the embed.
+//
+// It runs under -short (no container) ON PURPOSE: the pre-commit hook and the check-go CI
+// job are where a new pack is added, so that is where forgetting it must go red.
+func TestPackMatrixCoversEveryShippedProgram(t *testing.T) {
+	covered := map[string]bool{}
+	for _, tc := range packMatrix {
+		covered[tc.pack] = true
+	}
+	for _, p := range packload.Embedded() {
+		if len(p.Decl.InstallContributions()) == 0 {
+			continue // ships no program; nothing to install or version
+		}
+		if !covered[p.Name] {
+			t.Errorf("pack %q declares a program but has no packMatrix row — every shipped "+
+				"pack that installs something must be covered, or the next one is dropped the "+
+				"way agy was. Add a row (pack, bin, versionArg, configRel, marker), and add the "+
+				"pack to .github/workflows/packs.yml's install matrix.", p.Name)
+		}
+	}
 }
 
 // TestPackInstallsVersionsAndConfigures runs, for each shipped agent pack, a single jail
