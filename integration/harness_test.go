@@ -143,7 +143,7 @@ func warmJail() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), jailTimeout())
+	ctx, cancel := context.WithTimeout(context.Background(), warmupTimeout())
 	defer cancel()
 	args := append(jailRunArgs(), "--", "bash", "-lc", "true")
 	cmd := exec.CommandContext(ctx, yoloBin, args...)
@@ -368,6 +368,41 @@ func ensureJailImage() {
 // container. YOLO_TEST_JAIL_TIMEOUT overrides it for slow environments (the
 // macOS nightly sets 1200).
 const defaultJailTimeoutSeconds = 300
+
+// warmupTimeout bounds warmJail, and is deliberately MUCH smaller than a test's budget.
+//
+// It was jailTimeout() for one day, and that was wrong in a way only a real macOS runner
+// showed: on the 2026-08-22 nightly the warmup hung, burned the full 20-minute
+// YOLO_TEST_JAIL_TIMEOUT, was killed, and warmed NOTHING — twenty minutes of dead wall
+// clock added to a job by an optimisation that exists to REMOVE misattributed time
+// (docs/design/agent-install-in-ci.md §5.2). A failed warmup has to be cheap, because
+// nothing depends on it succeeding.
+//
+// The bound is not a fraction of jailTimeout(), because the two deadlines answer different
+// questions: a test's budget must cover the work the test asserts, while a warmup's need
+// only cover work worth PRE-PAYING. So it is sized against the benefit — the one-time cost
+// the warmup exists to move out of the first test, measured at ~100s on x64 and ~680s on
+// macOS (docs/design/agent-install-in-ci.md §4.1). A warmup that costs more than the
+// misattribution it removes has stopped being worth waiting for.
+//
+// Hence the platform split, which is data and not superstition: the same §4.1 measurements
+// put macOS at ~8x x64 for identical work (124.5s vs 1032.9s), and a legitimate warmup here
+// took 1m34s on Linux — so a flat 300s would be a bound macOS could not meet even when
+// nothing is wrong, and would burn five minutes every night proving it.
+//
+// Both numbers are ceilings on WASTE, not targets. The degraded line reports the elapsed
+// time it gave up at, and that measurement — not a guess — is what either of these should
+// be revised on.
+func warmupTimeout() time.Duration {
+	limit := 5 * time.Minute
+	if goruntime.GOOS == "darwin" {
+		limit = 12 * time.Minute
+	}
+	if d := jailTimeout(); d < limit {
+		return d // a per-command budget SHORTER than the cap still bounds the warmup
+	}
+	return limit
+}
 
 // jailTimeout returns the per-command deadline from YOLO_TEST_JAIL_TIMEOUT
 // (integer seconds) or defaultJailTimeoutSeconds.

@@ -4,7 +4,24 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
+
+// nixBuildJailTimeout is the per-command budget for the two tests below, and it exists
+// because their cost is REAL rather than misattributed.
+//
+// Each sets `packages:`, which makes the launch do a full --impure nix image build before
+// the jail starts, so these are the slowest launches in the suite by a wide margin. On the
+// macOS nightly TestExtraPackageLibFarm measured 683s (2026-08-20), 1059s (08-21) and then
+// TIMED OUT at 1216s (08-22) against YOLO_TEST_JAIL_TIMEOUT=1200; its sibling has climbed
+// 256s → 345s → 641s over the same three nights. Neither is absorbing suite warmup — that
+// is a different problem with a different fix (docs/design/agent-install-in-ci.md §4.1, and
+// warmJail) — so for THESE two the honest answer is the budget the harness already provides
+// for a legitimately expensive launch, the same `withTimeout` the mise-venv case uses.
+//
+// 40 minutes is ~3.5x the worst measured run, and the job's own deadline still backstops a
+// genuine hang: the macOS nightly takes ~2h against GitHub's 6h default.
+const nixBuildJailTimeout = 40 * time.Minute
 
 // Lib-farm ("extra packages") tests. Each nix-builds a per-workspace image (the
 // `packages` config triggers an
@@ -70,7 +87,7 @@ func TestExtraPackageLibFarm(t *testing.T) {
 		`echo "=== SYMLINK ==="; ls -l /lib/libzbar.so.0 /usr/lib/libzbar.so.0`,
 		`echo "=== DLOPEN ==="; python3 -c 'import ctypes; ctypes.CDLL("libzbar.so.0"); print("dlopen-ok")'`,
 		`echo "=== LDCACHE ==="; ldconfig -C /etc/ld.so.cache -p | grep -c libzbar || true`,
-	}, "\n"))
+	}, "\n"), withTimeout(nixBuildJailTimeout))
 	if r.rc != 0 {
 		t.Fatalf("zbar lib-farm probe script failed (rc %d)\nstdout=%q\nstderr=%q",
 			r.rc, r.stdout, r.stderr)
@@ -121,7 +138,7 @@ func TestDevPackageLinksRuntimeLib(t *testing.T) {
 	r := runYolo(t, dir,
 		`python3 -c 'import ctypes, glob; `+
 			`ctypes.CDLL(sorted(glob.glob("/lib/libsodium.so.*"))[0]); `+
-			`print("dlopen-ok")'`)
+			`print("dlopen-ok")'`, withTimeout(nixBuildJailTimeout))
 	if r.rc != 0 {
 		t.Fatalf("loading libsodium from /lib failed — the .dev request did not link "+
 			"the runtime lib into the farm (rc %d)\nstdout=%q\nstderr=%q",
