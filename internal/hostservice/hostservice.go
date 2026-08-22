@@ -109,12 +109,31 @@ type Session struct {
 // Get exposes a raw request value.
 func (s *Session) Get(key string) (any, bool) { return s.Request.Get(key) }
 
+// sendFrame writes one frame, unless the session has already exited.
+//
+// THE EXITED CHECK IS INSIDE THE LOCK, and that is the whole point of this function's
+// shape. It used to read s.exited before taking s.mu while Exit wrote it after RELEASING
+// s.mu — an unsynchronised flag whose only job is to suppress output, read and written by
+// different goroutines. ExecAllowlisted runs two `pump` goroutines that call this
+// concurrently with the exit path, so the flag was a data race in the strict sense and, when
+// it misfired, silently DROPPED a stdout frame while still sending the exit frame.
+//
+// SCOPE, stated honestly: no CURRENT caller demonstrably opens that window. ExecAllowlisted
+// joins both pumps (wg.Wait) before its Exit, and handleOne's default Exit runs after the
+// handler has returned, so the two never provably overlap today — which is also why `-race`
+// does not flag it. This is therefore HARDENING of a flag that was unsynchronised by the
+// memory model, not a proven fix for the 2026-08-22 CI flake in
+// TestBlackboxFrontedListModeIsIdentical. It is worth noting that the flag's misfire WOULD
+// produce that flake's exact signature — rc=0 with bytes_out=9, one exit frame and no stdout
+// frame from a handler that had output — but a matching shape is a lead, not a diagnosis, and
+// that flake's cause is still open. Dropping a client's output is the one thing this path
+// must never do quietly, whether or not it has done so yet.
 func (s *Session) sendFrame(streamID byte, payload []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.exited {
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	n, err := frameproto.WriteFrame(s.conn, streamID, payload)
 	if err == nil {
 		s.bytesOut += n
@@ -142,16 +161,23 @@ func (s *Session) JSON(obj any) error {
 }
 
 // Exit ends the session with an exit code (signed int32). Idempotent.
+// Exit ends the session with an exit code (signed int32). Idempotent.
+//
+// Both the check and the set are under s.mu, for the reason in sendFrame: the flag orders
+// this write against every concurrent sendFrame, so "exited" means the same thing to all of
+// them. Setting it after releasing the lock left a window in which a pump goroutine could
+// observe the old value and write AFTER the exit frame, or the new one and drop a frame
+// before it.
 func (s *Session) Exit(code int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.exited {
 		return
 	}
-	s.mu.Lock()
 	n, err := frameproto.WriteExit(s.conn, code)
 	if err == nil {
 		s.bytesOut += n
 	}
-	s.mu.Unlock()
 	s.exited = true
 }
 
@@ -416,13 +442,35 @@ func serveListener(handler Handler, ln net.Listener, stop <-chan struct{}, readP
 		_ = ln.Close()
 	}()
 
+	// EVERY HANDLER IS WAITED ON, and this loop returning therefore means "no request is
+	// still being served" rather than "no NEW request will be accepted".
+	//
+	// It used to `go handleOne(...)` unwaited, so closing the stop channel returned from
+	// here while accepted connections were still inside handleOne — including its DEFERRED
+	// access-log line, which reads the package-global Logger. A caller that stops a daemon
+	// and then touches anything that daemon can still touch is racing it, and the tests do
+	// exactly that: captureAccessLog swaps Logger per test, so a leaked handler from the
+	// PREVIOUS test wrote through the swap. Measured as a real `-race` failure with
+	// `go test -race -count=40 -run TestBlackbox ./internal/hostprocesses/` (2026-08-22),
+	// reproducing against unmodified HEAD.
+	//
+	// It is a shutdown-correctness fix before it is a test fix: a daemon whose Serve has
+	// returned while a handler still writes to a client is one that cannot be shut down
+	// deterministically by anyone, and the leak scales with in-flight requests rather than
+	// being bounded.
+	var inFlight sync.WaitGroup
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			break
 		}
-		go handleOne(handler, conn, readPreamble)
+		inFlight.Add(1)
+		go func() {
+			defer inFlight.Done()
+			handleOne(handler, conn, readPreamble)
+		}()
 	}
+	inFlight.Wait()
 	return nil
 }
 
