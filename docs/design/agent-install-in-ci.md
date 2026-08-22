@@ -3,13 +3,15 @@ title: "Nine cold installs a run — what CI buys by downloading six agent CLIs"
 date: 2026-08-21
 status: accepted
 tags: [ci, packs, testing, npm, cost]
-summary: "The integration suite installs agent CLIs from the live npm registry nine times per run, unpinned and with --prefer-online, because the npm prefix is per-workspace and every test gets a fresh workspace. That buys two mechanisms' worth of coverage nine times over, and imports every registry hazard into the blocking gate. Two CI failures in two days, neither of them a bug in this repo. All six questions settled; steps 1-3 built the same day. One claim retracted along the way."
+summary: "The integration suite installs agent CLIs from the live npm registry nine times per run, unpinned and with --prefer-online, because the npm prefix is per-workspace and every test gets a fresh workspace. That buys two mechanisms' worth of coverage nine times over, and imports every registry hazard into the blocking gate. Two CI failures in two days, neither of them a bug in this repo. All six questions settled and built; measured in CI 2026-08-22 — install cost attributed to tests fell 218s to 89s. One claim retracted along the way."
 ---
 
 # Nine cold installs a run — what CI buys by downloading six agent CLIs
 
-**Status:** DECIDED 2026-08-21; **§11 steps 1–3 BUILT** the same day (`0890a80`, `6e536c5`, and the
-commit adding `.github/workflows/packs.yml`). All six questions are settled and compacted into the
+**Status:** DECIDED 2026-08-21; **BUILT and MEASURED IN CI 2026-08-22.** Steps 1–3 landed on the
+21st (`0890a80`, `6e536c5`, `e09f039`); `packs.yml` ran for real on the 22nd (run 32589066448, 12
+install cells green across both arches, triggered by a `packs/**` edit exactly as designed), and run
+32597479510 supplied the numbers step six was waiting on (§11). All six questions are settled and compacted into the
 [Decision Ledger](#decision-ledger); §11 marks what shipped and what remains. **One claim was retracted along the
 way:** the argument that a lockfile pin could not serve CI was wrong, and the manifest-pin shape it
 motivated is withdrawn ([§5.1](#51-mode-a-is-already-ruled-and-waiting-on-a-field)) — the trap that
@@ -616,8 +618,22 @@ resolves a version but has nowhere to record it, so a collector would have nothi
 is built, build the collector's partial-failure path FIRST, or the "bump what passed" ruling is
 unobservable until the week something breaks.
 
-**Sixth (waiting on CI data)**, re-measure, and only then decide whether §6.2's warm-prefix seam has anything left to remove
-(OQ-CI5 defers exactly this).
+**✅ Sixth — MEASURED 2026-08-22** (CI run 32597479510, x64, the first green run to reach
+integration since the restructuring). Against §4's baseline: `TestAgentToolsAvailable`
+124.5s → **skip**, `TestPackInstallsVersionsAndConfigures` 68.9s → **skip**, `Direct`
+12.9s → 8.6s, `PruneUnselected` 11.7s → 8.6s, plus the new network-free
+`TestPackRendersConfigAndLauncher` at 53.5s for all six packs and the two pinned mechanism
+cells at 9.9s and 8.3s. **Test-attributed install cost 218s → 89s**, with 116s of one-time
+cost moved into a visible `warmed the jail in 1m56s` line that belongs to no test. Whole job
+803s → 774s — the wall clock barely moved, exactly as §5.2 predicted, because this was an
+attribution fix and not a cost one.
+
+That answers §6.2's deferred question and it answers it "no": with vendor installs off the
+push path, the entire residual per-test install cost is the two pinned mechanism cells, **18
+seconds**. There is nothing left for a warm-prefix seam to remove, so it is not built. The prediction
+OQ-CI5 declined to act on turned out right — which is not a reason to have acted on it. The
+seam was a cost fix resting on a guess about numbers nobody had; the numbers now exist, and
+they say don't build it.
 
 ## Open Questions
 
@@ -637,5 +653,5 @@ let the **shipped** packs be pinned for users. Per OQ-CI6 the blocking gate no l
 | OQ-CI2 | **Two** install cells in the required matrix (one npm, one `installer`) — not three. The third-npm-cell idea is withdrawn: scoped-vs-bare parsing is already a unit-test table. The saving goes to the thin mechanism, where `agy` has no cell at all | 2026-08-21 | [§6.1](#61-the-blocking-gate-pinned-and-one-cell-per-mechanism), [§2.3](#23-two-mechanisms-six-packs-nine-installs) |
 | OQ-CI3 | Weekly maintenance workflow: **separate jobs per vendor**, hard-failing, and **bump what passed** — a broken vendor does not hold the other five back. Forces fan-out-then-collect, a collector that survives partial failure, and verify-then-pin on every arch served | 2026-08-21 | [§6](#6-what-advisory-gets-wrong), [§6.0](#60-the-shape-bump-what-passed-forces) |
 | OQ-CI4 | Suite warmup is paid in `TestMain`'s existing seam, before any timed assertion. The macOS cap raise (1200→2400s) is **withdrawn**: it padded a misattribution rather than fixing it | 2026-08-21 | [§5.2](#52-mode-b-is-ours-alone-and-the-fix-is-attribution), [§4.1](#41-the-first-test-is-the-suites-warmup-sink) |
-| OQ-CI5 | Warm-prefix seeding **deferred**. Land §6.1 + OQ-CI4, re-measure, build the seam only if a residual per-test install cost survives | 2026-08-21 | [§6.2](#62-warm-prefix-one-cold-install-p3--deferred) |
+| OQ-CI5 | Warm-prefix seeding **deferred, then CLOSED as not needed** — measured 2026-08-22 in CI run 32597479510: test-attributed install cost fell 218s → 89s and the entire residual is the two pinned mechanism cells (18s), so the seam has nothing to remove | 2026-08-21, closed 2026-08-22 | [§6.2](#62-warm-prefix-one-cold-install-p3--deferred), [§11](#11-build-order--what-shipped-and-what-is-left) |
 | OQ-CI6 | **Fixture pack** for the blocking gate — unblocked today via the `file://` pack fixture and `npmspec`'s selector parsing — **plus a path-filtered trigger** so a `packs/**` change runs the real install for the packs it changed. Three triggers, each matched to a cause no other trigger can raise | 2026-08-21 | [§6.1.1](#611-three-triggers-matched-to-three-causes), [§5.1.1](#511-and-the-blocking-gate-may-not-need-to-wait-for-it-at-all) |
