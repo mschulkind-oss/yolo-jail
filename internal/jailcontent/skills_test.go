@@ -215,7 +215,7 @@ func TestBuiltinSuiteReachesEveryDeclaredSkillsTarget(t *testing.T) {
 		".copilot/skills",
 		".pi/agent/skills",
 		".codex/skills",
-		".gemini/antigravity-cli/skills",
+		".gemini/config/skills",
 	} {
 		withSkillTargets(t, dest)
 		staging, err := PrepareSkills("c-target", home, nil, false)

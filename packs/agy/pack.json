@@ -15,7 +15,7 @@
       "kind": "briefing"
     },
     {
-      "into": ".gemini/antigravity-cli/skills",
+      "into": ".gemini/config/skills",
       "kind": "skills"
     },
     {

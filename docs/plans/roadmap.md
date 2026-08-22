@@ -1,8 +1,8 @@
 # Roadmap
 
-**Status: 9 needing you · 2 ready · 0 in progress · 4 waiting · 1 broken · 2 icebox.**
+**Status: 9 needing you · 3 ready · 0 in progress · 4 waiting · 1 broken · 2 icebox.**
 
-Last updated **2026-08-19**. Counts tallied from this file, not asserted.
+Last updated **2026-08-22**. Counts tallied from this file, not asserted.
 
 **What this is.** The forward plan and nothing else. **If it is in this file, it is not done.** Work
 that ships leaves immediately — the record is the commit history. Decisions *not* to build move to
@@ -208,6 +208,15 @@ one-line deliverable that is decided in all but name.
   broker's own constant. A reader generalising from the two easy ones ships a commit that refuses
   **every claude user's launch**. The reservation, the `startLoopholes` name special-case and the
   contribution land in ONE commit.
+
+- 📦 **Nested nixpkgs attribute paths and output selection in `packages`.** Unifies dotted package
+  names in `packages: [...]` so nested collection members (`rocmPackages.clr`, `llvmPackages_16.libclang`,
+  `xorg.libX11`, `darwin.apple_sdk.frameworks.Security`) and multi-segment output shorthands
+  (`rocmPackages.clr.dev`) resolve cleanly across both image builds and non-container environments.
+  Preserves base-derivation tracking for the `/lib` symlink farm and header propagation closures,
+  loosens `packageNameRe` in `validate.go` to allow multi-dot identifiers, and keeps the collection
+  diagnostic refusal intact for bare attrsets. 📄
+  [`package-nested-attribute-paths.md`](../design/package-nested-attribute-paths.md).
 
 ---
 
