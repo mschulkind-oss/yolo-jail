@@ -2,6 +2,8 @@ package oauthbroker
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -10,6 +12,59 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
+
+// InferenceScopes is the set of OAuth scopes recognized by Anthropic for model inference
+// and Claude Code operations. A token lacking all of these cannot perform inference.
+var InferenceScopes = map[string]struct{}{
+	"user:inference":            {},
+	"workspace:inference":       {},
+	"user:developer":            {},
+	"workspace:developer":       {},
+	"workspace:messages_create": {},
+	"user:ccr_inference":        {},
+	"org:service_key_inference": {},
+	"user:voice":                {},
+}
+
+// HasInferenceScope reports whether a whitespace-separated scope string contains
+// at least one scope that grants model inference / developer access.
+func HasInferenceScope(scopeStr string) bool {
+	for _, s := range strings.Fields(scopeStr) {
+		if _, ok := InferenceScopes[s]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// isClaudeCodeClientID reports whether the proxy request is targeted at the primary
+// Claude Code OAuth application (ClientID) rather than an auxiliary/secondary tool.
+func isClaudeCodeClientID(decoded proxyRequest) bool {
+	// Check query string on path
+	if strings.Contains(decoded.path, "?") {
+		if u, err := url.Parse(decoded.path); err == nil {
+			if cid := u.Query().Get("client_id"); cid != "" && cid != ClientID {
+				return false
+			}
+		}
+	}
+	// Check request body
+	if len(decoded.body) > 0 {
+		var jsonMap map[string]any
+		if err := json.Unmarshal(decoded.body, &jsonMap); err == nil {
+			if v, ok := jsonMap["client_id"]; ok {
+				if cid, ok := v.(string); ok && cid != "" && cid != ClientID {
+					return false
+				}
+			}
+		} else if vals, err := url.ParseQuery(string(decoded.body)); err == nil {
+			if cid := vals.Get("client_id"); cid != "" && cid != ClientID {
+				return false
+			}
+		}
+	}
+	return true
+}
 
 // BuildHandler returns the hostservice.Handler for the broker, dispatching on
 // the request "action" field.
@@ -136,6 +191,10 @@ func maybePropagateTokenResponse(credsPath string, decoded proxyRequest, respons
 	if status != 200 {
 		return
 	}
+	if !isClaudeCodeClientID(decoded) {
+		logInfo("proxy mirror: request client_id does not match Claude Code (%s) — skipping shared creds update", ClientID)
+		return
+	}
 	// From here every early return is WARN-level (not silent / DEBUG): each
 	// means the shared creds file falls behind and the next refresh will fail
 	// with invalid_grant. These skips were invisible for ~10 days (2026-05-12
@@ -158,6 +217,15 @@ func maybePropagateTokenResponse(credsPath string, decoded proxyRequest, respons
 				logWarn("proxy mirror: token-endpoint 200 body decoded to non-dict %s — "+
 					"shared creds NOT updated", pyTypeName(decodedBody))
 				return
+			}
+			if v, ok := upstreamResp.Get("scope"); ok {
+				if scopeStr, ok := v.(string); ok && scopeStr != "" {
+					if !HasInferenceScope(scopeStr) {
+						logInfo("proxy mirror: token response scopes %s lack inference permissions — skipping shared creds update",
+							pytext.Repr(scopeStr))
+						return
+					}
+				}
 			}
 			propagate(credsPath, upstreamResp)
 			return
