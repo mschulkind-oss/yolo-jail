@@ -54,14 +54,10 @@
     // Forward host ports into the jail (appear on localhost inside container)
     // "forward_host_ports": [5432, "8080:9090"]
   },
-  // Extra host paths to mount read-only into the jail for context.
-  // Each entry is a host path (mounted at /ctx/<basename>) or "host:container".
-  // Pass --mount/-m on `yolo init` to populate this automatically, e.g.
-  //   yolo init -m ~/code/shared-lib -m ~/notes
-  // "mounts": [
-  //   "~/code/other-repo",
-  //   "~/code/shared-lib:/ctx/shared-lib"
-  // ]
+  "mounts": [
+    "~/.local/share/yolo-jail/logs:/ctx/host-yolo-logs",
+    "~/code/backplane/.yolo:/ctx/backplane-yolo"
+  ],
   // Environment variables set inside the jail.
   // Ordered list: strings are KEY=VALUE file paths, objects are inline maps.
   // Later entries override earlier ones; workspace config appends to user config.

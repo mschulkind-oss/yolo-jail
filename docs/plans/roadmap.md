@@ -218,6 +218,19 @@ one-line deliverable that is decided in all but name.
   diagnostic refusal intact for bare attrsets. 📄
   [`package-nested-attribute-paths.md`](../design/package-nested-attribute-paths.md).
 
+- 📦 **Informative waiting feedback and test coverage for concurrent same-workspace launches.** When
+  two `yolo` instances launch concurrently in the same workspace, the second caller blocks on the
+  workspace flock (`acquireWorkspaceLock`) while the first builds the image and provisions the overlay.
+  Currently, the second process sits completely silent with no terminal indication that it is waiting on
+  another launch.
+  - **Behavior:** Attempt a non-blocking `LOCK_EX | LOCK_NB` first; on contention (`EAGAIN`/`EWOULDBLOCK`),
+    print a clear notice (`"Waiting for concurrent jail launch in workspace <dir> (lock <cname>.lock)..."`)
+    before falling back to the blocking acquire. When unblocked and attaching to the existing container,
+    clearly report that it attached to the newly launched jail.
+  - **Testing:** Add concurrent launch unit and integration test coverage (`internal/cli/run` and
+    `integration/`) ensuring race resolution, waiting notices, and graceful container attachment are asserted
+    against regressions.
+
 ---
 
 # 🛑 Broken
