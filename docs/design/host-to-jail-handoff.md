@@ -302,17 +302,22 @@ the mechanism renames rather than deletes.
 
 | Fact | Test |
 | :--- | :--- |
-| A filed pointer reaches the briefing the jail reads, and is then consumed | `internal/cli/run/consumehandoff_test.go` — `TestRefreshJailBriefingsCarriesHandoff` |
+| A filed pointer reaches the composed briefing, and is then consumed | `internal/cli/run/consumehandoff_test.go` — `TestRefreshJailBriefingsCarriesHandoff` |
 | A launch that writes no briefing leaves the pointer fresh | `TestRefreshJailBriefingsKeepsHandoffWhenNothingCarriesIt` |
 | No pointer ⇒ no section, no marker, no notice | `TestRefreshJailBriefingsHandoffSurfacesOnce` |
 | The section's own content | `internal/jailcontent/briefing_test.go` — `TestBriefingContentHandoff` |
+| The last hop: a real launch, a real `/home/agent/.claude/CLAUDE.md`, and gone on the second launch | `integration/handoff_test.go` — `TestHandoffSurfacesOnceThenIsConsumed` (7.6s, verified 2026-08-23) |
 
 > [!NOTE]
 > The wire tests drive `refreshJailBriefings`, not the helpers, on purpose. The first
 > version of this feature was tested at the helper level only and stayed green with the
 > call site deleted — measured, not hypothesized. `AGENTS.md` names that shape; this is the
-> sixth instance found in the repo. There is still **no integration coverage**: nothing in
-> `integration/` runs a real launch against a filed pointer.
+> sixth instance found in the repo.
+>
+> The integration test is not redundant with them. Everything host-side stops at the
+> staging dir; the briefing mount, the per-pack staging filename and the inode-preserving
+> write all sit between there and the file an agent opens, and no host-side test can see
+> any of them.
 
 ## Decision Ledger
 
