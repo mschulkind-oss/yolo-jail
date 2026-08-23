@@ -148,10 +148,30 @@ diff, no PR, no trace, in a file git will never show you.
 > **The honest claim, with no inflation: this stops zero prompt injections.** It does not
 > reduce what a compromised session can write — a payload in `internal/foo.go` is still a
 > payload, and nothing short of not running the code prevents it. What it removes is the
-> ability to act **unobserved**, forcing every payload onto the reviewed path where your
-> ordinary diff review is the same control you already trust. Converting a *silent*
-> compromise into a *visible* one is the whole of the claim. It is worth one config key and
-> not one line more.
+> ability to act **unobserved**, forcing every payload onto the reviewed path.
+
+**But "forcing it onto the reviewed path" is a weak argument and should not be the load-bearing
+one**, because review of agent output is often nominal — a skim, on a branch you already
+intended to merge. Pressed on exactly this (*"yes we can do something with git hooks, but such
+a drop in the bucket"*), the argument that actually survives is not about review at all:
+
+> [!IMPORTANT]
+> **The blind cell is the only channel that survives every undo a developer has.** This is
+> qualitative, not a matter of degree, and it is the real reason the cell earns a mechanism:
+>
+> | Undo | Removes a payload in `internal/foo.go`? | Removes `.git/hooks/pre-commit`? |
+> | :--- | :--- | :--- |
+> | `git checkout` / `git restore` | ✅ | ❌ — not tracked |
+> | `git revert`, or dropping the branch | ✅ | ❌ — never was a commit |
+> | `git clean -xdf` | ✅ | ❌ — does not touch `.git/` |
+> | reverting the PR after you find it | ✅ | ❌ |
+> | re-cloning | ✅ | ✅ — and nobody re-clones |
+>
+> A source payload executes when you run that code, and in this repo most of that runs **in
+> the jail**. A `pre-commit` hook executes **on the host**, on your next commit in that repo,
+> **forever** — and every instinct a developer reaches for to undo a bad agent session leaves
+> it in place, because none of them can see it. That is the difference between a compromise you
+> can revert and one you cannot see well enough to revert.
 
 > [!WARNING]
 > **`.git/info/exclude` is the load-bearing entry**, because it is the file that *decides* what
@@ -471,6 +491,55 @@ the recommendation holds — it just collects a different prize.
 
 ---
 
+### 5.6 What I would actually build — and what I would drop
+
+Asked directly whether any of this is worth the code (*"so is there anything we can reasonably
+do here?"*), the honest ranking is short, and **the two items at the top are not security
+features at all — they are defects that happen to close a channel.** That is the strongest
+form a recommendation like this can take, because neither needs the threat model to be
+believed in order to be worth fixing.
+
+| # | Do this | Why it survives the "is this theatre?" test | Cost |
+| :-- | :--- | :--- | :--- |
+| **1** | **Stop `workspace_readonly` lying on two backends** ([§5.5](#55-backend-portability--the-mounts-are-not-the-policy)) | A shipped, documented key that says *"protect host-executed code"* and silently does nothing on `macos-user`. **This is a bug whether or not anyone ever uses it for the blind cell** | tiny — wire the SBPL line, or refuse the key |
+| **2** | **`node_modules` in the default per-side set** ([OQ-HX5](#-oq-hx5--should-node_modules-join-venv-in-the-default-per-side-set)) | A `node_modules` shared between a macOS host and a Linux jail is **already broken** for any native build. Justified on correctness; the security benefit is a side effect | small, and no user changes behaviour |
+| **3** | **`workspace_readonly` over the `.git` control plane** | The persistence argument in [§1](#1-the-verdict) — the only channel no undo removes | one config line, and **measured below: ~zero workflow cost** |
+| **4** | mise `paranoid`, host-side ([§5.2](#52-the-navigation-cell-restoring-intent-host-side)) | Closes the `cd` channel at its root, durably (CVE-2026-35533's fix) | zero code; not yolo's to ship |
+| — | **Everything else: drop it** | the tripwire ([§5.3](#53-tripwire-report-changes-to-the-danger-set)), the git-config wrapper ([§5.2](#52-the-navigation-cell-restoring-intent-host-side)), anything aimed at the product cell, and **any attempt to police watcher workflow** | — |
+
+> [!CAUTION]
+> **Locking `.git/hooks` alone is defeated by one line in `.git/config`.** `core.hooksPath`
+> repoints hooks anywhere (measured 2026-08-23: a local value beat a global one), so a session
+> that cannot write `.git/hooks/pre-commit` writes `.githooks-evil/pre-commit` and repoints
+> instead. **It is the `.git` control plane as a unit, or item 3 is not worth doing at all.**
+> There is no cheap half of this one.
+
+**Which I had priced too high.** [OQ-HX2](#-oq-hx2--does-locking-gitconfig-break-enough-of-the-agents-git-workflow-to-matter)
+assumed locking `.git/config` costs a common workflow. Measured on git 2.55.0, 2026-08-23 —
+which everyday operations actually write local config:
+
+| Operation | Writes `.git/config`? |
+| :--- | :--- |
+| `git commit` | no |
+| `git checkout -b feat` (from a **local** branch) | no |
+| `git push origin HEAD` | no |
+| `git fetch` / `git pull` | no |
+| `git push -u origin feat` | **yes** — `branch.feat.{remote,merge}` |
+| `git checkout -b t2 origin/main` (from a **remote-tracking** ref) | **yes** |
+
+**Only two write, and both have a config-free equivalent** — `git push origin HEAD` instead of
+`push -u`, and branching from a local ref. For *this* repo the cost rounds to zero, because the
+agent guide already says to stay on the current branch and not to open PRs unless asked
+([CLAUDE.md](../../CLAUDE.md)). For a repo whose agents do branch-and-push, the cost is one
+convention, not a broken workflow.
+
+**What this adds up to: one config key and two small fixes.** If the persistence argument does
+not move you, items 1 and 2 still stand on their own, because they are defects. That is the
+whole recommendation, and I would rather it be this small and defensible than larger and
+partly ornamental.
+
+---
+
 ## 6. What this does not license
 
 - **Not a claim that the sandbox is broken.** No container boundary is crossed. Every path
@@ -542,14 +611,21 @@ Commit identity is safe ([`identity.go:17-20`](../../internal/entrypoint/identit
 `remote.*` into local config. This is the whole cost of the blind-cell ruling, and it decides
 whether the entry set is five paths or four.
 
+> [!NOTE]
+> **Half-answered by measurement, 2026-08-23.** The cost this question was worried about is
+> smaller than assumed: only `git push -u` and branching from a remote-tracking ref write local
+> config, and both have config-free equivalents ([§5.6](#56-what-i-would-actually-build--and-what-i-would-drop)).
+> And the option this question floated — lock `.git/hooks`, leave `.git/config` — turns out
+> **not to exist**: `core.hooksPath` defeats it. The live question is no longer "which subset"
+> but "the whole `.git` control plane, or nothing".
+
 _Leaning:_ Lock `.git/info` unconditionally — it has no legitimate agent write at all and it
 is the visibility dial. Lock `.git/hooks` **together with the `core.hooksPath` redirect**
 ([§5.1.1](#511-hooks-still-need-a-channel--redirect-rather-than-ban)) and never without it;
 hooks are legitimate work and the lock is only defensible once they have somewhere tracked to
 go. Treat `.git/config` as the one entry to trial and back out of if `push -u` becomes a daily
-irritation — noting that backing out leaves rows 2–5 (`fsmonitor`, aliases, `pager`,
-`hooksPath`) open, which is a real reduction in coverage, not a rounding error, and that
-dropping it also un-pins `core.hooksPath` and so unpicks the hook redirect.
+irritation — noting that backing out does not merely reduce coverage of rows 2–5 but
+**forfeits the hooks lock as well**, per the `core.hooksPath` note above.
 
 **Answer:**
 > _(empty — fill in when decided)_
