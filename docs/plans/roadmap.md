@@ -1,8 +1,11 @@
 # Roadmap
 
-**Status: 9 needing you · 3 ready · 0 in progress · 4 waiting · 1 broken · 2 icebox.**
+**Status: 10 needing you · 2 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
 
-Last updated **2026-08-22**. Counts tallied from this file, not asserted.
+Last updated **2026-08-23**. Counts tallied from this file, not asserted — one per `### 💬` heading,
+one per top-level bullet in every other section, and each bullet's glyph now matches the section it
+is in. (It did not before: a 📦 bullet was living in 🔒 Waiting and the old line counted it in
+neither, which is how "4 waiting" was one short of the five bullets actually there.)
 
 **What this is.** The forward plan and nothing else. **If it is in this file, it is not done.** Work
 that ships leaves immediately — the record is the commit history. Decisions *not* to build move to
@@ -83,8 +86,8 @@ gate** — and one of them obviated a question rather than answering it:
   lockfile's commit pin closes over the whole tree, prose included. *Inherits OQ-LP8/G2b — the pin is
   recorded and never consulted at launch, so it covers this on paper until enforcement lands.*
 - ✅ **OQ-TP1 obviated by TP6.** There is nothing to carry into a jail if no jail starts, so the
-  origin-gate finding stops being a broken guarantee. It stays in 🛑 until the fatal ships, but the
-  fix is now defined rather than undecided.
+  origin-gate finding stops being a broken guarantee. It remains an unenforced one until the fatal
+  ships, but the fix is now defined rather than undecided.
 
 What is still open:
 
@@ -152,6 +155,22 @@ one paragraph; none blocks anything.
 disclosure for enabling a host-reaching loophole, so it now has stakes, four options and a leaning in
 📄 [`config-safety.md`](../design/config-safety.md) — and it is in the sprint below.)*
 
+**And one that arrived here by losing its parent.** The 🛑 nightly entry carried it and cited
+[`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §7 — but that section is the
+silent-fallback defect and **never mentions darwin**, so the citation was wrong and this genuinely
+has no doc home. It is the only item here with a deadline attached, so it should get one before the
+deadline decides it for us.
+
+- **26.05 is the LAST nixpkgs supporting `x86_64-darwin`**, security-fixed only to end of 2026. The
+  nightly needs `macos-26-intel` because GitHub's Apple Silicon runners cannot nest a VM for Podman
+  Machine, so when 26.05 lapses the choice is a self-hosted arm64 Mac runner or macos-user-only
+  macOS tests. **Needs you, but not yet** — a deadline rather than a bug. The nearest measured
+  evidence is 📄
+  [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §5.1, where every
+  probe throws `Nixpkgs 26.11 has dropped support for x86_64-darwin`: the drop has already happened
+  upstream, so `927fb9f`'s `nixpkgs-26.05-darwin` is a **pin on a dead branch**, not a supported
+  line, and the clock is the security-fix window rather than a release date.
+
 Two more of the same size, both from the `yolo check` honesty pass. (A third — what `yolo check`
 should *print* for a section it skipped — now has a design-doc home as **OQ-3** in
 [`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md), because the same
@@ -173,6 +192,16 @@ should *print* for a section it skipped — now has a design-doc home as **OQ-3*
 
 Should host-side `files` be `0o444`? Same asymmetry as E1/E2 — decide them together. OQ-CAP is a
 one-line deliverable that is decided in all but name.
+
+### 💬 10 — Nested nixpkgs attribute paths in `packages`
+
+📄 [`package-nested-attribute-paths.md`](../design/package-nested-attribute-paths.md) — **OQ-1**
+
+This sat in 📦 as *"designed, questions answered, no blockers"* and it is none of those. Its doc is
+`**Status:** DESIGN SKETCH, 2026-08-22. Nothing built.`, and **OQ-1** — how a dotted path resolves
+when a derivation output and a nested collection member claim the same name — is carrying a leaning
+and an empty **Answer:** block. That is the resolver's central rule, so it gates the whole item
+rather than one corner of it.
 
 ---
 
@@ -209,15 +238,6 @@ one-line deliverable that is decided in all but name.
   **every claude user's launch**. The reservation, the `startLoopholes` name special-case and the
   contribution land in ONE commit.
 
-- 📦 **Nested nixpkgs attribute paths and output selection in `packages`.** Unifies dotted package
-  names in `packages: [...]` so nested collection members (`rocmPackages.clr`, `llvmPackages_16.libclang`,
-  `xorg.libX11`, `darwin.apple_sdk.frameworks.Security`) and multi-segment output shorthands
-  (`rocmPackages.clr.dev`) resolve cleanly across both image builds and non-container environments.
-  Preserves base-derivation tracking for the `/lib` symlink farm and header propagation closures,
-  loosens `packageNameRe` in `validate.go` to allow multi-dot identifiers, and keeps the collection
-  diagnostic refusal intact for bare attrsets. 📄
-  [`package-nested-attribute-paths.md`](../design/package-nested-attribute-paths.md).
-
 - 📦 **Informative waiting feedback and test coverage for concurrent same-workspace launches.** When
   two `yolo` instances launch concurrently in the same workspace, the second caller blocks on the
   workspace flock (`acquireWorkspaceLock`) while the first builds the image and provisions the overlay.
@@ -230,43 +250,6 @@ one-line deliverable that is decided in all but name.
   - **Testing:** Add concurrent launch unit and integration test coverage (`internal/cli/run` and
     `integration/`) ensuring race resolution, waiting notices, and graceful container attachment are asserted
     against regressions.
-
----
-
-# 🛑 Broken
-
-- 🛑 **The macOS nightly is down to ONE failing test, and it is a 20-minute timeout rather than a
-  breakage.** Measured on run `32213209710` (2026-08-19), the first nightly since 07-21 to get past
-  nix at all: `build-image` **success**, and `integration-macos` **29 failures → 1**.
-
-  The one left is `TestAgentToolsAvailable`, and it does not fail an assertion — it never finishes:
-
-  ```
-  agents_test.go:25: yolo timed out after 20m0s:
-    yolo run --accept-config-changes -- bash -lc codex --version && copilot --version
-  ```
-
-  **What makes it a budget problem rather than a bug:** the neighbours that install the *same* CLIs
-  through the *same* lazy launchers all pass, and slowly — `TestPackInstallsVersionsAndConfigures`
-  takes **981s** for five packs (codex 173s, copilot 185s), and `TestAgentToolsAvailableDirect`
-  passes copilot alone in 177s. So two-CLIs-in-one-jail on a cold Intel runner is being asked to fit
-  a budget its own siblings nearly exhaust one at a time. `YOLO_TEST_JAIL_TIMEOUT` (default 300s;
-  the nightly raises it to 20m) is the knob, and the fix is either a bigger budget for this test, a
-  warm npm cache, or splitting it — **but not before somebody confirms where the 20 minutes go**,
-  because "it is merely slow" is exactly the assumption the last diagnosis got wrong.
-
-  **Still open, and it is a deadline rather than a bug:** 26.05 is the LAST nixpkgs supporting
-  x86_64-darwin, security-fixed only to end of 2026. The nightly needs `macos-26-intel` because
-  GitHub's Apple Silicon runners cannot nest a VM for Podman Machine, so when 26.05 lapses the choice
-  is a self-hosted arm64 Mac runner or macos-user-only macOS tests. 💬 **Needs you, but not yet.** 📄
-  [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §7.
-
-  *(The flake fix that got us here — `927fb9f`, pinning `nixpkgs-26.05-darwin` for `x86_64-darwin`
-  only — is shipped and proven, so its entry is gone. What is worth keeping is why it took 29 nights:
-  the recorded diagnosis, "nix is broken on that runner and not in our tree", was exactly backwards
-  and had never been measured. It was our flake, on every Intel Mac, reproducible in 0.2s with
-  `nix eval .#installPrefix`. Four nights were spent re-triggering a run that could not have
-  passed.)*
 
 ---
 
@@ -287,6 +270,45 @@ launch — get their entries when they ship, not before.
 ---
 
 # 🔒 Waiting
+
+- 🔒 **The macOS nightly is GREEN again, and the warmup still burns its whole ceiling warming
+  nothing.** Measured on run `32623453131` (2026-08-23, commit `ae0fa1a5` — current `main`):
+  `build-image` **success**, `integration-macos` **success**, suite `ok … 3915.734s`. The night
+  before (`32557449248`, `cb966c27`) it was `FAIL … 5073.141s`. **This row replaces the 🛑 entry,
+  which was wrong about which test was failing and about what could fail at all** — the section is
+  now empty and gone.
+
+  **What the 🛑 entry got wrong, measured rather than argued.** It blamed `TestAgentToolsAvailable`
+  timing out at 20 minutes. That test **cannot** time out on this job: it is gated by
+  `requireRealPackInstalls` (`integration/harness_test.go`), and `YOLO_TEST_REAL_PACK_INSTALLS` is
+  set **only** in `packs.yml` — so on both nightlies it reported `--- SKIP … (0.00s)`, as did
+  `TestPackInstallsVersionsAndConfigures`, the neighbour the old entry reasoned from. The real
+  08-22 failure was `TestExtraPackageLibFarm`, at **1216.11s against the job's 1200s cap**, and it
+  was the only one.
+
+  **The budget half is fixed, and proven on the platform that broke.** `01a51dc4` gave both
+  `packages:`-setting tests an explicit 40-minute `withTimeout(nixBuildJailTimeout)`
+  (`integration/packages_test.go`), and both passed last night: the lib farm at **812.37s** (683s →
+  1059s → timeout → 812s) and `TestDevPackageLinksRuntimeLib` at **310.15s** (256s → 345s → 641s →
+  310s). Their cost is a real `--impure` nix image build, not misattributed warmup.
+
+  **What is NOT fixed, and it is why this is a row rather than a deletion.** The suite's warmup was
+  killed at **exactly its 12m0s darwin ceiling**, having warmed nothing — the same shape as the
+  **20m7s** kill the night before. The same commit set that ceiling (5 min linux / 12 min darwin),
+  so it bounded the WASTE and did not cure the cause: the nightly still spends twelve minutes a
+  night on an optimisation whose entire purpose is to save time. The log shows those minutes going
+  into a full nix build and image load (`Image load needed: first run (no images loaded into podman
+  yet)`, in a job whose previous step already `podman load`ed one) rather than the container start
+  the warmup exists to pre-pay — but **where they actually go is still unconfirmed.** That is the
+  old entry's demand, inherited rather than discharged, and it is the next thing to measure. Needs
+  the nightly or an Intel Mac; nobody here has one.
+
+  *(Why the predecessor entry took 29 nights to be worth writing down, and why the paragraph above
+  refuses to guess: the recorded diagnosis — "nix is broken on that runner and not in our tree" —
+  was exactly backwards and had never been measured. It was our flake, on every Intel Mac,
+  reproducible in 0.2s with `nix eval .#installPrefix`. Four nights were spent re-triggering a run
+  that could not have passed. The warmup ceiling is the same question asked again: do not move that
+  number until somebody measures what it is bounding.)*
 
 - 🔒 **The fatal witness is live in the tree, and not on your host until a `just load`.**
 
@@ -317,7 +339,7 @@ launch — get their entries when they ship, not before.
   emit the pair. **Unverified on a real old-passt host** — nobody here has one. 📄
   [`loopback-tls-reachability.md`](../design/loopback-tls-reachability.md) §3.2.1.
 
-- 📦 **Developing yolo-jail inside its own `macos-user` sandbox: measured 2026-08-19, and the
+- 🔒 **Developing yolo-jail inside its own `macos-user` sandbox: measured 2026-08-19, and the
   sandbox half is DONE.** The motivating ask was a host-side jail good enough to work in without
   approving every command. Measured by extracting the profile a real `--dry-run` emits for this
   workspace and running the actual work under `sandbox-exec`:
@@ -352,7 +374,8 @@ launch — get their entries when they ship, not before.
 
 - 🔒 **On a Mac** — **the two lib-farm assertions have left this row.** They were never darwin
   assertions: they failed because the image build did, and both went green the moment
-  `x86_64-darwin` could evaluate again (see 🛑 above). Nothing about the lib farm was wrong.
+  `x86_64-darwin` could evaluate again (see the nightly row above). Nothing about the lib farm was
+  wrong.
 
   Three items remain, all genuinely host-gated: the `macos-user` acceptance matrix, Track D4's
   download proof, and the guest-notch handoff (whose §2 item 1.4 — do packs reach a macos-user
