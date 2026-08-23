@@ -3,7 +3,7 @@ title: "Every path by which your jail's content runs on your host"
 date: 2026-08-23
 status: in-review
 tags: [trust, security, workspace, mise, git, inventory]
-summary: "The live /workspace bind is bidirectional. Nine paths let a jail session write a file the host later executes as the host user, and the two guardrails that look like they cover this — git's safe.directory and mise's trust prompt — are both structurally blind to it. Split by visibility x intent, only five are worth defending; the rest is code review doing its normal job."
+summary: "The live /workspace bind is bidirectional. Nine paths let a jail session write a file the host later executes as the host user, and the two guardrails that look like they cover this — git's safe.directory and mise's trust prompt — are both structurally blind to it. Split by visibility x intent, only five are worth defending; the rest is code review doing its normal job — except under a host-side watcher, where the review window is zero and the answer is to move the watcher into the jail."
 ---
 
 # Every path by which your jail's content runs on your host
@@ -15,7 +15,10 @@ claims about the code carry file:line anchors checked the same day.
 **The short version.** [`trust-paths.md`](./trust-paths.md) enumerates the paths by which
 *someone else's content runs in your jail*. This document is its mirror, and the direction
 nobody wrote down: **the paths by which the jail's content runs on your host.** There are
-nine. The mechanism is always the same — `/workspace` is a live bind of a host directory,
+nine of them that are *files* — inventoried in [§2](#2-the-inventory) — plus one class that is
+not a file at all: anything running in watch mode on the host.
+
+The mechanism is always the same — `/workspace` is a live bind of a host directory,
 the agent writes a file there, and some *host* program later reads that file and executes
 what it says, as you. **mise and git are the two sharpest**, because both are wired to run
 on acts that feel like navigation rather than execution (`cd`, `git status`), and because
@@ -35,6 +38,12 @@ agent writes* — is gated by code review, which is not a security control being
 but software development working normally. [§1](#1-the-verdict) draws the line that separates
 those from the five paths worth spending anything on, and states plainly what the fix does and
 does not buy against prompt injection.
+
+**The one exception to "review covers it" is anything running in *watch* mode on the host** —
+a dev server, a host-side LSP, a file-watching test runner. Those execute on save, so the
+review window is not small but zero, and review stops being a control at all. That class does
+not take a new mechanism: it takes moving the watcher into the jail, which the existing
+`network.ports` and `per_side_paths` keys already support ([§5.4](#54-standing-execution-move-the-watcher-into-the-jail)).
 
 > [!IMPORTANT]
 > **This is not a containment bug, and I want to be exact about that.** A live bind-mounted
@@ -86,6 +95,37 @@ content is unreadable (deny the bottom-right cell, or redirect it somewhere trac
 is code review, it is the same control you already apply to `internal/foo.go`, and no
 mechanism yolo adds improves it. The reviewer's instinct is correct: anything built for that
 cell is theatre.
+
+### The intent axis has two settings, and one of them collapses the product cell
+
+> [!CAUTION]
+> **"Review is the control" quietly assumed *batch* execution, and a host-side watcher makes
+> it false.** Raised in review as *"also now wondering about live reloading dev servers on the
+> host — this just seems unanswerable."* It is not unanswerable ([§5.4](#54-standing-execution-move-the-watcher-into-the-jail)),
+> but it is a real hole in the model as drawn above, and the second time this doc's tiering has
+> turned out too coarse.
+
+Intent is not a boolean. It has two settings, and they behave completely differently:
+
+| | **Per-act intent** | **Standing intent** |
+| :--- | :--- | :--- |
+| **Shape** | you re-decide every time — `just build`, `just test`, `npm install` | you decided once; every write after that executes with no new decision |
+| **Examples** | the whole product cell as described above | a host `vite`/`webpack`/`air`/`cargo watch` dev server, a host-side LSP or formatter, an IDE background task, a file-watching test runner |
+| **Review window** | non-zero — the diff exists before you choose to run it | **zero.** Execution fires on save, often before the agent has finished the task, certainly before you have read anything |
+
+**Under standing intent the product cell's control is not weakened, it is absent.** The file
+is *visible in principle* — it is right there in the working tree and `git diff` would show it
+— but visibility only buys you anything if it precedes execution, and a watcher guarantees it
+does not. That makes a host-side dev server strictly worse than the `Justfile` on the axis
+that matters, while looking identical on the axis I originally drew.
+
+> [!WARNING]
+> **`node_modules/` is the worst-shaped instance of this and it is not in the inventory above
+> because it is not a config file.** It is gitignored (invisible), auto-loaded by every
+> host-side node tool that resolves a require, jail-writable, and far too large to review even
+> if you wanted to. Same shape for `.venv/`, `target/`, `__pycache__/`. This class is
+> **invisible *and* standing** — the blind cell's evasion with the watcher's zero review
+> window — and it has a different fix from either ([§5.4](#54-standing-execution-move-the-watcher-into-the-jail)).
 
 ### Why the bottom-right cell is *not* theatre
 
@@ -317,6 +357,35 @@ and which the human already reads. It has exactly one non-redundant use: **blind
 Container**, where `:ro` cannot be enforced and detection is all that is available. That is a
 narrow enough case to defer until someone is on that backend.
 
+### 5.4 Standing execution: move the watcher into the jail
+
+**The answer is a workflow, not a mechanism — and both primitives it needs already ship.**
+A watcher cannot be made safe on the host, because the thing that makes it dangerous (zero
+latency from write to execution) is the thing it exists to do. So do not put it there.
+
+| Sub-problem | Existing primitive | State |
+| :--- | :--- | :--- |
+| **The dev server itself** | `network.ports` (`"HOST:JAIL"`) publishes a jail port to the host, so the server runs in the sandbox and you browse it from the host as usual ([`config_ref.txt:602-604`](../../internal/cli/config_ref.txt)) | ships; already the documented intent in [`sandbox-comparison.md`](../research/sandbox-comparison.md) §"Example" — *"the developer sees ports on localhost; the agent sees container-internal hostnames"* |
+| **`node_modules/`, `.venv/` and friends** | `per_side_paths` shadow-mounts a derived directory so **host and jail each get their own copy** and it *"never crosses the host↔jail boundary"* ([`mounts.go:54-69`](../../internal/cli/run/mounts.go)) | ships, but the default set is `.venv` ∪ the mise venv path only — **`node_modules` is not in it** ([OQ-HX5](#-oq-hx5--should-node_modules-join-venv-in-the-default-per-side-set)) |
+
+The connection worth making explicit: **`per_side_paths` was built for a correctness problem**
+— interpreter symlinks and native builds that break when two platforms share a directory — and
+it happens to be the exact right shape for this security one. Host tooling cannot load what
+the jail wrote if the two sides never share the directory.
+
+**What is genuinely irreducible, stated plainly.** Some work cannot move into the jail: a
+native GUI app, an iOS or Android simulator, anything device- or GPU-bound on the host. For
+those, the host *is* executing agent output continuously and no configuration changes that.
+The honest posture is disclosure rather than mitigation — while such a watcher is running,
+treat that jail session's output as already running on your host, because it is. That is a
+narrower residue than "unanswerable", but it is not empty, and I would rather name it than
+round it to zero.
+
+> [!NOTE]
+> Moving the server into the jail leaves your **browser** loading JS the jail served. That is
+> the ordinary web threat model, not host code execution, and the browser sandbox is the
+> control — worth stating only so the boundary is not overclaimed.
+
 ---
 
 ## 6. What this does not license
@@ -334,6 +403,10 @@ narrow enough case to defer until someone is on that backend.
   the product cell, and the control is reading the diff. This repo's documented workflow actively asks for
   that command — [AGENTS.md](../../AGENTS.md) — so the review is not optional hygiene, it is
   the control.
+- **Not a fix for host-side work that genuinely cannot move into the jail** — a native GUI
+  app, a device-bound simulator. [§5.4](#54-standing-execution-move-the-watcher-into-the-jail)
+  names that residue and offers disclosure, not mitigation. Nothing in this document makes a
+  host-side watcher safe; it only makes the common case unnecessary.
 
 ---
 
@@ -413,6 +486,24 @@ this tool does. The honest counter is that yolo would be mutating a repo it does
 which is the kind of quiet host-side write [`config-safety.md`](./config-safety.md) exists to
 make loud; if that objection wins, it becomes a line in the runbook and a `yolo check`
 warning instead.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 OQ-HX5 — should `node_modules` join `.venv` in the default per-side set?
+
+[§5.4](#54-standing-execution-move-the-watcher-into-the-jail) makes `per_side_paths` the answer
+to the invisible-and-standing class, and the default shadow set today is `.venv` ∪ the mise
+venv path ([`mounts.go:63-69`](../../internal/cli/run/mounts.go)) — so every Node workspace is
+unprotected unless its config names `node_modules` by hand. This decides whether the fix is
+on by default or opt-in, which for a security-relevant default is most of the question.
+
+_Leaning:_ Yes, and on the correctness argument rather than the security one — a
+`node_modules` shared between a macOS host and a Linux jail is already broken for any package
+with a native build, which is the same reasoning that put `.venv` in the set. The security
+benefit then arrives as a side effect of a change that was justified anyway, which is the
+strongest form this kind of default can take. The counter is install time: two `npm install`s
+instead of one, per workspace. Worth measuring before ruling.
 
 **Answer:**
 > _(empty — fill in when decided)_
