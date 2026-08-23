@@ -1,11 +1,17 @@
 # Roadmap
 
-**Status: 10 needing you · 1 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
+**Status: 11 needing you · 0 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
 
 Last updated **2026-08-23**. Counts tallied from this file, not asserted — one per `### 💬` heading,
-one per top-level bullet in every other section, and each bullet's glyph now matches the section it
-is in. (It did not before: a 📦 bullet was living in 🔒 Waiting and the old line counted it in
-neither, which is how "4 waiting" was one short of the five bullets actually there.)
+one per top-level bullet in every other section, and each bullet's glyph matches the section it is
+in.
+
+> [!IMPORTANT]
+> **The build queue is EMPTY, and that is the headline.** Not "nothing to do" — everything that was
+> designed has either shipped or is standing behind a ruling only you can make. The last 📦 item
+> (the broker's move into `packs/claude`) shipped **2026-08-19**, and `bundled_loopholes/` is
+> deleted. Until something in 💬 gets answered, the honest queue length is zero, so the fastest way
+> to create work is to answer §💬 1, 2 or 6.
 
 **What this is.** The forward plan and nothing else. **If it is in this file, it is not done.** Work
 that ships leaves immediately — the record is the commit history. Decisions *not* to build move to
@@ -79,15 +85,16 @@ enables it. There is no mise lockfile anywhere in the tree.
 gate** — and one of them obviated a question rather than answering it:
 
 - ✅ **OQ-TP5 — no evergreen npm.** `install` obeys the lockfile, `update` is the only act that
-  resolves a new version, and the hourly poll is downgraded to informational. *Queued in 📦 below.*
+  resolves a new version, and the hourly poll is downgraded to informational. **Built 2026-08-18**
+  (`b3a29ad8`), minus the pin it has nowhere to record — which is OQ-TP4 below.
 - ✅ **OQ-TP6 — a refused contribution refuses the launch.** No partial packs: fix it, remove it, or
-  approve it. *Queued in 📦 below.*
+  approve it. **Built 2026-08-18** (`6385dfbb`). Both carry release-note entries.
 - ✅ **OQ-TP2 — nothing explicit.** Agent context needs no gate and no separate disclosure: the
   lockfile's commit pin closes over the whole tree, prose included. *Inherits OQ-LP8/G2b — the pin is
   recorded and never consulted at launch, so it covers this on paper until enforcement lands.*
 - ✅ **OQ-TP1 obviated by TP6.** There is nothing to carry into a jail if no jail starts, so the
-  origin-gate finding stops being a broken guarantee. It remains an unenforced one until the fatal
-  ships, but the fix is now defined rather than undecided.
+  origin-gate finding stops being a broken guarantee. **The fatal has since shipped** (`6385dfbb`),
+  so this is now enforced rather than merely defined — the caveat this row used to carry is spent.
 
 What is still open:
 
@@ -98,6 +105,11 @@ What is still open:
   *fetched* pack, but pi, copilot, codex and opencode are all **embedded** — so TP5's ruling has no
   home for the pin in the case that covers nearly every user. This gates implementing TP5.
 - **OQ-X1** — does a digest-pinned installer script count, given its own fetches are not pinned?
+- **OQ-TP7** *(new, and it is the shipped fatal's own loose end)* — **OQ-TP6 made the refusal fatal
+  and left the loop around it behind.** Measured: `yolo check` reports `[PASS]` on the very pack the
+  next launch refuses, and the `approve` path is not caught up either. The ruling is scope — how
+  much of the loop has to catch up before "the reader can act on it" is true from everywhere a user
+  meets the refusal.
 - **OQ-LP8 / G2b** — you ruled the shape (approval pinned to a commit); what remains is that
   `LockEntry.Commit` is **never consulted at launch**, so the pin does not yet exist.
 
@@ -213,56 +225,67 @@ when a derivation output and a nested collection member claim the same name — 
 and an empty **Answer:** block. That is the resolver's central rule, so it gates the whole item
 rather than one corner of it.
 
+### 💬 11 — Pack-shipped binaries: the capability the broker sprint promised and did not finish
+
+📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) — **OQ-BP5 · OQ-BP6**
+
+**This row exists because the sprint ended and these two did not.** OQ-BP1 ruled that the broker's
+move and the pack-shipped-binary capability ship **together**; what actually landed on 2026-08-19 was
+the move, on a **baked** daemon — which §3.1 explicitly permits for an official pack, so nothing is
+broken. What is owed is the capability itself, and it is owed to the *next* pack, not to the broker.
+
+- **OQ-BP5** — download-with-digest only, or also a declared build step? They are not symmetric: a
+  download satisfies P1 (the digest *is* what runs); a build generally cannot, so what runs is
+  decided at install time by whatever toolchain the machine has.
+- **OQ-BP6** — may a **fetched** pack ship a *host-side* daemon binary? Refusing it while permitting
+  a fetched pack's arbitrary `host_daemon.cmd` would block the declarative form of a capability and
+  permit the imperative one — the shape OQ-LP14 already suffers from.
+
+⚠ **The cost OQ-BP1 put on the critical path is still unpaid**: the release process has to produce
+the matrix a manifest's `platforms` declares. Declaring more than you build turns *"unsupported
+here"* into *"supported, missing"* (`broker-as-a-pack.md` §9).
+
 ---
 
 # 📦 Up next
 
-**Ordered by:** what unblocks something else, then what protects a live user, then cost.
+**Empty, as of 2026-08-23** — and it emptied by shipping, not by demotion.
 
-- 📦 **One inhabitant left in `bundled_loopholes/`: the broker.** *Needs no ruling — it needs three
-  steps in one order.* 📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) §6.1, §10
+The last item was the broker's move out of `bundled_loopholes/`, and it **shipped in full on
+2026-08-19**: the directory, its `embed.go`, `internal/loopholes/embedfallback.go` and the whole
+`BundledLoopholesDir` / `SourceBundled` / `IncludeBundled` vocabulary are deleted; the manifest lives
+at `packs/claude/loopholes/claude-oauth-broker/` as a *contribution of the claude pack*, not a pack
+of its own; `loopholes.ReservedLoopholeNames` is gone whole, because the broker was the last name in
+it. 📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) §13 records what emptying the channel
+actually required.
 
-  **Shipped 2026-08-18:** typed manifest-declared settings (OQ-A8/K1..K4), `host-processes` and
-  `audio` converted, `journal` and `cgroup-delegate` converted with the delegate now opt-in (OQ-A6,
-  OQ-A4), **core's config schema stops naming any loophole**, and the broker singleton stopped
-  spawning on every launch for every user (OQ-A11).
+**What refills this section:** an answer in 💬. Rows **1**, **2** and **6** each unblock buildable
+work the day they are ruled on — program delivery has a ten-step build order waiting behind it
+(`program-delivery.md` §10), trust-paths has TP4's pin and TP7's catch-up, and image-staging has the
+largest measured reclaim in the repo. **Nothing here is waiting on me to decide what to do next.**
 
-  **Why the broker did not follow, measured rather than judged.** A pack-shipped loophole must
-  declare `publishes: "socket"` (`packPublishesProblems` refuses every other value, including the
-  default), and yolo answers that value by spawning a daemon at a **per-jail** socket
-  (`loopholesruntime.go:564`). The broker is a **host-wide singleton** — that is its entire reason to
-  exist. So the move needs one daemon behind N per-jail fronts, which is §10 steps 3 and 4 turning
-  out to be a hard *prerequisite* for step 5 rather than merely earlier than it.
-
-  Order, and it is not negotiable:
-
-  1. the connection preamble and stamp work (§10 step 3);
-  2. the `publishes` flip **plus** the relay deletion — *"must not be split: a half-flipped broker is
-     a jail with no credential path"*;
-  3. then the contribution moves into `packs/claude`.
-
-  ⚠ **And the reservation is still the trap, differently from the two that just shipped.**
-  `host-processes` and `audio` were reserved only as bundled *directory* names, so `git mv` retired
-  their reservations for free. `broker.BrokerLoopholeName` is appended **unconditionally** from the
-  broker's own constant. A reader generalising from the two easy ones ships a commit that refuses
-  **every claude user's launch**. The reservation, the `startLoopholes` name special-case and the
-  contribution land in ONE commit.
+> [!NOTE]
+> **An empty queue is not a stable state, it is a reading.** If it stays empty for a week, the
+> question to ask is not "what should we build" but "which of the eleven rulings is actually
+> blocking, and which is a question I invented" — see
+> [`further-roadmap-ideas.md`](further-roadmap-ideas.md) §4, which argues two of them are the
+> latter.
 
 ---
 
-### Release notes now have a home
+### Release notes now have a home, and they are caught up
 
 Three shipped behaviour changes had nowhere to be announced — a design ruling discharged its residual
 risk as *"a release note"* and no CHANGELOG, NEWS or release-notes file existed anywhere in the repo
 (found 2026-08-18 while verifying the `default_enabled` rename).
 
-📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md) carries the three: **`audio` is now off by default**
-(with its un-fixable downgrade hazard), **an unreachable host service refuses the launch** (a dead
-broker singleton refuses every jail on that host), and **a non-interactive launch stops auto-accepting
-config changes** (CI needs `--accept-config-changes`).
-
-The two rulings still queued in 📦 — no evergreen npm, and a refused contribution refusing the
-launch — get their entries when they ship, not before.
+📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md) now carries seventeen entries under `## Unreleased`,
+including the original three (**`audio` is now off by default**, **an unreachable host service
+refuses the launch**, **a non-interactive launch stops auto-accepting config changes**) and the two
+that were still queued when this section was written: **npm-installed agent CLIs no longer update
+themselves** (OQ-TP5) and **a pack whose claims you never approved now refuses the launch**
+(OQ-TP6). The broker's move ships with its own entry plus an upgrade warning — *restart the broker
+singleton after upgrading, or every OAuth refresh on that host fails.*
 
 ---
 
@@ -450,16 +473,29 @@ launch — get their entries when they ship, not before.
 
 # Open threads
 
-### Emptying `bundled_loopholes/` — one inhabitant left
+### Emptying `bundled_loopholes/` — **done 2026-08-19**, and what it left behind
 
-The goal is **no inhabitants at sprint end** (OQ-BP4). As of 2026-08-18 the directory holds exactly
-one: `claude-oauth-broker`.
+The goal was **no inhabitants at sprint end** (OQ-BP4), and the channel is gone rather than emptied:
+the directory, its `embed.go`, `internal/loopholes/embedfallback.go` and every reader of them are
+deleted. All six loopholes are pack contributions now, `loopholes.ReservedLoopholeNames` and
+`paths.BuiltinLoopholeNames` are deleted whole, and **core's config schema names no loophole at
+all** — which was the point of the exercise rather than a side effect.
 
-`host-processes` and `audio` are packs; `journal` and `cgroup-delegate` are manifest loopholes and
-the "builtin service" channel no longer exists; core's own config schema names no loophole at all,
-which was the point of the exercise rather than a side effect. The broker's remaining move is queued
-in 📦 above with the order it has to happen in.
+**OQ-LP14 is settled too, and by the better of its two answers.** It became a hard dependency the
+moment the goal grew from one loophole to the whole channel, and it closed on 2026-08-18 by
+**withdrawing the bind-host path rule rather than adding vocabulary for a runtime-dir socket** — a
+rule that admitted `~/.ssh` while refusing `${XDG_RUNTIME_DIR}/pulse/native` in every spelling. The
+two audio loopholes then merged into `packs/audio` under the plain name.
 
-📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) — four of its six questions are answered;
-**OQ-BP5** (build step vs download-only) and **OQ-BP6** (may a fetched pack ship a host-side binary?)
-remain, and BP1 ruled they ship *in* this sprint.
+One residue remains, tracked above rather than here: the **binary capability** OQ-BP1 promised
+alongside the move (💬 11).
+
+📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) §13 is the measured account of what
+"empty the channel" actually required; its Decision Ledger holds BP1–BP4.
+
+### What the roadmap does not cover, and deliberately
+
+Ideas that are not yet anybody's decision — the ones that would become 💬 rows if you wanted them —
+live in [`further-roadmap-ideas.md`](further-roadmap-ideas.md), not here. That file is a **source of
+candidate work, not a queue**: nothing in it is committed, and it says which of its own entries it
+would drop.
