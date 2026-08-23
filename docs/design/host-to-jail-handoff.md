@@ -1,14 +1,22 @@
 ---
 title: "Host→jail handoff — why the jail-startup skill is the wrong shape"
 date: 2026-08-22
-status: decided
+status: accepted
 tags: [skills, briefing, onboarding, cli]
-summary: "The 'new project, new jail' flow fuses a one-time host→jail transition with a recurring jail startup, and enforces the fusion with a built-in skill that reads a handover file. The skill is the wrong mechanism for both halves. Recommendation: keep the transition host-side (yolo init + its briefing), keep the orientation passive (the environment briefing already in CLAUDE.md), delete the jail-startup skill, and let the task come from the user. Open: does .yolo/handover.md survive as optional context, or is the file mechanism removed?"
+summary: "The 'new project, new jail' flow fused a one-time host→jail transition with a recurring jail startup and enforced the fusion with a built-in skill that read a handover file on every session — which is why a four-week-old handoff got read as the current task. Shipped: the jail-startup skill is deleted, orientation stays passive (the environment briefing already in CLAUDE.md), and .yolo/handover.md survives as a one-time carrier that the run pipeline renders as a Handoff section and then consumes. Two implementation divergences from the design are recorded in §9."
 ---
 
 # Host→jail handoff — why the jail-startup skill is the wrong shape
 
-**Status:** DECIDED, 2026-08-22. Implementation pending.
+**Status:** IMPLEMENTED, 2026-08-23 (`dbfb4cc8`, `415d353b`, `8f01278c`, `994ff3ce`,
+`459937ca`). Decided 2026-08-22.
+
+> **2026-08-23.** Shipped, with two divergences from what §4 and §8 specify — one the
+> design asked for and the code could not have (the standing briefing line), one the
+> design missed outright (a consume that must be gated on delivery). Both are in
+> **§9**, which is the section to read against the code. §1–§8 are preserved in their
+> original tense, describing the design as it was decided the day before, so §4's
+> "plus the standing line" is a record of the decision, not of the system.
 
 **The short version.** "Start a project, get into a jail" is really two events that got fused into one: a **one-time transition** (the host agent sets up the jail and gets in) and a **recurring startup** (every session the agent orients itself and finds its task). The built-in `jail-startup` skill enforces the fusion by making "read `.yolo/handover.md`" a ritual that runs on *every* session — which is exactly right for neither half. It's wrong for the recurring half (it re-reads a stale file as the task on every session) and it buries the transition half's real job: the host agent gathers context the jail can't see, provisions the access it needs, and has to carry that context *and the task* across the boundary fluidly, without a ritual. My recommendation: keep the transition on the host (`yolo init` + its briefing), keep the orientation passive (the environment briefing already in `CLAUDE.md`), **delete the skill** (the ritual), keep the handoff file (the carrier), and make the carry-in fluid and one-time. The open question is how the jail agent tells a *fresh* handoff — work it — from a *stale* one — ignore it.
 
@@ -238,9 +246,78 @@ The work lands in this order, each a coherent commit:
 5. Sweep the references (`AGENTS.md`, the design docs) and any stale `.yolo/handover.md` handling
    that still assumes the file is mandatory or is the whole content.
 
+## 9. Follow-up: what shipped, and where it diverges from §4
+
+Implemented 2026-08-23. §1–§8 above are the design as decided; this section is the system.
+Two things came out different, and both are worth knowing before reading the code.
+
+### 9a. There is no standing "where your task comes from" line
+
+§4 and §8-step-3 call for a line that is *always* in the briefing, so an agent with no
+handoff knows to wait for the user. It does not exist, and cannot cheaply: the jail's
+config-independent header bytes are pinned by `TestBriefingJailHeaderIsUnchanged`, and an
+always-present line moves that surface for every existing user. Weighed against what the
+line buys — restating a default the agent already follows — the pinned bytes won.
+
+The one-time-ness the line was really carrying moved *inside* the conditional section,
+where it costs the pinned header nothing: a rendered Handoff now says the section appears
+once and its pointer has been consumed. §7's risk row ("until OQ-4 is settled, the
+environment-briefing line is the guard") is moot — OQ-4 settled, and the consume is the
+guard.
+
+> [!WARNING]
+> This divergence shipped with three comments and one design section still asserting the
+> standing line, including a test whose prose claimed a behavior the same test's code
+> denied. If you are about to add the line back, the veto is a pinned-bytes test, not an
+> oversight — read `TestBriefingJailHeaderIsUnchanged` first.
+
+### 9b. Consuming is gated on a briefing actually being written
+
+§4 says the run pipeline "reads the pointer, renders the handoff, and consumes the
+pointer," and the first implementation did those three in that order, unconditionally. That
+loses handoffs. The briefing-write loop is driven by pack *declarations* — a jail whose
+packs declare no briefing destination writes nothing at all (the zero-pack jail
+`run.go`'s `warnIfNoPacks` describes) — so an unconditional consume burned the pointer on
+exactly the launch that could not deliver it.
+
+The rule is therefore **read before the render, consume after the write, only if a briefing
+was written**. The two failure directions are deliberately asymmetric: a consume that fails
+means the handoff resurfaces next launch (noisy, never lost), while a consume that succeeds
+without delivery loses the task outright, so the gate protects the second.
+
+### 9c. The residual: core cannot tell an agent from a shell
+
+What the gate does *not* fix, and cannot: **core has no agent concept** (`AGENTS.md`), so
+`yolo -- bash` writes the same briefing files as `yolo -- claude` and consumes the handoff
+just as thoroughly. Gating on "is the target an agent" would reintroduce the registry the
+pack system exists to have deleted, so the design does not.
+
+The mitigation is visibility rather than prevention: the launch that consumes a handoff
+prints, on stderr, which file it took and the `mv` that puts it back. A burn stays
+recoverable, and the human sees it at the moment it happens instead of an agent discovering
+it by never getting a task. `handover.md.consumed` is the recovery artifact, which is why
+the mechanism renames rather than deletes.
+
+### 9d. Where the behavior is pinned
+
+| Fact | Test |
+| :--- | :--- |
+| A filed pointer reaches the briefing the jail reads, and is then consumed | `internal/cli/run/consumehandoff_test.go` — `TestRefreshJailBriefingsCarriesHandoff` |
+| A launch that writes no briefing leaves the pointer fresh | `TestRefreshJailBriefingsKeepsHandoffWhenNothingCarriesIt` |
+| No pointer ⇒ no section, no marker, no notice | `TestRefreshJailBriefingsHandoffSurfacesOnce` |
+| The section's own content | `internal/jailcontent/briefing_test.go` — `TestBriefingContentHandoff` |
+
+> [!NOTE]
+> The wire tests drive `refreshJailBriefings`, not the helpers, on purpose. The first
+> version of this feature was tested at the helper level only and stayed green with the
+> call site deleted — measured, not hypothesized. `AGENTS.md` names that shape; this is the
+> sixth instance found in the repo. There is still **no integration coverage**: nothing in
+> `integration/` runs a real launch against a filed pointer.
+
 ## Decision Ledger
 
-All open questions resolved 2026-08-22. The design is decided; implementation is pending.
+OQ-1 through OQ-4 resolved 2026-08-22 (design). OQ-5 and OQ-6 are implementation-time
+rulings from the 2026-08-23 review; both are divergences from §4, documented in §9.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
@@ -248,3 +325,5 @@ All open questions resolved 2026-08-22. The design is decided; implementation is
 | OQ-2 | The host-agent-carries-work-in case is real; the file is the carrier for real work, not garnish. | 2026-08-22 | §4, P1 |
 | OQ-3 | Keep the enter-instructions in `yolo init`'s host briefing. | 2026-08-22 | §4 |
 | OQ-4 | Consume-on-first-read, done by the **run pipeline** when it builds the briefing; the content is filed + committed and the pointer is minimal. | 2026-08-22 | §4 (handoff's shape) |
+| OQ-5 | **No** standing "where your task comes from" line — the pinned jail header vetoes it. One-time-ness is stated inside the conditional section instead. | 2026-08-23 | §9a |
+| OQ-6 | Consume is gated on a briefing having been written this launch; read before the render, consume after the write. The agent-vs-shell residual is mitigated by a stderr notice, not by an agent test. | 2026-08-23 | §9b, §9c |

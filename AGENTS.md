@@ -341,8 +341,11 @@ there is no sync step.
   source-tree-only `developing-yolo-jail`) are injected into every jail. The
   one-time host→jail handoff is NOT a skill: a fresh `.yolo/handover.md` the host
   agent filed is surfaced as a **Handoff** section in the environment briefing and
-  consumed by the run pipeline on that launch — see
-  [docs/design/host-to-jail-handoff.md](docs/design/host-to-jail-handoff.md).
+  consumed by the run pipeline — but only once a briefing has actually been WRITTEN,
+  so a jail whose packs declare no briefing destination leaves the pointer fresh
+  instead of eating it. Core cannot tell an agent launch from `yolo -- bash`, so a
+  consumed handoff is announced on stderr with the `mv` that restores it — see
+  [docs/design/host-to-jail-handoff.md](docs/design/host-to-jail-handoff.md) §9.
   Skill priority: built-in < host user-level < workspace.
 
 ## Where things live

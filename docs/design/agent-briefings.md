@@ -48,8 +48,11 @@ three parts, in order:
    only when `/workspace/.yolo/startup.log` contains `PROVISIONING
    FAILED` — refreshed every invocation, so it appears on the next attach
    after a failed boot) → Handoff (conditional: only when a fresh
-   `.yolo/handover.md` the host filed is consumed this launch) → the
-   standing "where your task comes from" line (always) → Environment
+   `.yolo/handover.md` is carried this launch; there is deliberately NO
+   standing counterpart line for the no-handoff case, because an
+   always-present line moves the bytes
+   `TestBriefingJailHeaderIsUnchanged` pins —
+   host-to-jail-handoff.md §9a) → Environment
    (workspace, home, network,
    forwarded ports, and the *configured* resource limits with a
    `yolo-cglimit` pointer — nothing when none are set) → the rg
@@ -168,7 +171,10 @@ propagates on the next `yolo` invocation like any other briefing edit.
   (project layer, yolo-untouched).
 - **One session / handover to the next agent:** write `.yolo/handover.md`
   in the workspace — it's surfaced as a **Handoff** section in the next
-  launch's briefing and consumed on that launch (host-to-jail-handoff.md).
+  launch's briefing and consumed once that briefing is written
+  (host-to-jail-handoff.md). Consumption is announced on stderr with the
+  `mv` that undoes it, because core cannot tell `yolo -- claude` from
+  `yolo -- bash` and either one carries the handoff away (§9c).
 
 ## Gotchas
 
@@ -184,6 +190,7 @@ propagates on the next `yolo` invocation like any other briefing edit.
   is composed into `~/.claude/settings.json`, not briefings.
 
 <!-- changelog -->
+- The Handoff section has no standing counterpart line, and its pointer is consumed only once a briefing has actually been written — a jail with no briefing destination leaves it fresh (host-to-jail-handoff.md §9)
 - Deleted the `jail-startup` skill; the one-time host→jail handoff is now a conditional **Handoff** section in the briefing, consumed by the run pipeline on the launch that reads it (host-to-jail-handoff.md)
 - Agent library model: briefings/skills are now generated only for the agents selected in the `agents` config (default claude), driven by the agent registry (`src/entrypoint/agent_registry.py`); added opencode + pi
 - [8e08ea37] Removed the MCP-server listing from the generated briefing (agents read their own generated config) and dropped the mcp_servers/mcp_presets plumbing from generate_agents_md
