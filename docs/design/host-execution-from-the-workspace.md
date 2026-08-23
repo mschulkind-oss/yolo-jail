@@ -1,16 +1,26 @@
 ---
 title: "Every path by which your jail's content runs on your host"
 date: 2026-08-23
-status: in-review
+status: accepted
 tags: [trust, security, workspace, mise, git, inventory]
 summary: "The live /workspace bind is bidirectional. Nine paths let a jail session write a file the host later executes as the host user, and the two guardrails that look like they cover this — git's safe.directory and mise's trust prompt — are both structurally blind to it. Split by visibility x intent, only five are worth defending; the rest is code review doing its normal job — except under a host-side watcher, where the review window is zero and the answer is to move the watcher into the jail."
 ---
 
 # Every path by which your jail's content runs on your host
 
-**Status:** INVENTORY + PROPOSAL, 2026-08-23. Nothing built. Every claim below about
-runtime behaviour was **measured in this jail on 2026-08-23** (git 2.55.0, mise 2026.7.17);
-claims about the code carry file:line anchors checked the same day.
+**Status:** **PARTIALLY IMPLEMENTED, 2026-08-23** (commit `7fad359c`). Items 1 and 2 of
+[§5.6](#56-what-i-would-actually-build--and-what-i-would-drop) shipped; everything else is
+recorded in [Steps not taken](#steps-not-taken-2026-08-23) rather than left open, because it
+was considered and declined rather than merely unfinished. Every claim below about runtime
+behaviour was **measured in this jail on 2026-08-23** (git 2.55.0, mise 2026.7.17); claims
+about the code carry file:line anchors checked the same day.
+
+> [!NOTE]
+> **What shipped is deliberately not a security feature.** Both items are defects that close a
+> channel as a side effect — a config key that lied on one backend, and a derived directory two
+> platforms could never safely share. That framing is the point: neither needed this threat
+> model to be believed in order to be worth fixing, which is why they survived the "is this
+> theatre?" test that killed the rest.
 
 **The short version.** [`trust-paths.md`](./trust-paths.md) enumerates the paths by which
 *someone else's content runs in your jail*. This document is its mirror, and the direction
@@ -334,7 +344,7 @@ inventory, and one we are locking precisely so a session cannot repoint it. So t
 cannot set this, by design; something host-side must, before the mount. That is the
 [`security-shim.md`](./security-shim.md) shape exactly — the unsandboxed step configures, the
 sandboxed side cannot revise — and whether yolo should do it idempotently at launch rather
-than leaving it to the human is [OQ-HX4](#-oq-hx4--should-yolo-set-corehookspath-itself).
+than leaving it to the human is [OQ-HX4, now archived](#-have-yolo-set-corehookspath-itself-was-oq-hx4).
 
 **Three caveats, stated rather than buried:**
 
@@ -347,11 +357,11 @@ turns out to be fixable, and that is [§5.5](#55-backend-portability--the-mounts
 unaffected — the jail sets it globally in the jail home
 ([`identity.go:17-20`](../../internal/entrypoint/identity.go)) — but `git checkout -b --track`
 and `git push -u` write `branch.*.remote`, so the *cost* of this ruling is real and lands on a
-common workflow. That is [OQ-HX2](#-oq-hx2--does-locking-gitconfig-break-enough-of-the-agents-git-workflow-to-matter).
+common workflow. That is [OQ-HX2, now archived](#-the-git-control-plane--workspace_readonly-over-gitconfig-githooks-gitinfo-was-oq-hx2).
 3. **The bootstrap gap.** The self-lock protects a config that already has entries. A workspace
 whose first-ever jail session had none is unprotected for that session. Setting the key at
 **user scope** — outside the workspace, hence unwritable from any jail — would close it, and
-whether that is honoured is [OQ-HX1](#-oq-hx1--is-workspace_readonly-honoured-from-user-scope-config).
+whether that is honoured is [OQ-HX1, now archived](#-workspace_readonly-from-user-scope-config-was-oq-hx1).
 
 ### 5.2 The navigation cell: restoring intent, host-side
 
@@ -392,7 +402,7 @@ latency from write to execution) is the thing it exists to do. So do not put it 
 | Sub-problem | Existing primitive | State |
 | :--- | :--- | :--- |
 | **The dev server itself** | `network.ports` (`"HOST:JAIL"`) publishes a jail port to the host, so the server runs in the sandbox and you browse it from the host as usual ([`config_ref.txt:602-604`](../../internal/cli/config_ref.txt)) | ships; already the documented intent in [`sandbox-comparison.md`](../research/sandbox-comparison.md) §"Example" — *"the developer sees ports on localhost; the agent sees container-internal hostnames"* |
-| **`node_modules/`, `.venv/` and friends** | `per_side_paths` shadow-mounts a derived directory so **host and jail each get their own copy** and it *"never crosses the host↔jail boundary"* ([`mounts.go:54-69`](../../internal/cli/run/mounts.go)) | ships, but the default set is `.venv` ∪ the mise venv path only — **`node_modules` is not in it** ([OQ-HX5](#-oq-hx5--should-node_modules-join-venv-in-the-default-per-side-set)) |
+| **`node_modules/`, `.venv/` and friends** | `per_side_paths` shadow-mounts a derived directory so **host and jail each get their own copy** and it *"never crosses the host↔jail boundary"* ([`mounts.go:54-69`](../../internal/cli/run/mounts.go)) | ships, and **`node_modules` joined the default set 2026-08-23** (OQ-HX5). Root-level only; a monorepo names `packages/*/node_modules` explicitly |
 
 The connection worth making explicit: **`per_side_paths` was built for a correctness problem**
 — interpreter symlinks and native builds that break when two platforms share a directory — and
@@ -450,7 +460,7 @@ is the same trick again. A `workspace_readonly` entry is therefore one more line
 **So the blind-cell control is not merely portable to `macos-user` — it is a better fit there
 than the mount is anywhere else.** No `:ro` to be ignored (the Apple Container failure mode),
 no mount at all, and it lands in the one file that is already the backend's whole write policy.
-That is [OQ-HX6](#-oq-hx6--wire-workspace_readonly-into-the-seatbelt-profile).
+That was OQ-HX6, and it **shipped on 2026-08-23** — see the Decision Ledger.
 
 **The honest asymmetry: `per_side_paths` does not port, and cannot.** It needs *two different
 contents at one path* — the host's `node_modules` and the jail's, simultaneously. That is a
@@ -461,8 +471,8 @@ has no fix on `macos-user`.** I would rather record that than invent one.
 
 | Control | `podman` | `container` (Apple) | `macos-user` |
 | :--- | :--- | :--- | :--- |
-| `workspace_readonly` (the blind cell) | ✅ enforced | ❌ `:ro` ignored, warns loudly | ⚠️ **no-op today; natively expressible** (OQ-HX6) |
-| `per_side_paths` (`node_modules`, `.venv`) | ✅ enforced | ✅ (a mount, not a `:ro` mount) | ❌ **no equivalent exists** — needs namespaces |
+| `workspace_readonly` (the blind cell) | ✅ enforced | ❌ `:ro` ignored, warns loudly | ✅ **wired 2026-08-23** as SBPL denies (OQ-HX6) |
+| `per_side_paths` (`node_modules`, `.venv`) | ✅ enforced | ✅ (a mount, not a `:ro` mount) | ❌ **no equivalent exists** — needs namespaces; **warns since 2026-08-23** |
 | `core.hooksPath` redirect ([§5.1.1](#511-hooks-still-need-a-channel--redirect-rather-than-ban)) | ✅ | ✅ | ✅ — a git config key, backend-independent |
 | mise `paranoid` ([§5.2](#52-the-navigation-cell-restoring-intent-host-side)) | ✅ | ✅ | ✅ — host-side, backend-independent |
 | Move the watcher into the jail ([§5.4](#54-standing-execution-move-the-watcher-into-the-jail)) | ✅ via `network.ports` | ✅ | ✅ **but for a different reason** — see below |
@@ -501,10 +511,10 @@ believed in order to be worth fixing.
 
 | # | Do this | Why it survives the "is this theatre?" test | Cost |
 | :-- | :--- | :--- | :--- |
-| **1** | **Stop `workspace_readonly` lying on two backends** ([§5.5](#55-backend-portability--the-mounts-are-not-the-policy)) | A shipped, documented key that says *"protect host-executed code"* and silently does nothing on `macos-user`. **This is a bug whether or not anyone ever uses it for the blind cell** | tiny — wire the SBPL line, or refuse the key |
-| **2** | **`node_modules` in the default per-side set** ([OQ-HX5](#-oq-hx5--should-node_modules-join-venv-in-the-default-per-side-set)) | A `node_modules` shared between a macOS host and a Linux jail is **already broken** for any native build. Justified on correctness; the security benefit is a side effect | small, and no user changes behaviour |
-| **3** | **`workspace_readonly` over the `.git` control plane** | The persistence argument in [§1](#1-the-verdict) — the only channel no undo removes | one config line, and **measured below: ~zero workflow cost** |
-| **4** | mise `paranoid`, host-side ([§5.2](#52-the-navigation-cell-restoring-intent-host-side)) | Closes the `cd` channel at its root, durably (CVE-2026-35533's fix) | zero code; not yolo's to ship |
+| **1** ✅ | **Stop `workspace_readonly` lying on two backends** ([§5.5](#55-backend-portability--the-mounts-are-not-the-policy)) | A shipped, documented key that says *"protect host-executed code"* and silently does nothing on `macos-user`. **This is a bug whether or not anyone ever uses it for the blind cell** | tiny — wire the SBPL line, or refuse the key |
+| **2** ✅ | **`node_modules` in the default per-side set** ([OQ-HX5](#decision-ledger)) | A `node_modules` shared between a macOS host and a Linux jail is **already broken** for any native build. Justified on correctness; the security benefit is a side effect | small, and no user changes behaviour |
+| **3** ⬜ | **`workspace_readonly` over the `.git` control plane** | The persistence argument in [§1](#1-the-verdict) — the only channel no undo removes | one config line, and **measured below: ~zero workflow cost** |
+| **4** ⬜ | mise `paranoid`, host-side ([§5.2](#52-the-navigation-cell-restoring-intent-host-side)) | Closes the `cd` channel at its root, durably (CVE-2026-35533's fix) | zero code; not yolo's to ship |
 | — | **Everything else: drop it** | the tripwire ([§5.3](#53-tripwire-report-changes-to-the-danger-set)), the git-config wrapper ([§5.2](#52-the-navigation-cell-restoring-intent-host-side)), anything aimed at the product cell, and **any attempt to police watcher workflow** | — |
 
 > [!CAUTION]
@@ -514,7 +524,7 @@ believed in order to be worth fixing.
 > instead. **It is the `.git` control plane as a unit, or item 3 is not worth doing at all.**
 > There is no cheap half of this one.
 
-**Which I had priced too high.** [OQ-HX2](#-oq-hx2--does-locking-gitconfig-break-enough-of-the-agents-git-workflow-to-matter)
+**Which I had priced too high.** [OQ-HX2, now archived](#-the-git-control-plane--workspace_readonly-over-gitconfig-githooks-gitinfo-was-oq-hx2)
 assumed locking `.git/config` costs a common workflow. Measured on git 2.55.0, 2026-08-23 —
 which everyday operations actually write local config:
 
@@ -583,118 +593,96 @@ disclosure was the same move in a different place: gate the dangerous reads behi
 
 ---
 
-## Open Questions
+## Decision Ledger
 
-### 💬 OQ-HX1 — is `workspace_readonly` honoured from user-scope config?
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| **OQ-HX5** | **Yes — `node_modules` joins `.venv` in the default per-side set**, on the correctness argument (a `node_modules` shared between a macOS host and a Linux jail is already broken for any native build), with the host-execution benefit as a side effect. Root-level only. **Built 2026-08-23** (`7fad359c`) | 2026-08-23 | [§5.4](#54-standing-execution-move-the-watcher-into-the-jail), `internal/cli/run/mounts.go` |
+| **OQ-HX6** | **Yes — wire it, and treat the silent no-op as the bug.** `workspace_readonly` entries render as `(deny file-write* (subpath …))` after the writable-set allow in the Seatbelt profile. The `per_side_paths` sub-question resolved to **warn, not refuse** — the key is inert there and cannot be made otherwise, but refusing it would break configs that carry it harmlessly for other backends. **Built 2026-08-23** (`7fad359c`) | 2026-08-23 | [§5.5](#55-backend-portability--the-mounts-are-not-the-policy), `internal/macosuser/seatbelt.go` |
+| **OQ-HX2** | **Half-answered by measurement, then archived unruled.** The cost is far smaller than assumed — only `git push -u` and branching from a remote-tracking ref write local config, both with config-free equivalents — and the "lock hooks, leave config" option does not exist, because `core.hooksPath` defeats it. See [Steps not taken](#steps-not-taken-2026-08-23) | 2026-08-23 | [§5.6](#56-what-i-would-actually-build--and-what-i-would-drop) |
+| **OQ-HX1**, **OQ-HX4**, **OQ-HX3** | **Not taken now.** Each is a live option with a recorded reopen trigger rather than a question awaiting a ruling | 2026-08-23 | [Steps not taken](#steps-not-taken-2026-08-23) |
 
-[§5.1](#51-the-blind-cell-deny--and-the-mechanism-is-already-built) recommends setting it in the
-workspace config, which self-locks — but only once it has entries. A user-scope setting
-(`~/.config/yolo-jail/config.jsonc`) lives outside every workspace, so no jail could ever
-write it, and generic entries like `.git/hooks` are meaningful in every repo. This decides
-whether the bootstrap gap is closeable and whether the fix is per-repo or once.
-[`inherit.go:189-193`](../../internal/config/inherit.go) excludes the key from the
-*generated in-jail snapshot* and calls it *"workspace-relative paths that ride the live
-/workspace bind from the workspace config"* — which reads like a statement about the jail
-snapshot, not a ban on user scope, but I did not verify the host merge path and will not
-assert it.
+---
 
-_Leaning:_ It is honoured, and user scope is the better home for the git entries. Worth ten
-minutes with the host config assembly before we rely on it.
+## Steps not taken (2026-08-23)
 
-**Answer:**
-> _(empty — fill in when decided)_
+**These are archived, not abandoned.** Each was considered against the *"is this theatre?"*
+test in [§1](#1-the-verdict) and declined for a stated reason, with the condition that would
+reopen it. Nothing here is blocked on a decision — picking any of them up is a choice, not an
+unblocking.
 
-### 💬 OQ-HX2 — does locking `.git/config` break enough of the agent's git workflow to matter?
+**The through-line for why they were declined:** items 1 and 2 shipped because they are true
+without the threat model. Everything below needs you to accept the threat model *first*, and
+several also cost either a workflow change or a behaviour yolo cannot enforce. That is the
+line, and it is worth restating because it is the one that will decide the next one of these
+too.
 
-Commit identity is safe ([`identity.go:17-20`](../../internal/entrypoint/identity.go)), but
-`git checkout -b --track`, `git push -u` and `git remote add` all write `branch.*` /
-`remote.*` into local config. This is the whole cost of the blind-cell ruling, and it decides
-whether the entry set is five paths or four.
+### ⬜ The `.git` control plane — `workspace_readonly` over `.git/config`, `.git/hooks`, `.git/info` (was OQ-HX2)
 
-> [!NOTE]
-> **Half-answered by measurement, 2026-08-23.** The cost this question was worried about is
-> smaller than assumed: only `git push -u` and branching from a remote-tracking ref write local
-> config, and both have config-free equivalents ([§5.6](#56-what-i-would-actually-build--and-what-i-would-drop)).
-> And the option this question floated — lock `.git/hooks`, leave `.git/config` — turns out
-> **not to exist**: `core.hooksPath` defeats it. The live question is no longer "which subset"
-> but "the whole `.git` control plane, or nothing".
+**The strongest of the not-taken set, and the closest to worth doing.** Its argument is
+[§1](#1-the-verdict)'s persistence table: `.git/hooks` is the only channel that survives every
+undo a developer has — `checkout`, `revert`, dropping the branch, `clean -xdf`, reverting the
+PR after finding it. A source payload dies when you revert; a `pre-commit` hook runs on the
+host on your next commit, forever.
 
-_Leaning:_ Lock `.git/info` unconditionally — it has no legitimate agent write at all and it
-is the visibility dial. Lock `.git/hooks` **together with the `core.hooksPath` redirect**
-([§5.1.1](#511-hooks-still-need-a-channel--redirect-rather-than-ban)) and never without it;
-hooks are legitimate work and the lock is only defensible once they have somewhere tracked to
-go. Treat `.git/config` as the one entry to trial and back out of if `push -u` becomes a daily
-irritation — noting that backing out does not merely reduce coverage of rows 2–5 but
-**forfeits the hooks lock as well**, per the `core.hooksPath` note above.
+*Why not now:* it is a config-only change any user can make today
+(`"workspace_readonly": [".git/config", ".git/hooks", ".git/info"]`), so shipping nothing does
+not prevent it — and unlike items 1 and 2, it asks the user to accept the threat model before
+the change makes sense. It also does not stand alone: it needs the `core.hooksPath` redirect
+([§5.1.1](#511-hooks-still-need-a-channel--redirect-rather-than-ban)) shipped with it, or it is
+a capability regression.
 
-**Answer:**
-> _(empty — fill in when decided)_
+*Cost, measured rather than assumed:* `commit`, `checkout -b` from a local branch,
+`push origin HEAD`, `fetch` and `pull` write nothing. Only `push -u` and branching from a
+remote-tracking ref do, and both have config-free equivalents.
 
-### 💬 OQ-HX4 — should yolo set `core.hooksPath` itself?
+*What reopens it:* any real instance of a jail session touching `.git/` — or simply deciding
+the persistence argument is enough. If it is picked up, **it must be the whole `.git` control
+plane**: locking `.git/hooks` alone is defeated by one `core.hooksPath` line.
 
-[§5.1.1](#511-hooks-still-need-a-channel--redirect-rather-than-ban) needs `core.hooksPath`
-pointed at a tracked directory *before* `.git/config` is locked, and the agent cannot do it
-(that is the point). Either yolo does it host-side and idempotently at launch when
-`workspace_readonly` names `.git/config`, or it stays a documented one-liner the human runs.
-This decides whether the hook redirect is part of the mechanism or part of the runbook —
-and a deny with no channel is a capability regression, so the two ship together either way.
+### ⬜ Have yolo set `core.hooksPath` itself (was OQ-HX4)
 
-_Leaning:_ yolo should do it, and only in the narrow case where it is already locking
-`.git/config` — writing a git config key on the user's behalf is otherwise well outside what
-this tool does. The honest counter is that yolo would be mutating a repo it does not own,
-which is the kind of quiet host-side write [`config-safety.md`](./config-safety.md) exists to
-make loud; if that objection wins, it becomes a line in the runbook and a `yolo check`
-warning instead.
+Hooks need somewhere tracked to live before `.git/hooks` can be locked, and the agent cannot
+set the key by design. *Why not now:* it is only needed if the `.git` control plane above is
+taken, and it is the piece I was least comfortable with — yolo writing into a repo it does not
+own is the kind of quiet host-side mutation
+[`config-safety.md`](./config-safety.md) exists to make loud. *What reopens it:* taking the
+item above. The fallback if the objection stands is a runbook line plus a `yolo check` warning.
 
-**Answer:**
-> _(empty — fill in when decided)_
+### ⬜ `workspace_readonly` from user-scope config (was OQ-HX1)
 
-### 💬 OQ-HX5 — should `node_modules` join `.venv` in the default per-side set?
+Would close the bootstrap gap — the workspace config self-locks only once it *has* entries —
+and make the fix once rather than per-repo. *Why not now:* it only matters if the `.git`
+control-plane item is taken, and I never verified whether the host merge path honours the key
+at user scope; [`inherit.go:189-193`](../../internal/config/inherit.go) excludes it from the
+*generated in-jail snapshot*, which reads like a statement about the snapshot rather than a ban
+on user scope, but I did not confirm it and will not assert it. *What reopens it:* wanting the
+protection in more than one repo.
 
-[§5.4](#54-standing-execution-move-the-watcher-into-the-jail) makes `per_side_paths` the answer
-to the invisible-and-standing class, and the default shadow set today is `.venv` ∪ the mise
-venv path ([`mounts.go:63-69`](../../internal/cli/run/mounts.go)) — so every Node workspace is
-unprotected unless its config names `node_modules` by hand. This decides whether the fix is
-on by default or opt-in, which for a security-relevant default is most of the question.
+### ⬜ Recommend host-side mise `paranoid` (was OQ-HX3)
 
-_Leaning:_ Yes, and on the correctness argument rather than the security one — a
-`node_modules` shared between a macOS host and a Linux jail is already broken for any package
-with a native build, which is the same reasoning that put `.venv` in the set. The security
-benefit then arrives as a side effect of a change that was justified anyway, which is the
-strongest form this kind of default can take. The counter is install time: two `npm install`s
-instead of one, per workspace. Worth measuring before ruling.
+Closes the `cd` channel at its root, durably — since CVE-2026-35533's fix a workspace config
+cannot turn `paranoid` back off. *Why not now:* it is a change to the human's machine, not to
+yolo, so there is nothing to ship; and documenting it means owning its friction (HTTPS
+enforcement, full plugin URLs, the leaf-name hash collision in jdx/mise#4499) for every user.
+*What reopens it:* the maintainer adopting it and finding the friction acceptable — at which
+point it is a line of host-hardening prose, not a feature.
 
-**Answer:**
-> _(empty — fill in when decided)_
+### ⬜ The tripwire, and the hardened `git` wrapper
 
-### 💬 OQ-HX6 — wire `workspace_readonly` into the Seatbelt profile?
+Both were rejected on their merits in [§5.3](#53-tripwire-report-changes-to-the-danger-set) and
+[§5.2](#52-the-navigation-cell-restoring-intent-host-side), and are recorded here so they are
+not re-derived. The tripwire only *reports*, which is a receipt rather than a gate, and for the
+product cell it duplicates `git diff`. The wrapper must enumerate a key set upstream is free to
+extend, and cannot blanket-clear `alias.*` at all. *What reopens the tripwire, narrowly:*
+someone actually running the Apple Container backend, where `:ro` is ignored and detection is
+the only option left.
 
-[§5.5](#55-backend-portability--the-mounts-are-not-the-policy) finds that the key is a silent
-no-op on `macos-user` and that the policy it expresses is one appended `(deny file-write*
-(subpath …))` line in a profile that is already built from exactly that shape. This decides
-whether the blind-cell control is a podman-only feature or a property of yolo, and it is the
-difference between a config key that *lies* on one backend and one that works everywhere.
+### ⬜ Anything aimed at the product cell, or at watcher workflow
 
-_Leaning:_ Wire it, and treat the silent no-op as the actual bug — a security key that a
-backend accepts and ignores is worse than one it refuses, because the config reads as
-protection that is not there. Two sub-decisions I would not settle without you: whether the
-same launch should also **refuse** `per_side_paths` on `macos-user` (it cannot be honoured at
-all, per §5.5) rather than ignoring it, and whether `yolo check` should carry the warning so
-it surfaces before launch rather than at it.
-
-**Answer:**
-> _(empty — fill in when decided)_
-
-### 💬 🤷 OQ-HX3 — do we recommend host-side mise `paranoid`, or just adopt it?
-
-[§5.2](#52-the-navigation-cell-restoring-intent-host-side) is a change to the *human's*
-machine, not to yolo. yolo can document it, or stay silent and let the maintainer set it.
-Documenting it means owning its friction (HTTPS enforcement, plugin URLs, the leaf-name hash
-collision) for every user.
-
-_Leaning:_ Subjective. My weak preference is a line in
-[`loopholes.md`](../guides/loopholes.md)-adjacent host-hardening prose rather than the user
-guide proper — it is advice about mise, not about yolo.
-
-**Answer:**
-> _(empty — fill in when decided)_
+Not deferred — **ruled out**. The product cell's control is code review, which is not a
+security mechanism being invented here but software development working normally, and no
+mechanism yolo adds improves it. Host-side watchers collapse that review window to zero, but
+the response is to move the watcher into the jail, and yolo cannot enforce how someone runs
+their own machine. Presenting either as a control would be the theatre this document argues
+against. The one shippable piece of the watcher problem was item 2, and it shipped.
