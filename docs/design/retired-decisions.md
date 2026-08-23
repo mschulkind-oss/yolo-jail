@@ -1,5 +1,16 @@
 # Retired decisions
 
+**Status:** LIVING RECORD, three entries, last touched 2026-08-17. Append-only in practice: an entry
+leaves only if the decision is *reversed*, and then it leaves with a note saying so.
+
+> [!NOTE]
+> **Three entries in six weeks is suspiciously few**, given how many rulings the design docs record
+> as *"rejected"* or *"withdrawn"*. If a decision-not-to-build is only ever written into the doc that
+> proposed it, it is discoverable by whoever already knows where to look — which is the failure this
+> file exists to prevent. Two current examples worth moving here when someone passes through:
+> OQ-BP3's coupling (withdrawn for the sprint, still correct outside it) and `publishes: "endpoint"`,
+> whose last user left in August.
+
 **What this is.** Things we decided **not** to build, and architectures we rejected — kept because
 a decision with no record gets re-proposed. Each entry says what was considered, what was chosen
 instead, and *why*, so a future reader (or a future agent) can tell "we never thought of that" from

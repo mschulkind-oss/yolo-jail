@@ -339,6 +339,11 @@ never needed.
 
 ## 10. Open question (design detail)
 
+💬 **OQ-CAP** — and it is a *confirmation*, not a fork. Both options are one line apart and the
+leaning below has not been contested since 2026-08-13; if it stays uncontested it should be built
+rather than asked again ([`../plans/further-roadmap-ideas.md`](../plans/further-roadmap-ideas.md)
+§4b argues exactly that).
+
 **OQ-CAP.** `supersedes` lives at the **manifest top level**, beside `name`, rather than as a
 `contributes[]` entry. That matches `skills_tier` (a per-pack fact, not a contribution) and reads
 correctly — superseding is a property *of the pack*, not a thing it delivers. The alternative is a

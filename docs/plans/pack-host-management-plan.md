@@ -937,12 +937,17 @@ Checks:
 - **OQ-D — per-agent skills delivery strategy. SUPERSEDED by N6 + Phase 9/10.** The answer is
   a declared **capability tier** per destination, not inference: tier A (plugin-namespaced)
   for claude + copilot, tier B (flat, manifest-tracked) for the rest. See N6 and Phase 9.
-- **OQ-B — should `files` at the host be `0o444`?** Phase 7.1 mirrors the jail's `:ro`
+- 💬 **OQ-B — should `files` at the host be `0o444`?** Phase 7.1 mirrors the jail's `:ro`
   posture, but a `:ro` mount is *enforced* while `0o444` is merely *asymmetric*
   (`project_prism_ro_rw_audit` made this distinction). A user who wants to hand-edit a
   pack-delivered file will `chmod` it and lose that edit on the next apply.
-  `0o644` + the overwrite warning may be the friendlier default. **Recommend `0o444` for
-  consistency**, but flag it for the maintainer — this one is taste, not correctness.
+  `0o644` + the overwrite warning may be the friendlier default.
+
+  _Leaning:_ **`0o444` for consistency** — but this one is taste, not correctness, and it is the
+  same asymmetry as backlog items E1/E2, so **decide all three together or none of them.**
+
+  **Answer:**
+  > _(empty — fill in when decided)_
 - ~~**OQ-C — does the same-`into` collision check belong to `files` only?**~~ **RESOLVED
   2026-08-02.** Phase 6.2 fixed it for `files` (a genuine `CombineExclusive` violation); the
   identical podman failure for two `skills` contributions sharing an `into` was fixed

@@ -8,6 +8,19 @@ summary: "yolo's host daemons bind the host's loopback and tell the jail to dial
 
 # Loopback-TLS reachability — how a jail reaches a host daemon
 
+**Status:** DECIDED and BUILT, 2026-08-18 (frontmatter `status: accepted`). Zero open questions —
+ten rulings, all shipped, including the fatal witness. **Two things in it are still unverified on
+hardware nobody here has**, and both are 🔒 rows in [`../plans/roadmap.md`](../plans/roadmap.md)
+rather than open questions: the slirp4netns fallback (§3.2.1) has never run on a real old-passt
+host, and the fatal witness reaches your own jails only after a host `just load`.
+
+> [!WARNING]
+> **A nested jail gives this entire document a free green.** Podman-in-podman forces `--net=host`,
+> which is the one mode where the jail's loopback and the launcher's are the same loopback — so no
+> amount of nested testing can observe the class of bug this doc exists for (§3 row 6, §7). Use the
+> bare-`podman run` reproduction in [`../../AGENTS.md`](../../AGENTS.md) instead; the jail is the
+> "host" for a container it starts, and the bug reproduces exactly.
+
 **yolo's host daemons bind `127.0.0.1` and tell the jail to dial `host.containers.internal`**, on the
 assumption that a container runtime forwards that name to the host's **loopback**. It does not. That
 is a property of *which rootless networking stack is in use* and of *where podman aims that name* —
