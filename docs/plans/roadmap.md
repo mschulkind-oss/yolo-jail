@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 10 needing you · 2 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
+**Status: 10 needing you · 1 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
 
 Last updated **2026-08-23**. Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph now matches the section it
@@ -181,6 +181,16 @@ should *print* for a section it skipped — now has a design-doc home as **OQ-3*
   that line reads as a statement about the host. Left alone because it is *true of the runtime it can
   see*, and the orphan-cleanup path underneath acts on that same runtime: a behaviour question, not a
   label. `internal/cli/check/check.go:514`.
+- **A concurrent launch attaches by re-running the entrypoint inside a jail that may still be
+  booting.** Found while shipping the waiting notice (`c2188bba`) — the question that entry was
+  sitting on top of. The wait now explains itself, but it ends in a `podman exec` running the FULL
+  in-jail entrypoint boot (shims, launchers, `.bashrc`, bootstrap) inside a container whose first
+  boot may still be provisioning, so "graceful attachment" means two entrypoints writing the same
+  generated files at once. Clean in 4/4 real runs; unexamined, not failing. The ruling is only
+  whether it is worth examining — the cheap fix is to serialise the second entrypoint behind the
+  first, the honest one is to find which generated files can collide. Note `stopLoopholes`
+  (`loopholesruntime.go:327`) already does its own non-blocking acquire on this same lock with its
+  own notice, so two places reason about this lock's contention and neither knows about the other.
 - **Should `yolo check` validate an npm selector's shape?** Now that a `package` string can carry a
   version, a typo like `foo@@1.2.3` reaches npm and fails at first use *inside* the jail, where the
   diagnosis is worst. Cheap host-side check; needs a ruling only on how strict to be.
@@ -237,19 +247,6 @@ rather than one corner of it.
   broker's own constant. A reader generalising from the two easy ones ships a commit that refuses
   **every claude user's launch**. The reservation, the `startLoopholes` name special-case and the
   contribution land in ONE commit.
-
-- 📦 **Informative waiting feedback and test coverage for concurrent same-workspace launches.** When
-  two `yolo` instances launch concurrently in the same workspace, the second caller blocks on the
-  workspace flock (`acquireWorkspaceLock`) while the first builds the image and provisions the overlay.
-  Currently, the second process sits completely silent with no terminal indication that it is waiting on
-  another launch.
-  - **Behavior:** Attempt a non-blocking `LOCK_EX | LOCK_NB` first; on contention (`EAGAIN`/`EWOULDBLOCK`),
-    print a clear notice (`"Waiting for concurrent jail launch in workspace <dir> (lock <cname>.lock)..."`)
-    before falling back to the blocking acquire. When unblocked and attaching to the existing container,
-    clearly report that it attached to the newly launched jail.
-  - **Testing:** Add concurrent launch unit and integration test coverage (`internal/cli/run` and
-    `integration/`) ensuring race resolution, waiting notices, and graceful container attachment are asserted
-    against regressions.
 
 ---
 
