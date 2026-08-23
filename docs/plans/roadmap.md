@@ -312,23 +312,29 @@ singleton after upgrading, or every OAuth refresh on that host fails.*
   1059s → timeout → 812s) and `TestDevPackageLinksRuntimeLib` at **310.15s** (256s → 345s → 641s →
   310s). Their cost is a real `--impure` nix image build, not misattributed warmup.
 
-  **What is NOT fixed, and it is why this is a row rather than a deletion.** The suite's warmup was
-  killed at **exactly its 12m0s darwin ceiling**, having warmed nothing — the same shape as the
-  **20m7s** kill the night before. The same commit set that ceiling (5 min linux / 12 min darwin),
-  so it bounded the WASTE and did not cure the cause: the nightly still spends twelve minutes a
-  night on an optimisation whose entire purpose is to save time. The log shows those minutes going
-  into a full nix build and image load (`Image load needed: first run (no images loaded into podman
-  yet)`, in a job whose previous step already `podman load`ed one) rather than the container start
-  the warmup exists to pre-pay — but **where they actually go is still unconfirmed.** That is the
-  old entry's demand, inherited rather than discharged, and it is the next thing to measure. Needs
-  the nightly or an Intel Mac; nobody here has one.
+  **The warmup half is fixed too, and by deletion rather than by a bigger number** (`e5b60902`,
+  2026-08-23 — later the same day this row was first written, which is why the paragraph it replaces
+  said the opposite). The twelve minutes were never mysterious once the premise was checked: a
+  warmup exists to pre-pay a **container start**, and on darwin every launch **realises an image**,
+  because a loaded image can never match a darwin `nix eval`. So the warmup was a full nix build
+  wearing a warmup's name. `warmJail` now returns early on `GOOS == "darwin"` with that measurement
+  in the log line, and the first container test absorbs the one-time cost instead
+  (`integration/harness_test.go:147-153`). On linux CI the premise holds and the warmup keeps
+  earning its 1m56s.
+
+  **What is left is one observation, not an investigation.** Nobody has watched a nightly run
+  *with* the skip in place: the expectation is `integration-macos` losing ~12 minutes of wall clock
+  and the first container test growing by roughly the image realisation. Needs the nightly; nobody
+  here has an Intel Mac. **If the next green run shows that shape, this row leaves the file.**
 
   *(Why the predecessor entry took 29 nights to be worth writing down, and why the paragraph above
   refuses to guess: the recorded diagnosis — "nix is broken on that runner and not in our tree" —
   was exactly backwards and had never been measured. It was our flake, on every Intel Mac,
   reproducible in 0.2s with `nix eval .#installPrefix`. Four nights were spent re-triggering a run
-  that could not have passed. The warmup ceiling is the same question asked again: do not move that
-  number until somebody measures what it is bounding.)*
+  that could not have passed. The warmup ceiling was the same question asked again — and it answered
+  the same way: the fix was not a bigger ceiling but noticing the premise did not hold on that
+  platform. **Twice now the measured cause has been in our tree while the recorded one blamed the
+  runner.**)*
 
 - 🔒 **The fatal witness is live in the tree, and not on your host until a `just load`.**
 
