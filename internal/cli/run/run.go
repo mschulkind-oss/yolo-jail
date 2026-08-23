@@ -358,11 +358,20 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// --- Freeze this launch's config artifacts under <workspace>/.yolo ---
 	o.writeLaunchConfigArtifacts(cfg)
 
-	// --- Workspace flock (blocking) ---
+	// --- Workspace flock (non-blocking first, then blocking with a notice) ---
+	//
+	// Both notices go to STDOUT, alongside the "Attaching to jail started by
+	// another process" line the wait usually ends in: the two are one sequence to
+	// the reader — why the terminal paused, and what it did when the pause ended —
+	// and splitting them across streams would let a piped log show one without the
+	// other.
 	lockDir := filepath.Join(paths.GlobalStorage(), "locks")
 	_ = os.MkdirAll(lockDir, 0o755)
-	lock, lerr := acquireWorkspaceLock(filepath.Join(lockDir, cname+".lock"),
-		func(msg string) { out.printf("[dim]Warning: %s[/dim]", msg) })
+	lock, lerr := acquireWorkspaceLock(filepath.Join(lockDir, cname+".lock"), o.Workspace,
+		lockNotices{
+			warn:    func(msg string) { out.printf("[dim]Warning: %s[/dim]", msg) },
+			waiting: func(msg string) { out.printf("[bold cyan]%s[/bold cyan]", msg) },
+		})
 	if lerr != nil {
 		out.printf("[bold red]%s[/bold red]", lerr.Error())
 		return 1

@@ -121,7 +121,7 @@ func TestPIDAlivePolarity(t *testing.T) {
 func TestWorkspaceLockExclusive(t *testing.T) {
 	dir := t.TempDir()
 	lockPath := filepath.Join(dir, "x.lock")
-	l1, err := acquireWorkspaceLock(lockPath, nil)
+	l1, err := acquireWorkspaceLock(lockPath, dir, lockNotices{})
 	if err != nil {
 		t.Fatal(err)
 	}
