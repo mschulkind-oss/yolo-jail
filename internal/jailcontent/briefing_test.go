@@ -184,6 +184,32 @@ func TestBriefingConfinementHeader(t *testing.T) {
 	}
 }
 
+// The one-time handoff (docs/design/host-to-jail-handoff.md): a fresh handoff renders
+// as a prominent Handoff section; the standing "where your task comes from" line is
+// always present so an agent with no handoff waits for the user. This pins the render
+// call site — deleting the Handoff block in BriefingContent breaks it.
+func TestBriefingContentHandoff(t *testing.T) {
+	withHandoff := BriefingContent(BriefingInput{
+		Workspace: "/home/me/proj",
+		Handoff:   "Task: wire the OAuth broker. Context: docs/handoff/oauth.md",
+	})
+	for _, want := range []string{
+		"## Handoff",
+		"it is **the task**",
+		"Task: wire the OAuth broker. Context: docs/handoff/oauth.md",
+	} {
+		if !contains(withHandoff, want) {
+			t.Errorf("handoff briefing missing %q:\n%s", want, withHandoff)
+		}
+	}
+	// Without a handoff: no section. No standing line either — the default "wait for the
+	// user" is the whole story, and an always-present line would move the pinned jail header.
+	noHandoff := BriefingContent(BriefingInput{Workspace: "/home/me/proj"})
+	if contains(noHandoff, "## Handoff") {
+		t.Errorf("no handoff must not emit a Handoff section:\n%s", noHandoff)
+	}
+}
+
 // firstParagraph returns the briefing up to the first blank line after the title —
 // the confinement header block Phase 8 owns.
 func firstParagraph(s string) string {

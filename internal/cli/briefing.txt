@@ -60,46 +60,45 @@ need to know.
 
 [bold cyan]WHAT TO DO NOW — TRANSITION QUICKLY[/bold cyan]
 
-  [bold]Your goal is to get inside the jail as fast as possible.[/bold]
-  Do only what's needed outside, then hand off. All real work happens
-  inside the jail where you have full tool access.
+  [bold]Your job is to set up the jail and hand the work across — then stop.[/bold]
+  All real work happens inside the jail, where the agent has full tool access.
 
-  1. [bold]Review yolo-jail.jsonc[/bold] — edit it [bold]only[/bold] if you need extra packages.
+  1. [bold]Review yolo-jail.jsonc[/bold] — edit it [bold]only[/bold] if you need extra packages,
+     mounts, ports, env, or loopholes the work needs. Provision the access now, so the
+     jail agent doesn't have to ask for it from inside.
      • "packages": nix packages baked into the image (rebuilds on change).
        Search: https://search.nixos.org/packages
      • "mise_tools": tools installed via mise (no rebuild needed).
-       For tools with binary releases — fast, no compilation.
      Most tasks need NO config changes. Skip this step if unsure.
 
   2. [bold]Run `yolo check`[/bold] after [bold]EVERY[/bold] `yolo-jail.jsonc` edit to validate
      the config and preflight the build. Use `yolo check --no-build` inside a
      running jail if you only need config/entrypoint validation. Do this before
-     asking the human to restart you into the jail.
+     asking the human to enter the jail.
 
-  3. [bold](MANDATORY) Write a handover document[/bold] at:
-     [bold yellow].yolo/handover.md[/bold yellow]
+  3. [bold](MANDATORY) Gather the context the jail won't have, and file the handoff.[/bold]
+     Your jail instance is a completely fresh agent session with NO access to this
+     conversation. Before you hand off:
+     • Gather the context the jail can't see — research, files outside the workspace,
+       decisions and their rationale, gotchas — and [bold]file it in a durable, committed
+       spot[/bold] in the workspace. It's long-term important, so it belongs in version
+       control, not in a transient file.
+     • Then write a [bold]minimal pointer[/bold] at [bold yellow].yolo/handover.md[/bold yellow]:
+       a short note naming the task and where the durable context lives. It points at
+       the context; it doesn't need to repeat it.
 
-     This file is [bold]required[/bold]. Your jail instance will be a completely
-     fresh agent session with NO access to this conversation. Without
-     this document, the inner agent starts blind. Include:
-     • What you were working on and the current state
-     • What remains to be done (specific tasks, not vague goals)
-     • Key decisions made and why
-     • Files to look at first
-     • Any gotchas or context the inner agent needs
-
-  4. [bold]Ask the human to restart you inside the jail[/bold]:
+  4. [bold]Ask the human to enter the jail:[/bold]
      Tell them to run: yolo -- claude  (or copilot / opencode / pi / codex,
      whichever a configured pack installed; with no packs there is no agent)
 
-     The inner agent has a built-in [bold]jail-startup[/bold] skill that reads
-     your handover doc automatically. The human just needs to say:
-     [bold yellow]"invoke the jail-startup skill"[/bold yellow]
-     and the inner agent will pick up your handover and continue.
+     That's all they do. The handoff you filed is surfaced to the inner agent
+     automatically on that launch — no special phrase, and the human does not relay
+     the task. The pointer is consumed after that one launch, so it won't resurface
+     as a stale task in later sessions.
 
-  Do NOT spend time on implementation outside the jail. Write the
-  handover doc, request the restart, and stop. The inner agent has
-  the same tools and full internet access — it can do everything.
+  Do NOT spend time on implementation outside the jail. Gather the context, file the
+  handoff, request the launch, and stop. The inner agent has the same tools and full
+  internet access — it can do everything.
 
 [bold cyan]CONFIGURATION REFERENCE[/bold cyan]
 

@@ -65,6 +65,13 @@ type BriefingInput struct {
 	// NOT disposable — a briefing that always said "sandboxed container" would tell a
 	// host agent something dangerously false.
 	Confinement string
+
+	// Handoff is the content of a fresh .yolo/handover.md pointer, resolved by the
+	// run pipeline at launch. Empty in the common case, where the task comes from the
+	// user. When non-empty it is rendered as a prominent Handoff section near the top —
+	// the one-time transition task the host agent handed over. The run pipeline consumes
+	// the pointer after surfacing it, so it appears on exactly one launch, never again.
+	Handoff string
 }
 
 // BriefingContent renders the jail-managed briefing body (before any host-level
@@ -278,6 +285,23 @@ func BriefingContent(in BriefingInput) string {
 
 	lines := append([]string{}, confinementHeader(in.Confinement)...)
 	lines = append(lines, provisioningFailed...)
+	// The handoff, if the host agent handed one over this launch: a one-time transition
+	// task, surfaced once (the pointer is consumed after this render, so it never returns
+	// as a stale task). Prominent — it is what the agent is here to do. When there is no
+	// handoff (the common case) no section appears, and the agent's default — wait for
+	// the user — is the whole story, so NO standing line is added: the jail's
+	// config-independent header bytes are pinned unchanged (TestBriefingJailHeaderIsUnchanged),
+	// and an always-present line would move that surface for every existing user.
+	if in.Handoff != "" {
+		lines = append(lines,
+			"## Handoff",
+			"",
+			"The host agent handed this over for this launch — it is **the task**. Work it.",
+			"",
+			strings.TrimSpace(in.Handoff),
+			"",
+		)
+	}
 	lines = append(lines,
 		"## Environment",
 		"",

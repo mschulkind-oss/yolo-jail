@@ -78,6 +78,12 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// Resources map (sorted-key rendering handled inside BriefingContent).
 	resources := orderedMapToStrAny(cfgMap(cfg, "resources"))
 
+	// The one-time handoff: a fresh .yolo/handover.md pointer the host agent filed for
+	// this transition. Read + consume it here (host-side, deterministic, once per
+	// invocation) and surface it via the briefing; consumed once, so it never resurfaces
+	// as a stale task on a later launch.
+	handoff := consumeHandoff(o.Workspace)
+
 	in := jailcontent.BriefingInput{
 		Workspace:          o.Workspace,
 		BlockedTools:       blocked,
@@ -90,6 +96,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		IsYoloSourceTree:   isSrc,
 		ProvisioningFailed: jailcontent.ReadProvisioningFailed(o.Workspace),
 		Confinement:        string(config.ResolveConfinement(cfg)),
+		Handoff:            handoff,
 	}
 	briefingBody := jailcontent.BriefingContent(in)
 	briefingBody = jailcontent.ComposeBriefing(briefingBody, cfgStr(cfg, "agents_md_extra"))
@@ -356,4 +363,30 @@ func packSkillTargets(loadedPacks []*packload.Pack) []jailcontent.SkillTarget {
 		}
 	}
 	return out
+}
+
+// consumeHandoff reads <workspace>/.yolo/handover.md if present, renames it to
+// <workspace>/.yolo/handover.md.consumed, and returns its content. Returns "" when
+// there is no handoff this launch.
+//
+// The rename (not delete) leaves a visible "already handed off" state, and it is what
+// makes the carry-in one-time: a present pointer is fresh, a consumed one is done, so a
+// later launch surfaces no handoff and the task comes from the user. Called from
+// refreshJailBriefings, which runs host-side once per invocation — deterministic, not
+// agent self-erasure — so the pointer is consumed exactly once, on the first launch
+// after it is written.
+//
+// The rename is best-effort: if it fails (a read-only .yolo, say), the handoff still
+// surfaced this launch; the only cost is it resurfaces next launch too, which is the
+// pre-consumption behavior and never loses the task.
+func consumeHandoff(workspace string) string {
+	const name = "handover.md"
+	dir := filepath.Join(workspace, ".yolo")
+	path := filepath.Join(dir, name)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	_ = os.Rename(path, filepath.Join(dir, name+".consumed"))
+	return string(data)
 }
