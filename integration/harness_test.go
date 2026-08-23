@@ -122,6 +122,35 @@ func warmJail() {
 	if detectRuntime() == "" {
 		return // ensureJailImage already reported the absence
 	}
+	// NOT ON DARWIN, and this is a retreat rather than a tuning choice.
+	//
+	// A warmup shells out to `yolo run`, which calls AutoLoadImage, and the run path never
+	// sets SkipBuild — it is a dormant seam by design ("a missing flake is fatal, not a
+	// degraded cached-image launch", run/imageload.go). So a launch that needs an image
+	// REALISES one, and on darwin it always needs one: installPrefix there is a darwin
+	// derivation that "can never match a darwin eval even at the identical commit", which is
+	// the very reason the skew check downgrades itself to a warning on this platform
+	// (imageskew_test.go). The workflow's own `podman load` step does not change that.
+	//
+	// Measured, twice: on the 2026-08-22 nightly the warmup burned 20m7s before being killed,
+	// and on 2026-08-23 — with the budget already bounded — exactly 12m0s, its darwin ceiling.
+	// Both warmed NOTHING. Its captured output is pages of `Fetching bash-5.3p9`,
+	// `Fetching coreutils-9.11`: a full closure substitution, not the container start this is
+	// meant to pre-pay. Bounding the waste was right and did not make the warmup work.
+	//
+	// So the premise fails here. On linux CI the image matches the source tree, no build
+	// runs, and the warmup earns its place (1m56s, moving 116s of one-time cost out of the
+	// first test — docs/design/agent-install-in-ci.md §11). On darwin the first container
+	// test absorbs the image realisation instead, which is exactly what it did on the green
+	// 2026-08-23 nightly. Twelve minutes a night for nothing is worse than an honest
+	// attribution gap on one platform.
+	if goruntime.GOOS == "darwin" {
+		log.Printf("[integration] skipping the jail warmup on darwin: every launch here " +
+			"realises an image (the loaded one can never match a darwin eval), so a warmup " +
+			"is a full nix build rather than a container start — measured at 12m0s of waste " +
+			"on 2026-08-23. The first container test absorbs the cost instead.")
+		return
+	}
 	dir, err := os.MkdirTemp("", "yolo-warmup-")
 	if err != nil {
 		degraded("warmup: creating temp workspace: %v — the first container test will absorb "+
@@ -385,19 +414,18 @@ const defaultJailTimeoutSeconds = 300
 // macOS (docs/design/agent-install-in-ci.md §4.1). A warmup that costs more than the
 // misattribution it removes has stopped being worth waiting for.
 //
-// Hence the platform split, which is data and not superstition: the same §4.1 measurements
-// put macOS at ~8x x64 for identical work (124.5s vs 1032.9s), and a legitimate warmup here
-// took 1m34s on Linux — so a flat 300s would be a bound macOS could not meet even when
-// nothing is wrong, and would burn five minutes every night proving it.
+// THERE IS NO LONGER A DARWIN BRANCH HERE, and its removal is the more useful record.
+// This function briefly carried a 12-minute darwin ceiling, reasoned from §4.1's ~8x
+// platform factor. The next nightly used every second of it and warmed nothing (warmJail),
+// because on darwin a warmup is a full image realisation rather than a slow container start
+// — so the branch was answering "how slow is macOS" when the question was "does a warmup
+// mean anything here". It does not, warmJail returns early there, and a ceiling for a code
+// path that no longer runs would be a number inviting someone to tune it.
 //
-// Both numbers are ceilings on WASTE, not targets. The degraded line reports the elapsed
-// time it gave up at, and that measurement — not a guess — is what either of these should
-// be revised on.
+// The remaining bound is a ceiling on WASTE, not a target. The degraded line reports the
+// elapsed time it gave up at, and that measurement — not a guess — is what should revise it.
 func warmupTimeout() time.Duration {
-	limit := 5 * time.Minute
-	if goruntime.GOOS == "darwin" {
-		limit = 12 * time.Minute
-	}
+	const limit = 5 * time.Minute
 	if d := jailTimeout(); d < limit {
 		return d // a per-command budget SHORTER than the cap still bounds the warmup
 	}
