@@ -126,7 +126,7 @@ func TestJailSkillsIntoNeedsNoAgentPackToBeSelected(t *testing.T) {
 	}
 	// And the built-in suite reaches it too, which is what makes it a real destination rather
 	// than a bare copy: PrepareSkills treats every declared target identically.
-	if !hasName(names, "jail-startup") {
+	if !hasName(names, "configuring-the-jail") {
 		t.Errorf(".codex/skills staged %v, without the built-in suite", names)
 	}
 }

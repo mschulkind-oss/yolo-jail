@@ -22,7 +22,7 @@ package hostskills
 //     shared one. That ordering is already what config.LoadPacks produces, so the precedence is
 //     inherited from the pack order rather than restated here.
 //   - BUILT-INS ARE STILL NOT WRITTEN TO A REAL HOME. The jail's layer 1 is yolo's own
-//     jail-oriented skills (jail-startup, diagnosing-the-jail); on the host they describe an
+//     jail-oriented skills (configuring-the-jail, diagnosing-the-jail); on the host they describe an
 //     environment the user is not in. The difference is deliberate and predates this file.
 //   - TIERS DO NOT COLLAPSE, and that is the answer to the question §6a-2 left open. What a tier
 //     decides is now only how the destination TOOL invokes a skill (`/<pack>:<name>` under a

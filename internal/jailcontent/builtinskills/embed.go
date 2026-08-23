@@ -16,5 +16,5 @@ package builtinskills
 
 import "embed"
 
-//go:embed all:jail-startup all:configuring-the-jail all:diagnosing-the-jail all:developing-yolo-jail
+//go:embed all:configuring-the-jail all:diagnosing-the-jail all:developing-yolo-jail
 var FS embed.FS

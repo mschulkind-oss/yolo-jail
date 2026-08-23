@@ -28,8 +28,8 @@ package cli
 //
 // The two host-notch decisions that predate composition and survive it:
 //
-//   - Built-ins are NOT written to a real home. yolo's own skills (jail-startup,
-//     diagnosing-the-jail, configuring-the-jail) are about being inside a jail; on the host they
+//   - Built-ins are NOT written to a real home. yolo's own skills (configuring-the-jail,
+//     diagnosing-the-jail) are about being inside a jail; on the host they
 //     are noise at best and misleading at worst. The jail still stages them as its layer 1.
 //   - The user's OWN skills tree is not a source. In a jail, PrepareSkills layers the host's
 //     ~/.<agent>/skills in last so a local skill outranks a pack's. At the host that tree IS the

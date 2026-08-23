@@ -35,25 +35,25 @@ func TestPrepareSkillsStaging(t *testing.T) {
 	// claude's skills-staging dir exists; find it via the spec.
 	claudeStaging := ""
 	for _, entry := range mustReadDir(t, staging) {
-		if entry.IsDir() && entry.Name() != "" && entry.Name() != "jail-startup" {
+		if entry.IsDir() && entry.Name() != "" && entry.Name() != "configuring-the-jail" {
 			// skills-claude/ (or whatever SkillsStaging() yields)
-			if _, err := os.Stat(filepath.Join(staging, entry.Name(), "jail-startup", "SKILL.md")); err == nil {
+			if _, err := os.Stat(filepath.Join(staging, entry.Name(), "configuring-the-jail", "SKILL.md")); err == nil {
 				claudeStaging = filepath.Join(staging, entry.Name())
 			}
 		}
 	}
 	if claudeStaging == "" {
-		t.Fatal("claude skills-staging dir with jail-startup not found")
+		t.Fatal("claude skills-staging dir with configuring-the-jail not found")
 	}
 
 	// Built-in skill matches the embedded source (copy-fidelity smoke test;
 	// the real content/frontmatter contract lives in TestSkillFrontmatter).
-	want, _ := builtinskills.FS.ReadFile("jail-startup/SKILL.md")
-	if data, _ := os.ReadFile(filepath.Join(claudeStaging, "jail-startup", "SKILL.md")); string(data) != string(want) {
-		t.Error("jail-startup SKILL.md content mismatch vs embedded source")
+	want, _ := builtinskills.FS.ReadFile("configuring-the-jail/SKILL.md")
+	if data, _ := os.ReadFile(filepath.Join(claudeStaging, "configuring-the-jail", "SKILL.md")); string(data) != string(want) {
+		t.Error("configuring-the-jail SKILL.md content mismatch vs embedded source")
 	}
 	// Every ungated built-in skill lands.
-	for _, name := range []string{"jail-startup", "configuring-the-jail", "diagnosing-the-jail"} {
+	for _, name := range []string{"configuring-the-jail", "diagnosing-the-jail"} {
 		if _, err := os.Stat(filepath.Join(claudeStaging, name, "SKILL.md")); err != nil {
 			t.Errorf("built-in skill %q missing from staging: %v", name, err)
 		}
@@ -82,8 +82,8 @@ func TestPrepareSkillsStaging(t *testing.T) {
 		t.Error("stale entry should have been cleared")
 	}
 	// Built-in + pack skill still present after re-stage.
-	if _, err := os.Stat(filepath.Join(claudeStaging, "jail-startup", "SKILL.md")); err != nil {
-		t.Error("jail-startup missing after re-stage")
+	if _, err := os.Stat(filepath.Join(claudeStaging, "configuring-the-jail", "SKILL.md")); err != nil {
+		t.Error("configuring-the-jail missing after re-stage")
 	}
 }
 
@@ -222,10 +222,10 @@ func TestBuiltinSuiteReachesEveryDeclaredSkillsTarget(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", dest, err)
 		}
-		// jail-startup is in the built-in suite, so its presence proves the target was
+		// configuring-the-jail is in the built-in suite, so its presence proves the target was
 		// built rather than skipped.
 		pack := strings.ReplaceAll(strings.TrimSuffix(strings.TrimPrefix(dest, "."), "/skills"), "/", "-")
-		probe := filepath.Join(staging, SkillStagingName(pack), "jail-startup", "SKILL.md")
+		probe := filepath.Join(staging, SkillStagingName(pack), "configuring-the-jail", "SKILL.md")
 		if _, err := os.Stat(probe); err != nil {
 			t.Errorf("%s: built-in suite not staged (%v)", dest, err)
 		}
