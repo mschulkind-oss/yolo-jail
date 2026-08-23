@@ -28,7 +28,7 @@ try to refresh"). When we dug into the binary the actual picture turned
 out to be richer than either handoff alone: there are at least **three
 independent paths** to that symptom, and a single architectural fix
 masks all three. The fix shipped in
-[`src/oauth_broker.py`](../src/oauth_broker.py) on 2026-05-17 (background
+`src/oauth_broker.py` *(Python era; the Go broker is `internal/oauthbroker`)* on 2026-05-17 (background
 refresher daemon thread).
 
 The architectural rationale doesn't fit in a code comment, and the
@@ -55,7 +55,7 @@ logged in* even when the tokens are valid. A/B proven 2026-07-03 on
 may strip metadata down to the trio**. Our two writers divide the work:
 the broker preserves whatever metadata the previous record carries and
 falls back to the token response's `scope` string for `scopes`
-(`_normalize_oauth`, [`src/oauth_broker.py`](../src/oauth_broker.py)),
+(`_normalize_oauth`, `src/oauth_broker.py` *(Python era; the Go broker is `internal/oauthbroker`)*),
 but it cannot invent `subscriptionType` / `rateLimitTier` it never saw
 — a `/login` mirrored into a from-scratch shared file yields trio +
 `scopes` only. The full shape is guaranteed only after the jail
@@ -114,7 +114,7 @@ reactive-only behavior the original handoff was confused about.
 
 (A separate `cXH` class with proactive refresh exists in the bundle, but
 it's for **MCP-OAuth** tokens — not the user's Pro/Max token. See
-[`.research/REPORT.md`](../../.research/REPORT.md) §2.6 if you want the
+`.research/REPORT.md` *(never committed)* §2.6 if you want the
 diff.)
 
 ### 3.2 `Pu` — single-flight wrapper
@@ -405,7 +405,7 @@ fix, but they are worth investigating before any *next* round.
 2. **Anthropic's server-side grace window past `expiresAt`.** The
    2026-05-17 incident showed Claude happy for 23 min past `expiresAt`
    client-side; could be Anthropic leniency, could be Claude idle. Test
-   #1 in [`.research/REPORT.md`](../../.research/REPORT.md) §5 resolves it.
+   #1 in `.research/REPORT.md` *(never committed)* §5 resolves it.
 3. **Concurrency between proactive loop and Claude's own 401-driven
    refresh.** Both go through `do_refresh`'s flock, so they should
    compose. Worth a stress test with N=8 concurrent jails before any

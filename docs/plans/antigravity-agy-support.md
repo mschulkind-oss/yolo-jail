@@ -3,6 +3,16 @@
 **Date:** 2026-07-22. **Status:** ✅ Done — born directly on the prism; all eight
 touchpoints landed (registry, manifest surface, `AgyDir`, `ConfigureAgyPrism`,
 boot wiring, preflight, docs, tests).
+
+> [!WARNING]
+> **The mechanism this plan targets no longer exists (noted 2026-08-23).** `agy` shipped and is now
+> a **pack** (`packs/agy`): there is no agent registry, no `AgentSpec`, and `internal/agents` was
+> renamed `internal/jailcontent` once the registry it was named for was deleted. Every
+> `internal/agents/agents.go` reference below is therefore an unresolvable path, kept as written
+> because the plan is a record of how agy was added, not a map of where it lives. **For the current
+> shape, read [`../../AGENTS.md`](../../AGENTS.md) and
+> [`../design/pack-system.md`](../design/pack-system.md).**
+
 **Purpose:** Define the design, requirements, touchpoints, and execution plan for adding support for Google Antigravity CLI (`agy`) as an agent in `yolo-jail`.
 
 > [!NOTE]
@@ -92,7 +102,7 @@ registry — adding the `AgentSpec` is enough; they are listed for completeness.
 
 | Touchpoint Area | Target Files | Key Change |
 |---|---|---|
-| **1. Agent Registry** | [`internal/agents/agents.go`](../../internal/agents/agents.go) | Add `AgentSpec` entry for `"agy"` in `specs` array (native install, overlay `.gemini/antigravity-cli`). |
+| **1. Agent Registry** | `internal/agents/agents.go` *(deleted — see the warning above)* | Add `AgentSpec` entry for `"agy"` in `specs` array (native install, overlay `.gemini/antigravity-cli`). |
 | **2. Surface Manifest** | [`internal/agentcfg/builtin.go`](../../internal/agentcfg/builtin.go) | Declare `agySettings` `manifest.Surface`; add it to `BuiltinManifest()`. |
 | **3. Path & Env Helper** | [`internal/entrypoint/env.go`](../../internal/entrypoint/env.go) | Add `(e *Env) AgyDir()` (`filepath.Join(e.Home, ".gemini", "antigravity-cli")`). |
 | **4. Prism Writer** | [`internal/entrypoint/prism.go`](../../internal/entrypoint/prism.go) | Implement `ConfigureAgyPrism(e *Env) error` — renders `settings.json` through `renderSurfaceStateful` (no host mount) + writes the dynamic `mcp_config.json` sibling. **No bespoke `ConfigureAgy`.** |
