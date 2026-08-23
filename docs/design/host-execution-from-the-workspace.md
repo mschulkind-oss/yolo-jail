@@ -39,6 +39,11 @@ but software development working normally. [§1](#1-the-verdict) draws the line 
 those from the five paths worth spending anything on, and states plainly what the fix does and
 does not buy against prompt injection.
 
+**Backend caveat up front:** everything in §5 that is a *mount* reaches podman only — Apple
+Container ignores `:ro`, and `macos-user` has no mounts at all and silently ignores both keys.
+The blind-cell control turns out to be natively expressible in that backend's Seatbelt profile
+and the derived-directory one does not ([§5.5](#55-backend-portability--the-mounts-are-not-the-policy)).
+
 **The one exception to "review covers it" is anything running in *watch* mode on the host** —
 a dev server, a host-side LSP, a file-watching test runner. Those execute on save, so the
 review window is not small but zero, and review stops being a control at all. That class does
@@ -316,7 +321,8 @@ than leaving it to the human is [OQ-HX4](#-oq-hx4--should-yolo-set-corehookspath
 1. **Apple Container silently ignores `:ro`** (apple/container#889). `workspace_readonly`
 already prints a loud warning and cannot skip the paths, since they live inside the writable
 `/workspace` ([`mounts.go:26-32`](../../internal/cli/run/mounts.go)). On that backend this
-control does not exist. `macos-user` needs its own answer and does not have one here.
+control does not exist. **On `macos-user` it does not exist either — but for a reason that
+turns out to be fixable, and that is [§5.5](#55-backend-portability--the-mounts-are-not-the-policy).**
 2. **`git config --local` and `git remote add` start failing in-jail.** Commit identity is
 unaffected — the jail sets it globally in the jail home
 ([`identity.go:17-20`](../../internal/entrypoint/identity.go)) — but `git checkout -b --track`
@@ -385,6 +391,83 @@ round it to zero.
 > Moving the server into the jail leaves your **browser** loading JS the jail served. That is
 > the ordinary web threat model, not host code execution, and the browser sandbox is the
 > control — worth stating only so the boundary is not overclaimed.
+
+### 5.5 Backend portability — the mounts are not the policy
+
+> [!CAUTION]
+> **Everything proposed above is a bind mount, and `macos-user` has no mounts at all.** Raised
+> in review as *"none of the mounts could work on a macos-user setup."* Verified 2026-08-23:
+> `workspaceReadonlyMountArgs` and `venvShadowMountArgs` are called from exactly one place,
+> [`assemble.go:396,399`](../../internal/cli/run/assemble.go) — the **container** run pipeline —
+> and neither string appears anywhere in `internal/macosuser/`. So on that backend both keys
+> are **silently accepted and silently do nothing.** They are not in the disabled-feature
+> matrix in [`macos-user-nix-and-features.md`](./macos-user-nix-and-features.md) §Part 4
+> either, which is its own small gap and is fixed in the same commit as this section.
+
+**But the mount was only ever the delivery mechanism. The policy is "these paths are not
+writable", and `macos-user` already expresses exactly that policy — natively, in the Seatbelt
+profile it builds for every launch** ([`seatbelt.go:26-35`](../../internal/macosuser/seatbelt.go)):
+
+```lisp
+;; --- Writes: deny everywhere, then re-allow the agent's writable set ---
+(deny file-write* (subpath "/"))
+(allow file-write*
+    (subpath "/Users/Shared/yolo/<ws>")
+    ...)
+```
+
+**That profile is already a deny-list with re-allows, and SBPL is last-match-wins** — which is
+not a guess: the shipped profile *depends* on it twice over. `(deny file-write* (subpath "/"))`
+followed by an allow is the only reason the agent can write at all, and the `/Users` read-deny
+followed by re-allowed literals ([`seatbelt.go:53-59`](../../internal/macosuser/seatbelt.go))
+is the same trick again. A `workspace_readonly` entry is therefore one more line appended
+*after* the workspace allow:
+
+```lisp
+(deny file-write* (subpath "/Users/Shared/yolo/<ws>/.git/hooks"))
+```
+
+**So the blind-cell control is not merely portable to `macos-user` — it is a better fit there
+than the mount is anywhere else.** No `:ro` to be ignored (the Apple Container failure mode),
+no mount at all, and it lands in the one file that is already the backend's whole write policy.
+That is [OQ-HX6](#-oq-hx6--wire-workspace_readonly-into-the-seatbelt-profile).
+
+**The honest asymmetry: `per_side_paths` does not port, and cannot.** It needs *two different
+contents at one path* — the host's `node_modules` and the jail's, simultaneously. That is a
+mount-namespace capability. Seatbelt is a permission filter: it can deny access to a path, but
+it cannot make one path resolve to two different directories. There is no Seatbelt spelling of
+`per_side_paths`, so **the invisible-and-standing class from [§5.4](#54-standing-execution-move-the-watcher-into-the-jail)
+has no fix on `macos-user`.** I would rather record that than invent one.
+
+| Control | `podman` | `container` (Apple) | `macos-user` |
+| :--- | :--- | :--- | :--- |
+| `workspace_readonly` (the blind cell) | ✅ enforced | ❌ `:ro` ignored, warns loudly | ⚠️ **no-op today; natively expressible** (OQ-HX6) |
+| `per_side_paths` (`node_modules`, `.venv`) | ✅ enforced | ✅ (a mount, not a `:ro` mount) | ❌ **no equivalent exists** — needs namespaces |
+| `core.hooksPath` redirect ([§5.1.1](#511-hooks-still-need-a-channel--redirect-rather-than-ban)) | ✅ | ✅ | ✅ — a git config key, backend-independent |
+| mise `paranoid` ([§5.2](#52-the-navigation-cell-restoring-intent-host-side)) | ✅ | ✅ | ✅ — host-side, backend-independent |
+| Move the watcher into the jail ([§5.4](#54-standing-execution-move-the-watcher-into-the-jail)) | ✅ via `network.ports` | ✅ | ✅ **but for a different reason** — see below |
+
+**Why the watcher recommendation survives on `macos-user` despite `ports` being unwired.**
+That backend runs a native process on the host's real network, so there is no port to forward
+and `ports` / `forward_host_ports` are documented as not wired
+([`macos-user-nix-and-features.md`](./macos-user-nix-and-features.md) §3.3) — you reach the dev
+server directly. What "in the jail" buys there is not network isolation but **the Seatbelt
+profile and the `_yolojail` uid**: the watcher executes agent output as a confined,
+low-privilege user instead of as you. That was the point of moving it in the first place, so
+the recommendation holds — it just collects a different prize.
+
+> [!WARNING]
+> **Everything measured in this document was measured in a Linux container jail.** The
+> `macos-user` claims in this section are **code-reading only** — I cannot run that backend
+> from in here, and did not pretend to. In particular one question I could not settle is worth
+> flagging: on `macos-user` the agent writes as **`_yolojail`, not as you**, so files it creates
+> are owned by a different user — which is the precise condition git's `safe.directory` check
+> looks for, and which the container case defeats ([§3](#3-why-the-two-guardrails-that-look-relevant-do-not-fire)).
+> Whether that accidentally restores the guardrail depends on which paths git actually
+> ownership-checks (the repo dir, the gitdir, individual config files) versus which ones
+> `_yolojail` ends up owning under the shared-group ACL. **It could make `macos-user` the one
+> backend where rows 2–7 fail closed by accident.** That would be good news and it is
+> unverified; do not rely on it until someone measures it on a Mac.
 
 ---
 
@@ -504,6 +587,24 @@ with a native build, which is the same reasoning that put `.venv` in the set. Th
 benefit then arrives as a side effect of a change that was justified anyway, which is the
 strongest form this kind of default can take. The counter is install time: two `npm install`s
 instead of one, per workspace. Worth measuring before ruling.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 OQ-HX6 — wire `workspace_readonly` into the Seatbelt profile?
+
+[§5.5](#55-backend-portability--the-mounts-are-not-the-policy) finds that the key is a silent
+no-op on `macos-user` and that the policy it expresses is one appended `(deny file-write*
+(subpath …))` line in a profile that is already built from exactly that shape. This decides
+whether the blind-cell control is a podman-only feature or a property of yolo, and it is the
+difference between a config key that *lies* on one backend and one that works everywhere.
+
+_Leaning:_ Wire it, and treat the silent no-op as the actual bug — a security key that a
+backend accepts and ignores is worse than one it refuses, because the config reads as
+protection that is not there. Two sub-decisions I would not settle without you: whether the
+same launch should also **refuse** `per_side_paths` on `macos-user` (it cannot be honoured at
+all, per §5.5) rather than ignoring it, and whether `yolo check` should carry the warning so
+it surfaces before launch rather than at it.
 
 **Answer:**
 > _(empty — fill in when decided)_

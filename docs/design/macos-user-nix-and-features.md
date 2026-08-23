@@ -228,6 +228,14 @@ of container features:
   subpaths out of an otherwise-`:ro` `/home/agent` container mount. On macos-user
   the home is natively writable (the Seatbelt profile allows writes under the
   sandbox home), so the concept has no target.
+- **`workspace_readonly`** → **silently inert.** Built only in the container run pipeline
+  (`assemble.go:396`). Unlike the others in this list its policy *is* expressible here — the
+  Seatbelt profile is already a write deny-list with re-allows — so this one is a wiring gap
+  rather than a structural impossibility. See
+  [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) §5.5.
+- **`per_side_paths`** → **silently inert, and structurally impossible.** It gives the host and
+  the sandbox different contents at the same path, which is a mount-namespace capability.
+  Seatbelt can deny a path; it cannot fork one.
 - **host-service socket dir mount** → see loopholes below.
 
 ### 3.2 Resource limits — no cgroups
@@ -380,6 +388,8 @@ if a relocated-root use case ever lands (which would then need the key agreed at
 | bind mounts (`/workspace`, home overlay) | yes | **none** | no container |
 | `cache_relocations` | podman ✅ / AC ⚠️ | **off** | no mount |
 | `writable_home_dirs` | yes | n/a | native home is writable |
+| `workspace_readonly` | podman ✅ / AC ❌ (`:ro` ignored) | **silent no-op** — expressible in the Seatbelt profile, not wired | container-path only; see [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) §5.5 |
+| `per_side_paths` | yes | **silent no-op, and no equivalent exists** | needs a mount namespace; Seatbelt filters permissions, it cannot give one path two contents |
 | `resources` (cpu/mem/pids) | podman-machine / AC native | **off** | no cgroups/VM |
 | `network` modes | yes | **n/a** | runs on host net |
 | `ports` / forward_host_ports | yes | **not wired** | container-path only |
