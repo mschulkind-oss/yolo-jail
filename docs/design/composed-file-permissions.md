@@ -1120,7 +1120,7 @@ tree, so there is a pattern to copy rather than invent.
 **Gaps, in priority order:**
 
 1. **No built-in skill or briefing line mentions composed surfaces at all.** Zero of
-   the four embedded skills (`jail-startup`, `configuring-the-jail`,
+   the embedded skills (`configuring-the-jail`,
    `diagnosing-the-jail`, `developing-yolo-jail`) mention the prism, a composed
    surface, `settings.json`, capture, or `yolo config ls`. The briefing names
    `yolo-jail.jsonc` exactly once, scoped to `packages`/`resources`. So the machinery

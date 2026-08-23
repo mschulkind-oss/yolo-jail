@@ -297,7 +297,7 @@ skills and get a clear "Read-only file system" error on write attempts.
 
 ### Merge order (later overrides earlier)
 
-1. Built-in skills (jail-startup)
+1. Built-in skills (configuring-the-jail, diagnosing-the-jail)
 2. Host user-level skills: `~/.copilot/skills/`, `~/.gemini/skills/`, `~/.claude/skills/`
 3. Workspace skills: `<workspace>/.copilot/skills/`, `<workspace>/.gemini/skills/`, `<workspace>/.claude/skills/`
 

@@ -303,7 +303,7 @@ Only the home-relevant ones expanded; the rest one-lined for orientation.
   that held them was `internal/agents/agents.go`, now gone). Staging rebuilt
   host-side **every invocation** by `jailcontent.PrepareSkills`
   (internal/jailcontent/skills.go): clears staging contents in place
-  (inode-preserving), writes the built-in `jail-startup/SKILL.md`, then copies
+  (inode-preserving), writes the built-in skills, then copies
   host `~/.<agent>/skills/*` dereferencing symlinks.
 - **Host agent-config files** (claude/pi selected): the yolo-declared,
   non-widenable host-file set — each pack's `reads-host` contribution, claude

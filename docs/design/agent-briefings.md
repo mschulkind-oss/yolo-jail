@@ -47,7 +47,10 @@ three parts, in order:
    their data exists. Emission order: ⚠ Provisioning failed (conditional:
    only when `/workspace/.yolo/startup.log` contains `PROVISIONING
    FAILED` — refreshed every invocation, so it appears on the next attach
-   after a failed boot) → Environment (workspace, home, network,
+   after a failed boot) → Handoff (conditional: only when a fresh
+   `.yolo/handover.md` the host filed is consumed this launch) → the
+   standing "where your task comes from" line (always) → Environment
+   (workspace, home, network,
    forwarded ports, and the *configured* resource limits with a
    `yolo-cglimit` pointer — nothing when none are set) → the rg
    `--replace` trap warning → Loopholes (conditional: the actual enabled
@@ -58,9 +61,9 @@ three parts, in order:
    reference `yolo config-ref`) → Skills (the read-only-user-level /
    writable-workspace constraint) → Testing Changes to yolo-jail
    (conditional: yolo-jail source workspaces only). There is no tool
-   inventory, no MCP listing (agents read their own generated config),
-   and no handover section (the staged `jail-startup` skill's description
-   drives invocation).
+   inventory, no MCP listing (agents read their own generated config), and
+   the handoff is a conditional section, not a skill — see
+   host-to-jail-handoff.md.
 3. **`agents_md_extra`**, appended verbatim — the config key
    (`yolo-jail.jsonc`, user- or workspace-level; string) for injecting
    arbitrary extra instructions into all three files.
@@ -94,9 +97,10 @@ plumbing.
 Skills ride the same staging area, for the selected agents that have a
 user-skills dir (claude/copilot/gemini; opencode and pi have none):
 `_prepare_skills()` mirrors each host-side `~/.<agent>/skills/` into
-`AGENTS_DIR/<cname>/skills-<agent>/` (plus the built-in `jail-startup`
-skill) and mounts each at `/home/agent/.<agent>/skills:ro`. No cross-agent
-merging.
+`AGENTS_DIR/<cname>/skills-<agent>/` (plus the built-in skills —
+`configuring-the-jail`, `diagnosing-the-jail`, and source-tree-only
+`developing-yolo-jail`) and mounts each at `/home/agent/.<agent>/skills:ro`.
+No cross-agent merging.
 
 ## Refresh semantics — live jails see host edits
 
@@ -162,9 +166,9 @@ propagates on the next `yolo` invocation like any other briefing edit.
 - **One workspace:** `agents_md_extra` in the workspace `yolo-jail.jsonc`,
   or the repo's own checked-in `/workspace/AGENTS.md` / `CLAUDE.md`
   (project layer, yolo-untouched).
-- **One session / handover to the next agent:** write
-  `.yolo/handover.md` in the workspace — the briefing's First Session
-  section and the `jail-startup` skill route new agents to it.
+- **One session / handover to the next agent:** write `.yolo/handover.md`
+  in the workspace — it's surfaced as a **Handoff** section in the next
+  launch's briefing and consumed on that launch (host-to-jail-handoff.md).
 
 ## Gotchas
 
@@ -180,6 +184,7 @@ propagates on the next `yolo` invocation like any other briefing edit.
   is composed into `~/.claude/settings.json`, not briefings.
 
 <!-- changelog -->
+- Deleted the `jail-startup` skill; the one-time host→jail handoff is now a conditional **Handoff** section in the briefing, consumed by the run pipeline on the launch that reads it (host-to-jail-handoff.md)
 - Agent library model: briefings/skills are now generated only for the agents selected in the `agents` config (default claude), driven by the agent registry (`src/entrypoint/agent_registry.py`); added opencode + pi
 - [8e08ea37] Removed the MCP-server listing from the generated briefing (agents read their own generated config) and dropped the mcp_servers/mcp_presets plumbing from generate_agents_md
 - [89dc5579] Slimmed the Skills section to the one non-discoverable fact: user-level skill dirs read-only in-jail, workspace-level writable, promote via the host

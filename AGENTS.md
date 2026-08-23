@@ -337,8 +337,13 @@ there is no sync step.
   output survives; `OVERMIND_SOCKET=/tmp/overmind.sock` so jail overmind doesn't collide with the
   host's; `LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/<multilib>` baked into the
   image Env to survive agents sanitizing the environment.
-- The built-in `jail-startup` skill is injected into every jail and reads
-  `.yolo/handover.md`. Priority: built-in < host user-level < workspace.
+- The built-in skills (`configuring-the-jail`, `diagnosing-the-jail`, and
+  source-tree-only `developing-yolo-jail`) are injected into every jail. The
+  one-time host→jail handoff is NOT a skill: a fresh `.yolo/handover.md` the host
+  agent filed is surfaced as a **Handoff** section in the environment briefing and
+  consumed by the run pipeline on that launch — see
+  [docs/design/host-to-jail-handoff.md](docs/design/host-to-jail-handoff.md).
+  Skill priority: built-in < host user-level < workspace.
 
 ## Where things live
 
