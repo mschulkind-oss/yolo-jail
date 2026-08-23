@@ -338,8 +338,14 @@ launch — get their entries when they ship, not before.
 
 - 🔒 **Developing yolo-jail inside its own `macos-user` sandbox: measured 2026-08-19, and the
   sandbox half is DONE.** The motivating ask was a host-side jail good enough to work in without
-  approving every command. Measured by extracting the profile a real `--dry-run` emits for this
-  workspace and running the actual work under `sandbox-exec`:
+  approving every command. Measured by extracting the profile a real `--dry-run` emits for the Mac
+  checkout and running the actual work under `sandbox-exec`:
+
+  ⚠ **Everything in this row is about THE MAC.** "The host", "your config" and "your home" below
+  all mean that machine, and none of them describe the Linux host you work on daily — whose config
+  is on the current `packs` key and whose `yolo` is current. Said explicitly because the scope
+  used to live only in this heading, and a reader arriving at item 1 read a Mac-only blocker as a
+  statement about whatever machine they were on.
 
   - ✅ **`go build ./...` and the full `go test -short ./...` — all 58 packages — pass**, as does
     `just test-fast`. `git status`/`log`/`ls-files` work; nix reaches the daemon (`Trusted: 1`).
@@ -350,19 +356,23 @@ launch — get their entries when they ship, not before.
     so `git ls-files` could not walk to the repo boundary and `just format` died claiming
     `Invalid path '/Users/Shared/yolo'`. See the Mac row below for why it stayed hidden.
 
-  **Two things stand between that and a working `yolo -- claude`, and only the first needs you:**
+  **Two things stand between that and a working `yolo -- claude` ON THE MAC, and only the first
+  needs you:**
 
-  1. 💬 **Your `~/.config/yolo-jail/config.jsonc` still uses the REMOVED `agents` key**, so *no*
-     current yolo launches on this host, on any backend — `yolo check` and every `yolo` run refuse
-     with the config-invalid fatal. All four names (`claude`, `pi`, `codex`, `agy`) exist as packs,
-     so the fix is renaming the key to `packs`; nothing else in that file needs to change. **Not
-     applied — your config, your call.** (Note the installed host `yolo` is **531 commits stale**,
-     which is why the refusal has not surfaced in daily use.)
-  2. **A toolchain has to come from `packages:`, not your home.** `deny file-read* (subpath "/Users")`
-     blocks `~/.local/share/mise`, so the host's mise-shimmed `go`/`just` are invisible inside the
-     sandbox — correctly. Everything above was measured with `go`, `just` and `git` realized from
-     nix, which is exactly what `packages:` materializes (`yoloNoncontainerPackages`); this workspace
-     declares only `just` today, so `go` and `git` need adding. Not a gap, just unconfigured.
+  1. 💬 **The Mac's `~/.config/yolo-jail/config.jsonc` still uses the REMOVED `agents` key**, so
+     *no* current yolo launches on that machine, on any backend — `yolo check` and every `yolo` run
+     refuse with the config-invalid fatal. All four names (`claude`, `pi`, `codex`, `agy`) exist as
+     packs, so the fix is renaming the key to `packs`; nothing else in that file needs to change.
+     **Not applied — your config, your call.** (The Mac's installed `yolo` was **531 commits stale**
+     at 2026-08-19, which is why the refusal has not surfaced there in daily use. The Linux host is
+     unaffected on both counts — measured 2026-08-23 from a running jail's inherited config
+     snapshot: `packs` key, `yolo` at `0.8.0+412.gaef73cce`.)
+  2. **A toolchain has to come from `packages:`, not the Mac's home.** `deny file-read* (subpath
+     "/Users")` blocks `~/.local/share/mise`, so that host's mise-shimmed `go`/`just` are invisible
+     inside the sandbox — correctly. Everything above was measured with `go`, `just` and `git`
+     realized from nix, which is exactly what `packages:` materializes
+     (`yoloNoncontainerPackages`); the Mac checkout's workspace config declares only `just` today,
+     so `go` and `git` need adding. Not a gap, just unconfigured.
 
   Cost of entry: one sudo password per launch, prompted inline through the TTY proxy — not per
   command. **What is NOT yet proven end-to-end** is the launch itself (the `sudo -u _yolojail` +
