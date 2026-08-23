@@ -66,11 +66,12 @@ type BriefingInput struct {
 	// host agent something dangerously false.
 	Confinement string
 
-	// Handoff is the content of a fresh .yolo/handover.md pointer, resolved by the
-	// run pipeline at launch. Empty in the common case, where the task comes from the
-	// user. When non-empty it is rendered as a prominent Handoff section near the top —
-	// the one-time transition task the host agent handed over. The run pipeline consumes
-	// the pointer after surfacing it, so it appears on exactly one launch, never again.
+	// Handoff is the content of a fresh .yolo/handover.md pointer, read by the run
+	// pipeline at launch. Empty in the common case, where the task comes from the user.
+	// When non-empty it is rendered as a prominent Handoff section near the top — the
+	// one-time transition task handed over for this launch. The run pipeline consumes the
+	// pointer once this briefing has been WRITTEN, so it appears on exactly one launch and
+	// a launch that carries it nowhere leaves it fresh.
 	Handoff string
 }
 
@@ -285,18 +286,26 @@ func BriefingContent(in BriefingInput) string {
 
 	lines := append([]string{}, confinementHeader(in.Confinement)...)
 	lines = append(lines, provisioningFailed...)
-	// The handoff, if the host agent handed one over this launch: a one-time transition
-	// task, surfaced once (the pointer is consumed after this render, so it never returns
-	// as a stale task). Prominent — it is what the agent is here to do. When there is no
-	// handoff (the common case) no section appears, and the agent's default — wait for
-	// the user — is the whole story, so NO standing line is added: the jail's
-	// config-independent header bytes are pinned unchanged (TestBriefingJailHeaderIsUnchanged),
-	// and an always-present line would move that surface for every existing user.
+	// The handoff, if one was handed over for this launch: a one-time transition task,
+	// surfaced once (the run pipeline consumes the pointer once this briefing is written,
+	// so it never returns as a stale task). Prominent — it is what the agent is here to do.
+	//
+	// "Handed over" rather than "the host agent handed over": the host→jail transition is
+	// the motivating case, but a jail agent filing a pointer for its successor uses the
+	// same carrier (agent-briefings.md), and the briefing should not misattribute it.
+	//
+	// When there is no handoff (the common case) no section appears, and the agent's
+	// default — wait for the user — is the whole story, so NO standing line is added: the
+	// jail's config-independent header bytes are pinned unchanged
+	// (TestBriefingJailHeaderIsUnchanged), and an always-present line would move that
+	// surface for every existing user. The one-time-ness therefore has to be stated INSIDE
+	// the conditional section, where it costs those pinned bytes nothing.
 	if in.Handoff != "" {
 		lines = append(lines,
 			"## Handoff",
 			"",
-			"The host agent handed this over for this launch — it is **the task**. Work it.",
+			"Handed over for this launch — it is **the task**. Work it. This appears once:",
+			"the pointer that carried it has been consumed, so it will not be here next session.",
 			"",
 			strings.TrimSpace(in.Handoff),
 			"",

@@ -184,10 +184,15 @@ func TestBriefingConfinementHeader(t *testing.T) {
 	}
 }
 
-// The one-time handoff (docs/design/host-to-jail-handoff.md): a fresh handoff renders
-// as a prominent Handoff section; the standing "where your task comes from" line is
-// always present so an agent with no handoff waits for the user. This pins the render
-// call site — deleting the Handoff block in BriefingContent breaks it.
+// The one-time handoff (docs/design/host-to-jail-handoff.md): a fresh handoff renders as
+// a prominent Handoff section, and NOTHING is emitted without one — there is no standing
+// "where your task comes from" line, because an always-present line would move the pinned
+// jail header (TestBriefingJailHeaderIsUnchanged). The design called for that line; the
+// pinned bytes vetoed it, so the one-time-ness is stated inside the section instead.
+//
+// This pins the RENDER half only. The wire from .yolo/handover.md to here is pinned in
+// internal/cli/run/consumehandoff_test.go, which drives refreshJailBriefings — a test at
+// this level cannot fail when the call site is deleted.
 func TestBriefingContentHandoff(t *testing.T) {
 	withHandoff := BriefingContent(BriefingInput{
 		Workspace: "/home/me/proj",
@@ -196,6 +201,7 @@ func TestBriefingContentHandoff(t *testing.T) {
 	for _, want := range []string{
 		"## Handoff",
 		"it is **the task**",
+		"This appears once",
 		"Task: wire the OAuth broker. Context: docs/handoff/oauth.md",
 	} {
 		if !contains(withHandoff, want) {
