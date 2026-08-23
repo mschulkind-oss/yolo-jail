@@ -352,3 +352,9 @@ and make `yolo pack footprint` pick it up for free. **My read: top-level**, with
 print it explicitly — a contribution that contributes nothing is a category error, and `footprint`
 already reads the manifest. **(B) strengthens this:** the thing that *is* a contribution is now the
 loophole; `supersedes` staying top-level keeps the two visibly different.
+
+_Leaning:_ **Top-level, with `footprint` taught to print it** — as above, uncontested since
+2026-08-13.
+
+**Answer:**
+> _(empty — fill in when decided)_

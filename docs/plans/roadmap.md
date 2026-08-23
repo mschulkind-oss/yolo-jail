@@ -22,6 +22,11 @@ gets re-proposed.
 and this file links to them by ID. It never restates them — that is how the count drifted to 19 while
 the real number was closer to 50.
 
+**And the real number is now countable rather than estimated: 53**, across the fourteen docs this
+file points at, as of 2026-08-23. Every one carries a `💬` and a stable ID, so
+`rg -c '💬' docs/design docs/plans` is the audit — it used to require reading 8,000 lines. Eleven
+rows below is what those 53 group into.
+
 | | Means |
 |---|---|
 | 💬 | **needs you** — a decision only you can make. |
