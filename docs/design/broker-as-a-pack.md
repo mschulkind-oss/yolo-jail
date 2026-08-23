@@ -607,54 +607,40 @@ there had to be updated by hand or it would have been the only trace left.
 
 ---
 
+## Decision Ledger
+
+Four of the six are settled and built; their rulings live in the body sections named below. The two
+that remain live are in **Open Questions** underneath, and neither gates anything that shipped.
+
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| OQ-BP1 | Broker move and the pack-shipped binary capability ship **together**, as separate commits inside one sprint — overruling my "baked daemon first". Puts the release matrix on the critical path | 2026-08-15 | §3.1, §9, §10 |
+| OQ-BP2 | Every connection stays **raw** and yolo prepends its own connection preamble (`preamble: false` for a dumb pipe). yolo never parses a daemon's payload; the host-derived `jail=` lives in yolo's own connection record | 2026-08-15 | §5.5 |
+| OQ-BP3 | Superseded by OQ-BP4 — LP14 is a dependency of the **sprint**, not of this loophole | 2026-08-15 | §11 |
+| OQ-BP4 | **No inhabitants at sprint end** — retire the channel rather than shrink it. Done 2026-08-19: directory, embed and every reader deleted | 2026-08-15 | §11, §13 |
+
+> [!WARNING]
+> **OQ-BP3 is superseded, not wrong, and it comes back if the goal shrinks.** The *broker* needs
+> nothing from OQ-LP14; it was **"no bundled loopholes"** that did, through `audio` (§11). Any future
+> sprint goal smaller than emptying a channel gets the original answer — proceed beside LP14 — and
+> should not inherit the coupling from this row.
+
+> [!WARNING]
+> **Do not read OQ-BP1's ruling as "binaries are done".** It committed the *capability* to the same
+> sprint as the move; what actually shipped on 2026-08-19 was the move, on baked daemons, which
+> §3.1's design explicitly permits for an official pack. The release matrix that OQ-BP1 put on the
+> critical path is the part still owed, and `platforms` declaring more than the release builds is its
+> named failure mode (§9).
+
+---
+
 ## Open Questions
 
-1. **OQ-BP1 — does the broker wait for the pack-shipped binary capability, or move on a baked daemon and adopt it later?**
+Both belong to the **pack-shipped binary capability** (§3.1), not to the broker: the broker shipped
+on a baked daemon, which an official pack may do. Neither blocks anything in the tree today; both
+block the first pack that wants to ship a binary of its own.
 
-   *Restated after review.* The original question was whether the capability is needed at all; that is settled — **it is wanted as a general capability** (§3.1). What is left is sequencing, and it decides the size of the broker move: on a baked daemon it is a manifest relocation plus §5's stamp; behind the binary work it is that plus selection, delivery and two gates.
-
-   _Leaning:_ **Move on the baked daemon; adopt binaries after.** [`loophole-packaging-overview.md`](loophole-packaging-overview.md) §1.1 already rules a baked client fine for an official pack, and the same argument covers a daemon: what matters is who is accountable for the code. Coupling them would put a build-and-download matrix in front of a change that is otherwise a manifest move — and the binary capability then lands with a *real* consumer available to test it rather than only a synthetic one.
-
-   **Answer:**
-   > **Both at once — ship them together, not one before the other.** *(My leaning was the opposite and is recorded above because the decision has consequences to plan for: the release matrix that produces per-platform artifacts is now on the critical path, and `platforms` must not declare more than the release actually builds — see §9.)* The practical shape: the broker's manifest is correct on a baked daemon either way, so the two can still land as **separate commits inside one sprint**, which keeps a stalled binary capability from holding a finished broker move hostage.
-
-2. **OQ-BP2 — does the front gain a declared protocol-aware stamp (§5.4-D), or does `jail_id` attribution change shape?**
-
-   This is the one genuinely new mechanism in the design. Option D keeps invariant I1 (host-asserted identity) at the cost of making the front's "never parses the stream" property conditional. The alternative worth weighing is not any of A/C/E/F but a **narrower I1**: accept that a fronted daemon's audit record carries the *connection's* jail identity — which the front already knows from the token — recorded by the framework in its own audit line, and stop stamping the payload at all. That preserves trustworthy attribution in yolo's logs while letting the daemon's own view of `jail_id` become untrusted.
-
-   _Leaning:_ **D, but ask this question first**, because the narrower-I1 variant is strictly simpler and may be sufficient. What decides it: does anything in the broker *behave* differently per jail, or is `jail_id` purely diagnostic? Today's reading of `internal/oauthbroker` is that it is purely diagnostic — no `jail_id` reference exists in the package — in which case the narrow variant wins and the front never parses anything.
-
-   _Strengthened by §11:_ `yolo-ps` already self-reports its `jail_id` from inside the jail and `hostservice` records it verbatim as untrusted, so **yolo already ships a loophole with a client-asserted `jail_id`**. Option **G** — yolo records the identity in its own audit line, the daemon never sees the field — makes the broker consistent with the loophole beside it rather than uniquely strict, and needs no new mechanism at all. That is now my recommendation over D.
-
-   _Resolved by:_ grepping the broker's decision paths for any per-jail behaviour, then a maintainer ruling on whether daemon-visible `jail_id` must remain trustworthy.
-
-   **Answer:**
-   > **Yes — and for every loophole daemon, on by default, with a declared opt-out.** Full design in §5.5. The short form: a loophole declares `payload: "framed"` (default) and yolo inserts a host-asserted `jail_id` into the opening request; a pure byte pipe declares `payload: "raw"` and is spliced untouched. Either way yolo's own connection record carries a host-derived `jail=`, so the declaration decides what the *daemon* sees, never what the audit log says.
-   >
-   > *Two of my recommendations were overruled and both were wrong in the same direction — I kept proposing opt-in mechanisms for something that should be the default.* The reviewer's objection to the first "mandatory, no exceptions" draft is what produced the `framed`/`raw` declaration, which is better than either: it stops the framework guessing a connection's shape, which is the actual root of today's two-tier audit split.
-
-3. **OQ-BP3 — does this wait for OQ-LP14, or proceed beside it?**
-
-   [`pack-code-separation.md`](pack-code-separation.md)'s roadmap entry says these two should be designed together because both concern what a pack-shipped loophole may declare. Having written this doc, I now think that is **wrong**: OQ-LP14 is about a new *host-crossing claim class* (a socket in the session runtime dir), and nothing here needs one. The two are adjacent in subject and independent in mechanism.
-
-   _Leaning:_ **Proceed beside it.** Coupling them delays a change that needs no new claim vocabulary behind one that does. I am flagging it because it contradicts what I wrote in the roadmap yesterday.
-
-   > **Withdrawn for the sprint by OQ-BP4's answer, and the distinction is worth keeping.** The *broker* still needs nothing from OQ-LP14 — that part of the leaning stands. But **"no bundled loopholes" does**, through `audio` (§11), so LP14 moves from adjacent question to sprint blocker. The question is left open rather than deleted because it becomes live again the moment the sprint goal is anything smaller than emptying the channel.
-
-   **Answer:**
-   > _(superseded by OQ-BP4 — LP14 is a dependency of the sprint, not of this loophole)_
-
-4. **OQ-BP4 — after the move, does `bundled_loopholes/` have any inhabitants left worth keeping as a channel?**
-
-   The broker was the strongest argument for the bundled channel — the one loophole whose "real spawn is reconstructed in Go". With it gone, `host-processes` and `audio` are what remain, and `audio` already exists as an official pack sitting *beside* its bundled copy (§5.1 of the overview). This asks whether the fifth sequencing step should end with the channel's retirement rather than one fewer inhabitant.
-
-   _Leaning:_ **Do not bundle it into this project.** It is a genuine follow-on, it is OQ-LP11's actual finish line, and attaching it here would make a bounded change unbounded. Worth filing the moment step 5 lands.
-
-   **Answer:**
-   > **No inhabitants at the end of this work sprint — retire the channel.** ✅ **DONE 2026-08-19**: the directory and its embed are deleted, and so is every reader of them (§13).
-   > *(Again overruling my leaning, and this one changes more than the broker: it is OQ-LP11's finish line, so it is worth having wanted.)* Consequences, in §11: three conversions rather than one, `publishes: "socket"` as the common blocker all three predate, **`host-processes` first** as the cheap end-to-end proof, and — the one that needs your attention — **OQ-LP14 becomes a hard dependency**, because `audio` cannot be expressed as a pack until the runtime-socket vocabulary is ruled. That contradicts OQ-BP3's leaning below, which is withdrawn for the sprint.
-
-5. **OQ-BP5 — download-with-digest only, or also a declared build step?**
+1. 💬 **OQ-BP5 — download-with-digest only, or also a declared build step?**
 
    The review asks for both as candidates (§3.1). They are not symmetric: a download can be pinned by `sha256` and therefore satisfies **P4** (a pinned pack pins everything that runs); a build step generally cannot, because builds are not bit-reproducible, so what runs is decided at install time by whatever toolchain the machine happens to have. A build step is also the same risk class as `packdecl.Install.InstallerURL`, which the schema already calls *"the sharpest thing a manifest can name"* and refuses to fetched packs outright.
 
@@ -663,7 +649,7 @@ there had to be updated by hand or it would have been the only trace left.
    **Answer:**
    > _(empty — fill in when decided)_
 
-6. **OQ-BP6 — may a *fetched* pack ship a host-side daemon binary?**
+2. 💬 **OQ-BP6 — may a *fetched* pack ship a host-side daemon binary?**
 
    §3.1's two-gate split says a jail-side binary is roughly as sharp as what a pack can already do, while a host-side one is a host-execution grant. This asks whether the second is available to a fetched pack at all, or whether — like `InstallerURL` and `host_files` — it is refused by origin regardless of what the user would approve. Not needed for the broker, which is official; needed before anyone else ships one.
 

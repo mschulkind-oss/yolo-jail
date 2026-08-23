@@ -794,7 +794,10 @@ nothing and would have turned this morning's two-hour lib-farm hunt into a one-l
 
 ## 10. Open Questions
 
-1. **Is a backend asymmetry acceptable for package delivery?** C4 and C5 work only on
+Five questions were asked here; **OQ-2 is settled and shipped** and now lives in the Decision Ledger
+in §10.1. The four below are live, and §11 refers to them by these IDs.
+
+1. 💬 **OQ-1 — is a backend asymmetry acceptable for package delivery?** C4 and C5 work only on
    podman + Linux + a host nix daemon (§3.2). Shipping them means either an opt-in fast path with
    the baked path retained as fallback (two mechanisms, forever) or an explicit "this optimization
    is Linux-only" in the docs. This is the question that decides whether C4 is a design or a
@@ -809,39 +812,7 @@ nothing and would have turned this morning's two-hour lib-farm hunt into a one-l
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. **✅ Should the fallback in `autoload.go` still return `true` after a failed build? — ANSWERED
-   BY SHIPPED CODE (`7830f65`, 2026-08-15).** §7's minimal
-   fix makes the failure *visible*. It does not decide whether a jail should still start on a stale
-   image. Starting is friendlier for a human with a transient network failure; refusing is correct
-   for the integration suite and for anyone whose config demands content the stale image lacks.
-
-   _Leaning:_ Print honestly and still start **for an interactive human**, refuse for a
-   non-interactive caller — the same "a gate that cannot tell a human from a pipe is not asking a
-   human" reasoning as [`gate-placement-principle.md`](gate-placement-principle.md). But this is a
-   behavior change in a file another lane owns.
-
-   **Resolved by:** a maintainer ruling, then whoever owns `internal/image/`.
-
-   **Answer:**
-   > **No — a build that ran and failed is FATAL, and the shipped answer is NOT the leaning above.**
-   > `7830f65` (*"make a failed image build fail as itself, not a silent stale launch"*) splits the
-   > `currentPath == ""` branch on a new `buildFailed` flag, prints the classification **and nix's
-   > own stderr**, and returns `false`. The opt-out is **`YOLO_ALLOW_STALE_IMAGE=1`** — one env var,
-   > which still prints the whole report — not a TTY test.
-   >
-   > **The divergence is the point, and it was argued rather than overlooked.** The leaning wanted
-   > the gate to tell a human from a pipe; the shipped code deliberately does not, because what
-   > makes a stale run safe is not *who* is running but that someone **SAID** the image is stale —
-   > "precisely the knowledge whose absence caused the bug". The asymmetry it leans on: refusing
-   > costs a rerun with one env var, continuing costs an investigation at the wrong layer. The full
-   > three-option argument (loud-but-continuing / fatal-with-no-way-past / this) lives on the branch
-   > itself, `internal/image/autoload.go` at the `currentPath == ""` comment.
-   >
-   > **`SkipBuild` is untouched** — no build was attempted, so the pre-existing degraded path
-   > (D2's) runs exactly as before, and that silence is deliberate: warning there would train the
-   > reader to ignore the warning.
-
-3. **Do we want the image tag to be content-addressed (C2), or the sentinel to consult its full
+2. 💬 **OQ-3 — do we want the image tag to be content-addressed (C2), or the sentinel to consult its full
    history?** C2 tags by store-path hash. A cheaper variant keeps `:latest` and makes
    `alreadyLoaded` check membership in the ten-entry LRU rather than equality with the most recent —
    but `internal/image/autoload.go:226-231` documents precisely why equality was chosen (a reverted
@@ -858,7 +829,7 @@ nothing and would have turned this morning's two-hour lib-farm hunt into a one-l
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. **Should `packages:` remain workspace-scope?** §1.5 shows a workspace-scope `packages:` list —
+3. 💬 **OQ-4 — should `packages:` remain workspace-scope?** §1.5 shows a workspace-scope `packages:` list —
    agent-editable, travelling with a repo — mints a distinct 3.28 GiB image and imposes a reload on
    every other workspace on the machine. That is a real cost one repo can impose on an unrelated
    one. C4 removes the cost; user-scoping would remove it differently, and more bluntly.
@@ -873,7 +844,7 @@ nothing and would have turned this morning's two-hour lib-farm hunt into a one-l
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. **Is 404 GiB of cached tars a bug or a configuration?** Retention exists (keep 3) and is manual
+4. 💬 **OQ-5 — is 404 GiB of cached tars a bug or a configuration?** Retention exists (keep 3) and is manual
    (§1.6). The 20 GiB hint fired for twenty-four days without effect. Options: leave manual, prune
    automatically at materialize time, or make C3 remove the artifact class entirely.
 
@@ -885,6 +856,23 @@ nothing and would have turned this morning's two-hour lib-farm hunt into a one-l
 
    **Answer:**
    > _(empty — fill in when decided)_
+
+### 10.1 Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| OQ-2 | A build that **ran and failed** is FATAL — `autoload.go` returns `false`, prints the classification and nix's own stderr. Opt-out is `YOLO_ALLOW_STALE_IMAGE=1`, not a TTY test. Shipped `7830f65` | 2026-08-15 | §7 |
+
+> [!WARNING]
+> **OQ-2's ruling deliberately contradicts [`gate-placement-principle.md`](gate-placement-principle.md)'s
+> "tell a human from a pipe", and that divergence was argued rather than overlooked.** What makes a
+> stale run safe is not *who* is running but that somebody **SAID** the image may be stale — precisely
+> the knowledge whose absence caused the bug. The asymmetry: refusing costs a rerun with one env var;
+> continuing costs an investigation at the wrong layer, two layers from the cause. The full
+> three-option argument lives on `internal/image/autoload.go` at the `currentPath == ""` comment.
+>
+> **`SkipBuild` is untouched, and its silence is deliberate.** No build was attempted, so nothing
+> failed; warning there would train the reader to ignore the warning. Do not "fix" that asymmetry.
 
 ---
 

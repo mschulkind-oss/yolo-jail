@@ -1,6 +1,15 @@
 # Threat model: the macos-user host-side nix build step
 
-**Status:** DRAFT (2026-07-22) — analysis + proposed hardening, no code changes yet.
+**Status:** DRAFT (2026-07-22), **re-verified 2026-08-23 — still nothing built, and one premise
+moved.** H1 remains unimplemented: `reporoot.Resolve` step 2 still walks up from cwd taking the
+first dir holding both `flake.nix` and `go.mod`, with no workspace exclusion
+([`reporoot.go:62-75`](../../internal/reporoot/reporoot.go)), and `resolveRepoRoot` only wraps it
+with an error message ([`probes.go:18-31`](../../internal/cli/run/probes.go)). **Q2 is no longer
+hypothetical:** `--accept-flake-config` is now passed on every image `nix` invocation
+(`internal/image/nixflags.go`) *and* on the darwin materialization
+([`darwinpkg.go:91`](../../internal/darwinpkg/darwinpkg.go)), so the substituter surface Q2 asks
+about is live rather than proposed.
+
 **Scope:** the `macos-user` backend only (native macOS user + Seatbelt, **no VM**).
 **Reads with:** [macos-no-vm-direction.md](macos-no-vm-direction.md) (why macos-user
 exists and how packages are materialized), [security-shim.md](security-shim.md)
@@ -171,7 +180,10 @@ defend against a deliberately planted pair. Consequences of a poisoned flake:
 
 ## Open Questions
 
-### Should `resolveRepoRoot` refuse a repoRoot located under the workspace?
+All three are live. The IDs **Q1 · Q2 · Q3** are cited from
+[`../plans/roadmap.md`](../plans/roadmap.md) and are the stable names — do not renumber them.
+
+### 💬 Q1 — should `resolveRepoRoot` refuse a repoRoot located under the workspace?
 
 H1 is the highest-leverage fix and low-risk: the real checkout is never under
 `/Users/Shared/yolo/<name>`. The only cost is that a developer who deliberately
@@ -183,7 +195,7 @@ pointing at `repo_path`/`YOLO_REPO_ROOT`. Cheap, closes Vector B.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### Is `--accept-flake-config` worth the substituter-poisoning surface?
+### 💬 Q2 — is `--accept-flake-config` worth the substituter-poisoning surface?
 
 Dropping it (H4) reintroduces the "ignoring untrusted flake configuration" noise
 and loses the project's own cachix on untrusted-user hosts, forcing from-source
@@ -195,7 +207,7 @@ with H1+H3 so a *planted* flake can't reach the flag at all.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### Do we want the macOS nix build sandbox on for yolo-triggered builds?
+### 💬 Q3 — do we want the macOS nix build sandbox on for yolo-triggered builds?
 
 Turning it on (e.g. `--option sandbox true` on the darwin materialization) shrinks
 the `_nixbld` blast radius, at some compatibility cost for packages that assume an

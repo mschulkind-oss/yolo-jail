@@ -376,40 +376,82 @@ becomes cheap to justify.
 
 ## 9. Open questions for the maintainer
 
-- **OQ-A. Is the synchronous version enough?** Most of the complexity here is durability. If the
-  human is usually at the keyboard, a blocking ask with a timeout may cover the real need — and
-  step 3 never has to happen. **Resolved by:** trying step 2.
-- **✅ OQ-B. Should an approval be reusable? — RESOLVED in §10.8 by the unYOLO source read.** "Yes,
-  and don't ask again for this verb in this
-  session" is the difference between a usable feature and prompt fatigue — but it is also how a
-  gate quietly becomes an allowlist. **Resolved by:** deciding whether the grant is per-action or
-  per-(verb, jail, session), and if the latter, what expires it. **→ §10 has a worked answer.**
+**Three are live — A, C and the packaging half of E.** OQ-A is the one that sizes the project:
+if synchronous-only suffices, most of §7 step 3 never gets written. OQ-B is settled and OQ-D was
+delegated; both are in §9.1 so they stop being counted as open here.
 
-  **Answer:**
-  > **Per-action by default; a reusable grant is bounded by duration AND use count, and the
-  > operator may only NARROW it.** The chain is **policy ceiling ≥ request ≥ operator's grant**,
-  > monotonically narrowing — see §10.1 correction 1, which corrects this document's own earlier
-  > reading (it had the human *widening* a grant, which unYOLO's
-  > `validApprovalConstraints` rejects outright). §10.6 lists two-bound narrowing-only grants among
-  > the ideas B2 should take, and §10.8 records the closure. Narrowing-only is what stops the
-  > reusable case from turning the gate into an allowlist, which was the whole worry above.
-- **OQ-C. Does the jail see the RESULT or just success?** A PR comment returns a URL, which is
-  useful; a credential-bearing response would defeat the "action crosses, credential does not"
-  rule. **Resolved by:** a per-verb response schema, server-owned.
-- **➡️ OQ-D. Is dynamic auth switching a real requirement or a nice-to-have? — NOT OPEN HERE;
-  DELEGATED, and it is a pointer, not a question.** Moved with the auth
-  content to [`agent-auth-modes.md`](agent-auth-modes.md) §6 / OQ-1; kept here as a pointer
-  because the answer decides whether this daemon ever holds auth state (§6).
+1. 💬 **OQ-A — is the synchronous version enough?** Most of the complexity here is durability. If
+   the human is usually at the keyboard, a blocking ask with a timeout may cover the real need —
+   and step 3 never has to happen. **This is the question that sizes B2.**
 
-  **Where it lives now:**
-  > **`agent-auth-modes.md` §10, auth OQ-1** — *"Is per-jail selection enough?"*, whose own
-  > **Resolved by:** is *"using §5 for a while"*: an experiment, not a ruling.
-  > Nothing about it is decided in **this** document, and nothing here waits on it except §6's
-  > "does the daemon hold auth state" branch, which is downstream of B2 anyway. Do not count OQ-D
-  > as an open boundary-broker question: answering it means running auth §5 and reporting there.
-- **OQ-E. Where does the human answer?** A foreground `yolo approve`, a TUI, a notification, the
-  existing `yolo ps`-style view? This is a UX decision that constrains the state design, so it is
-  worth answering before step 3 rather than after. **→ §10 answers the security half of this.**
+   _Leaning:_ **Yes for v1** — build step 2 synchronously and let a real timeout teach us whether a
+   request needs to outlive its connection. The durability design does not get cheaper by being
+   written first, and §2 names outliving-the-connection as one of the two absences, so this is the
+   one worth testing rather than assuming.
+
+   **Resolved by:** trying step 2.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+2. 💬 **OQ-C — does the jail see the RESULT or just success?** A PR comment returns a URL, which is
+   useful; a credential-bearing response would defeat the "action crosses, credential does not"
+   rule. This is a real API-shape decision, not a detail: it decides whether every verb needs a
+   response schema or none do.
+
+   _Leaning:_ **A per-verb response schema, server-owned** — the jail sees what the verb's schema
+   says it may see, defaulting to success/failure. Anything else makes "no credential crosses" a
+   property of each verb's implementation rather than of the protocol.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+3. 💬 **OQ-E — where does the human answer?** A foreground `yolo approve`, a TUI, a notification,
+   the existing `yolo ps`-style view? A UX decision that constrains the state design, so it is
+   worth answering before step 3 rather than after.
+
+   > [!NOTE]
+   > **The security half of OQ-E is SETTLED (§10.3, §10.6): authority stays in the unix socket.**
+   > What is still open is only *packaging* — which client the human reaches for. §7 notes that
+   > `yolo approve`, a TUI and a web app are all clients of the same daemon, which is what makes
+   > the remaining half a preference rather than a constraint.
+
+   _Leaning:_ **A foreground `yolo approve` first**, because it is the only client that needs no
+   new surface, and the daemon shape it implies is the one all the others reuse.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+4. 💬 **OQ-B1b — vendor unYOLO's policy engine, or re-derive it?** §10.6's verdict is *build B1b,
+   do not adopt `gh-broker`* — but it leaves one piece genuinely open, and it sizes **B1b alone**
+   rather than the whole broker. `authorization/policy` + `authorization/budget` + `internal/copyx`
+   are MIT, **stdlib-only**, ~2,100 lines with a 1,456-line test file, and drop into `vendor/` with
+   no new module requirements and no change to the `goSrc` fileset.
+
+   _Leaning:_ **Copy at a pinned SHA rather than take a module dependency**, if the policy model is
+   wanted verbatim. Given §10.4's no-compatibility policy a module edge buys nothing, and this is
+   the one piece where copying plausibly beats re-deriving. What decides it is whether we want
+   *that* policy model at all — everything else in §10.6 says re-derive.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+### 9.1 Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| OQ-B | Approvals are **per-action by default**; a reusable grant is bounded by duration **AND** use count, and the operator may only **narrow** — chain is policy ceiling ≥ request ≥ operator's grant | 2026-08-12 | §10.1, §10.6, §10.8 |
+| OQ-D | **Not open here — delegated** to [`agent-auth-modes.md`](agent-auth-modes.md) §10 OQ-1. Kept as a pointer because it decides whether this daemon ever holds auth state | 2026-08-12 | §6, §10 |
+
+> [!WARNING]
+> **OQ-B corrects a reading this document itself got backwards.** An earlier draft had the human
+> *widening* a grant at the prompt; unYOLO's `validApprovalConstraints` rejects that outright
+> (§10.1, correction 1). Narrowing-only is the whole reason a reusable approval does not decay into
+> an allowlist — do not "simplify" it back to a single bound or to operator-set limits.
+>
+> **OQ-D is a pointer, not an open question — do not count it as one.** Answering it means running
+> auth §5 for a while and reporting *there*; nothing in this doc waits on it except §6's
+> "does the daemon hold auth state" branch, which is downstream of B2 anyway.
 
 ---
 
@@ -697,8 +739,9 @@ wholesale, not ignore.** The four decisive facts, in order of weight:
 test file, and drop into `vendor/` with **no new module requirements** and no change to the `goSrc`
 fileset. Given §10.4's no-compatibility policy, copying at a pinned SHA is strictly safer than a
 module dependency, and it is the one piece where copying plausibly beats re-deriving. **This is a
-genuine fork in the road and it is the maintainer's call — see the B1b row in
-[`roadmap.md`](../plans/roadmap.md).**
+genuine fork in the road and it is the maintainer's call — tracked as `💬 OQ-B1b` in §9.**
+(It used to point at "the B1b row in `roadmap.md`", which was never a row: the roadmap cites
+questions by ID and holds none of its own, so the pointer resolved to nothing in either direction.)
 
 **What survives from the website pass unchanged:** the convergence itself. Two designs reached the
 same shape without contact, and that is still the most useful signal in this section.

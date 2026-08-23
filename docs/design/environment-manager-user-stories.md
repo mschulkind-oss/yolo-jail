@@ -1,5 +1,12 @@
 # User Stories: meeting yolo when it manages the environment, not just the box
 
+**Status:** STORIES + OPEN QUESTIONS, 2026-08-23. **Nothing here is built** — the verbs
+(`apply --sealed`, `describe`, `check --at`, `config promote`) are proposed, and the three defects
+the stories hit are in the shipped code. **Eleven questions are live** (Q1 · Q1a · Q1b · Q2–Q9,
+below); **Q1 is the closure question and the biggest one in the document**, and Q7 decides whether
+Linux `guest` is a promise or a hypothesis. IDs are cited from
+[`../plans/roadmap.md`](../plans/roadmap.md) — do not renumber them.
+
 Five worked stories of people (and one agent) encountering yolo as
 [an environment manager whose confinement is a dial](yolo-as-environment-manager.md) —
 `jail` (default), `guest`, `host` — rather than as a container product with config
@@ -737,7 +744,7 @@ nothing stamps a rendering with the notch it was made for.**
 
 ## Open Questions
 
-1. **Whether the capture overlay may outrank the definition at all.**
+1. 💬 **Q1 — whether the capture overlay may outrank the definition at all.**
    This is the closure question, and it is the biggest one in the document. Capture is a real
    feature — humans and agents edit config in-jail, and silently discarding those edits is hostile
    — but a captured value wins over every declared layer while nothing declares *it*. Story 1 is
@@ -754,7 +761,7 @@ nothing stamps a rendering with the notch it was made for.**
    **Answer:**
    > _(empty — fill in when decided)_
 
-1a. **Whether `--sealed` is a flag or the default.**
+1a. 💬 **Q1a — whether `--sealed` is a flag or the default.**
    As a flag, the property is off until a user knows to ask, and nobody arriving from nix expects
    to opt into purity. As the default, capture and `yolo-jail.local.jsonc` — both deliberate,
    both shipped — become errors on first use.
@@ -767,7 +774,7 @@ nothing stamps a rendering with the notch it was made for.**
    **Answer:**
    > _(empty — fill in when decided)_
 
-1b. **How far the "inert key" handoff goes.**
+1b. 💬 **Q1b — how far the "inert key" handoff goes.**
    Story 2 step 1 wants an inert `packages` to probe whether the dep is present anyway and print a
    remedy. That needs two things yolo lacks: a mapping from nixpkgs attr to native package manager
    formula, and the *binaries* a package provides (`packages: ["postgresql"]` → `psql`, not
@@ -782,7 +789,7 @@ nothing stamps a rendering with the notch it was made for.**
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. **Whether `apply` may report a shortfall as success.**
+2. 💬 **Q2 — whether `apply` may report a shortfall as success.**
    `surfaces 0 rendered` is the shipped `macos-user` behavior (BACKLOG G3) and it printed as a
    normal success line in story 2. The 2026-07-26 ruling made generator *failure* fatal, but an
    absent generator isn't a failure.
@@ -794,7 +801,7 @@ nothing stamps a rendering with the notch it was made for.**
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. **Whether `diff` is a top-level verb at all.**
+3. 💬 **Q3 — whether `diff` is a top-level verb at all.**
    The first draft of story 1 was built on comparing two machines, and rewriting it around closure
    removed the need: a binding definition makes "compare my environments" a question you stop
    asking, and nix ships no such verb. What survives is `yolo config diff`, which already exists
@@ -809,7 +816,7 @@ nothing stamps a rendering with the notch it was made for.**
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. **Whether a rendered briefing must be stamped with its notch.**
+4. 💬 **Q4 — whether a rendered briefing must be stamped with its notch.**
    Story 4's briefing is a real file in a real directory at `host`, and it outlives the run. A
    `host` briefing read inside a jail is merely confusing; a `jail` briefing read on the host is
    how someone loses `~/.pyenv`.
@@ -821,7 +828,7 @@ nothing stamps a rendering with the notch it was made for.**
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. **Whether the user config can set a confinement floor.**
+5. 💬 **Q5 — whether the user config can set a confinement floor.**
    Lisa needs to distribute "this machine may not run at `host`." §8 currently calls `host`
    over-use a product-discipline risk with no technical fix, which is true for one user and
    insufficient for 31.
@@ -834,7 +841,7 @@ nothing stamps a rendering with the notch it was made for.**
    **Answer:**
    > _(empty — fill in when decided)_
 
-6. **Whether `describe` gets an exposure view, or exposure gets its own verb.**
+6. 💬 **Q6 — whether `describe` gets an exposure view, or exposure gets its own verb.**
    Story 5 wants nouns (which files, which credentials, which direction the network goes), and
    `describe`'s current shape is counts. Bolting `--exposure` onto `describe` keeps one verb;
    splitting it admits that "what is this environment" and "what can it reach" are different
@@ -848,7 +855,7 @@ nothing stamps a rendering with the notch it was made for.**
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. **Whether Linux `guest` (bwrap + Landlock) is a promise or a hypothesis.**
+7. 💬 **Q7 — whether Linux `guest` (bwrap + Landlock) is a promise or a hypothesis.**
    The design's three-row table lists it as the Linux mechanism for the middle notch, and that
    row is the evidence the dial is real rather than a story told about two macOS backends. No such
    code exists.
@@ -860,7 +867,7 @@ nothing stamps a rendering with the notch it was made for.**
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. **What `yolo --at host` prints as its banner.**
+8. 💬 **Q8 — what `yolo --at host` prints as its banner.**
    Today launch prints `YOLO JAIL — AGENT BRIEFING` and a "WHAT YOU KEEP (shared with the host)"
    section built entirely around the container. At `host` every line of it is wrong, and the
    design's "the name stays" argument depends on `jail` reading as a *level* rather than the
@@ -873,7 +880,7 @@ nothing stamps a rendering with the notch it was made for.**
    **Answer:**
    > _(empty — fill in when decided)_
 
-9. **Whether the notch names are defensible as terminology.**
+9. 💬 **Q9 — whether the notch names are defensible as terminology.**
    The middle notch was `sandbox` in the first draft of these stories, and it does not survive
    scrutiny (design doc §4.0): "sandbox" is the industry's *generic* term for the whole column —
    Kubernetes' `PodSandbox`, gVisor, Firecracker, Chrome's seccomp/Seatbelt renderer — so it names

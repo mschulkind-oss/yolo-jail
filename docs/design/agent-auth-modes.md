@@ -287,18 +287,51 @@ the host-Claude case, where a native refresher never took the lock.
 
 ## 10. Open questions
 
-- **OQ-1. Is per-jail selection enough?** If the subscription is primary and Bedrock is a
-  deliberate fallback the human chooses, §5 is the whole feature and §6 never happens.
-  **Resolved by:** using §5 for a while.
-- **OQ-2. Does the Bedrock bundle stay in `env_sources`, or become a declared bundle?**
-  `env_sources` works today and is invisible to yolo's config model — which is the gap. Moving
-  it into a declared bundle is what makes `describe`/`check` able to report the active mode.
-- **OQ-3. What happens on a mode switch mid-session?** Claude Code reads credentials at startup;
-  a switch that requires a restart is honest, a switch that half-applies is not.
-- **OQ-4. Should `check` verify the selected mode's credential is live?** §7.2 argues yes. The
-  cost is a network call in a command that is currently offline-safe.
+**OQ-1 is the only one with reach**, and it is the only one in this doc that resolves by
+**experiment rather than ruling** — see its `Resolved by`. It gates
+[`boundary-broker.md`](boundary-broker.md) B2 as well as §6 here.
 
-**§11 and §12 add OQ-5 through OQ-9.** They are collected in §12.4.
+1. 💬 **OQ-1 — is per-jail selection enough?** If the subscription is primary and Bedrock is a
+   deliberate fallback the human chooses, §5 is the whole feature and §6 never happens.
+
+   _Leaning:_ **Yes, per-jail is enough for v1.** §6's dynamic overflow needs the daemon to hold
+   auth state, which is the expensive half of B2; §5 needs none of it.
+
+   **Resolved by:** an experiment, not a ruling — ~5 minutes. Point Claude Code at a non-Anthropic
+   base URL with a subscription OAuth token in place and observe whether it sends the bearer. If it
+   does, §6 is reachable without the broker; if it does not, §6 needs B2 and moves behind it.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+2. 💬 **OQ-2 — does the Bedrock bundle stay in `env_sources`, or become a declared bundle?**
+   `env_sources` works today and is invisible to yolo's config model — which is the gap. Moving
+   it into a declared bundle is what makes `describe`/`check` able to report the active mode.
+
+   _Leaning:_ **Declared bundle**, because "which mode am I in" is unanswerable while the answer
+   lives in a key yolo does not model. Pairs with OQ-9, which asks where the *secret* half lands.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+3. 💬 **OQ-3 — what happens on a mode switch mid-session?** Claude Code reads credentials at
+   startup; a switch that requires a restart is honest, a switch that half-applies is not.
+
+   _Leaning:_ **Require a restart and say so.** A half-applied switch is §7's whole trap list.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+4. 💬 **OQ-4 — should `check` verify the selected mode's credential is live?** §7.2 argues yes. The
+   cost is a network call in a command that is currently offline-safe.
+
+   _Leaning:_ **Yes, behind a flag** — the offline-safe property of `check` is worth keeping as the
+   default, and a dead credential is exactly what the user wants `check` for when they ask.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+**§11 and §12 add OQ-5 through OQ-9.** The live ones are in §12.4; the settled ones are in §12.5.
 
 ---
 
@@ -342,7 +375,7 @@ Both are load-time checks over a list yolo already has, with no runtime cost. **
 > two paragraphs above — because an MCP server whose key is absent is already inert via
 > `requires_env`. **Build it when something breaks without it.** The finding above (there is no
 > pack→pack mechanism) is still true and still worth keeping; only the prescription is withdrawn.
-> Tracked as answered in **OQ-5**, §12.4.
+> Tracked as answered in **OQ-5**, §12.5 (Decision Ledger).
 
 ### 11.2 The host-notch mechanism: use `config-overlay`, NOT the `env` kind
 
@@ -434,7 +467,7 @@ approval path that already exists. **OQ-6.**
 > states **"All of §7 is now settled."** The analysis below is kept as the record of why the
 > generalization was the right call — §12.2's list of what #32 got right is the spec
 > `loophole-transport.md` §7.3 re-derives against. Only its framing of the choice as still open is
-> stale. **OQ-8 in §12.4 is answered accordingly.**
+> stale. **OQ-8 is answered accordingly — §12.5 (Decision Ledger).**
 
 [PR #32](https://github.com/mschulkind-oss/yolo-jail/pull/32) — *"oauth broker: loopback TCP
 transport for macOS+podman"*, +1064/−13, open — fixes
@@ -489,38 +522,63 @@ so.
 
 ### 12.4 Open questions from §11–§12
 
-- **✅ OQ-5. Should packs be able to require other packs? — RESOLVED: NO, not now.** §11.1 — a
-  `requires_pack` contribution, paired with A2's `conflicts`. Both are load-time checks over a list
-  yolo already has. **Resolved by:** deciding whether the flat `packs` list is the whole
-  composition story — and it is.
+**OQ-6 is the one with reach** — it gates building `claude-bedrock` at all.
 
-  **Answer:**
-  > **`requires_pack` / pack→pack composition is RETIRED**, recorded in
-  > [`retired-decisions.md`](retired-decisions.md) Thread A. Thread A collapsed the two-auth-pack
-  > shape into one `claude-bedrock` pack, which removes the motivating case: with nothing to
-  > exclude, a personal pack selected alone is additive and harmless (`requires_env` already makes
-  > a keyless MCP server inert). The flat, ordered `packs` list is the whole composition story.
-  > **Build it when something breaks without it.** §11.1 carries the superseding note.
-- **OQ-6. Shipped, or a separate public pack repo?** §11.5 — shipping breaks the "six packs"
-  tests and embeds a personal auth choice in the binary; a fetched repo matches "shareable" and
-  exercises the approval path. **Recommendation: fetched.**
-- **OQ-7. Does the Teams pack own the model IDs, or does the base `claude` pack?** If the base
-  pack pins nothing, a jail with no auth pack has no model pin at all — which may be correct
-  (Claude Code defaults) or may be a silent hole.
-- **✅ OQ-8. Generalize #32's transport into the loophole framework, or merge it as-is? —
-  RESOLVED: generalize, and #32 is not merged at all.** §12.2. As-is is faster and leaves the next
-  host service to rediscover the problem; generalizing is the same code in a different package with
-  a wider blast radius.
+5. 💬 **OQ-6 — shipped, or a separate public pack repo?** §11.5 — shipping breaks the "six packs"
+   tests and embeds a personal auth choice in the binary; a fetched repo matches "shareable" and
+   exercises the approval path.
 
-  **Answer:**
-  > **Generalize — decided by the maintainer 2026-08-13, against the recommendation recorded in
-  > §12.2.** Not "merge then migrate": #32 is closed and its design is the spec, because it lives
-  > in `brokerrelay` where the framework cannot own it. `loopback-tls` becomes the framework's only
-  > transport and `unix-socket` is retired. Both halves are in
-  > [`loophole-transport.md`](loophole-transport.md) — §7.3 (OQ-T8, *"ship the unification instead
-  > of #32"*) and §7.4 (OQ-T9, *"unify"*) — and §7.1 there records **"All of §7 is now settled."**
-  > The cost this buys, stated there rather than here: macOS + podman stays broken until the
-  > unification ships, and #32's 1064 tested lines are re-derived rather than reused.
-- **OQ-9. Is `env_sources` still the right home for the AWS keys?** It works and is invisible to
-  yolo's config model (§1). §11.2 moves the *non-secret* half into a pack; the secret half has to
-  live somewhere, and `env_sources` puts it cleartext at 0644 in several files (§7.4).
+   _Leaning:_ **Fetched.** It is the only option that exercises the approval path this pack's whole
+   point depends on, and a personal auth choice does not belong in everyone's binary.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+6. 💬 **OQ-7 — does the auth pack own the model IDs, or does the base `claude` pack?**
+
+   > [!NOTE]
+   > **Restated 2026-08-23.** This question was written as *"does the **Teams** pack own the model
+   > IDs"* and that framing is dead: Thread A collapsed the two-auth-pack shape into ONE
+   > `claude-bedrock` pack ([`retired-decisions.md`](retired-decisions.md)), so there is no Teams
+   > pack to own anything. The question survives the collapse unchanged in substance — it is about
+   > where a pin lives, not about how many packs there are.
+
+   If the base pack pins nothing, a jail with **no auth pack at all** has no model pin — which may
+   be correct (Claude Code's own defaults, which move when Anthropic moves them) or may be a silent
+   hole that changes a jail's model under the user without a config change.
+
+   _Leaning:_ **The base `claude` pack pins nothing; `claude-bedrock` pins the Bedrock IDs.** A
+   model ID is a property of the credential path, and Bedrock's are the only ones yolo has a reason
+   to know. The "silent hole" reading is really a request for `describe` to *report* the effective
+   model, which is OQ-2's job rather than a pin.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+7. 💬 **OQ-9 — is `env_sources` still the right home for the AWS keys?** It works and is invisible
+   to yolo's config model (§1). §11.2 moves the *non-secret* half into a pack; the secret half has
+   to live somewhere, and `env_sources` puts it cleartext at 0644 in several files (§7.4).
+
+   _Leaning:_ **Keep `env_sources` until something better than "a file on disk" exists**, and fix
+   the mode rather than the mechanism. Answering OQ-2 makes the *bundle* visible to the config
+   model without moving the secret.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+### 12.5 Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| OQ-5 | **NO pack→pack composition.** `requires_pack` (and A2's `conflicts`) retired — the flat, ordered `packs` list is the whole composition story. Build it when something breaks without it | 2026-08-13 | §11.1, [`retired-decisions.md`](retired-decisions.md) Thread A |
+| OQ-8 | **Generalize** #32's transport into the loophole framework — and #32 is not merged at all. `loopback-tls` becomes the framework's only transport; `unix-socket` retired | 2026-08-13 | §12.2, [`loophole-transport.md`](loophole-transport.md) §7.3–§7.4 |
+
+> [!WARNING]
+> **OQ-8 was decided against the recommendation in §12.2, and the cost was accepted knowingly:**
+> macOS + podman stays broken until the unification ships, and #32's 1064 tested lines are
+> re-derived rather than reused. Do not re-propose "merge #32 now, migrate later" — it lives in
+> `brokerrelay`, where the framework cannot own it, which is the reason the fast path was refused.
+>
+> **And do not read OQ-5 as "packs cannot depend on anything".** What was removed is a *pack→pack*
+> edge; `requires_env` still makes a keyless MCP server inert, which is what made the motivating
+> case harmless once Thread A collapsed the two auth packs into one.
