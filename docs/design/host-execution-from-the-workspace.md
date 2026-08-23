@@ -3,7 +3,7 @@ title: "Every path by which your jail's content runs on your host"
 date: 2026-08-23
 status: in-review
 tags: [trust, security, workspace, mise, git, inventory]
-summary: "The live /workspace bind is bidirectional. Nine paths let a jail session write a file the host later executes as the host user, and the two guardrails that look like they cover this — git's safe.directory and mise's trust prompt — are both structurally blind to it. Measured, not asserted."
+summary: "The live /workspace bind is bidirectional. Nine paths let a jail session write a file the host later executes as the host user, and the two guardrails that look like they cover this — git's safe.directory and mise's trust prompt — are both structurally blind to it. Split by visibility x intent, only five are worth defending; the rest is code review doing its normal job."
 ---
 
 # Every path by which your jail's content runs on your host
@@ -29,6 +29,13 @@ was built for precisely this — its own reference text says *"protect host-exec
 lives in the workspace repo"* ([`config_ref.txt:578-583`](../../internal/cli/config_ref.txt)) —
 and this repo does not set it.
 
+**And the scope is deliberately tiny, because most of this surface is not a threat.** Every
+tracked file the host eventually runs — the `Justfile`, the flake, *and every source file the
+agent writes* — is gated by code review, which is not a security control being invented here
+but software development working normally. [§1](#1-the-verdict) draws the line that separates
+those from the five paths worth spending anything on, and states plainly what the fix does and
+does not buy against prompt injection.
+
 > [!IMPORTANT]
 > **This is not a containment bug, and I want to be exact about that.** A live bind-mounted
 > workspace is the product. Nothing here escapes the container; the *host* walks over and
@@ -47,26 +54,66 @@ inversion for one backend — a host-side `nix build` on agent-influenced inputs
 
 ## 1. The verdict
 
-**Nine paths. Two tiers, split by one property: whether `git diff` shows you the change.**
+> [!WARNING]
+> **The first draft of this section split the paths by visibility alone, and that split was
+> wrong.** It named `mise.toml`, `Justfile`, `flake.nix` and `package.json` as a "tracked
+> config" tier gated by review — which implies the *rest* of the repo is not on that list. It
+> is. The moment you run `just build` on the host, **every `.go` file the agent wrote is a
+> host-execution path too.** "Tracked files whose content the host eventually executes" is not
+> four files; it is the entire repository, and singling out four of them is exactly the
+> theatre this document should be arguing against. The review challenge that produced this
+> rewrite: *"the Justfile is basically just project code. I will eventually run the project on
+> the host. So what is good enough here that isn't just theater?"*
 
-| | Tier | Paths | Why the tier | Control |
-| :-- | :--- | :--- | :--- | :--- |
-| **T1** | **Invisible control plane** | `.git/config`, `.git/hooks/*`, `.git/info/exclude`, `.claude/**`, `.mcp.json`, `.envrc` | Git never shows them — untracked, ignored, or inside `.git/` — and **the agent has no legitimate reason to write any of them** | **Deny.** `workspace_readonly` |
-| **T2** | **Tracked build/dev config** | `mise.toml`, `Justfile`, `flake.nix`, `package.json` | Git *does* show them, and the agent edits them as ordinary work | **Review.** Your existing diff review already is the gate |
+**Visibility is only one of the two axes. The other is whether you intended to execute
+anything at all.**
 
-**The whole finding compresses to this:** for T2, code review is a real control and it is
-already running — a `Justfile` change lands in a commit you read. For T1, **there is no
-control at all**, because there is nothing to read: the change never appears in `git status`,
-never appears in a diff, and never appears in a PR. T1 is six files wide and closing it costs
-one config key.
+| | **You intended to execute** | **You did not** |
+| :--- | :--- | :--- |
+| **Visible in a diff** | **the product** — `Justfile`, `flake.nix`, `package.json`, **and every source file in the repo.** Not a threat surface | **the navigation cell** — `mise.toml`, `.envrc`. Fires on `cd`; review is *possible* but does not happen in time |
+| **Invisible** | ≈ empty (an untracked script you deliberately run — you chose it) | **the blind cell** — `.git/config`, `.git/hooks/*`, `.git/info/exclude`, `.claude/**`, `.mcp.json`. Fires on `git status`, `git commit`, opening the folder |
+
+Those three names — **the product**, **the navigation cell**, **the blind cell** — are used
+throughout the rest of this document in place of the tier numbering the first draft used.
+
+**The good-enough criterion, stated once:** *every execution the host performs should be one
+you intended, on content you could have seen.* The two failure modes are the two axes, and
+they take different fixes — **restore intent** where the trigger is navigation (mise
+`paranoid` turns `cd` back into a decision point), and **restore visibility** where the
+content is unreadable (deny the bottom-right cell, or redirect it somewhere tracked, [§5.1.1](#511-hooks-still-need-a-channel--redirect-rather-than-ban)).
+
+**Top-left is not a security boundary and yolo should spend nothing on it.** The control there
+is code review, it is the same control you already apply to `internal/foo.go`, and no
+mechanism yolo adds improves it. The reviewer's instinct is correct: anything built for that
+cell is theatre.
+
+### Why the bottom-right cell is *not* theatre
+
+Against the two threats worth naming:
+
+1. **A misguided agent with a live collaborator.** Arrives through the product path — bad code
+in a tracked file. Review catches it or doesn't, exactly as for any code. **yolo adds
+nothing here, and shouldn't try.**
+2. **Prompt injection escalating to the host.** This is the one the cell defends, and the
+defence is specific: an injected agent *chooses its channel*, and its entire advantage is
+choosing one you never look at. `.git/hooks/pre-commit` fires on your next commit with no
+diff, no PR, no trace, in a file git will never show you.
+
+> [!IMPORTANT]
+> **The honest claim, with no inflation: this stops zero prompt injections.** It does not
+> reduce what a compromised session can write — a payload in `internal/foo.go` is still a
+> payload, and nothing short of not running the code prevents it. What it removes is the
+> ability to act **unobserved**, forcing every payload onto the reviewed path where your
+> ordinary diff review is the same control you already trust. Converting a *silent*
+> compromise into a *visible* one is the whole of the claim. It is worth one config key and
+> not one line more.
 
 > [!WARNING]
-> **`.git/info/exclude` is in T1 and it is the load-bearing one**, because it is the file that
-> *decides* what is invisible. It is jail-writable and untracked (verified 2026-08-23). A
-> session that appends a path to it moves that path from T2 to T1 — silently, and for every
-> future session. **"Visible to `git diff`" is not a stable property unless the file that
-> defines visibility is itself locked.** Lock `.git` and you get this for free; lock only
-> `.git/config` and `.git/hooks` and you have left the blind-spot dial writable.
+> **`.git/info/exclude` is the load-bearing entry**, because it is the file that *decides* what
+> is invisible. It is jail-writable and untracked (verified 2026-08-23). A session that appends
+> a path to it moves that path from the top row to the bottom one — silently, and for every
+> future session. **"Visible in a diff" is not a stable property unless the file defining
+> visibility is itself locked.**
 
 ---
 
@@ -76,17 +123,17 @@ Ordered by how little the host user has to do to trigger it. "Host act" is what 
 in every row the code runs as **you**, unsandboxed, with your SSH keys, your `gh` token and
 your cloud credentials — the exact things [the briefing promises are invisible to the jail](../../internal/jailcontent/briefing.go).
 
-| # | Channel | Host act that fires it | Tier | Measured 2026-08-23 |
+| # | Channel | Host act that fires it | Cell | Measured 2026-08-23 |
 | :-- | :--- | :--- | :--- | :--- |
-| 1 | **`mise.toml` → `[env]`, `[hooks]`, `[tasks]`** | **`cd` into the repo**, with `mise activate` in your shell | T2 | ✅ mutated a trusted config; new content honoured **silently** |
-| 2 | **`.git/config` → `core.fsmonitor`** | **`git status`** — also `add`, `commit`, `checkout` | T1 | ✅ fires on bare `git status` |
-| 3 | `.git/config` → `alias.<x> = !sh` | `git <x>` | T1 | ✅ |
-| 4 | `.git/config` → `core.pager` | `git log`, `git diff` — anything paged at a TTY | T1 | ✅ (via `--paginate`; off-TTY git skips the pager) |
-| 5 | `.git/config` → `core.hooksPath` | any hooked command | T1 | ✅ local value beats a global one |
-| 6 | **`.git/hooks/pre-commit`** | **`git commit`** | T1 | ✅ |
-| 7 | `.git/config` → `core.sshCommand`, `gpg.program`+`log.showSignature`, `diff.*.textconv`, `filter.*.clean`, `credential.helper` | fetch/push, `log`, `diff`, `checkout` | T1 | not individually re-measured; documented upstream (§7 sources) |
-| 8 | **`.claude/settings.json` / `settings.local.json`** → `hooks`, `apiKeyHelper` | opening the repo in a host agent session | T1 | ✅ writable; see the warning below |
-| 9 | `Justfile` / `flake.nix` / `package.json` | `just done`, `just load`, `npm install` | T2 | ✅ writable |
+| 1 | **`mise.toml` → `[env]`, `[hooks]`, `[tasks]`** | **`cd` into the repo**, with `mise activate` in your shell | navigation | ✅ mutated a trusted config; new content honoured **silently** |
+| 2 | **`.git/config` → `core.fsmonitor`** | **`git status`** — also `add`, `commit`, `checkout` | blind | ✅ fires on bare `git status` |
+| 3 | `.git/config` → `alias.<x> = !sh` | `git <x>` | blind | ✅ |
+| 4 | `.git/config` → `core.pager` | `git log`, `git diff` — anything paged at a TTY | blind | ✅ (via `--paginate`; off-TTY git skips the pager) |
+| 5 | `.git/config` → `core.hooksPath` | any hooked command | blind | ✅ local value beats a global one |
+| 6 | **`.git/hooks/pre-commit`** | **`git commit`** | blind | ✅ |
+| 7 | `.git/config` → `core.sshCommand`, `gpg.program`+`log.showSignature`, `diff.*.textconv`, `filter.*.clean`, `credential.helper` | fetch/push, `log`, `diff`, `checkout` | blind | not individually re-measured; documented upstream (§7 sources) |
+| 8 | **`.claude/settings.json` / `settings.local.json`** → `hooks`, `apiKeyHelper` | opening the repo in a host agent session | blind | ✅ writable; see the warning below |
+| 9 | `Justfile` / `flake.nix` / `package.json` | `just done`, `just load`, `npm install` | product | ✅ writable |
 
 **Writability probe, all nine, 2026-08-23:** every path above is writable from this jail, and
 new files can be created in `.git/hooks/`. The jail runs as UID 0 in a userns that maps to the
@@ -120,7 +167,7 @@ export DEMO=v2-MUTATED            # no prompt, no warning, no re-trust
 (`~/.local/state/mise/trusted-configs/`, inspected 2026-08-23). mise's own docs are candid:
 *"In normal mode, a config file only needs trusting once, regardless of modifications."*
 Content hashing exists **only under `paranoid`**, which is off by default — and that is the
-entire basis of [§5.2](#52-t2-host-side-hardening--partial-and-honest-about-it).
+entire basis of [§5.2](#52-the-navigation-cell-restoring-intent-host-side).
 
 So: you trusted `~/code/yolo-jail/mise.toml` some months ago. Every jail session since has had
 write access to it, and `cd`-ing into the directory is enough to run whatever it now says.
@@ -160,9 +207,10 @@ row from this one. **The inbound row asks "whose code runs in my jail"; this doc
 asks "whose code runs on my laptop."** Same file, opposite direction, and only the inbound half
 had been written down.
 
-The genuinely new claims are three: the **direction** itself; the **T1/T2 split by git
-visibility** ([§1](#1-the-verdict)), which is what makes the fix small instead of hopeless; and
-**`.git/info/exclude` as the dial that moves files between the tiers.**
+The genuinely new claims are three: the **direction** itself; the **two-axis split — visibility
+× intent** ([§1](#1-the-verdict)), which is what keeps the fix to five paths instead of
+declaring the whole repository a threat surface; and **`.git/info/exclude` as the dial that
+moves a file from one cell to another.**
 
 ---
 
@@ -171,7 +219,7 @@ visibility** ([§1](#1-the-verdict)), which is what makes the fix small instead 
 Three options. I recommend **5.1 alone**, and I want to be direct that 5.2 and 5.3 are worth
 less than they look.
 
-### 5.1 T1: deny — and the mechanism is already built
+### 5.1 The blind cell: deny — and the mechanism is already built
 
 `workspace_readonly` overlays `-v <host-subpath>:/workspace/<rel>:ro` on top of the writable
 workspace bind ([`mounts.go:20-52`](../../internal/cli/run/mounts.go)). It validates entries as
@@ -181,40 +229,69 @@ any entry is active it also locks `yolo-jail.jsonc` itself `:ro`**, so a jail se
 switch its own protection off.
 
 It is not set in this repo ([`yolo-jail.jsonc`](../../yolo-jail.jsonc), checked 2026-08-23). The
-proposed entry set is exactly T1:
+proposed entry set is exactly the blind cell:
 
 ```jsonc
 "workspace_readonly": [".git/config", ".git/hooks", ".git/info", ".claude", ".mcp.json"]
 ```
 
-**Why this set and not more.** Every entry is a file the agent has no legitimate reason to
-write, so the false-positive cost is zero — which is the property that lets this be a *deny*
-rather than a prompt. `.git/info` rather than `.git/info/exclude` because the directory is the
-stable thing to bind. `.envrc` is absent because this repo has none; add it where one exists.
-`.git` wholesale is **wrong** — the agent must write refs, objects, and the index to commit at
-all.
+**Why this set and not more.** `.git/info` rather than `.git/info/exclude` because the
+directory is the stable thing to bind. `.envrc` is absent because this repo has none; add it
+where one exists. `.git` wholesale is **wrong** — the agent must write refs, objects, and the
+index to commit at all.
+
+#### 5.1.1 Hooks still need a channel — redirect rather than ban
+
+> [!CAUTION]
+> **`.git/hooks` is the one entry where "the agent has no legitimate reason to write it" is
+> false, and the first draft asserted it anyway.** Installing a hook is ordinary work — this
+> repo's own `.git/hooks/pre-commit` (`just check-ci`) had to be written by someone, and an
+> agent scaffolding a new project should be able to add one. A flat deny with no alternative
+> is a capability regression, not a security control.
+
+The fix falls out of [§1](#1-the-verdict): **hooks do not need to be writable, they need to be
+visible.** Point `core.hooksPath` at a tracked in-repo directory and the agent writes hooks
+there like any other code — committed, diffed, reviewed, and reaching the host through the
+same path as every other file it produces:
+
+```console
+$ git config core.hooksPath .githooks     # set once, host-side, before the lock
+```
+
+`.git/hooks` stays locked because it is the **invisible** copy, not because hooks are
+dangerous. In the [§1](#1-the-verdict) table this is a promotion out of the bottom-right cell
+into the top-left one — the whole design in miniature, and the reason the answer is "redirect"
+rather than "ban". It is also standard practice independently of any of this (husky, the
+`pre-commit` framework, and in-repo `core.hooksPath` generally).
+
+**The wrinkle worth stating.** `core.hooksPath` is itself a `.git/config` key — row 5 of the
+inventory, and one we are locking precisely so a session cannot repoint it. So the agent
+cannot set this, by design; something host-side must, before the mount. That is the
+[`security-shim.md`](./security-shim.md) shape exactly — the unsandboxed step configures, the
+sandboxed side cannot revise — and whether yolo should do it idempotently at launch rather
+than leaving it to the human is [OQ-HX4](#-oq-hx4--should-yolo-set-corehookspath-itself).
 
 **Three caveats, stated rather than buried:**
 
 1. **Apple Container silently ignores `:ro`** (apple/container#889). `workspace_readonly`
-   already prints a loud warning and cannot skip the paths, since they live inside the writable
-   `/workspace` ([`mounts.go:26-32`](../../internal/cli/run/mounts.go)). On that backend this
-   control does not exist. `macos-user` needs its own answer and does not have one here.
+already prints a loud warning and cannot skip the paths, since they live inside the writable
+`/workspace` ([`mounts.go:26-32`](../../internal/cli/run/mounts.go)). On that backend this
+control does not exist. `macos-user` needs its own answer and does not have one here.
 2. **`git config --local` and `git remote add` start failing in-jail.** Commit identity is
-   unaffected — the jail sets it globally in the jail home
-   ([`identity.go:17-20`](../../internal/entrypoint/identity.go)) — but `git checkout -b --track`
-   and `git push -u` write `branch.*.remote`, so the *cost* of this ruling is real and lands on a
-   common workflow. That is [OQ-HX2](#-oq-hx2--does-locking-gitconfig-break-enough-of-the-agents-git-workflow-to-matter).
+unaffected — the jail sets it globally in the jail home
+([`identity.go:17-20`](../../internal/entrypoint/identity.go)) — but `git checkout -b --track`
+and `git push -u` write `branch.*.remote`, so the *cost* of this ruling is real and lands on a
+common workflow. That is [OQ-HX2](#-oq-hx2--does-locking-gitconfig-break-enough-of-the-agents-git-workflow-to-matter).
 3. **The bootstrap gap.** The self-lock protects a config that already has entries. A workspace
-   whose first-ever jail session had none is unprotected for that session. Setting the key at
-   **user scope** — outside the workspace, hence unwritable from any jail — would close it, and
-   whether that is honoured is [OQ-HX1](#-oq-hx1--is-workspace_readonly-honoured-from-user-scope-config).
+whose first-ever jail session had none is unprotected for that session. Setting the key at
+**user scope** — outside the workspace, hence unwritable from any jail — would close it, and
+whether that is honoured is [OQ-HX1](#-oq-hx1--is-workspace_readonly-honoured-from-user-scope-config).
 
-### 5.2 T2: host-side hardening — partial, and honest about it
+### 5.2 The navigation cell: restoring intent, host-side
 
 **The one that is worth doing:** `paranoid = true` in the host's **global** mise config. It
 turns on content hashing, so a rewritten `mise.toml` re-prompts — closing row 1, the sharpest
-T2 channel, at its root. And it is durable: since **CVE-2026-35533** (fixed in mise 2026.6.4)
+navigation-cell channel, at its root. And it is durable: since **CVE-2026-35533** (fixed in mise 2026.6.4)
 mise **ignores `paranoid`, `trusted_config_paths`, `yes` and `ci` when they come from a
 non-global config**, so a jail-written workspace config cannot turn it back off. That fix is
 what makes this a control rather than a suggestion.
@@ -231,12 +308,12 @@ local `core.hooksPath` in the same run. But it is whack-a-mole across `fsmonitor
 upstream is free to extend is the halfway measure this repo keeps deleting. **Rejected**, and
 recorded here so it is not re-derived.
 
-### 5.3 Tripwire: report changes to the T1/T2 set
+### 5.3 Tripwire: report changes to the danger set
 
 Hash the danger set at launch, diff at exit, show the human. **Rejected as the primary
 control**, for the reason `trust-paths.md` §1 gives about lockfiles: a mechanism that only
-*reports* is a receipt, not a gate — and for T2 it duplicates `git diff`, which already works
-and which the human already reads. It has exactly one non-redundant use: **T1 paths on Apple
+*reports* is a receipt, not a gate — and for the product cell it duplicates `git diff`, which already works
+and which the human already reads. It has exactly one non-redundant use: **blind-cell paths on Apple
 Container**, where `:ro` cannot be enforced and detection is all that is available. That is a
 narrow enough case to defer until someone is on that backend.
 
@@ -248,13 +325,13 @@ narrow enough case to defer until someone is on that backend.
   requires the *host* to run something, and the live workspace bind is the product working as
   designed.
 - **Not an argument for a read-only workspace.** The agent's whole job is writing there.
-- **Not a general "review everything the agent writes" policy.** T2 is already covered by
+- **Not a general "review everything the agent writes" policy.** the product cell is already covered by
   ordinary diff review; the proposal is deliberately six paths wide.
 - **Not a fix for `macos-user`.** That backend has its own inversion already documented in
   [`macos-user-build-step-threat-model.md`](./macos-user-build-step-threat-model.md); §5.1's
   mechanism is a container mount and does not reach it.
 - **Not a defence against a human who runs `just load` on unreviewed agent output.** That is
-  T2, and the control is reading the diff. This repo's documented workflow actively asks for
+  the product cell, and the control is reading the diff. This repo's documented workflow actively asks for
   that command — [AGENTS.md](../../AGENTS.md) — so the review is not optional hygiene, it is
   the control.
 
@@ -283,48 +360,73 @@ disclosure was the same move in a different place: gate the dangerous reads behi
 
 ## Open Questions
 
-1. 💬 **OQ-HX1: Is `workspace_readonly` honoured from user-scope config?**
-   [§5.1](#51-t1-deny--and-the-mechanism-is-already-built) recommends setting it in the
-   workspace config, which self-locks — but only once it has entries. A user-scope setting
-   (`~/.config/yolo-jail/config.jsonc`) lives outside every workspace, so no jail could ever
-   write it, and generic entries like `.git/hooks` are meaningful in every repo. This decides
-   whether the bootstrap gap is closeable and whether the fix is per-repo or once.
-   [`inherit.go:189-193`](../../internal/config/inherit.go) excludes the key from the
-   *generated in-jail snapshot* and calls it *"workspace-relative paths that ride the live
-   /workspace bind from the workspace config"* — which reads like a statement about the jail
-   snapshot, not a ban on user scope, but I did not verify the host merge path and will not
-   assert it.
+### 💬 OQ-HX1 — is `workspace_readonly` honoured from user-scope config?
 
-   _Leaning:_ It is honoured, and user scope is the better home for the git entries. Worth ten
-   minutes with the host config assembly before we rely on it.
+[§5.1](#51-the-blind-cell-deny--and-the-mechanism-is-already-built) recommends setting it in the
+workspace config, which self-locks — but only once it has entries. A user-scope setting
+(`~/.config/yolo-jail/config.jsonc`) lives outside every workspace, so no jail could ever
+write it, and generic entries like `.git/hooks` are meaningful in every repo. This decides
+whether the bootstrap gap is closeable and whether the fix is per-repo or once.
+[`inherit.go:189-193`](../../internal/config/inherit.go) excludes the key from the
+*generated in-jail snapshot* and calls it *"workspace-relative paths that ride the live
+/workspace bind from the workspace config"* — which reads like a statement about the jail
+snapshot, not a ban on user scope, but I did not verify the host merge path and will not
+assert it.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+_Leaning:_ It is honoured, and user scope is the better home for the git entries. Worth ten
+minutes with the host config assembly before we rely on it.
 
-2. 💬 **OQ-HX2: Does locking `.git/config` break enough of the agent's git workflow to matter?**
-   Commit identity is safe ([`identity.go:17-20`](../../internal/entrypoint/identity.go)), but
-   `git checkout -b --track`, `git push -u` and `git remote add` all write `branch.*` /
-   `remote.*` into local config. This is the whole cost of the T1 ruling, and it decides
-   whether the entry set is five paths or four.
+**Answer:**
+> _(empty — fill in when decided)_
 
-   _Leaning:_ Lock `.git/hooks` and `.git/info` unconditionally — zero legitimate writes, and
-   between them they cover the fsmonitor-adjacent hook surface and the visibility dial. Treat
-   `.git/config` as the one entry to trial and back out of if `push -u` becomes a daily
-   irritation. Note this leaves rows 2–5 (`fsmonitor`, aliases, `pager`, `hooksPath`) open,
-   which is a real reduction in coverage, not a rounding error.
+### 💬 OQ-HX2 — does locking `.git/config` break enough of the agent's git workflow to matter?
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+Commit identity is safe ([`identity.go:17-20`](../../internal/entrypoint/identity.go)), but
+`git checkout -b --track`, `git push -u` and `git remote add` all write `branch.*` /
+`remote.*` into local config. This is the whole cost of the blind-cell ruling, and it decides
+whether the entry set is five paths or four.
 
-3. 💬 🤷 **OQ-HX3: Do we recommend host-side mise `paranoid` in the user guide, or just adopt it?**
-   [§5.2](#52-t2-host-side-hardening--partial-and-honest-about-it) is a change to the *human's*
-   machine, not to yolo. yolo can document it, or stay silent and let the maintainer set it.
-   Documenting it means owning its friction (HTTPS enforcement, plugin URLs, the leaf-name hash
-   collision) for every user.
+_Leaning:_ Lock `.git/info` unconditionally — it has no legitimate agent write at all and it
+is the visibility dial. Lock `.git/hooks` **together with the `core.hooksPath` redirect**
+([§5.1.1](#511-hooks-still-need-a-channel--redirect-rather-than-ban)) and never without it;
+hooks are legitimate work and the lock is only defensible once they have somewhere tracked to
+go. Treat `.git/config` as the one entry to trial and back out of if `push -u` becomes a daily
+irritation — noting that backing out leaves rows 2–5 (`fsmonitor`, aliases, `pager`,
+`hooksPath`) open, which is a real reduction in coverage, not a rounding error, and that
+dropping it also un-pins `core.hooksPath` and so unpicks the hook redirect.
 
-   _Leaning:_ Subjective. My weak preference is a line in
-   [`loopholes.md`](../guides/loopholes.md)-adjacent host-hardening prose rather than the user
-   guide proper — it is advice about mise, not about yolo.
+**Answer:**
+> _(empty — fill in when decided)_
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+### 💬 OQ-HX4 — should yolo set `core.hooksPath` itself?
+
+[§5.1.1](#511-hooks-still-need-a-channel--redirect-rather-than-ban) needs `core.hooksPath`
+pointed at a tracked directory *before* `.git/config` is locked, and the agent cannot do it
+(that is the point). Either yolo does it host-side and idempotently at launch when
+`workspace_readonly` names `.git/config`, or it stays a documented one-liner the human runs.
+This decides whether the hook redirect is part of the mechanism or part of the runbook —
+and a deny with no channel is a capability regression, so the two ship together either way.
+
+_Leaning:_ yolo should do it, and only in the narrow case where it is already locking
+`.git/config` — writing a git config key on the user's behalf is otherwise well outside what
+this tool does. The honest counter is that yolo would be mutating a repo it does not own,
+which is the kind of quiet host-side write [`config-safety.md`](./config-safety.md) exists to
+make loud; if that objection wins, it becomes a line in the runbook and a `yolo check`
+warning instead.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 🤷 OQ-HX3 — do we recommend host-side mise `paranoid`, or just adopt it?
+
+[§5.2](#52-the-navigation-cell-restoring-intent-host-side) is a change to the *human's*
+machine, not to yolo. yolo can document it, or stay silent and let the maintainer set it.
+Documenting it means owning its friction (HTTPS enforcement, plugin URLs, the leaf-name hash
+collision) for every user.
+
+_Leaning:_ Subjective. My weak preference is a line in
+[`loopholes.md`](../guides/loopholes.md)-adjacent host-hardening prose rather than the user
+guide proper — it is advice about mise, not about yolo.
+
+**Answer:**
+> _(empty — fill in when decided)_
