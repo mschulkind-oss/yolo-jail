@@ -11,7 +11,27 @@ import (
 //
 // The workspace + sandbox-home paths are SBPL-escaped via sbplStr. sandboxHome
 // defaults to SandboxHome() when empty.
-func SeatbeltProfile(workspace, sandboxHome string) string {
+//
+// readonlyRels carries config.workspace_readonly — workspace-relative sub-paths
+// the agent must not write. Each becomes one `(deny file-write* (subpath …))`
+// emitted AFTER the writable-set allow, which is what makes it stick: SBPL is
+// last-match-wins, and this profile depends on that twice already (the
+// deny-`/`-then-allow that gives the agent any write at all, and the `/Users`
+// read-deny followed by re-allowed literals). Nothing later in the profile
+// re-allows file-write*, so the denies are terminal — verified by
+// TestSeatbeltProfileHasNoWriteAllowAfterReadonlyDenies.
+//
+// Why this exists: the key is delivered as a `-v …:ro` bind on the container
+// backends (internal/cli/run/mounts.go), and macos-user has no mounts, so it
+// used to accept the key and silently do nothing. A security key that lies is
+// worse than one that refuses — the config reads as protection that is not
+// there. See docs/design/host-execution-from-the-workspace.md §5.5, §5.6 item 1.
+//
+// Entries that are absolute or escape the workspace are dropped rather than
+// emitted; config validation already rejects both (internal/config/validate.go
+// validateWorkspaceReadonly), so this is defence in depth against a caller that
+// skipped it, not a second error channel.
+func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string) string {
 	if sandboxHome == "" {
 		sandboxHome = SandboxHome()
 	}
@@ -33,6 +53,7 @@ func SeatbeltProfile(workspace, sandboxHome string) string {
 		"    (subpath \"/var/folders\")\n" +
 		"    (subpath \"/private/var/folders\")\n" +
 		"    (subpath \"/dev\"))\n" +
+		readonlyDenies(workspace, readonlyRels) +
 		"\n" +
 		";; --- Volumes: deny reads except the boot volume ---\n" +
 		"(deny file-read* (subpath \"/Volumes\"))\n" +
@@ -65,6 +86,41 @@ func SeatbeltProfile(workspace, sandboxHome string) string {
 		";; --- Process introspection the agent's tooling needs ---\n" +
 		"(allow process-info*)\n" +
 		"(allow sysctl-read)\n"
+}
+
+// readonlyDenies renders the config.workspace_readonly block: one
+// `(deny file-write* (subpath "<ws>/<rel>"))` per entry, or "" when there are
+// none, so a profile without the key is byte-identical to the one this backend
+// emitted before the key was wired.
+//
+// Placed immediately after the writable-set allow rather than at the end of the
+// profile: both positions are correct (nothing later re-allows file-write*), and
+// keeping the whole write policy — deny all, allow the agent's set, re-deny the
+// carve-outs — readable as one unit is worth more than the freedom to append.
+func readonlyDenies(workspace string, rels []string) string {
+	if len(rels) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, rel := range rels {
+		rel = strings.TrimSpace(rel)
+		// Absolute or escaping entries are config errors caught upstream; drop
+		// them here rather than emitting a deny on a path outside the workspace,
+		// which would silently widen the profile instead of narrowing it.
+		if rel == "" || strings.HasPrefix(rel, "/") || rel == ".." ||
+			strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") ||
+			strings.HasSuffix(rel, "/..") {
+			continue
+		}
+		b.WriteString("    (subpath " + sbplStr(path.Join(workspace, rel)) + ")\n")
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "\n" +
+		";; --- config.workspace_readonly: host-executed paths the agent must not\n" +
+		";;     write.  Must follow the allow above — last match wins. ---\n" +
+		"(deny file-write*\n" + strings.TrimSuffix(b.String(), "\n") + ")\n"
 }
 
 // ancestorLiterals renders one `(literal "…")` line per INTERMEDIATE directory of

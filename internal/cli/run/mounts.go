@@ -54,13 +54,29 @@ func (o *Options) workspaceReadonlyMountArgs(cfg *jsonx.OrderedMap, rt string) [
 
 // venvShadowMountArgs builds per-side shadow mounts over
 // /workspace so derived state (venvs) never crosses the host↔jail boundary. The
-// shadow set is `.venv` ∪ the mise-config venv path ∪ config per_side_paths.
+// shadow set is `.venv` ∪ `node_modules` ∪ the mise-config venv path ∪ config
+// per_side_paths.
+//
+// `node_modules` joined the DEFAULT set on 2026-08-23, on the same correctness
+// argument that put `.venv` there and not on a security one: a node_modules
+// shared between a macOS host and a Linux jail is already broken for any package
+// with a native build (node-gyp output, .node binaries, platform-gated optional
+// deps), so the two sides were never able to share it safely. That it also closes
+// a host-execution channel — host-side tooling `require()`ing what the jail wrote,
+// invisibly, because node_modules is gitignored — is a side effect, and the
+// weaker of the two reasons. See docs/design/host-execution-from-the-workspace.md
+// §5.4 and §5.6 item 2.
+//
+// Root-level only, exactly like `.venv`: a monorepo's `packages/*/node_modules`
+// needs explicit per_side_paths entries. Cost of the default is one extra install
+// per side on first launch after the change, which is the same cost `.venv`
+// already imposes.
 // Backing dirs live under wsState/venv-shadows/ ("/" → "__"). Entries must be
 // relative, template-free workspace sub-paths (offenders skipped with a
 // warning); a host path that is a file or symlink is also skipped (a dir mount
 // over a non-dir aborts container creation). Directory mounts only.
 func (o *Options) venvShadowMountArgs(cfg *jsonx.OrderedMap, wsState string) []string {
-	rels := map[string]struct{}{".venv": {}}
+	rels := map[string]struct{}{".venv": {}, "node_modules": {}}
 	if miseVenv, ok := MiseConfigVenvPathFromDir(o.Workspace); ok && miseVenv != "" {
 		rels[miseVenv] = struct{}{}
 	}

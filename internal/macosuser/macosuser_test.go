@@ -9,7 +9,7 @@ import (
 // --- Unit tests for the macOS sandbox-user helpers ------
 
 func TestSeatbeltProfile(t *testing.T) {
-	p := SeatbeltProfile("/Users/Shared/proj", "")
+	p := SeatbeltProfile("/Users/Shared/proj", "", nil)
 	for _, want := range []string{
 		"(allow default)",
 		`(deny file-write* (subpath "/"))`,
@@ -68,7 +68,7 @@ func TestSeatbeltProfile(t *testing.T) {
 // re-allow reads of every SIBLING under it — for /Users/Shared/yolo that is every
 // other checkout in the same tree — which is the isolation this deny exists for.
 func TestSeatbeltGrantsWorkspaceAncestors(t *testing.T) {
-	p := SeatbeltProfile("/Users/Shared/yolo/yolo-jail", "")
+	p := SeatbeltProfile("/Users/Shared/yolo/yolo-jail", "", nil)
 	if !contains(p, `(literal "/Users/Shared/yolo")`) {
 		t.Errorf("intermediate ancestor /Users/Shared/yolo not granted; git ls-files "+
 			"cannot walk up to the repo boundary:\n%s", p)
@@ -92,7 +92,7 @@ func TestSeatbeltGrantsWorkspaceAncestors(t *testing.T) {
 // TestSeatbeltAncestorsForDeepWorkspace pins that EVERY intermediate level is
 // granted, not just the parent — a three-deep workspace needs both middle links.
 func TestSeatbeltAncestorsForDeepWorkspace(t *testing.T) {
-	p := SeatbeltProfile("/Users/Shared/a/b/c", "")
+	p := SeatbeltProfile("/Users/Shared/a/b/c", "", nil)
 	for _, want := range []string{
 		`(literal "/Users/Shared/a")`,
 		`(literal "/Users/Shared/a/b")`,
@@ -110,7 +110,7 @@ func TestSeatbeltAncestorsForDeepWorkspace(t *testing.T) {
 }
 
 func TestSeatbeltEscapesPath(t *testing.T) {
-	p := SeatbeltProfile(`/Users/Shared/a"b\c`, "")
+	p := SeatbeltProfile(`/Users/Shared/a"b\c`, "", nil)
 	if !contains(p, `\"`) || !contains(p, `\\`) {
 		t.Errorf("SBPL escaping absent: %q", p)
 	}

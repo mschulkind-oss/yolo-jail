@@ -515,8 +515,13 @@ func podmanLinuxGolden(home string) []string {
 	// devices/gpu/kvm: none. resources: podman always gets --pids-limit 32768.
 	add("--pids-limit", "32768")
 	// nvim/vscode/overmind/workspace_readonly: none.
-	// per-side venv shadow: .venv (host /ws/.venv absent → dir mount added).
+	// per-side shadows, sorted: .venv then node_modules (host paths absent → dir
+	// mounts added anyway, which is the same unconditional behaviour .venv has
+	// always had). node_modules joined the DEFAULT set on 2026-08-23 — see
+	// venvShadowMountArgs for why it is a correctness fix before it is a security
+	// one.
 	add("-v", wsState+"/venv-shadows/.venv:/workspace/.venv")
+	add("-v", wsState+"/venv-shadows/node_modules:/workspace/node_modules")
 	// user config mount: none (no ~/.config/yolo-jail/config.jsonc). MISE_DISABLE
 	// defaults to "pnpm".
 	add("-e", "MISE_DISABLE_TOOLS=pnpm")

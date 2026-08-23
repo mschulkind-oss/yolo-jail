@@ -147,6 +147,24 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// (the container path wires the same warn callback; a no-op here would
 	// silently drop the line).
 	out := printer{w: deps.Out, color: deps.Color}
+	// `per_side_paths` cannot be honoured here and must SAY so. Unlike
+	// `workspace_readonly` — whose policy this backend can express natively, and now
+	// does (SeatbeltProfile's readonlyRels) — a per-side path needs the host and the
+	// sandbox to see DIFFERENT contents at one path. That is a mount-namespace
+	// capability; Seatbelt filters permissions and cannot fork a path, so there is no
+	// SBPL spelling of it and no prospect of one.
+	//
+	// The warning matters more since 2026-08-23, when `node_modules` joined the
+	// DEFAULT shadow set (internal/cli/run/mounts.go): every Node workspace now gets
+	// a protection on the container backends that is absent here, with nothing in the
+	// config to hint at the difference. Shipping that silently would repeat exactly
+	// the defect the workspace_readonly wiring above exists to fix.
+	// See docs/design/host-execution-from-the-workspace.md §5.5.
+	if perSide := cfgStrList(opts.Config, "per_side_paths"); len(perSide) > 0 {
+		out.print("[yellow]Warning: per_side_paths is NOT enforced on macos-user[/yellow] — " +
+			"per-side shadowing needs a mount namespace and this backend has none, so " +
+			"the host and the sandbox share these paths: " + strings.Join(perSide, ", "))
+	}
 	resolved := config.ResolveEnvSources(opts.Workspace, opts.Config, func(msg string) { out.print(msg) })
 	for _, k := range resolved.Keys() {
 		v, _ := resolved.Get(k)

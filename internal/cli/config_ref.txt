@@ -579,8 +579,21 @@
     Each entry is a relative path inside the workspace (no leading /, no ..).
     Mounted on top of the writable /workspace volume so agents cannot modify
     those paths. Use this to protect host-executed code that lives in the
-    workspace repo (e.g. the yolo-jail src/ directory itself).
+    workspace repo (e.g. the yolo-jail src/ directory itself), and the git and
+    agent control-plane files the host executes but `git diff` never shows you
+    (.git/hooks, .git/config, .git/info, .claude, .mcp.json).
     Example: ["src", "flake.nix", "Justfile"]
+    Example: [".git/hooks", ".git/info", ".claude", ".mcp.json"]
+    Note: locking .git/hooks WITHOUT .git/config is defeated by core.hooksPath,
+    which repoints hooks elsewhere -- lock the pair or neither.  Locking
+    .git/config costs `git push -u` and branching from a remote-tracking ref
+    (both write branch.*); `git push origin HEAD` and branching from a local
+    ref need no config write.  If you lock .git/hooks, give hooks somewhere
+    tracked to live first: `git config core.hooksPath .githooks`.
+    BACKENDS: enforced on podman.  Apple Container IGNORES :ro (a loud warning
+    is printed and the paths stay writable).  On macos-user there are no mounts
+    at all, so entries are rendered as `(deny file-write* (subpath ...))` lines
+    in the Seatbelt profile instead -- same policy, different mechanism.
 
   [bold]per_side_paths[/bold] (array of strings): Workspace sub-paths kept per side.
     Each entry is a relative path inside the workspace (no leading /, no ..).
@@ -588,10 +601,18 @@
     <workspace>/.yolo/home/venv-shadows/) shadow-mounted over it, so the
     host and the jail each see their own copy — for derived state that must
     not cross the host/jail boundary (interpreter symlinks, native builds).
-    ".venv" and the venv path configured in the workspace's mise.toml are
-    always shadowed automatically; list extra paths here (e.g. a workspace
-    .cargo).
-    Example: [".cargo"]
+    ".venv", "node_modules", and the venv path configured in the workspace's
+    mise.toml are always shadowed automatically; list extra paths here (e.g. a
+    workspace .cargo, or a monorepo's packages/*/node_modules -- the defaults
+    are root-level only).
+    Example: [".cargo", "packages/web/node_modules"]
+    Note: node_modules became a default on 2026-08-23.  A node_modules shared
+    between a macOS host and a Linux jail is already broken for any package
+    with a native build, so the two sides were never able to share it safely.
+    Expect one extra install per side on the first launch after upgrading.
+    BACKENDS: enforced on podman and Apple Container.  NOT enforced on
+    macos-user -- per-side shadowing needs a mount namespace and that backend
+    has none, so host and sandbox share these paths; a warning is printed.
 
   [bold cyan]NETWORKING: WHICH WAY IS WHICH[/bold cyan]
     Read this before writing any port key.  There are two directions, one key

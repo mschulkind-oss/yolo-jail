@@ -222,7 +222,7 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		Workspace:   workspace,
 		Cname:       cname,
 		ProfilePath: profilePath,
-		Seatbelt:    SeatbeltProfile(workspace, SandboxHome()),
+		Seatbelt:    SeatbeltProfile(workspace, SandboxHome(), cfgStrList(cfg, "workspace_readonly")),
 		StagedDir:   stateDir,
 		StagedYolo:  stagedYolo,
 		// Binary first, then the pack trees: both are prerequisites of the bootstrap
@@ -454,4 +454,26 @@ func sourceLessHostFilesWire(cfg *jsonx.OrderedMap) string {
 		return ""
 	}
 	return wire
+}
+
+// cfgStrList reads config[key] as a list of strings, dropping non-string
+// entries. The container path has its own copy (internal/cli/run/cfgval.go);
+// duplicating four lines is cheaper than exporting a config accessor across a
+// package boundary that otherwise shares nothing.
+func cfgStrList(cfg *jsonx.OrderedMap, key string) []string {
+	v, ok := cfg.Get(key)
+	if !ok || v == nil {
+		return nil
+	}
+	list, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, e := range list {
+		if s, ok := e.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
