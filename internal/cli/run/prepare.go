@@ -79,10 +79,13 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	resources := orderedMapToStrAny(cfgMap(cfg, "resources"))
 
 	// The one-time handoff: a fresh .yolo/handover.md pointer the host agent filed for
-	// this transition. Read + consume it here (host-side, deterministic, once per
-	// invocation) and surface it via the briefing; consumed once, so it never resurfaces
-	// as a stale task on a later launch.
-	handoff := consumeHandoff(o.Workspace)
+	// this transition, surfaced via the briefing and then consumed so it never resurfaces
+	// as a stale task. READ here, CONSUMED below — the two are deliberately split around
+	// the write loop, because consuming a handoff that was never written anywhere burns
+	// it for good. A jail with no briefing destination (no packs — run.go's
+	// warnIfNoPacks) writes zero briefings, and an unconditional consume ate the pointer
+	// on exactly the launch that could not deliver it.
+	handoff := readHandoff(o.Workspace)
 
 	in := jailcontent.BriefingInput{
 		Workspace:          o.Workspace,
@@ -113,6 +116,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// jail wrote NO briefing at all. It now follows declarations, so a pack always gets
 	// its briefing whether or not anything calls it an agent.
 	home := homeDir()
+	briefingsWritten := 0
 	for _, p := range loadedPacks {
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind != packdecl.KindBriefing {
@@ -125,7 +129,15 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 			if err := jailcontent.WriteBriefing(filepath.Join(staging, briefingStagingName(p.Name)), content); err != nil {
 				return "", err
 			}
+			briefingsWritten++
 		}
+	}
+
+	// Delivered, so consume: the handoff reached at least one briefing this launch and
+	// must not resurface as a stale task. With zero briefings written the pointer stays
+	// fresh for the launch that can actually carry it.
+	if handoff != "" && briefingsWritten > 0 {
+		o.noteHandoffConsumed()
 	}
 	_ = rt
 	return staging, nil
@@ -365,28 +377,56 @@ func packSkillTargets(loadedPacks []*packload.Pack) []jailcontent.SkillTarget {
 	return out
 }
 
-// consumeHandoff reads <workspace>/.yolo/handover.md if present, renames it to
-// <workspace>/.yolo/handover.md.consumed, and returns its content. Returns "" when
-// there is no handoff this launch.
-//
-// The rename (not delete) leaves a visible "already handed off" state, and it is what
-// makes the carry-in one-time: a present pointer is fresh, a consumed one is done, so a
-// later launch surfaces no handoff and the task comes from the user. Called from
-// refreshJailBriefings, which runs host-side once per invocation — deterministic, not
-// agent self-erasure — so the pointer is consumed exactly once, on the first launch
-// after it is written.
-//
-// The rename is best-effort: if it fails (a read-only .yolo, say), the handoff still
-// surfaced this launch; the only cost is it resurfaces next launch too, which is the
-// pre-consumption behavior and never loses the task.
-func consumeHandoff(workspace string) string {
-	const name = "handover.md"
-	dir := filepath.Join(workspace, ".yolo")
-	path := filepath.Join(dir, name)
-	data, err := os.ReadFile(path)
+// handoffPointer is the per-workspace file the host agent files to carry a one-time task
+// across the boundary, and handoffConsumed is where it moves once a briefing has carried
+// it (docs/design/host-to-jail-handoff.md).
+const (
+	handoffPointer  = "handover.md"
+	handoffConsumed = handoffPointer + ".consumed"
+)
+
+// readHandoff returns the content of <workspace>/.yolo/handover.md, or "" when the host
+// filed no handoff for this launch. Reading does not consume — see consumeHandoff.
+func readHandoff(workspace string) string {
+	data, err := os.ReadFile(filepath.Join(workspace, ".yolo", handoffPointer))
 	if err != nil {
 		return ""
 	}
-	_ = os.Rename(path, filepath.Join(dir, name+".consumed"))
 	return string(data)
+}
+
+// consumeHandoff renames <workspace>/.yolo/handover.md to handover.md.consumed and
+// reports whether it did. This is what makes the carry-in one-time: a present pointer is
+// fresh, a consumed one is done, so a later launch surfaces no handoff and the task comes
+// from the user. Renaming rather than deleting leaves a visible "already handed off"
+// state that a human can undo.
+//
+// Called from refreshJailBriefings — host-side, deterministic, not agent self-erasure —
+// and only AFTER a briefing carrying the handoff was actually written. Consuming ahead of
+// the write is the failure that loses a handoff outright: a jail with no briefing
+// destination renders the section nowhere and would still have burned the pointer.
+//
+// The rename is best-effort in the other direction too: if it fails (a read-only .yolo,
+// say), the handoff still surfaced this launch and resurfaces on the next one — the
+// pre-consumption behavior, which is noisy but never loses the task.
+func consumeHandoff(workspace string) bool {
+	dir := filepath.Join(workspace, ".yolo")
+	return os.Rename(filepath.Join(dir, handoffPointer), filepath.Join(dir, handoffConsumed)) == nil
+}
+
+// noteHandoffConsumed consumes the pointer and says so on stderr.
+//
+// The notice is the cheap half of a residual this design cannot close: core has no agent
+// concept (AGENTS.md), so it cannot tell `yolo -- claude` from `yolo -- bash`, and a
+// briefing written for a shell burns the handoff just as thoroughly as one written for an
+// agent. Rather than invent an agent test to guess at intent, the launch that consumes a
+// handoff says which file it took and how to put it back — a burn stays recoverable, and
+// is visible at the moment it happens instead of being discovered by an agent that never
+// got its task.
+func (o *Options) noteHandoffConsumed() {
+	if !consumeHandoff(o.Workspace) {
+		return
+	}
+	o.pr(o.Stderr).printf("[dim]Handoff: .yolo/%s surfaced in this jail's briefing and consumed "+
+		"(restore with `mv .yolo/%s .yolo/%s`).[/dim]", handoffPointer, handoffConsumed, handoffPointer)
 }
