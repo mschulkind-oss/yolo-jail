@@ -1,9 +1,80 @@
 # Plan: macOS revival + source-distribution fix (post-ejection)
 
-**Date:** 2026-07-21. **Status:** J1.1–J1.4, D1, D2, D3, J2, J3, Track M
-(M0/M1/M2) landed; D4 substituter enabled (`flake.nix:13-16`, `730c258`), only
-the Cachix account/token + first push + Mac download human-gated; nothing
-engineering-side fully open.
+**Status:** IN PROGRESS — restamped **2026-08-23** (written 2026-07-21; body
+below is the original plan except where a dated annotation says otherwise).
+Tracks J and M are done. Track D's engineering is done, but **two of its four
+steps were later reverted or superseded** and the header this line replaces did
+not say so. **A2 and Track L part 1 are still open**, so that header's closing
+claim — *"nothing engineering-side fully open"* — was **false**; it is retracted
+in §*Retracted claims* below.
+
+**The short version.** The revival landed: macos-user is a real, real-HW-proven
+backend and the distribution regression is closed by a baked prebuilt bundle
+rather than by the source bundle this plan designed. What is left is not a
+track, it is **two loose ends** — A2's hard-error half, and the loophole
+framework on the macos-user launch path — plus a pile of Mac-gated *proofs* that
+no Linux jail can perform.
+
+> [!WARNING]
+> **Two reversals live inside the track descriptions below, not in this header.**
+> **D2 was REVERTED on 2026-07-29** (`5d34dece`) — a missing repo root is FATAL
+> again on the container backends. Do not read the D2 "DONE" record as current;
+> see §Track D / D2. And **D1's `repo_path` config key was RETIRED on
+> 2026-07-23** (`20a8ce9f`) — `just install` no longer writes it
+> (`Justfile:102`), `internal/config/inherit.go:198` marks it `RETIRED`, and
+> `internal/config/validate.go:138-152` tolerates it with a deprecation warning
+> only. Verified 2026-08-23.
+
+**Track status, verified against the tree 2026-08-23.** Every row was checked by
+reading code or `git log`; nothing here is carried over on trust.
+
+| Item | Verdict | Evidence (checked 2026-08-23) |
+| :--- | :--- | :--- |
+| J1.1, J1.2, J1.4 | **landed** | see §J1 |
+| J1.3 (builder reaping) | **landed, then DELETED with its host** | `internal/builder` no longer exists — Open Decision #3, 2026-07-23 |
+| J2 (Go bootstrap) | **landed** | §J2 statuses; `internal/macosuser` is Python-free |
+| J3 (container builder) | **landed** | `8abb67ce` + `c2f0b941`; `internal/image/autoload.go:13,59,219` imports and calls `containerbuilder` through `BuildOffload` |
+| D1 (`repo_path`) | **landed, then RETIRED 2026-07-23** | `20a8ce9f`; `Justfile:102`; `internal/config/inherit.go:198` |
+| D2 (graceful degradation) | **landed 2026-07-21, REVERTED 2026-07-29** | `8f1d612`/`07975c88` in, `5d34dece` out; regression `internal/cli/run/reporoot_fatal_test.go` |
+| D3 (source bundle) | **landed 2026-07-20, SUPERSEDED 2026-07-23** | prebuilt-bundle cutover; `internal/reporoot`, `flake.nix` `installPrefix` |
+| D4 (Cachix) | **substituter live; the human half is PART done** | `flake.nix:13-16` (`730c258`); `--accept-flake-config` on every nix call — `internal/image/nixflags.go:35`, `internal/darwinpkg/darwinpkg.go:91` |
+| Track M (M0/M1/M2) | **landed 2026-07-21 on real HW; M2's dogfood has since lapsed** | see the M-track note below |
+| A1 (config-diff on macos-user) | **DONE 2026-08-18, by the rejected alternative** | `bb825486`, `fb19e8ed`; `internal/cli/run/run.go:144` |
+| A2 (hard error + `linux-only`) | **HALF DONE — still open** | flake half landed (`flake.nix:1210` `yoloUnavailablePackages`); the error is still **warn-and-skip** at `internal/macosuser/orchestrator.go:258-268`, and `EffectivePackages` still has **no** platform conditional (`internal/config/derived.go:15-28`) |
+| A3 (drop `macos_shared_root`) | **DONE 2026-07-23** | `68026c61`; `rg macos_shared_root internal/` is empty; message at `internal/macosuser/runplan.go:286` |
+| Track L part 1 (framework plumbing) | **NOT STARTED** | `startLoopholesDisclosed` is called once, at `internal/cli/run/run.go:569`, inside `runContainer` (`run.go:308`); `macosuser.EndpointGrantCommands` (`macosuser.go:430`) has **zero call sites** |
+| Track L part 2 (scoping proxy) | **BLOCKED on OQ-L1** | unchanged |
+
+**D4, stated honestly.** The substituter is live and the flake's own cache is
+honored on every nix invocation. `handoff-cachix-cache.md` records the cache,
+the account and the `CACHIX_AUTH_TOKEN` secret as **all done (2026-07-20)** — so
+the old header's "Cachix account/token … human-gated" is stale. What remains is
+the **first push** and the **Mac download proof**. Two sibling docs disagree
+about the first of those: `docs/plans/README.md:31` says *"CI has already pushed
+data"*, while `handoff-cachix-cache.md` still lists the first push as remaining.
+**Neither is checkable from this Linux jail** — it needs a look at the Cachix
+cache or a release run — so both spellings are recorded rather than one being
+picked.
+
+**Track M, stated honestly.** M0/M1/M2 were genuinely verified on real Apple
+Silicon on 2026-07-21 and that proof stands *for what it tested*. It is no
+longer a description of that machine: measured 2026-08-19, the Mac's installed
+`yolo` was **531 commits stale** and its `~/.config/yolo-jail/config.jsonc`
+still used the **removed `agents` key**, so no current `yolo` launches there on
+any backend. M2's "Mac agent sessions run under macos-user" is therefore true of
+the 07-21 build and not of today's. See `roadmap.md`'s 🔒 macOS rows.
+
+### Retracted claims
+
+- **⚠ Retracted (2026-08-23): "nothing engineering-side fully open."** Written
+  2026-07-21 and false by its own §"Active work", which listed A1/A2/A3 as live
+  on 2026-07-23. A2 is still open today (row above). The claim was a summary of
+  the *tracks*, and it silently annexed the A-items.
+- **⚠ Retracted (2026-08-23): the header's flat "D1, D2, D3 … landed."** All
+  three landed and then moved: D1 retired, D2 reverted, D3 superseded. A "landed"
+  with no half-life is what let `docs/plans/README.md:30` still assert "D2
+  landed" a month after the revert.
+
 **Inputs:** `docs/research/repo-root-and-distribution.md` (the source-access
 work), `docs/design/macos-no-vm-direction.md` (the settled "compose both
 backends" direction), `docs/research/macos-support-matrix.md` (the status
@@ -35,6 +106,14 @@ macos-user backend, at which point SandVault retires.
   `internal/darwinpkg`) — the direction docs' "devShell / print-dev-env"
   wording was superseded in the Python era (commit `4751f05`); a doc-hygiene
   pass should note that, the decision itself stands.
+  **Names and lines moved (verified 2026-08-23), the bar did not.** The attr is
+  now `packages.yoloNoncontainerPackages` (`flake.nix:1204`, `darwinpkg.ProfileAttr`
+  at `internal/darwinpkg/darwinpkg.go:30`), and *"aarch64-darwin"* is no longer
+  hardcoded anywhere in `internal/darwinpkg` — `NativeSystem()` derives the nix
+  double from `runtime.GOOS`/`GOARCH` (`darwinpkg.go:46-55`), which explicitly
+  replaced a `DarwinSystem = "aarch64-darwin"` constant. So the bar should now
+  be read as *"native nix for the system the Mac actually is"* — an Intel Mac is
+  in scope, and that is exactly the assumption class BACKLOG E8 was made of.
 - Settled: mise stays as-is; Seatbelt is the accepted isolation level;
   sandbox-exec deprecation is an accepted long-term risk.
 - **One settled decision diverged in shipping** (Open Decision #5): the docs
@@ -53,6 +132,10 @@ macos-user backend, at which point SandVault retires.
 
 ## Active work — decided 2026-07-23 (do these now)
 
+> **Status recheck 2026-08-23: A1 ✅ · A2 ⚠ HALF DONE · A3 ✅.** Only A2 is
+> still live, and only its *second* half. Verdicts and evidence are per-item
+> below; the header table carries the same rows.
+
 Three items promoted from the "Open items" list in
 [macos-user-nix-and-features.md](../design/macos-user-nix-and-features.md) once
 the maintainer resolved them. All three are pure-Go / flake-only and
@@ -60,6 +143,28 @@ Linux-jail-developable + testable; none needs Mac hardware. Do them before any
 remaining fallback/roadmap work below.
 
 ### A1. Config-diff approval prompt on the macos-user path (security fix)
+
+> **DONE 2026-08-18** (`bb825486` *the approval gate reaches the macos-user
+> backend too*, plus `fb19e8ed` *a call is not a gate*). Verified 2026-08-23 at
+> `internal/cli/run/run.go:144`.
+
+> [!WARNING]
+> **It shipped by the alternative this plan REJECTED, and the rejection was
+> wrong.** The text below recommends hoisting `checkConfigChanges` above the
+> runtime split and calls "call it inside the macos-user handler" an invitation
+> to per-path drift. What shipped is the second one — the arm's own call site —
+> because the two paths are **not** symmetric: the container arm gates the
+> **fresh-launch** path only, since attaching to a running jail deliberately
+> skips the check (the container was already started with its config), and
+> macos-user **has no attach**. A hoist would therefore have made attach start
+> prompting. The reasoning is preserved in the code comment at
+> `internal/cli/run/run.go:130-144`; do not "fix" it back to a hoist.
+> Two further details worth keeping: `--dry-run` is exempt (it launches
+> nothing, and refusing a plan render would hide the very diff a user asked to
+> inspect), and `fb19e8ed` exists because the first version of this gate was
+> pinned by a test that a bare `_ = o.checkConfigChanges(cfg)` mutation walked
+> straight through — *a call is not a gate*
+> (`internal/cli/run/configapproval_test.go:214-236`).
 
 > **Decided 2026-07-23: fix it.** (Was J4.) The threat model relies on this prompt
 > as the Vector A mitigation; macos-user is the one backend where the poisoned
@@ -82,6 +187,33 @@ unit-testable; land threat-model H3 (surface the resolved `repoRoot` in the diff
 opportunistically if cheap. Closes Open item #2 in the design doc.
 
 ### A2. Darwin-unavailable packages: hard error + per-platform `linux-only` overrides
+
+> **⚠ HALF DONE — this is the one open engineering item in the plan. Rechecked
+> 2026-08-23.**
+>
+> - **Piece 1 (aggregated hard error): NOT BUILT.** The shipped behaviour is
+>   still **warn-and-skip**, at `internal/macosuser/orchestrator.go:258-268` —
+>   *"Skipped packages with no `<system>` build … an unknown attr is skipped, not
+>   errored, because a hard error would abort the whole eval."* That parenthetical
+>   is arguing the *original* in-code objection, which A2 already answered:
+>   raise the error **host-side, after the eval**, from the returned skip list.
+> - **Piece 2 (`platforms` / `linux-only` override): NOT BUILT.**
+>   `internal/config/derived.go:15-28` `EffectivePackages` still takes no target
+>   platform and has no platform conditional. `rg -n 'platforms' internal/config`
+>   is empty.
+> - **What DID land, and changes the target's spelling:** the flake side was
+>   rebuilt system-neutral. `darwinUnavailablePackages` is gone; the attr is now
+>   `yoloUnavailablePackages` (`flake.nix:1210`, exposed as
+>   `darwinpkg.UnavailableAttr`, `internal/darwinpkg/darwinpkg.go:31`) and the
+>   profile is `yoloNoncontainerPackages` (`flake.nix:1204`,
+>   `darwinpkg.ProfileAttr`). `internal/darwinpkg/flakeattr_test.go:55` pins both
+>   old names as **dead**. The paragraph below still says
+>   `darwinUnavailablePackages` and `orchestrator.go:216-223`; read those as the
+>   2026-07-23 spelling — the *mechanism* it describes (flake filters, CLI
+>   decides) is unchanged, only the attr names and line numbers moved.
+>
+> **Also still true:** the darwin no-build path has never been exercised on Mac
+> hardware, so the Track M checklist line this item asks for is still unwritten.
 
 > **Decided 2026-07-23: implement the designed behavior** (resolves Open Decision
 > #5 in favor of the written design, retiring the shipped warn-and-skip). A silently
@@ -123,6 +255,12 @@ Update `internal/macosuser/orchestrator.go`, the e2e runbook (which currently
 item #4 in the design doc.
 
 ### A3. Drop `macos_shared_root` from the plan-invariant error message
+
+> **DONE 2026-07-23** (`68026c61` *drop dead macos_shared_root hint from
+> plan-invariant error*). Verified 2026-08-23: `rg -n macos_shared_root
+> internal/` returns nothing, and the surviving message at
+> `internal/macosuser/runplan.go:286` reads only *"Move it under
+> `SharedRootDefault()`"*. The key was never wired, as decided.
 
 > **Decided 2026-07-23: drop the mention, do not implement the key.**
 > `/Users/Shared/yolo` is the OS-blessed neutral location and covers the real need;
@@ -387,6 +525,10 @@ options are complementary; sequence them:
    packaging bug was caught (reproduced against goreleaser built from source) and
    fixed. D2 landed 2026-07-21 (`8f1d612`); only D4's human-gated Cachix
    account/push/download remains in Track D.
+   **⚠ Both halves of that last sentence are stale (checked 2026-08-23).** D2
+   was reverted on 2026-07-29 (`5d34dece`, see D2 above), and D4's Cachix
+   *account* is done — what remains there is the first push + the Mac download
+   proof.
    **Superseded (2026-07-23) by the prebuilt-bundle cutover.** The source-tree /
    `git archive` bundle and `stageInstalledWheel` FLAT staging (and the
    `nix-build-root` staging dir) are **gone**. The shipped/baked bundle is now
@@ -400,7 +542,10 @@ options are complementary; sequence them:
    (`docs/research/repo-root-and-distribution.md` is authoritative):
    - Define the bundled layout: `share/yolo-jail/` must contain the `goSrc`
      fileset the flake needs (`flake.nix:65-80`: go.mod, go.sum, `vendor/`,
-     `cmd/`, `internal/`, `bundled_loopholes/`) **plus** `flake.nix`/
+     `cmd/`, `internal/`, `bundled_loopholes/` — *that last entry no longer
+     exists; the directory and its embed were deleted 2026-08-19 when every
+     loophole became a pack contribution, and `packs/` took its place in the
+     fileset*) **plus** `flake.nix`/
      `flake.lock`. Simplest producer is `git archive` of the full tracked
      tree — a superset of the fileset, measured ~9.9MB raw with vendor/ at
      ~7.4MB; prune to the fileset pathspecs if size matters. (vendor/ is
@@ -425,6 +570,17 @@ options are complementary; sequence them:
    are configured (`publish.yml:83-102`), so remaining D4 = human Cachix
    account + `CACHIX_AUTH_TOKEN` secret + first push + Mac download. Removes
    the compile; composes with D3 (flake evaluation still needs a local tree).
+   **Rechecked 2026-08-23 — the gate has narrowed.** The substituter block is
+   still live at `flake.nix:13-16`, and yolo now passes `--accept-flake-config`
+   on every nix invocation so the flake's own cache is actually consulted
+   (`internal/image/nixflags.go:35`, `internal/darwinpkg/darwinpkg.go:91`).
+   `handoff-cachix-cache.md` records the **cache, the account and the
+   `CACHIX_AUTH_TOKEN` secret as all done (2026-07-20)** — so "gated on the
+   Cachix account" is no longer true. Left: the **first push** and the **Mac
+   download proof**. Sources disagree on the first (`docs/plans/README.md:31`
+   says CI has already pushed; `handoff-cachix-cache.md` still lists it as
+   remaining) and **neither is verifiable from a Linux jail** — it needs eyes on
+   the cache or on a release run.
 
 D1 is a today-sized commit. D2 pairs naturally with J2 step 3 (both touch the
 run front door and the RepoSrc contract). D3 is independent and jail-testable
@@ -450,6 +606,26 @@ privileged one-shots and pastes output back.
 Apple Silicon (macOS 26.5).** Recipe + e2e results:
 [runbooks/mac-sandvault-session.md](runbooks/mac-sandvault-session.md) (§6b).
 The bullets below are the original plan; see that runbook for what actually ran.
+
+> [!WARNING]
+> **M2's dogfood flip has lapsed on the machine that proved it (measured
+> 2026-08-19).** The 07-21 proof is real and stands for the build it tested; it
+> is not a description of that Mac today. Its installed `yolo` was **531 commits
+> stale** and its `~/.config/yolo-jail/config.jsonc` still uses the **removed
+> `agents` key**, so every current `yolo` — on every backend, including `yolo
+> check` — refuses with the config-invalid fatal. All four names it selects
+> (`claude`, `pi`, `codex`, `agy`) exist as packs, so the fix is renaming the key
+> to `packs` and nothing else. **Not applied — the maintainer's config.**
+>
+> What the 2026-08-19 session *did* prove, by extracting the profile a real
+> `--dry-run` emits and running the work under `sandbox-exec`: the **Seatbelt
+> confinement half is done**. `go build ./...`, the full `go test -short ./...`
+> and `just test-fast` all pass inside it; host SSH keys, `~/.claude`, `~/.aws`,
+> `~/.dotfiles` and the keychains are all `Operation not permitted`. What is
+> **not** proven end-to-end is the launch itself — the `sudo -u _yolojail` +
+> bootstrap path around that confinement. See
+> [`handoff-guest-notch-macos.md`](handoff-guest-notch-macos.md) §2 and
+> `roadmap.md`'s 🔒 macOS rows.
 
 - **M0 — bootstrap (human, ~30 min):** on the Mac: nix (flakes) + a git
   checkout with its own push credentials (deploy key — host creds stay
@@ -488,6 +664,26 @@ The bullets below are the original plan; see that runbook for what actually ran.
 > **Status: NOT STARTED.** Not sequenced into the J/D/M ladder — this is a
 > forward-looking capability, not a revival blocker. Recorded 2026-07-23 from the
 > `macos-user-nix-and-features.md` §3.5 discussion.
+>
+> **Still NOT STARTED, rechecked 2026-08-23.** The loophole host-service
+> lifecycle is called exactly once, at `internal/cli/run/run.go:569`
+> (`startLoopholesDisclosed`), which is inside `runContainer`
+> (`internal/cli/run/run.go:308`) — so the macos-user arm, which returns above
+> it, starts no host service at all. One primitive of part 1 was built ahead of
+> the rest and is **uncalled**: `macosuser.EndpointGrantCommands`
+> (`internal/macosuser/macosuser.go:430`) grants the sandbox uid READ on a
+> published endpoint file by ACE, and `rg -n EndpointGrantCommands` finds no
+> non-test caller.
+
+> [!WARNING]
+> **The "three bundled loopholes" framing below is superseded, and the count is
+> wrong now.** As of 2026-08-19 `bundled_loopholes/` is deleted and every
+> loophole is a **pack** contribution — `audio`, `host-processes`, `journal` and
+> `cgroup-delegate` are packs of their own, and `claude-oauth-broker` is
+> contributed by `packs/claude`. The paragraph's *argument* survives the rename
+> intact (a native process makes `audio`/`host-processes` moot, and the shared
+> `/Users/_yolojail` home makes the OAuth broker redundant); only the noun
+> "bundled" and the number "three" are stale. See `AGENTS.md`.
 
 The three *bundled* loopholes don't need porting to macos-user (see
 [macos-user-nix-and-features.md](../design/macos-user-nix-and-features.md) §3.5:
@@ -526,26 +722,44 @@ credential and never lets it cross into the jail.
 ## Sequencing at a glance
 
 ```
-DONE:  J1.1 J1.2 J1.3 J1.4  D1 ──►  J2.1 J2.2 J2.3 J2.4 + D2 ──► D3 ──► J3
-                              │                    │                      │
-mac:                          └─ M0 (SandVault)    └─ M1 (e2e verify) ──► M2 (dogfood, docs)
+DONE:  J1.1 J1.2 J1.3† J1.4  D1‡ ─►  J2.1 J2.2 J2.3 J2.4 + D2✗ ──► D3‡ ──► J3
+                               │                     │                       │
+mac:                           └─ M0 (SandVault)     └─ M1 (e2e verify) ──► M2 (dogfood, docs)
 
-NOW:   A1 (config-diff fix)   A2 (hard-error + linux-only)   A3 (drop shared_root msg)   ── all jail-side, independent
-LATER: Track L (loophole framework; part 2 gated on OQ-L1)
+DONE (A-track):  A1 ✅ 2026-08-18      A3 ✅ 2026-07-23
+NOW:             A2 ⚠ HALF — the aggregated hard error + `platforms` override are still unbuilt
+LATER:           Track L part 1 (framework plumbing on the macos-user launch path) — NOT STARTED
+                 Track L part 2 (the scoping proxy) — gated on OQ-L1
+
+† J1.3's fix landed and was then deleted with `internal/builder` (Open Decision #3).
+‡ D1's `repo_path` key was RETIRED 2026-07-23; D3's source bundle was SUPERSEDED by the prebuilt bundle.
+✗ D2 was REVERTED 2026-07-29 — a missing repo root is fatal again.
 ```
 
-The A-track items are the live work — independent, pure-Go/flake-only,
-Linux-jail-developable + testable. A2 carries a Track M checklist line (confirm
-the hard error fires live on a genuinely darwin-less package — never exercised on
-M1). Everything in the DONE row has landed.
+**The one live engineering item is A2's second half** — independent, pure-Go /
+flake-only, Linux-jail-developable + testable. It carries a Track M checklist
+line (confirm the hard error fires live on a genuinely darwin-less package —
+never exercised on M1). *The DONE row is "landed at some point", not "in the
+tree today": read the daggers.* Verified 2026-08-23.
 
 ## Open decisions (maintainer input wanted, none blocking J1/D1)
+
+> **Rechecked 2026-08-23: only #4 is genuinely open, and #5 is decided-but-not-shipped.**
+> #1 and #2 were settled by shipping rather than by a ruling — annotated in place
+> below; #3 was resolved and executed.
 
 1. **Bootstrap vehicle** — plan recommends self-staged `yolo` +
    `yolo internal darwin-bootstrap`; alternative is a subcommand on
    `yolo-entrypoint` (not in the host ship set — would change distribution).
+   **SETTLED BY SHIPPING (J2, 2026-07-21):** the self-staged `yolo` won.
+   `internal/macosuser` carries no Python interpreter machinery, and the host
+   ship set is still `{yolo}` alone (`AGENTS.md`). Verified 2026-08-23.
 2. **D3 bundle scope** — full `git archive` source bundle vs flake-eval-only +
    Cachix. Measure the archive first.
+   **MOOT (2026-07-23):** the prebuilt-bundle cutover chose neither. The shipped
+   bundle is `flake.nix` + `flake.lock` + prebuilt `bin/linux-<arch>/` binaries,
+   and the flake short-circuits on `builtins.pathExists ./bin/linux-<arch>` — no
+   source tree, no Go toolchain. See D3's superseded note above.
 3. **linux-builder VM** — **RESOLVED 2026-07-23: remove it entirely.** The
    container builder (J3, `internal/containerbuilder`) is proven on **both**
    runtimes — podman end-to-end in-jail and Apple Container on real HW
@@ -571,12 +785,28 @@ M1). Everything in the DONE row has landed.
    are rewired onto the container builder; user-facing docs reconciled.
 4. **MCP presets on native macOS** — skip-and-document (recommended) vs
    building darwin wrapper variants.
+   **STILL OPEN, and the tree took neither branch (found 2026-08-23).** J2 step 2
+   below says *"skip the container presets natively for now … document the gap
+   rather than fake darwin variants."* That is not what ships:
+   `internal/entrypoint/darwin.go:59` runs `GenerateMCPWrappers` as an
+   unconditional `genStep`, and the wrapper bodies are Linux-absolute —
+   `/usr/bin/chromium` (`mcp_wrappers.go:39`), `exec /bin/node`
+   (`mcp_wrappers.go:74`), `/etc/fonts/fonts.conf` (`:26-27`, `:72-73`) — with no
+   `GOOS` guard anywhere in the file. So a macos-user home gets three executable
+   wrappers pointing at paths that do not exist on macOS. **Harmless until
+   something execs one**, which is why it has not surfaced; the decision is now
+   *"skip, or port, or leave the dead wrappers and say so"* rather than the
+   two-way choice recorded in 2026-07.
 5. **Darwin-unavailable packages: warn-and-skip vs aggregated error** (see
    §0) — the written decision says error + per-platform `packages` overrides;
    the shipped code warn-and-skips and the overrides were never built.
    **RESOLVED 2026-07-23 in favor of the written design:** implement the
    aggregated hard error + a per-platform `linux-only` override. Now tracked as
    **A2** in the "Active work" section above.
+   **⚠ Decided but NOT SHIPPED, rechecked 2026-08-23.** The code still
+   warn-and-skips (`internal/macosuser/orchestrator.go:258-268`) and the override
+   does not exist (`internal/config/derived.go:15-28`). This is the one decision
+   in this list whose ruling the tree does not yet reflect.
 
 ## Open questions (blocking)
 
@@ -596,10 +826,33 @@ M1). Everything in the DONE row has landed.
 
 ## Risks / watch items
 
-- OQ-1 (path_helper) stays the headline unknown until M1 — the login-rc fix
-  is ported byte-for-byte but its runtime effect has never been observed.
-- SandVault's profile may block nix-daemon or AC access (M0 smoke test
-  decides the inside/outside split; worst case the human column grows).
-- `dscl` empty-password semantics (finding 6) unknown until M1.
-- sandbox-exec deprecation and AC's non-reclaiming memory ballon: accepted,
-  on record, no action.
+> **Rechecked 2026-08-23.** The first three closed on real hardware in M1
+> (2026-07-21); the fourth stands, and two new ones have joined it.
+
+- ~~OQ-1 (path_helper) stays the headline unknown until M1~~ — **CLOSED
+  2026-07-21 on real HW.** The login-rc PATH re-prepend holds: `which just` →
+  `/nix/store/…/bin/just`, not Homebrew's `/usr/local/bin`. Recorded in
+  `../research/macos-support-matrix.md` §5 item 2.
+- ~~SandVault's profile may block nix-daemon or AC access~~ — **CLOSED
+  2026-07-21** (M0 passed; recipe in `runbooks/mac-sandvault-session.md`). And
+  as of 2026-08-19 the successor question is answered too: yolo's **own**
+  Seatbelt profile runs `go build ./...`, the full `go test -short ./...` and
+  `just test-fast`, and reaches the nix daemon (`Trusted: 1`).
+- ~~`dscl` empty-password semantics (finding 6) unknown until M1~~ — **CLOSED
+  2026-07-21**: the password is actually set (matrix §1).
+- **sandbox-exec deprecation and AC's non-reclaiming memory balloon:** accepted,
+  on record, no action. *(Unchanged.)*
+- **NEW — `x86_64-darwin` is on a clock.** nixpkgs 26.11 has **dropped** it, so
+  the flake pins `nixpkgs-26.05-darwin` for that one system (`flake.nix:22-42`,
+  `927fb9f`). 26.05 is the last supporting branch and is security-fixed only to
+  **end of 2026**. The macOS nightly must run on `macos-26-intel`
+  (`.github/workflows/nightly-macos.yml:50`) because GitHub's Apple Silicon
+  runners cannot nest a VM for Podman Machine — so when 26.05 lapses the choice
+  is a self-hosted arm64 Mac runner or macos-user-only macOS tests. A deadline,
+  not a bug.
+- **NEW — the Mac that proved Track M has drifted off the product.** At
+  2026-08-19 its installed `yolo` was 531 commits stale and its config still
+  used the removed `agents` key, so no current `yolo` launches there. The next
+  Mac session starts with that config rename, or nothing else in this plan can
+  be re-measured. **Not applied — the maintainer's config, the maintainer's
+  call.**
