@@ -21,11 +21,16 @@ identity for the supported agents across the three backends (`podman`,
 > (`git log -- packs/gemini` is empty; `ls packs/` verified 2026-08-23). The six
 > packs that install an agent are **`claude`, `copilot`, `opencode`, `pi`,
 > `codex`, `agy`**; the other four shipped packs (`audio`, `host-processes`,
-> `journal`, `cgroup-delegate`) install no CLI at all. Gemini survives in the
-> tree only as log-dir names `yolo prune` sweeps
-> (`internal/prune/agentlogs.go:22-26`) and one comment in
-> `internal/agentcfg/builtin.go:106`. §4's matrix keeps its gemini row, annotated
-> — see the note there.
+> `journal`, `cgroup-delegate`) install no CLI at all.
+>
+> **The gemini AGENT is gone; the gemini PATH is not, and this passage understated that until
+> 2026-08-23.** It said gemini survives "only as log-dir names and one comment". In the live tree:
+> `Env.GeminiDir()` is a real exported method (`internal/entrypoint/env.go:280-283`) whose own
+> comment says the agent was removed but the *directory* is agy's home;
+> `Env.AgyDir()` is built on top of it (`:289`); `packs/agy/pack.json` carries eleven live
+> `~/.gemini/…` paths; and `yolo prune` sweeps a third log dir the old anchor omitted
+> (`internal/prune/prunecmd.go:603`, `gemini-cli/logs`). §4's matrix keeps its gemini row,
+> annotated as the shape such a pack would take — see the note there.
 **Reads with:**
 [jail-home.md](jail-home.md) (how `/home/agent` is composed, where creds land),
 [identity-prism-decision.md](identity-prism-decision.md) (the git-identity
