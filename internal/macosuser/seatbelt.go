@@ -88,10 +88,14 @@ func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string) strin
 		"(allow sysctl-read)\n"
 }
 
-// readonlyDenies renders the config.workspace_readonly block: one
-// `(deny file-write* (subpath "<ws>/<rel>"))` per entry, or "" when there are
-// none, so a profile without the key is byte-identical to the one this backend
-// emitted before the key was wired.
+// readonlyDenies renders the config.workspace_readonly block: ONE
+// `(deny file-write* …)` form carrying one `(subpath "<ws>/<rel>")` clause per
+// entry, or "" when there are none, so a profile without the key is
+// byte-identical to the one this backend emitted before the key was wired.
+//
+// The "one deny per entry" spelling this comment carried until 2026-08-23 was
+// wrong, and it had already been copied into
+// docs/research/macos-support-matrix.md before anyone read the body.
 //
 // Placed immediately after the writable-set allow rather than at the end of the
 // profile: both positions are correct (nothing later re-allows file-write*), and

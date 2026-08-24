@@ -485,11 +485,15 @@ func pluginNameCollisions(packs []*Pack) []Collision {
 //
 // EXPORTED for the same reason ConfigSurfaceCollisions is: the launch pre-flight refuses
 // THIS collision specifically rather than Collisions() wholesale (a `launch` clash, for
-// instance, is documented later-wins there). That pre-flight — and the RESERVED-name half
-// it also needs, which cannot be expressed over []*Pack because a bundled loophole is not
-// a Pack — is loophole-packaging.md's item 5b and is not wired here. Until it is,
-// `pack footprint` and `pack lint` are the only readers: a collision between two packs is
-// reported and not yet fatal at launch.
+// instance, is documented later-wins there). That pre-flight IS wired now — a collision
+// between two packs is FATAL at launch (`PackLoopholeNameConflicts`, the FOURTH launch
+// pre-flight, called at internal/cli/run/packs.go:313) — so this function is no longer the
+// only reader; `pack footprint` and
+// `pack lint` report the same collision earlier and non-fatally.
+//
+// The RESERVED-name half it once also needed is GONE rather than built: there is no
+// reserved loophole namespace left (`internal/paths/paths.go`), so exclusivity across
+// packs is the whole rule. This comment said "not yet fatal at launch" until 2026-08-23.
 func LoopholeNameCollisions(packs []*Pack) []Collision {
 	byName := map[string]map[string]struct{}{}
 	var order []string

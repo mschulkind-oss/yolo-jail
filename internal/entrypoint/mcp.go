@@ -79,8 +79,13 @@ func (e *Env) chromeDevtoolsArgs() []any {
 
 // LoadMCPServers presets (opt-in via
 // YOLO_MCP_PRESETS) merged with YOLO_MCP_SERVERS (overrides / additions /
-// null-removals), requires_env gating, then ${VAR} interpolation of env values.
+// null-removals), then requires_env gating.
 // Returns an OrderedMap whose key order follows insertion order.
+//
+// NO ${VAR} INTERPOLATION HAPPENS HERE. This line used to claim it did; the
+// interpolation was REMOVED on 2026-08-03 by ruling, and the file header (see
+// the block at the top of this file) says why and why not to add it back.
+// yolo writes the literal ${VAR} and the consuming agent resolves it.
 func (e *Env) LoadMCPServers() *jsonx.OrderedMap {
 	mcpWrappers := e.McpWrappersBin()
 	npmBin := e.NpmBin()
