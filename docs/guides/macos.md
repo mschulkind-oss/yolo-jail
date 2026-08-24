@@ -1,6 +1,11 @@
 # macOS Setup Guide
 
-**Status:** REFERENCE — user-facing setup guide. **Spot-verified 2026-08-23:**
+**Status:** REFERENCE — user-facing setup guide. **Backend-parity sweep 2026-08-24:**
+[Limitations](#limitations) now carries a disabled-feature table for **each** of the two
+macOS-native backends, so the choice between them can be made by reading rather than by
+launching. Those two tables cite `file → function` rather than `file:line`, on purpose:
+the previous revision's `assemble_parts.go:83` had drifted ~30 lines, and every row in a
+table that outlives a refactor will drift the same way. **Spot-verified 2026-08-23:**
 the three backends and their auto-detection order (`internal/cli/run/preflight.go:90-133`
 — macOS tries `container` then `podman`; `macos-user` is opt-in only,
 `internal/paths/paths.go:27`); the `macos-*` command family
@@ -43,13 +48,16 @@ backend.
 
 | Runtime | What it is | Choose it for |
 |---------|------------|---------------|
-| **Podman** | Linux container in a Podman Machine VM | The portable default; Podman-in-Podman; parity with Linux hosts |
-| **Apple Container** | Linux container, one lightweight VM per container | Per-container CPU/memory limits, native socket forwarding (macOS 15+) |
-| **macos-user** | Native macOS user + Seatbelt, **no VM, no image** | Fastest startup; no container runtime to install; `packages:` via native darwin nix. Weaker isolation than a VM (Seatbelt, no cgroups) — see [Trade-offs](#macos-user-trade-offs) |
+| **Podman** | Linux container in a Podman Machine VM | The portable default; Podman-in-Podman; **full feature parity with Linux hosts** — nothing in [Limitations](#limitations) is skipped for backend reasons |
+| **Apple Container** | Linux container, one lightweight VM per container | Per-container CPU/memory limits, native socket forwarding (macOS 15+). Drops loopholes, context mounts and read-only protection — see [what it does not do](#apple-container-runtime-container--what-it-does-not-do) |
+| **macos-user** | Native macOS user + Seatbelt, **no VM, no image** | Fastest startup; no container runtime to install; `packages:` via native darwin nix. Weaker isolation than a VM (Seatbelt, no cgroups) — see [Trade-offs](#macos-user-trade-offs) and [what it does not do](#macos-user-native-no-vm--what-it-does-not-do) |
 
 The container runtimes are native arm64 on Apple Silicon. Set the runtime with
 `YOLO_RUNTIME=podman`, `container`, or `macos-user` (or the `runtime` key in
 `yolo-jail.jsonc`).
+
+**If you are choosing between the two macOS-native backends**, the side-by-side
+list is [Backend feature parity at a glance](#backend-feature-parity-at-a-glance).
 
 Auto-detection priority:
 - **macOS:** Apple Container → Podman (native-first). `macos-user` is
@@ -132,10 +140,13 @@ container system kernel set --recommended
 - Smallest footprint — no separate VM daemon
 
 **Key limitations:**
-- Maximum ~22 bind mounts per container (Virtualization.framework limit)
-- No `--net=host` or network mode control
+- A hard cap on directory-sharing devices (bind mounts) per container, which is why
+  yolo consolidates the jail's home into a single `/home/agent` mount
 - No security capabilities (`--cap-add`, `--security-opt`)
 - Early-stage project — fewer features than Podman
+- Several `yolo-jail.jsonc` keys do not reach this backend — see
+  [Apple Container: what it does not do](#apple-container-runtime-container--what-it-does-not-do)
+  for the full list, including the one that affects Claude logins
 
 **Image conversion:** Apple Container requires OCI-format images. YOLO Jail
 auto-converts from Nix's streamed image tar using (in priority order):
@@ -359,7 +370,9 @@ Everything that works on Linux works on macOS **except** the items listed in
 - ✅ Custom Nix packages in the image
 - ✅ `yolo check` diagnostics (with macOS-aware checks)
 - ✅ `yolo ps` and `yolo prune`
-- ✅ Network modes (bridge, host, none)
+- ✅ Network modes (bridge, host, none) on **Podman** — on Apple Container only `bridge`
+  (the default) is honored; see
+  [Apple Container: what it does not do](#apple-container-runtime-container--what-it-does-not-do)
 - ✅ Read-only root filesystem and tmpfs mounts
 - ✅ **Native no-VM backend** (`macos-user`): agent under Seatbelt as
   `_yolojail`, `packages:` via native `aarch64-darwin` nix, host creds invisible
@@ -379,37 +392,140 @@ Everything that works on Linux works on macOS **except** the items listed in
 
 ## Limitations
 
-These features are **Linux-only** and are gracefully skipped on macOS with
-a warning message:
+Two kinds of limitation live here, and they are worth keeping apart.
+
+**Platform limitations** apply to *every* macOS backend: no cgroups, no GPU
+passthrough, no USB device passthrough, no device cgroup rules. Those are the
+`###` sections further down, and yolo skips each with a warning.
+
+**Backend limitations** are the interesting ones when you are still choosing.
+**Podman is the parity reference** — setting the platform limitations aside, a
+config key that works on Linux is wired up on a Podman Machine too. Each of the
+two macOS-native backends drops a different set of keys, and the two tables below
+are the whole list.
+
+### Backend feature parity at a glance
+
+| Config key | Podman | Apple Container | macos-user |
+|---|---|---|---|
+| `loopholes` (incl. the Claude OAuth broker) | ✅ | ❌ none start | ❌ none start |
+| `mounts` (context mounts under `/ctx`) | ✅ | ❌ skipped, warns | ❌ skipped, **silent** |
+| `cache_relocations` | ⚠️ wired, [untested on a Mac](#cache-relocation-cache_relocations) | ❌ skipped, warns | ❌ skipped, warns |
+| `ephemeral_storage` | ✅ | ❌ always `tmpfs` | ❌ not read at all |
+| `resources.memory` / `.cpus` | ✅ | ✅ | ❌ warns |
+| `resources.pids_limit` | ✅ | ❌ not emitted | ❌ warns |
+| `network.mode` | ✅ all three | ⚠️ `bridge` only | ❌ not read at all |
+| `network.ports` / `forward_host_ports` | ✅ | ✅ under `bridge` | ❌ not wired |
+| `workspace_readonly` | ✅ | ❌ ignored (`:ro` is a no-op) | ✅ as Seatbelt deny rules |
+| `per_side_paths` | ✅ | ✅ | ❌ warns |
+| Pack briefings + skills | ✅ | ✅ | ❌ not delivered |
+| Pack `state`, `scope: machine` | ✅ | ✅ *(since 2026-08-24)* | ✅ |
+| Pack `state`, `scope: workspace` | ✅ | ✅ | ⚠️ shared machine-wide |
+
+Each ❌ and ⚠️ is explained in the two tables below. `macos-user` reads none of
+the network or scratch-storage keys at all — it is a native process on your own
+machine, so there is no network namespace to configure and no container
+filesystem to make ephemeral.
+
+### Apple Container (`runtime: container`) — what it does not do
+
+The headline is **loopholes**: this backend starts no host service for any of
+them, so the whole loophole surface is off. If you use Claude with an OAuth
+login, that is the row to read first.
+
+Everything below is announced at launch **except** the three rows marked
+*silent* — those you have to know about, because nothing tells you.
+
+| Config key / feature | On Apple Container | Where it is decided |
+|---|---|---|
+| `loopholes` — all of them, from packs and from your own config | **inert.** No host service starts, whatever the loophole declares. One yellow line per loophole at every launch, naming the pack, the loophole and the reason | `run/loopholesruntime.go` → `startLoopholes`; `run/loopholeinert.go` → `backendInertReason` |
+| `claude-oauth-broker` in particular | **not running.** Refreshes of your Claude OAuth token are not serialized between jails — see the warning below | `run/run.go` → `runContainer` (the broker-singleton gate) |
+| `mounts` | **skipped, with a warning.** Apple Container ignores `:ro`, so a context mount would arrive *writable*; yolo declines rather than hand a UID-0 jail a writable window onto your host | `run/assemble.go` → `assembleRunCmd` (`ctxMountsUnsafe`) |
+| `workspace_readonly` | **not enforced, with a loud warning.** Same root cause — `:ro` is ignored — so the paths stay writable inside the jail | `run/mounts.go` → `workspaceReadonlyMountArgs` |
+| `cache_relocations` | **skipped, with a warning.** The cache stays on its original filesystem | `run/assemble_parts.go` → `appleContainerBaseMounts` |
+| `ephemeral_storage` | **not honored, silently.** The scratch dirs (`/tmp`, `/run`, `/dev/shm`, …) are always `--tmpfs` here; the `volume` mode is podman-only | `run/assemble.go` → `assembleRunCmd` (`ScratchMountArgs` is on the podman branch only) |
+| `resources.memory`, `resources.cpus` | **honored** — emitted as native `--memory` / `--cpus`. If you omit them yolo fills in a default (half your RAM, min 4 GB; half your cores, min 2) | `run/assemble_parts.go` → `resourceArgs` |
+| `resources.pids_limit` | **not emitted, silently.** Apple Container has no equivalent flag | `run/assemble_parts.go` → `resourceArgs` |
+| `network.mode: "bridge"` (the default) | **honored.** Apple Container gives each container its own `vmnet` namespace and yolo emits no `--net` — which is correct here | `run/assemble.go` → `assembleRunCmd` (network-mode block) |
+| `network.mode: "host"` | **not honored — and asking for it is worse than leaving it unset.** Warns | see the warning below |
+| `network.mode: "none"` | **not honored, silently.** No `--net` flag is emitted on this backend at all, so you get bridge networking regardless | `run/assemble.go` → `assembleRunCmd` (network-mode block) |
+| `network.ports`, `network.forward_host_ports` | **honored under `bridge`** — published ports via `-p`, host-port forwarding via native `--publish-socket` (no socat, no TCP gateway). Both keys are read *only* in `bridge` mode | `run/assemble.go` → `assembleRunCmd`; `run/assemble_parts.go` → `forwardHostPortsArgs` |
+| Pack `state` at `scope: machine` (e.g. `~/.claude-shared-credentials`) | **honored as of 2026-08-24.** It was never mounted before that, so cross-jail credential sharing silently degraded to per-workspace — see the warning below | `run/assemble_parts.go` → `appleContainerBaseMounts` |
+| Any single-**file** read-only mount | **copied, not mounted.** Apple Container cannot bind a single file ([apple/container#1089](https://github.com/apple/container/issues/1089)), so yolo copies each one into the jail's home instead — your `yolo-user-env.sh`, pack briefings, pack `files`, `~/.config/yolo-jail/config.lua`, your global gitignore, pack `reads-host` grants and `host_files` file sources. You should not notice; the files arrive with the same contents | `run/helpers.go` → `acMaterialize` |
+
+Directory mounts nest perfectly well on this backend — the shared cache is mounted
+at `/home/agent/.cache` *inside* the `/home/agent` mount on every launch. The
+single-file limitation is specifically about files.
 
 > [!WARNING]
-> **This whole section is about the CONTAINER backends** (Podman, Apple
-> Container) and never distinguishes `macos-user` — a gap worth knowing before
-> you pick that backend (verified 2026-08-23). `macos-user` has **no bind mounts
-> at all** and its run path returns early
-> (`internal/cli/run/run.go:112-155`) *before* the code that consumes most mount
-> and network config. The practical consequence:
->
-> | Config key | On `macos-user` | Evidence |
-> |---|---|---|
-> | `loopholes` (all of them) | **inert** — the whole loophole surface is off | `internal/cli/run/loopholeinert.go:65-68` |
-> | `mounts` | **silently ignored, with no warning** | consumed at `assemble.go:137` / `prepare.go:44`, both after the early return |
-> | `cache_relocations` | not delivered (it is a nested bind mount) | `assemble_parts.go:83` |
-> | `forward_host_ports` | not wired (container-side only) | `assemble.go:127`, `hostports.go:29` |
-> | `per_side_paths` | not enforced — **warns** | `internal/macosuser/orchestrator.go:164` |
-> | `workspace_readonly` | **enforced**, as Seatbelt deny rules | `internal/macosuser/seatbelt.go:100-124` |
-> | cgroups / resource limits | unavailable (no cgroups on macOS) | as the section below says |
->
-> The `mounts` row is the sharp one: it fails **silently**, so a config that
-> declares context mounts appears to work and delivers nothing.
->
-> `workspace_readonly` is the row that changed. It was a **silent no-op** on
-> `macos-user` until commit `d0961f2c` (2026-08-23) — the key validated, the
-> launch succeeded, and nothing was read-only, because the backend had no mount
-> to attach `:ro` to. It now renders natively as SBPL
-> `(deny file-write* (subpath …))` rules emitted *after* the writable-set allow,
-> so SBPL last-match-wins makes them stick. Absolute or escaping entries are
-> dropped rather than emitted.
+> **`network.mode: "host"` is strictly worse than leaving it unset.** No host
+> networking is set up (no `--net` flag is emitted), *and* both port keys are read
+> only in `bridge` mode — so asking for host mode also drops every published port
+> and every forwarded host port. Remove the key, or switch to
+> `YOLO_RUNTIME=podman` if you genuinely need host networking. yolo warns about
+> this at launch; it used to say nothing.
+
+> [!WARNING]
+> **Claude OAuth refreshes are not serialized on this backend.** The
+> `claude-oauth-broker` loophole is what stops two jails burning the same
+> single-use refresh token, and no loophole host service runs under Apple
+> Container. Your Claude credentials file *is* shared across every workspace on
+> the machine, so two jails refreshing at the same time are racing on one token.
+> If you run several jails concurrently against one Claude login, use
+> `YOLO_RUNTIME=podman`.
+
+> [!IMPORTANT]
+> **Upgrading to the 2026-08-24 fix: expect your Claude logins to converge.**
+> Machine-wide pack `state` dirs were never mounted on Apple Container, so what
+> should have been one shared credential was really one credential per workspace.
+> Now that the dir is mounted, the first launch after upgrading **copies a
+> stranded credential up** out of the workspace state dir into the machine-wide
+> location — copy, never move, and only into a file that is missing, so you should
+> not lose a login. What no code can preserve is the accidental independence the
+> bug created: if you logged in separately in several workspaces, whichever
+> workspace launches first wins the machine-wide slot and every other workspace
+> uses that credential from then on. Each old copy is left in place at
+> `<workspace>/.yolo/home/.claude-shared-credentials/` and simply stops being
+> read; delete it when you are satisfied.
+
+### macos-user (native, no VM) — what it does not do
+
+`macos-user` has **no bind mounts at all**, and its run path returns from
+`run/run.go` → `Run` before the code that consumes most mount and network config.
+It is the fastest backend and the one that delivers the least.
+
+| Config key / feature | On `macos-user` | Where it is decided |
+|---|---|---|
+| `loopholes` (all of them) | **inert** — the whole loophole surface is off. One yellow line per loophole at launch, same as Apple Container | `run/loopholeinert.go` → `backendInertReason` |
+| `mounts` | **silently ignored, with no warning** | consumed in `run/assemble.go` → `assembleRunCmd` and `run/prepare.go` → `refreshJailBriefings`, both after the early return |
+| `cache_relocations` | not delivered (it is a nested bind mount) — **warns**. A hand-made symlink is not a workaround either: the sandbox profile denies writes outside the workspace and sandbox home, and denies reads under `/Volumes` | `macosuser/orchestrator.go` → `buildPlan` |
+| `forward_host_ports` | not wired (container-side only) | `run/assemble.go` → `assembleRunCmd`; `run/hostports.go` → `ParsePortForwards` |
+| `per_side_paths` | not enforced — **warns**. Per-side shadowing needs a mount namespace; Seatbelt filters permissions and cannot fork a path | `macosuser/orchestrator.go` → `buildPlan` |
+| `resources` | not enforced — **warns**. No cgroups, and no VM to size | `macosuser/orchestrator.go` → `buildPlan` |
+| `workspace_readonly` | **enforced**, as Seatbelt deny rules | `macosuser/seatbelt.go` → `readonlyDenies` |
+| Pack briefings and skills | **not delivered** — **warns**. They are composed host-side and delivered by mounting the staged tree, which this backend cannot do, so the agent starts with no `AGENTS.md`/`CLAUDE.md` and no skills (built-in ones included) — while the blocked-tool shims *are* generated, so a blocked command exits 127 with nothing explaining it | `run/loopholeinert.go` → `noteMacosUserContentGaps` |
+| `lsp_servers` | config renders, binaries are **not installed** — **warns**. Install them yourself or add them to `packages` | `run/loopholeinert.go` → `noteMacosUserContentGaps` |
+| Pack `state` at `scope: workspace` | **shared across every workspace on the machine** — **warns**. The sandbox home is a constant (`/Users/_yolojail`) with no workspace component, so one session's history and state are visible to every other workspace you launch | `run/loopholeinert.go` → `noteMachineWideWorkspaceState` |
+| cgroups / resource limits | unavailable (no cgroups on macOS) | as [Cgroup Delegation](#cgroup-delegation-resource-limits) below |
+
+The `mounts` row is the sharp one: it fails **silently**, so a config that
+declares context mounts appears to work and delivers nothing.
+
+`workspace_readonly` is the row that changed. It was a **silent no-op** on
+`macos-user` until commit `d0961f2c` (2026-08-23) — the key validated, the
+launch succeeded, and nothing was read-only, because the backend had no mount
+to attach `:ro` to. It now renders natively as SBPL
+`(deny file-write* (subpath …))` rules emitted *after* the writable-set allow,
+so SBPL last-match-wins makes them stick. Absolute or escaping entries are
+dropped rather than emitted.
+
+> [!NOTE]
+> **The two backends collapse the state tiers in opposite directions.** Apple
+> Container used to make the *machine-wide* tier per-workspace (fixed
+> 2026-08-24); `macos-user` makes the *per-workspace* tier machine-wide, and that
+> one is not fixed — splitting the sandbox home would break the machine tier to
+> repair the workspace tier, since the single home *is* that backend's
+> shared-credentials mechanism. It warns instead.
 
 ### Cgroup Delegation (Resource Limits)
 
@@ -468,6 +584,12 @@ Rather than half-apply it, `yolo` prints one warning naming the skipped subdirs
 and starts the jail with the cache on its original filesystem. Use
 `YOLO_RUNTIME=podman` if you need it, and open an issue if you want it on Apple
 Container.
+
+It is **not implemented on `macos-user`** either, and warns there too. A
+hand-made symlink is not a workaround on that backend: the Seatbelt profile
+denies writes outside the workspace, the sandbox home, `/tmp` and
+`/var/folders`, and denies reads under `/Volumes` — so the cache you were trying
+to move stays on the boot volume.
 
 On **Podman Machine** the mechanism itself should work, but the target has to be
 a path the VM can see. Podman Machine shares your home directory into the VM, so
@@ -723,10 +845,14 @@ disagree, versus the forwarding/NAT remedy when addressing is sound.
 
 ### Apple Container: "virtual machine failed to start"
 
-Apple's Virtualization.framework has a hard limit of ~22 directory sharing
-devices (bind mounts). YOLO Jail works around this by consolidating the
-workspace state into a single `/home/agent` mount instead of individual
-overlays. If you add many custom mounts, you may hit this limit.
+Apple's Virtualization.framework has a hard limit on directory-sharing devices
+(bind mounts) per VM. YOLO Jail works around it by consolidating the workspace
+state into a single `/home/agent` mount instead of individual overlays. If you
+add many custom mounts, you may still hit the limit.
+
+*(An earlier revision of this guide put that limit at "~22". That number came
+from an upstream issue report and is not something this repo measures or
+enforces anywhere, so it is no longer repeated as fact.)*
 
 ### Apple Container: "default kernel not configured for architecture arm64"
 
@@ -807,3 +933,4 @@ sudo launchctl kickstart -k system/systems.determinate.nix-daemon
 - [9f082ebf] Added a "Choosing a runtime" section that leads with why (performance + native arch) before the model details, and retitled the macos-user section around that
 - [78c23f1a] Replaced "never auto-detected" with "never selected automatically or by default — including when no container runtime is installed"
 - [8a7a2d41] Split Prerequisites into "always required" vs "pick ONE runtime" (Podman / Apple Container / macos-user), so the runtimes read as options not co-requirements
+- [2026-08-24] Restructured Limitations into platform-wide vs per-backend, added the Apple Container disabled-feature table (loopholes, `mounts`, `cache_relocations`, `ephemeral_storage`, `pids_limit`, `network.mode`, single-file mounts) and an at-a-glance parity table beside the existing `macos-user` one; recorded what each backend DOES honor so a working backend stops reading as broken
