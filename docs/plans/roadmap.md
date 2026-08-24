@@ -116,7 +116,12 @@ What is still open:
   much of the loop has to catch up before "the reader can act on it" is true from everywhere a user
   meets the refusal.
 - **OQ-LP8 / G2b** — you ruled the shape (approval pinned to a commit); what remains is that
-  `LockEntry.Commit` is **never consulted at launch**, so the pin does not yet exist.
+  `LockEntry.Commit` is **never consulted at launch**, so the pin does not yet exist. **Verified
+  2026-08-23, and the code says so itself:** `HostAccessApproved` *"COMPARES CLAIM STRINGS ONLY —
+  never the commit the approval was granted against"* (`internal/packsrc/lock.go:78-96`), and the
+  hole is pinned by `TestHostAccessApprovedComparesClaimStringsOnly` rather than only described —
+  **so closing it means changing a test that currently asserts the gap.** That is the good version
+  of this situation: the defect cannot rot silently, and the fix has a named landing site.
 
 ### 💬 3 — Auth mode
 
@@ -125,7 +130,14 @@ What is still open:
 **auth OQ-6** gates building `claude-bedrock` and is the only one with reach; the doc recommends
 *fetched*. **auth OQ-1** resolves by experiment, not ruling (~5 minutes: does Claude Code send a
 subscription OAuth bearer to a non-Anthropic base URL?) and it gates boundary-broker B2. **OQ-2 · 3 ·
-4 · 9** are smaller. **OQ-7 is moot as phrased** — there is no Teams pack — and needs restating.
+4 · 9** are smaller — each now carries a leaning and an empty Answer block, so they can be ruled on
+in the doc rather than here.
+
+**OQ-7 has been restated** (2026-08-23) rather than left moot. It asked *"does the **Teams** pack own
+the model IDs"*, and Thread A abolished the Teams pack by collapsing the two-auth-pack shape into one
+`claude-bedrock`. The substance survived the collapse — it is about where a **pin** lives, not how
+many packs there are — so the doc now asks it of the auth pack generally, with the leaning that the
+base `claude` pack pins nothing.
 
 ### 💬 4 — Non-container nix
 
@@ -162,15 +174,36 @@ whether Linux `guest` is a promise or a hypothesis. **threat-model Q1-Q3** cover
 refusal, `--accept-flake-config`'s substituter surface (now live — see the shipped item), and a macOS
 build sandbox. **OQ-L1** explicitly blocks Track L part 2.
 
-### 💬 8 — The small ones with no design-doc home
+### 💬 8 — Packs and `host_files`: the tail, now with a home
 
-These were born in this file and have nowhere else to live: **S5** (a jail resolves a skill-name
-collision silently), **OQ-CO**, **OQ-S4**, **OQ-E4**, and **E1/E2/E3/E5** from the backlog. Each is
-one paragraph; none blocks anything.
+📄 [`BACKLOG.md`](BACKLOG.md) §Stage E — **S5 · OQ-CO · OQ-S4 · OQ-E4 · E1 · E2 · E5**
 
-*(**OQ-D1 has left this list.** It stopped being small when OQ-A13 made the config diff the
-disclosure for enabling a host-reaching loophole, so it now has stakes, four options and a leaning in
-📄 [`config-safety.md`](../design/config-safety.md) — and it is in the sprint below.)*
+**These used to be "born in this file with nowhere else to live", which was half true and is now
+fixed.** E1/E2/E5 always had a home in Stage E; **S5** and **OQ-CO** genuinely existed nowhere but
+one line of this file — the exact thing this file's own rule forbids. All seven now carry stakes, a
+leaning and an empty Answer in Stage E.
+
+- **S5** is the only one that is a live gap rather than a preference: a jail resolves a skill-name
+  collision **silently**, where `apply --host` refuses. Warn at launch, fail `yolo check`, or refuse
+  the boot.
+- **E1 + E2 + `pack-host-management-plan.md` OQ-B are ONE decision** — the `0o444`-vs-`:ro`
+  asymmetry, in three places in the tree. Decide all three together or none.
+- **OQ-CO and OQ-S4 are the same question asked of different kinds:** should the two notches agree?
+  One is `config-overlay`'s silent last-one-wins; the other is whether a pack's `into` **narrows**
+  skills delivery or only adds to it — the jail and the host answer differently today.
+- **OQ-E4** is the ~15% of E4 that did not ship: do `stateful` surfaces get comment preservation?
+  `rmw` preserves, `computed` correctly does not, `json` is provably vacuous.
+
+*(**E3 has left this list — it shipped 2026-08-15**, `29ccf212`, and both this file and the backlog
+row were still calling it open. And **E4 is not a question**; only its `stateful` residue is, which
+is why the list cites OQ-E4 and not E4.)*
+
+*(**OQ-D1 has left this list for good — it is DECIDED and BUILT** (2026-08-18): the approval snapshot
+moved host-side, out of the rw bind mount, because a record the jail can rewrite is not a record.
+📄 [`config-safety.md`](../design/config-safety.md) Decision Ledger. **Its successor is live**:
+**OQ-D3** — the migration signal lives in the mount it is signalling about, so deleting
+`<workspace>/.yolo/config-snapshot.json` turns a changed config into a silent "first run" accept.
+That reopens exactly OQ-D1's hole, for as long as a workspace goes un-launched after the upgrade.)*
 
 **And one that arrived here by losing its parent.** The 🛑 nightly entry carried it and cited
 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §7 — but that section is the
@@ -188,16 +221,30 @@ deadline decides it for us.
   upstream, so `927fb9f`'s `nixpkgs-26.05-darwin` is a **pin on a dead branch**, not a supported
   line, and the clock is the security-fix window rather than a release date.
 
-Two more of the same size, both from the `yolo check` honesty pass. (A third — what `yolo check`
-should *print* for a section it skipped — now has a design-doc home as **OQ-3** in
-[`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md), because the same
-`[PASS]`-on-a-skip is what hid a daemon that never started.)
+### 💬 9 — `yolo check` tells you about the wrong machine, in three places and one vocabulary
 
-- **`sectionRunningJails` has no in-jail guard.** Run from inside a jail it reports the *nested*
-  podman's view — measured `[PASS] No jails currently running` in here while the host had one — and
-  that line reads as a statement about the host. Left alone because it is *true of the runtime it can
-  see*, and the orphan-cleanup path underneath acts on that same runtime: a behaviour question, not a
-  label. `internal/cli/check/check.go:514`.
+📄 [`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md) — **OQ-3**
+
+**These were three separate small questions until 2026-08-23; they are one.** `check` has no way for
+a section to say *whose* facts it is reporting — the host's, or the runtime it can see from in here —
+so every section decides by hand and some decide wrong. The ruling is what a jail-observable section
+should **print**: a fourth verdict beside `[PASS]`/`[FAIL]`/`[WARN]`, or a scope suffix.
+
+- **The measurement that makes it one question, not three:** `check`'s reporter has exactly three
+  verdict tokens and **no `[SKIP]`**, so a section that steps aside emits `[PASS]` — which is what
+  hid a daemon that never started. **Ten sections already step aside this way** (measured
+  2026-08-23; the doc previously said four, and the undercount was in the leaning's favour).
+- **`sectionRunningJails` has no in-jail guard** (`check.go:514`). From inside a jail it reports the
+  *nested* podman's view — measured `[PASS] No jails currently running` in here while the host had
+  one. Left alone so far because it is *true of the runtime it can see*, and the orphan-cleanup path
+  underneath acts on that same runtime. **On its own this is a wording preference; as an input to the
+  vocabulary question it is evidence.**
+- **`sectionGPUNvidia` has none either** (`sections_devices.go:38`) — three `[FAIL]`s for host facts,
+  where its AMD twin guards both checks. That asymmetry is 🔒 below because deciding *which rows* to
+  guard needs a host with a card; the *vocabulary* does not.
+
+### 💬 10 — Two that are nobody else's question
+
 - **A concurrent launch attaches by re-running the entrypoint inside a jail that may still be
   booting.** Found while shipping the waiting notice (`c2188bba`) — the question that entry was
   sitting on top of. The wait now explains itself, but it ends in a `podman exec` running the FULL
@@ -212,7 +259,7 @@ should *print* for a section it skipped — now has a design-doc home as **OQ-3*
   version, a typo like `foo@@1.2.3` reaches npm and fails at first use *inside* the jail, where the
   diagnosis is worst. Cheap host-side check; needs a ruling only on how strict to be.
 
-### 💬 9 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
+### 💬 11 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
 
 📄 [`pack-host-management-plan.md`](pack-host-management-plan.md) ·
 [`pack-capabilities.md`](../design/pack-capabilities.md)
@@ -220,7 +267,7 @@ should *print* for a section it skipped — now has a design-doc home as **OQ-3*
 Should host-side `files` be `0o444`? Same asymmetry as E1/E2 — decide them together. OQ-CAP is a
 one-line deliverable that is decided in all but name.
 
-### 💬 10 — Nested nixpkgs attribute paths in `packages`
+### 💬 12 — Nested nixpkgs attribute paths in `packages`
 
 📄 [`package-nested-attribute-paths.md`](../design/package-nested-attribute-paths.md) — **OQ-1**
 
@@ -230,7 +277,7 @@ when a derivation output and a nested collection member claim the same name — 
 and an empty **Answer:** block. That is the resolver's central rule, so it gates the whole item
 rather than one corner of it.
 
-### 💬 11 — Pack-shipped binaries: the capability the broker sprint promised and did not finish
+### 💬 13 — Pack-shipped binaries: the capability the broker sprint promised and did not finish
 
 📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) — **OQ-BP5 · OQ-BP6**
 
