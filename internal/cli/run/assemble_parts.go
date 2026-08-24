@@ -69,10 +69,13 @@ func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in
 		"--tmpfs", "/dev/shm",
 	)
 	// The machine-wide tier, nested inside the /home/agent bind exactly as
-	// GlobalCache is above. A DIRECTORY mount costs one device, so the 22-device
-	// limit that forced the single-writable-home shape does not bite here: the
-	// count is the number of shared dirs the selected packs declare (one today),
-	// not the number of files in them.
+	// GlobalCache is above. This costs ONE mount per declared shared dir — two
+	// today across every shipped pack (claude's and agy's) — not one per file in
+	// them, so the mount-count pressure that forced the single-writable-home shape
+	// in the first place is not meaningfully changed by it. (The issue reporting
+	// this named a specific limit of 22; that number appears nowhere in this repo,
+	// so it is deliberately not repeated here. What the repo knows is that there IS
+	// a limit and that the single-home bind exists to respect it.)
 	//
 	// storage.Ensure MkdirAlls every EmbeddedSharedDirs() under GlobalHome on
 	// every backend (internal/storage/ensure.go:54), so the host side exists
