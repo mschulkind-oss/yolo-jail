@@ -149,7 +149,7 @@ of exactly this test, and the reproduction is already written down.
 
 ### I5. Release notes that have never announced a release
 
-[`../RELEASE-NOTES.md`](../RELEASE-NOTES.md) holds **seventeen** entries, every one of them under
+[`../RELEASE-NOTES.md`](../RELEASE-NOTES.md) holds **eighteen** entries, every one of them under
 `## Unreleased`, several carrying upgrade instructions that only make sense at a boundary
 (*"restart the broker singleton after upgrading, or every OAuth refresh on that host fails"*). There
 is no version heading in the file and no release process doc in the repo — distribution today is
@@ -191,6 +191,8 @@ say.
 ---
 
 ## 4. Two rows already on the roadmap that I would drop
+
+*(A third is in §4a, found on the second pass.)*
 
 The roadmap's 📦 note points here for this argument. Both of these are rows I believe we **invented**
 rather than found — they read as decisions but nothing turns on either answer.
