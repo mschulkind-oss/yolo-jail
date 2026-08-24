@@ -72,10 +72,12 @@ anchors** in a single doc — no claim wrong, every pointer off.
    sweep rather than a wall;
 5. every backticked SHA-shaped token resolves with `git rev-parse`. **Three phantom SHAs were in the
    corpus today** (`533ccc1`, `8e77580`, `7fad359c`) and each sat in a sentence offering itself as
-   evidence. ⚠ **This rule needs an allowlist, and finding that out is half its value:** a corpus
-   sweep flags six more that are legitimately unresolvable — upstream `flake.lock` nixpkgs revs
-   (`241313f4`, `f13ff45a`) and other projects' commits quoted in research. The check must
-   distinguish "our repo's history" from "someone else's", or it becomes noise and gets ignored.
+   evidence. ⚠ **This rule needs an allowlist, and finding that out is half its value.** A final sweep
+   returns **9 unresolved tokens out of 173, and 0 of them are false evidence**: six are upstream
+   `flake.lock` nixpkgs revs (`241313f4`, `f13ff45a`) or other projects' commits quoted in research,
+   and **three are the corrected phantoms being *named as* phantoms** in the prose that fixes them.
+   A checker that cannot tell "cited as evidence" from "cited as a known-bad value" reports 9 where
+   the answer is 0, and gets switched off in a week.
 
 Rule 2 is the valuable half: it is a link checker for decisions rather than URLs. Rule 3 is the one
 this session would have needed. **Rules 4 and 5 were both run by hand on 2026-08-23 before being
