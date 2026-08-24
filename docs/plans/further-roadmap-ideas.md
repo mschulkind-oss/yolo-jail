@@ -119,6 +119,13 @@ general. What *can* be checked mechanically is **staleness of the claim itself**
 line whose ISO date is older than the newest commit touching the code paths the doc cites gets
 flagged for re-verification, not for correctness. That converts an unbounded question into a queue.
 
+**And the third wave found the shape that makes rule 4 pay for itself.**
+`host-render-target.md` §1–§7 has ~20 anchors off by 90–440 lines, one naming a package that no
+longer exists, and a quoted string that appears nowhere in `internal/`. Nobody would ever repair
+that by hand — but a checker that *reports* it lets the doc carry an honest "treat these as where to
+look, not as citations" warning, which is what it now does. **The output of these checks is often a
+warning, not a fix**, and that is still worth having.
+
 **Verdict: build the flag, not the verdict.** And in the meantime the cheap discipline is the one
 this session used: when a sprint closes, re-read the status line of every doc it touched — the drift
 clusters there rather than spreading evenly.
