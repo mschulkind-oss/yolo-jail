@@ -1869,7 +1869,7 @@ user's own authority), and a pack claiming a reserved name never reaches the ord
 pre-flight refused it at staging. The broker lookup is additionally pinned unshadowable by a test.
 
 **Superseded in part by OQ-LP10's retirement:** there is no user dir to override anything any more, so
-the live ordering is ~~bundled <~~ pack < config *(the `bundled` tier is gone — `SourceBundled` no longer exists; 2026-08-23)*. The reserved-name half is unchanged.
+the live ordering is ~~bundled <~~ pack < config *(the `bundled` tier is gone — `SourceBundled` no longer exists; 2026-08-23)*. ~~The reserved-name half is unchanged.~~ *(Also spent: there is no reserved-name half left — `loopholes.ReservedLoopholeNames` was deleted whole on 2026-08-19 with the broker, its last inhabitant. Exclusivity across packs is the entire rule now.)*
 
 **One shipped bug to fix while here:** the briefing path (`prepare.go:61-66`) filters on `Enabled`
 only, not `Active()`. So an enabled-but-inactive loophole is advertised to the agent as a live
