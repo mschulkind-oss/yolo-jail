@@ -1,5 +1,10 @@
 # Principle: the framework author designs the extension point, not the first extender
 
+**Status:** PRINCIPLE — cited as a rule by sibling docs, so it is amended rather than rewritten.
+Last reviewed **2026-08-23**. Its live test case is [`broker-as-a-pack.md`](broker-as-a-pack.md)
+§3.1: the pack-shipped binary capability was designed as a *general* capability before its first
+consumer needed it (OQ-BP5/BP6 are still open), which is this principle doing its job.
+
 **Audience:** anyone adding a mechanism that someone outside this repo will build on — a pack
 manifest field, a loophole manifest field, a contribution kind, a config key, a hook name. Read this
 before deciding that one use case is too few to design for.

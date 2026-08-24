@@ -1,5 +1,9 @@
 # Ctrl-Z, claude-in-jail, and the host-side TTY proxy
 
+**Status:** POST-MORTEM + REFERENCE, last reviewed **2026-08-23**. Describes shipped behaviour;
+the TTY proxy is still what a `yolo -- <cmd>` launch runs under, and the sudo prompt on `macos-user`
+rides it (one password per launch, not per command).
+
 This is a session-spanning brain dump on why pressing Ctrl-Z while Claude
 Code (or any TTY app) was running under `yolo -- <cmd>` could wedge the
 jail with no recourse, what we tried, what didn't work, and the proxy we

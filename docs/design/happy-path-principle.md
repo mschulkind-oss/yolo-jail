@@ -1,5 +1,9 @@
 # Principle: fill the matrix, don't support every tool
 
+**Status:** PRINCIPLE — cited as a rule by sibling docs, so it is amended rather than rewritten.
+Last reviewed **2026-08-23**. The matrix it argues about is now: three backends (`podman`,
+`container`, `macos-user`) × two platforms — Docker was removed and `validate.go` hard-errors on it.
+
 **Audience:** anyone adding a setup path, a runtime, a builder, an installer,
 or a "how do I do X on platform Y" answer to yolo-jail. Read this before
 adding a second way to do something.

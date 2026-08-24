@@ -1,5 +1,7 @@
 # Principle: the CLI is its own manual
 
+**Status:** PRINCIPLE — cited as a rule by sibling docs. Last reviewed **2026-08-23**.
+
 **Audience:** anyone adding a `yolo` subcommand, a flag, a state-reporting
 surface, or a new subsystem an agent has to operate (loopholes, builders,
 composed config, …). Read this before shipping a command, and before assuming a
