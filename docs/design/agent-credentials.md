@@ -145,7 +145,9 @@ to credentials:
   `~/.pi/agent/settings.json` as `defaults<host<overlay<computed<transform<managed`,
   so host changes propagate while jail-local edits survive (captured in the §5
   overlay sidecar) and yolo-required keys win
-  (`internal/entrypoint/prism_claude.go`, `prism.go`). Which host files cross **for
+  (`internal/entrypoint/prism.go` — *the per-agent `prism_<agent>.go` writers this used to cite are
+  gone; only `prism_claude_test.go` still carries the name, and the composition is one path now*).
+  Which host files cross **for
   an agent surface** is not a config knob — the retired
   `host_claude_files`/`host_pi_files` keys used to let a workspace config widen it,
   and that was the credential-boundary hole §10.4 of the settings-composition plan
