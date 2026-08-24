@@ -267,6 +267,22 @@ starts reading like a 14-decision backlog when the real number is smaller.
 
 ---
 
+## 4b. What the verification pass changed about this file
+
+*(Added 2026-08-23, last thing.)* Every idea above was written during an audit and then
+**adversarially re-checked by agents told to disprove it**. That pass found: two commit SHAs in the
+roadmap that do not exist, a count of "ten sections" that was ten *call sites* in nine sections, six
+open questions invisible to the very command this file proposes standardising, a "sole caller" claim
+with a second caller, and one of my own entries (I5) resting on "yolo has never cut a release" when
+there are fourteen tags.
+
+**That is the argument for I1 and I1b, made against this file rather than by it.** None of those
+errors were reasoning failures; every one was a fact that had drifted or a check nobody ran. The
+ideas above are worth what they are worth; the *method* — write it down, then pay someone to
+disprove it — is what actually found things.
+
+---
+
 ## 5. The weakest idea in the file, kept because it is nearly free
 
 **Archive a plan when its sprint ends, not when someone notices.** At least eight of the thirty-three
