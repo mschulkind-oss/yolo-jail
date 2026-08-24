@@ -1,6 +1,25 @@
 # The claude-shaped code still in core — and how packs become truly separate
 
-**Status:** DIAGNOSIS SETTLED, DECISIONS TAKEN, NOTHING BUILT. 2026-08-15.
+**Status:** DIAGNOSIS SETTLED, DECISIONS TAKEN, 2026-08-15 — **and BUILT since, in full. Re-verified
+against the tree 2026-08-23.**
+
+> **Postscript, 2026-08-23 — "NOTHING BUILT" was true for four days and has been false since.**
+> Every one of the four rulings below is now in the tree, so a reader arriving at the body should
+> read it as **the argument that produced the code**, not as a proposal. §1–§6 keep their original
+> tense on purpose; nothing in them has been rewritten to match the outcome.
+>
+> | Ruling | Where it landed | Evidence, checked 2026-08-23 |
+> | :--- | :--- | :--- |
+> | The broker **ships as a pack** (OQ-1, §4) | 2026-08-19 | `packs/claude/loopholes/claude-oauth-broker/manifest.jsonc` — a contribution of the claude pack, not a pack of its own ([`broker-as-a-pack.md`](broker-as-a-pack.md) §13) |
+> | The credential harvest is **deleted**, not generalized (OQ-3, §5) | 2026-08-18 | `internal/entrypoint/claude.go` is 86 lines with one function; the merge survives only as the comment at `:20-40` explaining why it went |
+> | `internal/agents` **is renamed** (OQ-4, §3.3) | 2026-08-18 | the package is `internal/jailcontent`; the registry the old name described was deleted rather than moved |
+> | `check`'s claude freshness grading moves behind `doctor_cmd` (§6) | 2026-08-18 | `internal/cli/check/sections_loopholes.go:225` records the Go-side grading as *"deleted with this"* |
+>
+> **The one thing this doc's §4 got wrong is worth carrying forward**, because it is why the work
+> was smaller than it looks: §4 named a jail-side shippable binary and an expressible per-jail relay
+> as the two prerequisites. The first was already expressible and nobody had noticed; the second was
+> **deleted rather than built** — yolo prepends its own connection preamble and never parses a
+> daemon's payload, which removed the relay's reason to exist. `internal/brokerrelay` is gone.
 
 **All four open questions are answered** (see Open Questions), and the answers moved the design: the broker **becomes shippable** rather than staying bundled, the credential harvest is **deleted** rather than generalized, and `internal/agents` **is** renamed. Prose written under the old leanings is marked superseded in place rather than silently rewritten, so the argument that lost is still readable.
 
