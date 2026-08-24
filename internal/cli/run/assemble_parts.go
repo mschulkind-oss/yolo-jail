@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -28,11 +29,24 @@ import (
 // Skipping loudly beats half-applying: a relocation that silently did not take
 // leaves the jail writing the very bytes the user moved back onto the filesystem
 // they moved them off.
-// writable_home_dirs needs no handling here: Apple Container mounts the whole
-// wsState at /home/agent read-write in one bind, so every declared home path is
-// already writable and its writes already land in wsState. It is a silent
-// SUCCESS, not a silent failure, so — unlike cache_relocations — there is
-// nothing to skip or warn about.
+//
+// PACK-DECLARED HOME DIRS COME IN TWO TIERS AND THE SINGLE BIND ANSWERS ONLY ONE.
+// Getting this wrong shipped a real bug (#39), so both are stated here:
+//
+//   - WritableDirs (per-workspace) needs no handling. Apple Container mounts the
+//     whole wsState at /home/agent read-write in one bind, so every declared home
+//     path is already writable and its writes already land in wsState — the same
+//     per-workspace tier podman gives it with an explicit -v. A silent SUCCESS.
+//   - SharedDirs (machine-wide) DOES need handling, and is mounted below. These
+//     come from GlobalHome precisely so a credential outlives the workspace, and
+//     the single bind puts them in wsState instead. Left to the bind it is a
+//     silent DEGRADATION: ~/.claude-shared-credentials keeps working, so nothing
+//     errors, but it is per-workspace forever and every new workspace demands a
+//     fresh /login.
+//
+// The tell that separates them: ask which SIDE of the mount the podman argv reads
+// from. wsState → the bind already covers it. paths.GlobalHome() → it does not,
+// because that is a different directory on the host and no bind here reaches it.
 func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in *assembleInput, out printer) []string {
 	wsState := in.wsState
 	if len(in.cacheRelocations) > 0 {
@@ -42,7 +56,7 @@ func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in
 			"Use `YOLO_RUNTIME=podman` for cache relocation.[/yellow]")
 	}
 	runCmd := append([]string{rt, "run"}, runFlags...)
-	return append(runCmd,
+	runCmd = append(runCmd,
 		"-v", workspace+":/workspace",
 		"-v", wsState+":/home/agent",
 		"-v", paths.GlobalCache()+":/home/agent/.cache",
@@ -54,6 +68,20 @@ func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in
 		"--tmpfs", "/run",
 		"--tmpfs", "/dev/shm",
 	)
+	// The machine-wide tier, nested inside the /home/agent bind exactly as
+	// GlobalCache is above. A DIRECTORY mount costs one device, so the 22-device
+	// limit that forced the single-writable-home shape does not bite here: the
+	// count is the number of shared dirs the selected packs declare (one today),
+	// not the number of files in them.
+	//
+	// storage.Ensure MkdirAlls every EmbeddedSharedDirs() under GlobalHome on
+	// every backend (internal/storage/ensure.go:54), so the host side exists
+	// before this argv runs.
+	for _, dir := range packload.SharedDirs(in.packs) {
+		runCmd = append(runCmd, "-v",
+			filepath.Join(paths.GlobalHome(), dir)+":/home/agent/"+dir)
+	}
+	return runCmd
 }
 
 // podmanBaseMounts builds the podman base mounts: the :ro GLOBAL_HOME base +
