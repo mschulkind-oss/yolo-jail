@@ -192,19 +192,20 @@ say.
 
 ## 4. Two rows already on the roadmap that I would drop
 
-*(A third is in §4a, found on the second pass.)*
+*(§4a generalises them into a class, found on the second pass.)*
 
 The roadmap's 📦 note points here for this argument. Both of these are rows I believe we **invented**
 rather than found — they read as decisions but nothing turns on either answer.
 
-**a. `sectionRunningJails` has no in-jail guard** (💬 8, third bullet). The row's own text concedes
+**a. `sectionRunningJails` has no in-jail guard** (now a bullet of 💬 **10**, after that row was
+rebuilt around the vocabulary question). The row's own text concedes
 the output is *"true of the runtime it can see"*, and the orphan-cleanup path underneath acts on that
 same runtime. So the ruling being requested is about a **label**, on a line nobody has been misled by
 in a recorded instance. **Drop it as a row and let I3 absorb it** — as one input to `check`'s
 vocabulary question it is useful evidence; as a standalone decision it is a wording preference
 wearing a decision's clothes.
 
-**b. `pack-capabilities` OQ-CAP** (💬 9). The roadmap says it is *"a one-line deliverable that is
+**b. `pack-capabilities` OQ-CAP** (💬 **12**). The roadmap says it is *"a one-line deliverable that is
 decided in all but name."* If that is true then it is not a question — it is either 📦 or it is
 nothing, and asking for a ruling to confirm what is already decided spends the scarcest thing in this
 project, which is your attention. **Drop it from 💬**: either queue the one line or retire the idea
@@ -213,22 +214,27 @@ to [`../design/retired-decisions.md`](../design/retired-decisions.md).
 > [!NOTE]
 > **The general shape, since it will recur.** A row belongs in 💬 when two answers lead to
 > *materially different work*. Both rows above have one plausible answer and a small edit behind it.
-> The cost of getting this wrong is not clutter — it is that eleven rows of "needs you" read as an
-> eleven-decision backlog when the real number is nine, and the two cheap ones are the ones a tired
-> reader answers first.
+> The cost of getting this wrong is not clutter — it is that **14** rows of "needs you" read as a
+> 14-decision backlog when the real number is smaller, and the cheap ones are the ones a tired reader
+> answers first.
 
 ---
 
 ## 4a. A third row I would drop, added after the deeper pass
 
-**`pack-capabilities` OQ-CAP is already in §4b. This is its sibling:** any question whose doc says it
-is *"decided in all but name"* or whose leaning has stood uncontested for weeks. Two now exist —
-OQ-CAP (uncontested since 2026-08-13) and `boundary-broker` **OQ-D**, which is not a question at all
-but a *pointer* to `agent-auth-modes` OQ-1, and says so in its own text.
+**§4 b is one instance; this is the class.** Any question whose doc says it is *"decided in all but
+name"*, and any "question" that is really a **pointer** to a question living somewhere else.
+
+- **The confirmation:** `pack-capabilities` OQ-CAP, uncontested since 2026-08-13. Still on the
+  roadmap as 💬 **12**.
+- **The pointer:** `boundary-broker` **OQ-D** — not a question at all but a redirect to
+  `agent-auth-modes` OQ-1, and its own text says so. *(This one is already fixed: today's compaction
+  moved it into that doc's Decision Ledger, so it no longer reads as open. It is kept here as the
+  worked example of the shape.)*
 
 The general rule, since it will recur: **a pointer is not a question, and neither is a confirmation.**
-Both inflate the "needs you" count with items that cannot change the work, which is how a
-thirteen-row list starts reading like a thirteen-decision backlog when the real number is smaller.
+Both inflate the "needs you" count with items that cannot change the work, which is how a 14-row list
+starts reading like a 14-decision backlog when the real number is smaller.
 
 ---
 
