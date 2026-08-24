@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 11 needing you · 0 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
+**Status: 13 needing you · 0 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
 
 Last updated **2026-08-23**. Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph matches the section it is
@@ -11,7 +11,7 @@ in.
 > designed has either shipped or is standing behind a ruling only you can make. The last 📦 item
 > (the broker's move into `packs/claude`) shipped **2026-08-19**, and `bundled_loopholes/` is
 > deleted. Until something in 💬 gets answered, the honest queue length is zero, so the fastest way
-> to create work is to answer §💬 1, 2 or 6.
+> to create work is to answer 💬 **1**, **2** or **6**.
 
 **What this is.** The forward plan and nothing else. **If it is in this file, it is not done.** Work
 that ships leaves immediately — the record is the commit history. Decisions *not* to build move to
@@ -32,10 +32,16 @@ the real number was closer to 50.
 > [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md); **S5** is in
 > [`BACKLOG.md`](BACKLOG.md) §Stage E. **Cite a state row or an OQ ID — never a letter.**
 
-**And the real number is now countable rather than estimated: 53**, across the fourteen docs this
-file points at, as of 2026-08-23. Every one carries a `💬` and a stable ID, so
-`rg -c '💬' docs/design docs/plans` is the audit — it used to require reading 8,000 lines. Eleven
-rows below is what those 53 group into.
+**And the real number is now countable rather than estimated: 73 live questions across 18 docs**, as
+of 2026-08-23, after a pass that gave every one of them a `💬` and a stable ID. It used to require
+reading ~9,000 lines; it is now one command:
+
+```console
+$ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )💬' docs/ --sort path
+```
+
+**Thirteen rows below is what those 73 group into.** The gap between 73 and 13 is the point of this
+file: a row is a *decision*, and one decision usually closes several questions.
 
 | | Means |
 |---|---|
@@ -80,16 +86,28 @@ security half was settled when OQ-TP5 killed silent npm updates.
 - **npm was never special — it was just the first kind anyone looked at.** mise already carries the
   Go module proxy and PyPI (via `pipx:`) alongside its core backends, all unpinned, all reached
   through a key yolo itself composes. That is your *"too special case for npm"* worry, confirmed.
-- **"Pack set + lockfile makes jails uniform" is false today**, and this jail proves it: its user
-  config is `"packs": ["claude"]`, yet `~/.npm-global/lib/node_modules/` holds pi, copilot, codex and
-  a stray `fzf` from a deleted test pack. **Dropping a pack removes its launcher and never uninstalls
-  its program**, so a jail is the union of every pack ever selected, not the current set.
+- **"Pack set + lockfile makes jails uniform" is false today**, and this jail still proves it —
+  **though on narrower evidence than this row used to claim.** *(Re-measured 2026-08-23: the config
+  now legitimately selects claude, pi, codex, agy and opencode, so their presence proves nothing.
+  The row previously cited them and a reader checking it would have found it wrong.)* What survives
+  is cleaner: `@github/copilot` and npm `fzf 0.5.2` are installed with **no selecting pack and no
+  launcher** — copilot was deselected, and `fzf` came from a test pack that no longer exists.
+  **Dropping a pack removes its launcher and never uninstalls its program**, so a jail is the union
+  of every pack ever selected, not the current set.
 - **The launcher is PATH-shadowed after first use**, so the poll-and-report OQ-TP5 built is
   unreachable in steady state. The freeze is **total, not throttled** — and the resolve that decides
   everything is the cold one, per workspace.
 
+**And the machine-global finding proved itself while being re-checked.** On 2026-08-20 mise
+repointed `go/1.26` from `1.26.6` to `1.26.7` and **deleted `1.26.6` from disk** — so the exact
+`installs/` path measured five days ago is not merely stale, it is **dangling**. That is the failure
+mode the row describes, observed rather than argued, inside the window of one audit.
+
 **The cheapest single win, if you want one before ruling:** mise supports a lockfile and yolo never
-enables it. There is no mise lockfile anywhere in the tree.
+enables it. There is no mise lockfile anywhere in the tree. *(And OQ-PD8 has an answer waiting in
+evidence: `claude.stamp` is still 2026-08-05 and `fzf.stamp` still 2026-08-02, while the launchers
+were regenerated today. The stamp is touched on **every** poll, so an unmoved stamp is a poll that
+never ran — the informational channel OQ-TP5 built has emitted nothing here in 18 days.)*
 
 ### 💬 2 — Trust paths: where we extend trust, and where a pin is theatre
 
@@ -121,10 +139,15 @@ What is still open:
   home for the pin in the case that covers nearly every user. This gates implementing TP5.
 - **OQ-X1** — does a digest-pinned installer script count, given its own fetches are not pinned?
 - **OQ-TP7** *(new, and it is the shipped fatal's own loose end)* — **OQ-TP6 made the refusal fatal
-  and left the loop around it behind.** Measured: `yolo check` reports `[PASS]` on the very pack the
-  next launch refuses, and the `approve` path is not caught up either. The ruling is scope — how
-  much of the loop has to catch up before "the reader can act on it" is true from everywhere a user
-  meets the refusal.
+  and left the loop around it behind.** Re-measured 2026-08-23: `yolo check` still reports `[PASS]`
+  on the very pack the next launch refuses — both loads pass `e.MayGrantHostFiles()`
+  (`check/packs.go:130,162`) and **`packRefusals` has no caller anywhere under `internal/cli/check/`**.
+  The `approve` half has since gone **half-caught-up**, which narrows the question rather than
+  closing it: `resolveHostApproval`'s non-interactive refusal now says *"requires an interactive
+  terminal … rerun from a terminal"* (`pack.go:1228-1236`), while the **launch** refusal still says
+  only "run `yolo pack install`" — so the two ends of one flow now give different amounts of help.
+  The ruling is scope: how much of the loop catches up before "the reader can act on it" is true
+  from everywhere a user meets the refusal.
 - **OQ-LP8 / G2b** — you ruled the shape (approval pinned to a commit); what remains is that
   `LockEntry.Commit` is **never consulted at launch**, so the pin does not yet exist. **Verified
   2026-08-23, and the code says so itself:** `HostAccessApproved` *"COMPARES CLAIM STRINGS ONLY —
