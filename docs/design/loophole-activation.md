@@ -3,17 +3,29 @@ title: "Nothing reaches your host because it happened to be there — loophole a
 date: 2026-08-18
 status: accepted
 tags: [loopholes, packs, activation, security, config]
-summary: "A loophole is active today because it was present and something it named happened to exist on the host. Six rulings replace that end to end: presence stops implying activation, a pack declares a default, and the default is disabled. All thirteen questions are settled; what is left is building it."
+summary: "A loophole is active today because it was present and something it named happened to exist on the host. Six rulings replace that end to end: presence stops implying activation, a pack declares a default, and the default is disabled. All thirteen questions are settled and five of the six rulings are built; R3 shipped narrower than written — the requires.command_on_path key survives in the schema and in a shipped manifest."
 ---
 
 # Nothing reaches your host because it happened to be there — loophole activation
 
-**Status:** DECIDED 2026-08-18, **BUILT IN FULL 2026-08-19**. Six rulings (§2) and **all thirteen
-questions settled** (Decision Ledger below). §1.3's table is the progress report and **every row that
-can be ✅ now is**: the last holdout — the broker's jail wiring — landed on 2026-08-19 when the
-manifest moved into `packs/claude` and `bundled_loopholes/` was deleted whole
-([`broker-as-a-pack.md`](broker-as-a-pack.md) §13). The only row that is deliberately *not* ✅ is the
-host nix daemon, which stays ungated by ruling (OQ-A11), not by omission.
+**Status:** DECIDED 2026-08-18; **five of six rulings BUILT, the sixth built NARROWER than written**
+(re-verified 2026-08-23). All thirteen questions are settled (Decision Ledger below), and §1.3's
+table's last holdout — the broker's jail wiring — landed 2026-08-19 when the manifest moved into
+`packs/claude` and `bundled_loopholes/` was deleted whole
+([`broker-as-a-pack.md`](broker-as-a-pack.md) §13). Two rows in that table are deliberately not ✅
+and never will be: the **host nix daemon** stays ungated by ruling (OQ-A11), and **a user's own
+`loopholes:` block** is unchanged by design.
+
+> [!WARNING]
+> **R3 shipped narrower than it reads, and the difference matters to a pack author.** R3 (§2) says
+> *"`requires.command_on_path` is deleted from the schema. Not corrected — deleted."* **The schema
+> key is alive**: parsed and type-checked (`internal/loopholedecl/loopholedecl.go:697-703`), in the
+> pack-shippable subset, and **used by a shipped manifest today** —
+> `packs/host-processes/loopholes/host-processes/manifest.jsonc` declares
+> `"command_on_path": "ps"`. `packshipped.go:365` preserves it deliberately: *"it asks PATH whether
+> a PROGRAM NAME resolves."* What actually shipped is the deletion of that key **from the broker's
+> manifest**, where it was a host-PATH probe standing in for a dependency that pack selection now
+> expresses. Read R3 as being about the broker, not the schema.
 
 **The one real gap is closed.** `default_enabled` collided with a live `enabled` key and the design
 never said which won; OQ-A9 ruled one key, renamed, governing all four manifest sources.
@@ -59,8 +71,10 @@ it is currently on. No two rows agree, and that is the whole argument.
 §1.4 is the finding that should worry you most: core's config schema names two loopholes by hand —
 and after OQ-A6 both of those names go, which is what makes the conversion mean something.
 **Both went on 2026-08-18.** `host_processes` and `journal` are refusals now, `paths.BuiltinLoopholeNames`
-is deleted, and core's schema names no loophole at all. §1.3's table has one row left that is not
-✅ — the broker's jail wiring, blocked on a mechanism gap (see `broker-as-a-pack.md` §6.1).
+is deleted, and core's schema names no loophole at all. ~~§1.3's table has one row left that is not
+✅ — the broker's jail wiring, blocked on a mechanism gap.~~ **That row went green on 2026-08-19**
+when the manifest moved into `packs/claude`; the two rows still not ✅ are ungated *by ruling*, not
+blocked (see the status line).
 
 **Reads with:** [`broker-as-a-pack.md`](broker-as-a-pack.md) (the sprint this came out of; §5.5 is
 the connection preamble, §12 the `host-processes` conversion),
