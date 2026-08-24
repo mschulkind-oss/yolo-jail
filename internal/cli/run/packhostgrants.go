@@ -91,6 +91,13 @@ const acCtxDirRel = ".yolo-ctx"
 // case ROFileMountArg guards against); a single-file mount reuses ROFileMountArg so
 // the nested-jail inode-copy dance still applies. An absent source is skipped rather
 // than mounted — a missing bind source kills the container with a bare statfs error.
+//
+// On Apple Container BOTH forms are dropped with a reason, via roBindsUnsupported —
+// the same rule the config `mounts` key has always applied, reached from here at last.
+// A `mount` is the one host grant with no relocation available: `reads-host` and
+// `host_files` materialize into .yolo-ctx because their reader is the ENTRYPOINT,
+// which YOLO_CTX_ROOT can redirect. This grant's reader is the AGENT, following the
+// /ctx path its own briefing names, so there is nowhere else to put it.
 func (o *Options) hostMountArgs(in *assembleInput) []string {
 	var args []string
 	for _, p := range in.packs {
@@ -98,6 +105,11 @@ func (o *Options) hostMountArgs(in *assembleInput) []string {
 		for _, mt := range granted {
 			src := filepath.Join(homeDir(), filepath.FromSlash(mt.From))
 			dest := "/ctx/" + strings.TrimPrefix(mt.To, "/")
+			if reason := roBindsUnsupported(in.rt); reason != "" && (isDir(src) || isFile(src)) {
+				o.pr(o.Stdout).print("[yellow]Skipping pack " + p.Name + " mount ~/" +
+					mt.From + " → " + dest + ": " + reason + "[/yellow]")
+				continue
+			}
 			switch {
 			case isDir(src):
 				args = append(args, "-v", src+":"+dest+":ro")

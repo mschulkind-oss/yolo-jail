@@ -140,7 +140,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 
 	// --- Extra mounts (config.mounts → -v host:container:ro) ---
 	var mountArgs []string
-	ctxMountsUnsafe := rt == "container"
+	ctxMountsUnsafe := roBindsUnsupported(rt)
 	for _, mountAny := range cfgList(cfg, "mounts") {
 		mount, ok := mountAny.(string)
 		if !ok {
@@ -152,10 +152,9 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 			out.print("[yellow]Warning: mount path does not exist, skipping: " + hostPath + "[/yellow]")
 			continue
 		}
-		if ctxMountsUnsafe {
-			out.print("[yellow]Skipping mount " + hostPath + " → " + containerPath + ": Apple " +
-				"Container ignores read-only (:ro), so it would be writable. " +
-				"Use `YOLO_RUNTIME=podman` for read-only context mounts.[/yellow]")
+		if ctxMountsUnsafe != "" {
+			out.print("[yellow]Skipping mount " + hostPath + " → " + containerPath + ": " +
+				ctxMountsUnsafe + "[/yellow]")
 			continue
 		}
 		mountArgs = append(mountArgs, "-v", hostPath+":"+containerPath+":ro")
@@ -404,9 +403,18 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, o.resourceArgs(cfg, rt)...)
 
 	// --- host nvim config ---
+	// Read once at boot (entrypoint copies /ctx/host-nvim-config into the jail's
+	// ~/.config/nvim) — but the mount stays for the whole session, so on a backend that
+	// ignores :ro it is a live write channel into the user's real editor config. Refuse
+	// rather than downgrade, and say so: the visible symptom is nvim coming up
+	// unconfigured, which is otherwise an odd thing to have to explain to yourself.
 	hostNvim := filepath.Join(homeDir(), ".config", "nvim")
 	if isDir(hostNvim) {
-		runCmd = append(runCmd, "-v", hostNvim+":/ctx/host-nvim-config:ro")
+		if reason := roBindsUnsupported(rt); reason != "" {
+			out.print("[yellow]Skipping host nvim config (~/.config/nvim): " + reason + "[/yellow]")
+		} else {
+			runCmd = append(runCmd, "-v", hostNvim+":/ctx/host-nvim-config:ro")
+		}
 	}
 
 	// --- shadow .vscode/mcp.json + .overmind.sock ---
