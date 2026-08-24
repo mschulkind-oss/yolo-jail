@@ -1,6 +1,6 @@
 # Proposed fixes for the open findings
 
-**Status:** **ALL TEN ITEMS DECIDED; NINE SHIPPED.** #1's PATH split, #4, #5, #7 landed
+**Status (2026-08-03, re-checked 2026-08-23):** **ALL TEN ITEMS DECIDED; NINE SHIPPED.** #1's PATH split, #4, #5, #7 landed
 2026-08-02; #2, #3, #6 landed 2026-08-03; **#8** (parity table), **#9** (multi-arch builder +
 GOARCH-derived builder system) and **#10** (host MCP servers) landed 2026-08-03 too.
 **One item is genuinely open: #1's baked fallback** — and it is the LEAST urgent thing in this

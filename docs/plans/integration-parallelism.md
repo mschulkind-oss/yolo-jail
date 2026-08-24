@@ -1,7 +1,9 @@
 # Plan: bounded parallelism for the integration suite
 
-**Status:** OPEN — only the bounded-parallelism refactor remains (the
-launch-merges landed in `c4ae68a`). Deferred deliberately:
+**Status:** OPEN (2026-07-20), **re-checked 2026-08-23 and still parked** — only the
+bounded-parallelism refactor remains (the launch-merges landed in `c4ae68a`). `integration/` still
+carries the explicit rule that nothing in it may call `t.Parallel()`, so this is a deliberate
+non-decision rather than a forgotten one. Deferred deliberately:
 CI is free (open-source runners), so integration wall time is a convenience, not
 a cost; and the fast **local** dev loop (`just test-fast`) never runs these
 container tests at all (they're `requireJail`-gated, skipped under
