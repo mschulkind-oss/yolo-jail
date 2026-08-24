@@ -105,6 +105,26 @@ func Run(opts Options) int {
 		return 1
 	}
 
+	// PACK LAUNCH FLAGS, ABOVE THE DISPATCH — the same B-0 move pack staging made, for
+	// the same reason. The injection used to sit inside runContainer, which the
+	// macos-user arm returns before reaching, so on that backend a `launch`
+	// contribution did nothing at all. copilot's `--yolo --no-auto-update` is a plain
+	// launch contribution with NO autonomy config half to fall back on, so it was a
+	// 100% drop; claude's `--dangerously-skip-permissions` fell back to
+	// defaultMode: acceptEdits, which auto-accepts EDITS and not Bash or WebFetch.
+	//
+	// Embedded(), not the configured set, deliberately — see the note at the container
+	// call site this replaces: what yolo ships is what a bare `yolo -- <bin>` gets, on
+	// either backend.
+	//
+	// Guarded on len>0 so the empty case still reaches each arm's own default (a bare
+	// `yolo` is bash in a container and an interactive zsh natively); injecting into an
+	// empty argv would invent a binary neither arm asked for.
+	injectedArgs := o.Args
+	if len(injectedArgs) > 0 {
+		injectedArgs = packload.InjectLaunchFlags(packload.Embedded(), injectedArgs)
+	}
+
 	// macos-user native branch: route to the injected handler,
 	// which wires internal/macosuser (SBPL sandbox, dscl provisioning, the
 	// sandbox-exec launch) + the darwinpkg streaming-build materialize adapter.
@@ -117,7 +137,7 @@ func Run(opts Options) int {
 			return 1
 		}
 		// (a bare `yolo` opens an interactive login zsh in the sandbox).
-		agentArgv := o.Args
+		agentArgv := injectedArgs
 		if len(agentArgv) == 0 {
 			agentArgv = []string{"/bin/zsh", "-l"}
 		}
@@ -172,7 +192,7 @@ func Run(opts Options) int {
 		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
 			repoRoot, staged.root, o.DryRun)
 	}
-	return o.runContainer(cfg, rt, repoRoot, cname, staged)
+	return o.runContainer(cfg, rt, repoRoot, cname, staged, injectedArgs)
 }
 
 // stagedPacks is one run's staged pack set — the single result of the single staging
@@ -322,7 +342,8 @@ func ensureStorage() error {
 // workspace flock + raced re-check, stale-container removal, image load, argv
 // assembly, host-service start, tracking/owner-PID, port forwarding, the
 // run_with_proxy launch with the FROZEN teardown guard stack).
-func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string, staged stagedPacks) int {
+func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string, staged stagedPacks,
+	injectedArgs []string) int {
 	out := o.pr(o.Stdout)
 	// Staged above the dispatch (see Run): this path consumes the result rather than
 	// producing it. packStaging is the tree /ctx/packs binds; loadedPacks is what the
@@ -339,12 +360,16 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// copilot` gets its flags identically on both paths.
 	//
 	// The cost is that a CONFIGURED pack's launchFlags do not apply to a bare `yolo --
-	// <bin>` invocation. Real but narrow: the in-jail launcher that pack generates still
-	// applies them, so the flags are not lost — only this one host-side injection misses.
-	fullCommand := append([]string{}, o.Args...)
+	// <bin>` invocation. Real but narrow — but NOT for the reason this comment used to
+	// give. It claimed "the in-jail launcher that pack generates still applies them, so
+	// the flags are not lost", and that is false: both launcher templates end
+	// `exec "$REAL_BIN" "$@"` (entrypoint/shims.go) and never read
+	// LaunchFlagContributions. Nothing downstream recovers a missed injection, which is
+	// why the injection moved above the backend dispatch in Run() — this arm now
+	// consumes that one result rather than repeating it.
+	fullCommand := append([]string{}, injectedArgs...)
 	targetCmd := "bash"
 	if len(fullCommand) > 0 {
-		fullCommand = packload.InjectLaunchFlags(packload.Embedded(), fullCommand)
 		targetCmd = shquoteJoin(fullCommand)
 	}
 
