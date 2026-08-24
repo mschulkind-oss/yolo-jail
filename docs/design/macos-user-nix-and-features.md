@@ -1,7 +1,9 @@
 # macos-user: nix integration and the disabled-feature surface
 
-**Status:** DESCRIPTIVE (2026-07-23) — documents what the shipped code does, not a
-proposal. Records both the *by-design* differences and the current *gaps* (things
+**Status:** DESCRIPTIVE (2026-07-23), **re-verified 2026-08-23** — documents what the shipped code
+does, not a proposal. Two entries in §3.1 moved on 2026-08-23 (`d0961f2c`): `workspace_readonly` is
+no longer inert here, and `per_side_paths` now warns instead of vanishing. Everything else in the
+inert list was re-read and still holds. Records both the *by-design* differences and the current *gaps* (things
 a config key or message implies but the code does not yet wire).
 **Scope:** the `macos-user` backend only (native macOS user + Seatbelt, **no VM,
 no container, no OCI image**).
@@ -228,14 +230,19 @@ of container features:
   subpaths out of an otherwise-`:ro` `/home/agent` container mount. On macos-user
   the home is natively writable (the Seatbelt profile allows writes under the
   sandbox home), so the concept has no target.
-- **`workspace_readonly`** → **silently inert.** Built only in the container run pipeline
-  (`assemble.go:396`). Unlike the others in this list its policy *is* expressible here — the
-  Seatbelt profile is already a write deny-list with re-allows — so this one is a wiring gap
-  rather than a structural impossibility. See
-  [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) §5.5.
-- **`per_side_paths`** → **silently inert, and structurally impossible.** It gives the host and
-  the sandbox different contents at the same path, which is a mount-namespace capability.
-  Seatbelt can deny a path; it cannot fork one.
+- **~~`workspace_readonly`~~ → FIXED 2026-08-23** (`d0961f2c`). It *was* silently inert — built
+  only in the container run pipeline — and, as this section predicted, the fix was a wiring gap
+  rather than a structural impossibility: the Seatbelt profile is a write deny-list with re-allows,
+  so the policy is now expressed there. **This is a behaviour change for anyone who set the key on
+  this backend** and has been writing to the workspace; it has a release-note entry.
+  Not verified on hardware — the profile and its call sites are pinned by mutation-verified tests in
+  a Linux jail, but nobody has watched a write fail on a Mac. See
+  [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) §5.6.
+- **`per_side_paths`** → **structurally impossible, and it now SAYS so.** It gives the host and
+  the sandbox different contents at the same path, which is a mount-namespace capability: Seatbelt
+  can deny a path, it cannot fork one. As of `d0961f2c` it **warns** on this backend rather than
+  being silently absent — *shipping a new default that is silently missing on one backend would
+  repeat the exact defect the line above fixed.*
 - **host-service socket dir mount** → see loopholes below.
 
 ### 3.2 Resource limits — no cgroups
@@ -388,8 +395,8 @@ if a relocated-root use case ever lands (which would then need the key agreed at
 | bind mounts (`/workspace`, home overlay) | yes | **none** | no container |
 | `cache_relocations` | podman ✅ / AC ⚠️ | **off** | no mount |
 | `writable_home_dirs` | yes | n/a | native home is writable |
-| `workspace_readonly` | podman ✅ / AC ❌ (`:ro` ignored) | **silent no-op** — expressible in the Seatbelt profile, not wired | container-path only; see [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) §5.5 |
-| `per_side_paths` | yes | **silent no-op, and no equivalent exists** | needs a mount namespace; Seatbelt filters permissions, it cannot give one path two contents |
+| `workspace_readonly` | podman ✅ / AC ❌ (`:ro` ignored) | ✅ **ENFORCED since 2026-08-23** (`d0961f2c`) via the Seatbelt profile — was a silent no-op | the wiring gap this doc predicted; see [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) §5.6 |
+| `per_side_paths` | yes | **WARNS since 2026-08-23** (`d0961f2c`) — no equivalent exists, and it no longer pretends otherwise | needs a mount namespace; Seatbelt filters permissions, it cannot give one path two contents |
 | `resources` (cpu/mem/pids) | podman-machine / AC native | **off** | no cgroups/VM |
 | `network` modes | yes | **n/a** | runs on host net |
 | `ports` / forward_host_ports | yes | **not wired** | container-path only |
