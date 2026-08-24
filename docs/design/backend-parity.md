@@ -179,6 +179,25 @@ below `/home/agent` must be emitted by both container backends. A **diff of the 
 backends' own argvs**, not an expected list — the failure mode is an *absent* mount, and
 absence is invisible to a list you also forgot to update.
 
+### 5.1 Confirmed drops I deliberately did NOT warn about
+
+Seven of the seventeen are real and left silent on purpose, because **ten new launch lines is
+already the number OQ-BP-3 asks about**, and warning about a drop whose absence is the correct
+outcome trains the reader to skip the ones that matter.
+
+| Mechanism | Backend | Why no warning |
+| :--- | :--- | :--- |
+| pack `env` contributions | macos-user | The only shipped one is `audio`'s `PULSE_SERVER` / `PIPEWIRE_REMOTE`, pointing at sockets that do not exist there. **Setting them would be worse than dropping them**, and the inert-loophole line for `audio` already fires. A third-party pack declaring `env` is a genuine silent drop — revisit when one exists |
+| `resources.pids_limit` | AC | memory and cpus ARE emitted; a per-sub-key warning inside an honored parent is exactly the noise §4's residue 2 describes |
+| `ephemeral_storage` | AC | Scratch is always `--tmpfs` there. Recorded as the repo's own position in `config_ref.txt` and unverified on hardware |
+| config `mounts` | AC | A deliberate DECLINE to hand out a writable `/ctx` given apple/container#889 — not an oversight, and already documented |
+| `gpu`, `kvm` | macos-user | Commonly set in a config shared with a Linux box; podman-on-macOS and AC both merely warn, and making the native backend stricter than its siblings buys no safety |
+| `confinement` | macos-user | Needs a refusal in the run pipeline rather than a warning, and refusing a key on one platform of a shared config is the trap `config/inherit.go` already documents |
+
+**Every one of these belongs in the census as a `Warned` or `HonoredBy` cell with this reason
+attached** — which is the argument for building it. A table can hold seven quiet rows; a launch
+cannot hold seven quiet lines.
+
 > [!NOTE]
 > **None of the Apple Container or macos-user fixes are verified on hardware.** Every one is
 > unit-tested and mutation-checked; none has run on a Mac. AGENTS.md's nested-jail carve-out
