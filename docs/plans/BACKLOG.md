@@ -1,19 +1,47 @@
 # Backlog — the one implementable list
 
 **Status:** the single entry point for *what to build next* on the composed-config / packs
-cluster. 2026-07-26.
+cluster. Created 2026-07-26; **restamped 2026-08-23** (header + Stage E + Stage G).
 
 **Why this exists.** The design work produced 8 docs / ~4,800 lines, and the actionable items
 ended up spread across three of them. This file is the only place that answers *"what do I
 pick up?"* Everything else is reasoning, and is linked per item.
 
 **Rule:** an item lives here once. Reasoning lives in the design doc. Sequencing lives in
-ROADMAP. Nothing gets three homes.
+[roadmap.md](roadmap.md). Nothing gets three homes.
 
-**Current state (2026-07-29).** Stages A–F are complete, and the pack-declaration reform
+**Corollary added 2026-08-23:** an open *question* lives in a doc too — with stakes, a
+leaning, and an empty `**Answer:**` — and `roadmap.md` links to it by ID rather than restating
+it. Where a question has no design doc of its own, **Stage E below is that doc.**
+
+**Current state (2026-08-23).** Stages A–F are complete, and the pack-declaration reform
 that produced today's `contributes[]` design is shipped (see
-[../design/pack-system.md](../design/pack-system.md)). **Stage G — host-side composition —
-is the one substantive open pack-adjacent stage**, and G1 within it is a live data-loss bug.
+[../design/pack-system.md](../design/pack-system.md)).
+
+**Stage G is no longer this file's problem, and its headline bug is fixed.** The old header
+here said *"Stage G — host-side composition — is the one substantive open pack-adjacent
+stage, and G1 within it is a live data-loss bug"*; both halves of that are now stale. Stage G
+moved into [environment-manager-plan.md](environment-manager-plan.md) on 2026-07-31, and that
+plan's own build status records **Phases 0, 1, 2, 3, 4, 5, 6, 8 and 9 as SHIPPED (2026-08-01)**.
+Spot-checked against the tree, verified 2026-08-23:
+
+- **G1/G2 (Phase 0) is FIXED** — `refuseHostSideWrite` (`internal/cli/configdiff.go:84-93`)
+  refuses host-side `config reset`/`capture` without `--force`, wired at `configdiff.go:645`
+  and `:848`.
+- **G4/G5/G3 (Phase 1) shipped** — `internal/render/` exists with `target.go`, `fieldset.go`,
+  `modes.go`, `confinement.go`.
+- **Phase 2 shipped** — the `confinement` key at `internal/config/confinement.go:3-45`.
+- **G6 (Phase 4) shipped** — `apply --host` at `internal/cli/apply.go:63`; `--sealed`
+  (Phase 5) at `apply.go:69`.
+- **Phase 7 (the `guest` notch) is the one unbuilt phase**, and it is host/Mac-gated rather
+  than design-blocked: `internal/render/modes.go:185` still answers `KindGuest` with
+  `UndecidedModes(...)`, whose reason string reads *"the guest notch's mode policy is Phase
+  7's to state"*.
+
+**So the one substantive open stage left in this file is Stage E**, which as of today holds
+**seven open questions** — the parked `host_files` follow-ups plus four questions
+(`S5`, `OQ-CO`, `OQ-S4`, `OQ-E4`) that until now had no doc home anywhere and were being
+restated in [roadmap.md](roadmap.md) instead of linked from it.
 
 ---
 
@@ -188,21 +216,354 @@ file's "an item lives once" rule — the item now lives in the plan):
 | G5 | `FieldSet` — refuse an inapplicable kind by name, not silently | **Phase 1.3** |
 | G6 | `yolo config apply --host` — render the applicable subset into the real home | **Phase 4** |
 
-**G1 (Phase 0) is the one to do first, and it waits on nothing.** Original order G1 → G2 → G4
-→ G3 → G5 → G6 is preserved as Phase 0 → 1 → 4. **Extracting any of this into a separate util
+**And all six have SHIPPED — restamped 2026-08-23.** The plan's own build status records
+Phases 0–6, 8 and 9 as shipped 2026-08-01; the spot-checks are in this file's header. The
+sentence that used to sit here (*"G1 (Phase 0) is the one to do first, and it waits on
+nothing"*) was true when it was written and is now history — G1/G2 are fixed at
+`internal/cli/configdiff.go:84-93`. Original order G1 → G2 → G4 → G3 → G5 → G6 was preserved
+as Phase 0 → 1 → 4. **Extracting any of this into a separate util
 is settled: no** (`host-render-target.md` §2.3, decided 2026-07-27) — the field census puts the
 boundary through the middle of a single manifest, so the capability lives in yolo as
 `internal/render`.
 
-## Stage E — parked design work
+## Stage E — parked design work, and the questions with no other home
 
-| # | Item | Status |
+**Restamped 2026-08-23.** This stage is now two things at once: the parked `host_files`
+follow-ups (E1–E5) it always held, and **four questions that had no design-doc home anywhere**
+— `S5`, `OQ-CO`, `OQ-S4`, `OQ-E4`. Those four were carried as a single line in
+[roadmap.md](roadmap.md) ("the small ones with no design-doc home"), which breaks that file's
+own governing rule: *a question lives in its design doc, with stakes and a leaning, and the
+roadmap links to it by ID*. They live here now, in full, so the roadmap can cite them and stop
+restating them. **This section is their doc.**
+
+> [!IMPORTANT]
+> **IDs are an API — do not renumber these into the E-series.** `S5`, `OQ-CO`, `OQ-S4` and
+> `OQ-E4` keep the exact spellings they were born with in the deleted `outstanding-work.md`
+> (last intact at commit `58ae8227`, 2026-08-13). They are cited today by
+> [shipped-2026-08-12.md](shipped-2026-08-12.md) (§S4 and the E4 entry) and by
+> `internal/cli/run/packskillsdelivery_test.go`. `S5` in particular is an S-series pack ID,
+> not an E-series backlog ID, and re-spelling it would silently orphan those references.
+
+**Index.** The 💬 glyph lives on the section heading below, once per question, so
+`rg -n '^### 💬' docs/plans/BACKLOG.md` counts this stage exactly — **seven open**. This table
+carries none, deliberately.
+
+| ID | Question | State |
 |---|---|---|
-| E1 | `host_files` modes 4→3 (`copy` merges into `readonly`) | open — behavior change on a shipped key, blocked on E2 |
-| E2 | `readonly` as a real `:ro` mount instead of `0o444` | open — needs a per-surface design pass; you cannot compose *into* a `:ro` mount |
-| E3 | Capture timing (`yolo config capture` + capture on terminate) | open, **not urgent** — nothing is lost today, only observability lags |
-| E4 | Comment preservation on `json`/`toml` surfaces | open — starts from decisions, not blank |
-| E5 | `managed`/`defaults` array-append pinning | open — no user surface has needed it |
+| **E1** | `host_files` modes 4→3 (`copy` merges into `readonly`) | **open** — one decision with E2 + OQ-B |
+| **E2** | `readonly` as a real `:ro` mount instead of `0o444` | **open** — one decision with E1 + OQ-B |
+| ✅ E3 | Capture timing | **SHIPPED 2026-08-15** — both halves. See below |
+| ✅ E4 | Comment preservation on `json`/`toml` surfaces | **mostly shipped 2026-08-12**; the one live residue is `OQ-E4` |
+| **E5** | `managed`/`defaults` array-append pinning | **open** — speculative; the named trigger has not fired |
+| **S5** | A jail resolves a skill-name collision silently | **open** — live gap, the only place the S1 silent loss survives |
+| **OQ-CO** | Two packs writing one `config-overlay` key | **open** — nothing blocked; no shipped pack collides |
+| **OQ-S4** | Should the jail narrow its skills fan-out to match the host? | **open** — a product call about what `into` promises |
+| **OQ-E4** | Do `stateful` surfaces get comment preservation too? | **open** — `rmw` shipped, `computed`/`json` ruled out |
+
+---
+
+### 💬 **E1 — collapse `host_files` modes 4→3 (`copy` merges into `readonly`)**
+
+Also **E2** and **`pack-host-management-plan.md` OQ-B**: *these three are one decision.* See
+the shared block below.
+
+`host_files` still accepts four modes — `readonly`, `once`, `copy`, `capture`
+(`internal/config/hostfiles.go:56-61`, verified 2026-08-23). E1 asks whether `copy` earns its
+slot: `copy` overwrites the file every boot at `0o644` and loses an in-jail edit silently,
+while `readonly` re-renders every boot at `0o444` so the edit fails loudly *at the moment of
+the edit*. If E2 makes `readonly` a real `:ro` mount, the two modes stop differing in what a
+boot does and differ only in whether the failure is loud — which may not be worth a mode.
+
+**Stakes:** this is a behavior change on a **shipped config key**, so every existing
+`mode: "copy"` entry changes meaning on upgrade. It is also the only one of the three that
+can be decided *wrong* cheaply — the mode list is documented in `internal/cli/config_ref.txt`
+and nothing else keys on the count.
+
+_Leaning:_ **reject E1, and keep four modes.** `copy` and `readonly` answer *different*
+questions — not "what does a boot do" (where they agree) but "what happens when the agent
+writes", where silent-loss and loud-failure are genuinely distinct products. That distinction
+is exactly what a mode name is for. **What would change my read:** E2 landing as a real `:ro`
+mount, which makes `readonly` kernel-enforced and therefore no longer a "loud failure" mode
+but an impossible-write mode — at which point `copy` becomes the only writable-and-clobbered
+mode and the case for merging them collapses.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 **E2 — `readonly` as a real `:ro` mount instead of `0o444`**
+
+**This is the same underlying decision as E1 and as `OQ-B` in
+[pack-host-management-plan.md](pack-host-management-plan.md) (line ~940). Decide all three
+together or none of them** — OQ-B's own leaning already says so.
+
+The asymmetry, stated once: **`0o444` is a posture; `:ro` is enforcement.** `0o444` is DAC
+only, and yolo's own docs already admit it — `internal/cli/config_ref.txt:539`: *"Note 0444 is
+DAC, not kernel enforcement: an agent running as root (Claude YOLO runs UID 0) bypasses the
+mode bits"*, and anyone can `chmod +w`. Three places in the tree make the same trade today
+(all verified 2026-08-23):
+
+| Site | What it does | Which ID |
+|---|---|---|
+| `internal/entrypoint/hostfiles.go:112-157` | `host_files` `readonly` renders `0o444` (`0o555` if the source is executable) every boot | **E2** |
+| `internal/config/hostfiles.go:40-56` | the four-mode vocabulary that names it | **E1** |
+| `internal/entrypoint/hostfilestree.go:182-200` | pack-delivered `files` at the host notch: *"READ-ONLY (0o444/0o555) mirrors the jail's `:ro` mount, which is the closest a plain [mode] can get"* | **OQ-B** |
+
+`hostfilestree.go:157` is the asymmetry in one line: the writer has to **chmod a `0o444` file
+back to writable to reopen it**, which is precisely the move a user who wants to hand-edit
+will make — and then lose on the next apply.
+
+**Stakes.** The blocker is structural, not effort: **you cannot compose *into* a `:ro`
+mount.** Making `readonly` a real mount means the composed output has to be produced in a
+staging tree and bound in, which changes the delivery path for every `readonly` entry and
+re-opens how `packstage` and `hostfilestree` deliver. Against that: `0o444` makes a promise
+the product does not keep for the one agent that matters — Claude YOLO runs UID 0 and walks
+straight through it.
+
+_Leaning:_ **keep `0o444` everywhere and fix the WORDS instead.** Rename the posture from
+"read-only" to what it is (asymmetric / advisory), which `config_ref.txt:539` already says in
+a note nobody reads at the point of decision. The enforcement upgrade is real work on a live
+boot path and buys nothing against the threat model that actually applies (a root agent), so
+it should wait for a threat it defeats. **What would change my read:** the `guest` notch
+(env-manager Phase 7) landing with a non-root agent, where DAC bits *are* enforcement.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### ✅ **E3 — capture timing. SHIPPED 2026-08-15, both halves.**
+
+**This row was stale and is now closed.** The old entry said *"open, not urgent — nothing is
+lost today, only observability lags"*. Verified against the tree 2026-08-23:
+
+- `yolo config capture` (the on-demand half) — `internal/cli/configdiff.go:843`.
+- **Capture on terminate** (the half the entry was actually about) —
+  `internal/cli/configcapture.go`, whose opening line is literally *"configcapture.go is E3's
+  second half: capture on TERMINATE"*. Shipped in commit `29ccf212`, 2026-08-15,
+  *"feat(config): capture in-jail config edits when a jail terminates (E3)"*.
+- **It is wired, not orphaned** — `internal/cli/commands.go:572` injects it as
+  `run.Options.CaptureOnTerminate`, with the comment naming E3.
+- It ships **unconditional, not opt-in**, and `configcapture.go:10-45` records the four-point
+  argument for that (idempotent with the boot capture; only touches `mode: capture` surfaces;
+  the gap is a default-correctness property of a *reporting* command; and BACKLOG's own
+  "nothing is lost today" is the reason every failure warns and proceeds rather than a reason
+  to gate it).
+
+Nothing left to decide. Kept as a row rather than deleted because the E-numbers are cited
+elsewhere.
+
+### ✅ **E4 — comment preservation. Mostly shipped 2026-08-12; the residue is `OQ-E4`.**
+
+**Why `E4` is absent from the roadmap's list while `OQ-E4` is present.** They are not the same
+item. `E4` was "comment preservation on `json`/`toml` surfaces" across all modes; three of its
+four cases are now closed, and the fourth was promoted to its own question ID:
+
+| case | ruling | evidence (verified 2026-08-23) |
+|---|---|---|
+| `rmw` | **preserve** — shipped | `internal/entrypoint/tomltrivia.go`, whose header reads *"tomltrivia.go is E4's `rmw` half"*; drops are reported by key via `HostRenderResult.Formatting` (`internal/entrypoint/hostrender.go:104-113`) |
+| `computed` | **do not preserve, and that is correct** | yolo is sole author, so any comment would be one *yolo wrote* — a different feature |
+| `json` (any mode) | **provably vacuous** | strict JSON has no comment syntax, so a commented file never decodes and the RMW path refuses it byte-untouched; now pinned by a test |
+| `stateful` | **still open** → **`OQ-E4`** | see below |
+
+Full argument: [host-file-staging.md](host-file-staging.md) §*"What shipped: option 3, for
+`rmw` only"*, and [shipped-2026-08-12.md](shipped-2026-08-12.md) §E4.
+
+### 💬 **E5 — `managed`/`defaults` array-append pinning**
+
+`managed`/`defaults` merge is RFC-7386 object merge at every depth
+(`internal/agentcfg/engine.go:39-49`, verified 2026-08-23), which means **an array in a
+`managed` layer REPLACES the on-disk array wholesale**. So a pack that wants to *add one
+entry* to a list the user also maintains cannot: it either clobbers the user's whole list or
+leaves the key alone. Settled as deferred at implementation time —
+[host-file-staging.md](host-file-staging.md), *"Resolved during implementation"*: *"Array-append
+pinning was deferred: no user surface has needed it. Still open if one does."*
+
+**Stakes:** low today and self-limiting. The trigger is named and has not fired — no shipped
+surface needs it. The risk is in the *fix*, not the gap: changing `mergeValue` globally would
+alter every shipped surface's render and move `TestRenderFingerprintStable`.
+
+_Leaning:_ **do not build it speculatively.** When something needs it, the shape is a per-key
+merge-strategy annotation on the `managed` declaration (opt-in, one surface at a time), never
+a change to the engine's default merge. Recording that shape now is the whole value of leaving
+this row open.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 **S5 — a jail resolves a skill-name collision SILENTLY**
+
+**Context for a reader who has never seen the roadmap.** Two selected packs can each ship a
+skill directory with the same name aimed at the same destination (`~/.claude/skills/review`
+from both). The two notches answer that differently, and only one of them says anything:
+
+- **Host (`apply --host`) — FATAL, before anything is written.**
+  `hostskills.RenderHostSkills` calls `Collisions(dests)` first and returns `CollisionError`
+  with every collision named, so one run tells the user every rename to make
+  (`internal/hostskills/compose.go:698-700`). This is the S1 ruling.
+- **Jail — silent last-one-wins.** `jailcontent.PrepareSkills` loops `packSkillDirs` in config
+  order (`internal/jailcontent/skills.go:107-118`) and `copySkillSubdirs` does
+  `os.RemoveAll(target)` then copy (`skills.go:154-160`). There is no collision concept on any
+  jail path: `RenderHostSkills` — the sole caller of `Collisions` — is reached only from
+  `internal/cli/applyhostskills.go:253`. **Verified 2026-08-23.**
+
+**Measured 2026-08-05**, on the same two-pack set `apply --host` refuses: the jail came up,
+`~/.codex/skills/mine` held the local pack's copy, the other pack's skill was absent, and
+nothing said so.
+
+**Stakes.** Not a regression — S1's ruling is explicit that the collision is fatal *at apply
+time* — but this is now the **only** place the silent loss the ruling exists to remove still
+survives, and it is the notch a user is in every day. It is a decision rather than a port
+because refusing to **start a jail** is much heavier than refusing to write a real home, and
+A12's fatal-generator policy would make it exactly that. Three options, ascending:
+
+1. **A warning at launch** naming both packs. Closes the "nothing said so" half; strands nobody.
+2. **A `yolo check` failure.** Loud where the user is already asking; non-fatal at launch.
+3. **A boot refusal.** Consistent with the host, and the one that can strand someone mid-task.
+
+_Leaning:_ **do (1) now, regardless of what you pick for (2)/(3).** The destinations and layers
+are already computed and `hostskills.Collisions` is a pure function of them, so the cheap half
+is small. Against (3): A12 makes a generator failure halt the jail, so a boot refusal here is
+not "consistent with the host" in cost — the host user re-runs a command, the jail user loses
+a session.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 **OQ-CO — two packs writing one `config-overlay` key is silent last-one-wins**
+
+**Context.** `config-overlay` is the kind that lets pack B contribute keys to a surface pack A
+owns (the `matt-fzf` → `claude/settings` `fileSuggestion` case). Overlays fold in after the
+workspace layer **in pack order, later wins** (`internal/agentcfg/compose.go:362-369`), and the
+kind's combine rule is `CombineOverlay`, which is **deliberately non-colliding** —
+`internal/packdecl/kinds.go:156-158`, and `internal/packload/footprint.go:247`: *"It does not
+collide (CombineOverlay), so it is a claim line only."* **Verified 2026-08-23.**
+
+So two packs claiming the same *surface* is the feature. Two packs claiming the same **key**
+with different values is undetected, and the loser is never told.
+
+**What is already mitigated, and what is not.** Per-key provenance IS recorded — the winning
+layer is labelled `config-overlay:<pack>` (`internal/agentcfg/compose.go:170-176`) and
+`yolo config diff` prints it. That is **after-the-fact reporting, not a refusal**, and at the
+HOST notch the annotation is *inferred rather than measured*:
+[pack-config-collaboration.md](../design/pack-config-collaboration.md) §8 *"Still open after
+Option 2"* measures it printing `fileSuggestion contributed by fzf-overlay but managed won`
+when the overlay's value is the one that actually landed and no `managed` value existed.
+
+**Stakes.** Nothing is blocked. No shipped pack collides — all declare disjoint identities
+(§9 *"What it did NOT change"*). It is worth deciding anyway because the **neighbouring kind
+answers the same shaped question the opposite way**: since 2026-08-02 a same-identity `config`
+declaration is a LOUD collision, named in `yolo pack footprint` and refused at launch and by
+`apply --host` (§9). Two adjacent kinds with opposite silence policies is the drift.
+Provenance: born 2026-08-13 (`58ae8227`) as the generic residue of the retired auth-pack
+`provides` mechanism — *"not auth-specific, and nothing is blocked on it."*
+
+_Leaning:_ **refuse and name both packs — the same shape as the `config` exclusivity collision
+that already ships** — but scoped to a genuine same-KEY overlap, never to two overlays on one
+surface, which is the collaboration the kind exists for. The cheap first move is
+`yolo pack footprint`: it already emits one claim per overlay contribution keyed by target
+identity, and an overlay body's key set is statically known from the manifest, so widening the
+claim from *surface* to *surface + key* turns this into a detectable collision with no new
+mechanism. **What would change my read:** a case where two packs legitimately want the same
+key and rely on order — I have not found one.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 **OQ-S4 — should the jail narrow its skills fan-out to match the host?**
+
+**Or, stated as the real question: does a declaration NARROW delivery, or only ADD to it?**
+
+**Context.** A `skills` contribution may name an `into` (a destination directory). The two
+notches disagree about what that declaration means, measured by the S4 audit
+([shipped-2026-08-12.md](shipped-2026-08-12.md) §S4, which also says loudly **"AUDITED: the
+gate holds. Do not re-audit this"** — this is a fan-out question, not a security one):
+
+- **Jail:** *every* loaded pack's skills reach *every* declared destination.
+  `PrepareSkills` copies every entry of `packSkillDirs` into every `packSkillTarget`
+  (`internal/jailcontent/skills.go:92-118`).
+- **Host:** a pack's skills reach only the destinations that pack declared —
+  `packload.ResolveDestinations` (`internal/cli/apply.go:256`). Verified 2026-08-23:
+  `ResolveDestinations` has **no caller** under `internal/cli/run` or `internal/entrypoint`.
+
+Pinned deliberately by `internal/cli/run/packskillsdelivery_test.go`, so answering this either
+way moves a test on purpose rather than rediscovering the behavior.
+
+**Stakes.** Three options:
+
+1. **Leave the jail; make the reporting honest.** Say the fan-out out loud in
+   `pack-system.md`'s `skills` section and in `yolo pack footprint`. *Cost:* a manifest keeps
+   understating delivery, so a pack its author scoped to one directory still reaches every
+   selected agent — the reviewable artifact and the behavior stay out of step.
+2. **Run `ResolveDestinations` on the jail path too.** A pack that DECLARES a destination
+   delivers only there; a pack that declares nothing borrows every destination in the set —
+   the zero-ceremony promise is preserved *by* the borrowing, which is what the function
+   exists for. *Cost:* a behavior change on a shipped kind. No pack yolo ships carries skills,
+   so it lands only on a third-party or local pack that both declares an `into` **and** ships
+   skills.
+3. **Widen the host to the jail's rule.** **Already rejected** by `ResolveDestinations`' own
+   comment: a manifest would start writing into home directories its author never named.
+
+**The trade to weigh before agreeing to (2).** A content pack that declares a unique path (say
+`into: ".acme/skills"`) would deliver there and nowhere an agent reads — inert, where today it
+reaches everything. That is arguably correct (it is what the pack declared) and arguably a
+regression, and `pack-system.md`'s own advice pushed authors toward declaring rather than
+staying silent.
+
+_Leaning:_ **(2)**, because it makes both notches answer from one inference instead of two,
+makes `into` mean what it says, and makes `yolo pack footprint` true — the same argument F1
+used to give the host the jail's inference, applied in the other direction. **(1) is the
+honest fallback and is worth doing either way**, since even under (2) the footprint should say
+what a *borrowed* destination is.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 **OQ-E4 — do `stateful` surfaces get comment preservation too?**
+
+**Context.** The residue of E4 above. `rmw` preserves comments (shipped 2026-08-12,
+`internal/entrypoint/tomltrivia.go`); `computed` correctly does not; `json` is provably
+vacuous. `stateful` is the remaining mode and it is **a different problem wearing the same
+words**: the file is composed from layers, so a comment can only come from the `host` layer,
+and putting it in the render is a **projection out of one file into another** rather than an
+in-place edit. `tomltrivia.go:24` and `:60` name exactly this, and note that the emitter
+`stateful` would have to change is also the one the A12-fatal boot path and the render
+fingerprint gate depend on.
+
+**Stakes.** Three options, priced in [host-file-staging.md](host-file-staging.md):
+
+1. **Do it.** `Codec` grows an optional `TriviaCodec`; trivia rides the compose result; the
+   staleness rule ① is keyed on `Result.Provenance` (emit a comment only where the winning
+   layer is `host`), which is already computed — one map lookup per key. *Cost:* it lands on
+   the A12-fatal boot path, and it needs an answer for the **Lua transform boundary** — a hook
+   returns a table, so trivia must either survive that or be documented as dropped by any
+   transform.
+2. **Extend the yolo-authored header that is already there** to point at the `:ro` original.
+   Measured 2026-08-12: the composed `~/.codex/config.toml` already opens with *"Generated by
+   yolo-jail — composed at jail start; hand edits may be reverted or lost…"*
+   (`internal/entrypoint/prism.go:400`, verified 2026-08-23). What it does not carry is the
+   `/ctx/host-user/<slug>` path to the untouched source. *Cost:* near nothing — but strict
+   JSON has nowhere to put a header line, so it serves `toml` only.
+3. **Leave it, and say so.** `raw` already round-trips a hand-written file byte-exact, and
+   `config-ref` already documents the structured-codec trade. *Cost:* none new.
+
+_Leaning:_ **(3) for now, then (1) when something needs it.** The reader this was for — an
+agent reading config to learn *why* a value is what it is — is now served on the file the
+argument was actually about (`~/.codex/config.toml` at the host notch, where a real user's real
+comments were being destroyed on every apply). (2) is a one-line follow-up worth folding into
+whatever touches that header next, not a reason to open this.
+
+**What would change my read:** a `stateful` surface whose HOST source is a commented `.toml`
+a user actually maintains. Today there is none — the only shipped TOML surface is
+`codex/config`, and the only shipped commented-config population is user-declared `host_files`
+entries, which get `raw` by auto-detect and keep their bytes exactly.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+---
+
+### Settled, kept for the record
+
+| # | Item | Disposition |
+|---|---|---|
 | ✅ E6 | ~~Non-agent prism ports (MCP/LSP/identity)~~ | **premise stale.** MCP and LSP *are* ported — they ride the **computed layer** into per-agent surfaces (`copilot/mcp`, `copilot/lsp`, `agy/mcp`), which is the right model: a standalone `mcp` surface would have no file of its own to write. `identity` is deliberately **host-composed and `:ro`-mounted** (`gitIdentityMountArgs`), settled by the identity-prism decision. `config render mcp` reporting "no surfaces" is therefore correct, not a gap |
 | ✅ E7 | Renaming the recovered state | **done** — three live terms are NOT synonyms (act / state / layer); vocabulary defined rather than flattened |
 | ✅ E8 | ~~Nightly-macOS builder arch mismatch~~ — **DONE 2026-08-03**. The original entry called this "a maintainer decision, not a fix"; that framing was wrong — `nightly-macos.yml:44` documents the Intel runner as the only hosted one with nested virt, testing the macOS *code paths* rather than Intel as a target, so it always had a technical answer. **(1)** `7cc54a0`: `publish.yml` pushes per-arch builder tags plus a multi-arch index, so `:latest` resolves on both arches. **(2)** `BuildersLine`'s advertised system was hardcoded `aarch64-linux` — *"the arch a Mac needs"* — so an x86_64 host connected to a working builder, was told it serves aarch64-linux, and nix declined to offload while the builder looked healthy. Now `BuilderSystem()` derives it from GOARCH. **(3+4) Two MORE instances of the same assumption, found by grepping the literal rather than trusting the entry's scope** — `nixdiag.HasLinuxBuilderFromConfig` decided "is a builder configured?" by matching `aarch64-linux`, so on x86_64 it reported *no builder* while one ran (and, with (2) fixed, would have accepted an arm64-only builder for an x86_64 build); and `DiagnoseNixBuildFailure` keyed its cross-build branch on the same literal, dropping x86_64 hosts to a raw stderr dump instead of the Linux-builder remedy. Both now take/match the wanted system. All four mutation-tested. **Remaining caveat, not a defect:** `publish.yml` is tag-triggered, so the multi-arch image does not reach GHCR until the next release — the nightly stays red until then, and that first nightly is the real proof | ✅ done, verified by the next release's nightly |
