@@ -429,8 +429,8 @@ largest measured reclaim in the repo. **Nothing here is waiting on me to decide 
 > **An empty queue is not a stable state, it is a reading.** If it stays empty for a week, the
 > question to ask is not "what should we build" but "which of the fourteen rulings is actually
 > blocking, and which is a question I invented" — see
-> [`further-roadmap-ideas.md`](further-roadmap-ideas.md) §4, which argues two of them are the
-> latter.
+> [`further-roadmap-ideas.md`](further-roadmap-ideas.md) §4 and §4a, which argue **three** of them
+> are the latter.
 
 ---
 
