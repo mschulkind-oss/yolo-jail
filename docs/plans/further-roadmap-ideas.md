@@ -59,7 +59,13 @@ anchors** in a single doc — no claim wrong, every pointer off.
    a stable ID;
 2. every `OQ-<ID>` the roadmap cites **resolves** to that ID in the doc it names;
 3. every `roadmap.md` reference by *name* (`row X`, `thread Y`, `item N`) is refused outright —
-   the roadmap holds states and IDs, and nothing else is citable.
+   the roadmap holds states and IDs, and nothing else is citable;
+4. every backticked SHA-shaped token resolves with `git rev-parse`. **Three phantom SHAs were in the
+   corpus today** (`533ccc1`, `8e77580`, `7fad359c`) and each sat in a sentence offering itself as
+   evidence. ⚠ **This rule needs an allowlist, and finding that out is half its value:** a corpus
+   sweep flags six more that are legitimately unresolvable — upstream `flake.lock` nixpkgs revs
+   (`241313f4`, `f13ff45a`) and other projects' commits quoted in research. The check must
+   distinguish "our repo's history" from "someone else's", or it becomes noise and gets ignored.
 
 Rule 2 is the valuable half: it is a link checker for decisions rather than URLs. Rule 3 is the one
 this session would have needed.

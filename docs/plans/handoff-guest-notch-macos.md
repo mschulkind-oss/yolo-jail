@@ -267,8 +267,8 @@ From `AGENTS.md`, plus what this session learned:
   absorbs the one-time cost. On Linux CI the premise holds and the warmup still earns its
   1m56s. **If a darwin run looks slow in its first container test, that is the design.**
 - **A test fixture chosen for convenience can pick the one input that cannot fail**
-  (`2e327fa2`, found by the 2026-08-19 sandbox run — the roadmap cites this as `533ccc1`,
-  which does not resolve). The Seatbelt profile granted `/Users`, `/Users/Shared` and the
+  (`2e327fa2`, found by the 2026-08-19 sandbox run — the roadmap cited a `533ccc1` that does not
+  resolve, and was **corrected to this SHA on 2026-08-23**). The Seatbelt profile granted `/Users`, `/Users/Shared` and the
   workspace subpath, and its comment asserted *"the workspace is NOT under any `/Users/<name>`
   home, so no ancestor grant is needed"* — true only at depth ONE, and the shipped test used
   `/Users/Shared/proj`, the single depth where the gap is invisible, **while asserting the
