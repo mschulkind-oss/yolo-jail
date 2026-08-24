@@ -1,7 +1,14 @@
 # Capabilities — naming the job, so a pack can say a bundled loophole is unnecessary
 
-**Status:** **LANDED 2026-08-15** (queue row **A6**). Designed 2026-08-13, rewritten the same day
-against [`loophole-packaging.md`](loophole-packaging.md), which is its prerequisite.
+**Status:** **LANDED 2026-08-15**, re-checked 2026-08-23 — one live question remains (**OQ-CAP**,
+§10, a confirmation rather than a fork). Designed 2026-08-13, rewritten the same day against
+[`loophole-packaging.md`](loophole-packaging.md), which is its prerequisite.
+
+*(This line used to cite "queue row **A6**"; the roadmap's lettered queue was retired on 2026-08-17,
+and the ruling that letter pointed at is [`loophole-activation.md`](loophole-activation.md)
+**OQ-A6**. Two more places below still say "roadmap A6" and "three bundled loopholes exist" — both
+were true when written; there are **no bundled loopholes left** as of 2026-08-19, which narrows
+supersession's remaining scope to loopholes a pack's own selection cannot remove.)*
 
 > ### LANDED — what shipped, and where this document is now wrong
 >
