@@ -1,6 +1,13 @@
 # The `program` kind: three defects, and the questions they raise
 
-**Status:** analysis + open questions, 2026-08-02. **No code changed.** Companion to
+**Status:** analysis + open questions, 2026-08-02 — **and all three defects are FIXED since.**
+Re-checked 2026-08-23. 11.1 and 11.2 have dated UPDATE blocks below (the PATH split, and the
+`requires` kind); **11.3 closed too** — `packstage` now clears a dropped pack's staged tree
+**contents-only**, leaving the directory inode alone because a live jail's `/ctx/packs` bind
+captured it (`internal/packstage/packstage.go:29,48,230` — "rule 3"), and the host-side half
+shipped as [`../plans/host-pack-drop-cleanup.md`](../plans/host-pack-drop-cleanup.md)'s four
+rulings on 2026-08-03. **The remaining value of this doc is §5's questions and the reasoning, not
+its defect list.** Companion to
 [`../plans/pack-host-management-plan.md`](../plans/pack-host-management-plan.md) Phase 11,
 which lists these as work items; this doc carries the context and the decisions needed before
 any of them can be implemented.
@@ -284,17 +291,25 @@ fallthrough that a new kind makes unnecessary.
 
 ---
 
-## 5. Open questions, collected
+## 5. Open questions, collected — **none of them are open any more**
 
-For a reader who wants only the decisions:
+For a reader who wants only the decisions. **Every one closed between 2026-08-02 and 2026-08-03,
+and three of the five closed by being made unaskable rather than by being answered** — which is
+why they are compacted here rather than left as live questions.
 
-- **Q1.1** — install fails but the bin resolves on PATH: fall through, keep failing, or fall
-  through with a loud warning?
-- **Q1.2** — skip launcher generation entirely when the bin already resolves in the image?
-- **Q1.3** — should there be a *presence-asserting* kind (`requires`?) distinct from
-  `program`'s install-this semantics, so a pack can carry `install_hints` without generating a
-  jail launcher?
-- **Q2.1** — is one `program` per pack the intended rule (→ validation error) or a loop bug
-  (→ return a slice)?
-- **Q3.1** — on staging cleanup: clear-and-restage everything, or prune only unconfigured
-  slugs? (And: should a configured-but-unresolvable fetched pack be pruned? I say no.)
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| **Q1.1** | **Moot.** Launchers moved to `~/.yolo-launchers`, ordered LAST on PATH, so an installer is unreachable while any real binary of that name exists — there is nothing to fall through to. The exit-1 tail is unchanged and still right for a genuinely absent tool | 2026-08-02 | §1 UPDATE, [`../plans/proposed-fixes-open-findings.md`](../plans/proposed-fixes-open-findings.md) §1 |
+| **Q1.2** | **Moot, same cause.** Generation is harmless once ordering decides the winner; the launcher is still generated and still exits 1 when run directly, which is what proves ORDERING is the whole fix | 2026-08-02 | §1 UPDATE |
+| **Q1.3** | **Yes — build it.** The `requires` kind shipped: asserts a binary is present, generates nothing, names a missing bin at boot, feeds `check-deps`/`apply --host`. `CombineShared`, not `CombineExclusive` | 2026-08-03 | §1 UPDATE |
+| **Q2.1** | **A loop bug, not a rule** — 11.2 fixed | 2026-08-03 | §2 UPDATE |
+| **Q3.1** | **Prune only unconfigured slugs, contents-only** — and a configured-but-unresolvable fetched pack is **KEPT**, exactly as this doc leaned. The staging root's own inode is never removed, because a live jail's `/ctx/packs` bind captured it | 2026-08-03 | `internal/packstage/packstage.go:29,48,230` (rule 3) |
+
+> [!WARNING]
+> **Q1.1/Q1.2 are moot, not answered — and the distinction is load-bearing.** What makes them
+> unaskable is **PATH ORDER**: `~/.yolo-shims` (blockers) precedes the real tool because
+> interception is its whole job, and `~/.yolo-launchers` (lazy installers) comes last, after
+> `/bin`, so a launcher is reached only when nothing else provides the name. Reorder those two dirs
+> and both questions come straight back, along with the defect they describe. The consequence to
+> hold: **a name the image bakes now beats a pack's declared version** — right for `fzf`, and worth
+> re-checking before baking any package whose name a pack also claims.
