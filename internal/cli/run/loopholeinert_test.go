@@ -21,7 +21,7 @@ func inertOutput(t *testing.T, rt string, packs ...*packload.Pack) string {
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stderr = &errBuf
 	o.Stdout = discardBuf()
-	o.notePackLoopholesInert(rt, packs)
+	o.notePackLoopholesInert(rt, packs, nil)
 	return errBuf.String()
 }
 
@@ -187,7 +187,7 @@ func TestInertReportWritesToStderr(t *testing.T) {
 	var outBuf, errBuf bytes.Buffer
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stdout, o.Stderr = &outBuf, &errBuf
-	o.notePackLoopholesInert("container", []*packload.Pack{p})
+	o.notePackLoopholesInert("container", []*packload.Pack{p}, nil)
 	if outBuf.Len() != 0 {
 		t.Errorf("the inert report leaked to stdout:\n%s", outBuf.String())
 	}

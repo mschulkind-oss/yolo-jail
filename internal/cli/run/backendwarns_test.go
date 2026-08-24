@@ -80,3 +80,52 @@ func TestMacosUserNotesMachineWideWorkspaceState(t *testing.T) {
 			"output:\n%s", got)
 	}
 }
+
+// The two content pipelines that never reach macos-user: skills+briefings (composed
+// host-side and delivered by MOUNTING, which this backend cannot do) and lsp_servers
+// binaries (installed by a bootstrap script it deliberately does not run). Both warn
+// rather than being fixed here — the first needs a delivery mechanism, the second needs
+// a node precondition — but neither may be silent, because in both cases the agent is
+// told the capability exists.
+func TestMacosUserNotesContentGaps(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `["claude"]`)
+	ws := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, bool) int {
+		return 0
+	}
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr.String())
+	}
+	got := stdout.String() + stderr.String()
+	if !strings.Contains(got, "briefings and skills are NOT delivered") {
+		t.Errorf("a macos-user launch did not say the agent gets no briefing or skills.\n"+
+			"The blocked-tool shims ARE generated on this backend, so a blocked command exits "+
+			"127 with nothing explaining it.\noutput:\n%s", got)
+	}
+}
+
+// Config-declared loopholes (loopholes.<name>.command) were invisible to the inert
+// report, which walked packs only — so a user whose own config named a daemon got no
+// line at all on a backend that starts none. Reporting one source and not the other made
+// the silence look deliberate.
+func TestConfigDeclaredLoopholesAreReportedInert(t *testing.T) {
+	entry := jsonx.NewOrderedMap()
+	entry.Set("enabled", true)
+	entry.Set("command", []any{"/bin/true"})
+	lp := jsonx.NewOrderedMap()
+	lp.Set("acme-proxy", entry)
+
+	var errBuf bytes.Buffer
+	o := goldenOptions("/ws", t.TempDir())
+	o.Stderr = &errBuf
+	o.Stdout = discardBuf()
+	o.notePackLoopholesInert("container", nil, newConfig("loopholes", lp))
+
+	if got := errBuf.String(); !strings.Contains(got, "acme-proxy") {
+		t.Errorf("a config-declared loophole is not reported inert on Apple Container:\n%s", got)
+	}
+}

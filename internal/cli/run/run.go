@@ -184,7 +184,7 @@ func Run(opts Options) int {
 		// disclosure inseparable from the SPAWN, and nothing spawns here. Disclosing
 		// beside warnIfNoPacks is the honest placement — both answer "what will this
 		// launch not do for you", which is the only question this backend can raise.
-		o.notePackLoopholesInert(rt, staged.packs)
+		o.notePackLoopholesInert(rt, staged.packs, cfg)
 		// AND THE OTHER TIER COLLAPSE, which is #39's mirror image. Apple Container made
 		// the MACHINE-wide tier per-workspace; this backend makes the PER-WORKSPACE tier
 		// machine-wide, because SandboxHome() is a constant — /Users/_yolojail — with no
@@ -201,6 +201,7 @@ func Run(opts Options) int {
 		// mechanism on this backend — so a fix has to restore both tiers explicitly, which
 		// is a design change and not a launch-time patch.
 		o.noteMachineWideWorkspaceState(staged.packs)
+		o.noteMacosUserContentGaps(staged.packs, cfg)
 		// The staged tree crosses as a PATH, not as the loaded declarations: the native
 		// bootstrap re-reads the manifests itself (LoadJailPacks), exactly as the
 		// container entrypoint does off its /ctx/packs mount, so the two backends render

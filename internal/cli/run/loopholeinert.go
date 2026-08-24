@@ -40,6 +40,7 @@ import (
 
 	"sort"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -109,12 +110,37 @@ func backendInertReason(rt string) string {
 // a disabled loophole too — a pack whose whole purpose is a loophole must not look installed
 // on a backend that ignores it (B-0). Only the platform axis is a per-loophole property the
 // user's own switch can preempt.
-func (o *Options) notePackLoopholesInert(rt string, packs []*packload.Pack) {
+func (o *Options) notePackLoopholesInert(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap) {
 	if backend := backendInertReason(rt); backend != "" {
-		o.printInertLines(backendInertLines(packs, backend))
+		// CONFIG-DECLARED loopholes are inert on these backends too, and this report
+		// walked packs only — so a user whose `loopholes.<name>.command` names a daemon
+		// got no line at all. The AC skip drops both sources (SourcePack and
+		// SourceConfig); reporting one of them made the silence look deliberate.
+		o.printInertLines(append(backendInertLines(packs, backend), configInertLines(cfg, backend)...))
 		return
 	}
 	o.printInertLines(platformInertLines(packs))
+}
+
+// configInertLines is one line per `loopholes.<name>` entry in the user's own config on a
+// backend that starts none of them — the SourceConfig half of the same report.
+//
+// Keyed on presence rather than on Active(): resolving whether a config-declared daemon
+// would have run requires probing its `requires`, and on a backend that starts nothing the
+// answer cannot change the outcome. Same reasoning backendInertLines gives for not reading
+// pack manifests.
+func configInertLines(cfg *jsonx.OrderedMap, reason string) []string {
+	section := cfgMap(cfg, "loopholes")
+	if section == nil {
+		return nil
+	}
+	var lines []string
+	for _, name := range section.Keys() {
+		lines = append(lines, inertLineFor("your config", loopholes.InertNote{
+			Name: name, Axis: loopholes.AxisBackend, Reason: reason,
+		}))
+	}
+	return lines
 }
 
 // backendInertLines is one line per pack-shipped loophole on an inert backend.
@@ -240,4 +266,32 @@ func (o *Options) noteMachineWideWorkspaceState(packs []*packload.Pack) {
 		strings.Join(dirs, ", ") + ". Every other backend gives each workspace its own copy; " +
 		"this backend has one home (/Users/_yolojail) and no mounts, so a session's history " +
 		"and state are visible to every other workspace you launch.")
+}
+
+// noteMacosUserContentGaps names the two content pipelines that never reach this
+// backend. Both are host-side steps inside runContainer, which the macos-user arm
+// returns before — the same B-0 shape as pack staging and launch flags, but with a
+// fix that is a delivery mechanism rather than a moved call, so it warns for now.
+//
+// SKILLS AND BRIEFINGS is the more serious of the two. PrepareSkills and the briefing
+// composition both hang off refreshJailBriefings, whose only caller is in runContainer,
+// and the container path DELIVERS them by mounting the staged tree — a mechanism this
+// backend does not have. So the agent starts with no AGENTS.md, no CLAUDE.md and no
+// skills, including the built-in suite, which rides the same staging loop. Worse, the
+// native bootstrap DOES generate the blocked-tool shims, so `grep -r` exits 127 having
+// never told the agent why.
+func (o *Options) noteMacosUserContentGaps(packs []*packload.Pack, cfg *jsonx.OrderedMap) {
+	if len(packs) > 0 {
+		o.pr(o.Stderr).print("[yellow]Note: briefings and skills are NOT delivered on macos-user[/yellow] — " +
+			"they are composed host-side and delivered by MOUNTING the staged tree, which this " +
+			"backend has no way to do. The agent starts with no AGENTS.md/CLAUDE.md and no skills " +
+			"(including the built-in ones), while the blocked-tool shims ARE generated — so a " +
+			"blocked command exits 127 with nothing explaining it.")
+	}
+	if lsp := cfgMap(cfg, "lsp_servers"); lsp != nil && len(lsp.Keys()) > 0 {
+		o.pr(o.Stderr).print("[yellow]Warning: lsp_servers CONFIG renders but the binaries are not installed on macos-user[/yellow] — " +
+			strings.Join(lsp.Keys(), ", ") + ". The installer is a generated bootstrap script the " +
+			"container path runs and this backend deliberately does not, so an agent is told the " +
+			"server is enabled and then cannot start it. Install them yourself, or add them to `packages`.")
+	}
 }
