@@ -99,8 +99,11 @@ unconditional pack config and becomes a **confinement policy**:
   path renders byte-identical to today (`renderfingerprint_test.go`); only host/guest
   behavior changes.
 
-**Status.** Design landed (design doc §4.2, plan Phase 9). **Not implemented** — deferred
-by decision (scope this round was "design + plan entry only"). **OQ-11 is now RESOLVED:** a
+**Status.** ~~**Not implemented** — deferred by decision (scope this round was "design + plan
+entry only").~~ **SHIPPED 2026-08-01 as env-manager Phase 9** (`dbeae3e`..`8f5e3b1`) — verified
+2026-08-23: `render.Profile.AgentAutonomy`, the `autonomy` contribution kind, and the five migrated
+packs are all in the tree, and `apply --host` warns before overwriting a managed key. Design landed
+in design doc §4.2 / plan Phase 9. **OQ-11 is now RESOLVED:** a
 pack encodes its two postures with a **dedicated `autonomy` contribution kind** (each posture
 a named block of config patches + launch flags), not a `when` discriminator on existing
 entries. Both encodings were sketched against the real `claude`/`codex`/`agy`/`opencode`/`pi`
