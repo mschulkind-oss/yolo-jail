@@ -54,7 +54,23 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	}
 
 	// ACTIVE loopholes (name, description) — census site 1, through the converged set.
-	loops := briefingLoopholes(cfgMap(cfg, "loopholes"))
+	//
+	// GATED ON THE BACKEND, because `Honored()` has no backend term. It answers "is this
+	// loophole enabled, supported here, and allowed to run host code" — all true on a
+	// backend that then starts none of them. Apple Container returns from startLoopholes
+	// before any host service starts and macos-user never reaches it at all, so on those
+	// two the unfiltered list renders a section headed "host capabilities wired into this
+	// jail" describing daemons that do not exist.
+	//
+	// That is the exact failure briefingLoopholes was already fixed once to prevent —
+	// its own comment records switching from Enabled() to Active() so an enabled-but-
+	// inactive loophole would stop being advertised. The backend is the third term that
+	// census never got. An agent reading a false capability list does not merely lack a
+	// feature; it plans around one it does not have.
+	var loops []jailcontent.Loophole
+	if backendInertReason(rt) == "" {
+		loops = briefingLoopholes(cfgMap(cfg, "loopholes"))
+	}
 
 	// Source-tree gating: staged skills + the briefing's dev section both key
 	// off this. Derived from the stable workspace, so launch and attach agree.
@@ -139,7 +155,15 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	if handoff != "" && briefingsWritten > 0 {
 		o.noteHandoffConsumed()
 	}
-	_ = rt
+	// `rt` is USED now (the loophole gate above). It was `_ = rt` for as long as this
+	// function took the runtime and ignored it — which is the smoking gun for the whole
+	// class the gate closes: every other BriefingInput field is still read straight from
+	// cfg, so the briefing describes what was CONFIGURED rather than what was APPLIED.
+	// The remaining known divergences, all on a non-podman backend: network.mode "host"
+	// renders "localhost resolves directly to the host" where no --net was emitted;
+	// resources renders "kernel-enforced" where the flag was never passed. Feeding
+	// BriefingContent from assembleRunCmd's actual output is the real fix; this gate is
+	// the one case where the truth value was already known here.
 	return staging, nil
 }
 
