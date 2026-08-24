@@ -661,7 +661,11 @@ who set it there and has been writing to the workspace will start seeing failure
   from the host side** — the doc says so itself, so answering CR1 alone answers half a question.
   📄 [`cache-relocation.md`](cache-relocation.md).
 - 🧊 **Boundary broker B2** (approval-gated host credentials) — waits on nix OQ-1 and auth OQ-1, and
-  the second resolves by an experiment nobody has run.
+  the second **resolves by an experiment nobody has run**: point Claude Code at a non-Anthropic base
+  URL with a subscription OAuth token in place and watch whether it sends the bearer. ~5 minutes.
+  **This is the cheapest thing in the whole file** — it is the only 🧊 item that a measurement, not a
+  ruling, can move, and it also unblocks 💬 3's OQ-1. 📄
+  [`agent-auth-modes.md`](../design/agent-auth-modes.md) §10.
 
 ---
 
