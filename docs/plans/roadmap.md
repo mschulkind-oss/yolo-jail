@@ -488,7 +488,7 @@ Three shipped behaviour changes had nowhere to be announced — a design ruling 
 risk as *"a release note"* and no CHANGELOG, NEWS or release-notes file existed anywhere in the repo
 (found 2026-08-18 while verifying the `default_enabled` rename).
 
-📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md) now carries eighteen entries under `## Unreleased`,
+📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md) now carries nineteen entries under `## Unreleased`,
 including the original three (**`audio` is now off by default**, **an unreachable host service
 refuses the launch**, **a non-interactive launch stops auto-accepting config changes**) and the two
 that were still queued when this section was written: **npm-installed agent CLIs no longer update

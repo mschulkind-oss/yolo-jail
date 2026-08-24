@@ -26,6 +26,29 @@ was created on 2026-08-18, after that tag, which is why it has no released secti
 next cut is triggered by this file filling up or by a cadence is an open product question; see
 [`plans/further-roadmap-ideas.md`](plans/further-roadmap-ideas.md) §I5.)*
 
+### ⚠️ Apple Container: shared credentials become shared again — and workspaces that had separate logins converge
+
+**What changed** (2026-08-24, #39). Pack-declared **shared** dirs — the machine-wide tier,
+`~/.claude-shared-credentials` today — were never mounted on `runtime: container`.
+`packload.SharedDirs` was called once in the whole run package, inside the podman branch, so on
+Apple Container the directory simply lived in the per-workspace state dir that `/home/agent` points
+at. Nothing errored; the tier quietly collapsed. It is now mounted from `GlobalHome` on that
+backend too.
+
+**You do not have to do anything, and you should not lose a login.** The first launch after
+upgrading copies a stranded credential up out of the workspace state dir into the machine-wide
+location (copy, never move, and only into a file that is missing).
+
+**The one behaviour to expect, because nothing can preserve it.** If you were on Apple Container
+and logged in **separately in several workspaces**, those logins were genuinely independent — that
+was the bug. They now converge: whichever workspace launches first wins the machine-wide slot, and
+every other workspace uses that credential from then on. Each workspace's old copy is left in place
+(`<workspace>/.yolo/home/.claude-shared-credentials/`) and is simply no longer read; delete it when
+you are satisfied.
+
+**Not affected:** podman on any platform (this always worked there), and `macos-user`, whose single
+`/Users/_yolojail` home makes the machine-wide tier correct by construction.
+
 ### ⚠️ `macos-user`: `workspace_readonly` used to do nothing, and now it does what it says
 
 **What changed** (2026-08-23, `d0961f2c`). `workspace_readonly: true` was delivered as a `-v …:ro`
