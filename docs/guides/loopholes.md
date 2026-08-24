@@ -183,8 +183,11 @@ Socket-mode only, and **declare it if your daemon reads its request to EOF**:
 
 Getting this wrong is invisible from inside the daemon: a to-EOF daemon that works
 perfectly on a bare socket **hangs forever** behind a `framed` front, because its
-read never returns. The default cannot be `"eof"` — the broker relay's teardown
-parity depends on the EOF not propagating — so it is one word in your manifest.
+read never returns. The default is `"framed"` because a length-prefixed protocol
+is self-delimiting and does not need the EOF, so switching costs you one word in
+your manifest. *(The default was originally chosen to keep teardown bit-identical
+to the per-jail broker relay's; that relay was deleted on 2026-08-19 and the
+default outlived it unchanged — see `internal/loopholedecl/enums.go:70-79`.)*
 
 **Interception is not a transport.** It is declared by `intercepts` (plus
 `broker_ip` and `ca_cert`) on any transport, and that list is what emits the
