@@ -595,8 +595,11 @@ who set it there and has been writing to the workspace will start seeing failure
 
 # 🧊 Icebox
 
-- 🧊 **Cache relocation's two held questions** — marked HELD in their own doc; genuinely undecided
-  whether we want the feature, not merely unscheduled. 📄 [`cache-relocation.md`](cache-relocation.md).
+- 🧊 **Cache relocation's three held questions — `OQ-CR1 · OQ-CR2 · OQ-CR3`** (named 2026-08-23; the
+  row said "two" and there were three). Genuinely undecided whether we want the feature, not merely
+  unscheduled. **CR1 gates item 11** (`yolo cache relocate`), and **CR2 is the same decision seen
+  from the host side** — the doc says so itself, so answering CR1 alone answers half a question.
+  📄 [`cache-relocation.md`](cache-relocation.md).
 - 🧊 **Boundary broker B2** (approval-gated host credentials) — waits on nix OQ-1 and auth OQ-1, and
   the second resolves by an experiment nobody has run.
 
