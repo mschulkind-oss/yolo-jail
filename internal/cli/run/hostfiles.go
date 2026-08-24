@@ -67,6 +67,7 @@ func (o *Options) hostFilesEnv(in *assembleInput) []string {
 // usable as a bind source.
 func (o *Options) hostUserFileArgs(in *assembleInput) []string {
 	var args []string
+	materialized := false
 	for _, entry := range sortedHostFiles(in.hostFiles) {
 		if !entry.SourceBearing() {
 			continue
@@ -82,9 +83,26 @@ func (o *Options) hostUserFileArgs(in *assembleInput) []string {
 		if !isFile(entry.Source) {
 			continue
 		}
+		// APPLE CONTAINER CANNOT BIND A SINGLE FILE, and unlike the pack `reads-host`
+		// case this one does not merely omit — it MASKS. The entrypoint swallows the
+		// read error and prism.go writes the destination anyway at the `readonly`
+		// default mode, so the user ends up with an EMPTY 0o444 file where their
+		// .npmrc should be, which they then cannot fix from inside the jail.
+		//
+		// The dir branch above is deliberately untouched: AC nests directory mounts
+		// fine (paths.GlobalCache proves it), so a dir entry is already honored.
+		if in.rt == "container" {
+			acMaterialize(entry.Source,
+				filepath.Join(acCtxDirRel, "host-user", entry.Slug()), in.wsState)
+			materialized = true
+			continue
+		}
 		args = append(args, ROFileMountArg(
 			entry.Source, target, in.wsState,
 			"ctx-host-user/"+entry.Slug(), in.mountTargets, nil)...)
+	}
+	if materialized {
+		args = append(args, "-e", "YOLO_CTX_ROOT=/home/agent/"+acCtxDirRel)
 	}
 	return args
 }

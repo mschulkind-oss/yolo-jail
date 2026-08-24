@@ -32,7 +32,12 @@ import (
 // source-bearing host_files entry at /ctx/host-user/<slug> — the entry's slug
 // (config.HostFileEntry.Slug) is the leaf. A var so tests can point it at a temp
 // dir, mirroring hostPiDir / hostClaudeDir.
-var hostUserDir = "/ctx/host-user"
+// Derived from ctxRoot rather than written out, so the YOLO_CTX_ROOT relocation that
+// Apple Container needs reaches BOTH host-file readers. They are separate vars because
+// tests override them independently; they are not separate ROOTS, and writing "/ctx"
+// twice is what would let one move without the other. (packsurfaces.go's ctxRoot for the
+// per-pack `reads-host` grants; this one for the user's own `host_files`.)
+var hostUserDir = ctxRoot + "/host-user"
 
 // ConfigureHostFiles stages every host_files entry declared in YOLO_HOST_FILES.
 // It is the boot step (and, via RunDarwinBootstrap, the macos-user step) that
