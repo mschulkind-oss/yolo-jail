@@ -1,7 +1,12 @@
 # Packs and the prism — one delivery mechanism for all agent support
 
-**Status:** conceptual sketch, 2026-07-26. Not a plan — a shape to argue with before
-anyone commits. Written in response to: *"what would it be like if we built the pack
+**Status:** conceptual sketch, 2026-07-26 — **and the bet it describes was TAKEN.** Re-checked
+2026-08-23: the pack system is the architecture, not a sharing feature. `AGENTS.md` now opens with
+*"AGENTS ARE PACKS. Core does not know what an agent is"*; there is no agent registry, `internal/agents`
+was renamed `internal/jailcontent` when the registry it named was deleted, and all ten shipped packs —
+including the four that install no CLI at all — are pack files rather than Go code. Read this as the
+argument that produced that, not as a shape still being argued. **Not a plan** — a shape to argue with
+before anyone commits. Written in response to: *"what would it be like if we built the pack
 system and then pulled all agent support out into 'official' packs?"*
 
 **Audience:** whoever is deciding whether the pack system is a sharing feature or an
