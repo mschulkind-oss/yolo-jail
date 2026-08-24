@@ -1,6 +1,42 @@
 # Composed-file permissions — what the prism makes read-only, and what it must not
 
-**Status:** design + audit, 2026-07-25. Written to settle a blocking decision in
+**Status:** design + audit, 2026-07-25; **defect register re-verified 2026-08-23 —
+four of the six entries are FIXED, including both data-loss ones.** The taxonomy
+(§1) and the `0o444` finding (§6) are unchanged and still load-bearing.
+
+> **Postscript, 2026-08-23 — the audit worked; do not go hunting the bugs it found.**
+> §1–§10 keep their original tense (a 2026-07-25 snapshot). This block is the delta.
+> **The most dangerous thing to read stale in this doc is §4**, because every entry is
+> written as a live bug with a probe attached, and most of them are gone.
+>
+> | Defect | Verdict | Evidence (verified 2026-08-23) |
+> |---|---|---|
+> | §4.1 `~/.gitconfig` unwritable | **LIVE (mechanism), FIXED (legibility)** | The decoy symlink is untouched — `EnsureSymlink(GlobalHome/.gitconfig → .config/git/config)`, `internal/storage/ensure.go:100` — and the `:ro` bind still lands at `internal/cli/run/assemble_parts.go:261`, so `git config --global` still fails `Device or resource busy`. But the composed file now carries a header naming `git config --global` and `[include]`s a writable sibling FIRST (`gitIncludeHeader()`, `assemble_parts.go:282-285,321`; `config.local` at `:326`; `TestComposeGitconfigIncludesWritableSiblingFirst`, `gitidentity_test.go:154`). The code states the residue itself at `:316-318`. |
+> | §4.2 copilot OAuth wipe | ✅ **FIXED — both halves** | Option (c) shipped: the first-migration branch ADOPTS the on-disk residue. `overlay = emptyOverlay(kind)` survives only as an initial value (`internal/agentcfg/staterender.go:187`), superseded at `:191-211` by `residue := dropYoloOwnedSubtrees(dropNullLeaves(mergeDiff(pure, current)), pure)`, labelled *"B1 (⚠ DATA LOSS FIX)"* at `:164`. Option (a) shipped too: `copilot/config` is now `"mode": "rmw"` (`packs/copilot/pack.json:29`), i.e. preserve-unknown-keys with no capture sidecar — so the token never enters the overlay either. **NOTE the file moved**: `staterender.go` is in `internal/agentcfg/`, not `internal/entrypoint/`. |
+> | §4.3 `claude/config` dead surface | ✅ **FIXED** | It is no longer dead — `"mode": "rmw"` (`packs/claude/pack.json:44,46`) and it IS written at boot via `renderSurfaceRMWSurface` (`internal/entrypoint/packsurfaces.go:281`). The dead-surface flag this section asked for exists anyway (`manifest.ModeUnrendered`, `internal/agentcfg/manifest/manifest.go:170`, surfaced as `surfaceRow.Reserved`), and `configRender` filters on it (`internal/cli/config.go:217-223`) with a message when the surface is named explicitly. |
+> | §4.4 `config render` lies | ⚠ **HALF-FIXED** | The *reads-its-own-output* half is fixed by A7: the host layer is read only for the two surfaces that get one at boot (`internal/cli/config.go:272`, gated by `surfaceHasHostLayer`), so the probes in this section no longer reproduce. The *missing layers* half is LIVE and now **deliberate and disclosed**: `Compose` is still called with no `Overlay`/`Workspace`/`Computed` (`config.go:276-281`), the scope comment at `:244-253` says why, and `--explain` prints a notice for surfaces that carry a computed layer (`:293-296`). Read §4.4 as "a documented preview", not "the debugging command lies". |
+> | §4.5 symlink-target reservation | ✅ **FIXED** (was already, still holds) | `reservedHomeFiles` (`internal/config/writablehome.go:64`) and `reservedHomeSubtrees` (`:104`); both pins live — `TestHostFileReservedDestsCoverSymlinkTargets` (`internal/config/hostfiles_test.go:895`), `TestHostFileDestGuardIsPurelyLexical` (`internal/config/hostfilesstaging_test.go:73`). |
+> | §2 umask comment | ✅ **FIXED** | The false claim is gone and replaced by a comment saying it was false (`internal/entrypoint/helpers.go:38-44`), with an explicit `os.Chmod(path, 0o755)` at `:45` for `writeExecutable`. `writeInPlaceString` still passes an umask-masked `0o644` (`helpers.go:51`, `internal/entrypoint/fsx.go:43`) — but no longer claims otherwise, which was the defect. |
+>
+> **Of the "model" work in §9, only item 1 had shipped when this was written. Since
+> then: nothing else in that list has.** Item 2 (overlay auto-retire) does not exist —
+> `mergeAccumulate` (`internal/agentcfg/engine.go:106-128`) never drops a key that
+> agrees with the layer beneath, and `internal/agentcfg/staterender.go:250-252` still
+> calls it *"the never-aging overlay."* Item 4 is still four modes with `0o444`
+> (see the cross-doc note in §7.4). Item 5's steering gap narrowed but did not close:
+> `pi` and `codex` now ship skills (`packs/pi/pack.json:22-23`,
+> `packs/codex/pack.json:19-20`) — **`opencode` still does not**, so §8.2 gap 2 is one
+> agent, not three.
+>
+> **Two architectural drifts that make §1.0 and §3 read oddly.** `agents.AgentSpec`
+> no longer exists — agents are packs, and what §1.0 calls a "hard-coded per-agent
+> allowlist" is now the `reads-host` contribution kind (`AGENTS.md`, "AGENTS ARE
+> PACKS"). And **the gemini pack is gone entirely** (`packs/` has no `gemini` dir),
+> so §3's struck-through row and §4.5's gemini mentions are moot by deletion. The
+> *count* "12 declared surfaces, 11 rendered" is therefore no longer a fixed number:
+> surfaces come from whichever packs are selected.
+
+Written to settle a blocking decision in
 [host-file-staging.md](../plans/host-file-staging.md) (what to do with a
 `~/.npmrc`-style destination) by first answering the general question:
 **which files that come out of the prism are read-only, which are read-write, and
@@ -449,6 +485,15 @@ overlay" as "safe to make read-only".
 
 ## 4. Defect register — verified bugs, each with its fix
 
+> [!WARNING]
+> **Most of this register is CLOSED as of 2026-08-23 — see the verdict table in the
+> postscript at the top before acting on any entry here.** 4.2, 4.3, 4.5 and the §2
+> umask row are fixed; 4.4 is half-fixed and its remaining half is deliberate; only
+> 4.1's mechanism is still live. The register is kept in its original tense because
+> each entry carries the *probe* that proved the bug, and the probes are what make the
+> §1 taxonomy more than an assertion — §4.2 in particular is the doc's whole case that
+> demoting a Shared file to Derived is a data-loss move.
+
 **This section IS the work list for defects**; §9 sequences it rather than restating
 it. Every entry below was reproduced by probe, not inferred, and each carries the fix
 inline so the section is actionable on its own. All five are independent of any
@@ -804,6 +849,17 @@ heuristic that is wrong either way is worse than no heuristic, because it fails 
 Cleanest in principle, but it depends on the *agent* supporting a second config path, and
 there is **no evidence** copilot does. Not available without upstream cooperation.
 
+> **✅ RESOLVED 2026-08-23 — and by answer (i), the one called "smallest".** The
+> engine still cannot distinguish "no baseline" from "user asked to discard", and it
+> no longer has to: `configReset` deletes both sidecars as before
+> (`internal/cli/configdiff.go:661`) and then **truncates the surface file to the pure
+> render** (`truncateSurfaceToPureRender`, called at `:684`, defined at `:804`), so
+> there is nothing left on disk for the next boot's adopt branch to re-adopt. The
+> rationale is written into the code at `:672-683`. The discriminator is *state on
+> disk*, not a flag or a marker file. **Keep the conflict below**: it is the reason
+> `reset` has a third step that looks redundant, and deleting that step silently
+> restores the no-op.
+>
 > **⚠ Blocking conflict found in this recommendation (2026-07-26).** Option (c) as
 > stated would **turn `yolo config reset` into a no-op.** `reset` deletes *both*
 > sidecars (`configdiff.go:234-235`) precisely to reach the empty-overlay
@@ -974,6 +1030,25 @@ keys but must never render it from layers**, because a first-migration boot
 renders from defaults alone.
 
 ### 7.4 What this means for `host_files`' four modes
+
+> **This section is a FOURTH statement of one question, not a new one — do not mint an
+> ID for it (noted 2026-08-23).** "Should `readonly` be a real `:ro` mount instead of a
+> `0o444` chmod, and does `copy` then collapse into it?" is tracked as **`E1`** (modes
+> 4→3) and **`E2`** (`readonly` as a real `:ro` mount) in
+> [`../plans/BACKLOG.md`](../plans/BACKLOG.md) §"Stage E" (`:253-254`, both marked
+> *"open — one decision with"* each other and OQ-B), and as **`OQ-B`** in
+> [`../plans/pack-host-management-plan.md`](../plans/pack-host-management-plan.md)
+> (`:940`, the host-side twin: should `files` at the host be `0o444`?). **Those three
+> IDs are the API; §6 and §7.4 are this cluster's *argument*, and the argument is what
+> E2's own leaning is waiting on.** Anyone answering one of them is answering all four.
+>
+> Status verified 2026-08-23: **still four modes**, still enumerated `readonly`,
+> `once`, `copy`, `capture` (`internal/config/hostfiles.go:59-62,68`), and `readonly`
+> is still a chmod (`internal/entrypoint/hostfiles.go:111-129`). One detail has moved
+> since §6 was written and it sharpens the asymmetry rather than softening it:
+> `hostFileModes` (`:152-158`) now returns `(0o555, 0o755)` for an executable host
+> source and `(0o444, 0o644)` otherwise — so `0o444` is the *default* locked mode, no
+> longer the unconditional one.
 
 The four modes (`readonly`/`once`/`copy`/`capture`) collapse to **two postures
 plus one seed flag**, which is the same taxonomy as above:
@@ -1203,7 +1278,10 @@ the only data-loss one, and de-composing that surface also removes credentials f
 capture diff, so it unblocks [§5.1](#51-where-should-the-sidecars-live-open--needs-a-decision)),
 then 4.3/4.5 (cheap correctness), then 4.4 and the §2 umask fix.
 
-**The model:**
+**The model:** *(status re-checked 2026-08-23 — item 1 shipped; **items 2, 4 and 6 are
+untouched**; item 3 is subsumed by the §5.2 resolution; item 5 narrowed from three
+agents to one, `opencode`. Item 4 is `E1`/`E2`/`OQ-B` and belongs to them, not here —
+see §7.4.)*
 
 1. ~~`yolo config ls` + boot divergence notice + `config diff` / `config reset`~~ —
    **✅ SHIPPED 2026-07-25** (`e138c55`, `91d2c2a`). This was the prerequisite for
@@ -1228,16 +1306,54 @@ is what caused §4.2.
 
 ## 10. Open questions
 
-- **Does `:ro` for a Derived surface need host-side composition?** Yes — you
-  cannot compose into a `:ro` mount. That means a `:ro` posture gives up
-  `managed`/`defaults`/`transform`/overlay for that surface, and moves its
-  rendering to the host CLI. For `copilot/mcp`-style pure overwrites that is a
-  clean trade; for anything with a Lua transform it is not. Worth deciding
-  per-surface rather than as a blanket rule.
-- **Should `macos-user` and Apple Container get a documented degradation table?**
-  Both silently lose `:ro`. §6's footnote is the summary; a per-surface table may
-  be warranted when `macos-user` is next worked on.
-- **Is per-workspace the right scope for overlay sidecars?** They live under
-  `<workspace>/.yolo/prism/`, so the same host file composed in two workspaces
-  can diverge invisibly in different directions. Not obviously wrong, but it is
-  unexamined.
+IDs (`CFP-*`) minted 2026-08-23. Nothing outside this doc cited these three — they
+were bare bullets — so naming them broke no cross-reference. **CFP-1 is deliberately
+NOT a fourth ID for the `0o444`-vs-`:ro` question**; that one is `E1`/`E2`/`OQ-B`
+elsewhere (see §7.4). CFP-1 is the narrower consequence question that only arises
+*after* E2 is answered yes.
+
+1. 💬 **CFP-1: Does `:ro` for a Derived surface need host-side composition — and is
+   that per-surface or blanket?** Yes to the first half, and it is the cost nobody has
+   priced: you cannot compose into a `:ro` mount, so a `:ro` posture gives up
+   `managed`/`defaults`/`transform`/overlay for that surface and moves its rendering to
+   the host CLI. **This is the question E2 (`readonly` as a real `:ro` mount) turns into
+   the moment it is answered yes**, so it decides how expensive E2 actually is.
+
+   _Leaning:_ per-surface, not blanket. For `copilot/mcp`-style pure overwrites the
+   trade is clean — they have no transform to lose. For anything carrying a Lua
+   transform it is not, and a blanket rule would silently downgrade those.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+2. 💬 **CFP-2: Should `macos-user` and Apple Container get a documented degradation
+   table?** Both lose `:ro` silently — AC ignores it outright (apple/container#889) and
+   macos-user has no bind mounts at all, so every `:ro` surface degrades to a writable
+   materialized copy. §6's footnote is the only record. This decides whether "read-only"
+   in this doc means anything on two of the three backends.
+
+   _Leaning:_ yes, per-surface, but only when `macos-user` is next worked on — writing
+   it earlier means maintaining a table against a backend nobody is touching. Note this
+   has grown a neighbour since 2026-07-25: `render.FieldSet`/`HostUnimplemented`
+   (`internal/render/fieldset.go:26,116`) is now the mechanism for "this notch cannot
+   honor that, and says so by name", so the table may want to be *code* rather than a doc.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+3. 💬 **CFP-3: Is per-workspace the right scope for overlay sidecars?** They live under
+   `<workspace>/.yolo/prism/`, so the same host file composed in two workspaces can
+   diverge invisibly in different directions. Unexamined rather than obviously wrong.
+   This is the *same* scope question §5.1's options ③/④ are blocked on ("is a captured
+   edit per-workspace or per-machine?"), so answering it unblocks the sidecar-location
+   decision too.
+
+   _Leaning:_ per-workspace is right for the jail and the answer is already settled for
+   the *host* notch in the opposite direction — `Target.ProvenanceDir()` puts host
+   records under `<home>/.local/share/yolo-jail/host-provenance/`, user-scoped, with the
+   reasoning written into the doc comment (`internal/render/target.go:284-296`,
+   verified 2026-08-23). So the shape of the answer already exists; what is open is
+   whether the *jail* overlay should follow it.
+
+   **Answer:**
+   > _(empty — fill in when decided)_

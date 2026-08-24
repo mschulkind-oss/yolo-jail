@@ -1,5 +1,34 @@
 # Full host↔jail state separation — split mise store + neutral path + per-side venvs
 
+**Status:** IMPLEMENTED (2026-07-03), **re-verified against the Go tree 2026-08-23.**
+All three changes shipped, and so did every item of the Residual-issue leaning except
+the upstream bug report. Durable reference.
+
+> [!NOTE]
+> **Postscript, 2026-08-23 — the design is live; every `.py` citation in it is dead.**
+> This doc was written against the Python implementation, and yolo has since been
+> ported to Go in full (`fd -e py` over the repo returns nothing, verified
+> 2026-08-23). So **the mechanisms below are exactly what runs — the file:line
+> anchors are not.** Do not go looking for `run_cmd.py:1163`; the table immediately
+> after this note is the current map. §"The design in one view" onward is preserved
+> in its original tense, as the argument for why the three changes only make sense
+> together — which is still the thing worth reading here.
+>
+> | Doc says (Python) | Actually lives at (Go, verified 2026-08-23) |
+> |---|---|
+> | `run_cmd.py:1163` mount source | `internal/cli/run/assemble.go:566` (`-e MISE_DATA_DIR=/mise`); store dir is `paths.GlobalMise()` = `<GlobalStorage>/mise` (`internal/paths/paths.go:322-323`) |
+> | `MISE_DATA_DIR` in the env block | `internal/cli/run/assemble.go:566`; check path `internal/cli/check/entrypoint.go:40` |
+> | `YOLO_OUTER_MISE_PATH` deletion | **done** — zero occurrences in code; only these docs still name it |
+> | nested-jail store re-resolution | `internal/storage/ensure.go:206-210` and `internal/cli/run/storagehelpers.go:22` (`/mise` at every nesting depth) |
+> | venv shadow `ws_state/venv-<slug>` | `per_side_paths` is a real config key — `internal/config/validate.go:354-365`, `internal/config/config.go:62`, documented at `internal/cli/config_ref.txt:598-601` |
+> | migration layout-version marker | `internal/storage/ensure.go:19-22` (`StorageLayoutVersion = 2`) + `MigrateStorageLayout` at `:246-273`, with `FindDanglingMiseSymlinks(HostMiseDir())` as step 2 |
+> | `MISE_ENV=jail` | `internal/cli/run/assemble.go:571`; the jail-pair precedence is documented at `internal/entrypoint/shell.go:346` |
+>
+> One behavioral gap the port surfaced and this doc never named: **`per_side_paths`
+> is not enforced on the `macos-user` backend**, which warns by name rather than
+> degrading silently (`internal/macosuser/orchestrator.go:150-164`). That backend did
+> not exist when this was written.
+
 **Reference** — how host and jail keep their runtime state fully separate. This
 is the live model (shipped 2026-07-03): the split mise store, the neutral `/mise`
 path, and per-side venv shadows. Read it to understand *why* a jail never shares
@@ -261,6 +290,26 @@ Option A is rejected outright for this problem: beyond not earning its
 invariant change, unique real paths would make *every* same-version pair
 conflict instead of almost none (see Mechanics).
 
+> **Layers 1–3 shipped; verified 2026-08-23.** The gate in layer 2 is the
+> load-bearing part and it is built exactly as specified: the **host** CLI decides
+> whether a prune is safe (`storePruneOK`, `internal/cli/run/run.go:450-454`,
+> `internal/cli/run/assemble.go:47-77`) and grants it to the in-jail provisioning
+> step with `-e YOLO_STORE_PRUNE_OK=1`; the entrypoint's prune loop is inert
+> without that grant (`internal/cli/run/command.go:9-10` — `if [ "${YOLO_STORE_PRUNE_OK:-0}" = "1" ]`).
+> The same fail-safe shape guards the one-time migration:
+> `MigrateStorageLayout(insideJail, canReclaim, warnf)` **defers rather than prunes**
+> when `canReclaim` is nil or false, i.e. on unknown/live siblings
+> (`internal/storage/ensure.go:246-273`). Layer 3's escape hatch is wired
+> (`MISE_ENV=jail`, `internal/cli/run/assemble.go:571`).
+
+> [!WARNING]
+> **Do not "simplify" the prune into the entrypoint.** Fact 3 above — jails are
+> mutually invisible through the store — is the whole reason the grant is computed
+> host-side. An unconditional in-jail prune deletes a symlink that is live for a
+> running sibling, and per fact 2 the sibling's toolchain vanishes *mid-session*,
+> not at its next restart. The env-var grant looks like indirection; it is the
+> liveness check crossing the boundary.
+
 ## Evaluated and rejected: sharing uv/pip caches host↔jail
 
 Asked 2026-07-03: could the package caches be shared across the boundary to
@@ -364,75 +413,39 @@ persist the startup log, breadcrumb its path + an error flag into the
 generated agents file — see the mismatch doc's Open Questions), weekly
 `flake.lock` CI.
 
-## Decisions (all settled 2026-07-03)
+## Decision Ledger
 
-*(These were the design's open questions; each is resolved and live. Kept as the
-rationale record for the choices the code now embodies.)*
+All five were the design's open questions; all were settled 2026-07-03 and all are
+live in the code. IDs (`SS-*`) are **new as of the 2026-08-23 compaction** — nothing
+outside this doc cited these decisions, so no cross-reference was broken by naming
+them. The "why" column is the load-bearing half: it is the reason the code looks the
+way it does, and it is the part that would be re-derived expensively if deleted.
 
-### Store path: `/mise`
+| ID | Ruling | Why (kept, not archaeology) | Date | Live at (verified 2026-08-23) |
+| :--- | :--- | :--- | :--- | :--- |
+| SS-1 | Store path is **`/mise`** | Short, already an empty mount point in the image, and *not* under `/home/agent` — `.local` there is a per-workspace overlay, so nesting a shared store inside it invites exactly the confusion the split exists to end. `/var/lib/mise` and `/opt/mise` were the rejected FHS-flavored alternatives. | 2026-07-03 | `internal/cli/run/assemble.go:566`; `internal/storage/ensure.go:206-210` re-resolves it at every nesting depth |
+| SS-2 | Shadow list is **both**: `[".venv"]` ∪ parsed `_.python.venv` ∪ `per_side_paths` | Parsing catches custom venv paths with no user action; the config key covers non-python derived state (a workspace `.cargo`) that no parser would find. Neither alone is sufficient. | 2026-07-03 | `internal/config/validate.go:354-365`; `internal/cli/config_ref.txt:598-601` |
+| SS-3 | Venv shadow backing lives at **`ws_state/venv…`**, registered with prune/storage accounting | Persists across restarts, so no per-boot rebuild; the registration is the price, and it is a one-time cost against a per-boot one. | 2026-07-03 | `<workspace>/.yolo/home/venv-shadows/` per `internal/cli/config_ref.txt:601` |
+| SS-4 | The jail-land store **starts cold** | A neutral-path store structurally cannot reuse host content (host shebangs embed `/home/<user>/…`), so pre-warming would buy nothing but a tool-list coupling. The shared store means each tool installs once for all of jail-land, not once per jail. | 2026-07-03 | `MigrateStorageLayout` creates and stamps; no seeding step exists (`internal/storage/ensure.go:246-273`) |
+| SS-5 | **Wire `MISE_ENV=jail`** | Cheap, independent, and it replaces the old option-D idea: any project can keep host-inert jail-only overrides in a checked-in `mise.jail.toml`. Precedence was to be verified against mise docs during implementation. | 2026-07-03 | `internal/cli/run/assemble.go:571`; precedence documented `internal/entrypoint/shell.go:346` |
 
-`/mise` already exists as an empty mount point in the image
-(flake.nix:507) and is short and obvious. Alternatives: `/var/lib/mise`
-(FHS-flavored), `/opt/mise`. Avoid anything under `/home/agent` — `.local`
-there is a per-workspace overlay and nesting a shared mount inside it
-invites confusion.
+## Open Questions
 
-_Leaning:_ `/mise`.
+1. 💬 **SS-6: File the upstream mise issue for the project-agnostic store key.**
+   Layer 4 of the Residual-issue leaning — the root defect is that mise's rust
+   backend writes a *project-configured* value (`$CARGO_HOME/bin`) into a store entry
+   keyed only by (tool, version). Layers 1–3 shipped and **heal** the symptom; nothing
+   yet **fixes** it, so every future backend that records a side-specific path
+   reintroduces the class. This decides whether yolo carries the gated-prune
+   machinery indefinitely or eventually deletes it.
 
-**Answer:**
-> Accepted 2026-07-03: `/mise`.
+   _Leaning:_ File it, expect nothing, keep the prune. The leaning already said "worth
+   filing; not a fix to wait on," and 2026-08-23 changes nothing about that — but the
+   filing itself is still unrecorded, which is the only reason this is open rather
+   than settled. I could not verify from inside the repo whether an issue exists.
 
-### Shadow list: parsed, configured, or both?
-
-Parsing `_.python.venv` from mise config catches custom venv paths
-automatically; a `per_side_paths` key in `yolo-jail.jsonc` is explicit and
-covers non-python derived state (e.g. a workspace `.cargo`).
-
-_Leaning:_ Both — default `[".venv"]` ∪ parsed mise venv path ∪ config.
-
-**Answer:**
-> Accepted 2026-07-03: both — `[".venv"]` ∪ parsed `_.python.venv` path ∪
-> `per_side_paths` from `yolo-jail.jsonc`.
-
-### Where does the venv shadow backing live?
-
-`ws_state/venv` persists across restarts (no per-boot rebuild) but adds
-per-workspace disk the prune machinery must know about. Ephemeral backing
-would rebuild every boot (~seconds with the shared uv cache) but stay
-self-cleaning.
-
-_Leaning:_ `ws_state/venv`, registered with prune/storage accounting like
-the other per-workspace overlays.
-
-**Answer:**
-> Accepted 2026-07-03: `ws_state/venv`, registered with prune/storage
-> accounting.
-
-### Seed the jail-land store or start cold?
-
-A neutral-path store can't reuse host content (embedded host paths). It
-*could* be pre-warmed by running `mise install` for common tools during
-image build or first boot, at the cost of coupling the store to a tool
-list.
-
-_Leaning:_ Start cold; the shared store means each tool installs once
-total, and provisioning already runs `mise install` per workspace.
-
-**Answer:**
-> Accepted 2026-07-03: start cold.
-
-### Is `MISE_ENV=jail` worth wiring alongside?
-
-Orthogonal escape hatch: setting `MISE_ENV=jail` in every jail lets any
-project keep host-inert, jail-only mise overrides in a checked-in
-`mise.jail.toml` (tool disables, env tweaks) — replaces the old option-D
-idea cleanly. Precedence semantics need verification against mise docs.
-
-_Leaning:_ Yes, cheap and independent; verify precedence first.
-
-**Answer:**
-> Accepted 2026-07-03: yes — wire `MISE_ENV=jail`, after verifying
-> `mise.jail.toml` precedence against mise docs during implementation.
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 <!-- changelog -->
 - [ebdc38c1] Broke the bullet out into a "Residual issue" section: concrete failure walk-through, four fix options with pros/cons, and a revised leaning (prune over option A, whose same-version collision gap the bundle exposes)

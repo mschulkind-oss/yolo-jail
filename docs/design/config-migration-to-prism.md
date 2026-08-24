@@ -1,6 +1,44 @@
 # Migrating existing persistent configs onto the prism (composition) engine
 
-**Status:** Design of record — **NEW, 2026-07-20.** Companion to the finalized
+**Status:** COMPLETE — the migration this doc designs is **fully shipped**; last
+surface (git identity) landed 2026-07-23, whole doc re-verified 2026-08-23. Kept as
+the durable record of *why* first-migration works the way it does.
+
+> **Postscript, 2026-08-23 — the migration is over; §0's "one confirmed live bug" is
+> fixed and so is every surface in the §2 inventory.** Read §1–§5 in their original
+> tense: they describe the hazard as it stood on 2026-07-20 and the mechanism built to
+> answer it, and that mechanism is exactly what runs today. Three things a reader must
+> know before trusting a detail:
+>
+> 1. **§3.1's "no production caller yet wires `mergeDiff`/`last_render`/`overlay` into
+>    boot" is the single most stale sentence in the doc.** It is now wired
+>    unconditionally — the engine lives at `internal/agentcfg/staterender.go` (it
+>    **moved** out of `internal/entrypoint`), and the first-migration branch is at
+>    `:163-221`. Do not read that sentence as a live design gap.
+> 2. **§4.2 prescribes a git-kv codec prism surface for git identity. That is NOT what
+>    shipped, and it is the one place this doc would send a reader down a dead path** —
+>    see the retraction inline at §4.2.
+> 3. **§3.2's first-migration rule was deliberately INVERTED for object surfaces on
+>    2026-07-26+.** The doc's rule — seed the overlay EMPTY and discard the on-disk file
+>    — turned out to wipe live OAuth tokens on any workspace whose sidecars were absent
+>    or corrupt. The fix ADOPTS the on-disk residue instead. `overlay =
+>    emptyOverlay(kind)` survives only as an initial value
+>    (`internal/agentcfg/staterender.go:187`), immediately superseded at `:191-211` by
+>    `residue := dropYoloOwnedSubtrees(dropNullLeaves(mergeDiff(pureRender, current)), pure)`,
+>    labelled in code as *"B1 (⚠ DATA LOSS FIX): ADOPT the on-disk file instead of
+>    discarding it."* **§3.2's cost paragraph ("the first-migration boot drops any
+>    un-captured pre-migration in-jail edit… correct and unavoidable") is therefore
+>    RETRACTED** — it was neither. The full argument is
+>    [composed-file-permissions.md](composed-file-permissions.md) §4.2/§5.2.
+>
+> Two smaller drifts: **the gemini pack no longer exists** (`packs/` has no `gemini`
+> dir, verified 2026-08-23), so §4.5's latent `setDefault` security bug is moot by
+> deletion rather than by fix; and **§5's `yolo config migrate --rebuild` was never
+> built** — `internal/cli/config.go` dispatches `render|ls|diff|reset|capture|drift|dump`
+> and no `migrate`. Per §7's own answer ("Is clear-and-rebuild needed for any surface?
+> **No**"), that is the design working, not a gap.
+
+Companion to the finalized
 [../plans/agent-settings-composition.md](../plans/agent-settings-composition.md)
 ("the prism"). That doc fixes **how** a generated config composes going forward;
 this doc fixes **how the config that already exists on disk** — written by
@@ -16,7 +54,17 @@ escape hatch, and how the work sequences into the roadmap's Phase B / Phase C.
 
 ---
 
-## 0. Why this doc exists — the one confirmed live bug
+## 0. Why this doc exists — the one confirmed live bug (fixed 2026-07-22)
+
+> **Fixed.** The `node = "22"` shadow described below was resolved by the mise port
+> (§4.1) — the first-migration seed renders from the empty yolo layers and the stale
+> pin, present in no layer, simply does not render. `GenerateMiseConfig` no longer
+> exists, and `mise_tools`' built-in default is now genuinely empty
+> (`internal/config/config.go:160-161`, verified 2026-08-23) with neovim baked as a
+> nix package instead (`flake.nix:862`). This section is kept because it is the
+> clearest statement of the **class** — bespoke in-place editors with no removal
+> path — which is what the rest of the doc is built against.
+
 
 The prism regenerates every owned surface each boot. But the surfaces it replaces
 were written by **in-place editors that add and update but never remove** what
@@ -93,7 +141,7 @@ severity of stale bespoke output that survives, absent a migration step.
 | Surface | File(s) | Generator | Self-heal today | Stale risk |
 |---|---|---|---|---|
 | **mise global config** | `~/.config/mise/config.toml` | `prism_mise.go ConfigureMisePrism` (was `mise.go GenerateMiseConfig`) | ✅ **ported** — prism first-migration seed (was in-place editor) | **HIGH** (resolved) |
-| **git identity** | `~/.gitconfig` | `identity.go configureGit` | none — sets keys only when env present, never unsets | **HIGH** |
+| **git identity** | `~/.gitconfig` | `identity.go configureGit` | none — sets keys only when env present, never unsets | **HIGH** (resolved 2026-07-23 — **off the prism**: host-composed + `:ro` mount, §4.2 retraction) |
 | Claude settings | `~/.claude/settings.json` (+ snapshot `yolo-host-synced-settings.json`, sidecar `yolo-managed-mcp-servers.json`) | `claude.go ConfigureClaude` | 3-way host merge vs. snapshot; managed keys force-set each boot | MED |
 | Pi settings | `~/.pi/agent/settings.json` (+ snapshot) | `agent_configs.go ConfigurePi` | same 3-way pattern; force-sets `defaultProjectTrust` | MED |
 | Gemini settings | `~/.gemini/settings.json` (+ sidecar) | `agent_configs.go ConfigureGemini` | MCP reconciled via sidecar; some keys `setDefault` (see §4.5 bug) | MED |
@@ -273,6 +321,34 @@ point the §4.1 pre-render scrub is subsumed and can retire. Ship the scrub now;
 delete it in Phase C when mise is fully on the engine.
 
 ### 4.2 git identity (`~/.gitconfig`) — HIGH
+
+### ⚠ Retracted: git identity never became a prism surface
+
+**Retracted 2026-08-23.** The diagnosis below (the add-only setter, the staleness,
+the ownership boundary) is correct and still worth reading — it is *why* the surface
+had to change. **The prescription is not what shipped, and following it would rebuild
+a thing that was deliberately rejected.** There is no git-kv codec, no `identity`
+surface, and `yolo config render identity` reports no surfaces. What shipped instead
+(2026-07-23, commit `c250c72`) is **host-composition + a `:ro` bind mount**: the host
+renders a two-key allowlist file every run and mounts it at git's default global path,
+so there is no persistent file to accrete into and the staleness bug dies by
+construction rather than by a scoped reconciler. `gitIdentityMountArgs` /
+`composeGitconfig` at `internal/cli/run/assemble_parts.go:216,280` (verified
+2026-08-23); the imperative replay survives only for the mount-less `macos-user`
+backend (`internal/entrypoint/identity.go:12`). Full rationale and the rejected
+alternatives — including option (c), the `GIT_CONFIG_GLOBAL` relocation this section
+is closest to — are in
+[identity-prism-decision.md](identity-prism-decision.md).
+
+> [!WARNING]
+> The §4.2 ownership boundary below ("a blanket overwrite of `~/.gitconfig` would be a
+> data-loss regression") was **not** solved by scoping a reconciler. It was
+> **dissolved**: yolo stopped writing `~/.gitconfig` at all and composes a *separate*
+> file it owns outright. If anyone ever revives the prism-surface idea, that constraint
+> comes straight back — it is the reason the shipped design routes around the user's
+> real file instead of editing inside it.
+
+The original prescription follows, preserved as the plan of record it was:
 
 `configureGit` runs `git config --global` only when
 the `YOLO_GIT_*` env var is present and non-empty; there is **no
@@ -509,8 +585,11 @@ before any surface ports:**
   `mcp_config.json`): ✅ **Ported (2026-07-23)** onto the *stateless*
   `renderSurfaceComputed` path (§4.6) — pure per-boot overwrites, no sidecars,
   the live table on the computed layer. `writeCopilotDynamicConfigs` deleted.
-- **git identity**: the scoped git-kv codec (§4.2), owned-keyspace reconcile. ⏳
-  See `docs/design/identity-prism-decision.md` for the open decision.
+- **git identity**: ✅ **Done 2026-07-23** (`c250c72`) — but **not** via the scoped
+  git-kv codec §4.2 proposed. It ships as host-composition + a `:ro` bind at git's
+  default global path; see the retraction at §4.2 and
+  `docs/design/identity-prism-decision.md` for the settled decision (there is no open
+  decision left there).
 
 **Phase C (deletion, serial, last).** ✅ **Done for the agent-config surfaces
 (2026-07-22).**
@@ -526,8 +605,9 @@ before any surface ports:**
   helpers (`miseBaseTools`, `bakedRuntimes`, `workspacePinsTool`, `miseTomlKey`,
   `splitKeepNL`) retired with it. ✅ MCP/LSP siblings ported (2026-07-23) — the
   bespoke `writeCopilotDynamicConfigs` deleted, the siblings rendered via the
-  stateless `renderSurfaceComputed` path (§4.6). ⏳ still pending: git identity
-  (see `docs/design/identity-prism-decision.md`).
+  stateless `renderSurfaceComputed` path (§4.6). ✅ **git identity done 2026-07-23**
+  by a different mechanism than §4.2 planned (see the retraction there). **Phase C is
+  closed; nothing is pending.**
 
 The **clear-and-rebuild** command (§5) can land any time in Phase A/B as an
 operator tool; it is not on the critical path — the automatic §3 bootstrap is.
@@ -535,6 +615,14 @@ operator tool; it is not on the critical path — the automatic §3 bootstrap is
 ---
 
 ## 7. Summary
+
+> **Two of the four bullets below are superseded (2026-08-23).** The **mise fix**
+> bullet describes a scrub inside `GenerateMiseConfig` that was **never shipped and is
+> now unbuildable** — `GenerateMiseConfig` is deleted and the port subsumed it (§4.1
+> says so; this summary was not updated to match). The **first-boot bootstrap** bullet
+> states the empty-overlay rule that was later inverted to *adopt* the on-disk residue
+> for object surfaces — see the postscript at the top of this doc, item 3. The
+> **principle** and the **clear-and-rebuild** bullets are still exactly right.
 
 - **Principle (one line):** yolo owns the bytes it generates — an existing on-disk
   config must converge to what the prism *would* generate from today's layers, not

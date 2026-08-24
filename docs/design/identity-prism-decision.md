@@ -1,6 +1,7 @@
 # git identity: the propagation decision
 
-**Status:** IMPLEMENTED (2026-07-23, commit `c250c72`). git identity was the one
+**Status:** IMPLEMENTED (2026-07-23, commit `c250c72`); **re-verified against the
+tree 2026-08-23 — every claim below still holds.** git identity was the one
 deliberately-deferred surface of the config-composition cutover
 (`docs/design/config-migration-to-prism.md`); it now lands as a **host-composed,
 read-only-mounted** config file on the container backends. This doc frames the
@@ -17,6 +18,19 @@ for the rationale.
 
 Written 2026-07-23. Recommendation revised 2026-07-23 (allowlist framing).
 Implemented 2026-07-23 (host-compose + `:ro` mount; the (c′) variant in §5).
+
+> **Verification pass, 2026-08-23.** Nothing here needed correcting. Spot-checked:
+> `gitIdentityMountArgs` is a method on `*Options` at
+> `internal/cli/run/assemble_parts.go:216` with the `--get` / `--global --get` split
+> §1 describes at `:218-224`; `composeGitconfig` at `:280`; `gitConfigValue` at
+> `:338`; the macOS-user imperative replay survives as `configureGit` at
+> `internal/entrypoint/identity.go:12`; `collectIdentityEnv` exists nowhere but in a
+> comment naming what it replaced (`assemble_parts.go:218`); the staleness regression
+> test is `TestGitIdentityMountStaleClearedEmail`
+> (`internal/cli/run/gitidentity_test.go:116`); and jj has zero occurrences in
+> non-test code. The one thing worth reading alongside this doc that did NOT exist
+> when it was written is the §5 (c′) trade-off's *downstream* cost — see the warning
+> at the end of §5.
 
 ---
 
@@ -191,6 +205,31 @@ minimal (b) unset-patch.
 The earlier draft's headline idea — `GIT_CONFIG_GLOBAL` **with** an `[include]`
 of the host `~/.gitconfig` — is **rejected**: it breaks the allowlist and can
 break committing (§2).
+
+> [!WARNING]
+> **(c′)'s accepted trade-off had a cost this doc under-stated. Half of it has since
+> been paid; half is still live (verified 2026-08-23).** "In-jail `git config
+> --global` edits fail" is true, but the *way* they failed was undiagnosable, because
+> a second mechanism points at the same inode from the other side:
+> `storage.EnsureSymlink` materializes `GlobalHome/.gitconfig → .config/git/config`
+> (`internal/storage/ensure.go:100`) as one of three escape-hatch symlinks meant to
+> resolve into a writable overlay — and for this one the target is the `:ro` bind
+> this section describes. So `~/.gitconfig` looks like a normal writable dotfile and
+> `git config --global --add` still returns `error: could not write config file
+> /home/agent/.gitconfig: Device or resource busy`, naming neither yolo nor the mount.
+>
+> **What landed since:** the composed file now opens with a header naming
+> `git config --global` and `[include]`s a *writable sibling* it lists first —
+> `gitIncludeHeader()` at `assemble_parts.go:282-285,321`, with
+> `gitLocalConfigInJail = "/home/agent/.config/git/config.local"` at `:326`, pinned by
+> `TestComposeGitconfigIncludesWritableSiblingFirst`
+> (`internal/cli/run/gitidentity_test.go:154`). The code states the residue plainly at
+> `assemble_parts.go:316-318`: `git config --global` *still* targets `~/.gitconfig`
+> and *still* fails — "but the file it fails on now TELLS the user where to write."
+> The decoy symlink is untouched, so the confusing error remains the first thing an
+> agent hits. Tracked as defect §4.1 of
+> [composed-file-permissions.md](composed-file-permissions.md).
+> **The decision is not in question; only its legibility is.**
 
 ---
 

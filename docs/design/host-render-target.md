@@ -1,7 +1,46 @@
 # Managing host agent configs from yolo — the host as a reduced render target
 
-**Status:** design, for discussion, 2026-07-27; **fact-checked against the code 2026-07-30**
-(the design is unchanged; stale code references were corrected — see the refresh note below).
+**Status:** LARGELY IMPLEMENTED — steps 1, 4, 5 and 6 of §8 shipped; step 3 shipped
+**half** (the `Target` abstraction exists; the two render paths were never collapsed).
+Written as design 2026-07-27, fact-checked 2026-07-30, **re-verified against the tree
+2026-08-23** (see the shipped-status postscript below).
+
+> **Postscript, 2026-08-23 — this stopped being a proposal. Read §1–§7 in their
+> original tense as the argument that produced the code, and read this block for what
+> is actually true now.** The most important thing to know before hunting a bug in
+> here: **§6.1's three destructive probes are fixed**, and §8's ordering was followed
+> almost exactly.
+>
+> | §8 step | Status 2026-08-23 | Evidence |
+> |---|---|---|
+> | 1. Refuse host-side `reset`/`capture` | ✅ **shipped** | `refuseHostSideWrite` (`internal/cli/configdiff.go:84-90`) aborts unless `surfacesAreLocal() \|\| force`; wired into `configReset` (`:640`) and `configCapture` (`:843,848`). Probes 1–3 are no longer reachable without `--force`. |
+> | 2. Decide the capture-privacy question (§9.3) | ✅ **answered by step 1** | The refusal *is* the answer; no key-level redaction was invented. See the OQ ledger. |
+> | 3. `internal/render` with `Target` | ⚠ **half** | `Target` ships (`internal/render/target.go:39`) with `Jail`/`Preview`/`Host` constructors at `:168,175,181` — plus two things this doc did not predict: a `Kind` notch enum (`:78`, `SelectableNotches` at `:144`) and `FieldSet`. **But `render.go`/`reconcile.go` were never written**: `internal/render/` is `target.go`, `fieldset.go`, `modes.go`, `confinement.go` and their tests — a *vocabulary*, not a renderer. The two render paths still exist. |
+> | 4. macos-user gets a target row | ✅ **shipped** | `YOLO_PACK_ROOT` is now set on that backend (`internal/macosuser/runplan.go:200-210`, asserted at `:314`); it is the `guest` notch (`render.GuestProfileMacOS`, `confinement.go:130`). §9.7's "zero surfaces, silently" is over. |
+> | 5. `FieldSet` | ✅ **shipped, and went further** | `internal/render/fieldset.go:13` with `Honors`/`Refuse`; plus a third state this doc never named — `HostUnimplemented` (`:116`), *honored-but-unbuilt*, so a kind is never silently absent. |
+> | 6. `yolo config apply --host` | ✅ **shipped** | `applyHost` with `--assert`; end-to-end tests at `internal/cli/applyhostlocalpack_test.go` and `applyhostidempotent_test.go`. |
+>
+> **Three claims in the body are now false and would send a reader wrong:**
+>
+> 1. **§3.4's "two hand-maintained tables die" did NOT happen.** `surfaceHasHostLayer`
+>    and `surfaceHasComputedLayer` are still Go-side maps at
+>    `internal/cli/configls.go:199,204`, still read at `configls.go:181,184` and
+>    `config.go:272,293`. They were the *stated payoff* of step 3, and step 3 shipped
+>    without them.
+> 2. **§3.3's `Posture` field does not exist under that name.** It became two things:
+>    `ModeSet` (`internal/render/modes.go:42`, with `JailModes`/`HostModes`/
+>    `UndecidedModes`) answering *which surface modes this notch runs and records*, and
+>    `Profile` (`confinement.go:96`) answering *what confinement primitives it has*. The
+>    `observe|assert|own` triple survives as the `--assert` flag, not as a struct field.
+> 3. **§9.8's "macos-user for Linux" is no longer hypothetical.**
+>    `render.GuestProfileLinux()` (`confinement.go:136`) is a declared profile
+>    (namespaces + Landlock) and `confinement` is a real config key
+>    (`internal/config/confinement.go:45,65`). The fourth row exists in the vocabulary
+>    even where no backend fills it.
+>
+> **§6.1 stays in the doc verbatim and must not be softened**: it is the measured
+> evidence that the target was never a parameter, and its probes are what justified
+> steps 1 and 3. The finding is historical; the diagnosis is not.
 Started as *"how could we pull all of this pack stuff out of yolo, yet still use it in yolo,
 but also manage the host configs — a separate util"*; the measurement said the extraction is
 the wrong shape (§1.3, §2.3), so **this doc designs the capability inside yolo.** The
@@ -901,6 +940,14 @@ honor it says so by name.
 **Ordered so that each step is independently valuable and the destructive path is fixed
 first.** Nothing here needs a new module or a decision about one.
 
+> **Status 2026-08-23: steps 1, 4, 5 and 6 shipped; step 2 was answered by step 1;
+> step 3 shipped as a vocabulary (`Target`/`FieldSet`/`ModeSet`/`Profile`) without the
+> renderer collapse it was proposed for.** The "if only one of these ever happens" bet
+> at the end of this section was right about #1 and wrong about #3: #1 landed first and
+> #3's *stated payoff* — retiring `surfaceHasHostLayer` and `surfaceHasComputedLayer` —
+> is still outstanding (`internal/cli/configls.go:199,204`). See the postscript at the
+> top of this doc for the full table.
+
 1. **Fix probes 1–3, now, ahead of any refactor.** Host-side `reset` (`configReset`,
    `configdiff.go:220`) and `capture` (`configCapture`, `:420`) must refuse (or require
    `--force`) when `surfacesAreLocal()` is false — the predicate already exists at
@@ -935,7 +982,44 @@ is even reachable.
 
 ## 9. Open questions — the discussion part
 
-**9.1 Is yolo "a jail" or "an interface for describing environments agents run in"?**
+**IDs `9.N` are an API** — `9.1` and `9.7` are cited by name from
+[`yolo-as-environment-manager.md`](yolo-as-environment-manager.md) and
+[`../plans/BACKLOG.md`](../plans/BACKLOG.md), so the numbering below is frozen even
+where an entry is now settled. Status marks added 2026-08-23; five of the eight are
+compacted into the ledger and kept in place only as anchors.
+
+### Decision Ledger
+
+| ID | Ruling / Outcome | Date | Settled in / Evidence |
+| :--- | :--- | :--- | :--- |
+| 9.1 | **The second sense** — yolo is an interface for describing environments agents run in; the host target is one notch of a `confinement` dial, not a special case | 2026-07-27 | [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md); shipped as `internal/render/confinement.go` + the `confinement` config key (`internal/config/confinement.go:45`) |
+| 9.3 | **`capture` does not redact — it REFUSES.** Host-side `capture`/`reset` abort unless `--force`, which removes the leak path wholesale; no notion of "sensitive key" was invented | 2026-08-23 (verified) | `refuseHostSideWrite`, `internal/cli/configdiff.go:84-90` |
+| 9.5 | **User/machine-scoped, never workspace-scoped**, exactly as §6.6 argued. The "two workspaces collide" framing was dissolved rather than answered | 2026-08-01 | `Target.ProvenanceDir()` → `<home>/.local/share/yolo-jail/host-provenance/` (`internal/render/target.go:284-296`), with the two rejected alternatives written into the doc comment |
+| 9.7 | **Fixed** — macos-user is the `guest` notch and receives packs | 2026-08-23 (verified) | `YOLO_PACK_ROOT` set at `internal/macosuser/runplan.go:200-210`, asserted `:314`; `render.GuestProfileMacOS` (`confinement.go:130`) |
+| 9.8 | **A real fourth row, and it needed no new concept** — as predicted. Declared in the vocabulary; no backend fills it yet | 2026-08-23 (verified) | `render.GuestProfileLinux()` = namespaces + Landlock (`internal/render/confinement.go:136`) |
+
+### Still live
+
+Three remain, and all three are **product/judgment questions rather than missing
+mechanism** — which is why shipping steps 1–6 did not close them.
+
+1. 💬 **9.2 (see below): does a host target defeat the sandbox's purpose?** Still open;
+   it decides whether `apply --host` is a narrow convenience or the recommended way to
+   configure agents. _Leaning:_ narrow, and state the `program`-refusal as an invariant
+   rather than a default. **Answer:** > _(empty — fill in when decided)_
+2. 💬 **9.4 (see below): what does `program` mean on a host target, if not "never"?**
+   Still "never" in code — `HostUnimplemented`/`Refuse` (`internal/render/fieldset.go:26,116`)
+   is the mechanism, and no grant exists. _Leaning:_ keep "never"; a per-invocation
+   grant is a new security surface needing its own design, not a flag.
+   **Answer:** > _(empty — fill in when decided)_
+3. 💬 **9.6 (see below): do the reservation lists survive contact with a *configured*
+   pack?** Unchanged 2026-08-23 — still init-time, still permissive-on-failure. _Leaning:_
+   leave it; §3 must not make it worse and should not try to fix it.
+   **Answer:** > _(empty — fill in when decided)_
+
+The original prose for all eight follows, unedited apart from the status marks.
+
+**✅ 9.1 — RESOLVED (2026-07-27). Is yolo "a jail" or "an interface for describing environments agents run in"?**
 **Answered 2026-07-27, in the second sense** — see
 [yolo-as-environment-manager.md](yolo-as-environment-manager.md), which takes §2.2's confinement
 axis as the product's organizing idea (a `confinement: jail|sandbox|host` dial, with `runtime`
@@ -955,7 +1039,7 @@ feature needs an explicit ruling about which confinement levels it applies to �
 is to build §8 steps 1–5, which are correct under *either* framing, and let the naming follow
 from whether the host target actually gets used.
 
-**9.2 Does a host target defeat the sandbox's purpose?** The threat model is "the container is
+**💬 9.2 — OPEN. Does a host target defeat the sandbox's purpose?** The threat model is "the container is
 blast-radius reduction, never authorization." A render that writes the human's real dotfiles has
 no blast radius — fine *if it is understood as a distinct, narrower feature*, corrosive if it
 becomes the recommended way to configure agents because it is more convenient. Refusing
@@ -964,19 +1048,19 @@ rather than a default. **The strongest version of the worry:** once `apply --hos
 "why not just run the agent on the host with the good config?" is one step away, and the answer
 has to be a product decision rather than a missing feature.
 
-**9.3 Should `capture` redact?** Probe 3 copies whatever is in the real file — including an API
+**✅ 9.3 — RESOLVED (2026-08-23): it refuses instead. Should `capture` redact?** Probe 3 copies whatever is in the real file — including an API
 key hint — into `<workspace>/.yolo/prism/*.overlay.json`. `.yolo/` is gitignored so it is not a
 commit leak, but it is agent-readable, and the whole point of the credential boundary is that
 the agent's workspace does not see host secrets. Options: refuse when `surfacesAreLocal()` is
 false (which is §8 step 1 anyway, and probably sufficient), or key-level redaction, which needs
 a notion of which keys are sensitive and I do not think we should invent one.
 
-**9.4 What does `install` mean on a host target, if not "never"?** "Never" is my recommendation
+**💬 9.4 — OPEN. What does `install` mean on a host target, if not "never"?** "Never" is my recommendation
 and also a real limitation: the most useful thing a pack could do for a fresh machine is
 *install the agent*. If the answer is eventually "yes, with an explicit per-invocation grant",
 that grant is a new security surface and needs its own design — it is not a flag.
 
-**9.5 Where does a host target's sidecar live, and who arbitrates?** §4.4's problem. The jail
+**✅ 9.5 — RESOLVED (2026-08-01, §6.6): user-scoped; the collision question dissolved. Where does a host target's sidecar live, and who arbitrates?** §4.4's problem. The jail
 target's reconcile sidecars live in `<workspace>/.yolo/prism/`, which is workspace-scoped
 because a jail is. A host target's assertions are *machine*-scoped — the config it wrote is not
 about any workspace — so the sidecar wants to be somewhere like
@@ -986,13 +1070,13 @@ sidecar is the only record of who put what there. Last-writer-wins with a shared
 probably right, but it should be *decided*, because the alternative failure is a `--revert` that
 removes another workspace's keys.
 
-**9.6 Do the reservation lists survive contact with a *configured* pack?** §4.1 keeps them
+**💬 9.6 — OPEN (unchanged 2026-08-23). Do the reservation lists survive contact with a *configured* pack?** §4.1 keeps them
 init-time and untouched, which is correct for the embedded corpus. But if a non-embedded pack
 ever needs to participate in a reservation — and `hostfiles.go:704-710` already documents that as
 a known gap — the lists become fallible, and the failure direction is permissive. §3 must not
 make this worse; it should not try to fix it either.
 
-**9.7 macos-user is the existing host-shaped target, and it currently gets no packs at all.**
+**✅ 9.7 — FIXED (verified 2026-08-23; it gets packs now). macos-user is the existing host-shaped target, and it currently gets no packs at all.**
 `RunDarwinBootstrap` calls `LoadJailPacks` → `ConfigurePackSurfaces` → `RunPackHooks`
 (`darwin.go:57-62`), but the macos-user run path returns at `cli/run/run.go:73` *before* `stagePacks`,
 and `YOLO_PACK_ROOT` is never set on that backend — verified, zero occurrences outside the
@@ -1001,7 +1085,18 @@ That backend is the closest thing to a host target we already ship (a real macOS
 container, composed by the same writers), which makes it the natural first non-jail target — and
 the reason §8 puts it before `FieldSet` rather than after.
 
-**9.8 Is a "macos-user for Linux" a real fourth row, or a distraction?** A bwrap/Landlock
+> **Fixed, verified 2026-08-23.** `YOLO_PACK_ROOT` *is* set on that backend now —
+> `internal/macosuser/runplan.go:200-210`, with `internal/macosuser/runplan.go:314`
+> asserting the bootstrap argv carries it. The prediction in §8 held: making it a
+> target row was the cheapest proof the abstraction was right, and it is now the
+> `guest` notch (`render.GuestProfileMacOS`, `internal/render/confinement.go:130`).
+> **Keep the finding.** "A backend rendering zero surfaces every launch, with nothing
+> in the output to say so" is the reason `FieldSet` refuses by name instead of
+> skipping (§6.2), and it is cited from
+> [`yolo-as-environment-manager.md`](yolo-as-environment-manager.md) as the canonical
+> example of a silent skip. It is documentation, not archaeology.
+
+**✅ 9.8 — RESOLVED (2026-08-23): a real row, declared as `GuestProfileLinux`. Is a "macos-user for Linux" a real fourth row, or a distraction?** A bwrap/Landlock
 environment — real user, real home, no container — would sit between `macos-user` and the bare
 host on §2.2's axis. **The relevant point for this doc is that it needs no new concept**: it is
 another confinement level with the same `surfaces`-yes / `install`-maybe / `mounts`-unavailable
