@@ -70,6 +70,22 @@ engine separable?" answer, which this reaches the same conclusion as from the pa
 [composed-file-permissions.md](composed-file-permissions.md) (the postures a host-side writer
 must honor).
 
+
+> [!WARNING]
+> **§1–§7's `file:line` anchors are BULK-ROTTED and were not repaired (measured 2026-08-23).**
+> About twenty are off, and one is not a drift at all: `internal/agents/skills.go` **does not
+> exist** — that package is `internal/jailcontent` since the agent registry was deleted. Others
+> measured wrong: `packsurfaces.go:48,83,115,107`, `configls.go:341,330`,
+> `configdiff.go:381-404,415-419`, `config/packs.go:422,444`, `writablehome.go:84,88,108`,
+> `assemble.go:369-372`. A quoted string at `hostfiles.go:1022-1024` (*"a pack added tomorrow
+> needs"*) appears **nowhere** in `internal/`. **Treat every §1–§7 anchor as "where to look", never
+> as a citation** — the §8 status table, the Decision Ledger and the §9 questions were re-verified
+> and are exact.
+>
+> Three counts in those sections are also wrong and are left for whoever fixes the anchors: `:153`
+> says 9 reservation call sites over a list of 8 (tree has ~10), and `:145` sizes `packs/` at 7
+> files / 504 lines when it is 27 files / 620 lines across 10 pack dirs.
+
 ---
 
 ## 0. The one-paragraph version
