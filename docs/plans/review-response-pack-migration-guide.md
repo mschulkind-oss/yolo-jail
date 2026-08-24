@@ -1,5 +1,10 @@
 # Response to the host-agent review of the pack-migration guide
 
+**Status:** RESPONSE RECORD, 2026-08-01 — **all of it either shipped or was superseded**; re-checked
+2026-08-23. The autonomy design it defers (§D-something below, "Not implemented") **shipped the same
+day as env-manager Phase 9**, and D3's "these verbs are unreleased" stopped being true at **v0.8.0**
+(2026-08-13). Read it as a record of a review round, not as outstanding work.
+
 **What this is.** A single record of the changes we are making in response to the
 adversarial review of [`../guides/migrating-to-packs-and-host-management.md`](../guides/migrating-to-packs-and-host-management.md)
 (reviewed 2026-08-01 from the persona of a coding agent running on the *real host*, trying
