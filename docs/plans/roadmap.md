@@ -222,11 +222,18 @@ cited the ID back at the doc. Neither end resolved.)*
 
 ### 💬 6 — Image staging and baking
 
-📄 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md)
+📄 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) — **OQ-1 · OQ-3 · OQ-4 · OQ-5**
 
-**OQ-5** blocks the largest measured reclaim (404 GiB of cached tars). **OQ-3** blocks a
-content-addressed image tag; **OQ-1** blocks two more items; **OQ-4** is a scope ruling on a shipped
-config key. None of these were in this file before today.
+**OQ-5** blocks the largest measured reclaim in the repo — **404 GiB of cached image tars**, a number
+three separate docs corroborate. **OQ-3** blocks a content-addressed image tag; **OQ-1** blocks C4
+and C5 and explicitly waits for a re-measurement *after* C2+C3 land, so it cannot be answered first;
+**OQ-4** is a scope ruling on a shipped config key (`packages:` — workspace scope or not).
+
+**Two of the doc's eleven items have already shipped**, which narrows what a ruling buys: **C1** (a
+failed image build fails as itself, `7830f65`) and `--accept-flake-config` on the image and darwin
+nix invocations. The second has a live consequence elsewhere — it is the substituter surface
+[`macos-user-build-step-threat-model.md`](../design/macos-user-build-step-threat-model.md) **Q2**
+asks about, which stopped being hypothetical the day it shipped.
 
 ### 💬 7 — macOS, and the environment-manager stories
 
