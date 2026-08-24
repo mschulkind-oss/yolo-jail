@@ -1,6 +1,10 @@
 # ROCm GPU in the YOLO jail — findings (gfx1151 / Radeon 8060S)
 
-**Date:** 2026-06-05
+**Status:** SUPERSEDED IN PART — findings gathered 2026-06-05, resolved on hardware
+2026-06-06, re-checked against the tree 2026-08-23. The diagnosis below is a
+**ROCm 7.1.1-era incident record**; AMD/ROCm passthrough has since SHIPPED and
+§"Recommended next steps" is fully overtaken — see the "What shipped" box below.
+
 **Context:** Follow-on to the recording-pipeline repair. GPU passthrough was added
 to the jail (`gpu.enabled` in `yolo-jail.jsonc`) to enable GPU-accelerated rembg.
 This documents how far GPU compute gets in the jail and the one blocker that stops
@@ -22,8 +26,11 @@ it.
 > - **Removed** the now-misleading `yolo check` "GPU locked-memory limit" section
 >   and the `yolo run` low-cap warning (they claimed "needs ~16 MB; raise the host
 >   cap", which is wrong on ROCm 7.2).
-> - **Kept** the `--ulimit memlock=<host-hard>:<host-hard>` clamp in `run_cmd.py`
->   — harmless soft-limit lift, never bricks startup.
+> - **Kept** the `--ulimit memlock=<host-hard>:<host-hard>` clamp — harmless
+>   soft-limit lift, never bricks startup. (It lived in `run_cmd.py` at the time;
+>   the Go port moved it to `gpuArgs`, `internal/cli/run/helpers.go:142-155`, which
+>   emits `--ulimit memlock=-1:-1` when the host hard cap is unlimited and clamps
+>   to the hard cap otherwise — verified 2026-08-23.)
 >
 > If a workload ever does hit `CREATE_QUEUE EINVAL` on an older ROCm build, the
 > remedy (raise the host memlock cap) is documented in
@@ -32,6 +39,33 @@ it.
 > the next item.
 >
 > The original 7.1.1-era diagnosis is preserved below for the record.
+
+> [!NOTE]
+> **What shipped since (verified against the tree 2026-08-23).** AMD/ROCm
+> passthrough is no longer a "recommended next step" — it is a first-class,
+> validated config surface:
+>
+> - `gpu.vendor` accepts `"nvidia"` or `"amd"`
+>   (`internal/config/validate.go:881-885`), and the AMD-only keys `gpu.mode`
+>   (`"devices"` | `"cdi"`, `:891-897`) and `gpu.hsa_override_gfx_version`
+>   (`:921-927`) are validated as AMD-only — asking for them under
+>   `vendor: nvidia` is a config error, not a silent no-op. `gpu.capabilities`
+>   is refused for AMD outright (`:903-905`) because ROCm has no
+>   driver-capabilities concept.
+> - `gpu.seccomp_unconfined` survives as a validated boolean
+>   (`internal/config/validate.go:930-932`) — the knob this doc's "What I
+>   changed" section recommended reverting still exists; the advice to leave it
+>   `false` stands, since it was never what fixed anything.
+> - The host-side probe `rocmHostAvailable` gates the whole thing on the
+>   `amdgpu` module, `/dev/kfd` and a render node
+>   (`internal/cli/run/hostprobes.go:59-70`), and refuses `container`/macOS.
+> - `yolo check` has a real ROCm device section — `/dev/kfd`, every
+>   `/dev/dri/renderD*`, group membership with the exact `usermod` fix, and the
+>   `amd-ctk cdi generate` hint under `mode: cdi`
+>   (`internal/cli/check/sections_devices.go:139-205`).
+>
+> Note also that `gpu.enabled` alone is no longer the whole story — a `vendor`
+> is what selects the passthrough shape.
 
 ## TL;DR
 
@@ -125,7 +159,20 @@ Both are moot until `CREATE_QUEUE` works. **After** the memlock fix:
   seccomp hypothesis. **It did not help** — recommend reverting to `false` unless
   wanted for another reason (it removes all syscall filtering for the jail).
 
-## Recommended next steps (host-side, in the `yolo` tool)
+### ⚠ Retracted: Recommended next steps (host-side, in the `yolo` tool)
+
+> [!WARNING]
+> **All three items below are overtaken (checked 2026-08-23).** Item 1 was
+> *wrong about the diagnosis* — the memlock clamp shipped, but as a harmless
+> soft-limit lift, not because ROCm needs it; ROCm ≥ 7.2 passes at the 8 MB cap
+> (see the resolution banner). Item 1's optional `resources.memlock` /
+> `gpu.memlock` knob was deliberately **not** built; the clamp is unconditional
+> in `gpuArgs` (`internal/cli/run/helpers.go:151-155`). Item 2's ground-truth
+> test was run and passed. The GPU config surface that actually shipped is in
+> the "What shipped since" box above. Kept verbatim because a reader who finds
+> `CREATE_QUEUE EINVAL` on an old ROCm build needs the reasoning, and because
+> "raise the memlock cap" is a plausible-sounding fix that this incident
+> **disproved** — do not re-derive it.
 
 1. **Add `--ulimit memlock=-1` to the `podman run` flags whenever
    `gpu.enabled` is set** (both AMD and NVIDIA benefit). This is the actual fix.

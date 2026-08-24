@@ -6,10 +6,17 @@ choice **per-agent** and **declarative**? This is the evergreen domain doc for
 that question. It covers the six shipped agents' provider surfaces, the server
 side, and which yolo machinery would carry the config.
 
-Researched 2026-08-20. Every per-agent claim was verified against the **shipped
-implementation** — the installed binary or npm bundle in this jail — not just
-vendor docs, and carries a provenance tag saying which. Claims that could not be
-confirmed from a primary source are marked **UNCONFIRMED**.
+**Status:** findings gathered 2026-08-20; audited 2026-08-23 (OQ IDs given the
+`LM` prefix; findings NOT re-gathered). **Six open questions await a ruling** —
+see [Open Questions](#open-questions). Read §"Fast-moving — verify before
+building" first: this is the shortest-half-life doc in `docs/research/`, and
+several of its claims are expected to be stale within three months of the gather
+date.
+
+Every per-agent claim was verified against the **shipped implementation** — the
+installed binary or npm bundle in this jail — not just vendor docs, and carries a
+provenance tag saying which. Claims that could not be confirmed from a primary
+source are marked **UNCONFIRMED**.
 
 Companion docs: [`agent-config-distribution.md`](./agent-config-distribution.md)
 (how config is *shared*; this doc is how it is *pointed*) and
@@ -124,7 +131,7 @@ Knobs worth knowing:
 | `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU,FABLE}_MODEL` | Alias resolution — **the practical knob** |
 | `ANTHROPIC_SMALL_FAST_MODEL` | **Deprecated**, superseded by `ANTHROPIC_DEFAULT_HAIKU_MODEL` |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | Suppresses bootstrap/feature-flag/telemetry calls to `api.anthropic.com` |
-| `ANTHROPIC_UNIX_SOCKET` | **Undocumented.** Routes the API fetch over a unix socket instead of TCP `[verified from source: 2.1.220, fn Ih, 2026-08-20]` — potentially a cheaper jail wiring than TCP; see [OQ-5](#oq-5) |
+| `ANTHROPIC_UNIX_SOCKET` | **Undocumented.** Routes the API fetch over a unix socket instead of TCP `[verified from source: 2.1.220, fn Ih, 2026-08-20]` — potentially a cheaper jail wiring than TCP; see [OQ-LM5](#oq-lm5) |
 
 > [!WARNING]
 > **Scope trap.** There are two settings-`env` application passes
@@ -629,7 +636,7 @@ provider today.
 | **Pack `launch` kind** `kinds.go:100-101` | Injects flags after a binary at launch; **keyed by `bin`, so genuinely per-agent** | Partly | Static literals in `pack.json` |
 | **`env_sources`** `internal/config/envsources.go:58-85` | Ordered dotenv files → `~/.config/yolo-user-env.sh`, sourced by `.bashrc` and hydrated into the entrypoint's env | **Works today** | Jail-wide, untyped, no per-agent scoping, no provenance |
 | **`host_files`** `internal/config/hostfiles.go:73-75` | Brings any host file in as a composed surface. **`yolo config-ref` names `~/.pi/agent/models.json` as its own example** | **Yes — the zero-code answer today** | Hand-written per agent in each native dialect; N agents = N maintained blobs |
-| **`network.forward_host_ports`** `internal/cli/run/hostports.go` | Host↔jail port hop over a bind-mounted Unix socket | **Yes — the transport answer** | Requires `socat` both sides; no scope gate (see [OQ-4](#oq-4)) |
+| **`network.forward_host_ports`** `internal/cli/run/hostports.go` | Host↔jail port hop over a bind-mounted Unix socket | **Yes — the transport answer** | Requires `socat` both sides; no scope gate (see [OQ-LM4](#oq-lm4)) |
 | **Loophole** `internal/loopholedecl` | Manifest-declared host daemon, per-jail token, pinned TLS, typed settings, approval | **Overkill for transport; right for policy** | Only transport is `loopback-tls`; **no agent's HTTP client speaks that**, so it needs a *baked* jail-side shim — a core change, not a pack |
 
 ### The layer model, and the precedent that constrains this
@@ -851,76 +858,99 @@ Carry these forward; do not build on them without re-checking.
 
 ## Open Questions
 
-<a id="oq-1"></a>
-💬 **OQ-1: Is `llm_endpoints` the thin version of B3, or a competing design?**
-`docs/design/agent-auth-modes.md:60-72` argues that **a mode is a bundle**
-(credential + env + model IDs) and that splitting them is exactly how a real
-switch silently half-lands — that document was written from a measured
-Bedrock→Teams miss. A bare `{base_url, model}` key re-creates that bug for local
-models.
-_Leaning:_ make local endpoints a **mode**, reusing the existing framing, rather
-than a parallel key that will need reconciling later.
+> IDs use the `LM` prefix (minted 2026-08-23; no other `OQ-LM*` exists in the
+> repo). They were bare `OQ-1`…`OQ-6` until then, which collided with the
+> `OQ-1`…`OQ-9` in `docs/design/agent-auth-modes.md` — the very doc OQ-LM1 is
+> about. Nothing outside this file cited the old spellings.
 
-> **Answer:**
+1. <a id="oq-lm1"></a>💬 **OQ-LM1: Is `llm_endpoints` the thin version of B3, or a
+   competing design?** `docs/design/agent-auth-modes.md:60-72` argues that **a
+   mode is a bundle** (credential + env + model IDs) and that splitting them is
+   exactly how a real switch silently half-lands — that document was written from
+   a measured Bedrock→Teams miss. A bare `{base_url, model}` key re-creates that
+   bug for local models. **This is the framing question**: it decides whether
+   anything in Part 4 is a new config surface at all, and every other question
+   here inherits its answer.
 
-<a id="oq-2"></a>
-💬 **OQ-2: Where does the API key live?**
-Options: `env_sources` (today's answer — jail-wide, no provenance); an
-`api_key_env` reference the derive emits for the agent to resolve; or a
-`requires_env`-style gate that drops the endpoint when the key is absent
-(`mcp.go:136-175`). A raw key in `yolo-jail.jsonc` would put a secret in a
-repo-tracked, **agent-editable** file. Note that for a purely local llama-server
-the answer may be "there is no key" — every agent here accepts a dummy.
-_Leaning:_ `requires_env`-style gating, matching the MCP precedent; and document
-that local endpoints normally need no key at all.
+   _Leaning:_ make local endpoints a **mode**, reusing the existing framing,
+   rather than a parallel key that will need reconciling later.
 
-> **Answer:**
+   **Answer:**
+   > _(empty — fill in when decided)_
 
-<a id="oq-3"></a>
-💬 **OQ-3: Config scope — can a workspace config repoint inference?**
-`mcp_servers` has no scope gate, so an `llm_endpoints` clone would be settable
-from a workspace `yolo-jail.jsonc` — **a file the agent inside the jail can
-rewrite**. Repointing an agent's inference at an attacker-chosen URL from a file
-that agent controls is a real hazard. Compare the deliberate `scope: "user"` on
-journal's `full` setting (`packs/journal/loopholes/journal/manifest.jsonc:84-97`).
-_Leaning:_ **user-scope only.** The blast radius of getting this wrong is total.
+2. <a id="oq-lm2"></a>💬 **OQ-LM2: Where does the API key live?** Options:
+   `env_sources` (today's answer — jail-wide, no provenance); an `api_key_env`
+   reference the derive emits for the agent to resolve; or a `requires_env`-style
+   gate that drops the endpoint when the key is absent (`mcp.go:136-175`). A raw
+   key in `yolo-jail.jsonc` would put a secret in a repo-tracked,
+   **agent-editable** file. Note that for a purely local llama-server the answer
+   may be "there is no key" — every agent here accepts a dummy. **Decides whether
+   this feature can ever carry a hosted (non-local) endpoint**, since that is the
+   only case where a real secret is at stake.
 
-> **Answer:**
+   _Leaning:_ `requires_env`-style gating, matching the MCP precedent; and
+   document that local endpoints normally need no key at all.
 
-<a id="oq-4"></a>
-💬 **OQ-4: Is `forward_host_ports` missing a scope gate today?**
-No scope gate was found (`internal/config/validate.go:479-496`), so a workspace
-config can forward an arbitrary host `127.0.0.1` port into the jail. This looks
-like a pre-existing hole **independent of this feature** and may deserve its own
-fix regardless of what happens here.
-_Leaning:_ file separately; do not couple it to this work.
+   **Answer:**
+   > _(empty — fill in when decided)_
 
-> **Answer:**
+3. <a id="oq-lm3"></a>💬 **OQ-LM3: Config scope — can a workspace config repoint
+   inference?** `mcp_servers` has no scope gate, so an `llm_endpoints` clone would
+   be settable from a workspace `yolo-jail.jsonc` — **a file the agent inside the
+   jail can rewrite**. Repointing an agent's inference at an attacker-chosen URL
+   from a file that agent controls is a real hazard. Compare the deliberate
+   `scope: "user"` on journal's `full` setting
+   (`packs/journal/loopholes/journal/manifest.jsonc:84-97`). **This is the
+   security-closure question** — it is the one answer that cannot be revised
+   later without a breaking config change.
 
-<a id="oq-5"></a>
-💬 🤷 **OQ-5: Ship order — recipe first, or build the source?**
-Option 1 is honestly available this afternoon and de-risks Option 2. Option 2 is
-what the prism exists for. They are not mutually exclusive, but they compete for
-the same attention.
-_Leaning:_ Option 1 now — with one manual smoke test per agent, since **nothing
-in this doc has been exercised against a live server** — then Option 2 once the
-per-agent configs are proven.
+   _Leaning:_ **user-scope only.** The blast radius of getting this wrong is
+   total.
 
-> **Answer:**
+   **Answer:**
+   > _(empty — fill in when decided)_
 
-<a id="oq-6"></a>
-💬 **OQ-6: Who owns five `derive.lua` blocks, and what about the path collision?**
-Each agent pack needs its own projection. Two specific snags: config claims are
-keyed by `agent/name`, **not by path**
-(`internal/packload/footprint.go:231`), and a configured pack's surface path is
-unreserved against `host_files` (`internal/config/hostfiles.go:704-708`) — so if
-a pack starts owning `~/.pi/agent/models.json`, an existing `host_files` entry at
-that path silently becomes a **second writer**. Worse, on this maintainer's own
-machine that exact path is **already pack-managed and mounted `:ro`** by the
-`matt-local` dotfiles pack.
-_Leaning:_ resolve the two-writers question before shipping, not after.
+4. <a id="oq-lm4"></a>💬 **OQ-LM4: Is `forward_host_ports` missing a scope gate
+   today?** No scope gate was found (`internal/config/validate.go:479-496`), so a
+   workspace config can forward an arbitrary host `127.0.0.1` port into the jail.
+   This looks like a pre-existing hole **independent of this feature** and may
+   deserve its own fix regardless of what happens here. Answering it decides
+   whether OQ-LM3's ruling is sufficient or merely closes one of two doors.
 
-> **Answer:**
+   _Leaning:_ file separately; do not couple it to this work.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+5. <a id="oq-lm5"></a>💬 🤷 **OQ-LM5: Ship order — recipe first, or build the
+   source?** Option 1 is honestly available this afternoon and de-risks Option 2.
+   Option 2 is what the prism exists for. They are not mutually exclusive, but
+   they compete for the same attention. Blocks nothing technically; it is purely
+   a sequencing call on the maintainer's own attention.
+
+   _Leaning:_ Option 1 now — with one manual smoke test per agent, since
+   **nothing in this doc has been exercised against a live server** — then Option
+   2 once the per-agent configs are proven.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+6. <a id="oq-lm6"></a>💬 **OQ-LM6: Who owns five `derive.lua` blocks, and what
+   about the path collision?** Each agent pack needs its own projection. Two
+   specific snags: config claims are keyed by `agent/name`, **not by path**
+   (`internal/packload/footprint.go:231`), and a configured pack's surface path is
+   unreserved against `host_files` (`internal/config/hostfiles.go:704-708`) — so
+   if a pack starts owning `~/.pi/agent/models.json`, an existing `host_files`
+   entry at that path silently becomes a **second writer**. Worse, on this
+   maintainer's own machine that exact path is **already pack-managed and mounted
+   `:ro`** by the `matt-local` dotfiles pack. **This is the blocker on Option 2**:
+   a two-writers bug here corrupts a working config on the maintainer's daily
+   driver.
+
+   _Leaning:_ resolve the two-writers question before shipping, not after.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ---
 

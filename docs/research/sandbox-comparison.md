@@ -1,5 +1,34 @@
 # Sandbox Comparison: Claude Code Built-in vs. yolo-jail
 
+**Status:** findings gathered 2026-07-18 against Claude Code's published
+sandboxing docs; audited and stamped 2026-08-23, **not** re-gathered against a
+newer Claude Code release. The *argument* (where the default sits, and what that
+costs) is evergreen; the *Claude-Code-side specifics* — `excludedCommands`,
+`enableWeakerNestedSandbox`, the allowlist syntax — are a moving target and
+should be re-read from the vendor docs before being quoted.
+
+> [!NOTE]
+> **yolo-jail-side corrections (verified against the tree 2026-08-23).** Two
+> things this doc says about yolo-jail have moved:
+>
+> - The architecture sketch in §"yolo-jail" lists "Claude Code / Gemini /
+>   Copilot" as the agents. **Agents are packs, and there is no Gemini pack.**
+>   Six packs ship an agent CLI — `claude`, `copilot`, `opencode`, `pi`,
+>   `codex`, `agy` — and four ship a loophole and no CLI at all (`audio`,
+>   `host-processes`, `journal`, `cgroup-delegate`). Nothing is active by
+>   default: an empty config yields a jail with no coding agent.
+> - Every `docker`/`podman` mention below is about running containers *inside*
+>   the two sandboxes and is still accurate as stated. But note that Docker is
+>   no longer a yolo-jail **backend** — `runtime: "docker"` is a hard config
+>   error (`internal/config/validate.go:128-129`); the backends are `podman`,
+>   `container` (Apple Container) and `macos-user`
+>   (`internal/config/validate.go:134`). The last of those is a **Seatbelt**
+>   sandbox with no VM and no container, which makes the clean
+>   "container wall vs. per-syscall filtering" dichotomy in §"The Core
+>   Difference" less clean than this doc draws it — on `macos-user`, yolo-jail
+>   is using the same OS primitive Claude Code's macOS sandbox uses. See
+>   [`../design/macos-user-nix-and-features.md`](../design/macos-user-nix-and-features.md).
+
 A developer-experience comparison of the two sandboxing approaches available
 when running Claude Code: the **built-in Claude Code sandbox** (bubblewrap on
 Linux, Seatbelt on macOS) and the **yolo-jail** OCI container approach.

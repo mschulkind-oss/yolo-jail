@@ -1,5 +1,13 @@
 # The macOS Linux-builder, explained for a Linux person
 
+> **Status:** SUPERSEDED IN PART, 2026-07-23; **re-checked 2026-08-23** — the
+> deletion below is no longer pending, it is **done**: there is no
+> `internal/builder` directory and no `yolo builder` command in the tree
+> (verified 2026-08-23). `internal/containerbuilder` is the only builder.
+> Everything the original note said would happen, happened; read the §0 Rosetta
+> stone and the lifecycle mechanics as still-valid mental model, and read every
+> "we should" sentence as retired.
+>
 > **STATUS (2026-07-23):** The VM-builder *direction* discussed below — the §3
 > Option C launchd plist, the §5 rework recommendation, and the `yolo builder`
 > commands — is **SUPERSEDED**. The on-demand **container** builder is the sole

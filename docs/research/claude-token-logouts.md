@@ -1,5 +1,18 @@
 # Claude token logouts — diagnosis & fix
 
+**Status:** incident record — symptoms and fixes gathered 2026-07-03 through
+2026-08-19; audited and stamped 2026-08-23, with the operational triage NOT
+re-exercised against a live logout since. The diagnoses hold as *history*;
+before acting on one, note that every `src/*.py` path in the fix column is a
+**Python-era name** and the tool is entirely Go now. The map, verified
+2026-08-23: `src/oauth_broker.py` → `internal/oauthbroker` (the host singleton,
+run as `yolo internal daemon claude-oauth-broker`); `src/oauth_broker_jail.py` →
+`internal/oauthterminator` (run as `yolo-jaild oauth-terminator`);
+`src/entrypoint/agent_configs.py` → `internal/entrypoint`; `src/cli/storage.py`
+and `cli.py` → `internal/storage` and `internal/cli`. Function names quoted
+below (`_normalize_oauth`, `_ensure_credentials_symlink`, `_sync_claude_json_seed`)
+did not survive the port verbatim — grep for the behaviour, not the identifier.
+
 Entry point when a jail (or host) prompts `Please run /login · API Error: 401 {"type":"authentication_error"}` more often than once a month.
 
 This doc is user-facing and operational. Background:

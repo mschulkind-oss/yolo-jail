@@ -1,6 +1,14 @@
 # Why `yolo` Needs a Flake — and How Installs Get One
 
-> **Status: CURRENT (2026-07-23).** This doc describes how a checkout-less
+> **Status: CURRENT — written 2026-07-23, amended 2026-07-29 (D2 revert),
+> re-checked against the tree 2026-08-23.** The load-bearing claim was
+> re-verified today: a missing repo root is **FATAL**, not a degraded launch —
+> `5d34dece` *"fix(run)!: a missing repo root is fatal again, not a degraded
+> launch"* (2026-07-29) is in `main`, and §6 already carries the reasoning. Do
+> not resurrect D2's graceful degradation; §6 explains why the soft path
+> silently launched jails on stale images.
+>
+> This doc describes how a checkout-less
 > install builds the jail image today, after the **prebuilt-bundle cutover**.
 > The bundle is no longer a copy of the source tree — it is "two files and a
 > binary" (`flake.nix` + `flake.lock` + prebuilt `bin/linux-<arch>/`), and the

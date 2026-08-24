@@ -1,5 +1,15 @@
 # Claude Code OAuth refresh — mechanics
 
+**Status:** findings gathered against **Claude Code 2.1.143**; cross-references
+refreshed 2026-08-19 (broker moved into `packs/claude`), stamped 2026-08-23. The
+binary-level findings have **not** been re-derived against a newer Claude
+release — 2.1.143 is well behind the 2.1.220 that
+[`local-model-endpoints.md`](local-model-endpoints.md) reads, so treat every
+offset, string and enum here as version-pinned. §7 tells you how to redo the
+scan; do that before trusting a specific claim about current behaviour. The
+`src/*.py` paths below are **Python-era names**, annotated inline with their Go
+successors — the live broker is `internal/oauthbroker` (verified 2026-08-23).
+
 Research-grade notes on **how Claude Code 2.1.143 actually manages its
 OAuth tokens**, including the two distinct failure paths that surface
 as "Please run /login" with zero broker activity. Companion to:

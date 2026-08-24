@@ -1,8 +1,42 @@
 # Platform Comparison: Linux vs macOS
 
-YOLO Jail runs on both Linux and macOS. This document is a comprehensive
-comparison of the two platforms — architecture, feature support, and
-runtime differences.
+**Status:** PARTLY STALE — last substantive gather predates the Go port; audited
+and stamped 2026-08-23, **not** re-gathered. The *feature matrix* still reads
+true; the *code references* do not. Read the postscript below before citing
+anything from this doc.
+
+> [!WARNING]
+> **Dated postscript (2026-08-23) — three classes of staleness, all verified
+> against the tree today.**
+>
+> 1. **Every Python file name in this doc is gone.** `cli.py`, `entrypoint.py`,
+>    `conftest.py`, `test_jail.py`, `test_macos_paths.py`, the `IS_LINUX`/
+>    `IS_MACOS` module constants and the `pytest` run at the end all belong to
+>    the pre-Go-port tool. The whole thing is Go now (~43 packages under
+>    `internal/`); the host CLI is `internal/cli` + `internal/cli/run`, the
+>    in-container provisioner is `internal/entrypoint`, and the test story is
+>    `just test-fast` (`go test -short ./...`) plus `integration/`. Treat every
+>    `*.py` path below as "the concept, at a name that no longer exists".
+> 2. **There is a THIRD backend this doc never mentions: `macos-user`** — macOS
+>    Seatbelt, no VM at all, so none of the "VM overhead", "VirtioFS", "max ~22
+>    bind mounts" or "Podman Machine vs Apple Container" framing applies to it.
+>    The accepted runtime set is `podman`, `container`, `macos-user`
+>    (`internal/config/validate.go:134`). See
+>    [`../guides/macos.md`](../guides/macos.md) and
+>    [`../design/macos-user-nix-and-features.md`](../design/macos-user-nix-and-features.md).
+>    The sibling doc [`macos-support-matrix.md`](macos-support-matrix.md) is the
+>    live authority for macOS feature support and supersedes this doc's macOS
+>    columns where they disagree.
+> 3. **`docker` was removed as a backend** and is now a hard config error
+>    naming its replacement (`internal/config/validate.go:128-129`) — relevant
+>    to any reader arriving from [`sandbox-comparison.md`](sandbox-comparison.md),
+>    which discusses Docker in the *Claude Code sandbox's* context.
+>
+> Smaller corrections: the "Agent Support" row says "Claude Code / Copilot /
+> Gemini", but **agents are packs** and there is no Gemini one — the six that
+> ship an agent CLI are `claude`, `copilot`, `opencode`, `pi`, `codex`, `agy`
+> (`packs/`, verified 2026-08-23), and **nothing is active by default**. There
+> is no `agents` config key; it is a hard error on the host.
 
 ## Architecture Overview
 

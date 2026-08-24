@@ -1,5 +1,16 @@
 # Exploring the container-based Linux builder for macOS
 
+**Status:** HISTORICAL EXPLORATION, 2026-07-24; re-checked 2026-08-23. The
+direction it explores **won and shipped**: the container builder is the sole
+builder (`internal/containerbuilder`), and the VM-based alternative it was
+weighed against — `internal/builder` plus the `yolo builder` commands — is
+**deleted from the tree** (verified 2026-08-23: no `internal/builder` directory).
+Read this for *why the image must contain nix* and why alpine is not an option;
+for what runs today read [`../design/linux-builder-lifecycle.md`](../design/linux-builder-lifecycle.md)
+and [`macos-linux-builder-explained.md`](macos-linux-builder-explained.md).
+Note that the Python-era file names below (`builder.py`) are historical — the
+whole tool is Go now.
+
 **Context:** on the container-runtime macOS path (`runtime: container`/`podman`),
 when a `packages:` build isn't cached, we need a Linux builder. Decision so far
 (yours): **run the builder as a container on the runtime that's already up**

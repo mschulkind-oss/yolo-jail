@@ -1,5 +1,13 @@
 # mise shared-state / host↔jail path mismatch — findings
 
+**Status:** CLOSED — incident investigated 2026-07-02 → 07-04, residuals closed
+2026-07-22, re-checked against the tree 2026-08-23. **All five Open Questions are
+now answered**; the last one (OQ-MP4, per-side venvs) was still marked open in
+this doc and has been answered *from the shipped code* — see its entry. Kept as
+the root-cause narrative and the record of rejected alternatives; the `run_cmd.py`
+/ `agents_md.py` / `src/` paths below are Python-era names, and the tool is
+entirely Go now.
+
 **Reference — incident record (2026-07-02 → 07-04).** The investigation behind
 today's host↔jail state separation: why a shared mise store with mismatched
 workspace paths corrupts `mise install`, and the `.mise.toml` trust-hook fix.
@@ -310,7 +318,14 @@ rm ~/.local/share/mise/installs/rust/1.95.0   # unblocked `mise install` on host
 
 ## Open Questions
 
-### Should `/workspace` become a symlink to the real host path (option A)?
+> IDs use the `MP` prefix (minted 2026-08-23; no other `OQ-MP*` exists in the
+> repo). These five questions were previously untitled headings with no stable
+> handle, so nothing outside this file cites them under any other spelling.
+> All five are settled — the section is retained rather than compacted into a
+> ledger because each answer carries a *refuted objection* that is cheaper to
+> read here than to re-derive.
+
+### ✅ OQ-MP1: Should `/workspace` become a symlink to the real host path (option A)? — RESOLVED (2026-07-03)
 
 This changes a documented invariant that agents and shims rely on. Everything
 under `/workspace` keeps working via the symlink, but tools that canonicalize
@@ -329,7 +344,7 @@ leaning is boot-time prune (C) instead.)_
 > jail↔jail residue is handled by boot-time prune per the "Residual issue"
 > section of jail-state-separation-design.md.
 
-### Does Apple Container support arbitrary same-path bind targets?
+### ✅ OQ-MP2: Does Apple Container support arbitrary same-path bind targets? — MOOT (2026-07-03)
 
 Option A assumes the runtime can mount at `/home/<host-user>/...`. Podman can;
 verify the Apple Container backend before committing to A.
@@ -341,7 +356,7 @@ _Leaning:_ Unverified; needs a check on macOS.
 > the fixed path `/mise` — no arbitrary same-path targets needed on any
 > runtime.
 
-### Is `MISE_TRUST=1` (run_cmd.py:1194) actually a mise env var?
+### ✅ OQ-MP3: Is `MISE_TRUST=1` (run_cmd.py:1194) actually a mise env var? — RESOLVED (2026-07-03)
 
 It doesn't appear in mise's documented env vars. If it's a no-op the trust
 story silently rests on the three filename-gated `mise trust` calls, which is
@@ -356,7 +371,7 @@ and un-gate the `mise trust` calls (run without a path argument).
 > `MISE_TRUSTED_CONFIG_PATHS=/workspace` and fix the filename-gated trust
 > calls (three sites, see above).
 
-### Under F+, how do workspace venvs get recreated per side?
+### ✅ OQ-MP4: Under F+, how do workspace venvs get recreated per side? — RESOLVED BY THE CODE (leaning confirmed; verified 2026-08-23)
 
 A shared-workspace `.venv` can only point at one side's interpreter. The
 pre-create hook currently skips when the dir exists, so an existing host-side
@@ -371,9 +386,34 @@ would live in the shared workspace and leak to the host; also nothing in
 `src/` generates one today — option D's claim above was wrong.)
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **Shadow mount — the leaning shipped, and then generalized.** This question
+> sat marked open long after the code answered it; closing it from the tree
+> rather than from memory, verified 2026-08-23 at
+> `venvShadowMountArgs`, `internal/cli/run/mounts.go:78-108`.
+>
+> The mechanism is exactly the leaning: for each per-side relative path, the
+> launcher creates a backing dir under `<ws_state>/venv-shadows/<rel with `/`
+> → `__`>` and binds it over `<workspace>/<rel>`, so each side sees its own
+> tree at the idiomatic path with no project config. What went **beyond** the
+> leaning is the *set* of shadowed paths — it is not just `.venv`
+> (`mounts.go:79-85`):
+>
+> - `.venv` and **`node_modules`** are unconditional. The npm case turned out
+>   to have the same shape as the venv case (native modules built against one
+>   side's toolchain), which this doc never anticipated.
+> - mise's own configured venv path is added when the workspace declares one
+>   (`MiseConfigVenvPathFromDir`), so a project that renamed its venv is
+>   covered.
+> - A **`per_side_paths` config key** lets a workspace add arbitrary entries —
+>   the escape hatch that makes the mechanism general instead of Python-specific.
+>
+> Two guardrails worth knowing before adding a `per_side_paths` entry, both at
+> `mounts.go:96-106`: a path failing `ValidPerSideRel` is skipped with a
+> warning, and **a path that is a symlink or a regular file cannot be shadowed
+> at all** — the launcher warns and the jail sees the host's entry. A per-side
+> path must be a directory (or absent); this is the trap.
 
-### Should provisioning failures abort jail boot?
+### ✅ OQ-MP5: Should provisioning failures abort jail boot? — RESOLVED (2026-07-03)
 
 Today a failed `mise install` during provisioning scrolls past and the jail
 comes up half-provisioned (this is how the songtv trust failure went

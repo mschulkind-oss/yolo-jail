@@ -7,6 +7,33 @@ agents, 6 distribution mechanisms, 5 package-manager precedents), records the
 measured git plumbing, and ends in a verdict table: adopt / steal / integrate /
 ignore.
 
+**Status:** findings gathered 2026-07-25; audited 2026-08-23 — the **external
+landscape** survey (Parts 1–2, the verdict table, the measured git plumbing) was
+NOT re-gathered and should be assumed to have drifted by roughly a month of
+vendor releases. The **yolo-internal** claims in the "ship it as a product"
+section WERE re-checked today; two are now wrong, see the postscript.
+
+> [!WARNING]
+> **Dated postscript (2026-08-23) — the prism-extraction cost estimate is
+> partly overtaken.**
+>
+> - *"The agent registry is Go literals (`builtin.go`, 441 lines)"* is
+>   **retracted**. There is no agent registry any more — agents are packs, and
+>   `agentcfg.BuiltinManifest()` is now core's own surfaces only (`mise`,
+>   `config`). `internal/agentcfg/builtin.go` is **148 lines**, down from the
+>   441 this doc measured (verified 2026-08-23,
+>   `internal/agentcfg/builtin.go:110`); callers wanting the full set merge
+>   pack-declared surfaces via `ManifestWith` (`:146`). The extraction cost this
+>   bullet was pricing has therefore already been *paid down by other work*, not
+>   by anyone extracting the prism.
+> - Reading `internal/agents` anywhere below: that package was renamed to
+>   `internal/jailcontent` and reduced to what was never per-agent (skills
+>   staging, briefing composition, loophole descriptions, the source-tree probe).
+> - Still true as measured: no black-box test suite for `internal/agentcfg`
+>   (all test files are `package agentcfg`), the Lua global is still named
+>   `yolo`, and the vendored-dependency consequence of the hermetic image build
+>   is unchanged.
+
 Researched 2026-07-25 against primary sources; every claim below is either
 quoted from a vendor doc with its URL, was measured in this container, or — for the
 plugin and vim-plugin-manager sections — was read out of the shipped
