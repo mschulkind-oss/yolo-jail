@@ -271,7 +271,7 @@ Also **E2** and **`pack-host-management-plan.md` OQ-B**: *these three are one de
 the shared block below.
 
 `host_files` still accepts four modes — `readonly`, `once`, `copy`, `capture`
-(`internal/config/hostfiles.go:56-61`, verified 2026-08-23). E1 asks whether `copy` earns its
+(`internal/config/hostfiles.go:58-62`, verified 2026-08-23 — the earlier `:56-61` excluded `HostFileModeCapture`, one of the four it names). E1 asks whether `copy` earns its
 slot: `copy` overwrites the file every boot at `0o644` and loses an in-jail edit silently,
 while `readonly` re-renders every boot at `0o444` so the edit fails loudly *at the moment of
 the edit*. If E2 makes `readonly` a real `:ro` mount, the two modes stop differing in what a
@@ -309,7 +309,7 @@ mode bits"*, and anyone can `chmod +w`. Three places in the tree make the same t
 |---|---|---|
 | `internal/entrypoint/hostfiles.go:112-157` | `host_files` `readonly` renders `0o444` (`0o555` if the source is executable) every boot | **E2** |
 | `internal/config/hostfiles.go:40-56` | the four-mode vocabulary that names it | **E1** |
-| `internal/entrypoint/hostfilestree.go:182-200` | pack-delivered `files` at the host notch: *"READ-ONLY (0o444/0o555) mirrors the jail's `:ro` mount, which is the closest a plain [mode] can get"* | **OQ-B** |
+| `internal/entrypoint/hostfilestree.go:182-200` | pack-delivered `files` at the host notch: *"READ-ONLY (0o444/0o555) mirrors the jail's `:ro` mount, which is the closest a plain filesystem gets to the same statement"* | **OQ-B** |
 
 `hostfilestree.go:157` is the asymmetry in one line: the writer has to **chmod a `0o444` file
 back to writable to reopen it**, which is precisely the move a user who wants to hand-edit
@@ -404,7 +404,9 @@ from both). The two notches answer that differently, and only one of them says a
 - **Jail — silent last-one-wins.** `jailcontent.PrepareSkills` loops `packSkillDirs` in config
   order (`internal/jailcontent/skills.go:107-118`) and `copySkillSubdirs` does
   `os.RemoveAll(target)` then copy (`skills.go:154-160`). There is no collision concept on any
-  jail path: `RenderHostSkills` — the sole caller of `Collisions` — is reached only from
+  jail path: every caller of `Collisions` is host-side — `RenderHostSkills`, and
+  `reportSkillCollisions` (`internal/cli/applyhostskills.go:384`, called from `:184` and `:245`).
+  `RenderHostSkills` is reached only from
   `internal/cli/applyhostskills.go:253`. **Verified 2026-08-23.**
 
 **Measured 2026-08-05**, on the same two-pack set `apply --host` refuses: the jail came up,

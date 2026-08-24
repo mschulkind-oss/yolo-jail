@@ -226,8 +226,9 @@ to [`../design/retired-decisions.md`](../design/retired-decisions.md).
 > **The general shape, since it will recur.** A row belongs in 💬 when two answers lead to
 > *materially different work*. Both rows above have one plausible answer and a small edit behind it.
 > The cost of getting this wrong is not clutter — it is that **14** rows of "needs you" read as a
-> 14-decision backlog when the real number is smaller, and the cheap ones are the ones a tired reader
-> answers first.
+> 14-decision backlog when **three of them cannot change the work** (§4 a, §4 b, and the pointer in
+> §4a). Twelve is the honest figure, and the cheap three are the ones a tired reader answers first —
+> which is the worst possible order to spend attention in.
 
 ---
 
