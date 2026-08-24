@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -323,5 +324,48 @@ func TestPackLoopholesNamesFromTheDirBasename(t *testing.T) {
 	}
 	if !strings.HasSuffix(got[0].Dir, "loopholes/acme-proxy") {
 		t.Errorf("module dir %q is not the staged `from` path", got[0].Dir)
+	}
+}
+
+// THE CALL SITE, not the callee. TestBothInertBackendsReportByName above calls
+// notePackLoopholesInert DIRECTLY for both backends, which is the shape AGENTS.md warns
+// about: it passed for macos-user while no launch on that backend could produce the line,
+// because the report hangs off startLoopholesDisclosed inside runContainer and the
+// macos-user arm returns above it. The callee was pinned; the call site did not exist.
+//
+// This drives a REAL launch — Run() with runtime=macos-user, the real claude pack (which
+// ships the claude-oauth-broker loophole), a stub backend handler — and asserts the line
+// reaches the user. Delete the notePackLoopholesInert call from the macos-user arm and
+// this fails; the test above does not.
+func TestMacosUserLaunchReportsInertLoopholes(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `["claude"]`)
+	ws := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	reached := false
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ bool) int {
+		reached = true
+		return 0
+	}
+
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d, want 0\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
+	}
+	if !reached {
+		t.Fatal("Run() never reached the macos-user handler")
+	}
+
+	got := stdout.String() + stderr.String()
+	// By NAME, both halves — which pack and which loophole — for the same reason the
+	// direct-call test asserts it: a line naming neither is unactionable.
+	for _, want := range []string{"claude", "claude-oauth-broker", "macos-user"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a macos-user launch did not tell the user %q is inert (missing %q).\n"+
+				"Every pack-shipped loophole is inert on this backend — it never reaches\n"+
+				"startLoopholes — so a pack whose whole purpose is a loophole looks installed\n"+
+				"and does nothing.\noutput:\n%s", "claude-oauth-broker", want, got)
+		}
 	}
 }

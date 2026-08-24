@@ -148,6 +148,23 @@ func Run(opts Options) int {
 		// either, and the native backend is where a "where is my agent?" is hardest to
 		// diagnose (no image, no provisioning output to read back).
 		o.warnIfNoPacks()
+		// INERT LOOPHOLES, on this arm too. Every pack-shipped loophole is inert here —
+		// this backend never reaches startLoopholes at all — and until 2026-08-24 that
+		// was the ONE inert backend that said nothing about it, because the report hangs
+		// off startLoopholesDisclosed inside runContainer and this arm returns above it.
+		//
+		// The gap survived because the test for it called notePackLoopholesInert
+		// DIRECTLY for both backends, so the macos-user half asserted a line no launch
+		// could produce: the callee was pinned and the call site did not exist. That is
+		// the shape AGENTS.md names, found in the code that was written to prevent the
+		// same shape one layer down ("a pack whose whole purpose is a loophole must not
+		// look installed on a backend that ignores it").
+		//
+		// It is NOT routed through startLoopholesDisclosed: that wrapper exists to make
+		// disclosure inseparable from the SPAWN, and nothing spawns here. Disclosing
+		// beside warnIfNoPacks is the honest placement — both answer "what will this
+		// launch not do for you", which is the only question this backend can raise.
+		o.notePackLoopholesInert(rt, staged.packs)
 		// The staged tree crosses as a PATH, not as the loaded declarations: the native
 		// bootstrap re-reads the manifests itself (LoadJailPacks), exactly as the
 		// container entrypoint does off its /ctx/packs mount, so the two backends render
