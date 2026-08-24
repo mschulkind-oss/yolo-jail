@@ -1,5 +1,12 @@
 # Loophole wire protocol — v1
 
+**Status:** REFERENCE, `PROTOCOL_VERSION` 1 — **the wire format has never moved.** Re-verified
+against the tree 2026-08-23. This is the contract external loophole authors may rely on; breaking
+changes bump the version and ship a transition window. Two things *around* the wire have changed
+since it was written and are corrected in place below: the per-jail **broker relay is deleted**
+(yolo prepends its own connection preamble and never parses a payload), and the pack contribution
+`kind: "loophole"` **shipped** — every loophole yolo ships is now a pack's.
+
 This is the framed protocol spoken between a jail-side client and a
 host-side loophole daemon that uses the `internal/hostservice` helper
 package (transport: `loopback-tls`, lifecycle: `spawned`).
@@ -328,11 +335,14 @@ before the steps, both blunter than anything in the client section:
   declares `host_daemon.publishes: "socket"`, the daemon binds a
   plain AF_UNIX socket at `{socket}`, and yolo runs the one audited
   implementation of everything below in front of it —
-  `svcendpoint.ServeFront`, which fronts the broker relay and, since
-  the front landed, every `publishes: "socket"` host daemon
-  (`internal/cli/run/loopholesruntime.go`). The one piece still
-  unbuilt is the pack contribution `kind: "loophole"` (§3), so today
-  the manifest lives in the loopholes dir rather than inside a pack.
+  `svcendpoint.ServeFront`, which fronts **every** `publishes: "socket"`
+  host daemon (`internal/cli/run/loopholesruntime.go`). *(It used to
+  front the per-jail broker relay too; `internal/brokerrelay` was
+  deleted on 2026-08-19 — yolo prepends its own connection preamble
+  and never inspects a payload byte, which removed the relay's reason
+  to exist. And the pack contribution `kind: "loophole"` — described
+  here as "the one piece still unbuilt" — shipped: every manifest
+  yolo ships now lives inside a pack.)*
   Behind the front, anything that can bind AF_UNIX and read a 4-byte
   length prefix works: Python, Node, Rust, a shell script with
   `socat`. The `nc`-era simplicity this doc mourns above is restored
@@ -346,8 +356,12 @@ before the steps, both blunter than anything in the client section:
   `publishes: "socket"` and the front half-closes the upstream
   socket when the request direction ends
   (`svcendpoint.FrontOptions.HalfCloseUpstream`). The default stays
-  `framed` because the broker relay's teardown parity depends on the
-  EOF *not* propagating. This section exists so the front can be
+  `framed` — originally to keep teardown bit-identical to the broker
+  relay's, and now because a length-prefixed protocol is
+  self-delimiting and does not need the EOF
+  (`loopholedecl/enums.go:70-79`, checked 2026-08-23). **The default
+  outlived the relay that motivated it, and that is fine; what is not
+  fine is quoting the relay as a live reason.** This section exists so the front can be
   understood and audited, not so a pack can opt out of it.
 
 The steps, in an order that is load-bearing — publish last, so a
