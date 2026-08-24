@@ -461,7 +461,7 @@ here"* into *"supported, missing"* (`broker-as-a-pack.md` §9).
 
 ### 💬 15 — Backend parity: the census, and whether macos-user gets briefings at all
 
-📄 [`backend-parity.md`](../design/backend-parity.md) — **OQ-BP-1 · OQ-BP-2 · OQ-BP-3**
+📄 [`backend-parity.md`](../design/backend-parity.md) — **OQ-BP-1 · OQ-BP-2 · OQ-BP-3 · OQ-BP-4**
 
 **Born from issue #39 and the sweep behind it.** Ten of the seventeen defects are fixed or warned
 (that doc's §5 is the table); what is left is a decision about the mechanism, not about any one bug.
@@ -478,6 +478,14 @@ here"* into *"supported, missing"* (`broker-as-a-pack.md` §9).
   of today. My leaning is deliver it, and land it *with* a Mac session rather than blind.
 - **OQ-BP-3 — do the ten new launch warnings need suppressing?** A warning people learn to skip is
   worse than none. My leaning is not yet, and per-key when it comes.
+- **OQ-BP-4 — is Apple Container's loophole skip still justified?** *This is your own question —
+  "shouldn't the broker be in use here?" — and chasing it found something.* The skip's stated
+  reason is *"no socket bind-mount there"*, which is true of the **unix-socket era**: under
+  loopback-TLS a jail learns its service from a 0600 endpoint **file in a bind-mounted
+  directory**, and that backend mounts directories fine. What still blocks it is `--add-host`,
+  which stops **intercepting** loopholes only — the broker intercepts, `journal` and
+  `host-processes` do not. **The stakes: with no broker there, concurrent jails on a Mac race the
+  single-use refresh token** — exactly what it exists to prevent. Needs a Mac to settle.
 
 # 📦 Up next
 
