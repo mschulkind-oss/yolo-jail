@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 13 needing you · 0 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
+**Status: 14 needing you · 0 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
 
 Last updated **2026-08-23**. Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph matches the section it is
@@ -40,7 +40,7 @@ reading ~9,000 lines; it is now one command:
 $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )💬' docs/ --sort path
 ```
 
-**Thirteen rows below is what those 73 group into.** The gap between 73 and 13 is the point of this
+**Fourteen rows below is what those 73 group into.** The gap between 73 and 14 is the point of this
 file: a row is a *decision*, and one decision usually closes several questions.
 
 | | Means |
@@ -176,9 +176,21 @@ base `claude` pack pins nothing.
 
 📄 [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md)
 
-**nix OQ-1** is the real content of what this file used to call "N3": is `host` a placement or a
-backend? Everything else in that doc is subordinate to it. No longer urgent — the auth thread routed
-around the `env` refusal that motivated it.
+**nix OQ-1** is the real content of what this file used to call **N3**, and the doc phrases it as
+**run vs. configure** — does yolo *run* a process at `host`, or only *configure* one? *(This row used
+to render it as "placement or backend", a phrasing that appears nowhere in the doc. Reconciled
+2026-08-23; the ID is unchanged and both siblings still cite it as `N3/OQ-1`.)*
+
+**Two corrections to what this row used to imply.** First, **roughly half of that doc has shipped** —
+Option 0 landed 2026-08-02 and Option 1 mostly landed 2026-08-05 as N1+N2, which renamed the
+attribute the doc proposed (`yoloNoncontainerPackages`) and explicitly rejected its
+`yoloHostPackages`. Second, *"everything else is subordinate to OQ-1"* is **not true**: **OQ-7** is
+independent, and **OQ-8**'s reporting half and **OQ-9** are worth fixing under any answer. Seven
+questions are live there (OQ-1 · 3 · 4 · 5 · 7 · 8 · 9); two settled into its Decision Ledger.
+
+Still not urgent — the auth thread routed around the `env` refusal that motivated it, and the
+codebase now points at this doc's own Option 2 from inside that refusal's text
+(`internal/render/fieldset.go:83-103`).
 
 ### 💬 5 — Boundary broker
 
@@ -205,7 +217,36 @@ config key. None of these were in this file before today.
 **user-stories Q1** is called "the biggest question in the document" by its own author. **Q7** asks
 whether Linux `guest` is a promise or a hypothesis. **threat-model Q1-Q3** cover the repo-root
 refusal, `--accept-flake-config`'s substituter surface (now live — see the shipped item), and a macOS
-build sandbox. **OQ-L1** explicitly blocks Track L part 2.
+build sandbox. **OQ-L1** explicitly blocks Track L part 2. **OQ-GN1 … OQ-GN4** are new (2026-08-23),
+in the guest-notch handoff — which now says plainly that its item 1.4 is only *half* answered: the
+sandbox reads the staged pack root and runs the toolchain, so what is untested is the
+`sudo -u _yolojail` staging step above it, not the confinement.
+
+**And the one with a clock on it, which arrived here by losing its parent.** It was carried by the
+🛑 nightly entry and cited [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §7 —
+a section about the silent-fallback defect that **never mentions darwin**. Its real home is
+[`macos-support-matrix.md`](../research/macos-support-matrix.md) §0, which now carries it; this row
+keeps the summary because it is the only item in this file with a **deadline** rather than a
+question, and a deadline unanswered decides itself.
+
+- **26.05 is the LAST nixpkgs supporting `x86_64-darwin`**, security-fixed only to end of 2026. The
+  nightly needs `macos-26-intel` because GitHub's Apple Silicon runners cannot nest a VM for Podman
+  Machine, so when 26.05 lapses the choice is a self-hosted arm64 Mac runner or macos-user-only
+  macOS tests. **Needs you, but not yet** — a deadline rather than a bug.
+
+  > [!WARNING]
+  > **⚠ This row used to say the opposite of the truth, and the correction matters more than the
+  > deadline.** It claimed `927fb9f`'s `nixpkgs-26.05-darwin` was *"a pin on a dead branch, not a
+  > supported line"* and that every probe throws `Nixpkgs 26.11 has dropped support for
+  > x86_64-darwin`. **Re-measured 2026-08-23:** `nix eval
+  > '#packages.x86_64-darwin.yoloNoncontainerPackages.name'` **succeeds**, emitting only
+  > *"Nixpkgs 26.05 will be the last release to support x86_64-darwin"*. `927fb9f5` added a **second
+  > nixpkgs input pinned to 26.05 for that system alone**, which is precisely what keeps Intel Macs
+  > working — an Intel Mac gets **5 of 6** agent CLIs today, not zero. 26.05 is not a dead branch; it
+  > is the last release that *does* support the platform.
+  >
+  > What survives is the deadline itself: the clock is the security-fix window (end of 2026), not a
+  > release date, and the question of what replaces the Intel runner is unchanged.
 
 ### 💬 8 — Packs and `host_files`: the tail, now with a home
 
@@ -231,30 +272,19 @@ leaning and an empty Answer in Stage E.
 row were still calling it open. And **E4 is not a question**; only its `stateful` residue is, which
 is why the list cites OQ-E4 and not E4.)*
 
-*(**OQ-D1 has left this list for good — it is DECIDED and BUILT** (2026-08-18): the approval snapshot
-moved host-side, out of the rw bind mount, because a record the jail can rewrite is not a record.
-📄 [`config-safety.md`](../design/config-safety.md) Decision Ledger. **Its successor is live**:
-**OQ-D3** — the migration signal lives in the mount it is signalling about, so deleting
+### 💬 9 — The config snapshot's migration window
+
+📄 [`config-safety.md`](../design/config-safety.md) — **OQ-D3**
+
+**OQ-D1 is decided AND built** (2026-08-18): the approval snapshot moved host-side, out of the rw
+bind mount, because a record the jail can rewrite is not a record. **Its successor is live.**
+**OQ-D3** — the *migration signal* still lives in the mount it is signalling about, so deleting
 `<workspace>/.yolo/config-snapshot.json` turns a changed config into a silent "first run" accept.
-That reopens exactly OQ-D1's hole, for as long as a workspace goes un-launched after the upgrade.)*
+That reopens exactly OQ-D1's hole, for as long as a workspace goes un-launched after the upgrade.
+Confirmed live in code 2026-08-23 (`internal/config/snapshot.go:221-227`), and the doc warns against
+the obvious-looking wrong fix — adopting the legacy file's *content* as a baseline.
 
-**And one that arrived here by losing its parent.** The 🛑 nightly entry carried it and cited
-[`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §7 — but that section is the
-silent-fallback defect and **never mentions darwin**, so the citation was wrong and this genuinely
-has no doc home. It is the only item here with a deadline attached, so it should get one before the
-deadline decides it for us.
-
-- **26.05 is the LAST nixpkgs supporting `x86_64-darwin`**, security-fixed only to end of 2026. The
-  nightly needs `macos-26-intel` because GitHub's Apple Silicon runners cannot nest a VM for Podman
-  Machine, so when 26.05 lapses the choice is a self-hosted arm64 Mac runner or macos-user-only
-  macOS tests. **Needs you, but not yet** — a deadline rather than a bug. The nearest measured
-  evidence is 📄
-  [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md) §5.1, where every
-  probe throws `Nixpkgs 26.11 has dropped support for x86_64-darwin`: the drop has already happened
-  upstream, so `927fb9f`'s `nixpkgs-26.05-darwin` is a **pin on a dead branch**, not a supported
-  line, and the clock is the security-fix window rather than a release date.
-
-### 💬 9 — `yolo check` tells you about the wrong machine, in three places and one vocabulary
+### 💬 10 — `yolo check` tells you about the wrong machine, in three places and one vocabulary
 
 📄 [`broker-ca-and-nested-hosts.md`](../design/broker-ca-and-nested-hosts.md) — **OQ-3**
 
@@ -276,7 +306,7 @@ should **print**: a fourth verdict beside `[PASS]`/`[FAIL]`/`[WARN]`, or a scope
   where its AMD twin guards both checks. That asymmetry is 🔒 below because deciding *which rows* to
   guard needs a host with a card; the *vocabulary* does not.
 
-### 💬 10 — Two that are nobody else's question
+### 💬 11 — Two that are nobody else's question
 
 - **A concurrent launch attaches by re-running the entrypoint inside a jail that may still be
   booting.** Found while shipping the waiting notice (`c2188bba`) — the question that entry was
@@ -292,7 +322,7 @@ should **print**: a fourth verdict beside `[PASS]`/`[FAIL]`/`[WARN]`, or a scope
   version, a typo like `foo@@1.2.3` reaches npm and fails at first use *inside* the jail, where the
   diagnosis is worst. Cheap host-side check; needs a ruling only on how strict to be.
 
-### 💬 11 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
+### 💬 12 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
 
 📄 [`pack-host-management-plan.md`](pack-host-management-plan.md) ·
 [`pack-capabilities.md`](../design/pack-capabilities.md)
@@ -300,7 +330,7 @@ should **print**: a fourth verdict beside `[PASS]`/`[FAIL]`/`[WARN]`, or a scope
 Should host-side `files` be `0o444`? Same asymmetry as E1/E2 — decide them together. OQ-CAP is a
 one-line deliverable that is decided in all but name.
 
-### 💬 12 — Nested nixpkgs attribute paths in `packages`
+### 💬 13 — Nested nixpkgs attribute paths in `packages`
 
 📄 [`package-nested-attribute-paths.md`](../design/package-nested-attribute-paths.md) — **OQ-1**
 
@@ -310,7 +340,7 @@ when a derivation output and a nested collection member claim the same name — 
 and an empty **Answer:** block. That is the resolver's central rule, so it gates the whole item
 rather than one corner of it.
 
-### 💬 13 — Pack-shipped binaries: the capability the broker sprint promised and did not finish
+### 💬 14 — Pack-shipped binaries: the capability the broker sprint promised and did not finish
 
 📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) — **OQ-BP5 · OQ-BP6**
 
