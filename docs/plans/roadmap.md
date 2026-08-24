@@ -463,8 +463,15 @@ here"* into *"supported, missing"* (`broker-as-a-pack.md` §9).
 
 📄 [`backend-parity.md`](../design/backend-parity.md) — **OQ-BP-1 · OQ-BP-2 · OQ-BP-3 · OQ-BP-4**
 
-**Born from issue #39 and the sweep behind it.** Ten of the seventeen defects are fixed or warned
-(that doc's §5 is the table); what is left is a decision about the mechanism, not about any one bug.
+**Born from issue #39 and the sweep behind it.** Fourteen of the twenty-one defects are fixed or
+warned (that doc's §5 is the table); what is left is a decision about the mechanism, not about any
+one bug.
+
+⚠ **The count grew after the sweep ended, and that is the most useful fact in this row.** It was
+seventeen. A class test written for three known instances failed immediately on a fourth nobody had
+looked for — the host `~/.config/nvim` bind, wrong since long before any of this. Twenty of the
+twenty-one were found by a human noticing; one was found by a single narrow invariant over a single
+argv shape. **That is OQ-BP-1's case, measured rather than argued** (§5.2).
 
 - **OQ-BP-1 — is a per-backend census worth 2–3 days?** It makes the SILENT half unrepresentable
   and cannot touch the WRONG half — the two most serious findings emitted an argv the backend then
@@ -476,8 +483,11 @@ here"* into *"supported, missing"* (`broker-as-a-pack.md` §9).
   with no AGENTS.md, no CLAUDE.md and no skills, including the built-in suite — while the
   blocked-tool shims *are* generated, so `grep -r` exits 127 with nothing explaining it. Warned as
   of today. My leaning is deliver it, and land it *with* a Mac session rather than blind.
-- **OQ-BP-3 — do the ten new launch warnings need suppressing?** A warning people learn to skip is
-  worse than none. My leaning is not yet, and per-key when it comes.
+- **OQ-BP-3 — do the fourteen new launch warnings need suppressing?** It was ten when the question
+  was written and grew by four the same afternoon. A warning people learn to skip is worse than
+  none. My leaning is still not yet, and per-key when it comes — and the cost is less uniform than
+  the count suggests: most fire only when you declared the thing, and only two are unconditional
+  (both macos-user).
 - **OQ-BP-4 — is Apple Container's loophole skip still justified?** *This is your own question —
   "shouldn't the broker be in use here?" — and chasing it found something.* The skip's stated
   reason is *"no socket bind-mount there"*, which is true of the **unix-socket era**: under
@@ -492,7 +502,7 @@ here"* into *"supported, missing"* (`broker-as-a-pack.md` §9).
 **One item, and it refilled by DISCOVERY rather than by a ruling** — which is not how this
 section was supposed to work, and is worth noticing. It emptied on 2026-08-19 by shipping; it
 refilled on 2026-08-24 because a user filed an issue and the sweep behind it found sixteen more of
-the same defect.
+the same defect — twenty more, by the end of the day.
 
 - 📦 **Compose the briefing from what was APPLIED, not from the config map.** *Needs no ruling —
   the direction is settled and the seam is identified.* 📄
