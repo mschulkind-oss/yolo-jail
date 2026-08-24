@@ -8,7 +8,7 @@ summary: "The live /workspace bind is bidirectional. Nine paths let a jail sessi
 
 # Every path by which your jail's content runs on your host
 
-**Status:** **PARTIALLY IMPLEMENTED, 2026-08-23** (commit `7fad359c`). Items 1 and 2 of
+**Status:** **PARTIALLY IMPLEMENTED, 2026-08-23** (commit `d0961f2c`). Items 1 and 2 of
 [§5.6](#56-what-i-would-actually-build--and-what-i-would-drop) shipped; everything else is
 recorded in [Steps not taken](#steps-not-taken-2026-08-23) rather than left open, because it
 was considered and declined rather than merely unfinished. Every claim below about runtime
@@ -597,8 +597,8 @@ disclosure was the same move in a different place: gate the dangerous reads behi
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| **OQ-HX5** | **Yes — `node_modules` joins `.venv` in the default per-side set**, on the correctness argument (a `node_modules` shared between a macOS host and a Linux jail is already broken for any native build), with the host-execution benefit as a side effect. Root-level only. **Built 2026-08-23** (`7fad359c`) | 2026-08-23 | [§5.4](#54-standing-execution-move-the-watcher-into-the-jail), `internal/cli/run/mounts.go` |
-| **OQ-HX6** | **Yes — wire it, and treat the silent no-op as the bug.** `workspace_readonly` entries render as `(deny file-write* (subpath …))` after the writable-set allow in the Seatbelt profile. The `per_side_paths` sub-question resolved to **warn, not refuse** — the key is inert there and cannot be made otherwise, but refusing it would break configs that carry it harmlessly for other backends. **Built 2026-08-23** (`7fad359c`) | 2026-08-23 | [§5.5](#55-backend-portability--the-mounts-are-not-the-policy), `internal/macosuser/seatbelt.go` |
+| **OQ-HX5** | **Yes — `node_modules` joins `.venv` in the default per-side set**, on the correctness argument (a `node_modules` shared between a macOS host and a Linux jail is already broken for any native build), with the host-execution benefit as a side effect. Root-level only. **Built 2026-08-23** (`d0961f2c`) | 2026-08-23 | [§5.4](#54-standing-execution-move-the-watcher-into-the-jail), `internal/cli/run/mounts.go` |
+| **OQ-HX6** | **Yes — wire it, and treat the silent no-op as the bug.** `workspace_readonly` entries render as `(deny file-write* (subpath …))` after the writable-set allow in the Seatbelt profile. The `per_side_paths` sub-question resolved to **warn, not refuse** — the key is inert there and cannot be made otherwise, but refusing it would break configs that carry it harmlessly for other backends. **Built 2026-08-23** (`d0961f2c`) | 2026-08-23 | [§5.5](#55-backend-portability--the-mounts-are-not-the-policy), `internal/macosuser/seatbelt.go` |
 | **OQ-HX2** | **Half-answered by measurement, then archived unruled.** The cost is far smaller than assumed — only `git push -u` and branching from a remote-tracking ref write local config, both with config-free equivalents — and the "lock hooks, leave config" option does not exist, because `core.hooksPath` defeats it. See [Steps not taken](#steps-not-taken-2026-08-23) | 2026-08-23 | [§5.6](#56-what-i-would-actually-build--and-what-i-would-drop) |
 | **OQ-HX1**, **OQ-HX4**, **OQ-HX3** | **Not taken now.** Each is a live option with a recorded reopen trigger rather than a question awaiting a ruling | 2026-08-23 | [Steps not taken](#steps-not-taken-2026-08-23) |
 

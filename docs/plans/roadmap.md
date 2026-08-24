@@ -652,7 +652,7 @@ who set it there and has been writing to the workspace will start seeing failure
 
 The goal was **no inhabitants at sprint end** (OQ-BP4), and the channel is gone rather than emptied:
 the directory, its `embed.go`, `internal/loopholes/embedfallback.go` and every reader of them are
-deleted. All six loopholes are pack contributions now, `loopholes.ReservedLoopholeNames` and
+deleted. All **five** loopholes are pack contributions now, `loopholes.ReservedLoopholeNames` and
 `paths.BuiltinLoopholeNames` are deleted whole, and **core's config schema names no loophole at
 all** — which was the point of the exercise rather than a side effect.
 
