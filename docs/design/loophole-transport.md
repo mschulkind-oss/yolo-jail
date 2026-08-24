@@ -11,9 +11,12 @@ socket. On macOS + podman that does not work. Is the fix a broker patch, or is i
 framework's transport?
 
 **Reads with:** [`loophole-protocol.md`](loophole-protocol.md) (the wire format — unchanged by
-anything here), [`../guides/loopholes.md`](../guides/loopholes.md) (the three shipped loopholes),
+anything here), [`../guides/loopholes.md`](../guides/loopholes.md) (**five** shipped loopholes as of
+2026-08-19 — this doc was written when there were three),
 [`boundary-broker.md`](boundary-broker.md) §10.3 (the client-auth convergence),
-[`../plans/roadmap.md`](../plans/roadmap.md) Thread C.
+[`../plans/roadmap.md`](../plans/roadmap.md) — the 🔒 rows on the fatal reachability witness
+and the slirp4netns fallback. *(This used to say "Thread C"; the roadmap's lettered threads were
+retired on 2026-08-17 and the name no longer resolves.)*
 
 ---
 
@@ -53,7 +56,7 @@ macOS + podman fails the same way, for the same reason. The repo already knows t
 `docs/guides/macos.md:575` tells users to use `host.containers.internal` *"instead of Unix domain
 sockets (virtiofs doesn't…)"* — but the loophole framework never absorbed it.
 
-### 2.1 All three shipped loopholes are affected — checked, not assumed
+### 2.1 All three shipped loopholes are affected — checked, not assumed *(three was the count on 2026-08-12; it is five now — `audio`, `host-processes`, `journal`, `cgroup-delegate`, `claude-oauth-broker`, all pack-shipped)*
 
 An earlier draft said `audio` and `host-processes` were *"unaffected or differently wired"*. **That
 was a guess and it was wrong in both cases**, in two different ways. Read from the manifests

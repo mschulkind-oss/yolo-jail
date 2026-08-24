@@ -35,7 +35,7 @@ constraint the two share.
 **Reads with:** [`loophole-protocol.md`](loophole-protocol.md) (the wire format this extends),
 [`agent-credentials.md`](agent-credentials.md) (what crosses the boundary today and why),
 [`agent-auth-modes.md`](agent-auth-modes.md) (the split-out sibling),
-[`../guides/loopholes.md`](../guides/loopholes.md) (the six shipped loopholes, all pack-shipped
+[`../guides/loopholes.md`](../guides/loopholes.md) (the five shipped loopholes, all pack-shipped
 since 2026-08-19), [`../plans/roadmap.md`](../plans/roadmap.md) — **💬 5** for the live questions
 and 🧊 for B2.
 

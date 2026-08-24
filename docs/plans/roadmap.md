@@ -22,6 +22,16 @@ gets re-proposed.
 and this file links to them by ID. It never restates them — that is how the count drifted to 19 while
 the real number was closer to 50.
 
+> [!NOTE]
+> **The old vocabulary, for anyone arriving from a doc that still uses it.** Until 2026-08-17 this
+> file was a lettered queue — **rows B1 / B1b / B2 / B3 / B4**, **threads A–C**, and IDs like **N3**
+> and **S5**. Restructuring into states retired the letters, so several sibling docs cite names this
+> file no longer holds. Where they went: **B-rows** are now [`boundary-broker.md`](../design/boundary-broker.md)
+> §7's own numbering; **Thread A** is in [`retired-decisions.md`](../design/retired-decisions.md);
+> **Thread C** closed in [`shipped-2026-08-12.md`](shipped-2026-08-12.md); **N3** is `nix OQ-1` in
+> [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md); **S5** is in
+> [`BACKLOG.md`](BACKLOG.md) §Stage E. **Cite a state row or an OQ ID — never a letter.**
+
 **And the real number is now countable rather than estimated: 53**, across the fourteen docs this
 file points at, as of 2026-08-23. Every one carries a `💬` and a stable ID, so
 `rg -c '💬' docs/design docs/plans` is the audit — it used to require reading 8,000 lines. Eleven
