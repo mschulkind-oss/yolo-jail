@@ -15,7 +15,7 @@ Sequences [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environ
 > | **2** — the `confinement` key | ✅ **SHIPPED** (`internal/config/confinement.go`, `internal/render/confinement.go`) | none |
 > | **3** — `apply` + `describe` | ✅ **SHIPPED** (`internal/cli/apply.go`, `describe.go`) | none |
 > | **4** — `apply --host` | ⚠️ **PARTIAL** — 4.1/4.2/4.4 shipped; **4.3 (confirm-gated install) NOT built** | `internal/cli/applyhostdeps.go:113-116` prints a static "Phase 4.3" note instead |
-> | **5** — `--sealed` + closure | ⚠️ **PARTIAL** — 5.1/5.2/5.4 shipped; **5.3 (capture as staging area, `yolo config promote`) NOT built** | the refusal at `apply.go:635` advises a verb that does not exist |
+> | **5** — `--sealed` + closure | ⚠️ **PARTIAL** — 5.1/5.2/5.4 shipped; **5.3 (capture as staging area, `yolo config promote`) NOT built** | the refusal at `apply.go:635` uses the word "promote" as English prose (the only command it names is `yolo config reset`, which exists) — but the verb the LEANING wants still does not |
 > | **6** — dep provisioning | ⚠️ **PARTIAL** — 6.1/6.2/6.3 shipped (`internal/depcheck/`, `yolo check-deps`); **6.4 (offer-to-run) NOT built** | `internal/cli/checkdeps.go:9-12` defers it by name |
 > | **7** — the `guest` notch | ❌ **NOT BUILT** — as previously stated | see below |
 > | **8** — self-describing briefing | ⚠️ **PARTIAL** — 8.1 shipped (`internal/jailcontent/briefing.go:86-170`); **8.2 is MOOT** | the `jail-startup` built-in no longer exists |
@@ -381,7 +381,8 @@ inapplicable kinds are refused by name.
 > promote`: the `config` subverbs are `ls, render, diff, reset, capture, drift, dump`
 > (`internal/cli/config.go:33-60`) and `promote` appears nowhere in the dispatch table. Capture is
 > therefore **still a winning layer, not a staging area** — the refusal at `apply.go:635` tells
-> the user to *"promote them into a pack"*, advice for a verb that does not exist, leaving `yolo
+> the user to *"promote them into a pack"* — English prose, not a named command (the refusal names
+> only `yolo config reset`, which exists) — so the remedy the leaning wants is unavailable, leaving `yolo
 > config reset` (discard) as the only shipped remedy. Two facts worth carrying forward: the
 > Declared-impure `host`-layer row is **reported by nothing** (`describe` never names a host
 > layer), and the capture overlay does **not** outrank every declared layer — it loses to
