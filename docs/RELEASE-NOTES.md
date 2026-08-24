@@ -26,14 +26,143 @@ was created on 2026-08-18, after that tag, which is why it has no released secti
 next cut is triggered by this file filling up or by a cadence is an open product question; see
 [`plans/further-roadmap-ideas.md`](plans/further-roadmap-ideas.md) §I5.)*
 
+### ⚠️ Apple Container: your host `~/.claude/settings.json` starts applying
+
+**What changed** (2026-08-24, `e3c995b6`). A pack's `reads-host` grant — the one file yolo lets a
+pack read out of your host home — was emitted as a **single-file bind mount**, and Apple Container
+cannot bind a single file (apple/container#1089). It did not error. The file simply never arrived,
+and the entrypoint reads the host layer fail-open, so the surface composed from its defaults alone.
+Two shipped packs declare a grant: `claude`
+(`~/.claude/settings.json`) and `pi` (`~/.pi/agent/settings.json`). The file is now **copied** into
+the jail home and the entrypoint is told where to look.
+
+**Who this bites.** Anyone on `runtime: container` who has one of those files. Everything in yours
+— model choice, statusline, hooks, `apiKeyHelper`, permission defaults — was silently absent from
+the jail's composed settings, and **starts applying on the next launch**. If you have been tuning a
+jail around what it actually did rather than what you configured, that is the change.
+
+**And nothing gave you a reason to look**, which is why this is a release note rather than a fix.
+The launch's own disclosure kept printing `claude: reads-host .claude/settings.json` on every Apple
+Container launch — a positive assertion of a read that did not happen.
+
+**You do not have to do anything**, except decide whether the settings you wrote months ago are
+still the settings you want. Read the host file once before your first Apple Container launch after
+upgrading.
+
+**One shape difference on this backend.** The grant arrives as a copy in the jail home
+(`~/.yolo-ctx/`), not a `:ro` mount. Same bytes, read at the same point in boot; it is simply no
+longer read-only from inside the jail.
+
+**Not affected:** podman, where the bind always worked. **Not fixed:** `macos-user`, which has no
+`/ctx` at all — a `reads-host` grant still never crosses there, and still says nothing about it.
+
+**NOT verified on hardware.** Whether Apple Container drops or hard-errors on a single-file bind is
+a Mac-only fact; every statement in this tree assumes it drops, and the fix is correct under either
+reading. Nobody has watched the composed file appear on a Mac.
+
+### ⚠️ Apple Container: a `host_files` file entry stops being an empty file and becomes your file
+
+**What changed** (2026-08-24, `c22e25b5`). The same backend limitation as above, with a sharper
+consequence. A `host_files` entry whose `source` is a **file** was also emitted as a single-file
+bind — but here the entrypoint swallowed the read error and wrote the destination **anyway**, at
+the `readonly` default mode. So the jail held an **empty `0o444` file** where your `~/.npmrc`
+should have been, and could not repair it from inside, because the file was not writable. The
+source is now copied across the same way.
+
+**Who this bites.** Anyone on `runtime: container` with a `host_files` entry that names a `source`
+pointing at a file. **Directory entries were never affected** — Apple Container nests directory
+mounts fine, so those were already honored, and they are deliberately left alone.
+
+**What to do.** For the default mode of a source-bearing entry (`readonly`), and for `copy`:
+nothing. Both re-render every boot, so the empty file is replaced by your real content on the next
+launch.
+
+**`once` does not re-render**, and that is the one case with an action. It seeds only when the
+destination is **absent**, and the empty file it seeded is present — so it will keep it forever. If
+you wrote `"mode": "once"` on a source-bearing entry, delete that destination inside the jail once
+and relaunch. (`capture` re-renders too, but its whole contract is that an in-jail edit outranks the
+host layer permanently — so if an agent edited the empty file, check the destination.)
+
+**NOT verified on hardware**, on the same terms as the entry above.
+
+### ⚠️ `macos-user`: your agent starts launching with the `--dangerously-*` flags it was always meant to have
+
+**Read this one before upgrading: it changes what an agent may do without asking you.**
+
+**What changed** (2026-08-24, `dc1349a6`). Pack `launch` flags were injected inside the container
+path, which the `macos-user` arm returns before reaching. Nothing failed; the backend just launched
+without them. The injection now happens above the backend dispatch, so both arms consume one result.
+The flags are `--dangerously-skip-permissions` (`claude`, `agy`), `--yolo --no-auto-update`
+(`copilot`), and `--dangerously-bypass-approvals-and-sandbox` (`codex`).
+
+**Who this bites**, and the two casualties were not symmetric:
+
+- **`copilot` was a 100% drop** — a plain `launch` contribution with no config half to fall back on.
+  It has been prompting you for approval and self-updating on that backend. It now runs `--yolo`,
+  which approves everything, and stops updating itself.
+- **`claude` fell back to `defaultMode: acceptEdits`**, the settings half of the same declaration,
+  which auto-accepts **edits** and not Bash or WebFetch. With the flag, those are accepted too.
+
+**What to do.** Nothing, if you wanted a YOLO jail — this is the posture every container backend has
+always had, and the one `macos-user` was already configured for. But if the prompting was
+load-bearing for you, note that **there is no config key that turns this off**: autonomy is a
+property of the notch (a jail renders the autonomous posture), not a switch. Decide it deliberately
+rather than discovering it after an upgrade.
+
+The flags apply only when you **name the binary** — `yolo -- claude`. A bare `yolo` opens an
+interactive zsh on this backend and gets none of them.
+
+**NOT verified on hardware.** The flag is asserted at the seam the backend receives (the argv handed
+to the native launcher) and the assertion is mutation-verified, but nobody has watched the resulting
+agent start on a Mac.
+
+### New notices at launch on `macos-user` and Apple Container — nothing broke
+
+**What changed** (2026-08-24, `35448719`, `8ab03d2e`, `6a53a2a3`). A sweep for capabilities that
+render, validate and then **evaporate** on a backend that cannot honor them turned up more than the
+ones fixed above. The rest cannot be fixed at launch time, so the launch now **names** them. Nothing
+about what those backends *do* has changed — only what they say. **If you see new yellow text on
+your next launch, this is it, and it is not a new fault.**
+
+**On `macos-user`:**
+
+- **One line per inert loophole.** Every pack-shipped loophole is inert on that backend, and it was
+  the one inert backend that said nothing. Loopholes declared by your **own** config
+  (`loopholes.<name>.command`) are now reported too — that half was missing on **both** inert
+  backends.
+- **`resources` are read and ignored.** macOS has no cgroups and there is no VM to size.
+- **`cache_relocations` are not implemented**, and the documented "just symlink it yourself"
+  workaround does not work either: the Seatbelt profile denies writes outside the workspace and the
+  sandbox home, and denies reads under `/Volumes`.
+- **Every pack `state` dir is shared across all workspaces.** `.claude`, `.codex`, `.pi`, `.copilot`,
+  `.gemini` are per-workspace on every other backend; this one has a single home
+  (`/Users/_yolojail`) with no workspace component. This is issue #39's mirror image, and it is
+  **warned rather than fixed** on purpose — splitting the home would break the machine-wide
+  credential tier to repair the per-workspace one.
+- **Briefings and skills are not delivered at all** — no `AGENTS.md`, no `CLAUDE.md`, and no skills
+  including the built-in suite. The blocked-tool shims *are* generated, so `grep -r` exits 127 with
+  nothing on the page explaining why.
+- **`lsp_servers` renders and enables the tool while the binaries are never installed**, because the
+  installer is a generated bootstrap script this backend deliberately does not run.
+
+**On Apple Container:** an **explicit** `network.mode: "host"` now warns. It is not honored there,
+and it is *worse* than leaving the key unset — both port keys are bridge-gated, so asking for host
+mode also drops every published port and `forward_host_ports`. The default (`bridge`) does not warn:
+it is genuinely honored, and a warning on every launch is a warning people learn to skip.
+
+**What to do.** Read them once; for most, nothing. Two are worth acting on: drop an explicit
+`network.mode: "host"` from an Apple Container config (or use `YOLO_RUNTIME=podman` for real host
+networking), and stop expecting skills or a briefing to reach an agent on `macos-user`. **None of
+these refuses a launch** — they are notices, not the fatal reachability witness.
+
 ### ⚠️ Apple Container: shared credentials become shared again — and workspaces that had separate logins converge
 
-**What changed** (2026-08-24, #39). Pack-declared **shared** dirs — the machine-wide tier,
-`~/.claude-shared-credentials` today — were never mounted on `runtime: container`.
-`packload.SharedDirs` was called once in the whole run package, inside the podman branch, so on
-Apple Container the directory simply lived in the per-workspace state dir that `/home/agent` points
-at. Nothing errored; the tier quietly collapsed. It is now mounted from `GlobalHome` on that
-backend too.
+**What changed** (2026-08-24, #39). Pack-declared **shared** dirs — the machine-wide tier:
+`~/.claude-shared-credentials` and `~/.gemini-shared-credentials` today — were never mounted on
+`runtime: container`. `packload.SharedDirs` was called once in the whole run package, inside the
+podman branch, so on Apple Container the directory simply lived in the per-workspace state dir that
+`/home/agent` points at. Nothing errored; the tier quietly collapsed. It is now mounted from
+`GlobalHome` on that backend too.
 
 **You do not have to do anything, and you should not lose a login.** The first launch after
 upgrading copies a stranded credential up out of the workspace state dir into the machine-wide
@@ -43,8 +172,8 @@ location (copy, never move, and only into a file that is missing).
 and logged in **separately in several workspaces**, those logins were genuinely independent — that
 was the bug. They now converge: whichever workspace launches first wins the machine-wide slot, and
 every other workspace uses that credential from then on. Each workspace's old copy is left in place
-(`<workspace>/.yolo/home/.claude-shared-credentials/`) and is simply no longer read; delete it when
-you are satisfied.
+(`<workspace>/.yolo/home/<shared-dir>/`, e.g. `.claude-shared-credentials/`) and is simply no longer
+read; delete it when you are satisfied.
 
 **Not affected:** podman on any platform (this always worked there), and `macos-user`, whose single
 `/Users/_yolojail` home makes the machine-wide tier correct by construction.
