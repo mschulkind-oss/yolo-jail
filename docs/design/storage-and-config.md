@@ -1,5 +1,12 @@
 # YOLO Jail Storage, Configuration & Identity
 
+**Status:** REFERENCE — describes shipped behaviour. **§1–§9 spot-checked 2026-08-23**; **§10 is a
+dated follow-up that is DECIDED and BUILT** (2026-08-21, `9424284d` + `a2f2126d`, with its own
+Decision Ledger at the end). `AGENTS.md` sends readers here for storage paths and state separation,
+so treat a disagreement between a §1–§9 path and the tree as a bug in this file. What was **not**
+re-verified this pass: the §4 mount map's per-backend rows on macOS (no Mac here — `macos-user` has
+**no bind mounts at all**, which §4 should be read against) and the byte-level `.yolo/` contents.
+
 How configuration files, persistent storage, overlays, and identities
 are organized across the host, global storage, workspace state, and
 inside running jails.
