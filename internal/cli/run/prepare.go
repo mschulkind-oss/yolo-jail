@@ -308,6 +308,32 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 	if hasWritableDir(loadedPacks, ".copilot") {
 		migrateOldOverlay(filepath.Join(wsState, "copilot-sessions"), filepath.Join(wsState, "copilot", "session-state"))
 	}
+
+	// THE MACHINE-WIDE TIER, RESCUED OUT OF THE PER-WORKSPACE ONE (#39).
+	//
+	// Apple Container mounted no shared dirs until 2026-08-24, so its /home/agent →
+	// wsState bind is where a shared dir's contents actually landed: an AC user's
+	// ~/.claude-shared-credentials/.credentials.json is sitting in THIS workspace's
+	// state dir. Now that the dir is mounted from GlobalHome, that mount shadows the
+	// stranded copy — so without this the fix would read to the user as "the upgrade
+	// logged me out", with a perfectly good credential left behind a mount they cannot
+	// see.
+	//
+	// COPY, NEVER MOVE, and only into a file that is missing — migrateOldOverlay's
+	// existing contract. That is not caution for its own sake: the Python-era version
+	// of this same credential path unlinked the real file before re-linking and
+	// destroyed the token on every boot (the symptom that opened #39). Writing new
+	// credential-MOVING code here would be re-running the exact experiment that failed.
+	// A stranded duplicate costs disk; a deleted credential costs a login yolo cannot
+	// perform for you.
+	//
+	// Ungated by runtime on purpose. The source only exists where the bug put it, so
+	// this is a no-op everywhere else (migrateOldOverlay returns on a missing or empty
+	// source), and gating on rt would make a repair that is about a DIRECTORY depend on
+	// which backend happens to be launching now — the same coupling that caused the bug.
+	for _, dir := range packload.SharedDirs(loadedPacks) {
+		migrateOldOverlay(filepath.Join(wsState, dir), filepath.Join(paths.GlobalHome(), dir))
+	}
 	return wsState
 }
 
