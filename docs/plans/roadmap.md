@@ -214,8 +214,13 @@ config key. None of these were in this file before today.
 [`environment-manager-user-stories.md`](../design/environment-manager-user-stories.md) ·
 [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md)
 
-**user-stories Q1** is called "the biggest question in the document" by its own author. **Q7** asks
-whether Linux `guest` is a promise or a hypothesis. **threat-model Q1-Q3** cover the repo-root
+**user-stories Q1** is called "the biggest question in the document" by its own author — **and its
+leaning is half-built**: it wants capture to become a *staging area* that `yolo config promote`
+drains, and that subcommand **does not exist** (`internal/cli/config.go:33-60` lists `ls · render ·
+diff · reset · capture · drift · dump`, verified 2026-08-23). So `apply --sealed` can already
+*refuse* on an outstanding capture while the user's only remedy is still "discard it" — answering Q1
+in the leaning's direction means building the verb, not just ruling. **Q7** asks whether Linux
+`guest` is a promise or a hypothesis. **threat-model Q1-Q3** cover the repo-root
 refusal, `--accept-flake-config`'s substituter surface (now live — see the shipped item), and a macOS
 build sandbox. **OQ-L1** explicitly blocks Track L part 2. **OQ-GN1 … OQ-GN4** are new (2026-08-23),
 in the guest-notch handoff — which now says plainly that its item 1.4 is only *half* answered: the
