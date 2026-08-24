@@ -501,7 +501,10 @@ Two prism features a standalone product would have to keep are documented as
 deliberately absent, which matters if extraction is ever pitched: there is **no Lua
 helper library** (yolo's only contribution to the transform is parsing) and
 per-keypath `append` merge is an open TODO, because the pure engine has no
-manifest/keypath context (`internal/agentcfg/engine.go:51-54`).
+manifest/keypath context (`internal/agentcfg/engine.go:51-54` — re-verified 2026-08-23; the
+`TODO(append-strategy, §4)` is still there). **It is the same question as `E5` in
+[`../plans/BACKLOG.md`](../plans/BACKLOG.md) §Stage E**, whose leaning is *don't build it until the
+named trigger fires* — so this is one decision with two write-ups, not two gaps.
 
 **What "ship it as a product" would additionally cost, measured rather than
 guessed** — recorded here because the temptation is to read the clean import closure
