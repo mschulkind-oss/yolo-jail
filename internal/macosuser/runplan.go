@@ -390,6 +390,22 @@ var cnameFn = runtime.FromWorkspace
 
 // --- config accessors (thin adapters over jsonx.OrderedMap) -----------------
 // securitySection returns config["security"] as an OrderedMap, or nil.
+// cfgSection is securitySection generalized to any top-level object key. Added for the
+// backend-inert warnings in the orchestrator, which need `resources` and
+// `cache_relocations` and would otherwise each grow their own copy of this five-line
+// nil-and-type dance.
+func cfgSection(cfg *jsonx.OrderedMap, key string) *jsonx.OrderedMap {
+	if cfg == nil {
+		return nil
+	}
+	v, ok := cfg.Get(key)
+	if !ok {
+		return nil
+	}
+	m, _ := v.(*jsonx.OrderedMap)
+	return m
+}
+
 func securitySection(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	if cfg == nil {
 		return nil

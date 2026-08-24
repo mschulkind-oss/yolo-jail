@@ -36,6 +36,8 @@ package run
 // sentence shape rather than about the answer.
 
 import (
+	"strings"
+
 	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -220,4 +222,22 @@ func resolveInertLoophole(dir string) *loopholes.Loophole {
 // all.
 func inertLineFor(pack string, note loopholes.InertNote) string {
 	return pack + ": " + note.Line()
+}
+
+// noteMachineWideWorkspaceState prints one line naming the pack `state` dirs that are
+// per-workspace on every other backend and machine-wide on macos-user, because that
+// backend's home is a constant.
+//
+// One line for the whole set, matching the inert-loophole report beside it rather than
+// one line per dir: this prints on every launch, and five dirs of noise trains a reader
+// to skip the line that matters.
+func (o *Options) noteMachineWideWorkspaceState(packs []*packload.Pack) {
+	dirs := packload.WritableDirs(packs)
+	if len(dirs) == 0 {
+		return
+	}
+	o.pr(o.Stderr).print("[yellow]Note: these are shared across ALL workspaces on macos-user[/yellow] — " +
+		strings.Join(dirs, ", ") + ". Every other backend gives each workspace its own copy; " +
+		"this backend has one home (/Users/_yolojail) and no mounts, so a session's history " +
+		"and state are visible to every other workspace you launch.")
 }

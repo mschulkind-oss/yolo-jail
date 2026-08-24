@@ -165,6 +165,33 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 			"per-side shadowing needs a mount namespace and this backend has none, so " +
 			"the host and the sandbox share these paths: " + strings.Join(perSide, ", "))
 	}
+	// THE REST OF WHAT THIS BACKEND CANNOT DO, said at the same boundary and for the
+	// same reason as per_side_paths above. Each of these renders, validates and reads
+	// exactly like it does on a container backend, and then does nothing here — which
+	// is the silent-drop shape the sweep behind #39 found ten more of.
+	//
+	// resources: macOS has no cgroups and there is no VM to size. RLIMIT_AS is not what
+	// --memory means (address space, not RSS — it breaks JITs and the Go runtime) and
+	// RLIMIT_NPROC is per-USER, so it would collide across concurrent sessions on the
+	// shared _yolojail account. A cap a user believes in but that does not hold is worse
+	// than a documented absence, so this warns and will keep warning.
+	if res := cfgSection(opts.Config, "resources"); res != nil && len(res.Keys()) > 0 {
+		out.print("[yellow]Warning: resources are NOT enforced on macos-user[/yellow] — " +
+			"macOS has no cgroups and there is no VM to size, so " + strings.Join(res.Keys(), ", ") +
+			" are read and ignored. The agent runs with your user's own limits.")
+	}
+	// cache_relocations: the container path nests a bind inside ~/.cache. There are no
+	// binds here, and the documented "just symlink it yourself" workaround does NOT
+	// work either — the Seatbelt profile denies writes outside the workspace, the
+	// sandbox home, /tmp and /var/folders, and denies reads under /Volumes. So a large
+	// cold cache stays on the boot volume, which is the one outcome the feature exists
+	// to prevent.
+	if relocs := cfgSection(opts.Config, "cache_relocations"); relocs != nil && len(relocs.Keys()) > 0 {
+		out.print("[yellow]Warning: cache_relocations are NOT implemented on macos-user[/yellow] — " +
+			strings.Join(relocs.Keys(), ", ") + " stay on their original filesystem. " +
+			"A host symlink is not a workaround here: the sandbox profile denies writes " +
+			"outside the workspace and sandbox home, and denies reads under /Volumes.")
+	}
 	resolved := config.ResolveEnvSources(opts.Workspace, opts.Config, func(msg string) { out.print(msg) })
 	for _, k := range resolved.Keys() {
 		v, _ := resolved.Get(k)

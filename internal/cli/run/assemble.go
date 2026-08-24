@@ -274,7 +274,25 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// nothing, so the worst case is exactly the behaviour above.
 	var hostLoopback hostLoopbackPlan
 	if rt == "container" {
-		// Apple Container handles networking internally.
+		// Apple Container handles networking internally — but an explicit
+		// `network.mode: "host"` is STRICTLY WORSE than the default here, and used to
+		// say nothing. No --net is emitted (this branch), so there is no host
+		// networking; and both port keys are gated on mode == "bridge" above, so
+		// asking for host mode also silently drops every published port. The agent is
+		// then told "localhost resolves directly to the host" by a briefing composed
+		// from the config rather than from what was applied.
+		//
+		// Only an EXPLICIT host is warned: bridge is genuinely honored on this backend
+		// (-p is emitted ungated, forward_host_ports goes through --publish-socket, and
+		// AC gives each container its own vmnet netns), so warning on the default would
+		// be noise on every launch.
+		if netMode == "host" {
+			out.print("[yellow]Warning: network.mode \"host\" is NOT honored on Apple Container[/yellow] — " +
+				"the backend manages networking itself, so the jail does not share your host's " +
+				"network stack. It is also worse than leaving it unset: published ports and " +
+				"forward_host_ports are bridge-only, so this drops those too. Remove the key, or " +
+				"use YOLO_RUNTIME=podman for host networking.")
+		}
 	} else if rt == "podman" && inContainer {
 		// Podman-in-podman: netavark cannot create a netns without NET_ADMIN. This
 		// is also the one mode in which the reachability bug CANNOT reproduce (the

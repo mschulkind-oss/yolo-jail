@@ -185,6 +185,22 @@ func Run(opts Options) int {
 		// beside warnIfNoPacks is the honest placement — both answer "what will this
 		// launch not do for you", which is the only question this backend can raise.
 		o.notePackLoopholesInert(rt, staged.packs)
+		// AND THE OTHER TIER COLLAPSE, which is #39's mirror image. Apple Container made
+		// the MACHINE-wide tier per-workspace; this backend makes the PER-WORKSPACE tier
+		// machine-wide, because SandboxHome() is a constant — /Users/_yolojail — with no
+		// workspace component. Every pack `state` dir at scope:workspace (.claude, .codex,
+		// .pi, .copilot, .gemini) is therefore shared by every workspace on the machine.
+		//
+		// The sharp part is not the sharing, it is that the sandbox ENFORCES the boundary
+		// one layer down and leaks it here: the Seatbelt profile denies reading a sibling
+		// workspace's files, and then ~/.claude/projects/<other-workspace>/*.jsonl is
+		// readable because it lives in the shared home.
+		//
+		// WARN rather than fix, deliberately. Splitting the home would break the MACHINE
+		// tier to repair the workspace tier — the single home IS the shared-credentials
+		// mechanism on this backend — so a fix has to restore both tiers explicitly, which
+		// is a design change and not a launch-time patch.
+		o.noteMachineWideWorkspaceState(staged.packs)
 		// The staged tree crosses as a PATH, not as the loaded declarations: the native
 		// bootstrap re-reads the manifests itself (LoadJailPacks), exactly as the
 		// container entrypoint does off its /ctx/packs mount, so the two backends render
