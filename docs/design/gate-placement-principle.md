@@ -1,5 +1,9 @@
 # Principle: put the gate where the authority changes
 
+**Status:** PRINCIPLE — cited as a rule by sibling docs and by code comments, so it is amended
+rather than rewritten. Last amended **2026-08-23** (the declaration-vs-presence refinement in
+"What this principle does NOT say").
+
 **Audience:** anyone adding a confirmation prompt, an approval record, a scope restriction, a
 signature check, or any other gate — and anyone deciding that an existing one is missing. Read this
 before writing "and then we ask the user to confirm."
@@ -138,3 +142,22 @@ load-bearing. Only Test 1, applied to the specific actor and the specific verb, 
 **Visibility is not a gate, and is not subject to this test at all.** Telling someone what is
 happening on their machine has value even when they already authorised it — the disclosure is not
 pretending to stop anything. Do not delete a message because the act behind it was permitted.
+
+**It does not say a gate must identify the human — sometimes the right actor test is a
+DECLARATION.** *(Added 2026-08-23, from a ruling that deliberately diverged from this doc.)* A
+sibling formulation gets quoted a lot — *"a gate that cannot tell a human from a pipe is not asking
+a human"* — and it is right about **prompts**. It is wrong wherever the thing that makes the act
+safe is not *who* is present but that somebody **SAID** the dangerous precondition holds.
+
+The worked case is the stale-image launch
+([`image-staging-vs-baking.md`](image-staging-vs-baking.md) OQ-2, shipped `7830f65`). The design's
+own leaning was to prompt an interactive human and refuse a pipe; the shipped code refuses **both**
+and takes `YOLO_ALLOW_STALE_IMAGE=1` as the way past. The reason generalises: what makes running on
+a stale image safe is knowing the image *is* stale — **precisely the knowledge whose absence caused
+the bug** — and a TTY test proves presence, not knowledge. The asymmetry decides it: refusing costs
+a rerun with one env var; continuing costs an investigation two layers from the cause.
+
+> [!WARNING]
+> **Do not "fix" `internal/image/autoload.go` to consult a TTY on the strength of this principle.**
+> The divergence is deliberate and argued at the `currentPath == ""` comment on that branch. The
+> test to apply is the one above: is the missing thing *presence* or *knowledge*?
