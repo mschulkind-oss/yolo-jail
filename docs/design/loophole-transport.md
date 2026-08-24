@@ -1,10 +1,63 @@
 # The loophole transport — how a jail reaches a host service, and why the unix socket is not enough
 
-**Status:** DESIGN, 2026-08-12. Written because [PR #32](https://github.com/mschulkind-oss/yolo-jail/pull/32)
+**Status:** DESIGN 2026-08-12 → **IMPLEMENTED 2026-08-13** (§8, as built) → **last two clients ported
+2026-08-15** (§8.6) → **AUDITED AND RESTAMPED 2026-08-23**. **Zero open questions** — §7.1 is the
+Decision Ledger and every OQ-T is settled. Written because
+[PR #32](https://github.com/mschulkind-oss/yolo-jail/pull/32)
 solves a problem that is **not specific to the OAuth broker**, and standardizing its answer needs a
 document rather than a merge. Leans heavily on that PR, whose design is adopted almost wholesale —
 though **#32 itself is being replaced by this work rather than merged** (§7.3), so treat it as the
 spec and its test suite as the acceptance bar, not as code to relocate.
+
+**Two things in the body are PROPOSED-but-superseded rather than built, and both are named in the
+postscript below:** the per-jail relay PROCESS (deleted — the front is now a goroutine in `yolo run`)
+and the `unix-socket` survivors (one left, `cgroup-delegate`, for a reason that is not a transport
+problem — §8.6.3).
+
+> [!WARNING]
+> ### Postscript 2026-08-23 — `internal/brokerrelay` is DELETED; "the relay" is a goroutine now
+>
+> Commit `7df7c5aa` (2026-08-19, *"the daemon says who it is shared across, and the relay stops
+> existing"*) removed the per-jail relay **process** this document's §3 describes as its topology.
+> Verified 2026-08-23: `internal/brokerrelay` does not exist anywhere in the tree.
+>
+> **What replaced it, and why the design is unchanged.** The front — the TLS listener, the endpoint
+> file, the token check, the splice to the daemon's upstream — is now `svcendpoint.ServeFront` /
+> `ServeFrontWithOptions` (`internal/svcendpoint/front.go:25,61`), started as a **goroutine in the
+> launching `yolo run` process** (`internal/cli/run/loopholesruntime.go:686`). Everything §3.0
+> enumerates as the five steps of `loopback-tls` still happens, in the same order, in the same
+> process boundary class (host-side, per jail). **Read every occurrence of "the relay" below as "the
+> front", and every "a host process, one per jail" as "a goroutine in the launcher, one front per
+> jail per service."** §7.2's *"one relay per jail"* argument survives verbatim under that
+> substitution, which is why it was safe to make.
+>
+> **What actually changed, as design rather than plumbing:**
+>
+> - **The framework prepends its own connection preamble and NEVER parses the daemon's payload**
+>   (`internal/svcendpoint/preamble.go`; `loopholedecl.HostDaemon.Preamble`). §2.1b hazard 3's
+>   verdict — *"the front cannot be the crossing audit log; connection-level is the honest ceiling"*
+>   — is now enforced structurally rather than by discipline. The preamble defaults **ON** for a
+>   manifest and **OFF** for a `yolo-jail.jsonc` entry, because a config entry's daemon is a program
+>   yolo did not write (`internal/loopholes/discover.go:58-70`); a dumb pipe says
+>   `"preamble": false`, and `"preamble": true` is the opt-in on the config side.
+> - **`host_daemon.scope: "host"` is new vocabulary** (`internal/loopholedecl/enums.go:115`). A
+>   `ScopeHost` daemon is ENSURED once per host (flock/recheck/spawn) rather than spawned per jail,
+>   and each jail gets its OWN front over that one socket
+>   (`paths.HostSingletonSocket`, `internal/paths/paths.go:254`). `scope: "host"` **requires**
+>   `publishes: "socket"` at load (`loopholedecl.go:914`) — an endpoint file carries ONE jail's
+>   bearer token, so a host-wide publisher would hand every jail the same credential. That is the
+>   generalization of the broker singleton this doc kept describing as a special case.
+> - **A jail ending closes ITS FRONT and nothing else** — no process-group kill, no socket unlink —
+>   or every other live jail on the machine loses its credential path.
+> - **The broker is no longer bundled.** `bundled_loopholes/` does not exist (verified 2026-08-23);
+>   `claude-oauth-broker` is a contribution of `packs/claude`
+>   (`packs/claude/loopholes/claude-oauth-broker/`). Every path in this doc spelled
+>   `bundled_loopholes/claude-oauth-broker/…` should be read there. See
+>   [`loophole-packaging.md`](loophole-packaging.md) §5.4 for the full accounting.
+>
+> **§8.4's live defect and §8.5's stale-state warning are NOT retracted by any of this** — the
+> singleton still publishes through `hostservice.Serve`, and a long-lived host-wide daemon is still
+> invisible stale state that satisfies every liveness gate in the system.
 
 **The question this exists to answer:** the loophole protocol says a client connects to a Unix
 socket. On macOS + podman that does not work. Is the fix a broker patch, or is it the loophole
@@ -119,6 +172,13 @@ The name is doing too much work in this doc, so: **it is a TCP connection to `12
 behaves like a `0600` Unix socket.** Five steps, and each one exists to replace something the
 filesystem was giving us for free:
 
+> [!NOTE]
+> **2026-08-23: "the relay" below is now a GOROUTINE, not a process** — `svcendpoint.ServeFront`
+> inside the launching `yolo run` (`internal/svcendpoint/front.go:25`,
+> `internal/cli/run/loopholesruntime.go:686`). `internal/brokerrelay` is deleted. All five steps
+> still happen, in this order, host-side, one front per (jail, service). The substitution is
+> mechanical — see the postscript at the top.
+
 1. The **relay** (a host process, one per jail) opens a TCP listener on `127.0.0.1` on a
    kernel-assigned port. *Loopback, so it is not on the LAN.*
 2. It mints a **throwaway TLS certificate whose private key never leaves that process's memory** —
@@ -173,6 +233,28 @@ cert, via a dedicated root pool.
 >
 > So it is a **pre-shared secret injected into both ends out of band, before any connection
 > exists.** Guessing or scanning the port yields a TLS handshake and then a dropped connection.
+
+### ⚠ Retracted 2026-08-23: the four-bullet token provenance above describes #32, not the tree
+
+> [!WARNING]
+> Every one of the four bullets was already superseded by **OQ-T7** (token delivery moves into the
+> endpoint file) and §8.3 (*"the token is minted by the listener, in process"*), and the artifacts
+> they name are now **gone**, not merely bypassed. Verified 2026-08-23, no hits anywhere outside
+> `docs/`:
+>
+> - **no `~/.local/share/yolo-jail/broker-relay-tokens/<hash>.token`** — nothing is persisted
+>   host-side; the token is minted in the listener's memory, published once, and rotated for free;
+> - **no `--token-file` on any relay argv** — there is no relay;
+> - **no `YOLO_SERVICE_CLAUDE_OAUTH_BROKER_TOKEN`, and no `paths.BrokerTokenEnv`.** This is pinned,
+>   not incidental: `TestNoBrokerTokenEnvEmitted` (`internal/cli/run/brokersingleton_test.go:249`)
+>   asserts *"no token environment variable exists, at all."*
+> - **the endpoint file DOES carry the secret now** — the bullet saying it *"carries no secret"* is
+>   the exact claim §3.2 reversed, which is why the file is `0600`, per-jail, and **fails closed**
+>   into a directory that is not `0700`.
+>
+> **The paragraph's conclusion is still true and is the reason to keep it:** the token is never
+> ISSUED over the connection, only verified. Connecting still gets you nothing. Only the delivery
+> path changed — from two writers agreeing out of band, to one writer, one file, one rename.
 
 **Why each piece is load-bearing**, because a simpler version is tempting and wrong:
 
@@ -597,7 +679,10 @@ macOS + podman. Nobody has reported it because `yolo-ps` failing is quiet, but i
 Audited 2026-08-13 to leave **only** questions that genuinely need the maintainer. Everything else
 is recorded as decided, with the reasoning, so nothing looks quietly dropped.
 
-### 7.1 Settled
+### 7.1 Settled — this table is the Decision Ledger
+
+*(Confirmed 2026-08-23: still zero open questions. Every `OQ-T` in this doc is settled here or in
+§7.2–§7.4; nothing below awaits a ruling.)*
 
 **All of §7 is now settled.** OQ-T1 (§7.2) and OQ-T8 (§7.3) closed 2026-08-13; OQ-T9 (§7.4)
 the same day. Nothing in this design is waiting on a decision — the remaining work is execution,
@@ -767,6 +852,17 @@ mechanical proof that a daemon never learns its transport.
 **Unchanged, deliberately:** the wire protocol (`internal/frameproto`, untouched); the broker's hops
 A, C and D — the in-jail TLS terminator still binds `127.0.0.1:443`, and relay→singleton and
 CLI→singleton are still host→host Unix; the host broker singleton daemon.
+
+> [!NOTE]
+> **2026-08-23 — hop B lost a process, and hop C survived the loss.** `internal/brokerrelay` is
+> deleted (`7df7c5aa`, 2026-08-19). "relay→singleton" is now **front→singleton**: the front is a
+> goroutine in `yolo run` splicing to the singleton's rendezvous socket, which is still a host→host
+> Unix hop and is now derived generically as `paths.HostSingletonSocket("claude-oauth-broker")`
+> rather than from `broker.BrokerSingletonSocket` by name — byte-identical, and a test pins the
+> pair so `yolo broker status`, `yolo check` and the front reach one file. Hops A, C and D are
+> unchanged in substance. §8.3's *"the relay's own Unix socket left the mounted directory"* is
+> likewise still the live rule (`frontSocketFile`): the fronted daemon's upstream is host-only, so
+> the jail can neither reach the retired transport nor unlink the front's socket.
 
 > **CORRECTION 2026-08-13, and it is a live defect: the singleton was NOT unchanged.** The sentence
 > above states the intent and the code does not implement it. `internal/oauthbroker/oauthbrokercmd.go`

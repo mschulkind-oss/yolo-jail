@@ -1,13 +1,31 @@
 # Agent credentials: what crosses the jail boundary, and how
 
-**Status:** DRAFT (2026-07-23) — describes the shipped code as of this date;
-every claim carries a `file:line` (line numbers drift — trust the named
-function). Records both the model and the one prose/code discrepancy found
-(§4, §6).
+**Status:** DRAFT 2026-07-23, **AUDITED AND PARTLY CORRECTED 2026-08-23.** The body
+describes the shipped code **as of 2026-07-23**; a month of change has landed
+since, and the three places it moved are annotated in place (§2.5 the broker,
+§4 the agent set, "Where things live" the paths) rather than rewritten. Every
+claim carries a `file:line` (line numbers drift — trust the named function).
+Records both the model and the one prose/code discrepancy found (§4, §6).
+**What is verified as of 2026-08-23:** §2.5's broker mechanics, §2's mechanism
+count, and §4's agent roster — read off the tree on that date. **What is NOT
+re-verified:** every `file:line` in §2.1–§2.4, §2.6–§2.7, §5 and §6 still carries
+its 2026-07-23 check date. Treat those as the state on that date, not today's.
+
 **Scope:** how yolo-jail delivers (and deliberately withholds) credentials and
-identity for all six supported agents (`claude`, `copilot`, `gemini`,
-`opencode`, `pi`, `codex` — plus `agy`), across the three backends (`podman`,
+identity for the supported agents across the three backends (`podman`,
 `container` = Apple Container, `macos-user`) and both OSes.
+
+> [!WARNING]
+> **Corrected 2026-08-23 — the agent roster in this line was wrong, and it named
+> seven agents as "six".** There is **no `gemini` pack** and there never was
+> (`git log -- packs/gemini` is empty; `ls packs/` verified 2026-08-23). The six
+> packs that install an agent are **`claude`, `copilot`, `opencode`, `pi`,
+> `codex`, `agy`**; the other four shipped packs (`audio`, `host-processes`,
+> `journal`, `cgroup-delegate`) install no CLI at all. Gemini survives in the
+> tree only as log-dir names `yolo prune` sweeps
+> (`internal/prune/agentlogs.go:22-26`) and one comment in
+> `internal/agentcfg/builtin.go:106`. §4's matrix keeps its gemini row, annotated
+> — see the note there.
 **Reads with:**
 [jail-home.md](jail-home.md) (how `/home/agent` is composed, where creds land),
 [identity-prism-decision.md](identity-prism-decision.md) (the git-identity
@@ -76,6 +94,16 @@ Seatbelt profile's read denies instead (§5).
 Seven mechanisms carry (or withhold) credential-shaped data. Each is
 **backend-conditional**; the per-backend split is summarized in §5.
 
+> [!NOTE]
+> **Re-checked 2026-08-23: still seven, and no eighth appeared.** The list §2.1–§2.7
+> enumerates is complete against the tree on that date — no new channel was added by
+> the pack reform, the loophole packaging work, or the broker's move. Two of the seven
+> changed *inside* rather than in number: §2.5 (the broker; see the retraction there)
+> and §2.7 (host-service loopholes — there are **five** shipped now, not three, and
+> **all five are pack contributions**). The one delivery mechanism whose *description*
+> is stale rather than its existence is §2.2's `agents.AgentSpec.HostFiles` — see the
+> note in that subsection.
+
 ### 2.1 `:ro` bind mounts (container backends only)
 
 A host file mounted read-only into the jail. Kernel-enforced against even the
@@ -128,6 +156,19 @@ to credentials:
 - **Composed git identity replay** (macos-user only): `configureGit`
   (`internal/entrypoint/identity.go:12-28`) runs `git config --global user.name/
   user.email/core.excludesFile` from `YOLO_GIT_*` env (§2.6).
+
+> [!NOTE]
+> **2026-08-23: `agents.AgentSpec` no longer exists — the mechanism does.** The Go
+> agent registry was dissolved into packs; `rg "type AgentSpec"` returns nothing
+> (verified 2026-08-23), and the two surviving mentions are historical comments
+> (`internal/packdecl/packdecl.go:3` — *"the schema that replaces agents.AgentSpec"*
+> — and `internal/agentcfg/builtin.go:144`). **The credential boundary this bullet
+> describes is intact and moved, not weakened:** which host files cross for an agent
+> surface is now each pack's `reads-host` contributions in `packs/*/pack.json`, read
+> through `packload.Pack.HonoredHostFiles`. It is still yolo-shipped code rather than
+> a config knob, which is the whole property; a pack's declaration is data yolo
+> ships, not a workspace-writable key. `internal/agents` itself was renamed
+> `internal/jailcontent` once the name outlived the registry.
 
 ### 2.3 Launch env + `env_sources` (the sanctioned secret channel)
 
@@ -261,6 +302,64 @@ step 3). That skip used to key on `transport == "tls-intercept"`; the transport
 is now `loopback-tls` for every daemon, and the intercept list is what emits the
 flags being skipped. macos-user **skips it by default** — see §5.
 
+### ⚠ Retracted 2026-08-23: the broker is no longer bundled, its activation gate is DELETED, and there is no per-jail relay
+
+> [!WARNING]
+> Two commits on **2026-08-19** moved everything §2.5 describes structurally, while
+> leaving what the broker *does* — one shared credentials file, one flock around
+> every refresh — exactly as written above. Verified 2026-08-23 against
+> `packs/claude/loopholes/claude-oauth-broker/manifest.jsonc`.
+>
+> | This section says | What is true 2026-08-23 |
+> |---|---|
+> | `bundled_loopholes/claude-oauth-broker/README.md` | **`bundled_loopholes/` does not exist.** The module is `packs/claude/loopholes/claude-oauth-broker/`, declared by `packs/claude/pack.json:12-15` as `{"kind": "loophole", "from": "loopholes/claude-oauth-broker"}` — a **contribution of the claude pack, not a pack of its own**, because the dependency is structural (`loophole-activation.md` OQ-A10). It was the LAST inhabitant of the bundled channel; moving it is what retired the channel. |
+> | *"Activation is gated by `requires.command_on_path: claude`"* | **That key is DELETED**, and it is the one correction here that changes who gets protected. It was a **host-side** `exec.LookPath("claude")` standing in for *"is there a claude to refresh for"* — and it read **false for exactly the user yolo exists for**: someone who installs `claude` inside the jail via the lazy launcher and never on the host. Their loophole vanished from every surface with no reason given, silently taking the refresh serialization with it. **Selecting `packs: ["claude"]` is now the dependency**, and it is a declaration rather than a guess. Nothing replaces the probe: a loophole whose program is missing must fail **loudly at spawn**, not disappear from `yolo loopholes list`. |
+> | *(implicit: it is on because it is bundled)* | `default_enabled: true` is what makes selecting the claude pack **sufficient** — and it is the **only** shipped manifest that ships `true`. `audio`, `host-processes`, `journal` and `cgroup-delegate` all ship `false`, because those four are host access you ask for and this one keeps a credential you already asked for from being burnt. |
+> | *"routes the refresh through a **per-jail host relay** to the singleton"* | **`internal/brokerrelay` is DELETED** (`7df7c5aa`). The jail-facing hop is a **loopback-TLS front** — a goroutine in the launching `yolo run` (`svcendpoint.ServeFrontWithOptions`, `internal/cli/run/loopholesruntime.go:686`) — splicing to the singleton's socket. The singleton itself is unchanged, still under its flock. |
+>
+> **The new vocabulary, because it is the credential-relevant part.** The manifest
+> declares `host_daemon.scope: "host"` — ONE daemon per machine serving every jail,
+> **ensured** under a host-wide flock rather than spawned per jail. That is not a
+> preference: *a second copy of this daemon IS the single-use-refresh-token race the
+> loophole exists to prevent.* The run pipeline used to express this by testing the
+> loophole's **name**; `scope` replaced that. `scope: "host"` **requires**
+> `publishes: "socket"`, refused otherwise at load
+> (`internal/loopholedecl/loopholedecl.go:914`) — an endpoint file carries **one
+> jail's** bearer token, so a host-wide publisher would hand every jail the same
+> credential.
+>
+> **Where the jail's credential for this hop lives:**
+> `/run/yolo-services/claude-oauth-broker.endpoint`, `0600`, named by
+> `YOLO_SERVICE_CLAUDE_OAUTH_BROKER_ENDPOINT`. **There is deliberately NO token
+> environment variable** — an env var is inherited by every child process the
+> in-jail terminator spawns. This is pinned, not incidental:
+> `TestNoBrokerTokenEnvEmitted` (`internal/cli/run/brokersingleton_test.go:249`)
+> asserts *"no token environment variable exists, at all."*
+>
+> **A second off switch now exists, and it is the right one for the Bedrock case
+> in §3.** The manifest declares `serves: ["claude-oauth-refresh"]`, so a selected
+> pack may `supersedes` that capability with a reason — e.g. a Bedrock auth pack,
+> under which no OAuth token is ever refreshed, so the job does not *exist* rather
+> than being done differently. It is the only off switch that does not require
+> editing a `loopholes:` block, which is what makes it the answer for a Bedrock
+> user rather than deselecting a pack they need.
+>
+> **Unchanged, and worth restating because the move looks like it should have
+> touched them:** `{state}` is keyed by the loophole NAME and is deliberately
+> unchanged by the move out of `bundled_loopholes/`, so an upgrading host keeps its
+> existing CA and every already-running jail keeps trusting it; `state_files`
+> still crosses only `ca.crt`/`server.crt`/`server.key`, leaving `ca.key`
+> host-side (issue #33); the Apple Container skip still keys on `intercepts`; and
+> the broker still operates on **one file only** and never touches host Claude's
+> `~/.claude/.credentials.json`.
+>
+> **The name has no reservation list protecting it any more.**
+> `loopholes.ReservedLoopholeNames` and `paths.BuiltinLoopholeNames` are both gone
+> (verified 2026-08-23). What protects `claude-oauth-broker` — the one name yolo
+> still reaches by literal, from `yolo broker status`, `yolo check`, `brokerEnsure`
+> and the terminator's endpoint variable — is `packs/claude` **occupying** it
+> (loophole names are sole-owned across packs, fatally) plus the origin gate.
+
 ### 2.6 Git-identity composition (host-composed, never a wallet)
 
 Git identity is a **two-key allowlist** — `user.name` + `user.email`, plus an
@@ -365,6 +464,31 @@ generators are enumerated in
 | **codex** | `.codex` | under `~/.codex/` | `codex login` or `OPENAI_API_KEY` via `env_sources` | `~/.codex/config.toml` (+ MCP sidecar) | per-workspace overlay |
 | *(agy)* | `.gemini/antigravity-cli` | under `~/.gemini/antigravity-cli/` | shares `~/.gemini` tree, own subdir | `~/.gemini/antigravity-cli/{settings,mcp_config}.json` | per-workspace overlay |
 
+> [!WARNING]
+> **Audited 2026-08-23 — the matrix is right about mechanism and wrong about
+> membership, in one row.** `ls packs/` on that date: `agy`, `audio`,
+> `cgroup-delegate`, `claude`, `codex`, `copilot`, `host-processes`, `journal`,
+> `opencode`, `pi`. **There is no `gemini` pack** — `git log -- packs/gemini` is
+> empty, so it was never one. The **gemini row is retained deliberately**, because
+> its mechanics are not hypothetical: `agy` occupies `~/.gemini/antigravity-cli/`
+> and `yolo prune` still sweeps `gemini/tmp` and `gemini-cli/logs`
+> (`internal/prune/agentlogs.go:22-26`), so the tree's gemini-shaped surfaces are
+> real even though no pack installs the CLI. Read that row as *"the shape a gemini
+> pack would take"*, not as a shipped agent.
+>
+> **Every other row was re-checked against `packs/<name>/pack.json` on 2026-08-23
+> and holds**, including the load-bearing asymmetry: claude is still the only agent
+> with a host-shared credential and the only one with a write-back path to
+> `GLOBAL_HOME`. **The column that moved is the first one** — "Overlay dir(s)"
+> reads each pack's `state` contributions now that `internal/agents` is gone
+> (§2.2's note); the dirs themselves are unchanged.
+>
+> **Not re-verified 2026-08-23:** the `file:line` anchors in the notes below
+> (`assemble.go:162-164`, `storagehelpers.go:37-64`, `prepare.go:168-171`,
+> `env.go:215-216`) still carry their 2026-07-23 check date, as does the
+> ⚠ Discrepancy note — which remains **open**, and is the one thing in this doc a
+> maintainer should still settle.
+
 Notes and mechanics:
 
 - **Overlay dirs are per-workspace and seeded once.** For each selected agent,
@@ -423,7 +547,7 @@ keychain are unreadable, but the network is fully open (`(allow default)`).
 | host `~/.claude`/`~/.pi` settings | `/ctx/host-*/settings.json` `:ro` mount + boot compose (`packhostgrants.go`) | materialized copy + boot compose | boot compose, fail-open (no `/ctx`; same pure generators; `macos-user-nix-and-features.md Part 2`) |
 | user `host_files` (§2.4) | source-bearing: `/ctx/host-user/<slug>` `:ro` mount; source-less: composed from `content`/`defaults` | ⚠ single-file `:ro` unhandled for `/ctx/host-user` (apple/container#1089); source-less entries compose fine | **source-less ONLY** (`SourceLessHostFiles`) — no `/ctx` to carry a source into, so a source-bearing entry is skipped rather than silently rendering without its host layer |
 | Claude shared credentials | `.claude-shared-credentials` rw bind + symlink (`assemble.go:166-168`) | **not mounted** — AC uses one whole-home bind; creds live in that per-workspace home | **free** — one real `~/.claude/.credentials.json` in the shared home |
-| claude-oauth-broker | ✅ active when host `claude` present | ❌ **skipped** — it declares `intercepts`, which need `--add-host` (`runtime.go`) | **skip by default** — shared home already = one creds file; refresh serialization only bites with *concurrent* Claude sessions and needs hard-to-port host redirection (`macos-user-nix-and-features.md §3.5`; `EndpointGrantCommands` exists but is uncalled) |
+| claude-oauth-broker | ~~✅ active when host `claude` present~~ → **✅ active when `packs: ["claude"]` is selected** (2026-08-23: the host `command_on_path` probe is deleted — §2.5's retraction) | ❌ **skipped** — it declares `intercepts`, which need `--add-host` (`runtime.go`) | **skip by default** — shared home already = one creds file; refresh serialization only bites with *concurrent* Claude sessions and needs hard-to-port host redirection (`macos-user-nix-and-features.md §3.5`; `EndpointGrantCommands` exists but is uncalled) |
 | host-service loopholes (secret brokers) | ✅ loopback-TLS endpoint file + `YOLO_SERVICE_*_ENDPOINT` | ⛔ **deferred, not blocked** — the transport no longer needs a Unix-socket bind, but how the endpoint file crosses into an AC guest is an unmade mount decision (`loophole-transport.md` §6.5) | not wired (container-path only); framework ports in principle |
 | per-workspace cred isolation | ✅ (`.yolo/home` overlay per workspace) | ⚠ single whole-`wsState` home bind, still per workspace, but `.claude` shared across workspaces there → history keyed by host dir (`jail-home.md §4.4`) | ❌ **one shared home for ALL sessions** |
 | isolation boundary | VM (macOS) / userns (Linux) + read-only root | VM + read-only root | Unix user + Seatbelt — **weaker, documented** (`macos-user-nix-and-features.md Part 4`) |
@@ -486,7 +610,9 @@ Seatbelt, shared home" on macos-user in exchange for no-VM speed
 | git-identity policy + mechanism | [identity-prism-decision.md](identity-prism-decision.md); `internal/cli/run/assemble_parts.go` (`gitIdentityMountArgs`), `internal/entrypoint/identity.go` |
 | `env_sources` semantics + `${VAR}` | config-ref `env_sources`; `internal/config/envsources.go`; [mcp-configuration.md §2](mcp-configuration.md) |
 | Host agent-file set (credential boundary) | each pack's `reads-host` contributions (`packs/*/pack.json`, read via `packload.Pack.HonoredHostFiles`); `internal/cli/run/packhostgrants.go` (`hostFileArgs`); `internal/entrypoint/{prism_claude,prism}.go` |
-| Claude OAuth broker | [../guides/loopholes.md](../guides/loopholes.md), [loophole-protocol.md](loophole-protocol.md); `bundled_loopholes/claude-oauth-broker/`; `internal/broker`, `internal/oauthbroker` |
+| Claude OAuth broker | [../guides/loopholes.md](../guides/loopholes.md), [loophole-protocol.md](loophole-protocol.md); **`packs/claude/loopholes/claude-oauth-broker/`** (was `bundled_loopholes/…` until 2026-08-19); `internal/broker`, `internal/oauthbroker` |
+| Why the broker is a pack CONTRIBUTION and not a pack | [loophole-packaging.md](loophole-packaging.md) §5.4 + OQ-LP11; `loophole-activation.md` OQ-A10 |
+| The jail-facing hop (front, endpoint file, no token env var) | [loophole-transport.md](loophole-transport.md) §8 + its 2026-08-23 postscript; `internal/svcendpoint/front.go` |
 | Shared credentials symlink (the harvest is deleted) | `jail-home.md §4.2`; `internal/entrypoint/claude.go` (`linkThroughShared`) + `packhooks.go` (`linkSharedCredential`); `internal/storage/ensure.go:69-80` |
 | Home composition, overlays, per-agent dirs | [jail-home.md](jail-home.md); each pack's `state` contributions; `internal/cli/run/{assemble,assemble_parts,prepare,storagehelpers}.go` |
 | macos-user shared home + Seatbelt | [macos-user-nix-and-features.md](macos-user-nix-and-features.md), [../guides/macos.md](../guides/macos.md); `internal/macosuser/{macosuser,seatbelt,orchestrator,runplan}.go` |

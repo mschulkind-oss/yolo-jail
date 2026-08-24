@@ -1,13 +1,50 @@
 # Loophole packaging — how a pack ships a loophole
 
 **Status:** DESIGN 2026-08-13; **the `loophole` kind LANDED 2026-08-14**, and as of 2026-08-14 **the
-whole landing order has landed** — items 0–9, plus OQ-LP9's three parts. Closes **OQ-CAP2** with
+whole landing order has landed** — items 0–9, plus OQ-LP9's three parts. **AUDITED AND RESTAMPED
+2026-08-23: the design is BUILT and the last channel it was hedging against is GONE** — OQ-LP11
+completed 2026-08-19, so every loophole yolo ships is a pack's and `bundled_loopholes/` no longer
+exists (postscript below). Closes **OQ-CAP2** with
 option **(B)**. Per-section `**Landed**` markers below are the ledger; the landing order at the end of
 the doc is the summary. **ONE thing is deliberately NOT built:** the install-gate invariant **G2b**
 (§4.3 — content-anchored exec approval, which is a maintainer decision under OQ-LP8 rather than
 pending work). **G2a LANDED** — the claim string is the raw, unelided, placeholder-preserving argv,
 pinned by two tests in `packload/loopholesource_test.go`. The pack-shipped subset is now **wired at
 both seams** (§3.1), `audio` ships as an **official pack** (§7), and **OQ-LP9 is built** (§9).
+
+**Live questions as of 2026-08-23: three** — **OQ-LP5** (conditional `jail_env`), **OQ-LP7** (the
+`guest` notch), **OQ-LP8** (an execution approval surviving a moving pin). Everything else is in the
+Decision Ledger in §9.
+
+> [!WARNING]
+> ### Postscript 2026-08-23 — the channel this doc argues about no longer exists
+>
+> On **2026-08-19** two commits landed that the body below was written before:
+> `7df7c5aa` (*"the daemon says who it is shared across, and the relay stops existing"*) and
+> `e391d0f5` (*"the broker moves into packs/claude, and the bundled channel stops existing"*).
+> Verified 2026-08-23 against the working tree:
+>
+> - **`bundled_loopholes/` does not exist** — the directory, its `embed.go`, and
+>   `internal/loopholes/embedfallback.go` are all deleted.
+> - **`internal/brokerrelay` does not exist.** There is no per-jail relay PROCESS any more: yolo runs
+>   the front itself, as a goroutine in the launching `yolo run`
+>   (`svcendpoint.ServeFrontWithOptions`, `internal/cli/run/loopholesruntime.go:686`), prepends its
+>   own connection preamble, and never parses a daemon's payload.
+> - **`loopholes.ReservedLoopholeNames` and `paths.BuiltinLoopholeNames` are both gone** — a reserved
+>   name and a pack-shipped name cannot be the same name, and the reservation set was DERIVED from
+>   the bundled directory, so emptying the directory emptied it.
+> - **Five shipped loopholes, all pack contributions:** `packs/audio`, `packs/host-processes`,
+>   `packs/journal`, `packs/cgroup-delegate`, and `claude-oauth-broker` as a contribution of
+>   `packs/claude` (`packs/claude/pack.json:12-15`; module at
+>   `packs/claude/loopholes/claude-oauth-broker/`) — **not a pack of its own**, because the
+>   dependency is structural (`loophole-activation.md` OQ-A10).
+>
+> **§1–§8 keep their original tense.** They describe the world in which three bundled loopholes and a
+> per-jail relay existed, because that is the world the argument was made against, and rewriting them
+> would destroy the reasoning that produced the move. What each section's claims cost NOW is
+> annotated in place: §1's channel table, **§5.4's reason 2 (retracted — see the heading there)**,
+> §7's whole migration table, and OQ-LP11 (now **COMPLETE**). Nothing in the design was refuted by
+> the move; its conditional clauses were discharged.
 
 **The last two batches each produced a finding that constrains the DESIGN rather than an
 implementation, and both are carried below rather than filed as incidents.** (1) **The pack-shipped
@@ -139,6 +176,16 @@ back to three. The bundled retirement (OQ-LP11) has still not happened.
 | ~~a user loophole dir~~ | ~~`UserLoopholesDir` → `~/.local/share/yolo-jail/loopholes`~~ | ~~one hand-placed local loophole~~ | **RETIRED (OQ-LP10, carried out).** No fetch, no version, no approval, no manifest travelling with the code — and a `file://` pack subsumes it. Discovery no longer reads it and the `SourceUser` label is deleted; what survives is `RetiredUserLoopholesDir` + a migration notice (`internal/loopholes/retired.go`) that names every stranded module and the `mv` into `~/.config/yolo-jail/local/` |
 | the `loopholes` block in `yolo-jail.jsonc` | `synthesizeConfigLoopholes` (`discover.go:29`) | **was the only third-party path** | revived by the front (§2.2) and scoped by the ruled install/enable model (§4.3b) |
 | **a pack, `{"kind": "loophole", "from": …}`** | `loaderFor(SourcePack)` (`discover.go`) | **the third-party path now** | landed 2026-08-14; subset-constrained, claim-enumerated, origin-gated |
+
+> [!NOTE]
+> **2026-08-23 — the count is ONE, not three.** OQ-LP11 completed 2026-08-19: the bundled row of this
+> table was deleted outright (`bundled_loopholes/`, its embed, `internal/loopholes/embedfallback.go`,
+> `loopholes.ReservedLoopholeNames` and `paths.BuiltinLoopholeNames` — none of them resolve in the
+> tree, verified 2026-08-23). The user-dir row was already retired by OQ-LP10. What survives is the
+> `loopholes` block in `yolo-jail.jsonc` (a CONFIG surface, scoped by §4.3b — not a distribution
+> channel) and the pack row. **`internal/loopholes` stops being a thing core knows about specially**,
+> which is precisely the prize §5.4 named. The table's original three-channel framing is left standing
+> because §1's whole argument is *why three was one too many*.
 
 **The transport unification killed the last row.** `internal/loopholes/loopholes.go:63` is now
 `validTransports = []string{TransportLoopbackTLS, TransportNone}`; both `unix-socket` and
@@ -1954,6 +2001,35 @@ Three reasons draft 2 gave, re-graded:
    `cmd/yolo-ps`, a baked image binary, which rules out a **fetched** pack. An official pack is
    embedded in the same binary, so a baked client is no obstacle at all.
 
+#### ⚠ Retracted 2026-08-23: reason 2 — *"a pack could not express what the broker needs"*
+
+The one argument this section graded ✅ **survives is the one the implementation refuted.** Both of
+its two legs are gone, and each was closed by adding vocabulary rather than by conceding the point:
+
+| Reason 2's leg | What happened |
+|---|---|
+| *"its `host_daemon.cmd` is not what runs — `startLoopholes` special-cases the NAME"* | `host_daemon.scope: "host"` is the vocabulary the spawn path lacked (`internal/loopholedecl/enums.go:115`, `ScopeHost`). The branch now reads `hd.Scope == ScopeHost` and ensures the daemon through `internal/broker`'s existing flock/recheck/spawn engine, generalized by ONE `Deps.Argv` field so the argv is the MANIFEST's. **`startLoopholes` no longer tests a loophole's name.** `paths.HostSingletonSocket(name)` (`internal/paths/paths.go:254`) derives the rendezvous from the loophole name, because a singleton has no jail to be keyed by. Load-time rule: `scope: "host"` REQUIRES `publishes: "socket"` (`loopholedecl.go:914`) — an endpoint file carries ONE jail's bearer token, so a host-wide publisher would hand every jail the same credential. |
+| *"its per-jail relay … has no manifest vocabulary at all (`ensureBrokerRelay`)"* | **`internal/brokerrelay` is DELETED** (`7df7c5aa`, 2026-08-19). There is no relay process to give vocabulary to. The front is a goroutine in the launching `yolo run` (`svcendpoint.ServeFrontWithOptions`, `loopholesruntime.go:686`); yolo prepends its own connection preamble and never parses the daemon's payload, so the daemon behind the front still never learns its transport. A jail ending closes ITS FRONT and nothing else — no process-group kill, no socket unlink — or every other live jail would lose its credential path. |
+
+**Reason 1 is also discharged, exactly as this section predicted it could be.** `default_enabled:
+true` on the pack's manifest is what makes *selecting `packs/claude`* sufficient — the
+implicit-selection bit §5.4 pointed at, used. And the `requires.command_on_path: "claude"` gate that
+reason 1 leaned on was **deleted**, because it was a HOST-side `exec.LookPath` that read false for
+exactly the user yolo exists for: someone who installs `claude` inside the jail and never on the
+host. It silently took refresh serialization away from them, with the loophole reporting inactive and
+no reason given.
+
+> [!WARNING]
+> **The trap this retraction must NOT be read as licensing.** `claude-oauth-broker` is a
+> **contribution of `packs/claude`**, not a pack of its own. The dependency is structural
+> (`loophole-activation.md` OQ-A10): a separate broker pack would reinstate a selection step, i.e.
+> hand back the every-jail default-on failure reason 1 exists to prevent. And with
+> `ReservedLoopholeNames` gone, what protects the name `claude-oauth-broker` — the one name yolo
+> still reaches by literal, from `yolo broker status`, `yolo check`, `brokerEnsure` and the
+> terminator's endpoint variable — is (1) `packs/claude` OCCUPYING it, since loophole names are
+> sole-owned across packs, **fatally**, and (2) the origin gate. There is no reservation list to
+> add a name back to.
+
 **But "bundled" alone does NOT make the default safe** — review's third refutation, and it is the one
 that changes work. A workspace `yolo-jail.jsonc` can set
 `loopholes.claude-oauth-broker.enabled: false` and the broker vanishes with no message and a green
@@ -2010,6 +2086,23 @@ below) — added, not migrated, and for reasons that turned out to be forced rat
 | `claude-oauth-broker` | **stays bundled** | Auto-activates by design (§5.4); its host singleton bypasses its own `host_daemon.cmd`; its per-jail relay has no manifest vocabulary at all. |
 | `host-processes` | **stays bundled** | Its client is `cmd/yolo-ps`, a baked image binary. A pack cannot ship it. |
 | `audio` | **stays bundled — and an ADDITIVE official pack beside it is the worked example** | `transport: none`, no daemon. It is the one bundled loophole a pack could carry with zero new vocabulary and zero host execution — though only *half* of it, as the finding below establishes. |
+
+### ⚠ Retracted 2026-08-23: "Nothing migrates" — all three rows did
+
+> [!WARNING]
+> This section's headline and **every row of the table above are now false**, and the doc keeps them
+> because each verdict names a real blocker and each blocker was closed by a named mechanism rather
+> than waived. Verified 2026-08-23: `bundled_loopholes/` does not exist.
+>
+> | Row | Its stated blocker | How it was closed |
+> |---|---|---|
+> | `claude-oauth-broker` | *"host singleton bypasses its own `host_daemon.cmd`"* + *"per-jail relay has no manifest vocabulary at all"* | `host_daemon.scope: "host"` gave the singleton a declaration, and the relay was **deleted** rather than described. Full accounting at §5.4's Retracted heading. Shipped `e391d0f5`, 2026-08-19, as a **contribution of `packs/claude`**. |
+> | `host-processes` | *"its client is `cmd/yolo-ps`, a baked image binary. A pack cannot ship it."* | §5.4 reason 3 already graded this ❌ — an OFFICIAL pack is embedded in the same binary, so a baked client is no obstacle. `packs/host-processes` shipped `3d5805cd`, and *"goes dark until you ask"*: the allowlist is now resolved once, at launch, by core (`55c18ed4`). |
+> | `audio` | *"only half of it"* — the `${XDG_RUNTIME_DIR}` sockets were inexpressible | OQ-LP14 **withdrew the bind-host path rule** instead of adding vocabulary (2026-08-17, built 2026-08-18), and the two audio loopholes merged into one pack-shipped `audio` under the plain name (`ea6f5e5b`). Already recorded in the SUPERSEDED block below — that block is now the whole story, not a partial one. |
+>
+> **What did NOT change:** the claim enumeration, the origin gate, the subset's `readonly: false`
+> refusal and its claim-class consequence, and the `jail_env`→`env` unconditionality cost (OQ-LP5,
+> still live). The migration happened; the design that governs it did not move.
 
 **`audio` is the dogfood, as an example rather than a migration.** Draft 1 said to ship a copy under
 `docs/examples/`; **it shipped as a real official pack instead** (`packs/audio`, embedded in the
@@ -2276,7 +2369,35 @@ against the shipped producer (the two `readonly: false` binds land in the IPC cl
 MOUNT). What did improve is legibility rather than length: R4's two markers and the exec-first tail
 mean the *one* line that matters in a long list is the one that stands out.
 
+### Decision Ledger
+
+Compacted 2026-08-23. Every ID below keeps its exact spelling — they are cited from
+`internal/packsrc/lock.go`, `loophole-packaging-overview.md` and `loophole-activation.md`. The verbose
+entries survive under "Open questions" below, because several carry refuted objections and measured
+traps that are load-bearing rationale rather than history.
+
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| OQ-LP1 | Schema lives in a new `internal/loopholedecl` leaf; `internal/loopholes` re-exports it as type ALIASES — resolves the `packload`→`loopholes` cycle by extraction | 2026-08-14 | §3.2 |
+| OQ-LP2 | Install-shaped `loopholes` keys (`command`, `doctor_cmd`, `env`) are user-scope-only; migration is a **FATAL** error + a TTY-gated install offer, not warn-then-error | 2026-08-14 | §4.3b, §4.3 G1 |
+| OQ-LP3 | Folded into OQ-LP13 — install confirms every origin, so there is no trusted-`file://` bypass to special-case | 2026-08-14 | §4.3a |
+| OQ-LP4 | The front is declared by `publishes` on `host_daemon`, never by a manifest naming `yolo internal front` in its own argv (workaround-becomes-API) | 2026-08-14 | §2.1 |
+| **OQ-LP5** | **LIVE** — does `jail_env` stay refused for pack-shipped loopholes? | — | below |
+| OQ-LP6 | Build the capability system (A6) — a loophole manifest is a public surface regardless | 2026-08-14 | §6 |
+| **OQ-LP7** | **LIVE** — does `guest` get its own field census, or keep borrowing `HostFields()`? | — | below |
+| **OQ-LP8** | **LIVE** — how does an execution approval survive a moving pin? G2b unbuilt; `LockEntry.Commit` written but never read at launch | — | below, §4.3 G2b |
+| OQ-LP9 | Nested jails RECURSE the scope model: inner-scope census + two generated per-consumer files + a global `--user-layer` flag. Built | 2026-08-14 | §9 |
+| OQ-LP10 | Retire the user loopholes dir — a `file://` pack subsumes it. Carried out; `SourceUser` deleted, migration notice left behind | 2026-08-14 | §1, §5.1 |
+| OQ-LP11 | Bundled loopholes become packs. **COMPLETE** — `bundled_loopholes/` deleted, all five shipped loopholes are pack contributions | 2026-08-19 | §5.4, §7, below |
+| OQ-LP12 | Dissolved by §4.3b's scope model — install once at user scope, each workspace enables | 2026-08-14 | §4.3b |
+| OQ-LP13 | Ruled AGAINST hashing: *"if you can edit user-level files, you have all the perms already."* The user-scope edit IS the confirmation; only a PLACEMENT rule survives, and it must EXEMPT yolo's own shipped content | 2026-08-14 | §4.3a |
+| OQ-LP14 | Runtime-dir sockets: the bind-host path rule is **WITHDRAWN, not extended** — its cases are inverted (admits `~/.ssh`, refuses a pulse socket). What survives is a correctness rule, not a gate. This is what unblocked OQ-LP11 | 2026-08-17 (built 08-18) | §3.1, §7, below |
+| OQ-CAP2 | Closed with option (B) — write the packaging design before building A | 2026-08-13 | header |
+
 ### Open questions
+
+Three are live: **OQ-LP5**, **OQ-LP7**, **OQ-LP8**. The rest are kept in place, stamped, because
+their refuted objections and measured traps are documentation.
 
 **OQ-LP1 — where does the loophole manifest schema live? ✅ RESOLVED BY EXTRACTION, 2026-08-14.**
 `packload` cannot import `internal/loopholes` (cycle, measured §3.2), and the footprint needs to read
@@ -2314,14 +2435,25 @@ subcommand named in the manifest's own argv?** I recommend `publishes` (§2.1); 
 **Not really open** — recorded because the subcommand is the tempting shortcut and it is a one-way
 door.
 
-**OQ-LP5 — does `jail_env` stay refused for pack-shipped loopholes?** §3.1 refuses it to avoid a
+💬 **OQ-LP5 — does `jail_env` stay refused for pack-shipped loopholes?** §3.1 refuses it to avoid a
 cross-kind collision pass, at the cost of conditional env. **The cost is no longer hypothetical: the
 shipped `audio` pack pays it** — `PULSE_SERVER`/`PIPEWIRE_REMOTE` are declared through the `env` kind
 and are therefore set on every launch that selects the pack, including on a machine where no socket
-ever crossed (§7). It is *not* the only remaining cost of that example any more; the bind-host
-constraint is the other, and it is OQ-LP14. The alternative is the collision pass, which is purely
-additive. **Resolved by:** the first real pack that wants conditional env — `audio` wants it and
-tolerates the unconditional form, which is why this is still open rather than forced.
+ever crossed (§7). ~~It is *not* the only remaining cost of that example any more; the bind-host
+constraint is the other, and it is OQ-LP14.~~ **Corrected 2026-08-23: it is the ONLY remaining cost
+again** — OQ-LP14 withdrew the bind-host path rule on 2026-08-17, so the sockets became expressible
+and this is what is left. The alternative is the collision pass, which is purely additive.
+
+**What the answer decides:** whether a pack can ever set an env var *conditionally on a loophole
+actually activating*, or whether "the pack is selected" stays the only granularity yolo offers. Every
+future pack whose loophole is predicate-gated inherits this.
+
+_Leaning:_ **keep the refusal.** `audio` wants conditional env and tolerates the unconditional form,
+which is the whole evidence base — a cost one consumer absorbs is not yet a reason for a
+cross-kind collision pass. Revisit at the first pack that CANNOT absorb it.
+
+**Answer:**
+> _(empty — fill in when decided)_
 
 > **✅ RESOLVED 2026-08-17 — the path rule is WITHDRAWN, not extended.** The vocabulary was never the
 > problem: the rule admits `~/.ssh` and refuses a pulse socket, so its two cases are inverted. Claim
@@ -2329,8 +2461,25 @@ tolerates the unconditional form, which is why this is still open rather than fo
 > string must resolve to the bound path), not a gate. Full reasoning at the OQ-LP14 entry in
 > [`loophole-packaging-overview.md`](loophole-packaging-overview.md). `audio` needs no new vocabulary.
 
-**OQ-LP14 — the subset has no vocabulary for a RUNTIME-DIR SOCKET, which is the commonest non-home
-host path there is. NEW 2026-08-14, from building the pack.** §3.1's requirement 1 admits
+✅ **OQ-LP14 — the subset has no vocabulary for a RUNTIME-DIR SOCKET — RESOLVED 2026-08-17, BUILT
+2026-08-18, and the ruling went AGAINST the leaning below.** Raised 2026-08-14 from building the
+pack. **The vocabulary was never the problem: the bind-host path rule was WITHDRAWN, not extended.**
+Its two cases are inverted — the rule admits `~/.ssh` and refuses a pulse socket — so it was
+protecting nothing while blocking the one legitimate case. Claim enumeration plus the approval
+already do the work; what survives is a **correctness rule** (the approved string must resolve to
+the bound path), not a gate. Consequence, and it is why this entry is load-bearing rather than
+archaeology: withdrawing the rule made the sockets expressible, which made `bundled_loopholes/audio`
+DELETABLE, which freed the reserved name `audio` — because the reservation set was DERIVED from the
+bundled directory rather than listed beside it. **That is the domino that let OQ-LP11 finish on
+2026-08-19.** The original entry follows unedited, because the leaning it argues for is the tempting
+answer and the reason it was rejected is the useful part.
+
+> **⚠ Do not re-derive "add a declared, enumerated runtime-socket vocabulary."** It was the leaning,
+> it was ruled against, and the withdrawal is strictly simpler. Adding vocabulary to a rule whose
+> cases are inverted keeps the inversion.
+
+**OQ-LP14 (original entry, 2026-08-14) — the subset has no vocabulary for a RUNTIME-DIR SOCKET, which is the commonest non-home
+host path there is.** §3.1's requirement 1 admits
 `{loophole_dir}/…` and home-relative paths and refuses everything else, correctly (see the argument
 there). Measured consequence: `${XDG_RUNTIME_DIR}/pulse/native` has **no legal spelling** — `$VAR` is
 refused, the literal is refused as absolute, and it is not under `$HOME` — so the socket half of
@@ -2348,18 +2497,53 @@ extension-point argument carries it — a loophole manifest is a public surface 
 is a field third parties will write, and designing it once now beats retrofitting it later. With selection as the mechanism,
 `pack-capabilities.md` applies only to the bundled set (§6). **Resolved by:** a maintainer ruling.
 
-**OQ-LP7 — the `guest` notch.** A loophole is coherent at `guest` and incoherent at `host`, but
+💬 **OQ-LP7 — the `guest` notch.** A loophole is coherent at `guest` and incoherent at `host`, but
 `Target.Fields()` funnels both into `HostFields()`. This kind is the first case where that funnel is
 wrong for a *reason* — and note §8's finding that macos-user is inert **today**, which makes the
-question less hypothetical than draft 1 treated it. **Resolved by:** Phase 7 stating the guest census.
+question less hypothetical than draft 1 treated it.
 
-**OQ-LP8 — how does an execution approval survive a moving pin without re-prompting forever?** §4.3
+**What the answer decides:** whether `guest` gets its own field census or keeps borrowing the host's.
+It blocks nothing shipped (macos-user starts no host services at all), but it determines the shape of
+the first macos-user loophole rather than being discovered by it.
+
+_Leaning:_ split the census when Phase 7 lands and not before — the funnel is wrong for a reason, but
+inventing a third field set with zero consumers is how the vocabulary grows faster than the system.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+💬 **OQ-LP8 — how does an execution approval survive a moving pin without re-prompting forever? STILL
+OPEN, re-verified 2026-08-23.** §4.3
 G2b anchors an exec-bearing approval to the commit, giving `ApprovedAt` its first reader. The cost is
 that a `?ref=main` pack re-prompts on every commit. Alternatives: fold a **digest of the loophole
 module dir** into the claim string (re-prompts only when the daemon's own files change — more
-precise, more machinery), or document tag-pinning as the supported shape for exec-bearing packs. My
-read: **commit anchoring now, digest later if the friction is real** — the friction is visible and
-recoverable, and content-blind approval is neither. **Resolved by:** a maintainer ruling.
+precise, more machinery), or document tag-pinning as the supported shape for exec-bearing packs.
+
+> [!WARNING]
+> **Header revision 3 said this was "all but closed" by OQ-LP13. It is not closed, and the gap is
+> still live in the code.** Verified 2026-08-23: `LockEntry.Commit` exists and is WRITTEN at install
+> and update time (`internal/cli/pack.go:1110`, `:1129`, and read back for display at `:1335-1338`),
+> but it is **never consulted at launch** — `rg Commit` across `internal/cli/run/`,
+> `internal/packload/` and `internal/packstage/` returns nothing. `HostAccessApproved`
+> (`internal/packsrc/lock.go:82-96`) **compares claim STRINGS only**, and its own doc comment says
+> so: *"never the commit the approval was granted against."* The `ApprovedAt` field was deliberately
+> NOT added rather than left unused (`lock.go:60-70`), because a field nothing reads is a guarantee
+> that was never there (`gate-placement-principle.md`, "The artifact form"). The hole is pinned by
+> an assertion instead — `TestHostAccessApprovedComparesClaimStringsOnly` — so it fails if the
+> behaviour changes silently. **The gap in one sentence: a fetched pack at a mutable ref whose daemon
+> FILE changes under an unchanged argv re-installs with no prompt** (§4.3 G2b).
+
+**What the answer decides:** whether yolo's host-execution approval is content-anchored or
+argv-anchored. Argv-anchored is what ships. It is the last unbuilt item of the landing order and the
+only invariant in §4.3 that is a maintainer decision rather than pending work.
+
+_Leaning:_ **commit anchoring now, digest later if the friction is real** — the friction is visible
+and recoverable, and content-blind approval is neither. Unchanged since 2026-08-14; OQ-LP13's
+placement rule narrowed the exposure (the user-scope edit IS the confirmation) but did not remove
+this row, because a *fetched* pack's module dir is not user-scope-edited.
+
+**Answer:**
+> _(empty — fill in when decided)_
 
 **OQ-LP9 — NESTED JAILS NEED THE SCOPE MODEL TO RECURSE. ✅ BUILT 2026-08-14** (all three parts; the
 Landed note is at the end of this entry). It was the last properly open question, and review grew it.
@@ -2579,8 +2763,34 @@ so retirement does NOT fix the no-selection-step objection above — what improv
 pack-shipped loophole emits claims and reaches `notePackHostAccess`, where the home directory prints
 nothing. Visibility, not gating; say so rather than overclaiming.
 
-**OQ-LP11 — do BUNDLED loopholes become official packs? RULED: YES, and `audio` shipped IN this
-batch. ✅ FIRST STEP LANDED 2026-08-14** — §7's example is promoted from a doc artifact to a
+✅ **OQ-LP11 — do BUNDLED loopholes become official packs? RULED: YES — COMPLETE 2026-08-19.**
+The prize this entry names — *"`AGENTS.md`'s 'AGENTS ARE PACKS. Core does not know what an agent is'
+becomes true of loopholes too"* — is **collected**. Verified 2026-08-23: `bundled_loopholes/` does not
+exist; all five shipped loopholes are pack contributions. The four-commit finish, in order, each
+closing the blocker this entry priced:
+
+| Commit | Date | What it closed |
+|---|---|---|
+| `3d5805cd` | 2026-08-19 | `packs/host-processes` — the blocker was §5.4 reason 3, already graded ❌ (an official pack is embedded in the same binary, so `cmd/yolo-ps` is no obstacle). It *"goes dark until you ask"*, after `55c18ed4` moved allowlist resolution to launch time, in core. |
+| `ea6f5e5b` | 2026-08-19 | the two audio loopholes become ONE, in the pack, **under the plain name** — unblocked by OQ-LP14's withdrawal freeing the reserved name. |
+| `7df7c5aa` | 2026-08-19 | `host_daemon.scope: "host"` + **`internal/brokerrelay` deleted** — the two halves of this entry's *"the broker still waits on its stated blocker"*. |
+| `e391d0f5` | 2026-08-19 | the broker moves into `packs/claude`; `ReservedLoopholeNames`, `ReservedName` and the pack-vs-reserved branch of the pre-flight all deleted with it. |
+
+**The sequencing prediction below was RIGHT, and it is worth keeping for that reason:** the entry
+called `audio` the low-stakes first consumer of implicit selection, and said the remaining half
+depended on OQ-LP14. Both held — OQ-LP14 resolved 2026-08-17, and the rest followed two days later.
+`journal` and `cgroup-delegate` were never in this entry's scope (they were Go functions the run
+pipeline called by hand, not bundled modules) and became packs in the same sweep.
+
+> [!WARNING]
+> **What replaced the reservation, because there is no list to add a name back to.** `packs/claude`
+> OCCUPYING `claude-oauth-broker` is the protection — loophole names are sole-owned across packs,
+> **fatally** — plus the origin gate. And the broker is a **contribution of `packs/claude`, not a
+> pack of its own**: a second pack would reinstate the selection step, i.e. hand back the default-on
+> failure §5.4 reason 1 exists to prevent (`loophole-activation.md` OQ-A10).
+
+**Original entry, 2026-08-14 (first step): `audio` shipped IN this
+batch.** §7's example is promoted from a doc artifact to a
 deliverable, which costs a relabel and buys the consolidation immediately. The broker still waits on
 its stated blocker. Raised in review: *"why not a real pack? it
 can still come from a built in shipped namespace or whatever."* §5.4 re-grades draft 2's three
