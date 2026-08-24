@@ -374,6 +374,12 @@ should **print**: a fourth verdict beside `[PASS]`/`[FAIL]`/`[WARN]`, or a scope
 - **Should `yolo check` validate an npm selector's shape?** Now that a `package` string can carry a
   version, a typo like `foo@@1.2.3` reaches npm and fails at first use *inside* the jail, where the
   diagnosis is worst. Cheap host-side check; needs a ruling only on how strict to be.
+- **A test that pins half of what it enumerates** *(found 2026-08-23; the shape AGENTS.md warns
+  about)*. `environment-manager-plan.md` cites `TestApplySealedClosure` as the test for
+  `applySealed`; it exercises only the `yolo-jail.local.jsonc` branch and **never the capture-overlay
+  refusal** at `apply.go:631-638` — so half the behaviour the doc enumerates would survive being
+  deleted. Ask the AGENTS.md question of it: *does it fail if I delete the call site?* No ruling
+  needed; it needs a second case.
 - ~~**Three CODE COMMENTS the docs now outrank.**~~ **FIXED 2026-08-23** (`6e84f1cf`), comment-only,
   `check-ci` green: `mcp.go` advertised `${VAR}` interpolation removed by ruling on 2026-08-03 while
   its own header 45 lines above said otherwise; `footprint.go` called a loophole-name collision
