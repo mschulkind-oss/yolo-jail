@@ -13,6 +13,19 @@ was taken in this development jail on 2026-08-18 and is labelled **MEASURED**, *
 (traced but not observed running) or **NOT MEASURED**. This document exists to raise questions, not
 to settle them.
 
+> [!NOTE]
+> **Re-verified 2026-08-23. All four headline findings HOLD; one of them moved on its own, which is
+> the finding demonstrating itself.** In order: mise is still machine-global and evergreen per launch;
+> `MISE_CACHE_DIR` is still the ephemeral `/tmp/mise-cache` while `MISE_DATA_DIR` is still the shared
+> `/mise` ([`assemble.go:566-567`](../../internal/cli/run/assemble.go)); dropping a pack still never
+> uninstalls its program (the tree's only `npm uninstall -g` is still the LSP sentinel's); and the
+> launcher is still PATH-shadowed after first use. **What moved:** the `go/1.26` alias in the shared
+> store repointed from `1.26.6` to `1.26.7` on 2026-08-20 and `1.26.6` is **gone from disk** —
+> see [§4.2](#42-drift-mise-is-machine-global-evergreen-every-launch-and-repoints-aliases-in-place).
+> Nine line anchors had gone stale against a moving tree and were corrected in the same pass — the
+> `paths.go`, `shims.go`, `packupdate.go` and `config_ref.txt` citations. **No claim changed as a
+> result**; in every case the cited code was still there, at a different line.
+
 **The short version.** Executable content reaches a jail through four mechanisms, and they are not
 four flavours of one thing: content is **baked** (nix, hermetic, recorded), **regenerated** (packs,
 skills, surfaces — cleared and rebuilt every launch), **installed-and-kept** (agent CLIs, LSP
@@ -160,12 +173,18 @@ at all."*
 created today resolves `@latest` today. That is the concrete answer to *"do two jails a month apart
 get the same bytes?"* — no, and nothing anywhere notices.
 
+> **RE-MEASURED 2026-08-23: every row above is byte-identical, five days and many launches later.**
+> Same versions, same symlink dates in `~/.npm-global/bin/`. That is not a null result — it is the
+> freeze in §4.1 holding under observation. Nothing in this jail moved an agent CLI, because in
+> steady state nothing can: the launcher that would notice is shadowed
+> ([§5.2](#52-a2--lazy-install-from-a-launcher-the-status-quo)), and `yolo pack update` was not run.
+
 ### 4.2 Drift: mise is machine-global, evergreen every launch, and repoints aliases in place
 
 `setupScript` runs `mise install --quiet && mise upgrade --yes` **unconditionally on every launch**
 (`internal/cli/run/command.go:8-22`, a frozen-contract constant). The store is a single bind —
 `-v <miseStore>:/mise` (`internal/cli/run/assemble_parts.go:117-122`), backed by
-`paths.GlobalMise()` = `~/.local/share/yolo-jail/mise` (`internal/paths/paths.go:267`) — **one store
+`paths.GlobalMise()` = `~/.local/share/yolo-jail/mise` (`internal/paths/paths.go:323`) — **one store
 for every workspace and every nesting depth.**
 
 **MEASURED**, `/mise/installs`:
@@ -257,6 +276,38 @@ simply repointed the name.
 > running**, because a *different* workspace's launch repointed an alias the running jail resolves
 > through. Nothing in the running jail was touched, and nothing recorded that anything changed.
 
+> [!IMPORTANT]
+> **The alias moved, and it took the old directory with it. MEASURED 2026-08-23, and this is no
+> longer a mechanism argument — it is an observation.** On 2026-08-18 `go/1.26 -> ./1.26.6` with
+> `1.26.2` beside it. Today:
+>
+> ```console
+> $ ls -l /mise/installs/go/
+> 1      -> ./1.26.7     (2026-08-20)
+> 1.24   -> ./1.24.13    (2026-08-21)
+> 1.26   -> ./1.26.7     (2026-08-20)      # was ./1.26.6 on 2026-08-18
+> latest -> ./1.26.7     (2026-08-20)
+> 1.24.13/  1.26.2/  1.26.7/               # 1.26.6 is GONE
+> ```
+>
+> Two facts, and the second is worse than the prediction this section made. (i) The alias this repo's
+> `mise.toml` resolves through (`go = "1.26"`) **repointed two days after the measurement above**, in
+> machine-global state, with no record anywhere of what it used to mean. (ii) `1.26.6` **is not on
+> disk any more** — so the concrete PATH entry §4.2 measured on 2026-08-18,
+> `/mise/installs/go/1.26.6/bin`, is now a **dangling** path, not merely a stale one. The live `PATH`
+> of this jail reads `/mise/installs/go/1.26.7/bin`. **INFERRED from the 2026-08-18 reading, not
+> re-observed:** a jail launched before 2026-08-20 and still running therefore has a *broken*
+> toolchain entry on its `PATH`, not a different one — I did not keep such a jail alive to confirm
+> it. (The launch path prunes dangling store *symlinks* under `YOLO_STORE_PRUNE_OK`,
+> [`command.go:9-14`](../../internal/cli/run/command.go); it does nothing for a `PATH` already
+> exported into a live container.)
+>
+> The prediction was *"a jail's toolchain can change while it is running."* The correction is that it
+> can also **disappear**: the mutable-pointer half of `installs/` is shared, and so is the garbage
+> collection of what the pointer used to name. `node/24 -> 24.19.0` and
+> `staticcheck/latest -> 2026.1` (with `0.7.0` still beside it) are unchanged — the fossils survive
+> until something prunes them, and nothing says which.
+
 **Why this matters for the design rather than being a mise complaint.** It splits the fix cleanly,
 and the split is the same one §3 draws for every delivery class:
 
@@ -279,10 +330,37 @@ where its value was all along.
 
 ### 4.3 History: a jail is the union of every pack ever selected, not the current pack set
 
-**MEASURED:** this jail's user config selects `"packs": ["claude"]` and `~/.yolo-launchers/` holds
-exactly two launchers (`claude`, `pnpm`) — yet `~/.npm-global/lib/node_modules` still holds
-`@github/copilot`, `@openai/codex`, `@earendil-works/pi-coding-agent` and a stray `fzf` from a
-deleted test pack, and `~/.local/bin` holds a **189 MB** `agy` binary.
+**MEASURED 2026-08-18:** this jail's user config selects `"packs": ["claude"]` and
+`~/.yolo-launchers/` holds exactly two launchers (`claude`, `pnpm`) — yet
+`~/.npm-global/lib/node_modules` still holds `@github/copilot`, `@openai/codex`,
+`@earendil-works/pi-coding-agent` and a stray `fzf` from a deleted test pack, and `~/.local/bin`
+holds a **189 MB** `agy` binary.
+
+> **RE-MEASURED 2026-08-23 — the illustration changed, the finding got sharper.** The user config no
+> longer says `["packs": ["claude"]]`: it now selects `claude, pi, codex, agy, opencode` plus three
+> `file://` packs, and `~/.yolo-launchers/` holds six launchers to match. So most of the original
+> list is now *legitimately* present, and a reader checking the old numbers would find them wrong.
+>
+> **What survives is the cleaner form of the same evidence — the orphans that no config line can
+> explain:**
+>
+> | Installed | Selected by a pack? | Has a launcher? |
+> | :--- | :--- | :--- |
+> | `@github/copilot` 1.0.48 (linked 2026-05-15) | ❌ **no** — `packs/copilot` exists but is not selected | ❌ no |
+> | `fzf` 0.5.2 (installed 2026-08-02) | ❌ **no** — from a test pack deleted three weeks ago | ❌ no |
+> | `agy`, 189 MB in `~/.local/bin` (2026-07-27) | ✅ yes, today | ✅ yes |
+>
+> Two programs are installed in this jail that **nothing in the current configuration asks for**, and
+> the system has no way to say so. The `agy` row is the interesting one for the *opposite* reason: it
+> re-entered the config, so its 189 MB stopped being an orphan by luck rather than by any act — which
+> is exactly why "the jail is its config's history" is the accurate description and "the jail is its
+> config" is not.
+>
+> The `fzf` orphan also shows the PATH rule doing its job, which is worth separating from the defect:
+> the image bakes `fzf 0.74.2` at `/bin/fzf` (a nixpkgs symlink) while the orphaned **npm** package
+> is a wholly unrelated `fzf 0.5.2`. Nobody ever reaches the orphan, because `~/.yolo-launchers` is
+> ordered last and there is no launcher for it anyway. **Unreachable is not removed** — it is 
+> occupying a per-workspace home with no record of why.
 
 Dropping a pack removes its **launcher** (`resetAnchorDir` clears the anchor dir contents-only every
 boot, `internal/entrypoint/shims.go:13-29`) and now removes its **staged tree** (`packstage` rule 3,
@@ -305,7 +383,7 @@ Two consequences worth stating separately:
 
 *"This is user level, but the realization is workspace level"* is half right, and the wrong half is
 the one that decides the design. **READ FROM CODE**, `internal/cli/run/assemble_parts.go:64-122`
-and `internal/cli/run/assemble.go:564`:
+and `internal/cli/run/assemble.go:559-575`:
 
 | Thing | Scope | Backing |
 | :--- | :--- | :--- |
@@ -316,7 +394,7 @@ and `internal/cli/run/assemble.go:564`:
 | **mise tools** | **machine-global, mutated in place** | `/mise` (`:117-122`) |
 | the base home | machine-global, **read-only** | `paths.GlobalHome()` mounted `:ro` (`:69`) |
 | the image | machine-global by **name**, per-config by **content** | one `localhost/yolo-jail:latest` tag; `packages:` is workspace-settable |
-| the pack store / the pack lockfile | machine-global store / **user-scope** lockfile | `paths.PacksDir()` (`paths.go:303`) / `~/.config/yolo-jail/packs.lock.json` |
+| the pack store / the pack lockfile | machine-global store / **user-scope** lockfile | `paths.PacksDir()` (`paths.go:359`) / `~/.config/yolo-jail/packs.lock.json` |
 | pack trees, skills, surfaces | per workspace, **derived** | cleared and re-staged every launch |
 
 **So the pin the premise imagines, the bytes it would govern, and the cache and stamps that mediate
@@ -330,13 +408,20 @@ The stamp/spec split is the shape of the bug this causes, already in production:
   2026-08-18. The stamps survive boots and are shared by every workspace on the machine — so the
   template's `elif [ ! -f "$STAMP" ]` branch, commented *"first run since jail boot"*, in fact fires
   at most once per **machine** per binary.
+
+  > **RE-MEASURED 2026-08-23: exactly the same two stamps, exactly the same two dates, still no
+  > `.spec` beside either** — while the launchers were regenerated again (2026-08-23 14:16). Five
+  > more days and every launch in them moved neither stamp. That is the strongest single piece of
+  > evidence for [OQ-PD8](#-oq-pd8--is-the-launchers-informational-poll-reachable-at-all): a stamp is
+  > touched on **every** poll, hit or miss ([`shims.go:429`](../../internal/entrypoint/shims.go)), so
+  > an unmoved stamp is a poll that never ran.
 - **READ FROM CODE, NOT MEASURED:** `_do_install` ends with `touch "$STAMP"`
-  (`shims.go:352-377`), so a **cold install in workspace B writes the stamp workspace A throttles
+  (`shims.go:379-404`), so a **cold install in workspace B writes the stamp workspace A throttles
   on** — the most likely explanation for a `claude.stamp` dated two weeks after the binary it
   describes.
 - **READ FROM CODE, NOT MEASURED:** if two workspaces ever carried *different* pinned specs for one
   bin, the `PINNED` branch compares `$SPEC` against a shared `SPEC_FILE`
-  (`shims.go:483-494`), so each would reinstall on every launch, forever.
+  (`shims.go:510-519`), so each would reinstall on every launch, forever.
 
 ### 4.5 The record that does not exist
 
@@ -375,7 +460,8 @@ exactly the cost [`trust-paths.md`](trust-paths.md) OQ-TP4 option (a) named.
 
 **The download problem inverts rather than disappears.** **MEASURED:** the npm download cache is
 already machine-global and holds **645 MB** (`~/.cache/npm/_cacache`, plus an `_npx` tree — so
-`npx -y` MCP packages cache there too). A second workspace installing a version this machine already
+`npx -y` MCP packages cache there too). **RE-MEASURED 2026-08-23: 672 MB.** It only grows; nothing
+prunes it, which is R4. A second workspace installing a version this machine already
 fetched pays essentially no download. Baking moves that cost *into every image build*, where it is
 paid per config and per rebuild instead of once per machine.
 
@@ -405,7 +491,7 @@ at all.
 (`$NPM_CONFIG_PREFIX/bin`, `~/.local/bin`) precede the launcher dir in the live PATH. So the
 launcher runs **once per (workspace × binary)** and is shadowed forever after; the only caller that
 runs one afterwards is `yolo pack update`, by absolute path
-(`internal/cli/packupdate.go:108-127`).
+(`internal/cli/packupdate.go:105-115`, resolved to an absolute path at `:145-146`).
 
 > **Verdict: keep the mechanism, reject its current contract.** Lazy install is the right shape for
 > a class-3 tool. What it lacks is a receipt, a reconcile and a removal — which is A3.
@@ -421,8 +507,8 @@ boot.
 
 | Piece | Already built as |
 | :--- | :--- |
-| the machine-global artifact cache | `NPM_CONFIG_CACHE=/home/agent/.cache/npm` — 645 MB, shared by every workspace |
-| the explicit update act | `yolo pack update` (npm-only and jail-only today, `packupdate.go:95-102`) |
+| the machine-global artifact cache | `NPM_CONFIG_CACHE=/home/agent/.cache/npm` — 645 MB on 2026-08-18, 672 MB on 2026-08-23, shared by every workspace |
+| the explicit update act | `yolo pack update` (npm-only and jail-only today, `packupdate.go:95-103`) |
 | the reconcile loop | the LSP sentinel's install **and uninstall** (`shell.go:245-312`) |
 | the receipt's file format | `packs.lock.json` — schema-versioned, already the place a resolution would go |
 
@@ -487,11 +573,11 @@ A new mechanism does not need a new design; it needs to land in one of three tie
 | :--- | :--- | :--- | :--- |
 | **Managed** | yolo runs the install | `program via npm`, `program via installer`, LSP recipes | all six verbs: record, obey, reconcile, remove |
 | **Observed** | a third party installs into a store yolo mounts | **mise**, claude plugins (`installClaudePlugins`, `internal/entrypoint/boot.go:311-337`) | record and compare; obeying requires the third party's own pin (mise has one; we do not enable it) |
-| **Unmanaged** | yolo never sees the resolution | `npx -y <pkg>` in an MCP argv (`config_ref.txt:757,769`), a vendor CLI's self-updater (claude's, `agy`'s) | **none** — the only honest act is to enumerate it |
+| **Unmanaged** | yolo never sees the resolution | `npx -y <pkg>` in an MCP argv (`internal/cli/config_ref.txt:917,929`), a vendor CLI's self-updater (claude's, `agy`'s) | **none** — the only honest act is to enumerate it |
 
 The launcher template already states the tier-3 case exactly, about silent updates:
 *"a silent change has no act to pin to, so no pin, lockfile field or approval prompt can ever cover
-it"* (`shims.go:379-395`). That sentence is the boundary of the seam, written down before the seam
+it"* (`shims.go:406-431`, the sentence at `:412-413`). That sentence is the boundary of the seam, written down before the seam
 existed.
 
 **Applied to mise, which is the test case that already exists:** it lands in tier 2. We can record
@@ -588,7 +674,7 @@ one) before this document's uniformity argument is even reached.
 | R1 | **A receipt that nothing enforces becomes another display-only field.** The precedent is exact: `LockEntry.Commit` has four readers and all of them print (`trust-paths.md` §1). | Decide enforcement in the same change that adds the record, even if the decision is "reports only, on purpose, and here is where it would gate" — [OQ-PD7](#-oq-pd7--does-the-receipt-gate-the-launch). |
 | R2 | **A ledger in the wrong scope is worse than none.** The stamp/spec split is the live proof: a machine-global record describing a per-workspace install already produces cross-workspace throttle bleed (§4.4). | Settle [OQ-PD1](#-oq-pd1--where-does-the-receipt-live) before writing a file. A receipt describes a *realization*, and a realization has exactly one location. |
 | R3 | **Removal is destructive and the bytes are large.** Uninstalling on pack-drop can delete a 189 MB binary a user still runs from another workspace's muscle memory. | Reconcile **reports** by default; removal happens on an explicit act, never at boot. The LSP sentinel's silent uninstall is the pattern *not* to copy at this size. |
-| R4 | **An unbounded artifact cache.** 404 GiB of image tars accrued in 24 days with a hint firing and nothing pruning (`image-staging` §1.6); npm's cacache is already 645 MB and claude keeps 4 versions (1.04 GB) per workspace. | Retention lands with the cache, not after it, and hangs off `yolo prune`. |
+| R4 | **An unbounded artifact cache.** 404 GiB of image tars accrued in 24 days with a hint firing and nothing pruning (`image-staging` §1.6); npm's cacache is already 645 MB (672 MB five days later, nothing pruning) and claude keeps 4 versions (1.04 GB) per workspace. | Retention lands with the cache, not after it, and hangs off `yolo prune`. |
 | R5 | **A seam that implies tier-3 coverage is a lie.** An `npx -y` argv and a vendor self-updater cannot be recorded at all. | Enumerate unmanaged mechanisms in the same surface that reports the managed ones (§5.5, §6.1). |
 | R6 | **The closed `via` enum turns the next mechanism into a boot refusal** on any pre-`just load` image (§6.2). | Extend the tolerance *before* adding a third value: skip-and-report under `DecodeTolerant`, refuse loudly under `Decode`. |
 | R7 | **Tier-2 uniformity depends on a third party's lockfile.** Enabling mise's `locked` makes our guarantee a function of mise's format and cadence, and **NOT MEASURED** here is what enabling it does to a shared `/mise`. | Treat tier 2 as "record and compare" until a measurement exists; do not promise obedience we do not own. |
@@ -765,6 +851,16 @@ to the reconcile in §10 — and the freeze in §4.1 currently has **no** report
 _Leaning:_ **It is unreachable in steady state, and the stamp is explained by the shared scope rather
 than by a poll.** Confirmable cheaply: clear one stamp, launch, and see whether it reappears without
 `yolo pack update`.
+
+> **NEW EVIDENCE, MEASURED 2026-08-23, and it moves this from a leaning to nearly a finding.** Five
+> days and many launches after the reading above, `claude.stamp` is **still dated 2026-08-05** and
+> `fzf.stamp` **still 2026-08-02** ([§4.4](#44-the-scope-mismatch-the-maintainers-premise-corrected)).
+> The stamp is touched on **every** poll, hit or miss — that unconditionality is deliberate and is
+> what the OQ-TP5 build added ([`shims.go:429`](../../internal/entrypoint/shims.go)) — so **an
+> unmoved stamp is a poll that did not run.** The informational channel OQ-TP5 built has therefore
+> emitted nothing in this jail for eighteen days. It does not yet distinguish *"shadowed"* from
+> *"ran and found nothing to say"*, because a no-op poll would still have touched the stamp; that is
+> what the clear-one-stamp experiment above settles, and it is still worth doing.
 
 **Answer:**
 > _(empty — fill in when decided)_

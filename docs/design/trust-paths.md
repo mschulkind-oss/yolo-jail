@@ -8,8 +8,9 @@ summary: "Twenty-five paths, enumerated from the code, each with when trust is e
 
 # Every path by which someone else's content runs in your jail
 
-**Status:** INVENTORY, 2026-08-17. Four questions settled since, two of them BUILT (all 2026-08-18);
-anchors re-verified against the code 2026-08-18. **Three remain open — [OQ-TP3](#-oq-tp3--given-1-is-pinning-worth-building-at-all-and-where-first),
+**Status:** INVENTORY, 2026-08-17. Four questions settled since, and **two of them SHIPPED and are
+still in the tree** — OQ-TP5 (`b3a29ad8`) and OQ-TP6 (`6385dfbb`), both 2026-08-18, both re-verified
+against the code **2026-08-23** with the anchors inline below. **Three remain open — [OQ-TP3](#-oq-tp3--given-1-is-pinning-worth-building-at-all-and-where-first),
 [OQ-TP4](#-oq-tp4--where-does-an-embedded-packs-npm-version-get-pinned) and
 [OQ-TP7](#-oq-tp7--the-refusal-is-fatal-the-preflight-and-the-approve-path-are-not-caught-up)** —
 and the first two are one question wearing two hats: *where does an npm pin live, and who is required
@@ -49,8 +50,23 @@ against exactly one threat, the silent update.
 | :--- | :--- | :--- | :--- |
 | **OQ-TP1** | **Obviated.** There is no decision to carry into a jail, because a refused contribution refuses the launch (OQ-TP6). The hardcoded `mayAccessHost=true` stays — deriving it would be a regression | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
 | **OQ-TP2** | **Nothing explicit.** Agent context needs no gate and no separate disclosure — the lockfile's commit pin closes over it, because it closes over the whole tree | 2026-08-18 | [§2](#agent-context-needs-no-gate-of-its-own) |
-| **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report*. **Built 2026-08-18**, minus the pin it has nowhere to record (OQ-TP4) | 2026-08-18 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
-| **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **Built 2026-08-18** | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
+| **OQ-TP5** | **No evergreen npm.** `install` obeys the lockfile; `update` is the only act that resolves a new version; the hourly poll may only *report*. **Built 2026-08-18 (`b3a29ad8`)**, minus the pin it has nowhere to record (OQ-TP4) | 2026-08-18 | [§1 row 1](#where-a-pin-would-change-the-outcome) |
+| **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **Built 2026-08-18 (`6385dfbb`)** | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
+
+> [!NOTE]
+> **Both builds re-verified in the tree 2026-08-23, by anchor rather than by commit.** A merged commit
+> is not evidence that the behaviour is still there, so:
+> **TP5** — [`shims.go:423-430`](../../internal/entrypoint/shims.go) is `_poll_and_report`, which runs
+> `npm view` and *prints* `"<installed> → <latest> is available. Run 'yolo pack update'"`; the only
+> resolving path is `_update`, reachable solely through
+> [`shims.go:486-498`](../../internal/entrypoint/shims.go)'s `YOLO_PACK_UPDATE=1` guard, which exits
+> instead of exec'ing; `yolo pack update` is the one setter
+> ([`packupdate.go:60`](../../internal/cli/packupdate.go)); the cold branch
+> ([`shims.go:500-509`](../../internal/entrypoint/shims.go)) is still deliberately untouched.
+> **TP6** — [`run/packs.go:229`](../../internal/cli/run/packs.go) accumulates `packRefusals(p)` and
+> `:248` returns `refusedLaunchError`, ahead of the mechanical pre-flights; the message itself is
+> [`packrefusal.go:104-119`](../../internal/cli/run/packrefusal.go) and still names the pack, the
+> claim and all three ways out.
 
 > [!WARNING]
 > **This document's questions were renumbered on 2026-08-18, and the reason is worth keeping.** They
@@ -89,13 +105,13 @@ becomes a gate only if three things hold together — (i) enforced at use, (ii) 
 ### The lockfile is a receipt, not a gate
 
 This is the finding both open questions turn on, so it gets stated once, here, rather than repeated
-per row. `LockEntry` ([`lock.go`](../../internal/packsrc/lock.go#L32-L55)) records `Name`, `Source`,
+per row. `LockEntry` ([`lock.go`](../../internal/packsrc/lock.go#L33-L53)) records `Name`, `Source`,
 `Commit`, `Ref` and `ApprovedHostAccess`. Its two halves behave completely differently:
 
 | Field | Enforced at launch? | Evidence |
 | :--- | :--- | :--- |
-| `ApprovedHostAccess` | **Yes** — `packMayAccessHost` ([`run/packs.go`](../../internal/cli/run/packs.go#L787)) grants a fetched pack host access only for claims recorded here, and a claim set that grew re-prompts | this is a real gate |
-| `Commit` · `Ref` | **No.** Every reader is **display-only**: the moved-pin message ([`pack.go:1110-1112`](../../internal/cli/pack.go#L1110-L1112)) and the `pack status` listing ([`pack.go:1335-1338`](../../internal/cli/pack.go#L1335-L1338)). The launch path never consults either — it re-resolves the **config's ref** against the local mirror | verified 2026-08-18: four readers, all printing |
+| `ApprovedHostAccess` | **Yes** — `packMayAccessHost` ([`run/packs.go`](../../internal/cli/run/packs.go#L794)) grants a fetched pack host access only for claims recorded here, and a claim set that grew re-prompts | this is a real gate |
+| `Commit` · `Ref` | **No.** Every reader is **display-only**: the moved-pin message ([`pack.go:1110-1112`](../../internal/cli/pack.go#L1110-L1112)) and the `pack status` listing ([`pack.go:1335-1338`](../../internal/cli/pack.go#L1335-L1338)). The launch path never consults either — it re-resolves the **config's ref** against the local mirror | verified 2026-08-18, **still true 2026-08-23**: four readers, all printing |
 
 That split is **OQ-LP8 / G2b**, already open and already ruled in shape. It is the same shape the
 origin gate had before [§3.1](#31-a-refused-contribution-refuses-the-launch-): *true of the decision,
@@ -148,7 +164,7 @@ false of its enforcement.*
 
    > [!WARNING]
    > **npm installs are deliberately NOT origin-gated, and this ruling does not change that.**
-   > `HonoredInstalls` ([`packload.go`](../../internal/packload/packload.go#L268)) gates a
+   > `HonoredInstalls` ([`packload.go`](../../internal/packload/packload.go#L254-L278)) gates a
    > `curl`-piped installer and lets an npm install through, on the reasoning that a registry package
    > is *"the same trust as any dependency the user already installs."* That reasoning should stay:
    > this row is about **when the bytes change**, not about **whose bytes they are.**
@@ -367,13 +383,13 @@ origin decides exactly one thing — whether a host-access declaration is honore
 `MayAccessHost` is that verdict, carried on the loaded pack. For the first two it is `true` by
 construction ([`packs.go`](../../internal/config/packs.go#L175):
 `MayGrantHostFiles() { return p.Origin() != OriginFetched }`). For a **fetched** pack it is decided
-per launch by `packMayAccessHost` ([`run/packs.go`](../../internal/cli/run/packs.go#L787)), and it is
+per launch by `packMayAccessHost` ([`run/packs.go`](../../internal/cli/run/packs.go#L794)), and it is
 `true` only when the lockfile records approval for **every** host-access claim the staged pack
 *currently* makes: a fresh install never run through `yolo pack install` **fails closed**; a pin that
 moved and **gained** a claim fails closed and re-prompts; a missing or corrupt lockfile **approves
 nothing**. So the gate is not *"fetched packs may never"* — it is *"a fetched pack reaches the host
 only for the things you were shown and said yes to."* The claims are strings computed from the
-manifest ([`contributes.go`](../../internal/packdecl/contributes.go#L655-L670)) — `reads-host <path>`,
+manifest ([`contributes.go`](../../internal/packdecl/contributes.go#L655-L671)) — `reads-host <path>`,
 `mount <host> -> /ctx/<into>`, `briefing <src>`, and **`installer <URL>`** — and they gate host
 directory mounts, `curl`-piped installers, a wrapped plugin's code-running components, and a shipped
 loophole's daemon, intercepts, binds and devices. All of them flow through one merged helper on
@@ -509,9 +525,31 @@ write. The only four user-scope-only things are `packs`, source-bearing `host_fi
 **What survives:** P1's *shape* is right — content-addressing is the only answer to "is this the same
 code" — but it is worth building in the three places of §1 and nowhere else.
 
+> [!NOTE]
+> **"P1" in the paragraph above is `pack-execution-trust.md`'s P1** (*a fetched pack may cause
+> execution only of content it pins*), **not this document's** [P1](#p1-trust-flows-downward-and-a-parent-controlling-its-child-is-not-a-finding)
+> (*trust flows DOWNWARD*), which was added later in §1 and is unrelated. Neither was renumbered —
+> both are cited as written, and a rename would break more than it clarifies. The two never appear in
+> the same argument; this note exists so a reader who lands here from a grep does not merge them.
+
 ---
 
 ## Open Questions
+
+> [!IMPORTANT]
+> **A sibling doc proposes dispositions for the two npm questions below, and it has not been applied
+> here.** [`program-delivery.md`](./program-delivery.md) §8.1 (2026-08-18) argues that **OQ-TP4 is
+> RETIRED as posed** — all three of its venues are inside the pack system, and the identical question
+> is live for mise, the LSP recipes and claude plugins, none of which is a pack — superseding it with
+> OQ-PD1 (*where does the receipt live?*) and OQ-PD5. It argues **OQ-TP3's still-open half is
+> INHERITED** at wider scope as OQ-PD6, with the reframe *"once a receipt exists, a declaration need
+> not carry a pin, because the receipt is the pin."*
+>
+> **Both questions below stay OPEN and stay spelled as they are.** The dispositions are *proposed*,
+> not applied — `program-delivery.md` says so explicitly — and neither doc may retire the other's ID
+> unilaterally. What survives from OQ-TP4 regardless of which way it goes: **option (a)'s cost**, that
+> pinning in the manifest makes yolo's release cadence the ceiling on agent-CLI freshness. Do not
+> re-derive it.
 
 ### 💬 OQ-TP3 — given §1, is pinning worth building at all, and where first?
 
@@ -590,6 +628,18 @@ refusal was a warning; OQ-TP6 made it a fatal and left the preflight behind. The
 that loop loads the staged tree with `e.MayGrantHostFiles()`, which is `false` for every fetched pack
 whether approved or not, so it cannot ask the question at all.
 
+> **Still true, re-verified 2026-08-23.** Both load sites still pass `e.MayGrantHostFiles()`
+> ([`check/packs.go:130`](../../internal/cli/check/packs.go) and
+> [`:162`](../../internal/cli/check/packs.go)); the `[PASS]` line is
+> [`:157`](../../internal/cli/check/packs.go) (`r.ok("%s: %d file(s) stage")`); and `packRefusals` —
+> the launch's fold — has **no caller anywhere under `internal/cli/check/`**. The sentence quoted
+> above is still the standard `check` holds itself to, at
+> [`check/packs.go:170`](../../internal/cli/check/packs.go) and its test at
+> [`packs_test.go:250`](../../internal/cli/check/packs_test.go). The two-gate scan is unchanged too:
+> [`hostaccessgates_test.go:88-93`](../../internal/packload/hostaccessgates_test.go) still names
+> exactly `internal/cli/pack.go`'s `resolveHostApproval` and `internal/cli/run/packs.go`'s
+> `packMayAccessHost`, so a third gate copied into `check` would still satisfy it vacuously.
+
 **It is deliberately not a four-line fix, which is why it is a question and not a bug report.**
 Answering it needs the LAUNCH's gate (`run.packMayAccessHost`: origin, else the lockfile approval over
 `packload.Pack.HostAccessClaims`), and
@@ -619,6 +669,16 @@ Neither is an argument for a "run it anyway" flag — that is the partial pack t
 question is whether the refusal message should SAY so (it currently names `yolo pack install` with no
 hint that it wants a terminal and a network), and whether a recorded approval should be expressible
 without a fetch.
+
+> **Still true, re-verified 2026-08-23, and the two ends have drifted apart rather than together.**
+> `refusedLaunchError` ([`packrefusal.go:104-119`](../../internal/cli/run/packrefusal.go)) still
+> spells the third choice as *"APPROVE — run `yolo pack install`, which shows every claim the pack
+> makes and records your yes in the lockfile"* — **no mention of a terminal, none of a network.**
+> Meanwhile the *other* end did catch up: `resolveHostApproval`'s own non-tty refusal
+> ([`pack.go:1228-1236`](../../internal/cli/pack.go)) now says *"approval requires an interactive
+> terminal, and stdin is not one … rerun `yolo pack install` from a terminal"*. So a user who has
+> already reached `pack install` is told; a user who only ever sees the launch refusal is not, and
+> the launch refusal is the one this ruling made the entire user experience of the failure.
 
 **What it decides:** whether OQ-TP6's "the reader can act on it" claim is true from every place a user
 actually reads it — a CI log, an offline laptop, and the preflight command the workflow tells them to
