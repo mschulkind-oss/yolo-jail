@@ -8,11 +8,12 @@ summary: "A loophole is active today because it was present and something it nam
 
 # Nothing reaches your host because it happened to be there — loophole activation
 
-**Status:** DECIDED 2026-08-18, and **substantially BUILT the same day**. Six rulings (§2) and
-**all thirteen questions settled** (Decision Ledger below). §1.3's table is the honest progress
-report: seven of its eight rows are ✅, and the one that is not — the broker's jail wiring — is
-blocked on a mechanism gap rather than a decision ([`broker-as-a-pack.md`](broker-as-a-pack.md)
-§6.1). Sequenced in [`roadmap.md`](../plans/roadmap.md).
+**Status:** DECIDED 2026-08-18, **BUILT IN FULL 2026-08-19**. Six rulings (§2) and **all thirteen
+questions settled** (Decision Ledger below). §1.3's table is the progress report and **every row that
+can be ✅ now is**: the last holdout — the broker's jail wiring — landed on 2026-08-19 when the
+manifest moved into `packs/claude` and `bundled_loopholes/` was deleted whole
+([`broker-as-a-pack.md`](broker-as-a-pack.md) §13). The only row that is deliberately *not* ✅ is the
+host nix daemon, which stays ungated by ruling (OQ-A11), not by omission.
 
 **The one real gap is closed.** `default_enabled` collided with a live `enabled` key and the design
 never said which won; OQ-A9 ruled one key, renamed, governing all four manifest sources.
@@ -25,15 +26,21 @@ never said which won; OQ-A9 ruled one key, renamed, governing all four manifest 
 > tolerance: an older yolo ignores `default_enabled` and runs `audio` **on** ([§2](#2-the-rulings),
 > [§4](#4-what-it-costs)).
 >
-> **The first trap is now DISCHARGED FOR EVERYTHING BUT THE BROKER, and the discharged part is
-> only half misleading — read which half.** Four names left the reserved set on 2026-08-18 by two
-> different mechanisms. `host-processes` and `audio` were reserved only as bundled DIRECTORY names,
-> read off the same embed.FS the loader materializes, so `git mv` retired them with no code change.
-> `journal` and `cgroup-delegate` were **constants** (`paths.BuiltinLoopholeNames`), so each had to
-> be deleted BY HAND in the commit that shipped its manifest — and that list is now gone entirely.
-> The broker's has the second shape: `broker.BrokerLoopholeName` is appended unconditionally, from
-> the broker's own constant. A reader generalizing from the two FREE cases would ship the
-> launch-breaking commit; a reader who follows what `journal` and `cgroup-delegate` did will not.
+> **The first trap is FULLY DISCHARGED as of 2026-08-19, and the shape of it is worth keeping.**
+> Five names left the reserved set by **two different mechanisms**, and the difference is what made
+> the last one dangerous. `host-processes` and `audio` were reserved only as bundled DIRECTORY
+> names, read off the same embed.FS the loader materializes, so `git mv` retired them with no code
+> change. `journal` and `cgroup-delegate` were **constants** (`paths.BuiltinLoopholeNames`), each
+> deleted BY HAND in the commit that shipped its manifest. The broker had the second shape —
+> `broker.BrokerLoopholeName`, appended unconditionally from the broker's own constant — so a reader
+> generalizing from the two FREE cases would have shipped a commit refusing every claude user's
+> launch. It landed as one commit instead, and took the whole reservation list with it: verified
+> 2026-08-23, neither `loopholes.ReservedLoopholeNames` nor `paths.BuiltinLoopholeNames` exists in
+> the tree, and `internal/paths/paths.go:84` records the absence deliberately —
+> *"THERE IS NO RESERVED LOOPHOLE NAMESPACE LEFT."*
+>
+> **The second trap has not aged out.** The `default_enabled` reverse-skew refusal is a property of
+> the shipped code, not of that sprint: an older yolo that ignores the key runs `audio` **on**.
 
 The doc grew thirteen questions on purpose: every one came from asking *"what else reaches the host,
 and why is it on?"*, and the answer kept being "something different each time".
@@ -199,7 +206,7 @@ is the argument for unifying them.*
 | | channel | on today because… | its config key | after the rulings |
 |---|---|---|---|---|
 | **broker daemon + relay** | *not gated at all* | `run.go` spawned the singleton every launch, no lookup | *none* | ✅ **DONE 2026-08-18** — gated on the loophole record (OQ-A11), launch path and attach path both |
-| **broker jail wiring** | bundled loophole | manifest `enabled: true` **and** host `claude` on PATH | `loopholes.claude-oauth-broker.enabled` | inside `packs/claude`, `default_enabled: true` — 🛑 **blocked**, see [`broker-as-a-pack.md`](broker-as-a-pack.md) §6.1 |
+| **broker jail wiring** | bundled loophole | manifest `enabled: true` **and** host `claude` on PATH | `loopholes.claude-oauth-broker.enabled` | ✅ **DONE 2026-08-19** — a contribution of `packs/claude` (OQ-A10), `default_enabled: true`; `requires.command_on_path: "claude"` deleted as redundant under the pack's own selection, and `run.brokerLoopholeActive` gained the origin gate it was allowed to skip only while the record was bundled |
 | **host-processes** | bundled loophole | manifest `enabled: true` **and** host `ps` | `loopholes.host-processes.enabled` **plus** top-level `host_processes.visible` | ✅ **DONE 2026-08-18** — own pack, `default_enabled: false`, and the top-level key is now REFUSED |
 | **audio** | bundled loophole *and* an official pack beside it | manifest `enabled: true` **and** the pulse socket exists | `loopholes.audio.enabled` | ✅ **DONE 2026-08-18** — own pack, `default_enabled: false`; the two merged under the plain name and the `requires` probe became `platforms: ["linux"]` |
 | **journal** | **builtin service**, hardcoded in the run pipeline | the top-level `journal` key says so | top-level `journal` | ✅ **DONE 2026-08-18** — own pack, `default_enabled: false`; the top-level key is REFUSED and the mode is the typed `full` setting, `scope: "user"` (OQ-K4) |
@@ -415,15 +422,22 @@ regression, because the sniff was standing in for exactly this.
 > second selection step R6 deletes. A Bedrock user's escape is `supersedes` on the
 > `claude-oauth-refresh` capability — already built, already declared — not deselection.
 
-> [!WARNING]
-> **Deleting `bundled_loopholes/claude-oauth-broker/` does NOT free the name, and getting this wrong
-> breaks every launch for every claude user.** The reserved name is appended **unconditionally**
-> (`discover.go:322-325`) — it is *not* derived from the bundled directory — and a pack claiming a
-> reserved name fails the **whole launch** (`packs.go:310-311`). So the first commit adding the
-> loophole contribution must also retire the reservation **and** the name special-case at
-> `loopholesruntime.go:211-214`, in the same change. `audio` escaped this by renaming itself
-> `audio-alsa`; the broker cannot, because `loopholes.claude-oauth-broker.enabled` is a user-visible
-> config key.
+> [!NOTE]
+> **⚠ Trap DISCHARGED 2026-08-19 — kept because the mechanism it warns about is the reason the fix
+> looks trivial in hindsight.** The warning below was live until the broker's contribution shipped:
+> *deleting `bundled_loopholes/claude-oauth-broker/` does NOT free the name, and getting this wrong
+> breaks every launch for every claude user.* The reserved name was appended **unconditionally**
+> (`discover.go:322-325`) — not derived from the bundled directory — and a pack claiming a reserved
+> name failed the **whole launch** (`packs.go:310-311`), so the reservation, the
+> `loopholesruntime.go` name special-case and the contribution had to land in ONE commit. They did.
+> `loopholes.ReservedLoopholeNames` is now **deleted whole**, because the broker was the last name in
+> it, and `paths.BuiltinLoopholeNames` went with it.
+>
+> **What survives as a live rule:** a reserved name and a pack-shipped name can never be the same
+> name — the pre-flight is fatal and refuses every launch that selects the pack. There is no
+> reservation list left to collide with today, so re-introducing one is what would make this trap
+> live again. `audio` escaped it by renaming itself `audio-alsa`; the broker could not, because
+> `loopholes.claude-oauth-broker.enabled` is a user-visible config key.
 
 ---
 
