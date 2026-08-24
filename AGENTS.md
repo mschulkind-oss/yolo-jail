@@ -313,8 +313,11 @@ there is no sync step.
   config-gated, tracked by the `~/.yolo-installed-lsps` sentinel, and
   uninstalled when dropped from config. Agent CLIs install lazily on first use
   via launchers in `~/.yolo-launchers/`.
-- **PATH order** (exact):
-  `$HOME/.yolo-shims:$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:/bin:/usr/bin:$HOME/.yolo-launchers`.
+- **PATH order** (exact — corrected 2026-08-23 against `BootPath`, `internal/entrypoint/boot.go:356-361`,
+  which is the authority this line claims to mirror):
+  `$HOME/.yolo-shims:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:$HOME/.local/bin:/bin:/usr/bin:$HOME/.yolo-launchers`.
+  **This line used to put `$HOME/.local/bin` second**, ahead of npm and mise; it is fifth. Only the
+  two ends were right — and they are the part that carries meaning (see the next bullet).
 - **Two generated script dirs, at opposite ends of PATH** — they are different
   mechanisms, not one dir with two kinds of file in it:
   `~/.yolo-shims` holds **blockers** (`GenerateShims`: `grep`, `find` → refuse,
