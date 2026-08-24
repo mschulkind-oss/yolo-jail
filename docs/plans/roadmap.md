@@ -209,11 +209,16 @@ design §4.1, not `noncontainer-nix-environment.md`. The refusal does frame the 
 
 ### 💬 5 — Boundary broker
 
-📄 [`boundary-broker.md`](../design/boundary-broker.md)
+📄 [`boundary-broker.md`](../design/boundary-broker.md) — **OQ-A · OQ-C · OQ-E · OQ-B1b**
 
-**OQ-A** sizes B2 (if synchronous-only suffices, most of the durability complexity disappears).
-**OQ-C** is a real API-shape decision: does the jail see the *result* or just success? **OQ-B1b**
-sizes B1b only. The security half of **OQ-E** is settled; only its packaging half is live.
+**OQ-A** sizes the whole project (if synchronous-only suffices, most of §7 step 3 never gets
+written). **OQ-C** is a real API-shape decision: does the jail see the *result* or just success —
+i.e. does every verb need a response schema, or none? The security half of **OQ-E** is settled
+(authority stays in the unix socket); only its packaging half — which client the human reaches for —
+is live. **OQ-B1b** sizes B1b alone: vendor unYOLO's ~2,100-line MIT, stdlib-only policy engine at a
+pinned SHA, or re-derive it. *(B1b was created as an ID on 2026-08-23 — §10.6 had been calling it
+"the maintainer's call, see the B1b row in roadmap.md", a row that never existed, while this file
+cited the ID back at the doc. Neither end resolved.)*
 
 ### 💬 6 — Image staging and baking
 
