@@ -40,6 +40,7 @@ import (
 
 	"sort"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -293,5 +294,56 @@ func (o *Options) noteMacosUserContentGaps(packs []*packload.Pack, cfg *jsonx.Or
 			strings.Join(lsp.Keys(), ", ") + ". The installer is a generated bootstrap script the " +
 			"container path runs and this backend deliberately does not, so an agent is told the " +
 			"server is enabled and then cannot start it. Install them yourself, or add them to `packages`.")
+	}
+	o.noteMacosUserHostByteGaps(packs, cfg)
+}
+
+// noteMacosUserHostByteGaps names the grants that carry HOST BYTES into a config
+// surface, every one of which is inert here for the same structural reason: the bytes
+// cross on a /ctx mount, and this backend has no mounts.
+//
+// The two halves fail differently, and the difference is worth stating because only
+// one of them is honest. A `reads-host` grant renders anyway, from its DEFAULTS layer
+// — so the agent runs on a settings file the user did not write and has no way to
+// distinguish from one they did. A source-bearing `host_files` entry is filtered out
+// of the wire before the bootstrap sees it (macosuser/runplan.go), which at least
+// leaves nothing rather than a plausible substitute.
+//
+// Both are warned rather than fixed: the fix is a delivery mechanism (materialize into
+// the sandbox home, the way Apple Container's .yolo-ctx copies work), which is a design
+// change and not a launch-time patch. What is NOT acceptable is the prior state, where
+// a user pointed at a host file by path and the jail neither used it nor mentioned it.
+func (o *Options) noteMacosUserHostByteGaps(packs []*packload.Pack, cfg *jsonx.OrderedMap) {
+	var grants []string
+	for _, p := range packs {
+		granted, _ := p.HonoredHostFiles()
+		for _, hf := range granted {
+			grants = append(grants, p.Name+": ~/"+hf.From)
+		}
+	}
+	if len(grants) > 0 {
+		o.pr(o.Stderr).print("[yellow]Warning: pack reads-host grants do not cross on macos-user[/yellow] — " +
+			strings.Join(grants, ", ") + ". The bytes arrive on a /ctx mount and this backend has " +
+			"none, so each surface renders from its DEFAULTS layer instead. The agent gets a " +
+			"working config file that is not yours.")
+	}
+
+	// Read fail-open: LoadHostFiles is the same call the container path makes, and a
+	// malformed user config is already reported there. This is a report, not a gate.
+	entries, err := config.LoadHostFiles(cfg, nil, false)
+	if err != nil {
+		return
+	}
+	var named []string
+	for _, e := range entries {
+		if e.SourceBearing() {
+			named = append(named, "~/"+e.Path)
+		}
+	}
+	if len(named) > 0 {
+		o.pr(o.Stderr).print("[yellow]Warning: host_files entries with a `source` are dropped on macos-user[/yellow] — " +
+			strings.Join(named, ", ") + ". There is no /ctx/host-user mount to carry the host " +
+			"bytes, so these entries are filtered out of the launch entirely and no file appears " +
+			"at those paths. Entries with `content`/`defaults` and no `source` are unaffected.")
 	}
 }

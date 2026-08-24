@@ -2,6 +2,8 @@ package run
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -127,5 +129,57 @@ func TestConfigDeclaredLoopholesAreReportedInert(t *testing.T) {
 
 	if got := errBuf.String(); !strings.Contains(got, "acme-proxy") {
 		t.Errorf("a config-declared loophole is not reported inert on Apple Container:\n%s", got)
+	}
+}
+
+// The other half of the same silence, found by the release-notes pass rather than by
+// the sweep: the two channels that carry HOST BYTES into a config surface both fail
+// open on macos-user, so the user's own file is replaced by a default and nothing says
+// which one they got.
+//
+//   - a pack's `reads-host` grant is read from its /ctx mount (hostSurfaceBytes), and
+//     that read is deliberately fail-open — an absent mount means "the user never
+//     configured this tool", which must not refuse a launch. On a backend with no /ctx
+//     at all, every grant takes that path.
+//   - a source-bearing `host_files` entry is FILTERED OUT of the wire before the
+//     bootstrap sees it (runplan.go), which is the more honest of the two — it renders
+//     nothing rather than a default — but is equally quiet.
+//
+// Neither is fixed here and neither can be cheaply: both need a delivery mechanism this
+// backend does not have. The requirement is only that a user who declared the file
+// learns their file was not used, since the failure otherwise looks like the tool
+// ignoring its own config.
+func TestMacosUserNotesHostByteGaps(t *testing.T) {
+	home := packHome(t)
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The claude pack declares `reads-host .claude/settings.json`; the config adds a
+	// source-bearing host_files entry. Both grants exist on paper, neither can arrive.
+	body := `{"packs": ["claude"], "host_files": [{"path": ".npmrc", "source": "~/.npmrc"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "config.jsonc"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, t.TempDir(), "macos-user", &stdout, &stderr, nil)
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, bool) int {
+		return 0
+	}
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr.String())
+	}
+	got := stdout.String() + stderr.String()
+
+	if !strings.Contains(got, "reads-host") {
+		t.Errorf("a pack's reads-host grant cannot cross on macos-user and the launch did not "+
+			"say so — the surface renders from its DEFAULTS layer, so the agent runs on a "+
+			"config the user did not write.\noutput:\n%s", got)
+	}
+	if !strings.Contains(got, ".npmrc") {
+		t.Errorf("a source-bearing host_files entry is dropped from the wire on macos-user and "+
+			"the launch did not name it. The user declared a file by path; the jail has no "+
+			"file at that path and no reason given.\noutput:\n%s", got)
 	}
 }
