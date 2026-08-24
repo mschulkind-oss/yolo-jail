@@ -471,7 +471,7 @@ who set it there and has been writing to the workspace will start seeing failure
   the body is right — `e5b60902` removed it the same day.)*
 
   Measured on run `32623453131` (2026-08-23, commit `ae0fa1a5`, which was `main` at the time and is
-  ~30 commits back now):
+  **116 commits back** as of this edit):
   `build-image` **success**, `integration-macos` **success**, suite `ok … 3915.734s`. The night
   before (`32557449248`, `cb966c27`) it was `FAIL … 5073.141s`. **This row replaces the 🛑 entry,
   which was wrong about which test was failing and about what could fail at all** — the section is
