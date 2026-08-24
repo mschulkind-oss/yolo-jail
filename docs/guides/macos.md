@@ -410,6 +410,10 @@ are the whole list.
 |---|---|---|---|
 | `loopholes` (incl. the Claude OAuth broker) | ✅ | ❌ none start | ❌ none start |
 | `mounts` (context mounts under `/ctx`) | ✅ | ❌ skipped, warns | ❌ skipped, **silent** |
+| Pack `mount` grants (under `/ctx`) | ✅ | ❌ skipped, warns *(since 2026-08-24)* | ❌ skipped, **silent** |
+| Pack `reads-host` grants | ✅ | ✅ copied *(since 2026-08-24)* | ❌ renders defaults, warns *(since 2026-08-24)* |
+| `host_files` entries with a `source` | ✅ | ✅ copied *(since 2026-08-24)* | ❌ dropped, warns *(since 2026-08-24)* |
+| Host `~/.config/nvim` → `/ctx/host-nvim-config` | ✅ | ❌ skipped, warns *(since 2026-08-24)* | ❌ not read at all |
 | `cache_relocations` | ⚠️ wired, [untested on a Mac](#cache-relocation-cache_relocations) | ❌ skipped, warns | ❌ skipped, warns |
 | `ephemeral_storage` | ✅ | ❌ always `tmpfs` | ❌ not read at all |
 | `resources.memory` / `.cpus` | ✅ | ✅ | ❌ warns |
@@ -440,7 +444,9 @@ Everything below is announced at launch **except** the three rows marked
 |---|---|---|
 | `loopholes` — all of them, from packs and from your own config | **inert.** No host service starts, whatever the loophole declares. One yellow line per loophole at every launch, naming the pack, the loophole and the reason | `run/loopholesruntime.go` → `startLoopholes`; `run/loopholeinert.go` → `backendInertReason` |
 | `claude-oauth-broker` in particular | **not running.** Refreshes of your Claude OAuth token are not serialized between jails — see the warning below | `run/run.go` → `runContainer` (the broker-singleton gate) |
-| `mounts` | **skipped, with a warning.** Apple Container ignores `:ro`, so a context mount would arrive *writable*; yolo declines rather than hand a UID-0 jail a writable window onto your host | `run/assemble.go` → `assembleRunCmd` (`ctxMountsUnsafe`) |
+| `mounts` | **skipped, with a warning.** Apple Container ignores `:ro`, so a context mount would arrive *writable*; yolo declines rather than hand a UID-0 jail a writable window onto your host | `run/backendcaps.go` → `roBindsUnsupported` |
+| Pack `mount` grants | **skipped, with a warning, since 2026-08-24.** Same root cause as `mounts` above, and the same fix — but this one is a grant a human approved at `pack install` against the word *read-only*, so honoring it writably would make the approval untrue. A single-**file** pack `mount` is skipped too: it could not arrive at all here, and used to do so silently | `run/packhostgrants.go` → `hostMountArgs` |
+| Your host `~/.config/nvim` | **skipped, with a warning, since 2026-08-24.** Podman binds it `:ro` at `/ctx/host-nvim-config` and the jail copies it into the agent's home at boot. Here the ignored `:ro` would leave a live write channel into your real editor config for the whole session. The visible symptom is nvim starting unconfigured | `run/assemble.go` → `assembleRunCmd` (nvim block) |
 | `workspace_readonly` | **not enforced, with a loud warning.** Same root cause — `:ro` is ignored — so the paths stay writable inside the jail | `run/mounts.go` → `workspaceReadonlyMountArgs` |
 | `cache_relocations` | **skipped, with a warning.** The cache stays on its original filesystem | `run/assemble_parts.go` → `appleContainerBaseMounts` |
 | `ephemeral_storage` | **not honored, silently.** The scratch dirs (`/tmp`, `/run`, `/dev/shm`, …) are always `--tmpfs` here; the `volume` mode is podman-only | `run/assemble.go` → `assembleRunCmd` (`ScratchMountArgs` is on the podman branch only) |
@@ -451,7 +457,7 @@ Everything below is announced at launch **except** the three rows marked
 | `network.mode: "none"` | **not honored, silently.** No `--net` flag is emitted on this backend at all, so you get bridge networking regardless | `run/assemble.go` → `assembleRunCmd` (network-mode block) |
 | `network.ports`, `network.forward_host_ports` | **honored under `bridge`** — published ports via `-p`, host-port forwarding via native `--publish-socket` (no socat, no TCP gateway). Both keys are read *only* in `bridge` mode | `run/assemble.go` → `assembleRunCmd`; `run/assemble_parts.go` → `forwardHostPortsArgs` |
 | Pack `state` at `scope: machine` (e.g. `~/.claude-shared-credentials`) | **honored as of 2026-08-24.** It was never mounted before that, so cross-jail credential sharing silently degraded to per-workspace — see the warning below | `run/assemble_parts.go` → `appleContainerBaseMounts` |
-| Any single-**file** read-only mount | **copied, not mounted.** Apple Container cannot bind a single file ([apple/container#1089](https://github.com/apple/container/issues/1089)), so yolo copies each one into the jail's home instead — your `yolo-user-env.sh`, pack briefings, pack `files`, `~/.config/yolo-jail/config.lua`, your global gitignore, pack `reads-host` grants and `host_files` file sources. You should not notice; the files arrive with the same contents | `run/helpers.go` → `acMaterialize` |
+| Any single-**file** read-only mount | **copied, not mounted.** Apple Container cannot bind a single file ([apple/container#1089](https://github.com/apple/container/issues/1089)), so yolo copies each one into the jail's home instead — your `yolo-user-env.sh`, pack briefings, pack `files`, `~/.config/yolo-jail/config.lua`, your global gitignore, pack `reads-host` grants and `host_files` file sources. You should not notice; the files arrive with the same contents. **The one exception is a pack `mount` whose source is a file**, which is skipped rather than copied — see the row above for why | `run/helpers.go` → `acMaterialize` |
 
 Directory mounts nest perfectly well on this backend — the shared cache is mounted
 at `/home/agent/.cache` *inside* the `/home/agent` mount on every launch. The
@@ -505,11 +511,21 @@ It is the fastest backend and the one that delivers the least.
 | `workspace_readonly` | **enforced**, as Seatbelt deny rules | `macosuser/seatbelt.go` → `readonlyDenies` |
 | Pack briefings and skills | **not delivered** — **warns**. They are composed host-side and delivered by mounting the staged tree, which this backend cannot do, so the agent starts with no `AGENTS.md`/`CLAUDE.md` and no skills (built-in ones included) — while the blocked-tool shims *are* generated, so a blocked command exits 127 with nothing explaining it | `run/loopholeinert.go` → `noteMacosUserContentGaps` |
 | `lsp_servers` | config renders, binaries are **not installed** — **warns**. Install them yourself or add them to `packages` | `run/loopholeinert.go` → `noteMacosUserContentGaps` |
+| Pack `reads-host` grants | **do not cross** — **warns** (since 2026-08-24). The bytes arrive on a `/ctx` mount and there is none, so each surface renders from its *defaults* layer instead. The agent gets a working config file that is not yours — the more dangerous of the two host-byte gaps, because nothing about the result looks wrong | `run/loopholeinert.go` → `noteMacosUserHostByteGaps` |
+| `host_files` entries with a `source` | **dropped from the launch entirely** — **warns** (since 2026-08-24). No file appears at those paths. Filtering them out is deliberate: rendering them would serve the entry's defaults in place of the host file you named. Entries with `content`/`defaults` and no `source` are unaffected | `macosuser/runplan.go` → `sourceLessHostFilesWire` |
 | Pack `state` at `scope: workspace` | **shared across every workspace on the machine** — **warns**. The sandbox home is a constant (`/Users/_yolojail`) with no workspace component, so one session's history and state are visible to every other workspace you launch | `run/loopholeinert.go` → `noteMachineWideWorkspaceState` |
 | cgroups / resource limits | unavailable (no cgroups on macOS) | as [Cgroup Delegation](#cgroup-delegation-resource-limits) below |
 
 The `mounts` row is the sharp one: it fails **silently**, so a config that
-declares context mounts appears to work and delivers nothing.
+declares context mounts appears to work and delivers nothing. Pack `mount`
+grants take the same path and are equally quiet.
+
+The two host-byte rows were added on 2026-08-24 and were silent before it. They
+are worth reading together, because they fail differently and only one of them is
+honest about it: a dropped `host_files` source leaves *nothing* at the path, while
+a `reads-host` grant leaves a plausible substitute. Neither is fixed — the fix is a
+delivery mechanism (materialize into the sandbox home, the way Apple Container's
+copies work), which is a design change rather than a launch-time patch.
 
 `workspace_readonly` is the row that changed. It was a **silent no-op** on
 `macos-user` until commit `d0961f2c` (2026-08-23) — the key validated, the
