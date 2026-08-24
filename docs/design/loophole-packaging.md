@@ -10,7 +10,7 @@ the doc is the summary. **ONE thing is deliberately NOT built:** the install-gat
 (§4.3 — content-anchored exec approval, which is a maintainer decision under OQ-LP8 rather than
 pending work). **G2a LANDED** — the claim string is the raw, unelided, placeholder-preserving argv,
 pinned by two tests in `packload/loopholesource_test.go`. The pack-shipped subset is now **wired at
-both seams** (§3.1), `audio` ships as an **official pack** (§7), and **OQ-LP9 is built** (§9).
+three seams** (§3.1), `audio` ships as an **official pack** (§7), and **OQ-LP9 is built** (§9).
 
 **Live questions as of 2026-08-23: three** — **OQ-LP5** (conditional `jail_env`), **OQ-LP7** (the
 `guest` notch), **OQ-LP8** (an execution approval surviving a moving pin). Everything else is in the
@@ -152,7 +152,7 @@ loophole has been approved at a prompt and spawned as a host daemon.
 > shipped as the inner-scope census, the two generated per-consumer files and a global
 > `--user-layer` flag. The development escape hatch §4.3a wanted is DELETED — *"you can develop a
 > loophole in a jail with jail in jail if you need"* — and measured, the loophole runtime has exactly
-> ONE jail-aware branch (`runtime.go:143`, device passthrough), so a nested jail is a real
+> ONE jail-aware branch (`runtime.go:224`, device passthrough), so a nested jail is a real
 > development environment and the friction belongs on the real machine. That ruling is now **real
 > rather than aspirational**: it is verified end to end (§9's OQ-LP9 Landed note).
 >

@@ -3,7 +3,7 @@
 **Status:** STORIES + OPEN QUESTIONS, written 2026-07-27; **re-verified against the tree
 2026-08-23.** Most of the verbs the stories exercise **have since shipped** (`apply`, `apply
 --host`, `apply --sealed`, `describe`, `check-deps`, the `confinement` key — env-manager plan
-Phases 0–6, 8, 9), and **two of the three "live defects" are FIXED**. Every gap below now carries
+Phases 0–6, 8, 9), and **all three "live defects" (G1, G2, G3) are FIXED**. Every gap below now carries
 a dated verdict; read those before hunting for a bug. **Eleven questions are still live**
 (Q1 · Q1a · Q1b · Q2–Q9, below); **Q1 is the closure question and the biggest one in the
 document**, and Q7 decides whether Linux `guest` is a promise or a hypothesis. IDs are cited from

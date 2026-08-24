@@ -58,7 +58,7 @@ Three changes that only make sense together:
 | # | Change | Mechanism |
 |---|---|---|
 | 1 | **Split the mise store** — jails stop sharing the host's `~/.local/share/mise`; all jails share a jail-land-only store | Swap the Linux mount source (run_cmd.py:1163) from the host dir to a yolo-owned dir (or named volume). macOS already works this way (`yolo-mise-data` volume, run_cmd.py:1070) |
-| 2 | **Neutral store path** — mount that store at a fixed path, identical in every jail on every machine | Mount at `/mise` (empty mount point already in the image, flake.nix:507); export `MISE_DATA_DIR=/mise`; delete the `YOLO_OUTER_MISE_PATH` nested-jail plumbing (run_cmd.py:1895 → storage.py:154) |
+| 2 | **Neutral store path** — mount that store at a fixed path, identical in every jail on every machine | Mount at `/mise` (empty mount point already in the image, flake.nix:998); export `MISE_DATA_DIR=/mise`; delete the `YOLO_OUTER_MISE_PATH` nested-jail plumbing (run_cmd.py:1895 → storage.py:154) |
 | 3 | **Per-side venvs** — the workspace `.venv` is no longer a shared artifact | Shadow mount: `-v {ws_state}/venv:/workspace/.venv` (plus any venv path parsed from `mise.toml`). Host sees its venv, jail sees its own, both at the idiomatic path |
 
 Mount table, before → after (Linux):

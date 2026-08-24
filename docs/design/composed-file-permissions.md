@@ -1,7 +1,7 @@
 # Composed-file permissions — what the prism makes read-only, and what it must not
 
 **Status:** design + audit, 2026-07-25; **defect register re-verified 2026-08-23 —
-four of the six entries are FIXED, including both data-loss ones.** The taxonomy
+four of the six entries are FIXED, including the only data-loss one (§4.2).** The taxonomy
 (§1) and the `0o444` finding (§6) are unchanged and still load-bearing.
 
 > **Postscript, 2026-08-23 — the audit worked; do not go hunting the bugs it found.**

@@ -24,7 +24,7 @@ Written as design 2026-07-27, fact-checked 2026-07-30, **re-verified against the
 >
 > 1. **§3.4's "two hand-maintained tables die" did NOT happen.** `surfaceHasHostLayer`
 >    and `surfaceHasComputedLayer` are still Go-side maps at
->    `internal/cli/configls.go:199,204`, still read at `configls.go:181,184` and
+>    `internal/cli/configls.go:199,206`, still read at `configls.go:181,184` and
 >    `config.go:272,293`. They were the *stated payoff* of step 3, and step 3 shipped
 >    without them.
 > 2. **§3.3's `Posture` field does not exist under that name.** It became two things:
@@ -164,7 +164,7 @@ internal/storage/ensure.go:53                 GlobalHome mountpoint pre-creation
 time** (`hostfiles.go:1028`), which is why the embedded FS is registered by an `init()` in
 `internal/packreg` rather than from `main` — a main-time registration "would arrive too late
 and they would silently see no packs — reserving nothing, with no error"
-(`internal/packreg/packreg.go:5`). Any interface that makes the pack set *lazy* or *fallible*
+(`internal/packreg/packreg.go:17`). Any interface that makes the pack set *lazy* or *fallible*
 breaks this, silently, in the reserve-nothing direction. **This is the sharpest constraint on
 any refactor here** and it is not obvious.
 
@@ -332,7 +332,8 @@ must say so by name (§6.2's `FieldSet`), exactly as macos-user already does for
 
 **Skills are the interesting exception**, and worth being precise about because they look
 like a counter-example. `PrepareSkills` *does* copy — `copySkillSubdirs` layers built-ins,
-then pack skills, then the user's own tree into one staging dir (`agents/skills.go:88-102`),
+then pack skills, then the user's own tree into one staging dir
+(`jailcontent/skills.go:87,138`),
 dereferencing symlinks. But that is a **merge**, not a mount substitute: three sources
 collapse into one directory with a defined precedence, which no mount can express. The
 result is then bind-mounted. So skills survive on a host target as a *composed artifact*,
@@ -367,7 +368,7 @@ below already half-exists; the work is mostly deleting a duplicate.
 ### 3.1 The core problem: there are already TWO render paths
 
 This is the fact that makes the design almost write itself. `agentcfg.Compose` /
-`ComposeStateful` have **four non-test call sites in two packages**:
+`ComposeStateful` have **five non-test call sites in two packages**:
 
 ```
 internal/entrypoint/prism.go:167   ComposeStateful    <- the BOOT render (in-jail)
@@ -459,7 +460,7 @@ Worth separating, because these land at step 3 with no new user-facing feature a
   without a computed layer, because `Tables` is a field a target must fill in — and
   `Host()` declares it empty, which makes `mise/config` *refused* rather than truncated.
 - **Two hand-maintained tables die.** `surfaceHasHostLayer` and `surfaceHasComputedLayer`
-  (`cli/configls.go:197,204`) are Go-side maps restating what the boot path knows
+  (`cli/configls.go:199,206`) are Go-side maps restating what the boot path knows
   structurally, and they become derived from `Target`. This is the same pattern the project
   has already retired twice: `prismSurfaceMode` moved into the manifest as `Surface.Mode`
   ("declaring it HERE rather than in a lookup table beside the CLI is the point",
@@ -501,7 +502,7 @@ observation.** The lists are consumed at init time — `hostFileWritableRoots` i
 value built by a func literal (`hostfiles.go:1028`), which is why `packreg`'s `init()` exists at
 all. **Nothing in §3 may make the pack set lazier or more fallible than it is today**, because
 the failure direction is silent and permissive: reserve nothing, no error
-(`internal/packreg/packreg.go:5`). `internal/render` takes a `Target`, not a pack *source*; it
+(`internal/packreg/packreg.go:17`). `internal/render` takes a `Target`, not a pack *source*; it
 never touches this path.
 
 One asymmetry worth remembering when reading that code: `builtinSurfacePaths` is a `sync.Once`
@@ -945,7 +946,7 @@ first.** Nothing here needs a new module or a decision about one.
 > renderer collapse it was proposed for.** The "if only one of these ever happens" bet
 > at the end of this section was right about #1 and wrong about #3: #1 landed first and
 > #3's *stated payoff* — retiring `surfaceHasHostLayer` and `surfaceHasComputedLayer` —
-> is still outstanding (`internal/cli/configls.go:199,204`). See the postscript at the
+> is still outstanding (`internal/cli/configls.go:199,206`). See the postscript at the
 > top of this doc for the full table.
 
 1. **Fix probes 1–3, now, ahead of any refactor.** Host-side `reset` (`configReset`,
