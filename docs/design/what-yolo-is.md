@@ -1,6 +1,17 @@
 # What yolo is — the boundaries, and how logic could ship
 
-**Status:** conceptual, 2026-07-26. Written to answer two questions that kept surfacing
+**Status:** conceptual, 2026-07-26 — **and question 1 has since been answered concretely elsewhere.**
+Re-checked 2026-08-23: [`broker-as-a-pack.md`](broker-as-a-pack.md) §3.1 designs a **pack-shipped
+binary** capability in general (download-with-digest, a selection convention, two gates), and its two
+live questions — **OQ-BP5** (is a declared *build step* allowed as well?) and **OQ-BP6** (may a
+*fetched* pack ship a **host-side** binary?) — are the sharp end of "how does pack logic get built
+and shipped". Read Part 2's option table as the reasoning that made that design possible, and
+`broker-as-a-pack.md` for where the decision now lives.
+
+> [!WARNING]
+> **The `plugin.Open` row is proven dead, not merely rejected** — the shipped binaries are
+> `CGO_ENABLED=0`, so it returns `plugin: not implemented`, and `-trimpath` kills it a second time.
+> Do not re-propose Go plugins; the finding is a measurement, not a preference. Written to answer two questions that kept surfacing
 while sketching [packs-and-the-prism.md](packs-and-the-prism.md):
 
 1. **If a pack ships *logic*, how does that get built, shipped, and cached?** Compiled
