@@ -9,7 +9,7 @@ summary: "Four delivery classes, one of which keeps no record and is never re-de
 # How executable content gets into a jail — and what makes two jails the same
 
 **Status:** DIAGNOSIS + PROPOSAL, in-review, 2026-08-24. **Nothing built.** One question is ruled
-([OQ-PD3](#decision-ledger), Decision Ledger); seven remain open. Every fact below is labelled
+([OQ-PD3](#decision-ledger), Decision Ledger); eight remain open. Every fact below is labelled
 **MEASURED** (observed in this development jail, 2026-08-24), **READ FROM CODE** (traced but not
 observed running) or **NOT MEASURED**.
 
@@ -24,7 +24,10 @@ premise — *"that'll make all jails uniform, given the pack set and lockfile"* 
 way that matters: a user-scope lockfile over the pack set can reach the npm half and cannot reach
 mise, the image tag, the LSP recipes, the claude plugins, or an `npx -y` MCP argv, and it fixes only
 one of the three properties uniformity actually needs. **My recommendation is to build the RECEIPT
-first — the artifact that says what this jail got — then removal, then the pin.**
+first — the artifact that says what this jail got — then removal, then the pin.** And much of the
+receipt is not yolo's to build: where an ecosystem already keeps a lockfile with a resolver behind
+it, yolo adopts it ([§5.6](#56-a6--borrow-the-ecosystems-lockfiles), measured for mise) and writes
+its own only for the gaps.
 
 **The most important section is [§3](#3-four-delivery-classes-and-the-rule-that-falls-out)**: the
 four classes are the frame everything else hangs on. [§4](#4-how-two-jails-diverge-today-measured)
@@ -205,11 +208,12 @@ through a fuzzy alias** (`node/24`, `just/latest`, `staticcheck/latest`, `neovim
 `pipx-swarf/latest`). The one version-exact entry, `go/1.26.7/bin`, is no safer — exactness is what
 the deleted `1.26.6` had.
 
-**MEASURED**: no `mise.lock` exists anywhere in the tree and nothing sets mise's `locked`
-(`rg -n 'lockfile|mise.lock|MISE_LOCK'` returns only pack-lockfile hits). The
-baked mise (2026.7.17) **does** ship a `mise lock` command and a `locked` setting — the capability
-exists and we do not use it. **NOT MEASURED:** what enabling `locked` actually does to this setup,
-or whether its lockfile format survives a mise upgrade.
+**MEASURED**: no `mise.lock` exists anywhere in the tree and nothing enables mise's lockfile mode
+(`rg -n 'lockfile|mise.lock|MISE_LOCK'` returns only pack-lockfile hits). The baked mise (2026.7.17)
+**does** ship a `mise lock` command and a lockfile mode (`MISE_LOCKFILE`) — unused today, and
+[§5.6](#56-a6--borrow-the-ecosystems-lockfiles) measures what it would give us: exact versions,
+per-platform checksums, and a lock that *governs* resolution against the shared store. **NOT
+MEASURED:** whether the lockfile format survives a mise upgrade.
 
 > [!IMPORTANT]
 > **mise is not a hypothetical "second uncontrolled mechanism" — it is the one that already
@@ -222,7 +226,7 @@ or whether its lockfile format survives a mise upgrade.
 > [OQ-PD3](#decision-ledger) is now **ruled** on exactly this: the per-launch `mise upgrade --yes`
 > was a stopgap, no-evergreen is a principle rather than an npm fix, and whatever pins mise ships as
 > part of the general seam ([§6](#6-the-general-seam-one-ledger-many-resolvers)) — not as a
-> standalone `locked` flip.
+> standalone lockfile flip.
 
 #### 4.2.1 Exactly what mise shares — and the sharing is inverted
 
@@ -485,7 +489,9 @@ the machine-global cache is a smaller change than baking and fixes the same comp
 
 > **Verdict: adopt, in the order record → reconcile → remove → obey.** The record is cheap, is
 > useful on its own (it makes divergence *visible* for the first time), and is what turns
-> "is pinning worth it?" from an argument into a measurement.
+> "is pinning worth it?" from an argument into a measurement. Where an ecosystem already keeps the
+> record, [A6](#56-a6--borrow-the-ecosystems-lockfiles) is how this ships — yolo writes its own
+> receipt only for the gaps.
 
 ### 5.4 A4 — Regenerate (or reconcile) every launch
 
@@ -505,6 +511,89 @@ Accept that jails are not uniform, and document it.
 > cover the unmanaged tier ([§6.1](#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control)), so whatever ships
 > must **enumerate what it does not manage** rather than implying coverage it lacks. A seam that
 > claims to cover an `npx -y` argv would be worse than one that names it as unmanaged.
+
+### 5.6 A6 — Borrow the ecosystem's lockfiles
+
+*The maintainer's reframe: yolo does not have to do this on its own. It is a tool that manages a
+dev environment, so writing a config in the repo is not crazy — and it means help with resolving,
+prebuilding and materializing.* Worked out, that observation is bigger than a venue choice.
+
+**Class 1 is already the existence proof, inside yolo.** `flake.lock` is an ecosystem-native,
+repo-committed lockfile; a third party resolves it; the bytes live in a machine-global
+content-addressed store; materialization is on demand and offline once the store is warm. §3's rule
+was "make class 3 behave like class 1" — and the cheapest implementation is not to rebuild class
+1's machinery in a yolo ledger, but to **adopt each ecosystem's own `flake.lock`-equivalent** and
+let yolo orchestrate.
+
+**MEASURED, 2026-08-24, against a scratch copy of this repo's `mise.toml` — the help is larger than
+expected:**
+
+- `MISE_LOCKFILE=1 mise lock` resolved all four declared tools — including the `go:` backend
+  (staticcheck via the Go module proxy) — to exact versions with a **sha256 checksum and download
+  URL per platform**, seven platforms, one file. The receipt, the pin, and a content-address, from
+  a binary the image already bakes.
+- **The lock governs resolution rather than merely recording it.** With the lock repointed to
+  `go 1.26.2` while `mise.toml` still declared `go = "1.26"`, `mise ls --current` resolved 1.26.2
+  and `mise exec go -- go version` ran go1.26.2 — materialized from the shared `/mise` store, no
+  download, no alias consulted. That is [§4.2.1](#421-exactly-what-mise-shares--and-the-sharing-is-inverted)'s
+  ending — *the aliases become an implementation detail nobody resolves through* — delivered by
+  mise itself, driven from a repo-committed file.
+
+So for lockfile-capable ecosystems, four of §6's six verbs come free: *declare* is the config that
+already exists, *resolve* + *record* are their lock command, *materialize* is their
+install-from-lock. What yolo writes is orchestration: the launch runs install-from-lock instead of
+`install && upgrade --yes` (which is exactly [OQ-PD3](#decision-ledger)'s ruling landing), the
+update act runs the ecosystem's update and leaves a **reviewable repo diff** — a dependency bump
+like any other, which bots can own — and the reconcile reads their lock.
+
+**The record follows the declaration's scope.** That is the observation that untangles §4.4's
+three-scope knot without inventing anything:
+
+| Declaration | Scope | Its lock | The bytes |
+| :--- | :--- | :--- | :--- |
+| `mise.toml` (project toolchain), `flake.nix` | repo | `mise.lock`, `flake.lock` — **committed** | machine-global CAS (`/mise` versioned dirs, `/nix/store`) |
+| `packs` (agent CLIs, installer programs) | user | a user-scope receipt — `packs.lock.json` is already the file | machine-global, version-addressed cache |
+
+A repo must **not** pin the user half: pack selection is ruled user-level
+(`internal/config/packs.go:20-24`), agent vendors release weekly (churn PRs in every repo that
+pinned them), and a repo lock over a user declaration would recreate §4.4's scope mismatch in the
+other direction. The split moves [OQ-PD2](#-oq-pd2--what-is-the-unit-of-sameness): reading (c) —
+colleague parity — becomes nearly free for the project toolchain while user tools stay under
+readings (a)/(b). Scope agreement (P1) is achieved differently than by co-locating receipt and
+bytes: the record sits with its declaration, and the bytes are **immutable and content-keyed**, so
+their scope stops mattering — the nix model, generalised.
+
+**What yolo still builds, honestly:**
+
+- the **installer class** (claude, `agy`) has no native lockfile — A3's yolo-written receipt
+  survives there (user scope), and the version-addressed artifact cache for that class is yolo's to
+  lay out;
+- **npm layout**: registries resolve and fetch (and the machine-global cacache already dedups
+  downloads), but `npm install -g` keeps one version per prefix — yolo must choose
+  version-addressed install prefixes. Mechanical, not conceptual;
+- the **report**: *"what did this jail get"* = read the native locks, plus yolo's gap receipts,
+  plus the enumeration of the unmanaged tier (§6.1);
+- the **cold start** is unchanged from A3: no lock yet → the first update act creates it, in the
+  open.
+
+> [!NOTE]
+> **The trust surface narrows rather than widens.** A cloned repo's `mise.toml` already drives
+> installs into the shared `/mise` at every launch today; under a lock, nothing resolves through
+> the shared mutable aliases and a checksum bounds what a URL may deliver. Whether a lock should
+> *gate* anything stays [`trust-paths.md`](trust-paths.md)'s question, not this doc's.
+
+Two costs A3 did not have: the guarantee becomes a function of each ecosystem's lockfile quality
+(R7, generalised — **NOT MEASURED**: whether `mise.lock`'s format survives mise's own upgrades, and
+full-launch behaviour under `MISE_LOCKFILE`); and a repo-committed lock imports the repo's cadence
+(R9) — bumps become PRs, and repo-less or ephemeral workspaces need the user-scope half as their
+fallback.
+
+> **Verdict: adopt, as the preferred realization of A3 wherever a native lockfile exists.** A3's
+> yolo-owned receipt survives only for the gaps. This also moves one §6 design decision — the
+> ledger becomes N native records under **one reader**, rather than one store of opaque identities
+> — which is [OQ-PD5](#-oq-pd5--one-general-seam-or-per-ecosystem-adapters)'s question, re-leaned
+> there. Whether yolo may ever add a repo-committed file of its *own* is new:
+> [OQ-PD9](#-oq-pd9--does-yolo-write-a-repo-committed-file-of-its-own-or-only-orchestrate-ecosystem-native-ones).
 
 ---
 
@@ -541,13 +630,16 @@ existed.
 
 **Applied to mise, which is the test case that already exists — and the one case already ruled
 ([OQ-PD3](#decision-ledger)):** it lands in tier 2, *inside* this seam. We record what `/mise`
-resolved to and we compare it; making it *obey* goes through mise's own pinning (`locked` is the
-obvious candidate mechanism for the mise resolver), but as an implementation detail of this
-lifecycle, not a standalone setting flipped ahead of it. The per-launch `mise upgrade --yes` was a
-stopgap and does not survive the seam: `resolve` runs only on an explicit update act, for every
-resolver. What stays open is representability — `/mise` is machine-global, so a *per-workspace* mise
-pin is not expressible until the scope question ([OQ-PD1](#-oq-pd1--where-does-the-receipt-live),
-[OQ-PD2](#-oq-pd2--what-is-the-unit-of-sameness)) is settled.
+resolved to and we compare it; making it *obey* goes through mise's own lockfile — and
+[§5.6](#56-a6--borrow-the-ecosystems-lockfiles) measures that the lockfile implements *resolve*,
+*record* and *obey* in one mechanism, as an implementation detail of this lifecycle rather than a
+standalone setting flipped ahead of it. The per-launch `mise upgrade --yes` was a stopgap and does
+not survive the seam: `resolve` runs only on an explicit update act, for every resolver.
+Representability is measured, not open: `/mise` is machine-global but mise's lock is per config
+root, and §5.6 drove a workspace-local `mise.lock` against the shared store — so a per-workspace
+pin is expressible today. What [OQ-PD1](#-oq-pd1--where-does-the-receipt-live) and
+[OQ-PD2](#-oq-pd2--what-is-the-unit-of-sameness) still decide is where records live for the
+mechanisms with **no** native lock.
 
 ### 6.2 Pay the enum tolerance before the next mechanism arrives
 
@@ -571,7 +663,10 @@ first.** That is a prerequisite of this design, not a consequence of it.
 
 - **Security and trust.** [`trust-paths.md`](trust-paths.md) owns it. This doc does not re-argue
   OQ-TP5 (no evergreen npm), does not propose new gates, and **does not claim integrity**: a receipt
-  records what you got, not that it is what a publisher signed. No digests, no attestation, no SBOM.
+  records what you got, not that it is what a publisher signed. No digests of yolo's own, no
+  attestation, no SBOM — a borrowed lockfile may carry its ecosystem's checksums (`mise.lock` does,
+  [§5.6](#56-a6--borrow-the-ecosystems-lockfiles)), but verifying them is that ecosystem's
+  behaviour, not a yolo guarantee.
 - **The image cost model.** [`image-staging-vs-baking.md`](image-staging-vs-baking.md) owns rebuild
   frequency, tar sizes, content-addressed tags and the binary cache. §5.1 here *cites* those numbers
   and adds none.
@@ -643,8 +738,9 @@ one) before this document's uniformity argument is even reached.
 | R4 | **An unbounded artifact cache.** 404 GiB of image tars accrued in 24 days with a hint firing and nothing pruning (`image-staging` §1.6); npm's cacache is at 672 MB and grew 27 MB in six days of observation with nothing pruning; claude keeps 4 versions (just over 1 GB) per workspace. | Retention lands with the cache, not after it, and hangs off `yolo prune`. |
 | R5 | **A seam that implies tier-3 coverage is a lie.** An `npx -y` argv and a vendor self-updater cannot be recorded at all. | Enumerate unmanaged mechanisms in the same surface that reports the managed ones (§5.5, §6.1). |
 | R6 | **The closed `via` enum turns the next mechanism into a boot refusal** on any pre-`just load` image (§6.2). | Extend the tolerance *before* adding a third value: skip-and-report under `DecodeTolerant`, refuse loudly under `Decode`. |
-| R7 | **Tier-2 uniformity depends on a third party's lockfile.** Making mise obey goes through mise's own pinning (per [OQ-PD3](#decision-ledger)'s ruling it does so *inside* the seam), which makes our guarantee a function of mise's format and cadence — and **NOT MEASURED** here is what enabling `locked` does to a shared `/mise`. | Treat tier 2 as "record and compare" until a measurement exists; do not promise obedience we do not own. |
+| R7 | **Uniformity borrowed from a lockfile is a function of that lockfile's quality** — and §5.6 generalises the borrowing to every native lock we adopt. The core is measured (a workspace-local `mise.lock` governs resolution against the shared store); **NOT MEASURED**: format stability across mise's own upgrades, and full-launch behaviour under `MISE_LOCKFILE`. | Treat tier 2 as "record and compare" until the launch path is measured; do not promise obedience we do not own. |
 | R8 | **Every measurement is from one machine and one home.** The dates in §4.1 are this jail's history, not a general law. | The *mechanism* (cold-branch `@latest`, shared aliases, absent removal) is read from code and generalises; the dates are illustrative and labelled. |
+| R9 | **A repo-committed lock imports the repo's cadence.** Version bumps become PRs — reviewable and bot-automatable, which is the point, and a chore — and repo-less or ephemeral workspaces have no home for the project half. | Bots own the bump PRs; the user-scope half of §5.6's table is the fallback; a missing lock degrades to today's A2 behaviour plus a report line, never a refusal. |
 
 ---
 
@@ -654,7 +750,10 @@ one) before this document's uniformity argument is even reached.
 identity, landing path, timestamp — for npm programs, installer programs and LSP servers, the three
 places yolo runs the install itself. It changes no behaviour, so it can land while the questions are
 still open, and it is what makes every later question answerable with a measurement instead of an
-argument.
+argument. The mise half of the record needs no building at all
+([§5.6](#56-a6--borrow-the-ecosystems-lockfiles)): enable the lockfile, commit `mise.lock`, and the
+launch's `install && upgrade --yes` becomes install-from-lock — [OQ-PD3](#decision-ledger)'s ruling
+shipping inside the seam, in the first step rather than the last.
 
 **Second, generalise the LSP sentinel into a reconcile.** It already does install *and* uninstall
 against a declared set; what it lacks is the resolved version and a caller for anything but LSP
@@ -668,10 +767,10 @@ unimplementable until the record's reach matches the bytes'.
 
 **Fifth, and only then, decide what obeys** ([OQ-PD6](#-oq-pd6--is-a-declaration-required-to-carry-a-pin-or-is-the-receipt-the-pin),
 [OQ-PD7](#-oq-pd7--does-the-receipt-gate-the-launch)). By this point the receipts say how much
-divergence there actually is, and the answer stops being a matter of taste. **mise's pin lands
-here**, as the observed-tier resolver's implementation of *obey* — [OQ-PD3](#decision-ledger) ruled
-it into the seam, so there is no earlier standalone `locked` flip to schedule: the per-launch
-`mise upgrade --yes` is retired by the same step that gives every resolver its explicit update act.
+divergence there actually is, and the answer stops being a matter of taste. mise is the exception
+to this sequencing: its lock records and obeys in one mechanism
+([§5.6](#56-a6--borrow-the-ecosystems-lockfiles)), so it ships with the first step — what remains
+here is the same decision for everything else.
 
 **In parallel, pay the enum tolerance** (§6.2). It is small, it is independent of everything above,
 and it is only cheap while no one needs it.
@@ -682,7 +781,7 @@ and it is only cheap while no one needs it.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-PD3 | **No-evergreen extends to mise — it is a principle, not an npm fix.** The per-launch `mise upgrade --yes` was a stopgap; whatever pins mise ships as **part of the general seam** (a tier-2 resolver whose *obey* goes through mise's own pinning), never as a standalone `locked` flip ahead of it. | 2026-08-24 | §4.2, §6.1, §10 |
+| OQ-PD3 | **No-evergreen extends to mise — it is a principle, not an npm fix.** The per-launch `mise upgrade --yes` was a stopgap; whatever pins mise ships as **part of the general seam** (a tier-2 resolver whose *obey* goes through mise's own pinning), never as a standalone lockfile flip ahead of it. | 2026-08-24 | §4.2, §6.1, §10 |
 
 ---
 
@@ -692,15 +791,18 @@ and it is only cheap while no one needs it.
 
 One file cannot be all three scopes (§4.4): npm/installer/LSP realizations are **per workspace**,
 mise and the artifact cache and the stamps are **machine-global**, and the declaration is
-**user-scope**. Three shapes: (a) one user-scope ledger beside `packs.lock.json`; (b) one receipt
+**user-scope**. Four shapes: (a) one user-scope ledger beside `packs.lock.json`; (b) one receipt
 beside each realization, with a single reader that merges them; (c) per-mechanism receipts with no
-common reader.
+common reader; (d) the record follows the declaration's scope — ecosystem-native lockfiles
+committed at the declaration's home (repo for `mise.toml` and `flake.nix`, user for `packs`),
+yolo-written receipts only where no native lock exists, bytes in machine-global content-addressed
+stores ([§5.6](#56-a6--borrow-the-ecosystems-lockfiles)).
 
 **What it decides:** whether removal and enforcement are implementable at all — both need the record
 and the bytes to have the same reach — and whether `yolo pack update` can remain the one update verb.
 
-_Leaning:_ **(b) — the deciding axis is which shape keeps the record's scope honest, and (b) is the
-only one honest by construction.** The real tradeoffs:
+_Leaning:_ **(d), with (b) surviving inside it for the gaps.** The deciding axis is which shape
+keeps the record's scope honest:
 
 - **(a) one user-scope ledger** gives a single canonical file to read and diff — but its scope lies
   by construction. A user-scope file describing per-workspace and machine-global realizations is
@@ -718,6 +820,13 @@ only one honest by construction.** The real tradeoffs:
 - **(c) per-mechanism native records** is the least invention (mise's lockfile stays mise's), but N
   formats with no common reader means no uniform answer to *"what did this jail get?"* — and the
   tier/enumeration surface R5 demands becomes unbuildable.
+- **(d) is (c) plus the two things it was missing**: one READER over the native records (the
+  report), and a scope rule — the record lives with its declaration while the bytes are immutable
+  and content-keyed, so scope agreement comes from immutability rather than co-location. It keeps
+  (b)'s honesty a different way (one writer per record: the update act that owns the declaration;
+  staleness handled by content-addressing), restores a committed, diffable artifact per scope — in
+  formats that already have resolvers behind them — and contains a small (b) for the installer
+  class, which has no native lock.
 
 **Answer:**
 > _(empty — fill in when decided)_
@@ -731,9 +840,11 @@ resolvers that can obey it offline, which is a different product from (a) and (b
 **What it decides:** whether the receipt is user/workspace state or a checked-in artifact, and
 therefore whether a colleague's jail is in scope at all.
 
-_Leaning:_ **(a) and (b) first, (c) explicitly out of scope for now.** Today (a) fails on one machine
-with one config, which is the surprising failure and the cheap one to fix. A committed lockfile is a
-coherent product and a much larger one.
+_Leaning:_ **(a) and (b) through the user half; (c) no longer out of scope — it arrives nearly free
+for the project toolchain.** A committed lockfile stopped being "a much larger product" the moment
+it became someone else's product: [§5.6](#56-a6--borrow-the-ecosystems-lockfiles) measured
+`mise.lock` doing (c)'s whole job for the tools this repo declares. (c) stays out of scope for user
+tools — agent CLIs are pack-selected at user level, and no repo should pin them.
 
 **Answer:**
 > _(empty — fill in when decided)_
@@ -764,11 +875,14 @@ their own shape.
 **What it decides:** how much work the fourth mechanism costs, and whether the third `via` value is a
 config change or a redesign.
 
-_Leaning:_ **One ledger, one lifecycle, N resolvers — with the three tiers made explicit**, because
-the tier is what varies and it is what a user needs told. A pin is ecosystem-shaped, so only the
-resolver may parse it; everything else in the record is common. And the enum tolerance (§6.2) is paid
-up front regardless of which way this goes. [OQ-PD3](#decision-ledger)'s ruling points the same way:
-mise was ruled *into* the general system rather than given a side mechanism of its own.
+_Leaning:_ **One lifecycle, N resolvers — and, a moved leaning, N native records under one READER
+rather than one ledger-as-store.** The earlier leaning here was a single ledger holding opaque
+resolved identities; [§5.6](#56-a6--borrow-the-ecosystems-lockfiles) is why it moved: mise's
+lockfile already *is* the record, checksums included, and a yolo store duplicating it would be two
+records with one truth. What stays common is the reader — the report that renders every tier — and
+the lifecycle verbs; only the resolver parses its own record. The three tiers stay explicit, the
+enum tolerance (§6.2) is paid up front regardless, and [OQ-PD3](#decision-ledger)'s ruling still
+points the same way: mise inside the general system, not a side mechanism of its own.
 
 **Answer:**
 > _(empty — fill in when decided)_
@@ -831,6 +945,27 @@ clear one stamp, launch, and see whether it reappears without `yolo pack update`
 cleared, shadowing is proven end-to-end. (`claude.stamp`'s date, two weeks after the binary it
 describes, is explained by a cold install in another workspace touching the shared stamp —
 `_do_install` ends with `touch "$STAMP"`, §4.4 — not by a poll.)
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 OQ-PD9 — does yolo write a repo-committed file of its own, or only orchestrate ecosystem-native ones?
+
+[§5.6](#56-a6--borrow-the-ecosystems-lockfiles) borrows native lockfiles where they exist. The
+remaining choice is whether yolo ever adds a repo-committed record of its *own* — say a
+`.yolo/toolchain.lock` for a project that genuinely wants an installer-class tool pinned repo-wide,
+or for LSP servers, which are project-shaped (they follow the repo's languages, `lsp.go:16-20`)
+even though their install is yolo-run today — or whether yolo-owned records stay strictly
+user/machine scope and the repo only ever carries files other tools own.
+
+**What it decides:** whether a new lockfile format enters the world (against the whole thrust of
+§5.6 — a yolo-invented format has no resolver community behind it), whether LSP pins can be shared
+with a colleague, and what `yolo check` must read to predict a launch.
+
+_Leaning:_ **Ecosystem-native only; yolo's own records stay out of the repo.** The point of §5.6 is
+that a format with a resolver behind it comes with help, and a yolo-invented repo file has none.
+The LSP case can ride its ecosystems' native pinning (npm and Go both have exact-version installs)
+if it moves at all. Revisit only when a real repo needs a repo-pinned installer-class tool.
 
 **Answer:**
 > _(empty — fill in when decided)_
