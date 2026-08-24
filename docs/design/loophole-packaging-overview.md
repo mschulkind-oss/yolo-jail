@@ -1207,7 +1207,9 @@ that computation through a per-consumer filter — so they cannot drift from the
 census I proposed does not disappear so much as shrink into two named manifests, each testable
 against its actual readers instead of against an abstraction.
 
-**3. The layer arg.** `yolo --user-layer <file>` (name yours to pick): layer this file in at
+**3. The layer arg.** `yolo --user-layer <file>` (~~name yours to pick~~ — **the name shipped as
+written**; it is the one flag consumed before subcommand routing, `internal/cli/cli.go:70`, and it is
+in `yolo --help`): layer this file in at
 user-level precedence, explicitly, at the invocation that wants it. This replaces my
 `config.local.jsonc` proposal, and I am dropping that one with cause — **a conventionally-named
 auto-merged file is the same mechanism as the `include_if_found`/`overrides.jsonc` accident I argued
