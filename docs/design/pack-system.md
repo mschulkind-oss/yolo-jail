@@ -4,10 +4,10 @@
 pack. **Spot-verified 2026-08-23:**
 
 - **The kind set is right: 15 kinds, exactly the 15 in §3's table**
-  (`internal/packdecl/kinds.go:381` `KnownKinds()`, pinned by
+  (`internal/packdecl/kinds.go:283` `KnownKinds()`, pinned by
   `internal/packdecl/kinds_test.go:30`). Nothing missing, nothing extra. One
   nuance: `KnownKinds()` returns them **sorted alphabetically**, while §3's table
-  is in declaration order (`kinds.go:39-158`) — the table is not the wire order.
+  is in declaration order (`kinds.go:39-135`) — the table is not the wire order.
 - **The `hook` set is still exactly three** — `shared_credentials`,
   `per_jail_history`, `claude_plugins` (`internal/packdecl/packdecl.go:99`,
   drift-pinned by `internal/entrypoint/hookdrift_test.go:31`).

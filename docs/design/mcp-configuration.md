@@ -128,7 +128,7 @@ moment before exec.
 **presets** with the wrapper path baked into their `command`:
 
 ```
-chrome-devtools:     command = McpWrappersBin()/"node", args = chromeDevtoolsArgs()   [mcp.go:64]
+chrome-devtools:     command = McpWrappersBin()/"node", args = chromeDevtoolsArgs()   [presets: mcp.go:88-101]
 sequential-thinking: command = McpWrappersBin()/"node", args = [NpmBin()/"mcp-server-sequential-thinking"]
 ```
 

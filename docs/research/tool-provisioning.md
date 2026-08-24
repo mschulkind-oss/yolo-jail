@@ -8,7 +8,7 @@ layer with file:line evidence, then untangles the multiple-versions situation so
 the picture stops feeling accidental.
 
 **Status:** findings gathered 2026-08-05 (baked Node had just bumped 22→24 in
-`230ca27`); audited 2026-08-23 — the four-layer model and the PATH story hold,
+`d3caffff`); audited 2026-08-23 — the four-layer model and the PATH story hold,
 but **the agent-registry layer has been replaced**, see the postscript. Line
 numbers are "look here", not eternal truth.
 
@@ -90,7 +90,7 @@ tool substrate baked in:
 
 | Baked package | `flake.nix` | Notes |
 |---|---|---|
-| `nodejs_24` | `:587` | Resolves to **24.16.0** in the pinned nixpkgs (per commit `230ca27`). Becomes `/bin/node`. |
+| `nodejs_24` | `:587` | Resolves to **24.16.0** in the pinned nixpkgs (per commit `d3caffff`). Becomes `/bin/node`. |
 | `python3` | `:588` | nixpkgs default python3. Becomes `/bin/python3`. |
 | `go` | `:589` | nixpkgs go (nixos-unstable, ≥ go.mod's `go 1.26`). Becomes `/bin/go`, RPATH-self-contained. Baked 2026-07-20. |
 | `uv` | `:606` | venv creation (`~/.yolo-venv-precreate.sh`). |
@@ -285,7 +285,7 @@ So "two node versions at once" is now possible **only** when a workspace
 deliberately pins one — never in the default setup.
 
 **History (superseded).** Before 2026-07-20, `miseBaseTools` *also* installed
-node (and python), so the default setup always had two — and commit `230ca27`
+node (and python), so the default setup always had two — and commit `d3caffff`
 bumped the baked node to 24 but left the mise default at 22, a latent one-major
 skew. That was first patched by aligning the versions (mise default → 24), then
 **superseded** by removing node/python from the mise defaults entirely (this
@@ -406,7 +406,7 @@ before restarting.
 
 - Baked packages: `flake.nix:573-615` (core), `:620-648` (full), `:686-688` (image
   Env / PATH / `LD_LIBRARY_PATH`), `:118-121` (extra-packages `--impure` injection).
-- Baked Node bump: commit `230ca27` (`flake.nix` `nodejs_22→24`, `mise.toml`
+- Baked Node bump: commit `d3caffff` (`flake.nix` `nodejs_22→24`, `mise.toml`
   `22→24`). Baked `go` added to `corePackages` 2026-07-20 (`imagePkgs.go`).
 - mise global config generator + base tools: `internal/entrypoint/mise.go:37`
   (`miseBaseTools` is now an empty slice — all default runtimes baked).

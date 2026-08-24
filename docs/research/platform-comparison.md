@@ -12,8 +12,10 @@ anything from this doc.
 > 1. **Every Python file name in this doc is gone.** `cli.py`, `entrypoint.py`,
 >    `conftest.py`, `test_jail.py`, `test_macos_paths.py`, the `IS_LINUX`/
 >    `IS_MACOS` module constants and the `pytest` run at the end all belong to
->    the pre-Go-port tool. The whole thing is Go now (~43 packages under
->    `internal/`); the host CLI is `internal/cli` + `internal/cli/run`, the
+>    the pre-Go-port tool. The whole thing is Go now (55 packages under
+>    `internal/`, 65 in all — counted 2026-08-23; this said "~43", which was
+>    copied from a stale line in `AGENTS.md`); the host CLI is `internal/cli` +
+>    `internal/cli/run`, the
 >    in-container provisioner is `internal/entrypoint`, and the test story is
 >    `just test-fast` (`go test -short ./...`) plus `integration/`. Treat every
 >    `*.py` path below as "the concept, at a name that no longer exists".

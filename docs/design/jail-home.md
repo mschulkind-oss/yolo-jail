@@ -703,8 +703,10 @@ prior container's UID mapping and are deliberately left alone (ensure.go:82-91).
    > naming its mirror is itself the stale artifact.
 
    The other PATHs still differ and still must not be assumed to agree: the
-   bashrc PATH (`.local/bin` second, shell.go:104-110) and the bootstrap-script
-   PATH (shell.go:159).
+   bashrc PATH (`.local/bin` second, shell.go:128-132 — the export itself is at
+   `shell.go:130`) and the bootstrap-script PATH (`shell.go:206`). *(Both anchors
+   corrected 2026-08-23: the old `shell.go:104-110` points at the TLS
+   trust-store block and `shell.go:159` at a blank line.)*
 
    > [!WARNING]
    > **A fourth PATH has drifted from `BootPath` and it is a real

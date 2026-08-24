@@ -858,8 +858,8 @@ Carry these forward; do not build on them without re-checking.
 
 ## Open Questions
 
-> IDs use the `LM` prefix (minted 2026-08-23; no other `OQ-LM*` exists in the
-> repo). They were bare `OQ-1`…`OQ-6` until then, which collided with the
+> IDs use the `LM` prefix (minted 2026-08-23; the only other `OQ-LM*` in the
+> repo is `docs/plans/roadmap.md:689`, which points back at these). They were bare `OQ-1`…`OQ-6` until then, which collided with the
 > `OQ-1`…`OQ-9` in `docs/design/agent-auth-modes.md` — the very doc OQ-LM1 is
 > about. Nothing outside this file cited the old spellings.
 
