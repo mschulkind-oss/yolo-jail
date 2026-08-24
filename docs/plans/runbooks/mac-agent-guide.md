@@ -1,5 +1,14 @@
 # Mac agent guide — how to run the Track M verification
 
+**Status:** RUNBOOK SEQUENCER, 2026-07-21 — **still the entry point, and one prerequisite has
+changed.** Re-checked 2026-08-23: before any of this runs, that Mac's
+`~/.config/yolo-jail/config.jsonc` needs its removed `agents` key renamed to `packs`, or **every**
+`yolo` invocation there refuses with the config-invalid fatal, on every backend. The machine was
+also measured **531 commits stale** on 2026-08-19, so step zero is an install, not a verification.
+See [`../../research/macos-support-matrix.md`](../../research/macos-support-matrix.md) for the live
+state and [`../handoff-guest-notch-macos.md`](../handoff-guest-notch-macos.md) for what one trip to
+that Mac should close.
+
 **Date:** 2026-07-21. **Audience:** an agent (or human) working on a real Apple
 Silicon Mac, tasked with the runtime verification an in-jail agent structurally
 cannot do. **Role of this doc:** it is the top-level *sequencer* for the
