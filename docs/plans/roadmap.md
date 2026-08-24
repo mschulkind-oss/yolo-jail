@@ -598,8 +598,9 @@ who set it there and has been writing to the workspace will start seeing failure
 
   Three items remain, all genuinely host-gated — and **before any of them, that Mac's config still
   uses the removed `agents` key, so no `yolo` launches there at all** (see the sandbox row above).
-  The three: the `macos-user` acceptance matrix, Track D4's download proof, and the guest-notch handoff (whose §2 item 1.4 — do packs reach a macos-user
-  sandbox? — is still the first thing to run there). 📄
+  The three: the `macos-user` acceptance matrix, Track D4's download proof, and the guest-notch
+  handoff (whose §2 item 1.4 — do packs reach a macos-user sandbox? — is still the first thing to
+  run there). 📄
   [`handoff-guest-notch-macos.md`](handoff-guest-notch-macos.md). **Item 1.4 is now half-answered:**
   the sandbox can read the staged pack root and run the toolchain, so what is untested is the
   `sudo -u _yolojail` staging step above it, not the confinement.
