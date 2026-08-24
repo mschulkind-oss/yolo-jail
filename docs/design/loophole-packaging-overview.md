@@ -14,6 +14,17 @@ per-consumer files, and the global `--user-layer` flag), and the earlier batch's
 **What is NOT built: one thing, deliberately** — **G2b**, the content-anchored exec approval, which is
 a maintainer decision under OQ-LP8 rather than pending work.
 
+> [!IMPORTANT]
+> **Both of the two DESIGN findings below are now spent, and both were spent by DELETION rather than
+> by design (2026-08-19).** Finding (1) — the pack-shipped subset cannot express `audio`'s reason to
+> exist — closed when **OQ-LP14 withdrew the bind-host path rule** rather than adding vocabulary;
+> `packs/audio` now carries both halves under the plain name. Finding (2) — the placement rule must
+> exempt yolo's own bundled loopholes — closed when **there stopped being any bundled loopholes to
+> exempt**: `bundled_loopholes/` and its embed are deleted, along with the reservation lists
+> (`loopholes.ReservedLoopholeNames`, `paths.BuiltinLoopholeNames`). Verified against the tree
+> 2026-08-23. They are kept below in their original tense, because a reader who hits either
+> mechanism in the git history needs to know it was real.
+
 **And the last two batches produced two findings that are about the DESIGN rather than the
 implementation**, which is why they are stated here rather than filed as bugs. (1) **The pack-shipped
 subset cannot express `audio`'s reason to exist** — see §5, which is the one place this doc says the
@@ -119,6 +130,23 @@ bundled `audio` exists for (§5), so the pack sits *beside* the bundled copy rat
 one more channel populated, none retired. **OQ-LP11**'s remaining half — bundled loopholes *becoming*
 packs — now depends on **OQ-LP14**, the missing vocabulary, because you cannot delete a bundled
 loophole whose capability no pack can declare.
+
+> [!NOTE]
+> **FINISHED 2026-08-19, and the hard part dissolved rather than being built.** The paragraph above
+> is kept in its original tense because its reasoning was correct — it just had the wrong idea of
+> how LP14 would close. **LP14 withdrew the bind-host path rule instead of adding vocabulary for a
+> runtime-dir socket**, and that rule was the whole obstruction: it admitted `~/.ssh` while refusing
+> `${XDG_RUNTIME_DIR}/pulse/native` in every spelling. With the rule gone, the two audio loopholes
+> merged into `packs/audio` under the **plain name**, which deleting the bundled copy freed. The
+> channel is not merely emptied — `bundled_loopholes/`, its `embed.go`,
+> `internal/loopholes/embedfallback.go` and every reader of them are **deleted**, and so is the
+> reservation list that made the plain name unclaimable
+> ([`broker-as-a-pack.md`](broker-as-a-pack.md) §13). Verified 2026-08-23: `internal/paths/paths.go`
+> records the absence deliberately — *"THERE IS NO RESERVED LOOPHOLE NAMESPACE LEFT."*
+>
+> **The lesson worth keeping, since this is the second time it has paid:** the blocking question was
+> *"what vocabulary do we add?"* and the answer was *"delete the rule that needed it."* Two of this
+> sprint's three hardest items closed that way — this one and the per-jail relay.
 
 **Landed: OQ-LP10 is CARRIED OUT — the home directory is retired, and the count is back to three.**
 `~/.local/share/yolo-jail/loopholes/` is no longer read by discovery, by `yolo check`'s walker, or by
@@ -971,7 +999,7 @@ wrote. The obvious dodge, a conventionally-named auto-merged state file beside i
 because a file exists, invisibly at the call site). So the config-write is a separate decision and a
 separate change.
 
-### OQ-LP11 — do bundled loopholes become official packs? ✅ RULED YES; FIRST STEP SHIPPED 2026-08-14
+### OQ-LP11 — do bundled loopholes become official packs? ✅ RULED YES; **COMPLETE 2026-08-19**
 
 `AGENTS.md` opens with *"AGENTS ARE PACKS. Core does not know what an agent is."* A loophole
 registry plus a magic directory plus a config block is the world before that move.
