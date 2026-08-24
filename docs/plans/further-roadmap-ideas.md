@@ -153,21 +153,26 @@ of exactly this test, and the reproduction is already written down.
 
 ## 2. The two that need a ruling before they are anything
 
-### I5. Release notes that have never announced a release
+### I5. Release notes that have accumulated since the last release, and no cut in sight
 
 [`../RELEASE-NOTES.md`](../RELEASE-NOTES.md) holds **eighteen** entries, every one of them under
 `## Unreleased`, several carrying upgrade instructions that only make sense at a boundary
-(*"restart the broker singleton after upgrading, or every OAuth refresh on that host fails"*). There
-is no version heading in the file and no release process doc in the repo — distribution today is
-`just install` plus a nix image.
+(*"restart the broker singleton after upgrading, or every OAuth refresh on that host fails"*).
 
-**The question is what a yolo release even is**, and it is genuinely yours: a tag, a
-`just load` on your own machines, or nothing at all — in which case the file should say it is a
-running upgrade log rather than release notes, and the upgrade instructions should be dated instead
-of versioned.
+> [!NOTE]
+> **Corrected 2026-08-23 — my first draft of this entry said yolo "has never announced a release",
+> and that is wrong.** There are **14 tags**, the newest being **v0.8.0 on 2026-08-13**, and
+> `release.yml`/`publish.yml` are wired to the `v*` tag push. What is actually true is narrower and
+> still worth deciding: the notes **file was created on 2026-08-18**, *after* that tag, so every
+> entry in it has accumulated post-release and nothing has cut a version since. The check that
+> disproved the stronger claim is `git tag --sort=-creatordate | head`, which cost nothing — a
+> reminder that "there is no X" is the easiest kind of claim to get wrong.
 
-**Verdict: needs a ruling; I have no strong leaning.** Worth noting the failure mode is quiet — a
-file this good is worth having read by someone.
+**The question is what a cut should mean now.** Options: tag when the notes justify it (the file
+becomes the trigger); tag on a cadence and let the notes fall where they may; or accept a rolling
+upgrade log and rename the `## Unreleased` heading so the entries stop looking queued. **This is
+yours** — I have no strong leaning, and the failure mode is quiet: a file this good is worth having
+read by someone.
 
 ### I6. The `mise` lockfile, which is the cheapest win and still the wrong first move
 

@@ -5,6 +5,15 @@
 `CACHIX_AUTH_TOKEN` secret is set, so the release-gated push job now runs.
 Remaining: the first push + the Mac-side download proof (steps 4 and "Final
 test" below), which need a Linux box and a Mac respectively.
+
+> [!NOTE]
+> **This doc and [`README.md`](README.md) disagree about the push, and 2026-08-23 narrowed the
+> disagreement without settling it.** README's row says *"CI has already pushed data"*; this line
+> says the first push is still owed. What is verifiable from in here: the push job is **tag-driven**
+> (`publish.yml` — the `v*` tag push is the load-bearing trigger, and the job no-ops without
+> `CACHIX_AUTH_TOKEN`), the token was set on 2026-07-20, and **`v0.8.0` was tagged 2026-08-13** —
+> so a run *should* have happened. Whether it **succeeded** needs the Actions log, which no in-jail
+> agent can read. Check that before trusting either sentence.
 **Why:** the OCI image contains a few `aarch64-linux` derivations built from
 *this repo's* source (`yolo-jail-conf`, the entrypoint pkg, the stream
 script) that are **never** on `cache.nixos.org`. So building the image on
