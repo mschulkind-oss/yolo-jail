@@ -639,8 +639,11 @@ asked to make and these are not blocking anything:
   what survives is four genuine but unpressing questions: two people attaching to one jail with
   different pack sets, opencode's skills gap, the prism as a standalone tool, and whether pruning
   needs telemetry.
-- The **research** docs' questions (`local-model-endpoints.md`, `mise-host-jail-path-mismatch.md`)
-  are exploratory rather than blocking.
+- The **research** docs' questions — **OQ-LM1 … OQ-LM6** in `local-model-endpoints.md` — are
+  exploratory rather than blocking. *(`mise-host-jail-path-mismatch.md` is now CLOSED: its last open
+  question had already shipped as `venvShadowMountArgs`, and re-reading it is what surfaced a trap
+  documented nowhere else — a per-side path that is a symlink or a regular file cannot be shadowed,
+  so the launcher warns and the jail silently sees the host's copy.)*
 
 They are named and countable now, which is the point — a question with an ID can be promoted to a
 row the day it starts blocking something. **That is the whole difference between this list being 14
