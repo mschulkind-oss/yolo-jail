@@ -1011,7 +1011,7 @@ That mounts the target read-write at `/home/agent/.cache/huggingface`, nested in
 Two constraints worth knowing before you plan a move:
 
 - **User scope only.** The key is read straight from `~/.config/yolo-jail/config.jsonc` and never from the merged config. `/workspace` is bind-mounted read-write into the jail, so a workspace config is agent-editable — it must not be able to hand out read-write host mounts. `yolo check` errors if the key shows up in `yolo-jail.jsonc`.
-- **Podman only.** Apple Container (`runtime: "container"`) warns and skips the relocation. The `macos-user` backend has no container and no bind mounts, so a plain host symlink already works there.
+- **Podman only.** Apple Container (`runtime: "container"`) warns and skips the relocation. The `macos-user` backend has no container and no bind mounts, and since 2026-08-24 it warns too. **There is no workaround there** — an earlier version of this line suggested a plain host symlink, which does not work: that backend's sandbox profile denies writes outside your workspace, its own home, `/tmp` and `/var/folders`, and denies reads under `/Volumes`, so a symlink into other storage resolves to a path the agent cannot use.
 
 The target's **parent** must already exist; only the last path component is created for you. That asymmetry is deliberate — auto-creating the whole path turns a typo like `/data/relcoated/…` into a silently-wrong empty directory back on the root filesystem, which is the exact failure the feature exists to prevent.
 

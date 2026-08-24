@@ -123,8 +123,17 @@ needs to know.
 
 **Scope:** podman only. Apple Container warns and skips (work item 6); the
 `macos-user` backend is unaffected — it has no container and no bind mounts (no
-`GlobalCache()` reference outside `assemble_parts.go`), so a plain host symlink
-already works there.
+`GlobalCache()` reference outside `assemble_parts.go`).
+
+> [!WARNING]
+> **⚠ Retracted 2026-08-24: "a plain host symlink already works there" is FALSE.** This
+> sentence used to end the paragraph above and it is the one workaround a macos-user reader
+> would have tried. The Seatbelt profile denies writes outside {workspace, sandbox home,
+> `/tmp`, `/var/folders`} and denies reads under `/Volumes`
+> (`internal/macosuser/seatbelt.go`), so a symlink pointing at other storage resolves to a
+> path the sandbox cannot use. There is no user-side workaround on that backend today; the
+> launch now warns instead of implying one exists. Found by the backend-parity sweep —
+> 📄 [`../design/backend-parity.md`](../design/backend-parity.md).
 
 ### Why keys are subdir names, not paths
 
