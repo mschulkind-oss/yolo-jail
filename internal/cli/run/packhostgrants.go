@@ -32,6 +32,7 @@ import (
 // Still no config key is read and no YOLO_HOST_*_FILES env is emitted.
 func (o *Options) hostFileArgs(in *assembleInput) []string {
 	var args []string
+	materialized := false
 	for _, p := range in.packs {
 		// HonoredHostFiles enforces the ORIGIN gate: an embedded or local pack may name
 		// a host file, a fetched one never can. The refusal is reported at staging time,
@@ -49,14 +50,43 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 			// entrypoint's host-layer read. Two copies of this derivation would silently
 			// compose the wrong user file (or none) into the surface.
 			dest := packload.CtxPath(p.Name, hf)
+			// APPLE CONTAINER CANNOT BIND A SINGLE FILE (apple/container#1089), and this
+			// grant is always exactly one file. Left as a bind it does not error — it
+			// silently does not arrive, and the surface then composes from its defaults
+			// layer because the entrypoint reads the host layer fail-open
+			// (packsurfaces.go hostSurfaceBytes). The user's whole ~/.claude/settings.json
+			// disappears from the composition with nothing in the launch to say so —
+			// while the disclosure line still prints "reads-host .claude/settings.json",
+			// which is the part that makes it worse than an omission.
+			//
+			// Same answer the other five single-file sites already reached: copy it into
+			// wsState (which IS /home/agent on this backend) and tell the entrypoint where
+			// to look. The read side was already parameterized for tests; YOLO_CTX_ROOT
+			// promotes that seam to a production one.
+			if in.rt == "container" {
+				acMaterialize(hostFile, filepath.Join(acCtxDirRel,
+					filepath.FromSlash(strings.TrimPrefix(dest, packload.CtxRoot+"/"))), in.wsState)
+				materialized = true
+				continue
+			}
 			args = append(args, ROFileMountArg(
 				hostFile, dest, in.wsState,
 				"ctx-"+strings.ReplaceAll(strings.TrimPrefix(dest, "/ctx/"), "/", "-"),
 				in.mountTargets, nil)...)
 		}
 	}
+	// Emitted only when something was actually materialized, so a launch with no grants
+	// keeps a byte-identical argv.
+	if materialized {
+		args = append(args, "-e", "YOLO_CTX_ROOT=/home/agent/"+acCtxDirRel)
+	}
 	return args
 }
+
+// acCtxDirRel is where Apple Container's materialized /ctx host-file copies live,
+// relative to the home (= wsState on that backend). A dotted name because it sits in
+// the agent's home rather than in a mount namespace it cannot see.
+const acCtxDirRel = ".yolo-ctx"
 
 // hostMountArgs mounts each pack's DECLARED `mount` contributions read-only under
 // /ctx. Same credential boundary as hostFileArgs (HonoredMounts applies the origin

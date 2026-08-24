@@ -335,7 +335,21 @@ func hostSurfaceBytes(e *Env, surface manifest.Surface) []byte {
 // ctxRoot is where host-file mounts appear in this process's filesystem. It is
 // packload.CtxRoot in a real jail; a var so a test can point it at a temp dir, which is
 // what hostClaudeDir/hostPiDir used to be for.
-var ctxRoot = packload.CtxRoot
+//
+// YOLO_CTX_ROOT PROMOTES THAT SEAM TO A PRODUCTION ONE, for Apple Container. That
+// backend cannot bind a single file (apple/container#1089) and every host-file grant is
+// exactly one file, so the CLI copies them into the home and names the directory here
+// instead. Absent — every other backend — this is the /ctx mount and remapCtx is a no-op,
+// so the common path is unchanged.
+//
+// It is read ONCE, at init, rather than per call: the value cannot change during a boot,
+// and a per-call getenv would make the "no-op in a real jail" fast path a syscall.
+var ctxRoot = func() string {
+	if r := os.Getenv("YOLO_CTX_ROOT"); r != "" {
+		return r
+	}
+	return packload.CtxRoot
+}()
 
 // remapCtx rewrites a /ctx path onto ctxRoot. A no-op in a real jail.
 func remapCtx(p string) string {
