@@ -22,7 +22,9 @@ that produced today's `contributes[]` design is shipped (see
 here said *"Stage G — host-side composition — is the one substantive open pack-adjacent
 stage, and G1 within it is a live data-loss bug"*; both halves of that are now stale. Stage G
 moved into [environment-manager-plan.md](environment-manager-plan.md) on 2026-07-31, and that
-plan's own build status records **Phases 0, 1, 2, 3, 4, 5, 6, 8 and 9 as SHIPPED (2026-08-01)**.
+plan's own build status records **Phases 0, 1, 2, 3 and 9 as SHIPPED, and Phases 4, 5, 6 and 8 as
+PARTIAL** (re-verified against the tree 2026-08-23 — the flat "Phases 0–6, 8, 9 SHIPPED 2026-08-01"
+summary this used to restate has been retracted in the plan itself).
 Spot-checked against the tree, verified 2026-08-23:
 
 - **G1/G2 (Phase 0) is FIXED** — `refuseHostSideWrite` (`internal/cli/configdiff.go:84-93`)
@@ -217,7 +219,8 @@ file's "an item lives once" rule — the item now lives in the plan):
 | G6 | `yolo config apply --host` — render the applicable subset into the real home | **Phase 4** |
 
 **And all six have SHIPPED — restamped 2026-08-23.** The plan's own build status records
-Phases 0–6, 8 and 9 as shipped 2026-08-01; the spot-checks are in this file's header. The
+Phases 0–3 and 9 as shipped 2026-08-01, with 4, 5, 6 and 8 partial in ways that do not touch the
+G-items; the spot-checks are in this file's header. The
 sentence that used to sit here (*"G1 (Phase 0) is the one to do first, and it waits on
 nothing"*) was true when it was written and is now history — G1/G2 are fixed at
 `internal/cli/configdiff.go:84-93`. Original order G1 → G2 → G4 → G3 → G5 → G6 was preserved

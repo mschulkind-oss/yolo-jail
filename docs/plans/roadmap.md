@@ -321,8 +321,9 @@ should **print**: a fourth verdict beside `[PASS]`/`[FAIL]`/`[WARN]`, or a scope
 
 - **The measurement that makes it one question, not three:** `check`'s reporter has exactly three
   verdict tokens and **no `[SKIP]`**, so a section that steps aside emits `[PASS]` — which is what
-  hid a daemon that never started. **Ten sections already step aside this way** (measured
-  2026-08-23; the doc previously said four, and the undercount was in the leaning's favour).
+  hid a daemon that never started. **Ten call sites already step aside this way** (measured
+  2026-08-23; the doc previously said four, and the undercount was in the leaning's favour) —
+  nine distinct sections, because `sectionGPUAmd` holds two of them.
 - **`sectionRunningJails` has no in-jail guard** (`check.go:514`). From inside a jail it reports the
   *nested* podman's view — measured `[PASS] No jails currently running` in here while the host had
   one. Left alone so far because it is *true of the runtime it can see*, and the orphan-cleanup path
@@ -416,7 +417,7 @@ largest measured reclaim in the repo. **Nothing here is waiting on me to decide 
 
 > [!NOTE]
 > **An empty queue is not a stable state, it is a reading.** If it stays empty for a week, the
-> question to ask is not "what should we build" but "which of the eleven rulings is actually
+> question to ask is not "what should we build" but "which of the fourteen rulings is actually
 > blocking, and which is a question I invented" — see
 > [`further-roadmap-ideas.md`](further-roadmap-ideas.md) §4, which argues two of them are the
 > latter.
@@ -536,7 +537,7 @@ who set it there and has been writing to the workspace will start seeing failure
   - ✅ **The isolation holds where it matters.** Host SSH keys, `~/.claude`, `~/.aws`, `~/.dotfiles`,
     `/Library/Keychains` and the login keychain are all `Operation not permitted`; writes outside the
     workspace are refused. Network is open, by SandVault-parity design.
-  - ✅ **One real profile bug found and fixed** (`533ccc1`): intermediate workspace dirs were denied,
+  - ✅ **One real profile bug found and fixed** (`2e327fa2`): intermediate workspace dirs were denied,
     so `git ls-files` could not walk to the repo boundary and `just format` died claiming
     `Invalid path '/Users/Shared/yolo'`. See the Mac row below for why it stayed hidden.
 
@@ -581,7 +582,7 @@ who set it there and has been writing to the workspace will start seeing failure
   Linux's answer (`a35f8c7`, test-only; the resolver was right). `ci.yml`'s `check-macos` job was red
   on `main` for the second of those.
 
-  **And a third, which was neither macOS-specific nor a flake** (`8e77580`): `TestNoTruncationRace`
+  **And a third, which was neither macOS-specific nor a flake** (`b23c95c2`): `TestNoTruncationRace`
   was red on `main` on BOTH Linux and macOS at a flat ~30.8s, and the cause was a real daemon bug —
   `journald.Serve`'s stop watcher unlinked the socket in a goroutine **nothing waits for**, so a
   caller re-serving the same path had its new socket file deleted by its predecessor and every dial
@@ -597,7 +598,7 @@ who set it there and has been writing to the workspace will start seeing failure
   - **The readiness budget had already been raised 5s→30s for this same symptom.** Raising a timeout
     is what you do to a slow test; doing it twice is a signal you are looking at the wrong layer.
 
-  **And a fourth, from the sandbox measurement above** (`533ccc1`): the Seatbelt profile granted
+  **And a fourth, from the sandbox measurement above** (`2e327fa2`): the Seatbelt profile granted
   `/Users`, `/Users/Shared` and the workspace subpath, and its comment asserted "the workspace is NOT
   under any `/Users/<name>` home, so **no ancestor grant is needed**". That is true only at depth
   ONE — and the shipped test used `/Users/Shared/proj`, the single depth where the gap is invisible,
