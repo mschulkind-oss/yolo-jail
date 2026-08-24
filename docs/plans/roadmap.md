@@ -328,6 +328,15 @@ should **print**: a fourth verdict beside `[PASS]`/`[FAIL]`/`[WARN]`, or a scope
 - **Should `yolo check` validate an npm selector's shape?** Now that a `package` string can carry a
   version, a typo like `foo@@1.2.3` reaches npm and fails at first use *inside* the jail, where the
   diagnosis is worst. Cheap host-side check; needs a ruling only on how strict to be.
+- **A fourth PATH exists that claims to match the third and does not** *(found 2026-08-23, while
+  correcting AGENTS.md's own PATH line, which was also wrong).* `BootPath`
+  (`internal/entrypoint/boot.go:356-361`) is the authority and includes `~/.local/bin`. The PATH set
+  for the **mise-trust subprocess** (`boot.go:520-523`) omits it, under a comment saying it *"matches
+  the pre-exec PATH set in `main()`"*. Nothing is known to break — `~/.local/bin` holds the native
+  agent installs and the chrome-devtools wrapper, none of which that subprocess calls — so this is a
+  **drift question, not a defect report**: is the fourth list meant to be a narrower PATH on purpose,
+  or is it the third list that has since grown? The cheap fix is to derive it from `BootPath` so the
+  question cannot recur; the honest one is to find out which of the two was right.
 
 ### 💬 12 — `pack-host-management` OQ-B, and `pack-capabilities` OQ-CAP
 
