@@ -397,8 +397,18 @@ should **print**: a fourth verdict beside `[PASS]`/`[FAIL]`/`[WARN]`, or a scope
 📄 [`pack-host-management-plan.md`](pack-host-management-plan.md) ·
 [`pack-capabilities.md`](../design/pack-capabilities.md)
 
-Should host-side `files` be `0o444`? Same asymmetry as E1/E2 — decide them together. OQ-CAP is a
-one-line deliverable that is decided in all but name.
+**OQ-B** — should host-side `files` be `0o444`? **This is not its own decision.** It is the
+`0o444`-vs-`:ro` asymmetry in a **fourth** place; the others are `E1`, `E2` (💬 8) and
+`composed-file-permissions.md` §7.4. `:ro` is *enforced*; `0o444` is only *asymmetric* — a `chmod`
+defeats it, and `hostfilestree.go:157` shows the writer chmodding a `0o444` file back to writable to
+reopen it, which is exactly the move a hand-editing user makes and then loses. **Decide all four
+together or none.**
+
+**OQ-CAP** — where `supersedes` lives (manifest top level vs a `contributes[]` entry). Uncontested
+since 2026-08-13. **I think this should leave the list**: a question with one plausible answer and a
+one-line edit behind it is a confirmation, not a decision, and it spends the scarcest thing here.
+Either queue the line or retire the idea — the argument is in
+[`further-roadmap-ideas.md`](further-roadmap-ideas.md) §4 b.
 
 ### 💬 13 — Nested nixpkgs attribute paths in `packages`
 
