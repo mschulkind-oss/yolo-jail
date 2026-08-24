@@ -32,7 +32,6 @@ import (
 // Still no config key is read and no YOLO_HOST_*_FILES env is emitted.
 func (o *Options) hostFileArgs(in *assembleInput) []string {
 	var args []string
-	materialized := false
 	for _, p := range in.packs {
 		// HonoredHostFiles enforces the ORIGIN gate: an embedded or local pack may name
 		// a host file, a fetched one never can. The refusal is reported at staging time,
@@ -66,7 +65,7 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 			if in.rt == "container" {
 				acMaterialize(hostFile, filepath.Join(acCtxDirRel,
 					filepath.FromSlash(strings.TrimPrefix(dest, packload.CtxRoot+"/"))), in.wsState)
-				materialized = true
+				in.acCtxMaterialized = true
 				continue
 			}
 			args = append(args, ROFileMountArg(
@@ -74,11 +73,6 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 				"ctx-"+strings.ReplaceAll(strings.TrimPrefix(dest, "/ctx/"), "/", "-"),
 				in.mountTargets, nil)...)
 		}
-	}
-	// Emitted only when something was actually materialized, so a launch with no grants
-	// keeps a byte-identical argv.
-	if materialized {
-		args = append(args, "-e", "YOLO_CTX_ROOT=/home/agent/"+acCtxDirRel)
 	}
 	return args
 }

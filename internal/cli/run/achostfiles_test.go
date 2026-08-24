@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // HOST_FILES SOURCE ENTRIES ON APPLE CONTAINER. A file entry emitted the same
@@ -52,8 +53,11 @@ func TestHostFileSourcesAreMaterializedOnAppleContainer(t *testing.T) {
 	if string(got) != "registry=https://example\n" {
 		t.Errorf("materialized content = %q, want the host file's bytes", got)
 	}
-	if !strings.Contains(args, "YOLO_CTX_ROOT=/home/agent/"+acCtxDirRel) {
-		t.Errorf("no YOLO_CTX_ROOT emitted, so the entrypoint still reads /ctx/host-user:\n%s", args)
+	// The env var is emitted ONCE by assembleRunCmd for both host-file emitters (see
+	// acCtxMaterialized); this emitter's job is to record that it materialized.
+	if !in.acCtxMaterialized {
+		t.Error("hostUserFileArgs materialized a grant without recording it, so assembleRunCmd " +
+			"emits no YOLO_CTX_ROOT and the entrypoint still reads /ctx/host-user")
 	}
 	if strings.Contains(args, src+":/ctx/host-user/") {
 		t.Errorf("a single-file /ctx bind survived on Apple Container:\n%s", args)
@@ -84,7 +88,63 @@ func TestHostFileSourcesStillBindOnPodman(t *testing.T) {
 	if !strings.Contains(args, ":/ctx/host-user/") {
 		t.Errorf("podman no longer binds the host_files source:\n%s", args)
 	}
-	if strings.Contains(args, "YOLO_CTX_ROOT") {
-		t.Errorf("podman argv gained YOLO_CTX_ROOT; it mounts at /ctx:\n%s", args)
+	if in.acCtxMaterialized {
+		t.Error("podman recorded an Apple Container materialization; it mounts at /ctx and " +
+			"must not trigger the remap")
+	}
+}
+
+// ONE YOLO_CTX_ROOT, not two. Both host-file emitters can materialize in the same launch
+// — a pack `reads-host` grant and a user `host_files` entry — and each used to append its
+// own -e. A duplicated flag on a frozen argv is noise at best, and there is no evidence
+// about how Apple Container treats a repeated -e.
+func TestCtxRootEnvIsEmittedOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ws := t.TempDir()
+	emptyLoopholeDirs(t)
+
+	// A pack reads-host grant (claude declares .claude/settings.json)...
+	hostSettings := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(hostSettings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hostSettings, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// ...AND a user host_files entry, so both emitters fire.
+	npmrc := filepath.Join(home, ".npmrc")
+	if err := os.WriteFile(npmrc, []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	wsState := filepath.Join(ws, ".yolo", "home")
+	if err := os.MkdirAll(wsState, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	o := goldenOptions(ws, home)
+	o.IsMacOS = true
+	o.IsLinux = false
+	sec := jsonx.NewOrderedMap()
+	sec.Set("blocked_tools", []any{})
+
+	argv := o.assembleRunCmd(&assembleInput{
+		cfg: newConfig("security", sec), rt: "container", cname: "yolo-ws-abcd1234",
+		packs:      claudePackFixture(t),
+		hostFiles:  []config.HostFileEntry{{Path: ".npmrc", Source: npmrc, Mode: config.HostFileModeReadonly}},
+		agentsPath: filepath.Join(ws, "agents"), wsState: wsState,
+		miseStore: "/mise-store", yoloVersion: "9.9.9-test",
+		mountTargets: map[string]struct{}{},
+	})
+
+	n := 0
+	for _, a := range argv {
+		if strings.HasPrefix(a, "YOLO_CTX_ROOT=") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("YOLO_CTX_ROOT emitted %d times, want exactly 1 — both host-file emitters "+
+			"materialized and each must not append its own:\n%s", n, strings.Join(argv, " "))
 	}
 }

@@ -66,6 +66,13 @@ type assembleInput struct {
 	// split as cacheRelocations). prepareHostFiles provisioned each destination's
 	// writable staging before assembly.
 	hostFiles []config.HostFileEntry
+
+	// acCtxMaterialized is set by EITHER host-file emitter when it copies a grant into
+	// the Apple Container ctx dir. The YOLO_CTX_ROOT that tells the entrypoint where to
+	// look is then emitted ONCE, below — two emitters each appending their own would put
+	// the same -e on the argv twice, which is at best noise on a frozen argv and at worst
+	// a backend that rejects a duplicate flag.
+	acCtxMaterialized bool
 }
 
 // lspNPM / lspGo return the resolved YOLO_LSP_*_INSTALL values.
@@ -508,6 +515,10 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// source inputs under /ctx, then the resolved-entry env the entrypoint decodes.
 	runCmd = append(runCmd, o.hostFileWritableDirArgs(in)...)
 	runCmd = append(runCmd, o.hostUserFileArgs(in)...)
+	// ONE YOLO_CTX_ROOT for both host-file emitters above (see acCtxMaterialized).
+	if in.acCtxMaterialized {
+		runCmd = append(runCmd, "-e", "YOLO_CTX_ROOT=/home/agent/"+acCtxDirRel)
+	}
 	runCmd = append(runCmd, o.hostFilesEnv(in)...)
 
 	// --- PACK-DECLARED briefings ---
