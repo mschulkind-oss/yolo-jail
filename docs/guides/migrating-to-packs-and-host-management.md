@@ -1,18 +1,21 @@
 # Migrating to packs, and managing your host from yolo
 
 **Status:** GUIDE — **spot-checked 2026-08-23**: the kind count (fifteen) and the loophole section
-match the tree, and the UNRELEASED warning below still applies — none of these verbs are in a
-released `yolo`, because there has not been a release (see [`../RELEASE-NOTES.md`](../RELEASE-NOTES.md),
-whose eighteen entries all sit under `## Unreleased`).
+match the tree. **The UNRELEASED warning below is now WRONG and is corrected in place** — every verb
+it lists shipped in **v0.8.0** (tagged 2026-08-13; `git show v0.8.0:internal/cli/dispatch.go` has
+`describe`, `apply`, `check-deps` and `pack`).
 
-> **⚠ UNRELEASED — verify your version first.** The verbs this guide leans on —
-> `describe`, `apply` (incl. `--host`/`--sealed`), `check-deps`, and the newer `pack`
-> subcommands (`lint`'s manifest validation, `footprint`, `install`, `status`) and
-> `config drift`/`dump` — are part of in-progress work that is **not in a released yolo
-> yet**. On an older `yolo` they fail with `unknown command` / `unknown subcommand`
-> (exit 2), not a helpful message. Before following any step, confirm the verb exists:
-> `yolo apply --help`, `yolo describe --help`, `yolo pack --help`. If those error, your
-> installed `yolo` predates this work — rebuild/reinstall from a build that carries it.
+> **⚠ Verify your version first.** The verbs this guide leans on — `describe`, `apply` (incl.
+> `--host`/`--sealed`), `check-deps`, the newer `pack` subcommands (`lint`'s manifest validation,
+> `footprint`, `install`, `status`) and `config drift`/`dump` — are **in `v0.8.0` and later**. On an
+> **older** `yolo` they fail with `unknown command` / `unknown subcommand` (exit 2), not a helpful
+> message. Before following any step, confirm the verb exists: `yolo apply --help`,
+> `yolo describe --help`, `yolo pack --help`. If those error, your installed `yolo` predates the
+> work — reinstall.
+>
+> *(Corrected 2026-08-23. This block said the verbs were "not in a released yolo yet", which was
+> true when it was written and stopped being true at v0.8.0 — the version cutoff is the useful
+> instruction, not the absence of a release.)*
 
 > **Autonomy is a confinement policy (how `apply --host` stays safe).** The shipped agent
 > packs (`claude`, `codex`, `agy`, `opencode`) declare the jail-bypass settings
