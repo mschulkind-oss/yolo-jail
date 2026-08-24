@@ -1,16 +1,17 @@
 ---
-title: "Where the next roadmap items come from — nine candidates, ranked, three of them arguments to build less"
+title: "Where the next roadmap items come from — seven candidates, and three rows to drop"
 date: 2026-08-23
 status: draft
 tags: [roadmap, docs, process, candidates]
-summary: "The 📦 queue emptied by shipping, so this file says where the next items come from. Nine candidates from auditing every doc the roadmap points at — twice, the second time with five parallel agents — each with an explicit verdict. Plus §4 and §4a, which argue three rows should LEAVE the roadmap: a pointer is not a question and neither is a confirmation."
+summary: "The 📦 queue emptied by shipping, so this file says where the next items come from. Seven proposals from auditing every doc the roadmap points at — twice, the second time with five parallel agents, then adversarially re-checked — each with an explicit verdict. Plus three rows that should LEAVE the roadmap: a pointer is not a question and neither is a confirmation."
 ---
 
-# Where the next roadmap items come from — nine candidates, ranked
+# Where the next roadmap items come from — seven candidates, and three rows to drop
 
 **Status:** CANDIDATES, 2026-08-23 (updated the same evening after a five-agent verification pass
 over the whole corpus). **Nothing here is committed, and nothing here is a task.** Every item is a
-*proposal with a verdict*; five say build, two say rule first, three say drop.
+*proposal with a verdict*: **five say build** (§1), **two say rule first** (§2), and **three say
+drop a row the roadmap already carries** (§4, §4a).
 
 **The short version.** [`roadmap.md`](roadmap.md)'s 📦 queue is empty because the last item
 shipped, not because the work ran out — so the interesting question is where the *next* items come
