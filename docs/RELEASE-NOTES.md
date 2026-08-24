@@ -21,6 +21,30 @@ changelog; this is the subset that bites.
 
 ## Unreleased
 
+### ⚠️ `macos-user`: `workspace_readonly` used to do nothing, and now it does what it says
+
+**What changed** (2026-08-23, `d0961f2c`). `workspace_readonly: true` was delivered as a `-v …:ro`
+bind by the **container** pipeline only. `macos-user` has no bind mounts at all, so on that backend
+the key was a **silent no-op**: the config said the workspace was read-only, the launch reported no
+problem, and the agent could write to it. It is now enforced through the Seatbelt profile.
+
+**Who this bites.** Anyone on `macos-user` who set `workspace_readonly: true` and has been running
+agents that write to the workspace. **The key now means what it says, so those writes will start
+failing** — which is the point, but it is a behaviour change on an existing, working setup.
+
+**Two smaller changes ride along:**
+
+- **`per_side_paths` now WARNS on `macos-user`** instead of being quietly absent. Per-side shadowing
+  needs a mount namespace, and Seatbelt cannot fork a path — so the honest move is to say so.
+  *Shipping a new default that is silently missing on one backend would repeat the exact defect
+  above.*
+- **`node_modules` is shadowed per side by default**, which changes the frozen container argv. This
+  is an intended change, not drift; three golden argv tests were updated with it.
+
+**NOT verified on hardware:** that Seatbelt enforces the new denies at runtime. Everything above was
+measured in a Linux jail — the profile is generated correctly and its call sites are pinned by
+mutation-verified tests, but nobody has watched a write fail on a Mac.
+
 ### The Claude OAuth broker ships inside the `claude` pack — nothing to do, unless you had it disabled
 
 **What changed.** `claude-oauth-broker`'s manifest moved out of `bundled_loopholes/` and into the
