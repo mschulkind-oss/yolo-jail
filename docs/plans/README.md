@@ -26,6 +26,28 @@ for the classification and `git log --follow` to recover any).
 > only place that lists the implementable items in order, with a pointer per item to
 > the doc holding its reasoning.
 
+## Keeping this corpus honest — the four checks, so they are re-runnable
+
+The 2026-08-23 audit ran these by hand and each found something. They are not wired into `just`
+yet — that proposal, with the allowlists it needs, is
+[`further-roadmap-ideas.md`](further-roadmap-ideas.md) §I1. Until then, run them when a sprint
+closes; the drift clusters there rather than spreading evenly.
+
+```console
+# 1. Every relative doc link resolves.              (found: 5, now 0)
+# 2. Every live open question is countable.         (found: 6 invisible to the first regex)
+$ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs/ --sort path
+# 3. Every backticked SHA resolves in THIS repo.    (found: 3 phantoms cited as evidence)
+$ git rev-parse --verify --quiet <sha>^{commit}
+# 4. Every backticked code path exists.             (found: 1 real rot among 15 hits)
+```
+
+**Checks 3 and 4 need an allowlist or they cry wolf**: upstream `flake.lock` revs and other
+projects' source are legitimately unresolvable, and a doc *recording a deletion* is supposed to name
+the thing it deleted. The signal is a path or SHA offered as **evidence**, not one named as history.
+
+---
+
 ## macOS revival + distribution
 
 | Doc | What it is | Status |
