@@ -32,16 +32,24 @@ the real number was closer to 50.
 > [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md); **S5** is in
 > [`BACKLOG.md`](BACKLOG.md) §Stage E. **Cite a state row or an OQ ID — never a letter.**
 
-**And the real number is now countable rather than estimated: 86 live questions across 23 docs**,
+**And the real number is now countable rather than estimated: 92 live questions across 24 docs**,
 as of 2026-08-23, after a two-wave audit that gave every one of them a `💬` and a stable ID. It used
 to require reading ~9,000 lines; it is now one command:
 
 ```console
-$ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )💬' docs/ --sort path
+$ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs/ --sort path
 ```
 
-**Fourteen rows below is what the blocking subset of those 86 groups into** — the rest are named
-in *What the roadmap does not cover* at the end, deliberately. The gap between 86 and 14 is the
+> [!NOTE]
+> **The optional anchor-tag group is not decoration — it is the bug this count already had.** A
+> first version of the regex omitted it and returned **86**, silently missing all six of
+> `local-model-endpoints.md`'s questions, whose headings begin `1. <a id="oq-lm1"></a>💬 …`. Six live
+> questions invisible to the tool that exists to count them is exactly the failure this whole pass
+> was about, found by an adversarial re-check of the pass itself. If you add a heading style, check
+> the count moves.
+
+**Fourteen rows below is what the blocking subset of those 92 groups into** — the rest are named
+in *What the roadmap does not cover* at the end, deliberately. The gap between 92 and 14 is the
 point of this file: a row is a *decision*, and one decision usually closes several questions.
 
 | | Means |
@@ -189,9 +197,11 @@ attribute the doc proposed (`yoloNoncontainerPackages`) and explicitly rejected 
 independent, and **OQ-8**'s reporting half and **OQ-9** are worth fixing under any answer. Seven
 questions are live there (OQ-1 · 3 · 4 · 5 · 7 · 8 · 9); two settled into its Decision Ledger.
 
-Still not urgent — the auth thread routed around the `env` refusal that motivated it, and the
-codebase now points at this doc's own Option 2 from inside that refusal's text
-(`internal/render/fieldset.go:83-103`).
+Still not urgent — the auth thread routed around the `env` refusal that motivated it. *(A claim
+here that the refusal text "points at this doc's own Option 2" was **wrong**, and an adversarial
+re-check caught it: `fieldset.go:88` names `yolo --at host -- <cmd>` and cites the **env-manager**
+design §4.1, not `noncontainer-nix-environment.md`. The refusal does frame the limit as the
+*command's* rather than the notch's, which is the part worth knowing.)*
 
 ### 💬 5 — Boundary broker
 
