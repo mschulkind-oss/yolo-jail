@@ -266,7 +266,9 @@ leaning and an empty Answer in Stage E.
   collision **silently**, where `apply --host` refuses. Warn at launch, fail `yolo check`, or refuse
   the boot.
 - **E1 + E2 + `pack-host-management-plan.md` OQ-B are ONE decision** — the `0o444`-vs-`:ro`
-  asymmetry, in three places in the tree. Decide all three together or none.
+  asymmetry. **Four instances, not three** (2026-08-23): `composed-file-permissions.md` §7.4 is the
+  fourth, and it is cross-linked rather than given its own ID, because minting a fourth name for one
+  question is how a decision becomes four decisions. Decide them together or none.
 - **OQ-CO and OQ-S4 are the same question asked of different kinds:** should the two notches agree?
   One is `config-overlay`'s silent last-one-wins; the other is whether a pack's `into` **narrows**
   skills delivery or only adds to it — the jail and the host answer differently today.
@@ -642,6 +644,9 @@ asked to make and these are not blocking anything:
   what survives is four genuine but unpressing questions: two people attaching to one jail with
   different pack sets, opencode's skills gap, the prism as a standalone tool, and whether pruning
   needs telemetry.
+- **CFP-1 … CFP-3** (`composed-file-permissions.md`), **SS-6** (`jail-state-separation-design.md`)
+  and `host-render-target.md`'s three §9 questions — named 2026-08-23 so they are countable. All
+  concern shipped mechanisms working as designed, not gaps.
 - The **research** docs' questions — **OQ-LM1 … OQ-LM6** in `local-model-endpoints.md` — are
   exploratory rather than blocking. *(`mise-host-jail-path-mismatch.md` is now CLOSED: its last open
   question had already shipped as `venvShadowMountArgs`, and re-reading it is what surfaced a trap
