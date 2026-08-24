@@ -1,17 +1,20 @@
 # Roadmap
 
-**Status: 14 needing you · 0 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
+**Status: 15 needing you · 1 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
 
-Last updated **2026-08-23**. Counts tallied from this file, not asserted — one per `### 💬` heading,
+Last updated **2026-08-24**. Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph matches the section it is
 in.
 
 > [!IMPORTANT]
-> **The build queue is EMPTY, and that is the headline.** Not "nothing to do" — everything that was
-> designed has either shipped or is standing behind a ruling only you can make. The last 📦 item
-> (the broker's move into `packs/claude`) shipped **2026-08-19**, and `bundled_loopholes/` is
-> deleted. Until something in 💬 gets answered, the honest queue length is zero, so the fastest way
-> to create work is to answer 💬 **1**, **2** or **6**.
+> **Yesterday's headline was an empty build queue. It refilled from OUTSIDE the file.** Issue #39
+> (Apple Container never mounted pack shared dirs, so cross-jail credential sharing silently
+> degraded to per-workspace) turned out to be one instance of a class: **a 48-agent sweep censused
+> 74 mechanisms across the three backends and confirmed 31 silent drops, deduping to 17 distinct
+> defects.** Ten are fixed or warned as of 2026-08-24; the rest are 💬 **15** and 📦 below.
+>
+> Everything else here is still standing behind a ruling only you can make, so answering 💬 **1**,
+> **2** or **6** remains the fastest way to create work.
 
 **What this is.** The forward plan and nothing else. **If it is in this file, it is not done.** Work
 that ships leaves immediately — the record is the commit history. Decisions *not* to build move to
@@ -32,8 +35,8 @@ the real number was closer to 50.
 > [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md); **S5** is in
 > [`BACKLOG.md`](BACKLOG.md) §Stage E. **Cite a state row or an OQ ID — never a letter.**
 
-**And the real number is now countable rather than estimated: 92 live questions across 24 docs**,
-as of 2026-08-23, after a two-wave audit that gave every one of them a `💬` and a stable ID. It used
+**And the real number is now countable rather than estimated: 95 live questions across 25 docs**,
+as of 2026-08-24, after a two-wave audit that gave every one of them a `💬` and a stable ID. It used
 to require reading ~9,000 lines; it is now one command:
 
 ```console
@@ -52,8 +55,8 @@ heading anchors. All five, and the allowlists they need, are in
 > was about, found by an adversarial re-check of the pass itself. If you add a heading style, check
 > the count moves.
 
-**Fourteen rows below is what the blocking subset of those 92 groups into** — the rest are named
-in *What the roadmap does not cover* at the end, deliberately. The gap between 92 and 14 is the
+**Fifteen rows below is what the blocking subset of those 95 groups into** — the rest are named
+in *What the roadmap does not cover* at the end, deliberately. The gap between 95 and 15 is the
 point of this file: a row is a *decision*, and one decision usually closes several questions.
 
 | | Means |
@@ -456,26 +459,63 @@ here"* into *"supported, missing"* (`broker-as-a-pack.md` §9).
 
 ---
 
+### 💬 15 — Backend parity: the census, and whether macos-user gets briefings at all
+
+📄 [`backend-parity.md`](../design/backend-parity.md) — **OQ-BP-1 · OQ-BP-2 · OQ-BP-3**
+
+**Born from issue #39 and the sweep behind it.** Ten of the seventeen defects are fixed or warned
+(that doc's §5 is the table); what is left is a decision about the mechanism, not about any one bug.
+
+- **OQ-BP-1 — is a per-backend census worth 2–3 days?** It makes the SILENT half unrepresentable
+  and cannot touch the WRONG half — the two most serious findings emitted an argv the backend then
+  could not execute, and a census marks both `Honored`. The deciding work is already done; the
+  cells are the sweep's own reasoning. **The four-state vocabulary is the part to read**: eleven of
+  forty-two candidates were refuted because the backend achieved the outcome *another way*, so a
+  boolean census would cry wolf a quarter of the time and be switched off.
+- **OQ-BP-2 — do briefings and skills get DELIVERED to macos-user?** Today the agent starts there
+  with no AGENTS.md, no CLAUDE.md and no skills, including the built-in suite — while the
+  blocked-tool shims *are* generated, so `grep -r` exits 127 with nothing explaining it. Warned as
+  of today. My leaning is deliver it, and land it *with* a Mac session rather than blind.
+- **OQ-BP-3 — do the ten new launch warnings need suppressing?** A warning people learn to skip is
+  worse than none. My leaning is not yet, and per-key when it comes.
+
 # 📦 Up next
 
-**Empty, as of 2026-08-23** — and it emptied by shipping, not by demotion.
+**One item, and it refilled by DISCOVERY rather than by a ruling** — which is not how this
+section was supposed to work, and is worth noticing. It emptied on 2026-08-19 by shipping; it
+refilled on 2026-08-24 because a user filed an issue and the sweep behind it found sixteen more of
+the same defect.
 
-The last item was the broker's move out of `bundled_loopholes/`, and it **shipped in full on
-2026-08-19**: the directory, its `embed.go`, `internal/loopholes/embedfallback.go` and the whole
-`BundledLoopholesDir` / `SourceBundled` / `IncludeBundled` vocabulary are deleted; the manifest lives
-at `packs/claude/loopholes/claude-oauth-broker/` as a *contribution of the claude pack*, not a pack
-of its own; `loopholes.ReservedLoopholeNames` is gone whole, because the broker was the last name in
-it. 📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) §13 records what emptying the channel
-actually required.
+- 📦 **Compose the briefing from what was APPLIED, not from the config map.** *Needs no ruling —
+  the direction is settled and the seam is identified.* 📄
+  [`backend-parity.md`](../design/backend-parity.md) §6
 
-**What refills this section:** an answer in 💬. Rows **1**, **2** and **6** each unblock buildable
-work the day they are ruled on — program delivery has a ten-step build order waiting behind it
-(`program-delivery.md` §10), trust-paths has TP4's pin and TP7's catch-up, and image-staging has the
-largest measured reclaim in the repo. **Nothing here is waiting on me to decide what to do next.**
+  `refreshJailBriefings` took the runtime and **discarded it** (`_ = rt`, deleted 2026-08-24) while
+  every `BriefingInput` field was read straight from `cfg`. So the briefing describes what was
+  *configured*, not what was *applied*, and on a non-podman backend it states things that are
+  false: `network.mode: "host"` renders *"localhost resolves directly to the host"* where no
+  `--net` was emitted, and `resources` renders *"kernel-enforced"* where the flag was never passed.
+
+  The loophole list was fixed this way already (`a639394d`) — it is the one case where the truth
+  value was known at the call site. **The general fix is to feed `BriefingContent` from what
+  `assembleRunCmd` actually emitted**, which it already computes, making the class unrepresentable
+  instead of fixed case by case.
+
+  **Why this outranks the census it shares a doc with:** an absent capability is a jail missing
+  something. A false briefing is a jail that **told the agent something untrue**, and an agent
+  plans around it. Half a day against the census's two-to-three.
+
+**What refills this section otherwise:** an answer in 💬. Rows **1**, **2** and **6** each unblock
+buildable work the day they are ruled on — program delivery has a ten-step build order waiting
+behind it (`program-delivery.md` §10), trust-paths has TP4's pin and TP7's catch-up, and
+image-staging has the largest measured reclaim in the repo.
 
 > [!NOTE]
-> **An empty queue is not a stable state, it is a reading.** If it stays empty for a week, the
-> question to ask is not "what should we build" but "which of the fourteen rulings is actually
+> **The queue emptying was not the interesting part; how it refilled is.** Nothing in 💬 was
+> answered — an outside report arrived, and auditing the class behind it produced seventeen
+> defects and one buildable item. That is a real limit of a decision-shaped roadmap: it tracks
+> what I am waiting on you for, and cannot surface what nobody has looked at yet. If the queue
+> is empty, the question is not "what should we build" but "which of the fourteen rulings is actually
 > blocking, and which is a question I invented" — see
 > [`further-roadmap-ideas.md`](further-roadmap-ideas.md) §4 and §4a, which argue **three** of them
 > are the latter.
@@ -756,4 +796,4 @@ undecided, and are cited from 💬 7 above.
 
 They are named and countable now, which is the point — a question with an ID can be promoted to a
 row the day it starts blocking something. **That is the whole difference between this list being 14
-rows and being 92.**
+rows and being 95.**
