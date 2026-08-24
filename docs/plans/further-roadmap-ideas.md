@@ -111,7 +111,12 @@ answer.
 
 ### I3. One jail-blindness concept in `check`, instead of three per-section rulings
 
-Three items the roadmap holds separately are the same defect:
+> [!NOTE]
+> **Half of this landed the day it was written.** The roadmap no longer holds these as three separate
+> items — 💬 **10** is the single vocabulary question, and the recount that produced it found **ten**
+> sections already stepping aside, not four. What is left of I3 is the ruling and the build.
+
+Three items the roadmap used to hold separately are the same defect:
 
 | Where | What it does in a jail |
 |---|---|
@@ -125,8 +130,9 @@ both, and today it has no way to say so — so every section re-decides it by ha
 above decided it wrong.
 
 **Verdict: worth one ruling, then build.** The ruling is what a jail-observable section should
-*print* (a fourth verdict beside PASS/FAIL/SKIP, or a scope suffix). Answering it collapses three 💬
-items into one and takes the AMD twin's existing guard as the reference implementation.
+*print* — and note `check`'s reporter has exactly three verdict tokens and **no `[SKIP]`**, so the
+ruling is really "does a fourth token exist". The AMD device section is the reference
+implementation: it guards both of its checks, and its NVIDIA twin guards neither.
 
 ### I4. Make the reachability class reproducible in CI, not only in prose
 
