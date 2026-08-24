@@ -399,13 +399,15 @@ Three shipped behaviour changes had nowhere to be announced — a design ruling 
 risk as *"a release note"* and no CHANGELOG, NEWS or release-notes file existed anywhere in the repo
 (found 2026-08-18 while verifying the `default_enabled` rename).
 
-📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md) now carries seventeen entries under `## Unreleased`,
+📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md) now carries eighteen entries under `## Unreleased`,
 including the original three (**`audio` is now off by default**, **an unreachable host service
 refuses the launch**, **a non-interactive launch stops auto-accepting config changes**) and the two
 that were still queued when this section was written: **npm-installed agent CLIs no longer update
 themselves** (OQ-TP5) and **a pack whose claims you never approved now refuses the launch**
 (OQ-TP6). The broker's move ships with its own entry plus an upgrade warning — *restart the broker
-singleton after upgrading, or every OAuth refresh on that host fails.*
+singleton after upgrading, or every OAuth refresh on that host fails.* **Newest, 2026-08-23:**
+`workspace_readonly` was a silent no-op on `macos-user` and now enforces through Seatbelt, so anyone
+who set it there and has been writing to the workspace will start seeing failures.
 
 ---
 
