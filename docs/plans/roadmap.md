@@ -405,10 +405,18 @@ one-line deliverable that is decided in all but name.
 📄 [`package-nested-attribute-paths.md`](../design/package-nested-attribute-paths.md) — **OQ-1**
 
 This sat in 📦 as *"designed, questions answered, no blockers"* and it is none of those. Its doc is
-`**Status:** DESIGN SKETCH, 2026-08-22. Nothing built.`, and **OQ-1** — how a dotted path resolves
-when a derivation output and a nested collection member claim the same name — is carrying a leaning
-and an empty **Answer:** block. That is the resolver's central rule, so it gates the whole item
-rather than one corner of it.
+`**Status:** DESIGN SKETCH, 2026-08-22. Nothing built.` — **still true, re-verified 2026-08-23**
+(`packageNameRe` is still single-dot, `parseDottedSpec` unchanged, no resolver anywhere in
+`flake.nix`) — and **OQ-1** is the resolver's central rule: how a dotted path resolves when a
+derivation output and a nested collection member claim the same name. It carries a leaning and an
+empty Answer, so it gates the whole item rather than one corner of it.
+
+**One thing shipping this costs that the doc did not price.** The refusal it quotes
+(`60376fed`, *"a `packages` entry naming a nixpkgs COLLECTION is refused by name"*) is quoted
+**truncated**; the full message ends with a normative sentence this design **reverses** — *"A
+collection member is NOT selectable from `packages`: use the member's own top-level attribute … and
+drop `<entry>`."* That is advice, not a diagnostic, so shipping means **rewriting the message**, not
+just narrowing when the throw fires.
 
 ### 💬 14 — Pack-shipped binaries: the capability the broker sprint promised and did not finish
 
