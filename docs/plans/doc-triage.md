@@ -1,5 +1,13 @@
 # Documentation triage — proposed reorganization (for review)
 
+**Status:** ✅ EXECUTED 2026-07-03 (`5eb1643`, `9721660`) — kept as the record of what was archived
+and why, not as a pending proposal. **Not re-run since**, and the corpus has grown: as of
+2026-08-23 `docs/design/` holds 55 files and `docs/plans/` 34, at least eight of which announce
+their own completion in the first six lines. Whether a second sweep is worth running is argued in
+[`further-roadmap-ideas.md`](further-roadmap-ideas.md) §5 — where the verdict is *do the cheap half
+only, when passing through*, because a shipped plan is still the best account of why something is
+shaped the way it is.
+
 **Purpose:** classify every doc under `docs/` so obsolete/done working-docs get
 archived while the reference + active-design docs stay. **The reorg has been
 executed**: commit `5eb1643` git-rm'd the 12 C-bucket docs and repointed every

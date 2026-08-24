@@ -1,5 +1,15 @@
 # Unblocking the deferred environment-manager work
 
+**Status:** HANDOVER — still live, re-checked **2026-08-23**. All four items below remain unbuilt,
+and the reason is unchanged for each: three need hardware or a terminal this jail does not have, and
+the fourth is in-jail work nobody has picked up. **One correction to the sentence below:** Phase 9
+(agent autonomy as a notch policy) has shipped too, so the plan's built set is Phases **0–6, 8 and
+9**, and **Phase 7 — the `guest` notch, items 1 and 2 here — is the only unbuilt phase**.
+Item 3's half-state is worth knowing before you start it: `yolo check-deps` exists and is
+deliberately the *probe* half — *"It NEVER installs anything … the offer-to-run belongs to `apply` at
+a lower notch"* (`internal/cli/checkdeps.go:9-12`) — so what is missing is the offer, not the
+detection.
+
 The environment-manager plan shipped Phases 0–6 and 8. Four things were deferred.
 This doc is the **handover**: for each one, what it is, *why* it couldn't be finished
 here, and exactly what **you** need to do — on your own hardware — to unblock it.
