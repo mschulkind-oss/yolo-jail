@@ -1,5 +1,10 @@
 # SHIPPED — the 2026-08 pack batch
 
+**Status:** HISTORY — the ten-item pack batch as it shipped (2026-08-04). Kept for the reasoning
+and the nine defects that surfaced only by running the lifecycle, not for planning. **One count in
+it has drifted:** it speaks of fourteen kinds and "all six packs yolo ships"; there are **fifteen**
+kinds (pinned by `internal/packdecl/kinds_test.go`) and **ten** packs, six of which install an agent.
+
 **This is history, not a plan.** Everything here was built and verified 2026-08-03/04. It is kept
 for the REASONING and for the nine defects that surfaced only by running the lifecycle — those are
 the reusable part, and several of them corrected the design they came from.
