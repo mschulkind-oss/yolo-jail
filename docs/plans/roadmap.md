@@ -692,6 +692,9 @@ asked to make and these are not blocking anything:
   documented nowhere else — a per-side path that is a symlink or a regular file cannot be shadowed,
   so the launcher warns and the jail silently sees the host's copy.)*
 
+Plus the **OQ-GN1 … OQ-GN4** in the guest-notch handoff, which are Mac-gated rather than
+undecided, and are cited from 💬 7 above.
+
 They are named and countable now, which is the point — a question with an ID can be promoted to a
 row the day it starts blocking something. **That is the whole difference between this list being 14
-rows and being a hundred.**
+rows and being 92.**
