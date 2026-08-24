@@ -630,3 +630,18 @@ Ideas that are not yet anybody's decision — the ones that would become 💬 ro
 live in [`further-roadmap-ideas.md`](further-roadmap-ideas.md), not here. That file is a **source of
 candidate work, not a queue**: nothing in it is committed, and it says which of its own entries it
 would drop.
+
+**And some live questions are deliberately not rows**, because a row is a decision you are being
+asked to make and these are not blocking anything:
+
+- **OQ-ACP1 … OQ-ACP4** in [`agent-config-packs.md`](agent-config-packs.md) — that proposal was
+  largely overtaken by what shipped (the `packs` key, host fetch, the lockfile, the origin gate), so
+  what survives is four genuine but unpressing questions: two people attaching to one jail with
+  different pack sets, opencode's skills gap, the prism as a standalone tool, and whether pruning
+  needs telemetry.
+- The **research** docs' questions (`local-model-endpoints.md`, `mise-host-jail-path-mismatch.md`)
+  are exploratory rather than blocking.
+
+They are named and countable now, which is the point — a question with an ID can be promoted to a
+row the day it starts blocking something. **That is the whole difference between this list being 14
+rows and being a hundred.**
