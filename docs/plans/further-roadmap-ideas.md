@@ -60,7 +60,16 @@ anchors** in a single doc — no claim wrong, every pointer off.
 2. every `OQ-<ID>` the roadmap cites **resolves** to that ID in the doc it names;
 3. every `roadmap.md` reference by *name* (`row X`, `thread Y`, `item N`) is refused outright —
    the roadmap holds states and IDs, and nothing else is citable;
-4. every backticked SHA-shaped token resolves with `git rev-parse`. **Three phantom SHAs were in the
+4. every backticked **code path** (`internal/…`, `packs/…`, `cmd/…`) exists. A corpus sweep on
+   2026-08-23 found **15 distinct nonexistent paths**, and the split is the interesting part: most
+   are docs correctly *recording a deletion* (`internal/brokerrelay`, `internal/builder`,
+   `internal/agents/*`), two are **another project's** source quoted in research
+   (`internal/cdi/cdi.go` is ROCm's container-toolkit, with its URL two lines away), one is a
+   deliberate placeholder (`internal/foo.go`), and one was **real rot** —
+   `internal/entrypoint/prism_claude.go`, a writer deleted when the prism became the unconditional
+   path. So the rule needs the same allowlist shape as rule 5, and the payoff is one real find per
+   sweep rather than a wall;
+5. every backticked SHA-shaped token resolves with `git rev-parse`. **Three phantom SHAs were in the
    corpus today** (`533ccc1`, `8e77580`, `7fad359c`) and each sat in a sentence offering itself as
    evidence. ⚠ **This rule needs an allowlist, and finding that out is half its value:** a corpus
    sweep flags six more that are legitimately unresolvable — upstream `flake.lock` nixpkgs revs
@@ -68,7 +77,9 @@ anchors** in a single doc — no claim wrong, every pointer off.
    distinguish "our repo's history" from "someone else's", or it becomes noise and gets ignored.
 
 Rule 2 is the valuable half: it is a link checker for decisions rather than URLs. Rule 3 is the one
-this session would have needed.
+this session would have needed. **Rules 4 and 5 were both run by hand on 2026-08-23 before being
+proposed** — together they found one dead writer path and three phantom SHAs, and taught the design
+that both need an allowlist. A rule you have not run is a guess.
 
 **Verdict: build it.** The only item in this file that would have paid for itself twice during the
 audit that produced it.
