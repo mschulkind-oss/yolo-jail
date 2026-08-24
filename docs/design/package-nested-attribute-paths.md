@@ -1,6 +1,56 @@
+---
+title: "Nested nixpkgs attribute paths in `packages`"
+date: 2026-08-22
+status: draft
+tags: [config, nix, packages, flake]
+summary: "A `packages` entry like `rocmPackages.clr` fails because yolo reads any dot as an output selection. In Nix both are the same attribute walk, so one path-walking resolver supports nested collections and output selection alike — provided it keeps the base derivation for the /lib symlink farm."
+---
+
 # Nested nixpkgs attribute paths in `packages` — and why output selection is the same operation
 
-**Status:** DESIGN SKETCH, 2026-08-22. Nothing built.
+**Status:** DESIGN SKETCH, 2026-08-22. Nothing built. **Re-verified 2026-08-23: still nothing
+built**, and `60376fed` does not invalidate any premise below — see the postscript.
+
+> [!NOTE]
+> **Postscript, 2026-08-23 — audit against the tree, and against `60376fed`.**
+>
+> **"Nothing built" holds.** Every mechanism this doc proposes to change is untouched:
+> `packageNameRe` is still the single-optional-dot pattern `^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)?$`
+> (declared at [`internal/config/config.go#L134`](../../internal/config/config.go#L134), enforced at
+> [`validate.go#L217`](../../internal/config/validate.go#L217)); `parseDottedSpec` still splits on
+> one dot at [`flake.nix#L173`](../../flake.nix#L173) under the comment *"Validator (yolo check)
+> rejects multi-dot strings, so we only handle one dot here"*; and `flake.nix` contains no
+> `attrByPath`, no `hasAttrByPath`, and no `resolvePackagePath`. §5.1's resolver does not exist in
+> any form.
+>
+> **`60376fed` (2026-08-20) does not change this doc's premises — it *is* one of them.** This doc
+> was written on 2026-08-22, two days after that commit, and §2.1 already cites it by hash and
+> quotes the error it introduced. `requireDerivation` is at
+> [`flake.nix#L255`](../../flake.nix#L255), exactly as §2.1 says, and
+> [`integration/packagecollection_test.go`](../../integration/packagecollection_test.go) exists
+> already — so §7's first bullet list is *extending* a suite, not creating one. Nothing here is
+> stale.
+>
+> **One consequence of `60376fed` the body does not yet record.** §2.1 quotes the refusal
+> accurately but *truncated*. The full `nonPackageError` message ends with two more lines
+> ([`flake.nix#L248-L254`](../../flake.nix#L248)):
+>
+> ```text
+>   Members include: <sample>, ...
+>   A collection member is NOT selectable from `packages`: use the member's own
+>   top-level attribute if nixpkgs has one (`nix search nixpkgs <member>` to
+>   check — most of xorg.* is top-level today, e.g. libX11), and drop "<entry>".
+> ```
+>
+> That second line is a **normative statement to the user that this design reverses.** It is not a
+> diagnostic that happens to fire; it is advice telling people the thing this doc wants to make
+> work is not a thing. So P3 ("keep collection diagnostics honest and actionable") acquires a
+> second obligation the body does not state: shipping this design means rewriting that advice, not
+> merely narrowing when the throw fires. A user who followed the shipped advice and rewrote
+> `xorg.libX11` to `libX11` is not wrong afterwards — but the message must stop saying the dotted
+> form is unselectable, or the error becomes the lie.
+>
+> Everything else in §1–§7 is stated as of 2026-08-22 and still reads true.
 
 **The short version.** A `packages` entry like `"rocmPackages.clr"` currently fails because yolo assumes any dot indicates an output selection on a top-level package. But in Nix, derivation outputs *are* attributes on the derivation itself. Unifying dotted strings as a general attribute path walk (`lib.attrByPath`) supports arbitrary nested collections (`rocmPackages.clr`, `llvmPackages_16.libclang.dev`, `darwin.apple_sdk.frameworks.Security`) without new syntax, provided the resolver preserves the base derivation for the `/lib` symlink farm and header propagation.
 
@@ -143,13 +193,17 @@ resolvePackagePath = rootPkgs: entryStr:
     walk [ (builtins.head parts) ] (builtins.tail parts);
 ```
 
-### 5.2 Host-Side Validation (`internal/config/validate.go`)
-1. Update `packageNameRe` to allow multi-segment dotted identifiers:
+### 5.2 Host-Side Validation
+
+The pattern and its enforcement live in two files, and both move (verified 2026-08-23):
+
+1. Update `packageNameRe` — declared at [`internal/config/config.go#L134`](../../internal/config/config.go#L134), not in `validate.go` — to allow multi-segment dotted identifiers:
    ```go
    packageNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)*$`)
    ```
-2. Update the error message on regex mismatch:
+2. Update the error message on regex mismatch, raised at [`internal/config/validate.go#L217`](../../internal/config/validate.go#L217), which today reads *"expected '\<name>' or '\<name>.\<output>' (letters, digits, '_' and '-' only; at most one dot)"*:
    `"expected '<name>', '<collection>.<name>', or '<name>.<output>' (letters, digits, '_' and '-' separated by dots)"`.
+3. Rewrite the collection-refusal advice in `nonPackageError` ([`flake.nix#L248`](../../flake.nix#L248)) — see the postscript at the top. It currently tells the user a collection member is not selectable from `packages`, which is the sentence this design falsifies.
 
 ### 5.3 Non-Container Backend Resolution (`yoloNoncontainerPackages`)
 Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and `pkgs.lib.attrByPath` instead of flat `src ? ${attr}` checks, evaluating `lib.meta.availableOn` and `meta.available` on the resolved base derivation.
@@ -179,11 +233,32 @@ Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and
 
 ---
 
-## Open Questions
+## 8. Open Questions
 
-1. 💬 **OQ-1: Namespace collision between collection members and derivation outputs.** If package `foo` has an output named `bar` AND nixpkgs has an attrset `foo.bar` containing package `baz`, how should `foo.bar` resolve?
+1. 💬 **OQ-1: Namespace collision between collection members and derivation outputs.** If package
+   `foo` has an output named `bar` AND nixpkgs has an attrset `foo.bar` containing package `baz`, how
+   should `foo.bar` resolve — to the `bar` *output* of the `foo` derivation, or to the `bar` *member*
+   of the `foo` collection?
 
-   _Leaning:_ Derivation output check takes precedence on the leaf if `bar` is in `foo.outputs`, unless a deeper path component (`foo.bar.baz`) exists. In practice, nixpkgs output names (`out`, `dev`, `lib`, `bin`, `man`, `doc`) do not collide with package namespaces.
+   **What it decides:** the resolver's central disambiguation rule, and therefore the whole feature.
+   §5.1's `walk` already encodes an answer — it tests `builtins.elem (head remaining) (curr.outputs
+   or ["out"])` *before* it tries a deeper attribute — so ruling the other way is not a tweak to that
+   code, it is a different algorithm. It also decides what §4.2's base-derivation contract means in
+   the ambiguous case: an output resolution keeps `foo` as the base and feeds `getLib foo` to the
+   `/lib` farm, while a member resolution makes `foo.bar` the base and feeds `getLib foo.bar`. Those
+   produce **different image contents**, silently, from the same config string. This is the rule the
+   roadmap's 💬 10 row names as gating the item as a whole rather than one corner of it.
+
+   _Leaning:_ **output wins on the leaf; a deeper path wins over both.** Concretely: if the remaining
+   path is exactly one component and that component is in `curr.outputs`, resolve it as an output;
+   otherwise keep walking. In practice the two namespaces do not overlap — nixpkgs output names are a
+   tiny closed set (`out`, `dev`, `lib`, `bin`, `man`, `doc`, `info`, `debug`) and collections are
+   named `*Packages`, `xorg`, `gst_all_1` — so the rule almost never fires, which is an argument for
+   picking the *predictable* one rather than the clever one. The alternative worth stating, and the
+   reason I hold this loosely: **refuse the ambiguity instead of ranking it.** A `throw` naming both
+   candidate resolutions and telling the user to disambiguate costs nothing today (no known collision
+   exists to break) and cannot silently produce the wrong `/lib` farm tomorrow. If you want the
+   resolver to have no surprising cases at all, that is the ruling to make.
 
    **Answer:**
    > _(empty — fill in when decided)_

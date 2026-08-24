@@ -1,17 +1,24 @@
 ---
 title: "Config Safety: User/Agent Workflow"
 date: 2026-08-18
-status: accepted
+status: in-review
 tags: [config, security, agents, approval]
-summary: "Agents may edit the workspace config; humans must approve the change before it takes effect. The snapshot-and-diff flow that implements this, and the two rulings that close the holes in it: the snapshot moves out of the jail's reach, and a non-interactive launch stops accepting silently."
+summary: "Agents may edit the workspace config; humans must approve the change before it takes effect. The snapshot-and-diff flow that implements this, and the two rulings that close the holes in it: the snapshot moves out of the jail's reach, and a non-interactive launch stops accepting silently. Decided and built; one follow-on question (OQ-D3) is open."
 ---
 
 # Config Safety: User/Agent Workflow
 
-**Status:** DECIDED 2026-08-18, **both rulings implemented 2026-08-18.** The approval snapshot lives
-host-side at `~/.local/share/yolo-jail/approvals/<container-name>.json`
-(`config.ApprovalSnapshotPath`), and a non-interactive launch with a changed config is refused
-unless `--accept-config-changes` is passed.
+**Status:** DECIDED 2026-08-18, **both rulings implemented 2026-08-18** — and **one follow-on
+question, OQ-D3, is still open.** The approval snapshot lives host-side at
+`~/.local/share/yolo-jail/approvals/<container-name>.json` (`config.ApprovalSnapshotPath`), and a
+non-interactive launch with a changed config is refused unless `--accept-config-changes` is passed.
+
+**Why the frontmatter says `in-review` and not `accepted`.** `status: accepted` is load-bearing and
+means *zero* open `💬` questions. This doc has one — OQ-D3, which asks how to close the migration
+window OQ-D1's implementation left behind. So the honest reading is **decided and built, with one
+follow-on question open**: nothing in the Decision Ledger is provisional, and the frontmatter is not
+claiming to be finished while a question is waiting for a ruling. It flips to `accepted` the moment
+OQ-D3 is answered and compacted.
 
 **The short version.** An agent may edit the workspace config; a human must approve the change before
 it takes effect, via a diff and a prompt at the next launch. Two things made that promise weaker than
@@ -26,16 +33,50 @@ safety property.
 
 ## Decision Ledger
 
-| ID | Ruling / Decision | Date | Settled in |
-| :--- | :--- | :--- | :--- |
-| **OQ-D1** | The approval snapshot **moves host-side**, out of the rw bind mount — a record the jail can rewrite is not a record | 2026-08-18 | [§ File Locations](#file-locations) |
-| **OQ-D2** | Non-interactive + changed config is **fatal**; CI opts in with an explicit flag rather than an implicit yes | 2026-08-18 | [§ User Responses](#user-responses) |
+| ID | Ruling / Decision | Date | Settled in | Built — verified 2026-08-23 |
+| :--- | :--- | :--- | :--- | :--- |
+| **OQ-D1** | The approval snapshot **moves host-side**, out of the rw bind mount — a record the jail can rewrite is not a record | 2026-08-18 | [§ File Locations](#file-locations) | ✅ `config.ApprovalSnapshotPath` (`internal/config/snapshot.go:40`) joins `paths.ApprovalsDir()` (`internal/paths/paths.go:353`, `$HOME/.local/share/yolo-jail/approvals`) with `runtime.FromWorkspace`'s container name. No mount in `internal/cli/run` or `internal/entrypoint` names that directory. Pinned by `TestCheckConfigChangesSnapshotLandsOutsideTheWorkspace` (`internal/config/config_test.go:177`), which asserts both halves — new path under the host state dir, old workspace path not written |
+| **OQ-D2** | Non-interactive + changed config is **fatal**; CI opts in with an explicit flag rather than an implicit yes | 2026-08-18 | [§ User Responses](#user-responses) | ✅ `CheckConfigChanges` returns `*ChangedNonInteractiveError` on `!isTTY && !acceptNonInteractive` (`internal/config/snapshot.go:244–257`), *without* rewriting the snapshot. Rendered by `Options.printChangeRefusal` (`internal/cli/run/preflight.go:220`). The flag constant `config.AcceptConfigChangesFlag` (`snapshot.go:94`) is read back by the parser at `internal/cli/runcmd.go:156`, so the flag the refusal names and the flag the parser accepts cannot drift. Both call sites gate: container fresh-launch at `internal/cli/run/run.go:354`, `macos-user` arm at `run.go:144` |
 
 ## Open Questions
 
-| ID | Question | Stakes |
-| :--- | :--- | :--- |
-| **OQ-D3** | The migration signal is in the mount it is signalling about. Deleting `<workspace>/.yolo/config-snapshot.json` converts a changed config into a silent "first run" accept. Do we close it by prompting on a brand-new workspace's first launch — the trade this doc ruled against — or accept a one-shot per-workspace window? | Reopens OQ-D1's hole for exactly as long as a workspace goes un-launched after the upgrade. See [§ Edge Cases](#edge-cases). |
+1. 💬 **OQ-D3: the migration signal sits inside the mount it is signalling about.**
+   OQ-D1 moved the *record* host-side but left the *migration marker* — the presence of
+   `<workspace>/.yolo/config-snapshot.json` — as the only thing separating "this workspace was
+   launched before, so show the whole config and ask" from "first run, accept silently". That marker
+   is a file in the read-write bind mount, so an agent that edits `yolo-jail.jsonc` and `rm`s the
+   marker turns its own change into a genuine-looking first run: accepted with no prompt, and
+   recorded host-side as approved. **Presence is not more trustworthy than content; it is the same
+   bit in the same mount.** Do we close it by prompting on a brand-new workspace's very first
+   launch — the trade this document deliberately ruled against — or do we accept a one-shot
+   per-workspace window and say so?
+
+   **What it decides:** whether OQ-D1's guarantee is unconditional or holds only *after* a
+   workspace's first post-upgrade launch. The window is one-shot per workspace and closes the first
+   time a host-side record is written, but it is open on every workspace not yet launched since
+   OQ-D1 — which on upgrade day is all of them — and an agent running on the *pre*-upgrade build can
+   open it pre-emptively. It also decides, downstream, whether
+   [`loophole-activation.md`](loophole-activation.md) OQ-A13 may call this diff a control without a
+   caveat. Diagnosis and the ruled-out repairs are in [§ Edge Cases](#edge-cases).
+
+   **Still open, verified against the tree 2026-08-23.** `CheckConfigChanges` still branches on
+   `!pathExists(LegacyWorkspaceSnapshotPath(workspace))` (`internal/config/snapshot.go:221`) and, on
+   that branch, writes the current config and returns `true` with no prompt (`snapshot.go:222–227`) —
+   the silent first-run accept. `LegacyWorkspaceSnapshotPath` (`snapshot.go:73`) still resolves to
+   `<workspace>/.yolo/config-snapshot.json`, inside the rw mount. The hole is documented in the code
+   itself under the heading `KNOWN RESIDUAL HOLE, stated rather than implied` (`snapshot.go:57–72`),
+   carrying the same reasoning as this question. Nothing has been built against it.
+
+   _Leaning:_ **accept the window, and make it self-closing rather than silent.** Prompting on a
+   brand-new workspace's first launch is the one trade this doc already rejected, and re-opening it
+   to cover a one-shot migration is a permanent cost for a transient hole. The middle option I would
+   actually build is to have a first run *say* it is treating the config as a first run — a printed
+   line, not a prompt — so the silent branch stops being silent without becoming a gate. I hold this
+   loosely: if OQ-A13's disclosure is meant to be a hard control, the caveat is unacceptable and the
+   first-launch prompt wins.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ---
 
@@ -131,7 +172,9 @@ which records the new config as approved exactly as answering `y` would.
 
 > **RULED (OQ-D2, 2026-08-18): non-interactive + changed config is fatal, and CI opts in explicitly.**
 > This reverses the behaviour described above, which auto-accepted and rewrote the snapshot
-> (`config/snapshot.go:38`). Auto-accept made Design Goal 2 conditional on someone happening to have
+> (`config/snapshot.go:38` **as it stood before the ruling** — that line number is a pre-fix
+> citation and does not resolve to the auto-accept today; the branch it names is now the refusal at
+> `internal/config/snapshot.go:243`, verified 2026-08-23). Auto-accept made Design Goal 2 conditional on someone happening to have
 > a terminal attached — and the scripted case is exactly where nobody is watching. A CI pipeline that
 > genuinely wants the new config says so with a flag; one that changed its config by accident finds
 > out immediately instead of running with silently-approved settings.
@@ -166,6 +209,9 @@ container around it was the one launching agent-edited configs unprompted, and i
 calls the same gate before dispatching. It sits in the arm rather than above the backend dispatch
 because "fresh launch only" is a container-path distinction — `macos-user` has no attach, every
 invocation is a fresh sandbox. `--dry-run` is exempt: it renders a plan and launches nothing.
+Verified 2026-08-23: `if !o.DryRun && !o.checkConfigChanges(cfg)` in the `macos-user` arm at
+`internal/cli/run/run.go:144`, and the container fresh-launch gate at `run.go:354`, are the same
+`Options.checkConfigChanges` (`internal/cli/run/preflight.go:198`).
 
 ## Agent Workflow
 
@@ -244,7 +290,9 @@ form for inspection.
 | `<workspace>/.yolo/config-boot.json` | Frozen workspace-only config the jail was built from (`yolo config drift`) |
 
 > **RULED (OQ-D1, 2026-08-18): the snapshot moves out of the jail's reach**, into per-workspace
-> host-side state the jail never mounts. **Implemented.**
+> host-side state the jail never mounts. **Implemented** — `config.ApprovalSnapshotPath`
+> (`internal/config/snapshot.go:40`) over `paths.ApprovalsDir()` (`internal/paths/paths.go:353`);
+> verified 2026-08-23.
 >
 > The old location defeated Design Goal 2: `/workspace` is bind-mounted **read-write**, so
 > whatever edits `yolo-jail.jsonc` could also rewrite the only record of what was last approved, and
@@ -301,7 +349,17 @@ form for inspection.
   tracking files are pruned when the container stops; `AgentsDir` staging is recreated by the same
   launch, before the gate runs), so the only sound repair is to stop letting a missing record mean
   "first run" — i.e. prompt on a brand-new workspace's first launch, which this document
-  deliberately ruled against. That trade is the open question, not the diagnosis.
+  deliberately ruled against. That trade is the open question, not the diagnosis: it is
+  **[OQ-D3](#open-questions)**, which carries the stakes and a leaning.
+
+  > [!WARNING]
+  > **Do not "fix" this by adopting the legacy file's content as a baseline.** That is the one repair
+  > that looks obvious and reintroduces the exact defect OQ-D1 closed — the content of
+  > `<workspace>/.yolo/config-snapshot.json` is by definition a file the jail could have written, so
+  > trusting it to skip a prompt carries the hole across the change that was meant to end it. The
+  > code says so where someone would reach for it (`internal/config/snapshot.go:47–72`, and again at
+  > the branch itself, `snapshot.go:217–220`: *"Its CONTENT is deliberately never read"*). Verified
+  > 2026-08-23.
 - **Multiple agents**: All share the same config file. If two agents modify
   it, the human sees all changes combined in one diff.
 
