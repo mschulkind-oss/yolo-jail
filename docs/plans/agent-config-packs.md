@@ -1,6 +1,11 @@
 # Agent config packs — sharing agent environment configuration by git repo
 
-**Status:** proposal. **Date:** 2026-07-25. **ROADMAP item:** 5.
+**Status:** PROPOSAL, 2026-07-25 — **and largely OVERTAKEN by what shipped.** Re-checked
+2026-08-23: the `packs` key, host-side fetch, the lockfile, the origin gate and `yolo pack
+{install,status,lint,footprint}` are all in the tree, so read this for its **landscape research and
+its scope verdict**, not as a plan. What is still live is four open questions, now named
+**OQ-ACP1 … OQ-ACP4** at the end. *(The old header said "ROADMAP item: 5" — a numbering the
+2026-08-17 restructure retired; the roadmap holds states and OQ IDs now.)*
 **Research base:** [`../research/agent-config-distribution.md`](../research/agent-config-distribution.md)
 (14 agents surveyed, 6 distribution mechanisms, measured git plumbing).
 
@@ -1512,6 +1517,12 @@ Recorded so scope creep is visible:
 
 ## Open Questions
 
+> [!IMPORTANT]
+> **Four of these are still live, and they are the only reason this doc is not purely historical**
+> (checked 2026-08-23). They are now named **OQ-ACP1 … OQ-ACP4** so they can be cited from outside;
+> the prefix was verified free across `docs/`. The answered ones keep their rulings inline.
+
+
 ### Whether `pack_requests` in workspace scope is worth its complexity in v1
 
 §3 admits a workspace-scope `pack_requests` array that is inert until a
@@ -1553,7 +1564,7 @@ widening the boundary.
 > copy-paste worse, and threat-model-identical. See
 > [../design/three-decisions.md §0.1](../design/three-decisions.md).
 
-### What happens when two people attach to the same jail with different pack sets
+### 💬 OQ-ACP1 — what happens when two people attach to the same jail with different pack sets
 
 `refreshJailBriefings` runs on **every** invocation including attach, so an
 attach re-renders skills and briefings from the *attaching* user's config —
@@ -1570,7 +1581,7 @@ the three.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### Whether opencode's skills gap should be closed by writing into `/workspace`
+### 💬 OQ-ACP2 — whether opencode's skills gap should be closed by writing into `/workspace`
 
 opencode has no user-level skills directory; `.agents/skills/` is project-scoped.
 The only way to give it real skills is to write into the workspace tree — which
@@ -1586,7 +1597,7 @@ becomes the dominant complaint, the right fix is upstream in opencode.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### Whether the prism should become a standalone tool that also manages host configs
+### 💬 OQ-ACP3 — whether the prism should become a standalone tool that also manages host configs
 
 Raised in review off the `surfaces/` line in §1. Three claims, separated in §9: the
 engine *is* extraction-shaped (measured — 6-package closure, zero app-layer edges,
@@ -1627,7 +1638,7 @@ not with an overwrite.
 **Answer:**
 > _(empty — fill in when decided)_
 
-### Whether pruning needs usage telemetry to be anybody's job
+### 💬 OQ-ACP4 — whether pruning needs usage telemetry to be anybody's job
 
 A shared corpus rots: it accumulates, quality drops, engineers stop trusting it
 and revert to their own config — the organizational death of this feature, and no
