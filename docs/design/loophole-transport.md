@@ -11,7 +11,7 @@ spec and its test suite as the acceptance bar, not as code to relocate.
 
 **Two things in the body are PROPOSED-but-superseded rather than built, and both are named in the
 postscript below:** the per-jail relay PROCESS (deleted — the front is now a goroutine in `yolo run`)
-and the `unix-socket` survivors (one left, `cgroup-delegate`, for a reason that is not a transport
+and the `unix-socket` survivors *(spent: `unix-socket` is a RETIRED value refused at load, and `cgroup-delegate` — the case this described — declares `"transport": "none"`; 2026-08-23)* (one left, `cgroup-delegate`, for a reason that is not a transport
 problem — §8.6.3).
 
 > [!WARNING]
