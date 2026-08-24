@@ -3,13 +3,13 @@ title: "Three backends, one pipeline, and no census — why a mechanism goes mis
 date: 2026-08-24
 status: in-review
 tags: [backends, apple-container, macos-user, parity, silent-drop]
-summary: "Issue #39 was not one bug. A 48-agent sweep found 42 candidates and confirmed 31, deduping to 17 distinct defects, all of one shape: a mechanism wired into the podman branch of the run pipeline with nothing checking the other two backends. Ten are fixed or warned; the rest need a census — a per-backend disposition table with FOUR states, because 'achieved another way' is the state that half the audit turned out to be."
+summary: "Issue #39 was not one bug. A 48-agent sweep found 42 candidates and confirmed 31, deduping to 17 distinct defects — 21 once a class test written for three of them found a fourth nobody had looked for. All one shape: a mechanism wired into the podman branch of the run pipeline with nothing checking the other two backends. Fourteen are fixed or warned; the rest need a census — a per-backend disposition table with FOUR states, because 'achieved another way' is the state that half the audit turned out to be."
 ---
 
 # Three backends, one pipeline, and no census — why a mechanism goes missing quietly
 
-**Status:** DIAGNOSIS + PROPOSAL, 2026-08-24. **Ten fixes are shipped** (§5); the census in
-§4 is proposed and unbuilt. Every code claim was verified against the tree on 2026-08-24
+**Status:** DIAGNOSIS + PROPOSAL, 2026-08-24. **Fourteen fixes are shipped** (§5); the census
+in §4 is proposed and unbuilt. Every code claim was verified against the tree on 2026-08-24
 unless dated otherwise.
 
 **The short version.** yolo has three backends. `podman` and `container` (Apple Container)
@@ -40,9 +40,12 @@ the sub-class the census structurally cannot reach.
 
 Three claims, argued below:
 
-1. **This is one defect class, not seventeen bugs.** Every instance has the same shape and
+1. **This is one defect class, not twenty-one bugs.** Every instance has the same shape and
    the same cause: backend differences are expressed as scattered conditionals, and no
-   artifact says what a backend owes.
+   artifact says what a backend owes. The count moved from seventeen to twenty-one *after*
+   the sweep ended, when a class test written for three known instances failed on a fourth
+   (§5.2) — which is the argument in miniature: the sweep found what it looked for, and the
+   invariant found what nobody had.
 2. **A census makes the SILENT half unrepresentable** — but only the silent half. It cannot
    catch a mechanism that emits an argv the backend then fails to execute, which is exactly
    what the two most serious findings were.
@@ -172,6 +175,39 @@ it. Call it 2–3 days including the exhaustiveness test.
 | 8 | Briefing advertised loopholes that never started | AC + macos-user | backend gate | `a639394d` |
 | 9 | `resources`, `cache_relocations`, machine-wide workspace state | macos-user | warn | `8ab03d2e` |
 | 10 | Explicit `network.mode: host` silently worse than the default | AC | warn | `8ab03d2e` |
+| 11 | Pack `mount` grants land WRITABLE — a `:ro` the backend ignores, on a grant a human approved as read-only | AC | refuse + reason | `0d7e8f58` |
+| 12 | …and a single-FILE pack `mount` cannot arrive at all, silently | AC | same seam | `0d7e8f58` |
+| 13 | Host nvim config bound `:ro` into `/ctx` — same writable-grant defect, found by the class test rather than the sweep | AC | refuse + reason | `0d7e8f58` |
+| 14 | Pack `reads-host` renders from DEFAULTS and `host_files` sources are dropped from the wire — both silent | macos-user | warn | `4402e33a` |
+
+### 5.2 The rule that had no home
+
+Defects 11–13 are one defect told three times, and the cause is worth stating because it is
+the smallest possible version of the whole argument for §4.
+
+The rule they all needed already existed. It was `ctxMountsUnsafe := rt == "container"` — **a
+local variable inside `assemble.go`'s config-`mounts` loop**. That is a perfectly good place
+to put a rule you believe has one call site. It is a bad place to put one that turns out to
+have four, and nothing about the arrival of the second emitter (the pack `mount` kind, whose
+argv is character-for-character the same shape) made anyone look at the first.
+
+So the rule is now `roBindsUnsupported` in `internal/cli/run/backendcaps.go`, with its
+evidence and its verdict attached: **refuse rather than downgrade**, because there is no
+read-only bind to fall back to, and handing over a writable one on the backend a user chose
+*for* isolation is not a degradation anyone consented to.
+
+`mount` is the one host grant with no relocation available, which is why it is refused where
+`reads-host` and `host_files` were fixed. Those two materialize a copy into `.yolo-ctx`
+because their reader is the ENTRYPOINT, which `YOLO_CTX_ROOT` can redirect. A `mount`'s
+reader is the AGENT, following the `/ctx` path its own briefing names — there is nowhere else
+to put it.
+
+> [!WARNING]
+> **A backend capability predicate is only worth extracting when at least two call sites must
+> agree on it.** `backendcaps.go` is not an invitation to hoist every `rt ==` check; a
+> single-site one is still fine at its site. The test for whether a rule belongs there is
+> whether a second emitter of the same argv could plausibly appear — and for `:ro` binds
+> sourced from the user's home, four already had.
 
 **The parity test** (`e8ba7d16`) pins the narrow invariant the census would generalise:
 every mount whose host side is under the machine-wide store and whose container side nests
@@ -179,20 +215,33 @@ below `/home/agent` must be emitted by both container backends. A **diff of the 
 backends' own argvs**, not an expected list — the failure mode is an *absent* mount, and
 absence is invisible to a list you also forgot to update.
 
+**Its sibling** (`0d7e8f58`, `hosthometier_test.go`) pins the class behind defects 11–13 the
+same way: on Apple Container, no bind may have its source under the user's real host home.
+Two escapes are permitted — materialize a copy, or refuse with a reason — and the third
+option, emitting the bind and trusting a suffix the backend ignores, is the one every
+instance of the defect took. It earned its place on the first run: written for the two
+`mount` defects, it immediately failed on a third I had not found.
+
 ### 5.1 Confirmed drops I deliberately did NOT warn about
 
-Seven of the seventeen are real and left silent on purpose, because **ten new launch lines is
-already the number OQ-BP-3 asks about**, and warning about a drop whose absence is the correct
-outcome trains the reader to skip the ones that matter.
+Six of the twenty-one are real and left silent on purpose, because **fourteen new launch lines
+is well past the number OQ-BP-3 asks about**, and warning about a drop whose absence is the
+correct outcome trains the reader to skip the ones that matter.
 
 | Mechanism | Backend | Why no warning |
 | :--- | :--- | :--- |
 | pack `env` contributions | macos-user | The only shipped one is `audio`'s `PULSE_SERVER` / `PIPEWIRE_REMOTE`, pointing at sockets that do not exist there. **Setting them would be worse than dropping them**, and the inert-loophole line for `audio` already fires. A third-party pack declaring `env` is a genuine silent drop — revisit when one exists |
 | `resources.pids_limit` | AC | memory and cpus ARE emitted; a per-sub-key warning inside an honored parent is exactly the noise §4's residue 2 describes |
 | `ephemeral_storage` | AC | Scratch is always `--tmpfs` there. Recorded as the repo's own position in `config_ref.txt` and unverified on hardware |
-| config `mounts` | AC | A deliberate DECLINE to hand out a writable `/ctx` given apple/container#889 — not an oversight, and already documented |
 | `gpu`, `kvm` | macos-user | Commonly set in a config shared with a Linux box; podman-on-macOS and AC both merely warn, and making the native backend stricter than its siblings buys no safety |
 | `confinement` | macos-user | Needs a refusal in the run pipeline rather than a warning, and refusing a key on one platform of a shared config is the trap `config/inherit.go` already documents |
+
+Config `mounts` on Apple Container **left this table on 2026-08-24** — not because the drop
+changed, but because I had it filed wrong. It was listed here as a deliberate silent decline;
+it has always printed a skip line, and as of `0d7e8f58` that line is the shared
+`roBindsUnsupported` rule three further emitters now use (§5.2). A mechanism recorded as
+silent when it is not is the same bookkeeping error as the census exists to prevent, one
+level up.
 
 **Every one of these belongs in the census as a `Warned` or `HonoredBy` cell with this reason
 attached** — which is the argument for building it. A table can hold seven quiet rows; a launch
@@ -255,10 +304,11 @@ an agent plans around it.
 1. 💬 **OQ-BP-1: Is the census worth 2–3 days, given it cannot catch the two worst findings?**
    §4's residue is real: the P0s in §5 (`reads-host`, `host_files`) emitted an argv and were
    *wrong*, not silent, and a census marks both Honored. What it buys is that the other
-   fifteen become unwritable.
+   nineteen become unwritable.
 
-   _Leaning:_ **Yes, but after §6.** The class has now produced seventeen instances and each
-   was found by a human noticing. The census converts that into a compile-or-test-time
+   _Leaning:_ **Yes, but after §6.** The class has now produced twenty-one instances, and
+   twenty of them were found by a human noticing. The twenty-first was found by an invariant
+   (§5.2) — one narrow one, written in an afternoon, over a single argv shape. The census converts that into a compile-or-test-time
    answer, and the deciding work is already done. But if only one thing gets built, build §6.
 
    **Answer:**
@@ -314,12 +364,18 @@ an agent plans around it.
    > _(empty — fill in when decided)_
 
 4. 💬 **OQ-BP-3: Does a `Warned` disposition need to be suppressible?**
-   Ten new launch lines exist as of today. A user on macos-user who has read them once may
-   not want them every launch, and a warning people learn to skip is worse than none.
+Fourteen new launch lines exist as of today — the number was ten when this question was
+   written, and it grew by four in the same afternoon, which is itself part of the answer. A
+   user on macos-user who has read them once may not want them every launch, and a warning
+   people learn to skip is worse than none.
 
-   _Leaning:_ **Not yet.** Add the suppression when someone asks, and make it per-key rather
-   than global — a blanket "quiet" flag would hide the next silent drop too. But this is a
-   judgement about your own tolerance for launch noise, so it is yours.
+   _Leaning:_ **Not yet, and the growth does not change that.** Add the suppression when
+   someone asks, and make it per-key rather than global — a blanket "quiet" flag would hide
+   the next silent drop too. Worth noting the lines are not uniform in cost: most fire only
+   when the user declared the thing (`lsp_servers`, `host_files`, a pack `mount`), so a
+   config that declares little sees few. The unconditional ones are the briefings/skills note
+   and the shared-home note, both macos-user, both once per launch. But this is a judgement
+   about your own tolerance for launch noise, so it is yours.
 
    **Answer:**
    > _(empty — fill in when decided)_
