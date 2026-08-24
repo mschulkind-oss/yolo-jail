@@ -358,14 +358,14 @@ should **print**: a fourth verdict beside `[PASS]`/`[FAIL]`/`[WARN]`, or a scope
 - **Should `yolo check` validate an npm selector's shape?** Now that a `package` string can carry a
   version, a typo like `foo@@1.2.3` reaches npm and fails at first use *inside* the jail, where the
   diagnosis is worst. Cheap host-side check; needs a ruling only on how strict to be.
-- **Three CODE COMMENTS the docs now outrank** *(found 2026-08-23 by the doc audit, and worth
-  fixing while someone is in those files)*: `internal/entrypoint/mcp.go:82` still claims `${VAR}`
-  interpolation that was removed 2026-08-03; `internal/packload/footprint.go:491-492` says a
-  loophole-name collision is *"not yet fatal at launch"* when it has been fatal since
-  `run/packs.go:313`; and `internal/macosuser/seatbelt.go:91-93` describes the readonly denies as
-  one `deny` form **per entry** when `readonlyDenies` emits one form with one `subpath` clause per
-  entry — an error a doc faithfully copied out of it. **No ruling needed; listed here because a
-  comment nobody re-reads is where the next doc's wrong claim comes from.**
+- ~~**Three CODE COMMENTS the docs now outrank.**~~ **FIXED 2026-08-23** (`6e84f1cf`), comment-only,
+  `check-ci` green: `mcp.go` advertised `${VAR}` interpolation removed by ruling on 2026-08-03 while
+  its own header 45 lines above said otherwise; `footprint.go` called a loophole-name collision
+  *"not yet fatal at launch"* when it has been fatal since `PackLoopholeNameConflicts`
+  (`run/packs.go:313`); `seatbelt.go` described the readonly denies as one `deny` form **per entry**
+  when it emits one form with one `subpath` clause per entry. **Kept as a row for the lesson, not
+  the work:** the seatbelt error had already been copied into a research doc before anyone read the
+  function body. *A comment nobody re-reads is where the next doc's wrong claim comes from.*
 - **A fourth PATH exists that claims to match the third and does not** *(found 2026-08-23, while
   correcting AGENTS.md's own PATH line, which was also wrong).* `BootPath`
   (`internal/entrypoint/boot.go:356-361`) is the authority and includes `~/.local/bin`. The PATH set
