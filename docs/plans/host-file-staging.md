@@ -1310,5 +1310,6 @@ surfaces too, which have carried silent capture overlays since the prism cutover
   `/ctx/host-user` mount point. `HostFileEntry.Slug`, unit-tested for injectivity.
 
 **Still open:** see [Scope: the line](#scope-the-line) for the authoritative in/out
-list, and ROADMAP item #3 for where the deferred tail is sequenced — chiefly whether
+list, and ~~ROADMAP item #3~~ *(that numbering was retired 2026-08-17; the deferred tail is now
+[`BACKLOG.md`](BACKLOG.md) §Stage E)* for where the deferred tail is sequenced — chiefly whether
 the four modes should collapse to three and `readonly` become a real `:ro` mount.
