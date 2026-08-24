@@ -65,7 +65,8 @@ not restate usage or config reference material — see "Where things live" below
 
 ## Architecture
 
-Seven commands in `cmd/`, ~43 packages (`go list ./...`). Everything is Go; the
+Seven commands in `cmd/`, **65** packages (`go list ./...`, counted 2026-08-23 — this line said
+~43 for long enough that it stopped being an estimate and became wrong). Everything is Go; the
 only bash/Python left is generated *content* (shims, `.bashrc`) emitted by
 `internal/entrypoint` — **no generated in-jail CLIENT survives**, because two
 implementations of one client is the drift the transport unification exists to

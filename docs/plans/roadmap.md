@@ -408,6 +408,9 @@ singleton after upgrading, or every OAuth refresh on that host fails.*
     is wired with no publish gate, which is deliberate and was accepted. This is the release-note
     line.
   - `YOLO_ALLOW_UNREACHABLE_SERVICES=1 yolo …` is the way past any refusal, and the refusal names it.
+  - **If you want it back as a warning, it is one boolean.** `reachabilityFatal = true`
+    (`internal/entrypoint/reachability.go:106-119`) is OQ-R2's flip, deliberately isolated so the
+    severity can be reversed without touching the witness. Verified 2026-08-23.
   - `unsupported`, `unknown` and an absent disposition **never** refuse — a host yolo could not ask
     is never punished for what it cannot help.
 
