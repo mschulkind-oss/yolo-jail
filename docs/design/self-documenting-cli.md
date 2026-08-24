@@ -149,11 +149,15 @@ Cross-cutting concepts (backends, mounts/overlays, cgroup model, the composed-
 config pipeline) must be operable from the CLI, not only from `docs/`.
 
 - **State: PARTIAL.** `yolo config-ref` is a genuine, thorough concept surface
-  for the config schema (`internal/cli/config_ref.txt`, 673 lines) and is well
+  for the config schema (`internal/cli/config_ref.txt` — **1,281 lines as of
+  2026-08-23**; this said 673, and the file has nearly doubled) and is well
   cross-referenced inbound. But it is a terminal leaf (it never points onward to
-  `docs/design/*`), it has real key drift (it omits the accepted top-level keys
-  `repo_path`, `host_processes`, and `prune`, and titles the loopholes section
-  with the stale name `host_services`), and — most important for this doc — it
+  `docs/design/*`), it has real key drift — **re-measured 2026-08-23: `repo_path`
+  and `prune` are still missing** from it while both are accepted
+  (`internal/config/config.go:65`), and **`host_processes` is no longer the
+  example it was**: the key is REMOVED and config-ref documents the refusal
+  (`config_ref.txt:317`), which is the outcome this bullet wanted. It also titles
+  the loopholes section with the stale name `host_services`. And — most important for this doc — it
   is **completely silent on the composed-config / Lua pipeline** (zero hits in
   `config_ref.txt` for `lua`, `transform`, or `compose`; the words `overlay`
   and `managed` do appear, but only in unrelated contexts — MCP per-workspace
