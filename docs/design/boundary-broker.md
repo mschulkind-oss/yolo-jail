@@ -28,14 +28,22 @@ the transport half already exists in this repo. §10.6 says which of unYOLO's id
 **Scope note.** Claude auth switching was originally sketched here as a third use case. It is a
 different feature that wants the same front door, and it is now
 [`agent-auth-modes.md`](agent-auth-modes.md) — split out because it shares this doc's front door
-and none of its blockers (this waits on N3/OQ-1; that waits on nothing). §6 keeps only the
+and none of its blockers (this waits on nix OQ-1 — the ID that used to be called N3; that waits
+on nothing). §6 keeps only the
 constraint the two share.
 
 **Reads with:** [`loophole-protocol.md`](loophole-protocol.md) (the wire format this extends),
 [`agent-credentials.md`](agent-credentials.md) (what crosses the boundary today and why),
 [`agent-auth-modes.md`](agent-auth-modes.md) (the split-out sibling),
-[`../guides/loopholes.md`](../guides/loopholes.md) (the three shipped loopholes),
-[`../plans/roadmap.md`](../plans/roadmap.md) (rows B1/B2).
+[`../guides/loopholes.md`](../guides/loopholes.md) (the six shipped loopholes, all pack-shipped
+since 2026-08-19), [`../plans/roadmap.md`](../plans/roadmap.md) — **💬 5** for the live questions
+and 🧊 for B2.
+
+> [!NOTE]
+> **"B1 / B1b / B2 / B3" are THIS doc's numbering (§7), not roadmap rows.** The roadmap carried a
+> lettered queue until 2026-08-17, when it was restructured into states (💬 / 📦 / 🔒 / 🧊) and the
+> letters stopped resolving. They are kept here because three docs name the same work by these
+> letters; when citing the roadmap, cite the **state row or the OQ ID**, never a letter.
 
 ---
 
@@ -353,18 +361,18 @@ possibly step 1.** The reasons:
   collisions are silently lost), S3 (the jail reads its own output as the user's tree), P7 (the
   middle notch does not work) are all *things that are wrong*. This is a thing that does not exist
   yet. Wrong-things-first is the right default when the wrong things include silent data loss.
-- **It has an unanswered design question upstream of it:** OQ-1 / N3 — whether `host` is a place
+- **It has an unanswered design question upstream of it:** nix **OQ-1** (formerly *N3*) — whether `host` is a place
   agents *run* or only get *configured*. A boundary approval service is much more compelling in a
-  world where yolo launches processes at multiple notches, and its shape differs. Deciding N3
+  world where yolo launches processes at multiple notches, and its shape differs. Deciding nix OQ-1
   first costs nothing and de-risks this.
 - **Step 1 (the audit log) is the exception** and could be done any time: it is small, it is
   strictly additive, it has no design risk, and it produces the evidence that would tell us which
   verbs are worth gating. If any part of this jumps the queue, that is the part.
-- **Step 2 (the injecting proxy) is the second exception**, and it is not blocked on N3/OQ-1 the
+- **Step 2 (the injecting proxy) is the second exception**, and it is not blocked on nix OQ-1 the
   way the approval tier is — it has no human in it, so it does not care whether `host` is a place
   agents run. It is also the step that makes the motivating use case work, which is a better
   reason to do it than its position here suggests.
-- **Auth-mode modeling was split out** to [`agent-auth-modes.md`](agent-auth-modes.md) (row B3)
+- **Auth-mode modeling was split out** to [`agent-auth-modes.md`](agent-auth-modes.md) (**B3** in §7's numbering)
   and is **higher value than anything in this doc**, because it is a real gap today rather than a
   new capability. It waits on nothing.
 

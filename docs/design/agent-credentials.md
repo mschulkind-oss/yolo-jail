@@ -316,7 +316,7 @@ host path in". The long-term IAM keys of a tightly-scoped user (`matt-bedrock`,
 shell sources — so `CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, and the key pair land
 in the agent's process env and are inherited by every Bash tool call.
 
-> **Corrected 2026-08-12 (queue row B4).** This paragraph previously said the keys
+> **Corrected 2026-08-12** (under the roadmap's then-current lettered queue, row B4 — the letters were retired on 2026-08-17).** This paragraph previously said the keys
 > live under the `"env"` block of `~/.claude/settings.json` on the host, riding the
 > `/ctx/host-claude/` `:ro` mount. **Measured in a live jail: that block is `{}`,
 > and the delivery path is — and was — `env_sources`.** Everything after this note

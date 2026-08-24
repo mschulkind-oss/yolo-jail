@@ -1,8 +1,11 @@
 # Auth modes — one agent, several mutually exclusive ways to pay for it
 
-**Status:** DESIGN, 2026-08-05. Nothing built. This is queue row **B3**, split out of
-[`boundary-broker.md`](boundary-broker.md) because it shares that doc's front door and none of
-its blockers: the broker waits on N3/OQ-1, this waits on nothing.
+**Status:** DESIGN, 2026-08-05. **Still nothing built, re-checked 2026-08-23** — no auth-mode key,
+no `claude-bedrock` pack, and the Bedrock bundle still arrives through `env_sources`. This is
+**B3** in [`boundary-broker.md`](boundary-broker.md) §7's numbering, split out of that doc because
+it shares its front door and none of its blockers: the broker waits on nix OQ-1, this waits on
+nothing. *(B3 is a work-item name, not a roadmap row — the roadmap dropped its lettered queue on
+2026-08-17. The live questions here are cited from roadmap **💬 3**.)*
 
 **The ask, from the maintainer:** a Claude **Teams subscription** is the account to prioritize
 (it is bought, it carries the discount, it is already set up), with **Bedrock as overflow** —
@@ -11,7 +14,7 @@ its blockers: the broker waits on N3/OQ-1, this waits on nothing.
 **Reads with:** [`agent-credentials.md`](agent-credentials.md) (what crosses the boundary
 today — and see §2, which corrects its §3), [`pack-system.md`](pack-system.md) (the `autonomy`
 kind, which is the structural precedent), [`../plans/roadmap.md`](../plans/roadmap.md)
-(row B3).
+(**💬 3**).
 
 ---
 
@@ -410,7 +413,7 @@ This is worth noticing: `agent-credentials.md` §3 *describes* Bedrock keys arri
 block as `{}`), but it is **the correct target design** — the doc described the right mechanism
 before anything used it.
 
-**It also removes Thread A's dependency on N3.** Auth-as-packs becomes host-complete now, rather
+**It also removes Thread A's dependency on nix OQ-1** (the question these docs used to call *N3*). Auth-as-packs becomes host-complete now, rather
 than after `yolo --at host -- <cmd>` lands.
 
 ### 11.3 `hook` IS refused at the host — and that is correct
