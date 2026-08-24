@@ -279,7 +279,41 @@ an agent plans around it.
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-BP-3: Does a `Warned` disposition need to be suppressible?**
+3. 💬 **OQ-BP-4: Is the Apple Container loophole skip still justified, or is its reason stale?**
+   This is the maintainer's own question — *"shouldn't the broker be in use here?"* — generalised,
+   and the stakes are real: with no `claude-oauth-broker` on that backend there is **no OAuth
+   refresh serialization**, so concurrent jails on a Mac each refresh their own single-use token.
+   That is precisely the race the broker exists to prevent.
+
+   **The stated reason may predate the transport it describes.** `startLoopholes` skips the whole
+   backend because there is *"no socket bind-mount there"* — true of the **unix-socket** era. Under
+   loopback-TLS there is no socket to mount: a jail learns its service from a **0600 endpoint FILE**
+   in a bind-mounted DIRECTORY (`hostServicesMountArgs` → `/run/yolo-services`), and Apple Container
+   mounts directories fine — `paths.GlobalCache()` at `/home/agent/.cache` proves it, and it is the
+   same nesting depth.
+
+   **What genuinely blocks it, and what does not.** `--add-host` is unsupported there
+   (apple/container#673), which blocks **intercepting** loopholes only — and the broker intercepts.
+   The non-intercepting ones (`journal`, `host-processes`) have no such dependency. The open
+   question underneath is what a daemon should ADVERTISE: `advertiseHostFor` returns `127.0.0.1`
+   only when the jail shares the launcher's netns, and Apple Container is excluded from that check
+   before the mode is even read, so nothing currently answers "what address does an AC container
+   reach the host on".
+
+   _Leaning:_ **Split the skip.** It is one gate doing two jobs — an intercept limitation and a
+   transport assumption — and only the first still holds. Start with `host-processes` and `journal`,
+   which need no `--add-host` and would prove or kill the reachability question cheaply. The broker
+   is the harder case and probably does need intercepts, so it may stay off regardless — but then
+   the reason should say *"it intercepts"*, not *"there is no socket to mount"*.
+
+   ⚠ **A Mac settles this and nothing here can.** Whether an AC container reaches a host loopback
+   listener at all is exactly the class AGENTS.md's nested-jail carve-out says gets a free green
+   from podman-in-podman.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+4. 💬 **OQ-BP-3: Does a `Warned` disposition need to be suppressible?**
    Ten new launch lines exist as of today. A user on macos-user who has read them once may
    not want them every launch, and a warning people learn to skip is worse than none.
 
