@@ -1,10 +1,34 @@
 # Agent briefings — how AGENTS.md and CLAUDE.md are handled
 
+**Status:** REFERENCE — describes shipped behaviour, **substantially corrected
+2026-08-23**. This doc had rotted further than any of its siblings: **every
+source-of-truth pointer in it named a Python file, and the repo has zero tracked
+`.py` files** (`git ls-files '*.py'` → 0, verified 2026-08-23). Spot-verified and
+fixed below: the generation and refresh entry points (`jailcontent.BriefingContent`
+at `internal/jailcontent/briefing.go:208`; `refreshJailBriefings` at
+`internal/cli/run/prepare.go:29`, called from `run.go:343`); the skills mirror
+(`jailcontent.PrepareSkills`, `internal/jailcontent/skills.go:87`); the
+**retirement of the `agents` config key** (`internal/config/validate.go:189-201`);
+and the **removal of `gemini` as an agent** (`internal/entrypoint/env.go:280-283`).
+**Not verified:** the jail-managed briefing's exact section emission order (§2
+below), the host-symlink behaviours empirically checked in 2026-07, and the
+changelog at the foot.
+
+> [!WARNING]
+> **Do not trust any `src/…py` path, `_underscore_function`, or `gemini` mention
+> that survives elsewhere in this doc's prose.** The Python reference
+> implementation is gone entirely, and so is the gemini agent. Where this doc
+> still shows an old name it is because the *behaviour* is what mattered and the
+> Go replacement is named beside it.
+
 **Audience:** anyone wondering where the text an in-jail agent reads at
 session start comes from, why editing it in-jail fails, or how to inject
 project-specific instructions.
-**Source of truth:** `src/cli/agents_md.py` (generation),
-`src/cli/run_cmd.py` `_refresh_jail_briefings` (refresh + mounts).
+
+**Source of truth:** `internal/jailcontent/briefing.go` (composition —
+`BriefingContent:208`, `ComposeBriefing:425`, `PrependHostBriefing:435`,
+`ComposePackBriefings:552`), `internal/jailcontent/write.go` (`WriteBriefing:71`),
+and `internal/cli/run/prepare.go` (`refreshJailBriefings:29` — refresh + mounts).
 
 ## The two layers
 
@@ -13,32 +37,56 @@ completely differently:
 
 | Layer | In-jail path | Who owns it | Yolo's role |
 |---|---|---|---|
-| **User-level briefing** | one per selected agent — `~/.claude/CLAUDE.md`, `~/.copilot/AGENTS.md`, `~/.gemini/AGENTS.md`, `~/.config/opencode/AGENTS.md`, `~/.pi/agent/AGENTS.md` | yolo (generated) | Generated per jail, mounted read-only |
+| **User-level briefing** | one per `briefing` contribution — `~/.claude/CLAUDE.md`, `~/.copilot/AGENTS.md`, `~/.codex/AGENTS.md`, `~/.config/opencode/AGENTS.md`, `~/.pi/agent/AGENTS.md`, `~/.gemini/antigravity-cli/AGENTS.md` (agy) | yolo (generated) | Generated per jail, mounted read-only |
 | **Project-level file** | `/workspace/AGENTS.md`, `/workspace/CLAUDE.md` | the repository | None — it's just a file in the workspace bind, exactly what the repo checked in |
 
 Yolo never writes, rewrites, or merges the project-level files. Everything
 below is about the user-level layer.
 
-Which agents get a briefing is driven by the `agents` config (default
-`["claude"]`) — only the selected agents' files are generated and mounted.
-Each agent's staging filename, in-jail mount path, and host-file source
-come from the agent registry (`src/entrypoint/agent_registry.py`,
-`BriefingSpec`).
+### ⚠ Retracted 2026-08-23: "the `agents` config drives this"
+
+This doc used to say *"Which agents get a briefing is driven by the `agents`
+config (default `["claude"]`) … from the agent registry
+(`src/entrypoint/agent_registry.py`, `BriefingSpec`)."* **Both halves are dead.**
+
+- **`agents` is a REMOVED config key that hard-errors on the host**
+  (`internal/config/validate.go:189-201`, verified 2026-08-23). Its message:
+  *"config.agents: REMOVED — which agents a jail gets is no longer a config key of
+  its own. An agent arrives as a pack, so name the pack that installs it in
+  `packs` instead."* In-jail it downgrades to a warning, because the in-jail
+  config is the host-generated snapshot.
+- **There is no agent registry.** `internal/agents` was deleted and its
+  non-per-agent remainder renamed `internal/jailcontent`. **Agents are packs.**
+
+**What drives it now:** each pack's `briefing` contribution names its own `into`
+destination, and only *selected* packs stage. Nothing is active by default — an
+empty `packs` yields a jail with no agent and no briefing. Two packs may name one
+`into` (an agent pack plus a house-rules pack); first writer wins the mount, since
+podman rejects a duplicate mount destination. See
+[`pack-system.md`](pack-system.md) §3 (`briefing` kind) and
+[`jail-home.md`](jail-home.md) §2.9.
 
 ## What the generated briefing contains
 
-`generate_agents_md()` (src/cli/agents_md.py) composes each file from
-three parts, in order:
+`jailcontent.BriefingContent` (`internal/jailcontent/briefing.go:208`) composes
+each file from three parts, in order:
 
-1. **The host user's own briefing, prepended.** If the agent's host
-   source file (each spec's `briefing.host_source` — e.g.
-   `~/.claude/CLAUDE.md`, `~/.copilot/AGENTS.md`, `~/.gemini/AGENTS.md`,
-   `~/.config/opencode/AGENTS.md`, `~/.pi/agent/AGENTS.md`) exists on the
-   host, its content comes first, separated from the jail part by a `---`
-   rule. This is how the user's global instructions (commit rules, skill
-   architecture, tool preferences) reach every jail. Note the mapping is
-   filename-exact: Claude reads `CLAUDE.md`, the others read `AGENTS.md`;
-   variants like `CLAUDE.local.md` are not picked up.
+1. **The host user's own briefing, prepended.** Driven by the pack's
+   `briefing` contribution `after: "host:<path>"` field (not a `BriefingSpec`
+   any more) — e.g. `after: "host:.claude/CLAUDE.md"`. If that host file
+   exists, its content comes first, separated from the jail part by a `---`
+   rule (`PrependHostBriefing`, `internal/jailcontent/briefing.go:435`). This is
+   how the user's global instructions (commit rules, skill architecture, tool
+   preferences) reach every jail. Note the mapping is filename-exact: Claude
+   reads `CLAUDE.md`, the others read `AGENTS.md`; variants like
+   `CLAUDE.local.md` are not picked up.
+
+   > [!WARNING]
+   > `after: "host:…"` is **origin-gated and JAIL-ONLY**. A *fetched* pack may
+   > declare it but the grant is honored only if the user approved it at `yolo
+   > pack install`; and at the `apply --host` notch the path it names IS the
+   > generated destination, so the host render ignores it outright. See
+   > [`pack-system.md`](pack-system.md) §3 and §9.
 2. **The jail-managed briefing** — one `# YOLO Jail Environment` document
    describing this specific jail, deliberately limited to what an agent
    *cannot* discover through its own native mechanisms, with inline
@@ -69,59 +117,69 @@ three parts, in order:
    host-to-jail-handoff.md.
 3. **`agents_md_extra`**, appended verbatim — the config key
    (`yolo-jail.jsonc`, user- or workspace-level; string) for injecting
-   arbitrary extra instructions into all three files.
+   arbitrary extra instructions into every generated briefing.
 
-The same jail content goes to every selected agent; only the prepended
-host file differs per agent.
+The same jail content goes to every briefing destination; only the prepended
+host file (and each pack's own prose) differs per destination.
 
 ## Where the files live and how they get into the jail
 
 Generated files land host-side in `AGENTS_DIR/<container-name>/`
-(`~/.local/share/yolo-jail/agents/<cname>/`), one staging file per
-selected agent (`CLAUDE.md`, `AGENTS-copilot.md`, `AGENTS-gemini.md`,
-`AGENTS-opencode.md`, `AGENTS-pi.md`), then bind-mount **read-only** into
-the jail at each agent's registry mount path:
+(`~/.local/share/yolo-jail/agents/<cname>/`), one staging file **per `briefing`
+contribution**, named `briefing-<pack>.md` (`briefingStagingName`), then
+bind-mounted **read-only** into the jail at that contribution's `into`:
 
 ```
-AGENTS_DIR/<cname>/CLAUDE.md          →  /home/agent/.claude/CLAUDE.md:ro
-AGENTS_DIR/<cname>/AGENTS-copilot.md  →  /home/agent/.copilot/AGENTS.md:ro
-AGENTS_DIR/<cname>/AGENTS-gemini.md   →  /home/agent/.gemini/AGENTS.md:ro
-AGENTS_DIR/<cname>/AGENTS-opencode.md →  /home/agent/.config/opencode/AGENTS.md:ro
-AGENTS_DIR/<cname>/AGENTS-pi.md       →  /home/agent/.pi/agent/AGENTS.md:ro
+AGENTS_DIR/<cname>/briefing-claude.md    →  /home/agent/.claude/CLAUDE.md:ro
+AGENTS_DIR/<cname>/briefing-copilot.md   →  /home/agent/.copilot/AGENTS.md:ro
+AGENTS_DIR/<cname>/briefing-codex.md     →  /home/agent/.codex/AGENTS.md:ro
+AGENTS_DIR/<cname>/briefing-opencode.md  →  /home/agent/.config/opencode/AGENTS.md:ro
+AGENTS_DIR/<cname>/briefing-pi.md        →  /home/agent/.pi/agent/AGENTS.md:ro
+AGENTS_DIR/<cname>/briefing-agy.md       →  /home/agent/.gemini/antigravity-cli/AGENTS.md:ro
 ```
+
+> [!WARNING]
+> **The old per-agent staging names (`CLAUDE.md`, `AGENTS-copilot.md`, …) and the
+> `~/.gemini/AGENTS.md` destination are both gone** (corrected 2026-08-23). Names
+> are keyed on the *pack*, not the agent, because two packs may brief one
+> destination. And `~/.gemini/` is now **agy's** tree — the gemini agent was
+> removed, and agy keeps its state one level down under `antigravity-cli/` so the
+> two never collided (`internal/entrypoint/env.go:280-290`).
 
 The read-only mount is why an in-jail agent gets `Read-only file system`
 if it tries to edit its own briefing — that's kernel-enforced and
 intentional. On Apple Container, single-file mounts under `/home/agent`
-trip apple/container#1089, so the files are materialized under `ws_state`
-instead (`_ac_materialize_under_ws_state`); same content, different
-plumbing.
+trip apple/container#1089, so the files are materialized under the workspace
+state dir instead (`acMaterialize`); same content, different plumbing.
 
-Skills ride the same staging area, for the selected agents that have a
-user-skills dir (claude/copilot/gemini; opencode and pi have none):
-`_prepare_skills()` mirrors each host-side `~/.<agent>/skills/` into
-`AGENTS_DIR/<cname>/skills-<agent>/` (plus the built-in skills —
-`configuring-the-jail`, `diagnosing-the-jail`, and source-tree-only
-`developing-yolo-jail`) and mounts each at `/home/agent/.<agent>/skills:ro`.
-No cross-agent merging.
+Skills ride the same staging area, per `skills` contribution:
+`jailcontent.PrepareSkills` (`internal/jailcontent/skills.go:87`) mirrors each
+host-side `~/.<agent>/skills/` into `AGENTS_DIR/<cname>/skills-<pack>/`
+(`SkillStagingName`, `skills.go:77`) — plus the built-in skills
+(`configuring-the-jail`, `diagnosing-the-jail`, and source-tree-only
+`developing-yolo-jail`) — and mounts each at the contribution's `into`,
+read-only. Staging is **rebuilt every invocation**, clearing contents in place.
+No cross-agent merging: precedence is built-in < pack < the user's own tree.
 
 ## Refresh semantics — live jails see host edits
 
-`_refresh_jail_briefings()` runs on **every** `yolo` invocation — fresh
+`refreshJailBriefings` (`internal/cli/run/prepare.go:29`, called from
+`internal/cli/run/run.go:343`) runs on **every** `yolo` invocation — fresh
 launch *and* attach-to-running — so editing your host `~/.claude/CLAUDE.md`
 (or skills, or `agents_md_extra`) propagates to an already-running jail
 the next time you run any `yolo` command against it.
 
-This works only because the refresh preserves inodes: `write_text`
-truncates the existing file in place (a file→file bind mount is pinned to
-the inode it captured at container start), and the skills refresh clears
-*inside* the staged dirs rather than recreating them. If either write
-path ever switches to unlink-and-recreate, running jails silently stop
-seeing refreshes — there's a warning comment on `_refresh_jail_briefings`
-to that effect; treat it as load-bearing.
+This works only because the refresh preserves inodes: the write truncates the
+existing file in place (a file→file bind mount is pinned to the inode it
+captured at container start), and the skills refresh clears *inside* the staged
+dirs rather than recreating them. If either write path ever switches to
+unlink-and-recreate, running jails silently stop seeing refreshes — treat the
+in-place rule as load-bearing. The general form of it is
+[`jail-home.md`](jail-home.md) §7 gotcha 1 (`WriteInPlace`,
+`internal/entrypoint/fsx.go:35-40`).
 
-Generation happens early in `run()`, **before** the container exists and
-before provisioning runs. That's why the provisioning-failure signal is a
+Generation happens early in the run pipeline, **before** the container exists
+and before provisioning runs. That's why the provisioning-failure signal is a
 *pointer* (the Startup Log section directing agents to
 `/workspace/.yolo/startup.log`) rather than an inline error flag: the
 briefing is written before any failure can have happened, and the `:ro`
@@ -134,27 +192,38 @@ Each agent is sourced strictly in parallel from its own host dotdir:
 
 ```
 ~/.copilot/AGENTS.md   →  copilot briefing only
-~/.gemini/AGENTS.md    →  gemini briefing only
+~/.codex/AGENTS.md     →  codex briefing only
 ~/.claude/CLAUDE.md    →  claude briefing only
 ~/.<agent>/skills/     →  that agent's skills only (no merging)
 ```
 
 Cross-agent sharing is deliberately left to the user, with **host-side
 symlinks** — the generation-time reads follow them (verified
-empirically 2026-07-03):
+empirically 2026-07-03; **the mechanism was NOT re-verified 2026-08-23**, and the
+examples below were written when `gemini` was still an agent — read them as
+*shape*, substituting any live agent for gemini):
 
-- A file symlink works: `~/.gemini/AGENTS.md → ~/.claude/CLAUDE.md`
-  gives Gemini the Claude briefing content.
+- A file symlink works: `~/.codex/AGENTS.md → ~/.claude/CLAUDE.md`
+  gives codex the Claude briefing content.
 - A broken symlink degrades cleanly: the agent gets the jail-managed
   content only, no error.
-- Skill-dir entries may be symlinks too (`_copy_skill_subdirs` follows
-  them).
+- Skill-dir entries may be symlinks too — `PrepareSkills` copies host
+  `~/.<agent>/skills/*` **dereferencing symlinks**.
 - **Caveat — whole-dotdir symlinks share skills but not the briefing:**
-  with `~/.gemini → ~/.claude`, Gemini's skills resolve fine, but its
+  with `~/.codex → ~/.claude`, codex's skills resolve fine, but its
   briefing lookup becomes `~/.claude/AGENTS.md`, which doesn't exist
   (Claude's file is named `CLAUDE.md`). To share everything via a dotdir
   symlink, also add `~/.claude/AGENTS.md → CLAUDE.md` inside the target
   dir.
+
+> [!WARNING]
+> **Superseded in part at the HOST notch.** `apply --host` composes skills and
+> briefings **wholesale**, moving the user's own prose and skills into the local
+> pack (`~/.config/yolo-jail/local/`) and regenerating every destination from
+> there. Under that model the symlink recipe above is the *jail-notch* story;
+> at the host the one-copy-in-the-local-pack is the sharing mechanism, and it
+> exists precisely because per-agent copies drift. See
+> [`pack-system.md`](pack-system.md) §14.
 
 Note the symlink is resolved on the **host at generation time** — the
 in-jail file is a materialized merged copy. Retargeting a host symlink
@@ -186,10 +255,25 @@ propagates on the next `yolo` invocation like any other briefing edit.
   development happens in `/workspace/.claude/skills/` (or the agent's
   equivalent) and gets promoted host-side.
 - `~/.claude/CLAUDE.md` prepending is unrelated to the host settings
-  file — the yolo-declared `settings.json` (`agents.AgentSpec.HostFiles`)
-  is composed into `~/.claude/settings.json`, not briefings.
+  file — the yolo-declared `settings.json` is composed into
+  `~/.claude/settings.json`, not briefings.
+
+  > [!WARNING]
+  > **`agents.AgentSpec.HostFiles` no longer exists** (corrected 2026-08-23).
+  > That fixed per-agent Go constant died with the registry. The grant is now a
+  > pack's `reads-host` contribution, and **the gate is ORIGIN, not a baked
+  > list**: `HonoredHostFiles` honors it for an embedded or local pack and
+  > refuses a fetched one outright. `claude` and `pi` each declare just
+  > `settings.json`. See [`jail-home.md`](jail-home.md) §2.9.
 
 <!-- changelog -->
+<!-- NOTE 2026-08-23: entries below are HISTORY, not current state. They name
+     Python files and an `agents` config key that no longer exist. Kept because
+     they record why each section says what it says. -->
+- **2026-08-23 audit:** all Python source-of-truth pointers replaced with their Go
+  equivalents; the `agents` config key retracted (it is now a hard error naming
+  `packs`); `gemini` removed as an agent (`~/.gemini/` is agy's tree now); staging
+  filenames corrected to `briefing-<pack>.md`
 - The Handoff section has no standing counterpart line, and its pointer is consumed only once a briefing has actually been written — a jail with no briefing destination leaves it fresh (host-to-jail-handoff.md §9)
 - Deleted the `jail-startup` skill; the one-time host→jail handoff is now a conditional **Handoff** section in the briefing, consumed by the run pipeline on the launch that reads it (host-to-jail-handoff.md)
 - Agent library model: briefings/skills are now generated only for the agents selected in the `agents` config (default claude), driven by the agent registry (`src/entrypoint/agent_registry.py`); added opencode + pi

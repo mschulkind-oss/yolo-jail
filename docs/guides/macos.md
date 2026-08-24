@@ -1,5 +1,18 @@
 # macOS Setup Guide
 
+**Status:** REFERENCE — user-facing setup guide. **Spot-verified 2026-08-23:**
+the three backends and their auto-detection order (`internal/cli/run/preflight.go:90-133`
+— macOS tries `container` then `podman`; `macos-user` is opt-in only,
+`internal/paths/paths.go:27`); the `macos-*` command family
+(`internal/cli/dispatch.go:31-34`); the container-builder offload with no `yolo
+builder` command (`internal/containerbuilder/`, `internal/image/builderoffload.go:23`);
+and the broker-relay deletion (`internal/brokerrelay` is gone; the front is a
+goroutine at `internal/cli/run/loopholesruntime.go:892`). **Three commands this
+guide told you to run do not exist** — corrected inline below. **Not verified:**
+any macOS-hardware behaviour (vmnet NAT, Podman Machine, Determinate daemon
+hang, Apple Container bind-mount limits) — nobody ran a Mac for this audit; the
+Nix/Homebrew instructions; the ASCII architecture diagrams.
+
 YOLO Jail supports macOS (Apple Silicon and Intel) in addition to Linux, with
 two flavors of backend:
 
@@ -275,6 +288,12 @@ or running an unreleased working tree. (`go install
 github.com/mschulkind-oss/yolo-jail/cmd/yolo@latest` also works identically on
 macOS.)
 
+> [!NOTE]
+> **`yolo` is the only binary you install on the host.** `just install` runs
+> `go install ./cmd/yolo` and nothing else — `yolo-entrypoint`, `yolo-jaild`,
+> `yolo-ps`, `yolo-cglimit` and `yolo-journalctl` are image-side only and never
+> reach a macOS host.
+
 ### Option A — Homebrew (recommended for users)
 
 ```bash
@@ -293,13 +312,17 @@ git clone https://github.com/mschulkind-oss/yolo-jail.git
 cd yolo-jail
 just deploy          # builds + installs the yolo CLI
 
-# Build the OCI image (downloads Linux packages directly from the
-# NixOS binary cache; no remote builder needed for the default install)
-yolo build
-
 # (Optional) Set user-level defaults
 yolo init-user-config
 ```
+
+> [!WARNING]
+> **There is no `yolo build` command** (verified 2026-08-23 against the command
+> registry, `internal/cli/dispatch.go:15-35`). This guide used to tell you to run
+> it here; it would exit "unknown command". The image is built **automatically**
+> by the first `yolo` run (`AutoLoadImage` nix-builds it and loads it into the
+> runtime). To build it by hand, call nix directly:
+> `nix build .#ociImage --no-link --print-out-paths`.
 
 ## Usage
 
@@ -329,11 +352,13 @@ Everything that works on Linux works on macOS **except** the items listed in
 - ✅ LSP servers (Pyright, TypeScript)
 - ✅ Port forwarding and publishing (via TCP gateway on Podman, native sockets on Apple Container)
 - ✅ `mise` tool management inside the jail
-- ✅ Agent launchers (Claude Code, Copilot, Gemini CLI)
+- ✅ Agent launchers for all six shipped agent packs — `claude`, `copilot`,
+  `codex`, `opencode`, `pi`, `agy` (**not** Gemini CLI: the `gemini` agent was
+  removed; `~/.gemini/antigravity-cli/` is now agy's tree)
 - ✅ Container reuse across sessions
 - ✅ Custom Nix packages in the image
 - ✅ `yolo check` diagnostics (with macOS-aware checks)
-- ✅ `yolo ps`, `yolo stop`, `yolo clean` commands
+- ✅ `yolo ps` and `yolo prune`
 - ✅ Network modes (bridge, host, none)
 - ✅ Read-only root filesystem and tmpfs mounts
 - ✅ **Native no-VM backend** (`macos-user`): agent under Seatbelt as
@@ -341,10 +366,50 @@ Everything that works on Linux works on macOS **except** the items listed in
   — verified end-to-end on real Apple Silicon (see
   [The macos-user backend](#the-macos-user-backend))
 
+> [!WARNING]
+> **`yolo stop` and `yolo clean` do not exist** (verified 2026-08-23,
+> `internal/cli/dispatch.go:15-35`). This bullet used to name them. The reclaim
+> command is **`yolo prune`**; the full registry is `check`/`doctor`, `run`,
+> `ps`, `loopholes`, `config`, `describe`, `apply`, `check-deps`, `pack`,
+> `config-ref`, `init`, `init-user-config`, `broker`, `prune`, `macos-setup`,
+> `macos-teardown`, `macos-unshare`, `macos-fix-permissions`. Note the last of
+> those — `yolo macos-fix-permissions` (`dispatch.go:34`) — is a real macOS
+> command this guide never mentions; it re-applies the shared-root ACL inheritance
+> to a workspace.
+
 ## Limitations
 
 These features are **Linux-only** and are gracefully skipped on macOS with
 a warning message:
+
+> [!WARNING]
+> **This whole section is about the CONTAINER backends** (Podman, Apple
+> Container) and never distinguishes `macos-user` — a gap worth knowing before
+> you pick that backend (verified 2026-08-23). `macos-user` has **no bind mounts
+> at all** and its run path returns early
+> (`internal/cli/run/run.go:112-155`) *before* the code that consumes most mount
+> and network config. The practical consequence:
+>
+> | Config key | On `macos-user` | Evidence |
+> |---|---|---|
+> | `loopholes` (all of them) | **inert** — the whole loophole surface is off | `internal/cli/run/loopholeinert.go:65-68` |
+> | `mounts` | **silently ignored, with no warning** | consumed at `assemble.go:137` / `prepare.go:44`, both after the early return |
+> | `cache_relocations` | not delivered (it is a nested bind mount) | `assemble_parts.go:83` |
+> | `forward_host_ports` | not wired (container-side only) | `assemble.go:127`, `hostports.go:29` |
+> | `per_side_paths` | not enforced — **warns** | `internal/macosuser/orchestrator.go:164` |
+> | `workspace_readonly` | **enforced**, as Seatbelt deny rules | `internal/macosuser/seatbelt.go:100-124` |
+> | cgroups / resource limits | unavailable (no cgroups on macOS) | as the section below says |
+>
+> The `mounts` row is the sharp one: it fails **silently**, so a config that
+> declares context mounts appears to work and delivers nothing.
+>
+> `workspace_readonly` is the row that changed. It was a **silent no-op** on
+> `macos-user` until commit `d0961f2c` (2026-08-23) — the key validated, the
+> launch succeeded, and nothing was read-only, because the backend had no mount
+> to attach `:ro` to. It now renders natively as SBPL
+> `(deny file-write* (subpath …))` rules emitted *after* the writable-set allow,
+> so SBPL last-match-wins makes them stick. Absolute or escaping entries are
+> dropped rather than emitted.
 
 ### Cgroup Delegation (Resource Limits)
 
@@ -543,7 +608,8 @@ podman machine start
 
 ### Container image not loading
 
-If `yolo build` or `yolo run` fails to load the image, try manually:
+If `yolo run` fails to load the image, try manually (there is no `yolo build`
+subcommand — see the warning under *Install from source*):
 
 ```bash
 # Build the image

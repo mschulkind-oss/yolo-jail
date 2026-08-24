@@ -1,17 +1,60 @@
 # MCP configuration: the node/npx wrapper, per-agent formats, and the pi gap
 
+**Status:** REFERENCE for §1 and §2's *rules*; **§2's mechanism and §3 are
+STALE** — see the retraction below. **Spot-verified 2026-08-23:** the wrapper
+generator (`GenerateMCPWrappers`, `internal/entrypoint/mcp_wrappers.go:7`, called
+from `boot.go:472` / `darwin.go:59`); the shared loader (`LoadMCPServers`,
+`internal/entrypoint/mcp.go:84`); the `${VAR}` non-interpolation ruling
+(`mcp.go:33-61`, and no `os.Expand`/`ExpandEnv` anywhere in `internal/entrypoint`
+or `internal/render`); and the two dead helpers in §2
+(`internal/config/derived.go:33,65` — still zero call sites, now not even in
+tests). **Not verified:** the per-agent config-file paths and schema shapes in
+§2's table, the pi-adapter research in §3 (2026-07-18, external and unrechecked),
+and the `LD_LIBRARY_PATH` root-cause narrative in §1.
+
+> ### ⚠ Retracted 2026-08-23: "every agent's `configure_*()` writes MCP"
+>
+> **The per-agent configure functions do not exist.** There is no
+> `configure_claude()`, `ConfigureClaude`, `configure_pi()` or any sibling —
+> `internal/entrypoint/agent_configs.go` is now three small helpers
+> (`dumpJSONIndent2`, `setDefaultMap`, `setDefault`) and nothing else. Nor is
+> there a Python reference implementation: **the repo has zero tracked `.py`
+> files** (`git ls-files '*.py'` → 0, verified 2026-08-23), so every
+> `src/entrypoint/*.py` pointer below names a file that is gone.
+>
+> **What replaced it: MCP is pack-declarative.** Core publishes the canonical
+> server table once — `manifest.SourceMCPServers: prismMap(e.LoadMCPServers())`
+> at `internal/entrypoint/packsurfaces.go:241` — and each pack's `derive.lua`
+> *projects* it into that tool's dialect. The packs that write MCP today:
+> `claude` (`packs/claude/derive.lua:7` → `mcpServers` in `~/.claude.json`),
+> `codex` (`:23` → `mcp_servers`), `copilot` (`:4-5` →
+> `~/.copilot/mcp-config.json`), `opencode` (`:20` → `mcp`), and `agy` (`:4-5` →
+> `~/.gemini/antigravity-cli/mcp_config.json`).
+>
+> **`gemini` is not an agent any more** (`internal/entrypoint/env.go:280-283`),
+> so §2's gemini row and §3's "six agents in the registry" are both wrong. There
+> is no registry, and the six agent packs are `claude`, `copilot`, `opencode`,
+> `pi`, `codex`, `agy`.
+>
+> The *rules* in §2 — presets expand in-jail, `null` removes, `requires_env`
+> gates, no `${VAR}` interpolation — all still hold, because they live in the one
+> shared loader that every projection reads. Only the "who writes the file" half
+> changed. §1's wrapper and its gap are untouched and current.
+
 This doc explains three things that keep coming up:
 
 1. **The node/npx wrapper** — what it is, why MCP servers need it, and the gap
    where *custom* servers bypass it.
-2. **How MCP config flows** end-to-end and how it differs across the six agents.
+2. **How MCP config flows** end-to-end and how it differs across agents.
 3. **pi and MCP** — why pi has no MCP today, and what a "detect the adapter and
-   fill it in" approach would look like.
+   fill it in" approach would look like. *(Read §3 as a 2026-07 proposal, not as
+   shipped behaviour — and note it predates the pack/`derive.lua` model that
+   would now carry it.)*
 
-Source of truth for the code: `src/entrypoint/agent_configs.py` +
-`src/entrypoint/mcp_wrappers.py` (Python reference) and their Go ports
-`internal/entrypoint/mcp.go` / `agent_configs.go` / `claude.go` / `codex.go` /
-`mcp_wrappers.go`.
+Source of truth for the code: `internal/entrypoint/mcp.go` (`LoadMCPServers:84`,
+`LoadLSPServers:12`, `LoadMCPPresetNames:196`) and
+`internal/entrypoint/mcp_wrappers.go` (`GenerateMCPWrappers:7`), plus each pack's
+`derive.lua`.
 
 ---
 
@@ -48,8 +91,12 @@ This is the failure documented in `AGENTS.md` ("Common MCP Errors").
 
 ### What the wrapper does
 
-`generate_mcp_wrappers()` (`src/entrypoint/mcp_wrappers.py`) writes three tiny
-scripts at boot into `~/.local/bin/mcp-wrappers/`:
+`GenerateMCPWrappers` (`internal/entrypoint/mcp_wrappers.go:7`) writes three tiny
+scripts at boot. **Two of the three, not three** — `node` and `npx` go into
+`~/.local/bin/mcp-wrappers/` (`mcp_wrappers.go:11,14`), while
+`chrome-devtools-mcp-wrapper` is written one level up in `~/.local/bin/`
+(`mcp_wrappers.go:8`). Corrected 2026-08-23; the old text put all three in the
+subdirectory.
 
 ```bash
 # ~/.local/bin/mcp-wrappers/node
@@ -77,14 +124,12 @@ moment before exec.
 
 ### How the wrapper is wired in — and the gap
 
-`_load_mcp_servers()` defines the two built-in **presets** with the wrapper path
-baked into their `command`:
+`LoadMCPServers` (`internal/entrypoint/mcp.go:84`) defines the two built-in
+**presets** with the wrapper path baked into their `command`:
 
-```python
-presets = {
-  "chrome-devtools":     {"command": MCP_WRAPPERS_BIN/"node", "args": _chrome_devtools_args()},
-  "sequential-thinking": {"command": MCP_WRAPPERS_BIN/"node", "args": [NPM_BIN/"mcp-server-sequential-thinking"]},
-}
+```
+chrome-devtools:     command = McpWrappersBin()/"node", args = chromeDevtoolsArgs()   [mcp.go:64]
+sequential-thinking: command = McpWrappersBin()/"node", args = [NpmBin()/"mcp-server-sequential-thinking"]
 ```
 
 So the presets are safe. **Custom `mcp_servers` entries are stored verbatim** —
@@ -130,13 +175,22 @@ is an image-build change tracked in the investigation doc.
 
 ```
 yolo-jail.jsonc (mcp_servers, mcp_presets)
-  → validated host-side (config.py :: _validate_config)
-  → shipped into the jail as env: YOLO_MCP_SERVERS / YOLO_MCP_PRESETS (json.dumps'd)
-  → in-jail _load_mcp_servers(): expand presets → merge custom (override / add /
-      null-remove) → requires_env gate   [NO ${VAR} interpolation — see below]
-  → per-agent configure_*(): translate the ONE shared server dict into each
-      agent's native config format
+  → validated host-side (internal/config/validate.go)
+  → shipped into the jail as env: YOLO_MCP_SERVERS / YOLO_MCP_PRESETS (JSON)
+  → in-jail LoadMCPServers() [mcp.go:84]: expand presets → merge custom
+      (override / add / null-remove) → requires_env gate
+                                        [NO ${VAR} interpolation — see below]
+  → published as the canonical source table SourceMCPServers
+      [packsurfaces.go:241]
+  → each pack's derive.lua PROJECTS that ONE table into its tool's native
+      config format
 ```
+
+> [!WARNING]
+> The last step used to read *"per-agent `configure_*()`"*. There are no such
+> functions (see the retraction at the top). The projection is the pack's, not
+> core's — that is principle 2 of [`pack-system.md`](pack-system.md): core knows
+> the domain (`mcp_servers`), never the tool.
 
 Key facts:
 
@@ -199,33 +253,54 @@ then writes the result in that agent's native shape:
 |---|---|---|---|
 | **claude** | `~/.claude.json` (servers) + `~/.claude/settings.json` (perms) | `mcpServers` object | Yes |
 | **copilot** | `~/.copilot/mcp-config.json` | `mcpServers` object (whole file yolo-owned) | Yes |
-| **gemini** | `~/.gemini/settings.json` | `mcpServers` object — **plus LSP servers wrapped as `<name>-lsp` MCP entries** via `mcp-language-server` | Yes |
+| ~~**gemini**~~ | — | — | **AGENT REMOVED** — see below |
 | **codex** | `~/.codex/config.toml` | `[mcp_servers.<name>]` TOML tables | Yes |
 | **opencode** | `~/.config/opencode/opencode.json` | `mcp` object — `type:"local"`, `command:[argv]`, `environment` | Yes |
+| **agy** | `~/.gemini/antigravity-cli/mcp_config.json` | `mcpServers` object | Yes |
 | **pi** | `~/.pi/agent/settings.json` | — none — | **No** (see §3) |
+
+> [!WARNING]
+> **The `gemini` row is retired (2026-08-23).** The gemini AGENT was removed
+> (`internal/entrypoint/env.go:280-283`). The `~/.gemini/` tree survives — but it
+> belongs to **agy** (Google Antigravity CLI) now, which keeps its state one
+> level down under `antigravity-cli/` precisely so the two never collided. Its
+> MCP goes to `~/.gemini/antigravity-cli/mcp_config.json`
+> (`packs/agy/derive.lua:4-5`), **not** `~/.gemini/settings.json`.
+>
+> The LSP-folding claim below went with it: gemini uniquely wrapped LSP servers
+> as `<name>-lsp` MCP entries through `mcp-language-server` because it had no
+> native LSP. **Preserved here as rationale, not as live behaviour** — if you are
+> looking for where LSP config goes today, start at `internal/cli/run/lsp.go` and
+> the per-pack `derive.lua`, not at this row.
 
 Differences worth remembering:
 
-- **Schema shape varies**: claude/copilot/gemini use `{command,args,env}`
+- **Schema shape varies**: claude/copilot/agy use `{command,args,env}`
   objects; codex uses TOML tables; opencode flattens `command`+`args` into one
   argv **array** and renames `env`→`environment`.
-- **Gemini uniquely** folds LSP servers into its MCP config (it has no native
-  LSP), wrapping each through `mcp-language-server`.
-- **Stale-server hygiene**: claude, gemini, codex, opencode each keep a
+- **Stale-server hygiene**: claude, codex, opencode each keep a
   `yolo-managed-mcp-servers.json` sidecar so a server dropped from config is
   removed from the agent's file **without** clobbering servers the user added by
   hand. Copilot rewrites its whole file each boot, so it needs no sidecar.
 
 ### Two dead host-side helpers (latent)
 
-`_effective_mcp_server_names` and `_filter_mcp_servers_by_env` (Python
-`config.py`; Go `internal/config/derived.go`) are defined, tested, and
-re-exported but have **no production call site** in either language. They were
-built to make the **AGENTS.md briefing** enumerate the effective MCP servers
-(honoring presets, null-removals, and `requires_env`), but `agents_md.py` never
-lists MCP servers, so the briefing is silent on MCP. Harmless today (the actual
-per-agent config is correct); it's unfinished wiring — either wire the briefing
-to use them, or delete them.
+`FilterMCPServersByEnv` (`internal/config/derived.go:33`) and
+`EffectiveMCPServerNames` (`derived.go:65`) are defined and exported but have
+**no call site anywhere** — verified 2026-08-23 by word-boundary grep across the
+tree: only the two definitions, zero production callers **and zero tests**
+(there is no `derived_test.go`). They were built to make the generated briefing
+enumerate the effective MCP servers (honoring presets, null-removals, and
+`requires_env`), but the briefing never listed MCP servers, so it is silent on
+MCP. Harmless today (the per-pack projection is correct); it is unfinished wiring
+— either wire the briefing to use them, or delete them.
+
+> [!WARNING]
+> This section used to say they were "defined, **tested**, and re-exported … in
+> either language". Both qualifiers are now wrong: there is no Python half, and
+> the test coverage is gone too. Whatever pinned them was deleted without
+> deleting them, which is the worse of the two orders — the functions now look
+> supported and are not.
 
 ---
 
@@ -240,8 +315,11 @@ to use them, or delete them.
 > shared MCP servers here).
 
 That was accurate: unlike the others, **pi has no built-in MCP client.** So we
-have a real product gap — pi is the one agent in the registry (claude, copilot,
-gemini, opencode, codex, pi) that gets none of the user's `mcp_servers`.
+have a real product gap — pi is the one agent pack (of `claude`, `copilot`,
+`opencode`, `codex`, `agy`, `pi`) that gets none of the user's `mcp_servers`.
+Confirmed still true 2026-08-23: `packs/pi/` ships no `derive.lua` MCP
+projection while the other five do. **"the registry" is retired language** —
+there is no agent registry; the set is the shipped pack list.
 
 ### What's actually possible (researched 2026-07-18)
 

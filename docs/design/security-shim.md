@@ -1,5 +1,29 @@
 # Security Shim Architecture
 
+**Status:** REFERENCE — describes the shipped trust model. **Spot-verified
+2026-08-23:** the four components still exist and the three-operation cgroup
+protocol holds (`internal/cgd/cgd.go:170-205`, 212 lines of **Go**); the
+port-forward bridge is still `socat UNIX-LISTEN → TCP:127.0.0.1:<port>`
+(`internal/cli/run/network.go:14`); the approval snapshot still lives outside the
+workspace (`internal/paths/paths.go:334-353`, `ApprovalsDir`). **What was wrong
+and is fixed below (2026-08-23):** every filename in this doc was Python
+(`cli.py`, `entrypoint.py`) — *the codebase has been Go since the port and there
+is not one `.py` file left*; the TCB was sized in "lines of Python"; and Future
+Work still listed read-only workspace mode, which **shipped** as
+`workspace_readonly`. The threat-model *reasoning* (privsep, SO_PEERCRED,
+fail-closed, finite protocol) was re-read and holds. **Not verified:** the
+per-component line counts (~100/~300/~80/~60) beyond `cgd.go`, the audit
+checklist's individual items, and the prior-art comparison numbers.
+
+> [!WARNING]
+> This doc sizes the TCB but does **not** enumerate the trust boundary. Since the
+> pack system landed, three channels cross it that no table here covers:
+> pack-shipped **loopholes** (host code execution — see Design Principle 1's
+> 2026-08-13 correction below), the `mount` and `reads-host` pack kinds (host
+> reads, origin-gated), and `host_files`. Read
+> [`pack-system.md`](pack-system.md) §9 before treating the four components as
+> the whole bridge.
+
 YOLO Jail's security model borrows from two legendary examples of privilege separation:
 
 - **xscreensaver**: Only a tiny, auditable piece of code runs with elevated privileges (the lock/unlock logic). All the complex, bug-prone code (screensaver animations) runs unprivileged in a separate process. The TCB (Trusted Computing Base) is small enough to read in an afternoon.
@@ -17,7 +41,7 @@ YOLO Jail applies the same principle: **all host-privileged code is concentrated
 │  UNTRUSTED SIDE (container)                             │
 │                                                         │
 │  Agent code, MCP servers, LSP, npm, pip, git,           │
-│  entrypoint.py, shims, bootstrap, tools                 │
+│  yolo-entrypoint, shims, bootstrap, tools               │
 │                                                         │
 │  Runs as unprivileged UID. No host credentials.         │
 │  No writable cgroups. No device access.                 │
@@ -30,21 +54,26 @@ YOLO Jail applies the same principle: **all host-privileged code is concentrated
 ┌─────────────────────────────────────────────────────────┐
 │  SECURITY SHIM (host side — the entire TCB)             │
 │                                                         │
-│  1. Container lifecycle    (~100 lines)                 │
-│  2. Cgroup delegate daemon (~300 lines)                 │
-│  3. Port-forward bridge    (~80 lines)                  │
-│  4. Config change gate     (~60 lines)                  │
+│  1. Container lifecycle   internal/cli/run/assemble*.go │
+│  2. Cgroup delegate daemon internal/cgd/cgd.go (212 ln) │
+│  3. Port-forward bridge   internal/cli/run/network.go   │
+│                                            (113 ln)     │
+│  4. Config change gate    internal/config/snapshot.go + │
+│                           internal/cli/run/preflight.go │
 │                                                         │
-│  Total auditable surface: ~540 lines of Python          │
+│  Total auditable surface: low hundreds of lines of GO   │
 │                                                         │
-│  Everything else in cli.py is config parsing,           │
+│  Everything else in the `yolo` CLI is config parsing,   │
 │  validation, docs, and user interaction — it runs       │
 │  BEFORE the container starts and has no ongoing         │
 │  communication with the untrusted side.                 │
 └─────────────────────────────────────────────────────────┘
 ```
 
-The security shim is the **only code that bridges the trust boundary** between the container (untrusted) and the host (trusted). If you want to audit YOLO Jail's security, you audit ~540 lines. Everything else is either pre-launch setup or runs inside the sandbox.
+The security shim is the **primary code that bridges the trust boundary** between the container (untrusted) and the host (trusted). If you want to audit YOLO Jail's security, you audit these four files plus any enabled loophole's host daemon.
+
+> [!WARNING]
+> **The "~540 lines of Python" figure this doc used to quote is retired (2026-08-23).** There is no Python left in the repo — the shim is Go, and the four components live in the files named above. `cgd.go` is measured at 212 lines and `network.go` at 113; the other two are not single files any more, so no honest single number replaces the old one. Treat "small enough to read in an afternoon" as the claim, not a specific count.
 
 ---
 
@@ -69,9 +98,18 @@ The security shim is the **only code that bridges the trust boundary** between t
 
 **Audit target**: The runtime-flag list construction in `run()`. Every flag is visible, every mount is explicit.
 
-### 2. Cgroup Delegate Daemon (~300 lines)
+### 2. Cgroup Delegate Daemon (`internal/cgd/cgd.go`, 212 lines)
 
 **What it does**: Runs a Unix socket server on the host that creates child cgroups, sets resource limits (CPU, memory, PIDs), and moves container processes into those cgroups.
+
+> [!NOTE]
+> **It is a PACK now, not built-in** (verified 2026-08-23). The daemon ships as
+> `packs/cgroup-delegate/loopholes/cgroup-delegate/manifest.jsonc` — it is off
+> unless that pack is selected, where it used to be a Go function the run
+> pipeline called with no config key at all. Its wire protocol and threat model
+> below are unchanged; only its activation moved. It is also the **last AF_UNIX
+> consumer** in the system: every other loophole moved to loopback-TLS (see
+> Design Principle 1's correction).
 
 **Why it's privileged**: The container's cgroup filesystem is mounted read-only (Podman rootless). Only the host can write to it. The daemon bridges this gap.
 
@@ -132,11 +170,11 @@ Everything else in the codebase is either:
 
 1. **Pre-launch setup** (config parsing, validation, image building, `yolo check`) — runs before the container exists, has no ongoing trust relationship with the untrusted side.
 
-2. **Container-side code** (`entrypoint.py`, shims, bootstrap) — runs entirely inside the sandbox. Even if fully compromised, it can only affect the container.
+2. **Container-side code** (`yolo-entrypoint`, shims, bootstrap) — runs entirely inside the sandbox. Even if fully compromised, it can only affect the container.
 
 3. **Documentation and CLI UX** — no security implications.
 
-This separation means bugs in entrypoint.py, MCP server configs, LSP setup, shim generation, bashrc construction, or any tool installed inside the jail **cannot escalate to host privileges**. They can only affect the container environment.
+This separation means bugs in `yolo-entrypoint`, MCP server configs, LSP setup, shim generation, bashrc construction, or any tool installed inside the jail **cannot escalate to host privileges**. They can only affect the container environment.
 
 ---
 
@@ -145,13 +183,13 @@ This separation means bugs in entrypoint.py, MCP server configs, LSP setup, shim
 ```
 HOST (trusted)
   │
-  ├── cli.py pre-launch
+  ├── yolo pre-launch
   │     ├── Parse & validate config
   │     ├── Build nix image (if changed)
   │     ├── Config change gate ◄── SHIM COMPONENT 4
   │     └── Load image into runtime
   │
-  ├── cli.py runtime ◄── THE SECURITY SHIM
+  ├── yolo runtime ◄── THE SECURITY SHIM
   │     ├── Container lifecycle ◄── SHIM COMPONENT 1
   │     │     └── podman/container run (defines sandbox)
   │     ├── Port-forward bridge ◄── SHIM COMPONENT 3
@@ -163,7 +201,7 @@ HOST (trusted)
   │
 CONTAINER (untrusted)
   │
-  ├── entrypoint.py
+  ├── yolo-entrypoint
   │     ├── Generate shims, bashrc, MCP/LSP configs
   │     ├── Bootstrap script (install tools)
   │     └── Unlink stale generated clients
@@ -216,7 +254,7 @@ To verify YOLO Jail's security, audit these specific code sections:
 
 | Property | xscreensaver | OpenSSH privsep | YOLO Jail |
 |---|---|---|---|
-| **TCB size** | ~500 lines (lock/auth) | ~2000 lines (monitor) | ~540 lines (shim) |
+| **TCB size** | ~500 lines (lock/auth) | ~2000 lines (monitor) | low hundreds of lines (four Go files; `cgd.go` is 212) |
 | **Privilege mechanism** | setuid (optional) | root process | container runtime + cgroup writes |
 | **IPC protocol** | X11 atoms | Unix pipe, fixed messages | Unix socket, JSON (3 operations) |
 | **Identity verification** | PAM | SSH keys / PAM | SO_PEERCRED (kernel PID) |
@@ -249,5 +287,8 @@ To verify YOLO Jail's security, audit these specific code sections:
 - **seccomp profiles**: Restrict the container's syscall surface beyond what the runtime's defaults provide. This would further reduce what a compromised container can attempt.
 - **AppArmor/SELinux policies**: Mandatory access control profiles tailored to YOLO Jail's specific mount and capability set.
 - **Formal verification**: The cgroup daemon protocol is small enough (3 operations, ~300 lines) to be a candidate for lightweight formal verification or property-based testing.
-- **Socket authentication**: While SO_PEERCRED is unforgeable, we could add a per-session nonce exchanged at container startup to bind the socket to a specific container instance.
-- **Read-only workspace mode**: For review-only agent tasks, mount `/workspace` as read-only to eliminate the largest remaining write surface.
+- **Socket authentication**: While SO_PEERCRED is unforgeable, we could add a per-session nonce exchanged at container startup to bind the socket to a specific container instance. *(Partly overtaken: loopback-TLS loopholes already carry a per-jail bearer token in their `0600` endpoint file — see Design Principle 1's correction. The cgroup socket, the last AF_UNIX consumer, still relies on SO_PEERCRED alone.)*
+- ~~**Read-only workspace mode**~~ — **SHIPPED** as the `workspace_readonly` config key (verified 2026-08-23). On podman it is a `:ro` re-mount over each listed path plus `yolo-jail.jsonc` itself (`internal/cli/run/mounts.go:20-53`); on `macos-user` there are **no bind mounts at all**, so it renders instead as Seatbelt SBPL deny rules (`internal/macosuser/seatbelt.go:100` `readonlyDenies`, wired at `internal/macosuser/runplan.go:225`).
+
+  > [!WARNING]
+  > **`workspace_readonly` was a silent no-op on `macos-user` until commit `d0961f2c` (2026-08-23).** The key validated, the launch succeeded, and nothing was read-only — the backend simply had no mount to attach `:ro` to. If you are auditing a macos-user jail on an older build, do not treat the key's presence in config as evidence it was enforced.

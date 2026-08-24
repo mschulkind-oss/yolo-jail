@@ -1,5 +1,40 @@
 # The pack system
 
+**Status:** REFERENCE — the authority for authoring, debugging, or changing a
+pack. **Spot-verified 2026-08-23:**
+
+- **The kind set is right: 15 kinds, exactly the 15 in §3's table**
+  (`internal/packdecl/kinds.go:381` `KnownKinds()`, pinned by
+  `internal/packdecl/kinds_test.go:30`). Nothing missing, nothing extra. One
+  nuance: `KnownKinds()` returns them **sorted alphabetically**, while §3's table
+  is in declaration order (`kinds.go:39-158`) — the table is not the wire order.
+- **The `hook` set is still exactly three** — `shared_credentials`,
+  `per_jail_history`, `claude_plugins` (`internal/packdecl/packdecl.go:99`,
+  drift-pinned by `internal/entrypoint/hookdrift_test.go:31`).
+- **`packs` really is user-scope only** — a workspace config naming one is a hard
+  error (`internal/config/packs.go:488`).
+- **The command surface in §10 matches** (`internal/cli/pack.go:174-193`) — and
+  it is a hand-rolled string switch, not cobra.
+- **`bundled_loopholes/` is gone**, with no Go embed of it anywhere.
+- **The six agent packs are right**, but §0 undercounts the inventory — see the
+  note below.
+
+**Fixed here (2026-08-23):** the §3 loophole note's two "still outstanding" items
+(both are settled, one by shipping and one by deletion), and §5's list of
+non-agent surface owners. **Not verified:** §5's compose-engine layer fold and
+mode semantics, §7's Lua contract, §9's approval/lockfile flow, §11's worked
+examples, and the §14 gap list beyond the two items named above.
+
+> [!NOTE]
+> **§0 says "the six that ship with yolo" and that is the AGENT subset, not the
+> pack inventory.** `packs/` holds **ten** packs (verified 2026-08-23): six agent
+> packs — `claude`, `copilot`, `opencode`, `pi`, `codex`, `agy` — plus four that
+> install no CLI at all and ship only a loophole: `audio`, `host-processes`,
+> `journal`, `cgroup-delegate`. The last two were Go functions the run pipeline
+> called by hand until 2026-08-19. `claude-oauth-broker` is not a pack of its own
+> — it is a **contribution of `packs/claude`**, because the dependency is
+> structural.
+
 A **pack** is a directory of jail configuration — skills, briefing prose, composed config
 files, and optionally a tool to install — that yolo delivers into every jail you launch.
 This is the whole of how a jail is populated: with no packs configured a jail has nothing
@@ -155,9 +190,29 @@ prepends a host file. The review flag is an invitation to look, not a refusal.
 >
 > Its hard prerequisite was met first: an unknown kind used to be A12-fatal to a jail
 > booting a pre-`just load` image (that doc §3.3a), so the tolerance change landed *ahead*
-> of the kind. Still outstanding there: the launch pre-flight that makes a name collision
-> FATAL (`packload.LoopholeNameCollisions` exists and is reported by `pack footprint`;
-> nothing refuses a launch on it yet), and the reserved-name refusal.
+> of the kind. **Both items this note used to list as outstanding are now settled**
+> (verified 2026-08-23) — and they settled in opposite directions:
+>
+> - **The name-collision pre-flight SHIPPED and is FATAL.** `internal/cli/run/packs.go:313`
+>   refuses the launch outright (`PackLoopholeNameConflicts`, the pre-flight itself at
+>   `packs.go:407`, documented at `:368` as "the FOURTH launch pre-flight … FATAL").
+>   `packload.LoopholeNameCollisions` (`internal/packload/footprint.go:493`) still feeds
+>   `pack footprint` (`footprint.go:384`), but it is no longer only advisory.
+> - **The reserved-name refusal was DELETED, not built** (2026-08-19). Both reservation
+>   lists — `loopholes.ReservedLoopholeNames` and `paths.BuiltinLoopholeNames` — are gone
+>   from Go source; only prose narrating the removal survives
+>   (`internal/paths/paths.go:59,84`, `internal/loopholes/discover.go:280-284`,
+>   `internal/cli/run/packs.go:377-379`). The reasoning is recorded at `packs.go:377`: once
+>   `claude-oauth-broker` became a contribution of `packs/claude`, a reserved name and a
+>   pack-shipped name would have been the same name, and the pre-flight is fatal — so the
+>   reservation would have refused every launch that selected the pack. The single constant
+>   `paths.BuiltinCgroupLoopholeName = "cgroup-delegate"` (`paths.go:56`) is what survives.
+>
+> > [!WARNING]
+> > **Do not re-add a reserved-loophole-name list.** It looks like the obvious hardening and
+> > it is the exact change that was backed out: a reservation covering a name some pack also
+> > ships turns the fatal collision pre-flight into an unconditional launch refusal. The
+> > collision check above is the mechanism that replaced it.
 
 The per-kind fields:
 
@@ -552,7 +607,7 @@ plus its layer data:
 
 | Field | Meaning |
 |---|---|
-| `agent` | the owning surface id — an agent (`claude`) or a non-agent owner (`mcp`, `lsp`, `mise`, `identity`) |
+| `agent` | the owning surface id — an agent (`claude`) or a non-agent owner. **Core knows exactly ONE non-agent owner now: `mise`** (verified 2026-08-23) |
 | `name` | the per-owner surface name; `(agent, name)` is the unique key |
 | `path` | the file yolo writes in the jail, e.g. `~/.claude/settings.json` |
 | `codec` | `json` \| `toml` \| `lines` \| `raw` — the decode/encode round-trip |
@@ -560,6 +615,18 @@ plus its layer data:
 | `defaults` | yolo's base layer, lowest precedence, user-overridable |
 | `managed` | yolo's asserted keys, applied last so they win the merge |
 | `retireOnFirstRender` | stale sidecar files to clean up on first render |
+
+> ### ⚠ Retracted 2026-08-23: `mcp`, `lsp` and `identity` as core-known owners
+>
+> `agentcfg.BuiltinManifest()` returns **`mise/config` and nothing else** —
+> `internal/agentcfg/builtin.go:130` returns `[]manifest.Surface{miseConfig}`
+> (the surface at `:88`). Every other surface, agent and non-agent alike, moved
+> into a pack's `pack.json`; callers wanting the full set merge pack surfaces via
+> `ManifestWith` (`builtin.go:145`, driven from `internal/cli/surfaces.go:6`).
+>
+> Watch out: **`builtin.go`'s own doc comment at `:105-109` is stale too**, still
+> listing pi/claude/gemini/copilot/opencode/codex/agy. The `return` statement is
+> the authority, not the comment above it.
 
 The engine composes a surface by folding layers with RFC-7386 merge semantics, lowest to
 highest precedence:

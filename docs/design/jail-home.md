@@ -1,5 +1,44 @@
 # How `/home/agent` works — construction, mounts, and sharing
 
+**Status:** REFERENCE — describes shipped behaviour. **Spot-verified
+2026-08-23.** This doc's own invitation ("line numbers drift — trust the named
+function") was finally taken up, and the answer is: **the named functions are
+almost all still right; nearly every line number is wrong.** What was checked,
+and the verdicts:
+
+| Claim | Verdict |
+|---|---|
+| `podmanBaseMounts` / `appleContainerBaseMounts` exist and do what §2.2 says | **HOLDS**, moved — now `assemble_parts.go:64-124` and `:36-57` |
+| The three `:ro`-base escape-hatch symlinks are exactly `.claude.json`, `.gitconfig`, `.bashrc` | **HOLDS** — `internal/storage/ensure.go:97,100,103` |
+| `--rm -i --init --read-only` argv | **HOLDS** — `assemble.go:158` |
+| Storage layout version = 2 | **HOLDS** — `const StorageLayoutVersion = 2`, `ensure.go:22` |
+| `WriteInPlace` / `ClearContents` / `resetAnchorDir` / the four generators | **HOLDS** — `fsx.go:35-40,49-63`; `shims.go:24,39,185,278` |
+| `PrepareSkills` / `SkillStagingName` | **HOLDS** — `internal/jailcontent/skills.go:87,77` |
+| `workspaceReadonlyMountArgs` at mounts.go:20-53 | **HOLDS** — the one line range in the doc that was still exact |
+| Docker removed, three resolvable runtimes | **HOLDS** — `validate.go:128-131` |
+| §2.5 per-agent overlay loop | **WRONG** — corrected in place |
+| §2.6 claude-shared-credentials mount | **WRONG** — corrected in place |
+| §7 gotcha 1 "`os.Rename` no longer appears anywhere in `internal/entrypoint`" | **WRONG** — corrected in place |
+| §7 gotcha 7 PATH | **WRONG** — corrected in place, and AGENTS.md is wrong too |
+
+**Not verified:** every line number not named above (they have drifted by up to
+~250 lines in `paths.go`), §3's file-class inventory, §4's sharing table, §5's
+lifecycle sequence, and §6's UID-mapping specifics.
+
+> [!WARNING]
+> **Treat every bare `file.go:NNN` in this doc as unverified unless the table
+> above names it.** The systematic drift measured 2026-08-23:
+> `internal/paths/paths.go` moved by ~250 lines (`GlobalHome()` is at **:320**,
+> not `:67`; `GlobalCache()` **:326** not `:73`; `GlobalMise()` **:323** not
+> `:70`; `AgentsDir()` **:332** not `:79`; `JailHostServicesDir` **:46** not
+> `:37`; `UserConfigPath()` **:390** not `:85`). `assemble.go`'s env block is at
+> **:559-598** (`JAIL_HOME` :562, `MISE_DATA_DIR` :566, `RUSTUP_HOME` :572,
+> `CARGO_HOME` :573, `HOME` :586, `YOLO_HOST_DIR` :598), not `:364-392`; nested
+> detection is **:223-227**, not `:183`. `ensure.go`: `EnsureGlobalStorage`
+> **:41-111**, `EnsureSymlink` **:151-179**, `MigrateStorageLayout` **:251-273**.
+> `boot.go`: `Main` at **:400**, generator sequence **:432-521**.
+> The function names are the durable part; the numbers are not.
+
 Audience: maintainers and agents working on yolo-jail who need the mental model
 fast. Everything here is traced from the live Go tree; each claim carries a
 `file:line` reference. Line numbers drift — treat them as "where to look", and
@@ -134,14 +173,28 @@ There is **no `/mise` symlink anymore** — `/mise` is the mount target; layout
 v2 removed the old shared-host-dir + symlink scheme, and the host's own
 `~/.local/share/mise` is never mounted (ensure.go:17-20, 143-148).
 
-### 2.5 Per-agent config-dir overlays (assemble.go:152-155)
+### 2.5 Per-pack state-dir overlays (assemble.go:185-196)
 
-For each **selected** agent with overlay dirs: `ws/<subdir>` →
-`/home/agent/.<subdir>` rw (dot stripped by `agentOverlaySubdirs`). Overlay
-dirs per agent (each pack's `state` contributions; the Go registry that held
-this was `internal/agents/agents.go`, now gone): claude→`.claude`,
-copilot→`.copilot`, gemini→`.gemini`, pi→`.pi`, codex→`.codex`;
-opencode has none. Creation/seeding happens in `prepareWsState`
+> ### ⚠ Retracted 2026-08-23: "for each **selected agent** with overlay dirs"
+>
+> **There is no per-agent branch left.** The loop is registry-driven off the
+> pack `state` contributions: writable dirs come from `packload.WritableDirs`
+> (`assemble.go:185-188`) and machine-scope shared dirs from
+> `packload.SharedDirs` (`:193-196`). `agentOverlaySubdirs` and
+> `internal/agents/agents.go` are both gone. The old `assemble.go:152-155`
+> anchor now points at unrelated `/ctx`-mount code — a *silently wrong* line
+> reference, which is the failure mode this doc's header warns about.
+>
+> Also stale in the old list: **`gemini` is not an agent** — that tree belongs to
+> agy, under `.gemini/antigravity-cli/` (`internal/entrypoint/env.go:280-290`).
+
+Each pack's `state` contribution declares a home-relative dir and a scope
+(`workspace`, the default, or `machine`). For each: `ws/<subdir>` →
+`/home/agent/.<subdir>` rw. The live workspace-scope set at time of writing:
+claude→`.claude`, copilot→`.copilot`, pi→`.pi`, codex→`.codex`,
+agy→`.gemini/antigravity-cli`; opencode declares none. **Read the packs, not this
+list** — it is pack data, and adding a pack changes it with no core edit.
+Creation/seeding happens in `prepareWsState`
 (prepare.go:136-171): mkdir, then `seedAgentDir(GLOBAL_HOME/.<subdir>,
 ws/<subdir>)` copies **top-level regular files only** (auth tokens), never
 overwrites, skips subdirs (storagehelpers.go:39-65). Claude extras:
@@ -154,12 +207,25 @@ prepare.go:153-165). Copilot/gemini get their own selection-gated migrations
 > Historical note: the old per-file `.yolo/home/copilot-mcp-config.json`-style
 > mounts described in AGENTS.md are gone — the overlay is now whole-dir.
 
-### 2.6 Claude shared credentials (assemble.go:156-160)
+### 2.6 Claude shared credentials
 
 `GLOBAL_HOME/.claude-shared-credentials` → same path in-container, **rw**, only
-when claude is selected (non-AC). The dir and its `.credentials.json` are
-ensured/migrated host-side (ensure.go:69-80); the OAuth broker reads the same
+when the claude pack is selected (non-AC). The dir and its `.credentials.json`
+are ensured/migrated host-side (`ensure.go:74`); the OAuth broker reads the same
 host file. How the jail's `~/.claude/.credentials.json` reaches it: §4.2.
+
+> ### ⚠ Retracted 2026-08-23: the `assemble.go:156-160` anchor
+>
+> **This mount is no longer hardcoded core logic and is not in `assemble.go` at
+> all.** It is a pack `state` declaration with `scope: machine` —
+> `packs/claude/pack.json:125,136` — consumed by the generic `SharedDirs` loop at
+> `assemble.go:193-196` (§2.5). Nothing in core names
+> `.claude-shared-credentials`; other live references are
+> `internal/entrypoint/env.go:305-307` and `internal/storage/ensure.go:74`.
+>
+> This is the same shape as §4.2's note that "neither the file nor the dir is
+> named in Go any more" — the two sections had drifted apart, and §4.2 was the
+> one that was right.
 
 ### 2.7 Writable home dirs (config `writable_home_dirs`)
 
@@ -567,9 +633,20 @@ prior container's UID mapping and are deliberately left alone (ensure.go:82-91).
    non-mount-visible paths like image autoload and prune). **There is no
    exception left for mount-visible files**: the one that used to be listed here
    was the credentials harvest's tmp+rename into a rw *directory* mount, and the
-   harvest is deleted (§4.2, 2026-08-17). `os.Rename` no longer appears anywhere
-   in `internal/entrypoint`, so the rule is now exceptionless in the boot path —
-   don't reintroduce one by reading this gotcha as permission.
+   harvest is deleted (§4.2, 2026-08-17). The rule is exceptionless for
+   mount-visible files — don't reintroduce one by reading this gotcha as
+   permission.
+
+   > [!WARNING]
+   > **Corrected 2026-08-23: "`os.Rename` no longer appears anywhere in
+   > `internal/entrypoint`" is false.** There is exactly one call —
+   > `internal/entrypoint/bootlog.go:90`, rotating the boot log to
+   > `bootLogPrevName`. It does **not** violate the rule (the boot log is not a
+   > bind-mounted content file), so the *rule* stands unchanged. But the
+   > absolute phrasing had become a grep-checkable claim that fails, and a
+   > reader who runs the grep and finds a hit will reasonably conclude the rule
+   > lapsed. State the rule as "no rename-writes to mount-visible files", which
+   > is what it always meant, rather than as a count of `os.Rename`.
 2. **Never remove a mount-anchor directory** (`ClearContents`,
    fsx.go:14-17,49-63) — removing the dir detaches the mount (2026-07-04
    regression). Empty contents in place instead. `~/.yolo-shims` and
@@ -600,11 +677,42 @@ prior container's UID mapping and are deliberately left alone (ensure.go:82-91).
    uv via the mise shim, which *is* mise; boot.go:496, shell.go:112-119).
    Interactive shells get `mise activate`-style hooks from the generated
    bashrc instead.
-7. **Three different PATHs** exist: the exec'd process PATH
-   (`SHIM_DIR:NPM_BIN:MISE_SHIMS:GO_BIN:LOCAL_BIN:/bin:/usr/bin`,
-   boot.go:355-358), the bashrc PATH (`.local/bin` second, shell.go:104-110),
-   and the bootstrap-script PATH (shell.go:159). Don't assume they agree about
-   `~/.local/bin` precedence.
+7. **Several different PATHs exist, and the authority is `BootPath`**
+   (`internal/entrypoint/boot.go:356-361`), applied by `execBash` at `:367`.
+   Verified 2026-08-23, exactly:
+
+   ```
+   ShimDir : NpmBin : MiseShims : GoBin : LocalBin : /bin : /usr/bin : LauncherDir
+   ```
+
+   i.e. `$HOME/.yolo-shims`, `$NPM_CONFIG_PREFIX/bin`, `<mise-shims>`,
+   `$GOPATH/bin`, `$HOME/.local/bin`, `/bin`, `/usr/bin`,
+   `$HOME/.yolo-launchers`. The two generated dirs sit at **opposite ends** on
+   purpose (§3): blockers must precede the real binary, lazy installers must not.
+
+   > [!WARNING]
+   > **Two published spellings of this PATH are wrong, in different ways
+   > (measured 2026-08-23).** This gotcha used to end at `/usr/bin`, **omitting
+   > `~/.yolo-launchers` entirely** — which is the whole point of the
+   > opposite-ends design, so the omission read as if launchers were early.
+   > And `AGENTS.md`'s "PATH order (exact)" line puts `$HOME/.local/bin`
+   > **second** and `$NPM_CONFIG_PREFIX/bin` third; the live order is npm →
+   > mise-shims → go → **local**. AGENTS.md is right only that
+   > `.yolo-launchers` is last. `boot.go:343` asserts that AGENTS.md "mirrors"
+   > `BootPath`; it does not. **`BootPath` is the authority** — the doc comment
+   > naming its mirror is itself the stale artifact.
+
+   The other PATHs still differ and still must not be assumed to agree: the
+   bashrc PATH (`.local/bin` second, shell.go:104-110) and the bootstrap-script
+   PATH (shell.go:159).
+
+   > [!WARNING]
+   > **A fourth PATH has drifted from `BootPath` and it is a real
+   > inconsistency** (found 2026-08-23). `boot.go:520-523` sets a second,
+   > near-duplicate PATH pre-exec for the mise-trust subprocess — and it
+   > **omits `e.LocalBin()`**. Same list otherwise, including `LauncherDir` last.
+   > So a tool resolvable from `~/.local/bin` under the agent's PATH is *not*
+   > resolvable in that subprocess. Neither list is generated from the other.
 8. **Apple Container is structurally different**: whole-`ws` rw home, no `:ro`
    enforcement for context mounts, single-file mounts materialized. Test AC
    paths separately when touching mount assembly.
