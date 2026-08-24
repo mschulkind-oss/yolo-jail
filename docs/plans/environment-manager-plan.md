@@ -1,17 +1,38 @@
 # Environment-manager implementation plan
 
-**Status:** plan, 2026-07-31. Sequences [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environment-manager.md)
+**Status:** plan, written 2026-07-31; **build status re-verified against the tree 2026-08-23.**
+Sequences [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environment-manager.md)
 (the vision — finalized, the maintainer is happy with it) into buildable phases.
 
-> **Build status (2026-08-01).** Phases **0, 1, 2, 3, 4, 5, 6, 8, 9 are SHIPPED** (each its
-> own commit, CI green, boot path byte-identical via the render fingerprint gate).
-> **Phase 7 (the `guest` backend — macOS Seatbelt + Linux bwrap/Landlock) is NOT built**:
-> it needs host capabilities a nested Linux jail cannot exercise, so it is host/Mac-gated
-> and deferred. A few *within-phase* increments are also deferred and noted at their phase:
-> the no-exec jail provision (Phase 3), the dep-manifest-as-composed-surface and the
-> install offer-to-run confirm (Phase 6 → rides host apply), and the per-notch body of the
-> briefing (Phase 8 → rides the guest/host backends). What shipped is behavior-neutral for
-> the default `jail` notch — `yolo -- claude` is unchanged.
+> **Build status — verified against the tree 2026-08-23.** Read this table, not the 2026-08-01
+> summary it replaces: that summary said "Phases 0–6, 8, 9 SHIPPED" flat, and three of those are
+> partial in ways that misdirect real work. Each phase heading below repeats its verdict.
+>
+> | Phase | Verdict, 2026-08-23 | The residue |
+> |---|---|---|
+> | **0** — data-loss fix (G1/G2) | ✅ **SHIPPED** `1220ac55` 2026-08-01, hardened `2b317dba` 2026-08-02 | none |
+> | **1** — one renderer (`internal/render`) | ✅ **SHIPPED**, but **1.4 landed 2026-08-12, not 08-01** (`a39628ad`) | macOS staging UNVERIFIED on real hardware |
+> | **2** — the `confinement` key | ✅ **SHIPPED** (`internal/config/confinement.go`, `internal/render/confinement.go`) | none |
+> | **3** — `apply` + `describe` | ✅ **SHIPPED** (`internal/cli/apply.go`, `describe.go`) | none |
+> | **4** — `apply --host` | ⚠️ **PARTIAL** — 4.1/4.2/4.4 shipped; **4.3 (confirm-gated install) NOT built** | `internal/cli/applyhostdeps.go:113-116` prints a static "Phase 4.3" note instead |
+> | **5** — `--sealed` + closure | ⚠️ **PARTIAL** — 5.1/5.2/5.4 shipped; **5.3 (capture as staging area, `yolo config promote`) NOT built** | the refusal at `apply.go:635` advises a verb that does not exist |
+> | **6** — dep provisioning | ⚠️ **PARTIAL** — 6.1/6.2/6.3 shipped (`internal/depcheck/`, `yolo check-deps`); **6.4 (offer-to-run) NOT built** | `internal/cli/checkdeps.go:9-12` defers it by name |
+> | **7** — the `guest` notch | ❌ **NOT BUILT** — as previously stated | see below |
+> | **8** — self-describing briefing | ⚠️ **PARTIAL** — 8.1 shipped (`internal/jailcontent/briefing.go:86-170`); **8.2 is MOOT** | the `jail-startup` built-in no longer exists |
+> | **9** — agent autonomy | ✅ **SHIPPED** 2026-08-01 | none |
+>
+> **Phase 7 (the `guest` backend — macOS Seatbelt + Linux bwrap/Landlock) is NOT built**: it
+> needs host capabilities a nested Linux jail cannot exercise, so it is host/Mac-gated and
+> deferred. Two things sharpened since 2026-08-01. **7.1's precondition landed**: the
+> zero-surfaces bug (1.4/G3) was fixed 2026-08-12, so macOS `guest` stages packs — though
+> `docs/design/macos-user-nix-and-features.md:174` records the row as ⚠️ *UNVERIFIED on a Mac*.
+> **7.2 has no code at all**: `bwrap`/`Landlock` appear in Go only as a profile constant
+> (`internal/render/confinement.go:132-136`) and a label; and the notch's render policy is
+> explicitly unstated — `KindGuest: UndecidedModes("… Phase 7's to state")`
+> (`internal/render/modes.go:185`). The three-notch **vocabulary** shipped ahead of the notch,
+> which is what user-stories Q7 now asks about.
+>
+> What shipped is behavior-neutral for the default `jail` notch — `yolo -- claude` is unchanged.
 >
 > **The `apply --host` bypass-leak is FIXED (Phase 9, 2026-08-01):** the shipped agent
 > packs' jail-bypass keys live in the `autonomy` kind's `autonomous` posture, rendered only
@@ -33,11 +54,19 @@ it rather than re-listing G1–G6. Where a phase's design already lives in a doc
 phase cites it; where it does not, the phase says "design first" and names the open
 questions.
 
-**Nothing here is built.** Verified 2026-07-31: no `confinement` config key, no
-`apply`/`describe`/`--at`/`--sealed` verb, no `guest` notch (`bwrap`/Landlock), no
-`internal/render` package exist in the code. The two shipped pieces the design leans on
-are `yolo config dump` (the canonical computed-config dump `describe` will absorb) and
-`yolo config drift` (the in-jail cousin of the drift/sealing story). The pack system —
+> [!WARNING]
+> **⚠ Retracted: "Nothing here is built."** That sentence was true when written and is now the
+> most misleading line in the doc, so it is preserved rather than deleted — a reader who finds it
+> quoted elsewhere should know it lapsed. **As verified 2026-07-31** it read: *"no `confinement`
+> config key, no `apply`/`describe`/`--at`/`--sealed` verb, no `guest` notch (`bwrap`/Landlock),
+> no `internal/render` package exist in the code."* **As verified 2026-08-23**, four of those
+> five exist: `internal/config/confinement.go`, `internal/cli/apply.go` (`--at` at `:54`,
+> `--sealed` at `:69`), `internal/cli/describe.go`, and `internal/render/`. Only the `guest`
+> notch's `bwrap`/Landlock half is still absent. See the build-status table above.
+
+The two shipped pieces the design leaned on at the outset
+are `yolo config dump` (the canonical computed-config dump `describe` absorbed as
+`describe --json`) and `yolo config drift` (the in-jail cousin of the drift/sealing story). The pack system —
 `contributes[]`, the twelve kinds, the compose engine, fetched-pack install-time
 approval — is shipped and is the substrate every phase renders through
 ([`../design/pack-system.md`](../design/pack-system.md)).
@@ -75,10 +104,23 @@ added 2026-08-01 (the `apply --host` bypass-leak); it depends on 1/2/4 but not o
 
 ---
 
-## Phase 0 — Stop the destructive host-side write  *(was BACKLOG G1 + G2)*
+## Phase 0 — Stop the destructive host-side write  *(was BACKLOG G1 + G2)*  ✅ **SHIPPED 2026-08-01**
 
 **Design/reasoning:** `host-render-target.md` §6.1 (the probes), §8 step 1.
 **Depends on:** nothing. **Ship regardless of whether the rest happens.**
+
+> [!NOTE]
+> **Verified 2026-08-23.** Commit `1220ac55`, hardened by `2b317dba` (2026-08-02). The predicate
+> the items below prescribe is now a shared guard, `refuseHostSideWrite`
+> (`internal/cli/configdiff.go:84-93`), wired at **both** verbs before any enumeration:
+> `:645` (`configReset`, closing G1) and `:848` (`configCapture`, closing G2). Item 0.3's
+> regression test exists: `internal/cli/configdiff_test.go:172`
+> `TestResetCaptureRefuseHostSideWithoutForce`. **The line numbers below have drifted** —
+> `truncateSurfaceToPureRender` is at `configdiff.go:804-827` (was `:381`), `surfacesAreLocal()`
+> at `internal/cli/configls.go:385-393` (was `:341`), `composedFileExists` at `:370` (was `:330`).
+> `truncateSurfaceToPureRender` still resolves `~` through `expandHome`; it is simply unreachable
+> host-side, its only caller sitting at `:684` downstream of the guard. `--force` is the escape
+> hatch, as specified.
 
 Host-side `yolo config` verbs already resolve `~` against the invoking human's *real*
 home (`expandHome` → `paths.Home()`) and two of them write — a destructive posture
@@ -113,10 +155,22 @@ first.
 
 ---
 
-## Phase 1 — One renderer, several targets (`internal/render` + `Target`)  *(was BACKLOG G4 + G5 + G3)*
+## Phase 1 — One renderer, several targets (`internal/render` + `Target`)  *(was BACKLOG G4 + G5 + G3)*  ✅ **SHIPPED** (1.1–1.3 2026-08-01; **1.4 2026-08-12**)
 
 **Design/reasoning:** `host-render-target.md` §3 (the load-bearing section), §4, §7.1.
 **Depends on:** Phase 0 (so the refactor lands on non-destructive host paths).
+
+> [!NOTE]
+> **Verified 2026-08-23.** `internal/render/` exists with `target.go`, `fieldset.go`, `modes.go`,
+> `confinement.go`. `FieldSet.Refuse` (1.3) names the kind and gives the census's reason
+> (`internal/render/fieldset.go:23-63`) — including a hand-written inverse reason for `loophole`,
+> because the generic line reads as obviously wrong for a host daemon.
+>
+> **Correction to the 2026-08-01 status: 1.4 was NOT shipped then.** G3 was fixed six weeks after
+> the plan declared Phase 1 done, by `a39628ad` (2026-08-12, *"fix(run): stage packs BEFORE the
+> backend dispatch — macos-user rendered none"*). That matters because 1.4 is described below as
+> "the cheapest test of 1.1–1.3" and the proof that `Target` can express a real home — so for six
+> weeks Phase 4 was building on an abstraction whose stated proof had not run.
 
 This is the foundation — every phase below needs it. Today `agentcfg.Compose` /
 `ComposeStateful` have **two independent callers**: the in-jail boot render
@@ -159,6 +213,21 @@ process `$HOME`"), and the `cli/config.go:3-4` header promising it runs "the SAM
   cannot express macos-user cleanly it will not express `host` either**, so fixing it here
   proves the abstraction before Phase 4 bets on it.
 
+  > [!NOTE]
+  > **1.4 DONE 2026-08-12 (`a39628ad`), verified 2026-08-23.** Staging moved above the backend
+  > dispatch — `o.stageRunPacks(cname)` at `internal/cli/run/run.go:103`, macos-user branch at
+  > `:112` returning at `:155-156` with `staged.root` passed through. `YOLO_PACK_ROOT` is set at
+  > `internal/macosuser/runplan.go:208-211` and deliberately left unset when nothing staged, so
+  > "no packs" is stated by absence. Three plan invariants at `runplan.go:302-320` refuse the
+  > silent shapes. Pinned by `internal/cli/run/packstagedispatch_test.go:87` (the handler receives
+  > a pack root that exists on disk) and `:131`, plus `internal/macosuser/packroot_test.go`. The
+  > cited `run.go:73` is now a container-only repo-root gate macos-user skips;
+  > `entrypoint/darwin.go:57-62` is now `:59-62`. **The doc line is also corrected**:
+  > `macos-user-nix-and-features.md:174` reads ⚠️ *"Wired 2026-08-12 (B-0); UNVERIFIED on a Mac"*
+  > (commit `2bb792ff`), with a retained blockquote at `:178-195` recording that the old ✅ row
+  > had never been true. **Residue:** no Mac has exercised the `sudo -u _yolojail` staging step or
+  > the sandbox-uid read — a verification gap, not the defect.
+
 **The one hard risk (`host-render-target.md` §3.5):** this refactors the **A12-fatal boot
 path** — a regression does not misconfigure an agent, it stops jails from *starting*,
 including the one you are reading this in. **Retire it with a byte-equality check of every
@@ -180,7 +249,16 @@ and the byte-equality gate is green.
 
 ---
 
-## Phase 2 — Name the dial: the `confinement` key
+## Phase 2 — Name the dial: the `confinement` key  ✅ **SHIPPED 2026-08-01**
+
+> [!NOTE]
+> **Verified 2026-08-23.** `internal/config/confinement.go` — `ResolveConfinement` (`:40`),
+> `validateConfinement` (`:61-79`), and the load-bearing fallback pinned at
+> `internal/config/validate_test.go:468-481`: **an unknown value resolves to `jail`, never
+> `host`.** 2.2's primitive layer is `internal/render/confinement.go` (`Primitive`, the presets
+> `JailProfile`/`GuestProfileMacOS`/`GuestProfileLinux`/`HostProfile`, and `AgentAutonomy` as a
+> policy knob beside them). 2.3's mechanism-beside-notch printing is
+> `internal/cli/describe.go:145-149`.
 
 **Design:** design doc §4, §4.0.
 **Depends on:** Phase 1 (so a notch is a `Target`, not a code branch).
@@ -206,7 +284,17 @@ and the primitive model exists internally even though only three presets are exp
 
 ---
 
-## Phase 3 — The verbs: `apply` and `describe` (jail-first)
+## Phase 3 — The verbs: `apply` and `describe` (jail-first)  ✅ **SHIPPED 2026-08-01**
+
+> [!NOTE]
+> **Verified 2026-08-23.** Both verbs are in the dispatch table
+> (`internal/cli/dispatch.go:22-23`) and the help index (`internal/cli/help.go:20-21`).
+> `describe --json` is the canonical config (superseding `config dump`) and `--hash` prints
+> **marked unsealed** as 3.2's caveat required — `internal/cli/describe.go:105`, pinned by
+> `internal/cli/describe_test.go:38-44`. `--at` parses at `internal/cli/apply.go:54` and rejects
+> an unknown notch with rc 2 (`describe_test.go:256`). The earlier status note listed "the no-exec
+> jail provision" as a deferred within-phase increment; `apply` provisions without launching
+> today.
 
 **Design:** design doc §3, §3.1, §3.2.
 **Depends on:** Phase 1 (apply renders through the one renderer), Phase 2 (a notch to
@@ -229,7 +317,23 @@ description (and `--json` supersedes `config dump`), and `--at` selects a notch.
 
 ---
 
-## Phase 4 — `apply --host`: the host notch becomes real  *(was BACKLOG G6)*
+## Phase 4 — `apply --host`: the host notch becomes real  *(was BACKLOG G6)*  ⚠️ **PARTIAL — 4.1/4.2/4.4 shipped, 4.3 NOT built**
+
+> [!WARNING]
+> **Verified 2026-08-23 — the previous flat "SHIPPED" hid an unbuilt item.** 4.1/4.2 are real:
+> `apply --host` at `internal/cli/apply.go:63`, `--assert` at `:47`, default observe/dry-run, pure
+> `rmw` over the managed keys, inapplicable kinds refused by name via `FieldSet`
+> (`internal/render/fieldset.go`). 4.4's host-dep report is `internal/cli/applyhostdeps.go`.
+>
+> **4.3 (confirm-gated install) is NOT built, and the shipped behaviour is the OPPOSITE
+> position.** `FieldSet` refuses `program` outright below `jail` — *"install is refused below
+> jail (a pack must not mutate a real toolchain unprompted)"*
+> (`internal/render/fieldset.go:38`) — which is the design's **original** rule, not the revised
+> confirm-gated one that §4.1 of the design doc and item 4.3 below both specify. `apply --host`
+> prints a static pointer instead: *"apply --host reports host deps; it installs nothing. The
+> confirm-gated install is env-manager plan Phase 4.3"*
+> (`internal/cli/applyhostdeps.go:113-116`). So OQ-6/OQ-7's resolutions are recorded but
+> unconsumed. This is the single largest gap between the design doc and the tree.
 
 **Design/reasoning:** `host-render-target.md` §6 (the whole section), §6.5 postures,
 §7.2; design doc §4.1.
@@ -266,7 +370,24 @@ inapplicable kinds are refused by name.
 
 ---
 
-## Phase 5 — `apply --sealed` and the input closure
+## Phase 5 — `apply --sealed` and the input closure  ⚠️ **PARTIAL — 5.1/5.2/5.4 shipped, 5.3 NOT built**
+
+> [!WARNING]
+> **Verified 2026-08-23.** `applySealed` (`internal/cli/apply.go:617-651`) enumerates and refuses
+> the Undeclared tier: `yolo-jail.local.jsonc` (`:623-630`) and any surface with outstanding
+> overlay keys (`:631-638`). Tests at `internal/cli/describe_test.go:264-287`.
+>
+> **5.3 is NOT built and it is the item the rest of the phase leans on.** There is no `yolo config
+> promote`: the `config` subverbs are `ls, render, diff, reset, capture, drift, dump`
+> (`internal/cli/config.go:33-60`) and `promote` appears nowhere in the dispatch table. Capture is
+> therefore **still a winning layer, not a staging area** — the refusal at `apply.go:635` tells
+> the user to *"promote them into a pack"*, advice for a verb that does not exist, leaving `yolo
+> config reset` (discard) as the only shipped remedy. Two facts worth carrying forward: the
+> Declared-impure `host`-layer row is **reported by nothing** (`describe` never names a host
+> layer), and the capture overlay does **not** outrank every declared layer — it loses to
+> `computed`/`transform`/`managed` (`internal/agentcfg/compose.go:357-379`,
+> `:65-77`), which is why it is a closure problem rather than a correctness one. **This is
+> user-stories Q1's unbuilt half.**
 
 **Design:** design doc §3.3 (the full-closure table + the sealing rule).
 **Depends on:** Phase 3 (`apply`). Independent of the host notch — sealing is a
@@ -293,7 +414,24 @@ from declared inputs, and its `--hash` is a reproducibility pin.
 
 ---
 
-## Phase 6 — Dependency provisioning below `jail`
+## Phase 6 — Dependency provisioning below `jail`  ⚠️ **PARTIAL — 6.1/6.2/6.3 shipped, 6.4 NOT built**
+
+> [!NOTE]
+> **Verified 2026-08-23.** 6.1: packs declare per-manager `install_hints`
+> (`internal/depcheck/depcheck.go:48`, `internal/entrypoint/requires.go`). 6.2: the shared checker
+> is `internal/depcheck/` with a standalone entry point `yolo check-deps`
+> (`internal/cli/checkdeps.go`, dispatch at `internal/cli/dispatch.go:24`), reused rather than
+> re-implemented by `apply --host` (`internal/cli/applyhostdeps.go:16`). The honesty rule holds:
+> `applyhostdeps.go:183-191` distinguishes *"hints cover brew/dnf but not this host's manager"*
+> from *"no hints at all"* rather than reporting either as present. 6.3: the manifest is written
+> at `~/.config/yolo/Brewfile` and kin (`internal/cli/checkdeps.go:145-156`,
+> `internal/depcheck/depcheck_test.go:54`).
+>
+> **6.4 (offer-to-run, batched by elevation class) is NOT built** and is deferred by name in the
+> code: *"It NEVER installs anything… The offer-to-run (behind a batched, sudo-shown-through
+> confirm, OQ-9) belongs to `apply` at a lower notch"* (`internal/cli/checkdeps.go:9-12`). Since
+> `apply`'s half of that is Phase 4.3, also unbuilt, **OQ-9's resolution has no consumer at all
+> today.** The manifest floor is shipped; only the offer on top of it is missing.
 
 **Design:** design doc §3.4, §3.5.
 **Depends on:** Phase 1 (`FieldSet`/notch-aware render), Phase 4 (host apply is where a
@@ -322,7 +460,24 @@ manifest surface, and (behind a confirm) can run the remedies including `sudo`.
 
 ---
 
-## Phase 7 — Make the `guest` notch actually work
+## Phase 7 — Make the `guest` notch actually work  ❌ **NOT BUILT**
+
+> [!WARNING]
+> **Verified 2026-08-23. 7.1's stated precondition landed; 7.2 has no code.** 7.1: the
+> zero-surfaces bug it points at (1.4/G3) was fixed 2026-08-12, so macOS `guest` does stage
+> packs — but `docs/design/macos-user-nix-and-features.md:174` records that row as ⚠️
+> **UNVERIFIED on a Mac**, so "renders surfaces" is wired, not measured. 7.2: `bwrap` and
+> `Landlock` exist in Go **only as names** — the profile constant `GuestProfileLinux()`
+> (`internal/render/confinement.go:132-136`), a primitive label (`:69`), and a briefing test.
+> There is no bwrap invocation anywhere. The notch's own render policy is explicitly unstated:
+> `KindGuest: UndecidedModes("the guest notch's mode policy is Phase 7's to state")`
+> (`internal/render/modes.go:185`) — a deliberate visible hole rather than an inherited default.
+>
+> **The ordering risk this phase now carries:** the three-notch *vocabulary* shipped in Phase 2
+> ahead of the notch — `confinement: guest` validates, `apply --at guest` parses, `describe`
+> prints it, and the briefing has a `guest` body (`internal/jailcontent/briefing.go:133`). That
+> is exactly what the design doc §8 warned against (*"a three-notch story with a broken middle"*)
+> and what user-stories **Q7** asks a ruling on.
 
 **Design:** design doc §4, §4.0; `host-render-target.md` §9.7, §9.8.
 **Depends on:** Phase 1 (guest is a `Target`), Phase 2 (the notch exists). This is where
@@ -340,7 +495,26 @@ real, LSM-confined home on both platforms, and `describe` prints the composed pr
 
 ---
 
-## Phase 8 — The environment describes itself to its agent
+## Phase 8 — The environment describes itself to its agent  ⚠️ **PARTIAL — 8.1 shipped, 8.2 MOOT**
+
+> [!NOTE]
+> **Verified 2026-08-23.** 8.1 shipped: `confinementHeader`
+> (`internal/jailcontent/briefing.go:86-170`, called at `:287`) emits a per-notch opening block
+> with a dedicated `host` body at `:124` and `guest` body at `:133`, plus a derived
+> `enforcementLines` tail at `:171`. The earlier status note listed "the per-notch body of the
+> briefing" as deferred to the guest/host backends; it landed without them.
+>
+> **8.2 is MOOT: there is no `jail-startup` built-in skill to fix.** yolo's built-in suite is
+> `configuring-the-jail`, `developing-yolo-jail`, `diagnosing-the-jail`
+> (`internal/jailcontent/builtinskills/`). The startup-ritual skill (`n`) was deleted and the
+> one-time handoff became a conditional **Handoff** section in the briefing
+> (`internal/jailcontent/briefing.go:69`; see
+> [`../design/host-to-jail-handoff.md`](../design/host-to-jail-handoff.md)).
+>
+> **What 8.2 was really for is still owed, and now has no home.** Nothing stamps a rendered
+> briefing with the notch it was made for, and nothing asserts that stamp against observable
+> reality at startup — so a `host` briefing left on disk and read inside a jail is unremarked.
+> Deleting the skill removed the place the check was going to live. That is user-stories **Q4**.
 
 **Design:** design doc §6.
 **Depends on:** Phase 2 (a notch to name). Small, high-value, can land any time after
@@ -482,6 +656,26 @@ is a "decide at Phase 2" internal-representation choice that needs no answer up 
 **OQ-11 (2026-08-01) is RESOLVED** — the Phase 9 pack-encoding choice is the dedicated
 `autonomy` kind (Encoding A; the sketch is in §9.0). Nothing is outstanding to decide before
 implementing any phase.
+
+> [!NOTE]
+> **Consumption check, 2026-08-23 — resolved is not the same as built.** Four of these rulings
+> are recorded and have **no code consuming them**, which is worth knowing before treating this
+> section as done. **OQ-3** (retire the read-in `host` layer): not implemented — `HostSource`
+> still exists (`internal/agentcfg/manifest/manifest.go:142`) and the `host` layer still composes
+> (`internal/agentcfg/compose.go:357-379`). **OQ-6 / OQ-7** (what the install confirm shows, the
+> elevation-class line): Phase 4.3 is unbuilt, and the shipped behaviour is a flat refusal
+> (`internal/render/fieldset.go:38`), so there is no confirm to configure. **OQ-9** (batched
+> offer-to-run): both its callers — Phase 4.3 and Phase 6.4 — are unbuilt. **OQ-10** was answered
+> in the build rather than in this doc: the primitive model is `internal/render/confinement.go`
+> and `describe` prints it (`internal/cli/describe.go:145-149`).
+>
+> **The decisions this plan does NOT hold, and must not be read as holding:** whether capture may
+> keep outranking the definition (user-stories **Q1**, the unbuilt half of Phase 5.3), whether
+> `apply` must reconcile declared-count against rendered-count (**Q2** — no such guard exists),
+> whether a rendered briefing carries a notch stamp (**Q4**), and whether Linux `guest` stays a
+> promise (**Q7**). Those live in
+> [`../design/environment-manager-user-stories.md`](../design/environment-manager-user-stories.md)
+> and are cited from `roadmap.md` 💬 7.
 
 ### Resolved
 

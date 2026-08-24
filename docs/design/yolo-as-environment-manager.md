@@ -1,8 +1,11 @@
 # yolo as an environment manager — the shape I would want
 
-**Status:** design, high level, 2026-07-27; **fact-checked against the code 2026-07-30** (the
-vision is unchanged; a few claims about not-yet-built verbs are now partly shipped — see the
-refresh note). Written in response to: *"we're going through an identity crisis… an environment
+**Status:** DESIGN, high level, written 2026-07-27; fact-checked 2026-07-30; **re-verified against
+the code 2026-08-23 — most of it is now IMPLEMENTED.** The vision is unchanged and the verbs are
+real: `apply`, `apply --host`, `apply --sealed`, `describe`, `check-deps` and the `confinement`
+key all ship (env-manager plan Phases 0–6, 8, 9). Two live questions remain (§10), one of which is
+a **direct contradiction between this doc and the tree**. Written in response to: *"we're going
+through an identity crisis… an environment
 manager is really the thing. How is yolo macos-user mode different from SandVault? The answer is
 this batteries-included approach — the jail is not the novel thing, it is what's staged inside
 it. Maybe we redescribe ourselves as an agentic development environment describer that can
@@ -20,6 +23,31 @@ describe a jail."*
 > `writableDirs`/`sharedDirs`→`state`, plus new `env`. The vision and the confinement dial are
 > unaffected; nothing below is built beyond those two verbs. See
 > [pack-system.md](pack-system.md).
+
+> **Implementation postscript (2026-08-23).** §1–§9 keep their original tense: they describe the
+> destination as *proposed*, which is what makes them readable as a design. Most of the
+> destination has since been reached. What is built, verified against the tree today:
+>
+> | Design section | Built? | Where |
+> |---|---|---|
+> | §3.1 `apply` (jail + `--host`, `--assert`, `--dry-run`) | ✅ | `internal/cli/apply.go` |
+> | §3.2 `describe` (`--json` absorbing `config dump`, `--hash` marked unsealed) | ✅ | `internal/cli/describe.go:91-105`; `describe_test.go:38-44` |
+> | §3.3 `apply --sealed` — the *refusal* half | ✅ | `applySealed`, `internal/cli/apply.go:617-651` |
+> | §3.3 capture as a **staging area** with a promote verb | ❌ | no `yolo config promote` (`internal/cli/config.go:33-60`) |
+> | §3.3 retire the read-in `host` layer (OQ-3, resolved *yes*) | ❌ | `HostSource` still live at `internal/agentcfg/manifest/manifest.go:142` |
+> | §3.4 `check --at <notch>` naming inert keys | ❌ | `--at` parses only on `apply` (`internal/cli/apply.go:54`) |
+> | §3.5 declare-once / check-once / manifest handoff | ✅ | `internal/depcheck/`, `yolo check-deps` (`internal/cli/checkdeps.go`) |
+> | §3.5 offer-to-run behind a batched confirm | ❌ | deferred by name at `internal/cli/checkdeps.go:9-12` |
+> | §4 the `confinement` dial | ✅ | `internal/config/confinement.go` |
+> | §4.0 composable primitives underneath the presets | ✅ | `internal/render/confinement.go` |
+> | §4.1 `install` below `jail` **confirm-gated** | ❌ — and the tree does the **opposite** | flat refusal at `internal/render/fieldset.go:38`; see **OQ-EM1** |
+> | §4.2 autonomy as a confinement policy | ✅ | the `autonomy` kind; `describe` prints it (`internal/cli/describe.go:152-157`) |
+> | §5 pack kinds refused by name off-container | ✅ | `FieldSet.Refuse`, `internal/render/fieldset.go:23-63` |
+> | §6 the briefing states the notch | ✅ | `confinementHeader`, `internal/jailcontent/briefing.go:86-170` |
+> | §8 "`guest` must actually work" | partly | macOS stages packs since 2026-08-12; Linux `guest` has **no bwrap/Landlock code** — `internal/render/modes.go:185` |
+>
+> The five user stories that pressure-tested these outputs carry their own dated verdicts now:
+> [environment-manager-user-stories.md](environment-manager-user-stories.md).
 
 **Scope:** what yolo *is* and how it feels to use, mostly from the user's side. **No migration
 path here** — this describes the destination, not the route. The route is
@@ -780,7 +808,101 @@ Worth stating plainly, because a reframing this size invites scope creep:
 
 ---
 
-## 9. The pitch, rewritten
+## 9. Decision Ledger
+
+Settled rulings, compacted. The reasoning lives in the section named in the last column; this
+table exists so a citation resolves without reading the argument. **IDs are an API** — the `OQ-N`
+spellings are the [implementation plan](../plans/environment-manager-plan.md)'s and are cited from
+there and from `BACKLOG.md`; the `OQ-EM` spellings are this doc's own and start at §10.
+
+| ID | Ruling / Decision | Date | Settled in | Built? |
+| :--- | :--- | :--- | :--- | :--- |
+| — | The middle notch is `guest`, not `sandbox` — "sandbox" is the generic term for the whole column, and this codebase already spends it on the jail three times | 2026-07-28 | §4.0 | ✅ `internal/config/confinement.go` |
+| — | `jail` survives as the strongest notch's name (a container *is* a jail in the term's lineage) | 2026-07-28 | §4.0 | ✅ |
+| — | No top-level `diff` verb — a binding definition retires "compare my two machines"; `config diff` keeps its per-surface job | 2026-07-31 | §3.3 | ✅ by omission |
+| — | `--sealed` is an opt-in flag, not the default — the escapes it forbids are good features | 2026-07-31 | §3.3 | ✅ `internal/cli/apply.go:69` |
+| — | Sealing is a **host-side** check; it needs no container | 2026-07-31 | §3.3 | ✅ |
+| — | Sealing (input closure) and dep-checking (environment sufficiency) are two guarantees, not one — they split the moment the toolchain leaves the image | 2026-07-31 | §3.3 | ✅ two verbs |
+| — | Three notches on the surface, **composable primitives underneath** — presets, not monoliths | 2026-07-31 | §4.0 | ✅ `internal/render/confinement.go` |
+| OQ-3 | Retire the read-in `host` layer; express personal settings as a **local pack** instead | 2026-08-01 | §3.3 | ❌ **not implemented** — see OQ-EM2 |
+| OQ-4 | On the host notch, pure `rmw` — yolo rewrites only the keys it declares; no whole-file compose, no capture overlay | 2026-08-01 | §4.2 / plan §4.2 | ✅ |
+| OQ-11 | A pack encodes its two autonomy postures as a dedicated `autonomy` **kind**, not a `when:` discriminator — so a bypass key cannot be left in the unconditional half by accident | 2026-08-01 | §4.2 | ✅ |
+| OQ-8 | The dep-checker boundary is a **declared schema** a third-party doctor can read, not an importable Go package | 2026-08-01 | §3.5 | ✅ `install_hints` + `internal/depcheck/` |
+| OQ-9 | Offer-to-run confirms are **batched by elevation class**, `sudo` first, never per-command | 2026-08-01 | §3.5 | ❌ no consumer exists |
+
+> [!WARNING]
+> **A trap this ledger exists to preserve: an unsealed `describe --hash` is worse than no hash.**
+> It looks authoritative while moving for reasons the user cannot enumerate. That is why `--hash`
+> prints **marked** rather than bare until sealing makes it a `flake.lock` rev — implemented at
+> `internal/cli/describe.go:105` and pinned by `internal/cli/describe_test.go:38-44`. Do not
+> "clean up" the marker.
+
+> [!WARNING]
+> **And a refuted framing worth keeping refuted: sealing does NOT mean "no host reads."** A
+> named-but-impure input is nix's fixed-output derivation. Banning the `host` layer outright would
+> break the feature packs exist to provide; the rule is *no **un**declared input* (§3.3). OQ-3
+> retires that particular layer for a different reason — the read-in/write-out loop — not because
+> impurity is disqualifying.
+
+---
+
+## 10. Open Questions
+
+Two live, both created by the gap between this doc and the shipped tree rather than by anything
+undecided in the design. The wider set of live questions this design raised — capture-vs-closure
+(**Q1**), shortfall-as-success (**Q2**), briefing stamping (**Q4**), a confinement floor for an
+org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
+[environment-manager-user-stories.md](environment-manager-user-stories.md) and are cited from
+[`../plans/roadmap.md`](../plans/roadmap.md) 💬 7. They are **not** duplicated here.
+
+1. 💬 **OQ-EM1: `program` below `jail` — flat refusal, or confirm-gated?** §4.1 and §5 of this doc
+   revised the original rule from *"`install` is never honored below `jail`, refused by name"* to
+   *"confirm-gated, TTY-only, command shown, permission-bounded"*, and §8 flagged it as needing a
+   threat-model pass before shipping. **The tree shipped the pre-revision rule**: `FieldSet`
+   refuses `program` outright — *"install is refused below jail (a pack must not mutate a real
+   toolchain unprompted)"*, `internal/render/fieldset.go:38` — and `apply --host` prints a static
+   pointer at the unbuilt work (`internal/cli/applyhostdeps.go:113-116`). So the doc and the code
+   state opposite rules today, and OQ-6/OQ-7's resolutions have no consumer. **What this decides:**
+   whether plan Phase 4.3 is work to schedule or a design to retract — and, because §3.5's
+   offer-to-run rides the same confirm machinery, whether plan Phase 6.4 has a foundation at all.
+
+   _Leaning:_ keep the revised rule and build it. The trust argument that motivated the revision
+   is unchanged (you approved the pack's host access at install; at `host` it runs as you
+   regardless), and the shipped refusal is not a *decision* against it — it is what a `FieldSet`
+   census produces when the confirm path does not exist yet. But the threat-model pass §8 asks for
+   should precede the build, not the merge. If it is retracted instead, §4.1 and §5's `program`
+   row must be rewritten to say *refused*, because a doc promising a confirm the product refuses
+   is worse than the stricter rule.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+2. 💬 **OQ-EM2: is retiring the `host` read-in layer (OQ-3) still the plan?** OQ-3 resolved *yes*
+   on 2026-08-01 — drop settings-inheritance, express personal settings as a local pack — and
+   nothing has been done in the ~3 weeks since. Meanwhile the layer's cost has grown in a way the
+   original ruling did not price: the `host` provenance a user can actually *see* is derived from
+   a hand-maintained two-entry map, `surfaceHasHostLayer` (`internal/cli/configls.go:198-204`,
+   listing only `claude/settings` and `pi/settings`), **not** from the per-surface `HostSource`
+   the boot render actually reads (`internal/agentcfg/manifest/manifest.go:142`, consumed at
+   `internal/entrypoint/packsurfaces.go:328,331`). A pack surface with a real `HostSource`
+   therefore takes a machine-shaped input that `config ls` does not show and `describe` never
+   mentions. **What this decides:** whether the fix is *removal* (execute OQ-3) or *disclosure*
+   (derive the display from `HostSource` and report the row as a declared impurity in
+   `--sealed`, per §3.3) — they are different work, and doing the cheap one first forecloses
+   nothing but does spend effort on a layer already voted off.
+
+   _Leaning:_ execute OQ-3 as ruled, but derive the display from `HostSource` **first** and
+   cheaply, because the removal has a real migration cost §3.3 already names (today a user's
+   `~/.claude/settings.json` "just works" with zero setup) and disclosure is the honest interim.
+   The thing not to do is leave it as it is: an undisclosed impure input is the exact failure
+   story 1 of the user stories is built around, and it is currently *worse* than that story says.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+---
+
+## 11. The pitch, rewritten
 
 Before:
 
