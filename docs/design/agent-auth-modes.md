@@ -79,11 +79,14 @@ This is the strongest available argument that **a mode is a bundle**, and it arr
 > `claude-opus-5[1m]`, so something is normalizing or overriding the pin — which makes it the
 > worse kind of residue: inert until it isn't, and invisible when it bites.
 
-> **`agent-credentials.md` §3 documents a mechanism that is not the one in use.** It says the
-> Bedrock IAM keys live "under the `"env"` block of `~/.claude/settings.json` on the host",
-> riding the `/ctx/host-claude/` mount. That block is `{}` and always was. The keys arrived via
-> `env_sources`. The §3 narrative is otherwise accurate about *scoping* and blast radius — it is
-> the delivery path that is stale. Fix that passage when implementing this.
+> **~~`agent-credentials.md` §3 documents a mechanism that is not the one in use.~~ FIXED — the
+> passage now carries the correction (verified 2026-08-23, `agent-credentials.md:319-329`).** It
+> used to say the Bedrock IAM keys live "under the `"env"` block of `~/.claude/settings.json` on the
+> host", riding the `/ctx/host-claude/` mount. That block is `{}` and always was; the keys arrived
+> via `env_sources`. **Kept here because the correction it points at is load-bearing in the other
+> direction:** the `settings.json` `env` block is still the right *target* design (§11.2 has the
+> Bedrock pack deliver exactly that), so a reader who sees the fix must not conclude the block is
+> the wrong home — only that it was never the home yet.
 
 ---
 
