@@ -143,7 +143,7 @@ not the keys/values. "Preview first" therefore gives false assurance. Add a call
 observe step: read the pack's `managed` block yourself (`yolo pack lint <pack>` or the
 `pack.json`) before asserting; the path-only preview is not adequate review.
 
-### D3. Stop claiming "only shipped commands" — these verbs are unreleased
+### D3. Stop claiming "only shipped commands" — these verbs are unreleased ~~*(true when written; the verbs shipped in v0.8.0 on 2026-08-13 — see the guide, which now gives the version cutoff instead)*~~
 
 *(HIGH ×3.)* `describe`, `apply` (incl. `--host`/`--sealed`), `check-deps`, the newer
 `pack` subcommands (`lint` manifest-validation, `footprint`, `install`, `status`), and

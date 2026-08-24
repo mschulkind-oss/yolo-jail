@@ -21,6 +21,11 @@ changelog; this is the subset that bites.
 
 ## Unreleased
 
+*(Everything below has landed since **v0.8.0**, tagged 2026-08-13 — the last version cut. This file
+was created on 2026-08-18, after that tag, which is why it has no released sections yet. Whether the
+next cut is triggered by this file filling up or by a cadence is an open product question; see
+[`plans/further-roadmap-ideas.md`](plans/further-roadmap-ideas.md) §I5.)*
+
 ### ⚠️ `macos-user`: `workspace_readonly` used to do nothing, and now it does what it says
 
 **What changed** (2026-08-23, `d0961f2c`). `workspace_readonly: true` was delivered as a `-v …:ro`
