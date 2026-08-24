@@ -466,8 +466,9 @@ who set it there and has been writing to the workspace will start seeing failure
 
 # 🔒 Waiting
 
-- 🔒 **The macOS nightly is GREEN again, and the warmup still burns its whole ceiling warming
-  nothing.** Measured on run `32623453131` (2026-08-23, commit `ae0fa1a5` — current `main`):
+- 🔒 **The macOS nightly is GREEN, and the warmup that burned twelve minutes a night is GONE.**
+  *(This headline said the waste was ongoing until 2026-08-23; the body below it says otherwise, and
+  the body is right — `e5b60902` removed it the same day.)* Measured on run `32623453131` (2026-08-23, commit `ae0fa1a5` — current `main`):
   `build-image` **success**, `integration-macos` **success**, suite `ok … 3915.734s`. The night
   before (`32557449248`, `cb966c27`) it was `FAIL … 5073.141s`. **This row replaces the 🛑 entry,
   which was wrong about which test was failing and about what could fail at all** — the section is
