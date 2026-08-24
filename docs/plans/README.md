@@ -1,9 +1,11 @@
 # Active plans & designs
 
-**Status:** INDEX — **rebuilt against the tree 2026-08-23.** Every row's status claim in the tables
-below was re-checked that day; three were wrong in the direction that matters (D1 retired, D2
-reverted, D3 superseded — see the macOS row). If a row here disagrees with the doc it points at,
-trust the doc and fix the row.
+**Status:** INDEX — **rebuilt against the tree 2026-08-23.** The rows for the macOS track, the
+guest-notch handoff, `pack-system`, `environment-manager-plan`, `agent-config-packs`,
+`antigravity-agy-support` and `cli-color-audit` were re-checked against the code that day, and
+**four were wrong in the direction that matters** (D1 retired, D2 reverted, D3 superseded, and
+`run/console.go` had already migrated). The remaining rows carry their doc's own dated status,
+unverified here. **If a row disagrees with the doc it points at, trust the doc and fix the row.**
 
 This directory holds the **active** work — plans and designs we're currently
 implementing or still discussing. Reference docs (how live systems work) live in
@@ -44,7 +46,7 @@ here:
 | Doc | What it is | Status |
 |---|---|---|
 | [nix-ld-dynamic-linking.md](nix-ld-dynamic-linking.md) | Replace the `LD_LIBRARY_PATH=/lib:/usr/lib` whack-a-mole with nix-ld so the mise node + MCP servers link env-free (closes the custom-`mcp_servers` startup gap). | **Open** — decided, not started; flake change, nested-jail validatable (host `just load` only ships it). |
-| [cli-color-audit.md](cli-color-audit.md) | Make `prune`/`builder`/`macos-*` render rich markup to ANSI instead of stripping it; consolidate the duplicated printers. | **Open** — bug class fixed: prune/builder/macosuser/broker + top-level cli commands route through the shared richtext renderer with a TTY gate; remaining: migrate `run/console.go` off its private duplicate + unify the TTY probe. |
+| [cli-color-audit.md](cli-color-audit.md) | Make `prune`/`builder`/`macos-*` render rich markup to ANSI instead of stripping it; consolidate the duplicated printers. | **Nearly closed** (re-checked 2026-08-23) — the bug class was fixed, and `run/console.go` has **since migrated**: its `printer` now wraps `richtext.Printer` (`internal/cli/run/console.go:1-18`), so the private duplicate is gone. What remains is unifying the TTY probe. *(`builder` polish in that doc's remaining list is unbuildable — `yolo builder` was deleted 2026-07-23.)* |
 | [module-consolidation-and-cleanup.md](module-consolidation-and-cleanup.md) | Collapse the ~34 Python-mirroring `internal/*` packages into native-Go structure; drop parity machinery; §4 OSS-hygiene remnants. | **Done** (2026-07-21); package-merge declined. |
 
 ## Test-suite speed
