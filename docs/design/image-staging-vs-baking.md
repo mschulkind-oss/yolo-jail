@@ -1,8 +1,17 @@
 # Baking vs. staging — what the image must contain, and what a launch can deliver
 
-**Status:** ANALYSIS + PROPOSAL, 2026-08-15. Nothing built. All measurements taken in this
+**Status:** ANALYSIS + PROPOSAL, 2026-08-15 — **two of the eleven items have SHIPPED since; the
+proposals C2–C5 have not.** Re-checked against the tree 2026-08-23. All measurements taken in this
 development jail on 2026-08-15 unless dated otherwise; every number below is labelled
 **MEASURED** or **NOT MEASURED**.
+
+**What is built, so the body's "nothing built" framing is not read too widely:**
+
+| Item | State | Evidence, 2026-08-23 |
+| :--- | :--- | :--- |
+| **C1** — a failed image build fails as itself | ✅ shipped `7830f65`, 2026-08-15 | `internal/image/autoload.go:195-257` — the `buildFailed` flag splits the fallback branch, prints nix's own stderr, returns `false`; opt-out is `YOLO_ALLOW_STALE_IMAGE=1` (`:170`). This is OQ-2 in §10.1 |
+| **`--accept-flake-config`** on the image `nix` invocations (§6 item 3) | ✅ shipped | `internal/image/nixflags.go` and `internal/darwinpkg/darwinpkg.go:91`. Note the consequence: the substituter surface it opens is now live, which is what [`macos-user-build-step-threat-model.md`](macos-user-build-step-threat-model.md) Q2 asks about |
+| **C2 · C3 · C4 · C5** | ❌ not built | and C4/C5 are gated on **OQ-1**, which explicitly waits for a re-measurement after C2+C3 (§11 step 5) |
 
 **The question, from the maintainer:** *"what we can do to avoid cache rebuilds/reloads by changing
 how we stage things — what can we copy into the image rather than bake into it for efficiency
