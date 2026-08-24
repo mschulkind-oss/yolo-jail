@@ -633,7 +633,7 @@ rule that admitted `~/.ssh` while refusing `${XDG_RUNTIME_DIR}/pulse/native` in 
 two audio loopholes then merged into `packs/audio` under the plain name.
 
 One residue remains, tracked above rather than here: the **binary capability** OQ-BP1 promised
-alongside the move (💬 11).
+alongside the move (💬 **14**).
 
 📄 [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) §13 is the measured account of what
 "empty the channel" actually required; its Decision Ledger holds BP1–BP4.
