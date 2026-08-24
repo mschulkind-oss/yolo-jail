@@ -104,6 +104,14 @@ audit that produced it.
 Seven docs, one week's drift, every one of them a doc a reader consults precisely to learn what is
 done. **A status line is a claim about the tree and nothing checks it.**
 
+> [!NOTE]
+> **A detector for this needs to accept where status actually lives.** Sweeping for a line-start
+> `**Status:**` on 2026-08-23 left eight false positives: a status stated **mid-line** after a
+> `**Date:**` (three runbooks and plans do this), a `> ## ✅ FIXED` callout instead of a status line
+> (two handoffs), and two files that are pack *content* rather than docs. All eight carry their
+> state perfectly well. **Do not "fix" the docs to suit the checker** — that is the tail wagging the
+> dog, and it is how a corpus ends up uniform and unread.
+
 **The proposal, and it is deliberately weaker than I1:** no mechanism can verify "is this built" in
 general. What *can* be checked mechanically is **staleness of the claim itself** — a `**Status:**`
 line whose ISO date is older than the newest commit touching the code paths the doc cites gets
