@@ -32,16 +32,17 @@ the real number was closer to 50.
 > [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md); **S5** is in
 > [`BACKLOG.md`](BACKLOG.md) §Stage E. **Cite a state row or an OQ ID — never a letter.**
 
-**And the real number is now countable rather than estimated: 73 live questions across 18 docs**, as
-of 2026-08-23, after a pass that gave every one of them a `💬` and a stable ID. It used to require
-reading ~9,000 lines; it is now one command:
+**And the real number is now countable rather than estimated: 86 live questions across 23 docs**,
+as of 2026-08-23, after a two-wave audit that gave every one of them a `💬` and a stable ID. It used
+to require reading ~9,000 lines; it is now one command:
 
 ```console
 $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )💬' docs/ --sort path
 ```
 
-**Fourteen rows below is what those 73 group into.** The gap between 73 and 14 is the point of this
-file: a row is a *decision*, and one decision usually closes several questions.
+**Fourteen rows below is what the blocking subset of those 86 groups into** — the rest are named
+in *What the roadmap does not cover* at the end, deliberately. The gap between 86 and 14 is the
+point of this file: a row is a *decision*, and one decision usually closes several questions.
 
 | | Means |
 |---|---|
@@ -214,13 +215,31 @@ config key. None of these were in this file before today.
 [`environment-manager-user-stories.md`](../design/environment-manager-user-stories.md) ·
 [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md)
 
+**Two of the three defects these stories are built on have been FIXED** (G1 on 2026-08-01, G3 on
+2026-08-12), and the doc now carries a dated verdict at every gap — read those before hunting for a
+bug. What is still live is **Gap 1, and it is worse than the story says**: `config ls`'s `host`
+column is not derived from `HostSource` at all but from a hand-maintained two-entry map
+(`internal/cli/configls.go:198-204`), so any *pack* surface that really does read machine state shows
+**no host layer**.
+
 **user-stories Q1** is called "the biggest question in the document" by its own author — **and its
-leaning is half-built**: it wants capture to become a *staging area* that `yolo config promote`
-drains, and that subcommand **does not exist** (`internal/cli/config.go:33-60` lists `ls · render ·
+premise needs narrowing**: capture does *not* outrank every declared layer — it loses to
+`computed`, `transform` and `managed` (`internal/agentcfg/compose.go:357-379`). Q1 is still the
+biggest question, on the narrower and better ground that capture is **undeclared**, not that it wins
+everything. **Its leaning is also half-built**: it wants capture to become a *staging area* that
+`yolo config promote` drains, and that subcommand **does not exist** (`internal/cli/config.go:33-60` lists `ls · render ·
 diff · reset · capture · drift · dump`, verified 2026-08-23). So `apply --sealed` can already
 *refuse* on an outstanding capture while the user's only remedy is still "discard it" — answering Q1
-in the leaning's direction means building the verb, not just ruling. **Q7** asks whether Linux
-`guest` is a promise or a hypothesis. **threat-model Q1-Q3** cover the repo-root
+in the leaning's direction means building the verb, not just ruling.
+
+**Q7** asks whether Linux `guest` is a promise or a hypothesis — **and events have overtaken its
+leaning.** It wanted the vocabulary withheld until
+`guest` renders; the three-notch vocabulary **already shipped** (`confinement: guest` validates,
+`apply --at guest` parses, the briefing has a guest body) while `bwrap`/Landlock exist only as a
+profile constant and a label (`internal/render/confinement.go:132-136`, `modes.go:185`). So the
+question is now the harder one: *we shipped it — does the Linux row stay?*
+
+**threat-model Q1-Q3** cover the repo-root
 refusal, `--accept-flake-config`'s substituter surface (now live — see the shipped item), and a macOS
 build sandbox. **OQ-L1** explicitly blocks Track L part 2. **OQ-GN1 … OQ-GN4** are new (2026-08-23),
 in the guest-notch handoff — which now says plainly that its item 1.4 is only *half* answered: the
