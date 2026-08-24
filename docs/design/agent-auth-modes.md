@@ -83,7 +83,7 @@ This is the strongest available argument that **a mode is a bundle**, and it arr
 > worse kind of residue: inert until it isn't, and invisible when it bites.
 
 > **~~`agent-credentials.md` §3 documents a mechanism that is not the one in use.~~ FIXED — the
-> passage now carries the correction (verified 2026-08-23, `agent-credentials.md:319-329`).** It
+> passage now carries the correction (verified 2026-08-23, `agent-credentials.md:418-428`).** It
 > used to say the Bedrock IAM keys live "under the `"env"` block of `~/.claude/settings.json` on the
 > host", riding the `/ctx/host-claude/` mount. That block is `{}` and always was; the keys arrived
 > via `env_sources`. **Kept here because the correction it points at is load-bearing in the other

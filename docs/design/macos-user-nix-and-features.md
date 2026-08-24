@@ -237,7 +237,7 @@ of container features:
   this backend** and has been writing to the workspace; it has a release-note entry.
   Not verified on hardware — the profile and its call sites are pinned by mutation-verified tests in
   a Linux jail, but nobody has watched a write fail on a Mac. See
-  [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) §5.6.
+  [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) §5.5.
 - **`per_side_paths`** → **structurally impossible, and it now SAYS so.** It gives the host and
   the sandbox different contents at the same path, which is a mount-namespace capability: Seatbelt
   can deny a path, it cannot fork one. As of `d0961f2c` it **warns** on this backend rather than
@@ -395,7 +395,7 @@ if a relocated-root use case ever lands (which would then need the key agreed at
 | bind mounts (`/workspace`, home overlay) | yes | **none** | no container |
 | `cache_relocations` | podman ✅ / AC ⚠️ | **off** | no mount |
 | `writable_home_dirs` | yes | n/a | native home is writable |
-| `workspace_readonly` | podman ✅ / AC ❌ (`:ro` ignored) | ✅ **ENFORCED since 2026-08-23** (`d0961f2c`) via the Seatbelt profile — was a silent no-op | the wiring gap this doc predicted; see [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) §5.6 |
+| `workspace_readonly` | podman ✅ / AC ❌ (`:ro` ignored) | ✅ **ENFORCED since 2026-08-23** (`d0961f2c`) via the Seatbelt profile — was a silent no-op | the wiring gap this doc predicted; see [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) §5.5 |
 | `per_side_paths` | yes | **WARNS since 2026-08-23** (`d0961f2c`) — no equivalent exists, and it no longer pretends otherwise | needs a mount namespace; Seatbelt filters permissions, it cannot give one path two contents |
 | `resources` (cpu/mem/pids) | podman-machine / AC native | **off** | no cgroups/VM |
 | `network` modes | yes | **n/a** | runs on host net |
