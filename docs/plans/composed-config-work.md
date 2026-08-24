@@ -1,7 +1,10 @@
 # Composed-config work — the implementable list
 
-**Status:** plan, 2026-07-26. **ROADMAP:** supersedes the sub-tables of items 3 and 4 as
-the working list; ROADMAP keeps the one-line summaries and the lane/blocker call.
+**Status:** plan, 2026-07-26 — **per-item detail only**, and the cluster it details has largely
+shipped (the prism is the unconditional config path; the six bespoke `Configure*` writers are
+deleted). Re-checked 2026-08-23. *(The old header pointed at "ROADMAP items 3 and 4", a numbering
+the 2026-08-17 restructure retired — [`roadmap.md`](roadmap.md) holds states and OQ IDs now, and
+[`BACKLOG.md`](BACKLOG.md) is the ordered list.)*
 
 > **⚠ For picking up work, use [BACKLOG.md](BACKLOG.md) instead.** It is the single
 > ordered list across the whole cluster (prism + packs + rip-out) and maps each item to
