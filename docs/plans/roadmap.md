@@ -590,12 +590,14 @@ who set it there and has been writing to the workspace will start seeing failure
   bootstrap path); the Seatbelt confinement is proven, the user-switch around it is not, and that is
   the remaining item in the row below.
 
-- 🔒 **On a Mac** — **the two lib-farm assertions have left this row.** They were never darwin
-  assertions: they failed because the image build did, and both went green the moment
-  `x86_64-darwin` could evaluate again (see the nightly row above). Nothing about the lib farm was
-  wrong.
+- 🔒 **On a Mac — three things need the hardware, and the first is a config rename.** *(The
+  headline used to announce what had LEFT this row, which tells a reader nothing about what is in
+  it. For the record: the two lib-farm assertions were never darwin assertions — they failed
+  because the image build did, and both went green the moment `x86_64-darwin` could evaluate again.
+  Nothing about the lib farm was wrong.)*
 
-  Three items remain, all genuinely host-gated: the `macos-user` acceptance matrix, Track D4's
+  Three items remain, all genuinely host-gated — and **before any of them, that Mac's config still
+  uses the removed `agents` key, so no `yolo` launches there at all** (see the sandbox row above): the `macos-user` acceptance matrix, Track D4's
   download proof, and the guest-notch handoff (whose §2 item 1.4 — do packs reach a macos-user
   sandbox? — is still the first thing to run there). 📄
   [`handoff-guest-notch-macos.md`](handoff-guest-notch-macos.md). **Item 1.4 is now half-answered:**
