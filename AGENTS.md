@@ -396,3 +396,9 @@ Agent logs, for debugging: `~/.copilot/logs/`,
 4. Conventional commit messages. The pre-commit hook runs `just check-ci`; if it
    rejects, fix forward — never `--no-verify`, never `--amend`.
 5. End of task: `git status` clean, `just done` green.
+6. **Doc change that makes a claim about the code** → check it before writing it. A number, a
+   `file:line`, a commit SHA, or a negative ("X has no caller") is the exact place a reader stops
+   checking, so a wrong one is worse than none. The four sweeps that keep this corpus honest — and
+   the allowlists they need, since a doc recording a deletion is *supposed* to name what it deleted
+   — are written down in [docs/plans/README.md](docs/plans/README.md#keeping-this-corpus-honest--the-four-checks-so-they-are-re-runnable).
+   Run them when a sprint closes: **drift clusters at status lines**, not evenly.
