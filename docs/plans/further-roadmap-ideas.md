@@ -30,7 +30,8 @@ the other direction** — three rows already on the roadmap that I think should 
 **Reads with:** [`roadmap.md`](roadmap.md) (the live state; this file is deliberately NOT it),
 [`BACKLOG.md`](BACKLOG.md) (the one implementable list for the packs cluster — an item lives there
 once it is real), [`../design/retired-decisions.md`](../design/retired-decisions.md) (where a *no*
-goes, so it stops being re-proposed).
+goes, so it stops being re-proposed), [`README.md`](README.md#keeping-this-corpus-honest--the-five-checks-so-they-are-re-runnable)
+(the five sweeps §I1 proposes automating — run them by hand until it is built).
 
 ---
 
