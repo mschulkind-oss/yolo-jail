@@ -53,8 +53,9 @@ upgrading.
 (`~/.yolo-ctx/`), not a `:ro` mount. Same bytes, read at the same point in boot; it is simply no
 longer read-only from inside the jail.
 
-**Not affected:** podman, where the bind always worked. **Not fixed:** `macos-user`, which has no
-`/ctx` at all — a `reads-host` grant still never crosses there, and still says nothing about it.
+**Not affected:** podman, where the bind always worked. **Not fixed on `macos-user`**, which has no
+`/ctx` at all — a `reads-host` grant still never crosses there. It no longer says nothing about it:
+as of `4402e33a` that launch warns, and the notices section below covers it.
 
 **NOT verified on hardware.** Whether Apple Container drops or hard-errors on a single-file bind is
 a Mac-only fact; every statement in this tree assumes it drops, and the fix is correct under either
@@ -116,6 +117,40 @@ interactive zsh on this backend and gets none of them.
 to the native launcher) and the assertion is mutation-verified, but nobody has watched the resulting
 agent start on a Mac.
 
+### ⚠️ Apple Container: context mounts you were granted read-only stop arriving at all
+
+**What changed** (2026-08-24, `0d7e8f58`). Apple Container **accepts `-v src:dest:ro` and ignores
+the `:ro`**. yolo has known that about the config `mounts` key for a long time and skipped it there.
+It did not know it anywhere else, because the rule was a local variable inside that one loop — so
+three other emitters kept handing out the same bind and trusting the same suffix:
+
+- a **pack `mount` grant**, which is the sharp one. It is origin-gated, and for a fetched pack a
+  human approves it at `pack install` against the words *read-only*. On this backend the agent got
+  write access to that directory in your real home.
+- a pack `mount` whose source is a single **file**, which could never arrive here at all
+  (apple/container#1089) and said nothing.
+- your host **`~/.config/nvim`**, bound at `/ctx/host-nvim-config` so the jail can copy your editor
+  config in at boot. The copy happens once; the writable mount lasted the whole session.
+
+All three are now **skipped with a printed reason**, matching what config `mounts` already did.
+
+**Who this bites.** Anyone on `runtime: container` whose packs declare a `mount`, and anyone whose
+agent used their nvim config in the jail. **You lose the mount** — that is the change, and it is a
+real loss, not just a warning. The alternative was keeping a writable window into your home on the
+backend people pick *for* isolation.
+
+**What to do.** Use `YOLO_RUNTIME=podman` if you need the mount; the bind works correctly there.
+For nvim specifically, the visible symptom is the jail's nvim starting unconfigured — that is this
+change and not a broken install. If a pack's `mount` is load-bearing for your workflow, that pack
+currently has no Apple Container story, which is worth saying in its README.
+
+**Not affected:** podman. **`macos-user`** has no mounts at all and skips these silently — a
+pre-existing gap, unchanged here.
+
+**NOT verified on hardware.** That Apple Container ignores `:ro` is this repo's long-standing
+position, recorded before today and unverified on a Mac by me. If it turns out to *honor* `:ro`,
+these three skips become unnecessary rather than wrong.
+
 ### New notices at launch on `macos-user` and Apple Container — nothing broke
 
 **What changed** (2026-08-24, `35448719`, `8ab03d2e`, `6a53a2a3`). A sweep for capabilities that
@@ -144,6 +179,11 @@ your next launch, this is it, and it is not a new fault.**
   nothing on the page explaining why.
 - **`lsp_servers` renders and enables the tool while the binaries are never installed**, because the
   installer is a generated bootstrap script this backend deliberately does not run.
+- **Host bytes never reach a config surface**, added `4402e33a`. Two channels, failing differently:
+  a pack **`reads-host`** grant renders from its *defaults* layer, so the agent runs on a settings
+  file you did not write and cannot tell from one you did; a **`host_files` entry with a `source`**
+  is dropped from the launch entirely, leaving no file at that path. The second is the better
+  failure. Both were silent, and the first is the one to read your warnings for.
 
 **On Apple Container:** an **explicit** `network.mode: "host"` now warns. It is not honored there,
 and it is *worse* than leaving the key unset — both port keys are bridge-gated, so asking for host
