@@ -40,9 +40,9 @@ to require reading ~9,000 lines; it is now one command:
 $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs/ --sort path
 ```
 
-*(That is one of **four** sweeps that keep this corpus honest — links, questions, SHAs, code paths.
-All four, and the allowlists they need, are in
-[`README.md`](README.md#keeping-this-corpus-honest--the-four-checks-so-they-are-re-runnable).)*
+*(That is one of **five** sweeps that keep this corpus honest — links, questions, SHAs, code paths,
+heading anchors. All five, and the allowlists they need, are in
+[`README.md`](README.md#keeping-this-corpus-honest--the-five-checks-so-they-are-re-runnable).)*
 
 > [!NOTE]
 > **The optional anchor-tag group is not decoration — it is the bug this count already had.** A

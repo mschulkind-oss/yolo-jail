@@ -26,9 +26,10 @@ for the classification and `git log --follow` to recover any).
 > only place that lists the implementable items in order, with a pointer per item to
 > the doc holding its reasoning.
 
-## Keeping this corpus honest — the four checks, so they are re-runnable
+## Keeping this corpus honest — the five checks, so they are re-runnable
 
-The 2026-08-23 audit ran these by hand and each found something. They are not wired into `just`
+The 2026-08-23 audit ran these by hand; four of the five found something, and the fifth is worth
+keeping because it is now clean and would not stay that way silently. They are not wired into `just`
 yet — that proposal, with the allowlists it needs, is
 [`further-roadmap-ideas.md`](further-roadmap-ideas.md) §I1. Until then, run them when a sprint
 closes; the drift clusters there rather than spreading evenly.
@@ -40,6 +41,9 @@ $ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs
 # 3. Every backticked SHA resolves in THIS repo.    (found: 3 phantoms cited as evidence)
 $ git rev-parse --verify --quiet <sha>^{commit}
 # 4. Every backticked code path exists.             (found: 1 real rot among 15 hits)
+# 5. Every in-doc heading link resolves.            (clean — but only with a CORRECT slugger:
+#    GitHub maps each space to its own hyphen, so an em-dash heading yields `--`. A naive
+#    slugger collapses them and reports 67 false positives.)
 ```
 
 **Checks 3 and 4 need an allowlist or they cry wolf**: upstream `flake.lock` revs and other
