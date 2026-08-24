@@ -1,13 +1,46 @@
 # macos-user: nix integration and the disabled-feature surface
 
-**Status:** DESCRIPTIVE (2026-07-23), **re-verified 2026-08-23** — documents what the shipped code
-does, not a proposal. Two entries in §3.1 moved on 2026-08-23 (`d0961f2c`): `workspace_readonly` is
-no longer inert here, and `per_side_paths` now warns instead of vanishing. Everything else in the
-inert list was re-read and still holds. Records both the *by-design* differences and the current *gaps* (things
-a config key or message implies but the code does not yet wire).
+**Status:** DESCRIPTIVE (2026-07-23), **re-verified and amended 2026-08-24** — documents what the
+shipped code does, not a proposal. Records both the *by-design* differences and the current *gaps*
+(things a config key or message implies but the code does not yet wire).
+
+**What moved on 2026-08-24.** A backend-parity sweep (48 agents, adversarially verified) found ten
+silent drops across the non-podman backends. **Seven entries in this doc changed state**, and this
+doc was materially incomplete about every one of them:
+
+| New state | Entry | Where |
+| :--- | :--- | :--- |
+| **FIXED** | pack `launch` contributions never applied (`dc1349a6`) | §3.6 |
+| **WARNED** | pack `state` at `scope: workspace` is machine-wide here (`8ab03d2e`) | §3.1 |
+| **WARNED** | briefings + skills, including the built-in suite, are never delivered (`6a53a2a3`) | §3.6 |
+| **WARNED** | `lsp_servers` binaries never install (`6a53a2a3`) | Part 2 retraction, §3.6 |
+| **WARNED** | `resources` are not enforced (`8ab03d2e`) | §3.2 |
+| **WARNED** | `cache_relocations` are not implemented — and the symlink workaround is **false** (`8ab03d2e`) | §3.1 |
+| **WARNED** | every loophole is inert here, config-declared ones included (`35448719`, `6a53a2a3`, `a639394d`) | §3.5 |
+
+Two claims are **retracted**: `lsp_servers` was never carried by a "bootstrap env → lazy install"
+channel (no such channel exists — Part 2), and §3.6 still called the config-diff approval prompt a
+live security gap on 2026-08-23 when it had been fixed on 2026-08-18 (`bb825486`). The 2026-08-23
+entries below (`d0961f2c`, `workspace_readonly` and `per_side_paths`) still hold.
+
+> **Read every entry below as one of three states, and do not blur them — the distinction is this
+> doc's whole value.**
+>
+> | State | Means |
+> | :--- | :--- |
+> | **FIXED** | the mechanism now works on this backend. Nothing to work around. |
+> | **WARNED-BUT-ABSENT** | the mechanism is still absent, but the launch now SAYS so on stderr. A wiring or design gap, fixable in principle; the warning is the interim contract. |
+> | **STRUCTURALLY IMPOSSIBLE** | there is no macOS mechanism to implement it against. Warning is the terminal state, not a stopgap. |
+>
+> Every `file:line` in an entry dated 2026-08-24 was read against the tree on 2026-08-24. None of
+> the 2026-08-24 fixes or warnings has been verified on hardware — they are unit-tested and
+> mutation-checked in a Linux jail, and podman-in-podman cannot exercise this backend at all.
+
 **Scope:** the `macos-user` backend only (native macOS user + Seatbelt, **no VM,
 no container, no OCI image**).
 **Reads with:**
+[backend-parity.md](backend-parity.md) (the sweep this doc's 2026-08-24 amendments come from —
+the same defect shape across all three backends, and the census proposed to make it unwritable),
 [macos-no-vm-direction.md](macos-no-vm-direction.md) (why the backend exists and
 the three-axes framing),
 [macos-user-build-step-threat-model.md](macos-user-build-step-threat-model.md)
@@ -172,12 +205,15 @@ pure functions of `*Env`. So the per-workspace config surface is preserved:
 | `packages:` | ✅ | native aarch64-darwin nix (Part 1) |
 | `security.blocked_tools` | ✅ | generated shims (`GenerateShims`) |
 | `mise_tools` | ✅ | `ConfigureMisePrism` |
-| `lsp_servers` | ✅ | bootstrap env → lazy install |
+| `lsp_servers` | ⚠️ | **config renders, binaries never install** — WARNED 2026-08-24, see §3.6 |
 | `mcp_servers` + `mcp_presets` | ✅ | `GenerateMCPWrappers` |
 | `packs` selection | ⚠️ | staged + `YOLO_PACK_ROOT` → `LoadJailPacks` → surfaces/hooks. **Wired 2026-08-12 (B-0); UNVERIFIED on a Mac** |
 | `env_sources` | ✅ | `config.ResolveEnvSources`, layered into the launch env |
 | git identity | ✅ | host git config → `YOLO_GIT_*` → `configureGit` (host creds never cross) |
 | `macos_log` | ✅ | the `yolo-log` helper (Apple unified-logging bridge): `off`/`user`/`full` |
+| pack `launch` flags | ✅ | **FIXED 2026-08-24** (`dc1349a6`) — hoisted above the dispatch, see §3.6 |
+| briefings + skills (incl. built-ins) | ❌ | **never delivered** — WARNED 2026-08-24, see §3.6 |
+| pack `state`, scope `workspace` | ⚠️ | one shared home, so **machine-wide** here — WARNED 2026-08-24, see §3.1 |
 
 > **The `packs` row was a ✅ that had never been true, and the correction is worth keeping
 > visible.** The row used to read "`agents` selection ✅ — `YOLO_AGENTS` → per-agent config",
@@ -196,6 +232,32 @@ pure functions of `*Env`. So the per-workspace config surface is preserved:
 > lesson of this entry being a stale ✅ in the first place is not one to repeat with a
 > fresh one.
 
+### ⚠ Retracted 2026-08-24: `lsp_servers` "bootstrap env → lazy install"
+
+The `lsp_servers` row read **`✅ — bootstrap env → lazy install`** until today. The ✅ was
+half-true and the mechanism named does not exist.
+
+What is true: the **config** renders. `runplan.go` bakes `YOLO_LSP_SERVERS` onto the bootstrap
+argv (`internal/macosuser/runplan.go:173-174`) and the prism renders it into each agent's config
+(`internal/entrypoint/packsurfaces.go:242`), so the agent is *told* the server is enabled.
+
+What is false: nothing installs the binary. The LSP installer is a block of the **generated
+bootstrap script** (`internal/entrypoint/shell.go:241-313`), written by `GenerateBootstrapScript`,
+whose only caller is the Linux boot loop (`internal/entrypoint/boot.go:459`) — `RunDarwinBootstrap`
+deliberately does not run it (`internal/entrypoint/darwin.go:49-80`, and see its own header comment
+naming the container bootstrap script as a step not run here). Verified 2026-08-24.
+
+And there is no "lazy install" channel to fall back on. **The only lazy-install channel is
+`~/.yolo-launchers`**, and it carries exactly two things: one launcher per pack `program`
+contribution (`internal/entrypoint/shims.go:166-228`) and `pnpm`
+(`internal/entrypoint/shims.go:272-296`, whose comment states "the only lazily-installed package
+manager is pnpm"). An `lsp_servers` entry contributes to neither. So the agent gets a config
+pointing at a language server that is not on disk. WARNED as of `6a53a2a3` — see §3.6.
+
+Two stale ✅s in one twelve-row table (this one and `packs`) is why the sibling
+[backend-parity.md](backend-parity.md) §7 argues this matrix should eventually be **generated**
+from a per-backend census rather than maintained by hand beside the code.
+
 Two macOS-only pieces run here that the Linux boot does not: the `yolo-log`
 helper, and the **login-rc PATH re-prepend** (`.zprofile`/`.zshrc`/`.bash_profile`),
 which re-asserts the sandbox PATH *after* macOS `path_helper` reorders it. The
@@ -207,10 +269,17 @@ deliberately **not** run — they are no-ops or nonsensical on a native user.
 
 ## Part 3 — the disabled / degraded surface
 
-Grouped by *why* it is off. "Disabled by design" = the mechanism cannot exist
-without a container/VM/Linux kernel. "Not wired" = a config key, message, or
+Grouped by *why* it is off. "Disabled by design" / "structurally impossible" = the mechanism
+cannot exist without a container/VM/Linux kernel. "Not wired" = a config key, message, or
 helper exists but the macos-user run path never reaches it — a real gap, not a
 principled omission.
+
+**Since 2026-08-24 a third question applies to every entry: does the launch SAY so?** That is
+the distinction the header's three-state legend draws, and it is now the one that matters most
+day to day — six entries below changed state on 2026-08-24 with the underlying mechanism
+unchanged, purely because the launch started saying so. "Not wired **and** silent" is the defect
+([backend-parity.md](backend-parity.md) calls the class a *silent drop*); "not wired and loud"
+is an honest, usable backend.
 
 ### 3.1 Bind mounts — none exist
 
@@ -222,14 +291,66 @@ of container features:
   mount. The workspace **must be neutral ground** — never inside any user's home;
   the plan invariants reject a home-dir workspace.
 - **`/home/agent` overlay** → replaced by the real `/Users/_yolojail` home.
-- **`cache_relocations`** → **disabled by design.** Relocation moves a cache
-  subdir onto other storage *by bind-mounting it into the container*; with no
-  container there is no mount point. The agent's cache is just files under
-  `/Users/_yolojail`.
+- **`cache_relocations`** → **STRUCTURALLY IMPOSSIBLE as a mount, and WARNED since 2026-08-24**
+  (`8ab03d2e`). Relocation moves a cache subdir onto other storage *by bind-mounting it into the
+  container*; with no container there is no mount point. The agent's cache is just files under
+  `/Users/_yolojail`. A configured `cache_relocations` now prints a per-key warning naming the
+  subdirs that stay put (`internal/macosuser/orchestrator.go:189-194`, verified 2026-08-24).
+
+  > [!WARNING]
+  > **"Just symlink it yourself" does NOT work here, and other docs still say it does.**
+  > The Seatbelt profile denies writes everywhere and re-allows only
+  > `{workspace, sandbox home, /tmp, /private/tmp, /var/folders, /private/var/folders, /dev}`
+  > (`internal/macosuser/seatbelt.go:47-55`), and separately denies reads under `/Volumes`
+  > except the boot volume (`internal/macosuser/seatbelt.go:59-60`). Both verified 2026-08-24.
+  > So a host symlink from `~/.cache/<subdir>` to another disk resolves fine for the invoking
+  > user and is refused inside the sandbox — which is the *worse* failure, because the cache
+  > then silently stays on the boot volume, the one outcome the feature exists to prevent.
+  >
+  > The false claim is not in this doc; it is in
+  > [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md) ("The `macos-user` backend has no
+  > container and no bind mounts, so a plain host symlink already works there") and in
+  > [`../plans/cache-relocation.md`](../plans/cache-relocation.md) ("the `macos-user` backend is
+  > unaffected … so a plain host symlink already works there"). Both predate the Seatbelt write
+  > deny-list. **This doc is the authority for this backend; those two are wrong.**
 - **`writable_home_dirs`** → **not applicable.** This knob carves writable
   subpaths out of an otherwise-`:ro` `/home/agent` container mount. On macos-user
   the home is natively writable (the Seatbelt profile allows writes under the
   sandbox home), so the concept has no target.
+- **pack `state` at `scope: workspace`** → **MACHINE-WIDE here, and WARNED since 2026-08-24**
+  (`8ab03d2e`). Every other backend gives each workspace its own copy of these dirs by mounting
+  a per-workspace host dir at each path. This backend has no mounts and its home is a
+  **constant** — `SandboxHome()` returns `/Users/_yolojail` with no workspace component
+  (`internal/macosuser/macosuser.go:52-53`) — so the whole per-workspace tier collapses into one
+  directory shared by every workspace on the machine. The five shipped dirs affected are
+  `.claude`, `.codex`, `.pi`, `.copilot` and `.gemini` (the `state`/`scope: workspace`
+  contributions of `packs/{claude,codex,pi,copilot,agy}/pack.json`, resolved through
+  `packload.WritableDirs` → `packdecl.WritableDirContributions`,
+  `internal/packload/packload.go:433-435`). All verified 2026-08-24.
+
+  **This is the mirror image of issue #39.** There, Apple Container mounted the machine-wide
+  tier from the per-workspace state dir and made a *machine* tier per-workspace. Here the same
+  two tiers collapse the other way: the *workspace* tier becomes machine-wide.
+
+  > [!WARNING]
+  > **The sandbox enforces the boundary one layer down and then leaks it through the shared
+  > home.** The Seatbelt profile denies reads under `/Users` and re-allows only `/Users`,
+  > `/Users/Shared`, the workspace's own subpath, the sandbox home, and each *intermediate*
+  > directory as a bare `(literal)` — chosen precisely so a **sibling checkout beside the
+  > workspace stays denied** (`internal/macosuser/seatbelt.go:74-80`, and `ancestorLiterals`'
+  > own rationale at `:144-148`; verified 2026-08-24). So the agent cannot read
+  > `/Users/Shared/yolo/<other-workspace>/…` — and **can** read a transcript of that same
+  > workspace's sessions at `~/.claude/projects/<other-workspace>/*.jsonl`, because that lives
+  > under the sandbox home, which the profile allows wholesale. (`~/.claude/projects/` is where
+  > the agent's own per-project logs land — `AGENTS.md`, "Agent logs, for debugging".) The
+  > denial and the leak are the same content reached two ways.
+
+  **WARNED, not fixed, and the reason is a real design constraint** — this is not a wiring
+  gap like the pack `launch` flags. The single home *is* this backend's shared-credentials
+  mechanism (§3.5: one real `~/.claude/.credentials.json` is what makes the oauth-broker
+  unnecessary here). Splitting the home per workspace would break the **machine** tier to
+  repair the **workspace** tier. A fix has to restore both tiers explicitly, which is a design
+  change and not a launch-time patch (`internal/cli/run/run.go:188-203`).
 - **~~`workspace_readonly`~~ → FIXED 2026-08-23** (`d0961f2c`). It *was* silently inert — built
   only in the container run pipeline — and, as this section predicted, the fix was a wiring gap
   rather than a structural impossibility: the Seatbelt profile is a write deny-list with re-allows,
@@ -249,10 +370,25 @@ of container features:
 
 macOS has no cgroup filesystem, and there is no VM to size.
 
-- **`resources` (`cpus` / `memory` / `pids_limit`)** → **not enforced.** The run
-  plan does not read them; there is nothing to apply them to. (On the container
-  path Apple Container applies `--cpus`/`--memory` natively and podman-machine
-  sizes the VM; macos-user has neither.)
+- **`resources` (`cpus` / `memory` / `pids_limit`)** → **not enforced, and WARNED since
+  2026-08-24** (`8ab03d2e`). The run plan does not apply them; there is nothing to apply them
+  to. (On the container path Apple Container applies `--cpus`/`--memory` natively and
+  podman-machine sizes the VM; macos-user has neither.) A configured `resources` section now
+  prints a warning naming the keys that are read and ignored
+  (`internal/macosuser/orchestrator.go:178-182`, verified 2026-08-24).
+
+  **Why a fix is REFUSED rather than pending** — this is the terminal state, not a stopgap.
+  The obvious substitute is POSIX rlimits, and neither one means what the config key means:
+
+  - `RLIMIT_AS` is **address space, not RSS**, so it is not what `--memory` means. Capping it
+    breaks JITs and the Go runtime, both of which reserve far more virtual address space than
+    they ever fault in.
+  - `RLIMIT_NPROC` is **per-USER, not per-process-tree**, so on this backend it would collide
+    across concurrent sessions — every one of them runs as the same `_yolojail` account.
+
+  A cap the user believes in but that does not hold is worse than a documented absence, so
+  this warns and will keep warning (`internal/macosuser/orchestrator.go:173-177`;
+  [backend-parity.md](backend-parity.md) §7 records the same refusal).
 - **`yolo-cglimit`** and the cgroup-delegate daemon → not present (Linux-only).
 
 ### 3.3 Networking and ports
@@ -274,8 +410,36 @@ macOS has no cgroup filesystem, and there is no VM to size.
 
 The loophole host-services (`audio`, `host-processes`, `claude-oauth-broker`) and
 the per-jail **broker relay** are started/stopped in `runContainer`
-(`startLoopholes`/`stopLoopholes`) — the macos-user branch never reaches it. But
-"not wired" means something different for each, because a loophole is machinery
+(`startLoopholes`/`stopLoopholes`) — the macos-user branch never reaches it.
+
+> **The inertness is now REPORTED, since 2026-08-24** (`35448719`, extended by `6a53a2a3`).
+> Until then this backend was the one inert backend that said nothing: a user could install and
+> select a pack whose entire purpose is a loophole (`audio`, `journal`, `host-processes`), watch
+> it install, and get a successful launch that ran none of it. `notePackLoopholesInert` is now
+> called from the macos-user arm itself (`internal/cli/run/run.go:187`), printing one stderr
+> line per inert loophole naming the backend as the reason
+> (`internal/cli/run/loopholeinert.go:63-74, 113-123`). It is deliberately *not* routed through
+> `startLoopholesDisclosed` — that wrapper exists to make disclosure inseparable from the
+> **spawn**, and nothing spawns here.
+>
+> **Config-declared loopholes are covered too, as of `6a53a2a3`.** The report originally walked
+> pack contributions only, so a user whose own `loopholes.<name>.command` named a daemon got no
+> line at all — the silence read as deliberate. `configInertLines` now emits the `SourceConfig`
+> half from the config map (`internal/cli/run/loopholeinert.go:132-144`). Both verified
+> 2026-08-24.
+>
+> The gap survived this long for a reason worth keeping: the test for it called
+> `notePackLoopholesInert` **directly** for both backends, so the macos-user half asserted a
+> line no launch could produce — the callee was pinned and the call site did not exist. That is
+> the shape `AGENTS.md` names under Testing, found inside the code written to prevent the same
+> shape one layer down.
+>
+> Separately, the **briefing** used to advertise these loopholes to the agent under a heading
+> reading "host capabilities wired into this jail". It is now gated on the backend
+> (`internal/cli/run/prepare.go:70-73`, `a639394d`, verified 2026-08-24). An agent reading a
+> false capability list does not merely lack a feature; it plans around one it does not have.
+
+But "not wired" means something different for each, because a loophole is machinery
 for punching a *specific* thing through a container boundary — and two of the
 three have **no boundary to punch through** on a native process:
 
@@ -342,21 +506,92 @@ ships a false security boundary).
 
 ### 3.6 The container-launch preamble (config-diff prompt, image load, etc.)
 
-The macos-user branch in `run.Run` returns **before** `runContainer`, so
-everything that lives only in that function is skipped. Most are irrelevant
-(image load, stale-container reaping, workspace flock). One is worth flagging:
+The macos-user branch in `run.Run` returns **before** `runContainer`
+(`internal/cli/run/run.go:132`, returning at `:209-210` where the container path continues at
+`:212`), so everything that lives only in that function is skipped. Some are irrelevant (image
+load, stale-container reaping, workspace flock). **Four are not**, and the 2026-08-24 sweep found
+three of them — this section is where the `runContainer`-only class collects.
 
-- **Config-change approval (y/N diff) prompt** — `checkConfigChanges` is called
-  only in `runContainer`. It is therefore **not currently reached on the
-  macos-user path.** This matters because the threat model
-  ([macos-user-build-step-threat-model.md](macos-user-build-step-threat-model.md))
-  lists the config-diff prompt as the mitigation for a poisoned `packages:` edit
-  (Vector A) — and macos-user is the backend where that build runs *unconfined as
-  the invoking user*, so it is the worst place to lose the prompt. This is a
-  **security gap to fix, not just document**: it is decided and on the roadmap as
-  [A1 in the revival plan](../plans/macos-revival-and-distribution-plan.md), whose
-  fix is to hoist `checkConfigChanges` ahead of the runtime split so every backend
-  gates on it. Until that lands, treat the mitigation as absent on macos-user.
+- **Pack `launch` contributions** → **FIXED 2026-08-24** (`dc1349a6`). `packload.InjectLaunchFlags`
+  was called inside `runContainer`, so on this backend a `launch` contribution **did nothing at
+  all**. The two shipped instances failed differently, and the difference is the reason this
+  ranked as the sweep's one must-fix here rather than a warning:
+  - copilot's `--yolo --no-auto-update` is a plain `launch` kind with **no autonomy config half
+    to fall back on** (`packs/copilot/pack.json:71-83`) — a 100% drop.
+  - claude's `--dangerously-skip-permissions` is the `autonomous.launch` half of an `autonomy`
+    contribution whose `autonomous.config` half still rendered
+    (`packs/claude/pack.json:91-98` and `:82`), so it degraded to `defaultMode: acceptEdits` —
+    which auto-accepts **edits** and not Bash or WebFetch. A partial, silent downgrade of the
+    autonomy the user asked for.
+
+  Injection is now hoisted above the backend dispatch (`internal/cli/run/run.go:123-126`) and
+  threaded into `runContainer` as a parameter (`internal/cli/run/run.go:362-363`) — the same
+  move pack staging made for B-0, for the same reason. The empty case is deliberately guarded so
+  each arm still reaches its own default (native zsh vs container bash). Pinned at the seam the
+  backend actually receives, not on the injector, by
+  `internal/cli/run/launchflagsdispatch_test.go:21`. Nothing downstream ever recovered these
+  flags: both in-jail launcher templates end `exec "$REAL_BIN" "$@"` and never read the
+  contributions. All verified 2026-08-24.
+
+- **Briefings and skills** → **never delivered; WARNED since 2026-08-24** (`6a53a2a3`). This is
+  the largest capability gap on this backend. `PrepareSkills` and the briefing composition both
+  hang off `refreshJailBriefings` (`internal/cli/run/prepare.go:29`, `:89`), **whose only caller
+  is inside `runContainer`** (`internal/cli/run/run.go:402`) — and the container path *delivers*
+  them by **mounting** the staged tree (`:ro` from the per-jail staging dir:
+  `internal/cli/run/assemble.go:456-457` for skills, `:543-546` for briefings). A mount is a
+  mechanism this backend does not have, which is why this is a warning and not the same
+  one-line hoist the `launch` flags got. So the agent starts with **no `AGENTS.md`, no
+  `CLAUDE.md` and no skills — including the BUILT-IN suite**, which rides the same staging loop
+  (`internal/jailcontent/skills.go:103`). All verified 2026-08-24.
+
+  > [!WARNING]
+  > **The sharp detail: the shims ARE generated.** `RunDarwinBootstrap` runs `GenerateShims`
+  > (`internal/entrypoint/darwin.go:50`), so the blocked-tool blockers exist natively while the
+  > prose explaining them does not. `grep -r` therefore exits 127 having **never told the agent
+  > why** — the agent gets the enforcement without the contract.
+
+  Warned at `internal/cli/run/loopholeinert.go:283-290`, called from
+  `internal/cli/run/run.go:204`. Whether this gets a real delivery mechanism (compose above the
+  dispatch, deliver by copy into the sandbox home) or stays a documented absence is
+  **OQ-BP-2** in [backend-parity.md](backend-parity.md) — open, and the leaning there is to
+  deliver it, alongside a Mac session.
+
+- **`lsp_servers` binaries** → **never installed; WARNED since 2026-08-24** (`6a53a2a3`). The
+  config renders and the agent is told the server is enabled; the installer is a block of the
+  generated bootstrap script this backend deliberately does not run. Full evidence in the
+  retraction under Part 2. Warned at `internal/cli/run/loopholeinert.go:291-296`, naming the
+  configured keys and pointing at `packages:` as the native alternative. Verified 2026-08-24.
+
+- **~~Config-change approval (y/N diff) prompt~~** → **FIXED 2026-08-18** (`bb825486`); see the
+  retraction immediately below.
+
+### ⚠ Retracted 2026-08-24: "the config-diff prompt is not reached on macos-user"
+
+This section carried, through the 2026-08-23 re-verification, a bullet stating that
+`checkConfigChanges` "is called only in `runContainer`" and is therefore "**not currently
+reached on the macos-user path**", closing with "until that lands, treat the mitigation as absent
+on macos-user".
+
+**That has been false since 2026-08-18** (`bb825486`). The gate is called on the macos-user arm
+itself, at `internal/cli/run/run.go:164`, before `MacosUserRun` (verified 2026-08-24). It sits in
+the arm rather than hoisted above the dispatch on purpose, and the reason is load-bearing: the
+container arm gates the **fresh-launch** path only, because attaching to a running jail
+deliberately skips the check (the container was already started with its config). This backend
+has **no attach** — every macos-user invocation is a fresh sandbox — so the arm's own call site
+is where the two backends actually agree. `--dry-run` is exempt: it prints the plan and launches
+nothing, so there is no change to approve, and refusing would only hide the diff the user asked
+to inspect.
+
+The threat model's reasoning stands and is now satisfied:
+[macos-user-build-step-threat-model.md](macos-user-build-step-threat-model.md) lists this prompt
+as the mitigation for a poisoned `packages:` edit (Vector A), and macos-user is the backend where
+that nix build runs **unconfined as the invoking user** — the worst place to lose it. Roadmap
+**A1** is done.
+
+**Keep this retraction visible**: a doc that re-verified its inert list on 2026-08-23 still
+reported a security gap that had been closed five days earlier. Re-reading a list for staleness
+catches claims that *became* wrong; it does not catch claims that became *right*, and a false
+"you are unprotected" is its own kind of harm.
 
 ### 3.7 The `macos_shared_root` config key — referenced, not implemented
 
@@ -389,25 +624,39 @@ if a relocated-root use case ever lands (which would then need the key agreed at
 
 ## Part 4 — at-a-glance matrix
 
+The `macos-user` column is stamped with one of the three states from the header: **FIXED**
+(works), **WARNED** (absent, but the launch says so), **IMPOSSIBLE** (no macOS mechanism to
+implement it against — warning is terminal). Unstamped rows predate 2026-08-24 and are unchanged.
+
+> [!NOTE]
+> This matrix has now drifted twice (the `packs` row, the `lsp_servers` row). It should
+> eventually be **generated** from the per-backend census proposed in
+> [backend-parity.md](backend-parity.md) §4/§7 rather than maintained by hand beside the code.
+
 | Feature | Container (`podman`/`container`) | `macos-user` | Reason |
 |---|---|---|---|
 | `packages:` | baked into aarch64-linux image | native aarch64-darwin buildEnv on PATH | different nix target |
 | bind mounts (`/workspace`, home overlay) | yes | **none** | no container |
-| `cache_relocations` | podman ✅ / AC ⚠️ | **off** | no mount |
+| `cache_relocations` | podman ✅ / AC ⚠️ | **off** — IMPOSSIBLE, **WARNS since 2026-08-24** (`8ab03d2e`); a host symlink is **not** a workaround (§3.1) | no mount; Seatbelt denies writes outside the workspace/sandbox home and reads under `/Volumes` |
 | `writable_home_dirs` | yes | n/a | native home is writable |
+| pack `state`, scope `workspace` | per-workspace dir per pack | **machine-wide** — WARNED since 2026-08-24 (`8ab03d2e`); mirror image of #39 | `SandboxHome()` is a constant with no workspace component; splitting it would break the machine tier |
+| pack `launch` flags | yes | ✅ **FIXED 2026-08-24** (`dc1349a6`) — was a 100% drop for copilot, a silent autonomy downgrade for claude | injection hoisted above the backend dispatch |
+| briefings + skills (incl. built-in suite) | `:ro` mount of the staged tree | ❌ **never delivered** — WARNED since 2026-08-24 (`6a53a2a3`); shims still generated, so `grep -r` exits 127 unexplained | delivery is a mount; needs a real native mechanism (OQ-BP-2) |
 | `workspace_readonly` | podman ✅ / AC ❌ (`:ro` ignored) | ✅ **ENFORCED since 2026-08-23** (`d0961f2c`) via the Seatbelt profile — was a silent no-op | the wiring gap this doc predicted; see [host-execution-from-the-workspace.md](host-execution-from-the-workspace.md) §5.5 |
 | `per_side_paths` | yes | **WARNS since 2026-08-23** (`d0961f2c`) — no equivalent exists, and it no longer pretends otherwise | needs a mount namespace; Seatbelt filters permissions, it cannot give one path two contents |
-| `resources` (cpu/mem/pids) | podman-machine / AC native | **off** | no cgroups/VM |
+| `resources` (cpu/mem/pids) | podman-machine / AC native | **off** — IMPOSSIBLE, **WARNS since 2026-08-24** (`8ab03d2e`); a fix is refused, not pending | no cgroups/VM; `RLIMIT_AS` ≠ `--memory` and `RLIMIT_NPROC` is per-USER on a shared account (§3.2) |
 | `network` modes | yes | **n/a** | runs on host net |
 | `ports` / forward_host_ports | yes | **not wired** | container-path only |
 | `gpu` | Linux only | off | Metal, no CUDA/ROCm |
 | `devices` / `cgroup_rule` | Linux only | off | Linux kernel feature |
 | loopholes: audio / host-processes | yes | **moot** | native process reaches CoreAudio / host procs directly |
 | loopholes: claude-oauth-broker | yes | **skip** | shared home = shared creds; serialization only matters for concurrent sessions |
+| loopholes (any pack- *or* config-declared) — is the inertness reported? | n/a | ✅ **REPORTED since 2026-08-24** (`35448719` + `6a53a2a3`); briefing no longer advertises them (`a639394d`) | this backend starts no loophole host service at all (§3.5) |
 | loophole *framework* (new host-mediated access) | via mount + `--add-host` | ✅ (localhost socket + launch env) | native process reaches host localhost directly |
-| config-diff approval prompt | yes | **not reached** | `runContainer`-only (gap) |
+| config-diff approval prompt | yes | ✅ **FIXED 2026-08-18** (`bb825486`) — this row said "not reached" until 2026-08-24 (§3.6 retraction) | gated on the arm itself; this backend has no attach path |
 | `security.blocked_tools` shims | yes | ✅ | pure generator |
-| `mise_tools` / `lsp_servers` | yes | ✅ | pure generators |
+| `mise_tools` | yes | ✅ | pure generator |
+| `lsp_servers` | yes | ⚠️ **config renders, binaries never install** — WARNED 2026-08-24 (`6a53a2a3`) | installer is the generated bootstrap script this backend does not run (Part 2 retraction) |
 | `mcp_servers` / `mcp_presets` | yes | ✅ | pure generator |
 | git identity (host-composed, `:ro`) | yes | ✅ (`YOLO_GIT_*` env) | pure generator |
 | `env_sources` | yes | ✅ | `ResolveEnvSources` |
@@ -418,17 +667,20 @@ if a relocated-root use case ever lands (which would then need the key agreed at
 
 ## Open items
 
-**All four resolved 2026-07-23.** The three that need code are on the roadmap at
-the **front** of the revival plan's
+**All four resolved 2026-07-23** (item 2 has since shipped — see its note). The three that need
+code are on the roadmap at the **front** of the revival plan's
 [Active work section](../plans/macos-revival-and-distribution-plan.md) (do-now);
-the fourth is a settled no-op.
+the fourth is a settled no-op. Two further questions were **opened on 2026-08-24** by the
+backend-parity sweep and are owned by that doc, not this one — they follow the four.
 
 1. **`macos_shared_root`** (§3.7) — **decided: drop the mention, don't implement.**
    `/Users/Shared/yolo` covers the real need; remove the key from the
    plan-invariant error message. Roadmap **A3**.
 2. **Config-diff prompt on macos-user** (§3.6) — **decided: fix it now** by hoisting
    `checkConfigChanges` ahead of the runtime split so every backend gates on it.
-   Roadmap **A1**.
+   Roadmap **A1**. — **DONE 2026-08-18** (`bb825486`), landed as a call site on the
+   macos-user arm itself rather than a hoist, for the attach-path reason recorded in the
+   §3.6 retraction. Confirmed at `internal/cli/run/run.go:164`, 2026-08-24.
 3. **`claude-oauth-broker` on macos-user** (§3.5) — **decided: leave off.** The
    shared `/Users/_yolojail` home already gives one shared credentials file (the
    broker's main job on containers); refresh serialization only matters for
@@ -440,3 +692,26 @@ the fourth is a settled no-op.
    error + per-platform `linux-only` override), retiring today's warn-and-skip. A
    silently dropped tool that the config *declared* masks typos and diverges from
    the documented contract. Roadmap **A2**.
+
+### Opened 2026-08-24 by the backend-parity sweep
+
+These are **not** owned by this doc — they live in [backend-parity.md](backend-parity.md), which
+is the sweep's home. Listed here because their answers change this backend's surface:
+
+- 💬 **OQ-BP-2 (theirs): do briefings and skills get DELIVERED to macos-user, or stay a
+  documented absence?** (§3.6, Part 2 table.) Today the agent starts with no `AGENTS.md`, no
+  `CLAUDE.md` and no skills — including the built-in suite — while the blocked-tool shims *are*
+  generated. Warned as of `6a53a2a3`. A fix means composing above the dispatch and delivering by
+  copy into the sandbox home: a real delivery mechanism, not a moved call. Their leaning is
+  **deliver it**, landed with a Mac session, because it writes into a shared root as another
+  user and nobody can test that from Linux. **This is the largest capability gap on this
+  backend.**
+- 💬 **OQ-BP-3 (theirs): does a `Warned` disposition need to be suppressible?** Ten new launch
+  lines exist as of 2026-08-24, six of them on this backend. A warning people learn to
+  skip is worse than none. Their leaning is **not yet**, and per-key when it comes.
+
+**Settled by the sweep and NOT reopened here** (both recorded in
+[backend-parity.md](backend-parity.md) §7, both reflected above): per-workspace homes on
+macos-user are **refused** — the single home is this backend's shared-credentials mechanism
+(§3.1, §3.5) — and enforcing `resources` via rlimits is **refused** on the semantics grounds in
+§3.2. Neither is a pending gap; both are terminal answers with a warning attached.
