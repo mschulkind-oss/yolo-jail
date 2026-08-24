@@ -1,27 +1,29 @@
 ---
-title: "Where the next roadmap items come from — eight candidates, ranked, two of them arguments to build less"
+title: "Where the next roadmap items come from — nine candidates, ranked, three of them arguments to build less"
 date: 2026-08-23
 status: draft
 tags: [roadmap, docs, process, candidates]
-summary: "The 📦 queue emptied by shipping, so this file says where the next items would come from. Eight candidates found by auditing every doc the roadmap points at, each with an explicit verdict — four worth building, two worth a ruling first, two I would drop. Plus §4: two rows already ON the roadmap that I think are questions we invented."
+summary: "The 📦 queue emptied by shipping, so this file says where the next items come from. Nine candidates from auditing every doc the roadmap points at — twice, the second time with five parallel agents — each with an explicit verdict. Plus §4 and §4a, which argue three rows should LEAVE the roadmap: a pointer is not a question and neither is a confirmation."
 ---
 
-# Where the next roadmap items come from — eight candidates, ranked
+# Where the next roadmap items come from — nine candidates, ranked
 
-**Status:** CANDIDATES, 2026-08-23. **Nothing here is committed, and nothing here is a task.**
-Every item is a *proposal with a verdict*; four say build, two say rule first, two say drop.
+**Status:** CANDIDATES, 2026-08-23 (updated the same evening after a five-agent verification pass
+over the whole corpus). **Nothing here is committed, and nothing here is a task.** Every item is a
+*proposal with a verdict*; five say build, two say rule first, three say drop.
 
 **The short version.** [`roadmap.md`](roadmap.md)'s 📦 queue is empty because the last item
 shipped, not because the work ran out — so the interesting question is where the *next* items come
 from. This file is the output of auditing every design doc the roadmap points at (2026-08-23) and
-writing down what the audit itself kept tripping over. The strongest three are all the same shape:
-**a property this repo already believes in, with no mechanism that would notice it being false** —
-an open question with no ID, a jail-blind check that reports the wrong side, a reproduction recipe
-that lives in prose instead of a test.
+writing down what the audit itself kept tripping over — first alone, then again with five agents
+reading in parallel. The strongest four are all the same shape: **a property this repo already
+believes in, with no mechanism that would notice it being false** — an open question with no ID, a
+status line that says NOTHING BUILT about code that shipped, a jail-blind check that reports the
+wrong side, and a reproduction recipe that lives in prose instead of a test.
 
 **How to use it.** Nothing here becomes work by being written down. An item earns a 💬 row in the
-roadmap when you want it; until then this file is a shelf. **§4 is the part that argues in the other
-direction** — two rows already on the roadmap that I think should leave it.
+roadmap when you want it; until then this file is a shelf. **§4 and §4a are the parts that argue in
+the other direction** — three rows already on the roadmap that I think should leave it.
 
 **Reads with:** [`roadmap.md`](roadmap.md) (the live state; this file is deliberately NOT it),
 [`BACKLOG.md`](BACKLOG.md) (the one implementable list for the packs cluster — an item lives there
@@ -30,38 +32,75 @@ goes, so it stops being re-proposed).
 
 ---
 
-## 1. The four I would build
+## 1. The five I would build
 
 Ordered by what pays for itself soonest.
 
 ### I1. A decision-link checker — an open question with no ID is invisible
 
-**The evidence is this audit.** Five docs the roadmap points at held live questions that carried
-neither a status emoji nor an explicit ID, so no count of "what is open" could be taken except by
-reading all 8,000 lines. Worse, IDs failed to resolve **in both directions**:
-[`boundary-broker.md`](../design/boundary-broker.md) §10.6 called a fork in the road *"the
-maintainer's call — see the B1b row in `roadmap.md`"*, and the roadmap cited `OQ-B1b` back at the
-doc. Neither existed. A decision with two dangling pointers is a decision nobody can make.
+**The evidence is this audit, and the second pass made it much worse than the first.** Five docs the
+roadmap points at held live questions carrying neither a status emoji nor an explicit ID, so no count
+of "what is open" could be taken except by reading ~9,000 lines. Worse, IDs failed to resolve **in
+both directions**: [`boundary-broker.md`](../design/boundary-broker.md) §10.6 called a fork in the
+road *"the maintainer's call — see the B1b row in `roadmap.md`"*, and the roadmap cited `OQ-B1b` back
+at the doc. Neither existed.
+
+**Then the deeper pass found it is a whole vocabulary, not a few typos.** The roadmap was
+restructured on 2026-08-17 from a lettered queue into states, and **five separate docs still cite
+names it no longer holds** — `rows B1/B1b/B2/B3/B4`, `threads A–C`, `N3`, `ROADMAP open item 5`,
+`ROADMAP item N`. Every one of those resolved to nothing for six days, in docs whose whole job is to
+tell you where a decision lives. Alongside them, one audit pass corrected **13 stale file:line
+anchors** in a single doc — no claim wrong, every pointer off.
 
 **The proposal.** A test over `docs/` — the same shape as
 `internal/entrypoint/shippedclients_test.go`, which pins three spellings of a binary list together:
 
 1. every item under an `## Open Questions` heading carries a status emoji (💬 / 💬 🤷 / ✅ / 🔒) and
-   a bold stable ID;
-2. every `OQ-<ID>` the roadmap cites **resolves** to that ID in the doc it names.
+   a stable ID;
+2. every `OQ-<ID>` the roadmap cites **resolves** to that ID in the doc it names;
+3. every `roadmap.md` reference by *name* (`row X`, `thread Y`, `item N`) is refused outright —
+   the roadmap holds states and IDs, and nothing else is citable.
 
-Rule 2 is the valuable half: it is a link checker for decisions rather than for URLs. Rule 1 is what
-makes rule 2 cheap.
+Rule 2 is the valuable half: it is a link checker for decisions rather than URLs. Rule 3 is the one
+this session would have needed.
 
-**Verdict: build it.** It is the only item in this file that would have paid for itself during the
-audit that produced the file.
+**Verdict: build it.** The only item in this file that would have paid for itself twice during the
+audit that produced it.
+
+### I1b. And the harder half — a doc that says NOTHING BUILT while its subject shipped
+
+**Dangling links are the cheap failure. This is the expensive one**, because it does not look broken:
+
+| Doc | Said | Actually |
+| :--- | :--- | :--- |
+| `pack-code-separation.md` | "NOTHING BUILT. 2026-08-15" | all four rulings in the tree |
+| `loophole-activation.md` | broker jail wiring "🛑 blocked" | shipped 2026-08-19 |
+| `image-staging-vs-baking.md` | "Nothing built" | C1 shipped, `--accept-flake-config` live |
+| `rocm-passthrough-design.md` | "Draft / implementation-ready" | shipped in June |
+| `program-kind-defects.md` | "No code changed" | all three defects fixed |
+| `macos-revival…plan.md` | "nothing engineering-side fully open" | false; D1 retired, D2 reverted, D3 superseded |
+| `BACKLOG.md` / `roadmap.md` | E3 "open, not urgent" | shipped 2026-08-15 |
+
+Seven docs, one week's drift, every one of them a doc a reader consults precisely to learn what is
+done. **A status line is a claim about the tree and nothing checks it.**
+
+**The proposal, and it is deliberately weaker than I1:** no mechanism can verify "is this built" in
+general. What *can* be checked mechanically is **staleness of the claim itself** — a `**Status:**`
+line whose ISO date is older than the newest commit touching the code paths the doc cites gets
+flagged for re-verification, not for correctness. That converts an unbounded question into a queue.
+
+**Verdict: build the flag, not the verdict.** And in the meantime the cheap discipline is the one
+this session used: when a sprint closes, re-read the status line of every doc it touched — the drift
+clusters there rather than spreading evenly.
 
 ### I2. Report orphaned programs — a jail is the union of every pack ever selected
 
 **Measured** in [`program-delivery.md`](../design/program-delivery.md) and reproducible in this jail:
-the config is `"packs": ["claude"]`, and `~/.npm-global/lib/node_modules/` holds `pi`, `copilot`,
-`codex` and a stray `fzf` from a pack that no longer exists. Dropping a pack removes its launcher and
-**never uninstalls its program**.
+`@github/copilot` and npm `fzf 0.5.2` are installed with **no selecting pack and no launcher** —
+copilot was deselected, `fzf` came from a test pack that no longer exists. Dropping a pack removes
+its launcher and **never uninstalls its program**. *(The first draft of this entry cited pi and codex
+too; they are legitimately selected now, and re-measuring on 2026-08-23 is what caught it. The
+finding is narrower and cleaner than it looked.)*
 
 **The proposal is the report, not the removal.** `yolo check` (or `yolo pack ls`) names every
 installed program with no selecting pack. Uninstalling is **OQ-PD4** and needs a ruling; *saying so*
@@ -175,6 +214,19 @@ to [`../design/retired-decisions.md`](../design/retired-decisions.md).
 > The cost of getting this wrong is not clutter — it is that eleven rows of "needs you" read as an
 > eleven-decision backlog when the real number is nine, and the two cheap ones are the ones a tired
 > reader answers first.
+
+---
+
+## 4a. A third row I would drop, added after the deeper pass
+
+**`pack-capabilities` OQ-CAP is already in §4b. This is its sibling:** any question whose doc says it
+is *"decided in all but name"* or whose leaning has stood uncontested for weeks. Two now exist —
+OQ-CAP (uncontested since 2026-08-13) and `boundary-broker` **OQ-D**, which is not a question at all
+but a *pointer* to `agent-auth-modes` OQ-1, and says so in its own text.
+
+The general rule, since it will recur: **a pointer is not a question, and neither is a confirmation.**
+Both inflate the "needs you" count with items that cannot change the work, which is how a
+thirteen-row list starts reading like a thirteen-decision backlog when the real number is smaller.
 
 ---
 
