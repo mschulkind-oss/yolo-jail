@@ -77,6 +77,14 @@ func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in
 	// storage.Ensure MkdirAlls every EmbeddedSharedDirs() under GlobalHome on
 	// every backend (internal/storage/ensure.go:54), so the host side exists
 	// before this argv runs.
+	//
+	// NO MOUNTPOINT IS PRE-CREATED under wsState, and that is checked rather than
+	// assumed: nothing creates <wsState>/.cache either, yet the GlobalCache mount
+	// above lands at /home/agent/.cache on this backend today. The mountpoint is
+	// auto-created inside the READ-WRITE parent bind. (podman needs the mountpoint
+	// pre-created only because ITS /home/agent base is `:ro`, where crun's mkdirat
+	// fails EROFS — see podmanBaseMounts. The two backends differ here for a reason
+	// that is about the parent mount's mode, not about the nested dir.)
 	for _, dir := range packload.SharedDirs(in.packs) {
 		runCmd = append(runCmd, "-v",
 			filepath.Join(paths.GlobalHome(), dir)+":/home/agent/"+dir)
