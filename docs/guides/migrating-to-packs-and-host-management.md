@@ -1,5 +1,10 @@
 # Migrating to packs, and managing your host from yolo
 
+**Status:** GUIDE — **spot-checked 2026-08-23**: the kind count (fifteen) and the loophole section
+match the tree, and the UNRELEASED warning below still applies — none of these verbs are in a
+released `yolo`, because there has not been a release (see [`../RELEASE-NOTES.md`](../RELEASE-NOTES.md),
+whose eighteen entries all sit under `## Unreleased`).
+
 > **⚠ UNRELEASED — verify your version first.** The verbs this guide leans on —
 > `describe`, `apply` (incl. `--host`/`--sealed`), `check-deps`, and the newer `pack`
 > subcommands (`lint`'s manifest validation, `footprint`, `install`, `status`) and

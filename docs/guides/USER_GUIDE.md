@@ -1,5 +1,12 @@
 # YOLO Jail User Guide
 
+**Status:** USER REFERENCE — **spot-checked 2026-08-23.** What was verified this pass: every
+`yolo <verb>` this guide tells you to run exists in the dispatch registry (`internal/cli/dispatch.go`),
+and the Claude-logout entry now names the broker's real home (a contribution of the `claude` pack,
+not a bundled loophole keyed on `claude` being on your PATH). **Not re-verified:** the macOS sections
+(no Mac here — see [`macos.md`](macos.md), which carries its own dated status) and the measured
+numbers in the storage sections.
+
 This guide covers everything you need to get started with YOLO Jail and make the most of its features. For quick-start instructions, see the [README](../../README.md).
 
 **YOLO Jail runs on Linux and macOS as first-class platforms.** Every section below shows instructions for both where they differ. Linux uses Podman; macOS uses Podman Machine or Apple Container. For the full macOS-specific setup, see [docs/guides/macos.md](macos.md); for a feature-by-feature comparison, see [docs/research/platform-comparison.md](../research/platform-comparison.md).

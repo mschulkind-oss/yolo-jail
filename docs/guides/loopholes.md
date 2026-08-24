@@ -1,5 +1,10 @@
 # yolo-jail loopholes
 
+**Status:** USER REFERENCE — **verified current 2026-08-23.** The five shipped loopholes below and
+their homes match the tree, including the 2026-08-19 move that retired `bundled_loopholes/`. One
+rationale was corrected this pass: the `framed` default for `request_end` is justified by
+length-prefixing being self-delimiting, not by the per-jail broker relay, which no longer exists.
+
 A **loophole** is a single controlled permeability point between the jail and the host — a sanctioned narrow passage through the wall. The jail talks to something through the loophole, and nothing escapes that's not declared.
 
 Examples:

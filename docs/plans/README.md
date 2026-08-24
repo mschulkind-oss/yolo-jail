@@ -1,5 +1,10 @@
 # Active plans & designs
 
+**Status:** INDEX — **rebuilt against the tree 2026-08-23.** Every row's status claim in the tables
+below was re-checked that day; three were wrong in the direction that matters (D1 retired, D2
+reverted, D3 superseded — see the macOS row). If a row here disagrees with the doc it points at,
+trust the doc and fix the row.
+
 This directory holds the **active** work — plans and designs we're currently
 implementing or still discussing. Reference docs (how live systems work) live in
 [`../design/`](../design) and [`../research/`](../research); done/obsolete
