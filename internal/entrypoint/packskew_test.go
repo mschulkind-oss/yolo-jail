@@ -78,6 +78,46 @@ func TestLoadJailPacksBootsWithAnUnknownContributionKind(t *testing.T) {
 	}
 }
 
+// TestSkewNotesAreStatedOnceAcrossTheBootsRepeatedPackLoads: one skipped contribution is one
+// finding, however many times the boot re-reads the tree that carries it.
+//
+// LoadJailPacks is called FIVE times in a single boot — pack surfaces, `requires`, the agent
+// launchers, the bootstrap, and (since the orphan catalog landed) the catalog — and each
+// pass re-derives the same SkewNotes from the same manifests. Unguarded, one pack declaring
+// one unknown kind printed five identical lines on the way past, which reads as five
+// problems and teaches the reader to skim exactly the warning that exists to be read.
+func TestSkewNotesAreStatedOnceAcrossTheBootsRepeatedPackLoads(t *testing.T) {
+	root := stageUnknownKindPack(t)
+	var stderr bytes.Buffer
+	e := NewEnv(map[string]string{"JAIL_HOME": t.TempDir(), "YOLO_PACK_ROOT": root})
+	e.Stderr = &stderr
+
+	// The boot's five readers, in one Env, exactly as Main has them.
+	for i := 0; i < 5; i++ {
+		if _, err := LoadJailPacks(e); err != nil {
+			t.Fatalf("load %d: %v", i, err)
+		}
+	}
+
+	if n := strings.Count(stderr.String(), "kind-from-a-newer-yolo"); n != 1 {
+		t.Errorf("the skew note was printed %d times; one skipped contribution is one "+
+			"finding:\n%s", n, stderr.String())
+	}
+
+	// The guard is per-Env, not a package-level latch. A second Env is a second boot's
+	// worth of reporting (and, in-process, every other test), and silencing it would trade
+	// five copies of a finding for none.
+	var second bytes.Buffer
+	e2 := NewEnv(map[string]string{"JAIL_HOME": t.TempDir(), "YOLO_PACK_ROOT": root})
+	e2.Stderr = &second
+	if _, err := LoadJailPacks(e2); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(second.String(), "kind-from-a-newer-yolo") {
+		t.Errorf("a fresh Env must still report the skew: %q", second.String())
+	}
+}
+
 // TestLoadJailPacksSaysNothingWhenNoKindWasSkipped: the warn loop must be driven by real
 // skew, not fire on every boot — an unconditional notice trains readers to ignore it.
 func TestLoadJailPacksSaysNothingWhenNoKindWasSkipped(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // receipts_test.go covers program-delivery.md §10's first step: every install yolo itself
@@ -23,9 +24,12 @@ import (
 
 // readReceipts parses a receipts.jsonl, or returns nil when the file was never written.
 //
-// It also enforces the two properties of the FILE rather than of any one line: every line
-// is parseable JSON on its own, and every line is well under PIPE_BUF — the single-printf
-// append is only atomic below it, and two launchers installing at once is ordinary.
+// It also enforces the two properties of the FILE rather than of any one line: every line is
+// parseable JSON on its own, and every line stays inside a fixed budget. The budget is a
+// READABILITY bound — one install, one line a human can take in, `path` and `declared` both
+// scrubbed to 200 chars — not an atomicity one. (It was documented as PIPE_BUF, which bounds
+// atomic writes to a PIPE and says nothing about a regular file; what makes the append
+// atomic is that it is one write(2) under O_APPEND. See _yolo_receipt.)
 func readReceipts(t *testing.T, path string) []map[string]any {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -41,8 +45,8 @@ func readReceipts(t *testing.T, path string) []map[string]any {
 			continue
 		}
 		if len(line) > 2048 {
-			t.Errorf("a receipt line is %d bytes; the schema exists to stay well under the "+
-				"4096-byte PIPE_BUF that makes the append atomic:\n%s", len(line), line)
+			t.Errorf("a receipt line is %d bytes; one install must stay one readable line, "+
+				"which is what bounds every field the shell interpolates:\n%s", len(line), line)
 		}
 		var m map[string]any
 		if err := json.Unmarshal([]byte(line), &m); err != nil {
@@ -110,8 +114,81 @@ func TestNpmInstallLeavesAReceipt(t *testing.T) {
 			t.Errorf("an npm receipt must not carry %q: %v", absent, r)
 		}
 	}
+	// The LANDING PATH — §6's tuple is (declaration, resolver, resolved identity, landing
+	// path, scope, time), and this is the member the schema used to drop. It is not
+	// derivable from the rest of the line: the npm prefix is a per-jail path, and on
+	// macos-user it is a machine-wide one shared by every workspace.
+	if want := filepath.Join(p.home, ".npm-global", "bin", "tool"); str(t, r, "path") != want {
+		t.Errorf("path = %q, want the binary this install landed at %q", r["path"], want)
+	}
 	if ts := str(t, r, "time"); !strings.HasSuffix(ts, "Z") || len(ts) != 20 {
 		t.Errorf("time = %q, want a 20-char UTC ISO stamp ending in Z", ts)
+	}
+}
+
+// TestNpmReceiptOmitsAResolvedVersionItCouldNotRead is the forgery, closed.
+//
+// The receipt used to interpolate `_installed_version`, whose `|| echo "0"` is a POLL
+// sentinel — chosen so an unreadable package compares unequal to any registry answer. With
+// no jq on PATH every install therefore recorded `"resolved":"0"`, a version nobody
+// measured, in the one field a reconcile is going to compare against the disk. Omitting it
+// says "unknown", which is true; and the rest of the line is still worth having.
+func TestNpmReceiptOmitsAResolvedVersionItCouldNotRead(t *testing.T) {
+	p := newNpmProbe(t, "tool")
+	p.hideJQ(t)
+
+	_, out := p.runOut(t, "tool", "@scope/tool@2.0.0")
+	if !strings.Contains(out, "RAN") {
+		t.Fatalf("the install must still happen and still exec the tool:\n%s", out)
+	}
+
+	r := requireOne(t, p.receipts(t))
+	if v, present := r["resolved"]; present {
+		t.Errorf("resolved = %v: with no jq the launcher cannot read a version, and a poll "+
+			"sentinel is not a measurement — the field must be omitted: %v", v, r)
+	}
+	// The line is still a receipt: what it DID know is recorded.
+	for _, want := range []struct{ key, val string }{
+		{"kind", "npm"}, {"bin", "tool"}, {"declared", "@scope/tool@2.0.0"},
+		{"spec", "@scope/tool@2.0.0"}, {"act", "install"},
+	} {
+		if got := str(t, r, want.key); got != want.val {
+			t.Errorf("%s = %q, want %q", want.key, got, want.val)
+		}
+	}
+}
+
+// TestNpmReceiptRecordsTheRealVersionWhenItCanReadOne is the other half of the same
+// property: omitting is for the case that cannot be measured, never a blanket retreat.
+func TestNpmReceiptRecordsTheRealVersionWhenItCanReadOne(t *testing.T) {
+	p := newNpmProbe(t, "tool")
+	p.run(t, "tool", "tool@1.2.3", "FAKE_INSTALLED_VERSION=1.2.3")
+
+	if v := str(t, requireOne(t, p.receipts(t)), "resolved"); v != "1.2.3" {
+		t.Errorf("resolved = %q, want the version jq read out of the installed "+
+			"package.json", v)
+	}
+}
+
+// TestNpmReceiptActMatchesTheDispatchPredicate: the receipt and the dispatch have to agree
+// about what update mode IS.
+//
+// The dispatch at the bottom of the launcher tests `= "1"`; the receipt tested `-n`. So
+// YOLO_PACK_UPDATE=0 — the spelling a caller reaches for to mean "no" — took the ordinary
+// launch path and then wrote itself down as an update, corrupting the one field that says
+// whether a human asked for this.
+func TestNpmReceiptActMatchesTheDispatchPredicate(t *testing.T) {
+	p := newNpmProbe(t, "tool")
+	_, out := p.runOut(t, "tool", "tool@1.0.0", "YOLO_PACK_UPDATE=0",
+		"FAKE_INSTALLED_VERSION=1.0.0")
+
+	// It exec'd the tool, so this was the launch path — not update mode, which exits.
+	if !strings.Contains(out, "RAN") {
+		t.Fatalf("YOLO_PACK_UPDATE=0 is not update mode; the launcher must launch:\n%s", out)
+	}
+	if act := str(t, requireOne(t, p.receipts(t)), "act"); act != "install" {
+		t.Errorf("act = %q, want install: nobody asked for an update, so the receipt must "+
+			"not claim one", act)
 	}
 }
 
@@ -200,6 +277,153 @@ func TestNpmReceiptCannotChangeTheLauncherOutcome(t *testing.T) {
 	}
 }
 
+// TestReceiptCannotFailACallerUnderErrexit makes the cannot-fail-the-caller property
+// STRUCTURAL rather than incidental, at the level the property is stated: _yolo_receipt
+// itself, called under `set -euo pipefail` the way all three templates call it.
+//
+// The function used to end `return "$_yr_rc"`, with _yr_rc read from `$?` on its first line —
+// which at function entry is NOT the caller's status but whatever the last command
+// substitution in this call's own arguments left behind. Every call site passes at least one
+// (`"$(_resolved_version)"`, `"$(_yolo_head …)"`), so the property held only because those
+// helpers happen to end in `return 0`. A resolver added later that reports "I could not
+// tell" with a non-zero status — the most natural way to spell it — would have killed its
+// caller two frames from anything mentioning receipts.
+func TestReceiptCannotFailACallerUnderErrexit(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not found")
+	}
+	home := t.TempDir()
+	receipts := filepath.Join(home, "ws", ".yolo", "receipts.jsonl")
+
+	script := filepath.Join(home, "probe.sh")
+	body := `#!/bin/bash
+set -euo pipefail
+_YOLO_RECEIPTS=` + shquote.Quote(receipts) + `
+` + receiptShellFns + `
+# A resolver that cannot answer: it prints nothing and says so with a non-zero status.
+# "jq is not installed", "this binary has no module info" and "the registry did not answer"
+# are all spelled exactly like this.
+_cannot_tell() { return 3; }
+
+_yolo_receipt '{"schema":1,"kind":"probe"' "" "$(_cannot_tell)" "" install
+echo CALLER_PROCEEDED
+`
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(script).CombinedOutput()
+	if err != nil {
+		t.Fatalf("a receipt whose argument could not be resolved killed its caller "+
+			"(%v):\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "CALLER_PROCEEDED") {
+		t.Errorf("the caller must run on past the receipt:\n%s", out)
+	}
+	// ...and the receipt is still written, minus the field nobody could measure.
+	r := requireOne(t, readReceipts(t, receipts))
+	if _, present := r["resolved"]; present {
+		t.Errorf("an unresolvable version must be omitted, not invented: %v", r)
+	}
+	if act := str(t, r, "act"); act != "install" {
+		t.Errorf("act = %q, want install", act)
+	}
+}
+
+// --- package managers (pnpm) ---------------------------------------------------------
+
+// pnpmLauncherRun generates the pnpm launcher through GeneratePackageManagerLaunchers — the
+// call site, so the receipts path is the one the boot path would bake — runs it against a
+// fake npm, and returns (combined output, exit code, receipts).
+func pnpmLauncherRun(t *testing.T, env ...string) (string, int, []map[string]any) {
+	t.Helper()
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not found")
+	}
+	home := t.TempDir()
+	ws := filepath.Join(home, "ws")
+	fakeBin := filepath.Join(home, "fakebin")
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	npm := `#!/bin/bash
+case "${1:-}" in
+install)
+    if [ -n "${FAKE_INSTALL_FAIL:-}" ]; then echo "npm ERR! network unreachable" >&2; exit 1; fi
+    mkdir -p "$NPM_CONFIG_PREFIX/bin"
+    printf '#!/bin/sh\necho PNPM_RAN\n' > "$NPM_CONFIG_PREFIX/bin/pnpm"
+    chmod +x "$NPM_CONFIG_PREFIX/bin/pnpm"
+    ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(fakeBin, "npm"), []byte(npm), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_WORKSPACE": ws})
+	if err := GeneratePackageManagerLaunchers(e); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(filepath.Join(e.LauncherDir(), "pnpm"))
+	cmd.Env = append([]string{
+		"HOME=" + home,
+		"PATH=" + fakeBin + ":" + os.Getenv("PATH"),
+	}, env...)
+	out, err := cmd.CombinedOutput()
+	rc := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		rc = ee.ExitCode()
+	} else if err != nil {
+		t.Fatalf("pnpm launcher could not be run at all: %v\n%s", err, out)
+	}
+	return string(out), rc, readReceipts(t, filepath.Join(ws, ".yolo", "receipts.jsonl"))
+}
+
+// TestPackageManagerInstallLeavesAReceipt closes the fourth install site. "Every install
+// yolo itself runs leaves one line" (§10 step one) is a claim about the SET, and pnpm was
+// the member missing from it: a program fetched from the registry at first use, with no
+// record anywhere that it happened.
+func TestPackageManagerInstallLeavesAReceipt(t *testing.T) {
+	out, rc, got := pnpmLauncherRun(t)
+	if rc != 0 || !strings.Contains(out, "PNPM_RAN") {
+		t.Fatalf("the launcher must install and then exec pnpm (rc=%d):\n%s", rc, out)
+	}
+
+	r := requireOne(t, got)
+	for _, want := range []struct{ key, val string }{
+		// The RESOLVER is npm, which is what the kind names — not the declaration's
+		// origin, which for pnpm is a hardcoded list rather than a pack.
+		{"kind", "npm"},
+		{"bin", "pnpm"},
+		{"declared", "pnpm"},
+		{"spec", "pnpm@latest"},
+		{"act", "install"},
+	} {
+		if got := str(t, r, want.key); got != want.val {
+			t.Errorf("%s = %q, want %q", want.key, got, want.val)
+		}
+	}
+	if path := str(t, r, "path"); !strings.HasSuffix(path, "/.npm-global/bin/pnpm") {
+		t.Errorf("path = %q, want the binary this install landed at", path)
+	}
+}
+
+// TestPackageManagerReceiptIsNotWrittenAfterAFailedInstall is the "|| true" trap in the one
+// launcher that still had it. This install fails ROUTINELY — the RETRY_INTERVAL throttle
+// above it exists because offline attempts are ordinary — so a receipt appended after an
+// unconditional success would be wrong on exactly the boots the record is for.
+func TestPackageManagerReceiptIsNotWrittenAfterAFailedInstall(t *testing.T) {
+	out, rc, got := pnpmLauncherRun(t, "FAKE_INSTALL_FAIL=1")
+	if len(got) != 0 {
+		t.Errorf("a failed install must leave no receipt, got %v\n%s", got, out)
+	}
+	// The launch path's verdict is unchanged by the status capture: nothing to exec.
+	if rc == 0 || !strings.Contains(out, "not available") {
+		t.Errorf("a failed install must still end in the not-available verdict (rc=%d):\n%s",
+			rc, out)
+	}
+}
+
 // --- native / installer ------------------------------------------------------------
 
 // TestNativeInstallLeavesAReceiptWithADigest: a vendor installer publishes no lockable
@@ -238,6 +462,11 @@ func TestNativeInstallLeavesAReceiptWithADigest(t *testing.T) {
 	// the field is omitted rather than guessed.
 	if _, present := r["resolved"]; present {
 		t.Errorf("an installer receipt must not invent a resolved version: %v", r)
+	}
+	// The landing path (§6's tuple), which for this kind is the only identity there is
+	// besides the digest — and the two are of the same file here, deliberately.
+	if path := str(t, r, "path"); !strings.HasSuffix(path, "/.local/bin/probetool") {
+		t.Errorf("path = %q, want the binary the installer left in ~/.local/bin", path)
 	}
 }
 
@@ -296,8 +525,12 @@ func TestNativeLauncherVendorSelfUpdateEmitsNoReceipt(t *testing.T) {
 // receipt accumulated in a variable and written after `done` is lost, silently, and looks
 // perfectly correct in a diff.
 type bootstrapProbe struct {
-	home         string
-	fakeBin      string
+	home    string
+	fakeBin string
+	// presets is YOLO_MCP_PRESETS, which is a GENERATION-time input rather than a run-time
+	// one: the package list is baked into the script by mcpPresetNpmPackages, so a test
+	// that set it in the run env would exercise nothing.
+	presets      string
 	receiptsPath string
 	sentinel     string
 	gobin        string
@@ -375,16 +608,22 @@ printf '%s\n' "${line%%\"*}"
 func (b *bootstrapProbe) run(t *testing.T, env ...string) string {
 	t.Helper()
 	e := NewEnv(map[string]string{
-		"JAIL_HOME":      b.home,
-		"YOLO_WORKSPACE": filepath.Join(b.home, "ws"),
+		"JAIL_HOME":        b.home,
+		"YOLO_WORKSPACE":   filepath.Join(b.home, "ws"),
+		"YOLO_MCP_PRESETS": b.presets,
 	})
 	if err := GenerateBootstrapScript(e); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(bootstrapPath(e))
+	// The fakes plus the system dirs, NEVER the developer's own $PATH. The MCP block
+	// decides whether to install by probing `command -v mcp-server-sequential-thinking`,
+	// and this jail's real ~/.npm-global/bin is on the inherited PATH — so inheriting it
+	// made the block skip its install and the test pass or fail on whether the machine
+	// running it happens to use that MCP server.
 	cmd.Env = append([]string{
 		"HOME=" + b.home,
-		"PATH=" + b.fakeBin + ":" + os.Getenv("PATH"),
+		"PATH=" + b.fakeBin + ":/bin:/usr/bin",
 	}, env...)
 	out, err := cmd.CombinedOutput()
 	if _, isExit := err.(*exec.ExitError); err != nil && !isExit {
@@ -445,6 +684,65 @@ func TestLSPInstallsLeaveReceipts(t *testing.T) {
 	// a pseudo-version and the binary knows what it actually is.
 	if v := str(t, goR, "resolved"); v != "v1.4.2" {
 		t.Errorf("lsp-go resolved = %q, want the mod line's version", v)
+	}
+}
+
+// TestMCPPresetInstallLeavesAReceiptPerPackage covers the install site the "every install
+// yolo runs" claim was missing on the bootstrap side.
+//
+// The MCP block installs the whole preset list in ONE npm invocation, because that is what
+// npm is good at — but the receipt's unit is a package, not an invocation: a reader asking
+// where a given server came from has to find a line naming it.
+func TestMCPPresetInstallLeavesAReceiptPerPackage(t *testing.T) {
+	b := newBootstrapProbe(t)
+	b.presets = `["sequential-thinking"]`
+	out := b.run(t)
+
+	r := pick(t, b.receipts(t), "mcp-npm")
+	if d := str(t, r, "declared"); d != "@modelcontextprotocol/server-sequential-thinking" {
+		t.Errorf("mcp-npm declared = %q, want the package the enabled preset needs\n%s", d, out)
+	}
+	if v := str(t, r, "resolved"); v != "3.2.1" {
+		t.Errorf("mcp-npm resolved = %q, want the version from the installed package.json", v)
+	}
+	if act := str(t, r, "act"); act != "install" {
+		t.Errorf("mcp-npm act = %q, want install", act)
+	}
+	// No landing path on this arm: the kind names the resolver, and the resolver owns one
+	// prefix — see receiptPrefix. A per-line copy of one constant is not information.
+	if p, present := r["path"]; present {
+		t.Errorf("the mcp-npm arm installs a LIST into the prefix its kind implies; a path "+
+			"field there is a repeated constant: %v", p)
+	}
+}
+
+// TestMCPPresetReceiptIsNotWrittenAfterAFailedInstall: the arm captures npm's status rather
+// than running under "|| true", for the same reason the LSP arms do — an offline boot fails
+// here routinely and simply retries next launch, and a receipt is a claim about bytes.
+func TestMCPPresetReceiptIsNotWrittenAfterAFailedInstall(t *testing.T) {
+	b := newBootstrapProbe(t)
+	b.presets = `["sequential-thinking"]`
+	out := b.run(t, "FAKE_NPM_FAIL=1")
+
+	for _, r := range b.receipts(t) {
+		if r["kind"] == "mcp-npm" {
+			t.Errorf("a failed MCP install must leave no receipt: %v\n%s", r, out)
+		}
+	}
+}
+
+// TestMCPPresetWithNoEnabledPresetInstallsNothingAndRecordsNothing: the receipt loop must be
+// inside the gate, not beside it. D6 made the install preset-gated after measuring 112 npm
+// packages in a jail with no agents and no presets; a receipt written for a jail that
+// installed nothing would re-introduce exactly that claim in the record.
+func TestMCPPresetWithNoEnabledPresetInstallsNothingAndRecordsNothing(t *testing.T) {
+	b := newBootstrapProbe(t)
+	out := b.run(t) // no presets
+
+	for _, r := range b.receipts(t) {
+		if r["kind"] == "mcp-npm" {
+			t.Errorf("no preset asked for anything, so nothing was installed: %v\n%s", r, out)
+		}
 	}
 }
 

@@ -125,6 +125,9 @@ type npmProbe struct {
 	fakeBin      string
 	logPath      string
 	receiptsPath string
+	// pathDir, when set, is the WHOLE $PATH the launcher runs with, replacing
+	// "fakeBin:$PATH". Set by hideJQ; empty for every other caller.
+	pathDir string
 }
 
 // newNpmProbe writes the fakes. `npm install` materializes the binary and the
@@ -204,6 +207,47 @@ printf '%s\n' "${line%%\"*}"
 	}
 }
 
+// hideJQ re-points the probe at a $PATH with NO jq on it, which is a state a real launch can
+// genuinely be in: macos-user runs these same generated launchers natively on the host, under
+// `env -i`, against whatever that Mac has — and jq is not a macOS builtin. The container
+// bakes one, so this is the one backend where the difference shows.
+//
+// It is a real absence rather than a jq that fails, because the two are not the same
+// measurement: a stub that exits non-zero would still be found by `command -v` and would
+// still let a helper that shells out to it "work". The dir holds only the fake npm plus
+// symlinks to the coreutils the launcher and the receipt writer actually invoke; anything
+// missing from that list turns into a visible failure of the test, not a silent pass.
+func (p *npmProbe) hideJQ(t *testing.T) {
+	t.Helper()
+	dir := filepath.Join(p.home, "nojqbin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range []string{
+		"mkdir", "rm", "touch", "date", "tr", "cut", "chmod", "cat", "stat", "wc",
+		"sha256sum", "sed", "env",
+	} {
+		real, err := exec.LookPath(tool)
+		if err != nil {
+			continue // not every one is needed on every path; a missing one that IS shows up
+		}
+		if err := os.Symlink(real, filepath.Join(dir, tool)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	npm, err := os.ReadFile(filepath.Join(p.fakeBin, "npm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "npm"), npm, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "jq")); !os.IsNotExist(err) {
+		t.Fatalf("the point of this PATH is that jq is not on it (err=%v)", err)
+	}
+	p.pathDir = dir
+}
+
 // receipts returns the receipt lines the launcher appended, or nil when it wrote none.
 func (p *npmProbe) receipts(t *testing.T) []map[string]any {
 	t.Helper()
@@ -258,10 +302,14 @@ func (p *npmProbe) runStatus(t *testing.T, bin, pkg string, env ...string) ([]st
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	launchPath := p.fakeBin + ":" + os.Getenv("PATH")
+	if p.pathDir != "" {
+		launchPath = p.pathDir
+	}
 	cmd := exec.Command(script)
 	cmd.Env = append([]string{
 		"HOME=" + p.home,
-		"PATH=" + p.fakeBin + ":" + os.Getenv("PATH"),
+		"PATH=" + launchPath,
 	}, env...)
 	out, err := cmd.CombinedOutput()
 	rc := 0

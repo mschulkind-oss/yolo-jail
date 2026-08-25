@@ -167,9 +167,9 @@ func GenerateBootstrapScript(e *Env) error {
 func bootstrapPath(e *Env) string { return e.Home + "/.yolo-bootstrap.sh" }
 
 // interpolation is the mise_shims path in the PATH export line, the preset-gated MCP npm
-// package list, and the receipt sentinels (a baked path plus the two constant JSON heads —
-// the LSP loop's bin/declared come from the environment at run time, so only the kind can
-// be rendered here; see receiptPrefix).
+// package list, and the receipt sentinels (a baked path plus the three constant JSON heads —
+// the MCP and LSP loops' bin/declared come from the environment at run time, so only the
+// kind can be rendered here; see receiptPrefix).
 func BootstrapScript(e *Env) string {
 	r := strings.NewReplacer(
 		"__YOLO_MISE_SHIMS__", e.MiseShims(),
@@ -177,6 +177,7 @@ func BootstrapScript(e *Env) string {
 		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsFile(e)),
 		"__YOLO_RECEIPT_LSP_NPM__", shquote.Quote(receiptPrefix("lsp-npm", "", "")),
 		"__YOLO_RECEIPT_LSP_GO__", shquote.Quote(receiptPrefix("lsp-go", "", "")),
+		"__YOLO_RECEIPT_MCP_NPM__", shquote.Quote(receiptPrefix("mcp-npm", "", "")),
 	)
 	return r.Replace(bootstrapTemplate)
 }
@@ -217,9 +218,11 @@ export PATH="$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:__YOLO_MISE_SHIMS__:$GOBIN:
 # Baked, never read from the environment: see receiptsFile.
 _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
 ` + receiptShellFns + `
-# The LSP resolvers' "resolved identity" readers. Both may come back empty — a missing jq,
+# The npm/go resolvers' "resolved identity" readers. Both may come back empty — a missing jq,
 # a binary built without module info — and an empty answer omits the field rather than
-# inventing one.
+# inventing one. _yolo_lsp_npm_version keeps its name and serves the MCP arm too: both are
+# the same question ("what version of <pkg> is in the global prefix?") asked of the same
+# resolver, and a second copy under a second name is how the two answers drift apart.
 _yolo_lsp_npm_version() {
     local v
     v=$(jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$1/package.json" 2>/dev/null) || return 0
@@ -269,7 +272,23 @@ if [ -n "$YOLO_MCP_NPM" ]; then
         # Clean stale npm temp directories that cause ENOTEMPTY on rename.
         # maxdepth 2 catches both top-level and scoped (@org/) packages.
         find "$NPM_CONFIG_PREFIX/lib/node_modules" -maxdepth 2 -name '.*' -type d 2>/dev/null | xargs rm -rf
-        YOLO_BYPASS_SHIMS=1 npm install -g $YOLO_MCP_NPM
+        # The status is CAPTURED, never dropped with "|| true": this is one of the installs
+        # §10 step one's "every install yolo itself runs" covers, and a receipt appended
+        # after an unconditional success records installs that never happened — an offline
+        # boot fails here routinely and simply retries next launch.
+        mcp_rc=0
+        YOLO_BYPASS_SHIMS=1 npm install -g $YOLO_MCP_NPM || mcp_rc=$?
+        if [ "$mcp_rc" = 0 ]; then
+            # ONE LINE PER PACKAGE, not one per npm invocation. The install is a single
+            # command over the whole list because that is what npm is good at, but the
+            # receipt's unit is a package: a reader asking "where did
+            # @modelcontextprotocol/server-sequential-thinking come from" must find a line
+            # naming it, not a line naming a set it happens to be in.
+            for pkg in $YOLO_MCP_NPM; do
+                _yolo_receipt "$(_yolo_head __YOLO_RECEIPT_MCP_NPM__ '' "$pkg")" \
+                    "" "$(_yolo_lsp_npm_version "$pkg")" "" install
+            done
+        fi
     fi
 fi
 

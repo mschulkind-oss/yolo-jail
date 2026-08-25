@@ -288,6 +288,11 @@ func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string) 
 // pre-installed via mise (pnpm) into the LAUNCHER dir. The stamp dir path is shlex.quote'd
 // so a $HOME with shell metacharacters doesn't break the launcher.
 //
+// It writes a gap receipt for the same reason the agent launchers do: this is an install
+// yolo itself runs, and "every install yolo runs leaves one line" (§10 step one) is a claim
+// about the SET. pnpm was the one member missing from it — a program installed at first use,
+// from the registry, with no record anywhere that it happened.
+//
 // MkdirAll-only (no clear): GenerateAgentLaunchers owns the dir reset and runs first, so
 // clearing here would delete the launchers it just wrote.
 func GeneratePackageManagerLaunchers(e *Env) error {
@@ -313,6 +318,13 @@ func GeneratePackageManagerLaunchers(e *Env) error {
 			"__YOLO_BIN__", pm.bin,
 			"__YOLO_SPEC__", npmInstallSpec(pkgName, pkgVersion),
 			"__YOLO_STAMP_DIR_LIT__", stampDirLiteral,
+			"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsFile(e)),
+			// kind "npm" because the RESOLVER is npm — the receipt names the mechanism that
+			// did the install, not the declaration's origin. pnpm is declared by this list
+			// rather than by a pack, and a reader comparing receipts to bytes has no use for
+			// that distinction; a reader looking for "which resolver do I ask about this
+			// package" has every use for the kind.
+			"__YOLO_RECEIPT_HEAD__", shquote.Quote(receiptPrefix("npm", pm.bin, pm.pkg)),
 		)
 		if err := writeExecutable(launcherPath, r.Replace(pkgManagerLauncherTemplate)); err != nil {
 			return err
@@ -350,8 +362,28 @@ _stamp_mtime() {
 
 // receiptsFile is where every install yolo itself runs appends its gap receipt
 // (docs/design/program-delivery.md §10 step one, OQ-PD1's "yolo-written receipts only
-// where no native lock exists"). One JSON line per install, under the workspace whose
-// declaration caused it.
+// where no native lock exists"). One JSON line per install: the npm and installer agent
+// launchers, the pnpm package-manager launcher, and the bootstrap's MCP-preset and LSP arms.
+//
+// THE WORKSPACE OWNS THE REALIZATION, NOT THE DECLARATION, and the file is filed with the
+// former on purpose. Packs are USER scope by ruling (OQ-PD1: "ecosystem-native lockfiles at
+// the declaration's home … user for `packs`"), so the workspace under which an install ran
+// is not where its declaration lives and cannot be read as the pin. What IS per-workspace is
+// the thing the receipt describes: `<ws>/.yolo/home/{npm-global,local,go}` are the binds the
+// npm prefix, ~/.local/bin and $GOBIN resolve to, so the BYTES a receipt names exist in this
+// workspace and in no other. That makes this a workspace-scope observation log beside the
+// realization (§10 step one, verbatim), and the user-scope pin OQ-PD1 names —
+// `packs.lock.json`, which already exists and is empty — arrives with the fifth step, where
+// obeying starts. Nothing here is consulted by an install.
+//
+// THAT ATTRIBUTION IS KNOWN-COARSE ON macos-user, and the divergence is the backend's rather
+// than a bug to fix here: there is one sandbox home for the whole machine
+// (`macosuser.SandboxHome()` = /Users/_yolojail), so ~/.npm-global and ~/.local/bin are
+// shared by every workspace that jail ever runs. A receipt filed under the workspace that
+// happened to trigger the install still names real bytes, but a SECOND workspace's launcher
+// will find that program already installed, write nothing, and leave its own file silent
+// about a program it uses. Read the macos-user files as "this workspace caused it", never as
+// "this workspace has it".
 //
 // IT IS BAKED AT GENERATION TIME, not read from the environment by the generated script,
 // and neither runtime leaves that a choice: YOLO_WORKSPACE is a HOST-side launcher input
@@ -373,6 +405,16 @@ func receiptsFile(e *Env) string {
 // bin and declared are omitted when empty, which is the LSP bootstrap's case: it reads its
 // package list out of the environment at run time, so it renders the constant half here and
 // appends the other two from the shell (_yolo_head) under the same scrubbing.
+//
+// NO `path` FIELD FROM THE BOOTSTRAP'S ARMS (lsp-npm, lsp-go, mcp-npm), and that is what the
+// kind is for. Those three install a LIST — the whole of YOLO_LSP_NPM_INSTALL, of
+// YOLO_LSP_GO_INSTALL, of the enabled MCP presets — through one resolver each, so every
+// entry lands in the one directory that resolver owns: $NPM_CONFIG_PREFIX/lib/node_modules
+// (+ its bin/) for the two npm kinds, $GOBIN for lsp-go. The kind therefore IMPLIES the
+// prefix, and spelling it per line would repeat one constant across every receipt a boot
+// writes while adding nothing a reader could not derive. The three launcher funnels are the
+// opposite case and DO carry it: each installs one program and has $REAL_BIN in hand, and
+// for the installer kind the landing path is the only identity there is (§6.3).
 func receiptPrefix(kind, bin, declared string) string {
 	var b strings.Builder
 	b.WriteString(`{"schema":1,"kind":`)
@@ -406,8 +448,18 @@ func jsonStringLiteral(s string) string {
 // the three templates run under `set -euo pipefail`, and the npm launcher's _do_install
 // STATUS is load-bearing at three call sites — it is the only signal `yolo pack update`
 // gets. So the whole body is a group on the left of `|| true` (which suspends errexit for
-// everything inside it) and the function restores the caller's `$?` on the way out. A
-// receipt records; it never gates (program-delivery.md §9 R1).
+// everything inside it) and the function ends in an UNCONDITIONAL `return 0`. A receipt
+// records; it never gates (program-delivery.md §9 R1) — it has no outcome of its own to
+// report, and nothing of anyone else's to relay either.
+//
+// It used to end `return "$_yr_rc"`, with `_yr_rc` read from `$?` on the first line, and
+// that read the wrong thing: at function entry `$?` is not the caller's status but whatever
+// the last command substitution in THIS call's own arguments left behind — and every call
+// site passes at least one (`"$(_installed_version)"`, `"$(_yolo_head …)"`). The
+// cannot-fail property therefore held only because those helpers happen to end in
+// `return 0`; a resolver added later that reported "I could not tell" with a non-zero
+// status would have killed its caller under errexit, two frames from anything that mentions
+// receipts. `return 0` makes the property structural instead of incidental.
 //
 // It mkdir -p's its own parent because macos-user stages no <ws>/.yolo for it.
 //
@@ -455,10 +507,11 @@ _yolo_head() {
     printf '%s' "$h"
 }
 
-# _yolo_receipt <head> <spec> <resolved> <file-to-digest> <act>
-# Every argument but <head> may be empty; an empty one omits its field.
+# _yolo_receipt <head> <spec> <resolved> <file-to-digest> <act> [landing-path]
+# Every argument but <head> may be empty; an empty one omits its field. <landing-path> is
+# §6's fourth tuple member and is passed only by the three launcher funnels, which have the
+# path in hand; see receiptPrefix for why the bootstrap's arms leave it out.
 _yolo_receipt() {
-    local _yr_rc=$?
     {
         local line dig sz
         line="$1"
@@ -470,14 +523,20 @@ _yolo_receipt() {
             if [ -n "$dig" ]; then line="$line,\"sha256\":\"$dig\""; fi
             if [ -n "$sz" ]; then line="$line,\"bytes\":$sz"; fi
         fi
+        if [ -n "${6:-}" ]; then line="$line,\"path\":\"$(_yolo_scrub "$6")\""; fi
         line="$line,\"act\":\"$(_yolo_scrub "${5:-install}")\""
         line="$line,\"time\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
-        # ONE printf, ONE line: O_APPEND under PIPE_BUF is what keeps two launchers
-        # installing at once from interleaving half-lines.
+        # ONE printf, ONE line: the whole receipt reaches the file as a single write(2) on a
+        # descriptor opened O_APPEND, and the kernel serializes the implied seek-to-end and
+        # the write against every other appender on the same inode — which is what keeps two
+        # launchers installing at once from interleaving half-lines. (An earlier note here
+        # credited PIPE_BUF. PIPE_BUF bounds atomic writes to a PIPE and says nothing about a
+        # regular file; the line-length budget the schema keeps is a readability bound, not
+        # the thing that makes this append atomic.)
         mkdir -p "${_YOLO_RECEIPTS%/*}"
         printf '%s\n' "$line" >> "$_YOLO_RECEIPTS"
     } >/dev/null 2>&1 || true
-    return "$_yr_rc"
+    return 0
 }
 `
 
@@ -515,6 +574,26 @@ _installed_version() {
     jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$PKG/package.json" 2>/dev/null || echo "0"
 }
 
+# _resolved_version answers the RECEIPT's question — "what did npm actually put on disk?" —
+# and answers NOTHING when it cannot tell.
+#
+# _installed_version cannot be reused for it, and the difference is the whole point of the
+# split: its "|| echo 0" is a POLL sentinel, picked so that a package which is absent or
+# unreadable compares unequal to any registry answer and the "an update is available" line
+# still fires. Copied into a receipt that same 0 becomes a FORGERY — a run with no jq on
+# PATH (macos-user executes these launchers natively, under env -i, against whatever the
+# host has) would record "resolved":"0" for every install it ever made, and a reconcile
+# reading the file back cannot tell that from a package genuinely at version 0. An omitted
+# field says "unknown", which is the truth, and _yolo_receipt drops an empty one. Same shape
+# as the bootstrap's _yolo_lsp_npm_version, for the same reason.
+_resolved_version() {
+    local v
+    v=$(jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$PKG/package.json" 2>/dev/null) || return 0
+    # jq prints "null" for an absent key, which is not a version.
+    if [ "$v" != "null" ]; then printf '%s\n' "$v"; fi
+    return 0
+}
+
 # _do_install RETURNS THE INSTALL'S STATUS, and that return value is load-bearing for
 # exactly one caller. Update mode has no other way to find out that the program it was
 # asked to refresh is not there: it exits instead of exec'ing, so the "is $REAL_BIN
@@ -550,9 +629,15 @@ _do_install() {
         # bytes — a cold install, a moved pin, an explicit update — arrives here, and
         # only after npm agreed, so one hook covers all three and none of them records
         # an install that did not happen.
+        #
+        # The act is decided by the SAME predicate the dispatch at the bottom of this script
+        # uses — "= 1", not "is set". They disagreed once: YOLO_PACK_UPDATE=0 took the cold
+        # install path and then recorded itself as an update, so the one field that says
+        # whether a human asked for this was wrong for exactly the value a caller reaches for
+        # to mean "no".
         local act=install
-        if [ -n "${YOLO_PACK_UPDATE:-}" ]; then act=update; fi
-        _yolo_receipt __YOLO_RECEIPT_HEAD__ "$SPEC" "$(_installed_version)" "" "$act"
+        if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then act=update; fi
+        _yolo_receipt __YOLO_RECEIPT_HEAD__ "$SPEC" "$(_resolved_version)" "" "$act" "$REAL_BIN"
     else
         rc=1
     fi
@@ -744,7 +829,11 @@ _do_install() {
     # digest is of the binary the vendor produced: an installer publishes no lockable
     # artifact, so what it LEFT is the only resolved identity there is (§6.3).
     if [ -x "$REAL_BIN" ]; then
-        _yolo_receipt __YOLO_RECEIPT_HEAD__ "" "" "$REAL_BIN" install
+        # $REAL_BIN twice, and the two arguments are different questions: the fourth is the
+        # file to DIGEST (the resolved identity), the sixth is the LANDING PATH (§6's tuple).
+        # They coincide here because an installer's only observable output is the binary it
+        # left; at the npm funnels they do not.
+        _yolo_receipt __YOLO_RECEIPT_HEAD__ "" "" "$REAL_BIN" install "$REAL_BIN"
     fi
     rm -f "$script"
     touch "$STAMP"
@@ -792,9 +881,11 @@ REAL_BIN="$NPM_CONFIG_PREFIX/bin/__YOLO_BIN__"
 # too" and invite the next edit to use it in a place only the spec belongs.
 SPEC="__YOLO_SPEC__"  # what npm install is handed: name@<selector>
 RETRY_INTERVAL=3600  # seconds before retrying a failed install
+# Baked, never read from the environment: see receiptsFile.
+_YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
 
 mkdir -p "$STAMP_DIR"
-` + stampMtimeFn + `
+` + stampMtimeFn + receiptShellFns + `
 if [ ! -x "$REAL_BIN" ]; then
     # Throttle repeated install attempts after a failure — without this, every
     # invocation would re-hit npm registry when offline / install is broken.
@@ -807,7 +898,22 @@ if [ ! -x "$REAL_BIN" ]; then
     fi
     if [ "$SHOULD_INSTALL" = "1" ]; then
         echo "  Installing $SPEC..." >&2
-        YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$SPEC" 2>&1 || true
+        # The status is CAPTURED, not dropped with "|| true". This install is one of the
+        # "every install yolo itself runs" set (§10 step one) and it is the one that fails
+        # most often — the RETRY_INTERVAL throttle above exists because offline attempts are
+        # routine — so a receipt appended unconditionally would record an install that never
+        # happened, on exactly the boots where the record matters. The launch path's verdict
+        # is still the -x test below, unchanged: this captures the status to decide whether
+        # to RECORD, never whether to proceed.
+        pm_rc=0
+        YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$SPEC" 2>&1 || pm_rc=$?
+        if [ "$pm_rc" = 0 ]; then
+            # No "resolved": reading the installed version means indexing node_modules by
+            # package NAME, and this body deliberately carries only the spec (see above).
+            # The omission says "unknown" rather than inventing a version — the same rule
+            # _resolved_version follows in the agent launcher.
+            _yolo_receipt __YOLO_RECEIPT_HEAD__ "$SPEC" "" "" install "$REAL_BIN"
+        fi
         touch "$STAMP"
     fi
 fi

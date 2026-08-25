@@ -89,6 +89,15 @@ type Env struct {
 	// problem instead of one-per-restart. Main turns a non-empty slice into the
 	// error that aborts the jail. See genStep.
 	genFailures []string
+
+	// warnedOnce remembers the lines warnOnce has already emitted, so a finding whose
+	// SOURCE the boot re-reads is stated once rather than once per read. See warnOnce.
+	//
+	// A plain map, no mutex: the boot path is sequential where this is written. Checked
+	// rather than assumed (2026-08-25) — the only goroutines the entrypoint starts are the
+	// cmd.Wait() reapers in runtime.go / system_boot.go and the reachability probes, and
+	// probeService takes a serviceEndpoint and a deadline, touching no Env at all.
+	warnedOnce map[string]struct{}
 }
 
 // genFailure records a fatal config-generator failure (A12). Collected rather
@@ -105,6 +114,28 @@ func (e *Env) warn(msg string) {
 	if e.Stderr != nil {
 		_, _ = io.WriteString(e.Stderr, msg+"\n")
 	}
+}
+
+// warnOnce writes a line the way warn does, but at most once per Env for any given text.
+//
+// It exists for findings that are properties of the STAGED TREE rather than of the step that
+// noticed them: the boot reads the pack tree five times (surfaces, requires, launchers, the
+// bootstrap, the catalog) and every read re-derives the same skew notes, so one dropped
+// contribution printed five identical warnings — a repetition that reads as five problems
+// and trains the reader to skim exactly the lines that exist to be read. Deduping at the
+// SINK rather than at each call site is what keeps a sixth reader from reintroducing it.
+//
+// Deduping by the message text is deliberate: two identical lines are, by construction, the
+// same finding said twice. A caller that wants a genuine repetition on the terminal wants
+// warn.
+func (e *Env) warnOnce(msg string) {
+	if e.warnedOnce == nil {
+		e.warnedOnce = make(map[string]struct{})
+	} else if _, seen := e.warnedOnce[msg]; seen {
+		return
+	}
+	e.warnedOnce[msg] = struct{}{}
+	e.warn(msg)
 }
 
 // note writes a line to the boot log ONLY, never the terminal. Use it for the

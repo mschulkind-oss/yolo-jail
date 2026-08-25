@@ -121,8 +121,15 @@ func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
 			// A contribution whose KIND this build does not know was skipped, not
 			// fatal (loophole-packaging §3.3a): a jail must boot under version skew.
 			// Warn each skip by name so the degradation is visible, never silent.
+			//
+			// warnOnce, not warn: LoadJailPacks is called five times in one boot (pack
+			// surfaces, requires, the agent launchers, the bootstrap, the orphan catalog)
+			// and re-derives the same notes on every pass, so a single skipped
+			// contribution printed five identical lines. The note is a property of the
+			// staged manifest, not of the reader that noticed it, and a reader added
+			// tomorrow must not make it six.
 			for _, note := range p.SkewNotes {
-				e.warn(note)
+				e.warnOnce(note)
 			}
 			packs = append(packs, p)
 		}

@@ -116,6 +116,17 @@ func catalogNpmOrphans(e *Env, packs []*packload.Pack) []string {
 // A scope is a DIRECTORY, not a package: `@modelcontextprotocol/server-sequential-thinking`
 // lives two levels down, so a one-level walk would report every scope as an orphan named
 // `@modelcontextprotocol` and never see the package the pack actually declared.
+//
+// A DOT-PREFIXED NAME IS NEVER A PACKAGE, at either level, and the two-name denylist this
+// replaced ("`.bin`", "`.package-lock.json`") named only the entries npm leaves behind when
+// it SUCCEEDS. The ones that matter here are the ones it leaves when it is interrupted: an
+// install stages the tree at `.<name>-<hash>` beside its destination and renames it into
+// place, so a killed npm leaves `node_modules/.tool-a1b2c3` — or, for a scoped package,
+// `node_modules/@scope/.tool-a1b2c3` two levels down, which the scoped walk emitted verbatim.
+// Both got cataloged as orphaned packages under a name no declaration could ever match, on
+// exactly the boot after a launch someone ctrl-C'd. The bootstrap's own ENOTEMPTY cleanup
+// already uses this predicate (`find … -maxdepth 2 -name '.*' -type d`); this is the same
+// rule, read-only.
 func installedNpmPackages(e *Env) []string {
 	root := filepath.Join(e.NpmPrefix, "lib", "node_modules")
 	entries, err := os.ReadDir(root)
@@ -125,8 +136,8 @@ func installedNpmPackages(e *Env) []string {
 	var out []string
 	for _, ent := range entries {
 		name := ent.Name()
-		// npm's own bookkeeping, not packages.
-		if name == ".bin" || name == ".package-lock.json" {
+		// npm's own bookkeeping and its interrupted-install staging dirs, not packages.
+		if strings.HasPrefix(name, ".") {
 			continue
 		}
 		if strings.HasPrefix(name, "@") {
@@ -135,6 +146,9 @@ func installedNpmPackages(e *Env) []string {
 				continue
 			}
 			for _, s := range scoped {
+				if strings.HasPrefix(s.Name(), ".") {
+					continue
+				}
 				out = append(out, name+"/"+s.Name())
 			}
 			continue
@@ -192,17 +206,34 @@ func catalogLocalBinOrphans(e *Env, packs []*packload.Pack) []localBinOrphan {
 	return out
 }
 
-// catalogSize renders " (N.N MB)" for a regular file, or "" for anything else.
+// catalogSize renders " (N unit)" for a regular file, or "" for anything else.
 //
 // The size is the whole reason this half of the catalog is worth reading: §5.3 measured a
 // single vendor installer's leftovers at just over 1 GB per workspace, and a name on its
 // own does not tell anyone which orphan is worth an explicit removal act.
+//
+// THE UNIT SCALES, because a fixed MB rendered every small orphan as "(0.0 MB)" — and the
+// list this prints is mostly small: a wrapper script, a shim, a symlink target. A reader
+// scanning for the 1 GB one saw a column of identical zeroes, which is the same as printing
+// no size at all, except that it also reads as a measurement. Sub-KB sizes are whole bytes
+// (a one-decimal 0.1 KB says less than "84 B"); above that one decimal is plenty, since
+// nothing here turns on the second.
 func catalogSize(path string) string {
 	fi, err := os.Stat(path)
 	if err != nil || !fi.Mode().IsRegular() {
 		return ""
 	}
-	return fmt.Sprintf(" (%.1f MB)", float64(fi.Size())/(1024*1024))
+	n := fi.Size()
+	switch {
+	case n < 1024:
+		return fmt.Sprintf(" (%d B)", n)
+	case n < 1024*1024:
+		return fmt.Sprintf(" (%.1f KB)", float64(n)/1024)
+	case n < 1024*1024*1024:
+		return fmt.Sprintf(" (%.1f MB)", float64(n)/(1024*1024))
+	default:
+		return fmt.Sprintf(" (%.1f GB)", float64(n)/(1024*1024*1024))
+	}
 }
 
 // splitLSPInstallList splits a YOLO_LSP_*_INSTALL value, which is newline-separated with

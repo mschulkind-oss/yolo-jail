@@ -117,6 +117,82 @@ func TestCatalogNamesNpmOrphansAndSparesEveryDeclaredSource(t *testing.T) {
 	}
 }
 
+// TestCatalogSkipsNpmStagingDirsAtBothLevels: npm stages an install at `.<name>-<hash>`
+// beside its destination and renames it into place, so an interrupted install leaves
+// `node_modules/.tool-a1b2c3` — or `node_modules/@scope/.tool-d4e5f6` two levels down. Both
+// are npm's bookkeeping, not packages: no declaration can ever match one, so the catalog
+// reported them as orphans forever, starting on the boot after any launch someone ctrl-C'd.
+// The two-name denylist this replaced only knew the entries a SUCCESSFUL npm leaves.
+func TestCatalogSkipsNpmStagingDirsAtBothLevels(t *testing.T) {
+	home, packRoot := catalogHome(t)
+	seedNpm(t, home,
+		".staged-a1b2c3",        // an interrupted top-level install
+		"@scope/.staged-d4e5f6", // ...and an interrupted scoped one
+		"leftover-agent",        // a real orphan, so silence here is not the wrong pass
+	)
+
+	got := runCatalog(t, map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
+
+	if !strings.Contains(got, "leftover-agent") {
+		t.Errorf("the real orphan was not cataloged:\n%s", got)
+	}
+	for _, staging := range []string{".staged-a1b2c3", ".staged-d4e5f6"} {
+		if strings.Contains(got, staging) {
+			t.Errorf("%q is npm's interrupted-install staging dir, not a package — no "+
+				"declaration can ever match it:\n%s", staging, got)
+		}
+	}
+	if lines := strings.Split(strings.TrimSpace(got), "\n"); len(lines) != 1 {
+		t.Errorf("want exactly the one real orphan, got %d lines:\n%s", len(lines), got)
+	}
+}
+
+// TestCatalogSizeScalesItsUnit: a fixed MB rendered every small orphan as "(0.0 MB)", and
+// most of this list is small — a wrapper script, a shim, a stub. A reader scanning for the
+// 1 GB one (§5.3) saw a column of identical zeroes, which carries no more information than
+// no size at all while still reading as a measurement.
+func TestCatalogSizeScalesItsUnit(t *testing.T) {
+	dir := t.TempDir()
+	for _, tc := range []struct {
+		size int64
+		want string
+	}{
+		{0, " (0 B)"},
+		{84, " (84 B)"},
+		{1023, " (1023 B)"},
+		{1024, " (1.0 KB)"},
+		{1536, " (1.5 KB)"},
+		{3 * 1024 * 1024, " (3.0 MB)"},
+		{2 * 1024 * 1024 * 1024, " (2.0 GB)"},
+	} {
+		path := filepath.Join(dir, fmt.Sprintf("f%d", tc.size))
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Truncate, not a real write: the GB case is a sparse file, so this measures the
+		// rendering without spending a gigabyte of the runner's disk on it.
+		if err := f.Truncate(tc.size); err != nil {
+			f.Close()
+			t.Skipf("cannot size a %d-byte file here: %v", tc.size, err)
+		}
+		f.Close()
+		if got := catalogSize(path); got != tc.want {
+			t.Errorf("catalogSize(%d bytes) = %q, want %q", tc.size, got, tc.want)
+		}
+	}
+
+	// Anything that is not a regular file states no size at all — a directory's st_size is
+	// an implementation detail of the filesystem, not a thing to report to a user.
+	sub := filepath.Join(dir, "adir")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := catalogSize(sub); got != "" {
+		t.Errorf("catalogSize(dir) = %q, want no size", got)
+	}
+}
+
 // TestCatalogNamesLocalBinOrphansWithTheirSize: a name alone does not tell anyone which
 // orphan is worth an explicit removal act — §5.3 measured one vendor's leftovers at just
 // over 1 GB per workspace.
@@ -137,6 +213,13 @@ func TestCatalogNamesLocalBinOrphansWithTheirSize(t *testing.T) {
 	if !strings.Contains(got, "(3.0 MB)") {
 		t.Errorf("the orphan's size must be stated, in MB:\n%s", got)
 	}
+	// And a small one is stated in a unit that says something: "(0.0 MB)" is what the
+	// whole tail of this list used to render as.
+	seedLocalBin(t, home, 84, "tiny-orphan")
+	got = runCatalog(t, map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
+	if !lineWithBoth(got, "~/.local/bin/tiny-orphan", "(84 B)") {
+		t.Errorf("a small orphan must not render as a rounded zero:\n%s", got)
+	}
 	for _, spared := range []string{
 		"declared-native",             // the pack's native program
 		"yolo-log",                    // InstallYoloLog
@@ -148,6 +231,18 @@ func TestCatalogNamesLocalBinOrphansWithTheirSize(t *testing.T) {
 			t.Errorf("%q has an owner and must not be cataloged:\n%s", spared, got)
 		}
 	}
+}
+
+// lineWithBoth reports whether ONE line of out carries both substrings — the catalog states
+// a finding and its size on the same line, and asserting on the whole blob would pass with
+// the size attached to a different orphan.
+func lineWithBoth(out, a, b string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, a) && strings.Contains(line, b) {
+			return true
+		}
+	}
+	return false
 }
 
 // TestCatalogTouchesNothing is the ruling, and the only property that separates this from
@@ -244,9 +339,14 @@ func TestCatalogLinesReadAsACatalog(t *testing.T) {
 //   - it is called at all, and NOT through genStep — an installed-but-undeclared package is
 //     not a broken generator, and routing it through genStep would make a jail with an
 //     orphan refuse to start;
-//   - it runs BEFORE the bootstrap can reinstall anything, which in Main means before the
-//     exec at the bottom. The state it reads is the PREVIOUS launch's, and that is the only
-//     state in which "undeclared" means anything.
+//   - it runs BESIDE the other informational step that reads pack declarations
+//     (AssertRequiredBins) and BEFORE the bootstrap can reinstall anything, which in Main
+//     means before the exec at the bottom. The state it reads is the PREVIOUS launch's, and
+//     that is the only state in which "undeclared" means anything.
+//
+// Every landmark is located with callIndex, not strings.Index: this file's own prose names
+// all three functions, and boot.go's does too, so a plain substring search is satisfied by a
+// COMMENT — including the comment that would be left behind if the call itself were removed.
 func TestBootCatalogsOrphansBesideTheOtherInformationalSteps(t *testing.T) {
 	src, err := os.ReadFile(filepath.Join(repoRoot(t), "internal", "entrypoint", "boot.go"))
 	if err != nil {
@@ -254,7 +354,7 @@ func TestBootCatalogsOrphansBesideTheOtherInformationalSteps(t *testing.T) {
 	}
 	got := string(src)
 
-	call := strings.Index(got, "CatalogInstalledOrphans(e)")
+	call := callIndex(got, "CatalogInstalledOrphans(e)")
 	if call < 0 {
 		t.Fatal("boot.go never calls CatalogInstalledOrphans — the catalog is unreachable, " +
 			"and every test in this file passes anyway")
@@ -265,13 +365,41 @@ func TestBootCatalogsOrphansBesideTheOtherInformationalSteps(t *testing.T) {
 	}
 	// Beside the other informational step that reads pack declarations, and above the
 	// exec that hands control away.
-	requires := strings.Index(got, "AssertRequiredBins(e)")
-	execCall := strings.Index(got, "return execBash(e, command)")
+	requires := callIndex(got, "AssertRequiredBins(e)")
+	execCall := callIndex(got, "return execBash(e, command)")
 	if requires < 0 || execCall < 0 {
 		t.Fatalf("boot.go no longer contains the landmarks this ordering is about "+
 			"(requires=%d, exec=%d)", requires, execCall)
 	}
+	// AFTER `requires`, which is what "beside" means here and is not cosmetic: both read
+	// the same declarations against the same disk, and `requires` is the one that says a
+	// DECLARED binary is missing. Naming the undeclared leftovers first would put the
+	// answer above the question.
+	if call < requires {
+		t.Error("the catalog must run after AssertRequiredBins — the two informational " +
+			"steps read the same declarations, and the missing-bin finding comes first")
+	}
 	if call > execCall {
 		t.Error("the catalog must run before the exec that replaces this process")
 	}
+}
+
+// callIndex is strings.Index restricted to occurrences that are not commented out: it skips
+// any hit whose line already contains a `//` before it. A source-reading test is only as
+// good as its ability to tell a CALL from a MENTION — boot.go comments name the functions it
+// calls, so the naive search stays green against a call site someone deleted and explained.
+func callIndex(src, needle string) int {
+	for off := 0; off < len(src); {
+		i := strings.Index(src[off:], needle)
+		if i < 0 {
+			return -1
+		}
+		i += off
+		lineStart := strings.LastIndexByte(src[:i], '\n') + 1
+		if !strings.Contains(src[lineStart:i], "//") {
+			return i
+		}
+		off = i + len(needle)
+	}
+	return -1
 }
