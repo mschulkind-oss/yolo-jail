@@ -8,8 +8,10 @@ summary: "Four delivery classes, one of which keeps no record and is never re-de
 
 # How executable content gets into a jail — and what makes two jails the same
 
-**Status:** DIAGNOSIS + PROPOSAL, in-review, 2026-08-24. **Nothing built.** One question is ruled
-([OQ-PD3](#decision-ledger), Decision Ledger); eight remain open. Every fact below is labelled
+**Status:** DIAGNOSIS + PROPOSAL, in-review, 2026-08-24. **Nothing built.** Nine questions are
+ruled (the [Decision Ledger](#decision-ledger)); one remains open
+([OQ-PD10](#-oq-pd10--capture-and-repackage-for-the-installer-class), the installer-capture
+design). Every fact below is labelled
 **MEASURED** (observed in this development jail, 2026-08-24), **READ FROM CODE** (traced but not
 observed running) or **NOT MEASURED**.
 
@@ -27,7 +29,9 @@ one of the three properties uniformity actually needs. **My recommendation is to
 first — the artifact that says what this jail got — then removal, then the pin.** And much of the
 receipt is not yolo's to build: where an ecosystem already keeps a lockfile with a resolver behind
 it, yolo adopts it ([§5.6](#56-a6--borrow-the-ecosystems-lockfiles), measured for mise) and writes
-its own only for the gaps.
+its own only for the gaps. Most of this is now ruled — nine rulings in the
+[Decision Ledger](#decision-ledger); the open question is the installer-capture design
+([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)).
 
 **The most important section is [§3](#3-four-delivery-classes-and-the-rule-that-falls-out)**: the
 four classes are the frame everything else hangs on. [§4](#4-how-two-jails-diverge-today-measured)
@@ -99,8 +103,11 @@ cheaply ([§5.4](#54-a4--regenerate-or-reconcile-every-launch)).
 
 ## 2. What "the same jail" would have to mean
 
-The question has three candidate answers and they impose different designs. This is unsettled and
-it is [OQ-PD2](#-oq-pd2--what-is-the-unit-of-sameness).
+The question has three candidate answers and they impose different designs. **Ruled**
+([OQ-PD2](#decision-ledger)): (a) and (b) ship first, through the user half of
+[§5.6](#56-a6--borrow-the-ecosystems-lockfiles); (c) is in scope for the project toolchain — a
+repo-committed native lock makes it nearly free — and stays out of scope for user tools, which no
+repo should pin.
 
 | Reading | "Two jails are the same when…" | What it demands |
 | :--- | :--- | :--- |
@@ -337,7 +344,9 @@ Two consequences worth stating separately:
 
 - **Two jails whose current config is byte-identical still differ by their config HISTORY.** Any
   claim of the form *"the pack set plus a lockfile makes jails uniform"* is false until removal is a
-  real operation.
+  real operation. **Ruled** ([OQ-PD4](#decision-ledger)): the orphans become an informational
+  catalog at boot; removal happens only on an explicit act; autoprune exists as an option for those
+  who want it, **default off**.
 - **The LSP sentinel is the only install/uninstall reconciliation loop in the system, and it is one
   field short of being a receipt** — it stores `kind:identifier` lines (`npm:pyright`,
   `go:golang.org/x/tools/gopls@latest`; the format at `internal/entrypoint/shell.go:242-244`, the
@@ -363,8 +372,9 @@ and `internal/cli/run/assemble.go:603-604`:
 | pack trees, skills, surfaces | per workspace, **derived** | cleared and re-staged every launch |
 
 **So the pin the premise imagines, the bytes it would govern, and the cache and stamps that mediate
-them are three different lifetimes.** One file cannot be all three scopes, which is
-[OQ-PD1](#-oq-pd1--where-does-the-receipt-live).
+them are three different lifetimes.** One file cannot be all three scopes — which
+[OQ-PD1](#decision-ledger) resolved by making the record follow the declaration's scope, with the
+bytes content-addressed so their scope stops mattering ([§5.6](#56-a6--borrow-the-ecosystems-lockfiles)).
 
 The stamp/spec split is the shape of the bug this causes, already in production:
 
@@ -373,11 +383,13 @@ The stamp/spec split is the shape of the bug this causes, already in production:
   **nineteen days of launches**, while the launchers themselves are regenerated every boot. The
   stamps survive boots and are shared by every workspace on the
   machine, so the template's `elif [ ! -f "$STAMP" ]` branch, commented *"first run since jail
-  boot"*, in fact fires at most once per **machine** per binary. An unmoved stamp is also the
-  strongest single piece of evidence for
-  [OQ-PD8](#-oq-pd8--is-the-launchers-informational-poll-reachable-at-all): the poll touches its
-  stamp on **every** run, hit or miss ([`shims.go:429`](../../internal/entrypoint/shims.go)), so a
-  stamp that has not moved in nineteen days is a poll that has not run in nineteen days.
+  boot"*, in fact fires at most once per **machine** per binary. The unmoved stamps are also what
+  settled [OQ-PD8](#decision-ledger): the poll touches its stamp on **every** run, hit or miss
+  ([`shims.go:429`](../../internal/entrypoint/shims.go)), so a stamp that has not moved in nineteen
+  days is a poll that has not run in nineteen days — the launcher's informational channel is
+  unreachable in steady state, and the "newer version available" report moves to the boot catalog
+  and the update verb. (Clearing one stamp and launching remains a cheap end-to-end confirmation of
+  the shadowing.)
 - **READ FROM CODE, NOT MEASURED:** `_do_install` ends with `touch "$STAMP"`
   (`shims.go:379-402`), so a **cold install in workspace B writes the stamp workspace A throttles
   on** — the most likely explanation for a `claude.stamp` dated two weeks after the binary it
@@ -507,10 +519,12 @@ cleared and re-staged.
 
 Accept that jails are not uniform, and document it.
 
-> **Verdict: rejected, but its honest half survives and belongs in the design.** No mechanism can
-> cover the unmanaged tier ([§6.1](#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control)), so whatever ships
-> must **enumerate what it does not manage** rather than implying coverage it lacks. A seam that
-> claims to cover an `npx -y` argv would be worse than one that names it as unmanaged.
+> **Verdict: rejected, but its honest half survives and belongs in the design.** No mechanism
+> covers the unmanaged tier as it stands ([§6.1](#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control)) —
+> [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)
+> proposes moving both of today's members out of it — so whatever ships must **enumerate what it
+> does not manage** rather than implying coverage it lacks. A seam that silently claimed a vendor
+> self-updater would be worse than one that names it as unmanaged.
 
 ### 5.6 A6 — Borrow the ecosystem's lockfiles
 
@@ -546,8 +560,8 @@ install-from-lock. What yolo writes is orchestration: the launch runs install-fr
 update act runs the ecosystem's update and leaves a **reviewable repo diff** — a dependency bump
 like any other, which bots can own — and the reconcile reads their lock.
 
-**The record follows the declaration's scope.** That is the observation that untangles §4.4's
-three-scope knot without inventing anything:
+**The record follows the declaration's scope — ruled ([OQ-PD1](#decision-ledger), shape (d)).** It
+untangles §4.4's three-scope knot without inventing anything:
 
 | Declaration | Scope | Its lock | The bytes |
 | :--- | :--- | :--- | :--- |
@@ -557,17 +571,18 @@ three-scope knot without inventing anything:
 A repo must **not** pin the user half: pack selection is ruled user-level
 (`internal/config/packs.go:20-24`), agent vendors release weekly (churn PRs in every repo that
 pinned them), and a repo lock over a user declaration would recreate §4.4's scope mismatch in the
-other direction. The split moves [OQ-PD2](#-oq-pd2--what-is-the-unit-of-sameness): reading (c) —
-colleague parity — becomes nearly free for the project toolchain while user tools stay under
-readings (a)/(b). Scope agreement (P1) is achieved differently than by co-locating receipt and
-bytes: the record sits with its declaration, and the bytes are **immutable and content-keyed**, so
-their scope stops mattering — the nix model, generalised.
+other direction. The split is also [OQ-PD2](#decision-ledger)'s ruling: reading (c) — colleague
+parity — is in scope for the project toolchain and stays out for user tools. Scope agreement (P1)
+is achieved differently than by co-locating receipt and bytes: the record sits with its
+declaration, and the bytes are **immutable and content-keyed**, so their scope stops mattering —
+the nix model, generalised.
 
 **What yolo still builds, honestly:**
 
 - the **installer class** (claude, `agy`) has no native lockfile — A3's yolo-written receipt
   survives there (user scope), and the version-addressed artifact cache for that class is yolo's to
-  lay out;
+  lay out ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)
+  proposes how: capture the install once, then the capture is the package);
 - **npm layout**: registries resolve and fetch (and the machine-global cacache already dedups
   downloads), but `npm install -g` keeps one version per prefix — yolo must choose
   version-addressed install prefixes. Mechanical, not conceptual;
@@ -589,21 +604,36 @@ full-launch behaviour under `MISE_LOCKFILE`); and a repo-committed lock imports 
 fallback.
 
 > **Verdict: adopt, as the preferred realization of A3 wherever a native lockfile exists.** A3's
-> yolo-owned receipt survives only for the gaps. This also moves one §6 design decision — the
-> ledger becomes N native records under **one reader**, rather than one store of opaque identities
-> — which is [OQ-PD5](#-oq-pd5--one-general-seam-or-per-ecosystem-adapters)'s question, re-leaned
-> there. Whether yolo may ever add a repo-committed file of its *own* is new:
-> [OQ-PD9](#-oq-pd9--does-yolo-write-a-repo-committed-file-of-its-own-or-only-orchestrate-ecosystem-native-ones).
+> yolo-owned receipt survives only for the gaps. This also settled one §6 design decision
+> ([OQ-PD5](#decision-ledger)): the ledger is N native records under **one reader**, not one store
+> of opaque identities. And whether yolo may add a repo-committed file of its *own* is ruled
+> ([OQ-PD9](#decision-ledger)): native formats whenever one exists; yolo's own only when the work
+> demonstrates the need, never preemptively.
 
 ---
 
 ## 6. The general seam: one ledger, many resolvers
 
 **The unit is a delegated resolution** (P4): a tuple of *(declaration, resolver, resolved identity,
-landing path, scope, time)*. The ledger stores the resolved identity as an **opaque string** and only
-the resolver interprets it — that is the single design decision that keeps this out of npm's shape,
-because a pin is inherently ecosystem-flavoured (`pkg@1.2.3`, a git SHA, a URL+hash, a mise
-`backend:tool@version`).
+landing path, scope, time)*. The shape is **ruled** ([OQ-PD5](#decision-ledger)): **N native records
+under one reader** — each resolver keeps its ecosystem's own lockfile or receipt and is the only
+thing that parses it; what is common is the READER (the report that renders every tier) and the
+lifecycle below. A pin is inherently ecosystem-flavoured (`pkg@1.2.3`, a git SHA, a URL+hash, a
+mise `backend:tool@version`), which is why nothing common may interpret one.
+
+> [!WARNING]
+> An earlier draft of this section proposed the inverse — one ledger-as-store holding opaque
+> resolved identities. Do not rebuild it:
+> [§5.6](#56-a6--borrow-the-ecosystems-lockfiles)'s measurement is what killed it. mise's lockfile
+> already *is* the record, checksums included, and a yolo store beside it would be two records with
+> one truth.
+
+Two more rulings bound the lifecycle. **The receipt is the pin** ([OQ-PD6](#decision-ledger)): a
+declaration may carry a version and is not required to — install obeys the record, so an unpinned
+declaration stops being evergreen the day the record exists. And **the record reports before it
+gates** ([OQ-PD7](#decision-ledger)): enforcement starts as reporting, on purpose, and a gate comes
+only if the reports justify one — the record still names where that gate would live, which is what
+keeps it off R1's display-only path without adding a fourth fatal.
 
 The lifecycle each resolver implements — six verbs, and a resolver may legitimately implement only
 the first three:
@@ -621,7 +651,7 @@ A new mechanism does not need a new design; it needs to land in one of three tie
 | :--- | :--- | :--- | :--- |
 | **Managed** | yolo runs the install | `program via npm`, `program via installer`, LSP recipes | all six verbs — declare, resolve, record, materialize, reconcile, remove |
 | **Observed** | a third party installs into a store yolo mounts | **mise**, claude plugins (`installClaudePlugins`, `internal/entrypoint/boot.go:311`) | record and compare; obeying requires the third party's own pin (mise has one; we do not enable it) |
-| **Unmanaged** | yolo never sees the resolution | `npx -y <pkg>` in an MCP argv (`internal/cli/config_ref.txt:917,929`), a vendor CLI's self-updater (claude's, `agy`'s) | **none** — the only honest act is to enumerate it |
+| **Unmanaged** | yolo never sees the resolution | `npx -y <pkg>` in an MCP argv (`internal/cli/config_ref.txt:917,929`), a vendor CLI's self-updater (claude's, `agy`'s) | **none today** — enumerate it; [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) proposes the escape hatch for both members |
 
 The launcher template already states the tier-3 case exactly, about silent updates:
 *"a silent change has no act to pin to, so no pin, lockfile field or approval prompt can ever cover
@@ -637,9 +667,8 @@ standalone setting flipped ahead of it. The per-launch `mise upgrade --yes` was 
 not survive the seam: `resolve` runs only on an explicit update act, for every resolver.
 Representability is measured, not open: `/mise` is machine-global but mise's lock is per config
 root, and §5.6 drove a workspace-local `mise.lock` against the shared store — so a per-workspace
-pin is expressible today. What [OQ-PD1](#-oq-pd1--where-does-the-receipt-live) and
-[OQ-PD2](#-oq-pd2--what-is-the-unit-of-sameness) still decide is where records live for the
-mechanisms with **no** native lock.
+pin is expressible today. For mechanisms with **no** native lock, the record is the user-scope gap
+receipt ([OQ-PD1](#decision-ledger)).
 
 ### 6.2 Pay the enum tolerance before the next mechanism arrives
 
@@ -656,6 +685,74 @@ disagree about what to do with a third value:
 is therefore a refused boot, not a skipped contribution — the same shape `packdecl`'s own comment
 warns about for a third `tier` value. **Whoever adds the third `via` must extend the tolerance
 first.** That is a prerequisite of this design, not a consequence of it.
+
+### 6.3 Installers that just do whatever: capture the install, then treat the capture as the package
+
+*The standing question for the worst of the class: what is the plan for installers that just do
+whatever — and for things we can't lock at all?*
+
+**The problem, precisely.** A vendor installer is a program that runs arbitrary logic and leaves
+arbitrary state. claude's keeps its own versions directory and self-updates (four builds, just over
+1 GB, per workspace — §5.3); `agy` is a 189 MB opaque binary. There is nothing to lock because the
+vendor never publishes a lockable artifact: **the installer run itself is the resolution.** A
+receipt can record what the run left behind, but it cannot make a second run leave the same thing.
+This is also the class [OQ-PD9](#decision-ledger) anticipated: no native lock exists to borrow, so
+the record here is yolo's own — a machine-local receipt beside the CAS entry, not a repo-committed
+lockfile.
+
+**The move: make the resolution observable by containing it.** Run the installer once, in a
+throwaway sandbox, against empty state; capture the delta; content-address the capture; from then
+on **the capture is the package**:
+
+```
+capture (explicit act, network OK):  fresh sandbox → run installer → delta → tar+hash → machine CAS
+                                     receipt = (declaration, installer URL, capture hash,
+                                                file manifest, platform, time)
+materialize (per jail, offline):     unpack/hardlink the capture into the version-addressed path
+update:                              a NEW capture, on an explicit act — never in place
+remove:                              delete the materialized tree; CAS entry GC'd when unreferenced
+```
+
+**The prior art is Arch's.** An AUR `PKGBUILD` runs upstream's opaque payload in a clean chroot
+(`makechrootpkg`), and the *output* is an ordinary pacman package with a file manifest — the
+package manager never trusts the build script's environment, only its captured product. The pack's
+`program via installer` contribution is already the PKGBUILD analogue: a name and a URL. Nix's
+fixed-output derivations and `docker commit` are the same shape from other directions.
+
+**The sandbox already exists, and it is yolo's own product.** A capture is an ephemeral jail whose
+per-workspace home binds start empty: the existing bind surfaces (`~/.local`, `~/.npm-global`,
+`~/go` — `assemble_parts.go:109-111`) are natural capture surfaces, so after the installer runs,
+**the bind-dir contents ARE the delta** — tar, hash, done. No new containment machinery; a jail
+that writes outside its binds is a finding the capture run reports, and a tool that does so is
+flagged genuinely unmanageable instead of silently half-captured.
+
+**Why not image layers** — the obvious-looking alternative, rejected three ways: `macos-user` has
+no image at all; a layer couples every capture to the image rebuild/reload cadence that §5.1
+priced (a 3.28 GiB tar for a 180.2 KiB delta); and a layer is container-shaped while the capture
+must serve all three backends. The capture is a plain filesystem artifact — backend-neutral, CAS
+resident, materialized the same way everywhere.
+
+**What it buys beyond lockability:**
+
+- the per-workspace refetch cost dies — today claude and `agy` are re-downloaded per workspace
+  because `~/.local` is a per-workspace bind (§5.3); a capture is fetched once per machine and
+  materialized by unpack;
+- **vendor self-updaters are structurally neutered**: the materialized tree comes from the capture,
+  so a self-update is either disabled or becomes *drift the reconcile reports* — and an update
+  gains an act to pin to, which is the exact property the launcher comment says silent updates lack
+  (`shims.go:412`);
+- removal becomes safe: deleting a materialized tree loses nothing the CAS doesn't hold.
+
+**Honest limits.** Captures are per-platform (and only for platforms we can run). An installer that
+personalizes at install time — machine IDs, license activation — captures per machine, which
+defeats the sharing and must be enumerated, not papered over. And the second "can't lock" family,
+the `npx -y` argv, does not need capture at all: yolo renders the MCP config surface that contains
+the argv, so a receipt can pin `pkg@version` into the render — the self-updater was the truly
+unreachable member, and capture is its answer.
+
+Adoption and mechanics are [OQ-PD10](#-oq-pd10--capture-and-repackage-for-the-installer-class).
+Distributing captures between machines is deliberately out of scope (§7): a capture made here is
+used here, and publishing one is a provenance question for [`trust-paths.md`](trust-paths.md).
 
 ---
 
@@ -677,6 +774,9 @@ first.** That is a prerequisite of this design, not a consequence of it.
   not.
 - **Reproducible builds of the agents themselves.** We record what a registry served; we do not
   rebuild it.
+- **Distribution of captured installer artifacts** ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package))
+  between machines or people. A capture made here is used here; publishing one is a provenance
+  question for [`trust-paths.md`](trust-paths.md).
 - **`macos-user` package delivery.** It has no image and already resolves `packages:` as a store
   `buildEnv`.
 - **A task list.** Sequencing is [§10](#10-what-i-would-build-in-order); ticket granularity lives in
@@ -696,19 +796,19 @@ first.** That is a prerequisite of this design, not a consequence of it.
   as posed. All three of its options (manifest / lockfile / user config) are venues *inside the pack
   system*, and the measurement says the question is not the pack system's alone: the identical
   question is live for mise (no pack), the LSP recipes (no pack), and claude plugins (no pack). It is
-  superseded by [OQ-PD1](#-oq-pd1--where-does-the-receipt-live) (where the receipt lives) and
-  [OQ-PD5](#-oq-pd5--one-general-seam-or-per-ecosystem-adapters). **What survives verbatim and must
+  superseded by [OQ-PD1](#decision-ledger) (where the receipt lives — now ruled) and
+  [OQ-PD5](#decision-ledger) (also ruled). **What survives verbatim and must
   not be re-derived:** TP4's cost analysis of option (a) — pinning in the manifest makes yolo's
   release cadence the ceiling on agent-CLI freshness — is the same objection A1 hits in §5.1, and
   TP4's leaning toward the lockfile is preserved in A3's shape.
 - **INHERITS [OQ-TP3](trust-paths.md#-oq-tp3--given-1-is-pinning-worth-building-at-all-and-where-first)'s still-open half** — *is yolo's own embedded pack required to
-  pin, and is a fetched pack required or merely permitted?* It is restated at wider scope as
-  [OQ-PD6](#-oq-pd6--is-a-declaration-required-to-carry-a-pin-or-is-the-receipt-the-pin), with one
-  reframe: **once a receipt exists, a declaration need not carry a pin, because the receipt is the
-  pin.** That reframe is the reason inheriting is worth more than answering TP3 as written.
+  pin, and is a fetched pack required or merely permitted?* Restated at wider scope and **ruled** as
+  [OQ-PD6](#decision-ledger): once a receipt exists, a declaration need not carry a pin, because
+  the receipt is the pin — which is what answers TP3's inherited half.
 - **Unchanged by this doc:** OQ-TP5's ruling and OQ-TP6's fatal. §5.2's finding that the launcher is
-  PATH-shadowed after first use does not dispute the ruling — it questions whether the *reporting*
-  half it built ever executes ([OQ-PD8](#-oq-pd8--is-the-launchers-informational-poll-reachable-at-all)).
+  PATH-shadowed after first use does not dispute the ruling — it showed the *reporting* half it
+  built never executes, which is now settled ([OQ-PD8](#decision-ledger)): the channel moves to the
+  boot catalog and the update verb.
   [OQ-PD3](#decision-ledger)'s ruling *extends* OQ-TP5 rather than touching it: no-evergreen is now
   a principle covering every resolver, not an npm fix.
 
@@ -732,11 +832,11 @@ one) before this document's uniformity argument is even reached.
 
 | # | Risk | Mitigation |
 | :--- | :--- | :--- |
-| R1 | **A receipt that nothing enforces becomes another display-only field.** The precedent is exact: `LockEntry.Commit` has four readers and all of them print (`trust-paths.md` §1). | Decide enforcement in the same change that adds the record, even if the decision is "reports only, on purpose, and here is where it would gate" — [OQ-PD7](#-oq-pd7--does-the-receipt-gate-the-launch). |
-| R2 | **A ledger in the wrong scope is worse than none.** The stamp/spec split is the live proof: a machine-global record describing a per-workspace install already produces cross-workspace throttle bleed (§4.4). | Settle [OQ-PD1](#-oq-pd1--where-does-the-receipt-live) before writing a file. A receipt describes a *realization*, and a realization has exactly one location. |
-| R3 | **Removal is destructive and the bytes are large.** Uninstalling on pack-drop can delete a 189 MB binary a user still runs from another workspace's muscle memory. | Reconcile **reports** by default; removal happens on an explicit act, never at boot. The LSP sentinel's silent uninstall is the pattern *not* to copy at this size. |
+| R1 | **A receipt that nothing enforces becomes another display-only field.** The precedent is exact: `LockEntry.Commit` has four readers and all of them print (`trust-paths.md` §1). | **Ruled** ([OQ-PD7](#decision-ledger)): reports only, on purpose — and the record names where a gate would live if the reports ever justify one. |
+| R2 | **A ledger in the wrong scope is worse than none.** The stamp/spec split is the live proof: a machine-global record describing a per-workspace install already produces cross-workspace throttle bleed (§4.4). | **Ruled** ([OQ-PD1](#decision-ledger)): the record follows the declaration's scope, and the bytes are content-addressed so their scope stops mattering (§5.6). |
+| R3 | **Removal is destructive and the bytes are large.** Uninstalling on pack-drop can delete a 189 MB binary a user still runs from another workspace's muscle memory. | **Ruled** ([OQ-PD4](#decision-ledger)): boot catalogs orphans informationally; removal only on an explicit act; autoprune ships as an option, default off. The LSP sentinel's silent uninstall is the pattern *not* to copy at this size. |
 | R4 | **An unbounded artifact cache.** 404 GiB of image tars accrued in 24 days with a hint firing and nothing pruning (`image-staging` §1.6); npm's cacache is at 672 MB and grew 27 MB in six days of observation with nothing pruning; claude keeps 4 versions (just over 1 GB) per workspace. | Retention lands with the cache, not after it, and hangs off `yolo prune`. |
-| R5 | **A seam that implies tier-3 coverage is a lie.** An `npx -y` argv and a vendor self-updater cannot be recorded at all. | Enumerate unmanaged mechanisms in the same surface that reports the managed ones (§5.5, §6.1). |
+| R5 | **A seam that implies tier-3 coverage is a lie.** A vendor self-updater cannot be recorded at all (until captured, §6.3), and an `npx -y` argv can be *pinned* in the render yolo writes but its resolution is still never recorded. | Enumerate unmanaged mechanisms in the same surface that reports the managed ones (§5.5, §6.1). |
 | R6 | **The closed `via` enum turns the next mechanism into a boot refusal** on any pre-`just load` image (§6.2). | Extend the tolerance *before* adding a third value: skip-and-report under `DecodeTolerant`, refuse loudly under `Decode`. |
 | R7 | **Uniformity borrowed from a lockfile is a function of that lockfile's quality** — and §5.6 generalises the borrowing to every native lock we adopt. The core is measured (a workspace-local `mise.lock` governs resolution against the shared store); **NOT MEASURED**: format stability across mise's own upgrades, and full-launch behaviour under `MISE_LOCKFILE`. | Treat tier 2 as "record and compare" until the launch path is measured; do not promise obedience we do not own. |
 | R8 | **Every measurement is from one machine and one home.** The dates in §4.1 are this jail's history, not a general law. | The *mechanism* (cold-branch `@latest`, shared aliases, absent removal) is read from code and generalises; the dates are illustrative and labelled. |
@@ -748,29 +848,40 @@ one) before this document's uniformity argument is even reached.
 
 **First, write the receipt for the managed tier only.** Asked-for declaration, resolver, resolved
 identity, landing path, timestamp — for npm programs, installer programs and LSP servers, the three
-places yolo runs the install itself. It changes no behaviour, so it can land while the questions are
-still open, and it is what makes every later question answerable with a measurement instead of an
-argument. The mise half of the record needs no building at all
+places yolo runs the install itself. It changes no behaviour and depends on nothing else here, so
+it lands first — and it is what turns the one enforcement decision the rulings deliberately
+deferred (OQ-PD7's gate) into a measurement instead of an argument. The mise half of the record
+needs no building at all
 ([§5.6](#56-a6--borrow-the-ecosystems-lockfiles)): enable the lockfile, commit `mise.lock`, and the
 launch's `install && upgrade --yes` becomes install-from-lock — [OQ-PD3](#decision-ledger)'s ruling
 shipping inside the seam, in the first step rather than the last.
 
 **Second, generalise the LSP sentinel into a reconcile.** It already does install *and* uninstall
 against a declared set; what it lacks is the resolved version and a caller for anything but LSP
-servers. Reconcile compares, offline, and reports. It installs nothing and removes nothing.
+servers. Reconcile compares, offline, and reports — and it inherits the "newer version available"
+channel that [OQ-PD8](#decision-ledger) found dead in the launcher. It installs nothing and removes
+nothing.
 
-**Third, settle scope** ([OQ-PD1](#-oq-pd1--where-does-the-receipt-live),
-[OQ-PD2](#-oq-pd2--what-is-the-unit-of-sameness)) — because removal and obedience are both
-unimplementable until the record's reach matches the bytes'.
+**Third, implement the ruled scope split** ([OQ-PD1](#decision-ledger),
+[OQ-PD2](#decision-ledger)): native locks at the declaration's home, gap receipts at user scope,
+bytes content-addressed. Removal and obedience both need the record's reach to match the bytes' —
+under the ruling it does, by construction.
 
-**Fourth, make removal real**, on an explicit act, with the sizes in R3 in mind.
+**Fourth, make removal real** in [OQ-PD4](#decision-ledger)'s ruled shape: the boot catalog names
+the orphans and their sizes, an explicit act removes them, and autoprune is an option nobody gets
+by default.
 
-**Fifth, and only then, decide what obeys** ([OQ-PD6](#-oq-pd6--is-a-declaration-required-to-carry-a-pin-or-is-the-receipt-the-pin),
-[OQ-PD7](#-oq-pd7--does-the-receipt-gate-the-launch)). By this point the receipts say how much
-divergence there actually is, and the answer stops being a matter of taste. mise is the exception
-to this sequencing: its lock records and obeys in one mechanism
+**Fifth, wire the ruled enforcement** ([OQ-PD6](#decision-ledger), [OQ-PD7](#decision-ledger)): the
+receipt is the pin, and it reports before it gates — by this point the receipts say how much
+divergence there actually is, so any later gate is designed against a measured distribution. mise
+is the exception to this sequencing: its lock records and obeys in one mechanism
 ([§5.6](#56-a6--borrow-the-ecosystems-lockfiles)), so it ships with the first step — what remains
-here is the same decision for everything else.
+here is the same wiring for everything else.
+
+**Sixth, the installer capture** ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)),
+once [OQ-PD10](#-oq-pd10--capture-and-repackage-for-the-installer-class) is ruled — it slots in as
+the installer resolver's implementation of *record* + *materialize* and depends on nothing above
+except the receipt schema.
 
 **In parallel, pay the enum tolerance** (§6.2). It is small, it is independent of everything above,
 and it is only cheap while no one needs it.
@@ -781,191 +892,38 @@ and it is only cheap while no one needs it.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
+| OQ-PD1 | **Shape (d): the record follows the declaration's scope.** Ecosystem-native lockfiles at the declaration's home (repo for `mise.toml`/`flake.nix`, user for `packs`); yolo-written receipts only where no native lock exists; bytes in machine-global content-addressed stores. | 2026-08-24 | §5.6, §4.4 |
+| OQ-PD2 | **Same-machine and same-workspace ship first, through the user half; same-declaration-anywhere is in scope for the project toolchain** via repo-committed native locks, and out of scope for user tools, which no repo should pin. | 2026-08-24 | §2, §5.6 |
 | OQ-PD3 | **No-evergreen extends to mise — it is a principle, not an npm fix.** The per-launch `mise upgrade --yes` was a stopgap; whatever pins mise ships as **part of the general seam** (a tier-2 resolver whose *obey* goes through mise's own pinning), never as a standalone lockfile flip ahead of it. | 2026-08-24 | §4.2, §6.1, §10 |
+| OQ-PD4 | **Dropping a pack does not auto-delete its program.** Orphans are cataloged informationally at boot; removal happens only on an explicit act; autoprune exists as an option, **default off**. | 2026-08-24 | §4.3, §9 R3, §10 |
+| OQ-PD5 | **One lifecycle, N resolvers, N native records under ONE READER** — no ledger-as-store of opaque identities; only a resolver parses its own record; the tiers stay explicit. | 2026-08-24 | §6 |
+| OQ-PD6 | **The receipt is the pin.** A declaration may carry a version and is not required to; install obeys the record. Also answers OQ-TP3's inherited half. | 2026-08-24 | §6, §8.1 |
+| OQ-PD7 | **Report first; gate later only if the reports justify it** — and the record names where a gate would live. | 2026-08-24 | §6, §9 R1 |
+| OQ-PD8 | **The launcher's informational poll is unreachable in steady state** (nineteen days of unmoved stamps); the "newer version available" channel moves to the boot catalog and the update verb / reconcile. | 2026-08-24 | §4.4, §10 |
+| OQ-PD9 | **Native lockfile formats whenever one exists; a yolo-own repo lockfile only when the work demonstrates the need** — permitted, never preemptive. | 2026-08-24 | §5.6, §6.3 |
 
 ---
 
 ## Open Questions
 
-### 💬 OQ-PD1 — where does the receipt live?
+### 💬 OQ-PD10 — capture-and-repackage for the installer class?
 
-One file cannot be all three scopes (§4.4): npm/installer/LSP realizations are **per workspace**,
-mise and the artifact cache and the stamps are **machine-global**, and the declaration is
-**user-scope**. Four shapes: (a) one user-scope ledger beside `packs.lock.json`; (b) one receipt
-beside each realization, with a single reader that merges them; (c) per-mechanism receipts with no
-common reader; (d) the record follows the declaration's scope — ecosystem-native lockfiles
-committed at the declaration's home (repo for `mise.toml` and `flake.nix`, user for `packs`),
-yolo-written receipts only where no native lock exists, bytes in machine-global content-addressed
-stores ([§5.6](#56-a6--borrow-the-ecosystems-lockfiles)).
+[§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)
+proposes running a vendor installer once in a throwaway capture jail and treating the
+content-addressed capture as the package thereafter — the AUR model, with yolo's own sandbox as
+the chroot. It is the only path that makes the installer class deterministic, and it is real
+machinery: a capture verb, a file manifest, a CAS layout, an escape-detector for installs that
+write outside the captured surfaces.
 
-**What it decides:** whether removal and enforcement are implementable at all — both need the record
-and the bytes to have the same reach — and whether `yolo pack update` can remain the one update verb.
+**What it decides:** whether the installer class ever gets determinism and removal or stays
+receipt-only (recorded but never reproducible) — and whether vendor self-updaters are structurally
+neutered or merely enumerated.
 
-_Leaning:_ **(d), with (b) surviving inside it for the gaps.** The deciding axis is which shape
-keeps the record's scope honest:
-
-- **(a) one user-scope ledger** gives a single canonical file to read and diff — but its scope lies
-  by construction. A user-scope file describing per-workspace and machine-global realizations is
-  wrong the moment any *other* workspace acts (the stamp/spec bleed in §4.4 is the live demo of a
-  scope-mismatched record), every launch on the machine contends to write the one file, and a
-  workspace deleted out from under it leaves stale rows that nothing reconciles.
-- **(b) a receipt beside each realization** makes the record's scope and lifetime equal the bytes'
-  **by construction**: one writer per receipt, so no contention; removal deletes bytes and receipt
-  from the same directory in one act; deleting a workspace deletes its receipts with it, so staleness
-  is unrepresentable. Structurally it is **one invariant** — *a receipt lives beside what it
-  describes and shares its lifetime* — instead of a fresh scope decision per mechanism, and the next
-  mechanism inherits the rule instead of reopening it. What it genuinely gives up: a single
-  committed artifact, which is what OQ-PD2's reading (c) would need — that view has to be derived by
-  an export, not read off disk.
-- **(c) per-mechanism native records** is the least invention (mise's lockfile stays mise's), but N
-  formats with no common reader means no uniform answer to *"what did this jail get?"* — and the
-  tier/enumeration surface R5 demands becomes unbuildable.
-- **(d) is (c) plus the two things it was missing**: one READER over the native records (the
-  report), and a scope rule — the record lives with its declaration while the bytes are immutable
-  and content-keyed, so scope agreement comes from immutability rather than co-location. It keeps
-  (b)'s honesty a different way (one writer per record: the update act that owns the declaration;
-  staleness handled by content-addressing), restores a committed, diffable artifact per scope — in
-  formats that already have resolvers behind them — and contains a small (b) for the installer
-  class, which has no native lock.
-
-**Answer:**
-> _(empty — fill in when decided)_
-
-### 💬 OQ-PD2 — what is the unit of "sameness"?
-
-§2's three readings: same machine, same workspace over time, or same declaration on anyone's machine.
-They are not refinements of each other — (c) requires a record **committed to the repo** and
-resolvers that can obey it offline, which is a different product from (a) and (b).
-
-**What it decides:** whether the receipt is user/workspace state or a checked-in artifact, and
-therefore whether a colleague's jail is in scope at all.
-
-_Leaning:_ **(a) and (b) through the user half; (c) no longer out of scope — it arrives nearly free
-for the project toolchain.** A committed lockfile stopped being "a much larger product" the moment
-it became someone else's product: [§5.6](#56-a6--borrow-the-ecosystems-lockfiles) measured
-`mise.lock` doing (c)'s whole job for the tools this repo declares. (c) stays out of scope for user
-tools — agent CLIs are pack-selected at user level, and no repo should pin them.
-
-**Answer:**
-> _(empty — fill in when decided)_
-
-### 💬 OQ-PD4 — should dropping a pack uninstall its program?
-
-**MEASURED:** this jail holds an unselected copilot and an orphaned npm `fzf` that nothing in the
-current config asks for, plus a 189 MB `agy` that was an orphan until its pack happened to re-enter
-the config (§4.3). The staged-tree half of this was fixed; the installed-program half never was. The
-LSP sentinel proves the loop is buildable and also shows its danger — it uninstalls quietly.
-
-**What it decides:** whether "the pack set plus a lockfile makes jails uniform" can ever be true, and
-whether a jail's contents are its config or its config's history.
-
-_Leaning:_ **Yes, but never at boot and never silently.** Reconcile reports the orphans; an explicit
-act (`yolo pack update`, or a `prune`-shaped verb) removes them, naming sizes.
-
-**Answer:**
-> _(empty — fill in when decided)_
-
-### 💬 OQ-PD5 — one general seam, or per-ecosystem adapters?
-
-*"I'm also worried about getting too special case for npm. What happens when another mechanism comes
-along we can't control?"* §6 proposes one ledger and one lifecycle with N thin resolvers, the ledger
-storing an **opaque** resolved identity. The alternative is per-ecosystem records that each know
-their own shape.
-
-**What it decides:** how much work the fourth mechanism costs, and whether the third `via` value is a
-config change or a redesign.
-
-_Leaning:_ **One lifecycle, N resolvers — and, a moved leaning, N native records under one READER
-rather than one ledger-as-store.** The earlier leaning here was a single ledger holding opaque
-resolved identities; [§5.6](#56-a6--borrow-the-ecosystems-lockfiles) is why it moved: mise's
-lockfile already *is* the record, checksums included, and a yolo store duplicating it would be two
-records with one truth. What stays common is the reader — the report that renders every tier — and
-the lifecycle verbs; only the resolver parses its own record. The three tiers stay explicit, the
-enum tolerance (§6.2) is paid up front regardless, and [OQ-PD3](#decision-ledger)'s ruling still
-points the same way: mise inside the general system, not a side mechanism of its own.
-
-**Answer:**
-> _(empty — fill in when decided)_
-
-### 💬 OQ-PD6 — is a declaration required to carry a pin, or is the receipt the pin?
-
-Inherits [OQ-TP3](trust-paths.md#-oq-tp3--given-1-is-pinning-worth-building-at-all-and-where-first)'s open half at wider scope. A `package` string may already carry a
-version, tag or range (`npmspec.go`), and **no shipped pack does**. With a receipt in place, an
-unpinned declaration is no longer evergreen — the receipt is what install obeys.
-
-**What it decides:** whether pack authors must version their declarations (a compatibility burden on
-every pack) or whether yolo's own record is sufficient — and whether embedded and fetched packs
-answer differently.
-
-_Leaning:_ **The receipt is the pin; a declaration may pin and is not required to.** Requiring it
-puts yolo's release cadence on the critical path for embedded packs (TP4 option (a)'s cost) and asks
-third-party authors to solve a problem the ledger solves once.
-
-**Answer:**
-> _(empty — fill in when decided)_
-
-### 💬 OQ-PD7 — does the receipt gate the launch?
-
-A record that nothing enforces is a receipt, not a gate — the lockfile's `Commit` field is the
-standing proof (R1). But the enforcement options are not symmetric: refusing a launch because a
-resolved version drifted would be a fatal in the class where the user is least able to act — and
-every existing fatal (a failed image build, an unreachable jail-facing service, a refused
-contribution, a missing repo root) refuses over a condition the user can fix locally, which a
-drifted registry resolution is not.
-
-**What it decides:** whether uniformity becomes a guarantee or stays an observation — and whether
-`yolo check` must predict the outcome (the shape of OQ-TP7's first half).
-
-_Leaning:_ **Report first, gate later if the reports justify it.** Land the record, look at real
-drift for a while, then decide. A gate designed before the measurement is a gate designed against an
-imagined distribution.
-
-**Answer:**
-> _(empty — fill in when decided)_
-
-### 💬 OQ-PD8 — is the launcher's informational poll reachable at all?
-
-OQ-TP5 kept an hourly poll and downgraded it to a message. **MEASURED:** both install destinations
-precede `~/.yolo-launchers` on PATH and `type -a claude` confirms the shadowing — so in steady state
-the launcher never runs again and the poll never fires. The stamps agree, and they are close to
-settling it: the poll touches its stamp on **every** run, hit or miss — that unconditionality is
-deliberate and is what the OQ-TP5 build added
-([`shims.go:429`](../../internal/entrypoint/shims.go)) — and both stamps in
-`~/.cache/yolo-agent-stamps/` have sat unmoved through **nineteen days of launches** (§4.4). An
-unmoved stamp is a poll that did not run, so the informational channel OQ-TP5 built has emitted
-nothing in this jail for nineteen days.
-
-**What it decides:** whether the half of OQ-TP5 that was built does anything. If the poll is
-unreachable, the "a newer version is available" channel has to move — to the update verb, to boot, or
-to the reconcile in §10 — and the freeze in §4.1 currently has **no** reporting path at all.
-
-_Leaning:_ **It is unreachable in steady state — nearly a finding rather than a leaning.** The stamp
-evidence establishes that the poll does not run; the one confirmation still worth doing is *why*:
-clear one stamp, launch, and see whether it reappears without `yolo pack update`. If it stays
-cleared, shadowing is proven end-to-end. (`claude.stamp`'s date, two weeks after the binary it
-describes, is explained by a cold install in another workspace touching the shared stamp —
-`_do_install` ends with `touch "$STAMP"`, §4.4 — not by a poll.)
-
-**Answer:**
-> _(empty — fill in when decided)_
-
-### 💬 OQ-PD9 — does yolo write a repo-committed file of its own, or only orchestrate ecosystem-native ones?
-
-[§5.6](#56-a6--borrow-the-ecosystems-lockfiles) borrows native lockfiles where they exist. The
-remaining choice is whether yolo ever adds a repo-committed record of its *own* — say a
-`.yolo/toolchain.lock` for a project that genuinely wants an installer-class tool pinned repo-wide,
-or for LSP servers, which are project-shaped (they follow the repo's languages, `lsp.go:16-20`)
-even though their install is yolo-run today — or whether yolo-owned records stay strictly
-user/machine scope and the repo only ever carries files other tools own.
-
-**What it decides:** whether a new lockfile format enters the world (against the whole thrust of
-§5.6 — a yolo-invented format has no resolver community behind it), whether LSP pins can be shared
-with a colleague, and what `yolo check` must read to predict a launch.
-
-_Leaning:_ **Ecosystem-native only; yolo's own records stay out of the repo.** The point of §5.6 is
-that a format with a resolver behind it comes with help, and a yolo-invented repo file has none.
-The LSP case can ride its ecosystems' native pinning (npm and Go both have exact-version installs)
-if it moves at all. Revisit only when a real repo needs a repo-pinned installer-class tool.
+_Leaning:_ **Yes, sequenced last (§10, sixth step) — capture is the installer resolver's
+implementation of *record* + *materialize*, not a new subsystem.** Mechanics: ephemeral jail plus
+bind-dir snapshot; a plain filesystem artifact in the machine CAS, never an image layer
+(`macos-user` has no image, and §5.1 prices what riding the image costs). Ship the receipt first;
+capture then replaces the receipt's guess at "what the installer did" with a manifest.
 
 **Answer:**
 > _(empty — fill in when decided)_
