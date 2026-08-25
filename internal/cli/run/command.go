@@ -3,12 +3,16 @@ package run
 import "strings"
 
 // setupScript is the provisioning core (store prune, mise install, bootstrap,
-// venv-precreate) run under `YOLO_BYPASS_SHIMS=1 sh -c '…'`. Exactly two things
-// bind these bytes: testdata/final_cmd_bash.txt, pinned by an exact-equality
-// test in command_test.go, and the literal "PROVISIONING FAILED" emitted by
-// provisionScript below, which jailcontent.ReadProvisioningFailed
-// (internal/jailcontent/write.go:81-88) greps out of startup.log. The in-jail
-// entrypoint parses none of it.
+// venv-precreate) run under `YOLO_BYPASS_SHIMS=1 sh -c '…'`.
+//
+// ONE thing binds THESE bytes: testdata/final_cmd_bash.txt, which
+// TestBuildFinalInternalCmdBashGolden (command_test.go) compares for exact equality
+// against buildFinalInternalCmd's output — and that output composes this constant, so
+// any drift here is a golden diff. The in-jail entrypoint parses none of it.
+//
+// This comment used to claim the literal "PROVISIONING FAILED" as a second binder of
+// this string. It is not in these bytes at all: provisionScript below emits it, and
+// its two out-of-package readers are named there.
 // Tools resolve on install only; a workspace mise.lock, when present, governs
 // resolution (mise honors it by default), and upgrades happen only through an
 // explicit act — docs/design/program-delivery.md OQ-PD3.
@@ -28,12 +32,32 @@ const setupScript = "YOLO_BYPASS_SHIMS=1 sh -c '" +
 const startupLog = "/workspace/.yolo/startup.log"
 
 // miseActivate is the one-time mise activation + yolo-shims re-prepend that runs
-// after provisioning. Frozen contract (must not drift — the exact bytes matter).
+// after provisioning. Bound by the same single thing setupScript is:
+// buildFinalInternalCmd composes it, and TestBuildFinalInternalCmdBashGolden pins
+// that composed output byte-for-byte against testdata/final_cmd_bash.txt. Nothing
+// else reads these bytes — a change here is legible as a golden diff, and is only a
+// contract to the extent the golden is re-blessed deliberately.
 const miseActivate = `. "$HOME/.config/yolo-user-env.sh" 2>/dev/null; ` +
 	`eval "$(mise env -s bash)" 2>/dev/null; export PATH="$HOME/.yolo-shims:$PATH"`
 
 // provisionScript wraps setupScript with the tee-to-log + PROVISIONING FAILED
-// banner + continue/abort prompt. Frozen contract (must not drift — the exact bytes matter).
+// banner + continue/abort prompt.
+//
+// Two different contracts bind two different parts of it:
+//
+//   - the WHOLE string is composed into buildFinalInternalCmd's output, pinned
+//     byte-for-byte by TestBuildFinalInternalCmdBashGolden against
+//     testdata/final_cmd_bash.txt — so drift is a golden diff;
+//   - the LITERAL "PROVISIONING FAILED" is a CROSS-PROCESS contract with two readers
+//     outside this package, neither visible to the golden — which would be re-blessed
+//     around a rename without complaint. One is code:
+//     jailcontent.ReadProvisioningFailed (internal/jailcontent/write.go:80-88) greps
+//     startup.log for it to decide whether the briefing shows its banner. The other is
+//     PROSE SHIPPED TO AGENTS: the built-in diagnosing-the-jail skill tells them to
+//     look for exactly this string in /workspace/.yolo/startup.log
+//     (internal/jailcontent/builtinskills/diagnosing-the-jail/SKILL.md §2), so a
+//     rename also silently invalidates the instructions every jail carries.
+//     Either way a failed provision becomes a jail that reports itself healthy.
 var provisionScript = "" +
 	`printf "=== yolo provisioning %s ===\n" "$(date "+%Y-%m-%dT%H:%M:%S%z")" ` +
 	">" + startupLog + "; " +
@@ -51,8 +75,16 @@ var provisionScript = "" +
 // buildFinalInternalCmd assembles the final_internal_cmd:
 // the provisioning message → provision_script → mise activate → executing
 // message → target command. displayCmd is target_cmd with single quotes escaped
-// as '\”. profile wraps each phase with timing (the profile branch). Frozen
-// contract (must not drift — the exact bytes matter).
+// as '\”. profile wraps each phase with timing (the profile branch).
+//
+// THIS is where the "frozen bytes" claim the three constants above make actually
+// lives: TestBuildFinalInternalCmdBashGolden pins this function's non-profile output
+// against testdata/final_cmd_bash.txt, and that output closes over setupScript,
+// provisionScript and miseActivate — so the golden is the single binder for all four.
+// The profile branch has NO golden, and the two other tests here are property checks
+// rather than byte pins: TestBuildFinalInternalCmdQuotingEscapesDisplay (non-profile
+// only, display escaping) and TestFinalInternalCmdNeverUpgrades (both branches, the
+// one OQ-PD3 property). So a change confined to the profile branch ships green.
 func buildFinalInternalCmd(targetCmd string, profile bool) string {
 	displayCmd := strings.ReplaceAll(targetCmd, "'", `'\''`)
 	if profile {

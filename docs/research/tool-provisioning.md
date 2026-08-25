@@ -171,9 +171,13 @@ installed toolchains persist and are reused across jail boots — the design
 history and the host↔jail path pitfalls are in
 `docs/research/mise-host-jail-path-mismatch.md`.
 
-**When it installs:** provisioning runs `mise trust`/`mise install`/`mise upgrade`
-on every boot (`internal/cli/run/command.go:8-23`); already-present tools are
-skipped, so subsequent boots are fast.
+**When it installs:** provisioning runs `mise install` on every boot
+(`internal/cli/run/command.go:19-29`); already-present tools are skipped, so
+subsequent boots are fast. Neither of the two commands this line used to name is
+run any more: `mise trust` was removed once `MISE_TRUSTED_CONFIG_PATHS=/workspace`
+was verified sufficient on its own (`internal/entrypoint/boot.go:192-210`), and the
+per-launch `mise upgrade` was removed by ruling OQ-PD3 — a launch resolves on
+install only (`internal/cli/run/provisioning_upgrade_test.go` pins both branches).
 
 ### Layer 3 — npm globals (bootstrap + lazy shims)
 
@@ -414,7 +418,7 @@ before restarting.
   `internal/config/derived.go:142`.
 - Workspace mise pins: `mise.toml:2,5,6,8`.
 - mise store mount: `internal/cli/run/assemble.go:19,368`, `assemble_parts.go:24`.
-- Provisioning (`mise install`): `internal/cli/run/command.go:8-23`.
+- Provisioning (`mise install`): `internal/cli/run/command.go:19-29`.
 - Bootstrap (npm/go/pip installs): `internal/entrypoint/shell.go:148-256`.
 - LSP install recipes: `internal/cli/run/lsp.go:15-23`.
 - Agent install specs (npm + native claude): `internal/agents/agents.go:57-154`.

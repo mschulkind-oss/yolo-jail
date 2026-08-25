@@ -93,7 +93,7 @@ func TestMain(m *testing.M) {
 //
 // The defect it exists for (docs/design/agent-install-in-ci.md §4.1, measured on CI run
 // 32419507352): the first container test absorbs podman's first-container create, the
-// entrypoint's mise install/upgrade, and bootstrap's MCP npm downloads — and is then judged
+// entrypoint's mise install, and bootstrap's MCP npm downloads — and is then judged
 // against YOLO_TEST_JAIL_TIMEOUT, a PER-COMMAND cap sized for steady-state work.
 // TestAgentToolsAvailable sorts first, so on x64 it cost 124.5s for two installs that cost
 // ~12s each anywhere later in the same run; on the macOS nightly it cost 1033s of a 1200s
