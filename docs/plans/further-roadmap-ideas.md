@@ -14,10 +14,12 @@ over the whole corpus). **Nothing here is committed, and nothing here is a task.
 entry here either has a verdict or does not belong. **Five say build** (§1), **two say rule first** (§2), and **three say
 drop a row the roadmap already carries** (§4, §4a).
 
-**The short version.** [`roadmap.md`](roadmap.md)'s 📦 queue is empty because the last item
-shipped, not because the work ran out — so the interesting question is where the *next* items come
-from. This file is the output of auditing every design doc the roadmap points at (2026-08-23) and
-writing down what the audit itself kept tripping over — first alone, then again with five agents
+**The short version.** [`roadmap.md`](roadmap.md)'s 📦 queue was empty on 2026-08-23 because the
+last item had shipped, not because the work ran out — so the interesting question is where the
+*next* items come from. *(It refilled to four on 2026-08-25 off the image-staging rulings, which is
+one answer to exactly that question and does not retire the rest of this file.)* This file is the
+output of auditing every design doc the roadmap points at (2026-08-23) and writing down what the
+audit itself kept tripping over — first alone, then again with five agents
 reading in parallel. The strongest four are all the same shape: **a property this repo already
 believes in, with no mechanism that would notice it being false** — an open question with no ID, a
 status line that says NOTHING BUILT about code that shipped, a jail-blind check that reports the
