@@ -29,12 +29,6 @@ import (
 func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt string, staged stagedPacks) (string, error) {
 	netSec := cfgMap(cfg, "network")
 	netMode := o.resolveNetMode(cfg)
-	// The two port keys are gated on the CONFIGURED mode, not the applied one, because
-	// that is the gate the assembler uses to emit -p and the socat forwards: on Apple
-	// Container an explicit `network.mode: "host"` drops both keys even though the
-	// applied mode is bridge, and advertising them here would replace one false sentence
-	// with another.
-	publishPorts, forwardHostPorts := briefingPortsFor(netMode, netSec)
 
 	// WHAT THE LAUNCH APPLIES, not what the config asked for — the same predicate
 	// assembleRunCmd spells its `--net=` selector from, so the two cannot disagree
@@ -52,6 +46,15 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// launch. What the probe decided is already in the jail as $YOLO_HOST_LOOPBACK, which
 	// the bridge paragraph names.
 	appliedNet := appliedNetMode(rt, netMode, o.inContainer())
+
+	// The two port keys read that SAME applied mode, because the assembler's publish gate
+	// does now: it used to read the configured one, which is how a nested launch — forced
+	// to host networking whatever `network.mode` says — emitted -p flags plus the DNAT
+	// sysctl the host namespace refuses, and could not start at all. Both ends moved
+	// together on purpose. On Apple Container the applied mode is bridge however the key
+	// is set, so an unhonored `network.mode: "host"` no longer takes the ports with it,
+	// here or in the argv.
+	publishPorts, forwardHostPorts := briefingPortsFor(appliedNet, netSec)
 
 	// Blocked-tools → jailcontent.BlockedTool records.
 	blocked := blockedToolRecords(config.NormalizeBlockedTools(cfgMap(cfg, "security")))

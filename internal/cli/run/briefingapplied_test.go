@@ -163,6 +163,59 @@ func TestBriefingAndArgvAgreeOnTheAppliedNetMode(t *testing.T) {
 	}
 }
 
+// THE CALL-SITE PIN for the PORT half, which is the same predicate one level down: both
+// port keys are honored only under an applied bridge, so the argv's -p flags and the
+// briefing's "Published Ports" section have to appear and disappear together.
+//
+// They did not, and the argv side was FATAL rather than merely untrue: the publish gate
+// read the CONFIGURED mode while the selector read the applied one, so a nested launch
+// emitted --net=host AND every -p, and a non-empty publish list appends
+// `--sysctl net.ipv4.conf.all.route_localnet=1`, which podman refuses under host
+// networking — a nested jail declaring any port could not be created at all
+// (nestedports_test.go holds that half in detail).
+//
+// The Apple Container row is the one that pins the BRIEFING call site: there the applied
+// mode is bridge however `network.mode` is set, so -p is emitted, and a briefing still
+// gated on the config would omit a port section for ports that were published.
+func TestBriefingAndArgvAgreeOnPublishedPorts(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		rt            string
+		configMode    string
+		nested        bool
+		wantPublished bool
+	}{
+		{"podman bridge publishes and says so", "podman", "bridge", false, true},
+		{"nested podman publishes nothing and says nothing", "podman", "bridge", true, false},
+		{"Apple Container publishes despite an unhonored host mode", "container", "host", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			ws := t.TempDir()
+			emptyLoopholeDirs(t)
+			o := appliedOptions(t, ws, home, tc.nested)
+
+			netSec := jsonx.NewOrderedMap()
+			netSec.Set("mode", tc.configMode)
+			netSec.Set("ports", []any{"8000:3000"})
+			cfg := appliedTestConfig("network", netSec)
+
+			published := len(publishedPortArgs(appliedArgv(t, o, tc.rt, cfg, t.TempDir()))) > 0
+			if published != tc.wantPublished {
+				t.Errorf("argv publishes = %v, want %v", published, tc.wantPublished)
+			}
+
+			briefed := strings.Contains(appliedBriefing(t, o, tc.rt, cfg), "**Published Ports**")
+			if briefed != tc.wantPublished {
+				t.Errorf("the briefing advertises published ports = %v while the argv publishes "+
+					"= %v — the jail is told about forwarding the launch did not wire (or is not "+
+					"told about forwarding it did)", briefed, published)
+			}
+		})
+	}
+}
+
 // THE CALL-SITE PIN for the mounts half. §6 names network and resources; a section headed
 // "Additional Context Mounts (read-only)" listing /ctx paths the backend refused is the
 // same lie with a different key, so both consumers read roBindsUnsupported.

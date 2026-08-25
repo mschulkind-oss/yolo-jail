@@ -120,18 +120,63 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// (advertiseHostFor), and the two now feed one shared predicate
 	// (sharesLauncherNetns) whose whole value is that they cannot disagree.
 	netMode := o.resolveNetMode(cfg)
+
+	// --- nested-container detection ---
+	// o.inContainer() rather than a second copy of the same two probes, for the
+	// reason given at netMode above: this answer and the loophole runtime's have to
+	// be one answer, not two that happen to match today.
+	inContainer := o.inContainer()
+
+	// THE MODE THIS LAUNCH RUNS UNDER, computed HERE — above the port gate — rather
+	// than beside the `--net=` selector it also spells (see the network-mode-flag
+	// section below, which is its other reader).
+	//
+	// The port keys used to answer to the CONFIGURED mode while the selector answered
+	// to the applied one, and a nested launch is exactly where those two differ:
+	// podman-in-podman is forced onto the launcher's namespace, so `network.mode:
+	// "bridge"` (the default) emitted --net=host AND every -p, and the publish path
+	// then appends the DNAT sysctl the host namespace refuses outright:
+	//
+	//	Error: ... sysctl net.ipv4.conf.all.route_localnet=1 can't be set since
+	//	Network Namespace set to host
+	//
+	// — a `podman create` failure, so a nested jail declaring ANY port could not start
+	// at all. That is this repo's own dev loop (AGENTS.md, "Nested-jail verification").
+	applied := appliedNetMode(rt, netMode, inContainer)
+
 	var publishArgs []string
-	if netMode == "bridge" {
-		if netSec := cfgMap(cfg, "network"); netSec != nil {
-			for _, p := range asAnyList(mapGet(netSec, "ports")) {
+	var forwardHostPorts []any
+	if netSec := cfgMap(cfg, "network"); netSec != nil {
+		declaredPorts := asAnyList(mapGet(netSec, "ports"))
+		declaredForwards := asAnyList(mapGet(netSec, "forward_host_ports"))
+		if applied == "bridge" {
+			for _, p := range declaredPorts {
 				publishArgs = append(publishArgs, "-p", pyStrCoerce(p))
 			}
-		}
-	}
-	var forwardHostPorts []any
-	if netMode == "bridge" {
-		if netSec := cfgMap(cfg, "network"); netSec != nil {
-			forwardHostPorts = asAnyList(mapGet(netSec, "forward_host_ports"))
+			forwardHostPorts = declaredForwards
+		} else if netMode == "bridge" && (len(declaredPorts) > 0 || len(declaredForwards) > 0) {
+			// ONLY THE FORCED DROP WARNS, and only when there is something to drop. An
+			// explicit `network.mode: "host"` drops the same two keys and always has —
+			// that is the user's own declaration, and on Apple Container (where the mode
+			// is not honored at all) the branch further down is where it gets its line.
+			// What has no declaration anywhere is NESTING: the config says bridge, the
+			// launch applies host, and the ports vanish for a reason nothing the user
+			// wrote can account for. Conditional on the declaration for the reason
+			// backend-parity.md OQ-BP-3 gives: a launch line that fires only when the user
+			// declared the thing is the kind a reader does not learn to skip.
+			var dropped []string
+			if len(declaredPorts) > 0 {
+				dropped = append(dropped, "network.ports")
+			}
+			if len(declaredForwards) > 0 {
+				dropped = append(dropped, "network.forward_host_ports")
+			}
+			out.print("[yellow]Warning: nested launch — podman-in-podman is forced onto this " +
+				"container's network namespace (--net=host; netavark cannot create one without " +
+				"NET_ADMIN), so " + strings.Join(dropped, " and ") + " " +
+				"are NOT applied[/yellow] — the jail shares this process's network stack, so a " +
+				"port it binds is already reachable on the same localhost, with no forwarding hop " +
+				"to publish. Launch from the host for published ports.")
 		}
 	}
 
@@ -226,12 +271,6 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// there is nothing to bind and no YOLO_REPO_ROOT to set.
 	runCmd = append(runCmd, "--workdir", "/workspace")
 
-	// --- nested-container detection ---
-	// o.inContainer() rather than a second copy of the same two probes, for the
-	// reason given at netMode above: this answer and the loophole runtime's have to
-	// be one answer, not two that happen to match today.
-	inContainer := o.inContainer()
-
 	// --- GPU availability probe (gates the uidmap/runc branch below) ---
 	gpuRequested := false
 	gpuVendor := "nvidia"
@@ -284,18 +323,23 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// what the briefing reads (backend-parity.md §6): a jail forced onto host networking
 	// by nesting used to be told it was bridged, because the forcing lived here as an
 	// inline `rt == "podman" && inContainer` and nothing else could see it.
-	applied := appliedNetMode(rt, netMode, inContainer)
+	//
+	// `applied` is computed at the top of this function, beside the port gate that is
+	// its other reader — the same answer, once, for both.
 	var hostLoopback hostLoopbackPlan
 	if rt == "container" {
-		// Apple Container handles networking internally — but an explicit
-		// `network.mode: "host"` is STRICTLY WORSE than the default here, and used to
-		// say nothing. No --net is emitted (this branch), so there is no host
-		// networking; and both port keys are gated on mode == "bridge" above, so
-		// asking for host mode also silently drops every published port. The agent used
-		// to be told "localhost resolves directly to the host" on top of that, by a
+		// Apple Container handles networking internally, so an explicit
+		// `network.mode: "host"` does nothing here and used to say nothing either. No
+		// --net is emitted (this branch), so there is no host networking. The agent was
+		// also told "localhost resolves directly to the host" on top of that, by a
 		// briefing composed from the config rather than from what was applied — it now
 		// reads appliedNetMode, which answers "bridge" here for the reason this branch
 		// emits no selector.
+		//
+		// The port keys follow that same answer now (the gate at the top of this
+		// function reads `applied`, not the config), so an explicit host mode no longer
+		// silently drops them on this backend: what AC applies is its own bridged
+		// networking, and -p works there whatever the unhonored key says.
 		//
 		// Only an EXPLICIT host is warned: bridge is genuinely honored on this backend
 		// (-p is emitted ungated, forward_host_ports goes through --publish-socket, and
@@ -304,9 +348,9 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		if netMode == "host" {
 			out.print("[yellow]Warning: network.mode \"host\" is NOT honored on Apple Container[/yellow] — " +
 				"the backend manages networking itself, so the jail does not share your host's " +
-				"network stack. It is also worse than leaving it unset: published ports and " +
-				"forward_host_ports are bridge-only, so this drops those too. Remove the key, or " +
-				"use YOLO_RUNTIME=podman for host networking.")
+				"network stack (published ports and forward_host_ports still apply: this backend " +
+				"runs bridged either way). Remove the key, or use YOLO_RUNTIME=podman for host " +
+				"networking.")
 		}
 	} else if rt == "podman" && inContainer {
 		// Podman-in-podman: netavark cannot create a netns without NET_ADMIN, so the
@@ -368,7 +412,14 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, mountArgs...)
 
 	// --- published-port DNAT sysctl + env ---
-	if len(publishArgs) > 0 && rt == "podman" {
+	// `applied == "bridge"` is spelled again here rather than left implied by a
+	// non-empty publishArgs, because THIS is the flag the kernel refuses: podman
+	// rejects the sysctl outright under host networking ("can't be set since Network
+	// Namespace set to host") and the container never gets created. The publish gate
+	// above already withholds every -p in that case, so the condition is redundant
+	// today — deliberately, so that relaxing either half alone cannot resurrect the
+	// pairing that failed the launch.
+	if len(publishArgs) > 0 && rt == "podman" && applied == "bridge" {
 		runCmd = append(runCmd, "--sysctl", "net.ipv4.conf.all.route_localnet=1")
 		var publishedPorts []string
 		if netSec := cfgMap(cfg, "network"); netSec != nil {
