@@ -273,8 +273,13 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 // (validateContribution) still refuses both loudly, so an author hears and a jail boots.
 //
 // An empty `via` returns "" — it is a hard problem on BOTH paths, never skew.
+//
+// The set it tests against is KnownVia's and not a third spelling of the two values:
+// the day a `uv` lands, this skip and validateContribution's refusal have to change
+// together or a manifest validates for its author and installs nothing in the jail
+// (knownVias in contributes.go records the measurement).
 func unknownViaSkip(i int, c Contribution) string {
-	if c.Kind != KindProgram || c.Via == "" || c.Via == "npm" || c.Via == "installer" {
+	if c.Kind != KindProgram || c.Via == "" || KnownVia(c.Via) {
 		return ""
 	}
 	return fmt.Sprintf(

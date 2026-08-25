@@ -130,6 +130,73 @@ type Contribution struct {
 	Raw json.RawMessage `json:"config,omitempty"`
 }
 
+// viaDelivery is one value of the closed `via` enum: the name a pack author writes on
+// a `program` contribution, and the legacy Install.Kind the jail's installer renders
+// it as.
+type viaDelivery struct {
+	name        string
+	installKind string
+}
+
+// knownVias is THE authority for the `via` vocabulary, closed in the same sense
+// kinds.go's kind set is closed — core has to know how to DELIVER a mechanism before a
+// pack may name it, so a value outside this list is not a mechanism yolo can install.
+//
+// It exists as one list because the set had been spelled independently in three places
+// — unknownViaSkip (packdecl.go), InstallContributions and validateContribution — with
+// nothing coupling them. Measured: teaching BOTH switches in this file a third value
+// left every test green while the tolerant decoder, which the in-jail read goes
+// through, still dropped every contribution using it. The author would have seen a
+// manifest that validated, and the jail would have installed nothing, with the skip
+// note the only evidence and no test able to see the disagreement.
+//
+// Declaration order is the order the diagnostics list them in (KnownVias), so it is
+// the order a pack author reads in an error message; it is not otherwise meaningful.
+var knownVias = []viaDelivery{
+	{name: "npm", installKind: "npm"},
+	{name: "installer", installKind: "native"},
+}
+
+// KnownVia reports whether v names a delivery mechanism this build knows. An empty
+// string is NOT known — a program that names no mechanism installs nothing, and it is
+// a hard problem on both decode paths rather than version skew (unknownViaSkip).
+func KnownVia(v string) bool {
+	for _, d := range knownVias {
+		if d.name == v {
+			return true
+		}
+	}
+	return false
+}
+
+// KnownVias returns the closed via set in declaration order, for diagnostics and
+// tests. Callers join it into their own sentence ("npm or installer").
+func KnownVias() []string {
+	out := make([]string, len(knownVias))
+	for i, d := range knownVias {
+		out[i] = d.name
+	}
+	return out
+}
+
+// viaList renders the closed set the way the validator's diagnostics name it
+// ("npm or installer"), so the message cannot outlive the vocabulary it quotes.
+func viaList() string {
+	return strings.Join(KnownVias(), " or ")
+}
+
+// installKindFor returns the legacy Install.Kind a via renders as, and "" for a via
+// this build does not know (including the empty one). The empty result is what makes
+// an unknown mechanism inert downstream rather than mis-installed.
+func installKindFor(via string) string {
+	for _, d := range knownVias {
+		if d.name == via {
+			return d.installKind
+		}
+	}
+	return ""
+}
+
 // Contributions returns the pack's declared contributions. THE accessor every
 // read path uses — the legacy-shaped projections below (InstallContributions,
 // HostFileContributions, …) are all derived from it, so a consumer that wants
@@ -164,11 +231,16 @@ func (m *Manifest) InstallContributions() []Install {
 			continue
 		}
 		in := Install{Bin: c.Bin, Flags: c.Flags}
+		// The KIND comes from the closed via table, never from a case in this switch:
+		// that is the coupling to KnownVia, and it is what stops this projection from
+		// learning a mechanism the decoders would still drop (see knownVias). A via
+		// this build does not know renders an empty Kind — inert, not mis-installed.
+		in.Kind = installKindFor(c.Via)
 		switch c.Via {
 		case "npm":
-			in.Kind, in.Package = "npm", c.Package
+			in.Package = c.Package
 		case "installer":
-			in.Kind, in.InstallerURL = "native", c.URL
+			in.InstallerURL = c.URL
 		}
 		out = append(out, in)
 	}
@@ -743,15 +815,20 @@ func validateContribution(label string, c Contribution) []string {
 		// hook names (KnownHooks), and the manifest-level `skills_tier` — are deliberately
 		// NOT widened here: each is skew-sensitive in exactly this way, and whoever adds a
 		// value to one extends its tolerance first, in its own change.
-		switch c.Via {
-		case "npm":
+		//
+		// MEMBERSHIP IS KnownVia's, not this switch's, so the strict refusal and the
+		// tolerant skip cannot come to disagree about which values exist (knownVias).
+		// What stays here is the per-value REQUIRED FIELD, which is this function's own
+		// business — the switch below adds no member and can subtract none.
+		switch {
+		case c.Via == "":
+			problems = append(problems, label+": program needs \"via\" ("+viaList()+")")
+		case !KnownVia(c.Via):
+			problems = append(problems, fmt.Sprintf("%s: unknown via %q (%s)", label, c.Via, viaList()))
+		case c.Via == "npm":
 			req("package", c.Package)
-		case "installer":
+		case c.Via == "installer":
 			req("url", c.URL)
-		case "":
-			problems = append(problems, label+": program needs \"via\" (npm or installer)")
-		default:
-			problems = append(problems, fmt.Sprintf("%s: unknown via %q (npm or installer)", label, c.Via))
 		}
 	case KindRequires:
 		req("bin", c.Bin)
