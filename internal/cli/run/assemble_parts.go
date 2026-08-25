@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -656,51 +655,14 @@ func hasKey(m *jsonx.OrderedMap, key string) bool {
 
 // resourceArgs builds the resource-limits block: --memory/--cpus with
 // Apple-Container defaults, and --pids-limit (podman default 32768).
+//
+// The DECISION — which flags this backend passes and with what values — is
+// appliedResourceLimits, because the briefing states the same list in prose and the two
+// must be one answer (backend-parity.md §6). This function is only its argv spelling.
 func (o *Options) resourceArgs(cfg *jsonx.OrderedMap, rt string) []string {
-	resCfg := cfgMap(cfg, "resources")
 	var args []string
-	var memory string
-	var cpus string
-	haveCPUs := false
-	if resCfg != nil {
-		if v := mapGet(resCfg, "memory"); v != nil {
-			memory = pyStrCoerce(v)
-		}
-		if v := mapGet(resCfg, "cpus"); v != nil {
-			cpus = pyStrCoerce(v)
-			haveCPUs = true
-		}
-	}
-
-	if rt == "container" {
-		if !haveCPUs {
-			hostCPUs := numCPU()
-			half := hostCPUs / 2
-			if half < 2 {
-				half = 2
-			}
-			cpus = strconv.Itoa(half)
-			haveCPUs = true
-		}
-		if memory == "" {
-			memory = o.appleContainerDefaultMemory()
-		}
-	}
-
-	if memory != "" {
-		args = append(args, "--memory", memory)
-	}
-	if haveCPUs {
-		args = append(args, "--cpus", cpus)
-	}
-	if rt != "container" {
-		pids := "32768"
-		if resCfg != nil {
-			if v := mapGet(resCfg, "pids_limit"); v != nil {
-				pids = pyStrCoerce(v)
-			}
-		}
-		args = append(args, "--pids-limit", pids)
+	for _, lim := range appliedResourceLimits(rt, cfgMap(cfg, "resources"), o.appleContainerDefaultMemory) {
+		args = append(args, lim.flag, lim.value)
 	}
 	return args
 }

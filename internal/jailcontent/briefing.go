@@ -45,7 +45,19 @@ type BriefingInput struct {
 	Workspace         string
 	BlockedTools      []BlockedTool
 	MountDescriptions []string
-	NetMode           string
+	// NetMode is the CONFIGURED network mode (`network.mode`, or the --network flag).
+	// AppliedNetMode is the mode the launch actually ran under, which is not always the
+	// same one: podman-in-podman is forced to host networking whatever the config says,
+	// and Apple Container emits no network selector at all. When it is set it decides the
+	// network paragraph and the port sections; NetMode is the fallback for a caller that
+	// has not resolved the backend (docs/design/backend-parity.md §6).
+	//
+	// A SECOND FIELD rather than a retype of NetMode, deliberately. "host" is both a
+	// network mode and a confinement notch here, and the two are pinned apart by
+	// TestBriefingNetModeHostIsNotTheHostNotch; several callers construct NetMode
+	// directly, and collapsing them would have made that conflation cheap to reintroduce.
+	NetMode        string
+	AppliedNetMode string
 	// PublishPorts and ForwardHostPorts are the two DIRECTIONS, and they are
 	// rendered as separate sections on purpose: a jail that showed only the
 	// second one let an agent see which host ports had been imported while
@@ -80,8 +92,8 @@ type BriefingInput struct {
 // is assembled from BriefingInput — the briefing lines joined with "\n" plus a
 // trailing newline. NOTE: this is NOT golden-pinned; no test asserts the full
 // output (briefing_test.go covers only the helpers), so sections can be added
-// or removed without regenerating a golden. NetMode defaults to "bridge" when
-// empty.
+// or removed without regenerating a golden. The network mode is AppliedNetMode
+// when set, else NetMode, else "bridge".
 
 // confinementHeader is the briefing's opening block for the notch this environment runs
 // at (env-manager plan Phase 8, C2).
@@ -206,7 +218,15 @@ func enforcementLines(prof render.Profile) []string {
 }
 
 func BriefingContent(in BriefingInput) string {
-	netMode := in.NetMode
+	// What the launch APPLIED wins over what the config asked for; NetMode is the
+	// fallback for a caller that never resolved a backend. Everything downstream — the
+	// network paragraph and both port sections, which describe forwarding that only
+	// happens under bridge — keys off this one value, so a nested jail forced onto host
+	// networking is told so instead of being told about a bridge it does not have.
+	netMode := in.AppliedNetMode
+	if netMode == "" {
+		netMode = in.NetMode
+	}
 	if netMode == "" {
 		netMode = "bridge"
 	}

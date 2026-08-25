@@ -278,15 +278,24 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// every jail — see hostloopback.go and
 	// docs/design/loopback-tls-reachability.md §6. Every failure path there emits
 	// nothing, so the worst case is exactly the behaviour above.
+	//
+	// Both emitting branches below spell the selector as `--net=` + appliedNetMode, so
+	// the argv IS the predicate's answer rather than a second computation of it. That is
+	// what the briefing reads (backend-parity.md §6): a jail forced onto host networking
+	// by nesting used to be told it was bridged, because the forcing lived here as an
+	// inline `rt == "podman" && inContainer` and nothing else could see it.
+	applied := appliedNetMode(rt, netMode, inContainer)
 	var hostLoopback hostLoopbackPlan
 	if rt == "container" {
 		// Apple Container handles networking internally — but an explicit
 		// `network.mode: "host"` is STRICTLY WORSE than the default here, and used to
 		// say nothing. No --net is emitted (this branch), so there is no host
 		// networking; and both port keys are gated on mode == "bridge" above, so
-		// asking for host mode also silently drops every published port. The agent is
-		// then told "localhost resolves directly to the host" by a briefing composed
-		// from the config rather than from what was applied.
+		// asking for host mode also silently drops every published port. The agent used
+		// to be told "localhost resolves directly to the host" on top of that, by a
+		// briefing composed from the config rather than from what was applied — it now
+		// reads appliedNetMode, which answers "bridge" here for the reason this branch
+		// emits no selector.
 		//
 		// Only an EXPLICIT host is warned: bridge is genuinely honored on this backend
 		// (-p is emitted ungated, forward_host_ports goes through --publish-socket, and
@@ -300,15 +309,15 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 				"use YOLO_RUNTIME=podman for host networking.")
 		}
 	} else if rt == "podman" && inContainer {
-		// Podman-in-podman: netavark cannot create a netns without NET_ADMIN. This
-		// is also the one mode in which the reachability bug CANNOT reproduce (the
-		// jail shares the launcher's stack, so the two loopbacks are one), which is
-		// why a nested jail is no evidence about the branch below — §7 of the
-		// design doc, and the carve-out in AGENTS.md.
-		runCmd = append(runCmd, "--net=host")
+		// Podman-in-podman: netavark cannot create a netns without NET_ADMIN, so the
+		// applied mode is host whatever the config asked for. This is also the one mode
+		// in which the reachability bug CANNOT reproduce (the jail shares the launcher's
+		// stack, so the two loopbacks are one), which is why a nested jail is no evidence
+		// about the branch below — §7 of the design doc, and the carve-out in AGENTS.md.
+		runCmd = append(runCmd, "--net="+applied)
 	} else {
-		if netMode != "bridge" {
-			runCmd = append(runCmd, "--net="+netMode)
+		if applied != "bridge" {
+			runCmd = append(runCmd, "--net="+applied)
 		}
 		hostLoopback = decideHostLoopback(o.hostLoopbackFactsFor(rt, netMode))
 		runCmd = append(runCmd, hostLoopback.args...)

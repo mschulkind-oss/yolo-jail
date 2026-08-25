@@ -28,18 +28,38 @@ import (
 // the staged set through the `staged` argument.
 func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt string, staged stagedPacks) (string, error) {
 	netSec := cfgMap(cfg, "network")
-	netMode := o.Network
-	if netSec != nil {
-		if m := mapStr(netSec, "mode"); m != "" {
-			netMode = m
-		}
-	}
+	netMode := o.resolveNetMode(cfg)
+	// The two port keys are gated on the CONFIGURED mode, not the applied one, because
+	// that is the gate the assembler uses to emit -p and the socat forwards: on Apple
+	// Container an explicit `network.mode: "host"` drops both keys even though the
+	// applied mode is bridge, and advertising them here would replace one false sentence
+	// with another.
 	publishPorts, forwardHostPorts := briefingPortsFor(netMode, netSec)
+
+	// WHAT THE LAUNCH APPLIES, not what the config asked for — the same predicate
+	// assembleRunCmd spells its `--net=` selector from, so the two cannot disagree
+	// (docs/design/backend-parity.md §6).
+	//
+	// NO HOST PROBE BELONGS IN THIS FUNCTION, and this is where the temptation arrives:
+	// the fuller truth about networking is hostLoopbackFactsFor's — which rootless stack
+	// podman picked, whether it takes the loopback-forwarding option — and it is one
+	// `podman info` plus one `<stack> --help` away. This function runs on EVERY
+	// invocation including attach, where it is the only work done and runs no subprocess
+	// at all, and those two answers can differ between the launch that started a jail and
+	// the attach that re-renders its briefing. So the briefing carries the DETERMINISTIC
+	// decision only: appliedNetMode reads the runtime, the config and o.inContainer()
+	// (a PathExists seam, no process), which re-derive the same answer on attach as at
+	// launch. What the probe decided is already in the jail as $YOLO_HOST_LOOPBACK, which
+	// the bridge paragraph names.
+	appliedNet := appliedNetMode(rt, netMode, o.inContainer())
 
 	// Blocked-tools → jailcontent.BlockedTool records.
 	blocked := blockedToolRecords(config.NormalizeBlockedTools(cfgMap(cfg, "security")))
 
-	// mount_descriptions for existing config.mounts.
+	// mount_descriptions for existing config.mounts, filtered to the ones the backend
+	// will actually bind: Apple Container refuses every one of them (roBindsUnsupported),
+	// and a section headed "Additional Context Mounts (read-only)" naming /ctx paths that
+	// were never mounted is the same lie as a network mode that was never applied.
 	var mountDescriptions []string
 	for _, mAny := range cfgList(cfg, "mounts") {
 		mount, ok := mAny.(string)
@@ -52,6 +72,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 			mountDescriptions = append(mountDescriptions, resolved+":"+containerPath)
 		}
 	}
+	mountDescriptions = appliedCtxMounts(rt, mountDescriptions)
 
 	// ACTIVE loopholes (name, description) — census site 1, through the converged set.
 	//
@@ -91,8 +112,12 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		return "", err
 	}
 
-	// Resources map (sorted-key rendering handled inside BriefingContent).
-	resources := orderedMapToStrAny(cfgMap(cfg, "resources"))
+	// Resource limits the backend actually IMPOSES (sorted-key rendering handled inside
+	// BriefingContent) — the same list assembleRunCmd turns into flags. Read straight
+	// from the `resources` map, this told an Apple Container jail its pids_limit was
+	// kernel-enforced when that flag is never passed there, and told it nothing at all
+	// about the memory and cpu caps the backend applies by default.
+	resources := briefedResourceLimits(rt, cfgMap(cfg, "resources"))
 
 	// The one-time handoff: a fresh .yolo/handover.md pointer the host agent filed for
 	// this transition, surfaced via the briefing and then consumed so it never resurfaces
@@ -108,6 +133,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		BlockedTools:       blocked,
 		MountDescriptions:  mountDescriptions,
 		NetMode:            netMode,
+		AppliedNetMode:     appliedNet,
 		PublishPorts:       publishPorts,
 		ForwardHostPorts:   forwardHostPorts,
 		Loopholes:          loops,
@@ -155,15 +181,27 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	if handoff != "" && briefingsWritten > 0 {
 		o.noteHandoffConsumed()
 	}
-	// `rt` is USED now (the loophole gate above). It was `_ = rt` for as long as this
-	// function took the runtime and ignored it — which is the smoking gun for the whole
-	// class the gate closes: every other BriefingInput field is still read straight from
-	// cfg, so the briefing describes what was CONFIGURED rather than what was APPLIED.
-	// The remaining known divergences, all on a non-podman backend: network.mode "host"
-	// renders "localhost resolves directly to the host" where no --net was emitted;
-	// resources renders "kernel-enforced" where the flag was never passed. Feeding
-	// BriefingContent from assembleRunCmd's actual output is the real fix; this gate is
-	// the one case where the truth value was already known here.
+	// `rt` reaches four fields now — loopholes, network, resources, mounts — where it was
+	// `_ = rt` for as long as this function took the runtime and ignored it, composing
+	// every field straight from cfg and so describing what was CONFIGURED rather than
+	// what was APPLIED (docs/design/backend-parity.md §6).
+	//
+	// WHAT IS LEFT, stated so the next reader does not have to re-derive it:
+	//
+	//   - The bridge paragraph's own claims — host.containers.internal at 169.254.1.2,
+	//     `$YOLO_HOST_LOOPBACK` — are podman's shape and are rendered for Apple Container
+	//     too. Whether an AC container reaches a host loopback listener AT ALL is
+	//     OQ-BP-4, and a Mac settles it; nothing here can (AGENTS.md's nested-jail
+	//     carve-out).
+	//   - podman's own `--pids-limit 32768` is applied and not briefed, on purpose —
+	//     briefedResourceLimits says why.
+	//   - macos-user reaches none of this: Run() returns before runContainer, so that
+	//     backend gets no briefing at all (OQ-BP-2), which is a delivery gap rather than
+	//     a false sentence.
+	//   - The startup BANNER keeps its own spelling of the resource rule (resPartsFor in
+	//     run.go), so on Apple Container it prints only what the config set while the
+	//     backend caps anyway. Same shape, a different surface: that line is the human's,
+	//     and it is read once beside a launch rather than planned around by an agent.
 	return staging, nil
 }
 
@@ -235,19 +273,9 @@ func blockedToolRecords(blocked []any) []jailcontent.BlockedTool {
 	return out
 }
 
-// orderedMapToStrAny converts an OrderedMap to a map[string]any (for
-// BriefingInput.Resources; BriefingContent sorts keys itself).
-func orderedMapToStrAny(m *jsonx.OrderedMap) map[string]any {
-	if m == nil || m.Len() == 0 {
-		return nil
-	}
-	out := make(map[string]any, m.Len())
-	for _, k := range m.Keys() {
-		v, _ := m.Get(k)
-		out[k] = v
-	}
-	return out
-}
+// orderedMapToStrAny is GONE: BriefingInput.Resources is fed by briefedResourceLimits
+// (backendcaps.go) now, so the briefing states the limits the backend imposes rather than
+// re-typing the `resources` block the user wrote.
 
 // prepareWsState prepares the ws_state overlay: create the
 // per-workspace overlay dirs + touch the overlay files, seed selected agents'
