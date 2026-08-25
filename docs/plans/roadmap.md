@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 15 needing you · 1 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
+**Status: 14 needing you · 1 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
 
 Last updated **2026-08-24**. Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph matches the section it is
@@ -13,8 +13,10 @@ in.
 > 74 mechanisms across the three backends and confirmed 31 silent drops, deduping to 17 distinct
 > defects.** Ten are fixed or warned as of 2026-08-24; the rest are 💬 **15** and 📦 below.
 >
-> Everything else here is still standing behind a ruling only you can make, so answering 💬 **1**,
-> **2** or **6** remains the fastest way to create work.
+> Everything else here is still standing behind a ruling only you can make, so answering 💬 **2**
+> or **6** remains the fastest way to create work. *(💬 1 — program delivery — left the file on
+> 2026-08-24: all ten of its questions were ruled the same day, and four of its build steps shipped
+> within hours; the remainder is the 📦 row below.)*
 
 **What this is.** The forward plan and nothing else. **If it is in this file, it is not done.** Work
 that ships leaves immediately — the record is the commit history. Decisions *not* to build move to
@@ -35,8 +37,10 @@ the real number was closer to 50.
 > [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md); **S5** is in
 > [`BACKLOG.md`](BACKLOG.md) §Stage E. **Cite a state row or an OQ ID — never a letter.**
 
-**And the real number is now countable rather than estimated: 95 live questions across 25 docs**,
-as of 2026-08-24, after a two-wave audit that gave every one of them a `💬` and a stable ID. It used
+**And the real number is now countable rather than estimated: 105 live questions**, re-counted
+2026-08-24 at this edit — the two-wave audit found 95, program-delivery's ten have since been ruled
+out of the count, and the corpus still grew by twenty, which says what the command is for.
+The audit gave every one of them a `💬` and a stable ID. It used
 to require reading ~9,000 lines; it is now one command:
 
 ```console
@@ -55,8 +59,8 @@ heading anchors. All five, and the allowlists they need, are in
 > was about, found by an adversarial re-check of the pass itself. If you add a heading style, check
 > the count moves.
 
-**Fifteen rows below is what the blocking subset of those 95 groups into** — the rest are named
-in *What the roadmap does not cover* at the end, deliberately. The gap between 95 and 15 is the
+**Fourteen rows below is what the blocking subset groups into** — the rest are named
+in *What the roadmap does not cover* at the end, deliberately. The gap between 105 and 14 is the
 point of this file: a row is a *decision*, and one decision usually closes several questions.
 
 | | Means |
@@ -74,56 +78,6 @@ point of this file: a row is a *decision*, and one decision usually closes sever
 
 Grouped by decision, not by question. Each row names its design doc; the doc holds the stakes and my
 leaning. **Nothing here asks you to pick an execution order** — sequencing is mine.
-
-### 💬 1 — Program delivery: eight questions, and the research corrected both of us
-
-📄 [`program-delivery.md`](../design/program-delivery.md) — **OQ-PD1 … OQ-PD8**
-
-New doc, written because you said this needed research before a decision. It supersedes the framing
-of trust-paths' OQ-TP3/TP4 rather than answering them: the goal is **uniformity, not security** — the
-security half was settled when OQ-TP5 killed silent npm updates.
-
-**Four findings that change the question, each measured rather than argued:**
-
-- **"Realization is per-workspace" is only half true, and the other half is worse.** npm programs,
-  installer programs, LSP and MCP packages do land per-workspace. But **mise is machine-global and
-  evergreen on every single launch**, so a launch in workspace B changes the toolchain workspace A
-  resolves through — including a jail that is already running. **A per-workspace lockfile cannot
-  reach it.**
-
-  📄 **[Exactly what mise shares, and why the sharing is inverted](../design/program-delivery.md#421-exactly-what-mise-shares--and-the-sharing-is-inverted)**
-  — you asked whether mise was only meant to share CAS-type caches. That is the right expectation and
-  the reality is its **exact inverse**: `MISE_CACHE_DIR` is `/tmp/mise-cache`, **per-container and
-  ephemeral**, while `MISE_DATA_DIR` is the machine-wide `/mise`. So the content-addressed part is
-  thrown away and the mutable part is shared. Inside `installs/`, the versioned directories are
-  effectively CAS and sharing them is the win; the **alias symlinks beside them are mutable
-  pointers** that `mise upgrade --yes` repoints, and this repo's own `mise.toml` resolves through
-  three of them (`node = "24"`, `go = "1.26"`, `just = "latest"`).
-- **npm was never special — it was just the first kind anyone looked at.** mise already carries the
-  Go module proxy and PyPI (via `pipx:`) alongside its core backends, all unpinned, all reached
-  through a key yolo itself composes. That is your *"too special case for npm"* worry, confirmed.
-- **"Pack set + lockfile makes jails uniform" is false today**, and this jail still proves it —
-  **though on narrower evidence than this row used to claim.** *(Re-measured 2026-08-23: the config
-  now legitimately selects claude, pi, codex, agy and opencode, so their presence proves nothing.
-  The row previously cited them and a reader checking it would have found it wrong.)* What survives
-  is cleaner: `@github/copilot` and npm `fzf 0.5.2` are installed with **no selecting pack and no
-  launcher** — copilot was deselected, and `fzf` came from a test pack that no longer exists.
-  **Dropping a pack removes its launcher and never uninstalls its program**, so a jail is the union
-  of every pack ever selected, not the current set.
-- **The launcher is PATH-shadowed after first use**, so the poll-and-report OQ-TP5 built is
-  unreachable in steady state. The freeze is **total, not throttled** — and the resolve that decides
-  everything is the cold one, per workspace.
-
-**And the machine-global finding proved itself while being re-checked.** On 2026-08-20 mise
-repointed `go/1.26` from `1.26.6` to `1.26.7` and **deleted `1.26.6` from disk** — so the exact
-`installs/` path measured five days ago is not merely stale, it is **dangling**. That is the failure
-mode the row describes, observed rather than argued, inside the window of one audit.
-
-**The cheapest single win, if you want one before ruling:** mise supports a lockfile and yolo never
-enables it. There is no mise lockfile anywhere in the tree. *(And OQ-PD8 has an answer waiting in
-evidence: `claude.stamp` is still 2026-08-05 and `fzf.stamp` still 2026-08-02, while the launchers
-were regenerated today. The stamp is touched on **every** poll, so an unmoved stamp is a poll that
-never ran — the informational channel OQ-TP5 built has emitted nothing here in 18 days.)*
 
 ### 💬 2 — Trust paths: where we extend trust, and where a pin is theatre
 
@@ -377,12 +331,18 @@ should **print**: a fourth verdict beside `[PASS]`/`[FAIL]`/`[WARN]`, or a scope
 - **Should `yolo check` validate an npm selector's shape?** Now that a `package` string can carry a
   version, a typo like `foo@@1.2.3` reaches npm and fails at first use *inside* the jail, where the
   diagnosis is worst. Cheap host-side check; needs a ruling only on how strict to be.
-- **A test that pins half of what it enumerates** *(found 2026-08-23; the shape AGENTS.md warns
-  about)*. `environment-manager-plan.md` cites `TestApplySealedClosure` as the test for
-  `applySealed`; it exercises only the `yolo-jail.local.jsonc` branch and **never the capture-overlay
-  refusal** at `apply.go:631-638` — so half the behaviour the doc enumerates would survive being
-  deleted. Ask the AGENTS.md question of it: *does it fail if I delete the call site?* No ruling
-  needed; it needs a second case.
+- **A fourth spelling of the port gate survives the applied-mode fix.** The nested-ports repair
+  gated `-p`, `forward_host_ports` and the route_localnet sysctl on `appliedNetMode`; the
+  host-side socat spawner (`run.go`, ~:593-606) still re-derives the CONFIGURED mode inline, so a
+  nested launch declaring `forward_host_ports` starts socats the jail is never told about —
+  harmless (killed at exit; the feature was already meaningless under a shared netns), but it is
+  the last site not reading the shared predicate. Cheap fix, no ruling needed beyond scheduling.
+- **Pack manifest strings are spliced into launcher bodies unquoted.** `__YOLO_URL__` and the npm
+  package name land in generated bash raw (beside the now-correctly-quoted receipt uses of the
+  same strings), so a fetched pack's `url`/`package` reaches `bash` as code — post-approval, and
+  embedded packs are trusted, which is why it has never bitten. Pre-existing; found by the
+  2026-08-24 receipts review. The fix is `shquote` at the splice, template-wide; wants its own
+  careful pass because tests pin template fragments.
 - ~~**Three CODE COMMENTS the docs now outrank.**~~ **FIXED 2026-08-23** (`6e84f1cf`), comment-only,
   `check-ci` green: `mcp.go` advertised `${VAR}` interpolation removed by ruling on 2026-08-03 while
   its own header 45 lines above said otherwise; `footprint.go` called a loophole-name collision
@@ -499,33 +459,24 @@ argv shape. **That is OQ-BP-1's case, measured rather than argued** (§5.2).
 
 # 📦 Up next
 
-**One item, and it refilled by DISCOVERY rather than by a ruling** — which is not how this
-section was supposed to work, and is worth noticing. It emptied on 2026-08-19 by shipping; it
-refilled on 2026-08-24 because a user filed an issue and the sweep behind it found sixteen more of
-the same defect — twenty more, by the end of the day.
+**One item: the rest of program delivery's build order.** Its ten questions were all ruled on
+2026-08-24, and four steps shipped the same day (`a16403e2` no more per-launch mise upgrade +
+committed `mise.lock` · `0a4d241c` unknown-`via` tolerance · `af46c9b4` install receipts + the
+boot orphan catalog · `28ddea11` the briefing-from-applied item that used to be this section's
+sole occupant). What remains is designed, ruled, and unblocked:
 
-- 📦 **Compose the briefing from what was APPLIED, not from the config map.** *Needs no ruling —
-  the direction is settled and the seam is identified.* 📄
-  [`backend-parity.md`](../design/backend-parity.md) §6
+- 📦 **Program delivery §10, the remainder.** 📄
+  [`program-delivery.md`](../design/program-delivery.md) §10 — in its own order:
+  the **reconcile** (generalise the LSP sentinel: compare receipts + locks against disk, offline,
+  report only — it also inherits the "newer version available" channel OQ-PD8 found dead);
+  the **user-scope gap receipt** in `packs.lock.json` (the scope split's second half — the
+  workspace JSONL that shipped is the observation log, not the pin); the **removal act** plus the
+  default-off autoprune option (the catalog half shipped and promptly found three orphans nobody
+  knew about); **obey** (install honors the receipt — OQ-PD6/PD7's wiring); and last, the
+  **installer capture** (§6.3, OQ-PD10 — an ephemeral jail as the AUR chroot).
 
-  `refreshJailBriefings` took the runtime and **discarded it** (`_ = rt`, deleted 2026-08-24) while
-  every `BriefingInput` field was read straight from `cfg`. So the briefing describes what was
-  *configured*, not what was *applied*, and on a non-podman backend it states things that are
-  false: `network.mode: "host"` renders *"localhost resolves directly to the host"* where no
-  `--net` was emitted, and `resources` renders *"kernel-enforced"* where the flag was never passed.
-
-  The loophole list was fixed this way already (`a639394d`) — it is the one case where the truth
-  value was known at the call site. **The general fix is to feed `BriefingContent` from what
-  `assembleRunCmd` actually emitted**, which it already computes, making the class unrepresentable
-  instead of fixed case by case.
-
-  **Why this outranks the census it shares a doc with:** an absent capability is a jail missing
-  something. A false briefing is a jail that **told the agent something untrue**, and an agent
-  plans around it. Half a day against the census's two-to-three.
-
-**What refills this section otherwise:** an answer in 💬. Rows **1**, **2** and **6** each unblock
-buildable work the day they are ruled on — program delivery has a ten-step build order waiting
-behind it (`program-delivery.md` §10), trust-paths has TP4's pin and TP7's catch-up, and
+**What refills this section otherwise:** an answer in 💬. Rows **2** and **6** each unblock
+buildable work the day they are ruled on — trust-paths has TP4's pin and TP7's catch-up, and
 image-staging has the largest measured reclaim in the repo.
 
 > [!NOTE]

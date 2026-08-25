@@ -26,6 +26,48 @@ was created on 2026-08-18, after that tag, which is why it has no released secti
 next cut is triggered by this file filling up or by a cadence is an open product question; see
 [`plans/further-roadmap-ideas.md`](plans/further-roadmap-ideas.md) §I5.)*
 
+### ⚠️ Launches stop upgrading mise — your tools freeze until you ask
+
+**What changed** (2026-08-24, `a16403e2`). Every launch used to run `mise upgrade --yes` against
+the machine-global `/mise` store, silently repointing the alias symlinks every workspace resolves
+through — including jails already running (`program-delivery.md` §4.2 caught an alias repointing
+and deleting its old target mid-audit). The launch now runs `mise install` only. A workspace
+`mise.lock`, when present, governs resolution (mise honors it by default); upgrading is an explicit
+act — `mise upgrade` / `mise lock` in the workspace, committed like any dependency bump.
+
+**Who this bites.** Anyone relying on fuzzy pins (`node = "24"`, `just = "latest"`) drifting
+forward on their own. They now freeze at whatever is installed until you upgrade deliberately —
+which is the ruling (OQ-PD3): no version changes with nobody present.
+
+### Boot prints an orphan catalog — and its first run may surprise you
+
+**What changed** (2026-08-24, `af46c9b4`). The boot reports, informationally, every npm package
+and `~/.local/bin` binary that no selected pack, preset, or LSP recipe declares. Nothing is
+deleted — removal stays an explicit act (OQ-PD4). Installs also start leaving receipts at
+`<workspace>/.yolo/receipts.jsonl` (one JSON line per install yolo runs: resolved version or
+artifact digest, act, time).
+
+**Who this bites.** Nobody's behaviour changes, but the first boot may name leftovers you forgot:
+this repo's own first catalog named five orphans, not the two the design doc knew about — three
+LSP servers stranded when `lsp_servers` left the config and their sentinel record was lost.
+
+### The environment briefing stops describing a jail it isn't in
+
+**What changed** (2026-08-24, `28ddea11`). The briefing now describes what the launch *applied*,
+not what the config asked for: a nested jail's briefing says host networking (podman-in-podman
+forces `--net=host`), Apple Container briefings gain the default resource limits actually imposed
+and stop listing context mounts that backend refuses to bind.
+
+**Who this bites.** Agents that planned around the old (false) bridge-mode paragraph in nested
+jails. The new text is the truth; nothing about the network itself changed.
+
+### A pack declaring an unknown program `via` no longer refuses the boot
+
+**What changed** (2026-08-24, `0a4d241c`). A staged pack whose `program` names a delivery
+mechanism the baked image doesn't know is now skipped with a note instead of refusing the launch.
+An empty `via` is still fatal on both paths. The tolerance only protects images baked after it —
+a third `via` value must wait for a `just load` on every host that will see it.
+
 ### ⚠️ Apple Container: your host `~/.claude/settings.json` starts applying
 
 **What changed** (2026-08-24, `e3c995b6`). A pack's `reads-host` grant — the one file yolo lets a

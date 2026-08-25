@@ -8,9 +8,11 @@ summary: "Four delivery classes, one of which keeps no record and is never re-de
 
 # How executable content gets into a jail — and what makes two jails the same
 
-**Status:** DECIDED, 2026-08-24. **Nothing built yet** — the build order is
-[§10](#10-what-i-would-build-in-order). All ten questions are ruled (the
-[Decision Ledger](#decision-ledger)). Every fact below is labelled
+**Status:** DECIDED, 2026-08-24; implementation underway the same day. All ten questions are
+ruled (the [Decision Ledger](#decision-ledger)). Shipped: the mise half of step one and the
+evergreen removal (`a16403e2`), the §6.2 tolerance (`0a4d241c`), step one's receipts and step
+four's informational catalog (`af46c9b4`); the reconcile verb, the removal act, obey, and capture
+remain — [§10](#10-what-i-would-build-in-order). Every fact below is labelled
 **MEASURED** (observed in this development jail, 2026-08-24), **READ FROM CODE** (traced but not
 observed running) or **NOT MEASURED**.
 
@@ -175,8 +177,11 @@ get the same bytes?"* — no, and nothing anywhere notices.
 
 ### 4.2 Drift: mise is machine-global, evergreen every launch, and repoints aliases in place
 
-`setupScript` runs `mise install --quiet && mise upgrade --yes` **unconditionally on every launch**
-(`internal/cli/run/command.go:15-25`, a frozen-contract constant). The store is a single bind —
+`setupScript` ran `mise install --quiet && mise upgrade --yes` **unconditionally on every launch**
+until `a16403e2` removed the upgrade — OQ-PD3's ruling landing; the launch now installs only, and
+a workspace `mise.lock` governs resolution when present (`internal/cli/run/command.go:15-25`). The
+diagnosis below is preserved because the store's shape is unchanged and the fossil record is the
+evidence for everything else in this section. The store is a single bind —
 `-v <miseStore>:/mise` (`internal/cli/run/assemble_parts.go:156-161`), backed by
 `paths.GlobalMise()` = `~/.local/share/yolo-jail/mise` (`internal/paths/paths.go:323`) — **one store
 for every workspace and every nesting depth.**
@@ -286,9 +291,10 @@ versioned directory is immutable only until shared garbage collection takes it, 
 > [!WARNING]
 > **This repo resolves through exactly those mutable aliases.** `/workspace/mise.toml` declares
 > `node = "24"`, `go = "1.26"`, `just = "latest"` — three fuzzy pins, each of which is a symlink any
-> other workspace's launch can move. `mise install && mise upgrade --yes` runs unconditionally on
-> every launch (`internal/cli/run/command.go:21-22`), so the mutation is not rare: it is once per
-> launch, per workspace, against shared state. The failure this produces is the nastiest kind — a
+> other workspace's launch can move. Until `a16403e2`, `mise upgrade --yes` ran on every launch, so
+> the mutation was once per launch, per workspace, against shared state; this repo now also commits
+> a `mise.lock`, so its own resolution no longer goes through the aliases at all. The failure the
+> old cadence produced is the nastiest kind — a
 > jail's toolchain changes (or dangles) **while it is running**, because a *different* workspace's
 > launch moved an alias the running jail resolves through. Nothing in the running jail was touched,
 > and nothing recorded that anything changed.
@@ -673,19 +679,21 @@ receipt ([OQ-PD1](#decision-ledger)).
 
 ### 6.2 Pay the enum tolerance before the next mechanism arrives
 
-The `via` field is a **closed two-value set** — `validateContribution` rejects anything but `npm`
-and `installer` (`internal/packdecl/contributes.go:743-745`) — and the two halves of the system
-disagree about what to do with a third value:
+**Paid (`0a4d241c`).** The `via` field is a **closed two-value set** — `validateContribution`
+rejects anything but `npm` and `installer` — and until the tolerance landed, the two halves of the
+system disagreed about a third value: `DecodeTolerant` skipped unknown *kinds* but validated known
+ones, so an unknown `via` **value** on kind `program` was a validation problem, and the boot path
+treats any problem as fatal — a pack declaring `via: "uv"` staged for an older baked entrypoint
+was a refused boot. Now `DecodeTolerant` drops a `program` whose non-empty `via` it does not know,
+with a skip note (`unknownViaSkip`, beside the unknown-kind rule it mirrors), strict `Decode`
+still refuses loudly, and an **empty** `via` stays fatal on both paths — a program naming no
+mechanism is a defect both ends of the version boundary agree on.
 
-- `GenerateAgentLaunchers` drops an unrecognised `Kind` with a bare `default: continue` and **no
-  message** (`internal/entrypoint/shims.go:219`).
-- `DecodeTolerant` skips unknown *kinds* but still validates known ones, so an unknown `via` **value**
-  on kind `program` is a validation problem — and the boot path treats any problem as fatal.
-
-**READ FROM CODE, NOT MEASURED:** a pack declaring `via: "uv"` staged for an older baked entrypoint
-is therefore a refused boot, not a skipped contribution — the same shape `packdecl`'s own comment
-warns about for a third `tier` value. **Whoever adds the third `via` must extend the tolerance
-first.** That is a prerequisite of this design, not a consequence of it.
+Two boundaries survive the payment. **The tolerance protects only images baked after it**: a third
+`via` value must still wait for a `just load` on every host that will see it, because the jail
+refusing the boot runs the *previous* image. And the sibling closed enums (`state.scope`, hook
+names, `skills_tier`) carry the identical future-skew shape and are deliberately not widened —
+each needs its own answer when its third value arrives.
 
 ### 6.3 Installers that just do whatever: capture the install, then treat the capture as the package
 
@@ -864,7 +872,7 @@ one) before this document's uniformity argument is even reached.
 | R3 | **Removal is destructive and the bytes are large.** Uninstalling on pack-drop can delete a 189 MB binary a user still runs from another workspace's muscle memory. | **Ruled** ([OQ-PD4](#decision-ledger)): boot catalogs orphans informationally; removal only on an explicit act; autoprune ships as an option, default off. The LSP sentinel's silent uninstall is the pattern *not* to copy at this size. |
 | R4 | **An unbounded artifact cache.** 404 GiB of image tars accrued in 24 days with a hint firing and nothing pruning (`image-staging` §1.6); npm's cacache is at 672 MB and grew 27 MB in six days of observation with nothing pruning; claude keeps 4 versions (just over 1 GB) per workspace. | Retention lands with the cache, not after it, and hangs off `yolo prune`. |
 | R5 | **A seam that implies tier-3 coverage is a lie.** A vendor self-updater cannot be recorded at all (until captured, §6.3), and an `npx -y` argv can be *pinned* in the render yolo writes but its resolution is still never recorded. | Enumerate unmanaged mechanisms in the same surface that reports the managed ones (§5.5, §6.1). |
-| R6 | **The closed `via` enum turns the next mechanism into a boot refusal** on any pre-`just load` image (§6.2). | Extend the tolerance *before* adding a third value: skip-and-report under `DecodeTolerant`, refuse loudly under `Decode`. |
+| R6 | **The closed `via` enum turns the next mechanism into a boot refusal** on any pre-`just load` image (§6.2). | **Paid** (`0a4d241c`): skip-and-report under `DecodeTolerant`, refuse loudly under `Decode`. Residual: the sibling enums named in §6.2, and the `just load` ordering. |
 | R7 | **Uniformity borrowed from a lockfile is a function of that lockfile's quality** — and §5.6 generalises the borrowing to every native lock we adopt. The core is measured (a workspace-local `mise.lock` governs resolution against the shared store); **NOT MEASURED**: format stability across mise's own upgrades, and full-launch behaviour under `MISE_LOCKFILE`. | Treat tier 2 as "record and compare" until the launch path is measured; do not promise obedience we do not own. |
 | R8 | **Every measurement is from one machine and one home.** The dates in §4.1 are this jail's history, not a general law. | The *mechanism* (cold-branch `@latest`, shared aliases, absent removal) is read from code and generalises; the dates are illustrative and labelled. |
 | R9 | **A repo-committed lock imports the repo's cadence.** Version bumps become PRs — reviewable and bot-automatable, which is the point, and a chore — and repo-less or ephemeral workspaces have no home for the project half. | Bots own the bump PRs; the user-scope half of §5.6's table is the fallback; a missing lock degrades to today's A2 behaviour plus a report line, never a refusal. |
@@ -873,15 +881,15 @@ one) before this document's uniformity argument is even reached.
 
 ## 10. What I would build, in order
 
-**First, write the receipt for the managed tier only.** Asked-for declaration, resolver, resolved
-identity, landing path, timestamp — for npm programs, installer programs and LSP servers, the three
-places yolo runs the install itself. It changes no behaviour and depends on nothing else here, so
-it lands first — and it is what turns the one enforcement decision the rulings deliberately
-deferred (OQ-PD7's gate) into a measurement instead of an argument. The mise half of the record
-needs no building at all
-([§5.6](#56-a6--borrow-the-ecosystems-lockfiles)): enable the lockfile, commit `mise.lock`, and the
-launch's `install && upgrade --yes` becomes install-from-lock — [OQ-PD3](#decision-ledger)'s ruling
-shipping inside the seam, in the first step rather than the last.
+**First, write the receipt for the managed tier only. — SHIPPED** (`af46c9b4` the receipts,
+`a16403e2` the mise half). Every install yolo runs — npm launcher, installer launcher, LSP
+bootstrap — appends declaration, resolved identity (version or digest), act and time to
+`<workspace>/.yolo/receipts.jsonl`. That is a **workspace-scope observation log beside the
+realization**, deliberately: the user-scope pin OQ-PD1 names (`packs.lock.json`) is what install
+will *obey*, and it arrives with the fifth step, where obeying starts. The mise half needed no
+building ([§5.6](#56-a6--borrow-the-ecosystems-lockfiles)): `mise.lock` is committed, the launch's
+`install && upgrade --yes` became install-from-lock, and this repo's own toolchain no longer
+resolves through the shared aliases.
 
 **Second, generalise the LSP sentinel into a reconcile.** It already does install *and* uninstall
 against a declared set; what it lacks is the resolved version and a caller for anything but LSP
@@ -896,7 +904,11 @@ under the ruling it does, by construction.
 
 **Fourth, make removal real** in [OQ-PD4](#decision-ledger)'s ruled shape: the boot catalog names
 the orphans and their sizes, an explicit act removes them, and autoprune is an option nobody gets
-by default.
+by default. **The catalog half is SHIPPED** (`af46c9b4`) — and its first real boot named **five**
+orphans in this workspace, not the two §4.3 measured: `pyright`, `typescript` and
+`typescript-language-server` survive from a since-unconfigured `lsp_servers`, their sentinel
+record lost — a live instance of the record-and-bytes divergence this whole design exists to
+close. The removal act and the autoprune option remain.
 
 **Fifth, wire the ruled enforcement** ([OQ-PD6](#decision-ledger), [OQ-PD7](#decision-ledger)): the
 receipt is the pin, and it reports before it gates — by this point the receipts say how much
@@ -909,8 +921,8 @@ here is the same wiring for everything else.
 ruled — [OQ-PD10](#decision-ledger)): it slots in as the installer resolver's implementation of
 *record* + *materialize* and depends on nothing above except the receipt schema.
 
-**In parallel, pay the enum tolerance** (§6.2). It is small, it is independent of everything above,
-and it is only cheap while no one needs it.
+**In parallel, pay the enum tolerance** (§6.2) — **PAID** (`0a4d241c`), while no one needed it,
+which was the point.
 
 ---
 
