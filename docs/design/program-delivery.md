@@ -802,7 +802,8 @@ made here is used here, and publishing one is a provenance question for
 - **The image cost model.** [`image-staging-vs-baking.md`](image-staging-vs-baking.md) owns rebuild
   frequency, tar sizes, content-addressed tags and the binary cache. §5.1 here *cites* those numbers
   and adds none.
-- **Whether `packages:` should stay workspace-scope.** That is `image-staging` OQ-4.
+- **Whether `packages:` should stay workspace-scope.** Ruled 2026-08-25 — it does (`image-staging`
+  OQ-4, *"yes, has to be"*); fix the cost, not the scope.
 - **Agent context** — skills, briefings, config surfaces. Regenerated every launch (class 2), ruled
   by OQ-TP2, and out of scope here for the same reason.
 - **Offline or air-gapped operation as a goal.** Reconcile must work offline; *first* resolve need
