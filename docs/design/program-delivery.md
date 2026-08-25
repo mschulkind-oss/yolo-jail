@@ -1,17 +1,16 @@
 ---
 title: "How executable content gets into a jail — and what makes two jails the same"
 date: 2026-08-24
-status: in-review
+status: decided
 tags: [packs, uniformity, delivery, pinning, npm, mise, image]
 summary: "Four delivery classes, one of which keeps no record and is never re-derived — and all divergence lives there. The fix is a receipt, removal and scope agreement, not an npm pin."
 ---
 
 # How executable content gets into a jail — and what makes two jails the same
 
-**Status:** DIAGNOSIS + PROPOSAL, in-review, 2026-08-24. **Nothing built.** Nine questions are
-ruled (the [Decision Ledger](#decision-ledger)); one remains open
-([OQ-PD10](#-oq-pd10--capture-and-repackage-for-the-installer-class), the installer-capture
-design). Every fact below is labelled
+**Status:** DECIDED, 2026-08-24. **Nothing built yet** — the build order is
+[§10](#10-what-i-would-build-in-order). All ten questions are ruled (the
+[Decision Ledger](#decision-ledger)). Every fact below is labelled
 **MEASURED** (observed in this development jail, 2026-08-24), **READ FROM CODE** (traced but not
 observed running) or **NOT MEASURED**.
 
@@ -29,9 +28,10 @@ one of the three properties uniformity actually needs. **My recommendation is to
 first — the artifact that says what this jail got — then removal, then the pin.** And much of the
 receipt is not yolo's to build: where an ecosystem already keeps a lockfile with a resolver behind
 it, yolo adopts it ([§5.6](#56-a6--borrow-the-ecosystems-lockfiles), measured for mise) and writes
-its own only for the gaps. Most of this is now ruled — nine rulings in the
-[Decision Ledger](#decision-ledger); the open question is the installer-capture design
-([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)).
+its own only for the gaps. All of this is now ruled — ten rulings in the
+[Decision Ledger](#decision-ledger), the installer-capture design
+([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package))
+among them.
 
 **The most important section is [§3](#3-four-delivery-classes-and-the-rule-that-falls-out)**: the
 four classes are the frame everything else hangs on. [§4](#4-how-two-jails-diverge-today-measured)
@@ -750,9 +750,12 @@ the `npx -y` argv, does not need capture at all: yolo renders the MCP config sur
 the argv, so a receipt can pin `pkg@version` into the render — the self-updater was the truly
 unreachable member, and capture is its answer.
 
-Adoption and mechanics are [OQ-PD10](#-oq-pd10--capture-and-repackage-for-the-installer-class).
-Distributing captures between machines is deliberately out of scope (§7): a capture made here is
-used here, and publishing one is a provenance question for [`trust-paths.md`](trust-paths.md).
+Adoption is **ruled** ([OQ-PD10](#decision-ledger)): capture ships as the installer resolver's
+implementation of *record* + *materialize*, sequenced last (§10) — an ephemeral jail plus a
+snapshot of its fresh home surfaces, a plain filesystem artifact in the machine CAS, never an
+image layer. Distributing captures between machines is deliberately out of scope (§7): a capture
+made here is used here, and publishing one is a provenance question for
+[`trust-paths.md`](trust-paths.md).
 
 ---
 
@@ -878,10 +881,9 @@ is the exception to this sequencing: its lock records and obeys in one mechanism
 ([§5.6](#56-a6--borrow-the-ecosystems-lockfiles)), so it ships with the first step — what remains
 here is the same wiring for everything else.
 
-**Sixth, the installer capture** ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)),
-once [OQ-PD10](#-oq-pd10--capture-and-repackage-for-the-installer-class) is ruled — it slots in as
-the installer resolver's implementation of *record* + *materialize* and depends on nothing above
-except the receipt schema.
+**Sixth, the installer capture** ([§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package),
+ruled — [OQ-PD10](#decision-ledger)): it slots in as the installer resolver's implementation of
+*record* + *materialize* and depends on nothing above except the receipt schema.
 
 **In parallel, pay the enum tolerance** (§6.2). It is small, it is independent of everything above,
 and it is only cheap while no one needs it.
@@ -901,29 +903,10 @@ and it is only cheap while no one needs it.
 | OQ-PD7 | **Report first; gate later only if the reports justify it** — and the record names where a gate would live. | 2026-08-24 | §6, §9 R1 |
 | OQ-PD8 | **The launcher's informational poll is unreachable in steady state** (nineteen days of unmoved stamps); the "newer version available" channel moves to the boot catalog and the update verb / reconcile. | 2026-08-24 | §4.4, §10 |
 | OQ-PD9 | **Native lockfile formats whenever one exists; a yolo-own repo lockfile only when the work demonstrates the need** — permitted, never preemptive. | 2026-08-24 | §5.6, §6.3 |
+| OQ-PD10 | **Capture-and-repackage adopted for the installer class**, sequenced last: an ephemeral jail plus a snapshot of its fresh home surfaces, a plain filesystem artifact in the machine CAS, never an image layer. The receipt ships first; capture replaces its guess at "what the installer did" with a manifest. | 2026-08-24 | §6.3, §10 |
 
 ---
 
 ## Open Questions
 
-### 💬 OQ-PD10 — capture-and-repackage for the installer class?
-
-[§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)
-proposes running a vendor installer once in a throwaway capture jail and treating the
-content-addressed capture as the package thereafter — the AUR model, with yolo's own sandbox as
-the chroot. It is the only path that makes the installer class deterministic, and it is real
-machinery: a capture verb, a file manifest, a CAS layout, an escape-detector for installs that
-write outside the captured surfaces.
-
-**What it decides:** whether the installer class ever gets determinism and removal or stays
-receipt-only (recorded but never reproducible) — and whether vendor self-updaters are structurally
-neutered or merely enumerated.
-
-_Leaning:_ **Yes, sequenced last (§10, sixth step) — capture is the installer resolver's
-implementation of *record* + *materialize*, not a new subsystem.** Mechanics: ephemeral jail plus
-bind-dir snapshot; a plain filesystem artifact in the machine CAS, never an image layer
-(`macos-user` has no image, and §5.1 prices what riding the image costs). Ship the receipt first;
-capture then replaces the receipt's guess at "what the installer did" with a manifest.
-
-**Answer:**
-> _(empty — fill in when decided)_
+None. All ten are ruled — see the [Decision Ledger](#decision-ledger).
