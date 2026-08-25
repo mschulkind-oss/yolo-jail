@@ -216,6 +216,13 @@ func (m *Manifest) retiredFieldProblems() []string {
 // degraded jail; a field it refuses to read is no jail at all. The first is recoverable and
 // the second is not, so the version boundary reads tolerantly.
 //
+// An unknown `via` VALUE on a `program` is the same class one level DOWN, and it is paid
+// here ahead of the third delivery mechanism rather than after it (program-delivery.md §6.2,
+// risk R6). `via` is a closed two-value set, so a pack declaring `via: "uv"` staged for an
+// older baked entrypoint would be a refused boot — the `tier` shape a fourth time. An EMPTY
+// `via` is NOT skew and stays a hard problem on both paths: a program that names no
+// mechanism installs nothing, which is a defect both ends of the version boundary understand.
+//
 // An unknown contribution KIND is the same class, one level up (loophole-packaging §3.3a —
 // the `tier` incident's shape, third time): a newer build's kind staged for an older baked
 // entrypoint is skew, not corruption, and validating it as structure made the jail refuse
@@ -245,6 +252,10 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 					"knows the kind will render it)", i, c.Kind))
 			continue
 		}
+		if note := unknownViaSkip(i, c); note != "" {
+			skipped = append(skipped, note)
+			continue
+		}
 		problems = append(problems, validateContributionAt(i, c)...)
 		kept = append(kept, c)
 	}
@@ -252,6 +263,24 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 		man.Contributes = kept
 	}
 	return &man, problems, skipped
+}
+
+// unknownViaSkip returns the skew note for a `program` whose `via` names a delivery
+// mechanism this build does not know, or "" when there is nothing to skip.
+//
+// The VALUE-level twin of the unknown-KIND rule in DecodeTolerant, deliberately kept
+// beside it: both drop the contribution and report it, and the strict path
+// (validateContribution) still refuses both loudly, so an author hears and a jail boots.
+//
+// An empty `via` returns "" — it is a hard problem on BOTH paths, never skew.
+func unknownViaSkip(i int, c Contribution) string {
+	if c.Kind != KindProgram || c.Via == "" || c.Via == "npm" || c.Via == "installer" {
+		return ""
+	}
+	return fmt.Sprintf(
+		"contributes[%d]: skipping unknown via %q for program %q — this build does not know it, "+
+			"so the contribution is not rendered (version skew; a build that "+
+			"knows the via will render it)", i, c.Via, c.Bin)
 }
 
 // Validate reports every structural problem — the pack-level fields, then per-kind over

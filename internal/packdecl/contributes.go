@@ -734,6 +734,15 @@ func validateContribution(label string, c Contribution) []string {
 	switch c.Kind {
 	case KindProgram:
 		req("bin", c.Bin)
+		// `via` is a CLOSED enum, and the strict refusal below is only half the rule: the
+		// tolerant path skips an unknown value instead of refusing it, so a third delivery
+		// mechanism cannot brick a jail on a pre-`just load` image (packdecl.unknownViaSkip,
+		// program-delivery.md §6.2 / R6). An EMPTY via stays a hard problem on both paths.
+		//
+		// The sibling closed enums with the SAME future-skew shape — `state`'s scope, the
+		// hook names (KnownHooks), and the manifest-level `skills_tier` — are deliberately
+		// NOT widened here: each is skew-sensitive in exactly this way, and whoever adds a
+		// value to one extends its tolerance first, in its own change.
 		switch c.Via {
 		case "npm":
 			req("package", c.Package)

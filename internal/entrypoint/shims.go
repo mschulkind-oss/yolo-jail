@@ -1,6 +1,7 @@
 package entrypoint
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -217,6 +218,15 @@ func GenerateAgentLaunchers(e *Env) error {
 			case "native":
 				launcher = nativeAgentLauncher(inst, stampDir)
 			default:
+				// UNREACHABLE from the boot path: LoadJailPacks reads manifests tolerantly,
+				// and DecodeTolerant drops a `program` whose `via` this build does not know
+				// before it can reach here (program-delivery.md §6.2). This branch is
+				// defense-in-depth for a hand-built Install value, and it warns rather than
+				// dropping silently — a declared binary with no launcher and no message is
+				// the failure mode the plural-installs bug already cost once.
+				e.warn(fmt.Sprintf(
+					"yolo-entrypoint: pack %s: no launcher for %q — unknown install kind %q",
+					p.Name, inst.Bin, inst.Kind))
 				continue
 			}
 			if err := writeExecutable(launcherPath, launcher); err != nil {
