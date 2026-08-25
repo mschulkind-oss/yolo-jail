@@ -45,6 +45,16 @@ func serveBody(t *testing.T, status int, contentType, body string) string {
 // runs it, and returns rc + combined output.
 func runNativeLauncher(t *testing.T, url string) (int, string) {
 	t.Helper()
+	rc, out, _ := runNativeLauncherWithReceipts(t, url)
+	return rc, out
+}
+
+// runNativeLauncherWithReceipts is runNativeLauncher plus the receipt file the run
+// produced. The path is BAKED into the launcher at generation time, so it has to be
+// pointed at the temp home here or every run of this file would append to the
+// developer's real /workspace/.yolo.
+func runNativeLauncherWithReceipts(t *testing.T, url string) (int, string, []map[string]any) {
+	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not found")
 	}
@@ -52,9 +62,13 @@ func runNativeLauncher(t *testing.T, url string) (int, string) {
 		t.Skip("curl not found")
 	}
 	home := t.TempDir()
+	// A parent that does not exist yet: the receipt writer must create it, because
+	// macos-user stages no <ws>/.yolo.
+	receipts := filepath.Join(home, "ws", ".yolo", "receipts.jsonl")
 	body := nativeAgentLauncher(
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: url},
 		filepath.Join(home, "stamps"),
+		receipts,
 	)
 	script := filepath.Join(home, "probetool")
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
@@ -73,7 +87,7 @@ func runNativeLauncher(t *testing.T, url string) (int, string) {
 		}
 		rc = ee.ExitCode()
 	}
-	return rc, string(out)
+	return rc, string(out), readReceipts(t, receipts)
 }
 
 // TestNativeLauncherRejectsAWebPage is the observed agy failure, reduced.

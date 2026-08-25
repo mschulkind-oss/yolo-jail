@@ -442,6 +442,15 @@ func Main(args []string) error {
 	AssertRequiredBins(e)
 	p.mark("assert_required_bins")
 
+	// The orphan catalog is informational too, and for the same reason `requires` is:
+	// nothing is half-written — a package is installed that this launch's declarations do
+	// not account for. OQ-PD4 ruled that dropping a pack does not delete its program, so
+	// this NAMES orphans and removes nothing (program-delivery.md §10 step four). It runs
+	// here, before the bootstrap, on purpose: what is on disk now is what the LAST launch
+	// installed, which is the only state in which "undeclared" means anything.
+	CatalogInstalledOrphans(e)
+	p.mark("catalog_installed_orphans")
+
 	// Build the combined CA bundle BEFORE bashrc and before any child spawn, so
 	// the env vars we export propagate to every child the entrypoint spawns.
 	if bundle, err := GenerateCABundle(e); err != nil {

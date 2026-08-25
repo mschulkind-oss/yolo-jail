@@ -80,7 +80,8 @@ func TestNpmLauncherBodyCarriesNameAndSpecSeparately(t *testing.T) {
 		{"@scope/foo@2.0.0", "@scope/foo", "@scope/foo@2.0.0", "1"},
 	}
 	for _, tc := range cases {
-		body := npmAgentLauncher(&packdecl.Install{Kind: "npm", Bin: "foo", Package: tc.pkg}, "/stamps")
+		body := npmAgentLauncher(&packdecl.Install{Kind: "npm", Bin: "foo", Package: tc.pkg},
+			"/stamps", filepath.Join(t.TempDir(), "receipts.jsonl"))
 		for _, want := range []string{
 			`PKG="` + tc.wantPKG + `"`,
 			`SPEC="` + tc.wantSPEC + `"`,
@@ -120,9 +121,10 @@ func TestNpmLauncherBodyCarriesNameAndSpecSeparately(t *testing.T) {
 // npmProbe is one temp jail-home wired with a fake `npm` and a fake `jq`, so the generated
 // launcher can be RUN and its registry traffic observed.
 type npmProbe struct {
-	home    string
-	fakeBin string
-	logPath string
+	home         string
+	fakeBin      string
+	logPath      string
+	receiptsPath string
 }
 
 // newNpmProbe writes the fakes. `npm install` materializes the binary and the
@@ -192,7 +194,20 @@ printf '%s\n' "${line%%\"*}"
 			t.Fatal(err)
 		}
 	}
-	return &npmProbe{home: home, fakeBin: fakeBin, logPath: logPath}
+	return &npmProbe{
+		home:    home,
+		fakeBin: fakeBin,
+		logPath: logPath,
+		// Deliberately a path whose PARENT does not exist: the receipt writer has to
+		// create it itself, because macos-user stages no <ws>/.yolo.
+		receiptsPath: filepath.Join(home, "ws", ".yolo", "receipts.jsonl"),
+	}
+}
+
+// receipts returns the receipt lines the launcher appended, or nil when it wrote none.
+func (p *npmProbe) receipts(t *testing.T) []map[string]any {
+	t.Helper()
+	return readReceipts(t, p.receiptsPath)
 }
 
 // run renders the launcher for pkg, executes it, and returns the fake npm's argv log.
@@ -233,6 +248,11 @@ func (p *npmProbe) runStatus(t *testing.T, bin, pkg string, env ...string) ([]st
 	body := npmAgentLauncher(
 		&packdecl.Install{Kind: "npm", Bin: bin, Package: pkg},
 		filepath.Join(p.home, "stamps"),
+		// The receipts path is BAKED at generation time, so a harness that let it
+		// default would append to the developer's real /workspace/.yolo on every run
+		// of this file. It is pointed at the probe's temp home instead, which is also
+		// what makes the receipt assertions below readable.
+		p.receiptsPath,
 	)
 	script := filepath.Join(p.home, bin)
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {

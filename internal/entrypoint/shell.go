@@ -2,6 +2,8 @@ package entrypoint
 
 import (
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // packAliases writes a shell alias for each pack whose install binary has launchFlags,
@@ -164,11 +166,19 @@ func GenerateBootstrapScript(e *Env) error {
 
 func bootstrapPath(e *Env) string { return e.Home + "/.yolo-bootstrap.sh" }
 
-// interpolation is the mise_shims path in the PATH export line, plus the
-// preset-gated MCP npm package list.
+// interpolation is the mise_shims path in the PATH export line, the preset-gated MCP npm
+// package list, and the receipt sentinels (a baked path plus the two constant JSON heads —
+// the LSP loop's bin/declared come from the environment at run time, so only the kind can
+// be rendered here; see receiptPrefix).
 func BootstrapScript(e *Env) string {
-	out := strings.Replace(bootstrapTemplate, "__YOLO_MISE_SHIMS__", e.MiseShims(), 1)
-	return strings.Replace(out, "__YOLO_MCP_NPM_PACKAGES__", mcpPresetNpmPackages(e), 1)
+	r := strings.NewReplacer(
+		"__YOLO_MISE_SHIMS__", e.MiseShims(),
+		"__YOLO_MCP_NPM_PACKAGES__", mcpPresetNpmPackages(e),
+		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsFile(e)),
+		"__YOLO_RECEIPT_LSP_NPM__", shquote.Quote(receiptPrefix("lsp-npm", "", "")),
+		"__YOLO_RECEIPT_LSP_GO__", shquote.Quote(receiptPrefix("lsp-go", "", "")),
+	)
+	return r.Replace(bootstrapTemplate)
 }
 
 // mcpPresetNpmPackages returns the npm packages the ENABLED MCP presets need, space
@@ -204,6 +214,31 @@ export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
 export GOPATH="${GOPATH:-$HOME/go}"
 export GOBIN="$GOPATH/bin"
 export PATH="$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:__YOLO_MISE_SHIMS__:$GOBIN:$PATH"
+# Baked, never read from the environment: see receiptsFile.
+_YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
+` + receiptShellFns + `
+# The LSP resolvers' "resolved identity" readers. Both may come back empty — a missing jq,
+# a binary built without module info — and an empty answer omits the field rather than
+# inventing one.
+_yolo_lsp_npm_version() {
+    local v
+    v=$(jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$1/package.json" 2>/dev/null) || return 0
+    # jq prints "null" for an absent key, which is not a version.
+    if [ "$v" != "null" ]; then printf '%s\n' "$v"; fi
+    return 0
+}
+
+# ` + "`" + `go version -m <bin>` + "`" + ` prints one tab-indented ` + "`" + `mod` + "`" + ` row: the literal "mod", the
+# module path, the version, then the checksum. The leading tab does NOT produce an empty
+# first field — tab is IFS whitespace, so read strips the leading run.
+_yolo_go_module_version() {
+    local out tag modpath ver rest
+    out=$(YOLO_BYPASS_SHIMS=1 go version -m "$1" 2>/dev/null) || return 0
+    while IFS=$'\t' read -r tag modpath ver rest; do
+        if [ "$tag" = "mod" ]; then printf '%s\n' "$ver"; return 0; fi
+    done <<< "$out"
+    return 0
+}
 
 # Initialize font cache (once, not on every shell session)
 fc-cache -f >/dev/null 2>&1
@@ -264,7 +299,18 @@ echo "$desired" | while IFS= read -r entry; do
             # Probe via npm ls -g; faster than ` + "`" + `command -v` + "`" + ` when the bin name doesn't match the pkg name.
             if ! YOLO_BYPASS_SHIMS=1 npm ls -g --depth=0 "$pkg" >/dev/null 2>&1; then
                 echo "  Installing npm: $pkg" >&2
-                YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$pkg" 2>&1 || true
+                # The status is CAPTURED, not dropped with "|| true". A receipt appended
+                # after an unconditional success records an install that may never have
+                # happened, and this is the one loop whose failures are routine (an
+                # offline boot retries the whole set next launch).
+                lsp_rc=0
+                YOLO_BYPASS_SHIMS=1 npm install -g --prefer-online "$pkg" 2>&1 || lsp_rc=$?
+                if [ "$lsp_rc" = 0 ]; then
+                    # Appended INSIDE the arm: this loop reads from a pipe, so it runs in
+                    # a subshell and no state it accumulates would survive the "done".
+                    _yolo_receipt "$(_yolo_head __YOLO_RECEIPT_LSP_NPM__ '' "$pkg")" \
+                        "" "$(_yolo_lsp_npm_version "$pkg")" "" install
+                fi
             fi
             ;;
         go)
@@ -276,7 +322,12 @@ echo "$desired" | while IFS= read -r entry; do
                 if command -v go >/dev/null; then
                     echo "  Installing go: $pkg" >&2
                     mkdir -p "$GOBIN"
-                    YOLO_BYPASS_SHIMS=1 go install "$pkg" 2>&1 || true
+                    lsp_rc=0
+                    YOLO_BYPASS_SHIMS=1 go install "$pkg" 2>&1 || lsp_rc=$?
+                    if [ "$lsp_rc" = 0 ]; then
+                        _yolo_receipt "$(_yolo_head __YOLO_RECEIPT_LSP_GO__ "$bin" "$pkg")" \
+                            "" "$(_yolo_go_module_version "$GOBIN/$bin")" "" install
+                    fi
                 else
                     echo "  ⚠ go not found, skipping $pkg" >&2
                 fi

@@ -1,6 +1,7 @@
 package entrypoint
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -214,9 +215,9 @@ func GenerateAgentLaunchers(e *Env) error {
 			var launcher string
 			switch inst.Kind {
 			case "npm":
-				launcher = npmAgentLauncher(inst, stampDir)
+				launcher = npmAgentLauncher(inst, stampDir, receiptsFile(e))
 			case "native":
-				launcher = nativeAgentLauncher(inst, stampDir)
+				launcher = nativeAgentLauncher(inst, stampDir, receiptsFile(e))
 			default:
 				// UNREACHABLE from the boot path: LoadJailPacks reads manifests tolerantly,
 				// and DecodeTolerant drops a `program` whose `via` this build does not know
@@ -246,7 +247,7 @@ func GenerateAgentLaunchers(e *Env) error {
 // whatever selector the pack asked for. Splitting it in bash would mean re-deriving npm's
 // scoped-package rule in a launcher that has to keep working when the pack author gets it
 // slightly wrong.
-func npmAgentLauncher(inst *packdecl.Install, stampDir string) string {
+func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string) string {
 	binName := inst.Bin
 	pkgName, pkgVersion := splitNpmSpec(inst.Package)
 	pinned := "0"
@@ -264,17 +265,21 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir string) string {
 		"__YOLO_PINNED__", pinned,
 		"__YOLO_STAMP_DIR__", stampDir,
 		"__YOLO_EXTRA__", extraFlags,
+		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsPath),
+		"__YOLO_RECEIPT_HEAD__", shquote.Quote(receiptPrefix("npm", binName, inst.Package)),
 	)
 	return r.Replace(npmLauncherTemplate)
 }
 
-func nativeAgentLauncher(inst *packdecl.Install, stampDir string) string {
+func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string) string {
 	binName := inst.Bin
 	installerURL := inst.InstallerURL
 	r := strings.NewReplacer(
 		"__YOLO_BIN__", binName,
 		"__YOLO_URL__", installerURL,
 		"__YOLO_STAMP_DIR__", stampDir,
+		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsPath),
+		"__YOLO_RECEIPT_HEAD__", shquote.Quote(receiptPrefix("installer", binName, installerURL)),
 	)
 	return r.Replace(nativeLauncherTemplate)
 }
@@ -343,6 +348,139 @@ _stamp_mtime() {
 }
 `
 
+// receiptsFile is where every install yolo itself runs appends its gap receipt
+// (docs/design/program-delivery.md §10 step one, OQ-PD1's "yolo-written receipts only
+// where no native lock exists"). One JSON line per install, under the workspace whose
+// declaration caused it.
+//
+// IT IS BAKED AT GENERATION TIME, not read from the environment by the generated script,
+// and neither runtime leaves that a choice: YOLO_WORKSPACE is a HOST-side launcher input
+// that is absent inside a live container, and macos-user execs its launchers under
+// `env -i`. A `${YOLO_WORKSPACE:-/workspace}` in the template would therefore have written
+// every macos-user jail's receipts to a container path that does not exist there, silently,
+// which is the same class of defect the stat -c bug in stampMtimeFn was.
+func receiptsFile(e *Env) string {
+	return filepath.Join(e.WorkspaceDir(), ".yolo", "receipts.jsonl")
+}
+
+// receiptPrefix renders the head of a receipt line: the fields a GENERATOR already knows —
+// schema version, resolver kind, binary name, and the pack's declaration verbatim.
+//
+// encoding/json does the escaping, at generation time, so a declaration carrying a quote or
+// a backslash cannot produce a line no reader can parse. The shell downstream interpolates
+// only constrained values (a spec, a version, a hex digest, an integer, an act, a date).
+//
+// bin and declared are omitted when empty, which is the LSP bootstrap's case: it reads its
+// package list out of the environment at run time, so it renders the constant half here and
+// appends the other two from the shell (_yolo_head) under the same scrubbing.
+func receiptPrefix(kind, bin, declared string) string {
+	var b strings.Builder
+	b.WriteString(`{"schema":1,"kind":`)
+	b.WriteString(jsonStringLiteral(kind))
+	if bin != "" {
+		b.WriteString(`,"bin":`)
+		b.WriteString(jsonStringLiteral(bin))
+	}
+	if declared != "" {
+		b.WriteString(`,"declared":`)
+		b.WriteString(jsonStringLiteral(declared))
+	}
+	return b.String()
+}
+
+// jsonStringLiteral renders s as a JSON string, quotes included.
+func jsonStringLiteral(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return `""`
+	}
+	return string(b)
+}
+
+// receiptShellFns is the receipt writer every generated installer embeds, spliced the same
+// way stampMtimeFn is. A SHARED CONST rather than a sourced ~/.yolo-receipts.sh: a new
+// generated file needs its own mount surface, its own anchor reset and its own golden
+// entry, none of which a helper three templates share has any business costing.
+//
+// THE APPEND CANNOT FAIL ITS CALLER, and that is a requirement rather than caution. Two of
+// the three templates run under `set -euo pipefail`, and the npm launcher's _do_install
+// STATUS is load-bearing at three call sites — it is the only signal `yolo pack update`
+// gets. So the whole body is a group on the left of `|| true` (which suspends errexit for
+// everything inside it) and the function restores the caller's `$?` on the way out. A
+// receipt records; it never gates (program-delivery.md §9 R1).
+//
+// It mkdir -p's its own parent because macos-user stages no <ws>/.yolo for it.
+//
+// GNU/BSD portability is the same trap stampMtimeFn documents, and the digest is where it
+// bites: `sha256sum` is GNU coreutils, `shasum -a 256` is the BSD/perl spelling, `openssl
+// dgst` is the last resort — and the three print the digest in three different columns
+// (bare, bare, after an "SHA2-256(path)=" prefix). The hex is therefore FOUND by shape, not
+// indexed by field, or a macOS run would record a filename as a digest.
+const receiptShellFns = `
+# --- gap receipts (docs/design/program-delivery.md §10) ---------------------------
+_yolo_scrub() {
+    printf '%s' "${1:-}" | tr -cd '[:print:]' | tr -d '\\"' | cut -c 1-200
+}
+
+_yolo_sha256() {
+    local out tok
+    out=$(sha256sum "$1" 2>/dev/null) ||
+        out=$(shasum -a 256 "$1" 2>/dev/null) ||
+        out=$(openssl dgst -sha256 "$1" 2>/dev/null) ||
+        return 0
+    for tok in $out; do
+        if [ ${#tok} -eq 64 ] && [ -z "${tok//[0-9a-f]/}" ]; then
+            printf '%s\n' "$tok"
+            return 0
+        fi
+    done
+    return 0
+}
+
+# BSD wc pads its count with leading spaces; GNU does not.
+_yolo_bytes() {
+    local n
+    n=$(wc -c < "$1" 2>/dev/null) || return 0
+    n="${n//[!0-9]/}"
+    if [ -n "$n" ]; then printf '%s\n' "$n"; fi
+    return 0
+}
+
+# _yolo_head appends the bin/declared pair for a receipt whose identity is only known at
+# run time. $1 is the constant half, rendered in Go.
+_yolo_head() {
+    local h="$1"
+    if [ -n "${2:-}" ]; then h="$h,\"bin\":\"$(_yolo_scrub "$2")\""; fi
+    if [ -n "${3:-}" ]; then h="$h,\"declared\":\"$(_yolo_scrub "$3")\""; fi
+    printf '%s' "$h"
+}
+
+# _yolo_receipt <head> <spec> <resolved> <file-to-digest> <act>
+# Every argument but <head> may be empty; an empty one omits its field.
+_yolo_receipt() {
+    local _yr_rc=$?
+    {
+        local line dig sz
+        line="$1"
+        if [ -n "${2:-}" ]; then line="$line,\"spec\":\"$(_yolo_scrub "$2")\""; fi
+        if [ -n "${3:-}" ]; then line="$line,\"resolved\":\"$(_yolo_scrub "$3")\""; fi
+        if [ -n "${4:-}" ] && [ -f "$4" ]; then
+            dig=$(_yolo_sha256 "$4")
+            sz=$(_yolo_bytes "$4")
+            if [ -n "$dig" ]; then line="$line,\"sha256\":\"$dig\""; fi
+            if [ -n "$sz" ]; then line="$line,\"bytes\":$sz"; fi
+        fi
+        line="$line,\"act\":\"$(_yolo_scrub "${5:-install}")\""
+        line="$line,\"time\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
+        # ONE printf, ONE line: O_APPEND under PIPE_BUF is what keeps two launchers
+        # installing at once from interleaving half-lines.
+        mkdir -p "${_YOLO_RECEIPTS%/*}"
+        printf '%s\n' "$line" >> "$_YOLO_RECEIPTS"
+    } >/dev/null 2>&1 || true
+    return "$_yr_rc"
+}
+`
+
 // npmLauncherTemplate is the npm agent launcher body, with the per-agent
 // fields replaced by __YOLO_*__ sentinels.
 //
@@ -368,9 +506,11 @@ PKG="__YOLO_PKG__"
 SPEC="__YOLO_SPEC__"
 PINNED="__YOLO_PINNED__"   # 1 when the declaration carried a version selector
 UPDATE_INTERVAL=3600  # seconds between update CHECKS — a check reports, it never installs
+# Baked, never read from the environment: see receiptsFile.
+_YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
 
 mkdir -p "$STAMP_DIR"
-` + stampMtimeFn + `
+` + stampMtimeFn + receiptShellFns + `
 _installed_version() {
     jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$PKG/package.json" 2>/dev/null || echo "0"
 }
@@ -406,6 +546,13 @@ _do_install() {
         # differ and tries again. Leaving the PREVIOUS spec in place instead keeps the record
         # true (it names what is actually on disk) and makes the mismatch self-healing.
         printf '%s\n' "$SPEC" > "$SPEC_FILE"
+        # THE RECEIPT FUNNEL for this program. Every path that changes the installed
+        # bytes — a cold install, a moved pin, an explicit update — arrives here, and
+        # only after npm agreed, so one hook covers all three and none of them records
+        # an install that did not happen.
+        local act=install
+        if [ -n "${YOLO_PACK_UPDATE:-}" ]; then act=update; fi
+        _yolo_receipt __YOLO_RECEIPT_HEAD__ "$SPEC" "$(_installed_version)" "" "$act"
     else
         rc=1
     fi
@@ -554,9 +701,11 @@ STAMP_DIR="__YOLO_STAMP_DIR__"
 STAMP="$STAMP_DIR/__YOLO_BIN__.stamp"
 REAL_BIN="$HOME/.local/bin/__YOLO_BIN__"
 UPDATE_INTERVAL=3600
+# Baked, never read from the environment: see receiptsFile.
+_YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
 
 mkdir -p "$STAMP_DIR"
-` + stampMtimeFn + `
+` + stampMtimeFn + receiptShellFns + `
 _do_install() {
     echo "  Installing __YOLO_BIN__..." >&2
     # Download to a file BEFORE running it, rather than curl | bash. A stale or moved
@@ -588,10 +737,25 @@ _do_install() {
     fi
     shopt -u nocasematch
     YOLO_BYPASS_SHIMS=1 bash "$script" 2>&1 || true
+    # A receipt only for a run that LEFT SOMETHING. _do_install returns 0 down every
+    # failure path above — a served web page, a failed download — because on the launch
+    # path a failed install is not the verdict, so a receipt written unconditionally here
+    # would record an install for exactly the two shapes that installed nothing. The
+    # digest is of the binary the vendor produced: an installer publishes no lockable
+    # artifact, so what it LEFT is the only resolved identity there is (§6.3).
+    if [ -x "$REAL_BIN" ]; then
+        _yolo_receipt __YOLO_RECEIPT_HEAD__ "" "" "$REAL_BIN" install
+    fi
     rm -f "$script"
     touch "$STAMP"
 }
 
+# THE TWO VENDOR SELF-UPDATES BELOW EMIT NO RECEIPT, deliberately. "$REAL_BIN install"
+# is the vendor's own updater: it decides whether anything moved, to what, and where it
+# put it, and the launcher cannot observe any of that — a receipt written here would be a
+# guess with a timestamp on it. The drift it leaves is the RECONCILE's to report, against
+# the bytes on disk rather than against a claim (docs/design/program-delivery.md §6.3,
+# §10 step two).
 if [ ! -x "$REAL_BIN" ]; then
     _do_install
 elif [ ! -f "$STAMP" ]; then
