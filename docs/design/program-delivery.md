@@ -176,7 +176,7 @@ get the same bytes?"* — no, and nothing anywhere notices.
 ### 4.2 Drift: mise is machine-global, evergreen every launch, and repoints aliases in place
 
 `setupScript` runs `mise install --quiet && mise upgrade --yes` **unconditionally on every launch**
-(`internal/cli/run/command.go:9-17`, a frozen-contract constant). The store is a single bind —
+(`internal/cli/run/command.go:15-25`, a frozen-contract constant). The store is a single bind —
 `-v <miseStore>:/mise` (`internal/cli/run/assemble_parts.go:156-161`), backed by
 `paths.GlobalMise()` = `~/.local/share/yolo-jail/mise` (`internal/paths/paths.go:323`) — **one store
 for every workspace and every nesting depth.**
@@ -193,7 +193,7 @@ for every workspace and every nesting depth.**
 >    directory that does not exist. **INFERRED, not held-alive to confirm:** a jail launched before
 >    the repoint and still running therefore carries a **dangling** toolchain entry on its `PATH` —
 >    broken, not merely stale. (The launch path prunes dangling store *symlinks* under
->    `YOLO_STORE_PRUNE_OK`, [`command.go:9-13`](../../internal/cli/run/command.go); it does nothing
+>    `YOLO_STORE_PRUNE_OK`, [`command.go:16-20`](../../internal/cli/run/command.go); it does nothing
 >    for a `PATH` already exported into a live container.)
 >
 > So a jail's toolchain can change while it is running — and can also **disappear** while it is
@@ -287,7 +287,7 @@ versioned directory is immutable only until shared garbage collection takes it, 
 > **This repo resolves through exactly those mutable aliases.** `/workspace/mise.toml` declares
 > `node = "24"`, `go = "1.26"`, `just = "latest"` — three fuzzy pins, each of which is a symlink any
 > other workspace's launch can move. `mise install && mise upgrade --yes` runs unconditionally on
-> every launch (`internal/cli/run/command.go:14-17`), so the mutation is not rare: it is once per
+> every launch (`internal/cli/run/command.go:21-22`), so the mutation is not rare: it is once per
 > launch, per workspace, against shared state. The failure this produces is the nastiest kind — a
 > jail's toolchain changes (or dangles) **while it is running**, because a *different* workspace's
 > launch moved an alias the running jail resolves through. Nothing in the running jail was touched,
@@ -542,10 +542,11 @@ let yolo orchestrate.
 **MEASURED, 2026-08-24, against a scratch copy of this repo's `mise.toml` — the help is larger than
 expected:**
 
-- `MISE_LOCKFILE=1 mise lock` resolved all four declared tools — including the `go:` backend
+- `mise lock` resolved all four declared tools — including the `go:` backend
   (staticcheck via the Go module proxy) — to exact versions with a **sha256 checksum and download
   URL per platform**, seven platforms, one file. The receipt, the pin, and a content-address, from
-  a binary the image already bakes.
+  a binary the image already bakes. (The env var is not load-bearing: mise honors and maintains
+  an existing lock by default — measured.)
 - **The lock governs resolution rather than merely recording it.** With the lock repointed to
   `go 1.26.2` while `mise.toml` still declared `go = "1.26"`, `mise ls --current` resolved 1.26.2
   and `mise exec go -- go version` ran go1.26.2 — materialized from the shared `/mise` store, no

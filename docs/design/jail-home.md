@@ -566,10 +566,10 @@ host workspace.
 (run.go:137-153) → remove stale stopped container (lifecycle.go:98-111) →
 image autoload → `prepareWsState` (run.go:173) → assemble argv →
 `run --rm -i --init --read-only ...` (assemble.go:127). The in-container command is wrapped with provisioning:
-`mise trust/install/upgrade`, `~/.yolo-bootstrap.sh`,
+`mise install` (no upgrade — resolution happens on install only), `~/.yolo-bootstrap.sh`,
 `~/.yolo-venv-precreate.sh`, optional store prune gated on
 `YOLO_STORE_PRUNE_OK=1` (only when no other jail is live), then the target
-command (internal/cli/run/command.go:8-47, 54-90; run.go:194-210).
+command (internal/cli/run/command.go:15-49, 56-92; run.go:194-210).
 
 **Reuse/attach** (run.go:116-129, 331-361): `rt exec -i [-t] <identityEnv>
 <cname> yolo-entrypoint <cmd>` — no `prepareWsState`, no provisioning wrapper,

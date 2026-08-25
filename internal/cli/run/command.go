@@ -2,9 +2,16 @@ package run
 
 import "strings"
 
-// setupScript is the provisioning core (store prune, mise install/upgrade,
-// bootstrap, venv-precreate) run under `YOLO_BYPASS_SHIMS=1 sh -c '…'`. Frozen
-// contract (must not drift — the in-jail entrypoint depends on the exact bytes).
+// setupScript is the provisioning core (store prune, mise install, bootstrap,
+// venv-precreate) run under `YOLO_BYPASS_SHIMS=1 sh -c '…'`. Exactly two things
+// bind these bytes: testdata/final_cmd_bash.txt, pinned by an exact-equality
+// test in command_test.go, and the literal "PROVISIONING FAILED" emitted by
+// provisionScript below, which jailcontent.ReadProvisioningFailed
+// (internal/jailcontent/write.go:81-88) greps out of startup.log. The in-jail
+// entrypoint parses none of it.
+// Tools resolve on install only; a workspace mise.lock, when present, governs
+// resolution (mise honors it by default), and upgrades happen only through an
+// explicit act — docs/design/program-delivery.md OQ-PD3.
 const setupScript = "YOLO_BYPASS_SHIMS=1 sh -c '" +
 	`if [ "${YOLO_STORE_PRUNE_OK:-0}" = "1" ]; then ` +
 	`for _p in "$MISE_DATA_DIR"/installs/*/*; do ` +
@@ -13,10 +20,6 @@ const setupScript = "YOLO_BYPASS_SHIMS=1 sh -c '" +
 	"fi; done; fi && " +
 	`echo "  ↳ mise install" >&2 && ` +
 	"mise install --quiet && " +
-	`echo "  ↳ mise upgrade" >&2 && ` +
-	"{ mise upgrade --yes >/tmp/yolo-mise-upgrade.out 2>&1; _urc=$?; " +
-	`grep -v "^mise WARN" /tmp/yolo-mise-upgrade.out | sed "s/^/    /" >&2; ` +
-	`[ "$_urc" -eq 0 ]; } && ` +
 	`echo "  ↳ bootstrap" >&2 && ` +
 	"~/.yolo-bootstrap.sh >&2 && " +
 	"~/.yolo-venv-precreate.sh >&2'"
