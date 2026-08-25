@@ -258,9 +258,11 @@ func TestApplyVerbRouting(t *testing.T) {
 	}
 }
 
-// apply --sealed refuses when an UNDECLARED input is present (yolo-jail.local.jsonc)
-// and passes when the workspace is clean of them. Runs in a scratch workspace so
-// workspaceRoot() resolves there (not this repo's /workspace, which has real sidecars).
+// apply --sealed refuses when an UNDECLARED input is present — BOTH of them: the
+// yolo-jail.local.jsonc that merges into the config, and an outstanding capture
+// overlay that outranks every declared layer — and passes when the workspace is clean
+// of them. Runs in a scratch workspace so workspaceRoot() resolves there (not this
+// repo's /workspace, which has real sidecars).
 func TestApplySealedClosure(t *testing.T) {
 	_, repo := withHomeAndCwd(t)
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude"]}`)
@@ -285,6 +287,42 @@ func TestApplySealedClosure(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "yolo-jail.local.jsonc") || !strings.Contains(out.String(), "refused") {
 		t.Errorf("refusal should name the undeclared input:\n%s", out.String())
+	}
+
+	// With the local.jsonc GONE and an outstanding capture overlay in its place →
+	// still refused (rc 1), naming the surface. local.jsonc is removed first so the
+	// only thing that can produce the refusal is the capture-surface scan: were that
+	// branch deleted, this workspace would seal and the assertions below would fail.
+	if err := os.Remove(filepath.Join(repo, "yolo-jail.local.jsonc")); err != nil {
+		t.Fatal(err)
+	}
+	s, ok := surfaceManifest().Lookup("claude", "settings")
+	if !ok {
+		t.Fatal("missing claude/settings")
+	}
+	writeFile(t, prismOverlayPath(s.Agent, s.Name), `{"myEdit":"present"}`)
+	out.Reset()
+	errw.Reset()
+	if rc := applyMain([]string{"--sealed"}, &out, &errw, false, nil); rc != 1 {
+		t.Fatalf("an outstanding capture overlay should refuse (rc 1), got %d: %s%s",
+			rc, out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), "claude/settings") ||
+		!strings.Contains(out.String(), "captured in-jail edit") {
+		t.Errorf("refusal should name the surface carrying the overlay:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "yolo-jail.local.jsonc") {
+		t.Errorf("local.jsonc is gone; only the overlay may be refused here:\n%s", out.String())
+	}
+
+	// An EMPTY overlay is not an outstanding edit: the sidecar exists (capture ran and
+	// found nothing), so its mere presence must not refuse.
+	writeFile(t, prismOverlayPath(s.Agent, s.Name), `{}`)
+	out.Reset()
+	errw.Reset()
+	if rc := applyMain([]string{"--sealed"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("an empty overlay carries no undeclared input; want rc 0, got %d: %s%s",
+			rc, out.String(), errw.String())
 	}
 }
 
