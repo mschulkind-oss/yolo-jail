@@ -719,12 +719,35 @@ package manager never trusts the build script's environment, only its captured p
 `program via installer` contribution is already the PKGBUILD analogue: a name and a URL. Nix's
 fixed-output derivations and `docker commit` are the same shape from other directions.
 
-**The sandbox already exists, and it is yolo's own product.** A capture is an ephemeral jail whose
-per-workspace home binds start empty: the existing bind surfaces (`~/.local`, `~/.npm-global`,
-`~/go` — `assemble_parts.go:109-111`) are natural capture surfaces, so after the installer runs,
-**the bind-dir contents ARE the delta** — tar, hash, done. No new containment machinery; a jail
-that writes outside its binds is a finding the capture run reports, and a tool that does so is
-flagged genuinely unmanageable instead of silently half-captured.
+**The sandbox already exists, and it is yolo's own product.** On the container backends a capture
+is an ephemeral jail whose per-workspace home binds start empty: the existing bind surfaces
+(`~/.local`, `~/.npm-global`, `~/go` — `assemble_parts.go:109-111`) are natural capture surfaces,
+so after the installer runs, **the bind-dir contents ARE the delta** — tar, hash, done. No new
+containment machinery; a jail that writes outside its binds is a finding the capture run reports,
+and a tool that does so is flagged genuinely unmanageable instead of silently half-captured.
+
+**On `macos-user`, the same two properties come from different machinery** (READ FROM CODE — this
+backend's installer pipeline is itself unverified on hardware, per
+[`macos-user-nix-and-features.md`](macos-user-nix-and-features.md), so this is design against read
+code, not a measurement). That backend has no binds and no ephemeral home: the jail home is one
+persistent, machine-constant `/Users/_yolojail` shared by every workspace and every session
+(`internal/macosuser/macosuser.go:52-53`, `internal/cli/run/run.go:156-159`) — deliberately, since
+the single home *is* its shared-credentials mechanism and splitting it is a refused design point
+(`run.go:188-203`). But a capture does not need a bind; it needs a **fresh, enumerable,
+kernel-bounded write surface**, and both control points are already this backend's own machinery:
+the Seatbelt profile is generated fresh per session (`internal/macosuser/seatbelt.go:47-55` —
+`deny file-write*` on `/`, then an explicit allow-list) and the launch is `env -i` under
+`sandbox-exec` (`macosuser.go:328-377`). So a capture run sets `HOME` to a fresh staging directory
+and carries a narrowed profile in which that directory (plus `/tmp` and `/var/folders` scratch) is
+the **only** writable path. The persistent home is denied for the duration — a capture cannot
+touch the shared credential store — and an installer that writes elsewhere is refused by the
+kernel up front, a sharper escape signal than a container overlay that silently swallows the stray
+write. The one genuinely new problem is **relocation**: the staging path is not the final home
+path, and installers embed absolute self-references (claude's `~/.local/bin/claude` is an absolute
+symlink into its versions directory — MEASURED in this jail), so the manifest must record prefix
+references and materialization must rewrite them — the move Homebrew bottles made routine on
+exactly this OS — or flag the tool non-relocatable. On the container backends this problem is
+absent by construction: the capture home and the materialize home are the same `/home/agent`.
 
 **Why not image layers** — the obvious-looking alternative, rejected three ways: `macos-user` has
 no image at all; a layer couples every capture to the image rebuild/reload cadence that §5.1
