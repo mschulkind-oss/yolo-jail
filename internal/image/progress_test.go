@@ -10,7 +10,7 @@ import (
 // to when the rendered string changes, and closes with exactly one newline.
 func TestProgressLineTTYRedrawsInPlace(t *testing.T) {
 	var buf strings.Builder
-	p := newProgressLine(&buf, true)
+	p := newProgressLine(&buf, true, "Caching image... ")
 	est := int64(100 * 1024 * 1024) // 100 MB estimate
 	// Feed 1 MB increments up to 100 MB — 100 updates. Each MB is a distinct
 	// percent, so we expect ~99 redraws (capped at 99%), each starting with \r.
@@ -42,7 +42,7 @@ func TestProgressLineTTYRedrawsInPlace(t *testing.T) {
 // not re-emitted (a multi-GB stream at a steady 99% must not spam).
 func TestProgressLineThrottlesDuplicates(t *testing.T) {
 	var buf strings.Builder
-	p := newProgressLine(&buf, true)
+	p := newProgressLine(&buf, true, "Caching image... ")
 	est := int64(10 * 1024 * 1024)
 	// Many chunks all rendering "99%" (past the cap) — should emit ONE update.
 	for i := 0; i < 50; i++ {
@@ -59,7 +59,7 @@ func TestProgressLineThrottlesDuplicates(t *testing.T) {
 // progress spam (the reported bug: 500 lines of "98 98 99" in a redirected log).
 func TestProgressLinePipeSuppressed(t *testing.T) {
 	var buf strings.Builder
-	p := newProgressLine(&buf, false)
+	p := newProgressLine(&buf, false, "Caching image... ")
 	est := int64(100 * 1024 * 1024)
 	for mb := int64(1); mb <= 100; mb++ {
 		p.update(mb*1024*1024, est)

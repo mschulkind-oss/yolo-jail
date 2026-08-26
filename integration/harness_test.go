@@ -41,7 +41,19 @@ import (
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
-const jailImage = "yolo-jail:latest"
+const (
+	// jailImage is the LEGACY tag — what `just load` and this harness's own
+	// pipe-load produce, since the flake bakes `tag = "latest"`. It is no longer
+	// the name a jail runs (C2 addresses the image by content), so anything
+	// asking "is a jail image loaded?" must go through imageExists, which falls
+	// back to a repository query.
+	jailImage = "yolo-jail:latest"
+	// jailImageRepo is the repository every jail image lives under, whatever its
+	// tag. paths.JailImageRepoShort is the same string; it is spelled literally
+	// here because the whole point of this suite is to observe the shipped
+	// artifact rather than to agree with the code under test.
+	jailImageRepo = "yolo-jail"
+)
 
 // yoloBin is the `yolo` binary built once by TestMain; repoRoot is the module
 // root. Both stay empty under `go test -short`, where no container test runs and
@@ -264,14 +276,47 @@ func detectRuntime() string {
 	return ""
 }
 
-// imageExists probes for the jail image under both its bare and localhost/ tags,
-// returning the tag that answered ("" when neither did) — callers need the name
-// to probe the image itself (see checkImageSkew), not just a yes/no.
+// imageExists returns the ref of A jail image loaded into rt ("" when none is) —
+// callers need the name to probe the image itself (see checkImageSkew), not just
+// a yes/no.
+//
+// It asks by REPOSITORY, not by tag, and that is C2's doing. Since the loaded
+// image is addressed by the hash of the store path it was built from
+// (`localhost/yolo-jail:<sha16>`), a `:latest` inspect answers only for an image
+// this harness loaded itself or a pre-C2 one — a real host whose images are all
+// content-addressed would look empty. That failure would not have been loud:
+// ensureJailImage would report DEGRADED and skip the staleness check, and
+// TestImageSkewOracleAnswers would skip too, so the one guard against silently
+// testing stale code and the guard on that guard would both switch off at once.
+//
+// The legacy tags stay in the probe order because they are still produced — by
+// `just load`, by this harness's own pipe-load, and by any pre-C2 machine — and
+// because naming one specific ref is what checkImageSkew needs downstream.
 func imageExists(rt string) string {
 	for _, name := range []string{jailImage, "localhost/" + jailImage} {
 		if exec.Command(rt, "image", "inspect", name).Run() == nil {
 			return name
 		}
+	}
+	return firstImageInRepo(rt, jailImageRepo)
+}
+
+// firstImageInRepo returns the first `<repo>:<tag>` loaded under repo, or "".
+// The positional argument to `images` is a repository filter, which is the only
+// question that survives content-addressed tags.
+func firstImageInRepo(rt, repo string) string {
+	out, err := exec.Command(rt, "images", repo, "--format", "{{.Repository}}:{{.Tag}}").Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		ref := strings.TrimSpace(line)
+		// podman prints "<none>:<none>" for an untagged (superseded) image; it
+		// cannot be inspected by name, so it is no use to a caller.
+		if ref == "" || strings.Contains(ref, "<none>") {
+			continue
+		}
+		return ref
 	}
 	return ""
 }

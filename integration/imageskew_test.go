@@ -39,14 +39,25 @@ import (
 //     shadow-hardening note on installPrefix in flake.nix), so one ~0.15s
 //     container run recovers the store path the image actually carries.
 //
-// WHY NOT REUSE AutoLoadImage's NOTION. AutoLoadImage compares the built store
-// path against `build/last-load-<runtime>`, which is an LRU of the last TEN
-// loaded paths — a set, not a record of what is loaded RIGHT NOW. Only one image
-// can hold the `localhost/yolo-jail:latest` tag, so after worktree A loads PA and
-// worktree B loads PB, going back to A finds PA still in the LRU, concludes
-// "already loaded", and runs B's image. That is the flip-flop above, and it means
-// the sentinel cannot be trusted as the freshness oracle here. Asking the image
-// itself is ground truth and needs no bookkeeping to stay honest.
+// WHY NOT REUSE AutoLoadImage's NOTION. Because it answers a different question,
+// and it has answered it two different ways.
+//
+// It used to compare the built store path against the newest entry in
+// `build/last-load-<runtime>` — bookkeeping about what yolo last loaded, not
+// about what is in the runtime, and only ever an approximation because a single
+// `:latest` tag named every image. (An earlier version of this comment said the
+// comparison was set MEMBERSHIP across the ten-entry LRU; it was equality against
+// the newest entry, which is exactly the fix issue #35 landed.) Since C2 it asks
+// the runtime directly — "is `yolo-jail:<sha16-of-store-path>` present?" — which
+// is a real answer rather than an approximation.
+//
+// Neither version is this check's oracle, and the newer one is not either. Both
+// answer "does an image built from THIS store path exist", which is a question
+// about nix inputs; the staleness this suite guards against is whether the image
+// a container will actually run carries this source tree's binaries. Asking the
+// image itself is ground truth and needs no bookkeeping to stay honest — and it
+// keeps this file independent of the code under test, which is the property that
+// makes it a guard rather than a restatement.
 //
 // KNOWN BLIND SPOT (verified, and the reason the failure message ends with a
 // git-add note): nix evaluates a git flake from TRACKED files only, so a brand-new

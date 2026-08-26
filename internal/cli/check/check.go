@@ -170,7 +170,7 @@ func Check(opts Options) int {
 	o.sectionKVM(r, merged)
 
 	// --- Image & Containers ---
-	imageBuildSkipped := o.sectionImageBuild(r, merged, repoRoot, repoRootOK, isNativeRuntime)
+	builtStorePath, imageBuildSkipped := o.sectionImageBuild(r, merged, repoRoot, repoRootOK, isNativeRuntime)
 	notLoadedHint := "Run 'yolo' once to build and load the image"
 	if imageBuildSkipped {
 		notLoadedHint = "This host can't build the image (needs a Linux builder — see the " +
@@ -179,7 +179,7 @@ func Check(opts Options) int {
 	}
 
 	if !isNativeRuntime && detectedRuntime != "" {
-		o.sectionContainerImage(r, detectedRuntime, notLoadedHint)
+		o.sectionContainerImage(r, detectedRuntime, notLoadedHint, builtStorePath)
 		o.sectionRunningJails(r, detectedRuntime)
 	}
 
@@ -440,10 +440,19 @@ func (o *Options) sectionEntrypointDryRun(r *reporter, repoRoot string, repoRoot
 	r.blank()
 }
 
-// sectionImageBuild runs the Image Build block. Returns imageBuildSkipped.
-func (o *Options) sectionImageBuild(r *reporter, merged *jsonx.OrderedMap, repoRoot string, repoRootOK, isNativeRuntime bool) bool {
+// sectionImageBuild runs the Image Build block. Returns the nix store path the
+// build resolved to ("" whenever no build ran or it failed) and
+// imageBuildSkipped.
+//
+// The store path used to be printed and dropped. It is returned now because it
+// is the only thing that lets the Container Image section below name the image
+// THIS config would actually run: since C2 the loaded image is addressed by
+// hash of that path, so without it the checker can only ask "is any jail image
+// loaded", which is a strictly weaker question.
+func (o *Options) sectionImageBuild(r *reporter, merged *jsonx.OrderedMap, repoRoot string, repoRootOK, isNativeRuntime bool) (string, bool) {
 	r.section("Image Build")
 	imageBuildSkipped := false
+	builtStorePath := ""
 	if isNativeRuntime {
 		r.ok("Not applicable — native macOS backend builds no Linux image")
 	} else if o.Build {
@@ -464,6 +473,7 @@ func (o *Options) sectionImageBuild(r *reporter, merged *jsonx.OrderedMap, repoR
 					title, note := nixdiag.DiagnoseNixBuildFailure(tail, o.IsMacOS, nixdiag.LinuxBuilderRemedy())
 					r.fail(title, note)
 				} else {
+					builtStorePath = storePath
 					r.ok("nix build succeeded: " + storePath)
 				}
 			}
@@ -472,29 +482,61 @@ func (o *Options) sectionImageBuild(r *reporter, merged *jsonx.OrderedMap, repoR
 		r.warn("Skipped nix build (--no-build)", "")
 	}
 	r.blank()
-	return imageBuildSkipped
+	return builtStorePath, imageBuildSkipped
 }
 
 // sectionContainerImage runs the Container Image block.
-func (o *Options) sectionContainerImage(r *reporter, detectedRuntime, notLoadedHint string) {
+//
+// builtStorePath is the store path sectionImageBuild resolved, or "" when no
+// build ran (--no-build, an unresolvable repo root, or a host that cannot build
+// at all). It decides WHICH QUESTION this section can ask, and both questions
+// are honest:
+//
+//   - With a store path: is `<repo>:<sha16>` — the image this config would
+//     actually run — loaded? That is a claim the checker could not make at all
+//     while one :latest tag named every image.
+//   - Without one: is ANY yolo-jail image loaded? Asked by REPOSITORY, never by
+//     tag. Probing `:latest` here would report a missing image on every host
+//     whose images are all content-addressed — a false alarm manufactured purely
+//     by the tag changing shape.
+func (o *Options) sectionContainerImage(r *reporter, detectedRuntime, notLoadedHint, builtStorePath string) {
 	r.section("Container Image")
 	if o.inJail() {
 		r.ok("Inside jail — image check skipped (managed by host)")
 		r.blank()
 		return
 	}
-	checkImage := image.JailImage(detectedRuntime)
+	if builtStorePath != "" {
+		checkImage := image.JailImageRef(detectedRuntime, builtStorePath)
+		res := o.Exec(image.ImageInspectCmd(detectedRuntime, checkImage), "", nil, 10*time.Second)
+		switch {
+		case !res.Ran || res.Timeout:
+			r.warn("Could not check image: probe failed", "")
+		case res.RC == 0:
+			r.ok("Image loaded for this config: " + checkImage)
+		default:
+			r.warn("Image '"+checkImage+"' (this config's image) not loaded", notLoadedHint)
+		}
+		r.blank()
+		return
+	}
+	repo := image.JailImageRepository(detectedRuntime)
 	if detectedRuntime == "container" {
-		res := o.Exec([]string{"container", "image", "inspect", checkImage}, "", nil, 10*time.Second)
+		// Apple Container has no `images <repo>` filter this repo can vouch for, so
+		// the tagless question falls back to the legacy ref. It is still produced on
+		// this backend by any pre-C2 load, and a warn (not a fail) is the right
+		// severity for "could not tell".
+		checkImage := image.JailImage(detectedRuntime)
+		res := o.Exec(image.ImageInspectCmd(detectedRuntime, checkImage), "", nil, 10*time.Second)
 		if !res.Ran || res.Timeout {
 			r.warn("Could not check image: probe failed", "")
 		} else if res.RC == 0 {
 			r.ok("Image loaded: " + checkImage)
 		} else {
-			r.warn("Image '"+checkImage+"' not loaded", notLoadedHint)
+			r.warn("No '"+checkImage+"' image loaded", notLoadedHint)
 		}
 	} else {
-		res := o.Exec([]string{detectedRuntime, "images", checkImage, "--format", "{{.Repository}}:{{.Tag}} ({{.Size}})"}, "", nil, 10*time.Second)
+		res := o.Exec([]string{detectedRuntime, "images", repo, "--format", "{{.Repository}}:{{.Tag}} ({{.Size}})"}, "", nil, 10*time.Second)
 		if !res.Ran || res.Timeout {
 			r.warn("Could not check image: probe failed", "")
 		} else {
@@ -502,7 +544,7 @@ func (o *Options) sectionContainerImage(r *reporter, detectedRuntime, notLoadedH
 			if images != "" {
 				r.ok("Image loaded: " + firstLine(images))
 			} else {
-				r.warn("Image '"+checkImage+"' not loaded", notLoadedHint)
+				r.warn("No '"+repo+"' image loaded", notLoadedHint)
 			}
 		}
 	}

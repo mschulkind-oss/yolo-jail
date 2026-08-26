@@ -30,7 +30,19 @@ type assembleInput struct {
 	// packs are this run's loaded packs (embedded official + configured). Their
 	// DECLARATIONS drive the mounts below — writable dirs, mount targets, host-file
 	// grants — which is what lets core stay ignorant of what an "agent" is.
-	packs      []*packload.Pack
+	packs []*packload.Pack
+	// imageRef is the ref of the image AutoLoadImage actually made ready this
+	// launch — content-addressed (`localhost/yolo-jail:<sha16>`) on the normal
+	// path, the legacy :latest tag on a degraded fallback with no store path.
+	//
+	// It is INPUT, not something assembly derives. Before C2 both this position
+	// in the argv and runNormal's host-service insert point called a
+	// jailImageRef(rt) helper that returned a constant, and they agreed only
+	// because the constant was the same in both. With one image per config there
+	// is no constant left to agree on, so the ref is threaded from the one place
+	// that knows it and read twice from this single field. See jailImage() for
+	// what an unset field does, and why it does not fall back.
+	imageRef   string
 	agentsPath string // AGENTS_DIR/<cname> (briefings + skills staging)
 	// packStaging is AGENTS_DIR/<cname>/packs — the staged pack trees, mounted :ro so
 	// the entrypoint renders the same declarations the host read.
@@ -647,7 +659,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	runCmd = append(runCmd, o.loopholesRuntimeArgs(cfg, rt)...)
 
 	// --- image + entrypoint ---
-	runCmd = append(runCmd, jailImageRef(rt), "yolo-entrypoint")
+	runCmd = append(runCmd, in.jailImage(), "yolo-entrypoint")
 	return runCmd
 }
 
@@ -711,11 +723,28 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	return env
 }
 
-func jailImageRef(rt string) string {
-	if rt == "container" {
-		return paths.JailImageShort
+// unsetImageRef is what the argv gets when nobody threaded a ref in. It is
+// deliberately NOT a working name.
+//
+// The obvious alternative — fall back to the legacy :latest constant — is the
+// exact defect C2 exists to remove: assembly would quietly name a different
+// image than the one the load pipeline prepared, and the launch would look fine
+// while running whatever :latest happens to point at. This value cannot resolve,
+// so a launch that reaches it fails immediately with a runtime error naming the
+// placeholder, one line from its cause. In-package tests that do not care about
+// the image tail also land here, which is why it reads as an obvious sentinel
+// rather than as a plausible ref.
+const unsetImageRef = "yolo-jail:<image-ref-not-threaded>"
+
+// jailImage returns the image ref this launch must run. There is no per-runtime
+// branch left: image.JailImageRef already spells the ref the way the runtime
+// wants it (Apple Container drops the localhost/ prefix), and it did so at the
+// point where the store path was known.
+func (in *assembleInput) jailImage() string {
+	if in.imageRef == "" {
+		return unsetImageRef
 	}
-	return paths.JailImage
+	return in.imageRef
 }
 
 // jsonDumps renders v as compact JSON.

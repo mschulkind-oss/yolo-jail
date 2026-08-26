@@ -18,12 +18,45 @@ import (
 )
 
 // ImageLoadCmd returns the command to load a container image from a tar
-// archive.
+// archive — a FILE on disk.
+//
+// Since C3 this is no longer the podman happy path: it survives for the two
+// places that genuinely hold a file, namely the build-failure / SkipBuild
+// fallback that loads whatever `newestTars` found, and Apple Container's
+// conversion cluster. The normal podman load takes ImageLoadStdinCmd and writes
+// no tar at all.
 func ImageLoadCmd(runtime, tarPath string) []string {
 	if runtime == "container" {
 		return []string{"container", "image", "load", "-i", tarPath}
 	}
 	return []string{runtime, "load", "-i", tarPath}
+}
+
+// ImageLoadStdinCmd returns the argv that loads an image from STDIN, and
+// ok=false for a runtime that cannot take one.
+//
+// This is C3's decision point: `podman load` documents `-i, --input string
+// Read from specified archive file (default: stdin)`, so dropping the flag turns
+// the loader into the read end of a pipe and the nix stream script into its
+// write end — no 3.28 GiB tar in between
+// (docs/design/image-staging-vs-baking.md §4 C3).
+//
+// APPLE CONTAINER IS UNREPRESENTABLE HERE RATHER THAN HANDLED, and the reason is
+// its CONVERTERS, not its CLI: loadImageForAppleContainer runs either `skopeo
+// copy docker-archive:<tar> …` or `podman save --format oci-archive -o <tar>`,
+// and both interpolate a path into something that cannot consume a stream. Even
+// if `container image load` turned out to accept stdin, those two would still
+// need a file. Returning (nil, false) makes the caller branch on the ANSWER
+// instead of re-deriving the runtime name a third time.
+//
+// It is deliberately NOT spelled as ImageLoadCmd(runtime, "") meaning stdin: an
+// accidentally-empty path would silently become "read stdin", and `podman load`
+// on a terminal stdin blocks forever — a hang, not an error.
+func ImageLoadStdinCmd(runtime string) ([]string, bool) {
+	if runtime == "container" {
+		return nil, false
+	}
+	return []string{runtime, "load"}, true
 }
 
 // ImageInspectCmd returns the command to inspect a container image. Mirrors
@@ -32,13 +65,99 @@ func ImageInspectCmd(runtime, image string) []string {
 	return []string{runtime, "image", "inspect", image}
 }
 
-// JailImage returns the jail image name appropriate for the runtime: the short
-// (unqualified) name for Apple Container, the fully-qualified ref otherwise.
+// ImageTagCmd returns the command that gives an already-loaded image a SECOND
+// name. C2 uses it to point the legacy `:latest` tag at the image just streamed
+// under its content-addressed name — the DOWNSTREAM direction, so a failure
+// costs a stale `podman images` listing and nothing else.
+//
+// The other direction (tag the content ref FROM :latest, after the load) is what
+// this used to do, and it is a defect: see StreamRepoTag for the race that made
+// a wrong binding permanent.
+//
+// Apple Container never reaches this: its converters (loadImageForAppleContainer)
+// choose the name they write into the OCI archive, so the content ref is applied
+// during conversion rather than after the load — which also avoids inventing an
+// argv for a `container image tag` subcommand nothing here can verify.
+func ImageTagCmd(runtime, src, dst string) []string {
+	return []string{runtime, "tag", src, dst}
+}
+
+// JailImage returns the LEGACY :latest jail image name appropriate for the
+// runtime: the short (unqualified) name for Apple Container, the fully-qualified
+// ref otherwise.
+//
+// This is NOT the ref a jail runs (see JailImageRef). It survives for two jobs:
+// the degraded fallback branch in AutoLoadImage — SkipBuild, or a failed build
+// the operator opted past, where "is *an* image present" is the only question
+// askable and there is no store path to hash — and as the DESTINATION of the
+// best-effort tag that keeps `:latest` pointing at the newest load, so a human
+// running `podman images` still sees one.
 func JailImage(runtime string) string {
 	if runtime == "container" {
 		return paths.JailImageShort
 	}
 	return paths.JailImage
+}
+
+// JailImageRepository returns the repository half of the jail image ref for a
+// runtime — the part that is invariant across every image this machine ever
+// loads, and therefore the right filter for "any jail image" questions
+// (`podman images <repo>`, as internal/prune already does).
+func JailImageRepository(runtime string) string {
+	if runtime == "container" {
+		return paths.JailImageRepoShort
+	}
+	return paths.JailImageRepo
+}
+
+// JailImageRef is C2's content-addressed image ref: `<repo>:<sha16-of-storePath>`.
+//
+// The tag is keyFor(storePath) — the SAME 16 hex chars that name the store
+// path's cache tar (cache/images/<key>.tar) and its durable GC root
+// (build/roots/<key>). One hash function for all three, so a reaper can
+// correlate a loaded image, its tar and its root without a reverse lookup, and
+// so the three can never drift apart (docs/design/image-staging-vs-baking.md §4
+// C2 says to reuse it by name).
+//
+// This is what makes "is the image for THIS config loaded?" answerable at all.
+// While one `:latest` tag named every image, the question could only be
+// approximated — see the load decision in AutoLoadImage for the ambiguity that
+// approximation left behind, and why content addressing dissolves it.
+func JailImageRef(runtime, storePath string) string {
+	return JailImageRepository(runtime) + ":" + keyFor(storePath)
+}
+
+// StreamRepoTag is the value C2 writes into the STREAMED ARCHIVE's RepoTags, so
+// the image arrives already carrying its content-addressed name and there is
+// nothing to retag afterwards.
+//
+// WHY THIS EXISTS RATHER THAN A `podman tag` AFTER THE LOAD. The flake bakes
+// `name = "yolo-jail"; tag = "latest"` (and `ci-minimal` on the minimal
+// variant), so an un-overridden stream names every image the same thing no
+// matter what it contains. Copying that name onto the content ref afterwards
+// reads `:latest` a second time, and between the load and that read a
+// concurrent launch of a DIFFERENT config can move it — nothing serializes image
+// loads across workspaces, the run lock is per-container-name. The loser then
+// binds its content ref to the winner's image, and because the binding is a
+// PERMANENT name the next launch finds it present, skips the load, and runs the
+// wrong image forever. Naming the image on the way in makes that unrepresentable
+// instead of unlikely: the archive says what it is, and `podman load` cannot
+// name it after anything else.
+//
+// The SHORT form is deliberate — it mirrors what the flake bakes, and podman
+// qualifies a bare repository to `localhost/…` on load, which is exactly
+// JailImageRef("podman", storePath). Verified end-to-end 2026-08-25 against the
+// live stream script: `--repo_tag yolo-jail:<key>` puts that in the archive's
+// manifest and `podman load` reports `Loaded image: localhost/yolo-jail:<key>`.
+func StreamRepoTag(storePath string) string {
+	return paths.JailImageRepoShort + ":" + keyFor(storePath)
+}
+
+// qualifyRef adds the `localhost/` registry prefix podman requires and Apple
+// Container's CLI omits — the same relationship paths.JailImage bears to
+// paths.JailImageShort.
+func qualifyRef(shortRef string) string {
+	return "localhost/" + shortRef
 }
 
 var (
@@ -142,6 +261,12 @@ func CurrentLoadedPath(sentinel string) (string, bool) {
 // AddLoadedPath appends storePath to the sentinel as the most-recent entry,
 // de-duplicating (move-to-end) and capping at the 10 most recent. Written as
 // "\n".join(paths) + "\n".
+//
+// Since C2 the caller records a path on every successful launch, not only when a
+// load happened, so the LRU means "recently USED" — several images stay loaded
+// at once now, and a jail can legitimately run one whose load was many launches
+// ago. That is the property prune's protected set needs; see the call site in
+// AutoLoadImage for what leaving it on the load path would cost.
 func AddLoadedPath(sentinel, storePath string) error {
 	var pathsList []string
 	if data, err := os.ReadFile(sentinel); err == nil {

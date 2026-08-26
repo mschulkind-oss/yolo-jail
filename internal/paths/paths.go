@@ -30,10 +30,29 @@ var NativeRuntimes = []string{"macos-user"}
 var AllRuntimes = append(append([]string{}, SupportedRuntimes...), NativeRuntimes...)
 
 const (
-	// JailImage is the fully-qualified image ref; JailImageShort drops the
-	// localhost/ prefix Apple Container's CLI doesn't recognize.
-	JailImage      = "localhost/yolo-jail:latest"
-	JailImageShort = "yolo-jail:latest"
+	// JailImageRepo is the REPOSITORY the jail image is published under;
+	// JailImageRepoShort drops the localhost/ prefix Apple Container's CLI
+	// doesn't recognize.
+	//
+	// The repository — not the tag — is the stable half. Since C2 the loaded
+	// image is addressed by CONTENT (`<repo>:<sha16-of-store-path>`, built by
+	// image.JailImageRef), so anything that wants "the jail image" in general
+	// must filter by REPOSITORY, the way internal/prune already does. Nothing
+	// may depend on a particular tag: the container image tag is not a public
+	// surface (docs/design/image-staging-vs-baking.md §4 C2).
+	JailImageRepo      = "localhost/yolo-jail"
+	JailImageRepoShort = "yolo-jail"
+
+	// JailImage is the fully-qualified LEGACY :latest ref; JailImageShort is its
+	// unqualified twin. The nix flake bakes `tag = "latest"`, which is what these
+	// spell — but since C2 the load OVERRIDES that name (image.StreamRepoTag is
+	// written into the archive's RepoTags), so nothing lands here by default any
+	// more. They survive as (a) the DESTINATION of the best-effort alias that
+	// keeps :latest pointing at the newest load, and (b) the only name the
+	// degraded fallback branch (no store path in hand) can honestly ask about.
+	// They are NOT the name a jail runs.
+	JailImage      = JailImageRepo + ":latest"
+	JailImageShort = JailImageRepoShort + ":latest"
 
 	// JailHostServicesDir is where each host service's published ENDPOINT FILE
 	// appears in-jail: one <name>.endpoint per service, naming the loopback-TLS

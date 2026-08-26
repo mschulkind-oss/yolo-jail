@@ -455,8 +455,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 
 	profileStart := o.Now()
 
-	// Image build/load.
-	if !o.autoLoadImage(cfg, rt, repoRoot) {
+	// Image build/load. The result carries the REF of the image it made ready —
+	// content-addressed on the normal path (C2), the legacy :latest tag on a
+	// degraded fallback that has no store path to hash. Everything downstream
+	// that names an image reads it from assembleInput.imageRef below; nothing
+	// re-derives it.
+	loadedImage := o.autoLoadImage(cfg, rt, repoRoot)
+	if !loadedImage.OK {
 		lock.Close()
 		return 1
 	}
@@ -572,6 +577,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		cfg:              cfg,
 		rt:               rt,
 		cname:            cname,
+		imageRef:         loadedImage.Ref,
 		packs:            loadedPacks,
 		agentsPath:       agentsPath,
 		packStaging:      packStaging,
@@ -626,29 +632,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// user has to go read." The wrapper also carries the inert-backend report, so a backend
 	// that will start nothing says so instead of looking provisioned (B-0).
 	hostServices := o.startLoopholesDisclosed(cname, rt, cfg, loadedPacks)
-	imageRef := jailImageRef(rt)
-	for _, svc := range hostServices {
-		// An EMPTY envVarName means "this handle has no variable to insert", which
-		// today is the HOST-SCOPED loophole's front (startHostSingleton). Its
-		// variable is emitted much earlier, by hostServicesMountArgs at argv-assembly
-		// time, and deliberately OPTIMISTICALLY: a jail told about a service whose
-		// front never published is refused by the in-jail reachability witness, where
-		// a jail never told at all just runs without Claude auth and says nothing
-		// (loopback-tls-reachability.md §7.3). Inserting it here as well would put
-		// the same `-e` in the argv twice.
-		if svc.envVarName == "" {
-			continue
-		}
-		idx := indexOfSlice(runCmd, imageRef)
-		if idx < 0 {
-			continue
-		}
-		// The value is always a PATH — never a port, never an address. That is the
-		// bootstrap-ordering invariant: the container's environment is frozen at
-		// `podman run` time, so anything that can change (a restarted daemon's port,
-		// a rotated token) has to live behind a stable path the client re-reads.
-		runCmd = insertStrsAt(runCmd, idx, []string{"-e", svc.envVarName + "=" + svc.jailPath})
-	}
+	// in.imageRef — NOT a re-derivation. The insert point is found by searching
+	// the argv for the image ref, so this must be the very value assembly put
+	// there or every pair below is silently dropped (see insertHostServiceEnv).
+	// Reading the same field is what makes that divergence unrepresentable rather
+	// than merely unlikely: before C2 both sides called jailImageRef(rt) and
+	// agreed only because both hardcoded a constant.
+	runCmd = insertHostServiceEnv(runCmd, in.imageRef, hostServices)
 
 	// Final internal command tail.
 	runCmd = append(runCmd, buildFinalInternalCmd(targetCmd, o.Profile))
@@ -728,6 +718,45 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		o.pr(o.Stderr).printf("  Total (host-side):  %.3fs", o.Now().Sub(profileStart).Seconds())
 	}
 	return rc
+}
+
+// insertHostServiceEnv splices each host service's `-e VAR=<jailPath>` pair into
+// the container argv immediately BEFORE the image ref — the boundary between
+// `podman run`'s flags and its positional arguments, so the pairs land as flags
+// and not as arguments to the entrypoint.
+//
+// imageRef MUST be the same value assembly appended, which is why runNormal
+// passes assembleInput.imageRef rather than re-deriving anything. Under C2 the
+// ref is content-addressed and therefore no longer a constant two call sites can
+// independently arrive at: hand this a stale ref and indexOfSlice returns -1,
+// every pair is dropped, and the jail starts with no broker endpoint, no cgroup
+// delegate and no host-process socket — silently, because a `continue` is not an
+// error. The in-jail reachability witness would refuse the launch several
+// hundred lines and one process boundary away from the cause.
+func insertHostServiceEnv(runCmd []string, imageRef string, services []loopholeDaemon) []string {
+	for _, svc := range services {
+		// An EMPTY envVarName means "this handle has no variable to insert", which
+		// today is the HOST-SCOPED loophole's front (startHostSingleton). Its
+		// variable is emitted much earlier, by hostServicesMountArgs at argv-assembly
+		// time, and deliberately OPTIMISTICALLY: a jail told about a service whose
+		// front never published is refused by the in-jail reachability witness, where
+		// a jail never told at all just runs without Claude auth and says nothing
+		// (loopback-tls-reachability.md §7.3). Inserting it here as well would put
+		// the same `-e` in the argv twice.
+		if svc.envVarName == "" {
+			continue
+		}
+		idx := indexOfSlice(runCmd, imageRef)
+		if idx < 0 {
+			continue
+		}
+		// The value is always a PATH — never a port, never an address. That is the
+		// bootstrap-ordering invariant: the container's environment is frozen at
+		// `podman run` time, so anything that can change (a restarted daemon's port,
+		// a rotated token) has to live behind a stable path the client re-reads.
+		runCmd = insertStrsAt(runCmd, idx, []string{"-e", svc.envVarName + "=" + svc.jailPath})
+	}
+	return runCmd
 }
 
 // attachExisting runs the exec-into-existing-container branch (and the

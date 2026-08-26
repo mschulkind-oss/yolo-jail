@@ -24,7 +24,7 @@ func withBuildDir(t *testing.T) string {
 func TestAutoLoadImageFreshLoad(t *testing.T) {
 	withBuildDir(t)
 	var out bytes.Buffer
-	loaded := false
+	f := newFakeRuntime()
 	opts := AutoLoadOptions{
 		Runtime: "podman",
 		Out:     &out,
@@ -32,26 +32,16 @@ func TestAutoLoadImageFreshLoad(t *testing.T) {
 		BuildStorePath: func(repoRoot string, extra []any, outLink string) (string, []string) {
 			return "/nix/store/abc-image", nil
 		},
-		Run: func(argv []string) (int, bool) {
-			// image inspect: first call before load → not present (rc 1);
-			// load → success (rc 0).
-			if len(argv) >= 2 && argv[1] == "load" {
-				loaded = true
-				return 0, true
-			}
-			return 1, true // inspect: not present
-		},
-		Materialize: func(storePath, cacheFile string) int64 {
-			// Simulate a materialized cache file.
-			_ = os.WriteFile(cacheFile, []byte("tar"), 0o644)
-			return 12 * 1024 * 1024
-		},
+		Run: f.run,
+		// C3: on podman the load is a PIPE, so there is no cache file to simulate.
+		// Materialize is left nil on purpose — see c2Opts.
+		StreamLoad: f.streamLoad,
 	}
-	if !AutoLoadImage(opts) {
+	if !AutoLoadImage(opts).OK {
 		t.Fatalf("AutoLoadImage = false; out=%q", out.String())
 	}
-	if !loaded {
-		t.Error("expected a load command to run")
+	if f.loads != 1 {
+		t.Errorf("expected exactly one load command, got %d", f.loads)
 	}
 	if !strings.Contains(out.String(), "first run") {
 		t.Errorf("expected first-run message, got %q", out.String())
@@ -66,33 +56,49 @@ func TestAutoLoadImageFreshLoad(t *testing.T) {
 	}
 }
 
+// TestAutoLoadImageAlreadyLoaded: the image for THIS store path is present in
+// the runtime, so nothing is materialized and nothing is said.
+//
+// The runtime store answers for the CONTENT REF only — deliberately. The
+// previous fixture returned rc 0 to every inspect, so it passed identically
+// whether production asked about the content ref, about :latest, or about a
+// string nobody had ever loaded: the callee was pinned and the question was not.
 func TestAutoLoadImageAlreadyLoaded(t *testing.T) {
 	bd := withBuildDir(t)
-	// Sentinel already lists the store path AND image is present → no reload.
 	storePath := "/nix/store/xyz-image"
+	// The sentinel still names the path — and is now IRRELEVANT to the decision.
+	// It stays in the fixture so that a regression which re-promotes it to
+	// authority is not accidentally satisfied by an empty file.
 	sentinel := filepath.Join(bd, "last-load-podman")
 	if err := os.WriteFile(sentinel, []byte(storePath+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	materialized := false
+	materialized, streamed := false, false
 	opts := AutoLoadOptions{
 		Runtime: "podman",
 		Out:     &out,
 		BuildStorePath: func(string, []any, string) (string, []string) {
 			return storePath, nil
 		},
-		Run: func(argv []string) (int, bool) { return 0, true }, // inspect present
+		Run: newFakeRuntime(JailImageRef("podman", storePath)).run,
 		Materialize: func(string, string) int64 {
 			materialized = true
 			return 1
 		},
+		StreamLoad: func(string, string, []string) (int64, bool) {
+			streamed = true
+			return 1, true
+		},
 	}
-	if !AutoLoadImage(opts) {
+	if !AutoLoadImage(opts).OK {
 		t.Fatalf("AutoLoadImage = false; out=%q", out.String())
 	}
 	if materialized {
 		t.Error("should not materialize when already loaded + present")
+	}
+	if streamed {
+		t.Error("should not stream when already loaded + present")
 	}
 	if strings.Contains(out.String(), "Image load needed") {
 		t.Errorf("unexpected load-needed message: %q", out.String())
@@ -102,21 +108,34 @@ func TestAutoLoadImageAlreadyLoaded(t *testing.T) {
 	}
 }
 
-// Regression for https://github.com/mschulkind-oss/yolo-jail/issues/35: nix
-// builds are content-addressed, so reverting a config change (e.g. removing
-// then re-adding a package) can reproduce a store path that's still sitting
-// in the last-10-loads sentinel history, even though a *different*, newer
-// path has since become the runtime's actual :latest image. Checking
-// membership in that history (instead of comparing against the single
-// most-recently-loaded entry) wrongly concludes "already loaded" and skips
-// the reload, leaving :latest silently stale.
-func TestAutoLoadImageReloadsWhenRevertedConfigReproducesOlderStorePath(t *testing.T) {
+// TestRevertedConfigReusesItsOwnImageInsteadOfReloading is the INVERSION of the
+// regression for https://github.com/mschulkind-oss/yolo-jail/issues/35, kept
+// rather than deleted because it is where the argument for C2 is measurable.
+//
+// The original scenario: nix builds are content-addressed, so reverting a config
+// change (removing then re-adding a package) can reproduce a store path that is
+// still sitting in the last-10-loads sentinel history, even though a *different*,
+// newer path has since become the runtime's actual :latest image. Under one tag
+// for every image the only safe answer was to RELOAD path A — checking mere
+// membership in the history would wrongly conclude "already loaded" and leave
+// :latest silently stale. The old test asserted that third load, and it was
+// correct for the code it described.
+//
+// Content addressing dissolves the scenario. Path A's image is still in the
+// runtime under `yolo-jail:<sha16(A)>`, untouched by B's load, so reverting is
+// free: the correct answer is now 2 loads, not 3. What made the old answer
+// necessary — not knowing what a tag points at — is no longer representable.
+//
+// This test fails if someone reintroduces a tag-and-sentinel decision, in either
+// of its forms: the equality form reloads A (3 loads), and the LRU-membership
+// form skips B's own recognition and runs a stale image.
+func TestRevertedConfigReusesItsOwnImageInsteadOfReloading(t *testing.T) {
 	bd := withBuildDir(t)
 	sentinel := filepath.Join(bd, "last-load-podman")
 
 	pathA := "/nix/store/path-A-image"
 	pathB := "/nix/store/path-B-image"
-	loadCount := 0
+	f := newFakeRuntime()
 
 	makeOpts := func(storePath string) AutoLoadOptions {
 		return AutoLoadOptions{
@@ -125,37 +144,31 @@ func TestAutoLoadImageReloadsWhenRevertedConfigReproducesOlderStorePath(t *testi
 			BuildStorePath: func(string, []any, string) (string, []string) {
 				return storePath, nil
 			},
-			Run: func(argv []string) (int, bool) {
-				if len(argv) >= 2 && argv[1] == "load" {
-					loadCount++
-					return 0, true
-				}
-				return 0, true // inspect: always present
-			},
-			Materialize: func(sp, cacheFile string) int64 {
-				_ = os.WriteFile(cacheFile, []byte("tar-"+sp), 0o644)
-				return 1024
-			},
+			Run:        f.run,
+			StreamLoad: f.streamLoad,
 		}
 	}
 
-	// Step 1: path A builds, loads, becomes :latest.
-	if !AutoLoadImage(makeOpts(pathA)) {
+	// Step 1: path A builds and loads under its own content ref.
+	refA := AutoLoadImage(makeOpts(pathA))
+	if !refA.OK {
 		t.Fatal("step 1: AutoLoadImage returned false")
 	}
-	if loadCount != 1 {
-		t.Fatalf("step 1: expected 1 load, got %d", loadCount)
+	if f.loads != 1 {
+		t.Fatalf("step 1: expected 1 load, got %d", f.loads)
 	}
 
-	// Step 2: config changes, path B builds, loads, becomes :latest.
-	if !AutoLoadImage(makeOpts(pathB)) {
+	// Step 2: config changes, path B builds and loads under ITS content ref. This
+	// is what used to move :latest away from A.
+	refB := AutoLoadImage(makeOpts(pathB))
+	if !refB.OK {
 		t.Fatal("step 2: AutoLoadImage returned false")
 	}
-	if loadCount != 2 {
-		t.Fatalf("step 2: expected 2 loads total, got %d", loadCount)
+	if f.loads != 2 {
+		t.Fatalf("step 2: expected 2 loads total, got %d", f.loads)
 	}
 
-	// Sanity check the premise: A is still present in the sentinel's history...
+	// The premise of the original bug still holds: A is in the sentinel history.
 	data, err := os.ReadFile(sentinel)
 	if err != nil {
 		t.Fatal(err)
@@ -163,16 +176,24 @@ func TestAutoLoadImageReloadsWhenRevertedConfigReproducesOlderStorePath(t *testi
 	if !strings.Contains(string(data), pathA) {
 		t.Fatalf("expected sentinel history to still contain path A: %q", string(data))
 	}
+	// And the fact that dissolves it: A's image is still in the runtime, under a
+	// name B could not have taken.
+	if f.present[refA.Ref] == "" || refA.Ref == refB.Ref {
+		t.Fatalf("A's image no longer has a name of its own: A=%q B=%q present=%v",
+			refA.Ref, refB.Ref, f.present)
+	}
 
-	// Step 3: config reverts, nix reproduces path A again. Even though A is
-	// still "in" the sentinel history, B is what :latest actually is right
-	// now — A must be reloaded, not skipped.
-	if !AutoLoadImage(makeOpts(pathA)) {
+	// Step 3: config reverts, nix reproduces path A. Nothing to load.
+	again := AutoLoadImage(makeOpts(pathA))
+	if !again.OK {
 		t.Fatal("step 3: AutoLoadImage returned false")
 	}
-	if loadCount != 3 {
-		t.Fatalf("step 3: expected a reload of path A (3 total loads), got %d — "+
-			"the reload was wrongly skipped because A is still in the history", loadCount)
+	if f.loads != 2 {
+		t.Fatalf("step 3: reverting reloaded path A (%d loads total); its image was "+
+			"never displaced, so the reload the pre-C2 code needed is now waste", f.loads)
+	}
+	if again.Ref != refA.Ref {
+		t.Fatalf("step 3 ran %q, want A's own ref %q", again.Ref, refA.Ref)
 	}
 
 	last, ok := CurrentLoadedPath(sentinel)
@@ -189,23 +210,16 @@ func TestAutoLoadImageRegistersRoot(t *testing.T) {
 	// (a) fresh load → root registered with the built store path.
 	withBuildDir(t)
 	var rooted []string
+	fresh := newFakeRuntime()
 	optsFresh := AutoLoadOptions{
 		Runtime:        "podman",
 		Out:            &bytes.Buffer{},
 		BuildStorePath: func(string, []any, string) (string, []string) { return "/nix/store/abc-image", nil },
-		Run: func(argv []string) (int, bool) {
-			if len(argv) >= 2 && argv[1] == "load" {
-				return 0, true
-			}
-			return 1, true // inspect: absent → triggers a load
-		},
-		Materialize: func(_, cacheFile string) int64 {
-			_ = os.WriteFile(cacheFile, []byte("tar"), 0o644)
-			return 1
-		},
-		RegisterRoot: func(p string) { rooted = append(rooted, p) },
+		Run:            fresh.run, // nothing loaded → triggers a load
+		StreamLoad:     fresh.streamLoad,
+		RegisterRoot:   func(p string) { rooted = append(rooted, p) },
 	}
-	if !AutoLoadImage(optsFresh) {
+	if !AutoLoadImage(optsFresh).OK {
 		t.Fatal("fresh load = false")
 	}
 	if len(rooted) != 1 || rooted[0] != "/nix/store/abc-image" {
@@ -225,7 +239,7 @@ func TestAutoLoadImageRegistersRoot(t *testing.T) {
 		RegisterRoot:   func(p string) { rooted = append(rooted, p) },
 		LookupEnv:      allowStaleEnv,
 	}
-	if !AutoLoadImage(optsExisting) {
+	if !AutoLoadImage(optsExisting).OK {
 		t.Fatal("using-existing = false")
 	}
 	if len(rooted) != 0 {
@@ -262,7 +276,7 @@ func TestAutoLoadImageBuildFailureIsFatalEvenWithAnExistingImage(t *testing.T) {
 		Run:       func(argv []string) (int, bool) { return 0, true }, // inspect: image IS present
 		LookupEnv: denyStaleEnv,
 	}
-	if AutoLoadImage(opts) {
+	if AutoLoadImage(opts).OK {
 		t.Fatalf("AutoLoadImage = true after a FAILED build; a run must not look "+
 			"successful while silently stale\n%s", out.String())
 	}
@@ -294,7 +308,7 @@ func TestAutoLoadImageBuildFailureEscapeHatchIsLoud(t *testing.T) {
 		Run:       func(argv []string) (int, bool) { return 0, true }, // inspect present
 		LookupEnv: allowStaleEnv,
 	}
-	if !AutoLoadImage(opts) {
+	if !AutoLoadImage(opts).OK {
 		t.Fatalf("AutoLoadImage = false; the escape hatch must allow the launch\n%s", out.String())
 	}
 	s := out.String()
@@ -327,7 +341,7 @@ func TestAutoLoadImageBuildFailureEscapeHatchWithNothingCached(t *testing.T) {
 		Run:       func(argv []string) (int, bool) { return 1, true }, // inspect: absent
 		LookupEnv: allowStaleEnv,
 	}
-	if AutoLoadImage(opts) {
+	if AutoLoadImage(opts).OK {
 		t.Fatal("AutoLoadImage = true with no image anywhere")
 	}
 	s := out.String()
@@ -346,6 +360,7 @@ func TestAutoLoadOffloadInvokedOnMacOS(t *testing.T) {
 	withBuildDir(t)
 	var out bytes.Buffer
 	offloadCalled := false
+	offloaded := newFakeRuntime()
 	opts := AutoLoadOptions{
 		Runtime: "podman",
 		IsMacOS: true,
@@ -357,18 +372,10 @@ func TestAutoLoadOffloadInvokedOnMacOS(t *testing.T) {
 			offloadCalled = true
 			return "/nix/store/offloaded", nil // offload succeeds
 		},
-		Run: func(argv []string) (int, bool) {
-			if len(argv) >= 2 && argv[1] == "load" {
-				return 0, true // load succeeds
-			}
-			return 1, true // inspect: not present
-		},
-		Materialize: func(storePath, cacheFile string) int64 {
-			_ = os.WriteFile(cacheFile, []byte("tar"), 0o644)
-			return 12 * 1024 * 1024
-		},
+		Run:        offloaded.run, // nothing loaded → the offload's image loads
+		StreamLoad: offloaded.streamLoad,
 	}
-	if !AutoLoadImage(opts) {
+	if !AutoLoadImage(opts).OK {
 		t.Fatalf("AutoLoadImage = false; want true (offload built the image)\n%s", out.String())
 	}
 	if !offloadCalled {
@@ -395,7 +402,7 @@ func TestAutoLoadOffloadSkippedOnLinux(t *testing.T) {
 		DiagnoseFailure: func([]string) (string, string) { return "t", "r" },
 		LookupEnv:       denyStaleEnv,
 	}
-	if AutoLoadImage(opts) {
+	if AutoLoadImage(opts).OK {
 		t.Fatal("AutoLoadImage = true; want false on Linux (no offload)")
 	}
 	if offloadCalled {
@@ -418,7 +425,7 @@ func TestAutoLoadImageBuildFailsNoImage(t *testing.T) {
 		},
 		LookupEnv: denyStaleEnv,
 	}
-	if AutoLoadImage(opts) {
+	if AutoLoadImage(opts).OK {
 		t.Fatal("AutoLoadImage = true; want false (no image, can't build)")
 	}
 	s := out.String()
@@ -455,7 +462,7 @@ func TestAutoLoadSkipBuildUsesExisting(t *testing.T) {
 		},
 		Run: func(argv []string) (int, bool) { return 0, true }, // inspect present
 	}
-	if !AutoLoadImage(opts) {
+	if !AutoLoadImage(opts).OK {
 		t.Fatalf("AutoLoadImage = false; want true (existing image on degraded launch)\n%s", out.String())
 	}
 	if buildCalled {
@@ -501,7 +508,7 @@ func TestAutoLoadSkipBuildLoadsCachedTar(t *testing.T) {
 			return 1, true // inspect: not present
 		},
 	}
-	if !AutoLoadImage(opts) {
+	if !AutoLoadImage(opts).OK {
 		t.Fatalf("AutoLoadImage = false; want true (cached tar on degraded launch)\n%s", out.String())
 	}
 	if buildCalled {
@@ -529,7 +536,7 @@ func TestAutoLoadSkipBuildNoImageFails(t *testing.T) {
 		},
 		Run: func(argv []string) (int, bool) { return 1, true }, // inspect: not present
 	}
-	if AutoLoadImage(opts) {
+	if AutoLoadImage(opts).OK {
 		t.Fatal("AutoLoadImage = true; want false (degraded, no image available)")
 	}
 	if buildCalled {

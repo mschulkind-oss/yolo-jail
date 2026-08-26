@@ -85,7 +85,7 @@ func TestImageBuildFailureSectionMatchesWhatTheCLIPrints(t *testing.T) {
 
 	const nixSaid = "error: builder for '/nix/store/aaa-zbar.drv' failed with exit code 1"
 	var out bytes.Buffer
-	ok := image.AutoLoadImage(image.AutoLoadOptions{
+	res := image.AutoLoadImage(image.AutoLoadOptions{
 		Runtime: "podman",
 		Out:     &out,
 		BuildStorePath: func(string, []any, string) (string, []string) {
@@ -95,9 +95,12 @@ func TestImageBuildFailureSectionMatchesWhatTheCLIPrints(t *testing.T) {
 		Run:       func([]string) (int, bool) { return 0, true },
 		LookupEnv: func(string) (string, bool) { return "", false },
 	})
-	if ok {
+	if res.OK {
 		t.Fatalf("AutoLoadImage returned true after a failed build; the harness guard "+
 			"assumes a failed build cannot present as success:\n%s", out.String())
+	}
+	if res.Ref != "" {
+		t.Errorf("a failed load returned ref %q; there is no image to name", res.Ref)
 	}
 
 	section := imageBuildFailureSection(out.String())
@@ -118,6 +121,10 @@ func TestImageBuildFailureSectionIgnoresOrdinaryOutput(t *testing.T) {
 	for _, ordinary := range []string{
 		"",
 		"Image load needed: nix store path changed\n  new: /nix/store/abc\nDone: loaded image\n",
+		// The post-C3 shape of the same run: podman's image arrives over a pipe,
+		// so the size line reports what was STREAMED rather than what was cached.
+		"Image load needed: nix store path changed\n  new: /nix/store/abc\n" +
+			"  Streamed image: 3.3 GB\nDone: loaded image\n",
 		"Using existing localhost/yolo-jail:latest image.\n",
 	} {
 		if got := imageBuildFailureSection(ordinary); got != "" {

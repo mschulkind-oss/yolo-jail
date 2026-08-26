@@ -208,26 +208,82 @@ func PruneStoppedContainers(rt string, apply bool, run RunFunc) []string {
 	return targets
 }
 
-// PruneOldImages lists yolo-jail images, keeps the newest `keep`, and returns
-// the image IDs removed (or slated for removal in dry-run).
+// PruneOldImages lists yolo-jail images, keeps the newest `keep` plus every
+// image the `protected` tag set vouches for, and returns the image IDs removed
+// (or slated for removal in dry-run).
 // `images --format {{.ID}} {{.Repository}}:{{.Tag}}
-// {{.CreatedAt}} yolo-jail` → parse (id, createdAt) lines (>=3 fields, split
-// maxsplit=2) → the EXISTING OldImagesToRemove lexical CreatedAt sort → `rmi -f
-// <id>` each when apply. A missing/failed runtime yields an empty list.
-func PruneOldImages(rt string, keep int, apply bool, run RunFunc) []string {
+// {{.CreatedAt}} yolo-jail` → parse (id, repo:tag, createdAt) lines (>=3 fields,
+// split maxsplit=2) → ONE ENTRY PER IMAGE ID → the EXISTING OldImagesToRemove
+// lexical CreatedAt sort → drop the protected → `rmi -f <id>` each when apply. A
+// missing/failed runtime yields an empty list.
+//
+// # C2 ARMED THIS PASS, so C2 had to make it safe
+//
+// The query is unchanged and did not need to change: the positional argument is
+// a REPOSITORY filter ("yolo-jail"), not a tag, and content-addressed tags live
+// under the same repository. What changed is the SHAPE of what comes back, and
+// that is not cosmetic — it is the difference between a pass that could never
+// select anything and one that force-removes another workspace's running image.
+//
+// Two consequences, both handled here:
+//
+//  1. ONE ROW PER TAG, NOT PER IMAGE. `podman images` prints a row for every
+//     name, so the newest image appears TWICE — once under its content tag and
+//     once under :latest — and a per-row keep window silently spends two of its
+//     slots on one image. Measured on the maintainer's host the moment C2
+//     landed: three rows, two images, and `keep=2` selected the second image for
+//     removal. Entries are therefore deduped by ID, which is what `keep` always
+//     meant to count.
+//  2. NO LIVENESS GATE AT ALL. While one :latest tag named every image the list
+//     was one row long and `keep` never fired, so the absence never showed;
+//     under per-config tags "everything past the newest 2" is "every config
+//     except the most recently BUILT one" — CreatedAt is flake.nix's build time,
+//     not a use time, and C2's whole point is that a revisited workspace does
+//     NOT reload and so does not get a fresh timestamp. `rmi -f` then removes
+//     the containers using the image, killing a live jail in another workspace
+//     mid-session. `protected` (prune.ProtectedImageTags) vetoes those, reading
+//     the same sentinel ledger as PruneOrphanImageRoots' guard #2.
+//
+// THE RETENTION RULE ITSELF IS STILL NOT C2's TO SET. `--keep-images` (default
+// 2) is governed by minimal-disk-footprint.md OQ-DF3, still OPEN as of
+// 2026-08-25; nothing here retunes it, and the veto is deliberately applied
+// AFTER OldImagesToRemove so `keep` keeps meaning exactly what it means today.
+// image.ReadLoadedPaths — which AutoLoadImage now updates on every launch, not
+// only on a load — remains the ready-made input for the keep-by-USE rule OQ-DF3
+// will eventually pick.
+func PruneOldImages(rt string, keep int, protected map[string]struct{}, apply bool, run RunFunc) []string {
 	res := run([]string{rt, "images", "--format", "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}", "yolo-jail"}, psTimeout)
 	if !res.Ran || res.RC != 0 {
 		return []string{}
 	}
 	var images []ImageEntry
+	seen := map[string]bool{}
+	keepIDs := map[string]bool{}
 	for _, line := range strings.Split(res.Stdout, "\n") {
 		parts := pySplitMax(strings.TrimSpace(line), 2)
 		if len(parts) < 3 {
 			continue
 		}
-		images = append(images, ImageEntry{ID: parts[0], Created: parts[2]})
+		id := parts[0]
+		if _, live := protected[tagOf(parts[1])]; live {
+			// ANY protected name saves the whole image: the newest one wears both a
+			// content tag and :latest, and removal is by ID, so a per-row verdict
+			// would let the unprotected row delete the protected image.
+			keepIDs[id] = true
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		images = append(images, ImageEntry{ID: id, Created: parts[2]})
 	}
-	toRemove := OldImagesToRemove(images, keep)
+	toRemove := []string{}
+	for _, id := range OldImagesToRemove(images, keep) {
+		if keepIDs[id] {
+			continue
+		}
+		toRemove = append(toRemove, id)
+	}
 	if apply {
 		for _, id := range toRemove {
 			run([]string{rt, "rmi", "-f", id}, rmiTimeout)

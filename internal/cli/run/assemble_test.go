@@ -112,6 +112,7 @@ func TestAssembleRunCmdPodmanLinuxGolden(t *testing.T) {
 		cfg:           cfg,
 		rt:            "podman",
 		cname:         "yolo-ws-abcd1234",
+		imageRef:      goldenImageRef,
 		packs:         claudePackFixture(t),
 		agentsPath:    "/agents/yolo-ws-abcd1234",
 		wsState:       "/ws/.yolo/home",
@@ -208,6 +209,7 @@ func relocationInput(t *testing.T, rt, wsState string, rels []config.CacheReloca
 		cfg:              newConfig("agents", []any{"claude"}, "security", sec),
 		rt:               rt,
 		cname:            "yolo-ws-abcd1234",
+		imageRef:         goldenImageRef,
 		packs:            claudePackFixture(t),
 		agentsPath:       "/agents/yolo-ws-abcd1234",
 		wsState:          wsState,
@@ -531,8 +533,12 @@ func podmanLinuxGolden(home string) []string {
 	// The staged name is per-PACK (briefing-<pack>.md) so two packs cannot collide on
 	// one staged file, which the old per-agent name could not guarantee.
 	add("-v", agentsPath+"/briefing-claude.md:/home/agent/.claude/CLAUDE.md:ro")
-	// image + entrypoint.
-	add("localhost/yolo-jail:latest", "yolo-entrypoint")
+	// image + entrypoint. The ref is the fixture's, NOT a constant: since C2 the
+	// image is addressed by the hash of the store path it was built from, so an
+	// assembler that re-derived a name here — the pre-C2 jailImageRef(rt) — would
+	// put a stale :latest on the argv while the load pipeline had prepared a
+	// different image. That is the drift this element exists to catch.
+	add(goldenImageRef, "yolo-entrypoint")
 	return a
 }
 

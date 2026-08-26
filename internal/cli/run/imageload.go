@@ -7,12 +7,18 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
 )
 
-// autoLoadImage builds/loads the nix jail
-// image, returning false when no runnable image could be made available (the
-// caller must exit(1) instead of a doomed launch). The failure diagnosis uses
-// the same nixdiag classifier + Linux-builder remedy the check slice uses, so
-// the actionable "needs a Linux builder / cached image" text matches.
-func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string) bool {
+// autoLoadImage builds/loads the nix jail image, returning OK=false when no
+// runnable image could be made available (the caller must exit(1) instead of a
+// doomed launch). The failure diagnosis uses the same nixdiag classifier +
+// Linux-builder remedy the check slice uses, so the actionable "needs a Linux
+// builder / cached image" text matches.
+//
+// The LoadResult's Ref is not optional decoration: since C2 the loaded image is
+// named by the hash of the store path it was built from, so the ref this call
+// returns is the ONLY name that identifies the image this launch just made
+// ready. runNormal threads it into assembleInput.imageRef, which is the single
+// source the container argv and the host-service insert point both read.
+func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string) image.LoadResult {
 	extra := config.EffectivePackages(cfg)
 	remedy := nixdiag.LinuxBuilderRemedy()
 	return image.AutoLoadImage(image.AutoLoadOptions{

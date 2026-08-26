@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -131,9 +132,12 @@ func TestDryRunReportsButDoesNotMutate(t *testing.T) {
 	// Stopped + running containers, plus an old image.
 	rmCalls := []string{}
 	mapping := map[string]string{
-		k("podman", "ps", "-a", "--format", "{{.Names}}"):                                                 "",
-		k("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"):                                      "yolo-dead-1 Exited\nyolo-live-2 Running\n",
-		k("podman", "images", "--format", "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}", "yolo-jail"): "id1 yolo-jail:latest 2026-07-01 09:00:00 +0000 UTC\nid2 yolo-jail:latest 2026-07-18 09:00:00 +0000 UTC\nid3 yolo-jail:latest 2026-07-10 09:00:00 +0000 UTC\n",
+		k("podman", "ps", "-a", "--format", "{{.Names}}"):            "",
+		k("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"): "yolo-dead-1 Exited\nyolo-live-2 Running\n",
+		k("podman", "images", "--format", "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}", "yolo-jail"): "id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n" +
+			"id2 localhost/yolo-jail:2222222222222222 2026-07-18 09:00:00 +0000 UTC\n" +
+			"id2 localhost/yolo-jail:latest 2026-07-18 09:00:00 +0000 UTC\n" +
+			"id3 localhost/yolo-jail:3333333333333333 2026-07-10 09:00:00 +0000 UTC\n",
 	}
 	o.Exec = stubExec(mapping, &rmCalls)
 	var buf bytes.Buffer
@@ -199,8 +203,11 @@ func TestApplyOnTempRoot(t *testing.T) {
 
 	rmCalls := []string{}
 	mapping := map[string]string{
-		k("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"):                                      "yolo-dead-1 Exited\n",
-		k("podman", "images", "--format", "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}", "yolo-jail"): "id1 yolo-jail:latest 2026-07-01 09:00:00 +0000 UTC\nid2 yolo-jail:latest 2026-07-18 09:00:00 +0000 UTC\nid3 yolo-jail:latest 2026-07-10 09:00:00 +0000 UTC\n",
+		k("podman", "ps", "-a", "--format", "{{.Names}} {{.State}}"): "yolo-dead-1 Exited\n",
+		k("podman", "images", "--format", "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}", "yolo-jail"): "id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n" +
+			"id2 localhost/yolo-jail:2222222222222222 2026-07-18 09:00:00 +0000 UTC\n" +
+			"id2 localhost/yolo-jail:latest 2026-07-18 09:00:00 +0000 UTC\n" +
+			"id3 localhost/yolo-jail:3333333333333333 2026-07-10 09:00:00 +0000 UTC\n",
 	}
 	o.Exec = stubExec(mapping, &rmCalls)
 	var buf bytes.Buffer
@@ -235,6 +242,68 @@ func TestApplyOnTempRoot(t *testing.T) {
 	}
 	if !containsCall(rmCalls, "podman rmi -f id1") {
 		t.Errorf("expected 'podman rmi -f id1' in %v", rmCalls)
+	}
+}
+
+// TestApplyNeverRemovesAnInUseImage pins the CALL SITE of the liveness veto, not
+// the veto itself: probes_test.go drives PruneOldImages directly and would stay
+// green if prunecmd stopped passing ProtectedImageTags. This one goes through
+// Run, so an empty set at the call site fails it.
+//
+// The scenario is the one C2 created and measured on the maintainer's host the
+// day it landed: two workspaces with different `packages:`, each with its own
+// permanently tagged image. `yolo prune --apply` — which `yolo check` actively
+// recommends — would `rmi -f` the older one, and `-f` takes the running
+// container with it, killing another workspace's session mid-flight.
+func TestApplyNeverRemovesAnInUseImage(t *testing.T) {
+	o, gs := baseOpts(t)
+	o.Apply = true
+
+	// THREE workspaces' store paths are in the load sentinel — AutoLoadImage
+	// records one on EVERY launch since C2, not only when a load happened — and
+	// keep is 2, so the third is inside the removal window by construction. That
+	// is what makes this a call-site pin: with an empty protected set at the call
+	// site, idB is force-removed and the assertions below fire.
+	const pathA = "/nix/store/aaaa-workspace-a"
+	const pathC = "/nix/store/cccc-workspace-c"
+	const pathB = "/nix/store/bbbb-workspace-b"
+	const pathCold = "/nix/store/dddd-long-gone"
+	buildDir := filepath.Join(gs, "build")
+	mustMkdir(t, buildDir)
+	mustWrite(t, filepath.Join(buildDir, "last-load-podman"),
+		[]byte(pathB+"\n"+pathC+"\n"+pathA+"\n"))
+
+	// Newest-first by CreatedAt: A (which also wears :latest), C, B, then a cold
+	// image nothing has run since. keep=2 selects B and cold; the veto must save B
+	// and only B.
+	rows := "idA localhost/yolo-jail:" + image.ImageStoreKey(pathA) + " 2026-07-18 09:00:00 +0000 UTC\n" +
+		"idA localhost/yolo-jail:latest 2026-07-18 09:00:00 +0000 UTC\n" +
+		"idC localhost/yolo-jail:" + image.ImageStoreKey(pathC) + " 2026-07-15 09:00:00 +0000 UTC\n" +
+		"idB localhost/yolo-jail:" + image.ImageStoreKey(pathB) + " 2026-07-10 09:00:00 +0000 UTC\n" +
+		"idCold localhost/yolo-jail:" + image.ImageStoreKey(pathCold) + " 2026-06-01 09:00:00 +0000 UTC\n"
+
+	rmCalls := []string{}
+	o.Exec = stubExec(map[string]string{
+		k("podman", "images", "--format", "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}", "yolo-jail"): rows,
+	}, &rmCalls)
+	var buf bytes.Buffer
+	o.Out = &buf
+	Run(o)
+
+	for _, live := range []string{"podman rmi -f idA", "podman rmi -f idB", "podman rmi -f idC"} {
+		if containsCall(rmCalls, live) {
+			t.Errorf("prune force-removed an image a live jail runs (%q) — `rmi -f` "+
+				"takes its container with it:\n%v", live, rmCalls)
+		}
+	}
+	// And the veto is not "remove nothing": an image outside the sentinel and
+	// outside the keep window is still reclaimed.
+	if !containsCall(rmCalls, "podman rmi -f idCold") {
+		t.Errorf("expected 'podman rmi -f idCold' in %v — the gate must still let "+
+			"genuinely unused images go", rmCalls)
+	}
+	if !hasLine(&buf, "    • idCold") {
+		t.Errorf("the removed image was not reported:\n%s", buf.String())
 	}
 }
 

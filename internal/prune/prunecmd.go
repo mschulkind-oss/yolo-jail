@@ -366,7 +366,11 @@ func Run(opts Options) int {
 	if !opts.NoImages {
 		p.line("")
 		p.line(fmt.Sprintf("[bold]Old yolo-jail images[/bold]  (keep=%d)", opts.KeepImages))
-		removedImages = PruneOldImages(rt, opts.KeepImages, apply, opts.Exec)
+		// ProtectedImageTags is NOT optional decoration: since C2 every config's
+		// image carries its own permanent tag, so "everything past the newest 2"
+		// selects images other workspaces are running, and `rmi -f` takes their
+		// containers with it. Passing an empty set here re-arms that.
+		removedImages = PruneOldImages(rt, opts.KeepImages, ProtectedImageTags(opts.BuildDir()), apply, opts.Exec)
 		if len(removedImages) > 0 {
 			p.line(fmt.Sprintf("  %s: %d", verb(apply, "would remove", "removed"), len(removedImages)))
 			for _, img := range removedImages {

@@ -23,11 +23,27 @@ func TestImageCommands(t *testing.T) {
 	if got := ImageInspectCmd("podman", "img"); !reflect.DeepEqual(got, []string{"podman", "image", "inspect", "img"}) {
 		t.Errorf("inspect = %v", got)
 	}
+	if got := ImageTagCmd("podman", "src:a", "dst:b"); !reflect.DeepEqual(got, []string{"podman", "tag", "src:a", "dst:b"}) {
+		t.Errorf("tag = %v", got)
+	}
+	// The LEGACY refs. Since C2 these are not what a jail runs (see
+	// TestJailImageRefIsContentAddressedPerRuntime for that); they are the name
+	// the flake bakes, and therefore the DESTINATION of the best-effort alias
+	// that keeps :latest on the newest load, plus the only name the
+	// no-store-path fallback can ask about.
+	// They are pinned as literals because the flake's `tag = "latest"` is what
+	// makes them true, and a Go-side drift from it would be silent.
 	if JailImage("container") != "yolo-jail:latest" {
 		t.Errorf("container image = %q", JailImage("container"))
 	}
 	if JailImage("podman") != "localhost/yolo-jail:latest" {
 		t.Errorf("podman image = %q", JailImage("podman"))
+	}
+	if JailImageRepository("container") != "yolo-jail" {
+		t.Errorf("container repo = %q", JailImageRepository("container"))
+	}
+	if JailImageRepository("podman") != "localhost/yolo-jail" {
+		t.Errorf("podman repo = %q", JailImageRepository("podman"))
 	}
 }
 

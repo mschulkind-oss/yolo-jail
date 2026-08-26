@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -124,37 +125,112 @@ func TestPruneStoppedContainersDegrade(t *testing.T) {
 	}
 }
 
-func TestPruneOldImages(t *testing.T) {
-	// CreatedAt sorts lexically; keep=2 removes all but the 2 newest.
-	imgOut := "id1 yolo-jail:latest 2026-07-01 09:00:00 +0000 UTC\n" +
-		"id2 yolo-jail:latest 2026-07-18 09:00:00 +0000 UTC\n" +
-		"id3 yolo-jail:latest 2026-07-10 09:00:00 +0000 UTC\n" +
-		"id4 yolo-jail:latest 2026-06-15 09:00:00 +0000 UTC\n"
-	var rmiCalls []string
-	run := func(argv []string, _ time.Duration) ProbeResult {
+// imagesRunner returns a RunFunc answering the `images` probe with rows and
+// recording every `rmi -f <id>`.
+func imagesRunner(rows string, rmiCalls *[]string) RunFunc {
+	return func(argv []string, _ time.Duration) ProbeResult {
 		if len(argv) >= 2 && argv[1] == "images" {
-			return ProbeResult{Stdout: imgOut, Ran: true}
+			return ProbeResult{Stdout: rows, Ran: true}
 		}
 		if len(argv) >= 2 && argv[1] == "rmi" {
-			rmiCalls = append(rmiCalls, argv[3]) // rmi -f <id>
+			*rmiCalls = append(*rmiCalls, argv[3]) // rmi -f <id>
 			return ProbeResult{Ran: true}
 		}
 		return ProbeResult{Ran: true}
 	}
-	// Newest-first: id2, id3, id1, id4. keep=2 → remove id1, id4.
-	got := PruneOldImages("podman", 2, false, run)
-	want := []string{"id1", "id4"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("dry-run = %v, want %v", got, want)
+}
+
+// TestPruneOldImages pins the pass against the row shape C2 actually produces:
+// one row PER NAME, so the newest image appears twice (content tag + :latest),
+// and every config keeps a permanent tag of its own. The fixture is the exact
+// output measured from `podman images --format … yolo-jail` on 2026-08-25.
+func TestPruneOldImages(t *testing.T) {
+	// CreatedAt sorts lexically; keep=2 removes all but the 2 newest IMAGES.
+	// id2 is the newest and therefore wears BOTH names.
+	imgOut := "id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n" +
+		"id2 localhost/yolo-jail:2222222222222222 2026-07-18 09:00:00 +0000 UTC\n" +
+		"id2 localhost/yolo-jail:latest 2026-07-18 09:00:00 +0000 UTC\n" +
+		"id3 localhost/yolo-jail:3333333333333333 2026-07-10 09:00:00 +0000 UTC\n" +
+		"id4 localhost/yolo-jail:4444444444444444 2026-06-15 09:00:00 +0000 UTC\n"
+	none := map[string]struct{}{}
+
+	t.Run("keep counts images, not tag rows", func(t *testing.T) {
+		// Without the dedup id2's two rows spend two of the two keep slots, and
+		// id3 — the second-newest IMAGE — is selected for removal.
+		var rmiCalls []string
+		run := imagesRunner(imgOut, &rmiCalls)
+		got := PruneOldImages("podman", 2, none, false, run)
+		want := []string{"id1", "id4"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("dry-run = %v, want %v", got, want)
+		}
+		if len(rmiCalls) != 0 {
+			t.Errorf("dry-run made rmi calls: %v", rmiCalls)
+		}
+		if got = PruneOldImages("podman", 2, none, true, run); !reflect.DeepEqual(got, want) {
+			t.Errorf("apply = %v, want %v", got, want)
+		}
+		if !reflect.DeepEqual(rmiCalls, want) {
+			t.Errorf("rmi calls = %v, want %v", rmiCalls, want)
+		}
+	})
+
+	t.Run("a protected content tag is never removed", func(t *testing.T) {
+		// id1 is the image another workspace's live jail runs. `rmi -f` would take
+		// its container with it, so the veto must fire even though the keep window
+		// selected it.
+		var rmiCalls []string
+		run := imagesRunner(imgOut, &rmiCalls)
+		got := PruneOldImages("podman", 2,
+			map[string]struct{}{"1111111111111111": {}}, true, run)
+		want := []string{"id4"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("removed = %v, want %v (id1 is in use)", got, want)
+		}
+		if !reflect.DeepEqual(rmiCalls, want) {
+			t.Errorf("rmi calls = %v, want %v", rmiCalls, want)
+		}
+	})
+
+	t.Run("any protected name saves the whole image", func(t *testing.T) {
+		// :latest on an OLD image — the degraded fallback's only handle. Removal is
+		// by ID, so a per-ROW verdict would let id4's content-tag row delete the
+		// image its :latest row protects.
+		rows := imgOut + "id4 localhost/yolo-jail:latest 2026-06-15 09:00:00 +0000 UTC\n"
+		var rmiCalls []string
+		run := imagesRunner(rows, &rmiCalls)
+		got := PruneOldImages("podman", 2, map[string]struct{}{"latest": {}}, true, run)
+		want := []string{"id1"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("removed = %v, want %v (id4 still answers to :latest)", got, want)
+		}
+	})
+}
+
+// TestProtectedImageTagsReadsTheLoadSentinel pins the SOURCE of the veto set:
+// the same LRU ledger PruneOrphanImageRoots' guard #2 reads, keyed the same way
+// image.JailImageRef keys a tag. A second hash here would let the two disagree
+// about which images are live.
+func TestProtectedImageTagsReadsTheLoadSentinel(t *testing.T) {
+	buildDir := t.TempDir()
+	const live = "/nix/store/aaaa-live-image"
+	if err := os.WriteFile(filepath.Join(buildDir, "last-load-podman"),
+		[]byte(live+"\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if len(rmiCalls) != 0 {
-		t.Errorf("dry-run made rmi calls: %v", rmiCalls)
+	tags := ProtectedImageTags(buildDir)
+	if _, ok := tags[image.ImageStoreKey(live)]; !ok {
+		t.Errorf("the loaded path's content tag %q is not protected: %v",
+			image.ImageStoreKey(live), tags)
 	}
-	if got = PruneOldImages("podman", 2, true, run); !reflect.DeepEqual(got, want) {
-		t.Errorf("apply = %v, want %v", got, want)
+	// The degraded fallback's only handle.
+	if _, ok := tags["latest"]; !ok {
+		t.Errorf("the legacy tag is not protected: %v", tags)
 	}
-	if !reflect.DeepEqual(rmiCalls, want) {
-		t.Errorf("rmi calls = %v, want %v", rmiCalls, want)
+	// A path nobody loaded must NOT be protected, or the veto degrades into
+	// "never remove anything".
+	if _, ok := tags[image.ImageStoreKey("/nix/store/bbbb-cold-image")]; ok {
+		t.Error("an unloaded store path's tag was protected")
 	}
 }
 
