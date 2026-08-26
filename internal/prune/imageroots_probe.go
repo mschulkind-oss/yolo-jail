@@ -58,12 +58,29 @@ func ProtectedImagePaths(buildDir string) map[string]struct{} {
 // Container's do not) while the query has already narrowed every row to the jail
 // repository. Comparing the half that is stable is what keeps a prefix mismatch
 // from silently reading as "not protected".
-func ProtectedImageTags(buildDir string) map[string]struct{} {
-	tags := map[string]struct{}{tagOf(paths.JailImage): {}}
+//
+// THE SECOND RETURN IS THE FAIL-SAFE, and it is why this returns a tri-state
+// rather than a set. The veto's only evidence is the sentinel; a missing, empty
+// or truncated one yields "no store paths", which is indistinguishable from
+// "nothing is live" unless the caller is told which it was. Without the flag the
+// gate fails OPEN — measured 2026-08-25: with $HOME pointed at an empty dir,
+// PruneOldImages selected an image the real ledger vouched for. That is not a
+// remote hazard: AddLoadedPath's error is discarded (autoload.go) and
+// os.WriteFile truncates before it writes, so an ENOSPC — precisely the
+// condition that makes someone run `yolo prune` — can empty the ledger.
+//
+// known=false means NO runtime's sentinel yielded anything, and the caller must
+// then reap nothing: the same tri-state polarity as PruneOrphanImageRoots'
+// guard #1, PruneOrphanAgentStaging and ReapRelayOrphans. Unknown ≠ "nothing
+// live". A genuinely fresh machine also reports unknown, which costs nothing —
+// it has no images to sweep either.
+func ProtectedImageTags(buildDir string) (tags map[string]struct{}, known bool) {
+	tags = map[string]struct{}{tagOf(paths.JailImage): {}}
 	for p := range ProtectedImagePaths(buildDir) {
 		tags[image.ImageStoreKey(p)] = struct{}{}
+		known = true
 	}
-	return tags
+	return tags, known
 }
 
 // tagOf returns the part of a `repo:tag` ref after the LAST colon, or "" when

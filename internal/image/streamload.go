@@ -45,14 +45,28 @@ import (
 //     depth and an ordering property of nixpkgs, not a promise from podman — so
 //     the primary check stays (1), the stream's own exit status.
 //  5. A byte total that lies. If only the loader's status were checked, a stream
-//     that died at 99 % could still be recorded as this image's size and poison
-//     every future progress estimate. The sentinel is written on a both-green
-//     outcome and never otherwise.
+//     that died at 99 % could be recorded as this image's size. The sentinel is
+//     written on a both-green outcome and never otherwise.
+//
+//     Be precise about what that currently buys, because the obvious reading is
+//     wrong: NOTHING READS THE FILE THIS WRITES. The writer targets
+//     BUILD_DIR/last-load-size and the only reader, estimateImageSize, reads
+//     SizeFileForSentinel(...) = BUILD_DIR/last-load-size-size — the doubled
+//     suffix is a deliberately preserved Python quirk, documented on
+//     SizeFileForSentinel, so every load falls through to a `nix path-info
+//     --closure-size` probe instead. The write is kept correct rather than
+//     deleted because closing that loop is a live option (it would drop one
+//     subprocess per load); until someone takes it, this guard protects a file
+//     that is not yet consulted.
 //
 // The one thing this does NOT remove is a transient full-size write: `podman
-// load` spools stdin to $TMPDIR before parsing (measured — a `-i <file>` load
-// does not). What C3 deletes is the RETAINED copy, which is the artifact OQ-5
-// ruled a bug.
+// load` spools stdin before parsing (a `-i <file>` load does not). It spools to
+// its own `image_copy_tmp_dir`, NOT to $TMPDIR — measured 2026-08-25 by sampling
+// during a real streamed load: /var/tmp/podman* grew to 3554600960 B and was
+// then unlinked, while nothing appeared under /tmp. The lever is containers.conf
+// `image_copy_tmp_dir` (`podman info --format '{{.Store.ImageCopyTmpDir}}'`);
+// exporting TMPDIR does nothing. What C3 deletes is the RETAINED copy, which is
+// the artifact OQ-5 ruled a bug.
 
 // streamTailLines is how many stderr lines each end of the pipe retains for a
 // failure report. streamLayeredImage's stderr is bounded and mostly progress
@@ -63,7 +77,7 @@ const streamTailLines = 12
 // streamImageToRuntime is the StreamLoad seam's real implementation: resolve the
 // stream argv for this platform, NAME the image inside the archive, join it to
 // loadArgv with a pipe, and — only on a both-green outcome — persist the
-// streamed size so the NEXT run's percentage means something.
+// streamed size (see hazard 5 on why that file has no reader today).
 func streamImageToRuntime(storePath, repoTag string, loadArgv []string, isMacOS bool, out io.Writer, progressTTY bool) (int64, bool) {
 	sentinel := SizeSentinelPath()
 	total, ok := streamImageIntoLoader(

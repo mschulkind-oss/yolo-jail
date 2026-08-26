@@ -159,7 +159,7 @@ func TestPruneOldImages(t *testing.T) {
 		// id3 — the second-newest IMAGE — is selected for removal.
 		var rmiCalls []string
 		run := imagesRunner(imgOut, &rmiCalls)
-		got := PruneOldImages("podman", 2, none, false, run)
+		got := PruneOldImages("podman", 2, none, true, false, run)
 		want := []string{"id1", "id4"}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("dry-run = %v, want %v", got, want)
@@ -167,7 +167,7 @@ func TestPruneOldImages(t *testing.T) {
 		if len(rmiCalls) != 0 {
 			t.Errorf("dry-run made rmi calls: %v", rmiCalls)
 		}
-		if got = PruneOldImages("podman", 2, none, true, run); !reflect.DeepEqual(got, want) {
+		if got = PruneOldImages("podman", 2, none, true, true, run); !reflect.DeepEqual(got, want) {
 			t.Errorf("apply = %v, want %v", got, want)
 		}
 		if !reflect.DeepEqual(rmiCalls, want) {
@@ -182,7 +182,7 @@ func TestPruneOldImages(t *testing.T) {
 		var rmiCalls []string
 		run := imagesRunner(imgOut, &rmiCalls)
 		got := PruneOldImages("podman", 2,
-			map[string]struct{}{"1111111111111111": {}}, true, run)
+			map[string]struct{}{"1111111111111111": {}}, true, true, run)
 		want := []string{"id4"}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("removed = %v, want %v (id1 is in use)", got, want)
@@ -199,7 +199,7 @@ func TestPruneOldImages(t *testing.T) {
 		rows := imgOut + "id4 localhost/yolo-jail:latest 2026-06-15 09:00:00 +0000 UTC\n"
 		var rmiCalls []string
 		run := imagesRunner(rows, &rmiCalls)
-		got := PruneOldImages("podman", 2, map[string]struct{}{"latest": {}}, true, run)
+		got := PruneOldImages("podman", 2, map[string]struct{}{"latest": {}}, true, true, run)
 		want := []string{"id1"}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("removed = %v, want %v (id4 still answers to :latest)", got, want)
@@ -218,7 +218,10 @@ func TestProtectedImageTagsReadsTheLoadSentinel(t *testing.T) {
 		[]byte(live+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tags := ProtectedImageTags(buildDir)
+	tags, known := ProtectedImageTags(buildDir)
+	if !known {
+		t.Fatal("a readable sentinel with one path must report known=true")
+	}
 	if _, ok := tags[image.ImageStoreKey(live)]; !ok {
 		t.Errorf("the loaded path's content tag %q is not protected: %v",
 			image.ImageStoreKey(live), tags)
@@ -352,5 +355,45 @@ func TestReapRelayOrphansRemovesHostOnlySocket(t *testing.T) {
 		if _, err := os.Stat(p); err == nil {
 			t.Errorf("%s survived the reap", filepath.Base(p))
 		}
+	}
+}
+
+// TestAnUnreadableLedgerDeclinesToSweep pins the FAIL-SAFE, which is the half of
+// the veto that a set-shaped return could not express. The veto's only evidence
+// is the load sentinel, so "no store paths" has two causes with opposite correct
+// responses: nothing is live (sweep freely) and the ledger is gone (sweep
+// nothing). Before the tri-state, both produced an empty protected set and
+// PruneOldImages went on to `rmi -f` — measured 2026-08-25 against a real podman
+// with $HOME pointed at an empty dir, where it selected an image the real
+// sentinel vouched for.
+//
+// Reachability is not hypothetical: AddLoadedPath's error is discarded and
+// os.WriteFile truncates before writing, so an ENOSPC — the very condition that
+// makes someone run `yolo prune` — can leave the ledger empty.
+//
+// DELETE THE GUARD IN PruneOldImages AND THIS FAILS: with liveKnown=false the
+// pass must return nothing and must not shell out at all.
+func TestAnUnreadableLedgerDeclinesToSweep(t *testing.T) {
+	// An empty build dir IS the missing-sentinel case.
+	tags, known := ProtectedImageTags(t.TempDir())
+	if known {
+		t.Fatal("an absent sentinel must report known=false, or the veto fails open")
+	}
+	// It still reports the legacy tag, so a caller that ignores `known` gets a
+	// non-empty map — which is exactly why the boolean has to carry the signal.
+	if len(tags) == 0 {
+		t.Fatal("expected the legacy tag even when the ledger is unreadable")
+	}
+
+	imgOut := "id1 localhost/yolo-jail:1111111111111111 2026-07-01 09:00:00 +0000 UTC\n" +
+		"id2 localhost/yolo-jail:2222222222222222 2026-07-18 09:00:00 +0000 UTC\n" +
+		"id3 localhost/yolo-jail:3333333333333333 2026-07-10 09:00:00 +0000 UTC\n"
+	var rmiCalls []string
+	run := imagesRunner(imgOut, &rmiCalls)
+	if got := PruneOldImages("podman", 2, tags, known, true, run); len(got) != 0 {
+		t.Errorf("swept %v with an unreadable ledger; must decline entirely", got)
+	}
+	if len(rmiCalls) != 0 {
+		t.Errorf("made rmi calls with an unreadable ledger: %v", rmiCalls)
 	}
 }

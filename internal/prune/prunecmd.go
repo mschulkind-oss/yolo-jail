@@ -272,8 +272,15 @@ func Run(opts Options) int {
 		}
 	}
 	if imagesBytes := before.CacheBreakdown["images"]; imagesBytes >= imagesHintThreshold {
+		// Post-C3 this hint had to change its ADVICE, not just its wording. It used
+		// to say "worth moving to HDD storage", which presumes an ongoing
+		// production of tars; on podman nothing writes one any more, so what is
+		// left is a frozen backlog whose only remaining consumer is the degraded
+		// build-failure fallback. Advising relocation would send someone to buy
+		// disk for bytes that will never grow and are almost entirely reclaimable.
 		p.line(fmt.Sprintf("  [yellow]hint:[/yellow] cache/images holds %s of jail tarballs.  "+
-			"They're streamed once at image load then unused — worth moving to HDD storage if you have it.",
+			"Since C3 the podman load path writes none of these — this is a legacy backlog, "+
+			"and `yolo prune --apply` reclaims all but the newest few.",
 			FmtBytes(imagesBytes)))
 		// The old hint said "symlink this subdir" full stop, which is true for
 		// cache/images (read only host-side, before any container exists) and
@@ -369,15 +376,23 @@ func Run(opts Options) int {
 		// ProtectedImageTags is NOT optional decoration: since C2 every config's
 		// image carries its own permanent tag, so "everything past the newest 2"
 		// selects images other workspaces are running, and `rmi -f` takes their
-		// containers with it. Passing an empty set here re-arms that.
-		removedImages = PruneOldImages(rt, opts.KeepImages, ProtectedImageTags(opts.BuildDir()), apply, opts.Exec)
-		if len(removedImages) > 0 {
-			p.line(fmt.Sprintf("  %s: %d", verb(apply, "would remove", "removed"), len(removedImages)))
-			for _, img := range removedImages {
-				p.line("    • " + img)
+		// containers with it. Passing an empty set here re-arms that — which is
+		// why the ledger's readability is a SECOND return rather than an empty
+		// map: unknown must decline, not sweep.
+		protectedTags, liveKnown := ProtectedImageTags(opts.BuildDir())
+		switch {
+		case !liveKnown:
+			p.line("  [dim]skipped — could not read the image load ledger; declining to sweep[/dim]")
+		default:
+			removedImages = PruneOldImages(rt, opts.KeepImages, protectedTags, liveKnown, apply, opts.Exec)
+			if len(removedImages) > 0 {
+				p.line(fmt.Sprintf("  %s: %d", verb(apply, "would remove", "removed"), len(removedImages)))
+				for _, img := range removedImages {
+					p.line("    • " + img)
+				}
+			} else {
+				p.line("  [dim]none[/dim]")
 			}
-		} else {
-			p.line("  [dim]none[/dim]")
 		}
 	}
 

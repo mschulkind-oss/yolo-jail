@@ -129,6 +129,17 @@ func TestDryRunReportsButDoesNotMutate(t *testing.T) {
 	mustMkdir(t, shadowed)
 	mustWrite(t, filepath.Join(shadowed, "blob"), bytes.Repeat([]byte("z"), 4096))
 
+	// A load ledger. Not decoration: since the fail-safe landed, an UNREADABLE
+	// ledger makes the old-image pass decline entirely (unknown ≠ nothing live),
+	// so a fixture with images and no ledger asserts against a state a real
+	// machine cannot reach — podman cannot hold a yolo-jail image that no load
+	// ever put there. The path is deliberately unrelated to the fixture's tags:
+	// it makes liveness KNOWN without protecting any of them, so the keep window
+	// is what decides, which is what this test is about.
+	mustMkdir(t, o.BuildDir())
+	mustWrite(t, filepath.Join(o.BuildDir(), "last-load-podman"),
+		[]byte("/nix/store/aaaaaaaaaaaaaaaa-stream-yolo-jail\n"))
+
 	// Stopped + running containers, plus an old image.
 	rmCalls := []string{}
 	mapping := map[string]string{
@@ -200,6 +211,14 @@ func TestApplyOnTempRoot(t *testing.T) {
 	shadowedChild := filepath.Join(shadowedDir, "junk")
 	mustMkdir(t, shadowedChild)
 	mustWrite(t, filepath.Join(shadowedChild, "blob"), bytes.Repeat([]byte("z"), 4096))
+
+	// See the note in TestDryRunReportsButDoesNotMutate: without a readable load
+	// ledger the old-image pass fails safe and removes nothing, so a fixture that
+	// expects `rmi -f` has to supply one. Unrelated path → liveness known, nothing
+	// protected.
+	mustMkdir(t, o.BuildDir())
+	mustWrite(t, filepath.Join(o.BuildDir(), "last-load-podman"),
+		[]byte("/nix/store/aaaaaaaaaaaaaaaa-stream-yolo-jail\n"))
 
 	rmCalls := []string{}
 	mapping := map[string]string{

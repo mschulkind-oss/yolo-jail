@@ -237,12 +237,14 @@ func PruneStoppedContainers(rt string, apply bool, run RunFunc) []string {
 //  2. NO LIVENESS GATE AT ALL. While one :latest tag named every image the list
 //     was one row long and `keep` never fired, so the absence never showed;
 //     under per-config tags "everything past the newest 2" is "every config
-//     except the most recently BUILT one" — CreatedAt is flake.nix's build time,
-//     not a use time, and C2's whole point is that a revisited workspace does
-//     NOT reload and so does not get a fresh timestamp. `rmi -f` then removes
-//     the containers using the image, killing a live jail in another workspace
-//     mid-session. `protected` (prune.ProtectedImageTags) vetoes those, reading
-//     the same sentinel ledger as PruneOrphanImageRoots' guard #2.
+//     except the most recently LOADED one". CreatedAt is the moment the archive
+//     was streamed, not a build time (`created = "now"` in flake.nix), and C2's
+//     whole point is that a revisited workspace does NOT reload — so a live jail
+//     that has been running for a week carries a week-old timestamp and sorts
+//     last. `rmi -f` then removes the containers using the image, killing a live
+//     jail in another workspace mid-session. `protected`
+//     (prune.ProtectedImageTags) vetoes those, reading the same sentinel ledger
+//     as PruneOrphanImageRoots' guard #2, and `liveKnown` is its fail-safe.
 //
 // THE RETENTION RULE ITSELF IS STILL NOT C2's TO SET. `--keep-images` (default
 // 2) is governed by minimal-disk-footprint.md OQ-DF3, still OPEN as of
@@ -251,7 +253,15 @@ func PruneStoppedContainers(rt string, apply bool, run RunFunc) []string {
 // image.ReadLoadedPaths — which AutoLoadImage now updates on every launch, not
 // only on a load — remains the ready-made input for the keep-by-USE rule OQ-DF3
 // will eventually pick.
-func PruneOldImages(rt string, keep int, protected map[string]struct{}, apply bool, run RunFunc) []string {
+func PruneOldImages(rt string, keep int, protected map[string]struct{}, liveKnown bool, apply bool, run RunFunc) []string {
+	if !liveKnown {
+		// Guard #1, the fail-safe: the veto's whole evidence is the load sentinel,
+		// and an unreadable one makes "nothing is live" and "I cannot tell" the
+		// same observation. `rmi -f` takes a live jail's containers with it, so an
+		// unproven set is not a licence to remove — decline entirely. Same polarity
+		// as PruneOrphanImageRoots' guard #1.
+		return []string{}
+	}
 	res := run([]string{rt, "images", "--format", "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}", "yolo-jail"}, psTimeout)
 	if !res.Ran || res.RC != 0 {
 		return []string{}
