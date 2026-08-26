@@ -18,10 +18,14 @@ in.
 > - **OQ-3** — content-addressed image tags win, and `localhost/yolo-jail:latest` is *"definitely
 >   not"* a public surface anyone may depend on by name. *(The cachix caveat attached to that ruling
 >   is about the **nix binary cache**, a different surface from the podman tag — do not conflate
->   them.)* **SHIPPED as C2, 2026-08-25.**
+>   them.)* **SHIPPED as C2 in `be7b8591`, 2026-08-25.**
 > - **OQ-1** — if C4/C5 ship at all they ship as an **opt-in fast path with the baked path retained**.
->   The go/no-go is still gated on the re-measurement after C2+C3 — which have now landed, so that
->   measurement is possible for the first time. C4/C5 stay **not** queued below until it is taken.
+>   The go/no-go was gated on the re-measurement after C2+C3, and **that measurement has now been
+>   taken** — [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §1.8, the same
+>   day. It reports a flat curve on the workload it could measure: C3 discharged C4's disk case, C2
+>   discharged its frequency case, the 52 s cold launch is one C4 does not shorten, and the one
+>   workload C4 exists for is explicitly NOT MEASURED there. **C4/C5 stay not queued below** —
+>   taking the measurement discharges the gate's step, not the gate; the call is yours.
 > - **OQ-5** — the cached tars are a **bug**: *"I see no reason to keep any of this around … we need
 >   to use minimal disk space"*, and the GC work that has shipped is *"nowhere near enough"*. Executed
 >   in [`minimal-disk-footprint.md`](../design/minimal-disk-footprint.md) — queued 📦 below, with its
@@ -241,7 +245,7 @@ cited the ID back at the doc. Neither end resolved.)*
 2026-08-12), and the doc now carries a dated verdict at every gap — read those before hunting for a
 bug. What is still live is **Gap 1, and it is worse than the story says**: `config ls`'s `host`
 column is not derived from `HostSource` at all but from a hand-maintained two-entry map
-(`internal/cli/configls.go:198-204`), so any *pack* surface that really does read machine state shows
+(`surfaceHasHostLayer`, `internal/cli/configls.go:196-202`), so any *pack* surface that really does read machine state shows
 **no host layer**.
 
 **user-stories Q1** is called "the biggest question in the document" by its own author — **and its
@@ -346,7 +350,7 @@ should **print**: a fourth verdict beside `[PASS]`/`[FAIL]`/`[WARN]`, or a scope
   hid a daemon that never started. **Ten call sites already step aside this way** (measured
   2026-08-23; the doc previously said four, and the undercount was in the leaning's favour) —
   nine distinct sections, because `sectionGPUAmd` holds two of them.
-- **`sectionRunningJails` has no in-jail guard** (`check.go:514`). From inside a jail it reports the
+- **`sectionRunningJails` has no in-jail guard** (`check.go:556`). From inside a jail it reports the
   *nested* podman's view — measured `[PASS] No jails currently running` in here while the host had
   one. Left alone so far because it is *true of the runtime it can see*, and the orphan-cleanup path
   underneath acts on that same runtime. **On its own this is a wording preference; as an input to the
@@ -372,7 +376,7 @@ should **print**: a fourth verdict beside `[PASS]`/`[FAIL]`/`[WARN]`, or a scope
   diagnosis is worst. Cheap host-side check; needs a ruling only on how strict to be.
 - **A fourth spelling of the port gate survives the applied-mode fix.** The nested-ports repair
   gated `-p`, `forward_host_ports` and the route_localnet sysctl on `appliedNetMode`; the
-  host-side socat spawner (`run.go`, ~:593-606) still re-derives the CONFIGURED mode inline, so a
+  host-side socat spawner (`run.go`, ~:599-621) still re-derives the CONFIGURED mode inline, so a
   nested launch declaring `forward_host_ports` starts socats the jail is never told about —
   harmless (killed at exit; the feature was already meaningless under a shared netns), but it is
   the last site not reading the shared predicate. Cheap fix, no ruling needed beyond scheduling.
@@ -393,7 +397,7 @@ should **print**: a fourth verdict beside `[PASS]`/`[FAIL]`/`[WARN]`, or a scope
 - **A fourth PATH exists that claims to match the third and does not** *(found 2026-08-23, while
   correcting AGENTS.md's own PATH line, which was also wrong).* `BootPath`
   (`internal/entrypoint/boot.go:356-361`) is the authority and includes `~/.local/bin`. The PATH set
-  for the **mise-trust subprocess** (`boot.go:520-523`) omits it, under a comment saying it *"matches
+  for the **mise-trust subprocess** (`boot.go:528-532`) omits it, under a comment saying it *"matches
   the pre-exec PATH set in `main()`"*. Nothing is known to break — `~/.local/bin` holds the native
   agent installs and the chrome-devtools wrapper, none of which that subprocess calls — so this is a
   **drift question, not a defect report**: is the fourth list meant to be a narrower PATH on purpose,
@@ -521,7 +525,12 @@ step**, which is the best bytes-per-effort in the whole doc and is otherwise unb
 the superseded podman images yolo's own filter structurally cannot see. It is also **the question
 that gates the rule replacing `--keep-images 2`**, which C2 made live for the first time: C2 shipped
 the *safety* half (dedup by image ID, plus a liveness veto so `prune --apply` cannot force-remove
-another workspace's running image) but deliberately minted no number. **OQ-DF2** decides which
+another workspace's running image), and `4064f720` then made that veto **fail safe** — an unreadable
+load ledger now declines the sweep instead of vetoing nothing. **So OQ-DF3 is no longer asking
+whether a veto is needed.** What is unruled is the RETENTION RULE and the REACH into a podman store
+shared with your non-yolo work — and the retention half now has a price attached: a coexisting
+content-tagged image measures **2.836 GB unique** unless it is a same-store-path re-stream, which is
+91.36 kB ([`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §1.8). **OQ-DF2** decides which
 component does the deleting, which is why the 📦 row below is still scoped to the mechanism rather
 than to any number.
 
@@ -529,11 +538,12 @@ than to any number.
 
 **Two items.** 💬 6's four rulings (2026-08-25) unblocked **C2** and **C3** out of
 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §11 and created the
-disk-footprint item the maintainer asked for. **C2 and C3 shipped 2026-08-25**, the same day they
+disk-footprint item the maintainer asked for. **C2 and C3 shipped in `be7b8591`, 2026-08-25**, the same day they
 were queued, and left this file under the rule at the top of it. **C4 and C5 are deliberately NOT
 here**: OQ-1 ruled their *shape* — opt-in fast path, baked path retained as fallback — and left the
-go/no-go gated on §11 step 5's re-measurement, which C2+C3 landing has now made *possible* rather
-than blocked. Queueing them before that measurement would be queueing a question.
+go/no-go gated on §11 step 5's re-measurement. **That measurement has now been taken** (§1.8,
+2026-08-25), so what stands between C4 and this section is no longer an observation — it is your
+call. Queueing it before you make one would still be queueing a question.
 
 **Ordering basis — this section has never stated one, so:** what unblocks the most other work first,
 then what is cheapest. Of the image/disk sequence, what remains is the **retention rule (R3)**, still
@@ -589,17 +599,28 @@ it is the larger of the two.
     via the CLI dispatch table. No timer, no hook, no launch-path call, no `just` recipe, and zero
     integration coverage. The 20 GiB hint (`prunecmd.go:209`, fired at `:274`) is §1.6's *"twenty-four
     days and 395 GiB"* sentence with ten more days on it — **34 days and ~471 GiB** since the
-    2026-07-22 baseline of 9.5 GiB, with no prune. And it advises **relocating to HDD**
-    (`prunecmd.go:275-277`), which is the advice this ruling retires for a regenerable artifact.
-  - **podman's own image store is the ledger with no working reclaimer.** `PruneOldImages` passes
-    `yolo-jail` as a **name filter** (`internal/prune/probes.go:255`) and a superseded load is
-    *untagged*, so it never matches. Measured in this jail: **2 images, 6.391 GB, 100 % reclaimable**,
-    of which yolo can see one. Cheap and independent of the rest — and the reason **OQ-DF3** is 💬 16's
-    sharpest item: the fix is ready except for how far into a shared podman store yolo may reach.
+    2026-07-22 baseline of 9.5 GiB, with no prune. It **used** to advise relocating to HDD, which is
+    the advice this ruling retired; `4064f720` replaced it the same day, and the hint now printed
+    (`prunecmd.go:281-284`) says these tars are a legacy backlog that `yolo prune --apply` reclaims.
+    **The wording changed and the number did not** — which is this bullet's point, not a footnote to it.
+  - **podman's own image store is the ledger with no working reclaimer for a nameless row.**
+    `PruneOldImages` passes `yolo-jail` as a **name filter** (`internal/prune/probes.go:265`) and an
+    orphaned image is *untagged*, so it never matches. Measured pre-C2 in this jail: **2 images,
+    6.391 GB, 100 % reclaimable**, of which yolo could see one. Cheap and independent of the rest — and
+    the reason **OQ-DF3** is 💬 16's sharpest item: the fix is ready except for how far into a shared
+    podman store yolo may reach.
     **C2 changed the shape of what that filter returns** (one row per NAME, one permanent tag per
     config) and therefore armed a pass that had never fired; the SAFETY half landed with it — dedup by
-    image ID plus a liveness veto (`internal/prune/probes.go:211-254`) — but not the NUMBER, which is
-    still OQ-DF3's.
+    image ID plus a liveness veto (`internal/prune/probes.go:211-256`, made fail-safe in `4064f720`) — but not the NUMBER, which is
+    still OQ-DF3's. Re-measured here after C2 (`podman system df -v`): **eight rows over seven
+    images** — four permanent content tags, `:latest` aliasing the newest, and **three** nameless
+    rows, of which **exactly one predates C2** (`f3f0380b0645`, whose `NamesHistory` is `:latest`
+    and nothing else). The other two were orphaned *after* C2, by two mechanisms that are both still
+    live: a `:latest` move (`pointLatestAt`) and a same-store-path re-stream. What C2 stopped is
+    narrower than "orphaning" — an image whose *only* name is `:latest` can no longer come out of
+    the normal load path. So C2 shrank the leak and grew the retained set at the same time, which is
+    exactly the trade OQ-DF3's number has to price — and the degraded fallback still manufactures
+    the old shape, which that number has to price too.
   - **The largest artifact class is the least tested.** There is no `imagecache_test.go` and no
     `shadowed_test.go` in `internal/prune`, so `PruneImageCache`'s keep-N eviction branch — the only
     thing that has ever deleted a tar — is executed by no test. Three `Run` call sites are unpinned
@@ -619,9 +640,13 @@ it is the larger of the two.
   knew about); **obey** (install honors the receipt — OQ-PD6/PD7's wiring); and last, the
   **installer capture** (§6.3, OQ-PD10 — an ephemeral jail as the AUR chroot).
 
-**What refills this section:** an answer in 💬 — **and three of these four rows are what that looks
-like**, one day after the ruling. Row **2** is now the remaining one that unblocks buildable work the
-day it is ruled on: trust-paths has TP4's pin and TP7's catch-up.
+**What refills this section:** an answer in 💬 — **and both rows still here are what that looks
+like.** The disk row is OQ-5's ruling executed; program delivery is what its own ten rulings left
+over on 2026-08-24. This section held **four** rows when 💬 6 was retired hours earlier: **C2 and C3
+were two of them and shipped the same day they were queued**, so they left under the rule at the top
+of this file. A section that shrinks from four to two in a day is that rule working, not a queue
+that stalled. Row **2** is now the remaining 💬 that would unblock buildable work the day it is ruled
+on: trust-paths has TP4's pin and TP7's catch-up.
 
 > [!NOTE]
 > **The queue emptying on 2026-08-24 was not the interesting part; how it refilled is.** Nothing in
@@ -641,7 +666,9 @@ Three shipped behaviour changes had nowhere to be announced — a design ruling 
 risk as *"a release note"* and no CHANGELOG, NEWS or release-notes file existed anywhere in the repo
 (found 2026-08-18 while verifying the `default_enabled` rename).
 
-📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md) now carries nineteen entries under `## Unreleased`,
+📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md) now carries **twenty-eight** entries under `## Unreleased`
+(tallied 2026-08-25: `rg -c '^### ' docs/RELEASE-NOTES.md` → 28, and `rg -n '^## '` returns that one
+section, so all 28 are under it — the row said "nineteen" for long enough to go stale),
 including the original three (**`audio` is now off by default**, **an unreachable host service
 refuses the launch**, **a non-interactive launch stops auto-accepting config changes**) and the two
 that were still queued when this section was written: **npm-installed agent CLIs no longer update
@@ -650,6 +677,15 @@ themselves** (OQ-TP5) and **a pack whose claims you never approved now refuses t
 singleton after upgrading, or every OAuth refresh on that host fails.* **Newest, 2026-08-23:**
 `workspace_readonly` was a silent no-op on `macos-user` and now enforces through Seatbelt, so anyone
 who set it there and has been writing to the workspace will start seeing failures.
+
+**"Caught up" has one open edge as of 2026-08-25, and it is a decision rather than an oversight.**
+Neither **C2** (the image ref moves from `localhost/yolo-jail:latest` to a per-config content tag,
+and superseded images now accumulate as retained rows instead of being orphaned) nor **C3**
+(`cache/images` stops growing on podman) has an entry, and both change what a user sees in `podman
+images` and on disk immediately after upgrading. Whether that clears the bar for a release note is
+unruled — `:latest` was expressly ruled *not* a public surface (OQ-3), which is the argument against,
+while "your image list grows now" is a visible change nobody was told about, which is the argument
+for. **Decide it explicitly; do not let the absence stand as the answer.**
 
 ---
 
@@ -687,7 +723,7 @@ who set it there and has been writing to the workspace will start seeing failure
   because a loaded image can never match a darwin `nix eval`. So the warmup was a full nix build
   wearing a warmup's name. `warmJail` now returns early on `GOOS == "darwin"` with that measurement
   in the log line, and the first container test absorbs the one-time cost instead
-  (`integration/harness_test.go:147-153`). On linux CI the premise holds and the warmup keeps
+  (`integration/harness_test.go:159-165`). On linux CI the premise holds and the warmup keeps
   earning its 1m56s.
 
   **What is left is one observation, not an investigation.** Nobody has watched a nightly run
@@ -851,10 +887,11 @@ who set it there and has been writing to the workspace will start seeing failure
   📄 [`cache-relocation.md`](cache-relocation.md).
 
   **OQ-5's ruling costs this row one of its two motivating consumers, and nothing else.** Relocating
-  `cache/images` to a spare disk was the second one, and it is what `yolo prune`'s own hint currently
-  recommends (`internal/prune/prunecmd.go:275-277`). Under *"I see no reason to keep any of this
-  around"* the right verb for a **regenerable, write-once, read-once** artifact is **delete**, not
-  **move**. What is left is `huggingface` — **185 GiB of the 241 GiB that prompted the feature**
+  `cache/images` to a spare disk was the second one, and it is what `yolo prune`'s own hint used to
+  recommend — **no longer**: `4064f720` retired that advice on 2026-08-25, and the hint now printed
+  (`internal/prune/prunecmd.go:281-284`) tells you to reclaim the backlog instead. Under *"I see no
+  reason to keep any of this around"* the right verb for a **regenerable, write-once, read-once**
+  artifact is **delete**, not **move**, and the shipped hint now says so. What is left is `huggingface` — **185 GiB of the 241 GiB that prompted the feature**
   (`cache-relocation.md:17-18`), cold and keep-forever, where relocation is the only lever. The
   abstraction-level question and the threat model are untouched by the ruling.
 - 🧊 **Boundary broker B2** (approval-gated host credentials) — waits on nix OQ-1 and auth OQ-1, and

@@ -881,7 +881,7 @@ org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
    on 2026-08-01 — drop settings-inheritance, express personal settings as a local pack — and
    nothing has been done in the ~3 weeks since. Meanwhile the layer's cost has grown in a way the
    original ruling did not price: the `host` provenance a user can actually *see* is derived from
-   a hand-maintained two-entry map, `surfaceHasHostLayer` (`internal/cli/configls.go:198-204`,
+   a hand-maintained two-entry map, `surfaceHasHostLayer` (`internal/cli/configls.go:196-202`,
    listing only `claude/settings` and `pi/settings`), **not** from the per-surface `HostSource`
    the boot render actually reads (`internal/agentcfg/manifest/manifest.go:142`, consumed at
    `internal/entrypoint/packsurfaces.go:328,331`). A pack surface with a real `HostSource`

@@ -17,7 +17,7 @@ document**, and Q7 decides whether Linux `guest` is a promise or a hypothesis. I
 >
 > | Story defect | Verdict, verified 2026-08-23 | Evidence |
 > |---|---|---|
-> | **Story 1 Gap 1** — the `host` layer reads an undeclared file | **STILL LIVE**, and *worse* than the story says | `HostSource` at `internal/agentcfg/manifest/manifest.go:142`; nothing in `describe` names it, and `config ls`'s `host` column comes from a hardcoded 2-entry map (`internal/cli/configls.go:198-204`) |
+> | **Story 1 Gap 1** — the `host` layer reads an undeclared file | **STILL LIVE**, and *worse* than the story says | `HostSource` at `internal/agentcfg/manifest/manifest.go:142`; nothing in `describe` names it, and `config ls`'s `host` column comes from a hardcoded 2-entry map (`internal/cli/configls.go:196-202`) |
 > | **Story 1 Gap 2** — capture outranks the definition | **PARTLY LIVE**; the story overstates it, and `--sealed` now catches it | Real order at `internal/agentcfg/compose.go:357-379`: capture loses to `computed`/`transform`/`managed`. `applySealed` refuses on outstanding captures (`internal/cli/apply.go:617-651`) |
 > | **Story 1 Gap 3** — `yolo-jail.local.jsonc` | **STILL LIVE** as an input; now refused by `--sealed` | `internal/config/config.go:38`, auto-merge at `internal/config/load.go:205-221`; refusal at `internal/cli/apply.go:623-630` |
 > | **Story 2 step 3** — macos-user renders 0 surfaces (**G3**) | **FIXED 2026-08-12** (`a39628ad`) | packs staged *above* the backend dispatch at `internal/cli/run/run.go:103`; `YOLO_PACK_ROOT` set at `internal/macosuser/runplan.go:208-211`; tests `internal/cli/run/packstagedispatch_test.go:87,131` |
@@ -115,7 +115,7 @@ when the definition does not bind. If yolo's answer to "is this the environment 
    > `internal/packload/packload.go:89`, read by the boot render at
    > `internal/entrypoint/packsurfaces.go:328,331`). But the `LAYERS` column Maya reads above is
    > **not derived from it**: `config ls` gets `host` from a hand-maintained two-entry map,
-   > `surfaceHasHostLayer` (`internal/cli/configls.go:198-204`), listing only `claude/settings`
+   > `surfaceHasHostLayer` (`internal/cli/configls.go:196-202`), listing only `claude/settings`
    > and `pi/settings`. A **pack** surface with a non-empty `HostSource` reads machine state at
    > boot and `config ls` shows **no** `host` layer for it at all. `yolo describe` — which shipped
    > since (`internal/cli/describe.go`) — never mentions a host layer either; its only `host`
