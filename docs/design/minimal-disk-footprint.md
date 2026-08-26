@@ -1,6 +1,6 @@
 # Minimal disk footprint — reclamation that waits for a human is not reclamation
 
-**Status:** DESIGN, 2026-08-25. Nothing built beyond what [`../plans/storage-lifecycle.md`](../plans/storage-lifecycle.md) §1–§4 already shipped — and what it shipped made a GC *safe* without making one *happen*.
+**Status:** DESIGN, 2026-08-25 — **with one question ruled and one half of §10 step 3 shipped the same day.** OQ-DF1 was ruled *"stream, keep zero tars"* and [`image-staging-vs-baking.md`](image-staging-vs-baking.md)'s **C3** implements it: on podman the load path writes no tar at all, so Ledger B's growth term is zero going forward. Everything else here is still design — nothing built beyond that and what [`../plans/storage-lifecycle.md`](../plans/storage-lifecycle.md) §1–§4 already shipped, and what *it* shipped made a GC *safe* without making one *happen*. **The pre-C3 backlog is untouched**, OQ-DF2/DF3/DF4 are open, and Apple Container still writes a tar per store path.
 
 **The short version.** Every reclaimer yolo owns works; none of them ever runs, because all sixteen — every exported `Prune*`/`Purge*`/`Sweep*`/`Reap*` in `internal/prune`, plus `RunNixStoreGC` and `HardlinkDuplicateFiles` — are reachable only from a human typing `yolo prune` (verified 2026-08-25 — one non-test call site, `internal/prune/prunecmd.go`, reached only from the CLI dispatch table at `internal/cli/dispatch.go:30`). So the fix is not a better sweeper — it is moving the delete to the process that made the bytes: **the load path should never leave behind what it does not need**, with `yolo prune` demoted from primary mechanism to crash-recovery backstop. The three ledgers a loaded image occupies are the store closure (rooted, bounded, correct), the cache tar (unbounded, and the tar's only job after a successful load is an offline fallback that almost never fires), and podman's own image store (**no working reclaimer at all** — yolo's filter cannot see the untagged images it is meant to collect).
 
@@ -60,7 +60,7 @@ Same 125 files, same 404 GiB, ten days later. Not one was reclaimed. A keep-3 re
 
 | § | What shipped | Evidence, checked 2026-08-25 |
 | :--- | :--- | :--- |
-| §1 | A durable per-image nix GC root, `build/roots/<sha16>`, re-asserted every run | `internal/image/gcroot.go:38-77`; called at `internal/image/autoload.go:378` |
+| §1 | A durable per-image nix GC root, `build/roots/<sha16>`, re-asserted every run | `internal/image/gcroot.go:38-77`; called at `internal/image/autoload.go:547` |
 | §2 | `yolo check` **warns** when the host daemon's `min-free == 0` — yolo never edits `nix.conf` | `internal/cli/check/section_autogc.go` |
 | §3 | Opt-in, bounded, rooting-aware `yolo prune --nix-gc`; refuses in-jail | `internal/prune/nixgc.go:15-41`; gating at `internal/prune/prunecmd.go:632-670` |
 | §4 | Lifecycle sweeps for derived junk: dangling out-links, orphaned agent staging, age-purged agent logs | `internal/prune/{staleoutlinks,agentstaging,agentlogs}.go` |
@@ -77,6 +77,15 @@ And storage-lifecycle knew this: its own consumer map already labels the tars `P
 ## 2. Measured, 2026-08-25
 
 All measurements below were taken by me in this development jail on 2026-08-25 against `486a13bb`, labelled **MEASURED** / **NOT MEASURED** in the manner of `image-staging-vs-baking.md` §1.6. Every figure it restates from that doc I re-took rather than copied.
+
+> [!IMPORTANT]
+> **This is the PRE-C3 series, and it is retained as dated evidence rather than as a forecast.** C3
+> shipped later the same day (2026-08-25) under the OQ-DF1 ruling, so **the podman growth term
+> — the `cache/images` rows below — goes to zero from that change forward**: nothing writes a tar on
+> the podman happy path any more. The 480.71 GiB level and the +7.63 GiB/day rate are what the
+> defect cost up to the fix; they are exactly the numbers that argued for it. The **backlog** those
+> rows measure is still on disk (C3 stopped creating, it did not sweep — §10), and the `/nix/store`
+> and device rows are unaffected by C3 entirely.
 
 > [!WARNING]
 > **There are two image tar caches on this device and `image-staging-vs-baking.md` §1.6 measured one of them.** Inside this jail `~/.local/share/yolo-jail` is a bind of `<ws>/.yolo/home/local/share/yolo-jail` — the **nested jail's** state dir, inside the repo working tree. The **host's** cache is mounted separately at `~/.cache`. §1.6's numbers are the nested one. Both are measured below; the true total is **606 GiB, not 404 GiB**.
@@ -140,20 +149,21 @@ flowchart TD
         root["build/roots/&lt;sha16&gt;<br/>durable indirect GC root"]
     end
 
-    subgraph B["Ledger B — cache tar  (3.31 GiB)"]
+    subgraph B["Ledger B — cache tar  (3.31 GiB)<br/>APPLE CONTAINER ONLY since C3 — podman writes none"]
         tar["cache/images/&lt;sha16&gt;.tar"]
     end
 
     subgraph C["Ledger C — podman image store  (3.55 GB)"]
-        img["localhost/yolo-jail:latest"]
+        img["localhost/yolo-jail:&lt;sha16&gt;<br/>(content-addressed since C2)"]
         none["&lt;none&gt; — superseded, untagged"]
     end
 
     flake --> build --> closure
     closure -.->|"RegisterImageRoot, every run"| root
-    closure -->|"materializeImage — streams"| tar
-    tar -->|"podman load -i"| img
-    img -->|"next load retags :latest"| none
+    closure -->|"STREAM — podman, C3: no file"| img
+    closure -->|"materializeImage — Apple Container only"| tar
+    tar -->|"convert + load -i"| img
+    img -->|"a REPLACED image loses its tag"| none
 
     prune["yolo prune --apply<br/>(human-typed, the ONLY trigger)"]
     prune -->|"PruneOrphanImageRoots"| root
@@ -161,25 +171,40 @@ flowchart TD
     prune -.->|"PruneOldImages keep=2<br/>CANNOT SEE untagged rows"| none
 ```
 
+> [!NOTE]
+> **Two edges in that diagram changed on 2026-08-25 and the map is drawn as it is NOW.** C3 shipped:
+> on podman the closure streams straight into `podman load` and Ledger B is never written, so its
+> growth term is **zero** going forward — the accumulated tars are the pre-C3 backlog, which C3
+> deliberately did not sweep (that is §10's work). C2 shipped: the tag is content-addressed, so a
+> *superseded* image only becomes `<none>` when its own store path is rebuilt, not every time
+> another workspace launches. §2's measured series is the PRE-C3 series and is retained as dated
+> evidence.
+
 ### 3.1 Ledger A — the `/nix/store` closure. Correct; leave it alone.
 
-**Writer:** `nix build .#ociImage` via the host daemon. **Pinned by:** an indirect GC root at `build/roots/<sha16>`, where `sha16` is the first 16 hex of `sha256(storePath)` — the *same key* as the cache tar, deliberately, so the two can never drift (`internal/image/image.go:161-168`, `internal/image/gcroot.go:22-29`). Re-asserted on **every** run, including when the image was already loaded, so a reaped root self-heals (`internal/image/autoload.go:369-378`). **Deleter:** `nix store gc` only, and only via the opt-in `yolo prune --nix-gc`.
+**Writer:** `nix build .#ociImage` via the host daemon. **Pinned by:** an indirect GC root at `build/roots/<sha16>`, where `sha16` is the first 16 hex of `sha256(storePath)` — the *same key* as the cache tar, deliberately, so the two can never drift (`internal/image/image.go:286-293`, `internal/image/gcroot.go:22-29`). Re-asserted on **every** run, including when the image was already loaded, so a reaped root self-heals (`internal/image/autoload.go:538-547`). **Deleter:** `nix store gc` only, and only via the opt-in `yolo prune --nix-gc`.
 
-This ledger is the one part of the system that already works the way the whole system should. The ordering is right — `RegisterRoot` at `autoload.go:378` runs *before* `os.Remove(outLink)` at `:379`, so there is no unrooted window — and reclamation is triple-guarded (tri-state liveness, an LRU-10 protected set, a 3600 s age floor, `internal/prune/imageroots.go`).
+This ledger is the one part of the system that already works the way the whole system should. The ordering is right — `RegisterRoot` at `autoload.go:547` runs *before* `os.Remove(outLink)` at `:548`, so there is no unrooted window — and reclamation is triple-guarded (tri-state liveness, an LRU-10 protected set, a 3600 s age floor, `internal/prune/imageroots.go`).
 
 > [!NOTE]
-> **The store's growth is not a leak here.** A durable root per distinct loaded image closure is roots doing their job, and how many of them exist on the host is **NOT MEASURED** (§2.1): `build/roots` is host-side only, and `RegisterRoot` is a no-op in-jail (`internal/image/autoload.go:376-377`), so this jail's own `build/` holds no `roots/` directory at all to count. The store grows because nothing collects *unrooted* paths, which is the host's `min-free` setting — §8.
+> **The store's growth is not a leak here.** A durable root per distinct loaded image closure is roots doing their job, and how many of them exist on the host is **NOT MEASURED** (§2.1): `build/roots` is host-side only, and `RegisterRoot` is a no-op in-jail (`internal/image/autoload.go:117-121`), so this jail's own `build/` holds no `roots/` directory at all to count. The store grows because nothing collects *unrooted* paths, which is the host's `min-free` setting — §8.
 
-### 3.2 Ledger B — the cache tar. Unbounded, and nobody's.
+### 3.2 Ledger B — the cache tar. **Bounded to zero on podman since C3; unbounded on Apple Container.**
 
-**Writer:** `materializeImage`, streaming the store path (which on Linux *is* the executable) into `cache/images/<sha16>.tar`. **Deleter:** `PruneImageCache(dir, keep, apply)` — sorts tars by mtime newest-first, drops the tail beyond `keep`, and always sweeps `*.tmp` regardless of `keep` (`internal/prune/imagecache.go:55-80`). Default `keep=3` (`internal/prune/prunecmd.go:138`).
+**Writer:** `materializeImage` (`internal/image/autoload.go:689`), streaming the store path (which on Linux *is* the executable) into `cache/images/<sha16>.tar`. **Deleter:** `PruneImageCache(dir, keep, apply)` — sorts tars by mtime newest-first, drops the tail beyond `keep`, and always sweeps `*.tmp` regardless of `keep` (`internal/prune/imagecache.go:15`). Default `keep=3` (`internal/prune/prunecmd.go:138`).
 
-**Bounded by the write path? No.** `AutoLoadImage` never deletes an old tar. Verified 2026-08-25: `rg -n "os.Remove|RemoveAll" internal/image/autoload.go internal/image/image.go` returns removals of `outLink`, `tmpFile`, and the Apple Container `ociDir`/`ociTar` only — **never a cache tar**. One multi-GB tar accumulates per distinct nix store path, forever, until a human types `yolo prune --apply`.
+**Since C3 (2026-08-25) there is exactly ONE caller left**, the Apple Container arm at
+`internal/image/autoload.go:492-513`, reached only when `ImageLoadStdinCmd` says the runtime cannot
+take a pipe (`internal/image/image.go:55-60`). **On podman nothing writes this ledger at all** —
+asserted on disk, not on which function ran (`internal/image/streamload_test.go:60`).
+
+**Bounded by the write path? On podman, yes — by not writing.** Elsewhere, no: `AutoLoadImage` still
+never *deletes* an old tar. Verified 2026-08-25: `rg -n "os.Remove|RemoveAll" internal/image/autoload.go internal/image/image.go` returns removals of `outLink`, `tmpFile`, and the Apple Container `ociDir`/`ociTar` only — **never a cache tar**. So one multi-GB tar still accumulates per distinct nix store path on Apple Container, forever, until a human types `yolo prune --apply` — and the ~485 GiB already on the maintainer's machine is untouched, because C3 stopped the *creation* and deliberately left the sweep to §10.
 
 Two facts about this ledger matter enormously for §4 and §6, and they pull in opposite directions:
 
 - Deleting a tar is **always safe for a running jail** — the tar is a one-shot load artifact, and the runner depends on Ledger A's closure. The code says so at `internal/prune/prunecmd.go:287-296`. This is what licenses aggression.
-- The tar is also the **offline fallback** when a build fails and no image is loaded (`internal/image/autoload.go:275-290`). This is what `image-staging-vs-baking.md` R4 defends. §6 resolves it.
+- The tar is also the **offline fallback** when a build fails and no image is loaded (`newestTars`, the loop at `internal/image/autoload.go:359-373`). C3 kept that consumer working on whatever tars exist — it removed the writer, not the reader (`TestBuildFailureFallbackStillLoadsAnExistingTar`). This is what `image-staging-vs-baking.md` R4 defends. §6 resolves it.
 
 > [!WARNING]
 > **`PruneImageCache`'s keep-N eviction branch (`internal/prune/imagecache.go:59-69`) is not executed by any test.** Checked 2026-08-25: there is no `imagecache_test.go`, and the two `Run`-level tests that touch tars each stage one tar against `keep=3`, so the tail-drop never fires. The `.tmp` sweep is covered; the eviction is not. This is the untested branch guarding the largest artifact class, and any design that makes it *automatic* is promoting untested code to the launch path.
@@ -188,7 +213,7 @@ Two facts about this ledger matter enormously for §4 and §6, and they pull in 
 
 This is the answer to "which of the three does yolo have no reclaimer for", and it is worse than "no reclaimer" — there is a reclaimer that cannot see its targets.
 
-`PruneOldImages` runs `podman images --format "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}" yolo-jail` (`internal/prune/probes.go:218`). That trailing `yolo-jail` is a **repository-name filter**. A superseded load is *untagged* — the next `podman load` retags `:latest` onto the new image and orphans the old one as `<none>` — so it never matches the filter. Reproduced live in this jail, 2026-08-25:
+`PruneOldImages` runs `podman images --format "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}" yolo-jail` (`internal/prune/probes.go:255`). That trailing `yolo-jail` is a **repository-name filter**. A superseded load is *untagged* — the next `podman load` retags `:latest` onto the new image and orphans the old one as `<none>` — so it never matches the filter. Reproduced live in this jail, 2026-08-25:
 
 ```console
 $ podman images
@@ -204,12 +229,14 @@ TYPE     TOTAL  ACTIVE  SIZE      RECLAIMABLE
 Images   2      0       6.391GB   6.391GB (100%)
 ```
 
-`PruneOldImages` can only ever see **one** row here, so `keep=2` never triggers and the dangling 3.55 GB is never reclaimed by yolo. And there is no other path: `rg` over `internal/` excluding tests finds no `podman image prune`, no `system prune`, and no `rmi` of a dangling ID — the only `rmi` in the tree is `probes.go:233`, *inside the function whose filter hides the target*.
+`PruneOldImages` can only ever see **one** row here, so `keep=2` never triggers and the dangling 3.55 GB is never reclaimed by yolo. And there is no other path: `rg` over `internal/` excluding tests finds no `podman image prune`, no `system prune`, and no `rmi` of a dangling ID — the only `rmi` in the tree is `probes.go:289`, *inside the function whose filter hides the target*.
 
 The common case is the leaking case. Every content-changing rebuild retags `:latest` and orphans its predecessor, and 60 % of commits force a rebuild (`image-staging-vs-baking.md` §1.1 — restated, not re-measured here).
 
 > [!WARNING]
-> **A global tag plus a global sentinel makes concurrent jails thrash.** `localhost/yolo-jail:latest` is one name per machine (`internal/paths/paths.go`) and `build/last-load-<runtime>` is one sentinel per runtime (`internal/image/autoload.go:184`) — neither is per-workspace. Jail B loading a different image retags `:latest` away from jail A's. A keeps running (podman resolved the tag to an ID at create time), but A's image is now `<none>` and invisible to the reclaimer; A's *next* launch then sees `lastLoaded != currentPath` and reloads. Two jails with different configs orphan each other's image on every launch. This is `image-staging-vs-baking.md`'s C2 (content-addressed tags, ruled in favour by OQ-3) and this doc's Ledger C problem meeting from opposite directions — see §10.
+> **A global tag plus a global sentinel made concurrent jails thrash — FIXED by C2, 2026-08-25.** `localhost/yolo-jail:latest` was one name per machine and `build/last-load-<runtime>` is one sentinel per runtime (`internal/image/autoload.go:256`) — neither per-workspace. Jail B loading a different image retagged `:latest` away from jail A's. A kept running (podman resolved the tag to an ID at create time), but A's image was then `<none>` and invisible to the reclaimer; A's *next* launch saw `lastLoaded != currentPath` and reloaded. Two jails with different configs orphaned each other's image on every launch.
+>
+> **C2 shipped:** the ref is `<repo>:<sha16-of-store-path>` (`image.JailImageRef`), so each config keeps its own permanent name and neither jail can orphan the other's image. **This leak source is closed; the `<none>` rows below are not** — an image is still untagged when *its own* store path is rebuilt, which is the residue A8 and OQ-DF3 are about. It also had a consequence in the other direction that C2 had to fix in the same change: a pass that could never fire suddenly could. See `image-staging-vs-baking.md` R3.
 
 ---
 
@@ -234,8 +261,8 @@ Applying one knob shape across all three is a category error. The proposal below
 **(a) Delete-on-successful-load.** Once `podman load -i <tar>` returns 0, the tar's only remaining job is the offline fallback (§6). Delete it in the same process that just used it.
 **Verdict: proposed as the default shape for backends that must write a file — NOT yet adopted. This is OQ-DF2 option (i) and waits on that ruling.** It is the smallest change that converts an unbounded ledger into a bounded one, and — importantly — it *narrows* rather than widens the prune-versus-launch race, because the deleter is the process that owns the artifact (§5, P4).
 
-**(b) Never write the tar at all.** The flake builds `streamLayeredImage`, not `buildLayeredImage` (`flake.nix:978-983`), whose output *is* a script that writes the tar to stdout — the code already says so (`internal/image/autoload.go:602-608`). And `podman load` reads stdin by default (verified on podman 5.8.4: `-i, --input string   Read from specified archive file (default: stdin)`). `ImageLoadCmd` unconditionally emits `-i <tarPath>` (`internal/image/image.go:22-27`), so **the file is a choice, not a constraint**.
-**Verdict: adopted for podman, and strictly better than (a) where it applies** — it saves the 3.31 GiB *write* as well as the retention. This is `image-staging-vs-baking.md`'s C3. It does not generalise: Apple Container needs a file for its format conversion (§8), so (a) remains the shape there.
+**(b) Never write the tar at all.** The flake builds `streamLayeredImage`, not `buildLayeredImage` (`flake.nix:978-983`), whose output *is* a script that writes the tar to stdout — the code already said so (`internal/image/autoload.go:843-844`). And `podman load` reads stdin by default (verified on podman 5.8.4: `-i, --input string   Read from specified archive file (default: stdin)`). `ImageLoadCmd` unconditionally emits `-i <tarPath>` (`internal/image/image.go:28-33`), so **the file was a choice, not a constraint**.
+**Verdict: SHIPPED for podman, 2026-08-25**, and strictly better than (a) where it applies — it saves the 3.31 GiB *write* as well as the retention. This is `image-staging-vs-baking.md`'s C3. The live decision point is `ImageLoadStdinCmd` (`internal/image/image.go:55-60`), which returns `(nil, false)` for Apple Container so the caller branches on the ANSWER rather than re-deriving the runtime name; `ImageLoadCmd` survives for the two places that genuinely hold a file. It does not generalise: Apple Container needs a file for its format conversion (§8), so (a) remains the shape there — and OQ-DF1 below is what ruled the retention that goes with it.
 
 **(c) A hard byte ceiling on the state dir.**
 **Verdict: adopted as the *reported contract*, rejected as the *only mechanism*.** A ceiling that evicts what the next launch immediately rebuilds trades 3.31 GiB of disk for 3.31 GiB of work (§9 R5). A ceiling is the right thing to *state and measure against*; it is the wrong thing to make the primary trigger.
@@ -257,13 +284,13 @@ It also explains why "improve the hint" (§7, A1) cannot work. The hint is a mes
 
 Numbered so sibling docs and code comments can cite them.
 
-**P1. A running jail's image closure is reachable from a durable GC root at every instant.** This is storage-lifecycle §1's thesis and the incident's actual lesson. Held today by re-asserting the root on every run *before* dropping the ephemeral out-link (`internal/image/autoload.go:378-379`), so there is no unrooted window. Nothing in this doc may introduce one.
+**P1. A running jail's image closure is reachable from a durable GC root at every instant.** This is storage-lifecycle §1's thesis and the incident's actual lesson. Held today by re-asserting the root on every run *before* dropping the ephemeral out-link (`internal/image/autoload.go:547-548`), so there is no unrooted window. Nothing in this doc may introduce one.
 
 **P2. Reclamation is fail-safe on unknown liveness.** Tri-state: if yolo cannot enumerate running jails, it reaps nothing. Already the polarity of every liveness-gated sweep.
 
 **P3. Deleting a cache tar never strands a running jail.** The tar is a one-shot load artifact; the runner depends on Ledger A (`internal/prune/prunecmd.go:287-296`). **This is the invariant that licenses the entire aggressive posture** — and it is therefore the one to guard hardest. If a future design ever makes the tar load-bearing at run time (a lazy re-load, a restore path, a rollback that reads it), P3 breaks and this proposal breaks with it.
 
-**P4. No reclaimer may delete an artifact an in-flight launch is between steps on.** Stated as an invariant because **it is violated today**: nothing locks or liveness-gates the cache tar, and the window between `fileExists(cacheFile)` (`internal/image/autoload.go:342`) and `ImageLoadCmd` (`:355`) is unguarded. A concurrent `yolo prune --apply` that evicts a *reused* tar in that window causes `loadOK == false` and the launch exits 1. Note the polarity this creates: §4.2's delete-on-success **improves** P4, because the process doing the deleting is the one that just finished with the file.
+**P4. No reclaimer may delete an artifact an in-flight launch is between steps on.** Stated as an invariant because **it is still violated, now on one backend**: nothing locks or liveness-gates the cache tar, and the window between `fileExists(cacheFile)` (`internal/image/autoload.go:504`) and the converter that reads it (`:513`) is unguarded. **Since C3 that pair exists only on the Apple Container arm** — podman has no file between the two steps to race for, so P4's launch-side exposure is now Apple-Container-only. The `newestTars` fallback still reads tars on every backend, so the invariant does not go away. A concurrent `yolo prune --apply` that evicts a *reused* tar in that window causes `loadOK == false` and the launch exits 1. Note the polarity this creates: §4.2's delete-on-success **improves** P4, because the process doing the deleting is the one that just finished with the file.
 
 **P5. yolo never carelessly GCs the host store.** Bounded, rooting-aware, host-only, opt-in, never a blanket collect (`internal/prune/nixgc.go:15-31`). The ruling is about yolo's own artifacts and does not license relaxing this.
 
@@ -282,9 +309,9 @@ This is the sharpest tension in the design and it deserves to be stated as a con
 
 `image-staging-vs-baking.md` R4 says C3 removes the offline safety net if taken to "never write a tar", and its mitigation is explicit: **"Keep-N, not zero."** The maintainer's ruling says *"I see no reason to keep any of this around."* Those are not the same instruction.
 
-**What the fallback actually is.** On a launch where the build failed (with `YOLO_ALLOW_STALE_IMAGE=1` set) or was skipped entirely, `AutoLoadImage` walks `newestTars(cacheDir)` and loads the newest one that works (`internal/image/autoload.go:275-290`).
+**What the fallback actually is.** On a launch where the build failed (with `YOLO_ALLOW_STALE_IMAGE=1` set) or was skipped entirely, `AutoLoadImage` walks `newestTars(cacheDir)` and loads the newest one that works (`internal/image/autoload.go:359-373`).
 
-**What is actually lost at zero — and the precondition changes the answer.** The fallback is only *reached* when `podman image inspect localhost/yolo-jail:latest` has already **failed** (`internal/image/autoload.go:271-274`); if an image is present in the runtime, that branch returns "Using existing image" and never touches a tar. So the tar cache helps exactly one user: someone whose build cannot run **and** whose runtime image store has *also* been emptied — a `podman system reset`, a storage reset, a fresh machine, a corrupted graphroot.
+**What is actually lost at zero — and the precondition changes the answer.** The fallback is only *reached* when `podman image inspect localhost/yolo-jail:latest` has already **failed** (`internal/image/autoload.go:351-355`); if an image is present in the runtime, that branch returns "Using existing image" and never touches a tar. (That branch keeps the LEGACY tag deliberately, and C2 says why: with no store path there is nothing to hash, so "is *an* image present under the name the flake bakes" is the only honest question left.) So the tar cache helps exactly one user: someone whose build cannot run **and** whose runtime image store has *also* been emptied — a `podman system reset`, a storage reset, a fresh machine, a corrupted graphroot.
 
 Concretely, on this machine today, the fallback would not fire no matter how many tars exist, because podman holds a loaded image (§2.1). **148 tars are insuring against a scenario that additionally requires Ledger C to be gone.**
 
@@ -292,7 +319,18 @@ Concretely, on this machine today, the fallback would not fire no matter how man
 
 **The cheap substitute.** Keep exactly one tar — the one for the currently-loaded image — or keep none and let Ledger C be the fallback it already is. The marginal value of tars 2 through 148 is indistinguishable from zero: `newestTars` tries them in order, and if the newest tar cannot load, the 147 older ones are older builds of a tree the user is no longer on.
 
-**My verdict:** keep-zero by default, with an explicit opt-in for the disconnected case, because the measured fallback is nearly always Ledger C and never tars 2–148. But this trades **the maintainer's** risk on **his** machine — a jail that will not start is a much worse day than 400 GiB of disk — and `image-staging-vs-baking.md` R4's caution was written for a good reason. **It belongs in Open Questions, not in an assertion.** See OQ-DF1.
+**My verdict was:** keep-zero by default, with an explicit opt-in for the disconnected case, because the measured fallback is nearly always Ledger C and never tars 2–148. It traded **the maintainer's** risk on **his** machine — a jail that will not start is a much worse day than 400 GiB of disk — and `image-staging-vs-baking.md` R4's caution was written for a good reason, so it went to Open Questions rather than into an assertion.
+
+> [!IMPORTANT]
+> **RULED 2026-08-25 (OQ-DF1): *"stream, keep zero tars."*** The maintainer ruled expressly for the
+> C3 implementation, and it went further than the leaning: no opt-in retention flag either. On
+> podman the happy path writes **no tar at all** — the nix stream is piped straight into `podman
+> load` — so `cache/images` stays empty on success and there is no retention number to pick. The
+> fallback survives as a *reader*: `newestTars` still loads any tar that exists, which is what keeps
+> an offline start working against the pre-C3 backlog and against Apple Container's tars.
+> **What the ruling did NOT cover, and the code respects the boundary:** pre-existing tars are not
+> swept (still §10's work), and Apple Container still writes and retains one tar per store path
+> because its converters need a real path. See §11 OQ-DF1 for the full answer block.
 
 > [!NOTE]
 > **The cachix work is what makes zero cheap.** A populated binary cache ([`../plans/handoff-cachix-cache.md`](../plans/handoff-cachix-cache.md)) does not reduce *retention* cost at all — it reduces the cost of having deleted something, by making the rebuild a download. It is a complement to keep-zero, not an alternative to it, and it is the surface OQ-3's *"we have plans on making cachix useful"* clause is about — the **nix binary cache**, not the podman image tag.
@@ -305,8 +343,8 @@ Concretely, on this machine today, the fallback would not fire no matter how man
 | :--- | :--- | :--- |
 | A1 | **Leave it manual, improve the hint.** | **Rejected — measured.** The hint has been true for 33 days and 459 GiB of growth on top of the 22 GiB that first tripped it, and the 125 tars it named are byte-for-byte still present (§1.1). Better wording does not fix a missing trigger. It is also now advising the *wrong action* (A7). |
 | A2 | **Automatic keep-N at materialize time.** | **Rejected as the primary mechanism; accepted as the backstop.** This was the pre-ruling leaning, and the ruling goes past it: a count is the wrong unit (§4) and keep-N leaves N × 3.3 GiB permanently resident for a fallback that almost never fires (§6). It survives as `yolo prune`'s recovery behaviour. |
-| A3 | **Delete-on-successful-load.** | **Proposed, pending OQ-DF2 (option i)** — the leaning of §4.1a, not a ruling. Bounds the ledger and improves P4. Do not build ahead of the ruling. |
-| A4 | **Never materialize — stream the derivation into `podman load`.** | **Adopted for podman** (§4.1b). Strictly better than A3 where it applies: saves the write as well as the retention. This is `image-staging-vs-baking.md` C3, and §10 sequences the two together. Podman only — Apple Container keeps the file. |
+| A3 | **Delete-on-successful-load.** | **Proposed, pending OQ-DF2 (option i)** — the leaning of §4.1a, not a ruling. Bounds the ledger and improves P4. Do not build ahead of the ruling. **Narrowed by C3:** podman no longer writes a tar to delete, so A3's remaining scope is Apple Container and the pre-C3 backlog. |
+| A4 | **Never materialize — stream the derivation into `podman load`.** | **SHIPPED for podman, 2026-08-25** (§4.1b; OQ-DF1 ruled the retention that goes with it). Strictly better than A3 where it applies: saves the write as well as the retention. This is `image-staging-vs-baking.md` C3, and §10 sequences the two together. Podman only — Apple Container keeps the file. |
 | A5 | **A byte budget with LRU eviction.** | **Rejected as the trigger; adopted as the contract.** Evicting what the next launch rebuilds trades 3.31 GiB of disk for 3.31 GiB of work (§9 R5). Useful as the thing yolo *reports and measures against*; harmful as the thing that fires. |
 | A6 | **A background or periodic sweep (timer, daemon, cron).** | **Rejected.** It adds a lifecycle yolo does not have — every host daemon today is a hidden `yolo internal daemon` subcommand serving a loophole, not a housekeeper — and it maximises P7 exposure by running at moments no user action bounds. The launch path already fires at least as often as the artifacts are created, which is the natural trigger. |
 | A7 | **Relocate the cache to a cheaper device** (`cache-relocation.md` CR1/CR2). | **Moot for `cache/images` specifically; CR1/CR2 stay alive for their real consumer.** Relocation is the right lever for a *cold, write-once, keep-forever* class where deleting is not an option — CR1's motivating prize is a 185 GiB `huggingface` cache. The ruling's class is *regenerable, write-once, read-once*, and it says delete, not move. **Consequence to act on:** the shipped hint currently recommends the rejected strategy — `internal/prune/prunecmd.go:275-277` prints *"worth moving to HDD storage if you have it"* — as does the argument built on it at [`../plans/cache-relocation.md`](../plans/cache-relocation.md)`:53` and [`../guides/USER_GUIDE.md`](../guides/USER_GUIDE.md)`:1073` (*"symlinking that subdir is safe"*). Under this ruling the correct advice is *delete*. The icebox row does not close; it loses one of its two motivating consumers. |
@@ -334,7 +372,7 @@ Concretely, on this machine today, the fallback would not fire no matter how man
 | :--- | :--- | :--- |
 | R1 | **Deleting a store closure a live jail needs** — the original 2026-07-22 incident, 235 of 467 `/bin` symlinks dangling. | P1 + P5. Ledger A is out of scope for aggression; nothing here touches `nix store gc`'s gating, which already refuses in-jail and declines unless every loaded closure has a durable root. |
 | R2 | **A prune racing a concurrent launch** — evicting a reused tar between `fileExists` and `podman load` kills the launch (P4, unguarded today). | Delete-on-success *narrows* this by making the user the deleter. The residual — a second jail's launch — needs P4 closed explicitly, and this is the one place where the automation must not ship ahead of the guard. |
-| R3 | **Losing the offline fallback** — a user with no network and a failed build and an empty runtime store cannot start a jail. | §6 shows the window is narrower than `image-staging-vs-baking.md` R4 assumed (Ledger C is consulted first, and is the fallback in every case where it exists). Mitigations: keep exactly one tar, and/or an explicit opt-in. **Unresolved by design — OQ-DF1.** |
+| R3 | **Losing the offline fallback** — a user with no network and a failed build and an empty runtime store cannot start a jail. | §6 shows the window is narrower than `image-staging-vs-baking.md` R4 assumed (Ledger C is consulted first, and is the fallback in every case where it exists). **RULED 2026-08-25 (OQ-DF1): keep zero, no opt-in.** The residual risk is accepted and narrow — it needs a failed build *and* an empty runtime image store *and* no usable tar from the pre-C3 backlog. `newestTars` still reads whatever is on disk, so the net change for a disconnected user is that no NEW insurance is written. |
 | R4 | **A late safety net for a fast leak.** The growth model is a ~7 GiB/day floor **plus ~125 GiB spike days** (§2.2). Anything triggered on a threshold can be overrun inside a single afternoon. | Bound at the write path, where the artifact is created, rather than at a threshold the spike outruns. This is an argument *for* A3/A4 over A5. |
 | R5 | **A byte budget that thrashes.** Evicting an image the next launch rebuilds costs 3.31 GiB of write plus a nix build to save 3.31 GiB of disk. The trade is wrong whenever the evicted image is one a live workspace is still on. | Never evict the current image (Ledger A's LRU-10 protected set is the existing precedent). Prefer delete-on-success, which is thrash-free by construction: it deletes only what has *already* been consumed. |
 | R6 | **Backend asymmetry.** Ledger C reclamation is podman-only; streaming is podman-only; Apple Container needs a file and has no reclaimer at all. | Accept it, and say so. This mirrors the shape OQ-1 already ruled for C4/C5 — an opt-in fast path with the general path retained — so the asymmetry is a precedent, not a novelty. |
@@ -349,11 +387,11 @@ Concretely, on this machine today, the fallback would not fire no matter how man
 
 **Second, close P4, before anything becomes automatic.** The tar eviction race is survivable today because the racer is a human who is not running `yolo prune` (which is, uncomfortably, the same defect keeping disk full). The moment reclamation moves to the launch path, that accidental protection disappears. P4 is cheap to close and must not trail the trigger.
 
-**Third, the write path — and this is where the two docs must move together.** Delete-on-success (A3) and streaming (A4) are the same change to the same function seen from two angles, and A4 *is* `image-staging-vs-baking.md`'s **C3**. There should be one implementation, not two racing ones. The natural split: C3 owns "stop writing the tar on podman", this doc owns "and what happens to the tars that do get written, on every backend."
+**Third, the write path — HALF DONE, 2026-08-25.** Streaming (A4) shipped as `image-staging-vs-baking.md`'s **C3**, under the OQ-DF1 ruling: on podman the tar is never written. What remains of this step is the OTHER half — delete-on-success (A3) for the backend that must still write a file, and the sweep of the pre-C3 backlog, neither of which C3 touched. A3 is still gated on OQ-DF2. The split held: C3 owned "stop writing the tar on podman", and this doc owns "and what happens to the tars that do get written, on every backend."
 
-**Fourth, share one retention decision with C2.** `image-staging-vs-baking.md`'s R3 already observes that `--keep-images 2` is the wrong retention rule for per-config tags, and OQ-3 ruled content-addressed tags in. This doc independently wants the image-retention policy revisited. **These are one decision, and it should be made once.** C2 also fixes the `:latest` thrash in §3.3's warning, which is a Ledger C leak source — so C2 and A8 are partly the same fix arriving from different directions.
+**Fourth, share one retention decision with C2 — and note what C2 already had to do.** `image-staging-vs-baking.md`'s R3 observed that `--keep-images 2` is the wrong retention rule for per-config tags; OQ-3 ruled content-addressed tags in and C2 shipped them. **C2 did not mint a retention rule** — the default is untouched — but it could not ship without making the pass SAFE, because per-config tags armed a query that had returned one row for years: entries are now deduped by image ID and vetoed by a liveness gate reading the load sentinel (`internal/prune/probes.go:211-254`). **The NUMBER is still this decision, and it should be made once.** C2 also closed the `:latest` thrash in §3.3's warning, which was a Ledger C leak source — so C2 and A8 were partly the same fix arriving from different directions.
 
-**Fifth, re-measure — which is a gate that already exists.** `image-staging-vs-baking.md` §11 step 5 calls for a re-measurement after C2+C3 land, and OQ-1's ruling explicitly preserved that gate even while ruling the *shape* of C4/C5. This doc's work lands squarely inside that window, so its effect should be measured by the same pass rather than a separate one. **Deliberate consequence: nothing here should be read as pre-approving C4/C5.**
+**Fifth, re-measure — the gate is now OPEN rather than blocked.** `image-staging-vs-baking.md` §11 step 5 calls for a re-measurement after C2+C3 land, and OQ-1's ruling explicitly preserved that gate even while ruling the *shape* of C4/C5. **Both landed 2026-08-25, so the measurement is possible for the first time.** This doc's remaining work lands inside the same window, so its effect should be measured by the same pass rather than a separate one. **Deliberate consequence: nothing here should be read as pre-approving C4/C5.**
 
 **Not sequenced here:** a byte-budget config surface. It is worth stating as a contract (§4.1c) but it is downstream of OQ-DF4, and building a config key before the policy it parameterises is the wrong order.
 
@@ -361,16 +399,39 @@ Concretely, on this machine today, the fallback would not fire no matter how man
 
 ## 11. Open Questions
 
-The maintainer ruled the **premise** (it is a bug) and the **goal** (minimal disk, delete without `--apply`). He did not rule the **mechanism**. These four are what is genuinely left.
+The maintainer ruled the **premise** (it is a bug) and the **goal** (minimal disk, delete without `--apply`). He did not rule the whole **mechanism** — but he ruled **OQ-DF1** on 2026-08-25, expressly for the C3 implementation, and that one is now closed. Three remain.
 
-1. 💬 **OQ-DF1: Does the offline tar fallback survive at all — keep-zero, keep-one, or keep-N-opt-in?**
+1. ✅ **OQ-DF1 — RULED 2026-08-25: Does the offline tar fallback survive at all — keep-zero, keep-one, or keep-N-opt-in?**
 
-   This is the sharpest tension in the doc (§6) and the only place where the ruling and `image-staging-vs-baking.md` R4 point in opposite directions. It blocks the default value of every retention knob, and it decides whether A3/A4 ship as "delete" or "delete all but one". The measured facts: the fallback is only reached when the runtime image store has *also* been emptied (`internal/image/autoload.go:271-290`), Ledger C is consulted first and holds the same image, and tars 2–148 are older builds of a tree nobody is on.
+   This was the sharpest tension in the doc (§6) and the only place where the ruling and `image-staging-vs-baking.md` R4 pointed in opposite directions. It blocked the default value of every retention knob, and it decided whether A3/A4 shipped as "delete" or "delete all but one". The measured facts: the fallback is only reached when the runtime image store has *also* been emptied (`internal/image/autoload.go:351-373`), Ledger C is consulted first and holds the same image, and tars 2–148 are older builds of a tree nobody is on.
 
-   _Leaning:_ **Keep zero by default, with an explicit opt-in flag or config key for the disconnected case.** The measured fallback is nearly always Ledger C, and keeping a tar is paying 3.31 GiB for a second copy of insurance already held. But this trades your risk on your machine — a jail that will not start is a far worse day than 400 GiB of disk — so I am not willing to assert it.
+   _Leaning was:_ **Keep zero by default, with an explicit opt-in flag or config key for the disconnected case.** The measured fallback is nearly always Ledger C, and keeping a tar is paying 3.31 GiB for a second copy of insurance already held. But it traded your risk on your machine — a jail that will not start is a far worse day than 400 GiB of disk — so I was not willing to assert it.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **STREAM, KEEP ZERO TARS.** — the maintainer, 2026-08-25, ruling expressly for this
+   > implementation. On podman the happy path writes **no tar at all**: the nix stream is piped
+   > straight into `podman load`, `cache/images` stays empty on success, and the image lives in
+   > podman's own store under the content-addressed tag — which is why the tar was a redundant third
+   > copy. There is no keep-N, and **no opt-in retention knob either**: the ruling went past the
+   > leaning.
+
+   **What it settles, and what it deliberately does not.** SETTLED: the write path (C3, shipped the
+   same day — `internal/image/streamload.go`, the decision point at `internal/image/image.go:55-60`,
+   the disk claim asserted at `internal/image/streamload_test.go:60`), and the default value of the
+   retention knob for podman, which is that there is no knob. NOT SETTLED, and the code respects the
+   boundary in both directions:
+
+   - **Pre-existing tars are not swept.** C3 stopped *creating* them; the ~485 GiB already on disk is
+     §10's work, and the code says so at `internal/image/autoload.go:471-473`.
+   - **Apple Container still writes and retains one tar per store path**, because `skopeo copy
+     docker-archive:<path>` and `podman save -o <path>` both interpolate a real path and cannot
+     consume a stream (`internal/image/autoload.go:492-513`). That is a constraint of the backend,
+     not an exemption from the ruling, and this doc still owes it a retention answer.
+   - **The fallback's READER survives untouched.** `newestTars` still loads any tar that exists
+     (`internal/image/autoload.go:359-373`), which is what keeps an offline start working. The
+     ruling removed the writer, not the reader.
+   - **OQ-DF2 and OQ-DF3 are untouched by it.** Where automatic reclamation lives, and how far into
+     podman's store yolo may reach, are still open.
 
 2. 💬 **OQ-DF2: Where does the automatic reclamation live — the write path, the launch path, or `yolo prune`'s default?**
 
@@ -383,7 +444,7 @@ The maintainer ruled the **premise** (it is a bug) and the **goal** (minimal dis
 
 3. 💬 **OQ-DF3: How much of podman's image store may yolo reclaim — only images it can prove are its own, or dangling images generally?**
 
-   Blocks §10's first step, which is otherwise unblocked and is the best bytes-per-effort in the doc. It is also **the question that gates the rule replacing `--keep-images 2`** (`internal/prune/prunecmd.go:49`, `:138`). Note the seam: DF3 settles the *reach* — which rows yolo may reclaim at all — while `--keep-images` acts on the repo-name-filtered **tagged** rows (`internal/prune/probes.go:218`), which is the class [`image-staging-vs-baking.md`](image-staging-vs-baking.md) R3 complains about once C2 makes tags per-config. Neither option below touches a tagged row, so the replacement rule has to be written down *together with* this answer rather than falling out of it (§10 step 4). The problem is that the leak is precisely the class yolo can no longer identify: an orphaned `<none>` row has lost the repository name that was the only evidence it was yolo's (§3.3). **Narrow:** reclaim only untagged images whose ID appears in yolo's own load history — safe, but the sentinel is capped at 10 entries and records store paths, not image IDs, so it may not be sufficient evidence. **Broad:** `podman image prune` for dangling images — reclaims everything, but on a podman shared with the user's non-yolo work that is someone else's images.
+   Blocks §10's first step, which is otherwise unblocked and is the best bytes-per-effort in the doc. It is also **the question that gates the rule replacing `--keep-images 2`** (`internal/prune/prunecmd.go:49`, `:138`). Note the seam: DF3 settles the *reach* — which rows yolo may reclaim at all — while `--keep-images` acts on the repo-name-filtered **tagged** rows (`internal/prune/probes.go:255`), which is the class [`image-staging-vs-baking.md`](image-staging-vs-baking.md) R3 complains about once C2 makes tags per-config. Neither option below touches a tagged row, so the replacement rule has to be written down *together with* this answer rather than falling out of it (§10 step 4). The problem is that the leak is precisely the class yolo can no longer identify: an orphaned `<none>` row has lost the repository name that was the only evidence it was yolo's (§3.3). **Narrow:** reclaim only untagged images whose ID appears in yolo's own load history — safe, but the sentinel is capped at 10 entries and records store paths, not image IDs, so it may not be sufficient evidence. *(C2 supplied that evidence for **tagged** rows and only for them: a store path now maps to a tag, `image.ImageStoreKey`, which is what `ProtectedImageTags` compares — see `internal/prune/imageroots_probe.go`. An untagged row has no tag left to match, so DF3's evidence problem is untouched.)* **Broad:** `podman image prune` for dangling images — reclaims everything, but on a podman shared with the user's non-yolo work that is someone else's images.
 
    _Leaning:_ **Narrow, and if the evidence turns out to be insufficient, record the image ID at load time so that it becomes sufficient.** Broad pruning of a shared runtime is exactly the kind of "reaches beyond its own artifacts" move `cache-relocation.md`'s threat model exists to refuse (P6, by analogy). Adding the evidence yolo needs is a smaller price than widening the blast radius.
 

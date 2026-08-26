@@ -1,21 +1,26 @@
 # Baking vs. staging — what the image must contain, and what a launch can deliver
 
-**Status:** ANALYSIS + PROPOSAL — **all five questions now RULED**: OQ-2 on 2026-08-15, the other
-four on 2026-08-25. Two of the eleven items have shipped, **C2–C5 have not**. Written 2026-08-15,
-re-checked against the tree 2026-08-23, re-stamped 2026-08-25 when the maintainer ruled on OQ-1,
-OQ-3, OQ-4 and OQ-5 (§10.1). **Every `file:line` anchor below was re-derived against the tree on
-2026-08-25**, because the 2026-08-23 pass missed whole classes of them: all 49 `flake.nix`
-citations had drifted, by +25 to +142 lines (that file moved in `60376fed`, 2026-08-20), and so had
-every `AGENTS.md` citation and the `internal/entrypoint/{shims,shell,boot,env,packsurfaces}.go` and
-`internal/cli/run/assemble*.go` ones. §7's anchors are the deliberate exception — they are
-pre-`7830f65` line numbers, and §7 says so. All measurements taken in this development jail on
-2026-08-15 unless dated otherwise; every number below is labelled **MEASURED** or **NOT MEASURED**.
+**Status:** ANALYSIS + PROPOSAL — **all five questions RULED** (OQ-2 on 2026-08-15, the other four
+on 2026-08-25) and **C2 + C3 SHIPPED on 2026-08-25**, the same day their rulings landed. **C4–C5
+remain unbuilt and gated.** Written 2026-08-15, re-checked against the tree 2026-08-23, re-stamped
+2026-08-25 when the maintainer ruled on OQ-1, OQ-3, OQ-4 and OQ-5 (§10.1), and re-anchored
+2026-08-25 after C2+C3 landed. **Every `file:line` anchor below was re-derived against the tree**;
+the C2/C3 implementation moved `internal/image/autoload.go` by up to +264 lines and deleted two
+functions this doc used to cite, so §1.4, §1.5, §4 and §9 all changed anchors. Earlier drift is on
+the same record: all 49 `flake.nix` citations were wrong by +25 to +142 lines until 2026-08-25 (that
+file moved in `60376fed`, 2026-08-20), as were every `AGENTS.md` citation and the
+`internal/entrypoint/{shims,shell,boot,env,packsurfaces}.go` and `internal/cli/run/assemble*.go`
+ones. §7's anchors are the deliberate exception — they are pre-`7830f65` line numbers, and §7 says
+so. All measurements taken in this development jail on 2026-08-15 unless dated otherwise; every
+number below is labelled **MEASURED** or **NOT MEASURED**.
 
 > [!IMPORTANT]
-> **A ruling is not an implementation.** The 2026-08-25 rulings settle C2's mechanism, C3's verdict,
-> C4/C5's shape, and the scope question under `packages:`. **They build nothing.** Every "not built"
-> below is still true, §11 is still the order to build them in, and C4 is still gated on a
-> measurement nobody has taken.
+> **A ruling is not an implementation — but two of these are now both.** The 2026-08-25 rulings
+> settled C2's mechanism, C3's verdict, C4/C5's shape, and the scope question under `packages:`.
+> C2 and C3 were then BUILT the same day, so the sections describing them are records, not plans:
+> the two defects §1.4 and §1.5 measure are fixed on podman. **C4 and C5 build nothing yet**, §11 is
+> still the order for them, and C4 is still gated on the §11 step-5 re-measurement — which is now
+> possible for the first time, because it was waiting on C2+C3.
 
 **What is built, so the body's "nothing built" framing is not read too widely:**
 
@@ -23,8 +28,10 @@ pre-`7830f65` line numbers, and §7 says so. All measurements taken in this deve
 | :--- | :--- | :--- |
 | **C1** — a failed image build fails as itself | ✅ shipped `7830f65`, 2026-08-15 | `internal/image/autoload.go:195-265` — the `buildFailed` flag splits the fallback branch, prints nix's own stderr (`:260`), returns `false` (`:263`); opt-out is `YOLO_ALLOW_STALE_IMAGE=1` (`:170`). This is OQ-2 in §10.1 |
 | **`--accept-flake-config`** on the image `nix` invocations (§6 item 3) | ✅ shipped | `internal/image/nixflags.go:35` and `internal/darwinpkg/darwinpkg.go:91` (verified 2026-08-25). Note the consequence: the substituter surface it opens is now live, which is what [`macos-user-build-step-threat-model.md`](macos-user-build-step-threat-model.md) Q2 asks about |
-| **C2 · C3** | ❌ not built, but **unblocked** | OQ-3 rules C2's mechanism (content-addressed tags, §4 C2); OQ-5 rules that C3's artifact class is a bug to delete, not a configuration to tune (§1.6, §4 C3) |
-| **C4 · C5** | ❌ not built, and still **gated** | OQ-1 rules the *shape* for both — opt-in fast path, baked path retained — but the go/no-go still waits on the re-measurement after C2+C3 (§11 step 5). C5 reuses C4's mechanism and is ordered after it (§4 C5, §11 step 6) |
+| **C2** — address the image by content | ✅ shipped 2026-08-25 | `image.JailImageRef` (`internal/image/image.go:126-128`) is the ref a jail runs; the load decision is `image inspect <content ref>` (`internal/image/autoload.go:422-424`), and the ref is threaded to the argv through `assembleInput.imageRef` (`internal/cli/run/assemble.go:743-748`). This is OQ-3 in §10.1 |
+| **C3** — stream, write no tar | ✅ shipped 2026-08-25 | `ImageLoadStdinCmd` (`internal/image/image.go:55-60`) is the decision point; `internal/image/streamload.go` is the pipe. On podman `cache/images` stays EMPTY, asserted on disk (`internal/image/streamload_test.go:60`). This is OQ-5 here and OQ-DF1 in [`minimal-disk-footprint.md`](minimal-disk-footprint.md) |
+| **C4 · C5** | ❌ not built, and still **gated** | OQ-1 rules the *shape* for both — opt-in fast path, baked path retained — but the go/no-go still waits on the re-measurement after C2+C3 (§11 step 5), which is now *possible* rather than blocked. C5 reuses C4's mechanism and is ordered after it (§4 C5, §11 step 6) |
+| **The retention rule (R3)** | ❌ not settled | C2 armed `yolo prune`'s old-image pass for the first time, so it had to be made SAFE in the same change — entries deduped by image ID, and a liveness veto from the load sentinel (`internal/prune/probes.go:211-254`, `ProtectedImageTags` in `internal/prune/imageroots_probe.go`). The *number* is still [`minimal-disk-footprint.md`](minimal-disk-footprint.md) OQ-DF3, still OPEN; `--keep-images` default 2 is untouched (`internal/prune/prunecmd.go:49`, `:138`) |
 
 **The question, from the maintainer:** *"what we can do to avoid cache rebuilds/reloads by changing
 how we stage things — what can we copy into the image rather than bake into it for efficiency
@@ -166,8 +173,18 @@ yolo-jail-install: 180.2 KiB
 
 That is the entire output. One package changed. Every other one of the 577 store paths is
 byte-identical. For that, the pipeline: built a new `stream-yolo-jail` derivation, wrote a fresh
-**3.28 GiB** tar to `cache/images/<sha16>.tar` (`internal/image/autoload.go:336-350`), and ran a
-full `podman load` (`:351-357`).
+**3.28 GiB** tar to `cache/images/<sha16>.tar`, and ran a full `podman load` reading that file back.
+
+> [!NOTE]
+> **Half of that sentence is now history — C3 shipped 2026-08-25.** On podman the tar is gone: the
+> nix stream pipes straight into `podman load` (`internal/image/autoload.go:474-491`, the pipe
+> itself in `internal/image/streamload.go`), and `cache/images` stays empty on a successful load
+> — asserted on disk, not on which function ran
+> (`internal/image/streamload_test.go:60`). The full load still happens; **that** is the half
+> this measurement is really about, and it is what C4/C5 aim at. The file form survives on Apple
+> Container alone, whose converters interpolate a path and cannot consume a stream
+> (`autoload.go:492-513`, writing through `materializeImage`, `autoload.go:689` — `os.Create` at
+> `:701`, `os.Rename` at `:743`).
 
 For contrast, the same command between the *oldest* and *newest* entries in that ten-deep sentinel
 — a `flake.lock` bump — reports chromium 150→151, gcc 15.2→15.3, icu4c 76→78, git 2.54→2.55, and
@@ -178,8 +195,8 @@ For contrast, the same command between the *oldest* and *newest* entries in that
 **Established definitively by measurement**, since the brief flagged it as the crux.
 
 `nix build .#ociImage --impure` is run with `YOLO_EXTRA_PACKAGES` set from the config `packages:`
-list (`internal/image/autoload.go:396-401`, via `config.EffectivePackages`,
-`internal/cli/run/imageload.go:16`). The flake reads it through `builtins.getEnv`
+list (`internal/image/autoload.go:602-607`, via `config.EffectivePackages`,
+`internal/cli/run/imageload.go:22`). The flake reads it through `builtins.getEnv`
 (`flake.nix:166-169`, the `getEnv` itself at `:167`), which is why `--impure` exists at all
 (`AGENTS.md:171-172`).
 
@@ -199,10 +216,14 @@ added to `packages:` produces a distinct image, a distinct 3.28 GiB tar, and a d
 right staleness oracle for the integration suite (`AGENTS.md:195-197`).
 
 **Is the resulting image shared across workspaces?** In *content*, no — it is a function of
-`packages:`. In *name*, yes — there is exactly one tag, `localhost/yolo-jail:latest`
-(`internal/paths/paths.go:35-36`, `internal/image/image.go:37-42`), and exactly one load sentinel
-per runtime, `build/last-load-<runtime>` (`internal/image/autoload.go:184`, re-verified 2026-08-25).
-That single tag is what OQ-3 ruled expendable (§4 C2). And `packages:` is
+`packages:`. In *name*, it USED to be: there was exactly one tag, `localhost/yolo-jail:latest`, and
+exactly one load sentinel per runtime, `build/last-load-<runtime>` (`internal/image/autoload.go:256`).
+That single tag is what OQ-3 ruled expendable, and **C2 shipped on 2026-08-25**: the ref is now
+`<repo>:<sha16-of-store-path>` (`image.JailImageRef`, `internal/image/image.go:126-128`), one name
+per config, so the answer is now "no" in both senses. The legacy tag survives for the two jobs with
+no store path to hash (`internal/paths/paths.go:52-53`, `internal/image/image.go:95-100`); the
+sentinel survives as prune's liveness ledger and as the human-readable load diagnosis (§4 C2). And
+`packages:` is
 **workspace-scope**: `validatePackages` (`internal/config/validate.go:204-215`, verified 2026-08-25)
 imposes no user-scope restriction, unlike `packs` (`internal/config/packs.go:487-488`) or
 `host_files` (`internal/config/hostfiles.go:937`).
@@ -219,30 +240,34 @@ problem, and it would cost a repo the ability to declare its own toolchain, whic
 of the key.
 
 > [!WARNING]
-> **The cost below is real and is not an argument for user-scoping.** Everything in the blockquote
-> that follows is a genuine cross-workspace cost that one repo imposes on an unrelated one — and the
-> ruling is to **fix the cost, never the scope**. C2 mitigates it (each config keeps its own loaded
-> image); C4 deletes it at the root (the image stops being a function of `packages:` at all). If a
-> future reader re-derives "just make `packages:` user-scope" from the paragraph below, this is the
-> answer: it was proposed, argued, and refused.
+> **The cost below was real and was never an argument for user-scoping.** Everything in the
+> blockquote that follows was a genuine cross-workspace cost that one repo imposed on an unrelated
+> one — and the ruling was to **fix the cost, never the scope**. C2 did (each config keeps its own
+> loaded image); C4 would delete it at the root (the image stops being a function of `packages:` at
+> all). If a future reader re-derives "just make `packages:` user-scope" from the paragraph below,
+> this is the answer: it was proposed, argued, and refused.
 
-Those three facts compose into a defect:
+Those three facts composed into a defect — **fixed by C2, 2026-08-25.** Stated in the past tense
+because the mechanism it describes no longer exists:
 
-> Two workspaces on one machine with different `packages:` lists **reload the whole image on every
-> alternation, forever.** `alreadyLoaded` compares the current store path against the single
-> most-recently-loaded path (`internal/image/autoload.go:321-322`); the ten-entry history exists
-> (`AddLoadedPath`, `internal/image/image.go:142-159`) but is deliberately not consulted for the
-> decision (`autoload.go:310-315`). Workspace A launches → path A loaded. Workspace B launches →
-> mismatch → full reload. Back to A → mismatch → full reload. The tar is already cached so
-> materialization is skipped (`autoload.go:342`), but the `podman load` is not.
-> *(Anchors re-verified 2026-08-25. They were right when written and shifted exactly +84 lines when
-> C1 shipped — `git show 7830f65a^:internal/image/autoload.go` puts the same comment at `:226` and
-> the same comparison at `:237`. The behaviour is unchanged; §4 C2's callout quotes the comment in
-> full.)*
+> Two workspaces on one machine with different `packages:` lists **reloaded the whole image on
+> every alternation, forever.** `alreadyLoaded` compared the current store path against the single
+> most-recently-loaded sentinel entry; the ten-entry history existed (`AddLoadedPath`,
+> `internal/image/image.go:261-284`) but was deliberately not consulted for the decision. Workspace
+> A launches → path A loaded. Workspace B launches → mismatch → full reload. Back to A → mismatch →
+> full reload. The tar was already cached so materialization was skipped, but the `podman load` was
+> not.
+> *(Those anchors are gone rather than moved: `alreadyLoaded` was DELETED. The load decision is now
+> `image inspect <content ref>` — `internal/image/autoload.go:422-428` — and the comment that
+> argued for equality-over-membership is preserved verbatim at `:393-407`, quoted at `:401-405`, as
+> the argument FOR what replaced it. §4 C2's callout quotes it in full. The pre-C2 shape is in
+> `git show 7830f65a^:internal/image/autoload.go` at `:226`/`:237`.)*
 
-This is the multiplication factor the brief asked me to establish, and it is worse than "a package
-costs a rebuild": it costs a reload *per launch, indefinitely*, to every other workspace on the
-machine.
+That was the multiplication factor the brief asked me to establish, and it was worse than "a package
+costs a rebuild": it cost a reload *per launch, indefinitely*, to every other workspace on the
+machine. It now costs one `image inspect` per launch —
+`internal/image/contentref_test.go:221` asserts 2 loads for 2 configs and none on any alternation
+thereafter.
 
 ### 1.6 What it has actually cost, on disk
 
@@ -556,21 +581,38 @@ Frequency: every failed build. Cost when it bites: a wrong-layer diagnosis. Risk
 Work: small. **Backends: all.** See §7 — this has its own section because it is why the question
 surfaced.
 
-### C2 — Address the loaded image by content, not by the `:latest` tag. **Rank 2. Mechanism RULED 2026-08-25.**
+### C2 — Address the loaded image by content, not by the `:latest` tag. **Rank 2. Mechanism RULED and SHIPPED 2026-08-25.**
 
-**Mechanism — settled.** Tag the loaded image `yolo-jail:<sha16-of-store-path>` — the key `keyFor`
-(`internal/image/image.go:161-168`) already computes for the cache tar and the GC root — and run
-that ref. `alreadyLoaded` becomes "is *this* ref present in the runtime", replacing the
-single-most-recent-path comparison at `internal/image/autoload.go:321` (verified 2026-08-25). OQ-3
-asked whether to do this or to take the cheaper variant — keep `:latest` and make `alreadyLoaded`
-check membership in the ten-entry LRU. **Content-addressed tags won.**
+**Mechanism — settled, and built.** The loaded image is named `yolo-jail:<sha16-of-store-path>`,
+reusing the key `keyFor` (`internal/image/image.go:286-293`, exported as `ImageStoreKey` in `gcroot.go:27`) already
+computes for the cache tar and the GC root; `image.JailImageRef` composes it
+(`internal/image/image.go:126-128`). `alreadyLoaded` is GONE — it was the
+single-most-recent-path comparison, and the question is now "is *this* ref present in the runtime",
+asked by `image inspect` at `internal/image/autoload.go:422-424` and answered by the runtime's own
+store. OQ-3 asked whether to do this or to take the cheaper variant — keep `:latest` and make
+`alreadyLoaded` check membership in the ten-entry LRU. **Content-addressed tags won.**
+
+**The image is named ON THE WAY IN, not retagged afterwards, and that distinction is load-bearing.**
+The flake bakes `name = "yolo-jail"; tag = "latest"` (and `ci-minimal` on the minimal variant), so an
+un-overridden stream cannot produce a content-addressed name. The first implementation therefore
+loaded and then ran `podman tag :latest <content ref>` — which reads a SHARED, MUTABLE name a second
+time, with nothing serializing image loads across workspaces (the run lock is per-container-name).
+A concurrent load landing in that window bound this config's ref to another config's image, and
+because a tag is PERMANENT the next launch found the ref present, skipped the load, and ran the
+wrong image *forever*. nixpkgs' `streamLayeredImage` script takes `--repo_tag/-t` ("Override the
+RepoTags from the configuration"), so the name goes into the archive instead: `StreamRepoTag`
+(`internal/image/image.go:152-154`) → `streamImageArgv` (`internal/image/autoload.go:835-842`) →
+`podman load`, which creates the image under exactly that name. Verified end-to-end 2026-08-25
+against the live stream script and a real podman: `--repo_tag yolo-jail:<key>` yields
+`Loaded image: localhost/yolo-jail:<key>`. `:latest` is then pointed at the new image DOWNSTREAM
+(`pointLatestAt`, `internal/image/autoload.go:579-587`), best-effort, so the degraded fallback branch
+still has something to ask about and `podman images` still reads sensibly.
 
 > [!WARNING]
-> **Do not "simplify" C2 back into an LRU-membership test on `:latest`.** The comment at
-> `internal/image/autoload.go:310-315` (verified 2026-08-25 — this doc originally cited `:226-231`,
-> and `git show 7830f65a^` confirms that was correct until C1 shifted the file by 84 lines; the
-> comment's substance is unchanged) records why equality was chosen over membership, and it is an
-> argument **for** C2, not against it:
+> **Do not "simplify" C2 back into an LRU-membership test on `:latest`.** The comment is PRESERVED
+> in the shipped code at `internal/image/autoload.go:393-407` (the quoted lines at `:401-405`),
+> deliberately kept rather than deleted. It records why equality was chosen over membership, and it
+> is an argument **for** C2, not against it:
 >
 > > *"Comparing against the most-recently-loaded path (not mere map/set membership across the last-10
 > > history) matters because nix builds are content-addressed: reverting a config change can
@@ -599,61 +641,95 @@ future code that hardcodes it is a bug rather than a compatibility constraint.
 > (`.#ociImage`, `.#ociImageMinimal`, built by `.github/workflows/publish.yml`), or the substituter
 > config. It is licence to stop using one podman tag for every image.
 
-**What it buys.** The §1.5 cross-workspace thrash disappears: each distinct `packages:` list keeps
+**What it bought.** The §1.5 cross-workspace thrash is gone: each distinct `packages:` list keeps
 its own loaded image, and alternating between workspaces costs an `image inspect`, not a 3.28 GiB
-load. It also removes a whole class of confusion in which `:latest` names an image built from
+load. It also removed a whole class of confusion in which `:latest` names an image built from
 someone else's config.
 
-**What breaks** (anchors re-verified 2026-08-25 — the 2026-08-15 set had all drifted).
-`paths.JailImage` / `JailImageShort` (`internal/paths/paths.go:35-36`) are read by the run
-assembler's `jailImageRef` (`internal/cli/run/assemble.go:714-719`, consumed at `:650` where the
-container argv is built), the checker (`internal/cli/check/check.go:486`), and the Apple Container
-conversion path (`internal/image/autoload.go:647` skopeo, `:671` podman-save); `image.JailImage`
-resolves them per runtime (`internal/image/image.go:37-42`) and is called at `autoload.go:270` and
-`:317`.
+**What it touched** (anchors re-derived 2026-08-25, after the change).
+`paths.JailImage` / `JailImageShort` (`internal/paths/paths.go:52-53`) are no longer the ref a jail
+runs. The assembler's `jailImageRef(rt)` helper was DELETED; the ref is now INPUT, carried on
+`assembleInput.imageRef` (`internal/cli/run/assemble.go:45`) and read by
+`assembleInput.jailImage()` (`:743-748`, with the `unsetImageRef` sentinel at `:737`) where the
+container argv is built (`:662`). The same field feeds `insertHostServiceEnv`
+(`internal/cli/run/run.go`), which finds its insert point by searching the argv for that exact
+value — two readers of ONE field, because with per-config refs there is no constant two call sites
+could independently arrive at. The checker asks the sharper question when it has a store path
+(`internal/cli/check/check.go:510`) and falls back to a REPOSITORY probe when it does not (`:523`,
+`:529` for Apple Container; section signature at `:502`). `image.JailImage` survives for the two
+jobs with no store path (`internal/image/image.go:95-100`), read at `autoload.go:351` (the degraded
+fallback) and `:580` (the `:latest` alias). The Apple Container conversion cluster still reads
+`paths.JailImage` at `autoload.go:924` (`podman tag`); skopeo's converter is `:894-895` and the
+export `:929`.
 
 > [!NOTE]
-> **The pruner is *not* on that list, and the reason is worth knowing before someone "fixes" it.**
-> `PruneOldImages` filters on the **repository** name — `run([]string{rt, "images", "--format", …,
-> "yolo-jail"})`, `internal/prune/probes.go:218` — not on the `:latest` tag. A content-addressed
-> *tag* under the same repository leaves it working exactly as it does today. (Whether it works
-> *well* is a separate defect: an untagged, superseded image is invisible to that filter, so
-> `keep=2` never fires on it. That belongs to [`minimal-disk-footprint.md`](minimal-disk-footprint.md),
-> not to C2.)
+> **The pruner WAS on that list after all, and the original note here was wrong — read this before
+> touching `PruneOldImages` again.** It said a content-addressed tag "leaves it working exactly as
+> it does today", reasoning that the filter is a REPOSITORY name
+> (`run([]string{rt, "images", "--format", …, "yolo-jail"})`, `internal/prune/probes.go:255`) and
+> the parse discards the `repo:tag` field. Both halves are true and the conclusion did not follow.
+> What changed is the SHAPE of the result: `podman images` prints one row per NAME, so the newest
+> image appears twice (content tag + `:latest`), and every config now keeps a permanent row of its
+> own. Measured on the maintainer's host the day C2 landed — three rows, two images — `keep=2`
+> selected the second workspace's live image, and removal is `rmi -f`, which destroys the containers
+> using it. The pass had been a no-op for years *because* the query returned one row; C2 armed it.
+> Both defects were fixed in the same change (`internal/prune/probes.go:211-254`): dedup by image
+> ID, and a liveness veto sourced from the load sentinel (`ProtectedImageTags`,
+> `internal/prune/imageroots_probe.go`). The RULE — the number — is still
+> [`minimal-disk-footprint.md`](minimal-disk-footprint.md) OQ-DF3's, and was not touched.
 
 Runtime image count grows — bounded by `yolo prune --keep-images` (default 2,
-`internal/prune/prunecmd.go:49`, `:138`), which would need its retention rule revisited since
-"newest 2" is the wrong policy when tags are per-config (R3). Layers dedup in podman's store, so the
+`internal/prune/prunecmd.go:49`, `:138`), whose retention rule still wants revisiting because
+"newest 2" sorts by CreatedAt, i.e. most recently BUILT, which is the wrong axis when a revisited
+workspace deliberately does not reload (R3, OQ-DF3). Layers dedup in podman's store, so the
 incremental disk cost per extra tag should be the changed layer only — **NOT MEASURED**.
 
-**Verification.** Two workspaces with different `packages:`, alternating launches; assert the second
-and subsequent launches emit no "Image load needed" line. An integration test can assert this
-without a rebuild by launching the same workspace twice.
+**Verification, as shipped.** `internal/image/contentref_test.go` drives `AutoLoadImage` against a
+fake runtime whose image store is keyed by REF and maps each ref to an image IDENTITY — the fixture
+shape that makes "the ref names the wrong image" a failure a test can see:
+`TestAlternatingStorePathsEachStayLoaded` (`:221`) asserts 2 loads for 2 configs and none on any
+alternation after; `TestTheImageIsNamedOnTheWayIn` asserts the archive carries the content name and
+that nothing reads `:latest` as a tag SOURCE; `TestAConcurrentLoadCannotStealTheContentRef` seeds a
+foreign image on `:latest` and asserts the content ref does not end up naming it.
 
 **Backends: podman and Apple Container** (both have a tagged image store). Not applicable to
 `macos-user`.
 
-### C3 — Stop writing a 3.28 GiB tar on the load path. **Rank 3. Verdict RULED 2026-08-25.**
+### C3 — Stop writing a 3.28 GiB tar on the load path. **Rank 3. Verdict RULED and SHIPPED 2026-08-25.**
 
-**Mechanism.** `materializeImage` streams the nix image to `cache/images/<key>.tar`
-(`internal/image/autoload.go:476`, called through the `Materialize` seam at `:343`) and then
-`podman load -i` reads it back (`ImageLoadCmd`, `:355`). `just load` already demonstrates the pipe
-form: `./result | {{runtime}} load` (`Justfile:181-182`). Make the tar an *option*, not the only
-path: on podman, stream the derivation straight into `podman load`; keep the tar only when the
-runtime needs a file (Apple Container's conversion cluster — `loadImageForAppleContainer` and its
-two converters, `autoload.go:628-682`) or when an explicit offline-fallback flag asks for it.
-(Anchors verified 2026-08-25; they moved when C1 shipped.)
+**Mechanism — built.** `materializeImage` used to stream the nix image to `cache/images/<key>.tar`
+and then hand `podman load -i` the file it had just written. `just load` had demonstrated the pipe
+form all along (`./result | {{runtime}} load`, `Justfile:181-182`); C3 is that, in Go, with the
+failure detection a shell pipeline does not give you.
+
+The decision point is `ImageLoadStdinCmd` (`internal/image/image.go:55-60`) — `podman load` reads a
+tar from stdin when given no `-i`, and Apple Container is *unrepresentable* there rather than
+handled, because its CONVERTERS interpolate a path. The pipe itself is
+`internal/image/streamload.go`, reached through the `StreamLoad` seam at
+`internal/image/autoload.go:474-491`. `materializeImage` survives at `autoload.go:689`, reached only
+from the Apple Container arm (`:492-513`), and `ImageLoadCmd` (`internal/image/image.go:28-33`)
+survives for the build-failure fallback, its one remaining call at `autoload.go:368`.
+
+The cached-tar SHORTCUT is gone from the podman branch and the code says why (`autoload.go:447-473`):
+on podman nothing writes a tar any more, so a file at that name is a legacy artifact of a path that
+no longer runs, and preferring an unverified file to a verified stream would let one truncated
+leftover brick a workspace. It survives on Apple Container (`:504`), where `materializeImage` is
+still what puts the file there.
 
 **What it buys.** Directly deletes the largest measured artifact in §1.6 — **404 GiB as measured
-2026-08-15, ~16 GiB/day over that window**; the current model is a ~7 GiB/day floor plus ~125 GiB
+2026-08-15, ~16 GiB/day over that window**; the pre-C3 model was a ~7 GiB/day floor plus ~125 GiB
 spike days ([`minimal-disk-footprint.md`](minimal-disk-footprint.md) §2.2). Removes one full
-3.28 GiB disk write per rebuild (60 % of commits).
+3.28 GiB disk write per rebuild (60 % of commits). **The podman growth term is now zero.**
 
-**What breaks.** The cached-tar fallback at `autoload.go:276-290` — `newestTars(cacheDir)` — is the
-only thing that lets a jail start when the build fails and no image is loaded. Removing tars
-unconditionally would remove that safety net, which interacts badly with C1's finding that build
-failures were already under-reported. The byte-progress UI (`progressLine`, `autoload.go:540-578`,
-constructed at `:504`) would need a source of truth other than the file it is writing.
+**What it had to keep working.** The cached-tar fallback (`newestTars`, the loop at
+`autoload.go:359-373`, the function at `:944`) is the only thing that lets a jail start when the
+build fails and no image is loaded, and C3 removed the CREATION of tars, not the ability to consume
+one — pinned by `TestBuildFailureFallbackStillLoadsAnExistingTar`
+(`internal/image/streamload_test.go`). The byte-progress UI needed a source of truth other than the
+file it was writing: the count now happens IN TRANSIT (`copyCounting`, `streamload.go:195`), and
+`progressLine` (`autoload.go:765-797`) took a prefix parameter because there are two callers saying
+different things — "Caching image... " for the file form (`autoload.go:717`) and "Streaming
+image... " for the pipe (`streamload.go:140`).
 
 **The verdict OQ-5 hands C3.** This section originally hedged: *"the honest form is 'keep N tars,
 stream the rest', not 'never write a tar'."* The 2026-08-25 ruling reverses the burden of proof.
@@ -676,14 +752,21 @@ keep any of this around."* So:
   ruling; it is a constraint [`minimal-disk-footprint.md`](minimal-disk-footprint.md) has to price.
   State it precisely, though, because the sharper version of it is wrong: `convertViaSkopeo` does
   write a *second* full-size `<key>.tar.oci.tar` beside the first, in the same `cache/images` dir
-  (`autoload.go:651-652`), but it removes that one the moment the load returns (`:657`;
-  `convertViaDaemon` likewise at `:670-676`). The second tar is therefore **peak** disk during the
+  (`autoload.go:900-901`), but it removes that one the moment the load returns (`:906`;
+  `convertViaDaemon` likewise at `:928-934`). The second tar is therefore **peak** disk during the
   conversion, not accrued disk — and OQ-5 is about what *stays*. What stays is the first tar, and
   this backend cannot do without it, because C3's pipe form is unavailable where a file path is
-  required. (Anchors verified 2026-08-25.)
+  required. (Anchors re-derived 2026-08-25, after the change.)
 
-**Verification.** Compare `du -s cache/images` across ten launches with a changing `internal/`
-file, before and after. No container-behavior change to verify — the loaded image is identical.
+**Verification, as shipped.** The disk claim is asserted ON DISK rather than on which function ran,
+because a stream that also wrote a tar on the side would satisfy a code-path assertion:
+`TestPodmanHappyPathStreamsAndNeverWritesATar` (`internal/image/streamload_test.go:60`) fails the
+`Materialize` seam outright and then asserts `cache/images` is EMPTY, under both spellings (this
+store path's tar name, and the directory as a whole). The four pipe failure classes — a stream that
+dies after a plausible prefix, a loader that rejects a complete archive, a loader that dies
+mid-stream, a stream that cannot start — are driven through the real pipe with shell one-liners and
+asserted to be told APART, not merely both detected. No container-behavior change to verify: the
+loaded image is identical.
 
 **Backends: podman only** for the pipe form; Apple Container keeps the file path.
 
@@ -1047,12 +1130,12 @@ nothing and would have turned this morning's two-hour lib-farm hunt into a one-l
 |---|---|---|
 | R1 | **C4/C5 are podman-on-Linux-only**, so shipping either means maintaining two package-delivery mechanisms indefinitely — the exact "fill the matrix" failure [`happy-path-principle.md`](happy-path-principle.md) warns about. | **Settled by OQ-1, 2026-08-25.** Do not ship C4 as *the* mechanism; ship it as an **opt-in fast path with the baked path retained as the fallback**, and only after C1–C3. The second branch this row used to offer — *"or accept a documented backend asymmetry, explicitly"* — **is no longer live**: the maintainer chose the first. Two mechanisms are the accepted, priced cost. What is still open is not the shape but the **go/no-go**, gated on §11 step 5's re-measurement. |
 | R2 | **Delivering a package by PATH dir cannot shadow a baked one** (§3.1) — so a half-migration where a package is both baked and staged silently runs the baked version. | Migration must be all-or-nothing. **Sharpened 2026-08-25 by OQ-1:** the unit is the **launch**, not the package. A launch that opts into store delivery builds the stock image with no `YOLO_EXTRA_PACKAGES`; a launch that does not opt in bakes them. Exactly one mechanism is live per jail, and "keep the baked path as fallback" must never be implemented as "bake *and* stage in the same image" — that is precisely the half-state this row describes, and it fails silently. A test that asserts `which <pkg>` resolves to the staged dir catches it; see §4 C4's callout. |
-| R3 | **C2 multiplies loaded images in the runtime store**, and `--keep-images 2` is the wrong retention rule for per-config tags. | Revisit `internal/prune/prunecmd.go:49` (default set at `:138`) retention **as the second half of C2, gated on [`minimal-disk-footprint.md`](minimal-disk-footprint.md) OQ-DF3** — the addressing change may land first, but C2 is not finished until the replacement rule exists. Measure podman's incremental per-tag cost first — it is currently NOT MEASURED. **R3 and OQ-5 now collide constructively:** both want image retention revisited, and after 2026-08-25 there is one place that decision belongs — [`minimal-disk-footprint.md`](minimal-disk-footprint.md). C2 must not mint a retention rule of its own; it consumes that doc's. |
-| R4 | **C3 removes the offline safety net** if taken to "never write a tar", and §7 shows build failures were already under-reported. | ~~Keep-N, not zero.~~ **Superseded by OQ-5, 2026-08-25**, and the tension is resolved rather than left standing. The ruling is that keeping tars around is a **bug**, so "keep-N" is no longer an acceptable default answer: the target is **zero tars on disk after a successful load**. What the safety net actually needs is *at most one* tar — the one matching the currently loaded image, so a jail can start when a build fails and nothing is loaded (`newestTars`, `internal/image/autoload.go:276-290`) — not a keep-N window over every image this machine has ever built. That is a **fallback mechanism**, not a retention policy, and its full design (does it survive at all once C3's pipe form exists? does it become a single pinned tar? does Apple Container, which needs a file, get a different answer?) belongs to [`minimal-disk-footprint.md`](minimal-disk-footprint.md). C1 has shipped, so the precondition this row asked for — a build failure being visible before the fallback's usefulness is reduced — is already met (`7830f65`). |
+| R3 | **C2 multiplies loaded images in the runtime store**, and `--keep-images 2` is the wrong retention rule for per-config tags. | **PARTLY DISCHARGED 2026-08-25, and the un-discharged half is named.** C2 did not merely multiply images — it *armed a pass that had never fired*, and shipping it without that would have been the change's worst defect. `PruneOldImages` filters by REPOSITORY and removes with `rmi -f`, which also destroys the containers using the image; while one `:latest` tag named everything the query returned one row and `keep=2` could not select anything. Under per-config tags it returns one row per NAME (so the newest image appears twice) and "everything past the newest 2" is "every config but the most recently BUILT one" — measured on the maintainer's host the day C2 landed: three rows, two images, and `yolo prune --apply` selecting the second workspace's live image. Two fixes landed with C2, both in `internal/prune/probes.go:211-254`: entries are deduped by image ID, and a liveness VETO drops any image whose content tag (or `:latest`) is in the load sentinel — `ProtectedImageTags`, `internal/prune/imageroots_probe.go`, reading the same ledger as `PruneOrphanImageRoots`' guard #2. **What is NOT discharged is the retention NUMBER**: `--keep-images` default 2 (`internal/prune/prunecmd.go:49`, `:138`) is untouched, and belongs to [`minimal-disk-footprint.md`](minimal-disk-footprint.md) OQ-DF3, still open. Podman's incremental per-tag cost is still NOT MEASURED. C2 consumed that doc's rule; it did not mint one. |
+| R4 | **C3 removes the offline safety net** if taken to "never write a tar", and §7 shows build failures were already under-reported. | ~~Keep-N, not zero.~~ **Superseded by OQ-5, 2026-08-25**, and the tension is resolved rather than left standing. The ruling is that keeping tars around is a **bug**, so "keep-N" is no longer an acceptable default answer: the target is **zero tars on disk after a successful load**. What the safety net actually needs is *at most one* tar — the one matching the currently loaded image, so a jail can start when a build fails and nothing is loaded (`newestTars`, the loop at `internal/image/autoload.go:360-373`, the function at `:944`) — not a keep-N window over every image this machine has ever built. That is a **fallback mechanism**, not a retention policy, and its full design (does it survive at all once C3's pipe form exists? does it become a single pinned tar? does Apple Container, which needs a file, get a different answer?) belongs to [`minimal-disk-footprint.md`](minimal-disk-footprint.md). C1 has shipped, so the precondition this row asked for — a build failure being visible before the fallback's usefulness is reduced — is already met (`7830f65`). |
 | R5 | **Scrubbed-environment breakage.** `flake.nix:730-732` records that a consumer scrubbing `LD_LIBRARY_PATH` cannot be rescued; C4 moves user libs from a baked dir to an env-dependent one, widening that class. | Keep the nix-ld fallback dir (`/usr/share/nix-ld/lib`) baked and consider extending it — it is the one search path that survives a scrub. Requires an explicit call on how large that "shadow surface" may grow (`flake.nix:596-599` says keep it to the trio). |
 | R6 | **The `goSrc` fileset trap bites any new package** added under a new top-level dir, and it fails silently in the image while `go build ./...` stays green (`flake.nix:94-107`). | Not made worse by anything here, but any C4/C5 implementation that adds a Go package outside `cmd/`/`internal/` must add it to the fileset in the same commit. |
 | R7 | **Every number in §1.6 comes from one machine — this jail.** Growth rates on a laptop, and podman-storage costs, may differ by an order of magnitude. | The *ratios* (3.25 % changing content, 180 KiB delta → 3.28 GiB transfer) are machine-independent and are what the ranking rests on. The absolute GiB figures are illustrative. |
-| R8 | **C4/C5 make the jail structurally dependent on the host nix daemon.** The socket is mounted **read-write** with no `:ro` and, on Linux, no gate beyond path existence (`internal/cli/run/assemble.go:247`, `internal/cli/run/hostprobes.go:22-24`) — so a jail already has full nix-client access to the host store. Today that is incidental; after C4 the agent's toolchain does not exist without it. | This is a pre-existing property, not one C4 introduces — but C4 turns "convenient" into "load-bearing", which changes what a daemon outage looks like (a jail with no `packages:` tools instead of a jail that cannot `nix build`). Worth a deliberate decision rather than an inherited one. Blast-radius reasoning per [`gate-placement-principle.md`](gate-placement-principle.md) Test 2. |
+| R8 | **C4/C5 make the jail structurally dependent on the host nix daemon.** The socket is mounted **read-write** with no `:ro` and, on Linux, no gate beyond path existence (`internal/cli/run/assemble.go:311`, `internal/cli/run/hostprobes.go:22-24`) — so a jail already has full nix-client access to the host store. Today that is incidental; after C4 the agent's toolchain does not exist without it. | This is a pre-existing property, not one C4 introduces — but C4 turns "convenient" into "load-bearing", which changes what a daemon outage looks like (a jail with no `packages:` tools instead of a jail that cannot `nix build`). Worth a deliberate decision rather than an inherited one. Blast-radius reasoning per [`gate-placement-principle.md`](gate-placement-principle.md) Test 2. |
 
 ---
 
@@ -1100,14 +1183,15 @@ ID, and
 
 ## 11. What to do first — dependency-ordered
 
-Re-stated 2026-08-25, after the rulings. Steps 1 and 2 are **done**; they stay in the list because
-the order is the argument and deleting a discharged precondition makes the rest read as arbitrary.
-Steps 3 and 4 are **ready in their own right** — the code is decided here — but neither can be
-*finished* without a ruling elsewhere: step 3's retention half is
-[`minimal-disk-footprint.md`](minimal-disk-footprint.md) OQ-DF3, and step 4's offline-fallback floor
-is its OQ-DF1, both still open as of 2026-08-25. Build the addressing and the streaming; invent
-neither number. Steps 5 and 6 are gated differently again — what gates them is a measurement, not a
-decision.
+Re-stated 2026-08-25, after the rulings, and re-stamped the same day after C2 and C3 landed.
+**Steps 1 through 4 are done**; they stay in the list because the order is the argument and deleting
+a discharged precondition makes the rest read as arbitrary. Neither 3 nor 4 could be *finished*
+without a ruling elsewhere, and they resolved differently: step 4's offline-fallback floor,
+[`minimal-disk-footprint.md`](minimal-disk-footprint.md) **OQ-DF1**, was **ruled the same day**
+(*"stream, keep zero tars"*), so C3 shipped complete. Step 3's retention half is that doc's
+**OQ-DF3**, **still open**, so C2 shipped the addressing plus the SAFETY the new tag shape forced,
+and invented no number. **Step 5 is now the live one** — it was gated on 3 and 4, and is not gated
+on anything else.
 
 1. ~~**C1 — make a failed image build fail as itself**~~ (§7). **SHIPPED `7830f65`, 2026-08-15.**
    Everything else in this doc makes the pre-container phase do more work; until a failure there was
@@ -1119,20 +1203,27 @@ decision.
    the two-character change it looked like, and it is the difference between the flake's declared
    binary cache being consulted and being ignored. The substituter surface it opened is now live
    (`macos-user-build-step-threat-model.md` Q2).
-3. **C2 — content-addressed image ref** (§4). **Ready.** OQ-3 settled the mechanism, so what is left
-   is code. Deletes the cross-workspace reload thrash on both container backends without touching
-   the flake. Two constraints ride along: the `--keep-images` retention rule must be revisited in the
-   same change (R3), and that rule is now [`minimal-disk-footprint.md`](minimal-disk-footprint.md)'s
-   to set — C2 consumes it, it does not mint one.
-4. **C3 — stream to the runtime; the tar stops being the default artifact** (§4). **Ready**, and
-   OQ-5 raised its priority: the artifact class it deletes is a ruled **bug**, not a tuning
-   opportunity. Depends on C1 (shipped) and is cleaner after C2, which decides what a "current"
-   image is. Its offline-fallback question is R4's, and R4 hands the design to the sibling doc — so
-   C3 can be built against that doc's answer rather than inventing a retention number here.
-5. **Re-measure.** Repeat §1.6 and §1.4 after 3 and 4. **This is the only thing still holding C4**,
-   and OQ-1 deliberately left it standing when it ruled on C4's shape: if C2 + C3 flatten the cost
-   curve, C4's second mechanism may not be worth its backend asymmetry even though the asymmetry is
-   now a priced, accepted one.
+3. ~~**C2 — content-addressed image ref**~~ (§4). **SHIPPED 2026-08-25.** OQ-3 settled the
+   mechanism; the code deleted the cross-workspace reload thrash on both container backends without
+   touching the flake. Both constraints that rode along were honoured, and one of them turned out to
+   be sharper than this step predicted: R3 said the `--keep-images` retention rule *"must be
+   revisited in the same change"*, and revisiting it showed that per-config tags ARM a pass which had
+   never fired — one row per NAME, `rmi -f`, no liveness gate. The SAFETY half landed with C2 (dedup
+   by image ID plus a liveness veto from the load sentinel); the retention NUMBER did not, because
+   that rule is [`minimal-disk-footprint.md`](minimal-disk-footprint.md) OQ-DF3's to set. C2 consumed
+   it; it did not mint one.
+4. ~~**C3 — stream to the runtime; the tar stops being the default artifact**~~ (§4).
+   **SHIPPED 2026-08-25**, and OQ-5 had raised its priority: the artifact class it deletes is a ruled
+   **bug**, not a tuning opportunity. It depended on C1 (shipped) and was indeed cleaner after C2,
+   which decides what a "current" image is. Its offline-fallback question was R4's and R4 handed the
+   design to the sibling doc, which is exactly how it was built: no retention number was invented
+   here — [`minimal-disk-footprint.md`](minimal-disk-footprint.md) **OQ-DF1** was ruled the same day
+   (*"stream, keep zero tars"*) and C3 implements that ruling.
+5. **Re-measure.** Repeat §1.6 and §1.4 now that 3 and 4 have landed. **This is the only thing still
+   holding C4**, and OQ-1 deliberately left it standing when it ruled on C4's shape. **It is now
+   possible rather than blocked**, and it is the next thing this sequence owes: if C2 + C3 flatten
+   the cost curve, C4's second mechanism may not be worth its backend asymmetry even though the
+   asymmetry is now a priced, accepted one.
 6. **C4, then C5** — only if step 5 says so. The OQ-1 ruling is in hand and fixes the *shape*
    (opt-in fast path, baked path retained as fallback); it is not a go-ahead. C5 reuses C4's
    mechanism, so their order is fixed.

@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 14 needing you · 4 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
+**Status: 14 needing you · 2 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
 
 Last updated **2026-08-25**. Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph matches the section it is
@@ -8,20 +8,26 @@ in.
 
 > [!IMPORTANT]
 > **Four rulings on 2026-08-25 turned the largest measured reclaim in the repo from a question into
-> queued work.** 💬 6 — image staging — has left this file. What came out of it is **three 📦 rows and
-> one new 💬 row**, and a design doc that did not exist this morning:
+> queued work — and two of the three rows it queued shipped the same day.** 💬 6 — image staging — has
+> left this file. What came out of it was **three 📦 rows and one new 💬 row**, and a design doc that
+> did not exist this morning. **C2 and C3 left this file the same day they were queued** (2026-08-25);
+> what remains of that sequence is the retention rule (R3), still gated on OQ-DF3, and the
+> reclamation half of the disk row:
 >
 > - **OQ-4** — `packages:` stays workspace-scope. *"Yes, has to be."* Fix the cost, not the scope.
 > - **OQ-3** — content-addressed image tags win, and `localhost/yolo-jail:latest` is *"definitely
 >   not"* a public surface anyone may depend on by name. *(The cachix caveat attached to that ruling
 >   is about the **nix binary cache**, a different surface from the podman tag — do not conflate
->   them.)*
+>   them.)* **SHIPPED as C2, 2026-08-25.**
 > - **OQ-1** — if C4/C5 ship at all they ship as an **opt-in fast path with the baked path retained**.
->   The go/no-go is still gated on the re-measurement after C2+C3, so C4/C5 are **not** queued below.
+>   The go/no-go is still gated on the re-measurement after C2+C3 — which have now landed, so that
+>   measurement is possible for the first time. C4/C5 stay **not** queued below until it is taken.
 > - **OQ-5** — the cached tars are a **bug**: *"I see no reason to keep any of this around … we need
 >   to use minimal disk space"*, and the GC work that has shipped is *"nowhere near enough"*. Executed
 >   in [`minimal-disk-footprint.md`](../design/minimal-disk-footprint.md) — queued 📦 below, with its
->   four mechanism questions as 💬 **16**.
+>   four mechanism questions as 💬 **16**. **One of those four is already ruled:** OQ-DF1 —
+>   *"stream, keep zero tars"* — which is what **C3** implements (shipped 2026-08-25). The remaining
+>   three are open, and the pre-C3 backlog is still on disk.
 >
 > **The number those rulings were made on has moved, and it was already understated.**
 > [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §1.6 measured 404.4 GiB across
@@ -58,27 +64,29 @@ the real number was closer to 50.
 > [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md); **S5** is in
 > [`BACKLOG.md`](BACKLOG.md) §Stage E. **Cite a state row or an OQ ID — never a letter.**
 
-**And the real number is now countable rather than estimated: the sweep returns 105**, re-run
-2026-08-25 at this edit. **It is the same number as yesterday and almost none of it is the same
-questions** — which is the most useful thing this count has done yet. It reconciles exactly, to zero:
+**And the real number is now countable rather than estimated: the sweep returns 104**, re-run
+2026-08-25 after C2/C3 landed. **It is one below yesterday's and almost none of it is the same
+questions** — which is the most useful thing this count has done yet. It reconciles exactly, to −1:
 
 | Δ | Why |
 |---|---|
 | **−4** | [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md)'s OQ-1 · OQ-3 · OQ-4 · OQ-5 moved to its §10.1 ledger. It contributes **0** now |
 | **+4** | [`minimal-disk-footprint.md`](../design/minimal-disk-footprint.md) minted `OQ-DF1 … OQ-DF4` executing OQ-5's ruling |
+| **−1** | `OQ-DF1` ruled the same day (*"stream, keep zero tars"*) and implemented as C3; that doc contributes **3** |
 | **−1** | 💬 6 deleted from this file |
 | **+1** | 💬 16 born in this file |
 
 **A flat count hid a complete turnover, so read the composition, not the total.** Note the third and
 fourth rows: **the sweep counts this file too** — `docs/plans/roadmap.md` contributes **15** of the
-105 (fourteen `### 💬` headings plus one `1. 💬` bullet inside the macOS sandbox row). That is worth
+104 (fourteen `### 💬` headings plus one `1. 💬` bullet inside the macOS sandbox row). That is worth
 knowing before anyone reasons from the number.
 
 > [!WARNING]
 > **A roadmap row and the questions it points at are counted twice, and that is a bias in the tool
 > this file trusts.** A row is a *grouping* of questions that already live in their design docs, so
 > 💬 6 and the four image-staging OQs were **five** entries for **one** decision, and 💬 16 and the
-> four `OQ-DF*` are five for one today. It follows that the "gap between 105 and 14" framing below
+> four `OQ-DF*` are five for one today (four, since OQ-DF1 was ruled). It follows that the "gap
+> between 104 and 14" framing below
 > compares a number against a set that contains it. Not worth redefining mid-sprint — worth saying
 > out loud, because the last time this count was quietly wrong it was wrong by six.
 
@@ -103,7 +111,7 @@ heading anchors. All five, and the allowlists they need, are in
 > the count moves.
 
 **Fourteen rows below is what the blocking subset groups into** — the rest are named
-in *What the roadmap does not cover* at the end, deliberately. The gap between 105 and 14 is the
+in *What the roadmap does not cover* at the end, deliberately. The gap between 104 and 14 is the
 point of this file: a row is a *decision*, and one decision usually closes several questions.
 **💬 6's four rulings closed a whole row in a single turn**, which is the gap doing exactly what it
 is for — and 💬 16 opening in the same pass is the other half of the same mechanism, since executing
@@ -493,72 +501,45 @@ argv shape. **That is OQ-BP-1's case, measured rather than argued** (§5.2).
 ### 💬 16 — Minimal disk footprint: you ruled the premise, not the mechanism
 
 📄 [`minimal-disk-footprint.md`](../design/minimal-disk-footprint.md) §11 —
-**OQ-DF1 · OQ-DF2 · OQ-DF3 · OQ-DF4**
+**~~OQ-DF1~~ (ruled 2026-08-25) · OQ-DF2 · OQ-DF3 · OQ-DF4**
 
 **This row is the other half of the 📦 disk item below, and it exists because of what OQ-5 did and
 did not settle.** You ruled that the cached tars are a **bug** and that yolo may delete them without
 `--apply`. That settles the *premise* and the *goal*; it does not say which component does the
-deleting, what the retention floor is, how far into podman's shared image store yolo may reach, or
-whether *"minimal"* is ever written down as a number. Each of the four carries stakes, a leaning and
-an empty Answer in the doc — and **OQ-DF1 is the one whose leaning the doc refuses to act on**
-(*"I am not willing to assert it"*, §11), because it trades your risk on your machine, and a jail
-that will not start is a worse day than a full disk.
+deleting, how far into podman's shared image store yolo may reach, or whether *"minimal"* is ever
+written down as a number. Each carries stakes, a leaning and an Answer block in the doc.
 
-**Why this is not one more thing to get to eventually:** **OQ-DF3 blocks §10's first step**, which is
-the best bytes-per-effort in the whole doc and is otherwise unblocked — reclaiming the superseded
-podman images yolo's own filter structurally cannot see. It is not the only one of the four holding
-work back: **OQ-DF1** blocks the default value of every retention knob and **OQ-DF2** decides which
-component does the deleting, which is why the 📦 row below is scoped to the mechanism rather than to
-any number — it builds the pipe form and leaves every retention default exactly where it is.
-OQ-DF3 is the sharpest because what it blocks is otherwise ready to build.
+**One of the four is now closed.** **OQ-DF1** — the retention floor — you ruled the same day:
+***"stream, keep zero tars."*** That is what C3 implements (shipped 2026-08-25): on podman the load
+path writes no tar at all, `cache/images` stays empty on success, and there is no retention knob to
+default. It went past the doc's own leaning, which had asked for an opt-in for the disconnected case.
+**What it did not cover, and what is therefore still yours:** the pre-C3 backlog on disk, and Apple
+Container, which must keep writing a file because its converters interpolate a path.
+
+**Why the remaining three are not one more thing to get to eventually:** **OQ-DF3 blocks §10's first
+step**, which is the best bytes-per-effort in the whole doc and is otherwise unblocked — reclaiming
+the superseded podman images yolo's own filter structurally cannot see. It is also **the question
+that gates the rule replacing `--keep-images 2`**, which C2 made live for the first time: C2 shipped
+the *safety* half (dedup by image ID, plus a liveness veto so `prune --apply` cannot force-remove
+another workspace's running image) but deliberately minted no number. **OQ-DF2** decides which
+component does the deleting, which is why the 📦 row below is still scoped to the mechanism rather
+than to any number.
 
 # 📦 Up next
 
-**Four items, and the first three are one sprint.** 💬 6's four rulings (2026-08-25) unblocked **C2**
-and **C3** out of [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §11 and created
-the disk-footprint item the maintainer asked for. **C4 and C5 are deliberately NOT here**: OQ-1 ruled
-their *shape* — opt-in fast path, baked path retained as fallback — and left the go/no-go gated on §11
-step 5's re-measurement, which cannot run until C2 and C3 have landed. Queueing them would be queueing
-a question.
+**Two items.** 💬 6's four rulings (2026-08-25) unblocked **C2** and **C3** out of
+[`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §11 and created the
+disk-footprint item the maintainer asked for. **C2 and C3 shipped 2026-08-25**, the same day they
+were queued, and left this file under the rule at the top of it. **C4 and C5 are deliberately NOT
+here**: OQ-1 ruled their *shape* — opt-in fast path, baked path retained as fallback — and left the
+go/no-go gated on §11 step 5's re-measurement, which C2+C3 landing has now made *possible* rather
+than blocked. Queueing them before that measurement would be queueing a question.
 
 **Ordering basis — this section has never stated one, so:** what unblocks the most other work first,
-then what is cheapest. The three image/disk rows are **one sequence, not three competitors** — they
-touch the same two packages (`internal/image`, `internal/prune`) and share one retention decision
-(R3), so make it once. Program delivery is last on both prongs, not by importance: nothing else in
-this file waits on it, and it is the largest of the four.
-
-- 📦 **C2 — address the image by content instead of by `:latest`.** 📄
-  [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §4 · §11 step 3. **First
-  because it unblocks the most:** C3 is *"cleaner after C2, which decides what a current image is"*
-  (§11 step 4); step 5's re-measurement needs both; and R3 makes the `--keep-images` retention rule
-  **C2's second half, landable only after OQ-DF3** — so the addressing change ships first and the
-  rule follows, which is the same retention decision the disk row needs.
-  **OQ-3 removed the only thing that made this a question**: the tag is not a public surface, so
-  nothing may depend on `localhost/yolo-jail:latest` by name. One thread it cannot cut on its own:
-  its own §11 step 3 hands R3's retention rule to
-  [`minimal-disk-footprint.md`](../design/minimal-disk-footprint.md) — *"C2 consumes it, it does not
-  mint one"* — and that doc's **OQ-DF3** and **OQ-DF4** are still open. (`--keep-images` governs
-  podman's runtime image store, which is that doc's Ledger C — so the question C2 waits on is DF3,
-  not DF1, whose scope is the cache tar.) So C2 lands the addressing
-  change and **consumes** whatever 💬 16 rules, rather than minting a keep-N of its own.
-
-  One non-obvious survivor worth knowing before the rewrite: `internal/prune/probes.go:218` filters
-  on the **repository** name `yolo-jail`, not on the tag, so a content-addressed tag leaves it
-  working — and leaves its real defect (below) untouched.
-
-- 📦 **C3 — stream the image into the runtime; stop writing a tar per load.** 📄
-  [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §4 · §11 step 4. The flake
-  already builds `ociTools.streamLayeredImage` (`flake.nix:979`), whose output *is* a script that
-  writes the tar to stdout, and `podman load` reads stdin by default — `ImageLoadCmd` emits
-  `-i <tarPath>` unconditionally (`internal/image/image.go:22-27`), so **the file on disk is a choice,
-  not a constraint** (verified 2026-08-25). Two real consumers of that choice have to survive it: the
-  cached-tar fallback when a build is skipped, and Apple Container's format conversion — which today
-  writes a **second** full copy beside the first as `<key>.tar.oci.tar`, and leaks it on failure.
-
-  ⚠ **The fallback's fate is OQ-DF1, not yours.** Stream the image and leave the existing
-  `newestTars` fallback exactly as it is. Whether a tar survives a *successful* load — zero, one, or
-  an opt-in keep-N — is [`minimal-disk-footprint.md`](../design/minimal-disk-footprint.md)
-  **OQ-DF1**, still open. Do not add or remove a retention default in this change.
+then what is cheapest. Of the image/disk sequence, what remains is the **retention rule (R3)**, still
+gated on **OQ-DF3**, and the reclamation half of the disk row — the two are one decision and should
+be made once. Program delivery is last, not by importance: nothing else in this file waits on it, and
+it is the larger of the two.
 
 - 📦 **Minimal disk footprint — OQ-5's ruling, which is broader than the tars.** 📄
   [`minimal-disk-footprint.md`](../design/minimal-disk-footprint.md). The ruling is *"bug, for sure …
@@ -567,14 +548,15 @@ this file waits on it, and it is the largest of the four.
   deliberately **stronger than the doc's own leaning**, which asked only for an automatic keep-N
   sweep.
 
-  ⚠ **The premise is ruled; the mechanism is 💬 16** (`OQ-DF1 · OQ-DF2 · OQ-DF3 · OQ-DF4`). This row
-  is 📦 for the half that does not wait on it — closing the tar-eviction race **before** anything
-  becomes automatic (§10 step 2), and — on the C3 side only — the *streaming* half of §10 step 3
-  (A4): build the pipe form with the tar as an *option* and stop there, because it is a delivery
-  change rather than a choice of reclamation component. **Whether a successful load still leaves one
-  tar behind is OQ-DF1's** — it "decides whether A3/A4 ship as 'delete' or 'delete all but one'" —
-  and **delete-on-success (A3) is OQ-DF2 option (i)**. The retention *defaults*, the component that
-  does the deleting, and the podman-store reach are all blocked, so **do not start there**.
+  ⚠ **The premise is ruled and OQ-DF1 with it; the rest of the mechanism is 💬 16** (`OQ-DF2 ·
+  OQ-DF3 · OQ-DF4`). **The streaming half of §10 step 3 (A4) has SHIPPED** as C3 under the OQ-DF1
+  ruling *"stream, keep zero tars"* — podman writes no tar, so that half is off this row. What is
+  left and does not wait on a ruling is **§10 step 2 only: close the tar-eviction race** (P4) before
+  anything becomes automatic — now an Apple-Container-side exposure on the launch path, since podman
+  has no file between the two steps to race for. **Delete-on-success (A3) is OQ-DF2 option (i)**, the
+  component that does the deleting is OQ-DF2's, and the podman-store reach is OQ-DF3's, so **do not
+  start there**. The pre-C3 backlog is also still untouched by design: C3 stopped the creation, not
+  the accumulation already on disk.
 
   **The stake, re-measured here 2026-08-25 — still the largest fully reclaimable artifact in the
   repo, and bigger than the number the ruling was made on.** `cache/images` in this jail's state dir
@@ -610,10 +592,14 @@ this file waits on it, and it is the largest of the four.
     2026-07-22 baseline of 9.5 GiB, with no prune. And it advises **relocating to HDD**
     (`prunecmd.go:275-277`), which is the advice this ruling retires for a regenerable artifact.
   - **podman's own image store is the ledger with no working reclaimer.** `PruneOldImages` passes
-    `yolo-jail` as a **name filter** (`internal/prune/probes.go:218`) and a superseded load is
+    `yolo-jail` as a **name filter** (`internal/prune/probes.go:255`) and a superseded load is
     *untagged*, so it never matches. Measured in this jail: **2 images, 6.391 GB, 100 % reclaimable**,
-    of which yolo can see one. Cheap and independent of C2/C3 — and the reason **OQ-DF3** is 💬 16's
+    of which yolo can see one. Cheap and independent of the rest — and the reason **OQ-DF3** is 💬 16's
     sharpest item: the fix is ready except for how far into a shared podman store yolo may reach.
+    **C2 changed the shape of what that filter returns** (one row per NAME, one permanent tag per
+    config) and therefore armed a pass that had never fired; the SAFETY half landed with it — dedup by
+    image ID plus a liveness veto (`internal/prune/probes.go:211-254`) — but not the NUMBER, which is
+    still OQ-DF3's.
   - **The largest artifact class is the least tested.** There is no `imagecache_test.go` and no
     `shadowed_test.go` in `internal/prune`, so `PruneImageCache`'s keep-N eviction branch — the only
     thing that has ever deleted a tar — is executed by no test. Three `Run` call sites are unpinned
@@ -931,4 +917,4 @@ undecided, and are cited from 💬 7 above.
 
 They are named and countable now, which is the point — a question with an ID can be promoted to a
 row the day it starts blocking something, and demoted the day it stops. **That is the whole
-difference between this list being 14 rows and being 105.**
+difference between this list being 14 rows and being 104.**
