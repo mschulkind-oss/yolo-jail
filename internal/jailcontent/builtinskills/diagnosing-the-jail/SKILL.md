@@ -1,6 +1,6 @@
 ---
 name: diagnosing-the-jail
-description: Diagnose a broken jail: provisioning failed, a tool is blocked/shimmed, a loophole is down, or a fix isn't taking effect (stale code). Use when a command errors unexpectedly inside the jail.
+description: "Diagnose a broken jail: provisioning failed, a tool is blocked/shimmed, a loophole is down, or a fix isn't taking effect (stale code). Use when a command errors unexpectedly inside the jail."
 ---
 
 # Diagnosing the Jail

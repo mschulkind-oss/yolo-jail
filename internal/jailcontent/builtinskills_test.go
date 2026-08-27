@@ -186,7 +186,13 @@ func parseFrontmatter(t *testing.T, dir, content string) (name, desc string) {
 		case "name":
 			name = strings.TrimSpace(val)
 		case "description":
-			desc = strings.TrimSpace(val)
+			trimmed := strings.TrimSpace(val)
+			if !strings.HasPrefix(trimmed, `"`) || !strings.HasSuffix(trimmed, `"`) {
+				if strings.Contains(trimmed, ": ") {
+					t.Errorf("skill %q: unquoted description contains ': ', which breaks YAML frontmatter parsers in agy/claude/copilot", dir)
+				}
+			}
+			desc = strings.Trim(trimmed, `"`)
 		}
 	}
 	return name, desc

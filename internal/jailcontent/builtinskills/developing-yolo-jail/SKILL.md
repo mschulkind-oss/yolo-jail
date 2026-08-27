@@ -1,6 +1,6 @@
 ---
 name: developing-yolo-jail
-description: Build, deploy, and verify changes to yolo-jail's own Go code (cmd/, internal/) or flake.nix: build-go vs deploy, the baked install prefix, the goSrc trap, nested-jail verification. Use when editing this repo's source.
+description: "Build, deploy, and verify changes to yolo-jail's own Go code (cmd/, internal/) or flake.nix: build-go vs deploy, the baked install prefix, the goSrc trap, nested-jail verification. Use when editing this repo's source."
 ---
 
 # Developing yolo-jail
