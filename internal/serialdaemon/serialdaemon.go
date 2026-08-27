@@ -255,12 +255,20 @@ func handleMonitor(s *hostservice.Session, cfg Settings) {
 
 	// Background inbound pump (client writes -> host serial port)
 	go func() {
-		for {
+		defer func() {
 			select {
 			case <-stopCh:
-				return
 			default:
+				close(stopCh)
 			}
+			currentFileMu.Lock()
+			if currentFile != nil {
+				_ = currentFile.Close()
+				currentFile = nil
+			}
+			currentFileMu.Unlock()
+		}()
+		for {
 			frame, err := frameproto.ReadFrame(s.Conn())
 			if err != nil {
 				return
@@ -280,11 +288,22 @@ func handleMonitor(s *hostservice.Session, cfg Settings) {
 	consecutiveErrors := 0
 
 	for {
+		select {
+		case <-stopCh:
+			s.Exit(0)
+			return
+		default:
+		}
+
 		f, err := openAndConfigureSerial(devicePath, baud)
 		if err != nil {
 			consecutiveErrors++
 			if consecutiveErrors > 20 {
-				close(stopCh)
+				select {
+				case <-stopCh:
+				default:
+					close(stopCh)
+				}
 				s.Stderr(fmt.Sprintf("serial monitor: device %s disconnected and did not recover\n", devicePath))
 				s.Exit(1)
 				return
@@ -308,6 +327,12 @@ func handleMonitor(s *hostservice.Session, cfg Settings) {
 				currentFile = nil
 				currentFileMu.Unlock()
 				f.Close()
+				select {
+				case <-stopCh:
+					s.Exit(0)
+					return
+				default:
+				}
 				s.Stdout("\n[Device disconnected/rebooting... waiting to reconnect]\n")
 				time.Sleep(300 * time.Millisecond)
 				break
