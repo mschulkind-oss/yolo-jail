@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -38,6 +39,12 @@ func TestNoEndpointMsg(t *testing.T) {
 
 func TestOpenPty(t *testing.T) {
 	master, slavePath, err := openPty()
+	if runtime.GOOS != "linux" {
+		if err == nil {
+			t.Errorf("openPty on non-linux succeeded, want error")
+		}
+		return
+	}
 	if err != nil {
 		t.Fatalf("openPty failed: %v", err)
 	}

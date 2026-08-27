@@ -1,4 +1,4 @@
-//go:build !linux && !darwin
+//go:build !linux
 
 package main
 
@@ -8,5 +8,5 @@ import (
 )
 
 func openPty() (*os.File, string, error) {
-	return nil, "", fmt.Errorf("virtual PTY bridge is not supported on this platform")
+	return nil, "", fmt.Errorf("virtual PTY bridge is only supported on linux")
 }
