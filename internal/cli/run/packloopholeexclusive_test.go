@@ -366,6 +366,7 @@ func TestEveryShippedLoopholePackSurvivesThePreflight(t *testing.T) {
 		"audio":           "audio",
 		"journal":         "journal",
 		"cgroup-delegate": "cgroup-delegate",
+		"serial":          "serial",
 		"claude":          broker.BrokerLoopholeName,
 	}
 	var all []PackLoopholeDecl

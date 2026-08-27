@@ -109,6 +109,9 @@ type Session struct {
 // Get exposes a raw request value.
 func (s *Session) Get(key string) (any, bool) { return s.Request.Get(key) }
 
+// Conn returns the underlying net.Conn for streaming services.
+func (s *Session) Conn() net.Conn { return s.conn }
+
 // sendFrame writes one frame, unless the session has already exited.
 //
 // THE EXITED CHECK IS INSIDE THE LOCK, and that is the whole point of this function's

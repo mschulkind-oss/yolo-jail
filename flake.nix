@@ -805,7 +805,7 @@
         # PATH, so a leftover script shadows the binary named here — retiring the
         # generator has to also unlink the file it used to write, which
         # entrypoint's stale-wrapper cleanup does.
-        shippedBinaries = [ "yolo" "yolo-entrypoint" "yolo-jaild" "yolo-ps" "yolo-cglimit" "yolo-journalctl" ];
+        shippedBinaries = [ "yolo" "yolo-entrypoint" "yolo-jaild" "yolo-ps" "yolo-cglimit" "yolo-journalctl" "yolo-serial" ];
         installPrefix = pkgs.runCommand "yolo-jail-install-prefix" { } ''
           mkdir -p $out/opt/yolo-jail/bin \
                    $out/opt/yolo-jail/share/yolo-jail/bin/linux-${goArch} \

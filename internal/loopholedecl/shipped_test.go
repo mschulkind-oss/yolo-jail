@@ -34,6 +34,7 @@ var shippedManifestHome = map[string]string{
 	"host-processes":      "host-processes",
 	"journal":             "journal",
 	"cgroup-delegate":     "cgroup-delegate",
+	"serial":              "serial",
 }
 
 // TestShippedManifestHomeIsTotal is the forcing function the table above needs to be
@@ -162,9 +163,10 @@ func TestShippedManifestsDecodeStrictly(t *testing.T) {
 		"host-processes":      false,
 		"journal":             false,
 		"cgroup-delegate":     false,
+		"serial":              false,
 	}
 	for _, name := range []string{
-		"audio", "claude-oauth-broker", "host-processes", "journal", "cgroup-delegate",
+		"audio", "claude-oauth-broker", "host-processes", "journal", "cgroup-delegate", "serial",
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join("/loopholes", name)
@@ -576,5 +578,36 @@ func TestShippedCgroupDelegateFields(t *testing.T) {
 		len(m.StateFiles) != 0 || len(m.HostBindMounts) != 0 || len(m.HostDevices) != 0 {
 		t.Errorf("unexpected extras: doctor=%v ca=%v jail=%+v state=%v binds=%v devices=%v",
 			m.DoctorCmdSet, m.CACertSet, m.JailDaemon, m.StateFiles, m.HostBindMounts, m.HostDevices)
+	}
+}
+
+func TestShippedSerialFields(t *testing.T) {
+	m, err := loopholedecl.Decode(shippedManifest(t, "serial"), "/loopholes/serial")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Transport != loopholedecl.TransportLoopbackTLS {
+		t.Errorf("transport = %q, want %q", m.Transport, loopholedecl.TransportLoopbackTLS)
+	}
+	wantCmd := []string{
+		"yolo", "internal", "daemon", "serial",
+		"--socket", "{socket}", "--settings", "{settings}",
+	}
+	if m.HostDaemon == nil || !reflect.DeepEqual(m.HostDaemon.Cmd, wantCmd) {
+		t.Fatalf("host_daemon = %+v, want cmd %v", m.HostDaemon, wantCmd)
+	}
+	if m.HostDaemon.Publishes != loopholedecl.PublishesSocket {
+		t.Errorf("publishes = %q, want %q", m.HostDaemon.Publishes, loopholedecl.PublishesSocket)
+	}
+	if len(m.Settings) != 2 {
+		t.Fatalf("settings = %+v, want 2 declared keys (allowed_devices, default_baud)", m.Settings)
+	}
+	devs, ok := loopholedecl.SettingByKey(m.Settings, "allowed_devices")
+	if !ok || devs.Type != loopholedecl.SettingTypeStringList {
+		t.Errorf("settings.allowed_devices = %+v, ok=%v", devs, ok)
+	}
+	baud, ok := loopholedecl.SettingByKey(m.Settings, "default_baud")
+	if !ok || baud.Type != loopholedecl.SettingTypeInt {
+		t.Errorf("settings.default_baud = %+v, ok=%v", baud, ok)
 	}
 }

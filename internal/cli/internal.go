@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/serialdaemon"
 )
 
 // runInternal dispatches the hidden `yolo internal <cmd>` family — debugging
@@ -131,6 +132,8 @@ func runInternalDaemon(args []string) int {
 		return hostprocesses.Main(rest)
 	case "journal":
 		return journald.Main(rest)
+	case "serial":
+		return serialdaemon.Main(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "yolo internal daemon: unknown daemon %q\n", args[0])
 		return 2

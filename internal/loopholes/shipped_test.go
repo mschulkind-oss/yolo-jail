@@ -40,6 +40,7 @@ var shippedLoopholes = []struct{ name, pack string }{
 	{"host-processes", "host-processes"},
 	{"journal", "journal"},
 	{"cgroup-delegate", "cgroup-delegate"},
+	{"serial", "serial"},
 }
 
 // shippedLoopholeModule resolves one shipped loophole's on-disk module directory.

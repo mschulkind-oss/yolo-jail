@@ -1,0 +1,9 @@
+{
+  "name": "serial",
+  "contributes": [
+    {
+      "from": "loopholes/serial",
+      "kind": "loophole"
+    }
+  ]
+}

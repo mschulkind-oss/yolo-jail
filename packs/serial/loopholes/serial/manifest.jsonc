@@ -1,0 +1,42 @@
+// The `serial` loophole, shipped by the OFFICIAL `serial` pack —
+// an allowlisted host USB serial bridge (yolo-serial).
+{
+  "name": "serial",
+  "description": "Host USB and serial device bridge (yolo-serial). Access and monitor serial hardware connected to the host.",
+  "version": 1,
+  "settings": {
+    "allowed_devices": {
+      "type": "string_list",
+      "scope": "workspace",
+      "default": [
+        "/dev/ttyUSB*",
+        "/dev/ttyACM*",
+        "/dev/cu.usbserial*",
+        "/dev/cu.usbmodem*",
+        "/dev/serial/by-id/*"
+      ],
+      "description": "Device path patterns yolo-serial may access (glob patterns)"
+    },
+    "default_baud": {
+      "type": "int",
+      "scope": "workspace",
+      "default": 115200,
+      "description": "Default baud rate for serial connections"
+    }
+  },
+  "default_enabled": false,
+  "transport": "loopback-tls",
+  "lifecycle": "spawned",
+  "host_daemon": {
+    "cmd": [
+      "yolo", "internal", "daemon", "serial",
+      "--socket", "{socket}",
+      "--settings", "{settings}"
+    ],
+    "publishes": "socket"
+  },
+  "doctor_cmd": [
+    "yolo", "internal", "daemon", "serial", "--self-check",
+    "--settings", "{settings}"
+  ]
+}

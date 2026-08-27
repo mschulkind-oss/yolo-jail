@@ -89,7 +89,7 @@ fi
 # skipped THERE and vanishes from any image built from a shipped bundle, while
 # an image built from a source checkout still has it. The two lists are pinned
 # together by internal/entrypoint/shippedclients_test.go.
-SHIPPED_BINARIES=(yolo yolo-entrypoint yolo-jaild yolo-ps yolo-cglimit yolo-journalctl)
+SHIPPED_BINARIES=(yolo yolo-entrypoint yolo-jaild yolo-ps yolo-cglimit yolo-journalctl yolo-serial)
 
 # Arches to build. Default is BOTH (the arch-agnostic shipped bundle); a local
 # install narrows this to the native arch via YOLO_BUNDLE_ARCHES to avoid a cold
