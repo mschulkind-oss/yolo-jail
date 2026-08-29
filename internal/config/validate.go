@@ -84,6 +84,9 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateLSPServers(config, errs)
 	validateMCPPresets(config, errs)
 	validateMCPServers(config, errs)
+	validateProviders(config, errs)
+	validateAgentProfiles(config, errs)
+	validateRequiredCapabilities(config, errs)
 	validateDevices(config, errs, warns)
 	validateGPU(config, errs, warns)
 	validateResources(config, errs)
@@ -764,6 +767,7 @@ func validateMCPServers(config *jsonx.OrderedMap, errs *[]string) {
 		add(errs, "config.mcp_servers: expected an object")
 		return
 	}
+	providesMap := map[string][]string{}
 	for _, name := range servers.Keys() {
 		cfgV, _ := servers.Get(name)
 		path := "config.mcp_servers." + name
@@ -811,7 +815,118 @@ func validateMCPServers(config *jsonx.OrderedMap, errs *[]string) {
 				}
 			}
 		}
+		if provV, ok := cfg.Get("provides"); ok {
+			if s, ok := asStr(provV); !ok || strings.TrimSpace(s) == "" {
+				add(errs, path+".provides: expected a non-empty string")
+			} else {
+				providesMap[s] = append(providesMap[s], name)
+			}
+		}
 	}
+	var collCaps []string
+	for capName := range providesMap {
+		collCaps = append(collCaps, capName)
+	}
+	sort.Strings(collCaps)
+	for _, capName := range collCaps {
+		names := providesMap[capName]
+		if len(names) > 1 {
+			sort.Strings(names)
+			add(errs, fmt.Sprintf("config.mcp_servers: multiple servers declare provides %q (%s). Ambiguous capability resolution.", capName, strings.Join(names, ", ")))
+		}
+	}
+}
+
+func validateProviders(config *jsonx.OrderedMap, errs *[]string) {
+	v, present := config.Get("providers")
+	if !present || v == nil {
+		return
+	}
+	providers, ok := asMap(v)
+	if !ok {
+		add(errs, "config.providers: expected an object")
+		return
+	}
+	for _, name := range providers.Keys() {
+		cfgV, _ := providers.Get(name)
+		path := "config.providers." + name
+		if cfgV == nil {
+			continue // null disables or drops
+		}
+		cfg, ok := asMap(cfgV)
+		if !ok {
+			add(errs, path+": expected an object or null")
+			continue
+		}
+		reportUnknownKeys(cfg, knownProviderKeys, path, errs)
+		if u, ok := cfg.Get("base_url"); ok && u != nil {
+			if !isStr(u) {
+				add(errs, path+".base_url: expected a string")
+			}
+		}
+		if w, ok := cfg.Get("wire_api"); ok && w != nil {
+			if !isStr(w) {
+				add(errs, path+".wire_api: expected a string")
+			}
+		}
+		if r, ok := cfg.Get("region"); ok && r != nil {
+			if !isStr(r) {
+				add(errs, path+".region: expected a string")
+			}
+		}
+		if a, ok := cfg.Get("api_key_env"); ok && a != nil {
+			if s, ok := asStr(a); !ok || !envVarNameRe.MatchString(s) {
+				add(errs, fmt.Sprintf("%s.api_key_env: invalid env var name %s (must match [A-Za-z_][A-Za-z0-9_]*)",
+					path, pyReprValue(a)))
+			}
+		}
+		if m, ok := cfg.Get("models"); ok && m != nil {
+			models, ok := asMap(m)
+			if !ok {
+				add(errs, path+".models: expected an object")
+			} else {
+				for _, k := range models.Keys() {
+					val, _ := models.Get(k)
+					if !isStr(val) {
+						add(errs, path+".models."+k+": expected a string model name")
+					}
+				}
+			}
+		}
+		if c, ok := cfg.Get("capabilities"); ok && c != nil {
+			validateStringList(c, path+".capabilities", errs)
+		}
+	}
+}
+
+func validateAgentProfiles(config *jsonx.OrderedMap, errs *[]string) {
+	v, present := config.Get("agent_profiles")
+	if !present || v == nil {
+		return
+	}
+	profiles, ok := asMap(v)
+	if !ok {
+		add(errs, "config.agent_profiles: expected an object")
+		return
+	}
+	for _, agent := range profiles.Keys() {
+		profV, _ := profiles.Get(agent)
+		path := "config.agent_profiles." + agent
+		if profV == nil {
+			continue
+		}
+		if !isStr(profV) {
+			add(errs, path+": expected a string profile name")
+		}
+	}
+}
+
+func validateRequiredCapabilities(config *jsonx.OrderedMap, errs *[]string) {
+	v, present := config.Get("required_capabilities")
+	if !present || v == nil {
+		return
+	}
+	validateStringList(v, "config.required_capabilities", errs)
 }
 
 func validateDevices(config *jsonx.OrderedMap, errs, warns *[]string) {

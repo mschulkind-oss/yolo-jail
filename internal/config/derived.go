@@ -58,6 +58,32 @@ func FilterMCPServersByEnv(mcpServers any, envMap map[string]string) any {
 	return filtered
 }
 
+// FilterMCPServersByCapabilities drops MCP servers whose declared `provides` capability
+// is already natively provided by the target agent/mode (nativeCaps).
+func FilterMCPServersByCapabilities(mcpServers any, nativeCaps []string) any {
+	m, ok := asMap(mcpServers)
+	if !ok {
+		return mcpServers
+	}
+	capSet := make(map[string]bool, len(nativeCaps))
+	for _, c := range nativeCaps {
+		capSet[c] = true
+	}
+	filtered := jsonx.NewOrderedMap()
+	for _, name := range m.Keys() {
+		cfg, _ := m.Get(name)
+		if cm, ok := asMap(cfg); ok {
+			if provV, ok := cm.Get("provides"); ok {
+				if s, ok := asStr(provV); ok && capSet[s] {
+					continue // suppressed because agent has native capability
+				}
+			}
+		}
+		filtered.Set(name, cfg)
+	}
+	return filtered
+}
+
 // EffectiveMCPServerNames returns preset names, then config servers added
 // (append if new) or removed (null drops from the list). Returns []any to
 // preserve non-string preset entries (they never match a server name, so they

@@ -703,6 +703,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	if in.hostTZ != "" {
 		env = append(env, "-e", "TZ="+in.hostTZ)
 	}
+	effectiveProfiles := in.effectiveAgentProfiles(o)
 	env = append(env,
 		"-e", "YOLO_HOST_DIR="+o.Workspace,
 		"-e", "YOLO_VERSION="+in.yoloVersion,
@@ -713,14 +714,78 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_LSP_GO_INSTALL="+in.lspGo(),
 		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "mcp_servers")),
 		"-e", "YOLO_MCP_PRESETS="+jsonDumpsOrEmptyList(cfgList(cfg, "mcp_presets")),
+		"-e", "YOLO_PROVIDERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "providers")),
+		"-e", "YOLO_AGENT_PROFILES="+jsonDumpsOrEmptyObj(effectiveProfiles),
+		"-e", "YOLO_REQUIRED_CAPABILITIES="+jsonDumpsOrEmptyList(cfgList(cfg, "required_capabilities")),
 		"-e", "YOLO_RUNTIME=podman",
 	)
+	if prof, ok := effectiveProfiles.Get("claude"); ok && prof == "bedrock" {
+		env = append(env, "-e", "CLAUDE_CODE_USE_BEDROCK=1")
+		if provs := cfgMap(cfg, "providers"); provs != nil {
+			if bedVal, ok := provs.Get("bedrock"); ok {
+				if bedMap, ok := bedVal.(*jsonx.OrderedMap); ok {
+					if reg, ok := bedMap.Get("region"); ok && reg != nil {
+						if s, ok := reg.(string); ok && s != "" {
+							env = append(env, "-e", "AWS_REGION="+s)
+						}
+					}
+					if modelsVal, ok := bedMap.Get("models"); ok && modelsVal != nil {
+						if modelsMap, ok := modelsVal.(*jsonx.OrderedMap); ok {
+							if def, ok := modelsMap.Get("default"); ok && def != nil {
+								if s, ok := def.(string); ok && s != "" {
+									env = append(env, "-e", "ANTHROPIC_DEFAULT_OPUS_MODEL="+s)
+								}
+							}
+							if hk, ok := modelsMap.Get("haiku"); ok && hk != nil {
+								if s, ok := hk.(string); ok && s != "" {
+									env = append(env, "-e", "ANTHROPIC_DEFAULT_HAIKU_MODEL="+s)
+								}
+							}
+							if sn, ok := modelsMap.Get("sonnet"); ok && sn != nil {
+								if s, ok := sn.(string); ok && s != "" {
+									env = append(env, "-e", "ANTHROPIC_DEFAULT_SONNET_MODEL="+s)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 	// No YOLO_REPO_ROOT: the in-jail CLI resolves its repo root the same way the
 	// host does — exe-relative to the baked /opt/yolo-jail bundle, or the
 	// live-mounted /workspace checkout when self-hosting (internal/reporoot).
 	// There is no jail-special env override any more.
 	_ = netMode
 	return env
+}
+
+func (in *assembleInput) effectiveAgentProfiles(o *Options) *jsonx.OrderedMap {
+	out := jsonx.NewOrderedMap()
+	if cfgProfiles, ok := in.cfg.Get("agent_profiles"); ok {
+		if m, ok := cfgProfiles.(*jsonx.OrderedMap); ok {
+			for _, k := range m.Keys() {
+				v, _ := m.Get(k)
+				out.Set(k, v)
+			}
+		}
+	}
+	for k, v := range o.AgentProfiles {
+		out.Set(k, v)
+	}
+	if o.ClaudeAuth != "" {
+		out.Set("claude", o.ClaudeAuth)
+	}
+	if o.ProfileName != "" {
+		targetBin := ""
+		if len(o.Args) > 0 {
+			targetBin = filepath.Base(o.Args[0])
+		}
+		if targetBin != "" {
+			out.Set(targetBin, o.ProfileName)
+		}
+	}
+	return out
 }
 
 // unsetImageRef is what the argv gets when nobody threaded a ref in. It is

@@ -36,6 +36,9 @@ func WriteInPlace(path string, data []byte, perm os.FileMode) error {
 	// os.WriteFile opens with O_WRONLY|O_CREATE|O_TRUNC — truncates the
 	// existing inode, does not unlink+recreate. That is exactly the required
 	// semantic; we wrap it to make the invariant explicit and greppable.
+	if info, err := os.Stat(path); err == nil && info.Mode().Perm()&0o200 == 0 {
+		_ = os.Chmod(path, 0o644)
+	}
 	return os.WriteFile(path, data, perm)
 }
 

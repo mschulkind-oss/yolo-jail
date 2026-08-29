@@ -123,11 +123,14 @@ var inheritCensus = map[string]keyDisposition{
 	//
 	// They are also the key class the raw bind got RIGHT, and the reason the filter is not
 	// "drop anything host-shaped": every referent here is inside the jail.
-	"security":    {preflight: true, nested: true, reason: "blocked_tools decides this jail's shims; the check dry-run generates them and a launcher passes them on"},
-	"mise_tools":  {preflight: true, nested: true, reason: "the check dry-run runs ConfigureMisePrism over it; an inner launcher installs from it"},
-	"mcp_servers": {preflight: true, nested: true, reason: "MCP processes run in the jail; the check dry-run renders their wrappers and a launcher passes them on"},
-	"mcp_presets": {preflight: true, nested: true, reason: "MCP presets the check dry-run resolves and an inner launcher passes on"},
-	"lsp_servers": {preflight: true, nested: true, reason: "LSP servers installed in the jail; the check dry-run renders their config"},
+	"security":              {preflight: true, nested: true, reason: "blocked_tools decides this jail's shims; the check dry-run generates them and a launcher passes them on"},
+	"mise_tools":            {preflight: true, nested: true, reason: "the check dry-run runs ConfigureMisePrism over it; an inner launcher installs from it"},
+	"mcp_servers":           {preflight: true, nested: true, reason: "MCP processes run in the jail; the check dry-run renders their wrappers and a launcher passes them on"},
+	"mcp_presets":           {preflight: true, nested: true, reason: "MCP presets the check dry-run resolves and an inner launcher passes on"},
+	"lsp_servers":           {preflight: true, nested: true, reason: "LSP servers installed in the jail; the check dry-run renders their config"},
+	"providers":             {preflight: true, nested: true, reason: "cloud provider declarations for agent configuration and nested launches"},
+	"agent_profiles":        {preflight: true, nested: true, reason: "active agent-to-provider mappings for this jail and nested launches"},
+	"required_capabilities": {preflight: true, nested: true, reason: "required capabilities validated at pre-flight and passed to nested launches"},
 
 	// ---- Preflight only ---------------------------------------------------------
 	// `agents_md_extra` is briefing prose rendered into this jail's own AGENTS.md.

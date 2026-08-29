@@ -1,57 +1,43 @@
-# Auth modes — one agent, several mutually exclusive ways to pay for it
+---
+title: "Auth modes and cloud provider swapping — declarative profiles across agents"
+date: 2026-08-29
+status: accepted
+tags: [auth, providers, config, prism, agents]
+summary: "A unified design for declarative cloud provider switching (Anthropic Teams vs Bedrock, GLM, OpenAI) across agent packs via YOLO config and CLI flags, selective capability augmentation (Tavily), and in-jail YOLO permission parity."
+---
 
-**Status:** DESIGN, 2026-08-05. **Still nothing built, re-checked 2026-08-23** — no auth-mode key,
-no `claude-bedrock` pack, and the Bedrock bundle still arrives through `env_sources`. This is
-**B3** in [`boundary-broker.md`](boundary-broker.md) §7's numbering, split out of that doc because
-it shares its front door and none of its blockers: the broker waits on nix OQ-1, this waits on
-nothing. *(B3 is a work-item name, not a roadmap row — the roadmap dropped its lettered queue on
-2026-08-17. The live questions here are cited from roadmap **💬 3**.)*
+# Auth modes and cloud provider swapping — declarative profiles across agents
 
-**The ask, from the maintainer:** a Claude **Teams subscription** is the account to prioritize
-(it is bought, it carries the discount, it is already set up), with **Bedrock as overflow** —
-"ideally dynamically" — working on the host, in a jail, and on a Mac.
+**Status:** ACCEPTED (2026-08-29), expanded from the 2026-08-05 sketch.
 
-**Reads with:** [`agent-credentials.md`](agent-credentials.md) (what crosses the boundary
-today — and see §2, which corrects its §3), [`pack-system.md`](pack-system.md) (the `autonomy`
-kind, which is the structural precedent), [`../plans/roadmap.md`](../plans/roadmap.md)
-(**💬 3**).
+**The short version.** yolo-jail manages the agent development environment so users never have to hand-edit disparate native agent config files (`~/.pi/agent/models.json`, `~/.claude/settings.json`, `~/.codex/config.toml`, `.opencode.json`). A provider or auth mode is an atomic **bundle** ($$\text{credentials} + \text{endpoint} + \text{wire format} + \text{model IDs} + \text{env vars}$$). This doc specifies declarative cloud provider configuration in `yolo-jail.jsonc`, transient CLI swapping (`yolo --claude-auth=bedrock`, `yolo --agent-profile pi=glm`), projection via Prism (`derive.lua`), selective capability augmentation (e.g. Tavily search for agents lacking native search), and fixing in-jail vs. host-CLI auto-YOLO permission parity.
+
+**Reads with:** [`agent-credentials.md`](agent-credentials.md) (boundary credential crossing), [`pack-system.md`](pack-system.md) (the layer model, `config-overlay`, and `derive.lua`), [`pack-config-collaboration.md`](pack-config-collaboration.md) (surface sharing), [`../research/local-model-endpoints.md`](../research/local-model-endpoints.md) (per-agent wire formats and BYOK surfaces), [`../plans/roadmap.md`](../plans/roadmap.md) (**💬 3**).
 
 ---
 
 ## 1. The shape of the gap, in one sentence
 
-**yolo models one credential channel per agent, and has no notion that an agent might have
-several mutually exclusive auth modes** — where a mode is not just a credential but a
-credential *plus* the environment and the model names that only make sense with it.
+**yolo models one credential channel per agent and lacks a first-class way to declare and swap cloud providers or auth modes from YOLO config or the CLI — forcing users to hand-edit heterogeneous agent configuration files in different dialects.**
 
-That last clause is the part that is easy to miss and expensive to get wrong. See §4.
+A mode switch is never just an API key: it is a credential *plus* an endpoint, a wire API dialect, model aliases, and environment variables that only make sense together. See §3.
 
 ---
 
-## 2. Measured state — including a manual switch performed mid-design
+## 2. Measured state — Bedrock, Teams, and the manual switch
 
-This section was measured twice, an hour apart, because the maintainer switched the machine from
-Bedrock to Teams while the doc was being written. **The switch is the best evidence in this
-document**, so both states are kept.
+This section was measured during a live switch from Bedrock to Claude Teams:
 
 ### 2.1 Before — Bedrock only
 
 | Fact | Evidence |
 |---|---|
-| The subscription did not reach jails at all: `~/.claude-shared-credentials/.credentials.json` was **0 bytes** | `wc -c` in a live jail; the symlink was correctly wired and pointed at an empty file |
+| Subscription was not reaching jails: `~/.claude-shared-credentials/.credentials.json` was **0 bytes** | `wc -c` in a live jail; the symlink was correctly wired and pointed at an empty file |
 | **Bedrock served everything**, via `env_sources` | `~/.config/yolo-user-env.sh` exported `CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
 | Model pinned to a **Bedrock-shaped ID** | `model: "us.anthropic.claude-opus-5[1m]"` in host `settings.json`, composed through to the jail |
 | The `env` block of host `settings.json` was **empty** | `jq '.env'` → `{}` |
 
-The empty credentials file was **expected state, not a defect** — never logged in to Teams *on
-this machine*, though logged in on others. Credential state is **machine-scoped**
-(`.claude-shared-credentials` is a machine-tier `state` contribution), so a login elsewhere does
-not and should not arrive here. Worth recording because an empty file reads exactly like one of
-the broker's three documented logout paths, and the next person to find one will assume a bug.
-
 ### 2.2 After — Teams, and the credential half works
-
-The maintainer logged in and edited the jail config. Re-measured:
 
 | Fact | Evidence |
 |---|---|
@@ -59,532 +45,258 @@ The maintainer logged in and edited the jail config. Re-measured:
 | The `shared_credentials` hook did its job | `~/.claude/.credentials.json` → `../.claude-shared-credentials/.credentials.json`, intact, populated |
 | Bedrock env is **gone** | `yolo-user-env.sh` now exports only `TAVILY_API_KEY` |
 
-That retires §9's step 1: the symlink-plus-broker plumbing is **verified against a real
-`/login`**, not assumed. Notably the metadata trio (`scopes` / `subscriptionType` /
-`rateLimitTier`) is present and preserved — the property §3 depends on.
+### 2.3 The residue — why manual switching fails
 
-### 2.3 The residue — §4 predicted this exact miss
+**The model pin remained `us.anthropic.claude-opus-5[1m]`** — the Bedrock-shaped, region-prefixed ID — in **both** host `settings.json` and the composed jail copy after switching to first-party Teams.
 
-**The model pin is still `us.anthropic.claude-opus-5[1m]`** — the Bedrock-shaped, region-prefixed
-ID — in **both** the host `settings.json` and the composed jail copy, after a switch to
-first-party Teams.
+The switch was made in two places (`/login`, and the `env_sources` Bedrock block) and **missed a third**. The credential channel and the env moved together; the model names did not, because nothing tied them into one unit. Claude Code then issued first-party requests for a model ID that only exists on Bedrock, failing with obscure 404s.
 
-The switch was made in two places (`/login`, and the `env_sources` Bedrock block) and **missed a
-third**. That is precisely the failure §4 argues the design must prevent: the credential channel
-and the env moved together, the model names did not, because nothing ties them into one unit.
-A hand-performed switch missed the component a hand-performed switch is most likely to miss.
-
-This is the strongest available argument that **a mode is a bundle**, and it arrived unprompted.
-
-> **Live item for the maintainer, not a design point:** that pin should become the bare
-> first-party form. Left unchanged here because host `settings.json` is the user's own file.
-> It is *not* obviously breaking today — the running session reports itself as bare
-> `claude-opus-5[1m]`, so something is normalizing or overriding the pin — which makes it the
-> worse kind of residue: inert until it isn't, and invisible when it bites.
-
-> **~~`agent-credentials.md` §3 documents a mechanism that is not the one in use.~~ FIXED — the
-> passage now carries the correction (verified 2026-08-23, `agent-credentials.md:418-428`).** It
-> used to say the Bedrock IAM keys live "under the `"env"` block of `~/.claude/settings.json` on the
-> host", riding the `/ctx/host-claude/` mount. That block is `{}` and always was; the keys arrived
-> via `env_sources`. **Kept here because the correction it points at is load-bearing in the other
-> direction:** the `settings.json` `env` block is still the right *target* design (§11.2 has the
-> Bedrock pack deliver exactly that), so a reader who sees the fix must not conclude the block is
-> the wrong home — only that it was never the home yet.
+This proves that **a mode is a bundle**, and that manual multi-file editing is fundamentally error-prone.
 
 ---
 
-## 3. What `apiKeyHelper` cannot do — closing an open question
+## 3. Core Principle: A mode is a BUNDLE
 
-An earlier sketch in this session proposed routing both accounts through Claude Code's
-`apiKeyHelper` seam, so switching would be "the helper returns a different credential." **That
-does not work, and the reason generalizes.**
+Flipping an auth token or `CLAUDE_CODE_USE_BEDROCK` alone is **not** a mode switch. Every provider requires a coherent bundle:
 
-`apiKeyHelper` returns an **API key**. An API key bills as pay-per-token API usage. A Teams
-subscription is **not** a key — it is OAuth whose credential file carries
-`subscriptionType` / `rateLimitTier`, and that metadata *is* the entitlement. (The repo already
-depends on this, because Claude ≥ 2.1.200 treats a creds file carrying only the token trio as
-*not logged in*. It used to depend on it twice — `oauthMetadataKeys` in the entrypoint's
-`shared_credentials` harvest **and** `NormalizeOAuth` in the broker. The harvest was deleted
-with the rest of the claude-shaped hook body, [`pack-code-separation.md`](pack-code-separation.md)
-§5, so the broker's copy-previous-then-override is now the **only** guard — pinned by
-`TestNormalizeOAuthPreservesEntitlementMetadata` and
-`TestRefreshPreservesEntitlementMetadataOnDisk` in `internal/oauthbroker`, which exist precisely
-because deleting one of two guards is how a property quietly becomes unheld.) Putting a
-subscription through the key slot would mean paying for the seat and billing tokens separately.
+$$
+\text{Provider Bundle} = \{\text{Auth Channel / Keys}, \text{Base URL / Wire API}, \text{Model IDs \& Aliases}, \text{Environment Variables}, \text{Capability Plugins / MCP}\}
+$$
 
-**This answers a live open question.** `sequencing-2026-07.md` §4e asks: *"Keep the TLS-MITM architecture,
-or revisit `apiKeyHelper`?"* — noting a working `apiKeyHelper` broker exists on an abandoned
-fork (−4406/+129 lines) with no recorded rejection rationale in `main`. The rationale is now
-recorded: **`apiKeyHelper` cannot carry an OAuth subscription, so it is not a substitute for the
-MITM path for the subscription mode.** It remains viable for a key-shaped credential. That
-narrows the question from "which architecture" to "does any mode want a key at all", which is a
-much smaller question.
+### Example Provider Bundle Differences
+
+| Attribute | Claude (1st-Party Subscription) | Claude (AWS Bedrock) | pi / opencode (GLM Cloud) | pi / opencode (OpenAI Cloud) |
+|---|---|---|---|---|
+| **Credential** | OAuth token via shared broker | AWS IAM keys (`AWS_ACCESS_KEY_ID`…) | API Key (`GLM_API_KEY`) | API Key (`OPENAI_API_KEY`) |
+| **Endpoint** | Default `api.anthropic.com` | AWS Bedrock Regional Endpoint | `https://open.bigmodel.cn/api/paas/v4` | `https://api.openai.com/v1` |
+| **Wire API** | Anthropic Messages | Anthropic Bedrock SDK | OpenAI Chat Completions | OpenAI Chat Completions |
+| **Model IDs** | Bare: `claude-opus-5` | Prefix: `us.anthropic.claude-opus-5[1m]` | `glm-4-plus`, `glm-4-flash` | `gpt-5-nano`, `gpt-4.1` |
+| **Web Search** | Built-in native tool | **None** (requires Tavily MCP) | **None** (requires Tavily MCP) | **None** / Per-provider |
+
+If you switch the credential without the model IDs and endpoint, the client fails. Therefore, **yolo must manage the bundle atomically**.
 
 ---
 
-## 4. A mode is a BUNDLE, and the model ID is why
+## 4. Declarative Provider Profiles in YOLO Config
 
-The single most important design point, and the one that will produce a baffling bug if missed.
+In v1, yolo does not bake hardcoded provider presets into the binary. Instead, the **user-level config** (`~/.config/yolo-jail/config.jsonc`) is the source of truth where users declare their provider backends with full details, accompanied by canonical examples in documentation. Core does not ask the user to write JSON for pi, TOML for Codex, and JSONC for Claude.
 
-Flipping `CLAUDE_CODE_USE_BEDROCK` alone is **not** a mode switch. The model IDs differ between
-the two paths:
+### 4.1 Configuration Schema & Examples
 
-| | credential | env | model ID |
-|---|---|---|---|
-| `subscription` | OAuth via `/login`, shared-creds symlink, broker-serialized refresh | no `AWS_*`, no `CLAUDE_CODE_USE_BEDROCK` | **bare** — `claude-opus-5` |
-| `bedrock` | long-term IAM keys (`matt-bedrock`, invoke-only) | `CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION`, `AWS_*` | **region-prefixed** — `us.anthropic.claude-opus-5[1m]` |
-
-Today's pinned `model` is the Bedrock form. Switch the credential channel without switching the
-model names and Claude Code issues a **first-party request for a model ID that does not exist
-first-party** — which presents as a 404 on an unknown model, not as an auth error. Nothing in
-the failure names the account.
-
-So the unit that switches is `{credential channel, env vars, model IDs}`, atomically. Also in
-the bundle: `ANTHROPIC_DEFAULT_OPUS_MODEL` (currently Bedrock-shaped) and any other
-`ANTHROPIC_*_MODEL` pin.
-
-**There is already a kind for this.** The `autonomy` contribution is structurally the same
-thing: a pack declares **two complete postures** (`autonomous`, `guarded`), each folding config
-keys into the pack's own surfaces and merging launch flags, and a **policy bit derived from the
-notch** selects which one renders. Auth modes want exactly that — declare both bundles, select
-one — differing only in what selects them (a config key, not the confinement profile). Building
-this as a new mechanism when `autonomy` already demonstrates "notch-gated patch of the managed
-layer, two named variants, either may be empty" would be inventing a second dialect of one
-idea.
-
----
-
-## 5. The recommendation: modes as configuration, `subscription` first
-
-The cheapest thing that satisfies the stated need, in full:
-
-- **A key — `claude_auth: subscription | bedrock`** — workspace-scoped, like `confinement`.
-  **`subscription` is the default**, because it is the paid primary. (Note this *changes* today's
-  effective behavior on this machine, where Bedrock is the only wired path — so the first apply
-  after this lands must be expected to switch accounts, and that should be said out loud at
-  launch rather than discovered.)
-- **Two declared bundles in the pack**, `autonomy`-shaped: each names its config patch (model
-  pins), its env vars, and its credential channel. Either may be partially empty.
-- **The existing plumbing does the work.** `subscription` → the `shared_credentials` hook and
-  broker, already built. `bedrock` → `env_sources`, already how it works today.
-
-No daemon, no protocol, no queue, no new state. And it is **notch-portable for free**, which is
-the "host, jail, and Mac" requirement: both halves already work at every notch that works at all
-(with the macos-user caveats in §7).
-
-**This covers "this jail on Bedrock, that one on the subscription."** It does not cover
-switching a *running* jail — see §6.
-
----
-
-## 6. Dynamic overflow: what is reachable and what is not
-
-The ask says "ideally dynamically." Stating the limit precisely, because it is a hard one:
-
-**yolo cannot see the rate limit.** The 429 and its `retry-after` are seen by **Claude Code**,
-inside the jail. Nothing on the boundary observes rate-limit state, and nothing in the
-credential path is called on failure — so "subscription until exhausted, then Bedrock" is not
-reachable by configuration alone. It needs a signal that does not exist.
-
-Compounding it: **rate limits are per-model-bucket.** Opus 5 draws from a pool separate from
-Opus 4.x. A single global "the subscription is exhausted" flag would therefore be wrong more
-often than right, and a switch driven by it would move traffic off a subscription that still has
-headroom on the model actually in use.
-
-| Want | Reachable? |
-|---|---|
-| Different modes per jail / per workspace | **Yes** — §5, config only |
-| Manual `yolo auth use bedrock` on a running jail | Needs host-side "which mode is jail X on" state — the broker (§8) |
-| Automatic failover on exhaustion | **No** — needs a signal from inside the jail; see below |
-
-If automatic failover is genuinely wanted, the honest options are all somewhat ugly: the agent
-reports its own 429 (in-jail self-report, and the relay's `jail_id` injection exists precisely
-because self-reports are not trustworthy); a host-side prober burns quota to measure it; or a
-shared counter approximates it and drifts. **Recommendation: do not build this until a manual
-switch has proven insufficient.** Per-jail selection plus a manual switch is most of the value
-and none of the guessing.
-
----
-
-## 7. Traps that will make a correct switcher look broken
-
-**7.1 Never export a blank `ANTHROPIC_API_KEY`.** An **empty** `ANTHROPIC_API_KEY=""` still wins
-its precedence slot in the credential chain and authenticates with an empty key. A mode switch
-that "clears" the other mode by setting variables empty fails exactly this way, and the error
-will point at the API, not at yolo. Unset, never blank. The same applies to
-`ANTHROPIC_AUTH_TOKEN` — and if both it and `ANTHROPIC_API_KEY` are set, the SDKs send both
-headers and the API rejects the request outright.
-
-**7.2 Refresh tokens hard-expire; they do not slide with use.** A subscription left idle while
-Bedrock serves everything will eventually fail to refresh — and the failure surfaces at the
-moment you switch to it, which is the worst time to debug it. A mode switch should verify
-liveness as part of selection, not leave it to be discovered. This is also why §2's empty
-credentials file is worth re-checking after the first real `/login`: an empty file and an expired
-token look similar from the outside and have different fixes.
-
-**7.3 Claude Code warns about conflicting credentials.** An `ant` profile and Claude Code's own
-`/login` credential can conflict, and Claude Code says so. Pick one story for the subscription
-mode — the shared-creds file is the one already built — and do not have a mode that half-uses
-both.
-
-**7.4 `env_sources` secrets are already exposed in two ways this makes worse.** They land
-cleartext at 0644 in five agent config files and a prism `last_render` sidecar; on macos-user
-they are placed **on the process argv** (`env -i K=V…`), visible in `ps` to every user on the
-Mac. A design that leans harder on `env_sources` for the Bedrock bundle raises the stakes on
-both. Neither is introduced here, and neither should be silently inherited — `sequencing-2026-07.md` §4e's
-"should env_sources secrets be redactable?" is upstream of this row.
-
-**7.5 macos-user's credential symlink dangles.** A confirmed defect: `ensureCredentialsSymlink`
-runs in `RunDarwinBootstrap`, but the target dir is provisioned only by
-`storage.EnsureGlobalStorage` plus the container bind mount, neither of which runs there. So the
-**subscription mode cannot work on macos-user until that is fixed** — which matters because
-"working on a Mac" is part of the ask. Bedrock's `env_sources` path also fails there per §2's
-mechanism correction (the `/ctx/host-claude` mount does not exist on macos-user). Both modes are
-therefore Mac-gated for verification even though the config work is not.
-
----
-
-### 7.6 The nearest prior art declines this problem
-
-[unyolo.io](https://unyolo.io/) — analyzed in [`boundary-broker.md`](boundary-broker.md) §10 — is
-an MIT-licensed agent credential broker that independently converged on that doc's whole design.
-It brokers **third-party service credentials** (GitHub, Hugging Face, Google Workspace, sudo) and
-has **no OAuth-subscription handling, no provider switching, and no Bedrock**.
-
-That is a mildly useful negative result rather than an omission on their part: the hard thing here
-is not "hold a credential on the agent's behalf", which is well-trodden, but that **an LLM provider
-credential selects a whole backend** — endpoint, wire dialect, feature set, and model namespace —
-in a way a GitHub token does not. Brokering a GitHub token changes who is authorized; switching to
-Bedrock changes what the API *is*. §4's bundle exists because of that difference, and it is why an
-off-the-shelf credential broker does not shorten this row.
-
----
-
-## 8. What the broker would add, and why it is not required
-
-[`boundary-broker.md`](boundary-broker.md) §5 argued auth switching is a different feature that
-wants the same front door. That still holds, and §5 above is the "different feature" half.
-
-The broker earns its place only for **dynamic** switching: something host-side must hold "which
-mode is jail X on" and hand out the right material on request. If that gets built, the auth
-state belongs in the **same** daemon as the refresh serialization rather than beside it — because
-Anthropic's refresh token is single-use, and two jails switching to `subscription` concurrently,
-or a switch racing a refresh, is the same token-burning race the broker already exists to
-prevent (`RefreshLockPath`). Putting auth state in a second daemon would create a racer the
-existing flock cannot reach — which is precisely the failure mode `sequencing-2026-07.md` documents from
-the host-Claude case, where a native refresher never took the lock.
-
----
-
-## 9. Order of work
-
-1. ~~**A real subscription `/login` in a jail**, verified end to end.~~ **DONE 2026-08-05**, by
-   the maintainer's own switch — see §2.2. The credential half of `subscription` is proven.
-2. **Fix the residual Bedrock model pin** (§2.3) — a one-line user-side change, and the concrete
-   instance of the bug §4 describes.
-3. **Correct `agent-credentials.md` §3** to describe `env_sources`, not the `env` block.
-4. **`claude_auth` as config** (§5) — the two bundles, `subscription` default, model IDs carried
-   in the bundle. Now the first real build step, and better specified than it was an hour ago:
-   the manual switch enumerated exactly what a bundle must contain.
-5. **Manual switch on a running jail**, only if launch-time selection proves insufficient.
-6. **Automatic failover** — only with a named, trustworthy signal. Not before.
-
----
-
-## 10. Open questions
-
-**OQ-1 is the only one with reach**, and it is the only one in this doc that resolves by
-**experiment rather than ruling** — see its `Resolved by`. It gates
-[`boundary-broker.md`](boundary-broker.md) B2 as well as §6 here.
-
-1. 💬 **OQ-1 — is per-jail selection enough?** If the subscription is primary and Bedrock is a
-   deliberate fallback the human chooses, §5 is the whole feature and §6 never happens.
-
-   _Leaning:_ **Yes, per-jail is enough for v1.** §6's dynamic overflow needs the daemon to hold
-   auth state, which is the expensive half of B2; §5 needs none of it.
-
-   **Resolved by:** an experiment, not a ruling — ~5 minutes. Point Claude Code at a non-Anthropic
-   base URL with a subscription OAuth token in place and observe whether it sends the bearer. If it
-   does, §6 is reachable without the broker; if it does not, §6 needs B2 and moves behind it.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-2 — does the Bedrock bundle stay in `env_sources`, or become a declared bundle?**
-   `env_sources` works today and is invisible to yolo's config model — which is the gap. Moving
-   it into a declared bundle is what makes `describe`/`check` able to report the active mode.
-
-   _Leaning:_ **Declared bundle**, because "which mode am I in" is unanswerable while the answer
-   lives in a key yolo does not model. Pairs with OQ-9, which asks where the *secret* half lands.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-3 — what happens on a mode switch mid-session?** Claude Code reads credentials at
-   startup; a switch that requires a restart is honest, a switch that half-applies is not.
-
-   _Leaning:_ **Require a restart and say so.** A half-applied switch is §7's whole trap list.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-4 — should `check` verify the selected mode's credential is live?** §7.2 argues yes. The
-   cost is a network call in a command that is currently offline-safe.
-
-   _Leaning:_ **Yes, behind a flag** — the offline-safe property of `check` is worth keeping as the
-   default, and a dead credential is exactly what the user wants `check` for when they ask.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-**§11 and §12 add OQ-5 through OQ-9.** The live ones are in §12.4; the settled ones are in §12.5.
-
----
-
-## 11. Packaging — two packs, and what pack composition can and cannot express
-
-**The maintainer's shape:** a *shareable* Bedrock auth pack, plus a *personal* pack that adds
-Tavily MCP whenever Bedrock is the active mode, "swapped manually for now" — and **all of it has
-to work on the host as well as in a jail.**
-
-All findings below verified against the code 2026-08-12.
-
-### 11.1 Packs cannot depend on, or include, other packs 🔴
-
-**There is no dependency mechanism.** The nearest thing, the `requires` kind, asserts that a
-**binary** must exist on `PATH` and carries install hints (`RequiredBins`, `DepRequirements`) —
-it takes a `bin`, not a pack name. Nothing in `packdecl` expresses pack→pack.
-
-So the composition available today is **the `packs` list itself**, which is flat, ordered, and
-user-scope:
+In `~/.config/yolo-jail/config.jsonc` (or workspace `yolo-jail.jsonc`):
 
 ```jsonc
-"packs": ["claude", "claude-bedrock", "matt-bedrock-extras"]
+{
+  // 1. Declare reusable cloud provider definitions
+  "providers": {
+    "glm": {
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "wire_api": "openai_completions",
+      "api_key_env": "GLM_API_KEY",
+      "models": {
+        "default": "glm-4-plus",
+        "fast": "glm-4-flash"
+      }
+    },
+    "bedrock": {
+      "wire_api": "anthropic_bedrock",
+      "region": "us-east-1",
+      "models": {
+        "default": "us.anthropic.claude-opus-5[1m]",
+        "haiku": "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+      }
+    },
+    "deepseek": {
+      "base_url": "https://api.deepseek.com/v1",
+      "wire_api": "openai_completions",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "models": {
+        "default": "deepseek-coder",
+        "reasoner": "deepseek-reasoner"
+      }
+    }
+  },
+
+  // 2. Active agent assignments (omitted agents use their first-party default)
+  "agent_profiles": {
+    "claude": "bedrock",       // or "teams" / "anthropic" (default)
+    "pi": "glm",               // pi routes to GLM
+    "codex": "default",        // OpenAI default
+    "opencode": "default"
+  }
+}
 ```
 
-That works, and for manual swapping it is arguably the *right* amount of machinery: the list is
-the mode selector, and reading it tells you the whole story. What it cannot express is the
-dependency — nothing stops `matt-bedrock-extras` being selected without `claude-bedrock`, in which
-case the personal pack contributes Tavily to a jail that is on Teams. That is not harmful here
-(an MCP server is additive), but the general shape — *a pack that is only meaningful alongside
-another* — has no way to say so.
+### 4.2 Launch-time CLI Swapping & Ergonomics
 
-**A `requires_pack` contribution would be the minimal fix**, and it composes with the `conflicts`
-idea A2 needs: one names packs that must be present, the other names packs that must not be.
-Both are load-time checks over a list yolo already has, with no runtime cost. **OQ-5** below.
+For transient runs or quick experimentation without modifying `yolo-jail.jsonc`:
 
-> **⛔ SUPERSEDED — `requires_pack` was RETIRED, and this paragraph's "minimal fix" is no longer
-> the plan.** See [`retired-decisions.md`](retired-decisions.md) Thread A, *"Also retired:
-> `requires_pack` / pack→pack composition"*: its motivating case was two auth packs excluding each
-> other, and Thread A's ruling left **one** pack (`claude-bedrock`), so there is nothing to
-> exclude. A personal pack selected without it is additive and harmless — the exact case described
-> two paragraphs above — because an MCP server whose key is absent is already inert via
-> `requires_env`. **Build it when something breaks without it.** The finding above (there is no
-> pack→pack mechanism) is still true and still worth keeping; only the prescription is withdrawn.
-> Tracked as answered in **OQ-5**, §12.5 (Decision Ledger).
+```bash
+# Concise single-agent launch (applies provider directly without redundant "pi=glm")
+yolo -p glm -- pi
+yolo --profile glm -- pi
+yolo --auth bedrock -- claude
 
-### 11.2 The host-notch mechanism: use `config-overlay`, NOT the `env` kind
+# Compound profile across multiple agents
+yolo --profile glm-dev
 
-This corrects Thread A's earlier claim that `env` is "refused at the host notch." The truth is
-more precise and much more useful.
+# Explicit multi-agent assignment
+yolo --agent-profile pi=glm,claude=bedrock
+```
 
-`HostFields()` **includes** `KindEnv` — the host target *can* express it. What refuses it is
-`hostUnimplemented`, and the recorded reason is scoped deliberately:
+CLI flags override `yolo-jail.jsonc` values for that launch only.
 
-> *"env vars apply to a process yolo starts, and `apply --host` only configures your tools — it
-> never runs them… A notch where yolo does the launching can honor them."*
+### 4.3 Pre-existing Jails & Re-entry Behavior
 
-The code comment goes out of its way to say this is **a limit of the `apply --host` COMMAND, not
-of the notch** — precisely so a future `guest` target does not inherit a refusal it could honor.
-
-**So the design answer is to not need the verb at all.** Claude Code reads an `env` block out of
-`settings.json`. A Bedrock pack can therefore put `CLAUDE_CODE_USE_BEDROCK` and `AWS_REGION` into
-`claude/settings` via **`config-overlay`** — a kind that renders at **both** notches — instead of
-the `env` kind, which is jail-only until yolo owns the launch.
-
-| | `env` kind | `config-overlay` → `settings.json` `env` block |
-|---|---|---|
-| in a jail | works | works |
-| `apply --host` | unbuilt (no argv to inject into) | **works** |
-| carries secrets | forbidden by the kind's contract | also must not — same discipline |
-
-This is worth noticing: `agent-credentials.md` §3 *describes* Bedrock keys arriving through the
-`settings.json` `env` block. That is stale as a description of the current machine (§2 measured the
-block as `{}`), but it is **the correct target design** — the doc described the right mechanism
-before anything used it.
-
-**It also removes Thread A's dependency on nix OQ-1** (the question these docs used to call *N3*). Auth-as-packs becomes host-complete now, rather
-than after `yolo --at host -- <cmd>` lands.
-
-### 11.3 `hook` IS refused at the host — and that is correct
-
-Unlike `env`, the `hook` kind is refused as a matter of policy, not left unbuilt:
-
-> *"hooks are jail provisioning steps (credential symlinks, per-jail history, plugin
-> reconciliation) — `apply --host` does not run them against your real home."*
-
-That means a Teams pack's `shared_credentials` hook **will never fire at the host notch.** This is
-right rather than limiting: the hook exists because a jail has a disposable home and *several*
-jails share one credential file, so it symlinks into a machine-global dir. A host has one real home
-and one credential file already in the right place. **On the host the hook is meaningless**, which
-is exactly what the refusal says.
-
-Consequence for the pack split: **the Teams pack is nearly a no-op at the host** — its host-side
-contribution is the bare model IDs, and the credential arrives because you ran `/login`. That is a
-feature. It also means "does auth work outside a jail?" has different answers per mode, and both
-are fine:
-
-| mode | in a jail | on the host |
-|---|---|---|
-| Teams | hook + broker + machine-shared creds | `/login` writes `~/.claude/.credentials.json` directly; pack contributes model IDs only |
-| Bedrock | `config-overlay` env block + `env_sources` keys | `config-overlay` env block; keys from the user's own shell or `settings.json` |
-
-### 11.4 The personal-pack case (Tavily) is already expressible
-
-MCP servers are config, not a dedicated kind: they live under `mcpServers` in `~/.claude.json`
-(the `claude/config` surface), and the delivery path already supports `requires_env` gating so a
-server that needs `TAVILY_API_KEY` stays inert without it. So `matt-bedrock-extras` is a
-`config-overlay` on `claude/config` adding one `mcpServers` entry, plus the key via `env_sources`.
-
-No new mechanism. The only thing missing is §11.1's "and I only want this when Bedrock is active",
-which today is expressed by *selecting both packs together*.
-
-### 11.5 A shipped auth pack breaks the "six shipped packs" tests
-
-Several tests hardcode the official set — `packload_test.go` ("The six official packs must be
-EMBEDDED"), `packconfigexclusive_test.go` (`["claude","copilot","opencode","pi","codex","agy"]`),
-plus briefing/skills source tests that assert "all six". Adding shipped auth packs means updating
-those, which is mechanical but should be a deliberate commit rather than a surprise in a larger
-one.
-
-**This is also an argument for shipping the auth packs as a separate fetched/public repo rather
-than embedding them** — which matches "shareable" better anyway, and exercises the fetched-pack
-approval path that already exists. **OQ-6.**
+When entering or executing into an existing, running container jail:
+* **Env-var agents (Claude, Copilot)**: Injected via process environment (`-e`) on `podman exec` / launch, applying immediately per-session without mutating jail filesystem state.
+* **File-based agents (pi, opencode, Codex)**: Prism renders all declared `providers` into `models.json` / `opencode.json` at staging/boot time. Launching with `-p glm -- pi` selects the active provider via launch flags or runtime environment (`PI_DEFAULT_PROVIDER=...`) without rewriting persistent disk files. If a new provider definition is added to config, `yolo check` or container reload regenerates the surface.
 
 ---
 
-## 12. Relationship to PR #32 (macOS broker transport)
+## 5. Projection via Prism (`derive.lua`) and Core
 
-> **⛔ OVERTAKEN BY EVENTS, 2026-08-13.** This section was written while #32 was open and
-> mergeable. It no longer is: the maintainer ruled that yolo **builds the unified transport
-> instead of merging #32**, and that `loopback-tls` becomes the loophole framework's only
-> transport (`unix-socket` retired). See
-> [`loophole-transport.md`](loophole-transport.md) §7.3 (OQ-T8) and §7.4 (OQ-T9); §7.1 of that doc
-> states **"All of §7 is now settled."** The analysis below is kept as the record of why the
-> generalization was the right call — §12.2's list of what #32 got right is the spec
-> `loophole-transport.md` §7.3 re-derives against. Only its framing of the choice as still open is
-> stale. **OQ-8 is answered accordingly — §12.5 (Decision Ledger).**
+Core validates the provider declarations and feeds the resolved provider data into the Prism layer:
 
-[PR #32](https://github.com/mschulkind-oss/yolo-jail/pull/32) — *"oauth broker: loopback TCP
-transport for macOS+podman"*, +1064/−13, open — fixes
-[#31](https://github.com/mschulkind-oss/yolo-jail/issues/31): on macOS+podman the in-jail
-`oauth-terminator` cannot `connect()` the relay's unix socket, because virtiofs shares the inode
-but not the socket endpoint across the podman-machine VM boundary. Every `platform.claude.com`
-request 502s and Claude Code will not start. Its fix is a loopback **TLS** front on the relay with
-an **ephemeral host-only-key cert** (pinned by the terminator, never mounted into a jail) plus a
-**per-jail bearer token** sent inside TLS.
+```
+┌─────────────────────────────────────────────────────────────┐
+│  yolo-jail.jsonc ("providers", "agent_profiles")            │
+│  + CLI flags (--claude-auth, --agent-profile, --profile)    │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ Core Resolution & Validation
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Prism Live Tables: ctx.providers, ctx.active_profiles      │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ derive.lua (Per-Pack Projections)
+         ┌─────────────────────┼─────────────────────┐
+         ▼                     ▼                     ▼
+┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
+│ packs/claude:   │   │ packs/pi:       │   │ packs/opencode: │
+│ env vars &      │   │ renders         │   │ renders         │
+│ .claude.json    │   │ models.json     │   │ opencode.json   │
+└─────────────────┘   └─────────────────┘   └─────────────────┘
+```
 
-### 12.1 It is not subsumed by auth modes — but Bedrock routes around it
+### 5.1 Per-Agent Projection Mechanisms
 
-The broker exists only for the **OAuth refresh** race (Anthropic's refresh token is single-use).
-**Bedrock mode has no OAuth, no refresh, and therefore no broker** — so on macOS a Bedrock-mode
-jail never touches the path #31 breaks.
+1. **Claude Code**:
+   - `subscription`: Uses `shared_credentials` symlink, OAuth broker relay, bare model IDs (`claude-opus-5`), no `AWS_*` env vars.
+   - `bedrock`: Injects `CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION`, model aliases (`ANTHROPIC_DEFAULT_OPUS_MODEL`), and Bedrock IAM credentials via `env_sources`.
+2. **pi**:
+   - `packs/pi/derive.lua` renders all defined providers into `~/.pi/agent/models.json` (OpenAI completions format with appropriate `compat` flags and `baseUrl`).
+3. **opencode**:
+   - `packs/opencode/derive.lua` renders all defined providers into `~/.config/opencode/opencode.json` using the built-in `@ai-sdk/openai-compatible` adapter.
+4. **Codex CLI**:
+   - `packs/codex/derive.lua` renders `[model_providers.<name>]` in `~/.codex/config.toml` with `wire_api = "responses"`.
+5. **agy**:
+   - Closed transport enum (`ccpa`, `gemini`, `stubby`); remains on Google Cloud Code.
 
-That lowers #32's *urgency* without replacing it: it makes "Claude Code will not start on macOS"
-conditional on the mode rather than absolute. **Teams mode on macOS+podman still needs #32 or
-something like it.** Anyone reading "subsume" as "we can close it" would be wrong.
+### 5.2 Secret Discipline
 
-### 12.2 The better move is to PROMOTE it, not replace it
+* API keys are never written in cleartext into `yolo-jail.jsonc`.
+* The `api_key_env` declaration specifies which environment variable holds the key (e.g. `GLM_API_KEY`, `DEEPSEEK_API_KEY`).
+* Secrets are supplied through `env_sources` or the host shell environment, and gated via `requires_env`. Active provider keys must be resolvable at pre-flight; unresolvable keys for an active profile refuse the launch.
 
-Two reasons it is worth more than its own PR description claims:
+---
 
-1. **Its transport is the one every host service needs on macOS.** The virtiofs-socket problem is
-   not specific to the OAuth broker — it is a property of the boundary. `macos.md:575` already
-   documents `host.containers.internal` as the workaround for exactly this. Any future host-side
-   service — the audit log (B1), the git proxy (B1b), an approval queue (B2) — hits the same wall
-   on macOS. #32 solves it once, inside `brokerrelay`. **Generalizing it into the loophole
-   framework would make every host service macOS-capable in one move.**
-2. **Its per-jail bearer token is the client-auth upgrade the boundary work independently
-   arrived at.** [`boundary-broker.md`](boundary-broker.md) §10.3 recommends adopting unYOLO's
-   *named broker-client secret*, because yolo's current posture is "the socket file is the
-   authentication — a daemon trusts whoever can `connect()`." #32 implements precisely that
-   upgrade, for one service, on one platform. Third independent convergence on the same idea.
+## 6. Capability Resolution & Selective Tool Augmentation (The Web Search Pattern)
 
-So the relationship is the inverse of subsumption: **#32 is a down payment on the boundary-service
-architecture, currently scoped to one consumer.** The work that "replaces" it is generalizing it.
+### 6.1 Principles: Name the Job, Avoid Special Cases
 
-### 12.3 What would genuinely replace it
+To avoid brittle, hardcoded special cases (`if agent == "agy"` or `if tool == "tavily"`), yolo uses a declarative **Capability Resolution Contract**:
+1. **Agents / Modes declare native capabilities** in `pack.json` or provider blocks (e.g., `capabilities: ["web_search"]`).
+2. **MCP servers declare what capability they fulfill** (e.g., `provides: "web_search"`).
+3. **Core applies a single universal rule:** *If the active agent/mode already has capability $$C$$, omit any MCP server that provides $$C$$.*
 
-**macos-user** — no container, no VM boundary, so no virtiofs problem at all. But per Thread B it
-renders zero pack surfaces, has a dangling credentials symlink, and has the broker **unwired**
-(`EndpointGrantCommands`, zero call sites). So "use macos-user instead" is not available today
-and is a larger project than merging #32.
+### 6.2 Capability Resolution Rules
 
-**Also worth carrying:** #32's own "why not reuse the broker CA" section documents that the broker
-CA's **private key is mounted `:ro` into every jail**, so a malicious jail could sign a relay cert
-and MITM a sibling. It works around that rather than fixing it — and it is the same confirmed
-defect `sequencing-2026-07.md` §4d records. Merging #32 does not fix it and should not be read as having done
-so.
+* **Native Search**:
+  * Claude Code (first-party subscription / Teams) and `agy` have native search tools. When running these, any MCP server declaring `provides: "web_search"` is **automatically suppressed**.
+* **Augmentation**:
+  * Claude Code (Bedrock), `pi`, `opencode`, `codex`, and offline `copilot` lack native search. They automatically receive the configured `provides: "web_search"` MCP server (e.g. `tavily`) whenever `TAVILY_API_KEY` is present.
+* **Collision Policy (Multiple Providers)**:
+  * If multiple MCP servers in config declare `provides: "web_search"` (e.g., both `tavily` and `brave`), yolo **refuses the launch with a fatal config error**. Ambiguous capability provision is never resolved by silent arbitrary selection.
+* **Required Capabilities & Missing Tool Refusal**:
+  * Core defaults to requiring baseline capabilities every agent meets: `["code_editing", "command_execution"]`.
+  * **`web_search` is NOT required by default.**
+  * If a project or profile explicitly declares `"required_capabilities": ["web_search"]`, and neither the active agent nor any enabled MCP server satisfies it, yolo **refuses the launch with a fatal error** naming the missing capability.
 
-### 12.4 Open questions from §11–§12
+---
 
-**OQ-6 is the one with reach** — it gates building `claude-bedrock` at all.
+## 7. In-Jail vs Host-CLI Parity: Cleaning up Auto-YOLO Mode
 
-5. 💬 **OQ-6 — shipped, or a separate public pack repo?** §11.5 — shipping breaks the "six packs"
-   tests and embeds a personal auth choice in the binary; a fetched repo matches "shareable" and
-   exercises the approval path.
+### 7.1 The Asymmetry Bug Diagnosed
 
-   _Leaning:_ **Fetched.** It is the only option that exercises the approval path this pack's whole
-   point depends on, and a personal auth choice does not belong in everyone's binary.
+There is currently a behavioral discrepancy between launching an agent from the host vs. typing its name in an interactive in-jail shell:
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+* **Host CLI (`yolo -- claude`)**:
+  [`internal/cli/run/run.go:125`](../../internal/cli/run/run.go#L125) calls `packload.InjectLaunchFlags()`, which checks `p.Decl.PostureFor(true).Launch` and injects `--dangerously-skip-permissions`.
+* **In-Jail Shell (`claude` inside `yolo -- bash`)**:
+  [`internal/entrypoint/shell.go:packAliases`](../../internal/entrypoint/shell.go#L27-L34) generates `.bashrc` shell aliases, but calls `p.Decl.LaunchFlagContributions()`. That helper **only inspects top-level `launch` contributions and skips the `autonomy` block**.
+  Because Claude's and agy's flags are declared under `autonomy.autonomous.launch`, no alias is emitted. Furthermore, the lazy launcher in `~/.yolo-launchers/claude` only runs `exec "$REAL_BIN" "$@"`.
 
-6. 💬 **OQ-7 — does the auth pack own the model IDs, or does the base `claude` pack?**
+**Consequence:** `yolo -- claude` runs in autonomous YOLO mode, but running `claude` inside `yolo -- bash` prompts for permissions.
 
-   > [!NOTE]
-   > **Restated 2026-08-23.** This question was written as *"does the **Teams** pack own the model
-   > IDs"* and that framing is dead: Thread A collapsed the two-auth-pack shape into ONE
-   > `claude-bedrock` pack ([`retired-decisions.md`](retired-decisions.md)), so there is no Teams
-   > pack to own anything. The question survives the collapse unchanged in substance — it is about
-   > where a pin lives, not about how many packs there are.
+### 7.2 The Fix
 
-   If the base pack pins nothing, a jail with **no auth pack at all** has no model pin — which may
-   be correct (Claude Code's own defaults, which move when Anthropic moves them) or may be a silent
-   hole that changes a jail's model under the user without a config change.
+1. **Fix `packAliases` in `shell.go`**: Call `packload.LaunchFlagsFor(packs, true)` so that `.bashrc` emits `alias claude='claude --dangerously-skip-permissions'` and `alias agy='agy --dangerously-skip-permissions'`.
+2. **Launcher Script Default**: Ensure lazy launchers in `~/.yolo-launchers/` forward the pack's autonomous launch flags so non-interactive or non-aliased subshells also behave consistently.
 
-   _Leaning:_ **The base `claude` pack pins nothing; `claude-bedrock` pins the Bedrock IDs.** A
-   model ID is a property of the credential path, and Bedrock's are the only ones yolo has a reason
-   to know. The "silent hole" reading is really a request for `describe` to *report* the effective
-   model, which is OQ-2's job rather than a pin.
+---
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+## 8. Dynamic Overflow: What is reachable and what is not
 
-7. 💬 **OQ-9 — is `env_sources` still the right home for the AWS keys?** It works and is invisible
-   to yolo's config model (§1). §11.2 moves the *non-secret* half into a pack; the secret half has
-   to live somewhere, and `env_sources` puts it cleartext at 0644 in several files (§7.4).
+The original ask proposed "subscription primary, with automatic overflow to Bedrock on rate limit."
 
-   _Leaning:_ **Keep `env_sources` until something better than "a file on disk" exists**, and fix
-   the mode rather than the mechanism. Answering OQ-2 makes the *bundle* visible to the config
-   model without moving the secret.
+### Why automatic dynamic failover is deferred:
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+1. **Rate limits are opaque to the boundary**: The HTTP 429 and `retry-after` are received directly by the agent binary inside the container. Core sees no boundary signal.
+2. **Rate limits are per-model-bucket**: An Opus 429 does not mean Sonnet or Haiku is exhausted. A global failover switch would prematurely migrate unaffected models.
+3. **Mid-session state**: Claude Code reads credentials at startup; changing credentials mid-flight without process restart leads to credential collisions and invalid sessions.
 
-### 12.5 Decision Ledger
+**Verdict:** Launch-time selection (`agent_profiles` in config and CLI `--claude-auth=bedrock`) is deterministic, safe, and solves 95% of the requirement without fragile in-jail interceptors.
+
+---
+
+## 9. Traps and Failure Modes
+
+* **Never export a blank `ANTHROPIC_API_KEY=""`**: A blank variable takes precedence in SDK credential resolution and attempts authentication with an empty key. Variables must be unset, never blank.
+* **Single-use Refresh Tokens**: Anthropic OAuth refresh tokens are single-use. If two jails attempt to refresh concurrently without serialization, tokens are permanently burned. The Claude OAuth broker singleton remains mandatory for subscription mode.
+* **Scope Isolation**: `providers` and `agent_profiles` must be **user-scope only** (or gated by the config-approval flow). An in-jail agent or untrusted workspace repo must never be able to silently redirect inference endpoints to an attacker-controlled server.
+* **Wire API Incompatibilities**: Codex only speaks `wire_api = "responses"` (Chat Completions was removed upstream). pi and opencode speak OpenAI Chat Completions. Ensure `derive.lua` converts provider endpoints into the exact wire format expected by the target agent.
+
+---
+
+## 10. Order of Work
+
+1. **Fix in-jail auto-YOLO alias parity (§7)**: Update `packAliases` in `internal/entrypoint/shell.go` to use `LaunchFlagsFor(packs, true)`.
+2. **Define `providers` and `agent_profiles` config schema (§4)**: Add typed schema and validation in `internal/config/`.
+3. **Extend Prism `ctx` table**: Pass active providers and agent assignments into `liveTables` in `internal/entrypoint/packsurfaces.go`.
+4. **Implement `derive.lua` projections for pi, opencode, and Codex (§5)**: Update pack derive scripts to project provider definitions into `models.json`, `opencode.json`, and `config.toml`.
+5. **Implement Claude Bedrock/Teams bundle switching (§5)**: Support `claude_auth` / `agent_profiles.claude` injecting the proper env vars, model IDs, and broker wiring.
+6. **Implement Capability-based MCP filtering (§6)**: Add search-tool suppression in `agy` and Claude subscription mode, while passing Tavily to Bedrock and other agents.
+7. **Add CLI flags (§4.2)**: Wire `--claude-auth`, `--agent-profile`, and `--profile` flags in `internal/cli/run/`.
+
+---
+
+## 11. Open Questions
+
+*(All design questions settled — see Decision Ledger below).*
+
+---
+
+## 12. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-5 | **NO pack→pack composition.** `requires_pack` (and A2's `conflicts`) retired — the flat, ordered `packs` list is the whole composition story. Build it when something breaks without it | 2026-08-13 | §11.1, [`retired-decisions.md`](retired-decisions.md) Thread A |
-| OQ-8 | **Generalize** #32's transport into the loophole framework — and #32 is not merged at all. `loopback-tls` becomes the framework's only transport; `unix-socket` retired | 2026-08-13 | §12.2, [`loophole-transport.md`](loophole-transport.md) §7.3–§7.4 |
-
-> [!WARNING]
-> **OQ-8 was decided against the recommendation in §12.2, and the cost was accepted knowingly:**
-> macOS + podman stays broken until the unification ships, and #32's 1064 tested lines are
-> re-derived rather than reused. Do not re-propose "merge #32 now, migrate later" — it lives in
-> `brokerrelay`, where the framework cannot own it, which is the reason the fast path was refused.
->
-> **And do not read OQ-5 as "packs cannot depend on anything".** What was removed is a *pack→pack*
-> edge; `requires_env` still makes a keyless MCP server inert, which is what made the motivating
-> case harmless once Thread A collapsed the two auth packs into one.
+| **OQ-1** | **Launch-time selection is sufficient for v1.** Dynamic in-session failover deferred due to opacity of 429s and per-model limits. | 2026-08-29 | §8 |
+| **OQ-2** | **Config must be complete before launch.** Required keys for active profiles must resolve at pre-flight; unresolvable active keys refuse launch. | 2026-08-29 | §5.2 |
+| **OQ-3** | **User-level config is source of truth in v1.** No binary presets baked; `~/.config/yolo-jail/config.jsonc` defines providers with canonical doc examples. | 2026-08-29 | §4 |
+| **OQ-4** | **Support both compound profiles and concise per-agent CLI overrides.** `yolo -p glm -- pi` applies `glm` directly to `pi` without redundant `pi=glm` syntax. | 2026-08-29 | §4.2 |
+| **OQ-CAP1** | **Fatal refusal on multiple MCP capability collision.** If two MCP servers declare the same `provides`, core refuses launch. | 2026-08-29 | §6.2 |
+| **OQ-CAP2** | **Fatal refusal on unmet `required_capabilities`.** `web_search` is opt-in; if required and unsatisfied, launch refuses. | 2026-08-29 | §6.2 |
+| **OQ-5** | **NO pack→pack composition.** `requires_pack` and `conflicts` retired — flat `packs` list is whole story. | 2026-08-13 | §11.1, [`retired-decisions.md`](retired-decisions.md) Thread A |
+| **OQ-8** | **Generalize transport into loophole framework.** `loopback-tls` becomes the framework's only transport; unix-socket retired. | 2026-08-13 | [`loophole-transport.md`](loophole-transport.md) §7.3–§7.4 |
+| **OQ-K1** | **Declarations are authoritative.** Core validates pack-declared settings offline. | 2026-08-18 | [`pack-config-keys.md`](pack-config-keys.md) §2.2 |
+| **OQ-K3** | **Freeze `host_processes.visible`.** Require restart for config changes. | 2026-08-18 | [`pack-config-keys.md`](pack-config-keys.md) §5.1 |

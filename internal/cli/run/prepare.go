@@ -299,6 +299,7 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 	}
 	for _, subdir := range append([]string{
 		"npm-global", "local", "go", "yolo-shims", "yolo-launchers", "config",
+		filepath.Join("pi", "agent"),
 	}, overlaySubdirs...) {
 		_ = os.MkdirAll(filepath.Join(wsState, subdir), 0o755)
 	}

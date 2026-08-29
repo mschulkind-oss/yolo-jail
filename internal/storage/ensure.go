@@ -54,6 +54,7 @@ func EnsureGlobalStorage(migrate func()) error {
 	overlaySubdirs = append(overlaySubdirs, packload.EmbeddedSharedDirs()...)
 	overlaySubdirs = append(overlaySubdirs,
 		filepath.Join(".config", "git"),
+		filepath.Join(".pi", "agent"),
 		".npm-global",
 		".local",
 		"go",

@@ -15,4 +15,8 @@ const (
 	SourceMCPServers = "mcp_servers"
 	// SourceLSPServers is the configured LSP-server table (config lsp_servers).
 	SourceLSPServers = "lsp_servers"
+	// SourceProviders is the declared cloud providers table (config providers).
+	SourceProviders = "providers"
+	// SourceAgentProfiles is the active agent profile assignments (config agent_profiles).
+	SourceAgentProfiles = "agent_profiles"
 )

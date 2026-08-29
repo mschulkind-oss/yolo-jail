@@ -485,3 +485,119 @@ func TestConfinementValidateAndResolve(t *testing.T) {
 		t.Errorf("absent confinement should default to jail, got %q", got)
 	}
 }
+
+func TestValidateProviders(t *testing.T) {
+	valid := `{"providers": {
+		"glm": {
+			"base_url": "https://open.bigmodel.cn/api/paas/v4",
+			"wire_api": "openai_completions",
+			"api_key_env": "GLM_API_KEY",
+			"models": {"default": "glm-4-plus", "fast": "glm-4-flash"},
+			"capabilities": ["code_editing"]
+		},
+		"bedrock": {
+			"wire_api": "anthropic_bedrock",
+			"region": "us-east-1",
+			"models": {"default": "us.anthropic.claude-opus-5[1m]"}
+		},
+		"disabled_provider": null
+	}}`
+	errs, _ := ValidateConfig(decode(t, valid), t.TempDir(), nil)
+	for _, e := range errs {
+		if strings.HasPrefix(e, "config.providers") {
+			t.Errorf("valid providers should pass validation, got error: %s", e)
+		}
+	}
+
+	invalid := `{"providers": {
+		"bad": {
+			"base_url": 123,
+			"api_key_env": "123-bad-name",
+			"models": "not-an-object",
+			"unknown_key": "xyz"
+		}
+	}}`
+	errs, _ = ValidateConfig(decode(t, invalid), t.TempDir(), nil)
+	var provErrs []string
+	for _, e := range errs {
+		if strings.HasPrefix(e, "config.providers") {
+			provErrs = append(provErrs, e)
+		}
+	}
+	if len(provErrs) < 3 {
+		t.Errorf("expected multiple provider validation errors, got: %v", provErrs)
+	}
+}
+
+func TestValidateAgentProfiles(t *testing.T) {
+	valid := `{"agent_profiles": {"claude": "bedrock", "pi": "glm", "codex": "default"}}`
+	errs, _ := ValidateConfig(decode(t, valid), t.TempDir(), nil)
+	for _, e := range errs {
+		if strings.HasPrefix(e, "config.agent_profiles") {
+			t.Errorf("valid agent_profiles should pass validation, got: %s", e)
+		}
+	}
+
+	invalid := `{"agent_profiles": {"pi": 123}}`
+	errs, _ = ValidateConfig(decode(t, invalid), t.TempDir(), nil)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e, "config.agent_profiles.pi") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected validation error for non-string profile, got: %v", errs)
+	}
+}
+
+func TestValidateRequiredCapabilities(t *testing.T) {
+	valid := `{"required_capabilities": ["code_editing", "web_search"]}`
+	errs, _ := ValidateConfig(decode(t, valid), t.TempDir(), nil)
+	for _, e := range errs {
+		if strings.HasPrefix(e, "config.required_capabilities") {
+			t.Errorf("valid required_capabilities should pass, got: %s", e)
+		}
+	}
+
+	invalid := `{"required_capabilities": "not-a-list"}`
+	errs, _ = ValidateConfig(decode(t, invalid), t.TempDir(), nil)
+	found := false
+	for _, e := range errs {
+		if strings.HasPrefix(e, "config.required_capabilities") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected error for non-list required_capabilities, got: %v", errs)
+	}
+}
+
+func TestValidateMCPServersProvidesCollision(t *testing.T) {
+	valid := `{"mcp_servers": {
+		"tavily": {"command": "npx", "provides": "web_search"},
+		"github": {"command": "npx", "provides": "git_issues"}
+	}}`
+	errs, _ := ValidateConfig(decode(t, valid), t.TempDir(), nil)
+	for _, e := range errs {
+		if strings.HasPrefix(e, "config.mcp_servers") {
+			t.Errorf("valid mcp_servers should pass, got: %s", e)
+		}
+	}
+
+	collision := `{"mcp_servers": {
+		"tavily": {"command": "npx", "provides": "web_search"},
+		"brave": {"command": "npx", "provides": "web_search"}
+	}}`
+	errs, _ = ValidateConfig(decode(t, collision), t.TempDir(), nil)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e, "multiple servers declare provides \"web_search\"") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected multiple provides collision error, got: %v", errs)
+	}
+}

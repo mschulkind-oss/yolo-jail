@@ -364,8 +364,10 @@ func hostTableKeys(p *packload.Pack, s manifest.Surface) []string {
 	// being asked: which keys does this surface's derive produce when it produces anything.
 	sentinel := map[string]any{"__yolo_table_probe__": map[string]any{"command": "probe"}}
 	probe := map[string]map[string]any{
-		manifest.SourceMCPServers: sentinel,
-		manifest.SourceLSPServers: sentinel,
+		manifest.SourceMCPServers:    sentinel,
+		manifest.SourceLSPServers:    sentinel,
+		manifest.SourceProviders:     sentinel,
+		manifest.SourceAgentProfiles: sentinel,
 	}
 	derived, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, probe)
 	if err != nil {

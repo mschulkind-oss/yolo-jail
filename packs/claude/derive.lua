@@ -1,10 +1,18 @@
--- claude has two dynamic surfaces.
-
--- config (~/.claude.json, RMW): the mcpServers managed table. Passthrough of the
--- canonical table; the RMW render owns this key and regenerates it wholesale
--- (OQ12 (d)). Was computed[] {from: mcp_servers, to: mcpServers, reconcile: true}.
+-- config (~/.claude.json, RMW): the mcpServers managed table.
+-- In subscription mode (default), Claude has native web search, so servers providing
+-- "web_search" are omitted. In Bedrock mode, search MCPs pass through.
 yolo.derive("claude", "config", function(ctx)
-  return { mcpServers = ctx.mcp_servers }
+  local claudeProfile = (ctx.agent_profiles and ctx.agent_profiles.claude) or "default"
+  local isBedrock = (claudeProfile == "bedrock")
+  local servers = {}
+  for name, cfg in pairs(ctx.mcp_servers or {}) do
+    if type(cfg) == "table" and cfg.provides == "web_search" and not isBedrock then
+      -- native search is available in 1st-party subscription mode; suppress MCP
+    else
+      servers[name] = cfg
+    end
+  end
+  return { mcpServers = servers }
 end)
 
 -- settings (~/.claude/settings.json): two derivations.

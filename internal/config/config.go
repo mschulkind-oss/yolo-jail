@@ -64,6 +64,7 @@ var knownTopLevelConfigKeys = set(
 	"loopholes", "host_processes", "journal",
 	"kvm", "prune", "ephemeral_storage", "include_if_found", "agents_md_extra",
 	"cache_relocations", "writable_home_dirs", "host_files", "packs",
+	"providers", "agent_profiles", "required_capabilities",
 )
 
 // `journalModes` — the off/user/full vocabulary — went with the key on 2026-08-18.
@@ -83,7 +84,8 @@ var (
 	knownBlockedToolKeys = set("name", "message", "suggestion", "block_flags")
 	knownPackageKeys     = set("name", "nixpkgs", "version", "url", "hash", "outputs")
 	knownLSPServerKeys   = set("command", "args", "fileExtensions")
-	knownMCPServerKeys   = set("command", "args", "env", "requires_env")
+	knownMCPServerKeys   = set("command", "args", "env", "requires_env", "provides")
+	knownProviderKeys    = set("base_url", "wire_api", "api_key_env", "models", "region", "capabilities")
 	knownDeviceKeys      = set("usb", "description", "cgroup_rule")
 	knownResourcesKeys   = set("memory", "cpus", "pids_limit")
 	// knownHostServiceKeys is the INLINE loophole entry's key census. It must

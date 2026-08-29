@@ -26,12 +26,14 @@ const piHostSettings = `{"theme":"dark","defaultModel":"claude-fable-5",` +
 
 const piGateTransform = `
 yolo.transform("pi", function(ctx)
-  local kept = {}
-  for _, ext in ipairs(ctx.config.extensions) do
-    if not ext:find("permission%-gate") then kept[#kept + 1] = ext end
+  if ctx.config.extensions then
+    local kept = {}
+    for _, ext in ipairs(ctx.config.extensions) do
+      if not ext:find("permission%-gate") then kept[#kept + 1] = ext end
+    end
+    ctx.config.extensions = kept
+    ctx.stage.exclude("extensions/permission-gate.ts")
   end
-  ctx.config.extensions = kept
-  ctx.stage.exclude("extensions/permission-gate.ts")
 end)
 `
 

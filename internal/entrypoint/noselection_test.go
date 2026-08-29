@@ -112,3 +112,33 @@ func TestPackAliasesDerivesFromLaunchFlags(t *testing.T) {
 		t.Errorf("packAliases = %q, want %q", got, want)
 	}
 }
+
+// TestPackAliasesIncludesAutonomousPostureFlags verifies that packs declaring launch flags
+// inside the autonomous posture (like claude's --dangerously-skip-permissions) have their
+// shell alias properly generated in .bashrc.
+func TestPackAliasesIncludesAutonomousPostureFlags(t *testing.T) {
+	home := t.TempDir()
+	root := t.TempDir()
+	p, err := embeddedPack("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(root, "claude")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(p.Root, "pack.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "pack.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": root})
+	got := packAliases(e)
+	want := "alias claude='claude --dangerously-skip-permissions'"
+	if got != want {
+		t.Errorf("packAliases = %q, want %q", got, want)
+	}
+}

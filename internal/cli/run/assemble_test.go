@@ -490,6 +490,9 @@ func podmanLinuxGolden(home string) []string {
 		"-e", "YOLO_LSP_GO_INSTALL=",
 		"-e", "YOLO_MCP_SERVERS={}",
 		"-e", "YOLO_MCP_PRESETS=[]",
+		"-e", "YOLO_PROVIDERS={}",
+		"-e", "YOLO_AGENT_PROFILES={}",
+		"-e", "YOLO_REQUIRED_CAPABILITIES=[]",
 		"-e", "YOLO_RUNTIME=podman",
 	)
 	// yolo-user-env.sh mount.

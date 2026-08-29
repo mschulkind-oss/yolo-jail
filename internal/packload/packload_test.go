@@ -50,10 +50,10 @@ func TestEmbeddedPackSurfacesDecode(t *testing.T) {
 		}
 		total += len(surfaces)
 	}
-	// The registry had 11 surfaces across the six agents; mise's is not an agent's, so
-	// the packs carry 10. A drop here means a pack lost a surface in translation.
-	if total != 10 {
-		t.Errorf("official packs declare %d surfaces, want 10", total)
+	// The official packs carry 11 surfaces across the agents.
+	// A drop here means a pack lost a surface in translation.
+	if total != 11 {
+		t.Errorf("official packs declare %d surfaces, want 11", total)
 	}
 }
 

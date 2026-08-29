@@ -44,7 +44,13 @@ Flags:
                      already running for this workspace.
   --network <mode>   Override the network mode for this launch
                      (also --network=<mode>).
-  --profile          Report host-side and in-jail startup timings.
+  --profile <name>   Select active profile or provider preset for this launch (also -p <name>).
+                     Without an argument, reports startup timings.
+  --auth <mode>      Select Claude auth mode / provider preset (also --claude-auth=<mode>).
+  --claude-auth <mode>
+                     Select Claude auth mode / provider preset (e.g. bedrock, teams).
+  --agent-profile <agent>=<provider>
+                     Override active provider for specific agents (e.g. pi=glm,claude=bedrock).
   --dry-run          macos-user runtime only: print the plan without launching.
   --accept-config-changes
                      Approve a changed jail config on a launch with no terminal
@@ -62,7 +68,7 @@ Global options are listed by 'yolo --help'; the full config reference is
 // runFlags is every flag runRun itself consumes. It exists so the usage text and
 // the parser cannot drift apart silently (TestRunUsageListsEveryRunFlag), and so
 // runHelpRequested's "keep scanning past a run flag" branch has one definition.
-var runFlags = []string{"--new", "--profile", "--dry-run", "--network", "--accept-config-changes"}
+var runFlags = []string{"--new", "--profile", "--dry-run", "--network", "--accept-config-changes", "--auth", "--claude-auth", "--agent-profile"}
 
 // runHelpRequested reports whether args (the rewritten argv[1:], so it may carry
 // the injected "run" token anywhere before `--`) asks for RUN's help rather than
@@ -90,7 +96,7 @@ func runHelpRequested(args []string) bool {
 			return true
 		case a == "run" && !sawRun:
 			sawRun = true // the injected/leading subcommand token
-		case a == "--network":
+		case a == "--network" || a == "--claude-auth" || a == "--auth" || a == "--agent-profile" || a == "-p":
 			i++ // its value, whatever it looks like
 		case len(a) > 1 && a[0] == '-':
 			// Another flag (a run flag, or a stray one runRun ignores). Keep scanning:
@@ -142,7 +148,52 @@ func parseRunArgs(args []string, opts *run.Options) {
 		case a == "--new":
 			opts.New = true
 		case a == "--profile":
-			opts.Profile = true
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && args[i+1] != "run" && args[i+1] != "--" {
+				i++
+				opts.ProfileName = args[i]
+			} else {
+				opts.Profile = true
+			}
+		case len(a) > len("--profile=") && strings.HasPrefix(a, "--profile="):
+			opts.ProfileName = strings.TrimPrefix(a, "--profile=")
+		case a == "-p":
+			if i+1 < len(args) {
+				i++
+				opts.ProfileName = args[i]
+			}
+		case len(a) > len("-p=") && strings.HasPrefix(a, "-p="):
+			opts.ProfileName = strings.TrimPrefix(a, "-p=")
+		case a == "--claude-auth" || a == "--auth":
+			if i+1 < len(args) {
+				i++
+				opts.ClaudeAuth = args[i]
+			}
+		case len(a) > len("--claude-auth=") && strings.HasPrefix(a, "--claude-auth="):
+			opts.ClaudeAuth = strings.TrimPrefix(a, "--claude-auth=")
+		case len(a) > len("--auth=") && strings.HasPrefix(a, "--auth="):
+			opts.ClaudeAuth = strings.TrimPrefix(a, "--auth=")
+		case a == "--agent-profile":
+			if i+1 < len(args) {
+				i++
+				if opts.AgentProfiles == nil {
+					opts.AgentProfiles = make(map[string]string)
+				}
+				for _, pair := range strings.Split(args[i], ",") {
+					if parts := strings.SplitN(pair, "=", 2); len(parts) == 2 {
+						opts.AgentProfiles[parts[0]] = parts[1]
+					}
+				}
+			}
+		case len(a) > len("--agent-profile=") && strings.HasPrefix(a, "--agent-profile="):
+			if opts.AgentProfiles == nil {
+				opts.AgentProfiles = make(map[string]string)
+			}
+			val := strings.TrimPrefix(a, "--agent-profile=")
+			for _, pair := range strings.Split(val, ",") {
+				if parts := strings.SplitN(pair, "=", 2); len(parts) == 2 {
+					opts.AgentProfiles[parts[0]] = parts[1]
+				}
+			}
 		case a == "--dry-run":
 			opts.DryRun = true
 		// Spelled as a LITERAL, not as config.AcceptConfigChangesFlag, even though

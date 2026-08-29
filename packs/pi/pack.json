@@ -35,6 +35,13 @@
           "retireOnFirstRender": [
             "yolo-host-synced-settings.json"
           ]
+        },
+        {
+          "agent": "pi",
+          "codec": "json",
+          "mode": "computed",
+          "name": "models",
+          "path": "~/.pi/agent/models.json"
         }
       ],
       "kind": "config"

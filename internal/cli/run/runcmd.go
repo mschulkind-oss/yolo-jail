@@ -52,6 +52,12 @@ type Options struct {
 	// child process or outlive the launch that was approved. See
 	// config.AcceptConfigChangesFlag, which owns the spelling.
 	AcceptConfigChanges bool
+	// ProfileName is --profile <name> or -p <name> (e.g. "glm" or "glm-dev").
+	ProfileName string
+	// ClaudeAuth is --claude-auth <mode> or --auth <mode> (e.g. "bedrock", "teams").
+	ClaudeAuth string
+	// AgentProfiles is --agent-profile <agent>=<provider> overrides.
+	AgentProfiles map[string]string
 	// Args is ctx.args — the command after `--` (empty → interactive bash).
 	Args []string
 

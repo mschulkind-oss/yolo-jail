@@ -3,6 +3,7 @@ package entrypoint
 import (
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -18,13 +19,13 @@ func packAliases(e *Env) string {
 	if err != nil {
 		return ""
 	}
+	flagsByBin := packload.LaunchFlagsFor(packs, true)
 	var lines []string
 	for _, p := range packs {
 		// Every honored install, not the first: a pack declaring two programs with
 		// launchFlags for both needs two aliases, for the same reason it needs two
 		// launchers (shims.go).
 		installs, _ := p.HonoredInstalls()
-		flagsByBin := p.Decl.LaunchFlagContributions()
 		for _, inst := range installs {
 			flags := flagsByBin[inst.Bin]
 			if len(flags) == 0 {

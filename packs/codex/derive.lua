@@ -1,24 +1,41 @@
--- codex: near-passthrough of the canonical MCP entry {command, args, env} into
--- codex's mcp_servers block. Was computed[] {from: mcp_servers, to: mcp_servers,
--- omitEmpty: true, project: copy command / copy args / default args=[] / copy env
--- omitEmpty}.
---
--- omitEmpty on the whole decl: when there are no MCP servers, the mcp_servers key
--- is dropped ENTIRELY (not emitted as {}), so an empty config leaves codex's TOML
--- without an mcp_servers table.
+-- codex: project MCP servers and model_providers into codex's TOML format.
 yolo.derive("codex", "config", function(ctx)
-  if next(ctx.mcp_servers) == nil then
-    return {} -- omitEmpty: no servers → no mcp_servers key at all
+  local res = {}
+
+  -- 1. MCP servers
+  if next(ctx.mcp_servers) ~= nil then
+    local out = {}
+    for name, s in pairs(ctx.mcp_servers) do
+      local e = {}
+      e.command = s.command
+      -- copy args, default to [] when absent (empty_array → JSON/TOML []).
+      e.args = s.args or ctx.empty_array
+      -- copy env, omitEmpty: only when non-empty.
+      if s.env ~= nil and next(s.env) ~= nil then e.env = s.env end
+      out[name] = e
+    end
+    res.mcp_servers = out
   end
-  local out = {}
-  for name, s in pairs(ctx.mcp_servers) do
-    local e = {}
-    e.command = s.command
-    -- copy args, default to [] when absent (empty_array → JSON/TOML []).
-    e.args = s.args or ctx.empty_array
-    -- copy env, omitEmpty: only when non-empty.
-    if s.env ~= nil and next(s.env) ~= nil then e.env = s.env end
-    out[name] = e
+
+  -- 2. Model providers
+  if ctx.providers and next(ctx.providers) ~= nil then
+    local provOut = {}
+    for name, prov in pairs(ctx.providers) do
+      if type(prov) == "table" and prov.base_url then
+        local entry = {
+          base_url = prov.base_url,
+          wire_api = prov.wire_api or "responses",
+        }
+        if prov.api_key_env then
+          entry.api_key_env = prov.api_key_env
+        end
+        provOut[name] = entry
+      end
+    end
+    if next(provOut) ~= nil then
+      res.model_providers = provOut
+    end
   end
-  return { mcp_servers = out }
+
+  return res
 end)
