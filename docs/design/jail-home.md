@@ -393,7 +393,7 @@ Only the home-relevant ones expanded; the rest one-lined for orientation.
   Destinations are pack data, not pairs in a table:
   claude→`.claude/CLAUDE.md`, copilot→`.copilot/AGENTS.md`,
   codex→`.codex/AGENTS.md`, opencode→`.config/opencode/AGENTS.md`,
-  pi→`.pi/agent/AGENTS.md`, agy→`.gemini/antigravity-cli/AGENTS.md`. Two packs
+  pi→`.pi/agent/AGENTS.md`, agy→`.gemini/config/AGENTS.md`. Two packs
   naming one `into` is legal and expected (an agent pack plus a house-rules
   pack); first writer wins the mount, since podman rejects a duplicate mount
   destination. Content regenerated host-side on **every** invocation by

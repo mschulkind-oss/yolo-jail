@@ -37,7 +37,7 @@ completely differently:
 
 | Layer | In-jail path | Who owns it | Yolo's role |
 |---|---|---|---|
-| **User-level briefing** | one per `briefing` contribution — `~/.claude/CLAUDE.md`, `~/.copilot/AGENTS.md`, `~/.codex/AGENTS.md`, `~/.config/opencode/AGENTS.md`, `~/.pi/agent/AGENTS.md`, `~/.gemini/antigravity-cli/AGENTS.md` (agy) | yolo (generated) | Generated per jail, mounted read-only |
+| **User-level briefing** | one per `briefing` contribution — `~/.claude/CLAUDE.md`, `~/.copilot/AGENTS.md`, `~/.codex/AGENTS.md`, `~/.config/opencode/AGENTS.md`, `~/.pi/agent/AGENTS.md`, `~/.gemini/config/AGENTS.md` (agy) | yolo (generated) | Generated per jail, mounted read-only |
 | **Project-level file** | `/workspace/AGENTS.md`, `/workspace/CLAUDE.md` | the repository | None — it's just a file in the workspace bind, exactly what the repo checked in |
 
 Yolo never writes, rewrites, or merges the project-level files. Everything
@@ -135,7 +135,7 @@ AGENTS_DIR/<cname>/briefing-copilot.md   →  /home/agent/.copilot/AGENTS.md:ro
 AGENTS_DIR/<cname>/briefing-codex.md     →  /home/agent/.codex/AGENTS.md:ro
 AGENTS_DIR/<cname>/briefing-opencode.md  →  /home/agent/.config/opencode/AGENTS.md:ro
 AGENTS_DIR/<cname>/briefing-pi.md        →  /home/agent/.pi/agent/AGENTS.md:ro
-AGENTS_DIR/<cname>/briefing-agy.md       →  /home/agent/.gemini/antigravity-cli/AGENTS.md:ro
+AGENTS_DIR/<cname>/briefing-agy.md       →  /home/agent/.gemini/config/AGENTS.md:ro
 ```
 
 > [!WARNING]

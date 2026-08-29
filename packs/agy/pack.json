@@ -10,8 +10,8 @@
       "via": "installer"
     },
     {
-      "after": "host:.gemini/antigravity-cli/AGENTS.md",
-      "into": ".gemini/antigravity-cli/AGENTS.md",
+      "after": "host:.gemini/config/AGENTS.md",
+      "into": ".gemini/config/AGENTS.md",
       "kind": "briefing"
     },
     {
