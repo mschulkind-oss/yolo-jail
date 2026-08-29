@@ -52,6 +52,8 @@ type ExecResult struct {
 type Options struct {
 	// Build mirrors the --build/--no-build flag (default true when wired).
 	Build bool
+	// AcceptConfigChanges pre-approves workspace config and writes the approval snapshot host-side (OQ-S2).
+	AcceptConfigChanges bool
 	// Now is the clock seam for the broker creds-freshness check (the only
 	// time-dependent output). nil => time.Now.
 	Now func() time.Time

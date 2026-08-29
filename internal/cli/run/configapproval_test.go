@@ -308,3 +308,23 @@ func methodDecl(t *testing.T, file, name string) *ast.FuncDecl {
 	t.Fatalf("%s has no method %s", file, name)
 	return nil
 }
+
+// User config changes (e.g. adding a pack or loophole globally) must not trigger
+// approval prompts or refusals on existing workspaces (OQ-S1).
+func TestUserConfigChangeDoesNotTriggerWorkspacePrompt(t *testing.T) {
+	ws := t.TempDir()
+	o, _ := approvalOptions(t, ws, false /*non-tty*/)
+
+	// Establish baseline for workspace config.
+	wsCfg := approvalConfig(t, `{"packages": ["strace"]}`)
+	if ok, err := config.CheckConfigChanges(ws, wsCfg, false, true, nil); err != nil || !ok {
+		t.Fatalf("establishing baseline: ok=%v err=%v", ok, err)
+	}
+
+	// Host user modifies ~/.config/yolo-jail/config.jsonc (e.g. adding serial loophole pack).
+	// The workspace config itself remains unchanged.
+	// CheckConfigChanges must pass with zero prompts and zero refusals.
+	if !o.checkConfigChanges(wsCfg) {
+		t.Fatal("user-level config change must not refuse or prompt on an unchanged workspace")
+	}
+}

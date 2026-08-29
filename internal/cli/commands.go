@@ -642,11 +642,12 @@ workspace config, the jail image, the configured packs, the loopholes, and any
 running jails. One section per area; exit is non-zero if any section FAILs.
 
 Flags:
-  --build      Build the jail image if it is missing or stale (the default).
-  --no-build   Skip the image build entirely. This is the fast preflight to run
-               after editing yolo-jail.jsonc, and the one to use inside a jail.
-  --help, -h   Show this help. Answered before any section runs, so asking what
-               check does never triggers a nix build.
+  --build                  Build the jail image if it is missing or stale (the default).
+  --no-build               Skip the image build entirely. This is the fast preflight to run
+                           after editing yolo-jail.jsonc, and the one to use inside a jail.
+  --accept-config-changes  Pre-approve workspace config changes and record the host snapshot.
+  --help, -h               Show this help. Answered before any section runs, so asking what
+                           check does never triggers a nix build.
 
 ` + "`yolo config-ref`" + ` is the schema the config sections validate against.`
 
@@ -672,6 +673,8 @@ func runCheck(args []string) int {
 			opts.Build = false
 		case "--build":
 			opts.Build = true
+		case "--accept-config-changes":
+			opts.AcceptConfigChanges = true
 		}
 	}
 	return check.Check(opts)

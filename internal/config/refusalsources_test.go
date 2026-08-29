@@ -15,8 +15,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // refuse drives CheckConfigChanges to the non-interactive refusal and returns it.
@@ -42,11 +40,8 @@ func TestRefusalNamesTheWorkspaceLocalConfigWhenItExists(t *testing.T) {
 	if !strings.Contains(msg, local) {
 		t.Errorf("the refusal does not name %s, the file that WINS the workspace merge:\n%s", local, msg)
 	}
-	// The other two sources stay named — this is an addition, not a swap.
-	for _, want := range []string{filepath.Join(ws, WorkspaceConfigName), paths.UserConfigPath()} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("the refusal stopped naming %s:\n%s", want, msg)
-		}
+	if want := filepath.Join(ws, WorkspaceConfigName); !strings.Contains(msg, want) {
+		t.Errorf("the refusal does not name %s:\n%s", want, msg)
 	}
 }
 

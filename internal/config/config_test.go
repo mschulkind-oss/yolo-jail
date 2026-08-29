@@ -175,12 +175,40 @@ func approve(t *testing.T, ws string, cfg *jsonx.OrderedMap) {
 	}
 }
 
-func TestCheckConfigChangesFirstRunSaves(t *testing.T) {
+func TestCheckConfigChangesEmptyWorkspacePassesSilently(t *testing.T) {
 	ws := approvalWorkspace(t)
-	config := decode(t, `{"packages": ["strace"]}`)
+	config := decode(t, `{}`)
 	ok, err := CheckConfigChanges(ws, config, false, false, nil)
 	if err != nil || !ok {
-		t.Fatalf("first run: ok=%v err=%v", ok, err)
+		t.Fatalf("empty config first run: ok=%v err=%v", ok, err)
+	}
+	if _, err := os.Stat(ApprovalSnapshotPath(ws)); err != nil {
+		t.Errorf("snapshot not written: %v", err)
+	}
+}
+
+func TestCheckConfigChangesFreshWorkspaceNonEmptyPrompts(t *testing.T) {
+	ws := approvalWorkspace(t)
+	config := decode(t, `{"packages": ["strace"]}`)
+
+	// Without flag or TTY prompter -> refused
+	ok, err := CheckConfigChanges(ws, config, false, false, nil)
+	if ok || err == nil {
+		t.Fatalf("fresh non-empty workspace without TTY or flag must refuse, got ok=%v err=%v", ok, err)
+	}
+
+	// With TTY prompter -> prompts with "none (initial launch)" and saves
+	prompter := &recordingPrompter{accept: true}
+	ok, err = CheckConfigChanges(ws, config, true, false, prompter)
+	if err != nil || !ok {
+		t.Fatalf("fresh workspace TTY accept failed: ok=%v err=%v", ok, err)
+	}
+	if !prompter.called {
+		t.Fatal("fresh non-empty workspace must prompt")
+	}
+	joined := strings.Join(prompter.diff, "\n")
+	if !strings.Contains(joined, "none (initial launch)") || !strings.Contains(joined, "strace") {
+		t.Errorf("fresh workspace prompt should show initial launch diff:\n%s", joined)
 	}
 	if _, err := os.Stat(ApprovalSnapshotPath(ws)); err != nil {
 		t.Errorf("snapshot not written: %v", err)
@@ -255,7 +283,6 @@ func TestCheckConfigChangesNonTTYRefuses(t *testing.T) {
 	for _, want := range []string{
 		AcceptConfigChangesFlag,
 		filepath.Join(ws, WorkspaceConfigName),
-		paths.UserConfigPath(),
 		ApprovalSnapshotPath(ws),
 		"+    \"htop\"",
 	} {
@@ -332,74 +359,29 @@ func TestCheckConfigChangesTTYNoRejectsAndKeepsSnapshot(t *testing.T) {
 	}
 }
 
-// ---- OQ-D1 migration: an existing workspace's old snapshot ----
+// ---- OQ-S3: Fresh workspace initial configuration confirmation ----
 
-// A workspace that has been launched before carries a snapshot at the OLD
-// workspace-side path. Its content is exactly what the ruling declares
-// untrustworthy — a file the jail could have written — so it is never adopted as a
-// baseline. But its PRESENCE is a fact worth acting on: it distinguishes a
-// migration from a first run, and a first run accepts silently. So the migration
-// re-approves, diffing against an empty previous config.
-func TestCheckConfigChangesMigrationReApproves(t *testing.T) {
+// A fresh workspace with non-empty configuration prompts on first launch.
+// When rejected, no approval snapshot is recorded.
+func TestCheckConfigChangesFreshWorkspaceRefusedRecordsNoSnapshot(t *testing.T) {
 	ws := approvalWorkspace(t)
 	cfg := decode(t, `{"packages": ["strace"]}`)
-	// The legacy record says the SAME thing the live config says — the case where
-	// adopting it would be most tempting and least defensible.
-	legacyJSON, _ := SnapshotJSON(cfg)
-	write(t, LegacyWorkspaceSnapshotPath(ws), legacyJSON+"\n")
-
-	prompter := &recordingPrompter{accept: true}
-	ok, err := CheckConfigChanges(ws, cfg, true, false, prompter)
-	if err != nil || !ok {
-		t.Fatalf("migration accept: ok=%v err=%v", ok, err)
-	}
-	if !prompter.called {
-		t.Fatal("a workspace with a legacy snapshot must re-prompt, not silently first-run")
-	}
-	// The diff shows the whole config as new, and its header says why a human who
-	// changed nothing is being asked.
-	joined := strings.Join(prompter.diff, "\n")
-	if !strings.Contains(joined, "no longer trusted") || !strings.Contains(joined, "strace") {
-		t.Errorf("migration diff should explain itself and show the config:\n%s", joined)
-	}
-	// Approval lands host-side, and the legacy file is retired so nothing keeps
-	// pointing readers at the mount the record just left.
-	if _, err := os.Stat(ApprovalSnapshotPath(ws)); err != nil {
-		t.Errorf("host-side snapshot not written after migration: %v", err)
-	}
-	if _, err := os.Stat(LegacyWorkspaceSnapshotPath(ws)); !os.IsNotExist(err) {
-		t.Errorf("legacy workspace snapshot survived the migration (err=%v)", err)
-	}
-}
-
-// A refused migration keeps the legacy file, so the NEXT launch still sees a
-// migration rather than sliding into the silent first-run branch.
-func TestCheckConfigChangesMigrationRefusedKeepsTheSignal(t *testing.T) {
-	ws := approvalWorkspace(t)
-	cfg := decode(t, `{"packages": ["strace"]}`)
-	write(t, LegacyWorkspaceSnapshotPath(ws), "{}\n")
 
 	ok, _ := CheckConfigChanges(ws, cfg, true, false, noPrompter{})
 	if ok {
-		t.Fatal("a rejected migration must not proceed")
-	}
-	if _, err := os.Stat(LegacyWorkspaceSnapshotPath(ws)); err != nil {
-		t.Errorf("the migration signal must survive a rejection: %v", err)
+		t.Fatal("a rejected initial config must not proceed")
 	}
 	if _, err := os.Stat(ApprovalSnapshotPath(ws)); !os.IsNotExist(err) {
-		t.Errorf("a rejected migration must not record an approval (err=%v)", err)
+		t.Errorf("a rejected initial config must not record an approval (err=%v)", err)
 	}
 }
 
-// Non-interactive migration is refused like any other unapproved change — the
-// upgrade must not be the one launch that slips a config change through.
-func TestCheckConfigChangesMigrationNonTTYRefuses(t *testing.T) {
+// Non-interactive initial launch of a workspace with packages/configuration is refused without the flag.
+func TestCheckConfigChangesFreshWorkspaceNonTTYRefuses(t *testing.T) {
 	ws := approvalWorkspace(t)
-	write(t, LegacyWorkspaceSnapshotPath(ws), "{}\n")
-
 	ok, err := CheckConfigChanges(ws, decode(t, `{"packages": ["strace"]}`), false, false, nil)
 	if ok {
-		t.Fatal("non-tty migration must refuse")
+		t.Fatal("non-tty fresh launch with packages must refuse")
 	}
 	var refusal *ChangedNonInteractiveError
 	if !errors.As(err, &refusal) {

@@ -280,11 +280,10 @@ type changePrompter struct{ o *Options }
 
 func (p *changePrompter) Prompt(diffLines []string) bool {
 	out := p.o.pr(p.o.Stdout)
-	out.print("\n[bold yellow]⚠  Jail config changed since last run:[/bold yellow]\n")
+	out.print("\n[bold yellow]⚠  Workspace config changed since last run:[/bold yellow]\n")
 	printConfigDiff(out, diffLines)
 	out.print("")
-	// input("Accept these config changes? [y/N] ")
-	if _, err := p.o.Stdout.Write([]byte("Accept these config changes? [y/N] ")); err != nil {
+	if _, err := p.o.Stdout.Write([]byte("Accept these workspace config changes? [y/N] ")); err != nil {
 		return false
 	}
 	scanner := bufio.NewScanner(p.o.Stdin)

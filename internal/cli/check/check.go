@@ -419,6 +419,22 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 		return true
 	}
 	r.ok("Merged config is semantically valid")
+	if o.AcceptConfigChanges {
+		if o.inJail() {
+			r.warn("--accept-config-changes is host-only (disabled inside running jail)", "")
+		} else {
+			wsCfg, err := config.LoadWorkspaceConfig(workspace, false, func(string) {})
+			if err == nil {
+				snapJSON, snapErr := config.SnapshotJSON(wsCfg)
+				if snapErr == nil {
+					_ = os.MkdirAll(paths.ApprovalsDir(), 0o755)
+					if writeErr := os.WriteFile(config.ApprovalSnapshotPath(workspace), []byte(snapJSON+"\n"), 0o644); writeErr == nil {
+						r.ok("Approved workspace config recorded to host approval snapshot")
+					}
+				}
+			}
+		}
+	}
 	r.blank()
 	return false
 }
