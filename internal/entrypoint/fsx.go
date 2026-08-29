@@ -26,6 +26,7 @@ package entrypoint
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // WriteInPlace writes data to path by TRUNCATING the existing file in place
@@ -45,6 +46,22 @@ func WriteInPlace(path string, data []byte, perm os.FileMode) error {
 // WriteStringInPlace is the string convenience form of WriteInPlace.
 func WriteStringInPlace(path, data string, perm os.FileMode) error {
 	return WriteInPlace(path, []byte(data), perm)
+}
+
+// IsMountPoint returns true if path is a mount point inside the container.
+func IsMountPoint(path string) bool {
+	clean := filepath.Clean(path)
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 5 && fields[4] == clean {
+			return true
+		}
+	}
+	return false
 }
 
 // ClearContents removes every entry INSIDE dir but leaves dir itself in place

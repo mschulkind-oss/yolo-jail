@@ -405,8 +405,18 @@ func PackageRootsDir() string { return filepath.Join(BuildDir(), "package-roots"
 // collision is structurally impossible.
 func FlakeBundleDir() string { return filepath.Join(GlobalStorage(), "flake-bundle") }
 
-// UserConfigPath returns $HOME/.config/yolo-jail/config.jsonc.
-func UserConfigPath() string { return filepath.Join(home(), userConfigSuffix) }
+// UserConfigPath returns $HOME/.config/yolo-jail/config.jsonc (or config.json if config.jsonc is absent).
+func UserConfigPath() string {
+	p := filepath.Join(home(), userConfigSuffix)
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	jsonP := filepath.Join(home(), ".config/yolo-jail/config.json")
+	if _, err := os.Stat(jsonP); err == nil {
+		return jsonP
+	}
+	return p
+}
 
 // LocalPackDir returns $HOME/.config/yolo-jail/local — the CONVENTIONAL LOCAL PACK: an
 // implicitly-included pack for the user's own skills and briefing prose, needing no `packs`

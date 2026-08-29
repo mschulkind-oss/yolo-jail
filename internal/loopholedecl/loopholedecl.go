@@ -377,18 +377,36 @@ func LoadDirTolerant(dir string) (m *Manifest, skipped []string, err error) {
 // manifest itself — never a path the manifest names.
 func readManifest(dir string) ([]byte, error) {
 	manifestPath := ManifestPath(dir)
-	if fi, err := os.Stat(manifestPath); err != nil || !fi.Mode().IsRegular() {
-		return nil, Errorf("%s not found", manifestPath)
+	if fi, err := os.Stat(manifestPath); err == nil && fi.Mode().IsRegular() {
+		raw, err := os.ReadFile(manifestPath)
+		if err != nil {
+			return nil, Errorf("%s: %s", manifestPath, err)
+		}
+		return raw, nil
 	}
-	raw, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return nil, Errorf("%s: %s", manifestPath, err)
+	altPath := filepath.Join(dir, "manifest.json")
+	if fi, err := os.Stat(altPath); err == nil && fi.Mode().IsRegular() {
+		raw, err := os.ReadFile(altPath)
+		if err != nil {
+			return nil, Errorf("%s: %s", altPath, err)
+		}
+		return raw, nil
 	}
-	return raw, nil
+	return nil, Errorf("%s not found", manifestPath)
 }
 
 // ManifestPath returns where a module directory's manifest lives.
-func ManifestPath(dir string) string { return filepath.Join(dir, ManifestName) }
+func ManifestPath(dir string) string {
+	jsoncPath := filepath.Join(dir, ManifestName)
+	if _, err := os.Stat(jsoncPath); err == nil {
+		return jsoncPath
+	}
+	jsonPath := filepath.Join(dir, "manifest.json")
+	if _, err := os.Stat(jsonPath); err == nil {
+		return jsonPath
+	}
+	return jsoncPath
+}
 
 // decode is the shared walk. strict routes unknown keys into the returned
 // problems; tolerant returns them as skipped notes.

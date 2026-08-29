@@ -493,6 +493,30 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 
 	pr.Printf("[green]✓[/green] pack ok — %d file(s) stage", len(res.Staged))
 
+	// Advice: if a custom pack explicitly declares `briefing` or `skills` into a standard agent path,
+	// remind the author that root-level AGENTS.md or skills/ is automatically routed to all agents.
+	for i, c := range pack.Decl.Contributions() {
+		if c.Kind == packdecl.KindBriefing || c.Kind == packdecl.KindSkills {
+			for _, std := range []string{
+				".claude/CLAUDE.md", ".claude/AGENTS.md", ".claude/skills",
+				".pi/agent/AGENTS.md", ".pi/agent/skills",
+				".gemini/config/AGENTS.md", ".gemini/antigravity-cli/skills",
+				".codex/AGENTS.md", ".codex/skills",
+				".opencode/AGENTS.md", ".opencode/skills",
+			} {
+				if c.Into == std {
+					kindSrc := "AGENTS.md"
+					if c.Kind == packdecl.KindSkills {
+						kindSrc = "skills/"
+					}
+					pr.Printf("[yellow]ℹ[/yellow] contributes[%d]: %s into %q targets an agent's standard path — root-level %s in your pack is automatically routed to all active agents with zero ceremony; declaring it explicitly is unnecessary",
+						i, c.Kind, c.Into, kindSrc)
+					break
+				}
+			}
+		}
+	}
+
 	// The footprint: what this pack CLAIMS on the environment. An author who never
 	// launches a jail still sees, at lint time, exactly what the manifest declares —
 	// the same view `yolo pack footprint` gives, computed from this pack alone.
@@ -594,7 +618,7 @@ func reportShippedSurfaceClash(pr richtext.Printer, p *packload.Pack) {
 // noise for exactly the packs the rule it replaced wrongly rejected. Root-level only: a
 // README INSIDE a skills dir is content, and is claimed by that dir anyway.
 var packNonContentFiles = map[string]bool{
-	"pack.json": true, "derive.lua": true,
+	"pack.json": true, "pack.jsonc": true, "derive.lua": true,
 	"README.md": true, "LICENSE": true, "LICENSE.md": true, "CHANGELOG.md": true,
 	".gitignore": true, ".gitattributes": true,
 }

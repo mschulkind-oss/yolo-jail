@@ -39,6 +39,9 @@ const WritableHomeBackingSubdir = "writable-home"
 // errors, and preflight blocks the run before assembly), so a bad entry never
 // silently mounts something unexpected; it is simply absent.
 func WritableHomeDirs(cfg *jsonx.OrderedMap) []string {
+	if cfg == nil {
+		return nil
+	}
 	v, present := cfg.Get(writableHomeDirsKey)
 	if !present || v == nil {
 		return nil

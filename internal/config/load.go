@@ -199,21 +199,34 @@ func LoadJSONCWithIncludes(path, label string, strict bool, warn Warn, seen map[
 	return result, nil
 }
 
-// LoadWorkspaceConfig loads yolo-jail.jsonc plus yolo-jail.local.jsonc (local
-// wins), sharing the seen set so a config that
-// also includes the local file doesn't merge it twice.
+func resolveWorkspaceConfigPath(workspace, baseName string) (string, string) {
+	jsoncPath := filepath.Join(workspace, baseName)
+	if pathExists(jsoncPath) {
+		return jsoncPath, baseName
+	}
+	jsonName := strings.TrimSuffix(baseName, "c")
+	jsonPath := filepath.Join(workspace, jsonName)
+	if pathExists(jsonPath) {
+		return jsonPath, jsonName
+	}
+	return jsoncPath, baseName
+}
+
+// LoadWorkspaceConfig loads yolo-jail.jsonc (or yolo-jail.json) plus
+// yolo-jail.local.jsonc (or yolo-jail.local.json) (local wins), sharing the seen
+// set so a config that also includes the local file doesn't merge it twice.
 func LoadWorkspaceConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
 	if workspace == "" {
 		workspace = cwd()
 	}
 	seen := map[string]struct{}{}
-	wsCfg, err := LoadJSONCWithIncludes(
-		filepath.Join(workspace, WorkspaceConfigName), WorkspaceConfigName, strict, warn, seen)
+	wsPath, wsLabel := resolveWorkspaceConfigPath(workspace, WorkspaceConfigName)
+	wsCfg, err := LoadJSONCWithIncludes(wsPath, wsLabel, strict, warn, seen)
 	if err != nil {
 		return nil, err
 	}
-	localCfg, err := LoadJSONCWithIncludes(
-		filepath.Join(workspace, WorkspaceLocalConfigName), WorkspaceLocalConfigName, strict, warn, seen)
+	localPath, localLabel := resolveWorkspaceConfigPath(workspace, WorkspaceLocalConfigName)
+	localCfg, err := LoadJSONCWithIncludes(localPath, localLabel, strict, warn, seen)
 	if err != nil {
 		return nil, err
 	}

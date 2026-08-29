@@ -167,3 +167,35 @@ func TestJailShortHashAndHostServicesDir(t *testing.T) {
 		t.Error("two container names produced the same host-services dir")
 	}
 }
+
+func TestUserConfigPathFallsBackToJSON(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	// Neither exists -> returns config.jsonc default path
+	wantJSONC := filepath.Join(tmp, ".config/yolo-jail/config.jsonc")
+	if got := UserConfigPath(); got != wantJSONC {
+		t.Errorf("UserConfigPath() = %q, want %q", got, wantJSONC)
+	}
+
+	// Create config.json only -> returns config.json
+	cfgDir := filepath.Join(tmp, ".config/yolo-jail")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jsonPath := filepath.Join(cfgDir, "config.json")
+	if err := os.WriteFile(jsonPath, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := UserConfigPath(); got != jsonPath {
+		t.Errorf("UserConfigPath() = %q, want %q", got, jsonPath)
+	}
+
+	// Create config.jsonc -> returns config.jsonc (jsonc takes precedence)
+	if err := os.WriteFile(wantJSONC, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := UserConfigPath(); got != wantJSONC {
+		t.Errorf("UserConfigPath() = %q, want %q", got, wantJSONC)
+	}
+}

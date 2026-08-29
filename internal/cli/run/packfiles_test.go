@@ -9,6 +9,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // filesMounts extracts the -v pairs a `files` contribution produced. It matches on the
@@ -317,5 +318,41 @@ func TestStagePacksRefusesFilesCollision(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("stagePacks error missing %q; got: %v", want, err)
 		}
+	}
+}
+
+// TestPrepareWsStateCreatesSkillsAndBriefingMountpointsInGlobalHome tests that mountpoints
+// for skills and briefings are pre-created in GlobalHome, preventing crun EROFS on unselected packs.
+func TestPrepareWsStateCreatesSkillsAndBriefingMountpointsInGlobalHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ws := t.TempDir()
+
+	// Pack contributing skills and briefing to an unselected agent dir (.pi/agent/...)
+	root := t.TempDir()
+	manifest := `{"name":"custom-contributor","contributes":[
+		{"kind":"skills","from":"skills","into":".pi/agent/skills"},
+		{"kind":"briefing","from":"AGENTS.md","into":".pi/agent/AGENTS.md"}
+	]}`
+	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, problems := packload.LoadDir(root, "custom-contributor", true)
+	if len(problems) != 0 {
+		t.Fatalf("loading pack: %v", problems)
+	}
+
+	o := &Options{Workspace: ws}
+	_ = o.prepareWsState(nil, []*packload.Pack{p})
+
+	// Verify GlobalHome mountpoints were created
+	skillsPath := filepath.Join(paths.GlobalHome(), ".pi", "agent", "skills")
+	if fi, err := os.Stat(skillsPath); err != nil || !fi.IsDir() {
+		t.Errorf("skills mountpoint in GlobalHome %s was not created as dir: %v", skillsPath, err)
+	}
+
+	briefingPath := filepath.Join(paths.GlobalHome(), ".pi", "agent", "AGENTS.md")
+	if fi, err := os.Stat(briefingPath); err != nil || fi.IsDir() {
+		t.Errorf("briefing mountpoint in GlobalHome %s was not created as file: %v", briefingPath, err)
 	}
 }

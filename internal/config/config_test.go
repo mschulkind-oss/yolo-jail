@@ -125,6 +125,25 @@ func TestWorkspaceExplicitIncludeOfLocalNotMergedTwice(t *testing.T) {
 	assertPackages(t, m, "just", "htop")
 }
 
+func TestLoadWorkspaceConfigSupportsJSONExtension(t *testing.T) {
+	dir := t.TempDir()
+	// Write yolo-jail.json (without 'c') with JSONC comments & trailing commas
+	write(t, filepath.Join(dir, "yolo-jail.json"), `{
+		// Comments in .json file
+		"packages": ["just"],
+		"network": {"mode": "bridge",},
+	}`)
+	write(t, filepath.Join(dir, "yolo-jail.local.json"), `{
+		// Local override in .json
+		"packages": ["htop"],
+	}`)
+	m, err := LoadWorkspaceConfig(dir, false, discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPackages(t, m, "just", "htop")
+}
+
 // ---- CheckConfigChanges control flow (TestConfigSnapshot) ----
 
 // approvalWorkspace sets up an isolated HOST for one approval test: a real

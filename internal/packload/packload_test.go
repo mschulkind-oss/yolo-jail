@@ -203,3 +203,32 @@ func writeManifest(t *testing.T, root, body string) {
 		t.Fatal(err)
 	}
 }
+
+func TestLoadDirSupportsPackJSONC(t *testing.T) {
+	dir := t.TempDir()
+	jsoncContent := `{
+		// A pack manifest using jsonc
+		"name": "my-jsonc-pack",
+		"description": "testing pack.jsonc discovery",
+		"contributes": [
+			{
+				"kind": "skills",
+				"into": ".custom/skills",
+			},
+		],
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.jsonc"), []byte(jsoncContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p, problems := LoadDir(dir, "my-jsonc-pack", false)
+	if len(problems) != 0 {
+		t.Fatalf("LoadDir failed on pack.jsonc: %v", problems)
+	}
+	if p.Name != "my-jsonc-pack" {
+		t.Errorf("p.Name = %q, want my-jsonc-pack", p.Name)
+	}
+	if len(p.Decl.Contributes) != 1 || p.Decl.Contributes[0].Into != ".custom/skills" {
+		t.Errorf("contributions = %+v, want 1 skills contribution", p.Decl.Contributes)
+	}
+}

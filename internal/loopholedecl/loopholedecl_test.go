@@ -478,6 +478,32 @@ func TestLoadDirIsTheSeam(t *testing.T) {
 		t.Errorf("LoadDir and LoadDirTolerant disagree on a clean manifest")
 	}
 
+	// manifest.json without 'c' also loads cleanly
+	jsonDir := filepath.Join(root, "json-module")
+	if err := os.MkdirAll(jsonDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jsonBody := []byte(`{
+		// JSONC comments in manifest.json
+		"name": "json-module",
+		"description": "using manifest.json",
+		"version": 1,
+		"host_daemon": {
+			"cmd": ["python3", "{loophole_dir}/srv.py"],
+			"publishes": "socket",
+		},
+	}`)
+	if err := os.WriteFile(filepath.Join(jsonDir, "manifest.json"), jsonBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	jsonM, err := loopholedecl.LoadDir(jsonDir)
+	if err != nil {
+		t.Fatalf("LoadDir on manifest.json failed: %v", err)
+	}
+	if jsonM.Name != "json-module" {
+		t.Errorf("Name = %q, want json-module", jsonM.Name)
+	}
+
 	// The name/directory agreement is checked against the DIRECTORY, which is what
 	// makes a manifest's identity un-spoofable by its own contents.
 	other := filepath.Join(root, "renamed")

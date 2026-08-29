@@ -320,10 +320,22 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 		_ = os.MkdirAll(filepath.Join(paths.GlobalHome(), rel), 0o755)
 	}
 
-	// Mountpoints for the PACK-DECLARED `files` trees, same GlobalHome recipe and same
-	// reason as writable_home_dirs above (the source side needs nothing: the bind source
-	// IS the pack's staged tree, which staging already created).
+	// Mountpoints for the PACK-DECLARED `files` trees, skills, and briefings, same GlobalHome
+	// recipe and same reason as writable_home_dirs above (the source side needs nothing: the bind
+	// source IS the pack's staged tree, which staging already created).
 	preparePackFiles(loadedPacks)
+	for _, target := range packSkillTargets(loadedPacks) {
+		_ = os.MkdirAll(filepath.Join(paths.GlobalHome(), filepath.FromSlash(target.Dest)), 0o755)
+	}
+	for _, p := range loadedPacks {
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind == packdecl.KindBriefing && c.Into != "" {
+				dest := filepath.Join(paths.GlobalHome(), filepath.FromSlash(c.Into))
+				_ = os.MkdirAll(filepath.Dir(dest), 0o755)
+				touchFile(dest)
+			}
+		}
+	}
 	for _, fname := range []string{
 		"bash_history", "yolo-bootstrap.sh", "yolo-venv-precreate.sh",
 		"yolo-perf.log", "yolo-socat.log", "yolo-entrypoint.lock",

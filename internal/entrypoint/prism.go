@@ -276,6 +276,9 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 	}
 
 	// Persist the render to the jail surface path.
+	if IsMountPoint(surfacePath) {
+		return out, nil
+	}
 	if err := os.MkdirAll(filepath.Dir(surfacePath), 0o755); err != nil {
 		return nil, err
 	}
@@ -432,6 +435,9 @@ func renderSurfaceStatelessSurface(e *Env, surface manifest.Surface, hostBytes [
 	}
 
 	surfacePath := expandHomePath(e, surface.Path)
+	if IsMountPoint(surfacePath) {
+		return res, nil
+	}
 	if err := os.MkdirAll(filepath.Dir(surfacePath), 0o755); err != nil {
 		return nil, err
 	}

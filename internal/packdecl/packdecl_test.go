@@ -221,3 +221,40 @@ func TestSkewSkipKeepsOriginalIndicesInProblems(t *testing.T) {
 		t.Errorf("the launch problem must keep its ORIGINAL index contributes[2]: %v", problems)
 	}
 }
+
+func TestDecodePermitsJSONCCommentsAndTrailingCommas(t *testing.T) {
+	manifest := []byte(`{
+		// Single-line comment
+		"name": "jsonc-pack",
+		/* Multi-line
+		   block comment */
+		"description": "supports jsonc seamlessly",
+		"contributes": [
+			{
+				"kind": "skills",
+				"from": "skills",
+				"into": ".jsonc/skills", // trailing comma inside item
+			},
+		], // trailing comma in list
+	}`)
+
+	m, problems := Decode(manifest)
+	if len(problems) != 0 {
+		t.Fatalf("Decode must parse JSONC with comments and trailing commas, got: %v", problems)
+	}
+	if m.Name != "jsonc-pack" {
+		t.Errorf("name = %q, want jsonc-pack", m.Name)
+	}
+	if len(m.Contributes) != 1 || m.Contributes[0].Into != ".jsonc/skills" {
+		t.Errorf("contributions = %+v, want 1 skills contribution", m.Contributes)
+	}
+
+	// Also tolerant decoding
+	mTolerant, problemsT, skippedT := DecodeTolerant(manifest)
+	if len(problemsT) != 0 || len(skippedT) != 0 {
+		t.Fatalf("DecodeTolerant must parse JSONC cleanly, got problems: %v, skipped: %v", problemsT, skippedT)
+	}
+	if mTolerant.Name != "jsonc-pack" {
+		t.Errorf("mTolerant name = %q, want jsonc-pack", mTolerant.Name)
+	}
+}

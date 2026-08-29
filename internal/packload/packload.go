@@ -332,8 +332,19 @@ func TolerateSkew() { tolerateUnknownFields = true }
 func LoadDir(root, name string, mayAccessHost bool) (*Pack, []string) {
 	decl := &packdecl.Manifest{}
 	var problems, skewNotes []string
-	data, err := os.ReadFile(filepath.Join(root, packdecl.ManifestName))
-	if err == nil {
+	var data []byte
+	var manifestFound string
+	for _, mName := range []string{"pack.jsonc", packdecl.ManifestName} {
+		d, err := os.ReadFile(filepath.Join(root, mName))
+		if err == nil {
+			data = d
+			manifestFound = mName
+			break
+		} else if !os.IsNotExist(err) {
+			return nil, []string{"pack " + name + ": " + err.Error()}
+		}
+	}
+	if manifestFound != "" {
 		if tolerateUnknownFields {
 			decl, problems, skewNotes = packdecl.DecodeTolerant(data)
 		} else {
@@ -348,8 +359,6 @@ func LoadDir(root, name string, mayAccessHost bool) (*Pack, []string) {
 		for i, note := range skewNotes {
 			skewNotes[i] = "pack " + name + ": " + note
 		}
-	} else if !os.IsNotExist(err) {
-		return nil, []string{"pack " + name + ": " + err.Error()}
 	}
 	if name == "" {
 		name = decl.Name

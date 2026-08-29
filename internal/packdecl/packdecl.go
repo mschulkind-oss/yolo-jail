@@ -21,10 +21,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/json5"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // ManifestName is the file a pack declares itself in, at its root.
 const ManifestName = "pack.json"
+
+func cleanJSON5(data []byte) ([]byte, error) {
+	v, err := json5.Decode(data)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(jsonx.Plain(v))
+}
 
 // Manifest is a pack's self-declaration.
 //
@@ -156,8 +167,12 @@ type HostFile struct {
 // Use DecodeTolerant instead when reading a manifest that some OTHER build wrote — see its
 // doc for why the strictness has to stop at the version boundary.
 func Decode(data []byte) (*Manifest, []string) {
+	clean, err := cleanJSON5(data)
+	if err != nil {
+		return nil, []string{ManifestName + ": " + err.Error()}
+	}
 	var m Manifest
-	dec := json.NewDecoder(bytes.NewReader(data))
+	dec := json.NewDecoder(bytes.NewReader(clean))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&m); err != nil {
 		return nil, []string{ManifestName + ": " + err.Error()}
@@ -238,8 +253,12 @@ func (m *Manifest) retiredFieldProblems() []string {
 // loudly here — with each problem labeled by the entry's ORIGINAL index, the one the
 // author sees in pack.json.
 func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
+	clean, err := cleanJSON5(data)
+	if err != nil {
+		return nil, []string{ManifestName + ": " + err.Error()}, nil
+	}
 	var man Manifest
-	if err := json.Unmarshal(data, &man); err != nil {
+	if err := json.Unmarshal(clean, &man); err != nil {
 		return nil, []string{ManifestName + ": " + err.Error()}, nil
 	}
 	problems = append(man.validateSkillsTier(), man.validateSupersedes()...)
