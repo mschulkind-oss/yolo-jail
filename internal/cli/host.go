@@ -251,8 +251,15 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 		}
 	}
 
-	// (2) the secret channel.
-	userEnv := config.ResolveEnvSources(workspace, cfg, warn)
+	// (2) the secret channel. Scoped first: at the HOST notch a relative env_sources
+	// file entry would resolve against the CURRENT DIRECTORY, which a workspace
+	// controls — cd into a cloned repo, `yolo host -- claude`, and the repo's .env
+	// feeds a host process. That re-opens, through the filesystem, the exact boundary
+	// the user-scope-only cfg closes, so relative entries are refused here with the
+	// remedy in the message. The JAIL keeps workspace-relative resolution: its
+	// container is the boundary.
+	scoped := hostScopedEnvSources(cfg, warn)
+	userEnv := config.ResolveEnvSources(workspace, scoped, warn)
 	for _, k := range userEnv.Keys() {
 		v, _ := userEnv.Get(k)
 		if s, ok := v.(string); ok {
@@ -263,11 +270,57 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 	// (3) the profile's own vars.
 	vars = append(vars, agentenv.Resolve(cfg, agent, effectiveHostProfiles(cfg, agent, profile))...)
 
-	// (4) removals last.
-	for _, k := range config.EnvSourceRemovals(workspace, cfg, warn) {
+	// (4) removals last. The same scoped config, so an inline null's cancellation by a
+	// LATER relative dotenv (were one still honored) cannot disagree with (2).
+	for _, k := range config.EnvSourceRemovals(workspace, scoped, warn) {
 		vars = append(vars, agentenv.Var{Key: k, Unset: true})
 	}
 	return vars
+}
+
+// hostScopedEnvSources returns cfg with env_sources' RELATIVE file entries dropped —
+// one warning per dropped entry, naming the remedy — for the host notch's env
+// composition. Absolute and ~-relative entries pass untouched (they name where they
+// name, independent of the cwd); inline dict entries pass (they are not paths at all).
+//
+// Returns cfg itself when nothing is dropped, and a shallow copy otherwise — the caller
+// shares this map with composition steps that must keep seeing the original, and the
+// copy is throwaway.
+func hostScopedEnvSources(cfg *jsonx.OrderedMap, warn func(string)) *jsonx.OrderedMap {
+	entries, present := cfg.Get("env_sources")
+	if !present {
+		return cfg
+	}
+	list, ok := entries.([]any)
+	if !ok || len(list) == 0 {
+		return cfg
+	}
+	var kept []any
+	dropped := false
+	for _, e := range list {
+		if s, isStr := e.(string); isStr && !strings.HasPrefix(s, "/") && !strings.HasPrefix(s, "~") {
+			dropped = true
+			if warn != nil {
+				warn("env_sources: \"" + s + "\" is relative and ignored by `yolo host` — it would " +
+					"resolve against the current directory, which a workspace controls. " +
+					"Use an absolute path or ~/…")
+			}
+			continue
+		}
+		kept = append(kept, e)
+	}
+	if !dropped {
+		return cfg
+	}
+	out := jsonx.NewOrderedMap()
+	for _, k := range cfg.Keys() {
+		v, _ := cfg.Get(k)
+		out.Set(k, v)
+	}
+	if len(kept) > 0 {
+		out.Set("env_sources", kept)
+	}
+	return out
 }
 
 // loadedHostPacks resolves the selected packs for a host launch. A pack that cannot be

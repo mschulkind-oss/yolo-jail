@@ -628,3 +628,68 @@ func TestApplyHostWrappersRemovedWhenPacksIsEmptied(t *testing.T) {
 			"on the user's PATH, pointing at a program nothing will reinstall")
 	}
 }
+
+// TestHostEnvRefusesRelativeEnvSourceFiles pins the filesystem half of the host env
+// boundary. The config is user-scope only, but a RELATIVE env_sources entry would
+// resolve against the CURRENT DIRECTORY — which a workspace controls: cd into a cloned
+// repo, `yolo host -- claude`, and the repo's .env (LD_PRELOAD and friends) feeds a
+// host process outside every sandbox. Relative entries are refused with a warning;
+// absolute and ~-relative entries still resolve.
+func TestHostEnvRefusesRelativeEnvSourceFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	ws := t.TempDir()
+	t.Chdir(ws)
+	// The trap: a relative entry pointing at a file the WORKSPACE controls.
+	if err := os.WriteFile(filepath.Join(ws, "rel.env"), []byte("PWNED=yes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	userCfg(t, home, `{
+	  "env_sources": ["rel.env", {"KEEP": "yes"}]
+	}`)
+
+	var warnings []string
+	env, _, err := composeHostEnv("claude", "", func(msg string) { warnings = append(warnings, msg) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasEnv(env, "PWNED=yes") {
+		t.Error("a workspace-relative dotenv reached a host process composition")
+	}
+	if !hasEnv(env, "KEEP=yes") {
+		t.Error("the inline entry beside the refused one must still apply")
+	}
+	refused := false
+	for _, w := range warnings {
+		if strings.Contains(w, `"rel.env" is relative`) {
+			refused = true
+		}
+	}
+	if !refused {
+		t.Errorf("the refusal must name the entry and the remedy, got warnings %q", warnings)
+	}
+}
+
+// TestHostEnvStillResolvesAbsoluteEnvSourceFiles: the refusal is about RELATIVE
+// resolution, not about files — an absolute path (and ~/…) in the user config names
+// where it names, independent of the cwd, and keeps working.
+func TestHostEnvStillResolvesAbsoluteEnvSourceFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	absEnv := filepath.Join(home, "absolute.env")
+	if err := os.WriteFile(absEnv, []byte("FROM_ABSOLUTE=yes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	userCfg(t, home, `{"env_sources": ["`+absEnv+`"]}`)
+
+	env, _, err := composeHostEnv("claude", "", func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasEnv(env, "FROM_ABSOLUTE=yes") {
+		t.Error("an absolute env_sources entry in the user config stopped resolving")
+	}
+}
