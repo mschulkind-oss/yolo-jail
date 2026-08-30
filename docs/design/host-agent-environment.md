@@ -8,11 +8,38 @@ summary: "Evaluates strategies for applying pack and profile environment variabl
 
 # Delivering Environment Variables to Host Agents: Config-First vs. Shims
 
-**Status:** DRAFT, 2026-08-29. Nothing built.
+**Status:** DESIGN, **amended 2026-08-30** (was DRAFT, 2026-08-29). Nothing built. OQ-1 · OQ-2 · OQ-3
+ruled 2026-08-30 — see the Decision Ledger in §9.
 
-**The short version.** Inside a jail container, injecting environment variables (`KindEnv`, profile `env: {...}`) is trivial because YOLO controls the container's process spawn (`podman run -e ...`). On the host, applying environment variables to agents without polluting the entire user shell session or introducing brittle `PATH` shims is a fundamental architectural challenge. This doc designs a **Tiered Environment Delivery System**: pushing variables into native agent config files wherever supported (e.g. Claude's `settings.json.env`), providing an explicit host execution verb (`yolo host -p <profile> -- <agent>`) for runtime parity, and confining shims to an explicit, opt-in fallback.
+> [!IMPORTANT]
+> **What the amendment changed, and it is the doc's central claim.** The first version was organized
+> as a *preference order*: config first, process env as a fallback for the one agent that cannot do
+> better. That is wrong, and §4's matrix encoded the error — it marked pi, opencode and codex
+> *"Can Avoid Shims Completely? ✅ Yes"* on the strength of `apiKeyEnv` / `{env:…}` / `api_key_env`.
+> **Those fields carry the NAME of a variable, not its value** (`packs/pi/derive.lua`,
+> `packs/opencode/derive.lua`, `packs/codex/derive.lua` — each writes the name). The agent then reads
+> that variable from **its own process environment**. So a config file cannot deliver a credential,
+> by deliberate design (secrets stay out of git), and a host process-env channel is **mandatory, not
+> a fallback**.
+>
+> The corrected frame is a **split by payload type, not a preference order, and not a per-agent
+> choice** (§1 P1). And the deciding fact is not a property of the agent at all: **whether you need
+> the env channel is a property of the PROVIDER.** Bedrock needs AWS credentials in the environment
+> whether the agent is `claude` or `codex`; first-party subscription needs nothing. A per-agent
+> capability matrix was answering the wrong question.
 
-**The most important sections in this doc are §3 (The Delivery Spectrum) and §4 (The Per-Agent Host Capabilities Matrix)** — analyzing which agents support native config-level environment injection versus those requiring process-level wrapper mechanisms.
+**The short version.** Inside a jail, injecting environment variables is trivial because yolo
+controls the process spawn (`podman run -e …`). On the host it is not, and it cannot be avoided:
+the `api_key_env` + `env_sources` architecture deliberately puts only variable *names* in config, so
+**something must populate the agent's process environment or BYOK does not work on the host at all.**
+This doc designs **two always-present channels split by what they carry** — configuration into the
+agent's native config surface (universal invocation coverage: IDE, cron, absolute path), environment
+into the process via an explicit host launch verb (`yolo host -- <agent>`) with an optional generated
+**launch wrapper** on `PATH` as a transparent front door to that same verb. One env-composition
+implementation, two entry points, identical rules for every pack.
+
+**The most important sections are §1 (the payload split), §4 (the corrected capabilities matrix),
+and §5.1 (where launch wrappers live, and the PATH claim that costs).**
 
 **Reads with:** [`pack-profiles.md`](pack-profiles.md) (the pack profile data model and merge pipeline), [`host-render-target.md`](host-render-target.md) (the host as a reduced render target for `apply --host`), and [`pack-system.md`](pack-system.md) (the pack contribution model).
 
@@ -20,10 +47,38 @@ summary: "Evaluates strategies for applying pack and profile environment variabl
 
 ## 1. Principles & Verdict Up Front
 
-1. **P1 — Config-First Over Process Interception.** If an agent supports declaring environment variables or endpoint overrides in its own native configuration file, `yolo apply --host` must render them directly into that surface. No wrappers or shims should exist for capabilities the agent's own configuration dialect already supports.
-2. **P2 — No Silent Shell Profile Pollution.** `apply --host` must never mutate the user's global shell RC files (`~/.bashrc`, `~/.zshrc`, `~/.config/environment.d/`) to export agent-specific variables. Global session pollution breaks tool isolation, leaks secrets across unrelated commands, and cannot support workspace-scoped or per-command profile switching.
-3. **P3 — First-Class Host Launch Verb for Full Parity.** To achieve 100% feature parity with jail launches (including transient profile flags like `-p bedrock`), yolo provides an explicit host execution verb: `yolo host -p <profile> -- <agent>`.
-4. **P4 — Shims Are Strictly Opt-In.** Transparent shims placed on `PATH` are brittle, collide with package managers, and break across tool updates. They must never be generated by default during `apply --host`, but may exist behind an explicit opt-in command (`yolo host shims enable`).
+1. **P1 — Split by payload type, never by agent.** Two channels, both always present for every pack,
+   carrying different things:
+   * **Configuration** — endpoints, model aliases, `wire_api`, permissions, MCP wiring → the agent's
+     **native config surface**. Universal *invocation* coverage: it works when an IDE, a cron job, or
+     another process starts the agent, and when it is invoked by absolute path.
+   * **Environment** — secrets, `CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, and **unsets** → the
+     **process environment**. Requires yolo in the launch path.
+
+   There is no per-agent method selection, and that is the point: selecting per agent was the
+   fragility, not the fix for it. A pack that needs neither channel declares neither.
+2. **P2 — The env channel is mandatory, not a fallback.** `api_key_env` and `env_sources` put only a
+   variable *name* in config. Nothing else populates it on the host. **Any BYOK provider is
+   unusable on the host without this channel** — for every agent, not just the one with no config
+   file. §4 measures which is which.
+3. **P3 — No silent shell profile pollution.** `apply --host` must never mutate the user's shell RC
+   files to export agent variables. Session pollution breaks tool isolation, leaks secrets across
+   unrelated commands, and cannot support per-command profile switching. *(A single `PATH` entry is
+   a smaller and different claim — §5.1 — and it is still the user's file, so yolo prints the line
+   and does not write it unless asked.)*
+4. **P4 — One env-composition implementation, two front doors.** `yolo host -p <profile> -- <agent>`
+   is the mechanism. A generated **launch wrapper** on `PATH` is a three-line `exec` into it, never a
+   second implementation to drift. This is what makes "keep shims" affordable.
+5. **P5 — The PATH claim is opt-in; which wrappers get generated is not.** One user-level decision
+   enables `~/.yolo/bin` on `PATH`. After that, wrappers are generated **uniformly** for every pack
+   that declares host env — never per-agent opt-in, which would reintroduce exactly the invisible
+   per-agent variation P1 exists to delete. *(This supersedes the first version's P4, which made
+   shims themselves strictly opt-in per agent.)*
+6. **P6 — A launch wrapper is not a jail shim, and must not be called one.** In-jail `~/.yolo-shims`
+   holds **blockers** (`grep -r` → refuse, `exit 127`) and is ordered FIRST; `~/.yolo-launchers`
+   holds **lazy installers** and is ordered LAST. A host launch wrapper does neither: it composes an
+   environment and forwards. Conflating the three names is how someone debugging one reads the docs
+   for another.
 
 ---
 
@@ -76,10 +131,32 @@ This manual shell wrapper ceremony exists to solve three specific problems:
 2. **Machine-Specific Conditioning (`[ -f ... ]`)**: Activating Bedrock on work machines where `~/.config/claude/env` exists, while falling back to first-party subscription on personal machines.
 3. **Atomic Bundle Assembly**: Combining secrets, environment variables, and model names into one invocation.
 
-**How the Host Environment Architecture Obviates This:**
-* **Native Config Delivery (`yolo apply --host`)**: Claude natively supports `"env": { "CLAUDE_CODE_USE_BEDROCK": "1", ... }` in `~/.claude/settings.json`. `apply --host` writes the profile directly to `settings.json`, so bare `claude` runs natively with zero shell wrappers.
-* **Graceful Secret Resolution (`env_sources`)**: `env_sources: ["~/.config/claude/env"]` in user config automatically hydrates credentials when present and skips cleanly without error when absent on personal machines.
-* **Jail & Host Parity**: Both `yolo -- claude` (in-jail) and `yolo host -- claude` (host) execute with the exact same atomic profile environment, completely eliminating the need for custom `.bashrc` functions.
+**How the Host Environment Architecture Obviates This — and which job needs which channel.** The
+first version of this section claimed Tier 1 covered the case. Scored against the three jobs the
+wrapper actually does, it covers one:
+
+| Job the wrapper does | Config surface (Tier 1) | Process env (Tier 2) |
+| :--- | :--- | :--- |
+| `unset AWS_PROFILE` | ❌ **Cannot.** A `settings.json` `env` block sets; there is no unset. | ✅ |
+| Subshell isolation — keys never enter the interactive shell | ❌ Not its job | ✅ — and this is the job `mise`/`direnv` do the *opposite* of (§7 Alt 4) |
+| Machine-conditional activation (`[ -f ~/.config/claude/env ]`) | ✅ `env_sources`' permissive skip is exactly this | ✅ |
+| Atomic bundle: **secrets** + env + model names in one invocation | ❌ for the secrets half — a config file must never carry the key | ✅ |
+
+> [!WARNING]
+> **"`env_sources` automatically hydrates credentials" — into what?** That sentence stood in the
+> first version and it has no referent at the host notch: if `apply --host` only writes files and
+> never launches a process, there is no environment to hydrate. This is the hole the amendment
+> exists to close, and it is in the doc's own flagship case study.
+
+* **Native Config Delivery (`yolo apply --host`)**: Claude natively supports `"env": {…}` in
+  `~/.claude/settings.json`, so the **non-secret flags** land there and bare `claude` picks them up
+  from any invocation path — IDE included. *(Pending measurement: whether Claude Code honors that
+  block for `CLAUDE_CODE_USE_BEDROCK` specifically —
+  [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) OQ-4.)*
+* **Process Environment (`yolo host --`, or its `PATH` wrapper)**: the AWS credentials, the
+  `unset`, and the subshell isolation. Not a fallback — the only channel that can do these.
+* **Jail & Host Parity**: `yolo -- claude` and `yolo host -- claude` compose the same environment
+  from the same resolved profile.
 
 ---
 
@@ -110,7 +187,7 @@ flowchart TD
 
 ---
 
-### 3.1 Approach 1: Native Agent Config File Injection (The Preferred Path)
+### 3.1 Approach 1: Native Agent Config File Injection (Channel 1 — configuration)
 
 Many modern coding agents already support specifying custom environment variables or endpoint overrides in their native configuration files.
 
@@ -142,7 +219,7 @@ During `yolo apply --host`, Core's host renderer calls each pack's `derive.lua` 
 
 ---
 
-### 3.2 Approach 2: Explicit Host Launch Verb (`yolo host`)
+### 3.2 Approach 2: Explicit Host Launch Verb (`yolo host`) — Channel 2, the mechanism
 
 For transient profile switching or for agents lacking native config env blocks, `yolo` provides an explicit host execution verb:
 
@@ -170,7 +247,7 @@ yolo host -p local -- pi
 
 ---
 
-### 3.3 Approach 3: Shell Environment Manager Integration (`direnv` / `mise` / `yolo env`)
+### 3.3 Approach 3: Shell Environment Manager Integration (`direnv` / `mise` / `yolo env`) — a front door, not a tier
 
 For users who want environment variables active in their terminal when entering a workspace directory on the host.
 
@@ -189,15 +266,34 @@ For users who want environment variables active in their terminal when entering 
 
 ---
 
-### 3.4 Approach 4: Transparent `PATH` Shims (The Brittle Fallback)
+### 3.4 Approach 4: Transparent `PATH` Launch Wrappers — Channel 2's front door
+
+> [!NOTE]
+> **This section's original verdict — "the brittle fallback" — has been overtaken (2026-08-30), but
+> its analysis has not.** The three cons below are all real and all survive; what changed is that
+> §4's correction made Channel 2 **mandatory**, so the choice stopped being *whether* to have a
+> process-env mechanism and became *which front doors* it gets. Wrappers are kept, in their own
+> prepended directory (§5.1), reduced to a three-line `exec` into `yolo host` so they carry no logic
+> of their own — which retires the recursion and drift concerns without pretending the `PATH`
+> coverage gap went away. §5.1's bypass table is the honest scope.
 
 Placing executable wrapper scripts in a directory like `~/.yolo/bin/` and adding it to `PATH`.
 
+The shape originally sketched here composed the environment inside the wrapper and hard-coded the
+target path — both of which §5.1 removes:
+
 ```bash
 #!/usr/bin/env bash
-# ~/.yolo/bin/claude (Shim wrapper)
+# ~/.yolo/bin/claude — as originally sketched (superseded)
 eval "$(yolo host env --pack claude)"
-exec /usr/local/bin/claude "$@"
+exec /usr/local/bin/claude "$@"          # hard-coded path breaks on `claude update`
+```
+
+```bash
+#!/usr/bin/env bash
+# ~/.yolo/bin/claude — as designed (§5.1, P4)
+exec yolo host -- claude "$@"            # one env-composition implementation; target resolved
+                                         # by §6.1 step 1, which skips yolo-managed dirs
 ```
 
 #### Pros & Cons:
@@ -212,49 +308,132 @@ exec /usr/local/bin/claude "$@"
 
 ## 4. Per-Agent Host Capabilities Matrix
 
-| Agent Pack | Native Config Env Block? | Config File Location | Native Endpoint Configuration | Can Avoid Shims Completely? |
-| :--- | :--- | :--- | :--- | :--- |
-| **`claude`** | ✅ Yes (`"env": {...}`) | `~/.claude/settings.json` | Via `settings.json` env & model flags | ✅ **Yes** |
-| **`pi`** | 🟡 Partial (`apiKeyEnv`) | `~/.pi/agent/models.json` | Native `baseUrl` & `api` in `models.json` | ✅ **Yes** |
-| **`opencode`**| 🟡 Partial (`apiKey: "{env:...}"`) | `~/.config/opencode/opencode.json` | Native `baseURL` & `@ai-sdk` in `opencode.json` | ✅ **Yes** |
-| **`codex`** | 🟡 Partial (`api_key_env`) | `~/.codex/config.toml` | Native `base_url` in `config.toml` | ✅ **Yes** |
-| **`copilot`** | ❌ No (Requires `COPILOT_PROVIDER_*` in process env) | None / `~/.copilot-agent/` | Process environment only | ⚠ **Requires `yolo host` or env export** |
-| **`agy`** | ❌ No (Native OAuth / consumer auth) | `~/.gemini/` | Native endpoint only | ✅ **Yes** (No custom env needed) |
+> [!WARNING]
+> **The first version of this table was wrong in its last column, and the error is why this doc
+> needed amending.** It marked pi, opencode and codex *"Can Avoid Shims Completely? ✅ Yes"* because
+> each has a credential field in its config file. **Each of those fields carries the NAME of an
+> environment variable, not its value** — verified against the shipped derives on 2026-08-30:
+> `apiKeyEnv = prov.api_key_env` ([`packs/pi/derive.lua`](../../packs/pi/derive.lua)),
+> `entry.apiKey = "{env:" .. prov.api_key_env .. "}"`
+> ([`packs/opencode/derive.lua`](../../packs/opencode/derive.lua)),
+> `entry.api_key_env = prov.api_key_env` ([`packs/codex/derive.lua`](../../packs/codex/derive.lua)).
+> The agent reads that variable from **its own process environment**, so the config file routes the
+> credential rather than delivering it.
+
+The last column is therefore replaced by two, because there was never one answer: **config carries
+the routing, the environment carries the secret.**
+
+| Agent Pack | Config surface carries | Config file | Needs process env? |
+| :--- | :--- | :--- | :--- |
+| **`claude`** | ✅ `"env": {…}` — non-secret flags, model defaults | `~/.claude/settings.json` | **Only for BYOK** (Bedrock: AWS credentials, and the `AWS_PROFILE` unset). Not in first-party subscription mode. |
+| **`pi`** | ✅ `baseUrl`, `api`, **and `apiKeyEnv` — the NAME** | `~/.pi/agent/models.json` | **Yes, whenever the provider has a key.** |
+| **`opencode`** | ✅ `baseURL`, `@ai-sdk`, **and `{env:VAR}` — the NAME** | `~/.config/opencode/opencode.json` | **Yes, whenever the provider has a key.** |
+| **`codex`** | ✅ `base_url`, **and `api_key_env` — the NAME** | `~/.codex/config.toml` | **Yes, whenever the provider has a key.** |
+| **`copilot`** | ❌ nothing — no config env block | none / `~/.copilot-agent/` | **Yes, always, for BYOK.** |
+| **`agy`** | ✅ native OAuth, no custom env | `~/.gemini/` | **No** — the one genuine exception, and only because it does not do BYOK. |
+
+**Read the right-hand column and the agent names stop mattering.** Five of six need the process-env
+channel the moment a provider carries a key, and the sixth is exempt only because it has no such
+provider. **The variable is the provider, not the agent** — which is P1's whole point, and the
+reason `copilot` is no longer a special case worth an advisory (Decision Ledger, OQ-1).
 
 ---
 
 ## 5. The Recommended Host Environment Architecture
 
-We combine the four approaches into a **Tiered Hierarchy**:
+Not a fallback ladder. **Two channels that always both apply**, split by payload (P1), plus one
+optional front door onto the second.
 
+```mermaid
+flowchart TD
+    PROF["resolved profile for pack P"]
+
+    PROF -->|"CONFIGURATION<br/>endpoints · model aliases · wire_api<br/>permissions · MCP · api_key_env NAME"| C["Channel 1 — config surface<br/>apply --host renders settings.json,<br/>models.json, opencode.json, config.toml"]
+    PROF -->|"ENVIRONMENT<br/>secrets · flags · unsets"| E["Channel 2 — process env<br/>yolo host -p PROFILE -- AGENT"]
+
+    C --> CANY["works from ANY invocation:<br/>IDE, cron, absolute path,<br/>another process"]
+    E --> EEXP["works when yolo is in<br/>the launch path"]
+
+    E -.->|"optional front door (§5.1)"| W["~/.yolo/bin/&lt;agent&gt;<br/>3-line exec into yolo host"]
+    W --> WPATH["makes bare `claude` work —<br/>where PATH is consulted"]
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Tier 1: Config-First Surface Rendering (Default for `apply --host`)     │
-│ • Write native env & provider blocks directly into settings.json,       │
-│   models.json, opencode.json, config.toml.                              │
-│ • ZERO shims generated. Bare tool invocations work immediately.         │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │ For transient profile swaps & BYOK
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Tier 2: First-Class Host Execution (`yolo host`)                        │
-│ • `yolo host -p <profile> -- <agent>` executes real binary with exact  │
-│   composite process environment.                                        │
-│ • 100% parity with container jail launch flags.                         │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │ For workspace-scoped shell automation
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Tier 3: Shell & Directory Hooks (`yolo env`)                            │
-│ • `eval "$(yolo env)"` for direnv / mise users.                         │
-└─────────────────────────────────────────────────────────────────────────┘
+
+**Neither channel is universal, and they are partial along different axes.** Channel 1 is universal
+on *invocation* and cannot carry a secret. Channel 2 is universal on *payload* and only reaches
+invocations yolo is part of. That is why both always apply, and why "just use shims for everything"
+does not collapse the problem — see §5.1.
+
+`yolo env` (`eval "$(yolo env)"`) remains available for direnv/mise users as a **third front door
+onto Channel 2**, not a tier of its own. §7 Alt 4 says why it is not the primary one.
+
+### 5.1 Where launch wrappers live — and the PATH claim they cost
+
+**The question this section answers:** if we keep wrappers, do they need `PATH` access, or can they
+go in a standard directory? **They are the same question**, and the answer settles the placement.
+
+A wrapper only works if it is found *before* the real binary. `packs/claude` installs via
+`https://claude.ai/install.sh`, which puts the real `claude` in **`~/.local/bin/claude`** — a
+directory already fifth on the jail's `BootPath` and conventionally on the host's.
+
+> [!CAUTION]
+> **`~/.local/bin` is not a placement option, and the reason is stronger than PATH ordering — it is
+> a FILE collision.** A wrapper named `claude` in the same directory as the real `claude` is the same
+> path. One of them overwrites the other, and `claude update` re-running the installer either
+> clobbers the wrapper or fails against it. §7 Alt 1 reached the same conclusion independently
+> ("collisions with package managers"); this is the concrete instance.
+
+So wrappers need **their own directory, prepended to `PATH` ahead of `~/.local/bin`**:
+
+```console
+$ export PATH="$HOME/.yolo/bin:$PATH"     # one line, once, in your rc
 ```
+
+Four consequences worth stating before agreeing to it:
+
+1. **Prepend, not append.** Appending puts the wrapper *behind* the real binary and it never runs.
+   Prepending means everything in that directory shadows the user's tools — a standing claim, which
+   is why the directory holds **only generated wrappers** and yolo must be able to reset it
+   **contents-only** (the same rule the jail's anchor dirs follow, `resetAnchorDir` — never
+   `RemoveAll`, because the directory itself may be a mount or a `PATH` entry someone captured).
+2. **It is an RC edit, and P3 says yolo does not make it.** Adding one `PATH` entry is a smaller and
+   different claim than exporting agent variables session-wide — but it is still the user's file.
+   **yolo prints the line; `--shell-init` writes it on request.** This mirrors `check-deps`, which
+   writes an install manifest rather than installing.
+3. **It is one decision, not one per agent** (P5). That is the consistency the wrapper approach is
+   *for*; making it per-agent would rebuild the invisible per-agent variation P1 deletes.
+4. **The wrapper is three lines and holds no logic:**
+
+   ```bash
+   #!/usr/bin/env bash
+   exec yolo host -- claude "$@"
+   ```
+
+   One env-composition implementation (P4). §6.1 step 1's recursion guard — resolving the target
+   binary while ignoring yolo-managed directories — is what keeps this from calling itself.
+
+**What the wrapper does NOT cover, stated plainly, because "shims for everything" reads as a
+universal answer and is not one:**
+
+| Bypass | Consequence |
+| :--- | :--- |
+| Invocation by absolute path (`~/.local/bin/claude`) | wrapper skipped |
+| An IDE extension with a configured binary path | wrapper skipped — **the most likely case to bite on the host** |
+| A shell function (`claude() { … }`) | **beats `PATH` outright.** The §2.2 wrapper function wins over the generated one; it has to be deleted either way |
+| A process that sanitizes `PATH` before spawning | wrapper skipped |
+
+**So a generated wrapper is a governance win over the `.bashrc` function, not a coverage win** —
+declared by a pack, versioned, reviewable, uniform across agents, removable, and with an escape
+hatch the function does not have: when `PATH` is not consulted, `yolo host -- claude` is a documented
+answer instead of a mystery. That is the honest case for keeping wrappers, and it is enough.
 
 ---
 
 ## 6. Detailed Design: `yolo host` Command
 
-`yolo host` is the host-side equivalent of `yolo run`:
+`yolo host` is the host-side equivalent of `yolo run`, and after P4 it is the **only** place the host
+process environment is composed — the `PATH` wrapper (§5.1) and `yolo env` are front doors onto it,
+not parallel implementations. The spelling is ruled (OQ-2): `yolo host -- <cmd>`, with
+`yolo --at host -- <cmd>` as an alias per [`host-render-target.md`](host-render-target.md).
 
 ```bash
 # Usage
@@ -268,11 +447,27 @@ yolo host --profile dev -- opencode
 
 ### 6.1 Execution Flow
 1. **Locate Target Binary**: Resolves the executable path of `<command>` using host `PATH` (ignoring any yolo-managed directories to avoid recursion).
-2. **Resolve Pack Configuration**: Executes the merge pipeline ([`pack-profiles.md` §6](pack-profiles.md#L383-L415)) for the active workspace and profile.
+2. **Resolve Pack Configuration**: Resolves the active profile for the target pack and composes its
+   effective `env` for the active workspace. *(Which resolution model that is remains open: the
+   cross-pack merge pipeline of [`pack-profiles.md`](pack-profiles.md) §8, or the pack-own-variant
+   model of [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) §3. This step is
+   agnostic to that choice — it needs a resolved `env` map, not a particular way of producing one.
+   The line-range anchor that stood here pointed at "§6" and had drifted to §8's fail-closed rule;
+   sweep #5's lesson, applied.)*
 3. **Compose Process Environment**:
    * Starts with current `os.Environ()`.
-   * Overlays all key-values from the target pack's `resolved_config.env`.
+   * Hydrates `env_sources` (the secret channel — this is the step that gives
+     *"automatically hydrates credentials"* in §2.2 something to hydrate *into*).
+   * Overlays all key-values from the target pack's resolved profile `env`.
+   * **Applies removals.** A `null` value is an `unset`, not an empty string — §2.2's
+     `unset AWS_PROFILE` is the motivating case and no config surface can express it.
 4. **Exec**: Calls `syscall.Exec(targetBin, args, env)`.
+
+> [!NOTE]
+> **Step 1's recursion guard is load-bearing for §5.1.** Resolving `<command>` while ignoring
+> yolo-managed directories is what lets `~/.yolo/bin/claude` be `exec yolo host -- claude "$@"`
+> without calling itself. If the guard is ever narrowed, the wrapper front door breaks first and
+> loudly.
 
 ---
 
@@ -280,31 +475,67 @@ yolo host --profile dev -- opencode
 
 | Alternative | Summary | Verdict |
 | :--- | :--- | :--- |
-| **Alt 1: Default PATH Shims** | Automatically write shims to `~/.local/bin/` during `apply --host`. | **Rejected.** Brittle, invasive, and causes collisions with package managers. |
-| **Alt 2: Shell RC File Appending** | Automatically append `export KEY=VAL` to `~/.bashrc` / `~/.zshrc`. | **Rejected.** Severe isolation hazard; pollutes entire user session. |
-| **Alt 3: Host Execution Only (No Config Surface Writes)** | Never write host files; require `yolo host -- <agent>` for all host runs. | **Rejected.** Degrades developer ergonomics for users who want bare `claude` or `pi` to work with their default profile. |
+| **Alt 1: Shims in `~/.local/bin/`** | Write wrappers into the conventional user bin dir during `apply --host`. | **Rejected, and the reason is now concrete.** `claude`'s own installer writes `~/.local/bin/claude`, so this is a **file collision**, not a shadowing strategy — §5.1. Wrappers get their own prepended directory instead. |
+| **Alt 2: Shell RC File Appending** | Automatically append `export KEY=VAL` to `~/.bashrc` / `~/.zshrc`. | **Rejected.** Severe isolation hazard; pollutes the entire user session (P3). *(Distinct from the single `PATH` entry §5.1 asks the user to add — one directory on `PATH` is not agent variables in every process.)* |
+| **Alt 3: Host Execution Only (No Config Surface Writes)** | Never write host files; require `yolo host -- <agent>` for all host runs. | **Rejected.** Channel 1 is the only one that reaches an IDE, a cron job, or an absolute-path invocation — dropping it would make those cases unconfigurable, not merely less ergonomic. |
+| **Alt 4: Lean on `mise` / `direnv` for the env channel** | Express profile env as `mise.toml` `[env]` (or a direnv `.envrc`) and let shell activation deliver it. | **Rejected, three reasons.** (1) **Its coverage is a SUBSET of the wrapper's** — shell activation only, so it loses to the IDE too, while adding a required external dependency to get there. (2) **Wrong scoping axis:** `mise` env is *directory*-scoped and profile env is *agent*-scoped, so every process started from that directory inherits the credentials — §2.2's problem #1 reintroduced. (3) It is the claim [`fieldset.go:99`](../../internal/render/fieldset.go#L99) already refuses — *"Setting them for your whole session would mean editing your shell rc, a much larger claim than a pack's env contribution asks for"* — and that reasoning does not change because the RC edit is spelled `mise activate`. **`mise` keeps the job it already earns in this repo: tool versions.** |
+| **Alt 5: Wrappers for everything, config surface dropped** | One mechanism for consistency: generate a `PATH` wrapper per agent and stop writing host config files. | **Rejected.** It reads as the universal option and is not: wrappers are universal on *payload* and partial on *invocation* (§5.1's bypass table), which is the same partiality as config files rotated 90°. Dropping Channel 1 trades a coverage gap that is *declarable at apply time* for one the user discovers at runtime inside an IDE. |
 
 ---
 
 ## 8. Open Questions
 
-1. 💬 **OQ-1: Handling Copilot BYOK on Host.** GitHub Copilot CLI requires `COPILOT_PROVIDER_BASE_URL` in the process environment and has no native config file env block. Should `apply --host` warn the user that Copilot requires `yolo host -- copilot` to use custom providers?
-   
-   _Leaning:_ Yes. Print an advisory note during `yolo apply --host` explaining that Copilot requires execution via `yolo host` or `yolo env` for BYOK provider mode.
+The three questions this doc opened on 2026-08-29 were all ruled on 2026-08-30 and are compacted
+into §9. What the amendment opened in their place is the `PATH` claim §5.1 asks the user to make.
+
+1. 💬 **OQ-4: Does `yolo` ever write the `PATH` line itself?** §5.1 has yolo *print*
+   `export PATH="$HOME/.yolo/bin:$PATH"` and stop, on P3's reasoning that the RC is the user's file.
+   The counter-argument is that a printed line nobody pastes is a wrapper directory that silently
+   never runs — the "silent skip" failure with the sign flipped, and the user finds out when a
+   profile does nothing. **This decides whether `apply --host` can leave the host in a half-applied
+   state it knows about.**
+
+   _Leaning:_ Print by default, write behind an explicit `--shell-init`, and — the part that matters
+   — **`yolo check` reports the directory as inert when it exists but is not on `PATH`**, with the
+   line to paste. That closes the silent-skip hole without yolo editing an RC unasked, and it is the
+   same disposition [`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md) reaches
+   for every other "configured but not in effect" state.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-2: Command Naming for Host Execution.** Is `yolo host -- <agent>` preferred, or should it be `yolo run --at host -- <agent>` or `yolo exec --host -- <agent>`?
-   
-   _Leaning:_ `yolo host -- <cmd>` is concise and reads naturally alongside `yolo run`. `yolo --at host -- <cmd>` can be supported as an alias per [`host-render-target.md`](host-render-target.md).
+2. 💬 **OQ-5: Is a wrapper generated for every selected pack, or only packs that declare host env?**
+   P5 settles that generation is uniform rather than per-agent opt-in; it does not settle the
+   population. A wrapper for a pack with nothing to inject is a `PATH` shadow that buys nothing and
+   costs a layer of indirection in `which`.
+
+   _Leaning:_ **Only packs that declare host env.** A wrapper whose composed environment is empty is
+   pure indirection, and `agy` (§4, the one agent that genuinely needs no process env) is the live
+   case that would get one for nothing. P5's "uniform" is about not asking the *user* to choose per
+   agent — the *pack's own declaration* deciding is exactly the extension point working.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 🤷 **OQ-3: Should `yolo env` support shell-specific formatting?** E.g. `yolo env --format=json` or `yolo env --shell=fish`?
-   
-   _Leaning:_ Default to POSIX `export` syntax, with `--format=json` for tool integration.
+3. 💬 🤷 **OQ-6: Directory name — `~/.yolo/bin`?** It must not be `~/.yolo-shims` (P6: that name means
+   *blockers* in a jail, and these forward rather than refuse). `~/.yolo/bin` implies a `~/.yolo/`
+   tree that does not otherwise exist on the host today.
+
+   _Leaning:_ `~/.yolo/bin`, and let `~/.yolo/` become the host-side yolo dir if more ever needs to
+   live there. `~/.yolo-wrappers` is the alternative if a flat dotfile is preferred to a new tree —
+   pure preference, no technical difference.
 
    **Answer:**
    > _(empty — fill in when decided)_
+
+---
+
+## 9. Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| OQ-1 | **Copilot BYOK is supported, and needs no advisory** — *"yes of course we should support it, but it may be easy depending on other decisions."* It became easy: under P1's payload split, needing process env is a property of the **provider**, not the agent, so copilot is the ordinary path rather than a special case. The originally-proposed `apply --host` warning is dropped; what replaces it is §4's right-hand column, which says the same thing for all six agents at once. | 2026-08-30 | §1 P1–P2, §4 |
+| OQ-2 | **`yolo host -- <cmd>`**, with `yolo --at host -- <cmd>` as an alias per [`host-render-target.md`](host-render-target.md). Confirms the leaning. | 2026-08-30 | §6 |
+| OQ-3 | **`yolo env` defaults to POSIX `export` syntax, with `--format=json` for tool integration.** Confirms the leaning. Shell-specific emitters (`--shell=fish`) are not refused, just not built until asked for. | 2026-08-30 | §5 |
+| HE-P1 | **Split by payload type, not by agent, and not as a preference order.** The first version's config-first ladder was wrong because a config file routes a credential and cannot deliver one. | 2026-08-30 | §1 P1, §4 |
+| HE-P2 | **Keep wrappers, and make them a three-line `exec` into `yolo host`** — consistency without a second env-composition implementation. Wrappers get their own prepended directory; `~/.local/bin` is a file collision with `claude`'s own installer. | 2026-08-30 | §1 P4–P5, §5.1 |

@@ -359,34 +359,57 @@ precisely where the design's stated downstream motivation lives
 ([`host-agent-environment.md` §2.2](host-agent-environment.md#22-real-world-case-study-obviating-bashrc-wrapper-functions):
 obviating the `.bashrc` `claude()` wrapper).
 
-**The rule this implies:**
+**The rule this implies — corrected 2026-08-30.** The first version of this section stated a
+*preference order* (config first, env as last resort). That is wrong for half the payload, and the
+half it is wrong for is the half that carries credentials:
 
-> **P6 restated.** If the agent's own config file can carry the setting, the profile patches the
-> config surface. Process `env` is the channel of last resort, for settings with no config
-> equivalent, and a pack using it accepts that the profile is jail-only.
+> [!WARNING]
+> **A config file ROUTES a credential; it cannot DELIVER one.** `api_key_env` / `apiKeyEnv` /
+> `{env:VAR}` all write the **name** of a variable the agent then reads from **its own process
+> environment** — verified against the three shipped derives in
+> [`host-agent-environment.md` §4](host-agent-environment.md#4-per-agent-host-capabilities-matrix).
+> So there is no "fallback" here: any BYOK provider is unusable on the host without a process-env
+> channel, for every agent. A preference order cannot express that, because the two channels are not
+> ranked — they carry different things.
 
-And for Claude specifically, the config file *can* carry it. Claude Code's `settings.json` has an
+> **P6 restated (corrected).** Split by **payload type**, not by preference and not per agent.
+> **Configuration** — endpoints, model aliases, `wire_api`, permissions, and the `api_key_env`
+> *name* — patches the config surface, which is the only channel that survives an invocation yolo is
+> not part of (IDE, cron, absolute path). **Environment** — secrets, process flags, and **unsets** —
+> goes through the process env, which requires yolo in the launch path
+> (`yolo host -- <agent>`, or its `PATH` wrapper). Both channels always apply; a pack that needs
+> neither declares neither. Neither channel is universal, and they are partial along *different*
+> axes, which is why the answer is both rather than a winner.
+
+And for the Claude/Bedrock **flags** specifically, the config file can carry them. Claude Code's `settings.json` has an
 `env` block — `packs/claude/derive.lua` already writes into it
 (`env = { ENABLE_LSP_TOOL = … }`). So:
 
 ```mermaid
 flowchart LR
     SEL["pack_profiles.claude = 'bedrock'"] --> PROF["packs/claude<br/>kind: profile, name: bedrock"]
-    PROF -->|"managed patch"| SURF["claude/settings<br/>~/.claude/settings.json"]
-    SURF -->|"env block"| JAIL["jail launch ✓"]
-    SURF -->|"same file"| HOST["apply --host ✓"]
-    PROF -.->|"NOT this"| ENVCH["process env<br/>refused at host notch ✗"]
+    PROF -->|"CONFIG: flags, model IDs, region"| SURF["claude/settings<br/>~/.claude/settings.json"]
+    SURF --> JAIL["jail launch ✓"]
+    SURF --> HOST["apply --host ✓ (any invocation)"]
+    PROF -->|"ENV: AWS creds, unset AWS_PROFILE"| ENVCH["process env"]
+    ENVCH --> JAIL2["jail launch ✓"]
+    ENVCH --> HOST2["yolo host -- claude ✓<br/>(or its PATH wrapper)"]
 ```
 
-The entire motivating example dissolves into a managed-layer patch on a surface `packs/claude`
-already owns — which works at **both** notches, needs no fragment, no adapter pack, and no new
-merge engine. The three model-ID variables and the region are `settings.json` keys, not container
-`-e` flags.
+The **non-secret** half of the motivating example dissolves into a managed-layer patch on a surface
+`packs/claude` already owns — no fragment, no adapter pack, no new merge engine, and it works from
+any invocation at both notches. The **secret** half (AWS credentials, and §2.2's `unset
+AWS_PROFILE`, which no config surface can express at all) goes through the process env and needs
+`yolo host` on the host side.
 
 > [!IMPORTANT]
-> This is the strongest single argument for the counter-design. `pack-profiles.md` invents a
-> cross-pack fragment mechanism to deliver, via the one channel that cannot cross the host notch,
-> a payload the target pack could have written into its own file.
+> **The argument against the cross-pack fragment is unchanged and does not depend on the
+> correction.** `pack-profiles.md` invents a fragment mechanism to deliver, via process env, a
+> payload the target pack could have written into its own file — and process env is precisely the
+> channel that needs yolo in the launch path, so its flagship example is *also* the case that does
+> not reach `apply --host`. What the correction changes is only that process env is a required
+> second channel rather than a last resort; it is still the wrong channel for `CLAUDE_CODE_USE_BEDROCK`,
+> and a fragment is still the wrong shape for either.
 
 ---
 
@@ -546,6 +569,12 @@ instinct — applied to a different set (§8).
 3. **Move Bedrock into `packs/claude`** as a profile patching `claude/settings`, and delete
    [`assemble.go:722-754`](../../internal/cli/run/assemble.go#L722-L754) and `--claude-auth`.
    Verify against R3 *before* deleting the Go path.
+
+   ⚠ **`yolo host` is a prerequisite for the HOST half of this step, not a follow-on** (amended
+   2026-08-30). The flags move to `claude/settings`, but the AWS credentials and the
+   `unset AWS_PROFILE` cannot — so until the process-env channel exists on the host, a `bedrock`
+   profile is jail-only and §2.2's `.bashrc` wrapper cannot actually be deleted. See
+   [`host-agent-environment.md` §5](host-agent-environment.md#5-the-recommended-host-environment-architecture).
 4. **Tighten the provider schema** (§4.3) and add `requires_provider`.
 5. **The secrets gates** (§6.1, §6.3).
 6. **`profile` on `config-overlay` / `env` / `launch`** — only when a second real consumer exists.
