@@ -14,19 +14,20 @@ summary: "Replaces the inverted agent_profiles schema with generic, cross-pack p
 
 **The most important sections in this doc are §3 (Prototypes & Pros/Cons) and §4 (The Skills Architecture Parallel)** — comparing how providers can be represented as generic fragments and showing how this mirrors Core's proven skills brokering model.
 
-**Reads with:** [`pack-code-separation.md`](pack-code-separation.md) (the mandate that core knows no agents), [`extension-point-principle.md`](extension-point-principle.md) (the framework author designs the extension point, not the first extender), [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix with one unified path), [`pack-config-collaboration.md`](pack-config-collaboration.md) (surface sharing and `config-overlay`), [`agent-auth-modes.md`](agent-auth-modes.md) (the original auth mode design being refactored), and [`pack-system.md`](pack-system.md) (the pack layer model).
+**Reads with:** [`pack-code-separation.md`](pack-code-separation.md) (the mandate that core knows no agents), [`extension-point-principle.md`](extension-point-principle.md) (the framework author designs the extension point, not the first extender), [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) (stringly-typed references fail closed by default), [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix with one unified path), [`pack-config-collaboration.md`](pack-config-collaboration.md) (surface sharing and `config-overlay`), [`agent-auth-modes.md`](agent-auth-modes.md) (the original auth mode design being refactored), and [`pack-system.md`](pack-system.md) (the pack layer model).
 
 ---
 
 ## 1. Principles & Verdict Up Front
 
-The design rests on five core principles:
+The design rests on six core principles:
 
 1. **P1 — Core Knows Packs, Not Agents.** There is no `agent_profiles`, no `YOLO_AGENT_PROFILES`, and no switch on `claude` in runtime assembly. Everything operates on pack identifiers (slugs), manifest contributions, and generic configuration dictionaries.
 2. **P2 — A Pack Profile is a Generic Merged Object.** A pack configuration/profile is an atomic JSON/JSONC dictionary ($$\text{env} + \text{provider} + \text{settings}$$) composed via standard RFC-7386 merge patch semantics.
 3. **P3 — Packs Can Ship Fragments for Other Packs.** A pack is not restricted to configuring itself. It can declare declarative configuration fragments that target other packs (e.g. an `aws-bedrock` pack contributing Bedrock provider/env definitions to the `claude` pack).
 4. **P4 — Zero-Boilerplate Projection with Escape-Hatch Fallback.** Standard configuration facets (process environment variables, standard OpenAI/Anthropic endpoint structures) project automatically into the runtime environment without requiring bespoke Lua derivation in every pack. For idiosyncratic dialects (e.g. Codex TOML or Pi JSON), the pack's `derive.lua` receives the resolved composite object as `ctx.pack_config` / `ctx.profile`.
 5. **P5 — Design the Extension Point, Not the First Edge.** Per [`extension-point-principle.md`](extension-point-principle.md), when a mechanism will be extended outside this repo (custom cloud providers, local model bridges, third-party agents), we design the generic extension point now rather than forcing the first outside author to invent ad-hoc workarounds. We ship one edge (`aws-bedrock` targeting `claude`), but settle the general namespace and semantics upfront.
+6. **P6 — Stringly-Typed References Fail Closed by Default.** Per [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md), cross-pack target references (`target: "claude"`) must be verified at load time. If a referenced target pack is not selected, launch resolution **fails fatally by default** to prevent silent misconfigurations, unless explicitly declared `"optional": true`.
 
 ---
 
@@ -401,11 +402,12 @@ An adapter pack declares its bridging fragments in `pack.json`:
         }
       }
     },
-    // Direct configuration for Pi
+    // Direct configuration for Pi (marked optional)
     {
       "kind": "pack-fragment",
       "target": "pi",
       "profile": "bedrock",
+      "optional": true, // If pi is not in packs, skip without error
       "config": {
         "provider": {
           "base_url": "http://127.0.0.1:18080/bedrock/v1",
@@ -424,8 +426,12 @@ An adapter pack declares its bridging fragments in `pack.json`:
 | :--- | :--- | :--- |
 | `kind` | `string` | Must be `"pack-fragment"`. |
 | `target` | `string` | Target pack slug being adapted (e.g. `"claude"`, `"pi"`, `"codex"`). |
+| `optional` | `boolean` (optional, default `false`) | **Target presence requirement.** When `false` (default), if `<target>` is not in the user's active `packs` list, launch resolution **fails fatally** naming the missing target. When `true`, the fragment is skipped cleanly if `<target>` is not selected. |
 | `profile` | `string` (optional) | **Activation filter tag.** When set, this fragment only merges into `<target>` when the active profile for `<target>` matches this name (via CLI `-p <profile>`, `--profile <profile>`, or user config `active_profiles`). When omitted, the fragment applies unconditionally across all profiles. |
 | `config` | `object` | JSON Merge Patch configuration dictionary (`env`, `provider`, `settings`) delivered to the target pack. |
+
+> [!IMPORTANT]
+> **Why `optional: false` is the default:** Per [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md), string references fail closed. If a user selects `packs: ["aws-bedrock"]` expecting Bedrock to adapt Claude, but omits `"claude"`, or typos `target: "cloude"`, silently ignoring the fragment would cause Claude to boot in an unconfigured default state. Failing fatally with a clear diagnostic protects against silent misconfigurations.
 
 > [!NOTE]
 > **Why this keeps Core completely generic:** Core has zero hardcoded logic for Bedrock, Claude, or AWS. Core simply evaluates: *when pack X is selected and profile P is active for target Y, merge X's fragment into Y's configuration dictionary*. The domain knowledge of how to bridge Claude to Bedrock lives entirely inside the adapter pack.
