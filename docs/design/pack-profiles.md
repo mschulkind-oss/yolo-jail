@@ -10,9 +10,9 @@ summary: "Replaces the inverted agent_profiles schema with generic, cross-pack p
 
 **Status:** DRAFT, 2026-08-29. Nothing built.
 
-**The short version.** `agent_profiles` is an architectural inversion: it leaks the concept of "agents" into core and forces Go-level runtime special-casing (`internal/cli/run/assemble.go:722`). This design replaces it with **Pack Profiles** and **Pack Config Fragments** — a generic, RFC-7386 JSON Merge Patch object model. Packs can ship configuration fragments targeting other packs (e.g. an `aws-bedrock` pack layering Bedrock configuration into `claude`), users can define and swap named profiles globally or per-pack, and core automatically projects standard keys (such as `env`) into the jail without requiring per-pack Lua boilerplate or Go-side hardcoding.
+**The short version.** `agent_profiles` is an architectural inversion: it leaks the concept of "agents" into core and forces Go-level runtime special-casing ([`internal/cli/run/assemble.go:722`](../../internal/cli/run/assemble.go#L722)). This design replaces it with **Pack Profiles** and **Pack Config Fragments** — a generic, RFC-7386 JSON Merge Patch object model. Packs can ship configuration fragments targeting other packs (e.g. an `aws-bedrock` pack layering Bedrock configuration into `claude`), users can define and swap named profiles globally or per-pack, and core automatically projects standard keys (such as `env`) into the jail without requiring per-pack Lua boilerplate or Go-side hardcoding.
 
-**The most important section in this doc is §4 and §5** — how cross-pack configuration fragments merge and project without forcing every pack author to reinvent config-to-profile mappings.
+**The most important sections in this doc are §3 (Prototypes & Pros/Cons) and §4 (Cross-Pack Fragments)** — comparing how providers can be represented as generic fragments without forcing users into ugly per-tool dialect repetition.
 
 **Reads with:** [`pack-code-separation.md`](pack-code-separation.md) (the mandate that core knows no agents), [`pack-config-collaboration.md`](pack-config-collaboration.md) (surface sharing and `config-overlay`), [`agent-auth-modes.md`](agent-auth-modes.md) (the original auth mode design being refactored), and [`pack-system.md`](pack-system.md) (the pack layer model).
 
@@ -57,135 +57,190 @@ if prof, ok := effectiveProfiles.Get("claude"); ok && prof == "bedrock" {
 
 This violates pack isolation: adding a new auth mode to Claude or a new agent pack requires modifying Go code in core.
 
-### 2.3 Limits of `config-overlay`
-Today, [`config-overlay`](pack-config-collaboration.md) allows a pack to contribute static JSON keys to a static file surface (e.g. `claude/settings`). However:
-* It cannot inject dynamic **environment variables** (`CLAUDE_CODE_USE_BEDROCK=1`).
-* It cannot define **profile-dependent variations** (e.g., "apply this overlay only when profile `bedrock` is active").
-* It requires the contributing pack to know the exact internal file path and JSON schema of the target tool, rather than expressing a semantic configuration bundle.
+### 2.3 The "Core Knows Providers" Redundancy
+In [`internal/config/config.go:88`](../../internal/config/config.go#L88) and [`internal/config/validate.go:840-900`](../../internal/config/validate.go#L840-L900), Core hardcodes:
+```go
+knownProviderKeys = set("base_url", "wire_api", "api_key_env", "models", "region", "capabilities")
+```
+Unlike MCP servers (which Core spawns as child processes) or LSP servers (which Core installs via npm/go), Core **never connects to, executes, or manages an LLM provider**. A provider is pure configuration data consumed by in-jail tools or exported as env vars. Type-checking `base_url` in Go makes Core pretend to understand LLM semantics while being nothing more than a data conduit.
 
 ---
 
-## 3. Data Model: The Generic Merged Pack Configuration
+## 3. Prototypes & Comparison: How Far Should Genericism Go?
 
-Every pack in an active jail resolves to a **Composite Pack Configuration Object**. 
+To evaluate how to replace hardcoded `providers` with generic fragments, we examine three concrete prototypes.
 
 ```mermaid
 flowchart TD
     classDef default fill:#1e1e2e,stroke:#45475a,stroke-width:1px,color:#cdd6f4;
-    classDef highlight fill:#313244,stroke:#89b4fa,stroke-width:2px,color:#89b4fa;
-    classDef target fill:#181825,stroke:#a6e3a1,stroke-width:2px,color:#a6e3a1;
+    classDef p1 fill:#313244,stroke:#f38ba8,stroke-width:2px,color:#f38ba8;
+    classDef p2 fill:#313244,stroke:#a6e3a1,stroke-width:2px,color:#a6e3a1;
+    classDef p3 fill:#313244,stroke:#89b4fa,stroke-width:2px,color:#89b4fa;
 
-    A["Pack Defaults (manifest)"] --> M["RFC-7386 Merge Engine"]
-    B["Cross-Pack Fragments (contributes)"] --> M
-    C["User Config Profiles (~/.config/yolo-jail/config.jsonc)"] --> M
-    D["Workspace Config Profiles (yolo-jail.jsonc)"] --> M
-    E["CLI Overrides (-p, --profile)"] --> M
+    subgraph "Prototype 1: Raw Opaque Fragments"
+        P1_USER["User Config (Native JSON/TOML per tool)"]:::p1 --> P1_MERGE["Generic Merge"] --> P1_DISK["Direct Write"]
+    end
 
-    M --> RES["Resolved Pack Config Object"]:::highlight
+    subgraph "Prototype 2: Generic Fragments + Lua Projections"
+        P2_USER["User Config (Generic 'provider' fragment)"]:::p2 --> P2_MERGE["Generic Merge"] --> P2_LUA["Pack derive.lua Projections"]:::p2
+    end
 
-    RES --> AUTO_ENV["Auto-Env Projection (process env)"]:::target
-    RES --> AUTO_SURF["Auto-Surface Projection"]:::target
-    RES --> PRISM["Prism ctx.profile (derive.lua)"]:::target
+    subgraph "Prototype 3: Provider Packs (Cross-Pack Fragments)"
+        P3_PACK["Provider Pack (e.g. aws-bedrock)"]:::p3 --> P3_FRAG["Cross-Pack 'pack-fragment'"]:::p3 --> P3_MERGE["Generic Merge + Auto-Env"]
+    end
 ```
 
-### 3.1 Schema of a Pack Config / Profile Object
+---
 
-A pack configuration object contains standard, core-recognized namespaces alongside arbitrary pack-specific settings:
+### 3.1 Prototype 1: Raw Per-Pack Dialects (The Pure Opaque Extreme)
+
+In this prototype, Core knows nothing, but there is no shared provider schema anywhere. The user writes the exact native dialect for each tool under a profile in `~/.config/yolo-jail/config.jsonc`:
 
 ```jsonc
+// Prototype 1: Raw per-pack configuration
 {
-  // 1. Environment variables injected into the jail process environment
-  "env": {
-    "CLAUDE_CODE_USE_BEDROCK": "1",
-    "AWS_REGION": "us-east-1",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "us.anthropic.claude-opus-5[1m]"
-  },
-
-  // 2. Canonical provider/endpoint definition (optional)
-  "provider": {
-    "base_url": "https://api.deepseek.com/v1",
-    "wire_api": "openai_completions",
-    "api_key_env": "DEEPSEEK_API_KEY",
-    "models": {
-      "default": "deepseek-coder",
-      "reasoner": "deepseek-reasoner"
+  "profiles": {
+    "deepseek": {
+      // 1. Pi's native dialect (~/.pi/agent/models.json)
+      "pi": {
+        "models": {
+          "deepseek": {
+            "baseUrl": "https://api.deepseek.com/v1",
+            "api": "openai-completions",
+            "apiKeyEnv": "DEEPSEEK_API_KEY",
+            "models": [{ "id": "deepseek-coder", "name": "default" }]
+          }
+        }
+      },
+      // 2. OpenCode's native dialect (~/.config/opencode/opencode.json)
+      "opencode": {
+        "provider": {
+          "deepseek": {
+            "npm": "@ai-sdk/openai-compatible",
+            "baseURL": "https://api.deepseek.com/v1",
+            "apiKey": "{env:DEEPSEEK_API_KEY}",
+            "models": { "deepseek-coder": { "name": "default" } }
+          }
+        }
+      },
+      // 3. Codex's native dialect (~/.codex/config.toml)
+      "codex": {
+        "model_providers": {
+          "deepseek": {
+            "base_url": "https://api.deepseek.com/v1",
+            "wire_api": "responses",
+            "api_key_env": "DEEPSEEK_API_KEY"
+          }
+        }
+      },
+      // 4. Claude's native dialect (Environment variables)
+      "claude": {
+        "env": {
+          "ANTHROPIC_BASE_URL": "https://api.deepseek.com/v1",
+          "ANTHROPIC_API_KEY": "${DEEPSEEK_API_KEY}"
+        }
+      }
     }
-  },
-
-  // 3. Arbitrary pack-specific settings passed through to Prism / derive.lua
-  "settings": {
-    "temperature": 0.2,
-    "max_tokens": 4096
   }
 }
 ```
 
-### 3.2 User and Workspace Configuration
+#### Pros & Cons of Prototype 1
+* 👍 **Pros:**
+  * Zero abstraction leak in Core or Prism.
+  * Maximum flexibility: any pack receives exactly what its native format expects.
+  * No translation layers or intermediate data models.
+* 👎 **Cons:**
+  * **Extremely ugly and verbose:** The user must memorize and maintain four distinct JSON/TOML dialects for a single LLM endpoint.
+  * **Zero reuse:** Adding a fifth tool requires hand-writing a fifth dialect block for every existing profile.
+  * **High error rate:** Typographical errors in tool-specific keys are hard to debug.
 
-In `~/.config/yolo-jail/config.jsonc` or `yolo-jail.jsonc`, profiles and providers are configured generically without referencing "agents":
+---
+
+### 3.2 Prototype 2: Generic Shared Fragments + Lua Dialect Projections
+
+In this prototype:
+1. Core still knows **zero** provider keys (no `knownProviderKeys`).
+2. Core only knows how to merge JSON dictionaries, expand named fragment references, and inject an `"env"` dictionary.
+3. The user writes **one** canonical fragment in config.
+4. Each pack's `derive.lua` projects that canonical fragment into its own dialect.
 
 ```jsonc
+// Prototype 2: Canonical Fragments in User Config
 {
-  // 1. Shared reusable provider catalog (optional)
-  "providers": {
+  // 1. Reusable generic fragment templates
+  "fragments": {
     "deepseek": {
       "base_url": "https://api.deepseek.com/v1",
       "wire_api": "openai_completions",
       "api_key_env": "DEEPSEEK_API_KEY",
       "models": { "default": "deepseek-coder" }
-    },
-    "bedrock-us": {
-      "wire_api": "anthropic_bedrock",
-      "region": "us-east-1",
-      "models": {
-        "default": "us.anthropic.claude-opus-5[1m]",
-        "haiku": "us.anthropic.claude-3-5-haiku-20241022-v1:0"
-      }
     }
   },
 
-  // 2. Generic pack profiles
-  "pack_profiles": {
-    "claude": {
-      "bedrock": {
-        "env": { "CLAUDE_CODE_USE_BEDROCK": "1" },
-        "provider": "bedrock-us" // expands from providers table or inline object
-      }
-    },
-    "pi": {
-      "glm": {
-        "provider": "deepseek"
-      }
+  // 2. Map fragments to packs under profile 'deepseek'
+  "profiles": {
+    "deepseek": {
+      "pi": { "provider": "deepseek" },
+      "opencode": { "provider": "deepseek" },
+      "codex": { "provider": "deepseek" }
     }
-  },
-
-  // 3. Active profile selection (per pack or global default)
-  "active_profiles": {
-    "claude": "bedrock",
-    "pi": "glm"
   }
 }
 ```
 
-> [!NOTE]
-> When `"provider": "bedrock-us"` is a string reference, core automatically resolves and inlines the corresponding object from the `providers` catalog during merge resolution.
+#### How `packs/pi/derive.lua` consumes it:
+```lua
+-- packs/pi/derive.lua
+yolo.derive("pi", "models", function(ctx)
+  local cfg = ctx.pack_config or {}
+  local prov = cfg.provider
+  if not prov or type(prov) ~= "table" or not prov.base_url then
+    return {}
+  end
+
+  local models = {}
+  for alias, id in pairs(prov.models or {}) do
+    table.insert(models, { id = id, name = alias })
+  end
+
+  return {
+    providers = {
+      [ctx.profile or "default"] = {
+        baseUrl = prov.base_url,
+        api = prov.wire_api or "openai-completions",
+        apiKeyEnv = prov.api_key_env,
+        models = models,
+      }
+    }
+  }
+end)
+```
+
+#### Pros & Cons of Prototype 2
+* 👍 **Pros:**
+  * **Clean user ergonomics:** Define the provider once; all packs consume it.
+  * **Clean Core:** Core Go code contains no LLM/provider schemas.
+  * **Pack-owned dialects:** The translation from generic fields (`base_url`, `models`) to native files (`models.json`) lives in the pack's Lua layer, where it belongs.
+* 👎 **Cons:**
+  * Requires packs that want to consume generic providers to implement a standard derive mapping (though this is only ~10 lines of Lua).
+  * User config still requires mapping packs to profiles (`profiles.deepseek.pi = ...`).
 
 ---
 
-## 4. Cross-Pack Configuration Fragments
+### 3.3 Prototype 3: "Provider Packs" (Cross-Pack Shipped Fragments)
 
-A pack can declare configuration fragments targeting other packs using a new contribution kind in `pack.json`: **`pack-fragment`**.
+In this prototype, instead of the user writing provider configurations in `~/.config/yolo-jail/config.jsonc`, provider integrations ship as **first-class packs** (e.g. `packs/aws-bedrock`, `packs/deepseek`, `packs/ollama`). 
 
-### 4.1 Manifest Declaration: `kind: "pack-fragment"`
-
-An `aws-bedrock` pack can contribute Bedrock configuration directly into the `claude` pack:
+Selecting the pack in `packs: ["claude", "pi", "aws-bedrock"]` automatically layers configuration fragments into target packs:
 
 ```jsonc
 // packs/aws-bedrock/pack.json
 {
   "name": "aws-bedrock",
-  "description": "AWS Bedrock integration and credentials for coding packs",
+  "description": "AWS Bedrock provider integration",
   "contributes": [
+    // 1. Layer Bedrock into Claude (injects process env vars)
     {
       "kind": "pack-fragment",
       "target": "claude",
@@ -199,6 +254,7 @@ An `aws-bedrock` pack can contribute Bedrock configuration directly into the `cl
         }
       }
     },
+    // 2. Layer Bedrock into Pi (injects provider definition into models.json)
     {
       "kind": "pack-fragment",
       "target": "pi",
@@ -215,7 +271,70 @@ An `aws-bedrock` pack can contribute Bedrock configuration directly into the `cl
 }
 ```
 
-### 4.2 Fragment Properties
+Now, running:
+```bash
+yolo -p bedrock -- claude
+# or
+yolo -p bedrock -- pi
+```
+activates the profile and merges the `aws-bedrock` fragment into `claude` or `pi` with **zero user config** and **zero Go code in Core**!
+
+#### Pros & Cons of Prototype 3
+* 👍 **Pros:**
+  * **Zero user configuration:** Users just add `"aws-bedrock"` or `"ollama"` to their `packs` list.
+  * **Completely decentralized:** Community packs can ship support for custom local inference servers (vLLM, LMStudio) without modifying Core or official agent packs.
+  * **Composable:** Multiple provider packs can coexist cleanly without colliding unless activating the same profile name.
+* 👎 **Cons:**
+  * Requires designing the `pack-fragment` contribution kind in `internal/packdecl`.
+  * If a user wants a custom private internal endpoint, they either need to author a local pack or use Prototype 2's user config fragments.
+
+---
+
+### 3.4 Comprehensive Prototype Comparison
+
+| Dimension | Prototype 1 (Raw Dialects) | Prototype 2 (Generic User Fragments) | Prototype 3 (Provider Packs) |
+| :--- | :--- | :--- | :--- |
+| **Core Go Complexity** | Minimal (Generic Dicts) | Minimal (Generic Dicts + Inlining) | Low (Generic Dicts + `pack-fragment`) |
+| **User Ergonomics** | ❌ Awful (Manual multi-dialect JSON) | ✅ Clean (1 shared fragment block) | 🌟 Instant (Zero config, just add pack) |
+| **Cross-Pack Modularity** | Low | Medium | 🌟 High (Packs layer into each other) |
+| **Maintenance Burden** | User owns all dialects | Pack authors own Lua mapping | Provider pack author owns fragment |
+| **Extensibility for Custom Endpoints** | High (but painful) | 🌟 High (easy in `config.jsonc`) | High (via local pack or user layer) |
+
+---
+
+### 3.5 The Synthesized Architecture: Combining Prototypes 2 & 3
+
+The optimal design combines **Prototype 2** and **Prototype 3**:
+1. **Core remains strictly generic:** Core validates only that `fragments`, `profiles`, and `pack-fragment` are JSON dictionaries. Core executes RFC-7386 merge patch resolution and auto-injects `"env"`.
+2. **Packs ship cross-pack fragments (Prototype 3):** Official and community packs (`aws-bedrock`, `ollama`) ship `pack-fragment` contributions for zero-config onboarding.
+3. **Users can declare custom fragments in config (Prototype 2):** Users with custom endpoints or API keys define `fragments` in `~/.config/yolo-jail/config.jsonc` that merge cleanly on top of pack-shipped fragments.
+
+---
+
+## 4. Manifest Schema: `kind: "pack-fragment"`
+
+A pack declares configuration fragments targeting other packs in its `pack.json`:
+
+```jsonc
+{
+  "name": "aws-bedrock",
+  "contributes": [
+    {
+      "kind": "pack-fragment",
+      "target": "claude",
+      "profile": "bedrock",
+      "config": {
+        "env": {
+          "CLAUDE_CODE_USE_BEDROCK": "1",
+          "AWS_REGION": "us-east-1"
+        }
+      }
+    }
+  ]
+}
+```
+
+### 4.1 Field Definitions
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
@@ -262,13 +381,11 @@ When yolo prepares a container launch, it resolves the effective configuration f
 ### 5.1 RFC-7386 Merge Rules
 1. **Objects / Maps (`env`, `settings`, `models`)**: Recursively merged. Keys in higher-precedence layers overwrite keys in lower layers. Setting a key to `null` deletes it (tombstoning).
 2. **Scalars / Strings**: Higher-precedence value wins.
-3. **Provider Name Expansion**: If `"provider"` is a string, it is expanded against the merged `providers` table before merging.
+3. **Fragment Expansion**: If `"provider"` is a string, it is expanded against the merged `fragments` table before merging.
 
 ---
 
 ## 6. Runtime Projection: Zero-Boilerplate vs. Custom Fallback
-
-A key requirement is that pack authors should not need to write repetitive Lua code in `derive.lua` just to consume a profile.
 
 ### 6.1 Automatic Projection (Core-Handled)
 
@@ -276,44 +393,9 @@ Core inspects the resolved pack object and automatically applies standard domain
 
 1. **Automatic Environment Variables (`env`)**:
    Any key-value pair in `pack_config.env` is automatically exported into the container process environment when launching that pack's binary (or globally if the pack is active).
-   *This completely removes the hardcoded Bedrock block in `internal/cli/run/assemble.go:722`!*
-2. **Provider Projection for Standard Agents**:
-   If a pack does not declare a custom provider derive hook, core's default Prism layer projects `pack_config.provider` into standard formats where applicable.
-
-### 6.2 Prism Lua Fallback (`ctx.pack_config` and `ctx.profile`)
-
-For packs with idiosyncratic configuration files, the Lua derive context is enriched with:
-* `ctx.pack_config`: The full resolved configuration object for this pack.
-* `ctx.profile`: The active profile name for this pack (e.g. `"bedrock"` or `"default"`).
-* `ctx.providers`: The global providers table.
-
-#### Example: `packs/pi/derive.lua` (Cleaned Up)
-```lua
--- pi: render ~/.pi/agent/models.json from resolved pack config
-yolo.derive("pi", "models", function(ctx)
-  local cfg = ctx.pack_config or {}
-  local prov = cfg.provider
-  if not prov or type(prov) ~= "table" or not prov.base_url then
-    return {}
-  end
-
-  local models = {}
-  for alias, id in pairs(prov.models or {}) do
-    table.insert(models, { id = id, name = alias })
-  end
-
-  return {
-    providers = {
-      [ctx.profile or "default"] = {
-        baseUrl = prov.base_url,
-        api = prov.wire_api or "openai-completions",
-        apiKeyEnv = prov.api_key_env,
-        models = models,
-      }
-    }
-  }
-end)
-```
+   *This completely removes the hardcoded Bedrock block in [`internal/cli/run/assemble.go:722`](../../internal/cli/run/assemble.go#L722)!*
+2. **Prism Surface Delivery**:
+   Core passes the resolved composite pack configuration object into Prism as `ctx.pack_config` and the active profile name as `ctx.profile`.
 
 ---
 
@@ -387,14 +469,14 @@ Cross-pack configuration fragments and profiles interact with YOLO Jail's trust 
 
 1. 💬 **OQ-1: Global profile name vs. pack-scoped profile mapping in config.** Should `pack_profiles` in user config be keyed first by profile name (`profiles.bedrock.claude`) or by pack name (`pack_profiles.claude.bedrock`)?
    
-   _Leaning:_ Key by pack name first (`pack_profiles.<pack>.<profile>`), with a top-level `active_profiles: { "<pack>": "<profile>" }` or a shorthand `profile: "<name>"` for uniform naming across packs.
+   _Leaning:_ Key by profile name first (`profiles.<profile>.<pack>`) because a user thinking in terms of "dev", "bedrock", or "deepseek" wants to group the cross-tool configuration together in one block.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-2: Interpolation of Provider Catalog Entries in Fragments.** When a fragment specifies `"provider": "bedrock-us"`, should core inline the entire provider definition into `pack_config.provider` before calling Prism, or pass the reference string and let Prism resolve it?
+2. 💬 **OQ-2: Fragment interpolation vs literal expansion.** When a pack fragment specifies `"provider": "deepseek"`, should Core resolve `fragments.deepseek` and inline it, or pass the reference string directly to Lua?
    
-   _Leaning:_ Inline before calling Prism. Core already resolves `providers` and inlining guarantees that Lua scripts and auto-env projectors always see a fully expanded object.
+   _Leaning:_ Core expands string references from `fragments` before calling Prism so that Lua derive functions always receive a fully materialized dictionary.
 
    **Answer:**
    > _(empty — fill in when decided)_
