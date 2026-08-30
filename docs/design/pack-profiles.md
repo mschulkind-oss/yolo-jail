@@ -17,7 +17,15 @@ summary: "Replaces the inverted agent_profiles schema with a dual-layer architec
 
 **The most important sections in this doc are §3 (The Architectural Tension & Dual-Layer Synthesis), §4 (The Secrets Issue & `env_sources`), and §5 (The Manifest Schemas)**.
 
-**Reads with:** [`pack-code-separation.md`](pack-code-separation.md) (the mandate that core knows no agents), [`extension-point-principle.md`](extension-point-principle.md) (the framework author designs the extension point, not the first extender), [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) (stringly-typed references fail closed by default), [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix with one unified path), [`host-agent-environment.md`](host-agent-environment.md) (delivering environment to host agents without shims), and [`pack-system.md`](pack-system.md) (the pack layer model).
+> [!NOTE]
+> **A counter-design exists (2026-08-29):** [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md)
+> argues that most of §3's dual-layer architecture is already shipped (providers are a live derive
+> source consumed by three packs; `packs/claude/derive.lua:5` already branches on the active
+> profile), and proposes one kind — a named variant of a pack's OWN declarations, generalizing
+> `kind: "autonomy"` — instead of `provider` + `pack-fragment`. Read its §9 for the point-by-point
+> diff. This doc is unchanged; the open questions below are still live.
+
+**Reads with:** [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) (the counter-design), [`pack-code-separation.md`](pack-code-separation.md) (the mandate that core knows no agents), [`extension-point-principle.md`](extension-point-principle.md) (the framework author designs the extension point, not the first extender), [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) (stringly-typed references fail closed by default), [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix with one unified path), [`host-agent-environment.md`](host-agent-environment.md) (delivering environment to host agents without shims), and [`pack-system.md`](pack-system.md) (the pack layer model).
 
 ---
 
