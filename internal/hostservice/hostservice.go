@@ -246,25 +246,22 @@ func (s *Session) ExecAllowlisted(
 	go pump(stdout, frameproto.StreamStdout)
 	go pump(stderr, frameproto.StreamStderr)
 
-	rc := 0
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	var timer *time.Timer
 	timedOut := false
 	if timeout > 0 {
-		select {
-		case err := <-done:
-			rc = exitCodeFromErr(err)
-		case <-time.After(timeout):
-			_ = cmd.Process.Kill()
-			<-done
-			rc = 124
+		timer = time.AfterFunc(timeout, func() {
 			timedOut = true
-		}
-	} else {
-		rc = exitCodeFromErr(<-done)
+			_ = cmd.Process.Kill()
+		})
 	}
 	wg.Wait()
+	if timer != nil {
+		timer.Stop()
+	}
+	err := cmd.Wait()
+	rc := exitCodeFromErr(err)
 	if timedOut {
+		rc = 124
 		s.Stderr("exec_allowlisted: timed out\n")
 	}
 	s.Exit(rc)
