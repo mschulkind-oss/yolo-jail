@@ -510,31 +510,39 @@ into §9. What the amendment opened in their place is the `PATH` claim §5.1 ask
    > `~/.zshrc`, `~/.profile`, a fish conf, or a sourced fragment, and can be built dynamically. yolo
    > would be guessing about a file P3 says is not its territory.
 
-   **The shape this suggests — report the OBSERVABLE fact, and make the opt-in a config key rather
-   than an inference:**
+   **The shape this suggests — `apply` reports ACTIONS, `check` reports STATE, and the opt-in is a
+   config key rather than an inference:**
 
    * **Opt-in is `host_wrappers: true`** (top level, beside the existing `host_files`), not a
      `PATH` inspection. Not opted in → no directory, no wrappers, no message, ever. `yolo host --`
-     still works. **This is what makes "print if not set" not a nag** — yolo only ever mentions it
-     to someone who asked for wrappers.
-   * **`apply --host` prints the line when `~/.yolo/bin` is absent from THIS process's `PATH`**, and
-     says precisely that, with the false-positive caveat inline: *"…not on this shell's `PATH`. If
-     you have already added it, open a new shell."* Silent when it is present.
-   * **`yolo check` carries the recurring verification**, because it is the command whose job is
-     "what is the state of my environment" and it is usually run from a fresh shell — so its answer
-     is both decidable and actionable, which `apply --host`'s is not. A generated wrapper directory
+     still works. **This is what stops any of it being a nag** — yolo only ever mentions the line to
+     someone who asked for wrappers.
+   * **`apply` prints the line when it CREATED OR CHANGED the wrapper directory** — not when it
+     observes `PATH`. That is a completion notice about its own action ("I just wrote three
+     wrappers; here is what makes them take effect"), and it needs to know nothing about your RC or
+     your shell. Silent on every apply that changed no wrappers.
+   * **`yolo check` carries the `PATH` observation**, every run, because it is the command whose job
+     is "what is the state of my environment" and it is typically run from a fresh shell — so its
+     answer is both decidable and actionable, which `apply`'s is not. A generated wrapper directory
      that is not on `PATH` is an inert-configuration row, in the summary-counted channel.
-   * **`apply --host` does NOT refuse.** It also writes Channel 1 surfaces, which work regardless;
-     refusing the half that works because the other half is unwired would be the wrong gate
+   * **`apply` does NOT refuse.** It also writes Channel 1 surfaces, which work regardless; refusing
+     the half that works because the other half is unwired would be the wrong gate
      (`gate-placement-principle.md`). Generate, report, and let `check` keep reporting.
+
+   > [!NOTE]
+   > **A discarded intermediate, kept because it is the tempting one.** The first refinement had
+   > `apply` print *when `~/.yolo/bin` is absent from this process's `PATH`*. That inherits the whole
+   > ambiguity above for no benefit: it nags after an RC edit made in another shell, stays silent
+   > after a one-off `export`, and buys nothing that the `check` row does not already cover.
+   > **Conditioning `apply` on its own action instead of on an observation removes the unreliable
+   > input entirely** — and the actions-vs-state split is what the two commands are *for*.
 
    **The stakes:** whether a pack that declares host env can end up silently doing nothing on the
    host. Under the above it cannot do so *quietly* — but it can still do nothing until the user
    pastes a line, and that is the residual this question is really about.
 
-   _Leaning:_ All four bullets as written. Print at `apply --host` on the observable fact with the
-   caveat, verify at `check`, gate the whole thing on `host_wrappers`, and write the RC line only
-   behind an explicit `--shell-init`. It is the same disposition
+   _Leaning:_ All four bullets as written, plus `--shell-init` for the user who would rather yolo
+   just wrote the line. It is the same disposition
    [`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md) reaches for every other
    "configured but not in effect" state.
 
@@ -554,7 +562,46 @@ into §9. What the amendment opened in their place is the `PATH` claim §5.1 ask
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 🤷 **OQ-6: Directory name — `~/.yolo/bin`?** It must not be `~/.yolo-shims` (P6: that name means
+3. 💬 **OQ-7: `yolo apply --host` or `yolo host apply`? The notch is a dial, but the host has
+   verbs the other notches do not.** Today `apply` takes `--at jail|guest|host` with `--host` as
+   documented shorthand ([`apply.go:54,63`](../../internal/cli/apply.go#L54-L64)) — and `--at` is on
+   `apply` **only**; `check` does not take it. **This is the one question here that touches a shipped
+   CLI surface**, and OQ-2's ruling is what forced it: `yolo host -- <cmd>` creates a `host` noun,
+   and a noun with one verb invites siblings.
+
+   **What pulls against a `yolo host` namespace** is settled decision 9.1 in
+   [`host-render-target.md`](host-render-target.md) — *"the host target is one notch of a
+   `confinement` dial, **not a special case**"*, shipped as `internal/render/confinement.go` and the
+   `confinement` config key. A `yolo host <verb>` namespace re-establishes host as a place with its
+   own commands, and then `yolo jail apply` / `yolo guest apply` either exist (triplicating every
+   verb) or do not (host is special again, which is what 9.1 removed).
+
+   **What pulls for it** is that the host genuinely has capabilities the other notches cannot have,
+   because only the host has a user shell and a `PATH` to claim: `yolo host env` (emitting `export`
+   lines has no jail meaning) and `yolo host wrappers enable` (in a jail yolo owns `PATH` and the
+   launch, so there is nothing to wrap). **Those are not notch values of a generic verb** — they need
+   somewhere to live, and `yolo env --at host` is awkward precisely because there is no `--at jail`
+   counterpart.
+
+   > [!NOTE]
+   > **`yolo apply --help` currently says the host notch has no exec half** — *"`yolo -- <cmd>` is
+   > 'apply, then exec.' The host notch has no exec half — there apply IS the whole feature."* OQ-2's
+   > ruling makes that sentence stale the moment `yolo host --` ships, so this text needs updating
+   > whichever way OQ-7 goes.
+
+   _Leaning:_ **`yolo host` is the namespace for host-ONLY verbs, and also shorthands the
+   notch-parameterized ones — with `apply --host` deprecated so there are two spellings, not
+   three.** Concretely: `yolo apply --at host` stays the systematic form; `yolo host apply` becomes
+   the ergonomic one and `yolo apply --host` is deprecated-with-a-message pointing at it (it appears
+   in [`AGENTS.md`](../../AGENTS.md) and in user dotfiles docs, so removal is not on the table);
+   `yolo host env` and `yolo host wrappers enable` live there because they have no other home. This
+   does not re-special-case the *render target* — `confinement` and `--at` are untouched, and 9.1 is
+   about what the notch IS, not about where its ergonomics live.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+4. 💬 🤷 **OQ-6: Directory name — `~/.yolo/bin`?** It must not be `~/.yolo-shims` (P6: that name means
    *blockers* in a jail, and these forward rather than refuse). `~/.yolo/bin` implies a `~/.yolo/`
    tree that does not otherwise exist on the host today.
 
