@@ -35,16 +35,34 @@ it. A confirmed review finding showed the merged read was arbitrary code executi
 cloned repository could set `LD_PRELOAD`, `NODE_OPTIONS`, or `BASH_ENV` for a process outside every
 sandbox, and the `host_wrappers` opt-in multiplied the exposure to every wrapped launch.
 
-The same ruling covers **relative `env_sources` paths**: a relative entry in the user config would
-have resolved against the *current directory* — which a workspace controls — so `yolo host` now
-refuses them with a warning naming the remedy (an absolute path or `~/…`). Jails are unaffected; a
-workspace declaring env for its own sandboxed container is the ordinary case there.
+The same ruling covers **relative `env_sources` paths**: a relative entry would have resolved against
+the *current directory* at the host notch — which a workspace controls — and against the *workspace*
+in a jail launch. Relative entries now resolve **beside the file that declared them** (see the next
+entry).
 
 **Who this bites.** Anyone who put credentials in the WORKSPACE config expecting them to reach host
 launches. That never worked safely, and the fix is the same construction `packs`, `host_files`, and
 `host_wrappers` already use: user scope by construction, not workspace scope filtered. Move the
 `env_sources` / `providers` / `agent_profiles` entries into the user config; the workspace config's
 copies still apply to everything IN the jail, where the container is the boundary.
+
+### ⚠️ Relative `env_sources` paths resolve beside the declaring file
+
+**What changed** (2026-08-30). A relative `env_sources` file entry (`"prod.env"`) now anchors at the
+directory of the config file that declares it — `~/.config/yolo-jail/` for the user config, the
+include's own directory for each `include_if_found` file, and the workspace root for
+`yolo-jail.jsonc`. This is the same convention `include_if_found` itself uses, and it applies at
+both notches.
+
+**Who this bites.** Only one spelling changes meaning: a **relative entry in the USER config used by
+a jail launch**. Before, it resolved against the *workspace* — so a cloned repository could plant a
+`prod.env` that the user config's entry fed into the jail's environment, from a file the config
+never named (the same class as the boundary fix above, through the filesystem). If you relied on
+that, the file now belongs beside your user config; the resolution warnings name the new absolute
+path, so a moved-or-missing file is visible immediately. Workspace-config entries are unchanged —
+the workspace config sits at the workspace root, so beside-the-file *is* workspace-relative for
+them. `yolo host` additionally refuses any relative entry that reaches it unanchored (a hand-built
+config or a pre-upgrade artifact), because its only remaining resolution is the cwd.
 
 ### Security: pack `bin` names must be bare program names
 
