@@ -72,21 +72,16 @@ To evaluate how to replace hardcoded `providers` with generic fragments, we exam
 
 ```mermaid
 flowchart TD
-    classDef default fill:#1e1e2e,stroke:#45475a,stroke-width:1px,color:#cdd6f4;
-    classDef p1 fill:#313244,stroke:#f38ba8,stroke-width:2px,color:#f38ba8;
-    classDef p2 fill:#313244,stroke:#a6e3a1,stroke-width:2px,color:#a6e3a1;
-    classDef p3 fill:#313244,stroke:#89b4fa,stroke-width:2px,color:#89b4fa;
-
     subgraph "Prototype 1: Raw Opaque Fragments"
-        P1_USER["User Config (Native JSON/TOML per tool)"]:::p1 --> P1_MERGE["Generic Merge"] --> P1_DISK["Direct Write"]
+        P1_USER["User Config (Native JSON/TOML per tool)"] --> P1_MERGE["Generic Merge"] --> P1_DISK["Direct Write"]
     end
 
     subgraph "Prototype 2: Generic Fragments + Lua Projections"
-        P2_USER["User Config (Generic 'provider' fragment)"]:::p2 --> P2_MERGE["Generic Merge"] --> P2_LUA["Pack derive.lua Projections"]:::p2
+        P2_USER["User Config (Generic 'provider' fragment)"] --> P2_MERGE["Generic Merge"] --> P2_LUA["Pack derive.lua Projections"]
     end
 
     subgraph "Prototype 3: Provider Packs (Cross-Pack Fragments)"
-        P3_PACK["Provider Pack (e.g. aws-bedrock)"]:::p3 --> P3_FRAG["Cross-Pack 'pack-fragment'"]:::p3 --> P3_MERGE["Generic Merge + Auto-Env"]
+        P3_PACK["Provider Pack (e.g. aws-bedrock)"] --> P3_FRAG["Cross-Pack 'pack-fragment'"] --> P3_MERGE["Generic Merge + Auto-Env"]
     end
 ```
 
@@ -317,19 +312,14 @@ The proposed Pack Profiles model is **not a new conceptual pattern** in YOLO Jai
 
 ```mermaid
 flowchart LR
-    classDef default fill:#1e1e2e,stroke:#45475a,stroke-width:1px,color:#cdd6f4;
-    classDef pool fill:#313244,stroke:#f9e2af,stroke-width:2px,color:#f9e2af;
-    classDef core fill:#181825,stroke:#89b4fa,stroke-width:2px,color:#89b4fa;
-    classDef dest fill:#313244,stroke:#a6e3a1,stroke-width:2px,color:#a6e3a1;
-
     subgraph "Skills Architecture (Shipped)"
-        S_SRC["Packs ship skills/ trees"]:::pool --> S_BROKER["Core mergedest.go Broker"]:::core
-        S_BROKER --> S_DEST["Active Agent Packs (.claude/skills, .pi/agent/skills)"]:::dest
+        S_SRC["Packs ship skills/ trees"] --> S_BROKER["Core mergedest.go Broker"]
+        S_BROKER --> S_DEST["Active Agent Packs (.claude/skills, .pi/agent/skills)"]
     end
 
     subgraph "Profiles Architecture (Proposed)"
-        P_SRC["Packs/User ship Config Fragments"]:::pool --> P_BROKER["Core Profile Merge Engine"]:::core
-        P_BROKER --> P_DEST["Active Agent Packs (process env, Prism ctx.pack_config)"]:::dest
+        P_SRC["Packs/User ship Config Fragments"] --> P_BROKER["Core Profile Merge Engine"]
+        P_BROKER --> P_DEST["Active Agent Packs (process env, Prism ctx.pack_config)"]
     end
 ```
 
