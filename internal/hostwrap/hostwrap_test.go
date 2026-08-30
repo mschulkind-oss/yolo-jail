@@ -370,3 +370,33 @@ func TestGenerateRefusesPathTraversalNames(t *testing.T) {
 		t.Error("a traversal bin wrote outside the wrapper directory")
 	}
 }
+
+// TestLookPathSkippingFallsThroughDeniedCandidates: a PATH entry whose candidate cannot
+// run must not stop the search — the shell that launched yolo skipped it silently, so
+// resolving it made `yolo host -- claude` exit 126 where a bare `claude` succeeded.
+//
+// The 0644 case (mode-bit denial) is constructible for any user. The effective-access
+// case that motivated canExecute (a 0750 candidate owned by another user) needs a
+// non-root euid AND the ability to create foreign-owned files, which a test process has
+// nowhere: as root the two checks agree, and as non-root chown is not permitted. The
+// fall-through this test pins is the shared behavior of both denial kinds; the
+// effective-access half is delegated to access(2) by construction.
+func TestLookPathSkippingFallsThroughDeniedCandidates(t *testing.T) {
+	denied := t.TempDir()
+	ok := t.TempDir()
+	if err := os.WriteFile(filepath.Join(denied, "claude"), nil, 0o644); err != nil { // present, NOT executable
+		t.Fatal(err)
+	}
+	good := filepath.Join(ok, "claude")
+	if err := os.WriteFile(good, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LookPathSkipping(denied+string(os.PathListSeparator)+ok, "claude", nil)
+	if err != nil {
+		t.Fatalf("a denied first candidate must not end the search: %v", err)
+	}
+	if got != good {
+		t.Errorf("resolved %q, want the executable candidate %q", got, good)
+	}
+}

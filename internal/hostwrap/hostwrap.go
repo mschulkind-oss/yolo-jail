@@ -25,6 +25,8 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -257,7 +259,7 @@ func LookPathSkipping(pathEnv, bin string, skipRoots []string) (string, error) {
 		}
 		searched = append(searched, clean)
 		candidate := filepath.Join(clean, bin)
-		if err := executable(candidate); err == nil {
+		if err := executable(candidate); err == nil && canExecute(candidate) {
 			return candidate, nil
 		}
 	}
@@ -291,4 +293,21 @@ func executable(path string) error {
 		return fmt.Errorf("%s: not executable", path)
 	}
 	return nil
+}
+
+// canExecute reports whether the EFFECTIVE user may execute path — the question the
+// kernel answers at exec time, not the one the mode bits answer.
+//
+// Go's mode-bit check and access(X_OK) disagree exactly when it hurts: a candidate that
+// is 0750 root:root passes `Mode()&0o111 != 0` while a non-root effective user cannot run
+// it. Returning that candidate made `yolo host -- claude` exit 126 ('permission denied')
+// where the shell that launched it had silently skipped to the next PATH entry and
+// succeeded — yolo resolving a program the user's own shell resolves fine. Faccessat with
+// AT_EACCESS is the effective-uid check exec itself applies, glibc-compatible including
+// the root and CAP_DAC_OVERRIDE special cases.
+//
+// Confirmed LOW by the adversarial review; it ships because yolo's real deployments are
+// ROOTLESS (rootless podman), where the disagreeing candidate is an every-day shape.
+func canExecute(path string) bool {
+	return unix.Faccessat(unix.AT_FDCWD, path, unix.X_OK, unix.AT_EACCESS) == nil
 }
