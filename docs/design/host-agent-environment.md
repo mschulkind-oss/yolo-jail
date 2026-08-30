@@ -70,15 +70,16 @@ and §5.1 (where launch wrappers live, and the PATH claim that costs).**
    is the mechanism. A generated **launch wrapper** on `PATH` is a three-line `exec` into it, never a
    second implementation to drift. This is what makes "keep shims" affordable.
 5. **P5 — The PATH claim is opt-in; which wrappers get generated is not.** One user-level decision
-   enables `~/.yolo/bin` on `PATH`. After that, wrappers are generated **uniformly** for every pack
+   enables `<wrap dir>` on `PATH` (§5.3). After that, wrappers are generated **uniformly** for every pack
    that declares host env — never per-agent opt-in, which would reintroduce exactly the invisible
    per-agent variation P1 exists to delete. *(This supersedes the first version's P4, which made
    shims themselves strictly opt-in per agent.)*
-6. **P6 — A launch wrapper is not a jail shim, and must not be called one.** In-jail `~/.yolo-shims`
-   holds **blockers** (`grep -r` → refuse, `exit 127`) and is ordered FIRST; `~/.yolo-launchers`
-   holds **lazy installers** and is ordered LAST. A host launch wrapper does neither: it composes an
-   environment and forwards. Conflating the three names is how someone debugging one reads the docs
-   for another.
+6. **P6 — Blocker, launcher, wrapper: three mechanisms, three words, and "shim" retires.** They sit
+   at different `PATH` positions for opposite reasons — **blockers** first (`grep -r` → refuse,
+   `exit 127`), **launchers** last (lazy installers, after `/bin`), **wrappers** prepended on the
+   host (compose env, forward). "Shim" today names the first and is colloquially used for the third.
+   **§5.3 renames the directories so this principle stops needing to be restated** — the ambiguity is
+   removed rather than legislated against.
 
 ---
 
@@ -180,7 +181,7 @@ flowchart TD
     end
 
     subgraph "Approach 4: PATH Shims"
-        A4["~/.yolo/bin/claude (wrapper)"] --> A4_WRAP["Wrapper resolves config & execs real bin"]
+        A4["<wrap dir>/claude (wrapper)"] --> A4_WRAP["Wrapper resolves config & execs real bin"]
         A4_WRAP --> A4_RUN["Transparent interception on PATH"]
     end
 ```
@@ -277,21 +278,22 @@ For users who want environment variables active in their terminal when entering 
 > of their own — which retires the recursion and drift concerns without pretending the `PATH`
 > coverage gap went away. §5.1's bypass table is the honest scope.
 
-Placing executable wrapper scripts in a directory like `~/.yolo/bin/` and adding it to `PATH`.
+Placing executable wrapper scripts in a directory of their own and adding it to `PATH` — ruled to
+`~/.local/share/yolo-jail/bin/wrap` in §5.3.
 
 The shape originally sketched here composed the environment inside the wrapper and hard-coded the
 target path — both of which §5.1 removes:
 
 ```bash
 #!/usr/bin/env bash
-# ~/.yolo/bin/claude — as originally sketched (superseded)
+# <wrap dir>/claude — as originally sketched (superseded)
 eval "$(yolo host env --pack claude)"
 exec /usr/local/bin/claude "$@"          # hard-coded path breaks on `claude update`
 ```
 
 ```bash
 #!/usr/bin/env bash
-# ~/.yolo/bin/claude — as designed (§5.1, P4)
+# <wrap dir>/claude — as designed (§5.1, P4)
 exec yolo host -- claude "$@"            # one env-composition implementation; target resolved
                                          # by §6.1 step 1, which skips yolo-managed dirs
 ```
@@ -354,7 +356,7 @@ flowchart TD
     C --> CANY["works from ANY invocation:<br/>IDE, cron, absolute path,<br/>another process"]
     E --> EEXP["works when yolo is in<br/>the launch path"]
 
-    E -.->|"optional front door (§5.1)"| W["~/.yolo/bin/&lt;agent&gt;<br/>3-line exec into yolo host"]
+    E -.->|"optional front door (§5.1)"| W["bin/wrap/&lt;agent&gt; (§5.3)<br/>3-line exec into yolo host"]
     W --> WPATH["makes bare `claude` work —<br/>where PATH is consulted"]
 ```
 
@@ -385,8 +387,10 @@ directory already fifth on the jail's `BootPath` and conventionally on the host'
 So wrappers need **their own directory, prepended to `PATH` ahead of `~/.local/bin`**:
 
 ```console
-$ export PATH="$HOME/.yolo/bin:$PATH"     # one line, once, in your rc
+$ export PATH="$HOME/.local/share/yolo-jail/bin/wrap:$PATH"   # one line, once, in your rc
 ```
+
+*(Directory ruled in §5.3, which also renames the jail's two generated dirs into the same tree.)*
 
 Four consequences worth stating before agreeing to it:
 
@@ -428,6 +432,98 @@ declared by a pack, versioned, reviewable, uniform across agents, removable, and
 hatch the function does not have: when `PATH` is not consulted, `yolo host -- claude` is a documented
 answer instead of a mystery. That is the honest case for keeping wrappers, and it is enough.
 
+
+### 5.2 The CLI shape: `yolo host <verb>`, and `--host` removed (OQ-7)
+
+**Ruled 2026-08-30.** Three spellings for one operation was the problem; the ruling leaves two, and
+removes rather than deprecates the third.
+
+| Spelling | Disposition |
+| :--- | :--- |
+| `yolo apply --at host` | **Systematic form, unchanged.** The notch stays a value of the `confinement` dial ([`confinement.go:45`](../../internal/config/confinement.go#L45)), which is what settled decision 9.1 in [`host-render-target.md`](host-render-target.md) protects. |
+| `yolo host apply` | **The ergonomic form.** Also where the host-ONLY verbs live — `yolo host env`, `yolo host wrappers enable`, and the exec half `yolo host -- <cmd>` (OQ-2). |
+| `yolo apply --host` | **REMOVED.** Not deprecated-with-a-message. |
+
+> [!NOTE]
+> **Why removal does not re-special-case the host, which was the objection.** Decision 9.1 says the
+> host target is *one notch of a dial, not a special case* — a claim about **what the notch is**.
+> `yolo host` is about **where its ergonomics live**, and it earns a namespace for a reason the
+> other notches cannot match: only the host has a user shell and a `PATH` to claim, so
+> `yolo host env` (emitting `export` lines) and `yolo host wrappers enable` have no `jail` or `guest`
+> counterpart and nowhere else to go. `yolo env --at host` is awkward precisely because `--at jail`
+> would mean nothing. The dial is untouched; `--at` keeps every notch equal.
+
+**Removal scope, measured 2026-08-30.** The flag is cheap to remove and expensive to *mention*:
+
+| What | Where | Size |
+| :--- | :--- | :--- |
+| The flag's only acceptance point | [`apply.go:63-64`](../../internal/cli/apply.go#L63-L64) | **2 lines** |
+| Its `--help` line | [`apply.go:658`](../../internal/cli/apply.go#L658) | 1 line |
+| The generated CLI reference | `internal/cli/config_ref.txt` (3 hits) | regenerate |
+| Prose across the corpus | ~95 files, 373 `apply --host` mentions in `.md` | **a mechanical sweep** — the string becomes `yolo host apply` |
+
+> [!WARNING]
+> **The prose sweep is where this goes wrong if it is done casually.** Most of the 373 are
+> *descriptions of the host notch* ("`apply --host` renders your packs' config surfaces"), which
+> rewrite cleanly. Some are **historical records** in `docs/plans/shipped-*.md` and
+> `retired-decisions.md` describing what shipped *at the time* — those must NOT be rewritten, exactly
+> as [`docs/plans/README.md`](../plans/README.md)'s five checks carry allowlists for docs that
+> deliberately name deleted things. Sweep with an allowlist, not with `sed -i` over `docs/`.
+
+**One more thing the removal forces.** `yolo apply --help` currently says *"The host notch has no
+exec half — there apply IS the whole feature."* OQ-2 already made that stale; this ruling means the
+help text is being edited anyway, so both changes land together.
+
+### 5.3 Where the directories live — XDG, and gathering the jail's dirs with them (OQ-6)
+
+**Ruled 2026-08-30**, answering the two questions asked: what the XDG alternatives are, and whether
+the in-jail dirs come along.
+
+**On XDG — the honest finding first.** This repo follows the XDG *layout* and does not honor the XDG
+*variables*: `internal/paths/paths.go:315` hardcodes `.local/share/yolo-jail` and
+`.config/yolo-jail`, and there is **no `XDG_DATA_HOME` / `XDG_CONFIG_HOME` read anywhere in the
+tree** (verified 2026-08-30). So "use XDG" splits into two different changes:
+
+| Option | Verdict |
+| :--- | :--- |
+| `$XDG_DATA_HOME/yolo-jail/bin`, honoring the variable | **The spec-correct answer, and out of scope here.** Honoring `XDG_DATA_HOME` for *one new directory* while `paths.go` hardcodes the rest would be the only path in the tree that moves when the variable is set. If yolo should honor XDG, that is a `paths.go`-wide change and its own decision. |
+| **`~/.local/share/yolo-jail/bin`** (hardcoded, like its siblings) | ✅ **RULED.** Same tree as `approvals/`, `packs/`, `build/`, `agents/`, `home/` — the existing machine-state root, which is already the XDG *data* location by layout. Nothing new is invented. |
+| `~/.yolo/bin` (the previous leaning) | ❌ Invents a second host-side yolo tree beside one that already exists. |
+| `$XDG_STATE_HOME` | ❌ Wrong category: the spec scopes it to logs, history, recently-used — not generated executables. |
+| `$XDG_CACHE_HOME` | ❌ Actively wrong: a cache is evictable, and an evicted `PATH` entry is a silently broken `claude`. |
+| `~/.local/bin` | ❌ File collision with `claude`'s own installer — §5.1. |
+
+**On gathering the jail's blocker and launcher dirs with it — yes, with one hard constraint.**
+
+> [!CAUTION]
+> **They can be gathered in the filesystem. They CANNOT be gathered on `PATH`.** `~/.yolo-shims`
+> holds blockers and must be **FIRST** — interception is its entire job. `~/.yolo-launchers` holds
+> lazy installers and must be **LAST**, after `/bin`, which is what makes a pack's declared `fzf`
+> unable to shadow the image's ([AGENTS.md](../../AGENTS.md), and `shims.go:39-40`). One directory
+> cannot occupy both ends. **The gathering is a TREE reorganization; the number of distinct `PATH`
+> entries does not change.**
+
+With that constraint, the rename is worth doing — the dirs are yolo's own and regenerated every
+boot — and it fixes a naming problem this doc already had to legislate around in P6:
+
+```
+<root>/bin/block/     → PATH position 1     blockers    (grep -r, find → refuse, exit 127)
+<root>/bin/launch/    → PATH position last  launchers   (lazy installers, then exec the real bin)
+<root>/bin/wrap/      → host only, prepended  wrappers  (compose env, exec yolo host)
+```
+
+**Three unambiguous words — blocker, launcher, wrapper — and "shim" retires.** Today "shim" names
+the blockers in AGENTS.md, is what everyone calls the host wrappers colloquially, and is what P6
+exists to stop people conflating. Renaming removes the need for P6 rather than restating it.
+
+**What this touches, and why it is a separate piece of work:** the in-jail dirs are **bind-mount
+anchors** from `<ws>/.yolo/home/{yolo-shims,yolo-launchers}`
+([`assemble_parts.go:111,117`](../../internal/cli/run/assemble_parts.go#L111-L117)) under a `:ro`
+`/home/agent`, and they are cleared contents-only by `resetAnchorDir` because a live jail's bind
+captured the inode. Renaming means changing the mount args, the generator, `BootPath`'s ordering
+comment, and AGENTS.md's PATH-order section together — mechanical, but not a side effect of the host
+work. **Sequence it after the host wrapper dir exists**, so the new vocabulary lands once.
+
 ---
 
 ## 6. Detailed Design: `yolo host` Command
@@ -467,7 +563,7 @@ yolo host --profile dev -- opencode
 
 > [!NOTE]
 > **Step 1's recursion guard is load-bearing for §5.1.** Resolving `<command>` while ignoring
-> yolo-managed directories is what lets `~/.yolo/bin/claude` be `exec yolo host -- claude "$@"`
+> yolo-managed directories is what lets `<wrap dir>/claude` be `exec yolo host -- claude "$@"`
 > without calling itself. If the guard is ever narrowed, the wrapper front door breaks first and
 > loudly.
 
@@ -491,7 +587,7 @@ The three questions this doc opened on 2026-08-29 were all ruled on 2026-08-30 a
 into §9. What the amendment opened in their place is the `PATH` claim §5.1 asks the user to make.
 
 1. 💬 **OQ-4: When does yolo print the `PATH` line, and does it ever write it?** §5.1 has yolo
-   *print* `export PATH="$HOME/.yolo/bin:$PATH"` and stop, on P3's reasoning that the RC is the
+   *print* the `PATH` line for the wrap dir (§5.3) and stop, on P3's reasoning that the RC is the
    user's file. The obvious refinement — *print it during `apply --host` if it is not already set* —
    is right in shape and has one wrinkle that decides the design.
 
@@ -531,7 +627,7 @@ into §9. What the amendment opened in their place is the `PATH` claim §5.1 ask
 
    > [!NOTE]
    > **A discarded intermediate, kept because it is the tempting one.** The first refinement had
-   > `apply` print *when `~/.yolo/bin` is absent from this process's `PATH`*. That inherits the whole
+   > `apply` print *when the wrap dir is absent from this process's `PATH`*. That inherits the whole
    > ambiguity above for no benefit: it nags after an RC edit made in another shell, stays silent
    > after a one-off `export`, and buys nothing that the `check` row does not already cover.
    > **Conditioning `apply` on its own action instead of on an observation removes the unreliable
@@ -562,55 +658,21 @@ into §9. What the amendment opened in their place is the `PATH` claim §5.1 ask
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-7: `yolo apply --host` or `yolo host apply`? The notch is a dial, but the host has
-   verbs the other notches do not.** Today `apply` takes `--at jail|guest|host` with `--host` as
-   documented shorthand ([`apply.go:54,63`](../../internal/cli/apply.go#L54-L64)) — and `--at` is on
-   `apply` **only**; `check` does not take it. **This is the one question here that touches a shipped
-   CLI surface**, and OQ-2's ruling is what forced it: `yolo host -- <cmd>` creates a `host` noun,
-   and a noun with one verb invites siblings.
+3. ✅ **OQ-7: `yolo host apply`, and `--host` is REMOVED — RESOLVED (2026-08-30).**
 
-   **What pulls against a `yolo host` namespace** is settled decision 9.1 in
-   [`host-render-target.md`](host-render-target.md) — *"the host target is one notch of a
-   `confinement` dial, **not a special case**"*, shipped as `internal/render/confinement.go` and the
-   `confinement` config key. A `yolo host <verb>` namespace re-establishes host as a place with its
-   own commands, and then `yolo jail apply` / `yolo guest apply` either exist (triplicating every
-   verb) or do not (host is special again, which is what 9.1 removed).
+   **Ruling:** `yolo host` is the namespace for host-only verbs and also shorthands the
+   notch-parameterized ones. `yolo apply --at host` stays the systematic form. **`yolo apply --host`
+   is removed outright — not deprecated.** *"yes, but just remove --host, no deprecate."* This
+   overrules the leaning, which had called removal "not on the table" because the flag appears in
+   [`AGENTS.md`](../../AGENTS.md) and in user dotfiles docs; under RM-P1 (*"we're early, we can break
+   things"*) a shipped shorthand with a one-word replacement is exactly the kind of surface that is
+   cheap to change now and expensive later. Two spellings, and the third never becomes muscle memory.
 
-   **What pulls for it** is that the host genuinely has capabilities the other notches cannot have,
-   because only the host has a user shell and a `PATH` to claim: `yolo host env` (emitting `export`
-   lines has no jail meaning) and `yolo host wrappers enable` (in a jail yolo owns `PATH` and the
-   launch, so there is nothing to wrap). **Those are not notch values of a generic verb** — they need
-   somewhere to live, and `yolo env --at host` is awkward precisely because there is no `--at jail`
-   counterpart.
+   Settled in §6 and §5.2. Removal scope is §5.2's table.
 
-   > [!NOTE]
-   > **`yolo apply --help` currently says the host notch has no exec half** — *"`yolo -- <cmd>` is
-   > 'apply, then exec.' The host notch has no exec half — there apply IS the whole feature."* OQ-2's
-   > ruling makes that sentence stale the moment `yolo host --` ships, so this text needs updating
-   > whichever way OQ-7 goes.
-
-   _Leaning:_ **`yolo host` is the namespace for host-ONLY verbs, and also shorthands the
-   notch-parameterized ones — with `apply --host` deprecated so there are two spellings, not
-   three.** Concretely: `yolo apply --at host` stays the systematic form; `yolo host apply` becomes
-   the ergonomic one and `yolo apply --host` is deprecated-with-a-message pointing at it (it appears
-   in [`AGENTS.md`](../../AGENTS.md) and in user dotfiles docs, so removal is not on the table);
-   `yolo host env` and `yolo host wrappers enable` live there because they have no other home. This
-   does not re-special-case the *render target* — `confinement` and `--at` are untouched, and 9.1 is
-   about what the notch IS, not about where its ergonomics live.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 🤷 **OQ-6: Directory name — `~/.yolo/bin`?** It must not be `~/.yolo-shims` (P6: that name means
-   *blockers* in a jail, and these forward rather than refuse). `~/.yolo/bin` implies a `~/.yolo/`
-   tree that does not otherwise exist on the host today.
-
-   _Leaning:_ `~/.yolo/bin`, and let `~/.yolo/` become the host-side yolo dir if more ever needs to
-   live there. `~/.yolo-wrappers` is the alternative if a flat dotfile is preferred to a new tree —
-   pure preference, no technical difference.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+4. ✅ **OQ-6: `~/.local/share/yolo-jail/bin`, and the in-jail dirs are renamed to match —
+   RESOLVED (2026-08-30).** Two questions were asked here: what the XDG alternatives are, and whether
+   the in-jail dirs should be gathered with it. §5.3 is the answer to both.
 
 ---
 
@@ -623,3 +685,5 @@ into §9. What the amendment opened in their place is the `PATH` claim §5.1 ask
 | OQ-3 | **`yolo env` defaults to POSIX `export` syntax, with `--format=json` for tool integration.** Confirms the leaning. Shell-specific emitters (`--shell=fish`) are not refused, just not built until asked for. | 2026-08-30 | §5 |
 | HE-P1 | **Split by payload type, not by agent, and not as a preference order.** The first version's config-first ladder was wrong because a config file routes a credential and cannot deliver one. | 2026-08-30 | §1 P1, §4 |
 | HE-P2 | **Keep wrappers, and make them a three-line `exec` into `yolo host`** — consistency without a second env-composition implementation. Wrappers get their own prepended directory; `~/.local/bin` is a file collision with `claude`'s own installer. | 2026-08-30 | §1 P4–P5, §5.1 |
+| OQ-7 | **`yolo host apply` is the ergonomic form, `yolo apply --at host` the systematic one, and `yolo apply --host` is REMOVED — not deprecated.** *"just remove --host, no deprecate."* Overrules the leaning, which had ruled removal out because the flag is in `AGENTS.md` and user dotfiles docs; RM-P1 applies. `yolo host` also houses the host-only verbs (`env`, `wrappers enable`, `-- <cmd>`) that have no `jail`/`guest` counterpart. Decision 9.1 is untouched: it governs what the notch IS, not where its ergonomics live. | 2026-08-30 | §5.2, §6 |
+| OQ-6 | **`~/.local/share/yolo-jail/bin/wrap`**, hardcoded like its siblings rather than reading `XDG_DATA_HOME` — the repo follows the XDG layout and honors no XDG variable anywhere (`paths.go:315`), so honoring it for one new directory would make it the only path that moves. **And the jail's two generated dirs are renamed into the same tree** (`bin/block`, `bin/launch`) — gathered in the filesystem, *never* on `PATH`, since blockers must be first and launchers last. Retires the word "shim" and with it the need for P6. | 2026-08-30 | §5.3 |
