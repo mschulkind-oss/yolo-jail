@@ -503,3 +503,128 @@ func TestHostUsageDocumentsTheAgentDefaultItActuallyHas(t *testing.T) {
 		t.Error("hostUsage does not name the default --agent the code applies")
 	}
 }
+
+// hostExportKeys returns the KEYS of the `export K=...` lines hostEnv printed, in the
+// order it printed them — which is hostEnvVars' composition order, the thing the two
+// tests below pin.
+func hostExportKeys(out string) []string {
+	var keys []string
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.HasPrefix(line, "export ") {
+			continue
+		}
+		rest := line[len("export "):]
+		if i := strings.IndexByte(rest, '='); i > 0 {
+			keys = append(keys, rest[:i])
+		}
+	}
+	return keys
+}
+
+// TestHostEnvPackEnvVarsSortedBeforeEnvSources pins the CALL SITE of §5.4 source 1: the
+// block in hostEnvVars that asks loadedHostPacks for the selected packs and folds their
+// kind:"env" contributions in FIRST, sorted.
+//
+// internal/packload's own tests prove packload.EnvVars merges what it is handed; this
+// proves `yolo host` actually HANDS it anything. Measured before this test existed:
+// deleting the whole `if packs, err := loadedHostPacks(); ...` block from hostEnvVars
+// compiled and passed the entire suite — meaning no pack's env vars were reaching a host
+// launch and nothing noticed. audio is the one shipped pack with a real kind:"env"
+// contribution (PIPEWIRE_REMOTE, PULSE_SERVER), so selecting it by bare name is the
+// shortest config that exercises the block through the real embedded-pack loader.
+//
+// Three properties, one per assertion: PRESENCE (both vars with audio's literal values),
+// ORDER vs the secret channel (the whole pack block precedes every env_sources
+// assignment), and STABILITY (the order is identical on every run — the sorting exists
+// because "an argv that reshuffles between runs is a diff nobody can read", and map
+// iteration order would reshuffle it; a random-order implementation survives any ONE run
+// half the time, so the loop demands 25 identical compositions).
+func TestHostEnvPackEnvVarsSortedBeforeEnvSources(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Chdir(t.TempDir())
+	userCfg(t, home, `{
+	  "packs": ["audio"],
+	  "env_sources": [{"SECRET_TOKEN": "hunter2"}]
+	}`)
+
+	run := func(t *testing.T) string {
+		t.Helper()
+		var out, errw bytes.Buffer
+		if rc := hostEnv(nil, &out, &errw); rc != 0 {
+			t.Fatalf("hostEnv rc = %d, stderr = %s", rc, errw.String())
+		}
+		return out.String()
+	}
+
+	got := run(t)
+	for _, want := range []string{
+		`export PIPEWIRE_REMOTE='/run/pipewire/pipewire-0'`,
+		`export PULSE_SERVER='unix:/run/pulse/native'`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("pack env contribution missing from the composition: %q\n%s", want, got)
+		}
+	}
+
+	keys := hostExportKeys(got)
+	pos := map[string]int{}
+	for i, k := range keys {
+		pos[k] = i
+	}
+	for _, k := range []string{"PIPEWIRE_REMOTE", "PULSE_SERVER", "SECRET_TOKEN"} {
+		if _, ok := pos[k]; !ok {
+			t.Fatalf("key %s absent from %v\n%s", k, keys, got)
+		}
+	}
+	if !(pos["PIPEWIRE_REMOTE"] < pos["PULSE_SERVER"] && pos["PULSE_SERVER"] < pos["SECRET_TOKEN"]) {
+		t.Errorf("pack env vars are not a SORTED block ahead of env_sources: "+
+			"PIPEWIRE_REMOTE@%d PULSE_SERVER@%d SECRET_TOKEN@%d in %v",
+			pos["PIPEWIRE_REMOTE"], pos["PULSE_SERVER"], pos["SECRET_TOKEN"], keys)
+	}
+
+	// The stability half of the sorting contract: one canonical order, every run.
+	for i := 0; i < 24; i++ {
+		if again := run(t); again != got {
+			t.Fatalf("composition order reshuffled between runs (run %d):\nfirst:\n%s\nagain:\n%s", i+1, got, again)
+		}
+	}
+}
+
+// TestApplyHostWrappersRemovedWhenPacksIsEmptied pins the CALL SITE in applyHost's
+// `len(entries) == 0` early-return branch: applyHostWrappers(pr, errw, home, nil, write).
+//
+// The three existing wrapper tests all configure packs:["claude"], so every one of them
+// reaches the MAIN path's wrapper call — none ever entered this branch, and neutering
+// THIS call left orphan executables at the front of the user's PATH with the suite green
+// (adversarial review finding #13). Emptying `packs` is the MOST complete drop there is:
+// every wrapper is an orphan pointing at a program nothing will reinstall, so the branch's
+// own comment says it must clean up. The opt-in key deliberately STAYS ON — turning it off
+// instead would take the !enabled path inside applyHostWrappers and test the other branch.
+func TestApplyHostWrappersRemovedWhenPacksIsEmptied(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Chdir(t.TempDir())
+	userCfg(t, home, `{"packs": ["claude"], "host_wrappers": true}`)
+	dir := paths.WrapDirUnder(home)
+
+	// Setup, exactly as the lifecycle test does it: an asserting apply generates the
+	// claude wrapper.
+	var out, errw bytes.Buffer
+	applyHost(&out, &errw, false, true, strings.NewReader(""))
+	if _, err := os.ReadFile(filepath.Join(dir, "claude")); err != nil {
+		t.Fatalf("setup: no wrapper generated: %v", err)
+	}
+
+	// Empty `packs`, opt-in unchanged. This apply takes the early-return branch, whose
+	// wrapper call is the only thing left that would retire the wrapper.
+	userCfg(t, home, `{"packs": [], "host_wrappers": true}`)
+	out.Reset()
+	applyHost(&out, &errw, false, true, strings.NewReader(""))
+	if _, err := os.Stat(filepath.Join(dir, "claude")); !os.IsNotExist(err) {
+		t.Error("a wrapper survived emptying `packs` — an orphan EXECUTABLE still first " +
+			"on the user's PATH, pointing at a program nothing will reinstall")
+	}
+}
