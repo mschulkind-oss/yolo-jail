@@ -26,7 +26,7 @@ Three things the spec did not know, all found by running the lifecycle rather th
    state dir. Same evidence, different cost of being wrong, so the retire pass keys on the set
    the config NAMES. The briefing prune's threshold was deliberately left alone.
 
-`yolo apply --host` renders four kinds into a real `$HOME`. When a pack was DROPPED from
+`yolo host apply` renders four kinds into a real `$HOME`. When a pack was DROPPED from
 config, exactly one of them was cleaned up. All four are now.
 
 | Kind | Pack changed (still configured) | Pack DROPPED from config |
@@ -155,7 +155,7 @@ never in observe, fail-closed on EOF stdin. Declining leaves everything and repo
 **SHIPPED.** One deviation worth naming: declining does NOT fail the apply (rc stays 0).
 `confirmHostLosses` refuses the whole write because it gates a render the user asked for; here
 nothing the user asked for was skipped, and a permanent non-zero exit would make every scripted
-`apply --host --assert` look broken after any drop, with no non-interactive way to ever answer.
+`yolo host apply --assert` look broken after any drop, with no non-interactive way to ever answer.
 
 **R2 — Archive, never delete.** Retirement moves content under the archive root with the
 apply's stamp (`hostskills.Archive`), reclaimed by `yolo prune`. Already promised by

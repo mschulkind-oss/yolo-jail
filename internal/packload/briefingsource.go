@@ -50,7 +50,7 @@ import (
 //
 // The containment check is hostBriefingProse's, kept verbatim in intent: `from` is manifest data,
 // packdecl.Validate rejects ".." at the authoring boundary, but a caller may hold a pack whose
-// Decode problems it discarded (`apply --host` reads a local pack through packForCheckDeps, which
+// Decode problems it discarded (`yolo host apply` reads a local pack through packForCheckDeps, which
 // does exactly that). A "../../.ssh/id_rsa" that slipped through would otherwise be copied into a
 // file the user reads as INSTRUCTIONS.
 func (p *Pack) BriefingProseFor(c packdecl.Contribution) (string, string) {

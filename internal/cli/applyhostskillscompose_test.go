@@ -147,7 +147,7 @@ func TestApplyHostSkillsMigratesAndComposesEverywhere(t *testing.T) {
 
 	rc, report := applyWith(t, true, strings.NewReader("y\ny\n"))
 	if rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
 	}
 	if n := countLines(report, "[y/N]", "Move these skills"); n != 1 {
 		t.Fatalf("want exactly ONE skills adoption prompt line, got %d:\n%s", n, report)
@@ -256,7 +256,7 @@ func TestApplyHostSkillsIsIdempotentAndDoesNotReprompt(t *testing.T) {
 	}
 }
 
-// FAIL-CLOSED on stdin. A scripted `apply --host --assert` with no answerable stdin must NOT take
+// FAIL-CLOSED on stdin. A scripted `yolo host apply --assert` with no answerable stdin must NOT take
 // ownership of the user's skills — that is precisely the one-way door the gate exists for.
 func TestApplyHostSkillsFailsClosedWithoutStdin(t *testing.T) {
 	home := userSkillsFixture(t)
@@ -451,7 +451,7 @@ func TestApplyHostSkillsRenameResolvesTheCollision(t *testing.T) {
 	for _, label := range []string{"first", "second"} {
 		rc, report := applyWith(t, true, nil)
 		if rc != 0 {
-			t.Fatalf("%s apply --host --assert rc=%d\n%s", label, rc, report)
+			t.Fatalf("%s host apply --assert rc=%d\n%s", label, rc, report)
 		}
 		for name, body := range map[string]string{"mine": "LOCAL BODY", "theirs": "SHARED BODY"} {
 			got, err := os.ReadFile(filepath.Join(home, ".codex", "skills", name, "SKILL.md"))

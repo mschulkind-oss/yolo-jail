@@ -327,7 +327,7 @@ func overlayContributionRows(agent, surface string) ([]overlayContribution, []st
 // winners / reason is meaningful: a non-nil map means measured, and a non-empty reason
 // names WHICH absence this is.
 //
-// The host notch is the simple case and the reason this function exists: `apply --host` is
+// The host notch is the simple case and the reason this function exists: `yolo host apply` is
 // pure RMW at every mode, and it records a winner for every surface it writes, so there is
 // exactly one question — has an apply asserted yet? The jail notch has the mode split,
 // because an `rmw`/`computed` surface in a jail keeps no record by design (§8) and that
@@ -349,7 +349,7 @@ func surfaceProvenance(s manifest.Surface, notch render.Kind) (winners map[strin
 		// No mode split here: the host render is pure RMW and records every surface it
 		// writes, so an absent record means no apply has asserted this surface — which has
 		// a remedy, unlike the by-design absences below.
-		return nil, notch.String(), "no `yolo apply --host --assert` has rendered it yet"
+		return nil, notch.String(), "no `yolo host apply --assert` has rendered it yet"
 	case render.KindJail:
 		if w := readProvenance(prismProvenancePath(s.Agent, s.Name)); w != nil {
 			return w, notch.String(), ""

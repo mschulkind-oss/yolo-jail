@@ -1,6 +1,6 @@
 package cli
 
-// applyhostbriefings.go is the `apply --host` call site for the `briefing` kind, which yolo now
+// applyhostbriefings.go is the `yolo host apply` call site for the `briefing` kind, which yolo now
 // GENERATES WHOLESALE at every notch (maintainer ruling 2026-08-04, roadmap.md §6a).
 //
 // It is the one host kind whose call site is PACK-SET-WIDE rather than per-pack, and that is a
@@ -228,7 +228,7 @@ func reportBriefingAdoptions(pr richtext.Printer, adoptions []entrypoint.HostBri
 //   - OBSERVE NEVER REACHES HERE. A dry run writes nothing, so it reports the same destinations
 //     as `would move` lines instead.
 //   - FAIL-CLOSED on stdin. promptYesNo reads a nil or EOF stdin as NO, so a scripted
-//     `apply --host --assert` aborts rather than silently taking ownership of the user's file.
+//     `yolo host apply --assert` aborts rather than silently taking ownership of the user's file.
 func confirmBriefingAdoption(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	adoptions []entrypoint.HostBriefingAdoption, localPack string) bool {
 	reportBriefingAdoptions(pr, adoptions, localPack)

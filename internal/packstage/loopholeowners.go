@@ -63,7 +63,7 @@ import (
 //
 // Under the state root rather than in the host-render archive, and §4.5 is explicit about
 // why: `yolo prune`'s archive sweep (internal/prune/hostarchive.go) walks a DIFFERENT tree,
-// the one `apply --host` writes, and this state never passes through that command at all
+// the one `yolo host apply` writes, and this state never passes through that command at all
 // (§3.4 refuses the loophole kind there). A user who has just lost a CA looks under the
 // state dir, so that is where the copy goes.
 //

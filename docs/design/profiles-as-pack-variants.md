@@ -62,7 +62,7 @@ extension point), [`stringly-typed-references-principle.md`](stringly-typed-refe
    collision table cannot see it. A design that adds kinds without answering this is not
    implementable as written.
 6. **P6 — Prefer the channel that survives the host notch.** `kind: "env"` is *refused* by
-   `apply --host` by construction ([`fieldset.go:99-102`](../../internal/render/fieldset.go#L99-L102)).
+   `yolo host apply` by construction ([`fieldset.go:99-103`](../../internal/render/fieldset.go#L99-L103)).
    A profile whose only delivery vehicle is process env cannot fill the matrix, so a setting that
    an agent's own config file can carry must go there instead.
 7. **P7 — Git-tracked packs never contain secrets.** Kept verbatim from `pack-profiles.md` P4. Its
@@ -345,15 +345,16 @@ This is the finding that changed my mind about the Claude/Bedrock case, and neit
 claim survives it.
 
 **`kind: "env"` is refused at the host notch.** Not unimplemented — *refused*, with a written
-reason ([`fieldset.go:99-102`](../../internal/render/fieldset.go#L99-L102)):
+reason ([`fieldset.go:99-103`](../../internal/render/fieldset.go#L99-L103)):
 
-> *"env vars apply to a process yolo starts, and `apply --host` only configures your tools — it
+> *"env vars apply to a process yolo starts, and `yolo host apply` only configures your tools — it
 > never runs them. Setting them for your whole session would mean editing your shell rc, a much
-> larger claim than a pack's env contribution asks for."*
+> larger claim than a pack's env contribution asks for. `yolo host -- <program>` delivers them at
+> launch instead, to that process only."*
 
 `pack-profiles.md` §9 claims alignment with [`happy-path-principle.md`](happy-path-principle.md) —
 *"One unified merge pipeline across the entire matrix: Linux containers, macOS Apple Container,
-`macos-user`, and Host Render Target (`apply --host`)"*. Its worked example is **pure `config.env`**.
+`macos-user`, and Host Render Target (`yolo host apply`)"*. Its worked example is **pure `config.env`**.
 So the flagship case does not work on the notch the doc claims parity for — and the host notch is
 precisely where the design's stated downstream motivation lives
 ([`host-agent-environment.md` §2.2](host-agent-environment.md#22-real-world-case-study-obviating-bashrc-wrapper-functions):
@@ -390,7 +391,7 @@ flowchart LR
     SEL["pack_profiles.claude = 'bedrock'"] --> PROF["packs/claude<br/>kind: profile, name: bedrock"]
     PROF -->|"CONFIG: flags, model IDs, region"| SURF["claude/settings<br/>~/.claude/settings.json"]
     SURF --> JAIL["jail launch ✓"]
-    SURF --> HOST["apply --host ✓ (any invocation)"]
+    SURF --> HOST["yolo host apply ✓ (any invocation)"]
     PROF -->|"ENV: AWS creds, unset AWS_PROFILE"| ENVCH["process env"]
     ENVCH --> JAIL2["jail launch ✓"]
     ENVCH --> HOST2["yolo host -- claude ✓<br/>(or its PATH wrapper)"]
@@ -407,7 +408,7 @@ AWS_PROFILE`, which no config surface can express at all) goes through the proce
 > correction.** `pack-profiles.md` invents a fragment mechanism to deliver, via process env, a
 > payload the target pack could have written into its own file — and process env is precisely the
 > channel that needs yolo in the launch path, so its flagship example is *also* the case that does
-> not reach `apply --host`. What the correction changes is only that process env is a required
+> not reach `yolo host apply`. What the correction changes is only that process env is a required
 > second channel rather than a last resort; it is still the wrong channel for `CLAUDE_CODE_USE_BEDROCK`,
 > and a fragment is still the wrong shape for either.
 

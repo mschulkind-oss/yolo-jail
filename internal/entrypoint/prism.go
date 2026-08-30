@@ -501,7 +501,7 @@ func targetExpandHome(t render.Target, p string) string {
 // CODEC-AWARE at both ends, via surfacecodec.go. It used to be unconditionally JSON — read
 // with loadObject (which silently yields {} for anything it cannot parse) and written with
 // dumpJSONIndent2 — which was invisible while the only RMW surfaces the JAIL rendered were
-// JSON, and destructive the moment `apply --host` made every surface RMW: a codex user's
+// JSON, and destructive the moment `yolo host apply` made every surface RMW: a codex user's
 // TOML config.toml was read as "no keys at all" and rewritten as JSON, so every key they
 // owned disappeared. Now the surface's declared codec decides the decode AND the encode, and
 // a file yolo cannot parse is REFUSED (returned as *rmwRefusedError, file untouched) rather
@@ -553,7 +553,7 @@ func renderSurfaceRMWSurface(e *Env, surface manifest.Surface, computed map[stri
 	// falsify that message and put a new write on the A12-fatal boot path for no gain.
 	//
 	// At the HOST notch rmw is not one mode among four — it is the ONLY mode
-	// (`apply --host` is pure RMW by resolved decision, OQ-4). So "rmw records nothing"
+	// (`yolo host apply` is pure RMW by resolved decision, OQ-4). So "rmw records nothing"
 	// there means "the host records nothing", which is what left `config diff` inferring a
 	// winner from declarations and reporting an overlay as having LOST a key it in fact WON.
 	//
@@ -611,7 +611,7 @@ func readProvenanceRecord(e *Env, agent, name string) map[string]string {
 // It has to be derived rather than read off a Result, and that is the whole reason this
 // exists: `rmw` has no layer fold — it merges each layer into whatever is in the file, in
 // order — so Compose never runs and there is no Result.Provenance to persist. Without
-// this, the one mode the HOST notch uses for every surface (`apply --host` is pure RMW by
+// this, the one mode the HOST notch uses for every surface (`yolo host apply` is pure RMW by
 // resolved decision) would be the one mode that records nothing, which is exactly the gap
 // that let `config diff` state the opposite of what happened.
 //
@@ -714,7 +714,7 @@ func rmwProvenance(surface manifest.Surface, present []string, intact map[string
 // keepFilledDefaults undoes the `host` guess for a key that is only IN the file because yolo's
 // own `defaults` layer filled it, and that the user has not changed since.
 //
-// THE DEFECT (V2, `apply --host` is not whole-home idempotent). The `host` pass above reads the
+// THE DEFECT (V2, `yolo host apply` is not whole-home idempotent). The `host` pass above reads the
 // existing file as the user's layer, which is right for a file the user wrote and wrong for the
 // part of it yolo wrote LAST APPLY. A default key is absent on apply 1 — so it records
 // `defaults` — and present on apply 2, because the apply-1 write put it there, so it records

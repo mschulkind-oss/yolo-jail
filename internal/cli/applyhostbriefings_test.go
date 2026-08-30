@@ -102,7 +102,7 @@ func TestApplyHostBriefingConfirmsBeforeAdoptingUserProse(t *testing.T) {
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
 	}
 	if n := countLines(report, "[y/N]", "generate"); n != 1 {
 		t.Fatalf("want exactly ONE adoption prompt line, got %d:\n%s", n, report)
@@ -136,7 +136,7 @@ func TestApplyHostBriefingConfirmsBeforeAdoptingUserProse(t *testing.T) {
 	}
 }
 
-// FAIL-CLOSED on stdin. A scripted `apply --host --assert` with no answerable stdin must NOT take
+// FAIL-CLOSED on stdin. A scripted `yolo host apply --assert` with no answerable stdin must NOT take
 // ownership of the user's file — that is precisely the one-way door the gate exists for.
 func TestApplyHostBriefingFailsClosedWithoutStdin(t *testing.T) {
 	const userProse = "# My rules\n\nAlways run the tests.\n"

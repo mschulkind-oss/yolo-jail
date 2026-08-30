@@ -235,7 +235,7 @@ type stagedPacks struct {
 // staged-tree prune. That placement is the requirement, not a convenience: the launch is the
 // only thing that reads `packs`, compares it to what is staged, and prunes — so it is the only
 // place a DESELECTION is observed at all (loophole-packaging.md §4.5, and see
-// loopholeretire.go for why `apply --host` and the host-render archive sweep cannot see it).
+// loopholeretire.go for why `yolo host apply` and the host-render archive sweep cannot see it).
 // Never fatal: a bookkeeping failure over the host state dir must not cost the user a jail.
 //
 // It runs on EVERY invocation, attach included, for the same reason the staged-tree prune

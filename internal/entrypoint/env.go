@@ -69,7 +69,7 @@ type Env struct {
 	// that matters gets skimmed past.
 	LogOnly io.Writer
 
-	// hostTarget marks this Env as driving the HOST render (`yolo apply --host`) rather
+	// hostTarget marks this Env as driving the HOST render (`yolo host apply`) rather
 	// than the in-jail boot, so renderTarget() projects it onto render.Host instead of
 	// render.Jail.
 	//
@@ -206,8 +206,8 @@ func (e *Env) WorkspaceDir() string {
 // workspace config.lua), and Stderr (capture/dropped-entry notices) — so the whole of
 // what a render needs from the environment is this projection; everything else
 // (host bytes, the computed layer) is passed to the writers as arguments. Making the
-// Target explicit here is what lets the host verbs (internal/cli) and a future
-// `apply --host` render through the SAME contract instead of a hand-copied mirror.
+// Target explicit here is what lets the host verbs (internal/cli) and
+// `yolo host apply` render through the SAME contract instead of a hand-copied mirror.
 func (e *Env) renderTarget() render.Target {
 	if e.hostTarget {
 		// render.Host leaves Workspace empty ON PURPOSE — a host render has no

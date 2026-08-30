@@ -32,7 +32,7 @@ import (
 )
 
 // applyToHome renders the owner pack into home with the given contributors in view — one
-// `apply --host --assert`. Called twice by every test here, with a different contributor set,
+// `yolo host apply --assert`. Called twice by every test here, with a different contributor set,
 // which is what models a pack being dropped from `packs`.
 func applyToHome(t *testing.T, home string, owner *packload.Pack, contributors ...*packload.Pack) {
 	t.Helper()

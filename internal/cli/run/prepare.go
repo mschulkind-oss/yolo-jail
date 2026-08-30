@@ -452,7 +452,7 @@ func briefingStagingName(pack string) string { return "briefing-" + pack + ".md"
 // packSkillTargets turns pack mount declarations into skills staging targets.
 //
 // It used to also set each target's HostSource to `c.Into` — the DESTINATION — so the jail's
-// last skills layer read the host's own ~/.<agent>/skills. That is S3: since `apply --host`
+// last skills layer read the host's own ~/.<agent>/skills. That is S3: since `yolo host apply`
 // composes those directories, the jail was reading yolo's generated output back in as "the
 // user's tree", and the local pack's content therefore arrived twice. The user's own skills
 // reach a jail through the local pack, which is an ordinary pack entry appended last.

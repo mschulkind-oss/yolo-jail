@@ -1,6 +1,6 @@
 package cli
 
-// applyhostidempotent_test.go pins ONE property of `apply --host --assert`: a second run against
+// applyhostidempotent_test.go pins ONE property of `yolo host apply --assert`: a second run against
 // an unchanged config changes NOTHING in the home.
 //
 // Why it needs a file of its own rather than a line in the skills or briefing suite. Those suites
@@ -31,7 +31,7 @@ import (
 // All six by bare name, deliberately: the defect lives in the `config` kind's provenance record,
 // and which surfaces declare a `defaults` layer is a property of the shipped manifests rather than
 // of anything a fixture could invent. A hand-rolled one-surface pack would pin the mechanism while
-// leaving the real question — "does a plain `apply --host` converge?" — unasked.
+// leaving the real question — "does a plain `yolo host apply` converge?" — unasked.
 func shippedPacksFixture(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -77,7 +77,7 @@ func TestApplyHostIsWholeHomeIdempotent(t *testing.T) {
 	}
 	sort.Strings(diffs)
 	if len(diffs) != 0 {
-		t.Errorf("a second `apply --host --assert` over an unchanged config changed the home: %v\n"+
+		t.Errorf("a second `yolo host apply --assert` over an unchanged config changed the home: %v\n"+
 			"apply must converge after ONE run, or a report cannot distinguish \"something "+
 			"changed\" from \"the tool is unsettled\"\n%s", diffs, report)
 	}

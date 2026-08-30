@@ -236,7 +236,7 @@ Key facts:
   If a real need for declared secret references appears, the honest form is a
   **layer** with provenance, resolved at launch — not a string substitution during
   render.
-- **Both notches now agree, and nothing warns.** The jail and `apply --host` write
+- **Both notches now agree, and nothing warns.** The jail and `yolo host apply` write
   the same literal. The old host-side `${VAR}` warning is gone with the mechanism
   it existed to paper over: its first remedy was *"put the value in the file
   directly"* (advice to inline a live credential into a file a pack may carry), and

@@ -47,7 +47,7 @@ func TestApplyHostZeroCeremonyPackDelivers(t *testing.T) {
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
 	}
 	// UNNAMESPACED, even though `claude` — the pack that NAMES this destination — is namespaced.
 	// The inference used to inherit the destination's tier, which is what S2 removed: a borrowed
@@ -95,7 +95,7 @@ func TestApplyHostZeroCeremonyReachesEveryAgentPack(t *testing.T) {
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
 	}
 	// ONE NAME AT ALL THREE, which is S2's outcome and the reason this list is now parallel. It
 	// used to read `.claude/skills/zc/skills/zcskill` against two bare paths, because the tier was
@@ -155,7 +155,7 @@ func TestApplyHostDeclaringPackIsUnaffectedByTheInference(t *testing.T) {
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
 	}
 	// The declared destination, honored — and flat, as declared, not claude's namespaced tier.
 	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "decskill", "SKILL.md")); err != nil {

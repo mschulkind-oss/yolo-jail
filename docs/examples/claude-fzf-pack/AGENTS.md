@@ -15,7 +15,7 @@ To change the finder's behavior, edit the pack and re-apply:
 ```console
 $ $EDITOR <pack dir>/bin/file-suggestion.sh
 $ yolo pack lint --allow-exec <pack dir>     # then relaunch the jail, or:
-$ yolo apply --host --assert                 # to update your real home
+$ yolo host apply --assert                   # to update your real home
 ```
 
 The finder needs `fd` and `fzf` on PATH. In a jail both are baked into the image.

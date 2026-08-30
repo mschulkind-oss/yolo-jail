@@ -7,7 +7,7 @@ package entrypoint
 // loadObject (JSON-only, empty-on-failure) and wrote every surface with dumpJSONIndent2,
 // which is correct for the two JSON surfaces the JAIL renders in this mode
 // (claude/config, copilot/config) and destructive for anything else. At the HOST notch
-// that stopped being an edge case: `apply --host` is pure RMW for EVERY surface
+// that stopped being an edge case: `yolo host apply` is pure RMW for EVERY surface
 // (host-render-target.md §6.3), so codex/config — `codec: "toml"` — was read as JSON
 // (unparseable => empty object, so every key the user owned vanished) and then written
 // back as JSON. A valid config.toml went in and a JSON file with three yolo keys came out.
@@ -265,7 +265,7 @@ func encodeSurfaceObjectReporting(surface manifest.Surface, obj *jsonx.OrderedMa
 
 // reattachTOMLComments puts the original file's comments back into freshly emitted TOML and
 // reports what it could not keep. It is the single place the two RMW notches agree on what
-// comment preservation means, so `apply --host`'s observe preview and its assert write can
+// comment preservation means, so `yolo host apply`'s observe preview and its assert write can
 // never disagree about which comments survive.
 //
 // It FAILS OPEN to the old behavior: a source the scanner cannot confidently read yields the

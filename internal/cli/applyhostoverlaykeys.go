@@ -1,6 +1,6 @@
 package cli
 
-// applyhostoverlaykeys.go is the `apply --host` call site for ruling R3's first sentence:
+// applyhostoverlaykeys.go is the `yolo host apply` call site for ruling R3's first sentence:
 // remove the `config-overlay` keys a pack asserted into the user's config file once that pack
 // is no longer in `packs`.
 //

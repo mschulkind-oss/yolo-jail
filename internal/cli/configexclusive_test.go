@@ -1,7 +1,7 @@
 package cli
 
 // configexclusive_test.go is the HOST half of Option 1
-// (docs/design/pack-config-collaboration.md): `apply --host` refuses two `config`
+// (docs/design/pack-config-collaboration.md): `yolo host apply` refuses two `config`
 // declarations of one surface identity, and that refusal is what settles ruling R4.
 //
 // R4 is subtler than "a duplicated line": `apply --host` printed one `rendered` line PER
@@ -22,7 +22,7 @@ import (
 )
 
 // Two packs, one surface identity — the Layout B shape the fzf example used before it
-// converted. `apply --host` must refuse, name both packs, teach `config-overlay`, and write
+// converted. `yolo host apply` must refuse, name both packs, teach `config-overlay`, and write
 // NOTHING (the refusal is a pre-flight, not a partial apply).
 func TestApplyHostRefusesDuplicateSurfaceOwner(t *testing.T) {
 	second := `{"name":"acme-fzf","contributes":[
@@ -35,7 +35,7 @@ func TestApplyHostRefusesDuplicateSurfaceOwner(t *testing.T) {
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, true, nil); rc == 0 {
-		t.Fatalf("apply --host --assert must REFUSE a doubly-owned surface (R1); rc=0\n%s%s",
+		t.Fatalf("host apply --assert must REFUSE a doubly-owned surface (R1); rc=0\n%s%s",
 			out.String(), errw.String())
 	}
 	report := out.String() + errw.String()
@@ -66,7 +66,7 @@ func TestApplyHostPrintsOneRenderedLinePerSurface(t *testing.T) {
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, true, nil); rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s%s", rc, out.String(), errw.String())
+		t.Fatalf("host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
 	if n := countRenderedLines(out.String(), "acme/settings"); n != 1 {
 		t.Errorf("want exactly 1 `rendered` line for acme/settings, got %d — two lines for one "+

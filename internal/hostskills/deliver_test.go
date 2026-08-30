@@ -1,7 +1,7 @@
 package hostskills
 
 // deliver_test.go pins the invariants that make it safe to point this code at a real home.
-// Every test here answers one question a user would ask before running `apply --host`:
+// Every test here answers one question a user would ask before running `yolo host apply`:
 // "will this delete my skills?", "can I still add my own?", "what happens if I run it
 // twice?", "what happens when a pack drops a skill?"
 //

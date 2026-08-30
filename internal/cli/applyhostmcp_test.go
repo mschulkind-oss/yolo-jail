@@ -1,7 +1,7 @@
 package cli
 
 // applyhostmcp_test.go is the COMMAND-LEVEL half of "a pack can install Claude MCP servers
-// on the host": what `apply --host` prints, and the confirmation it demands before it can
+// on the host": what `yolo host apply` prints, and the confirmation it demands before it can
 // destroy something.
 //
 // The render-level behavior (the ${workspace} prune, the round-trip guarantee, unresolved
@@ -55,7 +55,7 @@ func hostMCPFixture(t *testing.T, contributorJSON string) string {
 	return home
 }
 
-// THE GOAL, end to end: `apply --host --assert` puts the pack's MCP server in the real
+// THE GOAL, end to end: `yolo host apply --assert` puts the pack's MCP server in the real
 // ~/.claude.json, and the pruned projects.${workspace}.* keys are NAMED in the output.
 func TestApplyHostInstallsMCPServerAndNamesPrunedKeys(t *testing.T) {
 	home := hostMCPFixture(t, mcpURLPackJSON)
@@ -65,7 +65,7 @@ func TestApplyHostInstallsMCPServerAndNamesPrunedKeys(t *testing.T) {
 	// stdin must not block it. That is itself the assertion — an rc of 1 here would mean the
 	// gate fires on a run with nothing to lose.
 	if rc := applyHost(&out, &errw, false, true, nil); rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d (a clean home has nothing to confirm)\n%s\n%s",
+		t.Fatalf("host apply --assert rc=%d (a clean home has nothing to confirm)\n%s\n%s",
 			rc, out.String(), errw.String())
 	}
 	report := out.String() + errw.String()

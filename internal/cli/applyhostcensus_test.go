@@ -1,7 +1,7 @@
 package cli
 
 // applyhostcensus_test.go is the STRUCTURAL gate behind gap G1: every contribution kind a
-// pack declares must appear in `apply --host` output — as rendered, as refused, or as
+// pack declares must appear in `yolo host apply` output — as rendered, as refused, or as
 // honored-but-unbuilt — and never be silently absent.
 //
 // The bug this prevents is subtle enough to be worth spelling out. `render.HostFields()`
@@ -26,7 +26,7 @@ import (
 )
 
 // TestApplyHostAccountsForEveryDeclaredKind builds a pack declaring one contribution of
-// every kind in the closed set, runs `apply --host` in its default observe posture, and
+// every kind in the closed set, runs `yolo host apply` in its default observe posture, and
 // requires each kind to be named in the output.
 func TestApplyHostAccountsForEveryDeclaredKind(t *testing.T) {
 	home := t.TempDir()
@@ -49,13 +49,13 @@ func TestApplyHostAccountsForEveryDeclaredKind(t *testing.T) {
 	var out, errw bytes.Buffer
 	// Observe posture (write=false) — this test is about the census, not about writing.
 	if rc := applyHost(&out, &errw, false, false, nil); rc != 0 {
-		t.Fatalf("apply --host rc = %d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errw.String())
+		t.Fatalf("host apply rc = %d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errw.String())
 	}
 	report := out.String() + errw.String()
 
 	for _, kind := range packdecl.KnownKinds() {
 		if !strings.Contains(report, string(kind)) {
-			t.Errorf("kind %q declared by the pack produced NO line in `apply --host` "+
+			t.Errorf("kind %q declared by the pack produced NO line in `yolo host apply` "+
 				"output — it must be rendered, refused, or named as unimplemented, never "+
 				"silently skipped (gap G1). Full output:\n%s", kind, report)
 		}
@@ -96,7 +96,7 @@ func writeCensusPack(t *testing.T, dir string) {
 			"  \"transport\": \"none\"\n}\n")
 
 	// One contribution per kind. The bodies are minimal-but-valid: what matters is that
-	// each kind is DECLARED, so apply --host has to account for it.
+	// each kind is DECLARED, so `yolo host apply` has to account for it.
 	byKind := map[packdecl.Kind]string{
 		packdecl.KindProgram: `{"kind":"program","bin":"censusbin","via":"npm","package":"census-pkg"}`,
 		packdecl.KindRequires: `{"kind":"requires","bin":"censusreq",` +

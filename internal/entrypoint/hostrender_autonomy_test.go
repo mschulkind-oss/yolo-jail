@@ -10,7 +10,7 @@ import (
 
 // The SHIPPED claude pack, rendered at the host notch, must NOT write the jail-bypass
 // permission keys into the real ~/.claude/settings.json — the concrete §4.2 fix for the
-// apply --host bypass leak. RenderHostPack drives the same path apply --host --assert does.
+// host apply bypass leak. RenderHostPack drives the same path yolo host apply --assert does.
 // (The jail notch staying byte-identical is enforced by TestRenderFingerprintStable.)
 func TestHostRenderClaudeDropsBypass(t *testing.T) {
 	claude, err := embeddedPack("claude")

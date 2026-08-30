@@ -299,7 +299,7 @@ func prismProvenancePath(agent, name string) string {
 	return filepath.Join(prismSidecarDir(), agent+"-"+name+".provenance")
 }
 
-// hostProvenancePath is the CLI-side reader for the record `yolo apply --host --assert`
+// hostProvenancePath is the CLI-side reader for the record `yolo host apply --assert`
 // writes: the same per-key winning layers, for the surfaces in the invoking user's REAL
 // home, under that home's state dir rather than any workspace.
 //

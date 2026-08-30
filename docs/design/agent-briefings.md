@@ -84,7 +84,7 @@ each file from three parts, in order:
    > [!WARNING]
    > `after: "host:…"` is **origin-gated and JAIL-ONLY**. A *fetched* pack may
    > declare it but the grant is honored only if the user approved it at `yolo
-   > pack install`; and at the `apply --host` notch the path it names IS the
+   > pack install`; and at the `yolo host apply` notch the path it names IS the
    > generated destination, so the host render ignores it outright. See
    > [`pack-system.md`](pack-system.md) §3 and §9.
 2. **The jail-managed briefing** — one `# YOLO Jail Environment` document
@@ -217,7 +217,7 @@ examples below were written when `gemini` was still an agent — read them as
   dir.
 
 > [!WARNING]
-> **Superseded in part at the HOST notch.** `apply --host` composes skills and
+> **Superseded in part at the HOST notch.** `yolo host apply` composes skills and
 > briefings **wholesale**, moving the user's own prose and skills into the local
 > pack (`~/.config/yolo-jail/local/`) and regenerating every destination from
 > there. Under that model the symlink recipe above is the *jail-notch* story;

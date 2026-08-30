@@ -15,7 +15,7 @@ import (
 //
 // The user's own skill arrives through the PACK layer, which is where it comes from since S3:
 // the layer that read the host's ~/.<agent>/skills directly was reading a directory
-// `apply --host` generates, so the user's tree reaches a jail as the local pack instead.
+// `yolo host apply` generates, so the user's tree reaches a jail as the local pack instead.
 func TestPrepareSkillsStaging(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -148,7 +148,7 @@ func mustReadDir(t *testing.T, dir string) []os.DirEntry {
 
 // S3: THE JAIL DOES NOT READ THE DESTINATION BACK IN.
 //
-// `apply --host` COMPOSES ~/.claude/skills wholesale, so a jail that layered the host's copy of
+// `yolo host apply` COMPOSES ~/.claude/skills wholesale, so a jail that layered the host's copy of
 // that directory in as "the user's own tree" was reading yolo's own generated output — and since
 // the local pack is an ordinary pack entry, its content then arrived TWICE by two routes,
 // invisible only because a flat merge is last-writer-wins. This is the observable that
@@ -185,7 +185,7 @@ func TestJailDoesNotStageTheDestinationsOwnSkills(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(staged, "composed-only")); !os.IsNotExist(err) {
 		t.Errorf("a skill present ONLY in ~/.claude/skills was staged (stat err=%v) — the jail is "+
-			"reading the destination `apply --host` generates back in as the user's own tree (S3)",
+			"reading the destination `yolo host apply` generates back in as the user's own tree (S3)",
 			err)
 	}
 	// And the pack's copy is what landed: content, not just presence, because the destination
@@ -261,7 +261,7 @@ func withSkillTargets(t *testing.T, dests ...string) {
 
 // withPackSkillDirs points the pack layer at `dirs` for one test, replacing what the host's own
 // ~/.<agent>/skills tree used to supply directly (S3: that layer read the DESTINATION, which
-// `apply --host` now generates). The user's own skills reach a jail as the LOCAL PACK, which is an
+// `yolo host apply` now generates). The user's own skills reach a jail as the LOCAL PACK, which is an
 // ordinary entry in this list — appended last by config.LoadPacks.
 func withPackSkillDirs(t *testing.T, dirs ...string) {
 	t.Helper()

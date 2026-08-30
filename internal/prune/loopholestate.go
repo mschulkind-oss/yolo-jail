@@ -11,7 +11,7 @@ package prune
 // reach:
 //
 //   - The `files` kind's host output is retired by cli.pruneDroppedPackOutput, called ONLY
-//     from `apply --host` — the exact command §3.4 refuses the loophole kind at, so it never
+//     from `yolo host apply` — the exact command §3.4 refuses the loophole kind at, so it never
 //     sees a loophole contribution.
 //   - PruneHostArchiveBuckets sweeps the HOST-RENDER archive (hostarchive.go), which is a
 //     different tree from <state>/.retired: the render's archive lives under

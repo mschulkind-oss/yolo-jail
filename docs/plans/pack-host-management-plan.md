@@ -403,11 +403,11 @@ for them precisely because the census says they *do* apply.
   Keep this a **data-driven set** (a `hostUnimplemented map[packdecl.Kind]string`), not two
   `if`s, so Phases 4 and 5 delete an entry each rather than untangling a conditional.
 - **2.2** Add a test asserting **every** kind a loaded pack declares appears in
-  `apply --host` output exactly once — as rendered, refused, or unimplemented. This is the
+  `yolo host apply` output exactly once — as rendered, refused, or unimplemented. This is the
   general form of the bug: the census promising what the renderer does not implement.
   Without it, the next kind added to `HostFields()` vanishes the same way.
 
-**Done when:** `apply --host` on a skills+briefing pack names both by name; no declared kind
+**Done when:** `yolo host apply` on a skills+briefing pack names both by name; no declared kind
 can be absent from the output.
 
 **Note on ordering:** Phase 2's messages are *deliberately temporary*. Shipping them is
@@ -504,7 +504,7 @@ marker is needed and OQ-A dissolves.
   skill is removed from within the pack dir; `observe` writes nothing; built-ins are not
   written to the host.
 
-**Done when:** `apply --host --assert` materializes pack skills into
+**Done when:** `yolo host apply --assert` materializes pack skills into
 `~/.claude/skills/<pack>/`, every sibling entry is untouched, and re-running is a no-op.
 
 **Deliberately NOT changing the jail path.** The jail keeps its flat
@@ -513,7 +513,7 @@ That divergence is real and I am accepting it rather than hiding it: the jail's 
 safe precisely because the destination is a disposable `:ro` mount, and unifying the two
 would mean changing every shipped pack's skills destination plus the built-in staging path —
 a bigger change than this plan should carry. Revisit only if the two-names problem actually
-bites. **Print the host-side name** in `apply --host` output so it is discoverable.
+bites. **Print the host-side name** in `yolo host apply` output so it is discoverable.
 
 ---
 
@@ -555,7 +555,7 @@ apply**, and it grows without bound. **Do not ship a plain append.**
   blocks; a dropped pack's block is removed while the other survives; an unterminated marker
   refuses.
 
-**Done when:** `apply --host --assert` maintains a delimited block idempotently, and the
+**Done when:** `yolo host apply --assert` maintains a delimited block idempotently, and the
 user's own prose is never duplicated or lost.
 
 ---
@@ -633,7 +633,7 @@ Already designed and partly built: `install_hints` +
 
 **Scope discipline:** do **not** build the batched-by-elevation-class confirm UX here; that
 is env-manager Phase 4.3's own increment with its own resolved OQs (OQ-6/7/9). This plan
-needs only that `apply --host` **reports** the missing deps with their remedy, instead of
+needs only that `yolo host apply` **reports** the missing deps with their remedy, instead of
 today's line:
 
 ```
@@ -646,7 +646,7 @@ program — install below jail is confirm-gated; not run by apply --host yet (Ph
 - **8.2** Leave the *running* of installs to env-manager Phase 4.3, and say so in the
   output.
 - **8.3 — SHIPPED (2026-08-02).** All six shipped packs now carry verified `install_hints`, so
-  the "print the remedy" branch is the *common* path: `check-deps` and `apply --host` name the
+  the "print the remedy" branch is the *common* path: `check-deps` and `yolo host apply` name the
   exact install line instead of landing in the no-remedy case. Every name was verified against
   the manager's own index (brew's `formulae.brew.sh` API, `nix eval nixpkgs#<attr>` plus the
   nixpkgs expression's `mainProgram`/`installPhase`, Arch's `packages/search/json` and the
@@ -713,7 +713,7 @@ program — install below jail is confirm-gated; not run by apply --host yet (Ph
   one: the fallback prefers a same-named FORMULA, which is how brew's `copilot` (AWS's
   deprecated ECS CLI) would get installed instead of the `copilot-cli` cask.
 
-**Done when:** `apply --host` on a pack declaring `fd`/`fzf` names which are missing and the
+**Done when:** `yolo host apply` on a pack declaring `fd`/`fzf` names which are missing and the
 exact install line, without running anything.
 
 ---
@@ -887,8 +887,8 @@ After Phases 0–8, this pack must work at both notches:
 Checks:
 
 1. `yolo pack lint --allow-exec ~/.dotfiles/claude-fzf` → clean (Phase 1).
-2. `yolo apply --host` → every kind named; no kind silently absent (Phase 2).
-3. `yolo apply --host --assert` → settings key written, `file-suggestion.sh` at `0o555`,
+2. `yolo host apply` → every kind named; no kind silently absent (Phase 2).
+3. `yolo host apply --assert` → settings key written, `file-suggestion.sh` at `0o555`,
    skills at `~/.claude/skills/claude-fzf/` + briefing block written, deps reported
    (Phases 3/4/5/7/8).
 4. Re-run `--assert` → **byte-identical**; no duplicated prose (Phase 5).

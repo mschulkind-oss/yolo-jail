@@ -1095,7 +1095,7 @@ route to approving it.
 
 **Mechanical costs**, each enforced by an existing test that fails until updated: `kinds_test.go:30`
 hardcodes `14`; `kinds_test.go:99-107` hardcodes the review-worthy set; `applyhostcensus_test.go`
-fails by name until the kind appears in `apply --host` output — and note it builds its pack from
+fails by name until the kind appears in `yolo host apply` output — and note it builds its pack from
 `packdecl.KnownKinds()` and `t.Fatalf`s on a kind with no census contribution (`:110-115`), so the
 new kind needs a census entry whose `from` dir and `manifest.jsonc` the helper must create;
 `packkinddocs_test.go` fails until the kind is named in **both** `internal/cli/config_ref.txt` and
@@ -1193,7 +1193,7 @@ obviously wrong.** The honest reason is the inverse:
 
 Refused because its **counterparty** is missing, not because its mechanism is.
 
-**And that refusal is a feature for the trust story.** `apply --host` is the one command that mutates
+**And that refusal is a feature for the trust story.** `yolo host apply` is the one command that mutates
 the real machine, and it deliberately never runs pack `hook`s for this reason
 (`fieldset.go:86-93`). A `loophole` refused there means *"selecting this pack runs a daemon"* is a
 statement about **launching a jail**, not about **applying a config** — which keeps the blast radius
@@ -1695,7 +1695,7 @@ redesign.
 1. **`allow_exec` is not this gate and would not even fire.** It gates staging a file with an execute
    bit (`packstage.go:149-156`), is per-pack rather than per-file, and is origin-blind. A daemon
    shipped as `python3 script.py` needs no exec bit at all. It *is* one step short of host execution
-   in a different way — `apply --host` delivers an executable staged file at `0o555`
+   in a different way — `yolo host apply` delivers an executable staged file at `0o555`
    (`entrypoint/hostfilestree.go:192-201`), which is the live matt-fzf case: a pack-owned script the
    **host's** Claude Code executes. yolo does not exec it; the pack causes host-side code to exist
    where host software runs it.
@@ -1714,7 +1714,7 @@ redesign.
    BEFORE the prompt is shown so a pipe is never invited to answer it, and the claims still print so
    a CI log shows what is waiting on a human. Both branches of the predicate are pinned (a non-file
    reader, and a real `os.Pipe` with bytes waiting — the second added 2026-08-14).
-4. **`apply --host` silently drops every fetched pack today.** `packForCheckDeps`
+4. **`yolo host apply` silently drops every fetched pack today.** `packForCheckDeps`
    (`checkdeps.go:135-137`) returns nil for anything not embedded and not `file://`, and the printed
    reason blames offline resolution. So the G3 gate is untested at that command. Pre-existing.
 5. **Two backends make the whole kind a silent no-op** — see §8 item 2, which draft 1 scoped far too
@@ -1737,7 +1737,7 @@ Draft 1 said this should work *"the way `files` retires its host output"*. **Rev
 no path from that precedent to here**, three times over:
 
 1. `files`' host output is retired by `pruneDroppedPackOutput` (`cli/applyhostprune.go:57-73`),
-   called **only** from `apply --host` (`apply.go:171`, `:457`) — the command §3.4 refuses this kind
+   called **only** from `yolo host apply` (`apply.go:171`, `:457`) — the command §3.4 refuses this kind
    at. That command never sees a loophole contribution.
 2. `yolo prune` sweeps the **host-render archive** (`prune/hostarchive.go`), a different tree from
    `paths.GlobalStorage()/state/<name>`.

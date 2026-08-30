@@ -21,7 +21,7 @@ not the whole story. Of the four:
 |---|---|---|---|
 | 1 | **macOS `guest` notch** (Phase 7.1) | run + verify on a real Mac | **Yes** — only you have one |
 | 2 | **Linux `guest` notch** (Phase 7.2) | a real Linux host (Landlock + userns) | No — a Linux box, not the jail |
-| 3 | **`apply --host` offer-to-run installs** (Phase 6.4) | an interactive terminal on any real machine | Either OS |
+| 3 | **`yolo host apply` offer-to-run installs** (Phase 6.4) | an interactive terminal on any real machine | Either OS |
 | 4 | **No-exec jail provision** (Phase 3) | nothing from you — it's pure in-jail dev | **No** — not gated on you at all |
 
 Item 4 is not waiting on you at all — flagged here so it doesn't get lost behind the
@@ -122,7 +122,7 @@ your Mac can't help with. It needs a real Linux machine.
 
 ---
 
-## Item 3 — `apply --host` offer-to-run installs (Phase 6.4) — **an interactive terminal**
+## Item 3 — `yolo host apply` offer-to-run installs (Phase 6.4) — **an interactive terminal**
 
 **What it is.** Today `check-deps` *names* missing host tools and writes the manifest
 (`~/.config/yolo/Brewfile` + apt/dnf/pacman kin); it never installs. The deferred piece
@@ -143,7 +143,7 @@ exercise). Automated tests must never actually install.
    have, then:
    ```console
    $ yolo check-deps               # names the miss, writes ~/.config/yolo/<manifest>
-   $ yolo apply --host             # observe — should list the miss + the would-run remedy
+   $ yolo host apply               # observe — should list the miss + the would-run remedy
    ```
 2. When the offer-to-run lands, verify the **batching**: no-sudo remedies get one
    confirm; `sudo` remedies get one confirm **first**, and your OS's own password prompt

@@ -309,7 +309,7 @@ one line of this file — the exact thing this file's own rule forbids. All seve
 leaning and an empty Answer in Stage E.
 
 - **S5** is the only one that is a live gap rather than a preference: a jail resolves a skill-name
-  collision **silently**, where `apply --host` refuses. Warn at launch, fail `yolo check`, or refuse
+  collision **silently**, where `yolo host apply` refuses. Warn at launch, fail `yolo check`, or refuse
   the boot.
 - **E1 + E2 + `pack-host-management-plan.md` OQ-B are ONE decision** — the `0o444`-vs-`:ro`
   asymmetry. **Four instances, not three** (2026-08-23): `composed-file-permissions.md` §7.4 is the

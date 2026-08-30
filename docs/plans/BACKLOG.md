@@ -397,7 +397,7 @@ this row open.
 skill directory with the same name aimed at the same destination (`~/.claude/skills/review`
 from both). The two notches answer that differently, and only one of them says anything:
 
-- **Host (`apply --host`) — FATAL, before anything is written.**
+- **Host (`yolo host apply`) — FATAL, before anything is written.**
   `hostskills.RenderHostSkills` calls `Collisions(dests)` first and returns `CollisionError`
   with every collision named, so one run tells the user every rename to make
   (`internal/hostskills/compose.go:698-700`). This is the S1 ruling.
@@ -456,7 +456,7 @@ when the overlay's value is the one that actually landed and no `managed` value 
 (§9 *"What it did NOT change"*). It is worth deciding anyway because the **neighbouring kind
 answers the same shaped question the opposite way**: since 2026-08-02 a same-identity `config`
 declaration is a LOUD collision, named in `yolo pack footprint` and refused at launch and by
-`apply --host` (§9). Two adjacent kinds with opposite silence policies is the drift.
+`yolo host apply` (§9). Two adjacent kinds with opposite silence policies is the drift.
 Provenance: born 2026-08-13 (`58ae8227`) as the generic residue of the retired auth-pack
 `provides` mechanism — *"not auth-specific, and nothing is blocked on it."*
 

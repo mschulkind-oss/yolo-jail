@@ -1,6 +1,6 @@
 package entrypoint
 
-// hostprovenance_test.go pins HOST-SIDE PROVENANCE: `yolo apply --host` records which layer
+// hostprovenance_test.go pins HOST-SIDE PROVENANCE: `yolo host apply` records which layer
 // won each key, so `yolo config diff` at the host reports a MEASURED winner instead of one
 // inferred from pack declarations.
 //
@@ -136,7 +136,7 @@ func TestHostRenderProvenanceRecordsAGenuineOverlayLoss(t *testing.T) {
 //
 // Both alternatives were live options. Beside the rendered file (~/.acme/.yolo-provenance/)
 // would put yolo bookkeeping inside a dir the agent reads as config; a workspace-relative
-// path would scatter records into whatever directory `apply --host` was invoked from,
+// path would scatter records into whatever directory `yolo host apply` was invoked from,
 // because render.Host leaves Workspace empty by definition.
 func TestHostProvenanceLivesInTheStateDirNotTheConfigDir(t *testing.T) {
 	home := t.TempDir()

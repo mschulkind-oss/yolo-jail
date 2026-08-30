@@ -1,6 +1,6 @@
 package cli
 
-// applyhostoutranked_test.go is the OUTPUT half of finding F4: `apply --host` must print an
+// applyhostoutranked_test.go is the OUTPUT half of finding F4: `yolo host apply` must print an
 // outranked overlay key by name, with its cause, and must not print the ⚠ overwrite warning
 // in a way that reads as though the overlay won.
 //
@@ -31,7 +31,7 @@ func TestApplyHostNamesTheOutrankedOverlayKey(t *testing.T) {
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, true, nil); rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s\n%s", rc, out.String(), errw.String())
+		t.Fatalf("host apply --assert rc=%d\n%s\n%s", rc, out.String(), errw.String())
 	}
 	report := out.String() + errw.String()
 	// Asserted against the ONE line that names the key, not against the whole report: the
@@ -70,7 +70,7 @@ func TestApplyHostOverwriteWarningDoesNotCreditAnOutrankedOverlay(t *testing.T) 
 	var out, errw bytes.Buffer
 	// Observe: the honest report has to precede the write.
 	if rc := applyHost(&out, &errw, false, false, nil); rc != 0 {
-		t.Fatalf("apply --host rc=%d\n%s\n%s", rc, out.String(), errw.String())
+		t.Fatalf("host apply rc=%d\n%s\n%s", rc, out.String(), errw.String())
 	}
 	report := out.String() + errw.String()
 	for _, line := range strings.Split(report, "\n") {
@@ -98,7 +98,7 @@ func TestApplyHostDoesNotReportAWinningOverlayKeyAsIgnored(t *testing.T) {
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, true, nil); rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s\n%s", rc, out.String(), errw.String())
+		t.Fatalf("host apply --assert rc=%d\n%s\n%s", rc, out.String(), errw.String())
 	}
 	report := out.String() + errw.String()
 	if strings.Contains(report, "IGNORED") {

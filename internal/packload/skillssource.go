@@ -50,7 +50,7 @@ import (
 //
 // The containment check is the same one hostBriefingProse makes, for the same reason and with
 // the same reach: `from` is manifest data, packdecl.Validate rejects ".." at the authoring
-// boundary, but a caller may hold a pack whose Decode problems it discarded — `apply --host`
+// boundary, but a caller may hold a pack whose Decode problems it discarded — `yolo host apply`
 // reads a local pack through packForCheckDeps, which does exactly that. It is lexical, so it
 // bounds a declared path and not a symlink inside the tree; on the jail path packstage has
 // already refused escaping symlinks, and on the host path an unstaged tree is only ever a

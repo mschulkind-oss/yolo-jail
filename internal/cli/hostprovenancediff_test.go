@@ -1,7 +1,7 @@
 package cli
 
 // hostprovenancediff_test.go is the READER half of host-side provenance: `yolo config diff`
-// at the host notch reports a MEASURED winner, from the record `apply --host --assert`
+// at the host notch reports a MEASURED winner, from the record `yolo host apply --assert`
 // writes, instead of one inferred from what the packs declare.
 //
 // The defect being pinned against (docs/design/pack-config-collaboration.md §8, final
@@ -40,7 +40,7 @@ func withHostProvenanceDir(t *testing.T) string {
 	return dir
 }
 
-// writeHostProvenance seeds the record an `apply --host --assert` would have written.
+// writeHostProvenance seeds the record a `yolo host apply --assert` would have written.
 func writeHostProvenance(t *testing.T, dir, agent, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, agent+"-"+name+".provenance"),
@@ -69,7 +69,7 @@ func TestConfigDiffHostNotchReportsTheMeasuredWinner(t *testing.T) {
 	withHostSurfaces(t)
 	withSidecarDir(t) // no JAIL record: this notch must not read one
 	dir := withHostProvenanceDir(t)
-	// What `apply --host --assert` measured: the overlay won fileSuggestion (the owner does
+	// What `yolo host apply --assert` measured: the overlay won fileSuggestion (the owner does
 	// not declare that key at all), the owner's managed layer won telemetry.
 	writeHostProvenance(t, dir, "acme", "settings",
 		"fileSuggestion\tconfig-overlay:acme-fzf\ntelemetry\tmanaged\n")
@@ -142,7 +142,7 @@ func TestConfigDiffHostNotchWithNoApplyYet(t *testing.T) {
 	if !strings.Contains(got, "not measured") {
 		t.Errorf("an absent record must read as UNMEASURED rather than as a winner:\n%s", got)
 	}
-	if !strings.Contains(got, "apply --host --assert") {
+	if !strings.Contains(got, "host apply --assert") {
 		t.Errorf("the host-notch absence has a remedy and must name it:\n%s", got)
 	}
 	// Not the jail's by-design message: the host records every surface it writes, so an

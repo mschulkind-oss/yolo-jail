@@ -149,7 +149,7 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		// Declining is a legitimate answer, not a failure: nothing the user asked for was
 		// skipped — the files simply stay, and this run reports it the same way the next one
 		// will. So the rc is unchanged, which also keeps the fail-closed nil-stdin path from
-		// making every scripted `apply --host --assert` fail permanently after any drop, with
+		// making every scripted `yolo host apply --assert` fail permanently after any drop, with
 		// no non-interactive way to ever answer.
 		//
 		// PARTIAL APPLICATION IS NOT AN OPTION either: a decline leaves the paths AND the

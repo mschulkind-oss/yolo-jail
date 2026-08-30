@@ -5,12 +5,12 @@ package run
 // (docs/design/loophole-packaging.md §4.5, artifacts one and two of three — the `yolo prune`
 // sweeper is the third and lives in internal/prune/loopholestate.go).
 //
-// # Why the launch path, and not `apply --host`
+// # Why the launch path, and not `yolo host apply`
 //
 // §4.5 measured that the obvious precedent does not reach here, three times over:
 //
 //  1. The `files` kind's host output is retired by cli.pruneDroppedPackOutput, called ONLY
-//     from `apply --host` — the exact command §3.4 refuses the loophole kind at. That command
+//     from `yolo host apply` — the exact command §3.4 refuses the loophole kind at. That command
 //     never sees a loophole contribution, so it can never see one depart.
 //  2. `yolo prune` sweeps the host-render ARCHIVE, a different tree from the state root.
 //  3. loopholes.StateDirFor is keyed by loophole NAME ONLY, which is exactly the property §8

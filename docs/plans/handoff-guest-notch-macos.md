@@ -43,7 +43,7 @@ each notch honors.
 |---|---|---|
 | `jail` | container, disposable home, no host credentials | **works** — the default, unchanged |
 | `guest` | a real home, LSM-confined, no image | **NOT BUILT** — this handoff |
-| `host` | your actual `$HOME`, no confinement | **works** — `yolo apply --host` |
+| `host` | your actual `$HOME`, no confinement | **works** — `yolo apply --at host` |
 
 The gap is not cosmetic. `jail` and `host` are the two extremes, so a user who needs *some*
 isolation but real credentials has nothing to select — they take `host` and lose all of it.

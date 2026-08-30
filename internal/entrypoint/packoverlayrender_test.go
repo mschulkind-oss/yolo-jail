@@ -318,7 +318,7 @@ func TestJailRenderWithNoOverlaysIsQuiet(t *testing.T) {
 // --- the HOST path -----------------------------------------------------------------
 //
 // RenderHostPack renders ONE pack, so the cross-pack collection has to reach it as a
-// parameter. These tests drive it exactly as `apply --host --assert` does: collect over the
+// parameter. These tests drive it exactly as `yolo host apply --assert` does: collect over the
 // whole set, then render each pack against that set. Every home is a t.TempDir().
 
 // THE HOST PATH: an overlay from pack B lands in pack A's surface in the REAL home.

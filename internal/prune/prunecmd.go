@@ -201,7 +201,7 @@ const (
 	buildRootOlderThanSeconds = 3600.0 // build-root sweep grace floor
 	imageRootOlderThanSeconds = 3600.0 // image GC-root reap grace floor
 	relayOlderThanSeconds     = 3600.0 // relay reap default grace floor
-	// hostArchiveKeep is how many `apply --host` archive generations survive a prune.
+	// hostArchiveKeep is how many `yolo host apply` archive generations survive a prune.
 	// Small on purpose: the archive is an undo buffer for the last few applies, and each
 	// generation holds only what a render actually retired (usually nothing), so keeping
 	// more buys little. Three covers "I applied, noticed, applied again, then looked".
@@ -428,7 +428,7 @@ func Run(opts Options) int {
 	}
 
 	// --- Host-render archive generations ---
-	// What `yolo apply --host` moves aside when it retires a skill or file it previously
+	// What `yolo host apply` moves aside when it retires a skill or file it previously
 	// delivered. It archives rather than deletes because the ownership record authorizing
 	// the removal can be stale, and a stale record plus rm is data loss in the user's own
 	// home — so this is the undo buffer for host renders.
@@ -468,7 +468,7 @@ func Run(opts Options) int {
 	// What a LAUNCH moves aside when a pack that shipped a loophole leaves `packs`
 	// (loophole-packaging.md §4.5). A separate section from the host-render archive above
 	// because it is a separate TREE and a separate writer: the render archive lives under
-	// GlobalStorage()/archive and is written by `apply --host` — the command §3.4 refuses
+	// GlobalStorage()/archive and is written by `yolo host apply` — the command §3.4 refuses
 	// the loophole kind at — while a loophole's state lives under GlobalStorage()/state and
 	// is retired on the launch path, the only place deselection is observed.
 	//

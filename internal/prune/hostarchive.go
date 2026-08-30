@@ -1,6 +1,6 @@
 package prune
 
-// hostarchive.go reclaims the host-render archive: the generations `yolo apply --host`
+// hostarchive.go reclaims the host-render archive: the generations `yolo host apply`
 // creates when it retires a skill or file it previously delivered.
 //
 // Why the archive exists at all: retiring a delivered entry is authorized by an ownership
@@ -11,7 +11,7 @@ package prune
 // Why the cleanup lives HERE and not in apply: an unbounded archive is a disk leak, but a
 // destructive cleanup must not be a side effect of a render. Reclaiming disk is something
 // the user asks for — which is exactly what `yolo prune` is — so apply only ever adds, and
-// prune is the one verb that removes. `apply --host` never deletes an archive generation, no
+// prune is the one verb that removes. `yolo host apply` never deletes an archive generation, no
 // matter how old.
 
 import (

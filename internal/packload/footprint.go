@@ -554,7 +554,7 @@ func LoopholeNameCollisions(packs []*Pack) []Collision {
 //
 // EXPORTED, unlike its sibling passes, because three callers outside the footprint report
 // refuse THIS collision specifically rather than the whole set: the launch pre-flight,
-// `apply --host`, and `yolo check`. Narrow on purpose — a `launch` clash, for instance, is
+// `yolo host apply`, and `yolo check`. Narrow on purpose — a `launch` clash, for instance, is
 // documented later-wins at every one of those, so widening the refusal to Collisions()
 // wholesale would break overrides that work today.
 func ConfigSurfaceCollisions(packs []*Pack) []Collision {

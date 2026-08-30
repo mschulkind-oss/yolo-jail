@@ -45,7 +45,7 @@ func TestApplyHostDeliversTheLocalPack(t *testing.T) {
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
 	}
 	// UNNAMESPACED, at a destination whose AGENT PACK is namespaced. That inversion is S1/S2: the
 	// tier used to be inherited from the destination's declaring pack, so this same skill landed at
@@ -83,7 +83,7 @@ func TestApplyHostLocalPackReachesEveryAgentPackUnderOneName(t *testing.T) {
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
 	}
 	for _, rel := range []string{
 		filepath.Join(".claude", "skills", "mine", "SKILL.md"),
@@ -165,7 +165,7 @@ func TestApplyHostLocalPackRendersLast(t *testing.T) {
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
 	}
 	mine, shrd := strings.Index(report, "mine"), strings.Index(report, "shrd")
 	if mine < 0 || shrd < 0 {
@@ -193,7 +193,7 @@ func TestApplyHostConfiguredPackNamedLocalWins(t *testing.T) {
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
 	}
 	// Unnamespaced: the explicit `local` entry declares no `skills_tier` either (S1/S2).
 	if _, err := os.Stat(filepath.Join(home, ".claude", "skills",

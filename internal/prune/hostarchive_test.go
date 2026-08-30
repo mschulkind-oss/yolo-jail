@@ -108,7 +108,7 @@ func TestPruneHostArchiveIgnoresUnrecognizedDirs(t *testing.T) {
 	}
 }
 
-// Nothing to do is the common case: no archive at all (nobody has run apply --host), or
+// Nothing to do is the common case: no archive at all (nobody has run yolo host apply), or
 // fewer generations than the keep count.
 func TestPruneHostArchiveNoopCases(t *testing.T) {
 	if b, n, _ := PruneHostArchive(filepath.Join(t.TempDir(), "absent"), 3, true); b != 0 || n != 0 {
@@ -197,7 +197,7 @@ func TestPruneHostArchiveBucketsLeavesUnaccountedEntriesAlone(t *testing.T) {
 	}
 }
 
-// A missing archive root is the normal case — nobody has run `apply --host` yet.
+// A missing archive root is the normal case — nobody has run `yolo host apply` yet.
 func TestPruneHostArchiveBucketsMissingRootIsANoop(t *testing.T) {
 	b, n, names := PruneHostArchiveBuckets(filepath.Join(t.TempDir(), "absent"), 3, true)
 	if b != 0 || n != 0 || names != nil {

@@ -4,7 +4,7 @@ package entrypoint
 // config — ruling R3's first sentence in docs/plans/host-pack-drop-cleanup.md.
 //
 // It is a separate entry from RenderHostPack for the same structural reason
-// PruneHostBriefings is separate from RenderHostBriefing: `apply --host`'s render loop is
+// PruneHostBriefings is separate from RenderHostBriefing: `yolo host apply`'s render loop is
 // `for _, p := range loaded`, and a pack removed from `packs` is not in `loaded`, so nothing
 // ever asks what it left behind. The overlay keys it asserted therefore stayed in the user's
 // config file forever.
@@ -102,7 +102,7 @@ type HostOverlayOrphan struct {
 // pack still contributes is never treated as an orphan (see liveClaims).
 //
 // When observe is true it reports what it WOULD remove and writes nothing — so the caller can
-// put the report in front of a confirmation prompt, and a dry-run `apply --host` is an honest
+// put the report in front of a confirmation prompt, and a dry-run `yolo host apply` is an honest
 // preview. Removing a key also drops it from the provenance record, so the record stops naming
 // a key that is no longer in the file.
 func PruneHostOverlayKeys(candidates []*packload.Pack, active map[string]bool,

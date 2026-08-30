@@ -1,7 +1,7 @@
 package cli
 
 // applyhostdeps.go resolves a pack's `program` AND `requires` contributions into the invoking
-// host's REAL dep state for `apply --host` (pack-host-management-plan.md Phase 8). It replaces
+// host's REAL dep state for `yolo host apply` (pack-host-management-plan.md Phase 8). It replaces
 // a static line — "install below jail is confirm-gated; not run by apply --host yet" — which
 // was true and useless: the gate is real, but the line never said WHICH binary was missing or
 // what would fix it, and that is the only part the user can act on today.
@@ -23,7 +23,7 @@ package cli
 // What it deliberately does NOT do is install. Running the remedies is env-manager plan
 // Phase 4.3, whose batched, elevation-class-grouped confirm UX (OQ-6/7/9) is its own
 // increment; the report says so once so a reader does not mistake "reported" for "done".
-// A missing host dep therefore does not fail `apply --host` either — the report is
+// A missing host dep therefore does not fail `yolo host apply` either — the report is
 // informational, and `yolo check-deps` is the verb that exits non-zero for a CI to gate on.
 
 import (
@@ -100,7 +100,7 @@ func packDepRequirements(p *packload.Pack) []depcheck.Requirement {
 	return reqs
 }
 
-// lines returns the `apply --host` report line(s) for one program/requires contribution: its
+// lines returns the `yolo host apply` report line(s) for one program/requires contribution: its
 // resolved present/missing state, plus — on the pack's LAST dep contribution, if any were
 // missing — the note that apply only reports them. Always at least one line, including
 // for the malformed cases: a declared kind that produces no output at all is the G1 failure
@@ -111,7 +111,7 @@ func (h *hostDeps) lines(c packdecl.Contribution) []string {
 	// The note belongs to the whole dep block, so it trails the last line of it — and
 	// only when there is a deferred install to talk about.
 	if h.remaining <= 0 && h.sawMissing {
-		out = append(out, "    [dim]apply --host reports host deps; it installs nothing. The "+
+		out = append(out, "    [dim]host apply reports host deps; it installs nothing. The "+
 			"confirm-gated install is env-manager plan Phase 4.3.[/dim]")
 	}
 	return out

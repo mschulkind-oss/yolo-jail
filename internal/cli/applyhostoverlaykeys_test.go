@@ -249,7 +249,7 @@ func TestApplyHostKeepsOverlayKeyOnDecline(t *testing.T) {
 	}
 }
 
-// FAIL-CLOSED. No stdin — a CI or scripted `apply --host --assert` — removes nothing. A
+// FAIL-CLOSED. No stdin — a CI or scripted `yolo host apply --assert` — removes nothing. A
 // confirmation nobody can answer must not default to editing a real config file.
 func TestApplyHostOverlayKeyRemovalFailsClosedWithoutStdin(t *testing.T) {
 	home := overlayDropFixture(t, overlayDropPackJSON)

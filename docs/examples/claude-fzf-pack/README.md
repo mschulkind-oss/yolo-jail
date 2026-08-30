@@ -97,8 +97,8 @@ the knob is on the other side.)
 
 ```console
 $ yolo pack lint --allow-exec ~/.dotfiles/claude-fzf   # clean?
-$ yolo apply --host                                    # observe: what WOULD change
-$ yolo apply --host --assert                           # write it to your real home
+$ yolo host apply                                      # observe: what WOULD change
+$ yolo host apply --assert                             # write it to your real home
 $ yolo -- claude                                       # or just launch a jail
 ```
 
@@ -123,11 +123,11 @@ binaries it asserts. What it buys is the two things silence cost:
 
 - **in a jail**, an absent tool is named at boot — `pack claude-fzf requires fzf, which is
   not on PATH in this jail` — instead of the finder quietly returning no matches;
-- **at the host**, the hints reach `yolo check-deps` and `yolo apply --host`, which was the
+- **at the host**, the hints reach `yolo check-deps` and `yolo host apply`, which was the
   capability the old no-declaration workaround gave up:
 
 ```console
-$ yolo apply --host
+$ yolo host apply
   requires   ✓ fd               present at /usr/bin/fd
   requires   ✗ fzf              MISSING → brew install fzf
 ```
@@ -201,7 +201,7 @@ render paths (Option 2), and a second `config` declaration of one identity is a
 merely discouraged; selecting this pack alongside `claude` with a `config`
 declaration would refuse the launch, with the conversion above in the error.
 
-One consequence you can see: `apply --host` prints **one** `claude/settings
+One consequence you can see: `yolo host apply` prints **one** `claude/settings
 rendered` line, not two. Two lines for one file used to be the tell that two packs
 were fighting over it (ruling R4).
 
@@ -254,7 +254,7 @@ means *"yolo installs this"*, which is not what this pack wants. Fixed 2026-08-0
 by the **`requires`** kind: presence-not-install, generates nothing, hints reach
 the host notch. That is the declaration this pack now makes, and the gap it closes
 is the one the old workaround left open — the pack carried no dependency
-declaration at all, so `apply --host` could not tell a host user to install
+declaration at all, so `yolo host apply` could not tell a host user to install
 `fd`/`fzf`, and the omission was invisible to anyone who did not know why.
 
 For the **host notch**, where nothing is baked, the tools genuinely may be

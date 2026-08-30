@@ -1021,7 +1021,7 @@ Three remain, and all three are **product/judgment questions rather than missing
 mechanism** — which is why shipping steps 1–6 did not close them.
 
 1. 💬 **9.2 (see below): does a host target defeat the sandbox's purpose?** Still open;
-   it decides whether `apply --host` is a narrow convenience or the recommended way to
+   it decides whether `yolo host apply` is a narrow convenience or the recommended way to
    configure agents. _Leaning:_ narrow, and state the `program`-refusal as an invariant
    rather than a default. **Answer:** > _(empty — fill in when decided)_
 2. 💬 **9.4 (see below): what does `program` mean on a host target, if not "never"?**

@@ -3,7 +3,7 @@ package entrypoint
 // hostrender.go is the host-target render entry (env-manager plan Phase 4): render a
 // pack's config surfaces into the invoking user's REAL home, at the `host` confinement
 // notch, reusing the same boot writers via an Env pointed at that home. It is the
-// implementation `yolo apply --host` calls.
+// implementation `yolo host apply` calls.
 //
 // The resolved decisions this encodes (env-manager plan OQ-1..4, host-render-target.md
 // §6.3, §6.6):
@@ -44,7 +44,7 @@ import (
 )
 
 // HostRenderResult reports, per surface, what a host render did (or would do, in
-// observe/dry-run mode) — enough for `apply --host` to print an honest summary.
+// observe/dry-run mode) — enough for `yolo host apply` to print an honest summary.
 type HostRenderResult struct {
 	Surface string // "agent/name"
 	Path    string // resolved real-home path
@@ -115,7 +115,7 @@ type HostRenderResult struct {
 
 // RenderHostPack renders one pack's config surfaces into homeDir (the real $HOME), pure
 // RMW, no computed layer. When observe is true it computes what WOULD change and writes
-// nothing (the `apply --host --dry-run` / default `observe` posture). It returns one
+// nothing (the `yolo host apply --dry-run` / default `observe` posture). It returns one
 // result per surface and does not run hooks or touch any non-config kind.
 //
 // homeDir is the real home; the Env's Workspace is left empty so a ${workspace} surface
@@ -136,7 +136,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 	// The §4.2 autonomy policy comes from the TARGET's confinement profile, not from a
 	// literal chosen here (plan §6c step 1). At the host notch that resolves to autonomy OFF
 	// — the guarded posture, so a pack's jail-bypass permission keys do NOT reach the real
-	// home, which is the fix for the apply --host bypass leak. Reading it from the profile is
+	// home, which is the fix for the host apply bypass leak. Reading it from the profile is
 	// what makes that one statement rather than a boolean repeated in four files.
 	surfaces, problems := p.SurfacesFor(e.renderTarget().Profile().AgentAutonomy)
 	if len(problems) > 0 {
@@ -259,7 +259,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 // cannot parse), run without writing.
 //
 // Duplicating the checks rather than "just try the write and catch the refusal" is what makes
-// the dry-run truthful. `apply --host` (no --assert) must print `refused: …` for a surface an
+// the dry-run truthful. `yolo host apply` (no --assert) must print `refused: …` for a surface an
 // --assert would decline, and it cannot learn that from a write it is forbidden to attempt.
 // The writer keeps its own copy because it is also reached from the jail boot path, where
 // there is no observe pass at all — so neither one can be the single gate.
@@ -454,7 +454,7 @@ func stripTableKeys(s manifest.Surface, tables []string) manifest.Surface {
 //
 // This is the HOST's announce-every-drop mechanism, and it deliberately does not reuse the
 // jail's. regenerateManagedTables already calls noteDroppedManagedEntries, but that writes to
-// e.Stderr and the host Env has none — by design, since `apply --host` reports through its
+// e.Stderr and the host Env has none — by design, since `yolo host apply` reports through its
 // RESULT (so observe can show the same lines without a render having happened) rather than
 // through boot-notice side effects. Wiring Stderr here instead would produce the notice only
 // in assert, which is the posture where it is least useful: the point is to see the loss
@@ -505,7 +505,7 @@ func tableLosses(s manifest.Surface, tables []string, path string, layer map[str
 }
 
 // overlayPackNames lists the packs contributing overlays to a surface, in fold order —
-// the provenance the caller prints so an override is legible in `apply --host` output
+// the provenance the caller prints so an override is legible in `yolo host apply` output
 // (ruling R3) and not only in the jail's sidecar.
 func overlayPackNames(overlays []agentcfg.Overlay) []string {
 	if len(overlays) == 0 {
@@ -765,7 +765,7 @@ func sortedStringKeys(m map[string][]string) []string {
 // It used to read via loadObject, i.e. JSON unconditionally, with a docstring conceding
 // "a non-JSON surface simply yields no findings". That was true and it was the reporting
 // half of the same bug the writer had: codex/config is TOML, so the one surface whose
-// values `apply --host` was actually about to overwrite was the one surface that reported
+// values `yolo host apply` was actually about to overwrite was the one surface that reported
 // no overwrites. Reading with the surface's codec makes the warning cover every surface the
 // writer touches, which is the only version of "always warn" that means anything.
 func managedOverwrites(e *Env, s manifest.Surface, path string) []string {

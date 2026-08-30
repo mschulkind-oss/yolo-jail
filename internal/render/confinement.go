@@ -137,7 +137,7 @@ func GuestProfileLinux() Profile { return with(true, PrimNamespaces, PrimLandloc
 
 // HostProfile is the weakest preset: no primitives at all — you, on your machine.
 // Autonomy OFF: nothing contains the agent, so the guarded posture (permission prompts on)
-// is what renders — the §4.2 fix for the apply --host bypass leak.
+// is what renders — the §4.2 fix for the `yolo host apply` bypass leak.
 func HostProfile() Profile { return Profile{prims: map[Primitive]bool{}, AgentAutonomy: false} }
 
 // ProfileFor is the notch → preset table: the ONE place that answers "what does this

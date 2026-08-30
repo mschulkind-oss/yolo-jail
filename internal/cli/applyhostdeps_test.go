@@ -1,6 +1,6 @@
 package cli
 
-// applyhostdeps_test.go pins Phase 8's contract: `apply --host` reports the REAL state of a
+// applyhostdeps_test.go pins Phase 8's contract: `yolo host apply` reports the REAL state of a
 // pack's host deps. The three cases below are the three outcomes, and the third is the one
 // worth having a test for — a missing bin with no install_hints must still be named. The
 // tempting implementation (iterate depcheck.Missing, print the remedies) silently caps the
@@ -221,7 +221,7 @@ func fakeBinDir(t *testing.T, names ...string) string {
 }
 
 // runApplyHostForDeps writes a pack declaring the given contributions, points a throwaway
-// $HOME's user config at it, runs `apply --host` in its default observe posture, and
+// $HOME's user config at it, runs `yolo host apply` in its default observe posture, and
 // returns the combined output. Both the home and the config live under t.TempDir() — the
 // real $HOME is never read or written.
 func runApplyHostForDeps(t *testing.T, contributions ...string) string {
@@ -249,7 +249,7 @@ func runApplyHostForDeps(t *testing.T, contributions ...string) string {
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, false, nil); rc != 0 {
-		t.Fatalf("apply --host rc = %d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errw.String())
+		t.Fatalf("host apply rc = %d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errw.String())
 	}
 	return out.String() + errw.String()
 }

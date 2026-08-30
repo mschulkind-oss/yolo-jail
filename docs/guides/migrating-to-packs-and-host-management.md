@@ -6,25 +6,30 @@ it lists shipped in **v0.8.0** (tagged 2026-08-13; `git show v0.8.0:internal/cli
 `describe`, `apply`, `check-deps` and `pack`).
 
 > **⚠ Verify your version first.** The verbs this guide leans on — `describe`, `apply` (incl.
-> `--host`/`--sealed`), `check-deps`, the newer `pack` subcommands (`lint`'s manifest validation,
+> `--at host`/`--sealed`), `check-deps`, the newer `pack` subcommands (`lint`'s manifest validation,
 > `footprint`, `install`, `status`) and `config drift`/`dump` — are **in `v0.8.0` and later**. On an
 > **older** `yolo` they fail with `unknown command` / `unknown subcommand` (exit 2), not a helpful
 > message. Before following any step, confirm the verb exists: `yolo apply --help`,
 > `yolo describe --help`, `yolo pack --help`. If those error, your installed `yolo` predates the
 > work — reinstall.
 >
+> **Newer than v0.8.0: the `yolo host` namespace.** This guide spells the host render
+> `yolo host apply`, which is the ergonomic form; `yolo apply --at host` is the same operation
+> and is the spelling v0.8.0 has. `yolo apply --host` was **removed** — a `yolo` that still
+> accepts it predates this change.
+>
 > *(Corrected 2026-08-23. This block said the verbs were "not in a released yolo yet", which was
 > true when it was written and stopped being true at v0.8.0 — the version cutoff is the useful
 > instruction, not the absence of a release.)*
 
-> **Autonomy is a confinement policy (how `apply --host` stays safe).** The shipped agent
+> **Autonomy is a confinement policy (how `yolo host apply` stays safe).** The shipped agent
 > packs (`claude`, `codex`, `agy`, `opencode`) declare the jail-bypass settings
 > (`acceptEdits`, `skipDangerousModePermissionPrompt`, `additionalDirectories: ["/"]`,
 > `--dangerously-skip-permissions`, …) in an `autonomy` contribution's **autonomous**
-> posture — rendered only at the contained notches (`jail`/`guest`). `apply --host` renders
+> posture — rendered only at the contained notches (`jail`/`guest`). `yolo host apply` renders
 > each pack's **guarded** posture instead: permission prompts stay **on**, and the bypass
 > keys never reach your real `~/.claude/settings.json`. (The permissive-by-default `pi` pack
-> is the mirror image — `host` *tightens* it from auto-trust to prompt.) `apply --host` also
+> is the mirror image — `host` *tightens* it from auto-trust to prompt.) `yolo host apply` also
 > **warns before overwriting** any existing value you set yourself. So the earlier hazard
 > here — `--assert` writing jail-bypass keys onto a real machine — is fixed; you still
 > review what it writes (next).
@@ -282,12 +287,12 @@ $ yolo describe --hash    # a sha256 pin, for CI / cache keys
 
 ### Step 2: preview the host render (writes nothing)
 
-`apply --host` renders your packs' **config surfaces** into your real `$HOME`. It defaults
+`yolo host apply` renders your packs' **config surfaces** into your real `$HOME`. It defaults
 to **observe** (a dry-run) — it prints what it *would* do and writes nothing:
 
 ```console
-$ yolo apply --host
-apply --host  home /home/me  posture observe (dry-run)
+$ yolo host apply
+host apply  home /home/me  posture observe (dry-run)
   claude/settings          would render  /home/me/.claude/settings.json
   claude/config            skipped: only ${workspace}-keyed keys, which have no host referent
     skipped ${workspace}-keyed (no host referent): projects.${workspace}.enableAllProjectMcpServers, projects.${workspace}.hasTrustDialogAccepted
@@ -322,7 +327,7 @@ Three things this tells you — but note the last is a real gap, not honesty:
     `~/.claude/skills/foo/` by hand is composed away on the next apply — it is offered for
     migration into the local pack instead, and the report says so. Edit
     `~/.config/yolo-jail/local/skills/` and every agent gets it.
-- **`program` (install) is not run** by `apply --host`. Installing software on your real
+- **`program` (install) is not run** by `yolo host apply`. Installing software on your real
   machine is a separate, sharper decision (see Step 4).
 
 > **⚠ Observe hides the payload.** The preview prints only *paths* (`would render …`), not
@@ -337,8 +342,8 @@ Three things this tells you — but note the last is a real gap, not honesty:
 When the preview looks right, write it with `--assert`:
 
 ```console
-$ yolo apply --host --assert
-apply --host  home /home/me  posture assert (writing)
+$ yolo host apply --assert
+host apply  home /home/me  posture assert (writing)
   claude/settings          rendered  /home/me/.claude/settings.json
 ```
 
@@ -349,7 +354,7 @@ is **overwritten** with the pack's value. So:
 - A sibling key the pack never mentions (e.g. a top-level `env` you set, or your editor
   theme) **survives** — that part of "RMW preserves your keys" is true.
 - A key the pack manages is **overwritten** — but at the host notch, no longer *silently*.
-  If a managed key's value differs from what you already have, `apply --host` prints a
+  If a managed key's value differs from what you already have, `yolo host apply` prints a
   `⚠ would overwrite your existing value for: <key>` line (in the observe preview too), so
   you see the collision before writing. And because the guarded posture no longer manages
   the dangerous `permissions.allow`/`deny` at the host notch, a hand-authored
@@ -359,7 +364,7 @@ There is no `--revert` and no restore-to-previous: "undo yolo's management" is s
 declaring the key and re-apply," which drops it (it does **not** bring back what was there
 before yolo — nothing snapshots that).
 
-Re-run `apply --host --assert` any time you change the pack — it re-asserts, idempotently.
+Re-run `yolo host apply --assert` any time you change the pack — it re-asserts, idempotently.
 
 #### Dynamic tables (`mcpServers`) are REPLACED, not merged
 
@@ -387,13 +392,14 @@ Two guardrails, since replacement is the sharper behavior:
   not opted into the policy yet, so replacing a hand-added server before you have declared
   it anywhere is data loss rather than policy. Later applies re-assert without prompting
   (they still report). With **no TTY** the confirmation is a **no**, so a scripted or CI
-  `apply --host --assert` aborts rather than destroying a server unattended.
+  `yolo host apply --assert` aborts rather than destroying a server unattended.
 
 To keep an entry, declare it under `mcp_servers` in your config — which reaches every agent,
 not just the one — and re-run.
 
-> **⚠ `${VAR}` does not expand at the host.** `apply --host` resolves no variables: there is
-> no jail startup env and no `env_sources` pass. So a `"url": "…?apiKey=${TAVILY_API_KEY}"`
+> **⚠ `${VAR}` does not expand at the host.** `yolo host apply` resolves no variables: it renders
+> files and launches nothing, so no `env_sources` pass runs in the render — hydrating secrets is
+> the host notch's *exec* half, `yolo host -- <cmd>`. So a `"url": "…?apiKey=${TAVILY_API_KEY}"`
 > in pack content is written **literally** into `~/.claude.json`. The apply warns per surface
 > (`⚠ ${TAVILY_API_KEY} written LITERALLY`) rather than resolving it, because putting the
 > plaintext secret in a file yolo does not own defeats the point of `env_sources`. In the
@@ -454,7 +460,7 @@ A few things the design calls for are **not built**:
 - **The `guest` confinement notch** — a real home under an LSM boundary (macOS Seatbelt /
   Linux bwrap+Landlock), between `jail` and `host`. `confinement: guest` validates but the
   backend is not implemented; use `jail` or `host`.
-- **`apply --host` offering to run installs for you.** Today it renders config and *names*
+- **`yolo host apply` offering to run installs for you.** Today it renders config and *names*
   missing deps (`check-deps`); it does not run installers. That confirm-gated offer-to-run
   is a planned follow-up.
 - **A provision-without-launch at the jail notch.** `yolo apply` at jail currently directs
@@ -462,7 +468,7 @@ A few things the design calls for are **not built**:
   provision is a follow-up.
 - **A `pack import`/`adopt` verb for CONFIG.** Config surfaces are still manual re-authoring
   (Part 1) — nothing reads your existing `~/.claude/settings.json` into a pack for you. Your
-  existing `skills` and briefing prose ARE migrated for you, on the first `apply --host --assert`
+  existing `skills` and briefing prose ARE migrated for you, on the first `yolo host apply --assert`
   (see Part 2) — that half is no longer manual.
 
 Tracking for all of it: [../plans/environment-manager-plan.md](../plans/environment-manager-plan.md).
@@ -478,8 +484,8 @@ Tracking for all of it: [../plans/environment-manager-plan.md](../plans/environm
 | Turn packs on | edit `~/.config/yolo-jail/config.jsonc` `packs`, then `yolo pack install` |
 | See what packs stage / drifted | `yolo pack ls` · `yolo pack status` |
 | See the resolved environment | `yolo describe` (`--json`, `--hash`) |
-| Preview host config render | `yolo apply --host` (⚠ shows paths, not the keys — read the pack first) |
-| Apply config to your real home | `yolo apply --host --assert` (⚠ writes jail-bypass keys from shipped agent packs — see banner) |
+| Preview host config render | `yolo host apply` (⚠ shows paths, not the keys — read the pack first) |
+| Apply config to your real home | `yolo host apply --assert` (⚠ writes jail-bypass keys from shipped agent packs — see banner) |
 | Check host has the needed tools | `yolo check-deps` |
 | Prove nothing undeclared crept in | `yolo apply --sealed` |
 | In-jail: is a restart owed? | `yolo config drift` |

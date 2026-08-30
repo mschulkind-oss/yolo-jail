@@ -8,7 +8,7 @@ constrain the implementation, and the recommended order (§6) is confirmed.
 **Both options are SHIPPED** (2026-08-02). Option 2 wired `config-overlay` at both render
 paths, with R2's ownerless-overlay reporting and R3's provenance visibility in `yolo config
 diff`; Option 1 then made `config` exclusivity a LOUD COLLISION — named in `yolo pack
-footprint`, refused at launch and by `apply --host`, naming both packs and teaching the
+footprint`, refused at launch and by `yolo host apply`, naming both packs and teaching the
 `config-overlay` conversion — which also settled R4 by removing the state that produced the
 double `rendered` line. See §6 for what that means in the code, §8 for what shipping Option 2
 settled, and §9 for Option 1.
@@ -256,7 +256,7 @@ agent-owned files, which is why the gap has stayed invisible.
 
 | # | Problem | Severity |
 |---|---|---|
-| ~~**1**~~ | ~~**A same-identity surface declaration silently replaces the first**, taking its `mode`/`path`/`codec` with it.~~ **FIXED** (§9): refused at launch, at `apply --host`, and named in `pack footprint`. | **general hazard in the pack mechanism** (ruling R1) |
+| ~~**1**~~ | ~~**A same-identity surface declaration silently replaces the first**, taking its `mode`/`path`/`codec` with it.~~ **FIXED** (§9): refused at launch, at `yolo host apply`, and named in `pack footprint`. | **general hazard in the pack mechanism** (ruling R1) |
 | ~~**2**~~ | ~~`config-overlay` — the designed mechanism for exactly this — is **inert**.~~ **FIXED** (§8). | **missing feature** |
 | ~~**3**~~ | ~~`yolo pack footprint` does not flag an identity clash between two `config` contributions.~~ **FIXED** (§9). Footprint also reports `config-overlay` claims now, which it previously skipped. | **unenforced invariant** |
 | **4** | No mechanism exists for a second pack to contribute to a `computed` surface. Latent — no shipped pack does this — but it is the case the accident does not cover. | ~~**latent gap**~~ **CLOSED by §8** — all three modes now carry overlays |
@@ -510,7 +510,7 @@ implementation had to make.
 
 **Three refusal sites, one detector.** `packload.ConfigSurfaceCollisions` is the single pass;
 it is consumed by `packload.Collisions` (so `yolo pack footprint` and `yolo check` report it),
-by `stagePacks` (so a launch is refused before the container exists), and by `apply --host`
+by `stagePacks` (so a launch is refused before the container exists), and by `yolo host apply`
 (so nothing is written into a real home). The `files` pre-flight's shape, reused rather than
 re-invented: same call site in `stagePacks`, same reason — that is where the pack set becomes
 complete, and it covers the attach path too.

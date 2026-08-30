@@ -4,7 +4,7 @@ package entrypoint
 // because that is where the absence of it destroyed real data.
 //
 // The reproduction, verbatim: a codex user with a valid ~/.codex/config.toml runs
-// `yolo apply --host --assert`. Before this, the host RMW path read the file as JSON
+// `yolo host apply --assert`. Before this, the host RMW path read the file as JSON
 // (unparseable => an empty object) and wrote it back as JSON, so `model` and `[tui]` — keys
 // yolo never declares and RMW promises to preserve — were gone, and the file was no longer
 // TOML. Both halves are tested: the read must SEE the user's keys, and the write must emit
@@ -37,7 +37,7 @@ func codexHostHome(t *testing.T, content string) (string, string) {
 	return home, path
 }
 
-// renderCodexHost runs the shipped codex pack at the host notch (what `apply --host
+// renderCodexHost runs the shipped codex pack at the host notch (what `yolo host apply
 // --assert` does) and returns the codex/config result.
 func renderCodexHost(t *testing.T, home string, observe bool) HostRenderResult {
 	t.Helper()
@@ -157,7 +157,7 @@ func TestHostRenderObserveReportsRefusal(t *testing.T) {
 }
 
 // An ABSENT file is not a refusal — it is the ordinary first-apply case, and every key yolo
-// writes is an add. (A refusal here would make `apply --host` unable to configure a tool the
+// writes is an add. (A refusal here would make `yolo host apply` unable to configure a tool the
 // user has not run yet.)
 func TestHostRenderCodexTOMLCreatesAbsentFile(t *testing.T) {
 	home := t.TempDir()

@@ -473,7 +473,7 @@ end)
 | :--- | :--- |
 | **[`extension-point-principle.md`](extension-point-principle.md)** | **Rule 1 (Name the job):** `kind: "provider"` and `kind: "pack-fragment"`.<br/>**Rule 2 (Silence means inert):** Unselected fragments do nothing.<br/>**Rule 3 (Claims require target filtering):** Fragments explicitly name `target`.<br/>**Rule 4 (Explicit turn-off):** `null` tombstones keys via RFC-7386.<br/>**Rule 5 (Refuse unmatched references):** Mismatched targets or invalid fields fail at load time.<br/>**Rule 6 (Ship one edge, design namespace):** Ships `aws-bedrock` $\rightarrow$ `claude` while settling the universal extension point. |
 | **[`stringly-typed-references-principle.md`](stringly-typed-references-principle.md)** | `target: "<pack>"` is required by default (`optional: false`); unselected targets trigger a fatal resolution error naming the missing pack and candidates. ⚠ **Partial as of the principle's 2026-08-30 amendment** — see the warning under P3: existence and selection are now separate checks, and this row covers only the second. |
-| **[`happy-path-principle.md`](happy-path-principle.md)** | One unified merge pipeline across the entire matrix: Linux containers, macOS Apple Container, `macos-user`, and Host Render Target (`apply --host`). |
+| **[`happy-path-principle.md`](happy-path-principle.md)** | One unified merge pipeline across the entire matrix: Linux containers, macOS Apple Container, `macos-user`, and Host Render Target (`yolo host apply`). |
 | **[`pack-code-separation.md`](pack-code-separation.md)** | Deletes all hardcoded `claude` Bedrock checks from `assemble.go` and removes `knownProviderKeys` from Core. |
 
 ---

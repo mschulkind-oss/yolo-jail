@@ -4,7 +4,7 @@ package cli
 // (docs/design/pack-config-collaboration.md §7):
 //
 //   - R2 — an overlay whose target has no owner is inert AND reported by name in
-//     `apply --host`. Not an error (a pack the user did not select is not a mistake), and
+//     `yolo host apply`. Not an error (a pack the user did not select is not a mistake), and
 //     never silent (the whole no-silent-skip invariant applyhostcensus_test.go enforces).
 //   - R3 — per-key provenance is VISIBLE in `yolo config diff`: which pack set which key,
 //     and where the owner's managed layer beat it. "Provenance nobody can read does not
@@ -64,7 +64,7 @@ const acmeFzfPackJSON = `{"name":"acme-fzf","contributes":[
   {"kind":"config-overlay","surface":"acme/settings",
    "config":{"managed":{"fileSuggestion":"run-fzf"}}}]}`
 
-// R2 in `apply --host`: with the owner pack absent, the overlay is named, the command
+// R2 in `yolo host apply`: with the owner pack absent, the overlay is named, the command
 // still succeeds, and no file is created.
 func TestApplyHostReportsOrphanOverlay(t *testing.T) {
 	home := writeOverlayFixture(t, map[string]string{"acme-fzf": acmeFzfPackJSON})
@@ -86,7 +86,7 @@ func TestApplyHostReportsOrphanOverlay(t *testing.T) {
 	}
 }
 
-// With the owner SELECTED, `apply --host --assert` writes the contributed key and the
+// With the owner SELECTED, `yolo host apply --assert` writes the contributed key and the
 // output names the contributing pack — R3 at the host notch, where the surface file
 // cannot show the attribution itself.
 func TestApplyHostNamesTheContributingPack(t *testing.T) {
@@ -97,7 +97,7 @@ func TestApplyHostNamesTheContributingPack(t *testing.T) {
 
 	var out, errw bytes.Buffer
 	if rc := applyHost(&out, &errw, false, true, nil); rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s\n%s", rc, out.String(), errw.String())
+		t.Fatalf("host apply --assert rc=%d\n%s\n%s", rc, out.String(), errw.String())
 	}
 	report := out.String() + errw.String()
 	if !strings.Contains(report, "config-overlay keys from: acme-fzf") {

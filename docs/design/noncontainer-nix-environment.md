@@ -3,13 +3,14 @@
 **Status:** EXPLORATORY analysis, 2026-08-02 — **re-verified against the tree 2026-08-23**, and
 partly overtaken by it. §8 **Option 1 has largely SHIPPED** (the rename and the GC root, carried
 as the roadmap's **N2** `11f8bb72` and **N1** `23cee7a6`, both 2026-08-05). Options 2 and 3 are
-still sketches: nothing launches at the `host` notch, `--at` remains `apply`-only
-(`internal/cli/apply.go:54-64`), and **OQ-1 — the question every other one here is subordinate
-to — is still open.** Seven questions live, two settled; see the Decision Ledger.
+still sketches for their *packages* half; the launch verb Option 2 depends on **shipped
+2026-08-30** as `yolo host -- <cmd>` (with `yolo --at host -- <cmd>` as its alias), so "nothing
+launches at the `host` notch" is no longer true, and **OQ-1 — the question every other one here
+is subordinate to — is still open.** Seven questions live, two settled; see the Decision Ledger.
 
-> **Postscript, 2026-08-23 — what moved underneath this doc.** §1–§8 keep their original
-> 2026-08-02 tense: read them as the analysis that *motivated* the work, not as a description of
-> today's tree. Three things changed, each annotated in place:
+> **Postscript, 2026-08-23 (item 4 added 2026-08-30) — what moved underneath this doc.** §1–§8
+> keep their original 2026-08-02 tense: read them as the analysis that *motivated* the work, not
+> as a description of today's tree. Four things changed, each annotated in place:
 >
 > 1. **The mechanism was renamed and generalized** (N2, `11f8bb72`). `yoloDarwinPackages` →
 >    **`yoloNoncontainerPackages`**, `darwinUnavailablePackages` → **`yoloUnavailablePackages`**
@@ -28,6 +29,13 @@ to — is still open.** Seven questions live, two settled; see the Decision Ledg
 >    (see `### ⚠ Retracted` there): the flake grew a second nixpkgs input pinned to 26.05 for
 >    that system alone (`flake.nix:22-42`), after the 26.11 throw took the macOS nightly red for
 >    29 consecutive nights. Re-measured today: an Intel Mac gets **5 of 6** agent CLIs, not zero.
+> 4. **The `host` notch grew an exec half, and the apply command was renamed** (2026-08-30;
+>    [`host-agent-environment.md`](host-agent-environment.md) §5.2, §6 and its OQ-2/OQ-7
+>    rulings). `yolo host -- <cmd>` ships, with `yolo --at host -- <cmd>` as its systematic
+>    alias — so §3's premise that yolo never launches a process at `host`, and every conclusion
+>    this doc derives from it (§3 row 2, §4.2, §7), is scoped to the **apply command**, not to
+>    the notch. `yolo apply --host` was REMOVED rather than deprecated: the command is now
+>    `yolo host apply` (or `yolo apply --at host`), and this doc's prose says so throughout.
 
 > **Renamed 2026-08-04, from `host-nix-environment.md`.** The old name was wrong in the same
 > way `yoloDarwinPackages` is wrong — it named the mechanism after the first notch that needed
@@ -151,12 +159,13 @@ $ nix shell nixpkgs#hello --command bash -c 'echo $PATH'
 ```
 
 **The `host` notch** — `confinement: host` from the dial (§4 of the env-manager design): no
-confinement, your machine, your credentials. `yolo apply --host` renders config into the real
+confinement, your machine, your credentials. `yolo host apply` renders config into the real
 `$HOME` and **launches nothing** — which is exactly why the `launch` kind is honored-but-unbuilt
-there (`render.HostUnimplemented`, `internal/render/fieldset.go:97-99`, re-read 2026-08-23:
-*"launch flags apply to a process yolo starts, and `apply --host` only configures your tools — it
-never runs them, so there is no argv to inject them into. A notch where yolo does the launching
-can honor them"*). Hold onto that: it is the crux of §4.2.
+*there*, at that command (`render.HostUnimplemented`, `internal/render/fieldset.go:96-98`,
+re-read 2026-08-30: *"launch flags apply to a process yolo starts, and `yolo host apply` only
+configures your tools — it never runs them, so there is no argv to inject them into.
+`yolo host -- <program>` is the notch that does the launching"*). Hold onto that: it is the crux
+of §4.2 — and note the sentence's tail now names a verb that SHIPPED (postscript 4).
 
 > [!NOTE]
 > **That sentence was re-worded after this doc was written, and the reword is an argument in
@@ -188,8 +197,8 @@ The most common way to waste effort here is to design something that exists. So,
 | `yolo check` verifying nix + `/nix` + trusted-user on macOS | **SHIPPED** | `cli/check/section_nix_probe.go`, `sections_macos_platform.go` |
 | The same, on **Linux** | **STILL NOT WIRED** — `nixDaemonStoreCheck` and the platform block are `IsMacOS`-gated | `section_nix_probe.go:28-31`, `check.go:77-78` (OQ-9) |
 | The profile report, on **Linux** | **STILL NOT WIRED** — `checkPackageProfile` is called only from the macos-user backend section, which returns early off macOS | `sections_macos.go:100`; the gate is `sections_macos.go:46-60` (OQ-9) |
-| A **caller** for the profile at the `host` notch | **STILL DOES NOT EXIST** | `apply --host` never touches nix (`cli/apply.go`: no `packages` handling at all) |
-| `packages:` reported by `apply --host` / `check --at host` | **STILL DOES NOT EXIST** — `packages` is not a pack *kind*, so the `FieldSet` census never sees it; it is a top-level config key with no host handler | `render/fieldset.go`, `cli/apply.go` (OQ-8) |
+| A **caller** for the profile at the `host` notch | **STILL DOES NOT EXIST** | `yolo host apply` never touches nix (`cli/apply.go`: no `packages` handling at all) |
+| `packages:` reported by `yolo host apply` / `check --at host` | **STILL DOES NOT EXIST** — `packages` is not a pack *kind*, so the `FieldSet` census never sees it; it is a top-level config key with no host handler | `render/fieldset.go`, `cli/apply.go` (OQ-8) |
 
 **So the honest framing was never "should yolo build a host nix environment."** It was: *yolo
 already has one, for one notch on one platform, called by one backend, under a platform-specific
@@ -223,7 +232,7 @@ now prints the resolved profile for any notch **without** `PrimBakedImage`, read
 symlink rather than invoking nix so the command stays instant
 (`internal/cli/describe.go:161-190`). That is the *opposite* of the env-manager's
 `✗ packages   yolo does not manage packages here`: the shipped line says yolo does manage them,
-and names the store path. `apply --host` still says nothing at all, so the inconsistency is now
+and names the store path. `yolo host apply` still says nothing at all, so the inconsistency is now
 **between two yolo commands** rather than between a doc and a backend — which is a sharper
 version of the same question, not a resolution of it (OQ-8).
 
@@ -232,7 +241,7 @@ version of the same question, not a resolution of it (OQ-8).
 ## 2. What `install_hints` is for, and what a nix env would and would not replace
 
 `install_hints` (`packdecl.DepRequirement` → `internal/depcheck`) maps a *pack's* declared
-binary to a package name per host package manager, so `check-deps` / `apply --host` can print
+binary to a package name per host package manager, so `check-deps` / `yolo host apply` can print
 `brew install claude-code` or `nix profile install nixpkgs#claude-code`. It **never installs**
 (`depcheck.Check` docstring: *"It never installs anything — it reports"*).
 
@@ -355,21 +364,22 @@ how far it reaches.
 | Consumer | Does yolo control the process? | Can a PATH-prepend reach it? |
 |---|---|---|
 | `yolo --at guest -- claude` | **yes** (yolo execs it) | **yes** — this is exactly what macos-user does today |
-| `yolo --at host -- claude` (design §4.1) | **yes**, if this verb exists (it does not; `--at` is `apply`-only today) | **yes** |
-| `yolo apply --host` then the user runs `claude` themselves, later, in their own shell | **no** | **only via a shell rc edit** |
+| `yolo host -- claude` (aliased `yolo --at host -- claude`) | **yes** — the verb SHIPPED 2026-08-30 (postscript 4); it was hypothetical when this table was written | **yes** |
+| `yolo host apply` then the user runs `claude` themselves, later, in their own shell | **no** | **only via a shell rc edit** |
 | A pack's `program` install at the host notch (Phase 4.3) | **yes**, behind a confirm | n/a — this *installs*, it does not PATH-scope |
 
 **Row 3 is the hard one, and it is the row the maintainer's "installing copilot" question sits
-in.** `apply --host` configures and exits. Its own honored-but-unbuilt text for the `env` kind
-states the constraint (re-read 2026-08-23, `internal/render/fieldset.go:100-103`): *"env vars
-apply to a process yolo starts, and `apply --host` only configures your tools — it never runs
+in.** `yolo host apply` configures and exits. Its own honored-but-unbuilt text for the `env`
+kind states the constraint (re-read 2026-08-30, `internal/render/fieldset.go:99-103`): *"env vars
+apply to a process yolo starts, and `yolo host apply` only configures your tools — it never runs
 them. Setting them for your whole session would mean editing your shell rc, a much larger claim
-than a pack's env contribution asks for."* An environment that has to be *entered*, or a PATH
-that has to be *prepended*, cannot serve a consumer yolo never launches — unless yolo writes the
-user's shell rc, which is already refused by name. Row 2 is still hypothetical: `--at` is
-`apply`-only today (`internal/cli/apply.go:54-64`; `yolo apply --host` is just shorthand for
-`--at host`), so there is no launch verb at any notch below `jail` except the macos-user
-orchestrator's own exec.
+than a pack's env contribution asks for. `yolo host -- <program>` delivers them at launch
+instead, to that process only."* An environment that has to be *entered*, or a PATH that has to
+be *prepended*, cannot serve a consumer yolo never launches — unless yolo writes the
+user's shell rc, which is already refused by name. **Row 2 stopped being hypothetical on
+2026-08-30**: `yolo host -- <cmd>` shipped, `yolo --at host -- <cmd>` is its systematic alias,
+and the refusal's own text now points at it — so there IS a launch verb below `jail`, and row 3
+is the only row left with no consumer yolo controls.
 
 Two exits from that, and they are the real fork (§8, Options):
 
@@ -463,9 +473,10 @@ definition, no `--print-out-paths` parsing. It is the *cheapest* correct mechani
 
 **But it is a launcher.** It only exists as a wrapper around a process yolo starts. That puts it
 squarely on the wrong side of the constraint `render.HostUnimplemented` records for the `launch`
-kind: *`apply --host` only configures your tools — it never runs them.* So `nix shell` is a good
-fit for the `yolo --at host -- claude` / `yolo --at guest -- claude` rows of §3 and **no fit at
-all** for the `apply --host`-then-user-runs-it row.
+kind: *`yolo host apply` only configures your tools — it never runs them.* So `nix shell` is a
+good fit for the `yolo host -- claude` / `yolo --at guest -- claude` rows of §3 — the first of
+which now exists (postscript 4) — and **no fit at all** for the
+`yolo host apply`-then-user-runs-it row.
 
 It also loses the two things the buildEnv gives, and **both of them have since become load-bearing
 rather than theoretical**: a **single stable path** — the out-path is one dir you can symlink,
@@ -714,7 +725,7 @@ plus a launch env could supply it off-container:
 | `PATH` order (`.yolo-shims:.local/bin:$NPM_CONFIG_PREFIX/bin:<mise>:$GOPATH/bin:/bin:/usr/bin:.yolo-launchers`) | generated `.bashrc` / launch env | **environment** | ⚠️ same: yolo-launched yes, user's shell no. macos-user already needs a **login-rc re-prepend** (`.zprofile`/`.zshrc`/`.bash_profile`) to survive macOS `path_helper` — evidence of how far you must reach to own a PATH you did not start |
 | Blocked-tool shims (`grep -r`, `find`) | generated scripts, first on PATH | **hybrid — see below** | ⚠️ mechanically yes; the design flags it `!` ("shims would land on your real PATH — opt in explicitly") |
 | `/lib` farm + `LD_LIBRARY_PATH` + nix-ld | image + baked `Env` | **environment, but Linux-container-only** | ❌ no darwin analogue (§5.3); on a Linux host it would be actively wrong to set `LD_LIBRARY_PATH=/lib:/usr/lib` |
-| Composed agent config (settings, MCP, LSP, skills, briefing) | the prism / `render` | **environment** | ✅ **already shipped** — `apply --host` |
+| Composed agent config (settings, MCP, LSP, skills, briefing) | the prism / `render` | **environment** | ✅ **already shipped** — `yolo host apply` |
 | Disposable home / overlay | bind mounts | **isolation** | ❌ |
 | Credential omission (no `~/.ssh`, no `~/.gitconfig`) | absence of a mount | **isolation** | ❌ — and inverted at `host`: your creds are *the point* |
 | `resources` (cpu/mem/pids), `yolo-cglimit` | cgroups | **isolation** | ❌ |
@@ -766,9 +777,10 @@ all yet.** A host-notch nix env designed in isolation would be Phase 7.2's packa
 under a different name. That is not orthogonality; that is a shared dependency.
 
 **2. The notch decides whether a PATH-prepend has a consumer.** At `jail` and `guest`, yolo
-launches the process, so a prepend works. At `host`, `apply --host` launches nothing — hence the
-`launch` and `env` kinds' refusals. **The mechanism's *viability* is a function of the notch**,
-which is the definition of not-orthogonal. §3 is this argument in table form.
+launches the process, so a prepend works. At `host`, `yolo host apply` launches nothing — hence
+the `launch` and `env` kinds' refusals — though its sibling verb `yolo host -- <cmd>` does launch
+(postscript 4). **The mechanism's *viability* is a function of the notch**, which is the
+definition of not-orthogonal. §3 is this argument in table form.
 
 **3. The primitive model already says so.** `internal/render/confinement.go:39-42` lists
 **`PrimBakedImage`** as a Primitive, with the comment: *"A provisioning primitive, not a
@@ -827,7 +839,7 @@ abort, not an eval one), which was a real bug either way.
 
 Rename `yoloDarwinPackages` → something system-neutral (`yoloHostPackages`), stop hardcoding
 `aarch64-darwin` in `darwinpkg`, add a gcroot, and make `describe` / `check --at host` **report**
-the resolved profile path. `apply --host` gains one line: *"packages: <n> resolved at
+the resolved profile path. `yolo host apply` gains one line: *"packages: <n> resolved at
 /nix/store/… — add its bin to your PATH, or use `yolo --at host --` (unbuilt)."*
 
 **For:** small; honest; fixes the GC-root gap; removes a platform-specific name from a
@@ -847,7 +859,7 @@ leftovers** — status re-checked 2026-08-23:
 | `describe` reports the profile | **Shipped** — `internal/cli/describe.go:161-190` |
 | `check` reports the profile | **Shipped for macos-user only** — the report lives inside the macOS backend section (OQ-9) |
 | `check --at host` reports it | **Not shipped** — `check` has no `--at` at all; its only flags are `--build`/`--no-build` (`internal/cli/commands.go:653-680`) |
-| The `apply --host` line | **Not shipped** — `apply --host` still says nothing about `packages:` (OQ-8) |
+| The `yolo host apply` line | **Not shipped** — `yolo host apply` still says nothing about `packages:` (OQ-8) |
 | Rename the **Go package** `darwinpkg` | **Not done, on purpose** — mechanical, left for the consumer that needs it (`internal/darwinpkg/darwinpkg.go:8-14`) |
 
 **And the finding that this option was never able to deliver on its own is now measured:** the
@@ -938,7 +950,7 @@ question and neither may be renumbered.
 
    _Leaning:_ **"a place agents run"** — Option 2. It is the shape the codebase is already built
    for, it dissolves the shim dilemma instead of arguing about it, and `render.HostUnimplemented`
-   now says in its own comment that the refusal is a limit of `apply --host` rather than of the
+   now says in its own comment that the refusal is a limit of `yolo host apply` rather than of the
    notch. But this is a product call, not a research finding, and the counter-argument is real:
    the env-manager design's own §8 warns `host` will be over-used, and a convenient launcher
    accelerates that.
@@ -997,7 +1009,7 @@ question and neither may be renumbered.
    > _(empty — fill in when decided)_
 
 5. 💬 **OQ-8 — Should the `packages:` key report at all below `jail`, and which command says
-   so?** `packages` is not a pack kind, so the `FieldSet` census never sees it and `apply --host`
+   so?** `packages` is not a pack kind, so the `FieldSet` census never sees it and `yolo host apply`
    prints nothing about it, while `macos-user` honors it natively. The env-manager design
    promises `check --at host` will print *"packages: yolo does not manage packages here."*
 
@@ -1008,7 +1020,7 @@ question and neither may be renumbered.
    _Leaning:_ **the question narrowed since it was written, and the narrow half should just be
    fixed.** `describe` now reports the resolved profile whenever `PrimBakedImage` is absent
    (`internal/cli/describe.go:172-177`), which contradicts the env-manager's promised `✗
-   packages` line — so two yolo commands now disagree. Make `apply --host` say what `describe`
+   packages` line — so two yolo commands now disagree. Make `yolo host apply` say what `describe`
    says, and retire the `✗ packages` sentence from the env-manager design. That is worth doing
    even under Option 0. The *policy* half ("should `host` manage packages at all") stays with
    OQ-1.
@@ -1102,7 +1114,7 @@ input). What changed is stated where it belongs; this is the audit trail.
 | The profile build is GC-rooted, and rooting is not optional | **confirmed** | `--out-link` in `BuildProfileArgv` (`darwinpkg.go:117-141`); `materialize_test.go` asserts on the argv actually run |
 | `x86_64-darwin` evaluates rather than throwing | **CHANGED — old claim retracted** | `nix eval --impure --raw '/workspace#packages.x86_64-darwin.yoloNoncontainerPackages.name'` → `yolo-noncontainer-packages`, with `evaluation warning: Nixpkgs 26.05 will be the last release to support x86_64-darwin` |
 | Unfree warn-and-skip still fires, and `NIXPKGS_ALLOW_UNFREE=1` still overrides it | **confirmed** | `YOLO_EXTRA_PACKAGES='[…6 agent attrs…]' nix eval --impure --json '/workspace#yoloUnavailablePackages.<sys>'` → `["claude-code","github-copilot-cli","antigravity-cli"]` on all three systems; `[]` on `aarch64-darwin` with the var; `["antigravity-cli"]` on `x86_64-darwin` with the var |
-| `--at` is still `apply`-only; no launch verb at `host` | **confirmed** | `internal/cli/apply.go:54-64`, `internal/cli/help.go:21` |
+| `--at` is still `apply`-only; no launch verb at `host` — **no longer true: `yolo host -- <cmd>` and its `yolo --at host -- <cmd>` alias shipped 2026-08-30, postscript 4** | **confirmed on 2026-08-23** | `internal/cli/apply.go:54-64`, `internal/cli/help.go:21` |
 | `apply --host` still reports nothing about `packages:` | **confirmed** | no `packages` handling anywhere in `internal/cli/apply.go` |
 | The nix daemon probes and the profile report are still macOS-gated | **confirmed** | `section_nix_probe.go:28-31`, `check.go:77-78`, `sections_macos.go:100` |
 | The Go env whitelist is still one variable | **confirmed** | `PKG_CONFIG_PATH` only, `darwinpkg.go:169-192` |

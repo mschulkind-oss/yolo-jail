@@ -2,7 +2,7 @@
 
 **Status:** DESIGN, high level, written 2026-07-27; fact-checked 2026-07-30; **re-verified against
 the code 2026-08-23 — most of it is now IMPLEMENTED.** The vision is unchanged and the verbs are
-real: `apply`, `apply --host`, `apply --sealed`, `describe`, `check-deps` and the `confinement`
+real: `apply`, `apply --at host`, `apply --sealed`, `describe`, `check-deps` and the `confinement`
 key all ship (env-manager plan Phases 0–6, 8, 9). Two live questions remain (§10), one of which is
 a **direct contradiction between this doc and the tree**. Written in response to: *"we're going
 through an identity crisis… an environment
@@ -177,9 +177,11 @@ without the *run*:
 - **Set up, don't launch.** Provision a fresh checkout — build the image, stage packs, render
   config — so the first `yolo -- claude` is instant, or so CI can `apply` in one step and run
   tests in another.
-- **Apply at the host notch, where there is nothing to exec.** `yolo apply --at host` *is* the
-  host-render feature (§4.1): it writes your agent config into your real home. There is no "run
-  something in it" half — the environment you are configuring is the one you are already in.
+- **Apply at the host notch, where the run half is a separate verb.** `yolo apply --at host`
+  (ergonomically `yolo host apply`) *is* the host-render feature (§4.1): it writes your agent
+  config into your real home. The "run something in it" half is not absent — it is
+  `yolo host -- <cmd>` (shipped 2026-08-30), which composes the process environment a config
+  file cannot carry; `apply` is still the make-it-so without the run.
 - **Re-apply after editing the description.** You changed `yolo-jail.jsonc` or a pack and want
   the environment to match, without starting an agent. In a jail this overlaps with "restart to
   pick up config" (and `yolo config drift`, shipped, tells an in-jail agent a restart is owed);
@@ -366,13 +368,13 @@ agent config can be applied to the real home (§4.1, once host-render ships), th
 a new way to be wrong: the real `~/.claude/settings.json` no longer matches what the pack would
 render, because someone hand-edited it or the pack moved. `check` is where that surfaces — not
 as a diff it silently reconciles, but as a handoff with the same momentum as the missing-dep
-case: *"host config has drifted from your description on 2 surfaces — run `yolo apply --host` to
-reassert, or `yolo apply --host --dry-run` to see it first."* This is the host-side twin of the
+case: *"host config has drifted from your description on 2 surfaces — run `yolo host apply` to
+reassert, or `yolo host apply --dry-run` to see it first."* This is the host-side twin of the
 in-jail `yolo config drift` (shipped), which already answers "has the workspace config drifted
 from what this jail was built with." Same question, other side of the wall: is the environment
 still what the description says. `check` never *writes* — it detects and points at `apply`,
 which is the only verb that changes anything (§3.1). That keeps the "detect vs. apply" split
-clean: `check --at host` tells you the host has drifted; `apply --host` is the deliberate act
+clean: `check --at host` tells you the host has drifted; `yolo host apply` is the deliberate act
 that fixes it.
 
 Today none of this information exists, and its absence has a live cost: on `macos-user`, packs
@@ -629,7 +631,7 @@ saying "only because I am jailed":
 | `opencode` | `permission: "allow"` |
 | `pi` | *(nothing — pi is permissive by default)* |
 
-`yolo apply --host --assert` renders a pack's `managed` keys into your **real**
+`yolo host apply --assert` renders a pack's `managed` keys into your **real**
 `~/.claude/settings.json` (pure RMW; the managed layer wins — `hostrender.go`,
 `compose.go` Enforce). So following the host-management guide today writes `acceptEdits` +
 `skipDangerousModePermissionPrompt` + `additionalDirectories: ["/"]` onto your actual
@@ -860,7 +862,7 @@ org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
    *"confirm-gated, TTY-only, command shown, permission-bounded"*, and §8 flagged it as needing a
    threat-model pass before shipping. **The tree shipped the pre-revision rule**: `FieldSet`
    refuses `program` outright — *"install is refused below jail (a pack must not mutate a real
-   toolchain unprompted)"*, `internal/render/fieldset.go:38` — and `apply --host` prints a static
+   toolchain unprompted)"*, `internal/render/fieldset.go:38` — and `yolo host apply` prints a static
    pointer at the unbuilt work (`internal/cli/applyhostdeps.go:113-116`). So the doc and the code
    state opposite rules today, and OQ-6/OQ-7's resolutions have no consumer. **What this decides:**
    whether plan Phase 4.3 is work to schedule or a design to retract — and, because §3.5's

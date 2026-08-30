@@ -51,7 +51,7 @@ type SkillTarget struct {
 	// last" — and it was set to the DESTINATION (run.packSkillTargets), i.e. the host's own
 	// copy of the very path this staging dir gets mounted over. That was right while the
 	// destination held loose user files and became
-	// circular once `apply --host` COMPOSED it: a jail read yolo's own generated output back
+	// circular once `yolo host apply` COMPOSED it: a jail read yolo's own generated output back
 	// in as "the user's tree", and since the local pack is an ordinary pack entry its content
 	// arrived twice by two paths (roadmap.md S3). Invisible only because flat is
 	// last-writer-wins — and under S1, arriving twice is the kind of thing that becomes an

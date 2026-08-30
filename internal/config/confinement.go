@@ -30,7 +30,7 @@ const (
 	// separate identity. Not yet enforced — later-phase work.
 	ConfinementGuest Confinement = "guest"
 	// ConfinementHost is the weakest notch: you, your machine, your dotfiles, your
-	// credentials. `apply --host` renders into it. Never inferred, never a fallback.
+	// credentials. `yolo apply --at host` renders into it. Never inferred, never a fallback.
 	ConfinementHost Confinement = "host"
 )
 

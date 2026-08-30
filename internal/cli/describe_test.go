@@ -47,7 +47,7 @@ func TestDescribeVerb(t *testing.T) {
 
 // describeLine returns THE one output line whose prefix matches, failing if there is not
 // exactly one. A report-wide strings.Contains is not good enough for the confinement vector:
-// describe's other lines (and, in the wider suite, apply --host's kind census) mention most
+// describe's other lines (and, in the wider suite, `yolo host apply`'s kind census) mention most
 // of these words somewhere, so a whole-output assertion passes even when the vector line is
 // gone — which is exactly how a broken renderer looks green.
 func describeLine(t *testing.T, out, prefix string) string {
@@ -247,7 +247,7 @@ func TestApplyVerbRouting(t *testing.T) {
 		t.Errorf("apply (jail) should say so:\n%s", out.String())
 	}
 
-	// --host and --sealed are real now (Phases 4/5) with their own tests; their outcome
+	// `--at host` and --sealed are real now (Phases 4/5) with their own tests; their outcome
 	// depends on packs/workspace, so this routing test does not assert them.
 
 	// A bogus notch is a usage error (rc 2), not a silent default.
@@ -326,7 +326,7 @@ func TestApplySealedClosure(t *testing.T) {
 	}
 }
 
-// apply --host renders config surfaces into a real home as PURE RMW (OQ-4): observe
+// apply --at host renders config surfaces into a real home as PURE RMW (OQ-4): observe
 // writes nothing, assert regenerates only the pack's managed keys and preserves the
 // user's own, and non-config kinds are refused by name. Uses a scratch HOME.
 func TestApplyHostRMW(t *testing.T) {

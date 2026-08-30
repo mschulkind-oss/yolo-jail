@@ -14,7 +14,7 @@ Sequences [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environ
 > | **1** — one renderer (`internal/render`) | ✅ **SHIPPED**, but **1.4 landed 2026-08-12, not 08-01** (`a39628ad`) | macOS staging UNVERIFIED on real hardware |
 > | **2** — the `confinement` key | ✅ **SHIPPED** (`internal/config/confinement.go`, `internal/render/confinement.go`) | none |
 > | **3** — `apply` + `describe` | ✅ **SHIPPED** (`internal/cli/apply.go`, `describe.go`) | none |
-> | **4** — `apply --host` | ⚠️ **PARTIAL** — 4.1/4.2/4.4 shipped; **4.3 (confirm-gated install) NOT built** | `internal/cli/applyhostdeps.go:113-116` prints a static "Phase 4.3" note instead |
+> | **4** — `yolo host apply` | ⚠️ **PARTIAL** — 4.1/4.2/4.4 shipped; **4.3 (confirm-gated install) NOT built** | `internal/cli/applyhostdeps.go:113-116` prints a static "Phase 4.3" note instead |
 > | **5** — `--sealed` + closure | ⚠️ **PARTIAL** — 5.1/5.2/5.4 shipped; **5.3 (capture as staging area, `yolo config promote`) NOT built** | the refusal at `apply.go:635` uses the word "promote" as English prose (the only command it names is `yolo config reset`, which exists) — but the verb the LEANING wants still does not |
 > | **6** — dep provisioning | ⚠️ **PARTIAL** — 6.1/6.2/6.3 shipped (`internal/depcheck/`, `yolo check-deps`); **6.4 (offer-to-run) NOT built** | `internal/cli/checkdeps.go:9-12` defers it by name |
 > | **7** — the `guest` notch | ❌ **NOT BUILT** — as previously stated | see below |
@@ -34,9 +34,9 @@ Sequences [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environ
 >
 > What shipped is behavior-neutral for the default `jail` notch — `yolo -- claude` is unchanged.
 >
-> **The `apply --host` bypass-leak is FIXED (Phase 9, 2026-08-01):** the shipped agent
+> **The `yolo host apply` bypass-leak is FIXED (Phase 9, 2026-08-01):** the shipped agent
 > packs' jail-bypass keys live in the `autonomy` kind's `autonomous` posture, rendered only
-> at the contained notches; `apply --host` renders the `guarded` posture (permission prompts
+> at the contained notches; `yolo host apply` renders the `guarded` posture (permission prompts
 > on) and warns before overwriting any existing user value.
 
 **What this doc is.** The design doc says *what yolo becomes* — "yolo describes an
@@ -90,7 +90,7 @@ Phase 0  data-loss fix        (Stage G1/G2)      ← ship regardless, waits on n
 Phase 1  one renderer         (Stage G3/G4/G5)   ← THE foundation; everything below needs it
 Phase 2  confinement key      (§4)               ← names the dial; no behavior change yet
 Phase 3  apply + describe     (§3.1, §3.2)       ← the verbs, jail-only first
-Phase 4  apply --host         (Stage G6, §4.1)   ← the host notch becomes real
+Phase 4  yolo host apply      (Stage G6, §4.1)   ← the host notch becomes real
 Phase 5  --sealed + closure   (§3.3)             ← the reproducibility guarantee
 Phase 6  dep provisioning     (§3.4, §3.5)       ← check-at-notch + the manifest surface
 Phase 7  guest notch          (§4, §4.0)         ← the middle notch actually works
@@ -100,7 +100,7 @@ Phase 9  agent autonomy       (§4.2)             ← bypass is a notch policy, 
 
 Phases 0 and 1 are already scoped in BACKLOG Stage G. Phases 2–9 are this plan's
 addition, and each is gated by the decisions in its "Before you start" note. Phase 9 was
-added 2026-08-01 (the `apply --host` bypass-leak); it depends on 1/2/4 but not on 7.
+added 2026-08-01 (the `yolo host apply` bypass-leak); it depends on 1/2/4 but not on 7.
 
 ---
 
@@ -317,7 +317,7 @@ description (and `--json` supersedes `config dump`), and `--at` selects a notch.
 
 ---
 
-## Phase 4 — `apply --host`: the host notch becomes real  *(was BACKLOG G6)*  ⚠️ **PARTIAL — 4.1/4.2/4.4 shipped, 4.3 NOT built**
+## Phase 4 — `yolo host apply`: the host notch becomes real  *(was BACKLOG G6)*  ⚠️ **PARTIAL — 4.1/4.2/4.4 shipped, 4.3 NOT built**
 
 > [!WARNING]
 > **Verified 2026-08-23 — the previous flat "SHIPPED" hid an unbuilt item.** 4.1/4.2 are real:
@@ -329,7 +329,7 @@ description (and `--json` supersedes `config dump`), and `--at` selects a notch.
 > position.** `FieldSet` refuses `program` outright below `jail` — *"install is refused below
 > jail (a pack must not mutate a real toolchain unprompted)"*
 > (`internal/render/fieldset.go:38`) — which is the design's **original** rule, not the revised
-> confirm-gated one that §4.1 of the design doc and item 4.3 below both specify. `apply --host`
+> confirm-gated one that §4.1 of the design doc and item 4.3 below both specify. `yolo host apply`
 > prints a static pointer instead: *"apply --host reports host deps; it installs nothing. The
 > confirm-gated install is env-manager plan Phase 4.3"*
 > (`internal/cli/applyhostdeps.go:113-116`). So OQ-6/OQ-7's resolutions are recorded but
@@ -361,10 +361,10 @@ the confirm-gated-install detail (OQ-6/7) are settled and assumed below.
   **URL only** (not the fetched script); per OQ-7/OQ-9 confirmations are **batched by
   elevation class** — one approval for all no-elevation remedies, one for all `sudo` ones
   (sudo first, so the OS password prompt comes up once at the front).
-- **4.4** `check --at host` reports host-render drift and hands off to `apply --host`
+- **4.4** `check --at host` reports host-render drift and hands off to `apply --at host`
   (§3.4) — the host-side twin of the shipped `config drift`. `check` never writes.
 
-**Done when:** `yolo apply --host` regenerates a pack's `managed` config keys into the
+**Done when:** `yolo host apply` regenerates a pack's `managed` config keys into the
 real home (behind `observe`/`assert`) without clobbering the user's own keys, and
 inapplicable kinds are refused by name.
 
@@ -422,7 +422,7 @@ from declared inputs, and its `--hash` is a reproducibility pin.
 > (`internal/depcheck/depcheck.go:48`, `internal/entrypoint/requires.go`). 6.2: the shared checker
 > is `internal/depcheck/` with a standalone entry point `yolo check-deps`
 > (`internal/cli/checkdeps.go`, dispatch at `internal/cli/dispatch.go:24`), reused rather than
-> re-implemented by `apply --host` (`internal/cli/applyhostdeps.go:16`). The honesty rule holds:
+> re-implemented by `yolo host apply` (`internal/cli/applyhostdeps.go:16`). The honesty rule holds:
 > `applyhostdeps.go:183-191` distinguishes *"hints cover brew/dnf but not this host's manager"*
 > from *"no hints at all"* rather than reporting either as present. 6.3: the manifest is written
 > at `~/.config/yolo/Brewfile` and kin (`internal/cli/checkdeps.go:145-156`,
@@ -534,7 +534,7 @@ take a disposable agent's risks.
 ## Phase 9 — Agent autonomy as a confinement policy  *(SHIPPED 2026-08-01)*
 
 **Design:** design doc §4.2 (the whole subsection). **Depends on:** Phase 1
-(`render.Profile`/`Target`), Phase 2 (the notch), Phase 4 (`apply --host` is where the
+(`render.Profile`/`Target`), Phase 2 (the notch), Phase 4 (`yolo host apply` is where the
 defect bites). **Motivated by:** a host agent following the migration guide would
 `apply --host --assert` the `claude` pack's jail-bypass keys (`acceptEdits`,
 `skipDangerousModePermissionPrompt`, `additionalDirectories:["/"]`,
@@ -638,7 +638,7 @@ posture block. Accepted.
   byte-identical to today — `renderfingerprint_test.go` stays green — so only the host/guest
   paths change behavior.
 
-**Done when:** `apply --host` renders an agent with its permission prompts intact (no
+**Done when:** `yolo host apply` renders an agent with its permission prompts intact (no
 jail-bypass keys, no `--dangerously-skip-permissions`), `pi` is tightened at `host`, a
 jail boot is byte-identical to today, and `describe` names the autonomy policy in force.
 
@@ -687,7 +687,7 @@ implementing any phase.
   no per-file reconcile sidecar; the host-render doc's `--revert` design (§6.5/§7.2/§9.5) is
   **superseded** — strike it there when that doc is next touched.
 - **OQ-2 — Is host management user-scoped, with the workspace contributing nothing? →
-  RESOLVED: YES (2026-08-01).** What `apply --host` asserts is a function of your *user*
+  RESOLVED: YES (2026-08-01).** What `yolo host apply` asserts is a function of your *user*
   config + the packs *you* installed, never of the repo you ran it from — the same
   user-scope rule packs already enforce (`pack-system.md` §8), written up as
   `host-render-target.md` §6.6. *Consequence:* the "two workspaces collide" question is
@@ -696,7 +696,7 @@ implementing any phase.
 
 ### Blocks Phase 4 (host render)
 
-**Context — how `apply --host` touches a file the agent also writes.** Two calls, both now
+**Context — how `yolo host apply` touches a file the agent also writes.** Two calls, both now
 resolved; the reviewer's push on OQ-4 corrected an over-complication I had introduced.
 
 - **OQ-3 — Retire the `reads-host` read-*in* layer? → RESOLVED: YES (2026-08-01).** Drop

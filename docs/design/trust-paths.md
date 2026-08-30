@@ -319,7 +319,7 @@ this table is the evidence for §1's "three of twenty-five".
 | 21 | fetched pack — wrapped agent plugin (hooks / MCP / LSP) | in-jail exec at lifecycle events | explicit prompt for the code-running components — **first enforced at launch 2026-08-18** (§3.1) | **yes — the weakest claim string in the system**, a constant with no path or digest |
 | 22 | fetched pack — `reads-host` / `mount` / host-prepending `briefing` | host read | **explicit, once** | yes — a moved ref with unchanged claim strings carries the approval forward |
 | 23 | fetched pack — loophole with a `host_daemon` | **host execution** + a CA trusted in-jail | explicit, per crossing | yes — the claim pins the argv, not the file (OQ-LP8) |
-| 24 | `yolo apply --host` | **host write** into your real home | explicit per invocation, `--assert` required | for a local pack, yes — source re-read each apply |
+| 24 | `yolo host apply` | **host write** into your real home | explicit per invocation, `--assert` required | for a local pack, yes — source re-read each apply |
 | 25 | the mirror + ref resolution behind rows 17–23 | selects which bytes every row above delivers | — | **three verified mechanisms** |
 
 ### Agent context needs no gate of its own
@@ -454,7 +454,7 @@ Two properties of the refusal are load-bearing, and any future change must prese
    produced a jail with the pack's prose and none of the user's, and nothing anywhere said so. It now
    has `packload.RefusedBriefingOverlays`, which is a **REPORTER rather than a gate**: the gate stays
    in `prepare.go`, the only place that knows the host home.
-2. **The launch never consulted `HonoredPlugins`** — its one production caller was `apply --host`'s
+2. **The launch never consulted `HonoredPlugins`** — its one production caller was `yolo host apply`'s
    skills compose. So [row 21](#2-the-inventory)'s hook bodies travelled into a jail inside the
    pack's skills tree with the refusal computed nowhere on that path. It is in the fatal now, which
    is the first time that row is enforced at launch at all.

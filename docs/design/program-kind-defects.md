@@ -127,7 +127,7 @@ a pack author can do, and it is precisely what makes the jail worse. Nothing war
 sees a working `fzf` on their machine and a broken one in the jail, with a `program`
 contribution that looks correct in `pack lint` and `pack footprint`.
 
-It also punishes the good citizen twice: `install_hints` (Phase 8.3) exists so `apply --host`
+It also punishes the good citizen twice: `install_hints` (Phase 8.3) exists so `yolo host apply`
 can tell a user what to install, and a pack that adds hints — the thing we just asked packs to
 do — must declare `program` to carry them.
 
@@ -188,7 +188,7 @@ func (m *Manifest) InstallContribution() *Install {
 
 A pack declaring `fd` **and** `fzf` gets a launcher for `fd` only. Meanwhile
 `DepRequirements()` (same file, `:139`) loops to completion and returns **both** — that is the
-host path, used by `check-deps` and `apply --host`.
+host path, used by `check-deps` and `yolo host apply`.
 
 So the two notches disagree: the host reports two missing deps, the jail installs one. No
 diagnostic either way.

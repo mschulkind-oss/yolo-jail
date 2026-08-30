@@ -195,7 +195,7 @@ func TestApplyHostRetiresDroppedPackOutputOnConfirm(t *testing.T) {
 	}
 }
 
-// FAIL-CLOSED. With no stdin — a CI or scripted `apply --host --assert` — nothing is moved.
+// FAIL-CLOSED. With no stdin — a CI or scripted `yolo host apply --assert` — nothing is moved.
 // A confirmation nobody can answer must not default to touching a real home.
 func TestApplyHostRetireFailsClosedWithoutStdin(t *testing.T) {
 	home, _ := dropFixture(t, dropPackJSON)

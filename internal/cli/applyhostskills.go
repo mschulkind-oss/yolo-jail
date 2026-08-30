@@ -1,6 +1,6 @@
 package cli
 
-// applyhostskills.go is the `apply --host` call site for the `skills` kind, which yolo now
+// applyhostskills.go is the `yolo host apply` call site for the `skills` kind, which yolo now
 // COMPOSES WHOLESALE at every notch (maintainer ruling 2026-08-04, roadmap.md §6a-2).
 //
 // It is the second host kind whose call site is PACK-SET-WIDE rather than per-pack, and for the
@@ -346,7 +346,7 @@ func warnSkillRenames(pr richtext.Printer, results []hostskills.Result, localPac
 //   - OBSERVE NEVER REACHES HERE. A dry run writes nothing, so it reports the same entries as
 //     `would move` lines instead.
 //   - FAIL-CLOSED on stdin. promptYesNo reads a nil or EOF stdin as NO, so a scripted
-//     `apply --host --assert` aborts rather than silently moving a user's skills.
+//     `yolo host apply --assert` aborts rather than silently moving a user's skills.
 func confirmSkillAdoption(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	adoptions []hostskills.Adoption, localPack string) bool {
 	reportSkillAdoptions(pr, adoptions, localPack)

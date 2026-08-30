@@ -570,7 +570,7 @@ func printClaimLines(pr richtext.Printer, claims []packload.Claim) {
 //
 // It exists because the single-pack views (`pack lint`, `pack footprint <dir>`) cannot see
 // a cross-pack collision by construction — they hold one pack — and this particular clash
-// is REFUSED at launch and at `apply --host`. Without this line an author's pack lints
+// is REFUSED at launch and at `yolo host apply`. Without this line an author's pack lints
 // clean and then fails to boot, which is the worst possible place to learn it: the check
 // that exists to be run before configuring a pack would be the one check that misses.
 //
@@ -598,7 +598,7 @@ func reportShippedSurfaceClash(pr richtext.Printer, p *packload.Pack) {
 				}
 				id := m.Key().String()
 				pr.Printf("[yellow]⚠ %s is already owned by the `%s` pack yolo ships[/yellow] "+
-					"[dim]— selecting both is REFUSED at launch and by `apply --host` "+
+					"[dim]— selecting both is REFUSED at launch and by `yolo host apply` "+
 					"(a surface has one owner). Use `config-overlay` to contribute keys "+
 					"instead:[/dim]", id, shipped.Name)
 				pr.Printf("[dim]    { \"kind\": \"config-overlay\", \"surface\": \"%s\", "+

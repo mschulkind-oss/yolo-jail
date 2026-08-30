@@ -94,7 +94,7 @@ const (
 	// is the point of Q1: every switch on Kind now has to name it or fall to a default,
 	// so the notch cannot be added by silently inheriting a branch it happens to land in.
 	KindGuest
-	// KindHost is `yolo apply --host`: the invoking user's real home, no computed layer
+	// KindHost is `yolo apply --at host`: the invoking user's real home, no computed layer
 	// (its values embed jail-absolute paths), every surface read-modify-written so the
 	// agent's own keys survive (env-manager plan OQ-4, host-render-target.md §6.3).
 	KindHost
@@ -231,7 +231,7 @@ const hostProvenanceLeaf = "host-provenance"
 // Never relative. That is the load-bearing property: only the two kinds that HAVE a
 // workspace join one, so the join always has an absolute root, and every other kind returns
 // "" instead of a bare ".yolo/prism" that would resolve against whatever directory the
-// process happens to be sitting in. `yolo apply --host` runs from anywhere.
+// process happens to be sitting in. `yolo host apply` runs from anywhere.
 //
 // A SWITCH rather than the old `if KindOf() == KindHost` (Q1). While the notch was inferred
 // the two spellings were the same statement — Workspace=="" was the DEFINITION of host — so
@@ -266,7 +266,7 @@ func (t Target) SidecarDir() string {
 //   - NOT the workspace. `render.Host()` leaves Workspace empty on purpose, so there is no
 //     workspace to put it under; joining
 //     anyway yields a RELATIVE ".yolo/prism" that scatters records into whatever directory
-//     `yolo apply --host` was invoked from. A host render is user-scoped — what it writes
+//     `yolo host apply` was invoked from. A host render is user-scoped — what it writes
 //     is a function of the pack plus the user config, never of a workspace — so keying its
 //     bookkeeping to a workspace would be wrong even if one were available.
 //   - NOT beside the rendered file (~/.claude/.yolo-provenance/…). Discoverable, but it

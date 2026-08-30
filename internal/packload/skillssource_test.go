@@ -81,7 +81,7 @@ func TestSkillsSourceDefaultsToConvention(t *testing.T) {
 // An EMPTY `from` resolves to the convention too. `from` stays REQUIRED by
 // packdecl.Validate (that is the documented schema and this fix does not widen it), so an
 // empty one is only reachable from a manifest whose Decode problems a caller discarded —
-// which `apply --host` does, via packForCheckDeps. Defaulting rather than resolving to the
+// which `yolo host apply` does, via packForCheckDeps. Defaulting rather than resolving to the
 // pack ROOT is what keeps that path from copying the whole pack tree in as skills.
 func TestSkillsSourceEmptyFromResolvesToConvention(t *testing.T) {
 	p := skillsPack(t, "", "skills")
@@ -172,7 +172,7 @@ func TestSkillsSourceReportsFileNotDir(t *testing.T) {
 
 // CONTAINMENT: `from` must not reach outside the pack tree. packdecl.Validate already
 // refuses ".." at the authoring boundary, but a caller may hold a pack whose Decode problems
-// it discarded (apply --host reads a local pack that way), so the resolver enforces it too.
+// it discarded (yolo host apply reads a local pack that way), so the resolver enforces it too.
 func TestSkillsSourceRefusesEscapingFrom(t *testing.T) {
 	p := skillsPack(t, "", "skills")
 	// Constructed directly: a manifest with ".." would be rejected by Validate, and the point

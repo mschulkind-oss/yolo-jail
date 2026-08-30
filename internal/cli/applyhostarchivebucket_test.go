@@ -2,7 +2,7 @@ package cli
 
 // applyhostarchivebucket_test.go pins WHERE a host render files the copy it moves aside (V3).
 //
-// The archive is what makes `apply --host` non-destructive against a real $HOME: yolo never
+// The archive is what makes `yolo host apply` non-destructive against a real $HOME: yolo never
 // deletes a delivered path, it MOVES it and prints where. That promise has two halves, and only
 // one of them used to hold. The copy survived — but every kind shared the literal
 // `archive/skills`, so a replaced `files` copy (a script the pack owns, pi's models.json, a

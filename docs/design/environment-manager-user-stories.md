@@ -525,7 +525,7 @@ right, and this story is the argument for not announcing three notches until G3 
 > (`internal/cli/apply.go:63`). The notch scoreboard today:
 >
 > - **`jail`** — production, unchanged.
-> - **`host`** — no longer "a design": `apply --host` renders the applicable kinds into the real
+> - **`host`** — no longer "a design": `yolo host apply` renders the applicable kinds into the real
 >   home under `observe`/`assert` postures, and an inapplicable kind is refused **by name**
 >   (`internal/render/fieldset.go:36-63`). Its unbuilt half is the confirm-gated install (plan
 >   4.3) — the shipped behaviour is a flat refusal plus a static note pointing at Phase 4.3
@@ -890,7 +890,7 @@ before the response is due and she is not going to read `docs/design/`.
 | `yolo pack install` | ✓ | ✓ | **refused, by field name** |
 | `yolo config reset` | ✓ | ✓ | **must refuse unless `surfacesAreLocal()`** (G1) |
 
-**Shipped-status of that table, verified 2026-08-23.** `yolo -- <cmd>`, `apply`, `apply --host`,
+**Shipped-status of that table, verified 2026-08-23.** `yolo -- <cmd>`, `apply`, `apply --at host`,
 `apply --sealed`, `describe`, `config diff` and `config reset`'s host refusal are all real
 (`internal/cli/apply.go`, `describe.go`, `configdiff.go:84-93`). The last row is **done**: the
 "must refuse" is now `refuseHostSideWrite`. `check --at <n>` is **not** built — its probe half
@@ -1037,7 +1037,7 @@ saying what moved and what the question still decides. **IDs are cited from
    (`internal/cli/applyhostdeps.go:168-191` distinguishes "no hints for this host's manager" from
    "no hints at all"), and the manifest emits as a `~/.config/yolo/Brewfile` and kin
    (`internal/cli/checkdeps.go:145-156`). What is left of the question is the **delivery shape**:
-   the probe lives in `yolo check-deps` and in `apply --host`'s report, not in a `check --at
+   the probe lives in `yolo check-deps` and in `yolo host apply`'s report, not in a `check --at
    <notch>` that names every inert key — and the *offer-to-run* half is explicitly deferred
    (`internal/cli/applyhostdeps.go:113-116`, `checkdeps.go:9-12`). The nixpkgs-attr-vs-binary
    naming problem is answered by hints, not by a `provides` field.

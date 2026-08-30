@@ -646,7 +646,7 @@ func TestHostBriefingRendersEveryContributionOfOnePack(t *testing.T) {
 	}
 }
 
-// A shipped pack renders at the host through the same entry apply --host calls. The one test
+// A shipped pack renders at the host through the same entry yolo host apply calls. The one test
 // here that exercises real pack data, so a manifest change that breaks host briefings is caught.
 func TestHostBriefingShippedClaudePack(t *testing.T) {
 	claude, err := embeddedPack("claude")

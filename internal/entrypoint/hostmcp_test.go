@@ -364,7 +364,7 @@ func TestHostMCPUnresolvedVarIsWrittenLiterallyAndNotReported(t *testing.T) {
 
 // THE ONE-WAY DOOR, detection half. A pre-existing hand-added server that the pack's own
 // entry would MANGLE (leaving the user's `type`+`url` merged into a stdio entry, which is a
-// broken server) is reported as an EntryLoss on the first apply — the signal apply --host
+// broken server) is reported as an EntryLoss on the first apply — the signal yolo host apply
 // gates its confirmation on.
 func TestHostMCPFirstApplyReportsEntryLoss(t *testing.T) {
 	home := t.TempDir()

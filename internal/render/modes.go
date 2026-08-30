@@ -119,7 +119,7 @@ func JailModes() ModeSet {
 	}
 }
 
-// HostModes is the `yolo apply --host` census: rmw is the ONLY composing mechanism, and it
+// HostModes is the `yolo host apply` census: rmw is the ONLY composing mechanism, and it
 // therefore records.
 //
 // The coercion is the resolved decision (OQ-4, host-render-target.md §6.3), not an omission:

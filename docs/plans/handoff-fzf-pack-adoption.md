@@ -108,7 +108,7 @@ Three fixes had to land, and the order matters because each was hiding the next:
 3. **the `requires` kind** (2026-08-03) — the actual fix here. Neither 1 nor 2 would have
    been right on their own: `program` means *"yolo installs this"*, and the pack's claim is
    *"this must exist"*. `requires` asserts presence, generates nothing (so nothing to
-   shadow), reports a missing bin by name at boot, and feeds `check-deps`/`apply --host`
+   shadow), reports a missing bin by name at boot, and feeds `check-deps`/`yolo host apply`
    through the same hint plumbing.
 
 The `nix` hints stay on **this** pack while the six shipped agent packs dropped theirs, and
@@ -170,7 +170,7 @@ mechanism stayed able to do the same damage through the next pack anyone wrote.
   `codec` and every other surface-defining field are refused **by name** at decode, so a
   contributor *cannot* flip the owner's mode even deliberately;
 - a second `config` declaration of one identity is a **refused collision** at launch, at
-  `apply --host`, and in `yolo pack footprint`/`yolo check`, naming both packs and the
+  `yolo host apply`, and in `yolo pack footprint`/`yolo check`, naming both packs and the
   conversion.
 
 Verified state: `yolo pack lint --allow-exec <dir>` reports
@@ -242,8 +242,8 @@ real home**:
 1. `yolo pack lint --allow-exec <pack dir>` → clean, and confirm it says
    **`config-overlay claude/settings`** — a `config` claim there would mean the pack regressed
    to Layout B, which now refuses the launch.
-2. `yolo apply --host` (observe) → writes nothing.
-3. `yolo apply --host --assert` → script at `0o555`, `fileSuggestion` present alongside
+2. `yolo host apply` (observe) → writes nothing.
+3. `yolo host apply --assert` → script at `0o555`, `fileSuggestion` present alongside
    claude's own `preferences`/`permissions`, briefing block written, and **exactly one**
    `claude/settings rendered` line (two would be the R4 tell, and is now impossible).
 4. **Second `--assert` → byte-identical.** This is the test that catches an accumulating

@@ -295,7 +295,7 @@ What it does at each notch:
 | notch | effect |
 |---|---|
 | jail / guest | asserts presence at boot; a missing bin is a **warning naming the bin** (never a boot failure — the pack's other contributions are fine, and a fatal here would stop the jail you need in order to fix the pack) |
-| host | feeds `yolo check-deps` / `apply --host` **exactly as `program`'s hints do**; that is the whole host-side point, and what lets a content-only pack carry a remedy |
+| host | feeds `yolo check-deps` / `yolo host apply` **exactly as `program`'s hints do**; that is the whole host-side point, and what lets a content-only pack carry a remedy |
 
 It generates **nothing** — no launcher, no file, nothing on `PATH` — so unlike `program` it
 cannot shadow the very binary it asserts. Not `Exclusive` either: it owns no path, so many
@@ -323,7 +323,7 @@ packs requiring one binary is the normal case rather than a collision.
 A skills tree merged into an agent's skills dir. Precedence is built-in < pack < the user's
 own tree, so a local skill always wins.
 - `from` (OPTIONAL since 2026-08-04, defaults to `skills/`) — pack-relative source dir.
-  **Honored** at both notches (the jail's skills staging and `apply --host`), and by
+  **Honored** at both notches (the jail's skills staging and `yolo host apply`), and by
   wrapped-plugin discovery, which scans it rather than a fixed `skills/`. It became optional
   because every shipped pack declared the same literal while the resolver already defaulted it —
   the validator was the only half of the code that thought the field mattered (§6a-3 of
@@ -337,7 +337,7 @@ own tree, so a local skill always wins.
 
 > **A source that is not there.** A `from` naming a directory the pack does not contain
 > delivers nothing and is REPORTED by name — a warning at launch, a `refused` line and a
-> non-zero exit at `apply --host` — rather than silently falling back to `skills/`. The
+> non-zero exit at `yolo host apply` — rather than silently falling back to `skills/`. The
 > CONVENTIONAL `skills/` being absent is the one exemption, and it is not an oversight: all
 > six packs yolo ships declare `from: "skills"` and carry no skills of their own (their
 > contribution exists to NAME the destination other packs merge into), so complaining there
@@ -401,7 +401,7 @@ Sole ownership is enforced before the container starts: two contributions claimi
 > contribution naming one FILE is copied into the jail home there instead of mounted (the
 > same route `briefing` takes). A directory is mounted on both backends.
 
-Rendering `files` at the HOST is still refused by name (`yolo apply --host`): a bind mount
+Rendering `files` at the HOST is still refused by name (`yolo host apply`): a bind mount
 means nothing off-container, and writing the tree into a real `$HOME` is a different
 posture with its own overwrite rules. See §14.
 
@@ -675,7 +675,7 @@ not declare" covers the prose as well as the keys, so on a `toml` surface a comm
 back beside the key it explains — with one exception, which is a rule rather than a
 limitation: a comment above a key the render CHANGES is dropped, because a `# pinned to 2.13`
 sitting above `"2.15"` misleads worse than no comment at all. Every such drop is named in
-`apply --host`'s output, in observe as well as assert. A `json` surface has nothing to
+`yolo host apply`'s output, in observe as well as assert. A `json` surface has nothing to
 preserve: strict JSON has no comment syntax, so a commented file never decodes and `rmw`
 refuses it untouched.
 
@@ -995,7 +995,7 @@ inspects a local pack, so most of what follows is catchable before boot.
 Not yet wired:
 
 - **`files` at the HOST.** `files` now delivers in a jail (bind-mounted `:ro` at `into`),
-  but `yolo apply --host` still refuses it by name: the refusal is true of a *bind mount*
+  but `yolo host apply` still refuses it by name: the refusal is true of a *bind mount*
   and false of the *intent*, and writing the tree into a real `$HOME` needs the
   never-clobber and file-mode policy the host renders are building
   (`docs/plans/pack-host-management-plan.md` Phase 7). Refused by name, never silently
@@ -1016,7 +1016,7 @@ Not yet wired:
   come from the `mcp_servers` config table, not from an exporting pack.
 
 - ~~**Rendering a pack OUT to the host.**~~ **SHIPPED 2026-08-02**
-  (`docs/plans/pack-host-management-plan.md`). `yolo apply --host` now renders `config`,
+  (`docs/plans/pack-host-management-plan.md`). `yolo host apply` now renders `config`,
   `skills`, `briefing`, and `files` into the real `$HOME`, reports resolved `program` dep
   state, and accounts for every other kind BY NAME (rendered, refused, or unbuilt — never
   silently absent). Three things a reader should know before relying on it:
@@ -1121,7 +1121,7 @@ Resolved sharp edges (kept because the reasoning is the interesting part):
   `stateful` to `rmw` and silently disable in-jail edit capture for a file it did not own.
 
   Now a **loud collision**: named in `yolo pack footprint` and `yolo check`, refused at launch
-  and by `apply --host`, naming both packs, the fields that already disagree, and the
+  and by `yolo host apply`, naming both packs, the fields that already disagree, and the
   `config-overlay` shape to convert to. It could only land after `config-overlay` was wired —
   refusing the incorrect expression before the correct one existed would have been a pure
   regression.

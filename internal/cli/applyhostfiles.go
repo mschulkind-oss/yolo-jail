@@ -1,6 +1,6 @@
 package cli
 
-// applyhostfiles.go is the `apply --host` call site for the `files` kind: a pack's owned
+// applyhostfiles.go is the `yolo host apply` call site for the `files` kind: a pack's owned
 // tree, written into the real home instead of bind-mounted into a jail.
 //
 // It shares the ownership record with skill delivery (hostSkillsManifestPath) rather than

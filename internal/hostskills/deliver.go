@@ -410,7 +410,7 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 			//     otherwise archive the earlier layer's brand-new write, which was never in the
 			//     user's home to lose.
 			//   - a CHANGED digest. The old rule archived on every apply whatever the content, so an
-			//     unchanged home grew one archive copy of every skill per `apply --host` forever.
+			//     unchanged home grew one archive copy of every skill per `yolo host apply` forever.
 			//     Pre-existing, and composition made it louder rather than caused it: this pass now
 			//     visits every destination in one run instead of one pack's at a time.
 			if occupied && req.PreOwned[dest] && Changed(skills[name], dest) {
@@ -466,7 +466,7 @@ func claim(req Request, dest string) {
 // request is a different type carrying the same four fields — cannot grow a second copy of the
 // rule.
 //
-// Both get the real pack name, so `apply --host` can still answer ruling R1's question ("did a pack
+// Both get the real pack name, so `yolo host apply` can still answer ruling R1's question ("did a pack
 // that LEFT my config put this here?"). What makes that safe — where the old per-pack rule was not —
 // is that the write gate reads MEMBERSHIP rather than equality (ownedHere), so recording a name
 // never means refusing a later layer's claim to it.

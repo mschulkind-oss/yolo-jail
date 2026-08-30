@@ -46,7 +46,7 @@ func TestApplyHostSkillsHonorsCustomFrom(t *testing.T) {
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
 	}
 	dest := filepath.Join(home, ".claude", "skills", "sfskill", "SKILL.md")
 	if _, err := os.Stat(dest); err != nil {
@@ -63,7 +63,7 @@ func TestApplyHostSkillsDefaultFromStillDelivers(t *testing.T) {
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
 	}
 	dest := filepath.Join(home, ".claude", "skills", "sfskill", "SKILL.md")
 	if _, err := os.Stat(dest); err != nil {
@@ -131,7 +131,7 @@ func TestApplyHostSkillsPluginUnderCustomFrom(t *testing.T) {
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d\n%s", rc, report)
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
 	}
 	// The plugin arrives under its OWN name, with its manifest — the verbatim shape.
 	man := filepath.Join(home, ".claude", "skills", "acme-tools", ".claude-plugin", "plugin.json")

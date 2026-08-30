@@ -48,7 +48,7 @@ const (
 	//
 	// In a jail it asserts presence at boot and reports a missing bin BY NAME; it generates
 	// NO launcher, so nothing it declares can shadow anything. At the host it feeds
-	// check-deps / apply --host through exactly the same install_hints plumbing `program`
+	// check-deps / host apply through exactly the same install_hints plumbing `program`
 	// does — which is its whole host-side purpose, and what lets a CONTENT-only pack carry
 	// remedies.
 	//

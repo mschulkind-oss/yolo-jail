@@ -106,7 +106,7 @@ This is the part that is genuinely new. Everything else is plumbing that exists.
 
 Today a host daemon answers from the host filesystem or from a subprocess it controls. Nothing in
 the boundary asks a person. The nearest thing is `promptYesNo` in `internal/cli` — used by
-`apply --host`'s confirm gates — but that is a **foreground CLI prompt on the human's own
+`yolo host apply`'s confirm gates — but that is a **foreground CLI prompt on the human's own
 terminal**, in a process the human started. An approval queue is the inverse: the *agent* starts
 it, and the human answers later, possibly from a different terminal.
 
