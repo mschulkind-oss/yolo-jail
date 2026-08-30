@@ -35,6 +35,11 @@ it. A confirmed review finding showed the merged read was arbitrary code executi
 cloned repository could set `LD_PRELOAD`, `NODE_OPTIONS`, or `BASH_ENV` for a process outside every
 sandbox, and the `host_wrappers` opt-in multiplied the exposure to every wrapped launch.
 
+The same ruling covers **relative `env_sources` paths**: a relative entry in the user config would
+have resolved against the *current directory* — which a workspace controls — so `yolo host` now
+refuses them with a warning naming the remedy (an absolute path or `~/…`). Jails are unaffected; a
+workspace declaring env for its own sandboxed container is the ordinary case there.
+
 **Who this bites.** Anyone who put credentials in the WORKSPACE config expecting them to reach host
 launches. That never worked safely, and the fix is the same construction `packs`, `host_files`, and
 `host_wrappers` already use: user scope by construction, not workspace scope filtered. Move the
