@@ -64,30 +64,8 @@ knownProviderKeys = set("base_url", "wire_api", "api_key_env", "models", "region
 ```
 Unlike MCP servers (which Core spawns as child processes) or LSP servers (which Core installs via npm/go), Core **never connects to, executes, or manages an LLM provider**. A provider is pure configuration data consumed by in-jail tools or exported as env vars. Type-checking `base_url` in Go makes Core pretend to understand LLM semantics while being nothing more than a data conduit.
 
-### 2.4 Real-World Case Study: Obviating `.bashrc` Wrapper Functions
-A common developer pattern on the host is writing custom shell wrapper functions in `~/.bashrc` to manage environment and secrets per tool:
-
-```bash
-claude() {
-  # Work-only Bedrock creds/env live in ~/.config/claude/env (untracked, 600).
-  # No-op on personal machines where the file doesn't exist.
-  (
-    unset AWS_PROFILE
-    [ -f ~/.config/claude/env ] && set -a && . ~/.config/claude/env && set +a
-    command claude "$@"
-  )
-}
-```
-
-This manual shell wrapper ceremony exists to solve three specific problems:
-1. **Subshell Isolation (`( ... )`)**: Keeping Bedrock keys (`CLAUDE_CODE_USE_BEDROCK=1`) and AWS credentials from leaking into the user's interactive shell or colliding with `AWS_PROFILE`.
-2. **Machine-Specific Conditioning (`[ -f ... ]`)**: Activating Bedrock on work machines where `~/.config/claude/env` exists, while falling back to first-party subscription on personal machines.
-3. **Atomic Bundle Assembly**: Combining secrets, environment variables, and model names into one invocation.
-
-**How Pack Profiles Obviates This:**
-* **Native Config Delivery (`yolo apply --host`)**: Claude natively supports `"env": { "CLAUDE_CODE_USE_BEDROCK": "1", ... }` in `~/.claude/settings.json`. `apply --host` writes the profile directly to `settings.json`, so bare `claude` runs natively with zero shell wrappers.
-* **Graceful Secret Resolution (`env_sources`)**: `env_sources: ["~/.config/claude/env"]` in user config automatically hydrates credentials when present and skips cleanly without error when absent on personal machines.
-* **Jail & Host Parity**: Both `yolo -- claude` (in-jail) and `yolo host -- claude` (host) execute with the exact same atomic profile environment, completely eliminating the need for custom `.bashrc` functions.
+### 2.4 Downstream Application: Obviating Host Shell Wrappers
+A primary downstream motivation of the pack profile and fragment architecture is eliminating custom `.bashrc` wrapper functions (e.g. subshell `claude()` functions sourcing untracked `~/.config/claude/env` files and unsetting `AWS_PROFILE`). Detailed analysis and real-world case study are documented in [`host-agent-environment.md` §2.2](host-agent-environment.md#22-real-world-case-study-obviating-bashrc-wrapper-functions).
 
 ---
 

@@ -56,6 +56,31 @@ flowchart LR
 3. **Agent Heterogeneity:** Some agents read their configuration files for endpoints; others strictly require process environment variables (`process.env`).
 4. **The Shim Trap:** Placing a wrapper script named `claude` in `~/.local/bin` to intercept calls requires `~/.local/bin` to precede `/bin` or `/usr/local/bin` on `PATH`. If npm, brew, or mise updates the underlying tool, the shim either shadows the update or breaks with stale arguments.
 
+### 2.2 Real-World Case Study: Obviating `.bashrc` Wrapper Functions
+A common developer pattern on the host is writing custom shell wrapper functions in `~/.bashrc` to manage environment and secrets per tool:
+
+```bash
+claude() {
+  # Work-only Bedrock creds/env live in ~/.config/claude/env (untracked, 600).
+  # No-op on personal machines where the file doesn't exist.
+  (
+    unset AWS_PROFILE
+    [ -f ~/.config/claude/env ] && set -a && . ~/.config/claude/env && set +a
+    command claude "$@"
+  )
+}
+```
+
+This manual shell wrapper ceremony exists to solve three specific problems:
+1. **Subshell Isolation (`( ... )`)**: Keeping Bedrock keys (`CLAUDE_CODE_USE_BEDROCK=1`) and AWS credentials from leaking into the user's interactive shell or colliding with `AWS_PROFILE`.
+2. **Machine-Specific Conditioning (`[ -f ... ]`)**: Activating Bedrock on work machines where `~/.config/claude/env` exists, while falling back to first-party subscription on personal machines.
+3. **Atomic Bundle Assembly**: Combining secrets, environment variables, and model names into one invocation.
+
+**How the Host Environment Architecture Obviates This:**
+* **Native Config Delivery (`yolo apply --host`)**: Claude natively supports `"env": { "CLAUDE_CODE_USE_BEDROCK": "1", ... }` in `~/.claude/settings.json`. `apply --host` writes the profile directly to `settings.json`, so bare `claude` runs natively with zero shell wrappers.
+* **Graceful Secret Resolution (`env_sources`)**: `env_sources: ["~/.config/claude/env"]` in user config automatically hydrates credentials when present and skips cleanly without error when absent on personal machines.
+* **Jail & Host Parity**: Both `yolo -- claude` (in-jail) and `yolo host -- claude` (host) execute with the exact same atomic profile environment, completely eliminating the need for custom `.bashrc` functions.
+
 ---
 
 ## 3. The Delivery Spectrum: Four Approaches Evaluated
