@@ -64,6 +64,31 @@ knownProviderKeys = set("base_url", "wire_api", "api_key_env", "models", "region
 ```
 Unlike MCP servers (which Core spawns as child processes) or LSP servers (which Core installs via npm/go), Core **never connects to, executes, or manages an LLM provider**. A provider is pure configuration data consumed by in-jail tools or exported as env vars. Type-checking `base_url` in Go makes Core pretend to understand LLM semantics while being nothing more than a data conduit.
 
+### 2.4 Real-World Case Study: Obviating `.bashrc` Wrapper Functions
+A common developer pattern on the host is writing custom shell wrapper functions in `~/.bashrc` to manage environment and secrets per tool:
+
+```bash
+claude() {
+  # Work-only Bedrock creds/env live in ~/.config/claude/env (untracked, 600).
+  # No-op on personal machines where the file doesn't exist.
+  (
+    unset AWS_PROFILE
+    [ -f ~/.config/claude/env ] && set -a && . ~/.config/claude/env && set +a
+    command claude "$@"
+  )
+}
+```
+
+This manual shell wrapper ceremony exists to solve three specific problems:
+1. **Subshell Isolation (`( ... )`)**: Keeping Bedrock keys (`CLAUDE_CODE_USE_BEDROCK=1`) and AWS credentials from leaking into the user's interactive shell or colliding with `AWS_PROFILE`.
+2. **Machine-Specific Conditioning (`[ -f ... ]`)**: Activating Bedrock on work machines where `~/.config/claude/env` exists, while falling back to first-party subscription on personal machines.
+3. **Atomic Bundle Assembly**: Combining secrets, environment variables, and model names into one invocation.
+
+**How Pack Profiles Obviates This:**
+* **Native Config Delivery (`yolo apply --host`)**: Claude natively supports `"env": { "CLAUDE_CODE_USE_BEDROCK": "1", ... }` in `~/.claude/settings.json`. `apply --host` writes the profile directly to `settings.json`, so bare `claude` runs natively with zero shell wrappers.
+* **Graceful Secret Resolution (`env_sources`)**: `env_sources: ["~/.config/claude/env"]` in user config automatically hydrates credentials when present and skips cleanly without error when absent on personal machines.
+* **Jail & Host Parity**: Both `yolo -- claude` (in-jail) and `yolo host -- claude` (host) execute with the exact same atomic profile environment, completely eliminating the need for custom `.bashrc` functions.
+
 ---
 
 ## 3. Prototypes & Comparison: How Far Should Genericism Go?
@@ -346,14 +371,44 @@ Pack Profiles follow this exact same design:
 
 ---
 
-## 5. Manifest Schema: `kind: "pack-fragment"`
+## 5. The Adapter Pack Pattern: Bridging Generic Providers to Specialized Agents
 
-A pack declares configuration fragments targeting other packs in its `pack.json`:
+A central architectural requirement is the ability to define a generic provider (e.g. `bedrock`, `deepseek`, `ollama`) and bind any agent to it—even if that agent's base pack was authored with zero knowledge of that provider.
+
+```mermaid
+flowchart TD
+    PROV["Generic Provider Definition<br/>(base_url, wire_api, region, models)"]
+
+    PROV -->|1. Direct Native Consumer| PI["Pi Pack (packs/pi)<br/>Natively translates provider into models.json"]
+
+    PROV -->|2. Non-Native Agent| CLAUDE["Claude Pack (packs/claude)<br/>Only knows Anthropic SDK & subscription"]
+
+    ADAPTER["Adapter Pack (packs/aws-bedrock)<br/>Contributes pack-fragment targeting (claude, bedrock)"]
+
+    ADAPTER -->|Layers env vars & model mappings| CLAUDE
+```
+
+### 5.1 The Integration Triad
+
+When an agent is bound to a provider profile (`active_profiles: { claude: "bedrock", pi: "bedrock" }`), the system resolves the integration through three distinct pathways:
+
+1. **Direct Native Consumers:** If an agent pack natively knows how to project generic provider dictionaries into its configuration (e.g. Pi rendering `~/.pi/agent/models.json` or OpenCode rendering `opencode.json`), it consumes the provider directly with zero adapter packs required.
+2. **Built-in Agent Modes:** If an agent pack ships with built-in multi-mode support in its own manifest, it handles the profile internally.
+3. **Adapter Packs (Bridging the Gap):** If an agent pack (like `packs/claude`) does **not** ship with native support for a specific cloud provider (like AWS Bedrock), an independent **Adapter Pack** (`packs/aws-bedrock`) bridges the gap by contributing a `pack-fragment`. The adapter pack layers in the translation without requiring any modifications to Core or to the upstream agent pack.
+
+---
+
+### 5.2 Manifest Schema: `kind: "pack-fragment"`
+
+An adapter pack declares its bridging fragments in `pack.json`:
 
 ```jsonc
+// packs/aws-bedrock/pack.json
 {
   "name": "aws-bedrock",
+  "description": "AWS Bedrock provider integration and adapter bridge",
   "contributes": [
+    // Adapter bridge for Claude Code
     {
       "kind": "pack-fragment",
       "target": "claude",
@@ -361,7 +416,22 @@ A pack declares configuration fragments targeting other packs in its `pack.json`
       "config": {
         "env": {
           "CLAUDE_CODE_USE_BEDROCK": "1",
-          "AWS_REGION": "us-east-1"
+          "AWS_REGION": "us-east-1",
+          "ANTHROPIC_DEFAULT_OPUS_MODEL": "us.anthropic.claude-opus-5[1m]",
+          "ANTHROPIC_DEFAULT_HAIKU_MODEL": "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+        }
+      }
+    },
+    // Direct configuration for Pi
+    {
+      "kind": "pack-fragment",
+      "target": "pi",
+      "profile": "bedrock",
+      "config": {
+        "provider": {
+          "base_url": "http://127.0.0.1:18080/bedrock/v1",
+          "wire_api": "openai_completions",
+          "models": { "default": "anthropic.claude-v3" }
         }
       }
     }
@@ -369,17 +439,17 @@ A pack declares configuration fragments targeting other packs in its `pack.json`
 }
 ```
 
-### 5.1 Field Definitions
+### 5.3 Field Definitions
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
 | `kind` | `string` | Must be `"pack-fragment"`. |
-| `target` | `string` | Target pack slug (e.g. `"claude"`, `"pi"`, `"codex"`). |
+| `target` | `string` | Target pack slug being adapted (e.g. `"claude"`, `"pi"`, `"codex"`). |
 | `profile` | `string` (optional) | **Activation filter tag.** When set, this fragment only merges into `<target>` when the active profile for `<target>` matches this name (via CLI `-p <profile>`, `--profile <profile>`, or user config `active_profiles`). When omitted, the fragment applies unconditionally across all profiles. |
 | `config` | `object` | JSON Merge Patch configuration dictionary (`env`, `provider`, `settings`) delivered to the target pack. |
 
 > [!NOTE]
-> **How `profile` filtering works:** The `profile` field is not an embedded profile definition — it is an activation predicate. During launch resolution, Core filters the selected packs' fragments: a fragment is merged into `<target>` if and only if `frag.Profile == "" || frag.Profile == activeProfileFor(frag.Target)`.
+> **Why this keeps Core completely generic:** Core has zero hardcoded logic for Bedrock, Claude, or AWS. Core simply evaluates: *when pack X is selected and profile P is active for target Y, merge X's fragment into Y's configuration dictionary*. The domain knowledge of how to bridge Claude to Bedrock lives entirely inside the adapter pack.
 
 ---
 
