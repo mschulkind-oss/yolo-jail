@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -48,6 +49,10 @@ func Body(bin string) string {
 // introduce a curl-piped installer, and a program yolo would refuse to install is one it
 // must not advertise a launcher for either. Refusals are reported at staging/apply time,
 // not here.
+//
+// A bin that is not a bare program name (packdecl.ValidBinName) is skipped for the same
+// reason: a wrapper is FILED at filepath.Join(dir, bin), and the schema's refusal is only
+// as good as the loader the pack came through.
 func Bins(packs []*packload.Pack) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -57,7 +62,7 @@ func Bins(packs []*packload.Pack) []string {
 		}
 		installs, _ := p.HonoredInstalls()
 		for _, in := range installs {
-			if in.Bin == "" || seen[in.Bin] {
+			if !packdecl.ValidBinName(in.Bin) || seen[in.Bin] {
 				continue
 			}
 			seen[in.Bin] = true
@@ -147,6 +152,14 @@ func Generate(dir string, bins []string) (Plan, error) {
 		}
 	}
 	for _, bin := range bins {
+		// The traversal guard, stated at the writer: this loop writes
+		// filepath.Join(dir, bin), and the wrap dir is PREPENDED to the user's PATH, so
+		// a bin carrying path structure must never get there. Bins already filters;
+		// refusing here (rather than skipping) is what makes a bypassing caller loud
+		// instead of quietly under-generated.
+		if !packdecl.ValidBinName(bin) {
+			return plan, fmt.Errorf("refusing to write wrapper %q: bin must be a bare program name", bin)
+		}
 		path := filepath.Join(dir, bin)
 		// 0o755: it has to be executable to be on PATH at all.
 		if err := os.WriteFile(path, []byte(Body(bin)), 0o755); err != nil {

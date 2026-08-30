@@ -69,6 +69,25 @@ func TestValidateContributes(t *testing.T) {
 		{"good program", Contribution{Kind: KindProgram, Bin: "x", Via: "npm", Package: "p"}, ""},
 		{"unknown kind", Contribution{Kind: "mcp-server", Bin: "x"}, "unknown kind"},
 		{"program no via", Contribution{Kind: KindProgram, Bin: "x"}, "needs \"via\""},
+		// `bin` is a bare program name, not a path: a host launch wrapper and a jail lazy
+		// launcher are both FILED at filepath.Join(dir, bin), so a bin carrying path
+		// structure writes an executable outside the generated dir (the wrap dir is
+		// prepended to PATH, and the file it can overwrite is ~/.bashrc). The same guard
+		// every other path-bearing field gets, stated for the one field that names a FILE
+		// IN a yolo-owned directory rather than a path under a user-owned tree.
+		{"program escaping bin", Contribution{Kind: KindProgram, Bin: "../../.bashrc", Via: "npm", Package: "p"},
+			"bare program name"},
+		{"program absolute bin", Contribution{Kind: KindProgram, Bin: "/bin/sh", Via: "npm", Package: "p"},
+			"bare program name"},
+		{"program subdir bin", Contribution{Kind: KindProgram, Bin: "tools/claude", Via: "npm", Package: "p"},
+			"bare program name"},
+		{"program colon bin", Contribution{Kind: KindProgram, Bin: "a:b", Via: "npm", Package: "p"},
+			"bare program name"},
+		{"requires escaping bin", Contribution{Kind: KindRequires, Bin: "../x"}, "bare program name"},
+		{"launch escaping bin", Contribution{Kind: KindLaunch, Bin: "../x"}, "bare program name"},
+		{"autonomy escaping launch bin", Contribution{Kind: KindAutonomy,
+			Autonomous: &AutonomyPosture{Launch: []AutonomyLaunch{{Bin: "../x"}}}},
+			"bare program name"},
 		{"skills no into", Contribution{Kind: KindSkills, From: "skills"}, "needs \"into\""},
 		// `from` is CONVENTIONAL on skills/briefing and MANDATORY on files. The three
 		// live together because the boundary between them is the schema decision, and a

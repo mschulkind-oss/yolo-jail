@@ -70,6 +70,14 @@ func GenerateShims(e *Env) error {
 		if !ok || name == "" {
 			continue // a nameless entry has no shim to write
 		}
+		if !packdecl.ValidBinName(name) {
+			// The shim is FILED at filepath.Join(BlockDir, name), and this list arrives
+			// from the assembled config whose workspace half is agent-editable — a name
+			// carrying ".." would write an executable outside the anchor into the jail's
+			// persistent home. ValidateConfig refuses it upstream; this is the
+			// writer-side half.
+			continue
+		}
 		// Default message when the entry supplies none.
 		msg := "Error: tool " + name + " is blocked in this project."
 		if v, present := cfg.Get("message"); present {
@@ -204,6 +212,13 @@ func GenerateAgentLaunchers(e *Env) error {
 		installs, _ := p.HonoredInstalls()
 		for i := range installs {
 			inst := &installs[i]
+			if !packdecl.ValidBinName(inst.Bin) {
+				// The launcher is FILED at filepath.Join(LaunchDir, bin); a traversal
+				// bin would write outside the anchor into the jail's persistent home.
+				// LoadJailPacks makes the manifest refusal fatal before this can run —
+				// this is defense-in-depth for a caller that bypasses the loader.
+				continue
+			}
 			launcherPath := filepath.Join(launcherDir, inst.Bin)
 			if pathExists(launcherPath) {
 				// Two packs claiming one bin name. The footprint check refuses this on the

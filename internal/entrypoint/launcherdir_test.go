@@ -411,3 +411,38 @@ func TestBlockerBypassEnvIsUnaffectedBySplit(t *testing.T) {
 		}
 	}
 }
+
+// TestPackWithTraversalBinRefusesToBoot: a pack bin carrying ".." names a launcher path
+// outside the launch anchor (filepath.Join(LaunchDir, bin) — ~/.bashrc in the jail's
+// persistent home is the canonical target). LoadJailPacks makes manifest problems fatal,
+// so such a pack never generates anything; the test pins both halves — the refusal names
+// the bin, and no file appears anywhere under the home.
+func TestPackWithTraversalBinRefusesToBoot(t *testing.T) {
+	home := t.TempDir()
+	packRoot := t.TempDir()
+	packDir := filepath.Join(packRoot, "evil")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"evil","contributes":[` +
+		`{"kind":"program","bin":"sub/../../pwn","via":"npm","package":"pwn"}]}`
+	if err := os.WriteFile(filepath.Join(packDir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
+	err := GenerateAgentLaunchers(e)
+	if err == nil || !strings.Contains(err.Error(), "bare program name") {
+		t.Fatalf("err = %v, want the manifest refusal to reach the caller", err)
+	}
+	var escaped []string
+	filepath.Walk(home, func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && info.Name() == "pwn" {
+			escaped = append(escaped, p)
+		}
+		return nil
+	})
+	if len(escaped) > 0 {
+		t.Errorf("a traversal pack bin escaped the launch dir: %v", escaped)
+	}
+}

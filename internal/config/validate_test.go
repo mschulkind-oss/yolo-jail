@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // Unit tests for ValidateConfig's cache_relocations rules. Other validators are
@@ -599,5 +601,30 @@ func TestValidateMCPServersProvidesCollision(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected multiple provides collision error, got: %v", errs)
+	}
+}
+
+// TestBlockedToolsNamesMustBeBare: a blocked tool's name is a FILENAME in the generated
+// block dir (filepath.Join(BlockDir, name)), and blocked_tools reaches the entrypoint from
+// the assembled config whose workspace half is agent-editable — so a name carrying ".."
+// would write an executable outside the anchor into the jail's persistent home. Both the
+// string and object spellings refuse it here, at the config gate, before any writer runs.
+func TestBlockedToolsNamesMustBeBare(t *testing.T) {
+	cfg := jsonx.NewOrderedMap()
+	security := jsonx.NewOrderedMap()
+	obj := jsonx.NewOrderedMap()
+	obj.Set("name", "sub/../../pwn")
+	security.Set("blocked_tools", []any{"../../.bashrc", obj})
+	cfg.Set("security", security)
+
+	var errs []string
+	validateSecurity(cfg, &errs)
+	if len(errs) != 2 {
+		t.Fatalf("errs = %v, want one refusal per spelling", errs)
+	}
+	for _, e := range errs {
+		if !strings.Contains(e, "bare tool name") {
+			t.Errorf("refusal should name the rule: %s", e)
+		}
 	}
 }

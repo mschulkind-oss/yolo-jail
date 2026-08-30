@@ -122,3 +122,33 @@ func TestRemoveRetiredGeneratedDirsOnAFreshHomeIsQuiet(t *testing.T) {
 	home := t.TempDir()
 	removeRetiredGeneratedDirs(NewEnv(map[string]string{"JAIL_HOME": home}))
 }
+
+// TestGenerateShimsSkipsPathyToolNames: the shim path is filepath.Join(BlockDir, name),
+// and blocked_tools arrives from the assembled config — whose workspace half is
+// agent-editable (/workspace is bind-mounted rw). A name carrying ".." would write an
+// executable outside the block anchor into the jail's PERSISTENT home (~/.bashrc is the
+// canonical target). ValidateConfig refuses such a name upstream; this is the
+// writer-side half.
+func TestGenerateShimsSkipsPathyToolNames(t *testing.T) {
+	home := t.TempDir()
+	e := NewEnv(map[string]string{
+		"JAIL_HOME":         home,
+		"YOLO_BLOCK_CONFIG": `[{"name":"sub/../../pwn"},{"name":"curl"}]`,
+	})
+	if err := GenerateShims(e); err != nil {
+		t.Fatal(err)
+	}
+	var escaped []string
+	filepath.Walk(home, func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && info.Name() == "pwn" {
+			escaped = append(escaped, p)
+		}
+		return nil
+	})
+	if len(escaped) > 0 {
+		t.Errorf("a pathy blocked-tool name escaped the block dir: %v", escaped)
+	}
+	if _, err := os.Stat(filepath.Join(e.BlockDir(), "curl")); err != nil {
+		t.Error("the well-formed shim should still be written")
+	}
+}

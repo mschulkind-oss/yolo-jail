@@ -8,6 +8,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
@@ -632,7 +633,14 @@ func validateSecurity(config *jsonx.OrderedMap, errs *[]string) {
 	}
 	for idx, toolV := range list {
 		path := fmt.Sprintf("config.security.blocked_tools[%d]", idx)
-		if _, ok := asStr(toolV); ok {
+		if s, ok := asStr(toolV); ok {
+			if !packdecl.ValidBinName(s) {
+				// A blocked tool's name is a FILENAME in the generated block dir, and
+				// blocked_tools reaches the entrypoint from the assembled config whose
+				// workspace half is agent-editable — a name carrying ".." would write an
+				// executable outside the anchor into the jail's persistent home.
+				add(errs, path+": must be a bare tool name — no \"/\", \"..\", \":\" or absolute path ("+s+")")
+			}
 			continue
 		}
 		tool, ok := asMap(toolV)
@@ -643,6 +651,8 @@ func validateSecurity(config *jsonx.OrderedMap, errs *[]string) {
 		reportUnknownKeys(tool, knownBlockedToolKeys, path, errs)
 		if nameV, _ := tool.Get("name"); !isStr(nameV) {
 			add(errs, path+".name: expected a string")
+		} else if s, ok := asStr(nameV); ok && !packdecl.ValidBinName(s) {
+			add(errs, path+".name: must be a bare tool name — no \"/\", \"..\", \":\" or absolute path ("+s+")")
 		}
 		for _, key := range []string{"message", "suggestion"} {
 			if kv, ok := tool.Get(key); ok && !isStr(kv) {

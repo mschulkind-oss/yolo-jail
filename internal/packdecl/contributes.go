@@ -794,6 +794,38 @@ func validateContributionAt(i int, c Contribution) []string {
 	return validateContribution(label, c)
 }
 
+// ValidBinName reports whether name is a BARE PROGRAM NAME — a single PATH segment, the
+// only shape a `bin` field may have.
+//
+// It is the traversal guard for the one manifest field that names a FILE YOLO WRITES
+// rather than a path yolo reads: a host launch wrapper (hostwrap.Generate), a jail lazy
+// launcher (GenerateAgentLaunchers), and a blocked-tool shim (GenerateShims) are all filed
+// at filepath.Join(dir, name), so a bin carrying path structure writes an executable
+// OUTSIDE the generated directory — and the canonical target of such a write is a
+// bashrc. The schema refuses it here; the writers re-ask this predicate as
+// defense-in-depth for callers that bypass the loaders.
+//
+// Colons are refused for the PATH's sake: a name containing the list separator could
+// never be resolved by a PATH lookup, so a manifest declaring one has misnamed something.
+// "." and ".." are refused as filenames in their own right.
+func ValidBinName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	return !strings.ContainsAny(name, "/:")
+}
+
+// binProblem appends the bare-program-name refusal for a bin field. Split from
+// validateContribution's kind switch because FOUR fields route through it (program,
+// requires, launch, autonomy launch) and their messages must not drift.
+func binProblem(problems []string, field, bin string) []string {
+	if bin == "" || ValidBinName(bin) {
+		return problems // empty is the required-field check's own message
+	}
+	return append(problems, field+": must be a bare program name — no \"/\", \"..\", "+
+		"\":\" or absolute path ("+bin+")")
+}
+
 // validateContribution checks one entry's required fields for its kind, and
 // runs the path guards on every path-bearing field.
 func validateContribution(label string, c Contribution) []string {
@@ -806,6 +838,7 @@ func validateContribution(label string, c Contribution) []string {
 	switch c.Kind {
 	case KindProgram:
 		req("bin", c.Bin)
+		problems = binProblem(problems, label+".bin", c.Bin)
 		// `via` is a CLOSED enum, and the strict refusal below is only half the rule: the
 		// tolerant path skips an unknown value instead of refusing it, so a third delivery
 		// mechanism cannot brick a jail on a pre-`just load` image (packdecl.unknownViaSkip,
@@ -832,6 +865,7 @@ func validateContribution(label string, c Contribution) []string {
 		}
 	case KindRequires:
 		req("bin", c.Bin)
+		problems = binProblem(problems, label+".bin", c.Bin)
 		// `via`/`package`/`url` belong to program, and a `requires` carrying one is the
 		// author confusing the two kinds — which is worth saying, because the mistake is
 		// silent otherwise (the fields are simply never read, and the tool never installs).
@@ -904,6 +938,7 @@ func validateContribution(label string, c Contribution) []string {
 		}
 	case KindLaunch:
 		req("bin", c.Bin)
+		problems = binProblem(problems, label+".bin", c.Bin)
 	case KindHook:
 		if c.Hook == "" {
 			problems = append(problems, label+": hook needs a \"hook\" name")
@@ -952,6 +987,7 @@ func validateAutonomyPosture(label string, p *AutonomyPosture) []string {
 		if l.Bin == "" {
 			problems = append(problems, fmt.Sprintf("%s.launch[%d]: needs a \"bin\"", label, i))
 		}
+		problems = binProblem(problems, fmt.Sprintf("%s.launch[%d].bin", label, i), l.Bin)
 	}
 	return problems
 }

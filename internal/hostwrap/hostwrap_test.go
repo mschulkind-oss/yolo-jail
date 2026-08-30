@@ -338,3 +338,35 @@ func TestLookPathSkippingEmptyBin(t *testing.T) {
 		t.Error("want an error for an empty command name")
 	}
 }
+
+// TestBinsSkipsNamesThatAreNotBarePrograms: a wrapper is FILED at filepath.Join(dir, bin),
+// so a bin carrying path structure is a traversal vector (a pack declaring
+// bin:"../../.bashrc" would have yolo overwrite the user's bashrc on `host apply`). The
+// schema refuses such a manifest at pack load; Bins filtering is the writer-side half, so
+// no caller can smuggle one through even off a loader that skipped validation.
+func TestBinsSkipsNamesThatAreNotBarePrograms(t *testing.T) {
+	got := Bins([]*packload.Pack{
+		packWith("evil", "ok", "../../pwn", "/abs/pwn", "sub/dir/pwn", "a:b"),
+	})
+	want := []string{"ok"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Bins = %q, want %q (only the bare program name)", got, want)
+	}
+}
+
+// TestGenerateRefusesPathTraversalNames: Generate writes filepath.Join(dir, bin) directly,
+// so a traversal bin writes an executable OUTSIDE the wrap dir. It refuses loudly rather
+// than skipping: the guarded pipeline (Bins → Generate) can never produce such a name, so
+// reaching this error means a caller bypassed validation — and the one thing yolo must not
+// do then is write the file anyway.
+func TestGenerateRefusesPathTraversalNames(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "wrap")
+	_, err := Generate(dir, []string{"sub/../../pwn"})
+	if err == nil || !strings.Contains(err.Error(), "bare program name") {
+		t.Fatalf("err = %v, want a bare-program-name refusal", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(tmp, "pwn")); statErr == nil {
+		t.Error("a traversal bin wrote outside the wrapper directory")
+	}
+}
