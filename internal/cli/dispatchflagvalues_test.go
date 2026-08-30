@@ -51,6 +51,16 @@ func TestRewriteArgvSkipsFlagValues(t *testing.T) {
 			want: []string{"--network", "bridge", "check", "--", "claude"},
 		},
 		{
+			name: "the host subcommand suppresses the rewrite",
+			in:   []string{"host", "--", "claude"},
+			want: []string{"host", "--", "claude"},
+		},
+		{
+			name: "host with its own flags before -- still suppresses it",
+			in:   []string{"host", "-p", "bedrock", "--", "claude"},
+			want: []string{"host", "-p", "bedrock", "--", "claude"},
+		},
+		{
 			name: "glued --flag=value needs no skip",
 			in:   []string{"--network=host", "--", "bash"},
 			want: []string{"--network=host", "run", "--", "bash"},
@@ -84,6 +94,8 @@ func TestSubcommandSkipsFlagValues(t *testing.T) {
 		{"a real subcommand resolves", []string{"check", "--", "claude"}, "check"},
 		{"a subcommand after a boolean flag resolves", []string{"--new", "check"}, "check"},
 		{"a subcommand name as --network's value does not", []string{"--network", "check"}, ""},
+		{"the host subcommand resolves", []string{"host", "--", "claude"}, "host"},
+		{"--network host is the network mode, not the host notch", []string{"--network", "host", "--", "bash"}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

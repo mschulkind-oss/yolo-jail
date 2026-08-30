@@ -98,6 +98,60 @@ func ResolveEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) *j
 	return merged
 }
 
+// EnvSourceRemovals returns the variable names an `env_sources` inline entry asks to be
+// REMOVED — the keys whose value is JSON null.
+//
+// # Why this is separate from ResolveEnvSources
+//
+// ResolveEnvSources returns a map of assignments, and a map cannot express "and delete
+// this one". A null there is silently skipped (its value is not a string), which is the
+// right behaviour for the JAIL: a container starts from an empty environment, so
+// "removed" is already the default state of anything yolo does not pass in.
+//
+// On the HOST it is the opposite. `yolo host -- claude` starts from the invoking shell's
+// os.Environ(), which may well carry an AWS_PROFILE that has to go — the motivating case
+// from docs/design/host-agent-environment.md §2.2, where the hand-written wrapper's first
+// act is `unset AWS_PROFILE`. No config SURFACE can express a removal at all, so its
+// presence alone is a reason the process-env channel has to exist (§1 P1).
+//
+// A removal is not an empty assignment: `AWS_PROFILE=` and no AWS_PROFILE behave
+// differently in every AWS SDK, which is why this returns names to unset rather than
+// pairs to set empty.
+//
+// Later entries win, matching ResolveEnvSources' ordering: a null after an assignment
+// removes the variable, and an assignment after a null sets it. Only inline dict entries
+// are considered — a dotenv FILE has no syntax for "unset", and inventing one would make
+// yolo's dotenv dialect differ from everyone else's.
+func EnvSourceRemovals(config *jsonx.OrderedMap) []string {
+	removed := map[string]bool{}
+	var order []string
+	for _, entry := range getListOrNilFalsy(config, "env_sources") {
+		em, ok := asMap(entry)
+		if !ok {
+			continue
+		}
+		for _, k := range em.Keys() {
+			v, _ := em.Get(k)
+			if v == nil {
+				if !removed[k] {
+					order = append(order, k)
+				}
+				removed[k] = true
+				continue
+			}
+			// A later assignment cancels an earlier removal.
+			removed[k] = false
+		}
+	}
+	out := make([]string, 0, len(order))
+	for _, k := range order {
+		if removed[k] {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
 // expandUser expands a leading "~". Only "~" and "~/..." are expanded (a
 // "~user" form is left untouched, matching the common case). HOME resolution
 // uses $HOME when set, else the passwd entry — the same HOME/pwd logic

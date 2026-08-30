@@ -173,6 +173,14 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 			planOverlayKeyRetirement(pr, packload.Embedded(), empty, nil, home)); prc != 0 {
 			rc = prc
 		}
+		// Wrappers too, and for this branch's own stated reason: with no pack configured
+		// there is no program left to wrap, so every wrapper on the user's PATH is an
+		// orphan pointing at something nothing will reinstall. Leaving them behind is
+		// exactly the "delivered output nobody will ever ask about again" this branch
+		// exists to prevent — and these are EXECUTABLES, at the front of a PATH.
+		if wrc := applyHostWrappers(pr, errw, home, nil, write); wrc != 0 {
+			rc = wrc
+		}
 		return rc
 	}
 
@@ -457,6 +465,13 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 	if prc := pruneDroppedPackOutput(
 		pr, out, stdin, candidates, configured, home, stamp, write, keys); prc != 0 {
 		rc = prc
+	}
+
+	// Launch wrappers, last: they are the only stage that writes OUTSIDE the composed
+	// surfaces, and generating them after the surfaces means a wrapper never appears for
+	// a pack whose own apply just failed. Silent unless opted in (§5.5).
+	if wrc := applyHostWrappers(pr, errw, home, loaded, write); wrc != 0 {
+		rc = wrc
 	}
 
 	if !write {
