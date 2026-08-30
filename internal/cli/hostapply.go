@@ -227,27 +227,82 @@ func setHostWrappers(enabled bool) error {
 
 // setJSONCBool replaces `"key": <bool>` if present, else inserts it after the first `{`.
 // Reports false when it cannot find an insertion point.
+//
+// # Every find-the-key decision goes through jsoncCommentSpans
+
+// The first implementation searched with strings.Index and could match the key inside a
+// comment: `// "host_wrappers": false,` above a live `"host_wrappers": true` made
+// `wrappers disable` edit the COMMENT, exit 0, print `host_wrappers = false`, and leave
+// the file byte-identical with the live key still true — while the reader, which strips
+// comments, kept seeing the old value. A comment carrying the key but no bool fell
+// through to the INSERT branch and wrote a DUPLICATE key the live one silently beat.
+//
+// The rules that close both, in precedence order:
+//
+//   - Only a key occurrence OUTSIDE a comment is editable; the colon and the value
+//     literal must be outside one too, and on the key's own line.
+//   - A live key that exists but cannot be edited safely (a block comment between colon
+//     and value, say) is a REFUSAL — the caller tells the user to edit by hand. It is
+//     never a fall-through to insert, because inserting beside a live key creates the
+//     duplicate that silently loses.
+//   - The insert point is the first `{` outside a comment.
 func setJSONCBool(text, key string, value bool) (string, bool) {
+	spans := jsoncCommentSpans(text)
 	needle := `"` + key + `"`
-	if i := strings.Index(text, needle); i >= 0 {
-		rest := text[i+len(needle):]
-		colon := strings.Index(rest, ":")
-		if colon >= 0 {
-			after := rest[colon+1:]
-			trimmed := strings.TrimLeft(after, " \t")
-			pad := after[:len(after)-len(trimmed)]
-			for _, lit := range []string{"true", "false"} {
-				if strings.HasPrefix(trimmed, lit) {
-					return text[:i+len(needle)] + rest[:colon+1] + pad +
-						fmt.Sprintf("%v", value) + trimmed[len(lit):], true
-				}
+	sawLiveKey := false
+	for base := 0; ; {
+		rel := strings.Index(text[base:], needle)
+		if rel < 0 {
+			break
+		}
+		i := base + rel
+		base = i + len(needle)
+		if coveredBy(spans, i) {
+			continue
+		}
+		sawLiveKey = true
+		// The colon must sit on the key's own line and outside a comment, so a comment
+		// like `"host_wrappers" // see docs:` cannot lend its colon.
+		lineEnd := strings.IndexByte(text[i:], '\n')
+		if lineEnd < 0 {
+			lineEnd = len(text) - i
+		}
+		lineRest := text[i+len(needle) : i+lineEnd]
+		colon := strings.IndexByte(lineRest, ':')
+		if colon < 0 || coveredBy(spans, i+len(needle)+colon) {
+			continue
+		}
+		after := lineRest[colon+1:]
+		trimmed := strings.TrimLeft(after, " \t")
+		pad := after[:len(after)-len(trimmed)]
+		colonEnd := i + len(needle) + colon + 1
+		valPos := colonEnd + len(pad)
+		for _, lit := range []string{"true", "false"} {
+			if strings.HasPrefix(trimmed, lit) && !coveredBy(spans, valPos) {
+				// Rebuild from ABSOLUTE offsets: the value may sit mid-file, and a
+				// line-bounded rest would truncate everything after it.
+				return text[:colonEnd] + pad +
+					fmt.Sprintf("%v", value) + text[valPos+len(lit):], true
 			}
 		}
 	}
-	brace := strings.Index(text, "{")
-	if brace < 0 {
+	if sawLiveKey {
+		// A live key this function could not edit safely. Inserting a second one would
+		// create a duplicate the existing value silently wins — the exact no-op this
+		// rewrite exists to end — so refuse and let the caller name the by-hand edit.
 		return text, false
 	}
-	insert := fmt.Sprintf("\n  \"%s\": %v,", key, value)
-	return text[:brace+1] + insert + text[brace+1:], true
+	brace := strings.Index(text, "{")
+	for brace >= 0 {
+		if !coveredBy(spans, brace) {
+			insert := fmt.Sprintf("\n  \"%s\": %v,", key, value)
+			return text[:brace+1] + insert + text[brace+1:], true
+		}
+		next := strings.Index(text[brace+1:], "{")
+		if next < 0 {
+			break
+		}
+		brace += 1 + next
+	}
+	return text, false
 }
