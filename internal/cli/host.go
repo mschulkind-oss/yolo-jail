@@ -205,10 +205,7 @@ func yoloManagedDirs() []string {
 //     beats an assignment from any earlier step.
 func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, error) {
 	agent := filepath.Base(bin)
-	cfg, err := config.LoadConfig("", false, func(string) {})
-	if err != nil {
-		return nil, agent, fmt.Errorf("loading config: %w", err)
-	}
+	cfg := config.UserScopeConfigOrEmpty()
 	workspace, err := os.Getwd()
 	if err != nil {
 		workspace = "."
@@ -232,6 +229,11 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 //
 // Removals come last so an `unset` beats an assignment from any earlier source, including
 // one inherited from the invoking shell.
+// The config it reads is USER SCOPE ONLY (config.UserScopeConfig) — never the merged
+// config. This process runs on the host, outside every sandbox, and a workspace
+// yolo-jail.jsonc is agent-editable; composing a host process's environment from it would
+// hand a cloned repo LD_PRELOAD on the user's machine. See UserScopeConfig for the whole
+// argument.
 func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn func(string)) []agentenv.Var {
 	var vars []agentenv.Var
 
@@ -403,15 +405,11 @@ func hostEnv(args []string, out, errw io.Writer) int {
 
 // hostEnvDelta returns just the variables yolo would add or remove, in composition order.
 func hostEnvDelta(agent, profile string, warn func(string)) ([]agentenv.Var, error) {
-	cfg, err := config.LoadConfig("", false, func(string) {})
-	if err != nil {
-		return nil, fmt.Errorf("loading config: %w", err)
-	}
 	workspace, err := os.Getwd()
 	if err != nil {
 		workspace = "."
 	}
-	return hostEnvVars(cfg, workspace, agent, profile, warn), nil
+	return hostEnvVars(config.UserScopeConfigOrEmpty(), workspace, agent, profile, warn), nil
 }
 
 // shellQuote wraps a value in single quotes for `export K=V`, escaping embedded quotes.

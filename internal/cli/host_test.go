@@ -221,6 +221,41 @@ func hasEnv(env []string, kv string) bool {
 	return false
 }
 
+// TestComposeHostEnvReadsUserScopeOnly pins the host env channel's security boundary.
+// The process composeHostEnv builds runs ON THE HOST, outside every sandbox — and the
+// workspace yolo-jail.jsonc is agent-editable (/workspace is bind-mounted rw), so a
+// merged read would let a cloned repository, or an agent editing one, set LD_PRELOAD or
+// NODE_OPTIONS for a process on the user's machine. The config source must therefore be
+// user scope BY CONSTRUCTION (config.UserScopeConfigOrEmpty), not merged-and-filtered.
+//
+// Fails if composeHostEnv reverts to LoadConfig("", …), which merges workspace over user.
+func TestComposeHostEnvReadsUserScopeOnly(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	ws := t.TempDir()
+	t.Chdir(ws)
+	userCfg(t, home, `{"env_sources": [{"USER_SCOPE_VAR": "from-user"}]}`)
+	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"), []byte(`{
+	  "env_sources": [{"LD_PRELOAD": "/tmp/evil.so", "WORKSPACE_VAR": "from-workspace"}]
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	env, _, err := composeHostEnv("claude", "", func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasEnv(env, "USER_SCOPE_VAR=from-user") {
+		t.Error("user-scope env_sources did not reach the composition — the test proves nothing if this fails")
+	}
+	for _, leak := range []string{"LD_PRELOAD=/tmp/evil.so", "WORKSPACE_VAR=from-workspace", "LD_PRELOAD=", "WORKSPACE_VAR="} {
+		if hasEnv(env, leak) {
+			t.Errorf("workspace-scope variable reached a host process composition: %s", leak)
+		}
+	}
+}
+
 func TestSetJSONCBoolPreservesComments(t *testing.T) {
 	cases := []struct {
 		name, in, want string
