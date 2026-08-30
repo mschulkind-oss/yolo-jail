@@ -374,9 +374,12 @@ A pack declares configuration fragments targeting other packs in its `pack.json`
 | Field | Type | Description |
 | :--- | :--- | :--- |
 | `kind` | `string` | Must be `"pack-fragment"`. |
-| `target` | `string` | Target pack slug (e.g. `"claude"`, `"pi"`). |
-| `profile` | `string` (optional) | Profile name this fragment binds to. If omitted, applies globally to `<target>` across all profiles. |
-| `config` | `object` | JSON Merge Patch configuration dictionary (`env`, `provider`, `settings`). |
+| `target` | `string` | Target pack slug (e.g. `"claude"`, `"pi"`, `"codex"`). |
+| `profile` | `string` (optional) | **Activation filter tag.** When set, this fragment only merges into `<target>` when the active profile for `<target>` matches this name (via CLI `-p <profile>`, `--profile <profile>`, or user config `active_profiles`). When omitted, the fragment applies unconditionally across all profiles. |
+| `config` | `object` | JSON Merge Patch configuration dictionary (`env`, `provider`, `settings`) delivered to the target pack. |
+
+> [!NOTE]
+> **How `profile` filtering works:** The `profile` field is not an embedded profile definition — it is an activation predicate. During launch resolution, Core filters the selected packs' fragments: a fragment is merged into `<target>` if and only if `frag.Profile == "" || frag.Profile == activeProfileFor(frag.Target)`.
 
 ---
 
@@ -391,7 +394,7 @@ When yolo prepares a container launch, it resolves the effective configuration f
                                │ merge
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ 2. Cross-Pack Shipped Fragments (from selected packs)       │
+│ 2. Cross-Pack Shipped Fragments (filtered by active profile)│
 └──────────────────────────────┬──────────────────────────────┘
                                │ merge
                                ▼
@@ -420,17 +423,103 @@ When yolo prepares a container launch, it resolves the effective configuration f
 
 ---
 
-## 7. Runtime Projection: Zero-Boilerplate vs. Custom Fallback
+## 7. How the Receiving Pack Processes Config (Files, Env & Dialects)
 
-### 7.1 Automatic Projection (Core-Handled)
+Once Core finishes merging fragments and profile overrides into a single `resolved_pack_config` for the receiving pack, the receiving pack processes the details through three coordinated channels:
 
-Core inspects the resolved pack object and automatically applies standard domains:
+```mermaid
+flowchart TD
+    RES["Resolved Pack Config Object<br/>{env: {...}, provider: {...}, settings: {...}}"]
 
-1. **Automatic Environment Variables (`env`)**:
-   Any key-value pair in `pack_config.env` is automatically exported into the container process environment when launching that pack's binary (or globally if the pack is active).
-   *This completely removes the hardcoded Bedrock block in [`internal/cli/run/assemble.go:722`](../../internal/cli/run/assemble.go#L722)!*
-2. **Prism Surface Delivery**:
-   Core passes the resolved composite pack configuration object into Prism as `ctx.pack_config` and the active profile name as `ctx.profile`.
+    RES -->|1. Automatic Extraction| ENV["Process Environment (Core)<br/>-e CLAUDE_CODE_USE_BEDROCK=1<br/>-e AWS_REGION=us-east-1"]
+    RES -->|2. Passed into Prism| LUA["Receiving Pack's derive.lua<br/>ctx.pack_config & ctx.profile"]
+
+    LUA -->|pi/derive.lua| PI_FILE["~/.pi/agent/models.json"]
+    LUA -->|opencode/derive.lua| OC_FILE["~/.config/opencode/opencode.json"]
+    LUA -->|codex/derive.lua| CODEX_FILE["~/.codex/config.toml"]
+    LUA -->|claude/derive.lua| CLAUDE_FILE["~/.claude/settings.json"]
+```
+
+### 7.1 Channel 1: Automatic Process Environment (`env`)
+Core inspects `resolved_pack_config.env`. Any key-value pairs (e.g. `CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION=us-east-1`) are automatically injected into the container process environment and the pack's binary launcher (`~/.yolo-launchers/<bin>`).
+*The receiving pack does not need to write Go or Lua code to export environment variables.*
+
+### 7.2 Channel 2: File Projection via Prism (`derive.lua`)
+When rendering the receiving pack's configuration files at boot, Core passes the full merged dictionary into Prism as `ctx.pack_config` and the active profile name as `ctx.profile`. 
+
+Each receiving pack's `derive.lua` processes `ctx.pack_config.provider` (and any custom `ctx.pack_config.settings`) into its native dialect:
+
+#### A. Pi (`packs/pi/derive.lua` $\rightarrow$ `~/.pi/agent/models.json`)
+```lua
+yolo.derive("pi", "models", function(ctx)
+  local prov = (ctx.pack_config and ctx.pack_config.provider)
+  if not prov or type(prov) ~= "table" or not prov.base_url then
+    return {}
+  end
+
+  local models = {}
+  for alias, id in pairs(prov.models or {}) do
+    table.insert(models, { id = id, name = alias })
+  end
+
+  return {
+    providers = {
+      [ctx.profile or "default"] = {
+        baseUrl = prov.base_url,
+        api = prov.wire_api or "openai-completions",
+        apiKeyEnv = prov.api_key_env,
+        models = models,
+      }
+    }
+  }
+end)
+```
+
+#### B. Codex (`packs/codex/derive.lua` $\rightarrow$ `~/.codex/config.toml`)
+```lua
+yolo.derive("codex", "config", function(ctx)
+  local prov = (ctx.pack_config and ctx.pack_config.provider)
+  if not prov or type(prov) ~= "table" or not prov.base_url then
+    return {}
+  end
+
+  return {
+    model_providers = {
+      [ctx.profile or "default"] = {
+        base_url = prov.base_url,
+        wire_api = prov.wire_api or "responses",
+        api_key_env = prov.api_key_env,
+      }
+    }
+  }
+end)
+```
+
+#### C. OpenCode (`packs/opencode/derive.lua` $\rightarrow$ `~/.config/opencode/opencode.json`)
+```lua
+yolo.derive("opencode", "config", function(ctx)
+  local prov = (ctx.pack_config and ctx.pack_config.provider)
+  if not prov or type(prov) ~= "table" or not prov.base_url then
+    return {}
+  end
+
+  local models = {}
+  for alias, id in pairs(prov.models or {}) do
+    models[id] = { name = alias }
+  end
+
+  return {
+    provider = {
+      [ctx.profile or "default"] = {
+        npm = "@ai-sdk/openai-compatible",
+        baseURL = prov.base_url,
+        apiKey = prov.api_key_env and ("{env:" .. prov.api_key_env .. "}") or nil,
+        models = models,
+      }
+    }
+  }
+end)
+```
 
 ---
 
