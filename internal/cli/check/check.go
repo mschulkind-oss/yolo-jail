@@ -209,6 +209,9 @@ func Check(opts Options) int {
 	// --- Nix auto-GC (store growth net; storage §2) — detect-and-warn only ---
 	o.sectionAutoGC(r)
 
+	// --- Host launch wrappers: generated, but is the dir actually on PATH? ---
+	o.sectionHostWrappers(r)
+
 	// --- Summary ---
 	r.summaryFinal()
 
