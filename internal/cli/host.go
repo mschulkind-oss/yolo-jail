@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -203,11 +204,43 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 		workspace = "."
 	}
 
-	env := os.Environ()
+	vars := hostEnvVars(cfg, workspace, agent, profile, warn)
+	return agentenv.Apply(os.Environ(), vars), agent, nil
+}
+
+// hostEnvVars is the composition itself, without the inherited environment — shared by
+// the exec half and by `yolo host env`, so the two can never disagree about what a launch
+// would carry.
+//
+// The three sources are docs/design/host-agent-environment.md §5.4's, in order:
+//
+//  1. a pack's static `kind: "env"` contributions — literal strings from a manifest;
+//  2. env_sources — the SECRET channel, and the step that gives "env_sources hydrates
+//     your credentials" something to hydrate INTO on a host;
+//  3. the resolved profile's vars, composed by internal/agentenv — the same function the
+//     jail's podman argv is built from.
+//
+// Removals come last so an `unset` beats an assignment from any earlier source, including
+// one inherited from the invoking shell.
+func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn func(string)) []agentenv.Var {
+	var vars []agentenv.Var
+
+	// (1) pack-declared env. Sorted, because a map has no order and an argv (or an
+	// `export` script) that reshuffles between runs is a diff nobody can read.
+	if packs, err := loadedHostPacks(); err == nil {
+		packEnv := packload.EnvVars(packs)
+		keys := make([]string, 0, len(packEnv))
+		for k := range packEnv {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			vars = append(vars, agentenv.Var{Key: k, Value: packEnv[k]})
+		}
+	}
 
 	// (2) the secret channel.
 	userEnv := config.ResolveEnvSources(workspace, cfg, warn)
-	var vars []agentenv.Var
 	for _, k := range userEnv.Keys() {
 		v, _ := userEnv.Get(k)
 		if s, ok := v.(string); ok {
@@ -222,8 +255,24 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 	for _, k := range config.EnvSourceRemovals(cfg) {
 		vars = append(vars, agentenv.Var{Key: k, Unset: true})
 	}
+	return vars
+}
 
-	return agentenv.Apply(env, vars), agent, nil
+// loadedHostPacks resolves the selected packs for a host launch. A pack that cannot be
+// resolved right now (an offline git remote) contributes nothing rather than failing the
+// launch: the user asked to run an agent, not to reconcile their pack set.
+func loadedHostPacks() ([]*packload.Pack, error) {
+	entries, err := config.LoadPacks(nil)
+	if err != nil {
+		return nil, err
+	}
+	var packs []*packload.Pack
+	for _, e := range entries {
+		if p := packForCheckDeps(e); p != nil {
+			packs = append(packs, p)
+		}
+	}
+	return packs, nil
 }
 
 // effectiveHostProfiles returns the agent_profiles map with a `-p` override applied to
@@ -345,19 +394,7 @@ func hostEnvDelta(agent, profile string, warn func(string)) ([]agentenv.Var, err
 	if err != nil {
 		workspace = "."
 	}
-	var vars []agentenv.Var
-	userEnv := config.ResolveEnvSources(workspace, cfg, warn)
-	for _, k := range userEnv.Keys() {
-		v, _ := userEnv.Get(k)
-		if s, ok := v.(string); ok {
-			vars = append(vars, agentenv.Var{Key: k, Value: s})
-		}
-	}
-	vars = append(vars, agentenv.Resolve(cfg, agent, effectiveHostProfiles(cfg, agent, profile))...)
-	for _, k := range config.EnvSourceRemovals(cfg) {
-		vars = append(vars, agentenv.Var{Key: k, Unset: true})
-	}
-	return vars, nil
+	return hostEnvVars(cfg, workspace, agent, profile, warn), nil
 }
 
 // shellQuote wraps a value in single quotes for `export K=V`, escaping embedded quotes.

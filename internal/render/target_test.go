@@ -99,7 +99,7 @@ func TestUnsetTargetIsNotANotch(t *testing.T) {
 // NO TARGET EVER YIELDS A RELATIVE SIDECAR OR PROVENANCE PATH. This is the trap the host
 // notch walked into: Workspace is empty at the host BY DEFINITION (KindOf uses that as the
 // discriminator), so any path built by joining it is relative — and resolves against
-// whatever directory `yolo apply --host` happened to be invoked from.
+// whatever directory `yolo host apply` happened to be invoked from.
 func TestTargetPathsAreNeverRelative(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -306,7 +306,7 @@ func TestLoopholeIsExcludedFromTheJailSetExplicitly(t *testing.T) {
 	}
 }
 
-// `env` and `launch` are unbuilt because `apply --host` NEVER LAUNCHES A PROCESS — a limit of
+// `env` and `launch` are unbuilt because `yolo host apply` NEVER LAUNCHES A PROCESS — a limit of
 // the command, not of the notch (plan §6b D3). The distinction is not pedantry: at `guest`
 // yolo already execs the agent, and `yolo --at host -- <cmd>` would give the host notch the
 // same verb, so a reason phrased as "off-container" or "below jail" would refuse two kinds
@@ -323,7 +323,7 @@ func TestEnvAndLaunchRefusalsBlameTheCommandNotTheNotch(t *testing.T) {
 			// Implemented is a fine outcome — delete this kind's row rather than the test.
 			continue
 		}
-		if !strings.Contains(why, "apply --host") {
+		if !strings.Contains(why, "yolo host apply") {
 			t.Errorf("%s: the reason must name the COMMAND that cannot honor it; got %q", k, why)
 		}
 		// The old wording's mistake, in the two forms it took: presenting the limit as a

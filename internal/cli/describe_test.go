@@ -345,8 +345,8 @@ func TestApplyHostRMW(t *testing.T) {
 
 	// Observe: writes nothing (the file keeps the user's telemetry:true).
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--host"}, &out, &errw, false, nil); rc != 0 {
-		t.Fatalf("apply --host observe rc=%d: %s", rc, errw.String())
+	if rc := applyMain([]string{"--at", "host"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("apply --at host observe rc=%d: %s", rc, errw.String())
 	}
 	if !strings.Contains(out.String(), "refused") || !strings.Contains(out.String(), "mount") {
 		t.Errorf("observe should refuse the mount kind by name:\n%s", out.String())
@@ -359,8 +359,8 @@ func TestApplyHostRMW(t *testing.T) {
 	// Assert: managed key regenerated, user key preserved.
 	out.Reset()
 	errw.Reset()
-	if rc := applyMain([]string{"--host", "--assert"}, &out, &errw, false, nil); rc != 0 {
-		t.Fatalf("apply --host --assert rc=%d: %s", rc, errw.String())
+	if rc := applyMain([]string{"--at", "host", "--assert"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("apply --at host --assert rc=%d: %s", rc, errw.String())
 	}
 	data, _ = os.ReadFile(filepath.Join(home, ".hp", "settings.json"))
 	if !strings.Contains(string(data), "keep") {

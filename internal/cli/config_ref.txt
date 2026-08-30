@@ -85,7 +85,7 @@
       • [bold]guest[/bold] — a real home on the real filesystem, no image, an LSM boundary
         (Seatbelt on macOS, bwrap+Landlock on Linux), its own separate identity.
       • [bold]host[/bold] — you, your machine, your dotfiles, your credentials. EXPLICIT
-        opt-in only: never inferred, never a fallback. `yolo apply --host`
+        opt-in only: never inferred, never a fallback. `yolo host apply`
         renders your agent config into your real home.
     The three are presets over composable primitives (separate user / Seatbelt /
     bwrap / namespace); you pick a notch, not a hand-assembled policy.
@@ -825,7 +825,7 @@
                     Both program and requires take optional
                       install_hints {"brew"|"brew-cask"|"apt"|"dnf"|"pacman"|"nix": pkg}
                     naming the package that provides `bin` on a host package manager,
-                    which `yolo check-deps` / `yolo apply --host` print as the remedy for
+                    which `yolo check-deps` / `yolo host apply` print as the remedy for
                     a missing binary (and write into a Brewfile and kin).  `brew-cask`
                     is a Homebrew CASK rather than a formula and wins over `brew`.  For
                     a program, the pack's OWN installer (its via/url/package) is
@@ -860,7 +860,7 @@
       autonomy      {autonomous:{...}, guarded:{...}} — the agent's two permission
                     postures; the confinement notch selects one (autonomous at
                     jail/guest, guarded at host), so a jail-bypass key never reaches
-                    your real home via `yolo apply --host`.  Each posture takes
+                    your real home via `yolo host apply`.  Each posture takes
                     {config:[surface...]} patching the managed layer of a surface THIS
                     pack owns, plus {launch:[{bin, flags}]}.  Either posture may be
                     empty (a permissive-by-default tool only needs `guarded`).

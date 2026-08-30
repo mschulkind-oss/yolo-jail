@@ -13,7 +13,7 @@ package cli
 //     deferred (noted below) rather than stubbed — so at jail `apply` currently reports
 //     what a launch WOULD provision and directs to `yolo` / `yolo apply --at host`.
 //   - host: render the applicable config into the real home. That is Phase 4
-//     (`apply --host`), gated on the host-render work; here it is recognized and routed
+//     (`yolo host apply`), gated on the host-render work; here it is recognized and routed
 //     with an honest "not yet" rather than silently doing nothing.
 
 import (
@@ -40,7 +40,7 @@ func runApply(args []string) int {
 // applyMain parses the flags and routes to a notch. stdin is the reader the host notch's
 // destructive-change confirmation reads; a nil stdin (a test, or any non-interactive run)
 // means "not confirmed", matching packMain's fail-closed contract — a scripted
-// `apply --host --assert` must not destroy a user's MCP server because nobody was there to
+// `yolo host apply --assert` must not destroy a user's MCP server because nobody was there to
 // answer.
 func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
 	var at string
@@ -60,8 +60,6 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 			at = args[i]
 		case hasPrefix(a, "--at="):
 			at = a[len("--at="):]
-		case a == "--host":
-			at = "host" // shorthand for --at host
 		case a == "--dry-run":
 			dryRun = true
 		case a == "--assert":
@@ -132,12 +130,12 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 	pr := richtext.Printer{W: out, Color: color}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintf(errw, "yolo apply --host: cannot resolve your home: %v\n", err)
+		fmt.Fprintf(errw, "yolo host apply: cannot resolve your home: %v\n", err)
 		return 1
 	}
 	entries, err := config.LoadPacks(nil)
 	if err != nil {
-		fmt.Fprintf(errw, "yolo apply --host: %v\n", err)
+		fmt.Fprintf(errw, "yolo host apply: %v\n", err)
 		return 1
 	}
 	if len(entries) == 0 {
@@ -192,7 +190,7 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 	if write {
 		posture = "assert (writing)"
 	}
-	pr.Printf("[bold]apply --host[/bold]  home [cyan]%s[/cyan]  posture [cyan]%s[/cyan]", home, posture)
+	pr.Printf("[bold]host apply[/bold]  home [cyan]%s[/cyan]  posture [cyan]%s[/cyan]", home, posture)
 
 	hostFields := render.HostFields()
 	rc := 0
@@ -281,7 +279,7 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 			pr.Printf("  [red]config     refused[/red] — surface %s claimed by %s: %s",
 				c.Target, strings.Join(c.Packs, ", "), c.Reason)
 		}
-		pr.Printf("[bold red]apply --host: refused — %d config surface(s) with more than one "+
+		pr.Printf("[bold red]host apply: refused — %d config surface(s) with more than one "+
 			"owner. Nothing was written.[/bold red]", len(cols))
 		return 1
 	}
@@ -310,7 +308,7 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 	// that things will be lost and wait for confirm" — warn-and-confirm, not warn-and-refuse.
 	// See confirmHostLosses for the three properties that make it not-noise.
 	if write && !confirmHostLosses(pr, out, stdin, loaded, home, overlays) {
-		pr.Printf("[bold red]apply --host: not confirmed — nothing was written.[/bold red]")
+		pr.Printf("[bold red]host apply: not confirmed — nothing was written.[/bold red]")
 		pr.Printf("[dim]Re-run and answer `y`, or declare the entries above in your config " +
 			"(`mcp_servers`, reaching every agent) so nothing is lost.[/dim]")
 		return 1
@@ -362,7 +360,7 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 		}
 		results, rerr := entrypoint.RenderHostPack(p, home, !write, overlays)
 		if rerr != nil {
-			fmt.Fprintf(errw, "yolo apply --host: %s: %v\n", p.Name, rerr)
+			fmt.Fprintf(errw, "yolo host apply: %s: %v\n", p.Name, rerr)
 			rc = 1
 			continue
 		}
@@ -501,7 +499,7 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 //     there is nothing to confirm; it just reports the same collisions as ⚠ lines, which is
 //     how the user gets the information BEFORE the prompt ever appears.
 //   - FAIL-CLOSED on stdin. promptYesNo reads a nil or EOF stdin as NO (pack.go's contract),
-//     so a CI or scripted `apply --host --assert` aborts rather than silently destroying a
+//     so a CI or scripted `yolo host apply --assert` aborts rather than silently destroying a
 //     server because no human was present.
 //
 // It runs a full OBSERVE pass first, which is deliberately a second render: observe writes
@@ -670,15 +668,17 @@ const applyUsage = `yolo apply — make this environment match its description, 
 
   yolo apply                provision the environment at its configured confinement
   yolo apply --at <level>   … at a different notch (jail|guest|host) for this run
-  yolo apply --host         shorthand for --at host: render your config into your real home
+  yolo apply --at host      render your config into your real home
+                            (yolo host apply is the same thing, more typeable)
                             (default OBSERVE/dry-run — prints what would change, writes nothing)
-  yolo apply --host --assert  actually write: regenerate only the keys yolo manages (pure
+  yolo apply --at host --assert  actually write: regenerate only the keys yolo manages (pure
                             rmw), leaving your own keys; non-config kinds refused by name
   yolo apply --sealed       refuse if any UNDECLARED input shaped the environment
                             (yolo-jail.local.jsonc, an outstanding capture overlay)
   yolo apply --dry-run      show what would change, write nothing
 
 apply splits "make it so" from "run something in it": ` + "`yolo -- <cmd>`" + ` is
-"apply, then exec." The host notch has no exec half — there apply IS the whole feature
-(rendering your agent config into your real home). See ` + "`yolo describe`" + ` for what
-the current description resolves to.`
+"apply, then exec." Every notch has both halves — the host's exec half is
+` + "`yolo host -- <cmd>`" + `, which composes the environment a config file cannot carry.
+See ` + "`yolo describe`" + ` for what the current description resolves to, and
+` + "`yolo host`" + ` for the host notch's own verbs.`

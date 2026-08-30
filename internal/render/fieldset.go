@@ -49,7 +49,7 @@ var refusalReasons = map[packdecl.Kind]string{
 	// populate, and nothing for the endpoint file to be mounted into.
 	//
 	// And the refusal is a FEATURE of the trust story rather than a limitation to fix later.
-	// `apply --host` is the one command that mutates the real machine, and it deliberately
+	// `yolo host apply` is the one command that mutates the real machine, and it deliberately
 	// runs no pack `hook` for the same reason. A loophole refused here means "selecting this
 	// pack runs a daemon" is a statement about LAUNCHING A JAIL, not about applying a
 	// config — which keeps the blast radius attached to a command the user runs deliberately.
@@ -81,7 +81,7 @@ var refusalReasons = map[packdecl.Kind]string{
 // still produces output on every path; it just is not this map's kind of output.
 var hostUnimplemented = map[packdecl.Kind]string{
 	// `launch` and `env` are honored by the census and unbuilt for ONE reason, and the
-	// wording has to name it precisely (plan §6b D3): `apply --host` never launches a
+	// wording has to name it precisely (plan §6b D3): `yolo host apply` never launches a
 	// process. It is a limit of this COMMAND, not of the notch. The old text — "launch flags
 	// need a launcher", "the only place to set these off-container is your shell profile" —
 	// read as facts about being off-container, which they are not: at `guest` yolo already
@@ -93,20 +93,21 @@ var hostUnimplemented = map[packdecl.Kind]string{
 	//
 	// So both say the same thing about the same missing VERB, and the remedy is the same
 	// one — which is why they are two entries with one reason rather than two reasons.
-	packdecl.KindLaunch: "launch flags apply to a process yolo starts, and `apply --host` " +
+	packdecl.KindLaunch: "launch flags apply to a process yolo starts, and `yolo host apply` " +
 		"only configures your tools — it never runs them, so there is no argv to inject " +
-		"them into. A notch where yolo does the launching can honor them",
-	packdecl.KindEnv: "env vars apply to a process yolo starts, and `apply --host` only " +
+		"them into. `yolo host -- <program>` is the notch that does the launching",
+	packdecl.KindEnv: "env vars apply to a process yolo starts, and `yolo host apply` only " +
 		"configures your tools — it never runs them. Setting them for your whole session " +
 		"would mean editing your shell rc, a much larger claim than a pack's env " +
-		"contribution asks for. A notch where yolo does the launching can honor them",
+		"contribution asks for. `yolo host -- <program>` delivers them at launch instead, " +
+		"to that process only",
 	// The three shipped hooks are all jail plumbing: shared_credentials symlinks a
 	// credentials file into a machine-global dir, per_jail_history isolates a history
 	// file PER JAIL, claude_plugins reconciles in-jail plugin installs. Off-container
 	// each is either meaningless or a mutation of real user state that no pack should
 	// perform unprompted. Refused deliberately, not merely unbuilt.
 	packdecl.KindHook: "hooks are jail provisioning steps (credential symlinks, " +
-		"per-jail history, plugin reconciliation) — apply --host does not run them " +
+		"per-jail history, plugin reconciliation) — `yolo host apply` does not run them " +
 		"against your real home",
 }
 

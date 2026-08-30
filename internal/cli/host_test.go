@@ -333,3 +333,33 @@ func TestApplyHostWrappersObserveWritesNothing(t *testing.T) {
 		t.Errorf("an observing apply did not describe the wrapper plan:\n%s", out.String())
 	}
 }
+
+// TestApplyHostFlagIsRemovedNotDeprecated pins OQ-7's ruling: `--host` is REMOVED, not
+// deprecated-with-a-message. Three spellings for one operation was the problem, so the
+// removed one must fail like any other unknown flag rather than quietly still working.
+func TestApplyHostFlagIsRemovedNotDeprecated(t *testing.T) {
+	var out, errw bytes.Buffer
+	rc := applyMain([]string{"--host"}, &out, &errw, false, nil)
+	if rc != 2 {
+		t.Errorf("apply --host rc = %d, want 2 (unexpected argument)", rc)
+	}
+	if !strings.Contains(errw.String(), "unexpected argument") {
+		t.Errorf("stderr = %q, want an unknown-flag error", errw.String())
+	}
+	// The help it prints alongside must point at what replaced it.
+	combined := out.String() + errw.String()
+	if !strings.Contains(combined, "--at host") {
+		t.Errorf("the refusal does not show the surviving spelling:\n%s", combined)
+	}
+}
+
+// TestApplyUsageNoLongerAdvertisesTheRemovedFlag: the surviving help must not teach a
+// spelling that now errors.
+func TestApplyUsageNoLongerAdvertisesTheRemovedFlag(t *testing.T) {
+	if strings.Contains(applyUsage, "--host") {
+		t.Errorf("applyUsage still advertises --host:\n%s", applyUsage)
+	}
+	if !strings.Contains(applyUsage, "yolo host") {
+		t.Error("applyUsage does not mention the `yolo host` namespace that replaced it")
+	}
+}

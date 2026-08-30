@@ -90,11 +90,50 @@ func RewriteArgv(args []string) []string {
 	if namesSubcommand(args[:dashIdx]) {
 		return args
 	}
+	// `yolo --at host -- <cmd>` is the systematic spelling of `yolo host -- <cmd>`
+	// (host-agent-environment.md OQ-2): --at names the notch on every other verb, so it
+	// has to name it here too. The notch tokens are CONSUMED rather than passed along,
+	// because what follows is the host exec verb's own flag grammar and `--at` is not
+	// part of it.
+	if rest, isHost := stripHostNotch(args[:dashIdx]); isHost {
+		out := make([]string, 0, len(args)+1)
+		out = append(out, "host")
+		out = append(out, rest...)
+		out = append(out, args[dashIdx:]...)
+		return out
+	}
 	out := make([]string, 0, len(args)+1)
 	out = append(out, args[:dashIdx]...)
 	out = append(out, "run")
 	out = append(out, args[dashIdx:]...)
 	return out
+}
+
+// stripHostNotch removes an `--at host` / `--at=host` pair from pre-`--` args and reports
+// whether it found one. A different notch (`--at jail`) is left alone: only the host has
+// an exec verb of its own to redirect to.
+func stripHostNotch(pre []string) ([]string, bool) {
+	found := false
+	out := make([]string, 0, len(pre))
+	for i := 0; i < len(pre); i++ {
+		a := pre[i]
+		if a == "--at" && i+1 < len(pre) {
+			if pre[i+1] == "host" {
+				found = true
+				i++
+				continue
+			}
+			out = append(out, a, pre[i+1])
+			i++
+			continue
+		}
+		if a == "--at=host" {
+			found = true
+			continue
+		}
+		out = append(out, a)
+	}
+	return out, found
 }
 
 // Subcommand returns the leading subcommand: the FIRST positional (non-flag)

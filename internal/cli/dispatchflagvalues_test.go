@@ -119,3 +119,48 @@ func TestValueTakingFlagsCoverRunHelpSkips(t *testing.T) {
 		}
 	}
 }
+
+// TestRewriteArgvHostNotchAlias covers OQ-2's alias: --at names the notch on every other
+// verb, so `yolo --at host -- claude` has to mean what `yolo host -- claude` means. The
+// notch tokens are consumed, because what follows is the host exec verb's own flag
+// grammar and `--at` is not part of it.
+func TestRewriteArgvHostNotchAlias(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{
+			name: "--at host becomes the host subcommand",
+			in:   []string{"--at", "host", "--", "claude"},
+			want: []string{"host", "--", "claude"},
+		},
+		{
+			name: "--at=host too",
+			in:   []string{"--at=host", "--", "claude"},
+			want: []string{"host", "--", "claude"},
+		},
+		{
+			name: "the exec half's own flags survive the rewrite",
+			in:   []string{"--at", "host", "-p", "bedrock", "--", "claude"},
+			want: []string{"host", "-p", "bedrock", "--", "claude"},
+		},
+		{
+			name: "another notch is left alone and still runs a jail",
+			in:   []string{"--at", "jail", "--", "claude"},
+			want: []string{"--at", "jail", "run", "--", "claude"},
+		},
+		{
+			name: "a dangling --at is not a host notch",
+			in:   []string{"--at", "--", "claude"},
+			want: []string{"--at", "run", "--", "claude"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RewriteArgv(slices.Clone(tc.in)); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("RewriteArgv(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
