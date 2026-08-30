@@ -1,8 +1,8 @@
 # Roadmap
 
-**Status: 14 needing you · 2 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
+**Status: 15 needing you · 2 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
 
-Last updated **2026-08-25**. Counts tallied from this file, not asserted — one per `### 💬` heading,
+Last updated **2026-08-30**. Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph matches the section it is
 in.
 
@@ -68,8 +68,9 @@ the real number was closer to 50.
 > [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md); **S5** is in
 > [`BACKLOG.md`](BACKLOG.md) §Stage E. **Cite a state row or an OQ ID — never a letter.**
 
-**And the real number is now countable rather than estimated: the sweep returns 104**, re-run
-2026-08-25 after C2/C3 landed. **It is one below yesterday's and almost none of it is the same
+**And the real number is now countable rather than estimated: the sweep returns 113**, re-run
+2026-08-30. *(It read **104** on 2026-08-25; sixteen docs have changed since, so the delta is NOT
+reconciled row-by-row the way the 2026-08-25 table below reconciles its own. What is accounted for: **+9** from the two docs written 2026-08-29/30 — [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) contributes **5**, [`reference-mismatch-diagnostics.md`](../design/reference-mismatch-diagnostics.md) **4** — plus **+1** for 💬 17 in this file. The rest is other sessions' work and was not audited here; treat the reconciliation table below as history, not as current arithmetic.)* **It is one below yesterday's and almost none of it is the same
 questions** — which is the most useful thing this count has done yet. It reconciles exactly, to −1:
 
 | Δ | Why |
@@ -533,6 +534,61 @@ content-tagged image measures **2.836 GB unique** unless it is a same-store-path
 91.36 kB ([`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §1.8). **OQ-DF2** decides which
 component does the deleting, which is why the 📦 row below is still scoped to the mechanism rather
 than to any number.
+
+### 💬 17 — Mistyped names return `[PASS]`: you ruled the premise, the surfaces are open
+
+📄 [`reference-mismatch-diagnostics.md`](../design/reference-mismatch-diagnostics.md) —
+**OQ-RM1 · OQ-RM2 · OQ-RM3 · OQ-RM4** · executes the amended
+[`stringly-typed-references-principle.md`](../design/stringly-typed-references-principle.md)
+
+**You ruled the premise on 2026-08-30 — *"it's breaking, so it breaks, what's wrong with that? we're
+early, we can break things."*** That settles severity, and it settles it against the position the
+code currently holds. What is open is **which surface each check lands on**, which is a different
+question and the one the four OQs ask.
+
+**The stake, reproduced rather than argued** — measured in this jail 2026-08-30, `yolo` 0.8.0+614:
+
+```jsonc
+{ "agent_profiles": { "cloude": "bedrock" },
+  "providers": { "bedrock": { "base_url": "https://user:sk-secret@x.com/v1",
+                              "wire_api": "totally-not-a-wire-api" } } }
+```
+
+→ **`[PASS] Merged config is semantically valid`**, `30 passed, 2 warnings`. Three defects in four
+lines: a profile set for a pack that does not exist, an invented protocol that passes straight
+through into `models.json` and `config.toml`, and **a plaintext credential in a git-tracked file**.
+Move one typo from a *value* to a *key* in the same file and you get
+`[FAIL] config.providers.bedrock.wire_apid: unknown key`. **Field names are enforced; names that
+reference a component are not** — same file, same command, opposite outcome.
+
+**And there is a second finding that is worth more than any single check.** `yolo check` has two
+diagnostic channels and the summary counts one of them. Measured the same day: three bogus
+`env_sources` entries produce **five** `Warning:` lines and a summary that reads **`30 passed, 2
+warnings`**. Everything emitted by config resolution and loophole discovery — including the best
+mismatch diagnostic in the tree, `unmatchedSupersessions`' did-you-mean — is invisible to the one
+line a user reads. **§7 step 1 of the design doc is that fix, it needs no ruling, and everything
+else is worth less until it lands.**
+
+**What this row is NOT.** Not a new config key, manifest field, or contribution kind — every name
+checked here already exists. Not a re-litigation of `env_sources`' permissiveness, which is correct
+and stays (a missing host file is portability, not a typo). Not `pack-fragment` target resolution:
+that mechanism does not exist, and the first version of the principle doc's census listed it as a
+live test case while [`pack-profiles.md`](../design/pack-profiles.md) cited the principle back as its
+authority — two same-day docs each grounding the other in something unbuilt. Both have been
+corrected; see [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) §8.
+
+**Three of the six steps need no ruling and are independent of everything in flight** — the warning
+channel (§7.1), `pack_profiles` key validation (§7.2, and it is the smallest change in the doc), and
+the `wire_api` enum plus the `base_url` credential refusal (§7.3). The three that do wait are the
+supersession relocation (**OQ-RM2**), the skew message's cost model (**OQ-RM3**), and whether
+`yolo check` exits non-zero for a reference mismatch at all (**OQ-RM1**, which is
+[💬 10](#-10--yolo-check-tells-you-about-the-wrong-machine-in-three-places-and-one-vocabulary)'s
+question wearing different clothes — a `check` that passes on a config the next launch refuses).
+
+**The behaviour change with the widest blast radius is the supersession one**, §6 row 4: today an
+unmatched `supersedes` warns and the loophole keeps running — the safe direction — and after this it
+stops the launch. That is the intended trade under your ruling, and it is the one row worth reading
+§6 for before agreeing to the rest.
 
 # 📦 Up next
 
