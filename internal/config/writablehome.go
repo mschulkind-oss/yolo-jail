@@ -55,7 +55,11 @@ func WritableHomeDirs(cfg *jsonx.OrderedMap) []string {
 // selected-agent overlay dir joins them dynamically (see reservedHomeDirs).
 // Authority: podmanBaseMounts in internal/cli/run + storage.EnsureGlobalStorage.
 var reservedHomeDirRoots = []string{
-	".npm-global", ".local", "go", ".yolo-shims", ".yolo-launchers",
+	".npm-global", ".local", "go", ".yolo",
+	// The retired names of the two generated-script dirs. Kept reserved for one
+	// release while RemoveStaleGeneratedClients sweeps them, so a user config cannot
+	// claim a path yolo is still cleaning up.
+	".yolo-shims", ".yolo-launchers",
 	".config", ".cache", ".ssh",
 }
 

@@ -38,7 +38,7 @@ import (
 //     that failure at all.
 //   - SMALL (≈480 KiB unpacked) and long-stable (1.6.0 published 2024-01-26). A mechanism
 //     test wants the smallest thing that exercises the path, not a 100 MB agent CLI.
-//   - Its bin is NOT baked into the image. That is a real trap: ~/.yolo-launchers is
+//   - Its bin is NOT baked into the image. That is a real trap: ~/.yolo/bin/launch is
 //     ordered LAST on PATH, after /bin, so a fixture naming a baked binary (fzf is the
 //     documented case — see TestPackProgramDoesNotShadowABakedBinary) would resolve to the
 //     image's copy and never exercise the launcher at all. The test would pass while
@@ -92,8 +92,8 @@ func TestPinnedNpmProgramInstallsTheDeclaredVersion(t *testing.T) {
 
 	// Resolved through the LAUNCHER, not something already on PATH. Without this the test
 	// would pass for a bin the image happens to bake, having installed nothing.
-	if got := strings.TrimSpace(section(r.stdout, "=== RESOLVE ===", "=== RUN ===")); !strings.Contains(got, ".yolo-launchers") {
-		t.Errorf("%s resolved to %q, want a path under ~/.yolo-launchers — a bin resolved "+
+	if got := strings.TrimSpace(section(r.stdout, "=== RESOLVE ===", "=== RUN ===")); !strings.Contains(got, ".yolo/bin/launch") {
+		t.Errorf("%s resolved to %q, want a path under ~/.yolo/bin/launch — a bin resolved "+
 			"elsewhere means the launcher never ran and nothing was installed", pinnedNpmBin, got)
 	}
 	if got := section(r.stdout, "=== RUN ===", "=== VERSION ==="); !strings.Contains(got, "mechanism") {
@@ -181,8 +181,8 @@ chmod +x "$HOME/.local/bin/` + bin + `"
 	if r.rc != 0 {
 		t.Fatalf("installer fixture failed: rc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
 	}
-	if got := strings.TrimSpace(section(r.stdout, "=== RESOLVE ===", "=== RUN ===")); !strings.Contains(got, ".yolo-launchers") {
-		t.Errorf("%s resolved to %q, want a path under ~/.yolo-launchers", bin, got)
+	if got := strings.TrimSpace(section(r.stdout, "=== RESOLVE ===", "=== RUN ===")); !strings.Contains(got, ".yolo/bin/launch") {
+		t.Errorf("%s resolved to %q, want a path under ~/.yolo/bin/launch", bin, got)
 	}
 	if got := section(r.stdout, "=== RUN ===", ""); !strings.Contains(got, sentinel) {
 		t.Errorf("the installed program did not run: %q", got)

@@ -9,11 +9,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// launcherdir_test.go covers the BLOCKER/INSTALLER split: ~/.yolo-shims holds blockers and
-// is first on PATH, ~/.yolo-launchers holds lazy installers and is last (after /bin).
+// launcherdir_test.go covers the BLOCKER/INSTALLER split: ~/.yolo/bin/block holds blockers and
+// is first on PATH, ~/.yolo/bin/launch holds lazy installers and is last (after /bin).
 //
 // The defect that motivated the split: a pack declaring `program fzf` wrote
-// ~/.yolo-shims/fzf, which preceded the image's working /bin/fzf, and the launcher execs
+// ~/.yolo/bin/block/fzf, which preceded the image's working /bin/fzf, and the launcher execs
 // only $NPM_CONFIG_PREFIX/bin/fzf — it never consults PATH — so declaring the dependency
 // honestly BROKE the tool. With the installer dir after /bin, that is unrepresentable.
 
@@ -29,14 +29,14 @@ func TestBootPathOrdersBlockersFirstAndInstallersLast(t *testing.T) {
 	})
 	got := strings.Split(BootPath(e), ":")
 	want := []string{
-		"/home/agent/.yolo-shims",
+		"/home/agent/.yolo/bin/block",
 		"/home/agent/.npm-global/bin",
 		"/mise/shims",
 		"/home/agent/go/bin",
 		"/home/agent/.local/bin",
 		"/bin",
 		"/usr/bin",
-		"/home/agent/.yolo-launchers",
+		"/home/agent/.yolo/bin/launch",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("BootPath has %d entries, want %d:\n got %v\nwant %v", len(got), len(want), got, want)
@@ -57,15 +57,15 @@ func TestBootPathOrdersBlockersFirstAndInstallersLast(t *testing.T) {
 		return -1
 	}
 	// The two load-bearing relations, asserted by name so a failure says WHICH rule broke.
-	if idx(e.ShimDir()) != 0 {
+	if idx(e.BlockDir()) != 0 {
 		t.Error("the blocker dir must be FIRST: a shim that does not precede the real " +
 			"binary intercepts nothing")
 	}
-	if idx(e.LauncherDir()) < idx("/bin") {
+	if idx(e.LaunchDir()) < idx("/bin") {
 		t.Error("the launcher dir must come AFTER /bin: a lazy installer ordered earlier " +
 			"shadows the image's own binary and then fails (defect 11.1)")
 	}
-	if idx(e.LauncherDir()) != len(got)-1 {
+	if idx(e.LaunchDir()) != len(got)-1 {
 		t.Error("the launcher dir must be LAST — it is the fallback of last resort")
 	}
 }
@@ -88,30 +88,30 @@ func TestBashrcPathMatchesBootPathOrder(t *testing.T) {
 	if pathLine == "" {
 		t.Fatalf("no PATH export in the generated .bashrc:\n%s", rc)
 	}
-	if !strings.HasPrefix(pathLine, `export PATH="$SHIM_DIR:`) {
+	if !strings.HasPrefix(pathLine, `export PATH="$BLOCK_DIR:`) {
 		t.Errorf("the blocker dir must be first in the .bashrc PATH: %q", pathLine)
 	}
-	if !strings.HasSuffix(pathLine, `:/bin:/usr/bin:$LAUNCHER_DIR"`) {
+	if !strings.HasSuffix(pathLine, `:/bin:/usr/bin:$LAUNCH_DIR"`) {
 		t.Errorf("the launcher dir must come last, after /bin:/usr/bin: %q", pathLine)
 	}
 	// Both vars must actually be defined, or the export silently expands to empty
 	// components and the whole split is inert.
-	if !strings.Contains(rc, `SHIM_DIR="${HOME}/.yolo-shims"`) {
-		t.Error(".bashrc must define SHIM_DIR")
+	if !strings.Contains(rc, `BLOCK_DIR="${HOME}/.yolo/bin/block"`) {
+		t.Error(".bashrc must define BLOCK_DIR")
 	}
-	if !strings.Contains(rc, `LAUNCHER_DIR="${HOME}/.yolo-launchers"`) {
-		t.Error(".bashrc must define LAUNCHER_DIR")
+	if !strings.Contains(rc, `LAUNCH_DIR="${HOME}/.yolo/bin/launch"`) {
+		t.Error(".bashrc must define LAUNCH_DIR")
 	}
 }
 
-// TestLauncherDirIsSeparateFromShimDir: the generators must write to different dirs. This
+// TestLaunchDirIsSeparateFromBlockDir: the generators must write to different dirs. This
 // is the structural half of the fix — with one dir, ordering cannot express "blockers
 // early, installers late" at all.
-func TestLauncherDirIsSeparateFromShimDir(t *testing.T) {
+func TestLaunchDirIsSeparateFromBlockDir(t *testing.T) {
 	home := t.TempDir()
 	e := NewEnv(map[string]string{"JAIL_HOME": home})
-	if e.ShimDir() == e.LauncherDir() {
-		t.Fatal("ShimDir and LauncherDir must be different directories")
+	if e.BlockDir() == e.LaunchDir() {
+		t.Fatal("BlockDir and LaunchDir must be different directories")
 	}
 
 	if err := GenerateShims(e); err != nil {
@@ -126,10 +126,10 @@ func TestLauncherDirIsSeparateFromShimDir(t *testing.T) {
 
 	// pnpm is the always-generated lazy installer: it must land in the LAUNCHER dir and
 	// must NOT appear in the blocker dir.
-	if _, err := os.Stat(filepath.Join(e.LauncherDir(), "pnpm")); err != nil {
+	if _, err := os.Stat(filepath.Join(e.LaunchDir(), "pnpm")); err != nil {
 		t.Errorf("pnpm launcher should be in the launcher dir: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(e.ShimDir(), "pnpm")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(e.BlockDir(), "pnpm")); !os.IsNotExist(err) {
 		t.Errorf("pnpm launcher must NOT be written into the blocker dir (err=%v)", err)
 	}
 }
@@ -175,8 +175,8 @@ func TestBlockedAndDeclaredToolGetsBothAndBlockerWins(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	blocker := filepath.Join(e.ShimDir(), "pnpm")
-	launcher := filepath.Join(e.LauncherDir(), "pnpm")
+	blocker := filepath.Join(e.BlockDir(), "pnpm")
+	launcher := filepath.Join(e.LaunchDir(), "pnpm")
 
 	blockerBody, err := os.ReadFile(blocker)
 	if err != nil {
@@ -199,9 +199,9 @@ func TestBlockedAndDeclaredToolGetsBothAndBlockerWins(t *testing.T) {
 	shimIdx, launcherIdx := -1, -1
 	for i, d := range path {
 		switch d {
-		case e.ShimDir():
+		case e.BlockDir():
 			shimIdx = i
-		case e.LauncherDir():
+		case e.LaunchDir():
 			launcherIdx = i
 		}
 	}
@@ -243,14 +243,14 @@ func TestPackWithTwoProgramsGetsTwoLaunchers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := os.ReadFile(filepath.Join(e.LauncherDir(), "shellcheck"))
+	first, err := os.ReadFile(filepath.Join(e.LaunchDir(), "shellcheck"))
 	if err != nil {
 		t.Fatalf("the first program's launcher is missing: %v", err)
 	}
 	if !strings.Contains(string(first), "shellcheck-bin") {
 		t.Errorf("shellcheck launcher should install its npm package:\n%s", first)
 	}
-	second, err := os.ReadFile(filepath.Join(e.LauncherDir(), "shfmt"))
+	second, err := os.ReadFile(filepath.Join(e.LaunchDir(), "shfmt"))
 	if err != nil {
 		t.Fatalf("the SECOND program's launcher is missing — only the first `program` per "+
 			"pack installed, so a pack needing two tools silently got one: %v", err)
@@ -295,8 +295,8 @@ func TestFetchedPackKeepsNpmInstallAndLosesOnlyTheInstaller(t *testing.T) {
 // TestGenerateLaunchersPreserveAnchorAndClearStale is the launcher-dir twin of
 // TestGenerateShimsPreservesAnchorAndClearsStale.
 //
-// ~/.yolo-launchers is a bind-mount ANCHOR just like ~/.yolo-shims (mounted from
-// <ws>/.yolo/home/yolo-launchers under a read-only /home/agent), so the same two properties
+// ~/.yolo/bin/launch is a bind-mount ANCHOR just like ~/.yolo/bin/block (mounted from
+// <ws>/.yolo/home/yolo-bin under a read-only /home/agent), so the same two properties
 // are required and for the same reasons: an os.RemoveAll of the anchor fails EROFS on the
 // read-only parent and leaves stale children, and a remove+recreate assigns a new inode
 // that detaches the mount. Reproduced portably: same-inode across two runs, plus a dropped
@@ -320,11 +320,11 @@ func TestGenerateLaunchersPreserveAnchorAndClearStale(t *testing.T) {
 	if err := GenerateAgentLaunchers(e1); err != nil {
 		t.Fatal(err)
 	}
-	stale := filepath.Join(e1.LauncherDir(), "tmptool")
+	stale := filepath.Join(e1.LaunchDir(), "tmptool")
 	if _, err := os.Stat(stale); err != nil {
 		t.Fatalf("run 1 should write the pack's launcher: %v", err)
 	}
-	anchorBefore, err := os.Stat(e1.LauncherDir())
+	anchorBefore, err := os.Stat(e1.LaunchDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func TestGenerateLaunchersPreserveAnchorAndClearStale(t *testing.T) {
 		t.Errorf("a dropped pack's launcher survived (err=%v) — the tool keeps lazily "+
 			"installing itself forever", err)
 	}
-	anchorAfter, err := os.Stat(e2.LauncherDir())
+	anchorAfter, err := os.Stat(e2.LaunchDir())
 	if err != nil {
 		t.Fatalf("launcher-dir anchor was removed: %v", err)
 	}
@@ -379,7 +379,7 @@ func TestPackageManagerLaunchersSurviveTheAgentReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"toolpack", "pnpm"} {
-		if _, err := os.Stat(filepath.Join(e.LauncherDir(), name)); err != nil {
+		if _, err := os.Stat(filepath.Join(e.LaunchDir(), name)); err != nil {
 			t.Errorf("%s launcher missing after the full boot sequence: %v", name, err)
 		}
 	}
@@ -402,7 +402,7 @@ func TestBlockerBypassEnvIsUnaffectedBySplit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"grep", "curl"} {
-		body, err := os.ReadFile(filepath.Join(e.ShimDir(), name))
+		body, err := os.ReadFile(filepath.Join(e.BlockDir(), name))
 		if err != nil {
 			t.Fatalf("%s blocker: %v", name, err)
 		}

@@ -15,8 +15,8 @@ import (
 // resetAnchorDir prepares a generated-script directory for a fresh boot: create it if
 // absent, then clear its CONTENTS — never the dir itself.
 //
-// Both generated dirs (~/.yolo-shims and ~/.yolo-launchers) are bind-mount ANCHORS,
-// mounted from <ws>/.yolo/home/{yolo-shims,yolo-launchers} while their parent /home/agent
+// Both generated dirs (~/.yolo/bin/block and ~/.yolo/bin/launch) live under ONE bind-mount
+// ANCHOR, mounted from <ws>/.yolo/home/yolo-bin while their parent /home/agent
 // is mounted read-only. os.RemoveAll(dir) tries to unlink the anchor top-down, fails EROFS
 // on the read-only parent, and leaves every stale child in place — so unblocking a tool
 // (dropping curl from blocked_tools) or dropping a pack never took effect on the next
@@ -36,10 +36,10 @@ func resetAnchorDir(dir string) error {
 // The shim body is the frozen argv-filter contract: message/suggestion text +
 // exit code 127. See ShimContent for the exact grammar.
 //
-// SHIM_DIR (~/.yolo-shims) is the BLOCKER dir and is ordered FIRST on PATH. The lazy
-// installers live in ~/.yolo-launchers, ordered LAST — see Env.LauncherDir.
+// BlockDir (~/.yolo/bin/block) is the BLOCKER dir and is ordered FIRST on PATH. The lazy
+// installers live in ~/.yolo/bin/launch, ordered LAST — see Env.LaunchDir.
 func GenerateShims(e *Env) error {
-	if err := resetAnchorDir(e.ShimDir()); err != nil {
+	if err := resetAnchorDir(e.BlockDir()); err != nil {
 		return err
 	}
 
@@ -90,7 +90,7 @@ func GenerateShims(e *Env) error {
 		blockFlags := stringList(cfg, "block_flags")
 
 		content := ShimContent(msg, sug, realBin, blockFlags)
-		shimPath := filepath.Join(e.ShimDir(), name)
+		shimPath := filepath.Join(e.BlockDir(), name)
 		if err := writeExecutable(shimPath, content); err != nil {
 			return err
 		}
@@ -166,7 +166,7 @@ func ShimContent(msg, sug, realBin string, blockFlags []string) string {
 }
 
 // GenerateAgentLaunchers writes one lazy-install launcher per pack `program`
-// contribution into the LAUNCHER dir (~/.yolo-launchers), which is ordered LAST on PATH.
+// contribution into the LAUNCH dir (~/.yolo/bin/launch), which is ordered LAST on PATH.
 // npm vs native launcher body is driven by the pack's install declaration.
 //
 // EVERY program contribution, not the first: a pack declaring `shellcheck` and `shfmt`
@@ -176,8 +176,8 @@ func ShimContent(msg, sug, realBin string, blockFlags []string) string {
 //
 // It no longer skips a name a blocked-tool shim owns, and that is the point of the split
 // rather than an omission. The two dirs cannot collide, so a tool that is BOTH blocked and
-// declared as a pack `program` gets a blocker in ~/.yolo-shims (first on PATH) and a
-// launcher in ~/.yolo-launchers (last) — and the blocker wins by position, which is the
+// declared as a pack `program` gets a blocker in ~/.yolo/bin/block (first on PATH) and a
+// launcher in ~/.yolo/bin/launch (last) — and the blocker wins by position, which is the
 // correct outcome. Previously the launcher was simply never written, so a config that later
 // unblocked the tool left it with no installer until the next boot.
 //
@@ -185,7 +185,7 @@ func ShimContent(msg, sug, realBin string, blockFlags []string) string {
 // contents-only reset (the same contract GenerateShims has for the shim dir); the
 // package-manager launchers below are additive and must run after it.
 func GenerateAgentLaunchers(e *Env) error {
-	launcherDir := e.LauncherDir()
+	launcherDir := e.LaunchDir()
 	if err := resetAnchorDir(launcherDir); err != nil {
 		return err
 	}
@@ -296,7 +296,7 @@ func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string) 
 // MkdirAll-only (no clear): GenerateAgentLaunchers owns the dir reset and runs first, so
 // clearing here would delete the launchers it just wrote.
 func GeneratePackageManagerLaunchers(e *Env) error {
-	launcherDir := e.LauncherDir()
+	launcherDir := e.LaunchDir()
 	if err := os.MkdirAll(launcherDir, 0o755); err != nil {
 		return err
 	}

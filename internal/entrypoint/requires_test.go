@@ -47,7 +47,7 @@ func TestRequiresGeneratesNoLauncher(t *testing.T) {
 	if err := GenerateAgentLaunchers(e); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := os.ReadDir(e.LauncherDir())
+	entries, err := os.ReadDir(e.LaunchDir())
 	if err != nil {
 		t.Fatal(err)
 	}

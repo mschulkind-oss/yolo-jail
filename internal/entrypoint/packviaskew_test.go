@@ -93,13 +93,13 @@ func TestGenerateAgentLaunchersWritesNoLauncherForAnUnknownVia(t *testing.T) {
 	if err := GenerateAgentLaunchers(e); err != nil {
 		t.Fatalf("an unknown program `via` must not fail launcher generation: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(e.LauncherDir(), "ruff")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(e.LaunchDir(), "ruff")); !os.IsNotExist(err) {
 		t.Errorf("a program whose `via` this build cannot deliver must get NO launcher — a "+
 			"launcher that installs nothing is a name on PATH that fails at use (err=%v)", err)
 	}
 	// The sibling proves the loop ran at all, so the absence above is a decision rather
 	// than a generator that gave up on the whole pack.
-	if _, err := os.Stat(filepath.Join(e.LauncherDir(), "tool")); err != nil {
+	if _, err := os.Stat(filepath.Join(e.LaunchDir(), "tool")); err != nil {
 		t.Errorf("the deliverable sibling must still get its launcher: %v", err)
 	}
 	// And it was dropped by the DECODER: the launcher loop's own defense-in-depth warn

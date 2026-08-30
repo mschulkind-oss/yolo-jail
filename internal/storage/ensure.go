@@ -58,8 +58,12 @@ func EnsureGlobalStorage(migrate func()) error {
 		".npm-global",
 		".local",
 		"go",
-		".yolo-shims",
-		".yolo-launchers",
+		// One dir, two generated-script children (block/ and launch/). The nested path
+		// matters: the OCI runtime cannot mkdirat inside the :ro /home/agent bind, so the
+		// mountpoint's PARENT has to exist here or the launch fails with an opaque
+		// crun/conmon error rather than a useful one.
+		".yolo",
+		".yolo/bin",
 		".config",
 		".cache",
 		".ssh",

@@ -31,14 +31,14 @@ const setupScript = "YOLO_BYPASS_SHIMS=1 sh -c '" +
 // startupLog is the in-jail provisioning log path.
 const startupLog = "/workspace/.yolo/startup.log"
 
-// miseActivate is the one-time mise activation + yolo-shims re-prepend that runs
+// miseActivate is the one-time mise activation + blocker-dir re-prepend that runs
 // after provisioning. Bound by the same single thing setupScript is:
 // buildFinalInternalCmd composes it, and TestBuildFinalInternalCmdBashGolden pins
 // that composed output byte-for-byte against testdata/final_cmd_bash.txt. Nothing
 // else reads these bytes — a change here is legible as a golden diff, and is only a
 // contract to the extent the golden is re-blessed deliberately.
 const miseActivate = `. "$HOME/.config/yolo-user-env.sh" 2>/dev/null; ` +
-	`eval "$(mise env -s bash)" 2>/dev/null; export PATH="$HOME/.yolo-shims:$PATH"`
+	`eval "$(mise env -s bash)" 2>/dev/null; export PATH="$HOME/.yolo/bin/block:$PATH"`
 
 // provisionScript wraps setupScript with the tee-to-log + PROVISIONING FAILED
 // banner + continue/abort prompt.

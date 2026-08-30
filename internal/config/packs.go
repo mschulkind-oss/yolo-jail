@@ -405,7 +405,7 @@ func lowerPackSource(source, name, itemPath string) (PackEntry, string) {
 		// launch warning honest. A jail with an empty config really has no agent, and says
 		// so; activating six of them unconditionally while printing "no packs are
 		// configured" was a contradiction the user would only discover by looking in
-		// ~/.yolo-shims.
+		// ~/.yolo/bin/block.
 		if name, ok := embeddedPackName(source); ok {
 			return PackEntry{Source: embeddedSourceFor(name), Name: name, IsEmbedded: true}, ""
 		}

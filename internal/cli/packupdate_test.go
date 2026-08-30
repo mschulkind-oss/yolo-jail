@@ -46,11 +46,11 @@ func stageNpmPackRoot(t *testing.T, manifest string, launchers ...string) *entry
 		t.Fatal(err)
 	}
 	e := entrypoint.NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
-	if err := os.MkdirAll(e.LauncherDir(), 0o755); err != nil {
+	if err := os.MkdirAll(e.LaunchDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for _, bin := range launchers {
-		if err := os.WriteFile(filepath.Join(e.LauncherDir(), bin),
+		if err := os.WriteFile(filepath.Join(e.LaunchDir(), bin),
 			[]byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -130,18 +130,18 @@ func TestUpdateReachesTheLauncherInUpdateMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	// JAIL_HOME as well as HOME: EnvFromOS prefers it, and this jail sets it — left alone,
-	// LauncherDir would resolve to the REAL ~/.yolo-launchers and the refresh would run
+	// LauncherDir would resolve to the REAL ~/.yolo/bin/launch and the refresh would run
 	// whatever agent launcher it found there.
 	t.Setenv("HOME", home)
 	t.Setenv("JAIL_HOME", home)
 	t.Setenv("YOLO_PACK_ROOT", packRoot)
 
 	e := entrypoint.NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
-	if err := os.MkdirAll(e.LauncherDir(), 0o755); err != nil {
+	if err := os.MkdirAll(e.LaunchDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	record := filepath.Join(t.TempDir(), "handed-env")
-	if err := os.WriteFile(filepath.Join(e.LauncherDir(), "npmtool"),
+	if err := os.WriteFile(filepath.Join(e.LaunchDir(), "npmtool"),
 		[]byte("#!/bin/sh\nprintf '%s' \"${"+npmLauncherUpdateEnv+":-<unset>}\" > "+record+"\n"),
 		0o755); err != nil {
 		t.Fatal(err)

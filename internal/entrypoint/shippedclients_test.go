@@ -179,7 +179,7 @@ func TestStaleGeneratedClientsAreUnlinked(t *testing.T) {
 	if err := os.MkdirAll(e.LocalBin(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(e.ShimDir(), 0o755); err != nil {
+	if err := os.MkdirAll(e.BlockDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -191,7 +191,7 @@ func TestStaleGeneratedClientsAreUnlinked(t *testing.T) {
 		}
 	}
 	for _, name := range staleShimFiles {
-		if err := os.WriteFile(filepath.Join(e.ShimDir(), name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(e.BlockDir(), name), []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -206,7 +206,7 @@ func TestStaleGeneratedClientsAreUnlinked(t *testing.T) {
 		}
 	}
 	for _, name := range staleShimFiles {
-		if _, err := os.Stat(filepath.Join(e.ShimDir(), name)); err == nil {
+		if _, err := os.Stat(filepath.Join(e.BlockDir(), name)); err == nil {
 			t.Errorf("stale shim %s survived", name)
 		}
 	}
@@ -215,7 +215,7 @@ func TestStaleGeneratedClientsAreUnlinked(t *testing.T) {
 	}
 	// The anchor dirs themselves must survive: both are bind-mount anchors
 	// elsewhere in the boot path, so removing one replaces the mounted inode.
-	for _, dir := range []string{e.LocalBin(), e.ShimDir()} {
+	for _, dir := range []string{e.LocalBin(), e.BlockDir()} {
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 			t.Errorf("%s was removed or is no longer a directory (%v)", dir, err)
 		}

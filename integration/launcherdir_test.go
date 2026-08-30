@@ -52,9 +52,9 @@ func TestGeneratedDirsAreSplitWritableAndCorrectlyOrdered(t *testing.T) {
 		`echo "=== BYPASS ==="`,
 		`YOLO_BYPASS_SHIMS=1 find . -maxdepth 0 >/dev/null 2>&1; echo "bypass_find_rc=$?"`,
 		`echo "=== WRITABLE ==="`,
-		`touch "$HOME/.yolo-shims/.probe" && echo "shims_writable=yes"`,
-		`touch "$HOME/.yolo-launchers/.probe" && echo "launchers_writable=yes"`,
-		`rm -f "$HOME/.yolo-shims/.probe" "$HOME/.yolo-launchers/.probe"`,
+		`touch "$HOME/.yolo/bin/block/.probe" && echo "shims_writable=yes"`,
+		`touch "$HOME/.yolo/bin/launch/.probe" && echo "launchers_writable=yes"`,
+		`rm -f "$HOME/.yolo/bin/block/.probe" "$HOME/.yolo/bin/launch/.probe"`,
 	}, "; ")
 
 	r := runYolo(t, dir, script)
@@ -76,8 +76,8 @@ func TestGeneratedDirsAreSplitWritableAndCorrectlyOrdered(t *testing.T) {
 		}
 		return -1
 	}
-	shimIdx := idx("/home/agent/.yolo-shims")
-	launcherIdx := idx("/home/agent/.yolo-launchers")
+	shimIdx := idx("/home/agent/.yolo/bin/block")
+	launcherIdx := idx("/home/agent/.yolo/bin/launch")
 	binIdx := idx("/bin")
 	if shimIdx != 0 {
 		t.Errorf("the blocker dir must be first on PATH, got index %d in %v", shimIdx, dirs)
@@ -118,7 +118,7 @@ func TestGeneratedDirsAreSplitWritableAndCorrectlyOrdered(t *testing.T) {
 
 // TestPackProgramDoesNotShadowABakedBinary is defect 11.1, from the outside.
 //
-// A pack declaring `program fzf` used to write ~/.yolo-shims/fzf, which PRECEDED the
+// A pack declaring `program fzf` used to write ~/.yolo/bin/block/fzf, which PRECEDED the
 // image's working /bin/fzf. The launcher execs $NPM_CONFIG_PREFIX/bin/fzf and never
 // consults PATH, so with no npm install it printed "⚠ fzf not available" and exited 1 —
 // declaring an honest dependency BROKE the tool. With the launcher dir ordered after /bin,
@@ -153,8 +153,8 @@ func TestPackProgramDoesNotShadowABakedBinary(t *testing.T) {
 		// The launcher IS generated (the pack asked for it) — it is just ordered where
 		// nothing reaches it while a real fzf exists. Both halves matter: an absent
 		// launcher would mean the pack's declaration was silently dropped.
-		`test -x "$HOME/.yolo-launchers/fzf" && echo "launcher_present=yes"`,
-		`test -e "$HOME/.yolo-shims/fzf" && echo "shim_present=yes" || echo "shim_present=no"`,
+		`test -x "$HOME/.yolo/bin/launch/fzf" && echo "launcher_present=yes"`,
+		`test -e "$HOME/.yolo/bin/block/fzf" && echo "shim_present=yes" || echo "shim_present=no"`,
 	}, "; ")
 
 	r := runYolo(t, dir, script)

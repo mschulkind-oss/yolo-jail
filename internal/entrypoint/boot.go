@@ -355,8 +355,8 @@ func installClaudePlugins(e *Env) {
 // Extracted from execBash so the order is assertable without exec'ing a shell.
 func BootPath(e *Env) string {
 	return strings.Join([]string{
-		e.ShimDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), e.LocalBin(), "/bin", "/usr/bin",
-		e.LauncherDir(),
+		e.BlockDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), e.LocalBin(), "/bin", "/usr/bin",
+		e.LaunchDir(),
 	}, ":")
 }
 
@@ -527,8 +527,8 @@ func Main(args []string) error {
 	// Set PATH including mise shims so tools like copilot/gemini/claude are found
 	// (matches the pre-exec PATH set in main(), used by the mise trust subprocess).
 	_ = os.Setenv("PATH", strings.Join([]string{
-		e.ShimDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), "/bin", "/usr/bin",
-		e.LauncherDir(),
+		e.BlockDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), "/bin", "/usr/bin",
+		e.LaunchDir(),
 	}, ":"))
 
 	// The in-jail reachability witness runs LAST, and both halves of that are

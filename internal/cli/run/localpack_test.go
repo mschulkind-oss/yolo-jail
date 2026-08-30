@@ -118,7 +118,7 @@ func TestJailLocalPackSkillsSourceComesLast(t *testing.T) {
 // whose only pack is ~/.config/yolo-jail/local has skills and prose and still nothing to run
 // them, so "no packs are configured, so this jail has no coding agent" is still true — and
 // silencing it would restore exactly the contradiction the opt-in ruling removed (a user
-// discovering they have no agent only by looking in ~/.yolo-shims).
+// discovering they have no agent only by looking in ~/.yolo/bin/block).
 //
 // This is the USER-VISIBLE half of config.HasConfiguredPack. Its config-level twin
 // (TestLocalPackDoesNotCountAsAConfiguredPack) pins the predicate; this pins the consequence,

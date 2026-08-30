@@ -301,15 +301,15 @@ func WorkspaceACLStripScript(workspace string) string {
 // launcher dir LAST.
 //
 // The blocker/installer split mirrors the container's PATH order (see
-// entrypoint.Env.LauncherDir): ~/.yolo-shims holds blocked-tool shims and must precede the
-// real tool; ~/.yolo-launchers holds lazy installers, which must only be reached when
+// entrypoint.Env.LaunchDir): ~/.yolo/bin/block holds blockers and must precede the
+// real tool; ~/.yolo/bin/launch holds lazy installers, which must only be reached when
 // nothing else provides the name — so it goes after the system dirs, not before them.
 func SandboxPath(home string, prefix []string) string {
 	if home == "" {
 		home = SandboxHome()
 	}
 	parts := []string{
-		home + "/.yolo-shims",
+		home + "/.yolo/bin/block",
 		home + "/.local/bin",
 		home + "/.npm-global/bin",
 		home + "/.local/share/mise/shims",
@@ -317,7 +317,7 @@ func SandboxPath(home string, prefix []string) string {
 	}
 	parts = append(parts, prefix...)
 	parts = append(parts, "/usr/bin", "/bin", "/usr/sbin", "/sbin")
-	parts = append(parts, home+"/.yolo-launchers")
+	parts = append(parts, home+"/.yolo/bin/launch")
 	return strings.Join(parts, ":")
 }
 

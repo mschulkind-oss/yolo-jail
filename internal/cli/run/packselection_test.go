@@ -48,7 +48,7 @@ func TestOnlySelectedEmbeddedPacksAreStaged(t *testing.T) {
 // TestNoPacksStagesNothing: an empty config must produce a jail with no agent, which is what
 // makes the launch warning ("No packs are configured, so this jail has no coding agent")
 // true. Six official packs activating unconditionally while that warning printed was a
-// contradiction a user could only find by looking in ~/.yolo-shims.
+// contradiction a user could only find by looking in ~/.yolo/bin/block.
 func TestNoPacksStagesNothing(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `[]`)

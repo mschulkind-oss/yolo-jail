@@ -57,7 +57,7 @@ func TestEnvShimBinOverride(t *testing.T) {
 	if err := GenerateShims(e); err != nil {
 		t.Fatal(err)
 	}
-	got := string(mustRead(t, e.ShimDir()+"/grep"))
+	got := string(mustRead(t, e.BlockDir()+"/grep"))
 	if !strings.Contains(got, "/usr/bin/grep") {
 		t.Errorf("shim should exec /usr/bin/grep on macOS:\n%s", got)
 	}

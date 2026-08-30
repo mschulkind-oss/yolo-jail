@@ -364,7 +364,7 @@ exit 0
 	if err := GeneratePackageManagerLaunchers(e); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(filepath.Join(e.LauncherDir(), "pnpm"))
+	cmd := exec.Command(filepath.Join(e.LaunchDir(), "pnpm"))
 	cmd.Env = append([]string{
 		"HOME=" + home,
 		"PATH=" + fakeBin + ":" + os.Getenv("PATH"),
@@ -891,7 +891,7 @@ func TestGenerateAgentLaunchersBakesTheWorkspaceReceiptsPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, bin := range []string{"npmtool", "nativetool"} {
-		data, err := os.ReadFile(filepath.Join(e.LauncherDir(), bin))
+		data, err := os.ReadFile(filepath.Join(e.LaunchDir(), bin))
 		if err != nil {
 			t.Fatal(err)
 		}

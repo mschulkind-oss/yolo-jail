@@ -142,7 +142,7 @@ func TestPackRendersConfigAndLauncher(t *testing.T) {
 			requireJail(t)
 			dir := writeProjectWithPacks(t, `{}`, tc.pack)
 			cmd := fmt.Sprintf(
-				"grep -q '%s' \"$HOME/%s\" && test -x \"$HOME/.yolo-launchers/%s\"",
+				"grep -q '%s' \"$HOME/%s\" && test -x \"$HOME/.yolo/bin/launch/%s\"",
 				tc.marker, tc.configRel, tc.binary,
 			)
 			r := runYolo(t, dir, cmd)
@@ -176,7 +176,7 @@ func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 }
 
 // TestPackSelectionPrunesUnselected confirms a codex-only jail installs codex but NOT
-// copilot/claude: their lazy launchers under $HOME/.yolo-launchers are absent, and
+// copilot/claude: their lazy launchers under $HOME/.yolo/bin/launch are absent, and
 // copilot's config dir is never generated.
 //
 // This is now the END-TO-END check on pack OPT-IN, and it is the assertion that would have
@@ -185,8 +185,8 @@ func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 // halted its boot with eleven read-only-filesystem errors from packs nobody asked for. The
 // mount is the filter, and this proves it from outside.
 //
-// The launchers moved out of ~/.yolo-shims (blockers only, first on PATH) into
-// ~/.yolo-launchers (lazy installers, last on PATH). Asserting on the OLD path would have
+// The launchers moved out of ~/.yolo/bin/block (blockers only, first on PATH) into
+// ~/.yolo/bin/launch (lazy installers, last on PATH). Asserting on the OLD path would have
 // stayed green for the wrong reason — nothing is ever written there now.
 func TestPackSelectionPrunesUnselected(t *testing.T) {
 	requireJail(t)
@@ -196,10 +196,10 @@ func TestPackSelectionPrunesUnselected(t *testing.T) {
 	// needs the vendor's tarball — the install was incidental to the test's subject and put
 	// its pruning assertion behind a network fetch (§6.1.1).
 	cmd := strings.Join([]string{
-		"test -x $HOME/.yolo-launchers/codex",
-		"! test -e $HOME/.yolo-launchers/copilot",
-		"! test -e $HOME/.yolo-launchers/claude",
-		"! test -e $HOME/.yolo-shims/codex",
+		"test -x $HOME/.yolo/bin/launch/codex",
+		"! test -e $HOME/.yolo/bin/launch/copilot",
+		"! test -e $HOME/.yolo/bin/launch/claude",
+		"! test -e $HOME/.yolo/bin/block/codex",
 		"! test -e $HOME/.copilot/config.json",
 	}, " && ")
 	r := runYolo(t, dir, cmd)

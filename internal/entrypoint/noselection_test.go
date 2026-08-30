@@ -39,7 +39,7 @@ func TestGeneratorsTolerateNoPacks(t *testing.T) {
 	// No pack declared an install, so no launcher was written. Read the LAUNCHER dir:
 	// the shim dir holds blocked-tool shims in a real boot, and those are a different
 	// mechanism — counting them here would make this assert something it does not mean.
-	entries, err := os.ReadDir(e.LauncherDir())
+	entries, err := os.ReadDir(e.LaunchDir())
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}

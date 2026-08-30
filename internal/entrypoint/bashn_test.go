@@ -121,7 +121,7 @@ func TestMatrixCoversAgentLaunchersAndTheZeroAgentCase(t *testing.T) {
 		// blockers a scenario's blocked_tools generate can never be miscounted as
 		// launchers, which is what this assertion is trying to measure.)
 		got := 0
-		if entries, err := os.ReadDir(filepath.Join(dir, ".yolo-launchers")); err == nil {
+		if entries, err := os.ReadDir(filepath.Join(dir, ".yolo/bin/launch")); err == nil {
 			got = len(entries)
 		}
 		if name == "no_agents" {
@@ -203,10 +203,10 @@ func checkShellScripts(t *testing.T, bash, home string) {
 		".local/bin/mcp-wrappers/node",
 		".local/bin/mcp-wrappers/npx",
 	}
-	// Both generated script dirs: blockers in .yolo-shims, lazy installers in
-	// .yolo-launchers. Globbing only the first would have quietly stopped `bash -n`-ing
+	// Both generated script dirs: blockers in .yolo/bin/block, lazy installers in
+	// .yolo/bin/launch. Globbing only the first would have quietly stopped `bash -n`-ing
 	// every launcher the moment the two were split.
-	for _, gen := range []string{".yolo-shims", ".yolo-launchers"} {
+	for _, gen := range []string{".yolo/bin/block", ".yolo/bin/launch"} {
 		entries, err := os.ReadDir(filepath.Join(home, gen))
 		if err != nil {
 			continue

@@ -123,16 +123,16 @@ export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
 export GOPATH="${GOPATH:-$HOME/go}"
 # Two generated dirs, at OPPOSITE ends of PATH, because they are different mechanisms:
-#   SHIM_DIR     — blocked-tool shims (grep, find). Interception is the whole job, so
+#   BLOCK_DIR    — blocked-tool blockers (grep, find). Interception is the whole job, so
 #                  they must PRECEDE the real binary.
-#   LAUNCHER_DIR — lazy installers (claude, pnpm). They only need to run when nothing
+#   LAUNCH_DIR   — lazy installers (claude, pnpm). They only need to run when nothing
 #                  else provides the name, so they go LAST, after /bin. That is what
 #                  makes a pack declaring "program fzf" unable to shadow /bin/fzf.
-SHIM_DIR="${HOME}/.yolo-shims"
-LAUNCHER_DIR="${HOME}/.yolo-launchers"
-export PATH="$SHIM_DIR:$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:`
+BLOCK_DIR="${HOME}/.yolo/bin/block"
+LAUNCH_DIR="${HOME}/.yolo/bin/launch"
+export PATH="$BLOCK_DIR:$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:`
 
-const bashrcPart3 = `:$GOPATH/bin:/bin:/usr/bin:$LAUNCHER_DIR"
+const bashrcPart3 = `:$GOPATH/bin:/bin:/usr/bin:$LAUNCH_DIR"
 
 # Activate mise with shell hooks (interactive shells only).
 # Non-interactive shells (bash -lc) skip activation to avoid a deadlock:
@@ -248,7 +248,7 @@ _yolo_go_module_version() {
 fc-cache -f >/dev/null 2>&1
 
 # Agent CLIs (copilot, claude, codex) are NOT installed here.
-# Lazy-install launchers in ~/.yolo-launchers/ install them on first use, keeping boot
+# Lazy-install launchers in ~/.yolo/bin/launch/ install them on first use, keeping boot
 # fast.  They no longer update themselves on a timer — "yolo pack update" is the act that
 # resolves a new version.  Only MCP/LSP tools that agents depend on are installed here.
 

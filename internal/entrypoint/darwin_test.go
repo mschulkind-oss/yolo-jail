@@ -45,7 +45,7 @@ func TestInstallYoloLogEmptyIsNoop(t *testing.T) {
 func TestWriteLoginRC(t *testing.T) {
 	home := t.TempDir()
 	e := NewEnv(map[string]string{"HOME": home})
-	loginPath := "/Users/dev/.yolo-shims:/nix/store/x/bin"
+	loginPath := "/Users/dev/.yolo/bin/block:/nix/store/x/bin"
 	if err := WriteLoginRC(e, loginPath); err != nil {
 		t.Fatal(err)
 	}
@@ -84,12 +84,12 @@ func TestRunDarwinBootstrapGeneratesConfig(t *testing.T) {
 
 	RunDarwinBootstrap(e, DarwinBootstrapOptions{
 		MacosLog:      "user",
-		LoginPath:     "/Users/dev/.yolo-shims:/usr/bin",
+		LoginPath:     "/Users/dev/.yolo/bin/block:/usr/bin",
 		YoloLogScript: "#!/bin/sh\nexec /usr/bin/log \"$@\"\n",
 	})
 
 	// Shim generated, exec'ing the macOS /usr/bin path.
-	shim := string(mustRead(t, filepath.Join(home, ".yolo-shims", "grep")))
+	shim := string(mustRead(t, filepath.Join(home, ".yolo/bin/block", "grep")))
 	if !strings.Contains(shim, "/usr/bin/grep") {
 		t.Errorf("darwin shim should exec /usr/bin/grep:\n%s", shim)
 	}
@@ -99,7 +99,7 @@ func TestRunDarwinBootstrapGeneratesConfig(t *testing.T) {
 	}
 	// Login rc written with the sandbox PATH.
 	rc := string(mustRead(t, filepath.Join(home, ".zprofile")))
-	if !strings.Contains(rc, "/Users/dev/.yolo-shims") {
+	if !strings.Contains(rc, "/Users/dev/.yolo/bin/block") {
 		t.Errorf(".zprofile missing sandbox PATH:\n%s", rc)
 	}
 }

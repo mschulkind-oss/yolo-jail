@@ -149,7 +149,7 @@ func TestLaunchArgv(t *testing.T) {
 		}
 	}
 	dirs := splitColon(pathVal)
-	if idxStr(dirs, "/Users/_yolojail/.yolo-shims") >= idxStr(dirs, "/nix/store/a-jq/bin") {
+	if idxStr(dirs, "/Users/_yolojail/.yolo/bin/block") >= idxStr(dirs, "/nix/store/a-jq/bin") {
 		t.Error("shims must precede darwin prefix")
 	}
 	if idxStr(dirs, "/nix/store/a-jq/bin") >= idxStr(dirs, "/usr/bin") {
@@ -158,10 +158,10 @@ func TestLaunchArgv(t *testing.T) {
 	// The lazy-installer dir goes LAST, mirroring the container (see
 	// entrypoint.BootPath): a launcher must only be reached when nothing else provides
 	// the name, or a pack declaring a tool the system already has SHADOWS and breaks it.
-	if idxStr(dirs, "/Users/_yolojail/.yolo-launchers") <= idxStr(dirs, "/usr/bin") {
+	if idxStr(dirs, "/Users/_yolojail/.yolo/bin/launch") <= idxStr(dirs, "/usr/bin") {
 		t.Error("the launcher dir must come AFTER /usr/bin")
 	}
-	if dirs[len(dirs)-1] != "/Users/_yolojail/.yolo-launchers" {
+	if dirs[len(dirs)-1] != "/Users/_yolojail/.yolo/bin/launch" {
 		t.Errorf("the launcher dir must be last on PATH, got %q", dirs[len(dirs)-1])
 	}
 	// Inner shell is workspace-centric.

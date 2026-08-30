@@ -10,7 +10,7 @@ import (
 //
 // UNLINKING THEM IS NOT TIDINESS — IT IS THE CUTOVER. The jail's PATH is
 //
-//	$HOME/.yolo-shims:$HOME/.local/bin:…:$GOPATH/bin:/bin:/usr/bin:$HOME/.yolo-launchers
+//	$HOME/.yolo/bin/block:$HOME/.local/bin:…:$GOPATH/bin:/bin:/usr/bin:$HOME/.yolo/bin/launch
 //
 // so ~/.local/bin PRECEDES /bin. The jail home persists across launches and
 // across image upgrades, which means a script written by a previous boot keeps
@@ -45,7 +45,43 @@ func RemoveStaleGeneratedClients(e *Env) error {
 		}
 	}
 	for _, name := range staleShimFiles {
-		_ = os.Remove(filepath.Join(e.ShimDir(), name))
+		_ = os.Remove(filepath.Join(e.BlockDir(), name))
 	}
+	removeRetiredGeneratedDirs(e)
 	return nil
+}
+
+// retiredGeneratedDirs are the home-relative names the two generated-script dirs used
+// before they were gathered under ~/.yolo/bin (host-agent-environment.md OQ-6, 2026-08-30).
+var retiredGeneratedDirs = []string{".yolo-shims", ".yolo-launchers"}
+
+// removeRetiredGeneratedDirs clears out the pre-rename dirs.
+//
+// After the rename they are on no PATH, so their contents are inert — but they are
+// EXECUTABLES named after real tools sitting in a user's home, which is exactly the shape
+// that becomes confusing the first time someone puts one of those directories back on
+// PATH by hand or copies a home between machines. They also still hold a `grep` blocker
+// that would silently start intercepting again.
+//
+// Contents-only for the retired dirs too: on an existing host they are still bind-mount
+// ANCHORS from a launcher that has not been upgraded yet, and removing the directory
+// itself would fail EROFS against the :ro /home/agent (or, worse, succeed and detach a
+// live mount). Emptying them is enough and is safe in both skew directions.
+//
+// config.reservedHomeDirRoots keeps both names reserved for one release so a user config
+// cannot claim a path yolo is still cleaning up.
+func removeRetiredGeneratedDirs(e *Env) {
+	for _, name := range retiredGeneratedDirs {
+		dir := filepath.Join(e.Home, name)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue // absent is the normal case on a fresh home
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue // never recurse: these dirs only ever held flat scripts
+			}
+			_ = os.Remove(filepath.Join(dir, entry.Name()))
+		}
+	}
 }

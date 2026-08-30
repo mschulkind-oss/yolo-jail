@@ -222,7 +222,7 @@ func (m *Manifest) Contributions() []Contribution {
 //
 // `program` is CombineExclusive by BIN NAME, not per pack (kinds.go): two packs both
 // installing `fzf` is still a collision, one pack installing two different bins never
-// was. And since the launchers moved to ~/.yolo-launchers — ordered after /bin — N
+// was. And since the launchers moved to ~/.yolo/bin/launch — ordered after /bin — N
 // launchers carry no more shadowing risk than one.
 func (m *Manifest) InstallContributions() []Install {
 	var out []Install

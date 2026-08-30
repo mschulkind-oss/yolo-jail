@@ -71,7 +71,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	// Opt-in rather than always-active, and the reason is honesty about what a jail
 	// contains: activating six agent packs unconditionally while the launch warning said
 	// "no packs are configured, so this jail has no coding agent" was a contradiction a
-	// user would only discover by looking in ~/.yolo-shims. An empty config now really does
+	// user would only discover by looking in ~/.yolo/bin/block. An empty config now really does
 	// produce a jail with no agent.
 	// Materialize into a SCRATCH dir first, then copy only the selected packs into the
 	// mounted staging root.

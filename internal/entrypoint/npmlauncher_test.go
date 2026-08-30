@@ -102,7 +102,7 @@ func TestNpmLauncherBodyCarriesNameAndSpecSeparately(t *testing.T) {
 	if err := GeneratePackageManagerLaunchers(e); err != nil {
 		t.Fatal(err)
 	}
-	body, err := os.ReadFile(filepath.Join(e.LauncherDir(), "pnpm"))
+	body, err := os.ReadFile(filepath.Join(e.LaunchDir(), "pnpm"))
 	if err != nil {
 		t.Fatal(err)
 	}

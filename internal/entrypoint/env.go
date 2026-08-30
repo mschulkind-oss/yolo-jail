@@ -253,16 +253,30 @@ func (e *Env) Lookup(key string) (string, bool) {
 }
 
 // --- Path constants (home-relative) ---
-// ShimDir is HOME/.yolo-shims — the BLOCKER dir, ordered FIRST on PATH.
+
+// GeneratedBinDir is HOME/.yolo/bin — the parent of every directory of yolo-GENERATED
+// executables in the jail, and the single bind-mount ANCHOR behind them.
 //
-// It holds only what GenerateShims writes: the blocked-tool shims (`grep`, `find`, …)
+// It gathers them in the FILESYSTEM only. Its children sit at opposite ends of PATH by
+// design — blockers first, launchers last — so nothing may ever put this parent on PATH
+// and pick up both at once. Mirrors the host's own <state>/bin/{wrap} shape, which is what
+// gives the three mechanisms one vocabulary (host-agent-environment.md §5.3, OQ-6).
+func (e *Env) GeneratedBinDir() string { return filepath.Join(e.Home, ".yolo", "bin") }
+
+// BlockDir is HOME/.yolo/bin/block — the BLOCKER dir, ordered FIRST on PATH.
+//
+// It holds only what GenerateShims writes: the blocked-tool blockers (`grep`, `find`, …)
 // generated from YOLO_BLOCK_CONFIG. Interception is their entire job, so preceding the
 // real binary is a requirement, not a convenience.
 //
-// Lazy INSTALLERS live in LauncherDir instead (see there for why the split exists).
-func (e *Env) ShimDir() string { return filepath.Join(e.Home, ".yolo-shims") }
+// Lazy INSTALLERS live in LaunchDir instead (see there for why the split exists).
+//
+// It was HOME/.yolo-shims until 2026-08-30. The rename retires the word "shim", which had
+// come to name this dir in AGENTS.md while colloquially naming the host's launch wrappers
+// — three mechanisms, two of them sharing a word.
+func (e *Env) BlockDir() string { return filepath.Join(e.GeneratedBinDir(), "block") }
 
-// LauncherDir is HOME/.yolo-launchers — the lazy-INSTALLER dir, ordered LAST on PATH
+// LaunchDir is HOME/.yolo/bin/launch — the lazy-INSTALLER dir, ordered LAST on PATH
 // (after /bin and /usr/bin).
 //
 // Blockers and lazy installers used to share ~/.yolo-shims because both are "a script
@@ -284,9 +298,12 @@ func (e *Env) ShimDir() string { return filepath.Join(e.Home, ".yolo-shims") }
 // flake.nix's corePackages/fullPackages), but it is the case to re-check when adding a
 // baked package whose name a pack also claims.
 //
-// Like ShimDir this is a bind-mount ANCHOR (mounted from <ws>/.yolo/home/yolo-launchers
-// under a read-only /home/agent), so it is cleared CONTENTS-ONLY. See GenerateShims.
-func (e *Env) LauncherDir() string { return filepath.Join(e.Home, ".yolo-launchers") }
+// Like BlockDir it lives under the bind-mount ANCHOR at HOME/.yolo/bin (mounted from
+// <ws>/.yolo/home/yolo-bin under a read-only /home/agent), so it is cleared
+// CONTENTS-ONLY. See GenerateShims.
+//
+// It was HOME/.yolo-launchers until 2026-08-30; see BlockDir for the rename's reason.
+func (e *Env) LaunchDir() string { return filepath.Join(e.GeneratedBinDir(), "launch") }
 
 // MiseShims is MISE_DATA/shims.
 func (e *Env) MiseShims() string { return filepath.Join(e.MiseData, "shims") }

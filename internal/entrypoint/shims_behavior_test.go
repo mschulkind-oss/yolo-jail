@@ -27,7 +27,7 @@ func TestShimArgvFilterContract(t *testing.T) {
 		if err := GenerateShims(e); err != nil {
 			t.Fatal(err)
 		}
-		shim := filepath.Join(e.ShimDir(), "grep")
+		shim := filepath.Join(e.BlockDir(), "grep")
 
 		// Recursive forms -> blocked (127) with the message.
 		for _, argv := range [][]string{
@@ -70,7 +70,7 @@ func TestShimArgvFilterContract(t *testing.T) {
 		if err := GenerateShims(e); err != nil {
 			t.Fatal(err)
 		}
-		shim := filepath.Join(e.ShimDir(), "curl")
+		shim := filepath.Join(e.BlockDir(), "curl")
 		body, _ := os.ReadFile(shim)
 		if strings.Contains(string(body), "exec ") {
 			t.Errorf("curl shim (no real_bin) must not exec-fallthrough:\n%s", body)
@@ -93,7 +93,7 @@ func TestShimArgvFilterContract(t *testing.T) {
 		if err := GenerateShims(e); err != nil {
 			t.Fatal(err)
 		}
-		shim := filepath.Join(e.ShimDir(), "grep")
+		shim := filepath.Join(e.BlockDir(), "grep")
 		body, _ := os.ReadFile(shim)
 		// Unconditional grep block still fatthroughs to /bin/grep (real_bin set).
 		if !strings.Contains(string(body), "exec /bin/grep") {

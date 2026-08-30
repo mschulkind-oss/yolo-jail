@@ -142,7 +142,7 @@ func refreshNpmPrograms(e *entrypoint.Env, pr richtext.Printer, errw io.Writer, 
 				continue
 			}
 			found++
-			launcher := filepath.Join(e.LauncherDir(), inst.Bin)
+			launcher := filepath.Join(e.LaunchDir(), inst.Bin)
 			if _, err := os.Stat(launcher); err != nil {
 				// The pack declares the program but this jail has no launcher for it:
 				// either the boot path never generated one (two packs claiming one bin

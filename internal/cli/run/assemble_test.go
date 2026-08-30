@@ -428,11 +428,11 @@ func podmanLinuxGolden(home string) []string {
 		"-v", wsState+"/npm-global:/home/agent/.npm-global",
 		"-v", wsState+"/local:/home/agent/.local",
 		"-v", wsState+"/go:/home/agent/go",
-		"-v", wsState+"/yolo-shims:/home/agent/.yolo-shims",
-		// Second generated-script anchor: blockers live in yolo-shims (first on PATH),
-		// lazy installers in yolo-launchers (last, after /bin). Both need their own rw
-		// bind because /home/agent is :ro.
-		"-v", wsState+"/yolo-launchers:/home/agent/.yolo-launchers",
+		// ONE anchor for BOTH generated-script dirs: blockers in bin/block (first on
+		// PATH), lazy installers in bin/launch (last, after /bin). They are separate
+		// DIRECTORIES for that ordering, but one rw bind suffices because they share a
+		// parent — and a bind is needed at all only because /home/agent is :ro.
+		"-v", wsState+"/yolo-bin:/home/agent/.yolo/bin",
 		"-v", wsState+"/config:/home/agent/.config",
 		"-v", globalCache+":/home/agent/.cache",
 		"-v", wsState+"/yolo-bootstrap.sh:/home/agent/.yolo-bootstrap.sh",

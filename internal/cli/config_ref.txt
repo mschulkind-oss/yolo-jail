@@ -813,7 +813,7 @@
     A pack.json declares effects as a "contributes" list, one entry per effect with a
     "kind" from the closed set:
       program       a tool on PATH: {bin, via:"npm"|"installer", package|url, flags}
-                    yolo INSTALLS it, via a lazy launcher in ~/.yolo-launchers (last on
+                    yolo INSTALLS it, via a lazy launcher in ~/.yolo/bin/launch (last on
                     PATH, so it never shadows a baked binary).  Sole-owned by `bin`, so a
                     pack may declare SEVERAL programs (different bins) and each gets its
                     own launcher.
