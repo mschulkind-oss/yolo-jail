@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -629,25 +630,32 @@ func TestApplyHostWrappersRemovedWhenPacksIsEmptied(t *testing.T) {
 	}
 }
 
-// TestHostEnvRefusesRelativeEnvSourceFiles pins the filesystem half of the host env
-// boundary. The config is user-scope only, but a RELATIVE env_sources entry would
-// resolve against the CURRENT DIRECTORY — which a workspace controls: cd into a cloned
-// repo, `yolo host -- claude`, and the repo's .env (LD_PRELOAD and friends) feeds a
-// host process outside every sandbox. Relative entries are refused with a warning;
-// absolute and ~-relative entries still resolve.
-func TestHostEnvRefusesRelativeEnvSourceFiles(t *testing.T) {
+// TestHostEnvResolvesConfigRelativeEntriesBesideTheConfig pins the ruling's host-notch
+// half (envsource-relative-paths.md OQ-E1, 2026-08-30): a relative env_sources entry in
+// the USER config resolves beside the config that declared it — because the loader
+// anchors it at load time (config.AnchorEnvSources), NOT against the current directory,
+// which a workspace controls. The cwd's same-named file must not leak; the config-dir
+// file must apply; and nothing refuses the entry, because under the ruling it is legal.
+func TestHostEnvResolvesConfigRelativeEntriesBesideTheConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
 	ws := t.TempDir()
 	t.Chdir(ws)
-	// The trap: a relative entry pointing at a file the WORKSPACE controls.
-	if err := os.WriteFile(filepath.Join(ws, "rel.env"), []byte("PWNED=yes\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	userCfg(t, home, `{
 	  "env_sources": ["rel.env", {"KEEP": "yes"}]
 	}`)
+	// The trap the anchoring kills: the same-named file in a directory the WORKSPACE
+	// controls. Under pre-ruling workspace resolution (the jail's rule, never the host's)
+	// this is the file a `yolo host` launch would have read.
+	if err := os.WriteFile(filepath.Join(ws, "rel.env"), []byte("PWNED=yes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The ruling's target: beside the declaring config.
+	if err := os.WriteFile(filepath.Join(home, ".config", "yolo-jail", "rel.env"),
+		[]byte("FROM_CONFIG_DIR=yes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	var warnings []string
 	env, _, err := composeHostEnv("claude", "", func(msg string) { warnings = append(warnings, msg) })
@@ -655,10 +663,49 @@ func TestHostEnvRefusesRelativeEnvSourceFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	if hasEnv(env, "PWNED=yes") {
-		t.Error("a workspace-relative dotenv reached a host process composition")
+		t.Error("a workspace-controlled dotenv reached a host process composition")
+	}
+	if !hasEnv(env, "FROM_CONFIG_DIR=yes") {
+		t.Error("the config-dir file beside the declaring config must apply")
 	}
 	if !hasEnv(env, "KEEP=yes") {
-		t.Error("the inline entry beside the refused one must still apply")
+		t.Error("the inline entry beside the file entry must still apply")
+	}
+	for _, w := range warnings {
+		if strings.Contains(w, "is relative") {
+			t.Errorf("an anchored entry must not be refused, got: %s", w)
+		}
+	}
+}
+
+// TestHostEnvRefusesUnanchoredRelativeEntries pins the BACKSTOP: hostScopedEnvSources
+// still refuses a relative entry that reaches hostEnvVars unanchored. Every loader
+// anchors at load time, so in practice this means a hand-built config or a pre-ruling
+// artifact — exactly the sources whose cwd a workspace may control, which is why the
+// refusal stays even though the ruling made config-relative entries legal.
+//
+// Fails if the hostScopedEnvSources call is removed from hostEnvVars (the hand-built
+// entry then resolves against the cwd and PWNED leaks).
+func TestHostEnvRefusesUnanchoredRelativeEntries(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	ws := t.TempDir()
+	t.Chdir(ws)
+	if err := os.WriteFile(filepath.Join(ws, "rel.env"), []byte("PWNED=yes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := jsonx.NewOrderedMap()
+	cfg.Set("env_sources", []any{"rel.env", map[string]any{"KEEP": "yes"}})
+
+	var warnings []string
+	vars := hostEnvVars(cfg, ws, "claude", "", func(msg string) { warnings = append(warnings, msg) })
+	var env []string
+	for _, v := range vars {
+		env = append(env, v.Key+"="+v.Value)
+	}
+	if hasEnv(env, "PWNED=yes") {
+		t.Error("an unanchored relative entry resolved against the cwd")
 	}
 	refused := false
 	for _, w := range warnings {
@@ -667,7 +714,7 @@ func TestHostEnvRefusesRelativeEnvSourceFiles(t *testing.T) {
 		}
 	}
 	if !refused {
-		t.Errorf("the refusal must name the entry and the remedy, got warnings %q", warnings)
+		t.Errorf("the backstop refusal must fire for unanchored entries, got warnings %q", warnings)
 	}
 }
 

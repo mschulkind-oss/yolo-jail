@@ -144,6 +144,11 @@ func LoadJSONCWithIncludes(path, label string, strict bool, warn Warn, seen map[
 		// An empty (falsy) map is returned directly WITHOUT consuming includes.
 		return raw, nil
 	}
+	// Anchor this file's relative env_sources entries at THIS file's directory, before
+	// the include walk merges anyone else's in. Per-file is the point (see
+	// AnchorEnvSources): an include's entries anchor at the include's dir when the
+	// recursion loads it, so provenance survives the concat that is about to happen.
+	AnchorEnvSources(raw, filepath.Dir(path))
 
 	includesVal, hasIncludes := raw.Get("include_if_found")
 	raw.Delete("include_if_found") // consumed; not part of the returned config

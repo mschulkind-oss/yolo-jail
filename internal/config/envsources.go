@@ -41,8 +41,61 @@ func ParseDotenv(text string) *jsonx.OrderedMap {
 	return out
 }
 
+// AnchorEnvSources rewrites every RELATIVE env_sources file entry in cfg to an absolute
+// path under dir — which the loader passes as the directory of the file that DECLARED
+// the entry. It is the load-time half of the ruling that a relative path means "beside
+// my declaring file" (envsource-relative-paths.md, OQ-E1/E2, 2026-08-30), the same
+// convention `include_if_found` already uses.
+//
+// Doing this AT LOAD TIME is what makes per-file anchoring possible at all: by the time
+// the merge concatenates the user config, its includes, any layer, and the workspace
+// config into one list, per-entry provenance is gone — but absolute paths survive a
+// concat, so each file anchors its own entries before the lists ever meet. The include
+// case is the proof the anchor must be per-file: an include's relative entry anchored at
+// the TOP config's dir would look beside the wrong file.
+//
+// Anchoring is why the WORKSPACE config's entries do not move: yolo-jail.jsonc sits at
+// the workspace root, so beside-the-file IS workspace-relative for them. The entry whose
+// meaning changes is a USER-config entry inside a jail launch — workspace-relative
+// before 2026-08-30, config-dir now — which was the fix's whole point: a cloned repo
+// could otherwise put a prod.env in the workspace that a user config's relative entry
+// fed into the jail's environment.
+//
+// Absolute and ~-relative entries pass through untouched, and inline dict entries are
+// not paths. Unanchored relative entries that reach ResolveEnvSources anyway (a
+// pre-ruling assembled snapshot read verbatim, a hand-built config) fall back to the
+// workspace root — the pre-ruling behavior, deliberately, for artifacts a newer loader
+// never touched.
+func AnchorEnvSources(cfg *jsonx.OrderedMap, dir string) {
+	if cfg == nil {
+		return
+	}
+	v, present := cfg.Get("env_sources")
+	if !present {
+		return
+	}
+	list, ok := asList(v)
+	if !ok {
+		return
+	}
+	changed := false
+	out := make([]any, len(list))
+	for i, e := range list {
+		if s, isStr := e.(string); isStr && !strings.HasPrefix(s, "/") && !strings.HasPrefix(s, "~") {
+			out[i] = filepath.Join(dir, s)
+			changed = true
+			continue
+		}
+		out[i] = e
+	}
+	if changed {
+		cfg.Set("env_sources", out)
+	}
+}
+
 // ResolveEnvSourcePath expands ~, passes absolute paths through, and resolves
-// relative paths against the workspace root.
+// relative paths against the workspace root — the FALLBACK for entries no loader
+// anchored (AnchorEnvSources); every config loaded from disk arrives anchored.
 func ResolveEnvSourcePath(entry, workspace string) string {
 	expanded := expandUser(entry)
 	if filepath.IsAbs(expanded) {

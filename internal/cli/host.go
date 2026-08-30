@@ -251,13 +251,14 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 		}
 	}
 
-	// (2) the secret channel. Scoped first: at the HOST notch a relative env_sources
-	// file entry would resolve against the CURRENT DIRECTORY, which a workspace
-	// controls — cd into a cloned repo, `yolo host -- claude`, and the repo's .env
-	// feeds a host process. That re-opens, through the filesystem, the exact boundary
-	// the user-scope-only cfg closes, so relative entries are refused here with the
-	// remedy in the message. The JAIL keeps workspace-relative resolution: its
-	// container is the boundary.
+	// (2) the secret channel. The loader anchors relative entries beside the file that
+	// declared them (config.AnchorEnvSources), so a user-config relative entry arrives
+	// here absolute and legal. What is still refused is an UNANCHORED relative entry —
+	// one from a hand-built config or a pre-ruling artifact — because the only
+	// resolution left for it is the CURRENT DIRECTORY, which a workspace controls: cd
+	// into a cloned repo, `yolo host -- claude`, and the repo's .env feeds a host
+	// process. That would re-open, through the filesystem, the exact boundary the
+	// user-scope-only cfg closes; hostScopedEnvSources is the backstop.
 	scoped := hostScopedEnvSources(cfg, warn)
 	userEnv := config.ResolveEnvSources(workspace, scoped, warn)
 	for _, k := range userEnv.Keys() {
@@ -278,9 +279,14 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 	return vars
 }
 
-// hostScopedEnvSources returns cfg with env_sources' RELATIVE file entries dropped —
-// one warning per dropped entry, naming the remedy — for the host notch's env
-// composition. Absolute and ~-relative entries pass untouched (they name where they
+// hostScopedEnvSources returns cfg with any still-RELATIVE env_sources file entry
+// dropped — one warning per dropped entry, naming the remedy — for the host notch's env
+// composition. Under the 2026-08-30 ruling (envsource-relative-paths.md OQ-E1) a
+// relative entry in a real config is legal and arrives already ANCHORED beside its
+// declaring file (config.AnchorEnvSources runs in the loader), so what reaches this
+// filter unanchored is a hand-built config or a pre-ruling artifact — sources whose
+// only remaining resolution is the cwd, which a workspace controls. It is a backstop,
+// not the rule. Absolute and ~-relative entries pass untouched (they name where they
 // name, independent of the cwd); inline dict entries pass (they are not paths at all).
 //
 // Returns cfg itself when nothing is dropped, and a shallow copy otherwise — the caller

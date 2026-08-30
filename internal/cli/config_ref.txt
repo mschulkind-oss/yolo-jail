@@ -374,8 +374,15 @@
         `yolo host -- <cmd>` uses to drop e.g. AWS_PROFILE from the
         invoking shell (a later entry assigning the key cancels it)
     Later entries override earlier ones.  User-config list loads first,
-    then workspace-config list.  File paths support ~ expansion,
-    absolute paths, and workspace-relative paths.  Missing files warn
+    then workspace-config list.  File paths support ~ expansion and
+    absolute paths.  A RELATIVE path resolves beside the file that
+    declared it — for the user config that is
+    ~/.config/yolo-jail/, for each include the include's own directory,
+    and for the workspace config the workspace root (so
+    workspace-relative spelling behaves exactly as it reads).  `yolo
+    host` additionally refuses any relative entry that reaches it
+    unanchored, which in practice never happens for configs yolo loaded.
+    Missing files warn
     and skip rather than failing the run — keep secrets in an unsynced
     file outside your dotfiles tree.
     Written to ~/.config/yolo-user-env.sh (sourced by .bashrc and entrypoint);

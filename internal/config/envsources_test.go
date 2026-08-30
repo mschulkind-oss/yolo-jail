@@ -138,3 +138,77 @@ func TestValidateEnvSourcesAcceptsNullAsRemoval(t *testing.T) {
 		t.Error("AWS_TIMEOUT=30 must still be rejected — only string-or-null is valid")
 	}
 }
+
+// writeFileIn is the test's os.WriteFile, error-fatal.
+func writeFileIn(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestEnvSourcesAnchorBesideTheDeclaringFile is the unified ruling's pin
+// (envsource-relative-paths.md OQ-E1/E2, ruled 2026-08-30): a relative env_sources
+// file entry resolves beside the file that DECLARED it — the user config at
+// ~/.config/yolo-jail/, an include at the include's own directory, the workspace
+// config at the workspace root (which is why jail behavior for workspace-declared
+// entries does not move). The trap this kills: a user-config relative entry in a jail
+// launch used to resolve against the WORKSPACE, letting a cloned repo's prod.env feed
+// the jail's env from a file its config never named.
+//
+// Fails if AnchorEnvSources stops being called by the loader (entries stay relative and
+// fall back to workspace resolution — PWNED appears).
+func TestEnvSourcesAnchorBesideTheDeclaringFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	incDir := filepath.Join(cfgDir, "machines")
+	for _, d := range []string{cfgDir, incDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFileIn(t, filepath.Join(incDir, "lab.jsonc"), `{"env_sources": ["lab.env"]}`)
+	writeFileIn(t, filepath.Join(cfgDir, "config.jsonc"),
+		`{"include_if_found": ["machines/lab.jsonc"], "env_sources": ["prod.env", {"KEEP": "yes"}]}`)
+	writeFileIn(t, filepath.Join(cfgDir, "prod.env"), "FROM_CONFIG_DIR=yes\n")
+	writeFileIn(t, filepath.Join(incDir, "lab.env"), "FROM_INCLUDE=yes\n")
+
+	ws := t.TempDir()
+	t.Chdir(ws)
+	writeFileIn(t, filepath.Join(ws, "prod.env"), "PWNED=yes\n") // the old jail-side target
+	writeFileIn(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"env_sources": ["ws.env"]}`)
+	writeFileIn(t, filepath.Join(ws, "ws.env"), "FROM_WS=yes\n")
+
+	cfg, err := LoadConfig("", false, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := getListOrNilFalsy(cfg, "env_sources")
+	if len(entries) != 4 {
+		t.Fatalf("env_sources = %#v, want 4 entries in merge order", entries)
+	}
+	if entries[0] != filepath.Join(cfgDir, "prod.env") {
+		t.Errorf("user entry = %#v, want it anchored at the config dir", entries[0])
+	}
+	if _, isMap := entries[1].(*jsonx.OrderedMap); !isMap {
+		t.Errorf("inline entry = %#v, want it untouched (not a path)", entries[1])
+	}
+	if entries[2] != filepath.Join(incDir, "lab.env") {
+		t.Errorf("include entry = %#v, want it anchored at the INCLUDE's dir, not the top config's", entries[2])
+	}
+	if entries[3] != filepath.Join(ws, "ws.env") {
+		t.Errorf("workspace entry = %#v, want the workspace root (beside the workspace config)", entries[3])
+	}
+
+	resolved := ResolveEnvSources(ws, cfg, func(string) {})
+	for _, want := range []string{"FROM_CONFIG_DIR", "FROM_INCLUDE", "FROM_WS", "KEEP"} {
+		if v, ok := resolved.Get(want); !ok || v != "yes" {
+			t.Errorf("%s missing from the resolved map: %#v", want, resolved)
+		}
+	}
+	if _, present := resolved.Get("PWNED"); present {
+		t.Error("the workspace's prod.env leaked in — a user-config entry resolved against the workspace")
+	}
+}

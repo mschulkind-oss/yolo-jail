@@ -185,6 +185,11 @@ func applyInheritedLaunch(base *jsonx.OrderedMap) *jsonx.OrderedMap {
 	if err != nil || inherited == nil || inherited.Len() == 0 {
 		return base
 	}
+	// The inherited file is the one config read OUTSIDE LoadJSONCWithIncludes, so it
+	// anchors itself: its relative env_sources entries resolve beside it, which is the
+	// same directory the user config's would have. (Entries usually arrive absolute
+	// already — the parent launch's loader anchored them before writing the file.)
+	AnchorEnvSources(inherited, filepath.Dir(path))
 	if base == nil {
 		return inherited
 	}
