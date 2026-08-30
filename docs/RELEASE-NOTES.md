@@ -26,6 +26,72 @@ was created on 2026-08-18, after that tag, which is why it has no released secti
 next cut is triggered by this file filling up or by a cadence is an open product question; see
 [`plans/further-roadmap-ideas.md`](plans/further-roadmap-ideas.md) §I5.)*
 
+### ⚠️ `yolo apply --host` is removed — use `yolo host apply`
+
+**What changed** (2026-08-30). The `--host` shorthand is **removed outright, not deprecated**
+(`host-agent-environment.md` OQ-7). Two spellings remain, and they do the same thing:
+`yolo apply --at host` (the systematic form, one notch of the `--at` dial) and
+**`yolo host apply`** (the ergonomic one). The removed flag now fails like any other unknown
+argument, and prints the usage that names its replacements.
+
+**Who this bites.** Anyone with `yolo apply --host` in a shell alias, a script, a Makefile, or
+their own dotfiles docs. The failure is loud and immediate — `yolo apply: unexpected argument
+"--host"`, exit 2 — so nothing silently stops applying. Three spellings for one operation was the
+problem the ruling closed; under RM-P1 (*"we're early, we can break things"*) a shorthand with a
+one-word replacement is cheap to change now and expensive later.
+
+### Host agents can finally get an environment — `yolo host -- <agent>`
+
+**What changed** (2026-08-30). The host notch gained an exec half. `yolo host -- claude` composes
+the environment a config file *cannot* carry — the credentials from `env_sources`, a provider's
+Bedrock flags, and **unsets** — and then `syscall.Exec`s the real binary. `yolo host env` prints
+the same composition as `export` lines (or `--format=json`) for direnv/mise users.
+
+This closes a hole rather than adding a convenience: `api_key_env` and friends put only a variable's
+**NAME** in a config file, by deliberate design, so **BYOK on the host did not work at all** —
+for any agent, not just the one with no config file. There was nothing to populate the variable
+the config pointed at.
+
+**Who this bites.** Nobody's existing behaviour changes; `yolo apply --at host` still writes the
+same config surfaces. But if you have a hand-written `claude()` wrapper function in your
+`~/.bashrc` sourcing an untracked env file and unsetting `AWS_PROFILE`, that is now yolo's job —
+and a shell function still beats `PATH`, so the old one keeps winning until you delete it.
+
+### New opt-in: `host_wrappers` puts generated launchers on your PATH
+
+**What changed** (2026-08-30). Setting `"host_wrappers": true` in
+`~/.config/yolo-jail/config.jsonc` makes `yolo host apply` generate one small wrapper per program
+your selected packs install, into `~/.local/share/yolo-jail/bin/wrap/`. Each is three lines that
+`exec yolo host -- <program> "$@"`, so a bare `claude` composes its environment. Prepend that
+directory to `PATH` — **ahead of `~/.local/bin`**, since that is where claude's own installer puts
+the real binary. yolo prints the line; `yolo host apply --shell-init` appends it for you.
+
+Wrappers are generated for **every** program a selected pack installs, whether or not it needs any
+environment today, so `<wrap dir>/claude` is a path a script or an IDE can point at and rely on
+existing (OQ-5). `yolo check` tells you, every run, when the directory exists but is not on `PATH`.
+
+**Who this bites.** It is off by default and silent until you turn it on — but once on, **yolo
+becomes a runtime dependency of every wrapped launch**: a broken `yolo` or an unparseable config
+takes the wrapped program down with it. The real binary is still behind the wrap dir on `PATH`,
+and invoking it by absolute path still works.
+
+The key is **user-scope only**. A workspace `yolo-jail.jsonc` setting it is a `yolo check` error and
+is never read — it makes yolo write executables to the front of your `PATH`, and a workspace config
+travels with the repo and is agent-editable, so it must not make that claim for you.
+
+### `yolo --network host -- <cmd>` was about to change meaning, and doesn't
+
+**What changed** (2026-08-30). yolo's argv scan compared every token before `--` against its
+subcommand list, including tokens that are a **flag's value**. Adding the `host` subcommand would
+therefore have turned `yolo --network host -- bash` from "run bash in a host-networked jail" into
+"run bash at the host notch" — the same argv, silently relocated **outside the sandbox**, with no
+error. The scan now skips the values of value-taking flags (`--network`, `-p`, `--profile`,
+`--auth`, `--claude-auth`, `--agent-profile`, `--at`).
+
+**Who this bites.** Nobody — this is the fix, landed with the change that would have exposed it.
+Recorded because the failure mode was silent sandbox escape, not a crash, and anyone auditing that
+class should know it was found and closed rather than never present.
+
 ### ⚠️ Launches stop upgrading mise — your tools freeze until you ask
 
 **What changed** (2026-08-24, `a16403e2`). Every launch used to run `mise upgrade --yes` against
