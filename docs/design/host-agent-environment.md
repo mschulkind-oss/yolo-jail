@@ -399,8 +399,10 @@ Four consequences worth stating before agreeing to it:
    different claim than exporting agent variables session-wide — but it is still the user's file.
    **yolo prints the line; `--shell-init` writes it on request.** This mirrors `check-deps`, which
    writes an install manifest rather than installing.
-3. **It is one decision, not one per agent** (P5). That is the consistency the wrapper approach is
-   *for*; making it per-agent would rebuild the invisible per-agent variation P1 deletes.
+3. **It is one decision, not one per agent** (P5), and it is a **config key** — `host_wrappers`,
+   top level beside the existing `host_files` — rather than something yolo infers from `PATH`.
+   Not opted in means no directory and no messages at all; `yolo host --` still works. OQ-4 says why
+   inferring the opt-in from `PATH` gets it wrong in both directions.
 4. **The wrapper is three lines and holds no logic:**
 
    ```bash
@@ -488,18 +490,53 @@ yolo host --profile dev -- opencode
 The three questions this doc opened on 2026-08-29 were all ruled on 2026-08-30 and are compacted
 into §9. What the amendment opened in their place is the `PATH` claim §5.1 asks the user to make.
 
-1. 💬 **OQ-4: Does `yolo` ever write the `PATH` line itself?** §5.1 has yolo *print*
-   `export PATH="$HOME/.yolo/bin:$PATH"` and stop, on P3's reasoning that the RC is the user's file.
-   The counter-argument is that a printed line nobody pastes is a wrapper directory that silently
-   never runs — the "silent skip" failure with the sign flipped, and the user finds out when a
-   profile does nothing. **This decides whether `apply --host` can leave the host in a half-applied
-   state it knows about.**
+1. 💬 **OQ-4: When does yolo print the `PATH` line, and does it ever write it?** §5.1 has yolo
+   *print* `export PATH="$HOME/.yolo/bin:$PATH"` and stop, on P3's reasoning that the RC is the
+   user's file. The obvious refinement — *print it during `apply --host` if it is not already set* —
+   is right in shape and has one wrinkle that decides the design.
 
-   _Leaning:_ Print by default, write behind an explicit `--shell-init`, and — the part that matters
-   — **`yolo check` reports the directory as inert when it exists but is not on `PATH`**, with the
-   line to paste. That closes the silent-skip hole without yolo editing an RC unasked, and it is the
-   same disposition [`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md) reaches
-   for every other "configured but not in effect" state.
+   > [!WARNING]
+   > **"Already set" has two meanings and they disagree exactly when it matters.** `apply --host`
+   > can observe **this process's `PATH`**, which is a fact about the shell that invoked yolo — not
+   > about the user's RC. The two come apart in both directions:
+   >
+   > * **False positive:** the line is in the RC, but `apply --host` was run from a shell started
+   >   before the edit. yolo nags about something already done.
+   > * **False negative, and it is the worse one:** someone typed `export PATH=…` in one shell
+   >   ad hoc. yolo sees it present, says nothing, and every *new* shell has no wrappers — the
+   >   silent-skip class, arrived at by a check that was trying to prevent it.
+   >
+   > Reading the RC files to disambiguate is not the fix: the line can live in any of `~/.bashrc`,
+   > `~/.zshrc`, `~/.profile`, a fish conf, or a sourced fragment, and can be built dynamically. yolo
+   > would be guessing about a file P3 says is not its territory.
+
+   **The shape this suggests — report the OBSERVABLE fact, and make the opt-in a config key rather
+   than an inference:**
+
+   * **Opt-in is `host_wrappers: true`** (top level, beside the existing `host_files`), not a
+     `PATH` inspection. Not opted in → no directory, no wrappers, no message, ever. `yolo host --`
+     still works. **This is what makes "print if not set" not a nag** — yolo only ever mentions it
+     to someone who asked for wrappers.
+   * **`apply --host` prints the line when `~/.yolo/bin` is absent from THIS process's `PATH`**, and
+     says precisely that, with the false-positive caveat inline: *"…not on this shell's `PATH`. If
+     you have already added it, open a new shell."* Silent when it is present.
+   * **`yolo check` carries the recurring verification**, because it is the command whose job is
+     "what is the state of my environment" and it is usually run from a fresh shell — so its answer
+     is both decidable and actionable, which `apply --host`'s is not. A generated wrapper directory
+     that is not on `PATH` is an inert-configuration row, in the summary-counted channel.
+   * **`apply --host` does NOT refuse.** It also writes Channel 1 surfaces, which work regardless;
+     refusing the half that works because the other half is unwired would be the wrong gate
+     (`gate-placement-principle.md`). Generate, report, and let `check` keep reporting.
+
+   **The stakes:** whether a pack that declares host env can end up silently doing nothing on the
+   host. Under the above it cannot do so *quietly* — but it can still do nothing until the user
+   pastes a line, and that is the residual this question is really about.
+
+   _Leaning:_ All four bullets as written. Print at `apply --host` on the observable fact with the
+   caveat, verify at `check`, gate the whole thing on `host_wrappers`, and write the RC line only
+   behind an explicit `--shell-init`. It is the same disposition
+   [`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md) reaches for every other
+   "configured but not in effect" state.
 
    **Answer:**
    > _(empty — fill in when decided)_
