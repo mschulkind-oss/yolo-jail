@@ -14,18 +14,19 @@ summary: "Replaces the inverted agent_profiles schema with generic, cross-pack p
 
 **The most important sections in this doc are §3 (Prototypes & Pros/Cons) and §4 (The Skills Architecture Parallel)** — comparing how providers can be represented as generic fragments and showing how this mirrors Core's proven skills brokering model.
 
-**Reads with:** [`pack-code-separation.md`](pack-code-separation.md) (the mandate that core knows no agents), [`pack-config-collaboration.md`](pack-config-collaboration.md) (surface sharing and `config-overlay`), [`agent-auth-modes.md`](agent-auth-modes.md) (the original auth mode design being refactored), and [`pack-system.md`](pack-system.md) (the pack layer model).
+**Reads with:** [`pack-code-separation.md`](pack-code-separation.md) (the mandate that core knows no agents), [`extension-point-principle.md`](extension-point-principle.md) (the framework author designs the extension point, not the first extender), [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix with one unified path), [`pack-config-collaboration.md`](pack-config-collaboration.md) (surface sharing and `config-overlay`), [`agent-auth-modes.md`](agent-auth-modes.md) (the original auth mode design being refactored), and [`pack-system.md`](pack-system.md) (the pack layer model).
 
 ---
 
 ## 1. Principles & Verdict Up Front
 
-The design rests on four core principles:
+The design rests on five core principles:
 
 1. **P1 — Core Knows Packs, Not Agents.** There is no `agent_profiles`, no `YOLO_AGENT_PROFILES`, and no switch on `claude` in runtime assembly. Everything operates on pack identifiers (slugs), manifest contributions, and generic configuration dictionaries.
 2. **P2 — A Pack Profile is a Generic Merged Object.** A pack configuration/profile is an atomic JSON/JSONC dictionary ($$\text{env} + \text{provider} + \text{settings}$$) composed via standard RFC-7386 merge patch semantics.
 3. **P3 — Packs Can Ship Fragments for Other Packs.** A pack is not restricted to configuring itself. It can declare declarative configuration fragments that target other packs (e.g. an `aws-bedrock` pack contributing Bedrock provider/env definitions to the `claude` pack).
 4. **P4 — Zero-Boilerplate Projection with Escape-Hatch Fallback.** Standard configuration facets (process environment variables, standard OpenAI/Anthropic endpoint structures) project automatically into the runtime environment without requiring bespoke Lua derivation in every pack. For idiosyncratic dialects (e.g. Codex TOML or Pi JSON), the pack's `derive.lua` receives the resolved composite object as `ctx.pack_config` / `ctx.profile`.
+5. **P5 — Design the Extension Point, Not the First Edge.** Per [`extension-point-principle.md`](extension-point-principle.md), when a mechanism will be extended outside this repo (custom cloud providers, local model bridges, third-party agents), we design the generic extension point now rather than forcing the first outside author to invent ad-hoc workarounds. We ship one edge (`aws-bedrock` targeting `claude`), but settle the general namespace and semantics upfront.
 
 ---
 
@@ -428,6 +429,19 @@ An adapter pack declares its bridging fragments in `pack.json`:
 
 > [!NOTE]
 > **Why this keeps Core completely generic:** Core has zero hardcoded logic for Bedrock, Claude, or AWS. Core simply evaluates: *when pack X is selected and profile P is active for target Y, merge X's fragment into Y's configuration dictionary*. The domain knowledge of how to bridge Claude to Bedrock lives entirely inside the adapter pack.
+
+### 5.4 Alignment with the Extension Point Principle
+
+[`extension-point-principle.md`](extension-point-principle.md) mandates that when a mechanism will be extended by third parties, the framework author must design the generic extension point upfront rather than letting the first consumer invent a workaround. The Adapter Pack design maps directly to the six canonical rules:
+
+| Principle Rule | How Pack Profiles & `pack-fragment` Conforms |
+| :--- | :--- |
+| **Rule 1: Name the job, not the thing.** | Uses `kind: "pack-fragment"` with `target` and `config`, not `claude_bedrock_auth`. |
+| **Rule 2: Silence means not participating.** | Packs without fragments are inert; fragments with unmatched profile filters do not execute. |
+| **Rule 3: Claims about other components require explicit target filtering.** | A fragment cannot mutate arbitrary state; it must declare `target: "<pack>"`, and activates only if `<target>` is in `packs`. |
+| **Rule 4: Anything that turns something off must be explicit.** | Setting a key to `null` tombstones/deletes it via standard RFC-7386 rules, logged during resolution. |
+| **Rule 5: Refuse unmatched references at load with helpful diagnostics.** | If a profile references an unknown pack or nonexistent fragment, validation warns/fails at load time. |
+| **Rule 6: Ship one edge, design the namespace.** | We ship one edge (`aws-bedrock` $\rightarrow$ `claude`), but design the entire generic extension point so future extenders (GCP Vertex, local Ollama, Azure) fit into the exact same grammar. |
 
 ---
 
