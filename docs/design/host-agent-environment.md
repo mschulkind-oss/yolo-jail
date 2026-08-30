@@ -9,7 +9,13 @@ summary: "Designs the two always-present channels that deliver pack and profile 
 # Delivering Environment Variables to Host Agents: Config-First vs. Shims
 
 **Status:** DECIDED, 2026-08-30 (was DRAFT 2026-08-29; amended and fully ruled 2026-08-30).
-Nothing built. All seven OQs are ruled — see the Decision Ledger in §9.
+**Implemented 2026-08-30** — commits `fe090446`…`a813b865` (the feature) plus
+`19f92de1`…`2e3b02aa` (the adversarial-review fixes: env-scope boundary, `bin` traversal
+rule, comment-aware `host_wrappers` writer, effective-access PATH resolution, relative
+`env_sources` refusal). All seven OQs are ruled — see the Decision Ledger in §9. One
+question opened BY the implementation lives in its own doc:
+[`envsource-relative-paths.md`](envsource-relative-paths.md) (OQ-E1 — refusal vs
+declaring-file anchoring).
 
 > [!IMPORTANT]
 > **What the amendment changed, and it is the doc's central claim.** The first version was organized
