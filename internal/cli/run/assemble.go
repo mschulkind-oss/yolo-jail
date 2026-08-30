@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -719,37 +720,23 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_REQUIRED_CAPABILITIES="+jsonDumpsOrEmptyList(cfgList(cfg, "required_capabilities")),
 		"-e", "YOLO_RUNTIME=podman",
 	)
-	if prof, ok := effectiveProfiles.Get("claude"); ok && prof == "bedrock" {
-		env = append(env, "-e", "CLAUDE_CODE_USE_BEDROCK=1")
-		if provs := cfgMap(cfg, "providers"); provs != nil {
-			if bedVal, ok := provs.Get("bedrock"); ok {
-				if bedMap, ok := bedVal.(*jsonx.OrderedMap); ok {
-					if reg, ok := bedMap.Get("region"); ok && reg != nil {
-						if s, ok := reg.(string); ok && s != "" {
-							env = append(env, "-e", "AWS_REGION="+s)
-						}
-					}
-					if modelsVal, ok := bedMap.Get("models"); ok && modelsVal != nil {
-						if modelsMap, ok := modelsVal.(*jsonx.OrderedMap); ok {
-							if def, ok := modelsMap.Get("default"); ok && def != nil {
-								if s, ok := def.(string); ok && s != "" {
-									env = append(env, "-e", "ANTHROPIC_DEFAULT_OPUS_MODEL="+s)
-								}
-							}
-							if hk, ok := modelsMap.Get("haiku"); ok && hk != nil {
-								if s, ok := hk.(string); ok && s != "" {
-									env = append(env, "-e", "ANTHROPIC_DEFAULT_HAIKU_MODEL="+s)
-								}
-							}
-							if sn, ok := modelsMap.Get("sonnet"); ok && sn != nil {
-								if s, ok := sn.(string); ok && s != "" {
-									env = append(env, "-e", "ANTHROPIC_DEFAULT_SONNET_MODEL="+s)
-								}
-							}
-						}
-					}
-				}
+	// The profile-derived environment (bedrock's CLAUDE_CODE_USE_BEDROCK, AWS_REGION and
+	// model defaults) is composed by internal/agentenv, which is ALSO what
+	// `yolo host -- <agent>` applies on the host. One implementation, so the two notches
+	// cannot drift — that is the jail/host parity claim in host-agent-environment.md §2.2,
+	// and it is not a claim two copies of this block could keep. This used to be thirty
+	// lines of nested type assertions inline here, covered by no test at all.
+	for _, agent := range effectiveProfiles.Keys() {
+		for _, v := range agentenv.Resolve(cfg, agent, effectiveProfiles) {
+			if v.Unset {
+				// Not reachable from a profile today, and deliberately not guessed at:
+				// podman's `-e KEY` (no `=`) means INHERIT KEY from the host env, which
+				// is the opposite of a removal. A jail starts from an empty environment
+				// anyway, so "remove" is already its default state for anything we do
+				// not pass; the host exec path is where Unset does real work.
+				continue
 			}
+			env = append(env, "-e", v.Key+"="+v.Value)
 		}
 	}
 	// No YOLO_REPO_ROOT: the in-jail CLI resolves its repo root the same way the
