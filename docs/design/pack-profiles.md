@@ -25,7 +25,7 @@ summary: "Replaces the inverted agent_profiles schema with a dual-layer architec
 > `kind: "autonomy"` — instead of `provider` + `pack-fragment`. Read its §9 for the point-by-point
 > diff. This doc is unchanged; the open questions below are still live.
 
-**Reads with:** [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) (the counter-design), [`pack-code-separation.md`](pack-code-separation.md) (the mandate that core knows no agents), [`extension-point-principle.md`](extension-point-principle.md) (the framework author designs the extension point, not the first extender), [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) (stringly-typed references fail closed by default), [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix with one unified path), [`host-agent-environment.md`](host-agent-environment.md) (delivering environment to host agents without shims), and [`pack-system.md`](pack-system.md) (the pack layer model).
+**Reads with:** [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) (the counter-design), [`pack-code-separation.md`](pack-code-separation.md) (the mandate that core knows no agents), [`extension-point-principle.md`](extension-point-principle.md) (the framework author designs the extension point, not the first extender), [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) (stringly-typed references fail closed by default), [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix with one unified path), [`host-agent-environment.md`](host-agent-environment.md) (the two-channel host env delivery these profiles feed), and [`pack-system.md`](pack-system.md) (the pack layer model).
 
 ---
 

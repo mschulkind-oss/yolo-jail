@@ -1,15 +1,15 @@
 ---
 title: "Delivering Environment Variables to Host Agents: Config-First vs. Shims"
 date: 2026-08-29
-status: in-review
+status: accepted
 tags: [host, env, packs, profiles, architecture]
-summary: "Evaluates strategies for applying pack and profile environment variables to coding agents running directly on the host. Compares native agent config file embedding, explicit host launch verbs, shell environment managers, and transparent shims — establishing a config-first hierarchy that avoids shims wherever possible."
+summary: "Designs the two always-present channels that deliver pack and profile environment to host coding agents — configuration into each agent's native config surface, environment into the process via yolo host — plus an opt-in, unconditionally generated launch wrapper per installed program as the addressable front door."
 ---
 
 # Delivering Environment Variables to Host Agents: Config-First vs. Shims
 
-**Status:** DESIGN, **amended 2026-08-30** (was DRAFT, 2026-08-29). Nothing built. OQ-1 · OQ-2 · OQ-3
-ruled 2026-08-30 — see the Decision Ledger in §9.
+**Status:** DECIDED, 2026-08-30 (was DRAFT 2026-08-29; amended and fully ruled 2026-08-30).
+Nothing built. All seven OQs are ruled — see the Decision Ledger in §9.
 
 > [!IMPORTANT]
 > **What the amendment changed, and it is the doc's central claim.** The first version was organized
@@ -34,9 +34,11 @@ the `api_key_env` + `env_sources` architecture deliberately puts only variable *
 **something must populate the agent's process environment or BYOK does not work on the host at all.**
 This doc designs **two always-present channels split by what they carry** — configuration into the
 agent's native config surface (universal invocation coverage: IDE, cron, absolute path), environment
-into the process via an explicit host launch verb (`yolo host -- <agent>`) with an optional generated
-**launch wrapper** on `PATH` as a transparent front door to that same verb. One env-composition
-implementation, two entry points, identical rules for every pack.
+into the process via an explicit host launch verb (`yolo host -- <agent>`) with an opt-in wrapper
+directory on `PATH` carrying a generated **launch wrapper for every installed program** — both a
+transparent front door to that same verb and an absolute path (`<wrap dir>/claude`) that scripts
+and IDEs can rely on unconditionally. One env-composition implementation, two entry points,
+identical rules for every pack.
 
 **The most important sections are §1 (the payload split), §4 (the corrected capabilities matrix),
 and §5.1 (where launch wrappers live, and the PATH claim that costs).**
@@ -69,14 +71,17 @@ and §5.1 (where launch wrappers live, and the PATH claim that costs).**
 4. **P4 — One env-composition implementation, two front doors.** `yolo host -p <profile> -- <agent>`
    is the mechanism. A generated **launch wrapper** on `PATH` is a three-line `exec` into it, never a
    second implementation to drift. This is what makes "keep shims" affordable.
-5. **P5 — The PATH claim is opt-in; which wrappers get generated is not, and is not declared
-   either.** One user-level decision enables `<wrap dir>` on `PATH` (§5.3). After that, wrappers are
-   generated **uniformly** for every pack whose **resolved process environment is non-empty** — never
+5. **P5 — The PATH claim is opt-in; the wrapper set is not conditional on anything at all.** One
+   user-level decision enables `<wrap dir>` on `PATH` (§5.3, §5.5). After that, a wrapper is
+   generated for **every host program a selected pack installs — unconditionally** (OQ-5). Never
    per-agent opt-in, which would reintroduce exactly the invisible per-agent variation P1 exists to
-   delete. **"Non-empty" is computed at apply time, not declared in a manifest**: in the dominant
-   case the need comes from the user's `providers` config and the pack cannot know it. §5.4 is the
-   whole of that argument. *(This supersedes the first version's P4, which made shims strictly opt-in
-   per agent, and corrects the phrase "packs that declare host env", which named nothing.)*
+   delete; and never gated on the resolved env either, because the wrap dir is an **addressable
+   launch surface**: like a mise/asdf shim dir, `<wrap dir>/<agent>` must be a path a script or an
+   IDE can point at unconditionally and get the composed environment by absolute path, regardless
+   of shell config. A gate computed from config would make that path exist on some machines and not
+   others — §5.4 is the whole of that argument. *(This supersedes two earlier versions: the first
+   made shims strictly opt-in per agent; the second generated only for packs whose resolved env
+   came out non-empty, which broke the always-addressable property OQ-5 ruled for.)*
 6. **P6 — Blocker, launcher, wrapper: three mechanisms, three words, and "shim" retires.** They sit
    at different `PATH` positions for opposite reasons — **blockers** first (`grep -r` → refuse,
    `exit 127`), **launchers** last (lazy installers, after `/bin`), **wrappers** prepended on the
@@ -408,7 +413,7 @@ Four consequences worth stating before agreeing to it:
    writes an install manifest rather than installing.
 3. **It is one decision, not one per agent** (P5), and it is a **config key** — `host_wrappers`,
    top level beside the existing `host_files` — rather than something yolo infers from `PATH`.
-   Not opted in means no directory and no messages at all; `yolo host --` still works. OQ-4 says why
+   Not opted in means no directory and no messages at all; `yolo host --` still works. §5.5 says why
    inferring the opt-in from `PATH` gets it wrong in both directions.
 4. **The wrapper is three lines and holds no logic:**
 
@@ -426,14 +431,16 @@ universal answer and is not one:**
 | Bypass | Consequence |
 | :--- | :--- |
 | Invocation by absolute path (`~/.local/bin/claude`) | wrapper skipped |
-| An IDE extension with a configured binary path | wrapper skipped — **the most likely case to bite on the host** |
+| An IDE extension with a configured binary path | wrapper skipped — **and the inversion is the fix**: configure the IDE's binary path to `<wrap dir>/claude` and the composed env arrives by absolute path, no `PATH` consulted. OQ-5's unconditional generation is what makes that answer always available |
 | A shell function (`claude() { … }`) | **beats `PATH` outright.** The §2.2 wrapper function wins over the generated one; it has to be deleted either way |
 | A process that sanitizes `PATH` before spawning | wrapper skipped |
 
-**So a generated wrapper is a governance win over the `.bashrc` function, not a coverage win** —
-declared by a pack, versioned, reviewable, uniform across agents, removable, and with an escape
-hatch the function does not have: when `PATH` is not consulted, `yolo host -- claude` is a documented
-answer instead of a mystery. That is the honest case for keeping wrappers, and it is enough.
+**So a generated wrapper is a governance win over the `.bashrc` function on `PATH`, and —
+addressed by absolute path — a coverage win beyond it**: versioned, reviewable, uniform across
+agents, removable, and with two escape hatches the function does not have. When `PATH` is not
+consulted, `yolo host -- claude` is a documented answer instead of a mystery — and so is
+`<wrap dir>/claude` itself, the same answer in file form. The second hatch only works if the file
+is guaranteed to exist, which is what OQ-5 rules (§5.4).
 
 
 ### 5.2 The CLI shape: `yolo host <verb>`, and `--host` removed (OQ-7)
@@ -546,9 +553,13 @@ env"*, and **that phrase names nothing.** Checked against the tree 2026-08-30:
 > of six agents need the channel "whenever the provider has a key", and **the pack is not the thing
 > that knows whether it has one.** A manifest declaration would systematically under-generate.
 
-**So the trigger is COMPUTED at apply time, not declared.** A pack gets a wrapper iff its resolved
-process environment for this apply is non-empty. Three sources feed it, and only the first is
-anything a manifest says:
+**So nothing declares the trigger — and, ruled in OQ-5, nothing computes one either: THERE IS NO
+TRIGGER.** Once `host_wrappers` is on, a wrapper is generated for **every host program a selected
+pack installs** — the agent CLIs today; a loophole-only pack installs no program and so gets
+nothing, which is the only gate left, and it is structural, not environmental. What varies by
+config is not *whether* the wrapper exists but *what its launch composes*: the wrapper is a
+three-line `exec` into `yolo host` (§5.1), and §6.1 resolves the environment at launch time from
+live state. Three sources feed that composition, and only the first is anything a manifest says:
 
 1. **Static `env`** — a `kind: "env"` contribution, or the `env` block of the pack's active
    `kind: "profile"` variant. Literal strings, known from the manifest.
@@ -559,18 +570,88 @@ anything a manifest says:
 3. **Removals** — a `null` value, i.e. §2.2's `unset AWS_PROFILE`. It has no config-surface
    equivalent at all, so its presence alone requires the channel.
 
-**This composes with OQ-4's rule rather than complicating it.** The set is recomputed every apply,
-so adding a provider with a key to your config makes a wrapper appear for `pi` on the next
-`yolo host apply` — and "print when the wrapper directory changed" fires exactly then, which is
-precisely when you need to be told. Nothing has to predict it in a manifest.
+**Why the computed gate died — this doc briefly leaned "generate iff the resolved env is non-empty"
+and OQ-5 overruled it.** Two things were wrong with it, kept here so neither gets re-derived:
+
+> [!WARNING]
+> **The "empty wrapper is a lie" objection argued against a wrapper §5.1 had already deleted.** No
+> wrapper injects anything, for any pack — env composition lives in `yolo host` at launch. A
+> wrapper for `agy` behaves *identically* to the wrapper for `claude` on a personal machine where
+> the Bedrock creds file is absent: it composes what live state says, which happens to be nothing.
+> §2.2's own flagship `.bashrc` function is exactly this shape — universal, conditionally-empty —
+> and "no-op on personal machines" is presented there as correct behavior.
+
+> [!WARNING]
+> **A gate computed at apply time gates a file whose payload is composed at launch time.** Under
+> the gate, the wrapper set was a function of user config — unstable across machines and config
+> edits, with `yolo host apply --dry-run` the only place the answer existed. And it broke the
+> property OQ-5 ruled for: the wrap dir as an **addressable launch surface**. In mise/asdf/pyenv,
+> the shim for every installed tool exists unconditionally, precisely so a script or an IDE can
+> point at `<shim dir>/<tool>` by absolute path and get a correct environment regardless of shell
+> config — *"you can always point directly at the shim and ensure that you get a perfect env …
+> regardless of shell config."* A conditionally-existing `<wrap dir>/agy` is a path you cannot rely
+> on, which is to say: not a surface.
+
+**How this composes with §5.5's reporting rule:** the wrap dir's contents now change only when the
+selected pack set (or a pack's installed programs) changes — first enable, pack added or removed —
+and "print when the wrapper directory changed" fires exactly then. Adding a provider with a key
+changes **no** wrapper file and needs no report: the existing wrapper starts composing it at the
+next launch, with no re-apply needed for the env channel (Channel 1's config files still wait on
+one).
 
 > [!NOTE]
-> **The honest cost of computing rather than declaring:** the wrapper set is a function of user
-> config, so it is not stable across machines or across a config edit. A reader asking *"which
-> agents get wrappers?"* cannot answer from the packs alone — they have to run
-> `yolo host apply --dry-run`. That is the right trade (a declaration would be wrong more often than
-> it was right), but it means the **apply output is the only place that answer exists**, which raises
-> the stakes on OQ-4's reporting.
+> **The honest cost of unconditional generation:** with wrappers enabled, yolo is a hard runtime
+> dependency of every wrapped launch — a broken `yolo` binary or an unparseable config takes bare
+> `agy` down with it, an agent whose composed env is empty and which needed nothing from yolo. That
+> is the price of the always-addressable property, accepted in OQ-5. It is bounded by the bypass
+> table's own rows: the real binary still sits behind the wrap dir on `PATH`, and invoking it by
+> absolute path still works.
+
+### 5.5 `apply` reports actions, `check` reports state — the `PATH` line (OQ-4)
+
+**Ruled 2026-08-30, confirming the leaning.** The question was when yolo prints the one `PATH` line
+the wrap dir needs (§5.1 consequence 2), and whether it ever writes it. The four-part shape:
+
+* **Opt-in is `host_wrappers: true`** (top level, beside the existing `host_files`), not a `PATH`
+  inspection. Not opted in → no directory, no wrappers, no message, ever. `yolo host --` still
+  works. This is what stops any of it being a nag — yolo only ever mentions the line to someone who
+  asked for wrappers.
+* **`apply` prints the line when it CREATED OR CHANGED the wrapper directory** — not when it
+  observes `PATH`. That is a completion notice about its own action ("I just wrote six wrappers;
+  here is what makes them take effect"), and it needs to know nothing about your RC or your shell.
+  Silent on every apply that changed no wrappers — which, after OQ-5, means every apply that did
+  not enable the feature or change the selected pack set (§5.4).
+* **`yolo check` carries the `PATH` observation**, every run, because it is the command whose job
+  is "what is the state of my environment" and it is typically run from a fresh shell — so its
+  answer is both decidable and actionable, which `apply`'s is not. A generated wrapper directory
+  that is not on `PATH` is an inert-configuration row, in the summary-counted channel.
+* **`apply` does NOT refuse.** It also writes Channel 1 surfaces, which work regardless; refusing
+  the half that works because the other half is unwired would be the wrong gate
+  ([`gate-placement-principle.md`](gate-placement-principle.md)). Generate, report, and let `check`
+  keep reporting.
+
+Plus **`--shell-init`** for the user who would rather yolo just wrote the line — the same
+disposition [`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md) reaches for
+every other "configured but not in effect" state. It writes on explicit request only; P3 stands.
+
+> [!WARNING]
+> **Why `apply` must not condition on observing `PATH` — "already set" has two meanings, and they
+> disagree exactly when it matters.** `apply` can observe **this process's `PATH`**, a fact about
+> the shell that invoked yolo, not about the user's RC. False positive: the line is in the RC, but
+> yolo ran from a shell started before the edit — a nag about something already done. False
+> negative, the worse one: someone typed `export PATH=…` ad hoc in one shell; yolo sees it present,
+> says nothing, and every *new* shell has no wrappers — the silent-skip class, arrived at by a
+> check that was trying to prevent it. Reading RC files to disambiguate is not the fix: the line
+> can live in any of several files or be built dynamically, and P3 says they are not yolo's
+> territory. The tempting intermediate — print when the wrap dir is absent from this process's
+> `PATH` — inherits the whole ambiguity for no benefit. **Conditioning `apply` on its own action
+> instead of on an observation removes the unreliable input entirely** — and the actions-vs-state
+> split is what the two commands are for.
+
+**The residual, named:** a user who enables `host_wrappers` and never pastes the line has a working
+`yolo host --` and inert wrappers — not silently (`apply` said the line once, `check` repeats it
+every run), but not working either. That residual is the cost of P3, and `--shell-init` is its
+exit.
 
 ---
 
@@ -631,108 +712,9 @@ yolo host --profile dev -- opencode
 
 ## 8. Open Questions
 
-The three questions this doc opened on 2026-08-29 were all ruled on 2026-08-30 and are compacted
-into §9. What the amendment opened in their place is the `PATH` claim §5.1 asks the user to make.
-
-1. 💬 **OQ-4: When does yolo print the `PATH` line, and does it ever write it?** §5.1 has yolo
-   *print* the `PATH` line for the wrap dir (§5.3) and stop, on P3's reasoning that the RC is the
-   user's file. The obvious refinement — *print it during `apply --host` if it is not already set* —
-   is right in shape and has one wrinkle that decides the design.
-
-   > [!WARNING]
-   > **"Already set" has two meanings and they disagree exactly when it matters.** `apply --host`
-   > can observe **this process's `PATH`**, which is a fact about the shell that invoked yolo — not
-   > about the user's RC. The two come apart in both directions:
-   >
-   > * **False positive:** the line is in the RC, but `apply --host` was run from a shell started
-   >   before the edit. yolo nags about something already done.
-   > * **False negative, and it is the worse one:** someone typed `export PATH=…` in one shell
-   >   ad hoc. yolo sees it present, says nothing, and every *new* shell has no wrappers — the
-   >   silent-skip class, arrived at by a check that was trying to prevent it.
-   >
-   > Reading the RC files to disambiguate is not the fix: the line can live in any of `~/.bashrc`,
-   > `~/.zshrc`, `~/.profile`, a fish conf, or a sourced fragment, and can be built dynamically. yolo
-   > would be guessing about a file P3 says is not its territory.
-
-   **The shape this suggests — `apply` reports ACTIONS, `check` reports STATE, and the opt-in is a
-   config key rather than an inference:**
-
-   * **Opt-in is `host_wrappers: true`** (top level, beside the existing `host_files`), not a
-     `PATH` inspection. Not opted in → no directory, no wrappers, no message, ever. `yolo host --`
-     still works. **This is what stops any of it being a nag** — yolo only ever mentions the line to
-     someone who asked for wrappers.
-   * **`apply` prints the line when it CREATED OR CHANGED the wrapper directory** — not when it
-     observes `PATH`. That is a completion notice about its own action ("I just wrote three
-     wrappers; here is what makes them take effect"), and it needs to know nothing about your RC or
-     your shell. Silent on every apply that changed no wrappers.
-   * **`yolo check` carries the `PATH` observation**, every run, because it is the command whose job
-     is "what is the state of my environment" and it is typically run from a fresh shell — so its
-     answer is both decidable and actionable, which `apply`'s is not. A generated wrapper directory
-     that is not on `PATH` is an inert-configuration row, in the summary-counted channel.
-   * **`apply` does NOT refuse.** It also writes Channel 1 surfaces, which work regardless; refusing
-     the half that works because the other half is unwired would be the wrong gate
-     (`gate-placement-principle.md`). Generate, report, and let `check` keep reporting.
-
-   > [!NOTE]
-   > **A discarded intermediate, kept because it is the tempting one.** The first refinement had
-   > `apply` print *when the wrap dir is absent from this process's `PATH`*. That inherits the whole
-   > ambiguity above for no benefit: it nags after an RC edit made in another shell, stays silent
-   > after a one-off `export`, and buys nothing that the `check` row does not already cover.
-   > **Conditioning `apply` on its own action instead of on an observation removes the unreliable
-   > input entirely** — and the actions-vs-state split is what the two commands are *for*.
-
-   **The stakes:** whether a pack whose resolved env is non-empty (§5.4) can end up silently doing
-   nothing on the host. Under the above it cannot do so *quietly* — but it can still do nothing until the user
-   pastes a line, and that is the residual this question is really about.
-
-   _Leaning:_ All four bullets as written, plus `--shell-init` for the user who would rather yolo
-   just wrote the line. It is the same disposition
-   [`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md) reaches for every other
-   "configured but not in effect" state.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-5: Does a pack with an empty resolved env still get a wrapper?** The framing this
-   question shipped with — *"every selected pack, or only packs that declare host env?"* — was
-   **wrong on both sides**, and §5.4 is why: there is no declaration to gate on, and in the dominant
-   case the pack cannot make one. The trigger is computed. What is genuinely left is the boundary
-   case.
-
-   **The live question:** a pack whose resolved process env comes out **empty** — no static `env`, no
-   profile `env`, no provider carrying an `api_key_env`, no removals. `agy` is the standing example
-   (§4: native OAuth, the one agent that needs no process env). Does it get a wrapper anyway?
-
-   * **For generating one:** the wrapper set stops depending on config, so `which agy` answers the
-     same on every machine, and adding a provider later needs no new file — the existing wrapper
-     just starts carrying something.
-   * **Against:** a wrapper whose composed environment is empty is pure indirection — it makes
-     `which agy` point at a script that adds nothing, and it is a `PATH` shadow claim bought for
-     nothing. It also slows every invocation by a process.
-
-   _Leaning:_ **Only non-empty.** A wrapper that injects nothing is a lie about what is happening,
-   and §5.4's recompute-per-apply already handles the "adding a provider later" case — the wrapper
-   appears, and OQ-4's change-report says so. Consistency of the *mechanism* is P5's job; consistency
-   of the *file list* is not worth a no-op indirection on every launch.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. ✅ **OQ-7: `yolo host apply`, and `--host` is REMOVED — RESOLVED (2026-08-30).**
-
-   **Ruling:** `yolo host` is the namespace for host-only verbs and also shorthands the
-   notch-parameterized ones. `yolo apply --at host` stays the systematic form. **`yolo apply --host`
-   is removed outright — not deprecated.** *"yes, but just remove --host, no deprecate."* This
-   overrules the leaning, which had called removal "not on the table" because the flag appears in
-   [`AGENTS.md`](../../AGENTS.md) and in user dotfiles docs; under RM-P1 (*"we're early, we can break
-   things"*) a shipped shorthand with a one-word replacement is exactly the kind of surface that is
-   cheap to change now and expensive later. Two spellings, and the third never becomes muscle memory.
-
-   Settled in §6 and §5.2. Removal scope is §5.2's table.
-
-4. ✅ **OQ-6: `~/.local/share/yolo-jail/bin`, and the in-jail dirs are renamed to match —
-   RESOLVED (2026-08-30).** Two questions were asked here: what the XDG alternatives are, and whether
-   the in-jail dirs should be gathered with it. §5.3 is the answer to both.
+None open. All seven questions this doc raised (OQ-1 … OQ-7) are ruled and compacted into the
+Decision Ledger (§9); each ruling's normative home is the section named in the ledger's right-hand
+column.
 
 ---
 
@@ -747,3 +729,5 @@ into §9. What the amendment opened in their place is the `PATH` claim §5.1 ask
 | HE-P2 | **Keep wrappers, and make them a three-line `exec` into `yolo host`** — consistency without a second env-composition implementation. Wrappers get their own prepended directory; `~/.local/bin` is a file collision with `claude`'s own installer. | 2026-08-30 | §1 P4–P5, §5.1 |
 | OQ-7 | **`yolo host apply` is the ergonomic form, `yolo apply --at host` the systematic one, and `yolo apply --host` is REMOVED — not deprecated.** *"just remove --host, no deprecate."* Overrules the leaning, which had ruled removal out because the flag is in `AGENTS.md` and user dotfiles docs; RM-P1 applies. `yolo host` also houses the host-only verbs (`env`, `wrappers enable`, `-- <cmd>`) that have no `jail`/`guest` counterpart. Decision 9.1 is untouched: it governs what the notch IS, not where its ergonomics live. | 2026-08-30 | §5.2, §6 |
 | OQ-6 | **`~/.local/share/yolo-jail/bin/wrap`**, hardcoded like its siblings rather than reading `XDG_DATA_HOME` — the repo follows the XDG layout and honors no XDG variable anywhere (`paths.go:315`), so honoring it for one new directory would make it the only path that moves. **And the jail's two generated dirs are renamed into the same tree** (`bin/block`, `bin/launch`) — gathered in the filesystem, *never* on `PATH`, since blockers must be first and launchers last. Retires the word "shim" and with it the need for P6. | 2026-08-30 | §5.3 |
+| OQ-4 | **`apply` reports actions, `check` reports state — confirms the leaning, all four bullets plus `--shell-init`.** *"the lean on OQ4 seems right to me."* Opt-in is the `host_wrappers: true` config key, never a `PATH` inference; `apply` prints the `PATH` line only when it created or changed the wrap dir; `yolo check` carries the every-run `PATH` observation as an inert-configuration row; `apply` never refuses; `--shell-init` writes the line on explicit request. | 2026-08-30 | §5.5 |
+| OQ-5 | **Every host program a selected pack installs gets a wrapper, unconditionally — OVERRULES the leaning ("only non-empty").** The wrap dir is an addressable launch surface, mise/asdf-style: *"other systems like this let you rely on the fact that the shims always exist … you can always point directly at the shim and ensure that you get a perfect env … regardless of shell config. we're breaking this here."* The leaning's "against" bullets argued about a payload-carrying wrapper §5.1 had already deleted — no wrapper injects anything; `yolo host` composes at launch from live state. The honest cost that replaces them — yolo as a hard runtime dependency of every wrapped launch — is accepted. | 2026-08-30 | §5.4, §5.1 |
