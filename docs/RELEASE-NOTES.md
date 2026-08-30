@@ -26,6 +26,42 @@ was created on 2026-08-18, after that tag, which is why it has no released secti
 next cut is triggered by this file filling up or by a cadence is an open product question; see
 [`plans/further-roadmap-ideas.md`](plans/further-roadmap-ideas.md) §I5.)*
 
+### ⚠️ Security: `yolo host -- <cmd>` reads the USER config only — never the workspace's
+
+**What changed** (2026-08-30). The environment `yolo host` composes for a host process is now
+built from `~/.config/yolo-jail/config.jsonc` **alone**. The workspace `yolo-jail.jsonc` — which is
+agent-editable, because `/workspace` is bind-mounted read-write into the jail — no longer reaches
+it. A confirmed review finding showed the merged read was arbitrary code execution on the host: a
+cloned repository could set `LD_PRELOAD`, `NODE_OPTIONS`, or `BASH_ENV` for a process outside every
+sandbox, and the `host_wrappers` opt-in multiplied the exposure to every wrapped launch.
+
+**Who this bites.** Anyone who put credentials in the WORKSPACE config expecting them to reach host
+launches. That never worked safely, and the fix is the same construction `packs`, `host_files`, and
+`host_wrappers` already use: user scope by construction, not workspace scope filtered. Move the
+`env_sources` / `providers` / `agent_profiles` entries into the user config; the workspace config's
+copies still apply to everything IN the jail, where the container is the boundary.
+
+### Security: pack `bin` names must be bare program names
+
+**What changed** (2026-08-30). A pack's `bin` field is now validated the way every other
+path-bearing manifest field already is: a single PATH segment — no `/`, no `..`, no `:`, not
+absolute. `bin` names the FILE yolo writes for the program (a host launch wrapper, a jail lazy
+launcher, a blocked-tool shim), so a `bin` carrying path structure was a write outside the generated
+directory — the canonical target being a `~/.bashrc`. `yolo pack lint` and jail boot both refuse it
+now, and the writers re-check independently.
+
+**Who this bites.** No shipped pack is affected — the ten that yolo ships all use bare names. A
+third-party or hand-written pack with a path-shaped `bin` gets a loud refusal naming the rule.
+
+### The `null` unset spelling is actually configurable now
+
+**What changed** (2026-08-30). `env_sources`' removal spelling — `"AWS_PROFILE": null` — was
+rejected by config validation, so the exact config the unset feature required made `yolo check`
+fail and every `yolo -- <cmd>` launch exit with "Invalid jail config", while `yolo host env` still
+honored it. Validation now accepts `null` (documented in `yolo config-ref`), and assignments and
+removals are computed in one ordered pass so a dotenv file listed after a null correctly cancels
+the removal.
+
 ### ⚠️ `yolo apply --host` is removed — use `yolo host apply`
 
 **What changed** (2026-08-30). The `--host` shorthand is **removed outright, not deprecated**
