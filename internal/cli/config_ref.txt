@@ -744,6 +744,9 @@
   [bold]security.blocked_tools[/bold] (array): Tools to block inside the jail.
     Simple: ["curl", "wget"]
     Detailed: [{"name": "grep", "message": "Use rg", "suggestion": "rg <pattern>"}]
+    A tool name is a BARE NAME — a single PATH segment, no "/", "..",
+    ":" or absolute path — because it names the FILE yolo generates in
+    the block dir; a path-shaped name is refused.
     Default: grep and find are blocked (rg/fd suggested instead).
       • grep is conditionally blocked — only recursive invocations
         (``-r``, ``-R``, ``--recursive``, or short-flag bundles like
