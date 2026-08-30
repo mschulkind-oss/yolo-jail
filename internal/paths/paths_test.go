@@ -199,3 +199,33 @@ func TestUserConfigPathFallsBackToJSON(t *testing.T) {
 		t.Errorf("UserConfigPath() = %q, want %q", got, wantJSONC)
 	}
 }
+
+// TestWrapDirUnderExplicitHome pins the host wrapper dir's location AND the reason it
+// takes an explicit home: `apply` renders into a home it was handed, so a wrap dir
+// derived from $HOME would write into the invoking user's real state dir the moment the
+// two differ. The Under form must therefore ignore $HOME entirely.
+func TestWrapDirUnderExplicitHome(t *testing.T) {
+	orig, had := os.LookupEnv("HOME")
+	t.Cleanup(func() {
+		if had {
+			os.Setenv("HOME", orig)
+		} else {
+			os.Unsetenv("HOME")
+		}
+	})
+	os.Setenv("HOME", "/home/invoking-user")
+
+	const rendered = "/tmp/rendered-home"
+	want := "/tmp/rendered-home/.local/share/yolo-jail/bin/wrap"
+	if got := WrapDirUnder(rendered); got != want {
+		t.Errorf("WrapDirUnder(%q) = %q, want %q", rendered, got, want)
+	}
+	if got := GeneratedBinDirUnder(rendered); got != "/tmp/rendered-home/.local/share/yolo-jail/bin" {
+		t.Errorf("GeneratedBinDirUnder(%q) = %q", rendered, got)
+	}
+
+	// The $HOME-reading form stays consistent with GlobalStorage.
+	if got, want := WrapDir(), filepath.Join(GlobalStorage(), "bin", "wrap"); got != want {
+		t.Errorf("WrapDir() = %q, want %q", got, want)
+	}
+}

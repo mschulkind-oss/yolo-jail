@@ -338,6 +338,41 @@ func GlobalStorageUnder(home string) string { return filepath.Join(home, globalS
 // GlobalHome returns the shared container /home/agent backing dir.
 func GlobalHome() string { return filepath.Join(GlobalStorage(), "home") }
 
+// GeneratedBinDir returns $HOME/.local/share/yolo-jail/bin — the parent of every
+// directory of yolo-GENERATED executables. It is a gathering point in the FILESYSTEM
+// only: its children sit at opposite ends of PATH by design (blockers first, launchers
+// last), so nothing may ever put this parent on PATH and pick up all three at once.
+//
+// See host-agent-environment.md OQ-6 for the naming ruling that created it.
+func GeneratedBinDir() string { return GeneratedBinDirUnder(home()) }
+
+// GeneratedBinDirUnder is GeneratedBinDir under an EXPLICIT home — see GlobalStorageUnder
+// for why a caller that has already resolved a home must not re-derive it from $HOME.
+func GeneratedBinDirUnder(home string) string {
+	return filepath.Join(GlobalStorageUnder(home), "bin")
+}
+
+// WrapDir returns $HOME/.local/share/yolo-jail/bin/wrap — the HOST launch-wrapper dir.
+//
+// This is the one generated dir a USER is asked to put on PATH, and it must be
+// PREPENDED, ahead of ~/.local/bin: a wrapper only works if it is found before the real
+// binary, and `claude`'s own installer writes ~/.local/bin/claude, so sharing that
+// directory would be a file collision rather than a shadowing strategy
+// (host-agent-environment.md §5.1).
+//
+// Because prepending it makes everything inside shadow the user's real tools, the
+// directory holds ONLY generated wrappers and is reset CONTENTS-ONLY — never RemoveAll,
+// which would unlink a directory a user's PATH (or a live jail's bind) has captured.
+func WrapDir() string { return WrapDirUnder(home()) }
+
+// WrapDirUnder is WrapDir under an EXPLICIT home. `apply` renders into a home it was
+// handed (render.Target.Home), so deriving this from $HOME instead would write into the
+// invoking user's REAL state dir the moment the two differ — exactly what every test
+// with a t.TempDir() home does.
+func WrapDirUnder(home string) string {
+	return filepath.Join(GeneratedBinDirUnder(home), "wrap")
+}
+
 // GlobalMise returns the shared mise data dir.
 func GlobalMise() string { return filepath.Join(GlobalStorage(), "mise") }
 
