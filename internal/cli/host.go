@@ -53,7 +53,8 @@ apply flags:
 env flags:
   --format <fmt>  export (default) or json.
   --profile <name>, -p <name>   As above.
-  --agent <name>  Compose for this agent (default: every configured one).
+  --agent <name>  Compose as if launching this agent (default: claude). The agent name
+                  selects which agent_profiles entry applies.
 
 Examples:
   yolo host -- claude                 # bare claude, with the composed environment
@@ -153,10 +154,7 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer) int {
 		return 1
 	}
 
-	// Resolve the target while ignoring yolo's OWN generated directories. This is the
-	// recursion guard: <wrap dir>/claude is `exec yolo host -- claude`, so an ordinary
-	// lookup would find the wrapper again and fork-bomb.
-	target, err := hostwrap.LookPathSkipping(os.Getenv("PATH"), cmd[0], yoloManagedDirs())
+	target, err := resolveHostTarget(os.Getenv("PATH"), cmd[0])
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host: %v\n", err)
 		return 127
@@ -171,6 +169,18 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer) int {
 		return 126
 	}
 	return 0 // unreachable: a successful Exec never returns
+}
+
+// resolveHostTarget finds the real binary for a host launch, skipping yolo's OWN
+// generated directories.
+//
+// THIS IS THE RECURSION GUARD, and it is load-bearing for the entire wrapper design:
+// <wrap dir>/claude is `exec yolo host -- claude`, so an ordinary PATH lookup would find
+// the wrapper again and exec it, forever. It is a separate function rather than an inline
+// call so a test can pin the CALL SITE — passing an empty skip list here compiles, passes
+// every callee test in internal/hostwrap, and fork-bombs in production.
+func resolveHostTarget(pathEnv, bin string) (string, error) {
+	return hostwrap.LookPathSkipping(pathEnv, bin, yoloManagedDirs())
 }
 
 // yoloManagedDirs are the directories a host PATH lookup must skip. The whole generated
@@ -342,6 +352,13 @@ func hostEnv(args []string, out, errw io.Writer) int {
 		return 2
 	}
 	if agent == "" {
+		// A default rather than "every configured agent": the composition is per-agent by
+		// construction (agent_profiles maps ONE profile per agent), so there is no single
+		// environment that is right for all of them — two agents on different providers
+		// would produce contradictory values for the same variable. `claude` is the
+		// default because it is the pack this repo's own workflows assume; --agent names
+		// any other. The help says exactly this, and used to say "every configured one",
+		// which was never what the code did.
 		agent = "claude"
 	}
 

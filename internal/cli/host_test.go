@@ -363,3 +363,108 @@ func TestApplyUsageNoLongerAdvertisesTheRemovedFlag(t *testing.T) {
 		t.Error("applyUsage does not mention the `yolo host` namespace that replaced it")
 	}
 }
+
+// TestResolveHostTargetSkipsTheWrapDir pins the CALL SITE of the recursion guard.
+//
+// internal/hostwrap's own tests prove LookPathSkipping skips what it is told to skip; this
+// proves `yolo host` actually TELLS it to. Measured before this test existed: returning
+// nil from yoloManagedDirs() compiled and passed the entire suite, and in production
+// turned every wrapped launch into an infinite exec loop — the wrapper finds itself first
+// on PATH, execs `yolo host -- claude`, which finds the wrapper again.
+func TestResolveHostTargetSkipsTheWrapDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	wrapDir := paths.WrapDirUnder(home)
+	if err := os.MkdirAll(wrapDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The wrapper, exactly as apply would generate it.
+	if err := os.WriteFile(filepath.Join(wrapDir, "claude"), []byte(hostwrap.Body("claude")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The real binary, further down PATH — where claude's own installer puts it.
+	realDir := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realDir, "claude"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// The wrap dir FIRST, which is the whole point of prepending it.
+	pathEnv := wrapDir + string(os.PathListSeparator) + realDir
+	got, err := resolveHostTarget(pathEnv, "claude")
+	if err != nil {
+		t.Fatalf("resolveHostTarget: %v", err)
+	}
+	if want := filepath.Join(realDir, "claude"); got != want {
+		t.Fatalf("resolved %q, want %q — `yolo host` would exec the WRAPPER, which execs "+
+			"`yolo host` again: an infinite loop on every wrapped launch", got, want)
+	}
+}
+
+// TestYoloManagedDirsCoversTheWholeGeneratedTree: skipping bin/wrap alone would leave
+// bin/block and bin/launch reachable the day they exist. The skip list names the parent.
+func TestYoloManagedDirsCoversTheWholeGeneratedTree(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dirs := yoloManagedDirs()
+	if len(dirs) == 0 {
+		t.Fatal("yoloManagedDirs is empty — the recursion guard is disarmed")
+	}
+	wrap := paths.WrapDirUnder(home)
+	covered := false
+	for _, d := range dirs {
+		if strings.HasPrefix(wrap, d+string(filepath.Separator)) || wrap == d {
+			covered = true
+		}
+	}
+	if !covered {
+		t.Errorf("yoloManagedDirs %q does not cover the wrap dir %q", dirs, wrap)
+	}
+}
+
+// TestHostEnvAgentFlagSelectsTheProfile: the composition is per-agent, and --agent is how
+// you ask for a different one. Pins the help's claim against the code's behaviour — the
+// help used to promise "every configured one" while the code hard-coded a single name.
+func TestHostEnvAgentFlagSelectsTheProfile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Chdir(t.TempDir())
+	userCfg(t, home, `{
+	  "providers": {"bedrock": {"region": "us-east-1"}},
+	  "agent_profiles": {"claude": "bedrock"}
+	}`)
+
+	// Default agent picks up claude's profile.
+	var out, errw bytes.Buffer
+	if rc := hostEnv(nil, &out, &errw); rc != 0 {
+		t.Fatalf("rc=%d %s", rc, errw.String())
+	}
+	if !strings.Contains(out.String(), "CLAUDE_CODE_USE_BEDROCK") {
+		t.Errorf("default agent did not compose claude's profile:\n%s", out.String())
+	}
+
+	// A different agent, with no profile of its own, composes none of it.
+	out.Reset()
+	if rc := hostEnv([]string{"--agent", "pi"}, &out, &errw); rc != 0 {
+		t.Fatalf("rc=%d %s", rc, errw.String())
+	}
+	if strings.Contains(out.String(), "CLAUDE_CODE_USE_BEDROCK") {
+		t.Errorf("--agent pi composed claude's profile:\n%s", out.String())
+	}
+}
+
+// TestHostUsageDocumentsTheAgentDefaultItActuallyHas guards the divergence itself: the
+// help is what a user acts on, so a default it names must be the one the code applies.
+func TestHostUsageDocumentsTheAgentDefaultItActuallyHas(t *testing.T) {
+	if strings.Contains(hostUsage, "every configured one") {
+		t.Error("hostUsage promises --agent defaults to every configured agent; hostEnv " +
+			"composes for exactly one")
+	}
+	if !strings.Contains(hostUsage, "default: claude") {
+		t.Error("hostUsage does not name the default --agent the code applies")
+	}
+}

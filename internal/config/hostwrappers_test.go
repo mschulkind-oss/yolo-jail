@@ -47,6 +47,39 @@ func TestHostWrappersEnabledReadsUserConfigOnly(t *testing.T) {
 	}
 }
 
+// TestHostWrappersEnabledIgnoresWorkspaceScope is the half that proves the word "ONLY",
+// and it is the one that matters. The test above writes only a user config, so reading
+// the MERGED config would give the same answer and the boundary would look intact while
+// being gone. This writes the opt-in ONLY into the agent-editable workspace config and
+// asserts it is never seen — the attack the user-scope read exists to make impossible.
+func TestHostWrappersEnabledIgnoresWorkspaceScope(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+
+	ws := t.TempDir()
+	t.Chdir(ws)
+	// A repository — or an agent editing the live bind mount — turns it on.
+	write(t, filepath.Join(ws, WorkspaceConfigName), `{"host_wrappers": true}`)
+	// The user never did.
+	userCfgPath := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	if err := os.MkdirAll(filepath.Dir(userCfgPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, userCfgPath, `{"packs": []}`)
+
+	if HostWrappersEnabled() {
+		t.Fatal("a WORKSPACE config enabled host_wrappers — a repository can now make yolo " +
+			"write executables to the front of its user's PATH")
+	}
+
+	// And the user's own "false" is not overridden by a workspace "true" either.
+	write(t, userCfgPath, `{"host_wrappers": false}`)
+	if HostWrappersEnabled() {
+		t.Error("a workspace true overrode the user's explicit false")
+	}
+}
+
 // TestValidateHostWrappersWorkspaceScopeErrors is the defense-in-depth half: a workspace
 // value is already inert, and saying so loudly is what keeps it from LOOKING like it
 // worked.
