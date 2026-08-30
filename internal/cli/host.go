@@ -260,7 +260,10 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 	// process. That would re-open, through the filesystem, the exact boundary the
 	// user-scope-only cfg closes; hostScopedEnvSources is the backstop.
 	scoped := hostScopedEnvSources(cfg, warn)
-	userEnv := config.ResolveEnvSources(workspace, scoped, warn)
+	// ONE pass for (2) and (4): the assignments and the removals are the same ordered
+	// walk, and asking for them separately would read every dotenv file twice and warn
+	// twice — noise a missing host-only file used to produce on every `yolo host env`.
+	userEnv, removals := config.ResolveEnvSourcesFull(workspace, scoped, warn)
 	for _, k := range userEnv.Keys() {
 		v, _ := userEnv.Get(k)
 		if s, ok := v.(string); ok {
@@ -271,9 +274,9 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 	// (3) the profile's own vars.
 	vars = append(vars, agentenv.Resolve(cfg, agent, effectiveHostProfiles(cfg, agent, profile))...)
 
-	// (4) removals last. The same scoped config, so an inline null's cancellation by a
-	// LATER relative dotenv (were one still honored) cannot disagree with (2).
-	for _, k := range config.EnvSourceRemovals(workspace, scoped, warn) {
+	// (4) removals last, from the same pass as (2) — the same scoped config, so an
+	// inline null's cancellation by a later dotenv cannot disagree with the assignments.
+	for _, k := range removals {
 		vars = append(vars, agentenv.Var{Key: k, Unset: true})
 	}
 	return vars

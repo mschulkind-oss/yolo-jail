@@ -113,19 +113,21 @@ func ResolveEnvSourcePath(entry, workspace string) string {
 // entries override earlier; missing/unreadable files warn (via warn) and skip.
 // Returns the final env map as an OrderedMap (later-wins on key, position kept).
 func ResolveEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) *jsonx.OrderedMap {
-	merged, _ := resolveEnvSources(workspace, config, warn)
+	merged, _ := ResolveEnvSourcesFull(workspace, config, warn)
 	return merged
 }
 
-// resolveEnvSources is the single ordered pass over `env_sources`, returning the
-// assignments and the removals together.
-//
+// ResolveEnvSourcesFull is BOTH answers from ONE pass — the assignments map and the
+// removal list — for callers that need the two together. Calling ResolveEnvSources and
+// EnvSourceRemovals separately runs the pass twice, reading every dotenv file twice and
+// warning twice; a caller composing an environment (the host notch's hostEnvVars) uses
+// this instead.
 // One pass, because the two answers are defined by the SAME ordering and computing them
 // separately let them disagree. Later entries win for both: an assignment after a null
 // sets the variable and drops the removal; a null after an assignment removes it and drops
 // the assignment. That holds across entry KINDS too — a dotenv file listed after an inline
 // null cancels that null, which a dict-only scan could not see.
-func resolveEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) (*jsonx.OrderedMap, []string) {
+func ResolveEnvSourcesFull(workspace string, config *jsonx.OrderedMap, warn Warn) (*jsonx.OrderedMap, []string) {
 	if warn == nil {
 		warn = func(string) {} // discard warnings by default
 	}
@@ -164,11 +166,11 @@ func resolveEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) (*
 			continue
 		}
 		if s, ok := asStr(entry); ok {
-			path := ResolveEnvSourcePath(s, workspace)
-			data, err := os.ReadFile(path)
+			p := ResolveEnvSourcePath(s, workspace)
+			data, err := os.ReadFile(p)
 			if err != nil {
 				if os.IsNotExist(err) {
-					warn("env_sources file not found, skipping: " + s + " (resolved to " + path + ")")
+					warn("env_sources file not found, skipping: " + s + " (resolved to " + p + ")")
 				} else {
 					warn("env_sources file unreadable, skipping: " + s + ": " + err.Error())
 				}
@@ -218,7 +220,7 @@ func resolveEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) (*
 // removal still fired — later-wins in one half and earlier-wins in the other, and the
 // unset silently won.
 func EnvSourceRemovals(workspace string, config *jsonx.OrderedMap, warn Warn) []string {
-	_, removals := resolveEnvSources(workspace, config, warn)
+	_, removals := ResolveEnvSourcesFull(workspace, config, warn)
 	return removals
 }
 
