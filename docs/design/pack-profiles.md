@@ -12,7 +12,7 @@ summary: "Replaces the inverted agent_profiles schema with generic, cross-pack p
 
 **The short version.** `agent_profiles` is an architectural inversion: it leaks the concept of "agents" into core and forces Go-level runtime special-casing ([`internal/cli/run/assemble.go:722`](../../internal/cli/run/assemble.go#L722)). This design replaces it with **Pack Profiles** and **Pack Config Fragments** — a generic, RFC-7386 JSON Merge Patch object model. Packs can ship configuration fragments targeting other packs (e.g. an `aws-bedrock` pack layering Bedrock configuration into `claude`), users can define and swap named profiles globally or per-pack, and core automatically projects standard keys (such as `env`) into the jail without requiring per-pack Lua boilerplate or Go-side hardcoding.
 
-**The most important sections in this doc are §3 (Prototypes & Pros/Cons) and §4 (Cross-Pack Fragments)** — comparing how providers can be represented as generic fragments without forcing users into ugly per-tool dialect repetition.
+**The most important sections in this doc are §3 (Prototypes & Pros/Cons) and §4 (The Skills Architecture Parallel)** — comparing how providers can be represented as generic fragments and showing how this mirrors Core's proven skills brokering model.
 
 **Reads with:** [`pack-code-separation.md`](pack-code-separation.md) (the mandate that core knows no agents), [`pack-config-collaboration.md`](pack-config-collaboration.md) (surface sharing and `config-overlay`), [`agent-auth-modes.md`](agent-auth-modes.md) (the original auth mode design being refactored), and [`pack-system.md`](pack-system.md) (the pack layer model).
 
@@ -311,7 +311,52 @@ The optimal design combines **Prototype 2** and **Prototype 3**:
 
 ---
 
-## 4. Manifest Schema: `kind: "pack-fragment"`
+## 4. The Architectural Parallel: How Core Handles Skills & Briefings
+
+The proposed Pack Profiles model is **not a new conceptual pattern** in YOLO Jail — it directly parallels how Core handles **Skills** and **Briefings**.
+
+```mermaid
+flowchart LR
+    classDef default fill:#1e1e2e,stroke:#45475a,stroke-width:1px,color:#cdd6f4;
+    classDef pool fill:#313244,stroke:#f9e2af,stroke-width:2px,color:#f9e2af;
+    classDef core fill:#181825,stroke:#89b4fa,stroke-width:2px,color:#89b4fa;
+    classDef dest fill:#313244,stroke:#a6e3a1,stroke-width:2px,color:#a6e3a1;
+
+    subgraph "Skills Architecture (Shipped)"
+        S_SRC["Packs ship skills/ trees"]:::pool --> S_BROKER["Core mergedest.go Broker"]:::core
+        S_BROKER --> S_DEST["Active Agent Packs (.claude/skills, .pi/agent/skills)"]:::dest
+    end
+
+    subgraph "Profiles Architecture (Proposed)"
+        P_SRC["Packs/User ship Config Fragments"]:::pool --> P_BROKER["Core Profile Merge Engine"]:::core
+        P_BROKER --> P_DEST["Active Agent Packs (process env, Prism ctx.pack_config)"]:::dest
+    end
+```
+
+### 4.1 Side-by-Side Comparison
+
+In YOLO Jail, Skills and Briefings represent **shared pools of resources** that multiple agents consume in different, tool-specific ways:
+
+| Subsystem Dimension | Skills Subsystem ([`internal/packload/mergedest.go`](../../internal/packload/mergedest.go)) | Briefing Subsystem | Pack Profiles Subsystem (Proposed) |
+| :--- | :--- | :--- | :--- |
+| **The Resource Pool** | Markdown skill folders (`skills/*/SKILL.md`) contributed by content packs (e.g. `matt-core`, `configuring-the-jail`) | Markdown prose fragments contributed across selected packs | Configuration dictionaries / fragments (`env`, `provider`, `settings`) contributed by provider packs or user config |
+| **Consumer Declaration** | Agent pack declares a consumption slot: `{ kind: "skills", into: ".claude/skills" }` | Agent pack declares a briefing destination: `{ kind: "briefing", into: "AGENTS.md" }` | Agent pack declares a profile/config surface in Lua or receives `ctx.pack_config` and `env` |
+| **Content Origin** | Zero-ceremony packs ship `skills/` without knowing which agent will read them | Content packs ship `AGENTS.md` prose without knowing agent file names | Provider packs or user fragments ship config without knowing tool-specific JSON formats |
+| **Core's Role** | **Broker/Resolver**: Collects skills from all source packs, queries active agent packs for `into` paths, and fans the merged tree out | **Broker/Resolver**: Concatenates briefing text from all packs and writes to declared destinations | **Broker/Resolver**: Merges config fragments from active packs/profiles and projects them into `env` and `ctx.pack_config` |
+| **Agent Knowledge in Core** | **Zero**: Core has no hardcoded `".claude/skills"`; it reads destinations from selected manifests | **Zero**: Core has no hardcoded briefing filenames; it reads from active manifests | **Zero**: Core has no hardcoded `claude` Bedrock checks or provider schemas; it merges JSON and injects `env` |
+
+### 4.2 Why This Pattern Works
+As noted in [`internal/packload/mergedest.go:20-25`](../../internal/packload/mergedest.go#L20-L25):
+> *"THE DESTINATIONS COME FROM THE SELECTED PACK SET. An agent pack's skills contribution exists to NAME the directory its agent reads from, and its briefing names the file its agent reads instructions from; a content pack merges into the destinations those packs name. So 'which destinations?' is answered by the packs list — the one place the user has already stated which agents they use — and not by core knowing any tool's name."*
+
+Pack Profiles follow this exact same design:
+1. **Providers/Fragments are the content pool** (like `skills/`).
+2. **Agent packs are the consumers** declaring how they consume that content (via `env` and `derive.lua`).
+3. **Core is the agnostic broker** resolving and delivering the data based strictly on the user's selected `packs` list.
+
+---
+
+## 5. Manifest Schema: `kind: "pack-fragment"`
 
 A pack declares configuration fragments targeting other packs in its `pack.json`:
 
@@ -334,7 +379,7 @@ A pack declares configuration fragments targeting other packs in its `pack.json`
 }
 ```
 
-### 4.1 Field Definitions
+### 5.1 Field Definitions
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
@@ -345,7 +390,7 @@ A pack declares configuration fragments targeting other packs in its `pack.json`
 
 ---
 
-## 5. Resolution & Merge Pipeline
+## 6. Resolution & Merge Pipeline
 
 When yolo prepares a container launch, it resolves the effective configuration for each active pack:
 
@@ -378,16 +423,16 @@ When yolo prepares a container launch, it resolves the effective configuration f
             [ Fully Resolved Composite Pack Object ]
 ```
 
-### 5.1 RFC-7386 Merge Rules
+### 6.1 RFC-7386 Merge Rules
 1. **Objects / Maps (`env`, `settings`, `models`)**: Recursively merged. Keys in higher-precedence layers overwrite keys in lower layers. Setting a key to `null` deletes it (tombstoning).
 2. **Scalars / Strings**: Higher-precedence value wins.
 3. **Fragment Expansion**: If `"provider"` is a string, it is expanded against the merged `fragments` table before merging.
 
 ---
 
-## 6. Runtime Projection: Zero-Boilerplate vs. Custom Fallback
+## 7. Runtime Projection: Zero-Boilerplate vs. Custom Fallback
 
-### 6.1 Automatic Projection (Core-Handled)
+### 7.1 Automatic Projection (Core-Handled)
 
 Core inspects the resolved pack object and automatically applies standard domains:
 
@@ -399,7 +444,7 @@ Core inspects the resolved pack object and automatically applies standard domain
 
 ---
 
-## 7. CLI Ergonomics & Launch-Time Swapping
+## 8. CLI Ergonomics & Launch-Time Swapping
 
 The CLI front door is unified around generic profile flags, deprecating tool-specific flags like `--claude-auth`:
 
@@ -421,7 +466,7 @@ yolo --pack-profile pi=glm,claude=bedrock
 
 ---
 
-## 8. Security & Scope Boundaries
+## 9. Security & Scope Boundaries
 
 Cross-pack configuration fragments and profiles interact with YOLO Jail's trust model:
 
@@ -437,7 +482,7 @@ Cross-pack configuration fragments and profiles interact with YOLO Jail's trust 
 
 ---
 
-## 9. Non-Goals & What This Does Not License
+## 10. Non-Goals & What This Does Not License
 
 * **Not Replacing Static File Overlays (`config-overlay`)**: `config-overlay` remains the dedicated mechanism for contributing static keys to specific file surfaces (e.g. `fileSuggestion` in `.claude/settings.json`). `pack-fragment` operates at the semantic pack configuration level.
 * **Not an Arbitrary IPC Channel**: `pack-fragment` is declarative data merged at launch time; it is not runtime inter-pack communication.
@@ -445,7 +490,7 @@ Cross-pack configuration fragments and profiles interact with YOLO Jail's trust 
 
 ---
 
-## 10. Alternatives Considered
+## 11. Alternatives Considered
 
 | Alternative | Summary | Verdict |
 | :--- | :--- | :--- |
@@ -455,7 +500,7 @@ Cross-pack configuration fragments and profiles interact with YOLO Jail's trust 
 
 ---
 
-## 11. Risks & Mitigations
+## 12. Risks & Mitigations
 
 | Risk | Mitigation |
 | :--- | :--- |
@@ -465,7 +510,7 @@ Cross-pack configuration fragments and profiles interact with YOLO Jail's trust 
 
 ---
 
-## 12. Open Questions
+## 13. Open Questions
 
 1. 💬 **OQ-1: Global profile name vs. pack-scoped profile mapping in config.** Should `pack_profiles` in user config be keyed first by profile name (`profiles.bedrock.claude`) or by pack name (`pack_profiles.claude.bedrock`)?
    
