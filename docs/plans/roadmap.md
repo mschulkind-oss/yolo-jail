@@ -578,8 +578,8 @@ authority — two same-day docs each grounding the other in something unbuilt. B
 corrected; see [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) §8.
 
 **Three of the six steps need no ruling and are independent of everything in flight** — the warning
-channel (§7.1), `pack_profiles` key validation (§7.2, and it is the smallest change in the doc), and
-the `wire_api` enum plus the `base_url` credential refusal (§7.3). The three that do wait are the
+channel (§7 step 1), `pack_profiles` key validation (§7 step 2, and it is the smallest change in the
+doc), and the `wire_api` enum plus the `base_url` credential refusal (§7 step 3). The three that do wait are the
 supersession relocation (**OQ-RM2**), the skew message's cost model (**OQ-RM3**), and whether
 `yolo check` exits non-zero for a reference mismatch at all (**OQ-RM1**, which is
 [💬 10](#-10--yolo-check-tells-you-about-the-wrong-machine-in-three-places-and-one-vocabulary)'s
