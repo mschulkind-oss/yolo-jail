@@ -69,11 +69,14 @@ and §5.1 (where launch wrappers live, and the PATH claim that costs).**
 4. **P4 — One env-composition implementation, two front doors.** `yolo host -p <profile> -- <agent>`
    is the mechanism. A generated **launch wrapper** on `PATH` is a three-line `exec` into it, never a
    second implementation to drift. This is what makes "keep shims" affordable.
-5. **P5 — The PATH claim is opt-in; which wrappers get generated is not.** One user-level decision
-   enables `<wrap dir>` on `PATH` (§5.3). After that, wrappers are generated **uniformly** for every pack
-   that declares host env — never per-agent opt-in, which would reintroduce exactly the invisible
-   per-agent variation P1 exists to delete. *(This supersedes the first version's P4, which made
-   shims themselves strictly opt-in per agent.)*
+5. **P5 — The PATH claim is opt-in; which wrappers get generated is not, and is not declared
+   either.** One user-level decision enables `<wrap dir>` on `PATH` (§5.3). After that, wrappers are
+   generated **uniformly** for every pack whose **resolved process environment is non-empty** — never
+   per-agent opt-in, which would reintroduce exactly the invisible per-agent variation P1 exists to
+   delete. **"Non-empty" is computed at apply time, not declared in a manifest**: in the dominant
+   case the need comes from the user's `providers` config and the pack cannot know it. §5.4 is the
+   whole of that argument. *(This supersedes the first version's P4, which made shims strictly opt-in
+   per agent, and corrects the phrase "packs that declare host env", which named nothing.)*
 6. **P6 — Blocker, launcher, wrapper: three mechanisms, three words, and "shim" retires.** They sit
    at different `PATH` positions for opposite reasons — **blockers** first (`grep -r` → refuse,
    `exit 127`), **launchers** last (lazy installers, after `/bin`), **wrappers** prepended on the
@@ -524,6 +527,51 @@ captured the inode. Renaming means changing the mount args, the generator, `Boot
 comment, and AGENTS.md's PATH-order section together — mechanical, but not a side effect of the host
 work. **Sequence it after the host wrapper dir exists**, so the new vocabulary lands once.
 
+
+### 5.4 What "needs host env" actually means — and why a pack cannot declare it
+
+This section exists because earlier drafts of P5 and OQ-5 said *"every pack that declares host
+env"*, and **that phrase names nothing.** Checked against the tree 2026-08-30:
+
+| Could a pack declare it? | Finding |
+| :--- | :--- |
+| A manifest field for it | **No such field.** `kind: "env"` is `Vars map[string]string` ([`contributes.go:107`](../../internal/packdecl/contributes.go#L107)) with **no notch qualifier** — it is refused at the host notch wholesale, not conditionally. |
+| `api_key_env` in a `pack.json` | **Never appears in one.** It occurs only inside `derive.lua` files reading `ctx.providers` — which is **user config**, not a pack declaration. |
+| A "I consume providers" declaration | **Does not exist.** No `pack.json` mentions `providers`; the derive just reads `ctx.providers` at render time. |
+
+> [!IMPORTANT]
+> **In the dominant case the pack CANNOT know.** Whether `pi` needs a process-env channel depends on
+> whether *the user* configured a provider carrying an `api_key_env` — a fact in
+> `~/.config/yolo-jail/config.jsonc`, not in `packs/pi/pack.json`. §4's right-hand column says five
+> of six agents need the channel "whenever the provider has a key", and **the pack is not the thing
+> that knows whether it has one.** A manifest declaration would systematically under-generate.
+
+**So the trigger is COMPUTED at apply time, not declared.** A pack gets a wrapper iff its resolved
+process environment for this apply is non-empty. Three sources feed it, and only the first is
+anything a manifest says:
+
+1. **Static `env`** — a `kind: "env"` contribution, or the `env` block of the pack's active
+   `kind: "profile"` variant. Literal strings, known from the manifest.
+2. **Provider credentials** — the `api_key_env` name of every provider the pack projects. Today the
+   three provider-consuming derives project **every** configured provider into their surface, so in
+   practice this is the union of `api_key_env` across `providers`, for every pack whose derive reads
+   `ctx.providers`.
+3. **Removals** — a `null` value, i.e. §2.2's `unset AWS_PROFILE`. It has no config-surface
+   equivalent at all, so its presence alone requires the channel.
+
+**This composes with OQ-4's rule rather than complicating it.** The set is recomputed every apply,
+so adding a provider with a key to your config makes a wrapper appear for `pi` on the next
+`yolo host apply` — and "print when the wrapper directory changed" fires exactly then, which is
+precisely when you need to be told. Nothing has to predict it in a manifest.
+
+> [!NOTE]
+> **The honest cost of computing rather than declaring:** the wrapper set is a function of user
+> config, so it is not stable across machines or across a config edit. A reader asking *"which
+> agents get wrappers?"* cannot answer from the packs alone — they have to run
+> `yolo host apply --dry-run`. That is the right trade (a declaration would be wrong more often than
+> it was right), but it means the **apply output is the only place that answer exists**, which raises
+> the stakes on OQ-4's reporting.
+
 ---
 
 ## 6. Detailed Design: `yolo host` Command
@@ -633,8 +681,8 @@ into §9. What the amendment opened in their place is the `PATH` claim §5.1 ask
    > **Conditioning `apply` on its own action instead of on an observation removes the unreliable
    > input entirely** — and the actions-vs-state split is what the two commands are *for*.
 
-   **The stakes:** whether a pack that declares host env can end up silently doing nothing on the
-   host. Under the above it cannot do so *quietly* — but it can still do nothing until the user
+   **The stakes:** whether a pack whose resolved env is non-empty (§5.4) can end up silently doing
+   nothing on the host. Under the above it cannot do so *quietly* — but it can still do nothing until the user
    pastes a line, and that is the residual this question is really about.
 
    _Leaning:_ All four bullets as written, plus `--shell-init` for the user who would rather yolo
@@ -645,15 +693,27 @@ into §9. What the amendment opened in their place is the `PATH` claim §5.1 ask
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-5: Is a wrapper generated for every selected pack, or only packs that declare host env?**
-   P5 settles that generation is uniform rather than per-agent opt-in; it does not settle the
-   population. A wrapper for a pack with nothing to inject is a `PATH` shadow that buys nothing and
-   costs a layer of indirection in `which`.
+2. 💬 **OQ-5: Does a pack with an empty resolved env still get a wrapper?** The framing this
+   question shipped with — *"every selected pack, or only packs that declare host env?"* — was
+   **wrong on both sides**, and §5.4 is why: there is no declaration to gate on, and in the dominant
+   case the pack cannot make one. The trigger is computed. What is genuinely left is the boundary
+   case.
 
-   _Leaning:_ **Only packs that declare host env.** A wrapper whose composed environment is empty is
-   pure indirection, and `agy` (§4, the one agent that genuinely needs no process env) is the live
-   case that would get one for nothing. P5's "uniform" is about not asking the *user* to choose per
-   agent — the *pack's own declaration* deciding is exactly the extension point working.
+   **The live question:** a pack whose resolved process env comes out **empty** — no static `env`, no
+   profile `env`, no provider carrying an `api_key_env`, no removals. `agy` is the standing example
+   (§4: native OAuth, the one agent that needs no process env). Does it get a wrapper anyway?
+
+   * **For generating one:** the wrapper set stops depending on config, so `which agy` answers the
+     same on every machine, and adding a provider later needs no new file — the existing wrapper
+     just starts carrying something.
+   * **Against:** a wrapper whose composed environment is empty is pure indirection — it makes
+     `which agy` point at a script that adds nothing, and it is a `PATH` shadow claim bought for
+     nothing. It also slows every invocation by a process.
+
+   _Leaning:_ **Only non-empty.** A wrapper that injects nothing is a lie about what is happening,
+   and §5.4's recompute-per-apply already handles the "adding a provider later" case — the wrapper
+   appears, and OQ-4's change-report says so. Consistency of the *mechanism* is P5's job; consistency
+   of the *file list* is not worth a no-op indirection on every launch.
 
    **Answer:**
    > _(empty — fill in when decided)_
