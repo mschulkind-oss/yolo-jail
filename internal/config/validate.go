@@ -1230,8 +1230,12 @@ func validateEnvSources(config *jsonx.OrderedMap, errs *[]string) {
 					add(errs, path+"."+key+": invalid variable name "+
 						"(must match [A-Za-z_][A-Za-z0-9_]*)")
 				}
-				if !isStr(value) {
-					add(errs, path+"."+key+": expected a string value")
+				// null is the REMOVAL spelling — `unset KEY` for a host launch
+				// (host-agent-environment.md §6.1 step 3). It must be accepted here or
+				// the one payload no config surface can express is unconfigurable: the
+				// very config the feature requires would be a `yolo check` error.
+				if value != nil && !isStr(value) {
+					add(errs, path+"."+key+": expected a string value, or null to unset")
 				}
 			}
 			continue

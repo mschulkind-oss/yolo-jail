@@ -262,7 +262,7 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 	vars = append(vars, agentenv.Resolve(cfg, agent, effectiveHostProfiles(cfg, agent, profile))...)
 
 	// (4) removals last.
-	for _, k := range config.EnvSourceRemovals(cfg) {
+	for _, k := range config.EnvSourceRemovals(workspace, cfg, warn) {
 		vars = append(vars, agentenv.Var{Key: k, Unset: true})
 	}
 	return vars

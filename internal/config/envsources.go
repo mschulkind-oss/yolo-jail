@@ -60,19 +60,52 @@ func ResolveEnvSourcePath(entry, workspace string) string {
 // entries override earlier; missing/unreadable files warn (via warn) and skip.
 // Returns the final env map as an OrderedMap (later-wins on key, position kept).
 func ResolveEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) *jsonx.OrderedMap {
+	merged, _ := resolveEnvSources(workspace, config, warn)
+	return merged
+}
+
+// resolveEnvSources is the single ordered pass over `env_sources`, returning the
+// assignments and the removals together.
+//
+// One pass, because the two answers are defined by the SAME ordering and computing them
+// separately let them disagree. Later entries win for both: an assignment after a null
+// sets the variable and drops the removal; a null after an assignment removes it and drops
+// the assignment. That holds across entry KINDS too — a dotenv file listed after an inline
+// null cancels that null, which a dict-only scan could not see.
+func resolveEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) (*jsonx.OrderedMap, []string) {
 	if warn == nil {
 		warn = func(string) {} // discard warnings by default
 	}
 	merged := jsonx.NewOrderedMap()
-	entries := getListOrNilFalsy(config, "env_sources")
-	for _, entry := range entries {
+	removed := map[string]bool{}
+	var order []string
+	remove := func(k string) {
+		if !removed[k] {
+			order = append(order, k)
+		}
+		removed[k] = true
+		merged.Delete(k)
+	}
+	assign := func(k, v string) {
+		removed[k] = false
+		merged.Set(k, v)
+	}
+
+	for _, entry := range getListOrNilFalsy(config, "env_sources") {
 		if em, ok := asMap(entry); ok {
 			for _, k := range em.Keys() {
 				v, _ := em.Get(k)
-				// Decoded JSON keys are always strings, so only the value type
-				// gates: apply the entry only when the value is a string.
+				if v == nil {
+					// The REMOVAL spelling. Only an inline dict can express one: a
+					// dotenv FILE has no syntax for "unset", and inventing one would
+					// make yolo's dialect differ from everyone else's.
+					remove(k)
+					continue
+				}
+				// Decoded JSON keys are always strings, so only the value type gates:
+				// apply the entry only when the value is a string.
 				if vs, vok := asStr(v); vok {
-					merged.Set(k, vs)
+					assign(k, vs)
 				}
 			}
 			continue
@@ -91,65 +124,49 @@ func ResolveEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) *j
 			parsed := ParseDotenv(string(data))
 			for _, k := range parsed.Keys() {
 				v, _ := parsed.Get(k)
-				merged.Set(k, v)
+				vs, _ := v.(string)
+				assign(k, vs)
 			}
 		}
 	}
-	return merged
-}
 
-// EnvSourceRemovals returns the variable names an `env_sources` inline entry asks to be
-// REMOVED — the keys whose value is JSON null.
-//
-// # Why this is separate from ResolveEnvSources
-//
-// ResolveEnvSources returns a map of assignments, and a map cannot express "and delete
-// this one". A null there is silently skipped (its value is not a string), which is the
-// right behaviour for the JAIL: a container starts from an empty environment, so
-// "removed" is already the default state of anything yolo does not pass in.
-//
-// On the HOST it is the opposite. `yolo host -- claude` starts from the invoking shell's
-// os.Environ(), which may well carry an AWS_PROFILE that has to go — the motivating case
-// from docs/design/host-agent-environment.md §2.2, where the hand-written wrapper's first
-// act is `unset AWS_PROFILE`. No config SURFACE can express a removal at all, so its
-// presence alone is a reason the process-env channel has to exist (§1 P1).
-//
-// A removal is not an empty assignment: `AWS_PROFILE=` and no AWS_PROFILE behave
-// differently in every AWS SDK, which is why this returns names to unset rather than
-// pairs to set empty.
-//
-// Later entries win, matching ResolveEnvSources' ordering: a null after an assignment
-// removes the variable, and an assignment after a null sets it. Only inline dict entries
-// are considered — a dotenv FILE has no syntax for "unset", and inventing one would make
-// yolo's dotenv dialect differ from everyone else's.
-func EnvSourceRemovals(config *jsonx.OrderedMap) []string {
-	removed := map[string]bool{}
-	var order []string
-	for _, entry := range getListOrNilFalsy(config, "env_sources") {
-		em, ok := asMap(entry)
-		if !ok {
-			continue
-		}
-		for _, k := range em.Keys() {
-			v, _ := em.Get(k)
-			if v == nil {
-				if !removed[k] {
-					order = append(order, k)
-				}
-				removed[k] = true
-				continue
-			}
-			// A later assignment cancels an earlier removal.
-			removed[k] = false
-		}
-	}
 	out := make([]string, 0, len(order))
 	for _, k := range order {
 		if removed[k] {
 			out = append(out, k)
 		}
 	}
-	return out
+	return merged, out
+}
+
+// EnvSourceRemovals returns the variable names an `env_sources` entry asks to be REMOVED
+// — the keys whose value is JSON null.
+//
+// # Why a removal exists at all
+//
+// ResolveEnvSources returns a map of assignments, and a map cannot express "and delete
+// this one". A null is therefore skipped there, which is right for the JAIL: a container
+// starts from an empty environment, so "removed" is already the default state of anything
+// yolo does not pass in.
+//
+// On the HOST it is the opposite. `yolo host -- claude` starts from the invoking shell's
+// os.Environ(), which may well carry an AWS_PROFILE that has to go — the motivating case
+// in docs/design/host-agent-environment.md §2.2, where the hand-written wrapper's first
+// act is `unset AWS_PROFILE`. No config SURFACE can express a removal at all, which is
+// one of the reasons the process-env channel has to exist (§1 P1).
+//
+// A removal is not an empty assignment: `AWS_PROFILE=` and no AWS_PROFILE behave
+// differently in every AWS SDK, which is why this returns names to unset rather than
+// pairs to set empty.
+//
+// It shares ONE pass with ResolveEnvSources (resolveEnvSources below) so the two can never
+// disagree about ordering. That mattered: an earlier version walked only the inline dicts,
+// so a dotenv FILE listed after a null did assign the variable in the map while the
+// removal still fired — later-wins in one half and earlier-wins in the other, and the
+// unset silently won.
+func EnvSourceRemovals(workspace string, config *jsonx.OrderedMap, warn Warn) []string {
+	_, removals := resolveEnvSources(workspace, config, warn)
+	return removals
 }
 
 // expandUser expands a leading "~". Only "~" and "~/..." are expanded (a

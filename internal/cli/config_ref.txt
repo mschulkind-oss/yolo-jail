@@ -369,7 +369,10 @@
     Ordered list; each entry is either:
       • a string — path to a KEY=VALUE dotenv file (# comments allowed,
         quoted values OK, `export` prefix tolerated)
-      • an object — inline {"KEY": "VALUE"} map
+      • an object — inline {"KEY": "VALUE"} map; a null value
+        ("KEY": null) UNSETS the variable — the spelling
+        `yolo host -- <cmd>` uses to drop e.g. AWS_PROFILE from the
+        invoking shell (a later entry assigning the key cancels it)
     Later entries override earlier ones.  User-config list loads first,
     then workspace-config list.  File paths support ~ expansion,
     absolute paths, and workspace-relative paths.  Missing files warn
