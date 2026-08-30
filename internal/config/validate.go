@@ -96,6 +96,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateCacheRelocations(config, workspace, errs, warns)
 	validateWritableHomeDirs(config, errs)
 	validateHostFiles(config, workspace, errs)
+	validateHostWrappers(config, workspace, errs)
 	validatePacks(workspace, errs)
 
 	errors = *errs
@@ -439,6 +440,40 @@ func validateKVM(config *jsonx.OrderedMap, errs *[]string) {
 	}
 	if !isBool(kvm) {
 		add(errs, "config.kvm: expected a boolean (got "+pyReprValue(kvm)+")")
+	}
+}
+
+// validateHostWrappers shape-checks the `host_wrappers` opt-in.
+//
+// It is a plain boolean by deliberate design, not a list of agents to wrap: which
+// programs get a wrapper is not a user choice, it is every program a selected pack
+// installs (host-agent-environment.md OQ-5). The one decision a user makes is whether the
+// wrap directory exists and goes on their PATH at all, and that is what this key is.
+func validateHostWrappers(config *jsonx.OrderedMap, workspace string, errs *[]string) {
+	v, present := config.Get(hostWrappersKey)
+	if !present {
+		// Every workspace key survives into the merged map, so an absent key here proves
+		// the workspace config has none either — no re-read needed.
+		return
+	}
+	if v != nil && !isBool(v) {
+		add(errs, "config."+hostWrappersKey+": expected a boolean (got "+pyReprValue(v)+")")
+	}
+
+	// Scope: the key is READ from the user config directly (HostWrappersEnabled), so a
+	// workspace value is already inert. Say so rather than letting it look like it worked
+	// — a silent no-op on a security-relevant key is exactly the failure mode this whole
+	// construction exists to avoid. Warnings from the re-read are discarded: this file was
+	// already loaded, and any parse problem already reported, by whoever produced the
+	// merged config we were handed.
+	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
+	if err != nil || wsCfg == nil {
+		return
+	}
+	if wsValue, atWorkspace := wsCfg.Get(hostWrappersKey); atWorkspace && wsValue != nil {
+		add(errs, "config."+hostWrappersKey+": user-scope only — it puts generated "+
+			"executables on your PATH, so it is read from "+paths.UserConfigPath()+
+			" and a workspace value has no effect. Move it there, or remove it.")
 	}
 }
 

@@ -63,7 +63,7 @@ var knownTopLevelConfigKeys = set(
 	"mcp_servers", "mcp_presets", "devices", "gpu", "resources", "env_sources",
 	"loopholes", "host_processes", "journal",
 	"kvm", "prune", "ephemeral_storage", "include_if_found", "agents_md_extra",
-	"cache_relocations", "writable_home_dirs", "host_files", "packs",
+	"cache_relocations", "writable_home_dirs", "host_files", "host_wrappers", "packs",
 	"providers", "agent_profiles", "required_capabilities",
 )
 

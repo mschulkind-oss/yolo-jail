@@ -575,6 +575,42 @@
           "managed":  { "telemetry": false } }
       ]
 
+  [bold]host_wrappers[/bold] (boolean): Generate launch wrappers for host agents.
+    Default false.  When true, `yolo host apply` writes one small wrapper per
+    program your selected packs install into
+    [bold]~/.local/share/yolo-jail/bin/wrap[/bold], each a three-line `exec` into
+    `yolo host -- <program>`.  Put that directory FIRST on your PATH and a bare
+    `claude` (or `pi`, `codex`, …) composes its environment — Bedrock flags, the
+    credentials from `env_sources`, any unsets — the same way `yolo -- claude`
+    does inside a jail.
+
+    [bold]It must be PREPENDED[/bold], ahead of ~/.local/bin: a wrapper only works if
+    it is found before the real binary, and claude's own installer writes
+    ~/.local/bin/claude.  yolo PRINTS the line and does not write it; pass
+    [bold]--shell-init[/bold] to `yolo host apply` if you would rather it wrote one for you.
+      export PATH="$HOME/.local/share/yolo-jail/bin/wrap:$PATH"
+
+    Wrappers are generated for [bold]every[/bold] program a selected pack installs, whether
+    or not that program needs any environment today.  That is deliberate: the
+    directory is an addressable launch surface, so `<wrap dir>/claude` is a path
+    a script or an IDE's "agent binary" setting can point at and rely on
+    existing — which is also the answer whenever PATH is not consulted at all.
+    A pack that installs no program (a loophole-only pack) gets no wrapper.
+
+    Enabling this makes yolo a runtime dependency of every wrapped launch: a
+    broken yolo or an unparseable config takes the wrapped program down with it.
+    The real binary is still behind the wrap dir on PATH, and invoking it by
+    absolute path still works.
+
+    [bold yellow]Scope: user config only[/bold yellow] (~/.config/yolo-jail/config.jsonc).  The key
+    puts generated executables at the FRONT of your PATH, and a workspace config
+    travels with the repo and is agent-editable, so it must never make that
+    claim for you.  A workspace value is a `yolo check` error, and is never read.
+    `yolo check` also tells you, every run, when the wrap dir exists but is not
+    actually on your PATH.
+    Example (~/.config/yolo-jail/config.jsonc):
+      "host_wrappers": true
+
   [bold]workspace_readonly[/bold] (array of strings): Workspace sub-paths to overlay as read-only.
     Each entry is a relative path inside the workspace (no leading /, no ..).
     Mounted on top of the writable /workspace volume so agents cannot modify

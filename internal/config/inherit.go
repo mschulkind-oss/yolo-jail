@@ -175,6 +175,11 @@ var inheritCensus = map[string]keyDisposition{
 	// disposable home, so the same words name a different object — the one exclusion here
 	// that is about MEANING rather than a missing referent.
 	"host_files": {reason: "\"the host home\" silently rebinds to the jail's own disposable home"},
+	// `host_wrappers`: the same class as host_files, one step further out. It enables a
+	// directory of launch wrappers on the HOST's PATH — a claim on a shell yolo does not
+	// have in here, over programs the jail runs through its own launchers instead. Neither
+	// half of the key has a referent in a container.
+	"host_wrappers": {reason: "enables wrappers on the host's PATH, which a jail has neither of"},
 	// `mounts`: host paths again. Measured to warn "host path does not exist and will be
 	// skipped" for every host path in an in-jail check.
 	"mounts": {reason: "host paths absent in the container; validation warns on every one"},
