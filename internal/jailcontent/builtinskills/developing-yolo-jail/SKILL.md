@@ -11,8 +11,9 @@ bind-mounted live. The image bakes the CLI as real-file copies at
 `/opt/yolo-jail/share/yolo-jail`) — there is **no `/opt/yolo-jail` source bind
 and no dev-override wrapper any more**. A nested jail rebuilds the live checkout
 from source and runs THAT image — **but only when you pass
-`YOLO_REPO_ROOT=/workspace`** (see "The flake a launch builds from" below), and
-then your edited Go code is what runs. These are
+`YOLO_REPO_ROOT=/workspace`, and only from a throwaway workspace** (see "The
+flake a launch builds from" and "Never launch a nested jail on `/workspace`"
+below). Then your edited Go code is what runs. These are
 the build/deploy traps that have no `yolo --help` home — the authoritative
 version lives in `/workspace/AGENTS.md` (bind-mounted, always current); read it
 for the full detail.
@@ -33,7 +34,8 @@ for the full detail.
   jail's binaries are **frozen at the host-loaded image** — you cannot
   live-patch them in-jail. Verify any Go change by launching a **nested** jail.
 - Both Go and `flake.nix` changes are verifiable in a nested
-  `YOLO_REPO_ROOT=/workspace yolo -- bash`: its `AutoLoadImage` runs
+  `YOLO_REPO_ROOT=/workspace yolo -- bash` (run from `/tmp/yolo-nested`, not
+  `/workspace`): its `AutoLoadImage` runs
   `nix build .#ociImage --impure` on the live `/workspace` checkout (nix
   delegates to the host daemon), notices the store path changed, and loads + runs
   the **freshly built** image in the nested podman — carrying your edits for all
@@ -67,6 +69,7 @@ Standing in `/workspace` means nothing to it.
 So **in-jail, a bare `yolo` builds from the BAKED bundle** — the image you
 already have, not your edits. To verify anything you changed, name the live tree:
 
+    mkdir -p /tmp/yolo-nested && cd /tmp/yolo-nested
     YOLO_REPO_ROOT=/workspace yolo -- bash
 
 Every launch prints the one it took, before the build starts:
@@ -77,16 +80,40 @@ Every launch prints the one it took, before the build starts:
 **Read that line before believing a nested green.** The second spelling means
 you verified the baked image against itself.
 
+## Never launch a nested jail on `/workspace`
+
+`cd` somewhere else first. **Your own home is a directory inside this
+workspace**: the per-workspace home overlay is `<workspace>/.yolo/home`, so
+`/workspace/.yolo/home/claude` and `/home/agent/.claude` are the same inode
+(check it: `stat -c '%d:%i' /home/agent/.claude /workspace/.yolo/home/claude`).
+A nested launch on `/workspace` regenerates agent config straight over the
+session you are running in — on 2026-07-21 that deleted 479 Claude history
+entries mid-session, along with `~/.yolo-ca-bundle.crt`.
+
+Any other workspace gets its own `.yolo/home` and cannot reach ours.
+`/tmp/yolo-nested` is a good one: `/tmp` is a tmpfs, so it is always writable and
+leaves nothing behind. This is not merely safer — a fresh workspace exercises
+first-boot provisioning, which `/workspace` (already provisioned by the jail you
+are sitting in) skips.
+
+Since the flake source is now named by `YOLO_REPO_ROOT` rather than found from
+the cwd, the workspace and the source tree are independent. Before that they were
+welded together: the only way to build a nested image from live source was to
+launch on `/workspace`, which is exactly what made the collision unavoidable.
+
 ## Verification is mandatory
 
 For any `cmd/` or `internal/` change, **verify with a nested jail**. After
 `just build-go`, run the **freshly-built binary BY PATH**, pointed at the live
 tree:
 
-    just build-go && YOLO_REPO_ROOT=/workspace ./dist-go/linux-$(go env GOARCH)/yolo -- bash
+    just build-go
+    mkdir -p /tmp/yolo-nested && cd /tmp/yolo-nested
+    YOLO_REPO_ROOT=/workspace /workspace/dist-go/linux-$(go env GOARCH)/yolo -- bash
 
 (Without the env var this one does not merely test the wrong thing — it refuses:
-`dist-go/` has no bundle beside it and the jail home has no staged one.)
+`dist-go/` has no bundle beside it and the jail home has no staged one. Without
+the `cd`, it eats your home — see above.)
 
 Mount failures, permission errors, and read-only-fs conflicts only appear when a
 container actually starts — unit tests do not catch them.

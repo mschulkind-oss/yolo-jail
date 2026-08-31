@@ -118,8 +118,10 @@ there is no sync step.
   and the flake bundle at `/opt/yolo-jail/share/yolo-jail`; see `installPrefix`
   in `flake.nix`). **The outer jail's binaries are now frozen at the
   host-loaded image** until a host `just load` — you can no longer live-patch
-  them in-jail. Verify Go changes by launching a **nested** jail
-  (`YOLO_REPO_ROOT=/workspace yolo -- bash`): its `AutoLoadImage` nix-builds the
+  them in-jail. Verify Go changes by launching a **nested** jail (from a
+  throwaway workspace — see "Nested-jail verification is mandatory" under
+  Testing for the full command and why the `cd` matters): its `AutoLoadImage`
+  nix-builds the
   live `/workspace` checkout from source (the `goSrc` fileset, NOT `dist-go/`),
   so the nested image carries your edits for all four binaries. This is the
   accepted fast-loop regression. **`YOLO_REPO_ROOT` is not optional** — since
@@ -131,8 +133,8 @@ there is no sync step.
   (`bin/linux-<arch>` prebuilt artifacts consumed by the flake's prebuilt
   short-circuit in a shipped bundle) — it no longer feeds any in-jail run.
 - `flake.nix` changes are **fully verifiable in-jail**, runtime behavior
-  included. A nested `YOLO_REPO_ROOT=/workspace yolo -- bash` runs the CLI's own
-  `AutoLoadImage`, which
+  included. A nested launch (`YOLO_REPO_ROOT=/workspace yolo -- bash`, run from a
+  throwaway workspace) uses the CLI's own `AutoLoadImage`, which
   builds the flake (`nix build` delegates to the host daemon; see "Nix inside
   the jail"), notices the nix store path changed, materializes + loads the new
   image into the **nested** podman, and runs *that* — not the current baked
@@ -262,10 +264,23 @@ there is no sync step.
 - **No agent tests.** Automated tests must never start `claude`/`copilot`/
   `codex`/etc. interactively or make API calls. `--version` probes only.
 - **Nested-jail verification is mandatory** for `cmd/` and `internal/` changes:
-  after `just build-go`, run the freshly-built binary BY PATH —
-  `YOLO_REPO_ROOT=/workspace ./dist-go/linux-$(go env GOARCH)/yolo -- bash` —
-  from inside this jail (the env var is what points it at the live tree; without
-  it, `dist-go/` has no bundle beside it and the launch refuses outright). Mount
+  after `just build-go`, run the freshly-built binary BY PATH, pointed at the
+  live tree, **from a throwaway workspace**:
+  ```console
+  $ mkdir -p /tmp/yolo-nested && cd /tmp/yolo-nested
+  $ YOLO_REPO_ROOT=/workspace /workspace/dist-go/linux-$(go env GOARCH)/yolo -- bash
+  ```
+  The two halves are unrelated protections. `YOLO_REPO_ROOT` names the flake
+  (without it `dist-go/` has no bundle beside it and the launch refuses
+  outright). The `cd` protects the session you are running in: the per-workspace
+  home overlay is `<workspace>/.yolo/home` (`prepare.go:288`), and for
+  `/workspace` that directory **is** the live jail's home — `/workspace/.yolo/
+  home/claude` and `/home/agent/.claude` are the same inode. A nested launch on
+  `/workspace` therefore regenerates agent config over the running session's own
+  home; measured 2026-07-21, it ate 479 Claude history entries. Any other
+  workspace gets its own overlay and cannot reach ours. It also verifies MORE: a
+  fresh workspace exercises first-boot provisioning, which `/workspace` (already
+  provisioned by the outer jail) skips. Mount
   failures, permission errors, and read-only-fs conflicts only appear when a
   container actually starts. Unit tests do not catch them. **Not bare `yolo`:**
   that is the baked launcher (frozen at the last host `just load`), so a
@@ -430,15 +445,16 @@ Agent logs, for debugging: `~/.copilot/logs/`,
 ## Workflow
 
 1. Image change → edit `flake.nix`, then verify end-to-end in a nested jail
-   (`YOLO_REPO_ROOT=/workspace yolo -- bash`): the nested run rebuilds the flake
-   and runs the NEW image, so
+   (`cd /tmp/yolo-nested && YOLO_REPO_ROOT=/workspace yolo -- bash` — never from
+   `/workspace`, see Testing): the nested run rebuilds the flake and runs the NEW
+   image, so
    runtime behavior is observable in-jail (see "Build & deploy"). Watch the build
    output — a failed build is now fatal and prints nix's stderr. A host `just load`
    is only needed to ship the change to the maintainer's own jails, not to
    validate it.
 2. Logic change → edit `cmd/`/`internal/`, `just build-go`, verify by running
-   the freshly-built binary BY PATH:
-   `YOLO_REPO_ROOT=/workspace ./dist-go/linux-$(go env GOARCH)/yolo -- bash`.
+   the freshly-built binary BY PATH, from a throwaway workspace:
+   `cd /tmp/yolo-nested && YOLO_REPO_ROOT=/workspace /workspace/dist-go/linux-$(go env GOARCH)/yolo -- bash`.
    NOT bare `yolo` — that is the
    baked launcher and won't carry a launcher/argv-side change (see the
    nested-jail-verification invariant above). Never `just install` in-jail.
