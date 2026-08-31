@@ -56,7 +56,12 @@ extension point), [`stringly-typed-references-principle.md`](stringly-typed-refe
 4. **P4 — One representation per concept, with no escape hatch.** If an endpoint can be expressed
    two ways — once typed, once smuggled through an untyped dictionary — the typed one is
    decorative. The untyped path must be unrepresentable, not discouraged.
-5. **P5 — Every new kind states its combine rule and its claim before it exists.**
+5. **P5 — Every new kind states its combine rule and its claim before it exists.** "Claim" is a
+   term of the footprint model ([`pack-system.md` §3](pack-system.md)), not prose: the one-line
+   statement of what a contribution of that kind **takes on the environment** — a name on `PATH`,
+   an owned path, a host-home read — carried as the `Claims` field of
+   [`Footprint`](../../internal/packdecl/kinds.go#L170-L191) and printed as the Claims column of
+   the footprint table; the combine rule says how two claims on one target resolve.
    [`kinds.go:196-267`](../../internal/packdecl/kinds.go#L196-L267) makes this structural: a kind
    with no `Footprint{Combine, Claims}` cannot be registered, so `yolo pack footprint` and the
    collision table cannot see it. A design that adds kinds without answering this is not
