@@ -28,8 +28,8 @@ already shipped, which is most of the argument), [§5](#5-the-delivery-channel-r
 (the host-notch constraint that decides the Claude/Bedrock case), and
 [§9](#9-where-this-differs-from-pack-profilesmd-and-why) (the diff against `pack-profiles.md`).**
 
-**Reads with:** [`pack-profiles.md`](pack-profiles.md) (the design this answers — its §4 on secrets
-is kept nearly whole), [`pack-code-separation.md`](pack-code-separation.md) (core knows no agents),
+**Reads with:** [`pack-profiles.md`](pack-profiles.md) (the design this answers — its §4
+credential architecture is adopted as recommendation plus mechanism), [`pack-code-separation.md`](pack-code-separation.md) (core knows no agents),
 [`extension-point-principle.md`](extension-point-principle.md) (the framework author designs the
 extension point), [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md)
 (unmatched references fail closed), [`pack-config-collaboration.md`](pack-config-collaboration.md)
@@ -76,19 +76,16 @@ extension point), [`stringly-typed-references-principle.md`](stringly-typed-refe
    so it needs yolo in the launch path *and* the opt-in, while a config-file patch works from any
    invocation (IDE, cron, absolute path) with neither. So **configuration** patches the agent's
    own config surface; **secrets and unsets** go through process env. Channels, not preferences.
-7. **P7 — Git-tracked packs never contain secrets.** Kept from `pack-profiles.md` P4; §6 here
-   keeps it and closes three holes. **Why yolo enforces this rather than leaving it to author
-   hygiene:** a pack is a *distribution artifact* — `yolo pack install` fetches it from a git
-   remote and records approval at a commit, so a secret in a tracked manifest is one `git push`
-   from public and never appears in the approval the user actually granted. yolo is also the only
-   layer positioned to check it: it reads every manifest, knows which packs travel (a fetched
-   remote, a git-tracked tree) rather than sitting in one machine's private scratch, and already
-   enforces the name-shaped half of the rule
-   ([`validate.go:922-927`](../../internal/config/validate.go#L922-L927) refuses a non-name-shaped
-   value in
-   `api_key_env`). And the legitimate channel exists — `env_sources`, untracked `0600` files — so
-   refusing secrets in manifests blocks no real need; it is P4's argument applied to files: leave
-   the hatch open and the discipline is decorative.
+7. **P7 — Git-tracked packs never contain secrets; the schema makes compliance the default.**
+   A secret is a value whose disclosure would force rotation. Kept from `pack-profiles.md` P4 as
+   *recommendation plus mechanism*, not enforcement: the mechanism is the schema —
+   credential-pointer fields (`api_key_env`) hold env-var names by contract
+   ([`validate.go:922-927`](../../internal/config/validate.go#L922-L927)), credential values
+   travel `env_sources`, and §4.3 refuses userinfo in `base_url`. A pack is a *distribution
+   artifact* — fetched from a git remote, approved at a commit — which is why the recommendation
+   matters; yolo's part is that its schema never offers a sanctioned slot for a credential
+   value, so what it validates cannot carry one. What this design does **not** add is a secrets
+   scanner (§6).
 
 **Verdict.** Ship a rename, one new contribution kind, one new field on `providers`, and three
 validation gates. Do not ship a cross-pack fragment merge engine — and if one is ever needed, it is
@@ -238,7 +235,7 @@ Field semantics:
 | `config` | surface-patch list | No | Patches the **managed** layer of a surface **this same pack owns**, identified by `agent`/`name` — byte-identical to `AutonomyPosture.Config` ([`contributes.go:347-356`](../../internal/packdecl/contributes.go#L347-L356)). |
 | `launch` | `[{bin, flags}]` | No | Flags merged into the binary's launch flags, same shape as `AutonomyLaunch`. |
 | `env` | `map[string]string` | No | Static process env, jail-notch only ([§5](#5-the-delivery-channel-rule--and-why-it-kills-the-worked-example) says when this is the wrong field). |
-| `requires_provider` | `string` | No | A closed-namespace reference into `providers`. Unresolvable → fatal preflight ([§6.3](#63-an-activated-profile-with-no-credential-is-a-preflight-failure)). |
+| `requires_provider` | `string` | No | A closed-namespace reference into `providers`. Unresolvable → fatal preflight ([§6.2](#62-an-activated-profile-with-no-credential-is-a-preflight-failure)). |
 
 ### 3.2 Why the pack's own declarations, and not a target
 
@@ -347,7 +344,7 @@ Extend [`validate.go:885-944`](../../internal/config/validate.go#L885-L944) rath
   `responses`), which is [Rule 4](stringly-typed-references-principle.md) applied to a fixed
   syntactic slot. It is a free-form string today.
 - **`base_url` must parse as `http`/`https` and must carry no userinfo.** `https://user:tok@host/v1`
-  is a credential in a git-tracked file, and no current check catches it ([§6.1](#61-the-credential-shape-check-belongs-at-the-manifest-layer-not-on-one-field)).
+  is a credential in a git-tracked file, and no current check catches it; this rule is the check.
 - **`models` gets a documented alias vocabulary** (`default`, `fast`, `coder`, …), because
   `assemble.go:731-750` reads `default`/`haiku`/`sonnet` — Claude-specific alias names in core, a
   fourth inversion nobody has named.
@@ -356,8 +353,7 @@ Extend [`validate.go:885-944`](../../internal/config/validate.go#L885-L944) rath
 > `pack-profiles.md` §4.3 proposes the `api_key_env` credential check as new. It ships today:
 > [`validate.go:922-927`](../../internal/config/validate.go#L922-L927) already rejects anything that
 > is not `[A-Za-z_][A-Za-z0-9_]*`, which already refuses `sk-9f82…` (the hyphen fails the class).
-> What is genuinely missing is the *error message* that names the remedy, and the check on the
-> fields that can actually carry a secret — §6.1.
+> What is genuinely missing is the *error message* that names the remedy.
 
 ---
 
@@ -436,68 +432,23 @@ AWS_PROFILE`, which no config surface can express at all) goes through the proce
 
 ---
 
-## 6. Secrets — keeping `pack-profiles.md` §4 and closing three holes
+## 6. Credentials — `pack-profiles.md` §4's architecture, minus the scanner
 
-`pack-profiles.md` §4 is the best-argued part of that doc and this design adopts it whole: config
-and credentials are decoupled, packs carry `api_key_env` names only, and secrets enter through
-untracked `0600` files via `env_sources`. Three gaps remain.
+`pack-profiles.md` §4 is the best-argued part of that doc and this design adopts its
+architecture: configuration and credentials are decoupled, packs carry `api_key_env` *names*
+only (a name-syntax contract, enforced by one regex at
+[`validate.go:922-927`](../../internal/config/validate.go#L922-L927)), and credential values
+travel the `env_sources` channel — untracked host files, hydrated at launch. As
+*recommendation plus mechanism*, that is the whole of it.
 
-**What "secret" means here, and how the system recognizes one.** A secret is a value whose
-disclosure would force rotation — anything that authenticates: an API key, a session token, a
-password, a credential embedded in a URL. The rotation test is what classifies: an endpoint, a
-region, a model alias can leak at no cost, while a leaked key means rotating it on every machine
-and service it was scoped to. `pack-profiles.md` §4.1 lists examples but never defines the term;
-the defense is three layers — two of prevention, one of detection:
+**Deliberately not built: a secrets scanner.** A content scan over manifest strings was
+proposed in an earlier draft of this section and refused in review (2026-08-30) — it is a
+product category of its own (gitleaks, trufflehog, GitHub secret scanning) with goals
+orthogonal to yolo's. The in-scope remainder is the structural pieces above and the one gate
+below; a user who wants that tripwire runs a scanner in CI over the same git-tracked files.
+What adopting §4 leaves open is one asymmetry and one gate:
 
-1. **Prevention by contract.** A credential-pointer field (`api_key_env`) holds an env-var
-   *name*, and [`validate.go:922-927`](../../internal/config/validate.go#L922-L927) polices
-   exactly that: one regex, `envVarNameRe` = `[A-Za-z_][A-Za-z0-9_]*`, checking **name
-   syntax** — a check on valid env-var NAMES, full stop. It knows nothing about secrets, and
-   that is the mechanism: there is no value in the slot to inspect, so "is this string a
-   secret?" is unaskable there. (An accidental paste of `sk-9f82…` does trip it, on the
-   hyphen — a side effect of the syntax, not a capability; `ghp_…` is name-shaped and passes.)
-2. **Prevention by routing.** Credential values never enter a manifest at all — they arrive only via
-   `env_sources`, untracked `0600` host files. This is what makes the problem tractable: the
-   checker catches violations in one file type instead of classifying the world's strings.
-3. **Detection, for the fields that cannot be structurally constrained** (§6.1 below):
-   `base_url`, `models` values, `env` maps — known credential shapes (`sk-`, `Bearer `),
-   high-entropy runs, embedded whitespace.
-
-**Why keep a third layer at all** — the argument, once. Its target is the **accident, not the
-adversary**: an author pasting their own key into a file git tracks, usually one they are about
-to push. The adversary case is conceded outright — anyone determined to hide a secret in a
-manifest can (base64, split strings), and no claim is made about them. Recommendation plus
-mechanism — "keep secrets out, here is `env_sources`" — is what already ships, and the paste
-still happens: the name contract above refuses some accidental pastes only as a side effect
-(`sk-…` fails its syntax; `ghp_…` doesn't), and the secret-scanner product category (gitleaks,
-trufflehog, GitHub secret scanning) exists because
-advice does not prevent pastes. The cost asymmetry finishes it: a false positive is one
-dismissed warning line; a false negative is a credential **in git history**, which survives
-rotation. Disposition is a **warning in `yolo check`, never a refusal** — the footprint
-review-flag philosophy ([`pack-system.md` §3](pack-system.md): "an invitation to look, not a
-refusal").
-
-Two deliberate non-goals, in the same breath. **No permission checks**: the `0600` above
-describes the recommended shape of an `env_sources` file and yolo never verifies it — perms are
-the owner's business and have non-secret uses. **No scanning outside git-tracked manifests**:
-`env_sources` files themselves and untracked scratch are out of scope by construction, which is
-also what keeps the false-positive surface small — manifests are short, structured files, not
-the filesystem.
-
-### 6.1 The credential-shape check belongs at the manifest layer, not on one field
-
-§4.3 hardens `api_key_env` — the one field that is a *name* by construction and is
-[already checked](../../internal/config/validate.go#L922-L927). The fields that can carry an
-arbitrary string are unchecked: `base_url` (userinfo, signed-URL query tokens), `models` values, and
-any `env`/`vars` map in a tracked `pack.json`. The signals must be **credential shapes, not syntax
-violations**: known token prefixes (`sk-`, `ghp_`, `xoxb-`, `AKIA`), a `Bearer ` prefix, a
-`NAME=value` assignment whose NAME names a credential. Syntax-derived signals (embedded
-whitespace, charset) and entropy scoring are meaningless-to-noisy on free-form strings — prose
-and version strings trip them — and belong only on fields whose syntax forbids them, which is
-the `api_key_env` regex's job, not this one's. Where a value parses as a URL the check is
-structural and false-positive-free outright: §4.3's userinfo refusal.
-
-### 6.2 `env_sources` fails open while the config layer fails closed
+### 6.1 `env_sources` fails open while the config layer fails closed
 
 The census in [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md)
 records `env_sources` as *"Permissive on missing — silent skip with trace log"*, which
@@ -507,7 +458,7 @@ channel is the permissive one while the *configuration* channel is fail-closed �
 resolves perfectly, with an `api_key_env` naming a variable that was never hydrated, produces
 exactly the *"mysterious auth failures"* §2 of that principle calls the debugging nightmare.
 
-### 6.3 An activated profile with no credential is a preflight failure
+### 6.2 An activated profile with no credential is a preflight failure
 
 The fix is narrow and it is the highest-value gate in either design:
 
@@ -589,7 +540,7 @@ whether the contribution renders.
 | D7 | Modeled on the skills broker (§6) | Modeled on `autonomy` | Skills invert the direction for fragments (consumer-declares vs contributor-declares); `autonomy` is literally a two-valued profile (§3.1). |
 | D8 | Bedrock delivered as process `env` | Delivered as a managed patch to `claude/settings` | `env` is *refused* at the host notch, which is where the stated motivation lives (§5). |
 | D9 | `optional` gates the typo check | Universe-existence always fatal; selection gates rendering | An `optional` typo is silently skipped today under that design (§8). |
-| D10 | Secrets: harden `api_key_env` | Harden every string in a tracked manifest; refuse an active profile with an unhydrated key | The one field checked is the one already checked; the leaky fields are `base_url` and free-form env maps (§6). |
+| D10 | Secrets: harden `api_key_env` | Schema stays name-only; userinfo refused in `base_url`; active-profile credential preflight (§6.2); **no secrets scanner** | Content scanning is a product category of its own, refused in review — the structural pieces are the in-scope remainder (§6). |
 | D11 | Removal scope: 2 sites | 8 sites, plus `--claude-auth` | §2.4. |
 | D12 | New 5-step profile merge pipeline (§8) | No new pipeline | The shipped layer fold already composes these inputs; a second stack with no stated relationship to the first is where "which layer wins" goes to die (§7). |
 
@@ -624,7 +575,7 @@ instinct — applied to a different set (§8).
 | R2 | Refusing the cross-pack fragment means a third-party provider genuinely cannot adapt an agent pack it does not control. | §7 is the designed answer, one field on a shipped kind. Ship it the moment a real second consumer appears; the namespace is settled now, which is what [`extension-point-principle.md`](extension-point-principle.md) Rule 6 asks for. |
 | R3 | Moving Bedrock env into `claude/settings` depends on Claude Code honoring `settings.json`'s `env` block for these specific variables. | **Unverified — this is the design's load-bearing empirical assumption.** OQ-4. If it does not hold, the fallback is profile-gated `kind: "env"`, jail-only, and §5's host-notch parity is lost for this one case. |
 | R4 | `CombineExclusive` by `(pack, name)` forbids a pack splitting one profile across several contributions. | Deliberate — it is the same one-declaration rule `autonomy` has, and it keeps "what does profile X do" answerable by reading one object. |
-| R5 | The active-profile credential preflight (§6.3) turns a working-but-degraded launch into a refusal. | Scoped to *active* profiles only, and the message names the variable, the provider and the `env_sources` files consulted. Same disposition as the reachability witness in [AGENTS.md](../../AGENTS.md). |
+| R5 | The active-profile credential preflight (§6.2) turns a working-but-degraded launch into a refusal. | Scoped to *active* profiles only, and the message names the variable, the provider and the `env_sources` files consulted. Same disposition as the reachability witness in [AGENTS.md](../../AGENTS.md). |
 
 ---
 
@@ -646,7 +597,7 @@ instinct — applied to a different set (§8).
    profile is jail-only and §2.2's `.bashrc` wrapper cannot actually be deleted. See
    [`host-agent-environment.md` §5](host-agent-environment.md#5-the-recommended-host-environment-architecture).
 4. **Tighten the provider schema** (§4.3) and add `requires_provider`.
-5. **The secrets gates** (§6.1, §6.3).
+5. **The credential preflight gate** (§6.2).
 6. **`profile` on `config-overlay` / `env` / `launch`** — only when a second real consumer exists.
 
 Steps 1–3 delete more code than they add. Step 6 is the only speculative one, and it is one field.
