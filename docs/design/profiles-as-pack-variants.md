@@ -441,6 +441,28 @@ AWS_PROFILE`, which no config surface can express at all) goes through the proce
 and credentials are decoupled, packs carry `api_key_env` names only, and secrets enter through
 untracked `0600` files via `env_sources`. Three gaps remain.
 
+**What "secret" means here, and how the system recognizes one.** A secret is a value whose
+disclosure would force rotation — anything that authenticates: an API key, a session token, a
+password, a credential embedded in a URL. The rotation test is what classifies: an endpoint, a
+region, a model alias can leak at no cost, while a leaked key means rotating it on every machine
+and service it was scoped to. `pack-profiles.md` §4.1 lists examples but never defines the term;
+recognition is three mechanisms, in decreasing order of certainty:
+
+1. **Structural, where the schema can force it.** A field whose semantics are "credential
+   pointer" (`api_key_env`) carries a *name* by construction, and
+   [`validate.go:876-881`](../../internal/config/validate.go#L876-L881) makes a value there
+   unrepresentable.
+2. **Channel policy.** Credential values never enter a manifest at all — they arrive only via
+   `env_sources`, untracked `0600` host files. This is what makes the problem tractable: the
+   checker catches violations in one file type instead of classifying the world's strings.
+3. **Heuristic, for the fields that cannot be structurally constrained** (§6.1 below):
+   `base_url`, `models` values, `env` maps — known credential shapes (`sk-`, `Bearer `),
+   high-entropy runs, embedded whitespace.
+
+The third layer is best-effort by necessity — a secret in a novel shape can pass it — which is
+P4's argument in miniature: the structure is the load-bearing defense, the heuristic the
+backstop.
+
 ### 6.1 The credential-shape check belongs at the manifest layer, not on one field
 
 §4.3 hardens `api_key_env` — the one field that is a *name* by construction and is
