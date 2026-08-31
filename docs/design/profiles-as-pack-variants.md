@@ -84,7 +84,8 @@ extension point), [`stringly-typed-references-principle.md`](stringly-typed-refe
    layer positioned to check it: it reads every manifest, knows which packs travel (a fetched
    remote, a git-tracked tree) rather than sitting in one machine's private scratch, and already
    enforces the name-shaped half of the rule
-   ([`validate.go:876-881`](../../internal/config/validate.go#L876-L881) refuses a literal key in
+   ([`validate.go:922-927`](../../internal/config/validate.go#L922-L927) refuses a non-name-shaped
+   value in
    `api_key_env`). And the legitimate channel exists — `env_sources`, untracked `0600` files — so
    refusing secrets in manifests blocks no real need; it is P4's argument applied to files: leave
    the hatch open and the discipline is decorative.
@@ -104,7 +105,7 @@ shipped.
 ### 2.1 Providers are already a typed extension point with three native consumers
 
 `providers` is a top-level config key, validated in Go
-([`validate.go:840-899`](../../internal/config/validate.go#L840-L899)) against a closed key set
+([`validate.go:885-944`](../../internal/config/validate.go#L885-L944)) against a closed key set
 ([`config.go:88`](../../internal/config/config.go#L88)), exposed to the Prism as a live derive source
 ([`sources.go:19`](../../internal/agentcfg/manifest/sources.go#L19),
 [`derive.go:180`](../../internal/agentcfg/luahook/derive.go#L180)), and consumed today by three packs
@@ -340,7 +341,7 @@ Under this design the hatch is closed by construction: there is one place a prov
 
 ### 4.3 What to add to the schema
 
-Extend [`validate.go:840-899`](../../internal/config/validate.go#L840-L899) rather than replacing it:
+Extend [`validate.go:885-944`](../../internal/config/validate.go#L885-L944) rather than replacing it:
 
 - **`wire_api` becomes a closed enum** (`openai-completions`, `openai-chat`, `anthropic`,
   `responses`), which is [Rule 4](stringly-typed-references-principle.md) applied to a fixed
@@ -353,7 +354,7 @@ Extend [`validate.go:840-899`](../../internal/config/validate.go#L840-L899) rath
 
 > [!NOTE]
 > `pack-profiles.md` §4.3 proposes the `api_key_env` credential check as new. It ships today:
-> [`validate.go:876-881`](../../internal/config/validate.go#L876-L881) already rejects anything that
+> [`validate.go:922-927`](../../internal/config/validate.go#L922-L927) already rejects anything that
 > is not `[A-Za-z_][A-Za-z0-9_]*`, which already refuses `sk-9f82…` (the hyphen fails the class).
 > What is genuinely missing is the *error message* that names the remedy, and the check on the
 > fields that can actually carry a secret — §6.1.
@@ -449,9 +450,12 @@ and service it was scoped to. `pack-profiles.md` §4.1 lists examples but never 
 recognition is three mechanisms, in decreasing order of certainty:
 
 1. **Structural, where the schema can force it.** A field whose semantics are "credential
-   pointer" (`api_key_env`) carries a *name* by construction, and
-   [`validate.go:876-881`](../../internal/config/validate.go#L876-L881) makes a value there
-   unrepresentable.
+   pointer" (`api_key_env`) carries a *name* by construction, enforced by one regex —
+   `envVarNameRe` = `[A-Za-z_][A-Za-z0-9_]*` at
+   [`validate.go:922-927`](../../internal/config/validate.go#L922-L927). It is a syntax check
+   on the field's own contract, **not a secret detector**, and its secret-refusal is incidental
+   and partial: `sk-9f82…` fails on the hyphen and `Bearer …` on the space, but an alnum token
+   such as `ghp_…` is a valid env-var name and passes — which is one reason layer 3 exists.
 2. **Channel policy.** Credential values never enter a manifest at all — they arrive only via
    `env_sources`, untracked `0600` host files. This is what makes the problem tractable: the
    checker catches violations in one file type instead of classifying the world's strings.
@@ -459,23 +463,44 @@ recognition is three mechanisms, in decreasing order of certainty:
    `base_url`, `models` values, `env` maps — known credential shapes (`sk-`, `Bearer `),
    high-entropy runs, embedded whitespace.
 
-The third layer is best-effort by necessity — a secret in a novel shape can pass it — which is
-P4's argument in miniature: the structure is the load-bearing defense, the heuristic the
-backstop.
+**Why keep a third layer at all** — the argument, once. Its target is the **accident, not the
+adversary**: an author pasting their own key into a file git tracks, usually one they are about
+to push. The adversary case is conceded outright — anyone determined to hide a secret in a
+manifest can (base64, split strings), and no claim is made about them. Recommendation plus
+mechanism — "keep secrets out, here is `env_sources`" — is what already ships, and the paste
+still happens: the `api_key_env` regex above exists to stop exactly this accident, and the
+secret-scanner product category (gitleaks, trufflehog, GitHub secret scanning) exists because
+advice does not prevent pastes. The cost asymmetry finishes it: a false positive is one
+dismissed warning line; a false negative is a credential **in git history**, which survives
+rotation. Disposition is a **warning in `yolo check`, never a refusal** — the footprint
+review-flag philosophy ([`pack-system.md` §3](pack-system.md): "an invitation to look, not a
+refusal").
+
+Two deliberate non-goals, in the same breath. **No permission checks**: the `0600` above
+describes the recommended shape of an `env_sources` file and yolo never verifies it — perms are
+the owner's business and have non-secret uses. **No scanning outside git-tracked manifests**:
+`env_sources` files themselves and untracked scratch are out of scope by construction, which is
+also what keeps the false-positive surface small — manifests are short, structured files, not
+the filesystem.
 
 ### 6.1 The credential-shape check belongs at the manifest layer, not on one field
 
 §4.3 hardens `api_key_env` — the one field that is a *name* by construction and is
-[already checked](../../internal/config/validate.go#L876-L881). The fields that can carry an
+[already checked](../../internal/config/validate.go#L922-L927). The fields that can carry an
 arbitrary string are unchecked: `base_url` (userinfo, signed-URL query tokens), `models` values, and
-any `env`/`vars` map in a tracked `pack.json`. The heuristic (`sk-`, `Bearer `, high-entropy runs,
-embedded whitespace) should run over **every string value in a git-tracked manifest**, not one key.
+any `env`/`vars` map in a tracked `pack.json`. The signals must be **credential shapes, not syntax
+violations**: known token prefixes (`sk-`, `ghp_`, `xoxb-`, `AKIA`), a `Bearer ` prefix, a
+`NAME=value` assignment whose NAME names a credential. Syntax-derived signals (embedded
+whitespace, charset) and entropy scoring are meaningless-to-noisy on free-form strings — prose
+and version strings trip them — and belong only on fields whose syntax forbids them, which is
+the `api_key_env` regex's job, not this one's. Where a value parses as a URL the check is
+structural and false-positive-free outright: §4.3's userinfo refusal.
 
 ### 6.2 `env_sources` fails open while the config layer fails closed
 
 The census in [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md)
 records `env_sources` as *"Permissive on missing — silent skip with trace log"*, which
-[`envsources.go:85-87`](../../internal/config/envsources.go#L85-L87) confirms (a warn, then
+[`envsources.go:172-176`](../../internal/config/envsources.go#L172-L176) confirms (a warn, then
 continue). That asymmetry is deliberate and right for host portability. But it means the *secret*
 channel is the permissive one while the *configuration* channel is fail-closed — so a profile that
 resolves perfectly, with an `api_key_env` naming a variable that was never hydrated, produces
