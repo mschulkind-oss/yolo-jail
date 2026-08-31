@@ -164,6 +164,25 @@ there is no sync step.
   case it was right for — an offline or disk-starved machine with a good cached
   image — and still prints the whole report. **`SkipBuild` is untouched:** no
   build ran, so nothing failed.
+- **THE TWO HALVES DEPLOY ON DIFFERENT CADENCES, and a launch now REFUSES when
+  they disagree.** The image rebuilds itself from the live tree on every launch
+  (`AutoLoadImage`); the host `yolo` changes only when a human runs `just
+  install`. So any commit that moves a host↔jail contract — a mount destination,
+  an env var name, an argv the entrypoint parses — leaves the machine skewed **by
+  default**, and it stays that way silently: the launcher emits the old argv while
+  the freshly-built `yolo-entrypoint` expects the new one. Shipped once (2026-08-30,
+  `a813b865`) and cost a boot that died as `mkdir /home/agent/.yolo: read-only file
+  system` three genSteps deep, after streaming 3.3 GB. Since `3a348c18`,
+  `version.SourceSkew` compares the binary's ldflags commit stamp against the tree's
+  HEAD **through the `goSrc` fileset + the flake files** and `Run` refuses before the
+  build, naming `just install`. It is silent for a docs-only commit (HEAD moved, the
+  image did not), for uncommitted work (HEAD did not move, and `just build-go` stamps
+  the by-path binary with the same HEAD), and for anything it cannot prove — an
+  unstamped binary, a stamp naming a commit this repo lacks. `YOLO_ALLOW_SOURCE_SKEW=1`
+  overrules it. **The integration suite cannot see this class**: `TestMain` always
+  `go build`s a fresh CLI and `ensureJailImage` refuses a stale image, so the suite
+  only ever runs fresh-launcher + fresh-image — the one pairing that ships is the one
+  it cannot represent.
 - `vendor/` is committed and the nix build is hermetic (`-mod=vendor`, no
   network). A new dependency needs `go mod vendor` committed, or the image build
   breaks while `go test` still passes.
@@ -312,26 +331,30 @@ there is no sync step.
   `@modelcontextprotocol/server-sequential-thinking`. LSP servers are
   config-gated, tracked by the `~/.yolo-installed-lsps` sentinel, and
   uninstalled when dropped from config. Agent CLIs install lazily on first use
-  via launchers in `~/.yolo-launchers/`.
+  via launchers in `~/.yolo/bin/launch/`.
 - **PATH order** (exact — corrected 2026-08-23 against `BootPath`, `internal/entrypoint/boot.go:356-361`,
   which is the authority this line claims to mirror):
-  `$HOME/.yolo-shims:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:$HOME/.local/bin:/bin:/usr/bin:$HOME/.yolo-launchers`.
+  `$HOME/.yolo/bin/block:$NPM_CONFIG_PREFIX/bin:<mise-shims>:$GOPATH/bin:$HOME/.local/bin:/bin:/usr/bin:$HOME/.yolo/bin/launch`.
   **This line used to put `$HOME/.local/bin` second**, ahead of npm and mise; it is fifth. Only the
   two ends were right — and they are the part that carries meaning (see the next bullet).
 - **Two generated script dirs, at opposite ends of PATH** — they are different
   mechanisms, not one dir with two kinds of file in it:
-  `~/.yolo-shims` holds **blockers** (`GenerateShims`: `grep`, `find` → refuse,
+  `~/.yolo/bin/block` holds **blockers** (`GenerateShims`: `grep`, `find` → refuse,
   print a suggestion, `exit 127`) and must PRECEDE the real tool, because
-  interception is its whole job. `~/.yolo-launchers` holds **lazy installers**
+  interception is its whole job. `~/.yolo/bin/launch` holds **lazy installers**
   (`GenerateAgentLaunchers` / `GeneratePackageManagerLaunchers`: `claude`,
   `pnpm` → install on first use, then `exec` the real binary) and is ordered
   LAST, after `/bin`, so a launcher is reached only when nothing else provides
   the name. That is what makes a pack declaring `program fzf` unable to shadow
   the image's `/bin/fzf` — the failure is unrepresentable rather than handled.
   A tool that is both blocked and pack-declared gets one of each, and the
-  blocker wins by position. **Both dirs are bind-mount anchors** (from
-  `<ws>/.yolo/home/{yolo-shims,yolo-launchers}` under a `:ro` `/home/agent`), so
-  both are cleared CONTENTS-ONLY (`resetAnchorDir`) — never `RemoveAll`.
+  blocker wins by position. **Both dirs share ONE bind-mount anchor** at
+  `~/.yolo/bin` (from `<ws>/.yolo/home/yolo-bin` under a `:ro` `/home/agent`), so
+  both are cleared CONTENTS-ONLY (`resetAnchorDir`) — never `RemoveAll`. Gathered
+  in the filesystem, never on PATH: nothing may put the shared parent on PATH, or
+  a launcher would be reachable from the blockers' position. They were
+  `~/.yolo-shims` and `~/.yolo-launchers` until 2026-08-30 (`a813b865`), and
+  `removeRetiredGeneratedDirs` empties those for one release.
   Consequence to know: a name the IMAGE bakes now beats a pack's declared
   version. Right for `fzf`; re-check it before baking a package whose name a
   pack also claims (no shipped pack collides today).

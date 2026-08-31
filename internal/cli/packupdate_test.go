@@ -130,7 +130,7 @@ func TestUpdateReachesTheLauncherInUpdateMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	// JAIL_HOME as well as HOME: EnvFromOS prefers it, and this jail sets it — left alone,
-	// LauncherDir would resolve to the REAL ~/.yolo/bin/launch and the refresh would run
+	// LaunchDir would resolve to the REAL ~/.yolo/bin/launch and the refresh would run
 	// whatever agent launcher it found there.
 	t.Setenv("HOME", home)
 	t.Setenv("JAIL_HOME", home)

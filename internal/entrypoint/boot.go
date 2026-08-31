@@ -345,12 +345,12 @@ func installClaudePlugins(e *Env) {
 //
 // The two generated dirs sit at OPPOSITE ENDS on purpose:
 //
-//   - ShimDir FIRST — blockers (grep, find). Interception is their whole job, so they
+//   - BlockDir FIRST — blockers (grep, find). Interception is their whole job, so they
 //     must precede the real binary.
-//   - LauncherDir LAST, after /bin and /usr/bin — lazy installers (claude, pnpm). They
+//   - LaunchDir LAST, after /bin and /usr/bin — lazy installers (claude, pnpm). They
 //     only need to run when nothing else provides the name, so ordering them here makes
 //     shadowing a baked binary UNREPRESENTABLE rather than something the launcher has to
-//     detect. See Env.LauncherDir for the defect this closed.
+//     detect. See Env.LaunchDir for the defect this closed.
 //
 // Extracted from execBash so the order is assertable without exec'ing a shell.
 func BootPath(e *Env) string {
