@@ -1,6 +1,8 @@
 package run
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
@@ -40,8 +42,10 @@ func (o *Options) refuseOnSourceSkew(repoRoot string) bool {
 	o.pr(o.Stderr).print(
 		"[bold red]Refusing to launch: this yolo is older than the source tree it would " +
 			"build the jail from.[/bold red]\n\n" +
-			"  this yolo   was built from  " + short(skew.BinaryCommit) + "\n" +
-			"  " + repoRoot + "  is at  " + short(skew.TreeCommit) + "\n" +
+			"  this yolo   " + runningBinary() + "\n" +
+			"              was built from  " + short(skew.BinaryCommit) + "\n" +
+			"  " + repoRoot + "\n" +
+			"              is at  " + short(skew.TreeCommit) + "\n" +
 			"  they differ in  " + strings.Join(skew.Changed, ", ") + "\n\n" +
 			"The jail IMAGE is rebuilt from the tree on every launch. The yolo you just ran\n" +
 			"changes only when you run `just install`. Launching now would pair a launcher\n" +
@@ -50,8 +54,32 @@ func (o *Options) refuseOnSourceSkew(repoRoot string) bool {
 			"`mkdir /home/agent/.yolo: read-only file system`), and only after building and\n" +
 			"streaming the whole image.\n\n" +
 			"[bold]Fix:[/bold]  (cd " + repoRoot + " && just install)\n\n" +
+			"[bold]If you just ran that[/bold], the path above is not where it installed — compare it\n" +
+			"with `go env GOBIN` (or `$(go env GOPATH)/bin`), check `command -v -a yolo` for an\n" +
+			"older copy earlier on PATH, and `hash -r` if your shell cached the old location.\n\n" +
 			"To launch anyway and own the mismatch: [bold]" + AllowSourceSkewEnv + "=1[/bold]")
 	return true
+}
+
+// runningBinary is the path of the executable printing this refusal.
+//
+// IT IS THE LINE THAT DISTINGUISHES THE TWO CAUSES, and they need different fixes:
+// a yolo nobody reinstalled, versus a `just install` that landed somewhere PATH does
+// not reach first — a second copy in ~/.local/bin, a package-manager one, or a shell
+// that cached the old location. Both print the same commit mismatch and only the path
+// tells them apart, so the refusal that omitted it sent the reader to `just install`
+// for a problem `just install` had already failed to fix once.
+func runningBinary() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "(path unknown: " + err.Error() + ")"
+	}
+	// Resolve symlinks: a GOBIN copy reached through one is the same binary, and
+	// printing the link would hide that.
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		return resolved
+	}
+	return exe
 }
 
 // short abbreviates a full sha for the report. Not git's `--short` (which is

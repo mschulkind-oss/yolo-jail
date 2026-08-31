@@ -67,6 +67,25 @@ install:
     [ -n "$GOBIN_DIR" ] || GOBIN_DIR="$(go env GOPATH)/bin"
     echo "Installed to $GOBIN_DIR"
 
+    # AN INSTALL PATH NOBODY RUNS IS NOT AN INSTALL. `go install` writes to GOBIN and
+    # says nothing about what `yolo` RESOLVES to: an older copy earlier on PATH (a
+    # package-manager one, a stray ~/.local/bin/yolo) silently keeps winning, so every
+    # `just deploy` looks like it worked while the launcher on the machine never moves.
+    # That is invisible until a host<->jail contract changes and the boot dies naming
+    # neither half — see version.SourceSkew, which catches the SYMPTOM at launch; this
+    # catches the CAUSE at install. Warn rather than fail: a machine with no `yolo` on
+    # PATH yet is a first install, not a mistake.
+    RESOLVED="$(command -v yolo 2>/dev/null || true)"
+    if [ -n "$RESOLVED" ] && [ "$(readlink -f "$RESOLVED" 2>/dev/null || echo "$RESOLVED")" != "$(readlink -f "$GOBIN_DIR/yolo" 2>/dev/null || echo "$GOBIN_DIR/yolo")" ]; then
+        echo >&2
+        echo "⚠ WARNING: this install is NOT the yolo your shell runs." >&2
+        echo "    installed:  $GOBIN_DIR/yolo" >&2
+        echo "    resolves:   $RESOLVED" >&2
+        echo "  Every launch will keep using the older one. Put $GOBIN_DIR ahead of it on" >&2
+        echo "  PATH (or remove $RESOLVED), then run 'hash -r'." >&2
+        echo >&2
+    fi
+
     # Stage a SELF-CONTAINED flake bundle so an installed `yolo` builds the jail
     # image from ANY directory — no source checkout, no YOLO_REPO_ROOT, ever.
     # This is the "two files and a binary" prebuilt bundle (flake.nix +
