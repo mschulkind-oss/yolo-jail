@@ -447,19 +447,19 @@ disclosure would force rotation — anything that authenticates: an API key, a s
 password, a credential embedded in a URL. The rotation test is what classifies: an endpoint, a
 region, a model alias can leak at no cost, while a leaked key means rotating it on every machine
 and service it was scoped to. `pack-profiles.md` §4.1 lists examples but never defines the term;
-recognition is three mechanisms, in decreasing order of certainty:
+the defense is three layers — two of prevention, one of detection:
 
-1. **Structural, where the schema can force it.** A field whose semantics are "credential
-   pointer" (`api_key_env`) carries a *name* by construction, enforced by one regex —
-   `envVarNameRe` = `[A-Za-z_][A-Za-z0-9_]*` at
-   [`validate.go:922-927`](../../internal/config/validate.go#L922-L927). It is a syntax check
-   on the field's own contract, **not a secret detector**, and its secret-refusal is incidental
-   and partial: `sk-9f82…` fails on the hyphen and `Bearer …` on the space, but an alnum token
-   such as `ghp_…` is a valid env-var name and passes — which is one reason layer 3 exists.
-2. **Channel policy.** Credential values never enter a manifest at all — they arrive only via
+1. **Prevention by contract.** A credential-pointer field (`api_key_env`) holds an env-var
+   *name*, and [`validate.go:922-927`](../../internal/config/validate.go#L922-L927) polices
+   exactly that: one regex, `envVarNameRe` = `[A-Za-z_][A-Za-z0-9_]*`, checking **name
+   syntax** — a check on valid env-var NAMES, full stop. It knows nothing about secrets, and
+   that is the mechanism: there is no value in the slot to inspect, so "is this string a
+   secret?" is unaskable there. (An accidental paste of `sk-9f82…` does trip it, on the
+   hyphen — a side effect of the syntax, not a capability; `ghp_…` is name-shaped and passes.)
+2. **Prevention by routing.** Credential values never enter a manifest at all — they arrive only via
    `env_sources`, untracked `0600` host files. This is what makes the problem tractable: the
    checker catches violations in one file type instead of classifying the world's strings.
-3. **Heuristic, for the fields that cannot be structurally constrained** (§6.1 below):
+3. **Detection, for the fields that cannot be structurally constrained** (§6.1 below):
    `base_url`, `models` values, `env` maps — known credential shapes (`sk-`, `Bearer `),
    high-entropy runs, embedded whitespace.
 
@@ -468,8 +468,9 @@ adversary**: an author pasting their own key into a file git tracks, usually one
 to push. The adversary case is conceded outright — anyone determined to hide a secret in a
 manifest can (base64, split strings), and no claim is made about them. Recommendation plus
 mechanism — "keep secrets out, here is `env_sources`" — is what already ships, and the paste
-still happens: the `api_key_env` regex above exists to stop exactly this accident, and the
-secret-scanner product category (gitleaks, trufflehog, GitHub secret scanning) exists because
+still happens: the name contract above refuses some accidental pastes only as a side effect
+(`sk-…` fails its syntax; `ghp_…` doesn't), and the secret-scanner product category (gitleaks,
+trufflehog, GitHub secret scanning) exists because
 advice does not prevent pastes. The cost asymmetry finishes it: a false positive is one
 dismissed warning line; a false negative is a credential **in git history**, which survives
 rotation. Disposition is a **warning in `yolo check`, never a refusal** — the footprint
