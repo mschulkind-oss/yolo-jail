@@ -13,6 +13,8 @@ package packload
 
 import (
 	"fmt"
+	"io/fs"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -83,6 +85,35 @@ type Footprint struct {
 // `yolo pack footprint` and `yolo pack lint` print it beside every other claim with no
 // change to either command.
 const SupersedesClaimKind = packdecl.Kind("supersedes")
+
+// ExecutablesClaimKind is the Claim.Kind the executables a pack SHIPS are reported under.
+//
+// A DISPLAY LABEL, not a packdecl.Kind in the closed registry — the same shape and for the
+// same three reasons as SupersedesClaimKind above: `kind: "executables"` stays an unknown
+// kind in a manifest (this is a fact about the TREE, nothing an author declares), Collisions
+// skips it because two packs shipping scripts is not a conflict, and the per-kind
+// exhaustiveness tests that walk packdecl.KnownKinds() need no entry for a non-kind.
+//
+// # Why the claim exists at all
+//
+// It is what remains of `allow_exec`. That key made shipping an executable a CONSUMER
+// decision enforced by refusing the file; the refusal was the wrong instrument (packstage's
+// package doc has the argument) and is gone, but the fact it surfaced was real and is not
+// otherwise visible anywhere: a mode bit is a property of the tree, so unlike an installer
+// URL or a loophole's argv there is no manifest line a reader could have found it on.
+//
+// NOT ReviewWorthy, deliberately. Review-worthy claims are the ones that reach the LAUNCH
+// disclosure ("This launch runs pack code on your machine"), which is about crossings, and
+// a pack shipping a script is not one — `bash file.sh` never needed the bit, and the
+// PATH-destination refusal in packdecl is what actually keeps a shipped script from being
+// invoked by name. Flagging it would put an unchanging line in front of the user on every
+// launch, which is how a disclosure surface becomes wallpaper. It belongs where someone is
+// deliberately inspecting a pack: `yolo pack footprint` and `yolo pack lint`.
+const ExecutablesClaimKind = packdecl.Kind("executables")
+
+// execClaimListCap bounds how many paths the executables claim names before it summarizes.
+// A pack of scripts should not push its other claims off the reader's screen.
+const execClaimListCap = 5
 
 // FootprintOf reads a pack's typed contributions (via packdecl.Contributions())
 // and returns its claims, dispatching on each contribution's kind.
@@ -194,6 +225,32 @@ func FootprintOf(p *Pack) Footprint {
 		fp.Claims = append(fp.Claims, Claim{
 			Kind: packdecl.KindLoophole, Target: lc.target, Pack: p.Name,
 			Detail: lc.detail, ReviewWorthy: true, RunsHostCode: lc.runsHostCode,
+		})
+	}
+
+	// executables → ONE claim per pack, not one per file: the reader's question is "does
+	// this pack ship tools", and a pack of scripts answering it thirty times would push its
+	// other claims off the screen. See ExecutablesClaimKind for why this is reported rather
+	// than gated.
+	if execs := packExecutables(p.Root); len(execs) > 0 {
+		// The COUNT is the Target and the PATHS are the Detail, so the two columns do
+		// different work. Putting the pack name in Target (as the autonomy claim does)
+		// would repeat the heading `yolo pack footprint` already prints above every
+		// pack's block.
+		target := fmt.Sprintf("%d files", len(execs))
+		if len(execs) == 1 {
+			target = "1 file"
+		}
+		shown, detail := execs, ""
+		if len(shown) > execClaimListCap {
+			shown = shown[:execClaimListCap]
+			detail = fmt.Sprintf("%s, and %d more",
+				strings.Join(shown, ", "), len(execs)-execClaimListCap)
+		} else {
+			detail = strings.Join(shown, ", ")
+		}
+		fp.Claims = append(fp.Claims, Claim{
+			Kind: ExecutablesClaimKind, Target: target, Pack: p.Name, Detail: detail,
 		})
 	}
 
@@ -707,4 +764,41 @@ func sortedMapKeys(m map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// packExecutables returns the pack-relative, slash-separated paths of every regular file
+// under root carrying an execute bit, sorted.
+//
+// Sorted so the claim's Detail is stable across runs: `yolo pack footprint` output is read
+// as a diff between two versions of a pack as often as it is read once, and a walk's
+// directory order is not a guarantee to build that on.
+//
+// A walk of the pack tree is not new I/O for FootprintOf — loopholeClaims already reads
+// each loophole module's manifest off disk — and a pack is a content tree of skills and
+// prose, not a source checkout. An unreadable root yields nothing rather than an error:
+// this claim is INFORMATION, and no footprint should fail to render because one directory
+// could not be listed. Refusals that must fail closed live in packstage, which walks the
+// same tree at staging time.
+func packExecutables(root string) []string {
+	if root == "" {
+		return nil
+	}
+	var out []string
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil //nolint:nilerr // an unlistable subtree is skipped, never fatal
+		}
+		info, ierr := d.Info()
+		if ierr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+			return nil
+		}
+		rel, rerr := filepath.Rel(root, p)
+		if rerr != nil {
+			return nil
+		}
+		out = append(out, filepath.ToSlash(rel))
+		return nil
+	})
+	sort.Strings(out)
+	return out
 }
