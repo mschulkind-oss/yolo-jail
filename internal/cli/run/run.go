@@ -83,6 +83,15 @@ func Run(opts Options) int {
 				"  YOLO_REPO_ROOT=~/code/yolo-jail yolo …")
 			return 1
 		}
+		// And having found the flake, refuse to build an image from source THIS
+		// binary was not built from. The image half of yolo redeploys itself on
+		// every launch and the host half never does, so a commit that moves a
+		// host↔jail contract leaves the machine skewed by default — see
+		// refuseOnSourceSkew for what that costs when it is discovered at boot
+		// instead of here.
+		if o.refuseOnSourceSkew(repoRoot) {
+			return 1
+		}
 	}
 
 	// --- Phase 2: pack staging, BEFORE the backend dispatch ---
