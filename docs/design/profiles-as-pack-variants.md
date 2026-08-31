@@ -547,7 +547,7 @@ has a home:
 | :--- | :--- | :--- |
 | Settings in the agent's own config file | `config-overlay` — exactly this: a declared contribution to another pack's surface, later-wins, per-key provenance | the `profile` field, below |
 | Env vars in the process (`AWS_REGION`, `AWS_PROFILE`) | the provider pack's **own** `kind: "env"` — env is ambient to the launch, so `target: "claude"` on an env payload was incoherent: there is no per-agent env to aim at. One writer per key ([`kinds.go:96-99`](../../internal/packdecl/kinds.go#L96-L99)) | the selector — this design's `kind: "profile"`, or the `profile` modifier on `env` |
-| Launch flags for the agent binary | nowhere, cross-pack — `launch` is sole-owned by bin ([`kinds.go:100`](../../internal/packdecl/kinds.go#L100)), so a provider pack cannot contribute another pack's flags | nothing, when the **owner's** profile carries them ([§3.1](#31-the-shape)); a third party changing another pack's flags is R2, and would need an exclusivity answer before any modifier could exist |
+| Launch flags for the agent binary | nowhere, cross-pack — `launch` is sole-owned by bin ([`kinds.go:100`](../../internal/packdecl/kinds.go#L100)) | nothing — `PackFragmentSpec` ([§5.2](pack-profiles.md)) has no launch field, so this is off the wish-list; and owner-only argv is a trust property (`--dangerously-skip-permissions` is a flag) |
 | An inline provider definition (`base_url`, models, keys) | not a fragment job at all — `providers` is a config key; a pack *names* one (`requires_provider`, §4.1) | nothing — §4.2 |
 
 So the additive move, if a second consumer ever demands it, is one field:
@@ -566,6 +566,53 @@ what `pack-fragment` would have to re-invent, all of it unspecified in `pack-pro
 | Which layer | `config-overlay`, below `computed`/`managed` | unspecified, and it decides whether an in-jail edit survives |
 | Visible in `yolo pack footprint` | yes | no kind → no footprint → invisible |
 | Host notch | honored | `config.env` refused ([§5](#5-the-delivery-channel-rule--and-why-it-kills-the-worked-example)) |
+
+### 7.1 Feature-complete against the fragment wish-list
+
+`PackFragmentSpec` ([`pack-profiles.md` §5.2](pack-profiles.md)) is four fields. Audited:
+
+| Fragment field | `config-overlay` + `profile` | Verdict |
+| :--- | :--- | :--- |
+| `target: "<pack>"` | `surface: "agent/name"` | shipped, finer-grained — a pack owns several surfaces, and the fragment left which-file undefined |
+| `optional` (fatal when `false` and target unselected) | **no field — selection is the optionality**: owner unselected → clean skip; surface names nothing real → fatal | [§8](#8-fail-closed-but-on-the-right-set)'s split, applied; strictly simpler, and it deletes the field whose misuse (an `optional` typo waved through) §8 exists to catch |
+| `profile` | the one additive field, above | this design |
+| `config` (JSON Merge Patch) | `CombineOverlay` — merge-patch **plus** per-key provenance | shipped, stronger |
+
+Nothing on the wish-list is missing. The one deliberate divergence is `optional`: a provider
+pack selected without its target skips cleanly rather than failing, because the user's selection
+*is* the requirement — a pack cannot demand the selection of another pack. A provider whose
+credential never arrives is still caught, loudly, by the [§6.2](#62-an-activated-profile-with-no-credential-is-a-preflight-failure)
+preflight rather than by a required-overlay error.
+
+### 7.2 The name
+
+Both names were on the table and neither is loved: `config-overlay` (shipped) and
+`pack-fragment` (proposed). Candidates weighed:
+
+- **`patch`** — the body literally *is* a JSON Merge Patch (`PackFragmentSpec`'s own field table
+  says so), and [RFC 7386](https://www.rfc-editor.org/rfc/rfc7386) is the stable external
+  reference a defined term wants. Rejected: "patch" reads ephemeral — a diff applied once —
+  while this is a standing declaration re-composed at every boot and check.
+- **`amendment`** — the truest fit for the *relationship*: sponsored, ordered, recorded,
+  additive to another's document. Rejected: coined where a plain word already works, and it
+  names the relationship but not the landing zone, which is the part an author must not
+  misunderstand.
+- **`adapter`** — names the purpose (adapt X to Y). Rejected: adapters translate, and the
+  derives are the translators; this kind only delivers.
+- plain **`overlay`** — rejected: the layer family already spends the word.
+
+**Recommendation: keep `config-overlay`.** "Overlay" does consistent, load-bearing work in a
+family — the compose stack carries `config-overlay` (contributions from other packs) beside
+`capture-overlay` (in-jail edits) ([`compose.go:48-62`](../../internal/agentcfg/compose.go#L48-L62),
+[`pack-config-collaboration.md`](pack-config-collaboration.md)) — and the provenance label
+`config-overlay:<pack>` is shipped and user-visible in every `yolo config diff`. The name states
+exactly what the mechanism guarantees: *where* the contribution lands, as a layer over the
+owner's config. `pack-fragment` was the genuinely bad name — a fragment *of what*; it names
+incompleteness instead of a relationship. If the maintainer overrules anyway, the cost is at its
+lifetime minimum now — one migration, old kind refused by name with the replacement named,
+exactly the `agent_profiles` → `pack_profiles` mechanism [§3.3](#33-the-selector-and-where-it-comes-from)
+uses — but every alternative trades a shipped, coherent, provenance-visible name for a shorter
+one.
 
 **`profile` is a modifier, not a kind.** The same field would apply to `kind: "env"` and
 `kind: "launch"` for the jail-only cases. That is the whole of the "Layer 2" story.
