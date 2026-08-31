@@ -500,3 +500,34 @@ func home() string {
 	}
 	return "/"
 }
+
+// JailPathHomeDirs are the directories UNDER THE JAIL'S HOME that sit on the jail's
+// PATH, home-relative and slash-separated.
+//
+// It exists so a pack MANIFEST can be told it is naming one. `program` is the kind
+// that puts a name on PATH — it owns the launcher filename, it is exclusive by that
+// name, and it is disclosed at launch. A `files` tree or a `state` subtree landing on
+// PATH reaches the same result by POSITION, which declares nothing, collides silently
+// with whatever else provides the name, and leaves `yolo pack footprint` describing a
+// pack that does something it never said. Refusing the destination is how a pack author
+// finds `program` instead.
+//
+// IT IS NOT A SANDBOX AND MUST NOT BE DESCRIBED AS ONE. A pack has louder ways to run
+// code — `program via installer` fetches and runs a remote script, a `loophole` runs a
+// daemon on the HOST — and each is disclosed and approved rather than blocked. This is a
+// naming rule: the mechanism exists, so use it. (It is also why the host notch, where
+// `yolo host apply` renders into a real home whose PATH yolo does not know, gets only the
+// overlap — `.local/bin` — and no pretence of completeness.)
+//
+// The authority for the CONTENTS is entrypoint.BootPath; the two are pinned together by
+// TestJailPathHomeDirsCoversBootPath, so a PATH that gains a home directory cannot leave
+// this list silently short. mise's shims, /bin and /usr/bin are absent because they are
+// not under the home and a manifest path cannot name them (appendPathProblems already
+// refuses an absolute destination).
+var JailPathHomeDirs = []string{
+	".local/bin",       // entrypoint.Env.LocalBin
+	".npm-global/bin",  // entrypoint.Env.NpmBin (NPM_CONFIG_PREFIX/bin)
+	".yolo/bin/block",  // entrypoint.Env.BlockDir — blockers, PATH head
+	".yolo/bin/launch", // entrypoint.Env.LaunchDir — lazy installers, PATH tail
+	"go/bin",           // entrypoint.Env.GoBin (GOPATH/bin)
+}

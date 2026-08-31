@@ -901,6 +901,12 @@ func validateContribution(label string, c Contribution) []string {
 		req("into", c.Into)
 		problems = appendPathProblems(problems, label+".from", c.From)
 		problems = appendPathProblems(problems, label+".into", c.Into)
+		// A DESTINATION IN THE JAIL HOME MAY NOT BE ON PATH. `files` is the kind this
+		// matters for — an arbitrary tree at an arbitrary path — but skills and briefing
+		// share the guard rather than being exempted by omission: nothing about a skills
+		// dir at ~/.local/bin is more sensible, and a guard the reader has to check three
+		// case arms to find the shape of is how the fourth kind gets added without it.
+		problems = appendJailPathProblems(problems, label+".into", c.Into)
 	case KindConfig:
 		if len(c.Raw) == 0 {
 			problems = append(problems, label+": config needs a \"config\" surface definition")
@@ -913,6 +919,11 @@ func validateContribution(label string, c Contribution) []string {
 	case KindState:
 		req("at", c.At)
 		problems = appendPathProblems(problems, label+".at", c.At)
+		// State is the STRONGER case for the PATH guard, not a weaker one: `files` mounts
+		// read-only, but a state subtree is WRITABLE, so a state dir on PATH lets whatever
+		// runs in the jail put its own executable there later. The destination is refused
+		// for the same reason either way — kind "program" is how a name reaches PATH.
+		problems = appendJailPathProblems(problems, label+".at", c.At)
 		if c.Scope != "" && c.Scope != "workspace" && c.Scope != "machine" {
 			problems = append(problems, fmt.Sprintf("%s: unknown scope %q (workspace or machine)", label, c.Scope))
 		}

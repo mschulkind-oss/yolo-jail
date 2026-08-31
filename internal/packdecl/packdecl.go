@@ -20,10 +20,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // ManifestName is the file a pack declares itself in, at its root.
@@ -364,6 +367,41 @@ func appendPathProblems(problems []string, field, p string) []string {
 		// A colon would be parsed as a mount-option separator by the container
 		// runtime, silently turning part of the path into a flag.
 		return append(problems, field+": must not contain \":\" ("+p+")")
+	}
+	return problems
+}
+
+// appendJailPathProblems refuses a home-relative destination that would land on the
+// jail's PATH — the dir itself, a parent of it, or anything inside it.
+//
+// All three, because all three reach PATH. Naming `.local/bin` IS the PATH dir; naming
+// `.local` mounts a tree whose own `bin/` then sits on PATH; naming `.local/bin/tools`
+// puts files in it. A rule that caught only the exact match would be a rule an author
+// routes around by accident on the first try.
+//
+// THE REFUSAL POINTS AT `program`, because that is what this is for. A name on PATH is
+// something a pack DECLARES (kind "program": it owns the launcher filename, it is
+// exclusive by that name, it is disclosed at launch and recorded in the footprint), not
+// something it achieves by dropping a file where the shell will find it. The second
+// route claims nothing, collides silently, and makes the footprint a lie. It is NOT a
+// containment boundary and the message must never imply one — see paths.JailPathHomeDirs.
+func appendJailPathProblems(problems []string, field, p string) []string {
+	if p == "" {
+		return problems
+	}
+	clean := path.Clean(strings.TrimPrefix(path.Clean("/"+filepath.ToSlash(p)), "/"))
+	if clean == "" || clean == "." {
+		return problems
+	}
+	for _, dir := range paths.JailPathHomeDirs {
+		if clean == dir ||
+			strings.HasPrefix(clean, dir+"/") || // inside a PATH dir
+			strings.HasPrefix(dir, clean+"/") { // a parent of one
+			return append(problems, field+": "+p+" is on the jail's PATH (~/"+dir+
+				"). A pack puts a name on PATH by DECLARING it — kind \"program\", which "+
+				"owns the launcher and says so in the footprint — not by delivering a file "+
+				"where the shell happens to look.")
+		}
 	}
 	return problems
 }
