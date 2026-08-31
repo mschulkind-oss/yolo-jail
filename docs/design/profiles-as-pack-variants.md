@@ -116,6 +116,9 @@ link their owner:
 **Verdict.** Ship a rename, one new contribution kind, one new field on `providers`, and three
 validation gates. Do not ship a cross-pack fragment merge engine — and if one is ever needed, it is
 `config-overlay` with a `profile` field, not a new kind ([§7](#7-if-cross-pack-delivery-is-ever-needed-it-is-config-overlay-with-a-profile-field)).
+**The thread to carry through §3–§5:** no objection in this doc is to cross-pack contribution
+*existing* — it ships today as `config-overlay`. Every objection is to a second mechanism for it
+that skips the questions `config-overlay` already answers.
 
 ---
 
@@ -166,7 +169,9 @@ modes" is the one that is real, and it is the one the shipped code uses.
 
 ### 2.3 The actual gap: one channel and one hardcode
 
-A derive writes **config files**. It cannot set a **process environment variable**. Claude Code's
+A derive writes **config files**. It cannot set a **process environment variable** — an
+architectural boundary, not a missing capability: derives run at *compose* time (boot and
+check), and process env is a *launch*-time concern. Claude Code's
 Bedrock mode needs `CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, and `ANTHROPIC_DEFAULT_*_MODEL` in the
 environment — and `kind: "env"` is *static only*, literal strings with no selector
 ([`kinds.go:96-99`](../../internal/packdecl/kinds.go#L96-L99),
@@ -182,10 +187,17 @@ if prof, ok := effectiveProfiles.Get("claude"); ok && prof == "bedrock" {
 }
 ```
 
-**That is the gap. One missing selector on one existing kind.** Everything else in
-`pack-profiles.md` §3's dual-layer architecture is scaffolding around it — and
-[§5](#5-the-delivery-channel-rule--and-why-it-kills-the-worked-example) argues that even this case
-should not be solved with env.
+**That is the gap — and it is narrower than "no env channel."** The channel itself exists at both
+notches now: the host launch wrapper set ([`hostwrap`](../../internal/hostwrap/hostwrap.go)) puts
+every installed program's invocation through `yolo host --`, where environment composition happens
+at LAUNCH time from live config — one implementation, decided in one place, reachable from any
+invocation once the wrap dir is on `PATH`. What the channel cannot do is *vary by profile*,
+because `kind: "env"` is static. So the gap is one missing selector on one existing kind, not a
+missing delivery mechanism — and
+[§5](#5-the-delivery-channel-rule--and-why-it-kills-the-worked-example) still routes the
+non-secret half of this case to the config file, because invocations that bypass yolo (a bare
+`claude` from a shell without the wrap dir on `PATH`, cron, an IDE-configured absolute path) are
+exactly the ones a config surface survives.
 
 ### 2.4 Two inversions the diagnosis missed
 
@@ -214,11 +226,15 @@ checks only that the value is a string; the *key* is never checked against anyth
 { "agent_profiles": { "cloude": "bedrock" } }   // accepted silently, does nothing
 ```
 
-And the CLI makes it worse: `-p <name> -- <cmd>` keys the profile by the **binary basename**, not
-the pack slug ([`assemble.go:779-787`](../../internal/cli/run/assemble.go#L779-L787)). Every shipped
-agent pack happens to have `bin == slug` (verified across `packs/*/pack.json`, 2026-08-29), so the
-conflation is latent rather than live — but a third-party pack named `aider-pack` shipping
-`bin: "aider"` silently sets a key nothing reads.
+And the CLI keys the profile by the **binary basename**
+([`assemble.go:779-787`](../../internal/cli/run/assemble.go#L779-L787)). That keying is right and
+this design keeps it *(amended 2026-08-30, review)*: the CLI-name namespace is already exclusively
+owned — `program` and `launch` are `CombineExclusive` by `bin`, so two packs claiming one CLI name
+is a load error today, and `bin` is an explicitly declared bare program name in every install
+contribution. A CLI name therefore resolves to at most one pack, and "the agents" are simply the
+union of the bins the selected packs install. What is broken is only that an *unknown* key is
+accepted silently; the fix is fatal-on-unknown against that namespace
+([§8](#8-fail-closed-but-on-the-right-set)), not re-keying by pack slug.
 
 **This is the one thing in the whole design space that is both broken today and cheap to fix**, and
 neither doc has to build a fragment engine to fix it.
@@ -275,10 +291,19 @@ top of a surface's layer stack, the part yolo itself writes rather than folds fr
 writer, it is a notch-gated patch."** That restriction is what lets `autonomy` skip a cross-pack
 collision rule entirely: two packs cannot collide on a surface only one of them owns.
 
-`pack-fragment` gives that up by design. It targets another pack, so it *is* a second config writer,
-and it therefore owes a per-key collision rule and a provenance label — neither of which
-`pack-profiles.md` specifies. The shipped mechanism that already pays that price correctly is
-`config-overlay` ([§7](#7-if-cross-pack-delivery-is-ever-needed-it-is-config-overlay-with-a-profile-field)).
+`pack-fragment`, read fairly, is not a competing author but a *function over a pack* — it runs at
+a defined point and transforms what the pack produced, the same posture as the shipped
+`transform` layer, composing rather than competing. Fair; the objection narrows but stands,
+because a function over another pack's output still owes four answers: **which file** it lands in
+(`target: "claude"` names a pack, and a pack owns several surfaces), **when** it runs (which layer
+of the stack — this decides whether an in-jail edit survives), **what two contributors on one key
+do**, and **whether the result is legible after the fact** (provenance). `pack-profiles.md`
+specifies none of the four. The shipped stack already contains the slots that answer them —
+`config-overlay` for declared cross-pack contributions with per-key provenance, `transform` for
+functions — which is the thread of this whole design: cross-pack contribution is legitimate and
+already has mechanisms; a new kind that answers none of the four questions is a second door into
+the same room. [§7](#7-if-cross-pack-delivery-is-ever-needed-it-is-config-overlay-with-a-profile-field)
+is the one additive field the real cases need.
 
 There is a second, structural reason. In the skills subsystem the **consumer** declares the
 destination (`into: ".claude/skills"`); `pack-profiles.md` §6 claims profiles mirror that. They
@@ -297,11 +322,12 @@ Rename, don't redesign:
 | `YOLO_AGENT_PROFILES` | `YOLO_PACK_PROFILES` | Same. |
 | `ctx.agent_profiles` (Lua) | `ctx.pack_profiles` | Keeps `packs/claude/derive.lua` working with a one-word edit. |
 | `--claude-auth` / `--auth` | *(deleted; `--pack-profile claude=bedrock`)* | §2.4. |
-| `-p <name> -- <bin>`, keyed by bin basename | `-p <name> -- <bin>`, resolved bin → **pack slug**, fatal if no pack owns that bin | §2.5. |
+| `-p <name> -- <bin>`, keyed by bin basename | same keying, now checked: fatal if no pack owns that bin | §2.5 — the CLI-name namespace is exclusive by construction. |
 
 Resolution order is the shipped one, extended by nothing: workspace config < user config < CLI. The
-selected profile name for pack *P* is then a plain string that (a) gates *P*'s `kind: "profile"`
-contributions and (b) reaches *P*'s derive as `ctx.pack_profiles[P]`, exactly as it does today.
+selected profile name for CLI *c* is then a plain string that (a) gates the `kind: "profile"`
+contributions of the pack that owns *c* and (b) reaches that pack's derive as
+`ctx.pack_profiles[c]` — the same CLI-keyed table `ctx.agent_profiles` is today.
 
 ### 3.4 The combine rule and the footprint — stated, because P5 requires it
 
@@ -512,6 +538,18 @@ provenance label**, `config-overlay:<pack>` ([`compose.go:176`](../../internal/a
 so an override is legible in `yolo config diff` rather than silent
 ([`pack-config-collaboration.md`](pack-config-collaboration.md) §8).
 
+**Is `config-overlay` already what `pack-fragment` wanted? Yes — with one field missing, and the
+env half answered elsewhere.** Decompose what a fragment was *for* — a provider pack adapting an
+agent pack it does not control — into the payloads it actually delivers, and every row already
+has a home:
+
+| The fragment delivers | Where that lives today | What is missing |
+| :--- | :--- | :--- |
+| Settings in the agent's own config file | `config-overlay` — exactly this: a declared contribution to another pack's surface, later-wins, per-key provenance | the `profile` field, below |
+| Env vars in the process (`AWS_REGION`, `AWS_PROFILE`) | the provider pack's **own** `kind: "env"` — env is ambient to the launch, so `target: "claude"` on an env payload was incoherent: there is no per-agent env to aim at. One writer per key ([`kinds.go:96-99`](../../internal/packdecl/kinds.go#L96-L99)) | the selector — this design's `kind: "profile"`, or the `profile` modifier on `env` |
+| Launch flags for the agent binary | nowhere, cross-pack — `launch` is sole-owned by bin ([`kinds.go:100`](../../internal/packdecl/kinds.go#L100)), so a provider pack cannot contribute another pack's flags | nothing, when the **owner's** profile carries them ([§3.1](#31-the-shape)); a third party changing another pack's flags is R2, and would need an exclusivity answer before any modifier could exist |
+| An inline provider definition (`base_url`, models, keys) | not a fragment job at all — `providers` is a config key; a pack *names* one (`requires_provider`, §4.1) | nothing — §4.2 |
+
 So the additive move, if a second consumer ever demands it, is one field:
 
 ```jsonc
@@ -551,8 +589,9 @@ Two different questions are being conflated, and the principle's own Rule 4 sepa
 | *Does this string name a real pack?* | the resolvable pack **universe** | **fatal, always** — `optional` does not excuse a typo |
 | *Is that pack selected this launch?* | the **active** pack list | fatal when required; clean skip when `optional` |
 
-Under this design the same split applies to `pack_profiles.<pack>` (§2.5) and to
-`requires_provider` (§3.1): the name must resolve in the universe, always; selection governs only
+Under this design the same split applies to `pack_profiles.<cli>` (§2.5) and to
+`requires_provider` (§3.1): the name must resolve in the universe — for a profile, the
+CLI names owned by resolvable packs — always; selection governs only
 whether the contribution renders.
 
 ---
@@ -613,8 +652,9 @@ instinct — applied to a different set (§8).
 
 1. **The rename and the two validation gates.** `agent_profiles` → `pack_profiles` everywhere
    (8 sites, §2.4), with the old key refused by name; `pack_profiles` keys validated against the
-   resolved pack universe; `-p … -- <bin>` resolving bin → slug and failing when no pack owns the
-   bin. This is independently valuable and fixes a live silent-typo hole (§2.5) with no new kind.
+   CLI-name namespace — bins owned by resolvable packs — with unknown names fatal (§2.5, §8);
+   `-p … -- <bin>` failing when no pack owns that bin. This is independently valuable and fixes a
+   live silent-typo hole (§2.5) with no new kind.
 2. **`kind: "profile"`**, its footprint entry, and its managed-layer fold — modeled on `autonomy`,
    which means the loader, the render path and the host notch already know the posture shape.
 3. **Move Bedrock into `packs/claude`** as a profile patching `claude/settings`, and delete
