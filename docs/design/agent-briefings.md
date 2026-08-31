@@ -37,7 +37,7 @@ completely differently:
 
 | Layer | In-jail path | Who owns it | Yolo's role |
 |---|---|---|---|
-| **User-level briefing** | one per `briefing` contribution — `~/.claude/CLAUDE.md`, `~/.copilot/AGENTS.md`, `~/.codex/AGENTS.md`, `~/.config/opencode/AGENTS.md`, `~/.pi/agent/AGENTS.md`, `~/.gemini/config/AGENTS.md` (agy) | yolo (generated) | Generated per jail, mounted read-only |
+| **User-level briefing** | one per `briefing` contribution — `~/.claude/CLAUDE.md`, `~/.copilot/copilot-instructions.md`, `~/.codex/AGENTS.md`, `~/.config/opencode/AGENTS.md`, `~/.pi/agent/AGENTS.md`, `~/.gemini/config/AGENTS.md` (agy) | yolo (generated) | Generated per jail, mounted read-only |
 | **Project-level file** | `/workspace/AGENTS.md`, `/workspace/CLAUDE.md` | the repository | None — it's just a file in the workspace bind, exactly what the repo checked in |
 
 Yolo never writes, rewrites, or merges the project-level files. Everything
@@ -131,7 +131,7 @@ bind-mounted **read-only** into the jail at that contribution's `into`:
 
 ```
 AGENTS_DIR/<cname>/briefing-claude.md    →  /home/agent/.claude/CLAUDE.md:ro
-AGENTS_DIR/<cname>/briefing-copilot.md   →  /home/agent/.copilot/AGENTS.md:ro
+AGENTS_DIR/<cname>/briefing-copilot.md   →  /home/agent/.copilot/copilot-instructions.md:ro
 AGENTS_DIR/<cname>/briefing-codex.md     →  /home/agent/.codex/AGENTS.md:ro
 AGENTS_DIR/<cname>/briefing-opencode.md  →  /home/agent/.config/opencode/AGENTS.md:ro
 AGENTS_DIR/<cname>/briefing-pi.md        →  /home/agent/.pi/agent/AGENTS.md:ro
@@ -191,7 +191,7 @@ Nothing in yolo ever copies briefing or skill content *between* agents.
 Each agent is sourced strictly in parallel from its own host dotdir:
 
 ```
-~/.copilot/AGENTS.md   →  copilot briefing only
+~/.copilot/copilot-instructions.md  →  copilot briefing only
 ~/.codex/AGENTS.md     →  codex briefing only
 ~/.claude/CLAUDE.md    →  claude briefing only
 ~/.<agent>/skills/     →  that agent's skills only (no merging)

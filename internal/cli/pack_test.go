@@ -160,6 +160,44 @@ func TestPackLintAndFootprintAcceptAnExecutable(t *testing.T) {
 	}
 }
 
+// The "already declared by the X pack" hint is DERIVED from the embedded packs, and both
+// halves matter. It was a hardcoded list of paths until 2026-08-31, by which point 5 of
+// its 11 entries were wrong — and a stale entry does not merely fail to advise, it advises
+// WRONGLY: it told an author to delete `.pi/agent/skills`, which in a config with no `pi`
+// pack was the only thing delivering their skills.
+func TestPackLintNamesTheOwningPack(t *testing.T) {
+	dir := t.TempDir()
+	var out, errw bytes.Buffer
+	packMain([]string{"init", dir}, &out, &errw, false, nil)
+	// One destination an agent pack owns, one nobody owns (agy moved off this path).
+	manifest := `{"name":"t","contributes":[` +
+		`{"kind":"skills","from":"skills","into":".claude/skills"},` +
+		`{"kind":"skills","from":"skills","into":".gemini/antigravity-cli/skills"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errw.Reset()
+	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("lint failed: rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	report := out.String()
+	if !strings.Contains(report, "already declared by the claude pack") {
+		t.Errorf("lint did not name the owning pack for .claude/skills:\n%s", report)
+	}
+	// The other one must stay SILENT — no pack declares it, so it is the author's own
+	// destination, and this is the case the literal list got backwards. Checked against the
+	// HINT lines only: the footprint listing below them prints every claim by design, so
+	// matching the whole report would assert the opposite of what it means to.
+	for _, line := range strings.Split(report, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "ℹ") &&
+			strings.Contains(line, "antigravity-cli") {
+			t.Errorf("lint flagged a destination no pack declares — that is the advice "+
+				"that deletes working contributions:\n%s", line)
+		}
+	}
+}
+
 // A skill dir with no SKILL.md is invisible to every agent and produces no error
 // anywhere else — the single most likely authoring mistake.
 func TestPackLintCatchesSkillDirWithoutManifest(t *testing.T) {

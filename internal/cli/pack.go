@@ -485,28 +485,33 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 
 	pr.Printf("[green]✓[/green] pack ok — %d file(s) stage", len(res.Staged))
 
-	// Advice: if a custom pack explicitly declares `briefing` or `skills` into a standard agent path,
-	// remind the author that root-level AGENTS.md or skills/ is automatically routed to all agents.
+	// Advice: if a custom pack explicitly declares `briefing` or `skills` into a destination
+	// an AGENT PACK already owns, remind the author that a root-level AGENTS.md or skills/
+	// is routed there anyway — destinations are the union across selected packs and the
+	// content copied into each is the union of every pack's tree (run.packSkillTargets +
+	// jailcontent.PrepareSkills), so re-declaring one buys nothing.
+	//
+	// DERIVED FROM THE PACKS, never a literal list. It was a literal until 2026-08-31, and
+	// by then 5 of its 11 entries were wrong: it still named `.gemini/antigravity-cli/skills`
+	// after agy moved to `.gemini/config/skills`, named `.opencode/AGENTS.md` and
+	// `.opencode/skills` when opencode uses `.config/opencode/`, and named `.claude/AGENTS.md`
+	// which no pack has ever declared. A stale entry does not merely fail to advise — it
+	// advises WRONGLY, and this one told an author to delete the contribution that was the
+	// only thing delivering their skills.
 	for i, c := range pack.Decl.Contributions() {
-		if c.Kind == packdecl.KindBriefing || c.Kind == packdecl.KindSkills {
-			for _, std := range []string{
-				".claude/CLAUDE.md", ".claude/AGENTS.md", ".claude/skills",
-				".pi/agent/AGENTS.md", ".pi/agent/skills",
-				".gemini/config/AGENTS.md", ".gemini/antigravity-cli/skills",
-				".codex/AGENTS.md", ".codex/skills",
-				".opencode/AGENTS.md", ".opencode/skills",
-			} {
-				if c.Into == std {
-					kindSrc := "AGENTS.md"
-					if c.Kind == packdecl.KindSkills {
-						kindSrc = "skills/"
-					}
-					pr.Printf("[yellow]ℹ[/yellow] contributes[%d]: %s into %q targets an agent's standard path — root-level %s in your pack is automatically routed to all active agents with zero ceremony; declaring it explicitly is unnecessary",
-						i, c.Kind, c.Into, kindSrc)
-					break
-				}
-			}
+		if c.Kind != packdecl.KindBriefing && c.Kind != packdecl.KindSkills {
+			continue
 		}
+		owner, owned := agentPackDest(c.Kind, c.Into, pack.Name)
+		if !owned {
+			continue
+		}
+		kindSrc := "AGENTS.md"
+		if c.Kind == packdecl.KindSkills {
+			kindSrc = "skills/"
+		}
+		pr.Printf("[yellow]ℹ[/yellow] contributes[%d]: %s into %q is already declared by the %s pack — root-level %s in your pack is routed to every destination the selected packs declare, so this line adds nothing (drop it, unless you need the destination when %s is NOT selected)",
+			i, c.Kind, c.Into, owner, kindSrc, owner)
 	}
 
 	// The footprint: what this pack CLAIMS on the environment. An author who never
@@ -1360,4 +1365,34 @@ func shortSHA(sha string) string {
 		return sha[:8]
 	}
 	return sha
+}
+
+// agentPackDest reports whether some pack yolo SHIPS already declares dest as a
+// destination for this kind, and names it. self is excluded so a shipped pack linted
+// against itself is not told it duplicates itself.
+//
+// It reads packload.Embedded() — the packs, which are the authority — rather than a list
+// of paths maintained beside them. That is the whole point: the paths move (agy's briefing
+// and skills both moved off `.gemini/antigravity-cli/` within one week), and a hint that
+// lags them tells authors to delete working contributions.
+//
+// Only EMBEDDED packs count as owners. A destination declared by another of the user's own
+// packs is not "already handled" in any durable sense — that pack can be dropped from the
+// config tomorrow, whereas an agent pack's destination is the one that arrives with the
+// agent itself.
+func agentPackDest(kind packdecl.Kind, dest, self string) (string, bool) {
+	if dest == "" {
+		return "", false
+	}
+	for _, p := range packload.Embedded() {
+		if p.Name == self {
+			continue
+		}
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind == kind && c.Into == dest {
+				return p.Name, true
+			}
+		}
+	}
+	return "", false
 }

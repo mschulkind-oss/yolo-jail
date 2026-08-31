@@ -391,7 +391,7 @@ Only the home-relevant ones expanded; the rest one-lined for orientation.
   `AGENTS_DIR/<cname>/briefing-<pack>.md` → `/home/agent/<into>` **ro**
   (assemble.go's briefing loop; staging name is `briefingStagingName`).
   Destinations are pack data, not pairs in a table:
-  claude→`.claude/CLAUDE.md`, copilot→`.copilot/AGENTS.md`,
+  claude→`.claude/CLAUDE.md`, copilot→`.copilot/copilot-instructions.md`,
   codex→`.codex/AGENTS.md`, opencode→`.config/opencode/AGENTS.md`,
   pi→`.pi/agent/AGENTS.md`, agy→`.gemini/config/AGENTS.md`. Two packs
   naming one `into` is legal and expected (an agent pack plus a house-rules

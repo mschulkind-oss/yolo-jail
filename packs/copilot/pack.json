@@ -10,8 +10,8 @@
       "via": "npm"
     },
     {
-      "after": "host:.copilot/AGENTS.md",
-      "into": ".copilot/AGENTS.md",
+      "after": "host:.copilot/copilot-instructions.md",
+      "into": ".copilot/copilot-instructions.md",
       "kind": "briefing"
     },
     {

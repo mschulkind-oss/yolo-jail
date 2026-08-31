@@ -79,7 +79,7 @@ func TestWorkspaceIsolation(t *testing.T) {
 
 	// --- one launch, one fenced probe per property ---
 	r := runYolo(t, dir, strings.Join([]string{
-		`echo "=== AGENTS ==="; ls /home/agent/.copilot/AGENTS.md && ls /home/agent/.codex/AGENTS.md; echo "AGENTS rc=$?"`,
+		`echo "=== AGENTS ==="; ls /home/agent/.copilot/copilot-instructions.md && ls /home/agent/.codex/AGENTS.md; echo "AGENTS rc=$?"`,
 		`echo "=== VENV ==="; ls -a /workspace/.venv/ && cat /workspace/.venv/pyvenv.cfg 2>/dev/null; true`,
 		`echo "=== MISE ==="; echo "MISE_DATA_DIR=$MISE_DATA_DIR" && touch /mise/.yolo-write-probe && rm /mise/.yolo-write-probe && echo MISE_STORE_WRITABLE`,
 		`echo "=== VSCODE ==="; cat /workspace/.vscode/mcp.json`,
