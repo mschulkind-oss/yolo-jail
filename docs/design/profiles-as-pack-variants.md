@@ -35,7 +35,9 @@ extension point), [`stringly-typed-references-principle.md`](stringly-typed-refe
 (unmatched references fail closed), [`pack-config-collaboration.md`](pack-config-collaboration.md)
 (the shipped `config-overlay` kind and the layer fold), [`host-agent-environment.md`](host-agent-environment.md)
 (§3.1: native config-file injection is the preferred host delivery path), and
-[`pack-system.md`](pack-system.md) (the kind registry and the footprint model).
+[`pack-system.md`](pack-system.md) (the kind registry and the footprint model),
+[`zai-plumbing.md`](zai-plumbing.md) (the first real consumer — worked examples for both provider
+routes, and the endpoint-by-protocol resolution).
 
 **Terms**, defined once and used with one meaning throughout — coinages say so, borrowed terms
 link their owner:
@@ -365,7 +367,9 @@ unanswered in the one place it is most likely to bite: a pack-shipped `bedrock` 
 `bedrock`.
 
 The narrow thing a pack *does* legitimately want is to say **"I need a provider named X"** —
-`requires_provider` in §3.1 — which is an assertion, not a definition, and behaves like
+`requires_provider` in §3.1 — which is an assertion, not a definition (the three things the word
+"provider" can mean, separated and worked end-to-end:
+[`zai-plumbing.md`](zai-plumbing.md) §1) — and behaves like
 `kind: "requires"` ([`kinds.go:40-58`](../../internal/packdecl/kinds.go#L40-L58)): many packs may
 assert one provider, nobody owns it, and a missing one is a named preflight failure.
 
@@ -418,7 +422,8 @@ Extend [`validate.go:885-944`](../../internal/config/validate.go#L885-L944) rath
 This is the finding that changed my mind about the Claude/Bedrock case, and neither doc's §9 parity
 claim survives it.
 
-**`kind: "env"` is refused at the host notch.** Not unimplemented — *refused*, with a written
+**`yolo host apply` refuses `kind: "env"` — the COMMAND, not the notch** *(opening amended
+2026-08-31 for the wrapper era)*. Not unimplemented — *refused*, with a written
 reason ([`fieldset.go:99-103`](../../internal/render/fieldset.go#L99-L103)):
 
 > *"env vars apply to a process yolo starts, and `yolo host apply` only configures your tools — it
@@ -426,11 +431,20 @@ reason ([`fieldset.go:99-103`](../../internal/render/fieldset.go#L99-L103)):
 > larger claim than a pack's env contribution asks for. `yolo host -- <program>` delivers them at
 > launch instead, to that process only."*
 
+The refusal is scoped to `apply` because `apply` never runs a process. The host *notch* can deliver
+env, and since [`hostwrap`](../../internal/hostwrap/hostwrap.go) landed it does: every installed
+program's invocation can pass through `yolo host --`, where environment composition happens at
+launch from live config. So the accurate statement is narrower than the one this section originally
+opened with: **process env is deliverable at both notches, but only through a channel with yolo (or
+its wrapper) in the launch path** — `host apply` alone, a bare invocation from a shell without the
+wrap dir on `PATH`, cron, and an IDE-configured absolute path all miss it.
+
 `pack-profiles.md` §9 claims alignment with [`happy-path-principle.md`](happy-path-principle.md) —
 *"One unified merge pipeline across the entire matrix: Linux containers, macOS Apple Container,
 `macos-user`, and Host Render Target (`yolo host apply`)"*. Its worked example is **pure `config.env`**.
-So the flagship case does not work on the notch the doc claims parity for — and the host notch is
-precisely where the design's stated downstream motivation lives
+So the flagship case does not reach the apply verb the doc claims parity for — and the host notch,
+where the design's stated downstream motivation lives, is served by the launch verb and wrapper
+they did not build
 ([`host-agent-environment.md` §2.2](host-agent-environment.md#22-real-world-case-study-obviating-bashrc-wrapper-functions):
 obviating the `.bashrc` `claude()` wrapper).
 
@@ -781,10 +795,14 @@ of the D5 problem, with no manifest to review.
    plain string, so a pack can meaningfully honor a name it never declared (which is exactly what
    `packs/claude/derive.lua` does today with `"bedrock"`).
 
-   _Leaning:_ **Fatal if no selected pack declares OR reads the name.** A derive that reads a
-   profile name should have to declare it — add `"profiles": ["bedrock", "default"]` as a
-   pack-level advertisement, so the namespace is closed and `-p` can be checked and tab-completed.
-   This is the one place I would add a field `pack-profiles.md` does not have.
+   _Leaning (amended 2026-08-31):_ **Free-form and global — OQ-5's ruling decides this.** With
+   `-p <name>` setting the profile name for every selected pack, a name no pack declared is not a
+   typo signal, it is the ordinary state of a global selector; fatality would fire on every launch
+   that names a profile only some packs know. The original leaning (a pack-level `"profiles":
+   [...]` advertisement making the namespace closed and checkable) survives only as the
+   tab-completion argument, not as a gate. Typo transparency comes from the launch line OQ-5 keeps:
+   it prints which packs declared or honored the active name, so a `bedrok` that landed on nothing
+   is visible without being fatal.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -804,13 +822,20 @@ of the D5 problem, with no manifest to review.
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 🤷 **OQ-5: `-p` with no `--` command.** `yolo -p dev` with three agent packs selected: apply
+5. ✅ **OQ-5: `-p` with no `--` command.** `yolo -p dev` with three agent packs selected: apply
    `dev` to every pack that declares it, or refuse as ambiguous? `pack-profiles.md` OQ-2 leans
    "globally"; that is a real behavioral choice, not a spelling one.
 
-   _Leaning:_ Apply to every pack that declares the name, and **print which packs it landed on**.
-   Silent multi-pack activation is the "silent skip" failure with the sign flipped. If it lands on
-   zero packs, that is OQ-3's fatal case.
+   _Leaning (superseded by the ruling):_ Apply to every pack that declares the name, and **print
+   which packs it landed on**. Silent multi-pack activation is the "silent skip" failure with the
+   sign flipped. If it lands on zero packs, that is OQ-3's fatal case.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (ruled by the maintainer, 2026-08-31):**
+   > **Global, declared or not: `-p dev` means `dev` is the active profile name for EVERY selected
+   > pack — consistency is the point.** A pack with no declared `dev` profile still receives it
+   > (`ctx.pack_profiles[c] == "dev"`) and may honor it in its derive; a pack that declares one
+   > renders its `kind: "profile"` contributions. The leaning's declare-only gating is rejected:
+   > a global selector that some packs ignore silently is exactly the inconsistency `-p` exists to
+   > remove. The launch line keeps the transparency — it prints which packs declared or honored the
+   > name — and OQ-3's fatality is withdrawn accordingly (values are free-form; config KEYS stay
+   > checked against the CLI-name namespace).
