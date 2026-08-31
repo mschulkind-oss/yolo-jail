@@ -117,12 +117,10 @@ every loaded pack's host access is listed in the startup banner each launch.
                               collide with yours. Components that RUN (hooks, MCP/LSP servers)
                               are named at init and approved at install.
   yolo pack lint [dir]        validate the tree AND the pack.json manifest; print its footprint
-                              --allow-exec  lint as a consumer who set "allow_exec"
   yolo pack ls                list configured packs and what each stages
   yolo pack explain <name>    show which files a pack stages, and what it dropped
   yolo pack footprint [ref]   what packs claim on the environment + collisions;
                               [ref] = an embedded name OR a local path / file:// pack
-                              --allow-exec  same as lint's: inspect a pack shipping an executable
   yolo pack install           fetch configured packs, write the lockfile, approve host access.
                               It NEVER asks a registry what the latest version is
   yolo pack update            install, PLUS the only act that resolves a new version for a
@@ -146,7 +144,7 @@ first use and afterwards only REPORTS, at most hourly, that a newer version exis
 nothing changes a binary between two invocations with nobody present. ` + "`yolo pack update`" + `,
 run inside the jail, is the act that resolves the new version.
 
-For the full entry schema — name, only/exclude, allow_exec — and the precedence
+For the full entry schema — name, only/exclude — and the precedence
 rules, see ` + "`yolo config-ref`" + `.`
 
 // runPack is the registry entry point. Like every handler, args INCLUDES the
@@ -286,18 +284,13 @@ func writeScaffoldFile(root, rel, content string, out, errw io.Writer) int {
 // packLint validates a pack DIRECTORY by staging it into a throwaway dir with the
 // real executor, so the linter cannot disagree with the stager.
 //
-// --allow-exec lints the way a CONSENTING CONSUMER would stage. `allow_exec` lives in the
-// user's config, not the manifest, so an author linting their own pack otherwise has no way
-// to see past the exec-bit refusal to the rest of the report — the flag supplies the
-// consumer's half of the decision without pretending a pack can grant it.
+// It took a --allow-exec flag until 2026-08-30, supplying the consumer half of an exec-bit
+// gate that no longer exists (packstage's package doc records why). The flag is GONE rather
+// than accepted-and-ignored: a flag that silently does nothing is how an author concludes
+// the gate is still there and goes looking for the config key to match it.
 func packLint(args []string, out, errw io.Writer, color bool) int {
 	dir := "."
-	allowExec := false
 	for _, a := range args {
-		if a == "--allow-exec" {
-			allowExec = true
-			continue
-		}
 		dir = a
 	}
 	pr := richtext.Printer{W: out, Color: color}
@@ -311,24 +304,23 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 
 	var problems []string
 
-	// A staging failure is collected as a PROBLEM, not returned on. Returning here (as
-	// this used to) meant the exec-bit refusal MASKED the manifest validation below —
-	// so an author who followed the old message's advice and put `allow_exec` in
-	// pack.json saw only the refusal, never the "unknown field allow_exec" line that
-	// explains why their fix did nothing. The two messages together are
-	// self-explanatory; either alone is not.
-	res, err := packstage.Stage(packstage.Spec{Root: dir, Dest: tmp, AllowExec: allowExec})
+	// A staging failure is collected as a PROBLEM, not returned on, so the manifest
+	// validation below still runs and an author gets every problem in one pass rather
+	// than one per invocation. (The case that forced this was the exec-bit refusal
+	// masking a manifest error; the refusal is gone and the reason to collect is not —
+	// an escaping symlink hides a manifest problem exactly the same way.)
+	res, err := packstage.Stage(packstage.Spec{Root: dir, Dest: tmp})
 	if err != nil {
-		// The staging rules ARE the lint rules: exec bit, escaping symlink, missing
-		// root. Reporting the executor's own message keeps the two from drifting.
+		// The staging rules ARE the lint rules: escaping symlink, missing root.
+		// Reporting the executor's own message keeps the two from drifting.
 		problems = append(problems, err.Error())
 		// Nothing staged means the content checks below would all fire spuriously, but
 		// the MANIFEST is still worth validating: pack.json is read from the source dir
 		// when staging produced nothing, so an author gets both halves of the story.
 		res = &packstage.Result{}
 		// Validate the manifest from the SOURCE dir, since nothing reached the staging
-		// dir. This is the line that turns "your fix did nothing" into "allow_exec is not
-		// a manifest key", printed right beside the refusal that prompted the attempt.
+		// dir, so a manifest problem is reported beside the staging failure instead of
+		// waiting for the author to fix the first one and run again.
 		_, sourceManifestProblems := packload.LoadDir(dir, filepath.Base(dir), true)
 		problems = append(problems, sourceManifestProblems...)
 		for _, p := range problems {
@@ -843,11 +835,10 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 	defer os.RemoveAll(tmp)
 
 	res, err := packstage.Stage(packstage.Spec{
-		Root:      strings.TrimPrefix(entry.Source, "file://"),
-		Dest:      tmp,
-		Only:      entry.Only,
-		Exclude:   entry.Exclude,
-		AllowExec: entry.AllowExec,
+		Root:    strings.TrimPrefix(entry.Source, "file://"),
+		Dest:    tmp,
+		Only:    entry.Only,
+		Exclude: entry.Exclude,
 	})
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack explain: %v\n", err)
@@ -881,22 +872,13 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 // The footprint is computed from each pack's contributes[] via
 // packload.FootprintOf, dispatching on contribution kind.
 //
-// --allow-exec is accepted for the same reason `pack lint` takes it, and it had to be added
-// because the two disagreeing was worse than either answer: a pack shipping an executable
-// LINTED with the flag and then could not be FOOTPRINTED at all (exit 1 on packstage's
-// exec-bit refusal), while this command's own help advertises it as the way to inspect a pack
-// you are authoring. Only the local-path branch consumes it; an embedded pack is already
-// materialized and never re-staged.
+// It took a --allow-exec flag until 2026-08-30, mirroring `pack lint`'s, because the two
+// disagreeing was worse than either answer. Both are gone with the gate they served.
 func packFootprint(args []string, out, errw io.Writer, color bool) int {
 	pr := richtext.Printer{W: out, Color: color}
 
 	arg := ""
-	allowExec := false
 	for _, a := range args {
-		if a == "--allow-exec" {
-			allowExec = true
-			continue
-		}
 		arg = a
 	}
 
@@ -906,7 +888,7 @@ func packFootprint(args []string, out, errw io.Writer, color bool) int {
 		// that surfaces a same-into skills collision before boot does, so it must accept
 		// a pack that is not yet configured.
 		if isLocalPackArg(arg) {
-			return packFootprintLocal(arg, allowExec, pr, errw)
+			return packFootprintLocal(arg, pr, errw)
 		}
 		// Otherwise treat it as an embedded pack name.
 		var one []*packload.Pack
@@ -957,11 +939,7 @@ func isLocalPackArg(arg string) bool {
 // what a jail would render. mayAccessHost=true so host-gated claims show up in the
 // footprint (the origin gate is what decides whether they are HONORED, and footprint
 // exists precisely to show what a pack WANTS before you trust it).
-//
-// allowExec is the consumer's half of the exec-bit decision, exactly as in `pack lint`: it
-// lets an author inspect a pack whose executable a consenting consumer would stage, rather
-// than having the refusal mask the entire report.
-func packFootprintLocal(arg string, allowExec bool, pr richtext.Printer, errw io.Writer) int {
+func packFootprintLocal(arg string, pr richtext.Printer, errw io.Writer) int {
 	root := strings.TrimPrefix(arg, "file://")
 	tmp, err := os.MkdirTemp("", "yolo-pack-footprint-")
 	if err != nil {
@@ -970,7 +948,7 @@ func packFootprintLocal(arg string, allowExec bool, pr richtext.Printer, errw io
 	}
 	defer os.RemoveAll(tmp)
 
-	if _, err := packstage.Stage(packstage.Spec{Root: root, Dest: tmp, AllowExec: allowExec}); err != nil {
+	if _, err := packstage.Stage(packstage.Spec{Root: root, Dest: tmp}); err != nil {
 		fmt.Fprintf(errw, "yolo pack footprint: %v\n", err)
 		return 1
 	}

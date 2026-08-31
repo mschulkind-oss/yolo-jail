@@ -142,7 +142,7 @@ func (o *Options) sectionPacks(r *reporter) {
 		defer os.RemoveAll(dest)
 		staged, err := packstage.Stage(packstage.Spec{
 			Root: res.Root, Dest: dest,
-			Only: e.Only, Exclude: e.Exclude, AllowExec: e.AllowExec,
+			Only: e.Only, Exclude: e.Exclude,
 		})
 		if err != nil {
 			r.fail(e.Name+": "+err.Error(), "")

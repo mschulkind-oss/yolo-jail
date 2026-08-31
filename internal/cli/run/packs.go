@@ -189,11 +189,10 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		}
 		dest := filepath.Join(stagingRoot, entry.Slug())
 		res, err := packstage.Stage(packstage.Spec{
-			Root:      root,
-			Dest:      dest,
-			Only:      entry.Only,
-			Exclude:   entry.Exclude,
-			AllowExec: entry.AllowExec,
+			Root:    root,
+			Dest:    dest,
+			Only:    entry.Only,
+			Exclude: entry.Exclude,
 		})
 		if err != nil {
 			return "", nil, nil, fmt.Errorf("packs: %s: %w", entry.Name, err)

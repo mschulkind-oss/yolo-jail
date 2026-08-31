@@ -151,11 +151,11 @@ func packInitFromPlugin(pluginDir, packRoot, name string, out, errw io.Writer) i
 // wrapped skill must not lose it to a second `init`. That does mean a refresh needs the subtree
 // deleted first, which the README says.
 //
-// The exec bit is DROPPED (every file lands 0o644), which is a deliberate narrowing rather
-// than an oversight: a pack carrying an executable is refused at staging unless the CONSUMER
-// sets `allow_exec`, so preserving the bit here would scaffold a pack that cannot stage. An
-// author who genuinely ships a script restores the bit and tells their consumers to opt in —
-// which is the one decision the pack system insists the consumer make, not the author.
+// The exec bit is PRESERVED. It used to be dropped (every file landed 0o644) because a pack
+// carrying an executable could not stage without the consumer's `allow_exec`, so scaffolding
+// one produced a pack that was refused. That gate is gone, and dropping the bit now would do
+// the opposite of what it was for: silently break the plugin's own scripts in the pack
+// generated from it, and leave the author to rediscover chmod.
 //
 // Symlinks INSIDE the tree are dereferenced for a related reason: packstage refuses one that
 // escapes the pack, and a link's target is a fact about the plugin author's checkout rather
@@ -197,7 +197,11 @@ func copyPluginTree(src, dst string) (wrote, kept int, err error) {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(target, data, 0o644); err != nil {
+		mode := os.FileMode(0o644)
+		if fi.Mode().Perm()&0o111 != 0 {
+			mode = 0o755
+		}
+		if err := os.WriteFile(target, data, mode); err != nil {
 			return err
 		}
 		wrote++

@@ -115,6 +115,8 @@ func TestUnknownSkillsTierIsRefused(t *testing.T) {
 // declaration that would silently do nothing, and the author must hear about it. Tolerance
 // belongs only at the version boundary.
 func TestDecodeStaysStrictForAuthors(t *testing.T) {
+	// `allow_exec` is the unknown field on purpose: it was a real config key that authors
+	// kept writing into pack.json, where it never belonged and now does not exist at all.
 	manifest := []byte(`{"name":"acme","allow_exec":true,
 		"contributes":[{"kind":"skills","from":"skills","into":".acme/skills"}]}`)
 	if _, problems := Decode(manifest); len(problems) == 0 {

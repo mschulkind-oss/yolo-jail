@@ -909,15 +909,17 @@
       only        globs to include; matches a DIRECTORY prefix, so "skills/rust-*"
                   takes the whole skill dir.  Default: everything.
       exclude     globs to drop, applied after `only`.
-      allow_exec  permit files carrying the exec bit.  Default false — a pack is
-                  content, so shipping an executable is an explicit opt-in.
+    A pack SHIPS ITS TOOLS: a file carrying the exec bit stages executable, so a skill
+    can ship the script it tells an agent to run.  What a pack may NOT do is land a
+    destination on the jail's PATH — that is refused in the manifest, because a name on
+    PATH comes from a `program` contribution, which owns it and discloses it.
     Precedence: later entries win on same-named skills.  Within one agent, the order
     is built-in skills < pack skills < your own ~/.<agent>/skills, so a pack may
     override a yolo built-in but never a skill you wrote.
     Pack prose is appended to each briefing under a "from pack: NAME" header, so a
     rule an agent follows is always traceable to its source.
     Tooling: [bold]yolo pack init|lint|ls|explain|footprint[/bold].  `lint` runs the real
-    staging rules (exec-bit and escaping-symlink refusals) AND validates the pack.json
+    staging rules (the escaping-symlink refusal) AND validates the pack.json
     manifest (unknown kind, missing field, unknown key — every problem, not the
     first), then prints the pack's footprint.  `footprint <path>` shows what a local
     pack you are authoring claims, and any collision, before you configure it.

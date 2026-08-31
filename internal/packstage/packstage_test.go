@@ -38,8 +38,9 @@ func TestStageCopiesTreeAndForcesMode(t *testing.T) {
 	if data, err := os.ReadFile(got); err != nil || !strings.Contains(string(data), "SKILL.md") {
 		t.Errorf("staged file missing/wrong: %v %s", err, data)
 	}
-	// Mode is normalized: a staged pack file is content, so the exec bit can never
-	// ride along even from a permissive source.
+	// Mode is normalized to 0o644 for a NON-executable source: the read/write bits are
+	// yolo's decision, not the source repo's. Executability is the one bit that rides
+	// through (TestStageShipsExecutables).
 	fi, err := os.Stat(got)
 	if err != nil {
 		t.Fatal(err)
@@ -49,53 +50,49 @@ func TestStageCopiesTreeAndForcesMode(t *testing.T) {
 	}
 }
 
-// Rule 1: an executable is an ERROR without allow_exec, not a silent skip —
-// dropping the one file the author cared about is worse than failing.
-func TestStageRefusesExecutableWithoutOptIn(t *testing.T) {
+// A pack SHIPS ITS TOOLS. An executable stages, and arrives executable — which is the
+// whole point: a skill that tells an agent to run references/check.sh must be able to
+// ship references/check.sh runnable.
+//
+// This replaces TestStageRefusesExecutableWithoutOptIn and its allow_exec twin, and the
+// deletion is the subject rather than a side effect. Those pinned a gate that refused any
+// executable unless the CONSUMER set `allow_exec`. It read as a trust boundary and was not
+// one — `bash file.sh` never needed the bit — so it stopped nothing an adversary would do
+// while failing on the honest case it kept meeting. The hazard it was groping at is real
+// and is now refused where it lives: a destination on the jail's PATH, at the manifest
+// (packdecl.appendJailPathProblems). Mode bits were the wrong instrument for it.
+func TestStageShipsExecutables(t *testing.T) {
 	root, dest := t.TempDir(), t.TempDir()
-	writePack(t, root, map[string]os.FileMode{"hooks/run.sh": 0o755})
+	writePack(t, root, map[string]os.FileMode{
+		"skills/s/references/check.sh": 0o755,
+	})
 
-	_, err := Stage(Spec{Root: root, Dest: dest})
-	if err == nil {
-		t.Fatal("expected an error for an executable pack file")
+	res, err := Stage(Spec{Root: root, Dest: dest})
+	if err != nil {
+		t.Fatalf("staging an executable failed: %v", err)
 	}
-	for _, want := range []string{"hooks/run.sh", "allow_exec"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q missing %q", err, want)
-		}
+	if len(res.Staged) != 1 {
+		t.Fatalf("staged = %v, want the one executable", res.Staged)
 	}
-	// With the consumer's opt-in it stages AND arrives executable.
-	//
-	// This assertion is inverted from what it was. It used to require 0o644 "even with
-	// allow_exec", on the reasoning that the exec bit is what rule 1 gates. But rule 1
-	// gates whether an executable may be staged at all — enforced by the refusal above —
-	// and a file that has passed that gate is one the CONSUMER explicitly asked for.
-	// Stripping the bit anyway made allow_exec mean "may sit in the tree" instead of
-	// "arrives usable", so no pack could ship a working script through any channel.
-	res, err := Stage(Spec{Root: root, Dest: dest, AllowExec: true})
+	fi, err := os.Stat(filepath.Join(dest, "skills", "s", "references", "check.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Staged) != 1 {
-		t.Fatalf("staged = %v", res.Staged)
-	}
-	fi, _ := os.Stat(filepath.Join(dest, "hooks", "run.sh"))
 	if fi.Mode().Perm() != 0o755 {
-		t.Errorf("mode = %o, want 755: allow_exec grants the exec bit THROUGH to the "+
-			"staged file, not merely admission to the tree", fi.Mode().Perm())
+		t.Errorf("mode = %o, want 755: the bit must ride THROUGH to the staged file, or "+
+			"the pack ships a script nothing can run", fi.Mode().Perm())
 	}
 }
 
-// A non-executable file stays 0o644 even when the consumer set allow_exec: the flag is
-// permission to carry a source's exec bit, not an instruction to add one. Only the 0o111
-// bits come from the source, so a group-writable file in someone else's repo does not
-// widen the staged copy either.
+// A non-executable file stays 0o644. Only the 0o111 bits come from the source, so a
+// group- or world-writable file in someone else's repo does not widen the staged copy:
+// what carries through is executability, not the source's whole mode.
 func TestStageDoesNotInventExecBit(t *testing.T) {
 	root, dest := t.TempDir(), t.TempDir()
 	writePack(t, root, map[string]os.FileMode{
 		"skills/s/SKILL.md": 0o666, // world-writable source
 	})
-	if _, err := Stage(Spec{Root: root, Dest: dest, AllowExec: true}); err != nil {
+	if _, err := Stage(Spec{Root: root, Dest: dest}); err != nil {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(filepath.Join(dest, "skills", "s", "SKILL.md"))
@@ -103,7 +100,7 @@ func TestStageDoesNotInventExecBit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if fi.Mode().Perm() != 0o644 {
-		t.Errorf("mode = %o, want 644: allow_exec must not invent an exec bit, and the "+
+		t.Errorf("mode = %o, want 644: staging must not invent an exec bit, and the "+
 			"read/write bits stay yolo's decision", fi.Mode().Perm())
 	}
 }

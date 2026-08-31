@@ -185,10 +185,12 @@ func renderOneHostFile(pack, srcPath, dest string, req HostFilesRequest, observe
 // enforcement, and the archive-before-replace above is what makes ignoring the signal
 // non-destructive.
 //
-// The exec bit comes from the pack's staged copy, which is where the consumer's allow_exec
-// opt-in was already enforced (internal/packstage rule 1): a file that arrives executable in
-// the staged tree is one the user explicitly permitted, so honoring it here needs no second
-// gate — and refusing it would make the fzf-script case undeliverable again.
+// The exec bit comes from the pack's staged copy and is honored as found. It used to be
+// justified by a staging-time gate (a consumer's `allow_exec` opt-in) that no longer
+// exists; the behavior is unchanged and the reason is now simpler — a pack that ships a
+// script ships it runnable, which is the fzf-script case and every skill that tells an
+// agent to run its own tool. What a pack may not do is put that file on PATH, which is
+// refused at the manifest (packdecl.appendJailPathProblems) rather than by mode bits.
 func hostFileTreeMode(srcPath string) (os.FileMode, error) {
 	fi, err := os.Stat(srcPath)
 	if err != nil {

@@ -26,7 +26,12 @@ func packsFixture(t *testing.T, cfgBody string) {
 // D1: a pack problem must surface on the HOST at `yolo check`, where erroring is
 // normal and the message is actionable — not only in the jail, where A12's fatal
 // policy turns it into a refused boot the user has to diagnose from a log.
-func TestSectionPacksFailsOnExecutableFile(t *testing.T) {
+//
+// The problem used here is the ESCAPING SYMLINK. It was the exec bit until 2026-08-30,
+// when that gate was retired (see internal/packstage's package doc); D1 is about WHERE a
+// staging problem is reported, not about which rule produced it, so the test moves to the
+// rule that remains rather than retiring with the one it happened to use.
+func TestSectionPacksFailsOnStagingRefusal(t *testing.T) {
 	pack := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(pack, "skills", "s"), 0o755); err != nil {
 		t.Fatal(err)
@@ -34,8 +39,12 @@ func TestSectionPacksFailsOnExecutableFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pack, "skills", "s", "SKILL.md"), []byte("---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(pack, "evil.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	outside := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(outside, []byte("k"), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(pack, "escape.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 	packsFixture(t, `{"packs": ["file://`+pack+`"]}`)
 
@@ -44,10 +53,36 @@ func TestSectionPacksFailsOnExecutableFile(t *testing.T) {
 	(&Options{}).sectionPacks(r)
 
 	if r.failed == 0 {
-		t.Errorf("expected a failure for an executable pack file:\n%s", buf.String())
+		t.Errorf("expected a failure for a symlink escaping the pack root:\n%s", buf.String())
 	}
-	if !strings.Contains(buf.String(), "allow_exec") {
-		t.Errorf("message should name the opt-in:\n%s", buf.String())
+	if !strings.Contains(buf.String(), "escape.md") {
+		t.Errorf("message should name the offending file:\n%s", buf.String())
+	}
+}
+
+// A pack shipping its own tools passes: `yolo check` must not report a problem the
+// stager does not have, or an author fixes a phantom.
+func TestSectionPacksPassesAPackShippingATool(t *testing.T) {
+	pack := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(pack, "skills", "s", "references"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "skills", "s", "SKILL.md"),
+		[]byte("---\nname: s\ndescription: d\n---\nrun references/check.sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "skills", "s", "references", "check.sh"),
+		[]byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	packsFixture(t, `{"packs": ["file://`+pack+`"]}`)
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{}).sectionPacks(r)
+
+	if r.failed != 0 {
+		t.Errorf("a pack shipping a skill's own tool must check clean:\n%s", buf.String())
 	}
 }
 

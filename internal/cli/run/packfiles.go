@@ -47,8 +47,10 @@ type packFilesTarget struct {
 // relocations) that have to sort.
 //
 // No origin gate: a `files` tree is the PACK's own content, not a host read, so a fetched
-// pack delivers it exactly like an embedded one. The trust question a fetched pack raises
-// here is what packstage's exec-bit refusal and `allow_exec` already answer.
+// pack delivers it exactly like an embedded one. What a fetched pack may NOT do with the
+// tree is land it on the jail's PATH — refused at the manifest, in
+// packdecl.appendJailPathProblems, so a name on PATH comes from a `program` declaration or
+// from nowhere.
 func packFilesTargets(packs []*packload.Pack) []packFilesTarget {
 	var out []packFilesTarget
 	for _, p := range packs {

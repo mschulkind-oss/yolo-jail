@@ -141,12 +141,11 @@ echo "` + sentinel + `"
 TOOL
 chmod +x "$HOME/.local/bin/` + bin + `"
 `
-	// 0644, NOT 0755, and the difference is a whole gate. A CONFIGURED pack may not
-	// self-grant an exec bit: staging refuses the file outright and tells the user to opt in
-	// with `allow_exec: true` on the config entry, because "a pack comes from someone else's
-	// repo, so shipping an executable is the user's call, not the author's." The bit is also
-	// pointless here — the launcher curls the script to a temp file and runs `bash <file>` —
-	// so setting it for realism bought nothing and pulled in an unrelated opt-in axis.
+	// 0644, and it stays 0644 now for the plain reason rather than the historical one: the
+	// bit is POINTLESS here. The launcher curls the script to a temp file and runs
+	// `bash <file>`, so an exec bit on the pack's copy is never consulted. (It used to be
+	// 0644 because a pack could not stage an executable at all without the consumer's
+	// `allow_exec`; that gate is gone, and this file would stage fine either way.)
 	if err := os.WriteFile(filepath.Join(pack, "install.sh"), []byte(installer), 0o644); err != nil {
 		t.Fatal(err)
 	}

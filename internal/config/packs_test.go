@@ -68,7 +68,7 @@ func TestCheckPacksLowersBothForms(t *testing.T) {
 		"file:///home/me/code/acme/tools/agent-pack",
 		{"source": "git+ssh://git@github.com/acme/mono//tools/pack?ref=main",
 		 "name": "acme", "only": ["skills/rust-*"],
-		 "exclude": ["skills/legacy-*"], "allow_exec": true}
+		 "exclude": ["skills/legacy-*"]}
 	]`))
 	if len(problems) != 0 {
 		t.Fatalf("problems = %v", problems)
@@ -85,7 +85,7 @@ func TestCheckPacksLowersBothForms(t *testing.T) {
 	}
 	// Object form: a git subpath name wins over the repo name.
 	e := entries[1]
-	if e.Name != "acme" || !e.AllowExec {
+	if e.Name != "acme" {
 		t.Errorf("object entry lowered wrong: %+v", e)
 	}
 	if len(e.Only) != 1 || len(e.Exclude) != 1 {
@@ -113,7 +113,9 @@ func TestCheckPacksRejectsBadEntries(t *testing.T) {
 		{`["http://example.com/pack"]`, "unsupported scheme"},
 		{`[{"name": "x"}]`, `missing required "source"`},
 		{`[{"source": "file:///p", "bogus": 1}]`, "unknown key"},
-		{`[{"source": "file:///p", "allow_exec": "yes"}]`, "expected true or false"},
+		// Retired 2026-08-30 with the exec gate it fed. A key that does nothing must
+		// not be accepted quietly, so it now falls through to the unknown-key check.
+		{`[{"source": "file:///p", "allow_exec": true}]`, "unknown key"},
 		// Two packs resolving to the same name would share a staging dir.
 		{`["file:///a/dup", "file:///b/dup"]`, "duplicate pack name"},
 		{`[{"source": "file:///p", "name": "a/b"}]`, "path separator"},
@@ -135,7 +137,7 @@ func TestPacksWireRoundTrip(t *testing.T) {
 	in := []PackEntry{
 		{Source: "file:///p", Name: "p"},
 		{Source: "git+ssh://git@h/o/r//s?ref=main", Name: "s",
-			Only: []string{"skills/*"}, AllowExec: true},
+			Only: []string{"skills/*"}},
 	}
 	wire, err := MarshalPacks(in)
 	if err != nil {
@@ -148,7 +150,7 @@ func TestPacksWireRoundTrip(t *testing.T) {
 	if len(out) != len(in) {
 		t.Fatalf("round-trip lost entries: %v", out)
 	}
-	if out[1].Name != "s" || !out[1].AllowExec || len(out[1].Only) != 1 {
+	if out[1].Name != "s" || len(out[1].Only) != 1 {
 		t.Errorf("round-trip mangled entry: %+v", out[1])
 	}
 	// Empty in, empty out — no argv for a user with no packs.

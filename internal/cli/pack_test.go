@@ -57,55 +57,59 @@ func TestPackInitDoesNotClobber(t *testing.T) {
 	}
 }
 
-// lint runs the REAL staging rules, so an author hits the exec-bit refusal before a
-// consumer's jail does. A linter that disagreed with the stager would be worse than
-// none.
+// lint runs the REAL staging rules, so an author hits a refusal before a consumer's jail
+// does. A linter that disagreed with the stager would be worse than none.
+//
+// The rule exercised here is the ESCAPING SYMLINK, which is what remains of the two. It
+// used to be the exec bit, and that is gone with the gate (packstage's package doc says
+// why); the property under test was never the exec bit itself but that a staging refusal
+// reaches the report at all.
 //
 // The refusal is reported on STDOUT with the other lint problems, not stderr: a staging
-// failure is now collected as a problem rather than returned on, so that it prints
-// alongside the manifest validation (see TestPackLintReportsExecBitAndManifestTogether).
+// failure is collected as a problem rather than returned on, so that it prints alongside
+// the manifest validation (see TestPackLintReportsStagingRefusalAndManifestTogether).
 // One problem list in one stream beats a refusal on stderr and the explanation on stdout.
 func TestPackLintReportsStagingRefusals(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
 	packMain([]string{"init", dir}, &out, &errw, false, nil)
-	if err := os.WriteFile(filepath.Join(dir, "hook.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	outside := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(outside, []byte("k"), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "escape.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 	out.Reset()
 	errw.Reset()
 	if rc := packMain([]string{"lint", dir}, &out, &errw, false, nil); rc == 0 {
-		t.Fatal("expected lint to fail on an executable file")
+		t.Fatal("expected lint to fail on a symlink escaping the pack root")
 	}
 	report := out.String() + errw.String()
-	if !strings.Contains(report, "allow_exec") {
-		t.Errorf("lint error should name the opt-in: %s", report)
-	}
-	// It must name the CONSUMER's config, not pack.json — pointing an author at the
-	// manifest sends them to the one file that cannot grant the exec bit.
-	if !strings.Contains(report, "config.jsonc") {
-		t.Errorf("lint error must name ~/.config/yolo-jail/config.jsonc as where "+
-			"allow_exec goes, not pack.json: %s", report)
+	if !strings.Contains(report, "escape.md") {
+		t.Errorf("lint error should name the offending file: %s", report)
 	}
 }
 
-// The exec-bit refusal and the manifest error must print TOGETHER.
+// A staging refusal and a manifest error must print TOGETHER.
 //
 // This is the regression test for the masking bug: `packLint` used to return as soon as
-// staging failed, so an author who followed the old message's advice — put
-// `"allow_exec": true` in pack.json — saw ONLY the unchanged refusal. The manifest
-// validation that would have said "unknown field allow_exec" never ran. Either line alone
-// is misleading; the pair is self-explanatory.
-func TestPackLintReportsExecBitAndManifestTogether(t *testing.T) {
+// staging failed, so an author saw one problem, fixed it, ran again, and met the next.
+// The case that forced the fix was an exec-bit refusal masking a manifest error; the
+// refusal is gone and the masking is what was actually wrong, so the test moves to the
+// staging rule that remains rather than retiring with the one that prompted it.
+func TestPackLintReportsStagingRefusalAndManifestTogether(t *testing.T) {
 	dir := t.TempDir()
 	var out, errw bytes.Buffer
 	packMain([]string{"init", dir}, &out, &errw, false, nil)
-	if err := os.WriteFile(filepath.Join(dir, "hook.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	outside := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(outside, []byte("k"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// The mistake the old message invited: allow_exec in the MANIFEST, where it is an
-	// unknown field.
-	manifest := `{"name":"t","allow_exec":true,` +
+	if err := os.Symlink(outside, filepath.Join(dir, "escape.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	manifest := `{"name":"t","bogus_field":true,` +
 		`"contributes":[{"kind":"skills","from":"skills","into":".claude/skills"}]}`
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
@@ -116,7 +120,7 @@ func TestPackLintReportsExecBitAndManifestTogether(t *testing.T) {
 		t.Fatal("expected lint to fail")
 	}
 	report := out.String() + errw.String()
-	for _, want := range []string{"is executable", "unknown field \"allow_exec\""} {
+	for _, want := range []string{"escape.md", "bogus_field"} {
 		if !strings.Contains(report, want) {
 			t.Errorf("lint must report %q alongside the other problem, not mask it:\n%s",
 				want, report)
@@ -124,32 +128,34 @@ func TestPackLintReportsExecBitAndManifestTogether(t *testing.T) {
 	}
 }
 
-// --allow-exec lints the way a consenting consumer would stage, which is the only way an
-// author can see past the refusal to the rest of the report: allow_exec lives in the
-// user's config, so there is nothing an author can put in their own tree to get there.
-func TestPackLintAllowExecFlag(t *testing.T) {
-	for _, args := range [][]string{
-		{"lint", "--allow-exec", "DIR"},
-		{"lint", "DIR", "--allow-exec"}, // flag order must not matter
-	} {
-		dir := t.TempDir()
-		var out, errw bytes.Buffer
-		packMain([]string{"init", dir}, &out, &errw, false, nil)
-		if err := os.WriteFile(filepath.Join(dir, "hook.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		withDir := make([]string, len(args))
-		for i, a := range args {
-			if a == "DIR" {
-				a = dir
-			}
-			withDir[i] = a
-		}
+// A PACK MAY SHIP ITS TOOLS, and both single-pack inspection commands must say so.
+//
+// This replaces TestPackLintAllowExecFlag and TestPackFootprintAllowExecMatchesLint, which
+// pinned the --allow-exec flag and the requirement that lint and footprint AGREE about it.
+// The agreement is still the property worth testing — footprint's help advertises it as
+// the way to inspect a pack you are authoring, so a pack you can lint you must be able to
+// footprint — but the answer both give is now "yes" with no flag to pass.
+func TestPackLintAndFootprintAcceptAnExecutable(t *testing.T) {
+	dir := t.TempDir()
+	var out, errw bytes.Buffer
+	packMain([]string{"init", dir}, &out, &errw, false, nil)
+	tool := filepath.Join(dir, "skills", "s", "references", "check.sh")
+	if err := os.MkdirAll(filepath.Dir(tool), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "skills", "s", "SKILL.md"),
+		[]byte("---\nname: s\ndescription: d\n---\nrun references/check.sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, verb := range []string{"lint", "footprint"} {
 		out.Reset()
 		errw.Reset()
-		if rc := packMain(withDir, &out, &errw, false, nil); rc != 0 {
-			t.Errorf("lint %v should accept an exec-bit file: rc %d\n%s%s",
-				args, rc, out.String(), errw.String())
+		if rc := packMain([]string{verb, dir}, &out, &errw, false, nil); rc != 0 {
+			t.Errorf("%s refused a pack shipping a skill's own tool: rc %d\n%s%s",
+				verb, rc, out.String(), errw.String())
 		}
 	}
 }
@@ -439,57 +445,6 @@ func TestPackFootprintAcceptsLocalPath(t *testing.T) {
 	// The mount claim (host read → /ctx) must appear and be flagged for review.
 	if !strings.Contains(out.String(), "mount") || !strings.Contains(out.String(), "review") {
 		t.Errorf("footprint did not show the review-worthy mount claim:\n%s", out.String())
-	}
-}
-
-// F6b: the two single-pack inspection commands must agree on the exec bit. `lint
-// --allow-exec` accepted a pack shipping an executable while `footprint` on that same pack
-// exited 1 on the refusal — so a pack you COULD lint you could NOT inspect, and footprint's
-// own help advertises it as the way to inspect a pack you are authoring.
-//
-// The refusal WITHOUT the flag is asserted in the same test on purpose: the fix is the two
-// commands agreeing, not footprint quietly dropping a trust gate lint still enforces.
-func TestPackFootprintAllowExecMatchesLint(t *testing.T) {
-	for _, args := range [][]string{
-		{"footprint", "--allow-exec", "DIR"},
-		{"footprint", "DIR", "--allow-exec"}, // flag order must not matter, as in lint
-	} {
-		dir := t.TempDir()
-		var out, errw bytes.Buffer
-		packMain([]string{"init", dir}, &out, &errw, false, nil)
-		if err := os.WriteFile(filepath.Join(dir, "hook.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-
-		// Same pack, same flag: lint accepts it, so footprint must too.
-		out.Reset()
-		errw.Reset()
-		if rc := packMain([]string{"lint", "--allow-exec", dir}, &out, &errw, false, nil); rc != 0 {
-			t.Fatalf("precondition: lint --allow-exec should accept this pack, rc=%d\n%s%s",
-				rc, out.String(), errw.String())
-		}
-		withDir := make([]string, len(args))
-		for i, a := range args {
-			if a == "DIR" {
-				a = dir
-			}
-			withDir[i] = a
-		}
-		out.Reset()
-		errw.Reset()
-		if rc := packMain(withDir, &out, &errw, false, nil); rc != 0 {
-			t.Errorf("footprint %v refused a pack `lint --allow-exec` accepts: rc %d\n%s%s",
-				args, rc, out.String(), errw.String())
-		}
-
-		// Without the flag the exec-bit refusal stands: the flag supplies the consumer's
-		// half of the decision, it does not remove the gate.
-		out.Reset()
-		errw.Reset()
-		if rc := packMain([]string{"footprint", dir}, &out, &errw, false, nil); rc == 0 {
-			t.Errorf("footprint without --allow-exec must still refuse the exec bit:\n%s",
-				out.String())
-		}
 	}
 }
 

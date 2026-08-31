@@ -33,6 +33,14 @@ import (
 func TestConfigRefClaimsNoLoopholeReservation(t *testing.T) {
 	// The behaviour half. If a reservation is ever reintroduced, this fails first and
 	// the doc assertion below becomes the thing to update — which is the right order.
+	// HOME to a temp dir, because ValidateConfig merges the USER-level config
+	// (~/.config/yolo-jail/config.jsonc) under the workspace one — so without this the
+	// subject of the test is partly whatever packs the developer happens to have
+	// configured. It surfaced when `allow_exec` was retired: this test failed on a
+	// machine whose real config still carried the key, reporting a loophole-reservation
+	// problem for an error about packs. A unit test must not read a personal config.
+	t.Setenv("HOME", t.TempDir())
+
 	raw := `{"loopholes": {"claude-oauth-broker": {"command": ["/bin/true"]}}}`
 	decoded, err := jsonx.Decode([]byte(raw))
 	if err != nil {

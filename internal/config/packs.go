@@ -59,7 +59,7 @@ const (
 
 // knownPackKeys is the accepted key set of the object form.
 var knownPackKeys = set(
-	"source", "name", "only", "exclude", "allow_exec",
+	"source", "name", "only", "exclude",
 )
 
 // PackEntry is one validated `packs` entry, lowered from either the string (sugar)
@@ -99,10 +99,15 @@ type PackEntry struct {
 	// user-writable field would be the whole boundary undone. Hence json:"-".
 	IsEmbedded bool `json:"-"`
 
-	// AllowExec permits staging files carrying the exec bit. Default false: a pack
-	// is CONTENT, and an executable arriving through a content channel is a
-	// different trust question than a skill file, so it must be opted into.
-	AllowExec bool `json:"allowExec,omitempty"`
+	// There was an AllowExec here (wire name "allowExec", config key "allow_exec"),
+	// the consumer's opt-in to staging a file with the exec bit. Removed 2026-08-30
+	// along with the gate it fed — see internal/packstage's package doc for why the
+	// gate was the wrong instrument. A config still carrying "allow_exec" now fails
+	// the knownPackKeys check above as an unknown key, which is the intended outcome:
+	// the key does nothing, and a key that does nothing must not be accepted quietly.
+	// The wire form is tolerant in both skew directions (UnmarshalPacks uses plain
+	// encoding/json, so an older host's "allowExec" is ignored by a newer entrypoint,
+	// and the field was omitempty in the other direction).
 
 	// Implicit marks an entry NO config line asked for — today only the conventional
 	// local pack (LocalPackName). json:"-" like IsEmbedded, and for a stronger reason: a
@@ -378,13 +383,6 @@ func checkPackEntry(raw any, itemPath string) (PackEntry, string) {
 			}
 			*field.dst = append(*field.dst, s)
 		}
-	}
-	if rawExec, hasExec := m.Get("allow_exec"); hasExec && rawExec != nil {
-		b, isBool := rawExec.(bool)
-		if !isBool {
-			return PackEntry{}, itemPath + ".allow_exec: expected true or false"
-		}
-		entry.AllowExec = b
 	}
 	return entry, ""
 }

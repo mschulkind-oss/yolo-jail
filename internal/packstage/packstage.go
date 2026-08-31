@@ -10,24 +10,32 @@
 // dependency-free means it can be reused by `yolo pack lint` host-side without
 // dragging the config loader in.
 //
-// THREE RULES, each chosen because the alternative fails quietly:
+// TWO RULES, each chosen because the alternative fails quietly:
 //
-//  1. EXEC-BIT REFUSAL. A file carrying any execute bit is refused unless the entry
-//     sets allow_exec. A pack is CONTENT — skills, prose, config fragments — and an
-//     executable arriving through a content channel is a materially different trust
-//     question. Refusing is an ERROR, not a skip: silently dropping the one file a
-//     pack author cared about is worse than failing. allow_exec is a CONSUMER opt-in
-//     (a field on the user's `packs` entry, not a pack.json key), and when set it
-//     grants the exec bit all the way THROUGH to the staged file — an admission gate
-//     that stripped the bit anyway would let a pack ship a script nothing can run.
-//  2. NO ESCAPE. A symlink pointing outside the pack root is refused rather than
+//  1. NO ESCAPE. A symlink pointing outside the pack root is refused rather than
 //     dereferenced. A pack is fetched from someone else's repo, so `ln -s
 //     ~/.ssh/id_ed25519 skills/innocuous.md` must not exfiltrate a key into a
 //     mounted tree. (Skills staging DOES dereference symlinks, deliberately, because
 //     its source is the user's OWN home — different source, different rule.)
-//  3. CLEAR CONTENTS, NEVER THE DIR. A running jail's bind mount captured the
+//  2. CLEAR CONTENTS, NEVER THE DIR. A running jail's bind mount captured the
 //     staging dir's inode; recreating it silently detaches the mount. Same invariant
 //     PrepareSkills documents.
+//
+// # THE EXEC BIT IS CARRIED THROUGH, NOT GATED (2026-08-30)
+//
+// There was a third rule: a file carrying any execute bit was refused unless the user's
+// `packs` entry set `allow_exec`. It is gone, key and all. It read as a trust boundary
+// and was not one — `bash file.sh` never needed the bit — so it stopped nothing an
+// adversary would do while failing on the honest case it kept meeting: a skill shipping
+// the tool it tells the agent to run. The two channels that DO run pack code, `program
+// via installer` and a `loophole`'s host daemon, were always governed by disclosure and
+// approval instead, and that is now the only model here.
+//
+// What replaced it is narrower and aimed at the real hazard: a destination on the jail's
+// PATH is refused at the MANIFEST (packdecl.appendJailPathProblems), so a pack reaches
+// PATH by declaring `program` and nothing else. What a pack ships stays visible rather
+// than becoming invisible — packload.FootprintOf counts the executables in the tree and
+// `yolo pack footprint` prints them.
 package packstage
 
 import (
@@ -51,8 +59,6 @@ type Spec struct {
 	// pack-relative path, applied in that order. Empty Only means "everything".
 	Only    []string
 	Exclude []string
-	// AllowExec permits staging files with an execute bit (rule 1).
-	AllowExec bool
 }
 
 // Result reports what a Stage call did, for `yolo pack ls`/`lint` and for the
@@ -140,21 +146,10 @@ func Stage(spec Spec) (*Result, error) {
 			res.Excluded = append(res.Excluded, rel)
 			return nil
 		}
-		// Rule 1: exec bit. The message names the CONSUMER's config, not the pack's
-		// manifest: `allow_exec` is a PackEntry field read from the user's config
-		// (internal/config.PackEntry.AllowExec), and `pack.json` rejects it as an unknown
-		// field. Pointing a reader at the manifest — as this message used to — sends them
-		// to the one file that cannot grant it, and the resulting "unknown field" error
-		// reads like a second, unrelated bug.
-		if fi.Mode().Perm()&0o111 != 0 && !spec.AllowExec {
-			return fmt.Errorf("pack file %s is executable (mode %o). A pack cannot "+
-				"self-grant the exec bit — the CONSUMER opts in, in "+
-				"~/.config/yolo-jail/config.jsonc:\n"+
-				"    \"packs\": [{\"source\": \"file:///…/pack\", \"allow_exec\": true}]\n"+
-				"(\"allow_exec\" is not a pack.json key: a pack comes from someone else's "+
-				"repo, so shipping an executable is the user's call, not the author's.)",
-				rel, fi.Mode().Perm())
-		}
+		// The exec bit rides through — copyFile below preserves it — and that IS the
+		// feature: a skill that tells an agent to run references/check.sh must be able to
+		// ship references/check.sh runnable. See the package doc for the gate this replaced
+		// and why it was the wrong instrument.
 		if err := copyFile(path, filepath.Join(spec.Dest, filepath.FromSlash(rel)), fi.Mode()); err != nil {
 			return fmt.Errorf("staging %s: %w", rel, err)
 		}
@@ -248,12 +243,10 @@ func clearContents(dir string) error {
 // carries an execute bit.
 //
 // This USED to force 0o644 unconditionally, on the reasoning that "a staged pack file is
-// content, and the exec bit is exactly what rule 1 gates." That conflated two different
-// gates. Rule 1 decides whether an executable may be staged AT ALL, and it is enforced
-// above by refusing the file outright unless the CONSUMER set allow_exec. By the time a
-// file reaches here it has already passed that gate — so stripping the bit anyway made
-// allow_exec mean "may be present in the tree" rather than "arrives usable", and a pack
-// could not ship a working script through any channel.
+// content, so the exec bit never rides along." That is what made a pack unable to ship a
+// working script through any channel: a skill telling an agent to run its own tool
+// delivered a tool nothing could run. Carrying the bit is the feature, and it is the whole
+// of what replaced the retired admission gate (see the package doc).
 //
 // Only the 0o111 bits come from the source; the read/write bits stay 0o644, so a
 // group-writable file in someone else's repo does not widen the staged copy.

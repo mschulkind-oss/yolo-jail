@@ -369,9 +369,10 @@ func TestFzfAcceptanceCaseInJail(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(pack, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// 0o755 in the pack. It must arrive 0o755 in the jail: the CONSUMER opted in with
-	// allow_exec below, and an admission gate that stripped the bit anyway would mean a pack
-	// can ship a script nothing can run.
+	// 0o755 in the pack. It must arrive 0o755 in the jail, with nothing opted into: a pack
+	// that could not deliver a runnable script would be a pack that cannot ship its own
+	// tools. (This needed `allow_exec: true` on the config entry until 2026-08-30 — the
+	// acceptance case that most often met the gate is exactly why the gate is gone.)
 	script := filepath.Join(pack, "bin", "file-suggestion.sh")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\necho FZF-RAN\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -401,7 +402,7 @@ func TestFzfAcceptanceCaseInJail(t *testing.T) {
 	// briefing at the same destination this pack does — which is the duplicate-mount case,
 	// now deduped. Both facts are load-bearing, so the test carries them.
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["claude", {"source": "file://`+pack+`", "allow_exec": true}]}`)
+	packHome(t, `{"packs": ["claude", "file://`+pack+`"]}`)
 
 	r := runYolo(t, dir,
 		`test -x /home/agent/.claude/bin/file-suggestion.sh && echo IS-EXECUTABLE; `+
