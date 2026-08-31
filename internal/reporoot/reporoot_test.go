@@ -65,10 +65,10 @@ func TestBundledSourceDirFrom(t *testing.T) {
 	}
 }
 
-// Resolve step 4: a from-source `just install` stages the flake bundle under
-// paths.FlakeBundleDir (GlobalStorage/flake-bundle), and Resolve finds it with
-// no checkout in cwd and no YOLO_REPO_ROOT — the self-contained-install
-// guarantee. HOME is redirected to a temp dir so FlakeBundleDir resolves there.
+// Resolve step 3: a from-source `just install` stages the flake bundle under
+// paths.FlakeBundleDir (GlobalStorage/flake-bundle), and Resolve finds it with no
+// YOLO_REPO_ROOT set — the self-contained-install guarantee. HOME is redirected
+// to a temp dir so FlakeBundleDir resolves there.
 func TestResolveFindsStateDirBundle(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -79,11 +79,12 @@ func TestResolveFindsStateDirBundle(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bundle, "flake.nix"), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Isolate cwd so the cwd-walk (step 2) cannot find a checkout; no env set.
-	t.Chdir(t.TempDir())
 	got, ok := Resolve(func(string) string { return "" })
-	if !ok || got != mustAbs(t, bundle) {
-		t.Fatalf("Resolve() = (%q,%v), want (%q,true) — the staged bundle", got, ok, mustAbs(t, bundle))
+	if !ok || got.Root != mustAbs(t, bundle) {
+		t.Fatalf("Resolve() = (%q,%v), want (%q,true) — the staged bundle", got.Root, ok, mustAbs(t, bundle))
+	}
+	if got.Source != FromInstalledBundle {
+		t.Errorf("Source = %q, want %q", got.Source, FromInstalledBundle)
 	}
 }
 
@@ -116,21 +117,23 @@ func TestResolveEnvWins(t *testing.T) {
 		return ""
 	}
 	got, ok := Resolve(getenv)
-	if !ok || got != mustAbs(t, dir) {
-		t.Fatalf("Resolve() = (%q,%v), want (%q,true)", got, ok, mustAbs(t, dir))
+	if !ok || got.Root != mustAbs(t, dir) {
+		t.Fatalf("Resolve() = (%q,%v), want (%q,true)", got.Root, ok, mustAbs(t, dir))
+	}
+	if got.Source != FromEnv {
+		t.Errorf("Source = %q, want %q", got.Source, FromEnv)
 	}
 }
 
 // Resolve no longer honors a user-config repo_path. The key was retired
-// (2026-07-23): the exe-relative bundle (step 3) covers every install channel,
-// and a from-source developer resolves their live checkout via the cwd-walk
-// (step 2) or YOLO_REPO_ROOT (step 1), so a config pointer is redundant. A stray
-// repo_path must be ignored, NOT resolved — otherwise the retirement is a no-op.
+// (2026-07-23): the exe-relative bundle (step 2) covers every install channel and
+// YOLO_REPO_ROOT (step 1) covers a live checkout, so a config pointer is
+// redundant. A stray repo_path must be ignored, NOT resolved — otherwise the
+// retirement is a no-op.
 //
-// cwd is isolated under an empty temp dir so the cwd-walk (step 2) misses all
-// the way to /, and the exe-relative bundle (step 3) misses because the test
-// binary has no share/yolo-jail beside it. Only the retired step 4 could
-// resolve repoDir — so a pass proves it is gone.
+// HOME is a temp dir so the staged bundle (step 3) misses, and the exe-relative
+// bundle (step 2) misses because the test binary has no share/yolo-jail beside
+// it. Nothing left can reach repoDir — so a pass proves the key is gone.
 func TestResolveIgnoresUserConfigRepoPath(t *testing.T) {
 	repoDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repoDir, "flake.nix"), []byte("{}"), 0o644); err != nil {
@@ -146,11 +149,9 @@ func TestResolveIgnoresUserConfigRepoPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Isolate cwd so steps 2+3 miss; leave step 4 as the only route to repoDir.
-	t.Chdir(t.TempDir())
 	got, ok := Resolve(func(string) string { return "" })
-	if ok && got == mustAbs(t, repoDir) {
-		t.Fatalf("Resolve honored the retired repo_path key: %q", got)
+	if ok && got.Root == mustAbs(t, repoDir) {
+		t.Fatalf("Resolve honored the retired repo_path key: %q", got.Root)
 	}
 }
 
@@ -158,16 +159,63 @@ func TestResolveIgnoresUserConfigRepoPath(t *testing.T) {
 // go.mod (an empty/foreign mount must not be trusted as the repo).
 func TestResolveEnvEmptyDirRejected(t *testing.T) {
 	empty := t.TempDir()
-	// cwd-walk must also not find a checkout, so run from an isolated dir.
 	getenv := func(k string) string {
 		if k == "YOLO_REPO_ROOT" {
 			return empty
 		}
 		return ""
 	}
-	// A non-flake, non-gomod dir → step 1 skips it. Steps 2-4 may still resolve
-	// in a dev checkout; assert only that the empty env dir wasn't blindly used.
-	if got, ok := Resolve(getenv); ok && got == mustAbs(t, empty) {
-		t.Errorf("empty YOLO_REPO_ROOT dir was wrongly accepted: %q", got)
+	// A non-flake, non-gomod dir → step 1 skips it. Steps 2-3 may still resolve a
+	// bundle; assert only that the empty env dir wasn't blindly used.
+	if got, ok := Resolve(getenv); ok && got.Root == mustAbs(t, empty) {
+		t.Errorf("empty YOLO_REPO_ROOT dir was wrongly accepted: %q", got.Root)
+	}
+}
+
+// TestResolveIgnoresCheckoutInCwd is the cwd-removal guard (2026-08-31). Resolve
+// used to walk up from the working directory for a dir holding both flake.nix
+// and go.mod, and that walk outranked every bundle — so `yolo` inside a yolo-jail
+// checkout silently built its image from a DIFFERENT source than the same `yolo`
+// one directory up. It was also the only way the launcher and the image could be
+// built from different commits (version.SourceSkew). A checkout sitting in cwd
+// must now be invisible; YOLO_REPO_ROOT is the only way to name one.
+//
+// HOME is a temp dir so the staged bundle (step 3) misses too, leaving nothing
+// that could legitimately return the checkout.
+func TestResolveIgnoresCheckoutInCwd(t *testing.T) {
+	checkout := t.TempDir()
+	for _, name := range []string{"flake.nix", "go.mod"} { // the old step-2 marker pair
+		if err := os.WriteFile(filepath.Join(checkout, name), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(checkout)
+
+	if got, ok := Resolve(func(string) string { return "" }); ok && got.Root == mustAbs(t, checkout) {
+		t.Fatalf("Resolve() returned the cwd checkout %q (source %q) — the cwd-walk is back",
+			got.Root, got.Source)
+	}
+}
+
+// A subdirectory of a checkout must be just as invisible: the retired walk
+// climbed to the root from any depth, so pinning only the root would leave half
+// the behaviour unpinned.
+func TestResolveIgnoresCheckoutAboveCwd(t *testing.T) {
+	checkout := t.TempDir()
+	for _, name := range []string{"flake.nix", "go.mod"} {
+		if err := os.WriteFile(filepath.Join(checkout, name), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deep := filepath.Join(checkout, "internal", "cli")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(deep)
+
+	if got, ok := Resolve(func(string) string { return "" }); ok && got.Root == mustAbs(t, checkout) {
+		t.Fatalf("Resolve() walked up to the checkout %q from a subdir — the cwd-walk is back", got.Root)
 	}
 }

@@ -79,8 +79,15 @@ type Skew struct {
 // refusal becomes noise in a repo whose commits are mostly docs. Uncommitted work is
 // invisible for the same reason it is invisible to nix: HEAD has not moved, both
 // halves would build from the same commit, and the by-path verification loop
-// (`just build-go && ./dist-go/linux-$(go env GOARCH)/yolo -- bash`) stamps the
-// fresh binary with that same HEAD.
+// (`just build-go && YOLO_REPO_ROOT=/workspace ./dist-go/linux-$(go env GOARCH)/yolo -- bash`)
+// stamps the fresh binary with that same HEAD.
+//
+// Since the cwd stopped selecting the flake (internal/reporoot, 2026-08-31), the
+// only resolution that can skew at all is YOLO_REPO_ROOT: both bundles ship WITH
+// the binary, so neither can be older than it. This still runs on every container
+// launch — a resolution it cannot prove skewed returns nil, which is most of
+// them — because the gate belongs where the image is built, not where the root
+// happened to come from.
 //
 // # It returns nil rather than guessing
 //

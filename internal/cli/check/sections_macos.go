@@ -89,7 +89,8 @@ func (o *Options) checkMacosUserBackend(r *reporter) {
 				"install it (https://nixos.org/download) or the agent gets no "+
 				"declared tools.")
 	}
-	repoRoot, ok := o.RepoRoot()
+	repoRes, ok := o.RepoRoot()
+	repoRoot := repoRes.Root
 	if ok && fileExists(filepath.Join(repoRoot, "flake.lock")) {
 		r.ok("flake.lock present (pinned nixpkgs for native packages)")
 	} else {

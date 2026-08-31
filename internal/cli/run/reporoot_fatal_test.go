@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -36,7 +38,7 @@ func runFatalOptions(t *testing.T, workspace, ytoRuntime string, stdout, stderr 
 		IsTTYStdout: func() bool { return false },
 		IsTTYStdin:  func() bool { return false },
 		// The whole point of these tests: repo root cannot be resolved.
-		RepoRoot: func() (string, bool) { return "", false },
+		RepoRoot: func() (reporoot.Resolution, bool) { return reporoot.Resolution{}, false },
 	}
 	fillDefaults(o)
 	// fillDefaults re-installs real seams; re-apply the deterministic stubs it
@@ -46,7 +48,7 @@ func runFatalOptions(t *testing.T, workspace, ytoRuntime string, stdout, stderr 
 	o.PathExists = func(string) bool { return false }
 	o.IsTTYStdout = func() bool { return false }
 	o.IsTTYStdin = func() bool { return false }
-	o.RepoRoot = func() (string, bool) { return "", false }
+	o.RepoRoot = func() (reporoot.Resolution, bool) { return reporoot.Resolution{}, false }
 	// Explicit runtime selection so resolveRuntime never touches a real daemon.
 	// YOLO_RUNTIME wins over config and (for container backends) still requires
 	// LookPath+connectable, so wire those for the podman case; macos-user is a

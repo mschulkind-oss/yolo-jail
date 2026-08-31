@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
 // fakeExec builds an Exec seam matching on the joined argv, with canned results;
@@ -38,8 +40,12 @@ func TestResolveRepoRootEnvVar(t *testing.T) {
 	}
 	// Resolve both through EvalSymlinks-agnostic abs for comparison.
 	wantAbs, _ := filepath.Abs(dir)
-	if root != wantAbs {
-		t.Errorf("root = %q, want %q", root, wantAbs)
+	if root.Root != wantAbs {
+		t.Errorf("root = %q, want %q", root.Root, wantAbs)
+	}
+	if root.Source != reporoot.FromEnv {
+		t.Errorf("source = %q, want %q — the report line would name the wrong origin",
+			root.Source, reporoot.FromEnv)
 	}
 }
 
@@ -48,8 +54,8 @@ func TestResolveRepoRootEnvVarEmptyDirRejected(t *testing.T) {
 	// branch must NOT accept it. With no cwd flake.nix and no bundled dir /
 	// user config, it falls through to the error.
 	empty := t.TempDir()
-	// cwd during test is the package dir (has no flake.nix up to /). Point HOME
-	// at an isolated dir so the user-config branch can't hit a real config.
+	// Point HOME at an isolated dir so the staged-bundle branch can't hit a real
+	// install.
 	t.Setenv("HOME", t.TempDir())
 	getenv := func(k string) string {
 		if k == "YOLO_REPO_ROOT" {
@@ -57,24 +63,24 @@ func TestResolveRepoRootEnvVarEmptyDirRejected(t *testing.T) {
 		}
 		return os.Getenv(k)
 	}
-	// Force cwd to a dir with no flake.nix anywhere above it is impossible
-	// (temp dirs live under /tmp), so this only asserts the env branch was
-	// skipped: the returned root, if ok, must NOT be the empty dir.
+	// A bundle beside the test binary could still resolve, so this asserts only
+	// that the env branch was skipped: the returned root, if ok, must NOT be the
+	// empty dir.
 	root, ok := resolveRepoRoot(getenv, discardBuf(), false)
 	if ok {
 		abs, _ := filepath.Abs(empty)
-		if root == abs {
-			t.Errorf("empty YOLO_REPO_ROOT dir was wrongly accepted: %q", root)
+		if root.Root == abs {
+			t.Errorf("empty YOLO_REPO_ROOT dir was wrongly accepted: %q", root.Root)
 		}
 	}
 }
 
 func TestResolveRepoRootIgnoresUserConfigRepoPath(t *testing.T) {
 	// The user-config repo_path key was retired (2026-07-23). A stray repo_path
-	// must NOT be resolved. cwd is isolated so the cwd-walk (step 2) and the
-	// exe-relative bundle (step 3) miss; only the retired step 4 could return
-	// repo, so a pass proves the fallback is gone (run + check agree via the
-	// single internal/reporoot.Resolve).
+	// must NOT be resolved. HOME is isolated so the staged bundle misses and the
+	// exe-relative bundle misses because the test binary has no share/yolo-jail
+	// beside it — nothing left can return repo, so a pass proves the fallback is
+	// gone (run + check agree via the single internal/reporoot.Resolve).
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	repo := t.TempDir()
@@ -89,28 +95,25 @@ func TestResolveRepoRootIgnoresUserConfigRepoPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Chdir(t.TempDir())
 	got, ok := resolveRepoRoot(func(string) string { return "" }, discardBuf(), false)
 	wantAbs, _ := filepath.Abs(repo)
-	if ok && got == wantAbs {
-		t.Fatalf("resolveRepoRoot honored the retired repo_path key: %q", got)
+	if ok && got.Root == wantAbs {
+		t.Fatalf("resolveRepoRoot honored the retired repo_path key: %q", got.Root)
 	}
 }
 
 func TestResolveRepoRootError(t *testing.T) {
-	// Force every branch to miss: no env var, cwd is an isolated temp with no
-	// flake.nix up to /, no bundled dir, HOME with no config. We can only
-	// control cwd via os.Chdir; do it under a temp dir with no flake.nix
-	// ancestor is impossible (temp lives under real dirs). Instead assert the
-	// error message renders when all controllable branches miss by pointing
-	// HOME at an empty dir and checking stderr carries the fix hint IF ok=false.
+	// Force every branch to miss: no env var, no bundle beside the test binary,
+	// HOME pointed at an empty dir so no staged bundle resolves. Assert the fix
+	// hint renders IF ok=false (a dev machine may legitimately have a bundle
+	// beside the test binary, which is not this test's business).
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	var buf bytes.Buffer
 	root, ok := resolveRepoRoot(func(string) string { return "" }, &buf, false)
 	if !ok {
-		if root != "" {
-			t.Errorf("root should be empty on failure, got %q", root)
+		if root.Root != "" {
+			t.Errorf("root should be empty on failure, got %q", root.Root)
 		}
 		if !strings.Contains(buf.String(), "Cannot find yolo-jail repo root") {
 			t.Errorf("missing error hint: %q", buf.String())
@@ -118,29 +121,38 @@ func TestResolveRepoRootError(t *testing.T) {
 	}
 }
 
-// TestResolveRepoRootDoesNotHijackBareFlake is the audit §B2 regression: a
-// user's own flake workspace (flake.nix present, but NO go.mod) must NOT be
-// resolved as the yolo-jail repo when YOLO_REPO_ROOT is unset.
-func TestResolveRepoRootDoesNotHijackBareFlake(t *testing.T) {
-	stub := t.TempDir()
-	if err := os.WriteFile(filepath.Join(stub, "flake.nix"), []byte("{ outputs = _: {}; }\n"), 0o644); err != nil {
-		t.Fatal(err)
+// TestResolveRepoRootIgnoresCwd pins the cwd removal at the RUN call site
+// (2026-08-31), not just in internal/reporoot: standing in a directory must not
+// change which flake a launch builds from. It subsumes the older audit §B2
+// regression (a user's bare flake workspace must not be hijacked) — now nothing
+// in cwd is looked at, hijackable or not.
+//
+// Both shapes are tried: a full yolo-jail-looking checkout (flake.nix + go.mod,
+// what the retired walk required) and a bare user flake.
+func TestResolveRepoRootIgnoresCwd(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		files []string
+	}{
+		{"full checkout", []string{"flake.nix", "go.mod"}},
+		{"bare user flake", []string{"flake.nix"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, f := range tc.files {
+				if err := os.WriteFile(filepath.Join(dir, f), []byte("{}"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("HOME", t.TempDir())
+			t.Chdir(dir)
+			abs, _ := filepath.Abs(dir)
+			got, ok := resolveRepoRoot(func(string) string { return "" }, discardBuf(), false)
+			if ok && got.Root == abs {
+				t.Fatalf("resolved the cwd %q (source %q) — the cwd-walk is back", got.Root, got.Source)
+			}
+		})
 	}
-	t.Chdir(stub)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	got, ok := resolveRepoRoot(func(string) string { return "" }, discardBuf(), false)
-	if ok && got == stub {
-		t.Fatalf("hijacked the bare user flake as the repo root: %q", got)
-	}
-	if ok && !fileExistsTest(filepath.Join(got, "go.mod")) {
-		t.Errorf("resolved a non-yolo-jail dir %q (missing go.mod)", got)
-	}
-}
-
-func fileExistsTest(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
 }
 
 func TestResolveRuntimeEnvWins(t *testing.T) {

@@ -51,8 +51,8 @@ func Main(argv []string) int {
 	if len(args) >= 1 && args[0] == "--version" {
 		// Resolve the repo root the SAME way run/check do (the shared method), so
 		// an unstamped binary describes the yolo-jail repo, never the cwd's repo.
-		repoRoot, _ := reporoot.Resolve(os.Getenv)
-		fmt.Println("yolo-jail " + version.Get(repoRoot))
+		repoRes, _ := reporoot.Resolve(os.Getenv)
+		fmt.Println("yolo-jail " + version.Get(repoRes.Root))
 		return 0
 	}
 

@@ -379,8 +379,9 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 		if o.SkipBuild {
 			fmt.Fprintln(out, "Cannot start jail: no jail image is loaded or cached, "+
 				"and the yolo-jail source tree could not be located to build one.")
-			fmt.Fprintln(out, "Fix: run `yolo` once from a yolo-jail checkout (or set "+
-				"`YOLO_REPO_ROOT`) to build + cache the image.")
+			fmt.Fprintln(out, "Fix: reinstall so the flake bundle ships with the binary "+
+				"(`just install`), or set `YOLO_REPO_ROOT` to a checkout, then run `yolo` "+
+				"once to build + cache the image. The cwd is never consulted.")
 			return LoadResult{}
 		}
 		// Only reachable with buildFailed && the stale escape hatch set: the build

@@ -41,7 +41,8 @@ func Run(opts Options) int {
 	// naming that exemption beats encoding it in statement order — which is how it
 	// was expressed until pack staging had to move above the dispatch (B-0), and
 	// what would have silently gated macos-user the moment anything moved again.
-	repoRoot, repoRootOK := o.RepoRoot()
+	repoRes, repoRootOK := o.RepoRoot()
+	repoRoot := repoRes.Root
 	if err := ensureStorage(); err != nil {
 		o.pr(o.Stdout).printf("[bold red]%s[/bold red]", err.Error())
 		return 1
@@ -71,24 +72,28 @@ func Run(opts Options) int {
 		// Container backends need a flake to build the image from. A missing repo
 		// root is FATAL rather than a degraded launch on a stale image: running the
 		// wrong environment silently is the failure this refuses. reporoot.Resolve
-		// already found nothing here (env → cwd-walk → exe-relative bundle all
-		// missed), so print the same actionable fix the resolver would and exit.
+		// already found nothing here (env → beside-the-binary bundle → staged
+		// bundle all missed), so print the same actionable fix the resolver would
+		// and exit.
 		if !repoRootOK {
 			o.pr(o.Stderr).print("[bold red]Cannot find yolo-jail repo root.[/bold red]\n" +
 				"The yolo CLI needs the repo (a flake) to build the jail image, and refuses to\n" +
 				"launch on a possibly-stale cached image instead.\n\n" +
-				"Fix: run yolo from inside a yolo-jail checkout, point it at one with\n" +
-				"[bold]YOLO_REPO_ROOT[/bold], or reinstall so the flake bundle ships beside the\n" +
-				"binary (`just install`):\n" +
+				"Fix: reinstall so the flake bundle ships with the binary (`just install`), or\n" +
+				"point yolo at a checkout with [bold]YOLO_REPO_ROOT[/bold]. The working directory\n" +
+				"is never consulted, so standing in a checkout is not enough:\n" +
 				"  YOLO_REPO_ROOT=~/code/yolo-jail yolo …")
 			return 1
 		}
-		// And having found the flake, refuse to build an image from source THIS
-		// binary was not built from. The image half of yolo redeploys itself on
-		// every launch and the host half never does, so a commit that moves a
-		// host↔jail contract leaves the machine skewed by default — see
-		// refuseOnSourceSkew for what that costs when it is discovered at boot
-		// instead of here.
+		// Having found the flake, say WHICH one and what selected it, before
+		// anything expensive and before the skew gate below — so a refusal reads
+		// as an explanation of the line above it rather than a surprise.
+		o.reportFlakeSource(repoRes)
+		// Then refuse to build an image from source THIS binary was not built
+		// from. The image half of yolo redeploys itself on every launch and the
+		// host half never does, so a commit that moves a host↔jail contract leaves
+		// the machine skewed by default — see refuseOnSourceSkew for what that
+		// costs when it is discovered at boot instead of here.
 		if o.refuseOnSourceSkew(repoRoot) {
 			return 1
 		}
@@ -844,7 +849,7 @@ func (o *Options) emitStartupBanner(rt, cname string, resParts []string, jailVer
 	repoRoot := ""
 	if o.RepoRoot != nil {
 		if rr, ok := o.RepoRoot(); ok {
-			repoRoot = rr
+			repoRoot = rr.Root
 		}
 	}
 	banner := StartupBanner(version.Get(repoRoot), rt, cname, resParts, jailVersion)

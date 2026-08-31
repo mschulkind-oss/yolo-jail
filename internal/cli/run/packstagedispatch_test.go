@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -49,7 +51,9 @@ func dispatchOptions(t *testing.T, workspace, ytoRuntime string, stdout, stderr 
 	o.IsTTYStdin = func() bool { return false }
 	o.Now = func() time.Time { return time.Unix(0, 0) }
 	o.Getpid = func() int { return 1 }
-	o.RepoRoot = func() (string, bool) { return repoRoot, true }
+	o.RepoRoot = func() (reporoot.Resolution, bool) {
+		return reporoot.Resolution{Root: repoRoot, Source: reporoot.FromEnv}, true
+	}
 	o.LookPath = func(name string) (string, bool) {
 		if name == ytoRuntime {
 			return "/usr/bin/" + name, true

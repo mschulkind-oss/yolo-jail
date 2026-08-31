@@ -57,7 +57,7 @@ func Check(opts Options) int {
 	if ver == "" {
 		repoRootForVer := ""
 		if rr, ok := o.RepoRoot(); ok {
-			repoRootForVer = rr
+			repoRootForVer = rr.Root
 		}
 		ver = version.Get(repoRootForVer)
 		if ver == "" {
@@ -93,12 +93,17 @@ func Check(opts Options) int {
 	var repoRoot string
 	repoRootOK := false
 	if rr, ok := o.RepoRoot(); ok {
-		repoRoot = rr
+		repoRoot = rr.Root
 		repoRootOK = true
-		if o.PathExists(filepath.Join(rr, "flake.nix")) {
-			r.ok("flake.nix found: " + filepath.Join(rr, "flake.nix"))
+		// Name what SELECTED the root, not just the path: `yolo check` is the
+		// command a confused user runs, and "which flake would a launch build
+		// from, and why that one" is the question the cwd-walk used to answer
+		// silently and differently per directory (internal/reporoot).
+		via := " (via " + rr.Source.Describe() + ")"
+		if o.PathExists(filepath.Join(rr.Root, "flake.nix")) {
+			r.ok("flake.nix found: " + filepath.Join(rr.Root, "flake.nix") + via)
 		} else {
-			r.warn("flake.nix not found at "+filepath.Join(rr, "flake.nix"), "")
+			r.warn("flake.nix not found at "+filepath.Join(rr.Root, "flake.nix")+via, "")
 		}
 	} else {
 		r.fail("Could not resolve the yolo-jail repo root", "")

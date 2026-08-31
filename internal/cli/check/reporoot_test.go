@@ -9,9 +9,9 @@ import (
 // TestResolveRepoRootIgnoresUserConfigRepoPath is the retirement guard: the
 // user-config repo_path key was dropped (2026-07-23), so check's resolver — like
 // run's, since both delegate to the single internal/reporoot.Resolve — must NOT
-// resolve a stray repo_path. cwd is isolated so the cwd-walk (step 2) and the
-// exe-relative bundle (step 3) both miss; only the retired step 4 could return
-// repoDir, so a pass proves it is gone and check/run still agree.
+// resolve a stray repo_path. HOME is isolated so the staged bundle misses and the
+// exe-relative bundle misses beside the test binary; nothing left could return
+// repoDir, so a pass proves the key is gone and check/run still agree.
 func TestResolveRepoRootIgnoresUserConfigRepoPath(t *testing.T) {
 	repoDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repoDir, "flake.nix"), []byte("{}"), 0o644); err != nil {
@@ -31,7 +31,8 @@ func TestResolveRepoRootIgnoresUserConfigRepoPath(t *testing.T) {
 	t.Setenv("YOLO_REPO_ROOT", "")
 	os.Unsetenv("YOLO_REPO_ROOT")
 
-	got, ok := resolveRepoRoot(os.Getenv)
+	res, ok := resolveRepoRoot(os.Getenv)
+	got := res.Root
 	wantAbs, _ := filepath.EvalSymlinks(repoDir)
 	gotAbs, _ := filepath.EvalSymlinks(got)
 	if ok && gotAbs == wantAbs {

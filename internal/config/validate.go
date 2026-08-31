@@ -155,7 +155,7 @@ func validateRepoPath(config *jsonx.OrderedMap, errs, warns *[]string) {
 		return
 	}
 	add(warns, "config.repo_path: ignored — this key was retired. yolo now finds "+
-		"the repo from the checkout you launch in (or YOLO_REPO_ROOT). Remove it.")
+		"the repo from the flake bundle its install shipped (or YOLO_REPO_ROOT). Remove it.")
 }
 
 // validateAgentsRetired reports the DELETED `agents` key.

@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
 func TestHostPlatformNaming(t *testing.T) {
@@ -60,7 +62,7 @@ func TestEmitStartupBannerEndsItsLine(t *testing.T) {
 	var errBuf bytes.Buffer
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stderr = &errBuf
-	o.RepoRoot = func() (string, bool) { return "", false }
+	o.RepoRoot = func() (reporoot.Resolution, bool) { return reporoot.Resolution{}, false }
 	o.emitStartupBanner("podman", "yolo-x-abc", []string{"pids=32768"}, "")
 	if got := errBuf.String(); !strings.HasSuffix(got, "\n") {
 		t.Errorf("banner does not end its line — the next line will be glued on: %q", got)

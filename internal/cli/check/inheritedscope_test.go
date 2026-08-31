@@ -37,6 +37,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
@@ -144,7 +146,9 @@ func inJailOptions(t *testing.T, out *bytes.Buffer) Options {
 	// A repo root, so the run clears the accumulated-fail gate and reaches the later
 	// sections. No flake.nix in it — that is only a warning.
 	repo := t.TempDir()
-	opts.RepoRoot = func() (string, bool) { return repo, true }
+	opts.RepoRoot = func() (reporoot.Resolution, bool) {
+		return reporoot.Resolution{Root: repo, Source: reporoot.FromEnv}, true
+	}
 	return opts
 }
 

@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -59,7 +61,7 @@ func baseOptions(t *testing.T, out *bytes.Buffer) Options {
 		IsMacOS:      false,
 		Machine:      "x86_64",
 		Workspace:    ws,
-		RepoRoot:     func() (string, bool) { return "", false },
+		RepoRoot:     func() (reporoot.Resolution, bool) { return reporoot.Resolution{}, false },
 		PathExists:   func(string) bool { return false },
 		BuildImage:   func(string, []any) (string, []string) { return "", nil },
 		AccessRW:     func(string) bool { return false },
@@ -159,7 +161,9 @@ func TestExitCodeCleanInJail(t *testing.T) {
 	repo := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(repo, "flake.nix"), []byte("{}"), 0o644))
 	must(t, os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module test\n"), 0o644))
-	opts.RepoRoot = func() (string, bool) { return repo, true }
+	opts.RepoRoot = func() (reporoot.Resolution, bool) {
+		return reporoot.Resolution{Root: repo, Source: reporoot.FromEnv}, true
+	}
 	opts.PathExists = func(p string) bool {
 		_, err := os.Stat(p)
 		return err == nil

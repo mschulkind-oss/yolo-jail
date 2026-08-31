@@ -279,9 +279,10 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// The in-jail CLI no longer needs a source bind: the image bakes the flake
 	// bundle + real-file binaries at /opt/yolo-jail (installPrefix in flake.nix),
 	// so the shared resolver (internal/reporoot) finds the repo exe-relative,
-	// identically inside and outside the jail. When the workspace itself is the
-	// yolo-jail checkout (self-hosting), the cwd-walk wins instead. Either way
-	// there is nothing to bind and no YOLO_REPO_ROOT to set.
+	// identically inside and outside the jail. Self-hosting is no exception since
+	// the cwd-walk was removed: an in-jail agent that wants the live /workspace
+	// checkout instead sets YOLO_REPO_ROOT itself. Nothing to bind, and no
+	// YOLO_REPO_ROOT for the launcher to guess at.
 	runCmd = append(runCmd, "--workdir", "/workspace")
 
 	// --- GPU availability probe (gates the uidmap/runc branch below) ---

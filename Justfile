@@ -119,10 +119,14 @@ install:
     fi
 
     # NOTE: install no longer records repo_path in the user config (that key was
-    # retired 2026-07-23). A from-source `yolo` finds the repo from the checkout
-    # you launch in (the cwd-walk), via YOLO_REPO_ROOT, or now from the staged
-    # bundle above — see internal/reporoot.Resolve and
-    # docs/research/repo-root-and-distribution.md.
+    # retired 2026-07-23), and the cwd stopped selecting the repo on 2026-08-31.
+    # The staged bundle above is what an installed `yolo` builds from, in EVERY
+    # directory including a checkout; YOLO_REPO_ROOT is the only way to point it
+    # at live source. So this staging step is not a convenience for the
+    # checkout-less case any more — it is the from-source developer's only
+    # delivery path, and the reason `just install` has to be re-run after a commit
+    # that changes the image (version.SourceSkew refuses the mismatch). See
+    # internal/reporoot.Resolve and docs/research/repo-root-and-distribution.md.
 
 # Install yolo CLI and prime the Claude OAuth broker state. Safe to re-run.
 deploy: install

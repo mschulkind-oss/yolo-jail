@@ -16,6 +16,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
@@ -100,9 +101,11 @@ type Options struct {
 	// Workspace is Path.cwd() — the directory whose jail is launched. "" => cwd.
 	Workspace string
 	// RepoRoot resolves the yolo-jail repo root for nix builds. Returns
-	// (path, ok); ok=false is the degraded-launch branch (D2). nil => default
-	// resolver.
-	RepoRoot func() (string, bool)
+	// (resolution, ok); ok=false is the degraded-launch branch (D2). The
+	// resolution carries WHICH candidate produced the root, because a launch
+	// reports its image source (reportImageSource) rather than leaving the reader
+	// to infer it from a path. nil => default resolver.
+	RepoRoot func() (reporoot.Resolution, bool)
 	// PathExists tests filesystem presence. nil => os.Stat.
 	PathExists func(string) bool
 	// Getpid returns the current PID (owner-PID file, out-link name). nil =>
@@ -209,7 +212,7 @@ func fillDefaults(o *Options) {
 		// fatal for container backends, but Run() owns the failure message (it
 		// exits only after the macos-user branch, which needs no repo). Letting
 		// the resolver also print would double the "Cannot find repo root" text.
-		o.RepoRoot = func() (string, bool) { return resolveRepoRoot(o.Getenv, nil, o.Color) }
+		o.RepoRoot = func() (reporoot.Resolution, bool) { return resolveRepoRoot(o.Getenv, nil, o.Color) }
 	}
 	if o.Getpid == nil {
 		o.Getpid = os.Getpid

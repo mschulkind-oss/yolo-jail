@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
@@ -100,8 +101,10 @@ type Options struct {
 	// Workspace is the directory whose yolo-jail.jsonc is validated. "" => cwd.
 	Workspace string
 	// RepoRoot resolves the yolo-jail repo root. nil => default resolver.
-	// Returns (path, ok); ok=false means the repo could not be located.
-	RepoRoot func() (string, bool)
+	// Returns (resolution, ok); ok=false means the repo could not be located.
+	// The resolution carries what SELECTED the root, reported alongside the
+	// flake.nix line so check answers "which flake, and why that one".
+	RepoRoot func() (reporoot.Resolution, bool)
 	// PathExists tests filesystem presence (device nodes, /nix, CDI specs,
 	// creds file, flake.nix). nil => os.Stat.
 	PathExists func(string) bool
@@ -162,7 +165,7 @@ func fillDefaults(o *Options) {
 		}
 	}
 	if o.RepoRoot == nil {
-		o.RepoRoot = func() (string, bool) { return resolveRepoRoot(o.Getenv) }
+		o.RepoRoot = func() (reporoot.Resolution, bool) { return resolveRepoRoot(o.Getenv) }
 	}
 	if o.BuildImage == nil {
 		o.BuildImage = buildImageReal
