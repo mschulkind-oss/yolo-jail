@@ -144,10 +144,8 @@ feeds them to the assembler. So a `config-overlay` in a manifest does nothing at
 ```
 
 ```jsonc
-// ~/.config/yolo-jail/config.jsonc — the CONSUMER grants the exec bit
-{ "packs": ["claude",
-            { "source": "file:///home/matt/.dotfiles/claude-fzf",
-              "allow_exec": true }] }
+// ~/.config/yolo-jail/config.jsonc — nothing to opt into: a pack ships its tools
+{ "packs": ["claude", "file:///home/matt/.dotfiles/claude-fzf"] }
 ```
 
 Result, verified on a throwaway `$HOME` and in a real jail:

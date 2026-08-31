@@ -326,8 +326,10 @@ defects are one-line-ish fixes that a nix route makes *more* important, not less
 >   `NIXPKGS_ALLOW_UNFREE=1` / `allowUnfreePredicate`, so a user who deliberately opted in still
 >   gets the package instead of a silent skip. **yolo does not set that variable on the user's
 >   behalf** — unfree is a licence decision the user makes once, machine-wide, and slipping the
->   override in would make it for them silently (the same consumer-grants-power invariant
->   `allow_exec` follows).
+>   override in would make it for them silently. (This used to cite `allow_exec` as the
+>   sibling invariant; that key is gone — see `pack-system.md` §1 — and the argument here
+>   never depended on it: a licence decision is the user's whether or not anything else
+>   works the same way.)
 > - **The warning has to ride on the BUILD path** (`flake.nix:475-484`). It is emitted from
 >   `noncontainerPackages`, whose stderr is streamed — not from the skip list alone, which a
 >   separate eval reads with its stderr discarded. And reason precedence puts the **platform**

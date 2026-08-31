@@ -1234,7 +1234,7 @@ nothing, and a WORKSPACE config can write it.**
   adds every entry with a `command` to the external-service set; `:161` calls
   `startExternalService`, which at `:384` runs `exec.Command(cmdArgs[0], cmdArgs[1:]...)` with
   `Setsid: true` (`:388`), env from the entry's own `env` block with `~` expansion (`:402-412`).
-- **No gate of any kind.** No prompt, no lockfile, no origin check, no `allow_exec`, no launch-time
+- **No gate of any kind.** No prompt, no lockfile, no origin check, no launch-time
   notice — and per §2.1c a **successful** spawn is silent and so is a **timed-out** one.
 - **`loopholes` is not user-scope-only.** Exactly three keys are: `packs`
   (`internal/config/packs.go:484`), `host_files` (`hostfiles.go:938`), `cache_relocations`
@@ -1692,10 +1692,11 @@ redesign.
 
 ### 4.4 Things to name honestly
 
-1. **`allow_exec` is not this gate and would not even fire.** It gates staging a file with an execute
-   bit (`packstage.go:149-156`), is per-pack rather than per-file, and is origin-blind. A daemon
-   shipped as `python3 script.py` needs no exec bit at all. It *is* one step short of host execution
-   in a different way — `yolo host apply` delivers an executable staged file at `0o555`
+1. **`allow_exec` was not this gate and would not even have fired** — and it no longer exists at
+   all (retired 2026-08-30, `pack-system.md` §1). It gated staging a file with an execute bit, was
+   per-pack rather than per-file, and was origin-blind. A daemon shipped as `python3 script.py`
+   needs no exec bit at all. The half of the observation that survives its removal is the one that
+   was never about the gate: `yolo host apply` delivers an executable staged file at `0o555`
    (`entrypoint/hostfilestree.go:192-201`), which is the live matt-fzf case: a pack-owned script the
    **host's** Claude Code executes. yolo does not exec it; the pack causes host-side code to exist
    where host software runs it.

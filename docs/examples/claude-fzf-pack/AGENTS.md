@@ -14,7 +14,7 @@ To change the finder's behavior, edit the pack and re-apply:
 
 ```console
 $ $EDITOR <pack dir>/bin/file-suggestion.sh
-$ yolo pack lint --allow-exec <pack dir>     # then relaunch the jail, or:
+$ yolo pack lint <pack dir>                  # then relaunch the jail, or:
 $ yolo host apply --assert                   # to update your real home
 ```
 

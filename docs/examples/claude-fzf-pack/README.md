@@ -72,31 +72,36 @@ workspace config cannot name a pack:
 {
   "packs": [
     "claude",
-    { "source": "file:///home/matt/.dotfiles/claude-fzf", "allow_exec": true }
+    "file:///home/matt/.dotfiles/claude-fzf"
   ]
 }
 ```
 
-**3. `"allow_exec": true` is required, and it is not optional pedantry.** A pack
-is *content* — skills, prose, config fragments — so an executable arriving
-through a content channel is a different trust question, and **the pack cannot
-grant itself the exec bit**. `allow_exec` lives in *your* config, never in
-`pack.json`. Without it the launch is refused:
+**3. Nothing to opt into: a pack ships its tools.** The executable stages
+executable and arrives that way, which is the whole point — a pack delivering a
+script nothing can run is a pack that has delivered nothing.
 
-```
-✗ pack file bin/file-suggestion.sh is executable (mode 755) but the pack does
-  not set allow_exec
-```
+This step used to read the other way. Until 2026-08-30 the entry needed
+`"allow_exec": true`, and without it the launch was refused with *"pack file
+bin/file-suggestion.sh is executable (mode 755)"*. That gate is gone, key and
+all: it read as a trust boundary and was not one, since `bash file.sh` never
+needed the bit. **A config still carrying `allow_exec` is now refused as an
+unknown key** — delete it.
 
-That looks like a bug and is not: the consumer grants host power, not the pack
-author. (Putting `allow_exec` in `pack.json` instead earns a second, separate
-error — `unknown field "allow_exec"` — which is the pair of messages telling you
-the knob is on the other side.)
+Two things replaced it, and this pack sits on the right side of both:
+
+- **`into` is `.claude/bin`, which is not on PATH.** A pack destination that
+  lands on the jail's PATH is refused in the manifest, because a name on PATH is
+  something a pack *declares* with a `program` contribution. This script is
+  invoked by an explicit configured path (the `fileSuggestion` key below), never
+  by name, so the rule does not touch it.
+- **`yolo pack footprint` says what you ship**: `executables  1 file
+  bin/file-suggestion.sh`. Ungated, not invisible.
 
 **4. Verify, then use it:**
 
 ```console
-$ yolo pack lint --allow-exec ~/.dotfiles/claude-fzf   # clean?
+$ yolo pack lint ~/.dotfiles/claude-fzf                # clean?
 $ yolo host apply                                      # observe: what WOULD change
 $ yolo host apply --assert                             # write it to your real home
 $ yolo -- claude                                       # or just launch a jail
@@ -177,7 +182,7 @@ in what format, or how it is maintained across boots, even by accident.
 That last one is the point. Confirm the owner's mode is untouched:
 
 ```console
-$ yolo pack lint --allow-exec <pack dir> | grep config
+$ yolo pack lint <pack dir> | grep config
   config-overlay claude/settings  contributes keys (owner still wins)   # ← this pack
 $ yolo config ls claude | grep settings
   claude/settings  stateful     # ← still the claude pack's, still capturing edits
@@ -271,7 +276,7 @@ Re-verified after the `config-overlay` conversion (2026-08-02), against a fresh
 
 | # | Check | Result |
 |---|---|---|
-| 1 | `yolo pack lint --allow-exec` | clean; 3 claims, `config-overlay claude/settings contributes keys (owner still wins)` |
+| 1 | `yolo pack lint` | clean, 4 files stage; 6 claims, including `config-overlay claude/settings contributes keys (owner still wins)` and `executables 1 file bin/file-suggestion.sh` |
 | 2 | `apply --host` observe, then `--assert`, on a throwaway `$HOME` | script at `0o555`; `fileSuggestion` alongside claude's `preferences`/`permissions`/`skipDangerousModePermissionPrompt`; **exactly one** `claude/settings rendered` line, annotated `config-overlay keys from: claude-fzf` |
 | 3 | second `--assert` | **byte-identical** (sha256, all three files); briefing block count stays 1 |
 | 4 | nested jail (`yolo -- …`, `YOLO_REPO_ROOT=/workspace`) | script present, executable, and **runs**; `fileSuggestion` wired; prose delivered; boot announces `claude/settings: config-overlay keys from claude-fzf` |

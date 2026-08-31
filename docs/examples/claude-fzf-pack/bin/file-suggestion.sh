@@ -11,7 +11,7 @@
 #
 # To adopt your own: overwrite this file, keep it executable (chmod +x), keep the
 # filename (pack.json's `fileSuggestion.command` names it), then re-run
-# `yolo pack lint --allow-exec <pack dir>`.
+# `yolo pack lint <pack dir>`.
 #
 # ⚠ BUT READ THE CONTRACT BELOW FIRST. It was read out of the Claude Code binary
 # (v2.1.220), and it is probably NOT what an existing hand-rolled script assumes:

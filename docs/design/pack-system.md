@@ -94,9 +94,26 @@ not skipped** (a pack that half-stages is worse than one that fails loudly):
 
 | Rule | Enforcement |
 |---|---|
-| An executable file is refused unless its entry sets `allow_exec` | staging error |
 | A symlink whose target escapes the pack root is refused | staging error |
 | Staging clears a destination dir's *contents*, never the dir itself | avoids clobbering a mountpoint |
+
+A pack **ships its tools**: a file carrying the exec bit stages executable, so a skill can
+deliver the script it tells an agent to run. There used to be a third rule here — an
+executable was refused unless the consumer's entry set `allow_exec` — and it is gone, key
+and all (2026-08-30). It read as a trust boundary and was not one, since `bash file.sh`
+never needed the bit; it therefore stopped nothing an adversary would do while failing on
+the honest case it kept meeting. Two things replaced it, one enforcing and one informing:
+
+- a destination on the **jail's PATH** is refused in the manifest (`.local/bin`,
+  `.npm-global/bin`, `go/bin`, `.yolo/bin/block`, `.yolo/bin/launch` — the dir itself, a
+  parent of it, or anything inside it). A name on PATH is something a pack **declares**
+  with a [`program`](#program) contribution, which owns the launcher, is exclusive by that
+  name, and is disclosed at launch. This is a naming rule, not a sandbox: the channels that
+  really run pack code — `program via installer`, a loophole's host daemon — are governed
+  by disclosure and approval, and nothing here pretends otherwise.
+- the executables a pack ships are a **claim** in its footprint, so `yolo pack footprint`
+  and `yolo pack lint` say `executables  3 files  bin/a.sh, …`. A mode bit is a property of
+  the tree, with no manifest line a reader could otherwise find it on.
 
 `yolo pack lint` runs the real staging executor against a directory and reports what it
 would stage and what it would drop, so these rules are checkable before a pack is
@@ -765,8 +782,9 @@ Three source forms:
 ]
 ```
 
-The object form adds `name`, `only`/`exclude` globs (per-project narrowing of a shared
-corpus), and `allow_exec`.
+The object form adds `name` and `only`/`exclude` globs (per-project narrowing of a shared
+corpus). It took an `allow_exec` until 2026-08-30; a config still carrying the key is now
+refused as an unknown key, because a key that does nothing must not be accepted quietly.
 
 ### Fetch, lock, offline launch
 
