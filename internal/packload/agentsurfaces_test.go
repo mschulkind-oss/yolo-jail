@@ -122,22 +122,42 @@ func TestAgentSurfaceDestinationsAreDistinct(t *testing.T) {
 //     ~/.config/opencode/skill(s)/<name>/SKILL.md".
 //   - agy — "Global Discovery: `~/.gemini/config/`", where a standalone AGENTS.md is
 //     "always active for their directory scope", and "`~/.gemini/config/skills/<name>/`".
+//   - pi 0.84.4 (JS, so this is the code itself) — skills:
+//     `join(resolvedAgentDir, "skills")` with `getAgentDir()` =
+//     `join(homedir(), CONFIG_DIR_NAME, "agent")` and CONFIG_DIR_NAME = ".pi"
+//     (dist/core/skills.js:348, dist/config.js:425). Briefing:
+//     `loadContextFileFromDir(resolvedAgentDir)` over candidates
+//     ["AGENTS.override.md", "AGENTS.md", …] (dist/core/resource-loader.js:33,87).
+//   - codex 0.151.0 — the only one verified by RUNNING it rather than reading it, because
+//     the Rust binary builds both paths at runtime and carries no literal to grep (all it
+//     ships is the crate path `codex-home/src/instructions/mod.rs` and the message
+//     "Failed to read global AGENTS.md instructions from `"). `codex debug prompt-input`
+//     renders the model-visible prompt with no API call: with CODEX_HOME pointed at a
+//     scratch dir, a marker in $CODEX_HOME/AGENTS.md and one in
+//     $CODEX_HOME/skills/<name>/SKILL.md BOTH appear in the output, and renaming the
+//     AGENTS.md away removes its marker — the control that makes the first observation
+//     mean something.
 //
-// codex and pi are ABSENT rather than assumed: neither CLI was installed in the jail this
-// was verified from, so their destinations are unconfirmed. Adding them here needs the
-// same kind of evidence, not a plausible-looking path — the copilot bug is what a
-// plausible-looking path costs.
+// The bar for an entry here is evidence of that kind, never a plausible-looking path.
+// `~/.copilot/AGENTS.md` was plausible for as long as this repo existed.
 func TestAgentSurfacesMatchTheVerifiedPaths(t *testing.T) {
 	verified := map[string]struct{ briefing, skills string }{
 		"claude":   {".claude/CLAUDE.md", ".claude/skills"},
 		"copilot":  {".copilot/copilot-instructions.md", ".copilot/skills"},
 		"opencode": {".config/opencode/AGENTS.md", ".config/opencode/skills"},
 		"agy":      {".gemini/config/AGENTS.md", ".gemini/config/skills"},
+		"pi":       {".pi/agent/AGENTS.md", ".pi/agent/skills"},
+		"codex":    {".codex/AGENTS.md", ".codex/skills"},
+	}
+	if len(verified) != len(agentPacks(t)) {
+		t.Errorf("%d agent packs but %d verified — an agent pack whose destinations nobody "+
+			"checked is how `~/.copilot/AGENTS.md` survived; verify it or say why here",
+			len(agentPacks(t)), len(verified))
 	}
 	for _, p := range agentPacks(t) {
 		want, checked := verified[p.Name]
 		if !checked {
-			continue // codex, pi — unverified on purpose; see the doc comment
+			continue // reported by the count check above
 		}
 		if got := destsOf(p, packdecl.KindBriefing); len(got) != 1 || got[0] != want.briefing {
 			t.Errorf("pack %q briefing → %v, but %s reads %q", p.Name, got, p.Name, want.briefing)
