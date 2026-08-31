@@ -37,6 +37,32 @@ extension point), [`stringly-typed-references-principle.md`](stringly-typed-refe
 (§3.1: native config-file injection is the preferred host delivery path), and
 [`pack-system.md`](pack-system.md) (the kind registry and the footprint model).
 
+**Terms**, defined once and used with one meaning throughout — coinages say so, borrowed terms
+link their owner:
+
+- **profile** *(coined here — the word arrived with `pack-profiles.md`; the mechanism renames
+  the shipped `agent_profiles` config key)* — a named variant of **one pack's own**
+  contributions (config patches, launch flags, env, provider requirements), selected at launch
+  by name. Not a cross-pack fragment (contributing to another pack's surface is
+  `config-overlay`, [§7](#7-if-cross-pack-delivery-is-ever-needed-it-is-config-overlay-with-a-profile-field))
+  and not the autonomy posture (that variant is selected by the confinement notch, not the
+  user — OQ-1).
+- **selector** *(coined here)* — whatever picks the active variant: for `autonomy` the notch
+  (two values); for a profile the user's `-p` / `pack_profiles` choice (an open name set).
+- **provider** — one entry of the shipped `providers` config key: a named endpoint, model
+  aliases, and the *name* of the env var holding its credential. A machine-local fact, not a
+  pack artifact, and never the credential itself.
+- **notch** — one value of the confinement dial — `jail`, `guest`, or `host`
+  ([`yolo-as-environment-manager.md`](yolo-as-environment-manager.md) §4.0). "The host notch"
+  is the unconfined end: `yolo host apply` and `yolo host --`.
+- **the Prism** — the engine that composes every agent's config surfaces at boot and check,
+  running each pack's `derive.lua` (its per-pack Lua script) against live config
+  ([`packs-and-the-prism.md`](packs-and-the-prism.md)).
+- **surface** — one generated config file a pack composes, with its codec and layer stack
+  ([`pack-system.md`](pack-system.md); the agent is not the surface — `claude/settings` is).
+- **pack universe** — every pack this machine can resolve, selected or not; contrasted with
+  the **active** list, which is what one launch selected.
+
 ---
 
 ## 1. Principles and verdict up front
@@ -214,7 +240,8 @@ contribution from [`packs/claude/pack.json`](../../packs/claude/pack.json), trim
   "guarded":    { "config": [ … ] } }
 ```
 
-The proposed profile contribution, same posture body, named instead of positional:
+The proposed profile contribution, the same body shape — *posture* being `autonomy`'s word for
+one of its two permission variants — named instead of positional:
 
 ```jsonc
 { "kind": "profile",
@@ -241,7 +268,10 @@ Field semantics:
 
 `autonomy`'s doc comment states the reason better than I can
 ([`contributes.go:344-346`](../../internal/packdecl/contributes.go#L344-L346)): its config patches
-fold into *"the managed layer of a surface the SAME pack owns"* — **"it is not a second config
+fold into *"the managed layer of a surface the SAME pack owns"* — the **managed layer** being the
+top of a surface's layer stack, the part yolo itself writes rather than folds from user input
+(full stack in [§7](#7-if-cross-pack-delivery-is-ever-needed-it-is-config-overlay-with-a-profile-field))
+— **"it is not a second config
 writer, it is a notch-gated patch."** That restriction is what lets `autonomy` skip a cross-pack
 collision rule entirely: two packs cannot collide on a surface only one of them owns.
 
@@ -387,7 +417,7 @@ half it is wrong for is the half that carries credentials:
 > `{env:VAR}` all write the **name** of a variable the agent then reads from **its own process
 > environment** — verified against the three shipped derives in
 > [`host-agent-environment.md` §4](host-agent-environment.md#4-per-agent-host-capabilities-matrix).
-> So there is no "fallback" here: any BYOK provider is unusable on the host without a process-env
+> So there is no "fallback" here: any bring-your-own-key provider is unusable on the host without a process-env
 > channel, for every agent. A preference order cannot express that, because the two channels are not
 > ranked — they carry different things.
 
