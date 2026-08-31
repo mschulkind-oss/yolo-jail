@@ -66,12 +66,28 @@ extension point), [`stringly-typed-references-principle.md`](stringly-typed-refe
    with no `Footprint{Combine, Claims}` cannot be registered, so `yolo pack footprint` and the
    collision table cannot see it. A design that adds kinds without answering this is not
    implementable as written.
-6. **P6 — Prefer the channel that survives the host notch.** `kind: "env"` is *refused* by
-   `yolo host apply` by construction ([`fieldset.go:99-103`](../../internal/render/fieldset.go#L99-L103)).
-   A profile whose only delivery vehicle is process env cannot fill the matrix, so a setting that
-   an agent's own config file can carry must go there instead.
-7. **P7 — Git-tracked packs never contain secrets.** Kept verbatim from `pack-profiles.md` P4. Its
-   §4 is the strongest part of that doc; §6 here keeps it and closes three holes.
+6. **P6 — Route by payload type: the two channels are partial along different axes** *(restated
+   2026-08-30, superseding this bullet's original preference order — see §5).* `kind: "env"` is
+   still *refused* by `yolo host apply` ([`fieldset.go:99-103`](../../internal/render/fieldset.go#L99-L103))
+   — a limit of that COMMAND, not of the notch, since `host apply` never runs a process. Host env
+   IS deliverable now that [`hostwrap`](../../internal/hostwrap/hostwrap.go) generates a
+   per-program PATH wrapper — but behind the opt-in `host_wrappers` key
+   ([`host-agent-environment.md` §5.1](host-agent-environment.md#51-where-launch-wrappers-live--and-the-path-claim-they-cost)),
+   so it needs yolo in the launch path *and* the opt-in, while a config-file patch works from any
+   invocation (IDE, cron, absolute path) with neither. So **configuration** patches the agent's
+   own config surface; **secrets and unsets** go through process env. Channels, not preferences.
+7. **P7 — Git-tracked packs never contain secrets.** Kept from `pack-profiles.md` P4; §6 here
+   keeps it and closes three holes. **Why yolo enforces this rather than leaving it to author
+   hygiene:** a pack is a *distribution artifact* — `yolo pack install` fetches it from a git
+   remote and records approval at a commit, so a secret in a tracked manifest is one `git push`
+   from public and never appears in the approval the user actually granted. yolo is also the only
+   layer positioned to check it: it reads every manifest, knows which packs travel (a fetched
+   remote, a git-tracked tree) rather than sitting in one machine's private scratch, and already
+   enforces the name-shaped half of the rule
+   ([`validate.go:876-881`](../../internal/config/validate.go#L876-L881) refuses a literal key in
+   `api_key_env`). And the legitimate channel exists — `env_sources`, untracked `0600` files — so
+   refusing secrets in manifests blocks no real need; it is P4's argument applied to files: leave
+   the hatch open and the discipline is decorative.
 
 **Verdict.** Ship a rename, one new contribution kind, one new field on `providers`, and three
 validation gates. Do not ship a cross-pack fragment merge engine — and if one is ever needed, it is
