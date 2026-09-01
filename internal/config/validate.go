@@ -990,17 +990,17 @@ func validatePackProfiles(config *jsonx.OrderedMap, errs *[]string) {
 			break
 		}
 	}
-	var installed []string
+	installed, namespaceKnown := []string(nil), false
 	if wantsNamespace {
-		names, known := PackProfileCLINames()
-		if !known {
-			// An unresolvable configured pack makes the namespace unknowable, and that
-			// pack is refused on its own terms — louder, and first — by `yolo check`'s
-			// Packs section and by the launch's staging. Reporting it here too would
-			// misdiagnose a broken install as a typo'd profile key.
-			return
+		// An unresolvable configured pack makes the namespace unknowable, and that pack
+		// is refused on its own terms — louder, and first — by `yolo check`'s Packs
+		// section and by the launch's staging. Reporting it here too would misdiagnose a
+		// broken install as a typo'd profile key, so the NAMESPACE half steps aside; the
+		// shape half below still runs, because a value that is not a string is a fact
+		// about this config alone.
+		if names, known := PackProfileCLINames(); known {
+			installed, namespaceKnown = names, true
 		}
-		installed = names
 	}
 	for _, agent := range keys {
 		profV, _ := profiles.Get(agent)
@@ -1012,7 +1012,7 @@ func validatePackProfiles(config *jsonx.OrderedMap, errs *[]string) {
 			add(errs, path+": expected a string profile name")
 			continue
 		}
-		if !containsStr(installed, agent) {
+		if namespaceKnown && !containsStr(installed, agent) {
 			add(errs, path+": "+unknownProfileCLIMessage(agent, installed))
 		}
 	}

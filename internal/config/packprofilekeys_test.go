@@ -106,3 +106,22 @@ func TestValidatePackProfilesNamespaceStepsAsideWhenAPackCannotResolve(t *testin
 		}
 	}
 }
+
+// The namespace stepping aside must not take the SHAPE check with it: a value that is
+// not a string is a fact about this config alone, and reporting it depends on no pack
+// resolving. Split from the test above so the two halves of the step-aside cannot grow
+// back into one blanket return.
+func TestValidatePackProfilesStillChecksValuesWhenTheUniverseIsUnknown(t *testing.T) {
+	home := packProfileKeysHome(t)
+	writePackProfileKeysUserConfig(t, home,
+		`[{"name": "gone", "source": "git+ssh://git@example.com/gone/pack.git"}]`)
+	errs, _ := ValidateConfig(decode(t,
+		`{"pack_profiles": {"cloude": 4}}`), t.TempDir(), nil)
+	for _, e := range errs {
+		if strings.HasPrefix(e, "config.pack_profiles.cloude:") {
+			return
+		}
+	}
+	t.Errorf("a non-string profile value must still be reported when a configured pack "+
+		"cannot resolve, got %v", errs)
+}
