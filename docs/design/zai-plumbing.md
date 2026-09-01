@@ -9,7 +9,17 @@ summary: "The first real consumer of profiles-as-pack-variants: what it takes to
 # Z.ai plumbing: one provider, every agent
 
 **Status:** DECIDED, 2026-09-01 — every question this doc asked is settled (ledger, §8);
-implementation rides the parent doc's build order. Nothing here is built beyond what it inherits
+implementation rides the parent doc's build order.
+
+> [!NOTE]
+> **Follow-up, 2026-09-01:** a review of the shipped implementation found three defects at the
+> delivery end, one of them in this doc's own §5 resolution table — `wire_api` values cross into
+> codex's and pi's config files verbatim, and the four canonical values match neither agent's
+> vocabulary. §2's OQ-Z1 measurement is unaffected and load-bearing; what it does **not** support is
+> the inference that codex accepts `openai-chat`. See
+> [`provider-table-fidelity.md`](provider-table-fidelity.md) §3, and 💬 18 on the roadmap.
+
+Nothing here is built beyond what it inherits
 from the shipped `providers` key and the three derives. This doc is the **first real consumer**
 of [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md): where the two disagree, that
 design wins and this one files an issue against it — one such conflict was found and corrected

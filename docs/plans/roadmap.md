@@ -1,8 +1,8 @@
 # Roadmap
 
-**Status: 15 needing you · 3 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
+**Status: 16 needing you · 3 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
 
-Last updated **2026-08-31**. Counts tallied from this file, not asserted — one per `### 💬` heading,
+Last updated **2026-09-01**. Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph matches the section it is
 in.
 
@@ -589,6 +589,58 @@ question wearing different clothes — a `check` that passes on a config the nex
 unmatched `supersedes` warns and the loophole keeps running — the safe direction — and after this it
 stops the launch. That is the intended trade under your ruling, and it is the one row worth reading
 §6 for before agreeing to the rest.
+
+### 💬 18 — The provider table is checked in yolo's vocabulary and delivered in everyone else's
+
+📄 [`provider-table-fidelity.md`](../design/provider-table-fidelity.md) —
+**OQ-PT1 · OQ-PT2 · OQ-PT3 · OQ-PT4 · OQ-PT5** · follow-on to
+[`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) and
+[`zai-plumbing.md`](../design/zai-plumbing.md), both of which shipped 2026-08-29 → 2026-09-01 and are
+otherwise sound · continues 💬 **17** §7 step 3 rather than contradicting it
+
+**Review finding, 2026-09-01, against `980aed71`.** The provider/profile machinery is right and its
+tests pin call sites, not callees — two production call sites mutated, both failed loudly. What is
+wrong sits at the **edges of the abstraction**: a value validated against a set yolo owns, then
+handed verbatim to consumers that own different sets.
+
+**The one that puts a wrong value in a file an agent reads.** `knownWireAPIs` is
+`{anthropic, openai-chat, openai-completions, responses}` and the derives emit it unchanged into
+codex's `wire_api` and pi's `api`. This repo's own source-verified research says codex accepts
+**`responses` only** — `chat` was removed from the product
+([`local-model-endpoints.md`](../research/local-model-endpoints.md) §"Codex CLI", *verified from
+source: codex-cli 0.145.0 binary, 2026-08-20*) — and pi's attested spellings are
+`openai-completions` / `openai-responses`. **`openai-chat` is nobody's value.** `18045688` made it
+codex's derive *default*, so this is wider than zai: every codex provider that omits `wire_api` now
+gets an invalid value where it previously got the only legal one. The commit's z.ai measurement is
+correct and load-bearing (`/v4/responses` 404s on both routes); its **inference** is not — that is a
+fact about the provider's HTTP surface, not about codex's config vocabulary. The honest conclusion
+is that **codex cannot reach z.ai's OpenAI route at all**, which is a fact to record, not a bug to
+fix in code.
+
+**The same shape, twice more.** The composed table can hold the `base_url`/`endpoints` pair that
+`validateProviders` refuses when a user writes it directly — measured: a user `base_url` over
+`packs/zai` sends pi/codex/opencode to the user's URL and claude to the pack's, silently, falsifying
+`agentenv.Resolve`'s own comment that the two *"cannot disagree about where a protocol points"*. And
+`980aed71` now spells one z.ai URL **twice** in `packs/zai/pack.json` with no test pinning them
+equal — the duplication `d1e45e8d` had explicitly declined one commit earlier, for the right reason.
+
+**Three more, sharing no cause.** A `providers: {"bedrock": null}` — the documented opt-out — refuses
+a `claude` launch outright (measured). `--profile` means startup timing *or* a pack profile depending
+on the next token, and two commits have already gone into patching that parse. And the census: this
+work made `zai` the **twelfth** pack and the first that installs no CLI *and* ships no loophole,
+while `AGENTS.md:8` still says ten.
+
+**What needs no ruling, and is worth doing regardless:** the missing integration test — nothing in
+`integration/` mentions `zai`, `pack_profiles` or `providers`, though the pattern exists and **an
+in-jail assertion on the rendered `~/.codex/config.toml` is the single check that would have caught
+the headline defect**; and the census lines (`AGENTS.md`, `packs/embed.go`, `USER_GUIDE.md:217`).
+The doc's §9 puts the test first deliberately: it fails today.
+
+**What this row is NOT.** Not a retraction of either parent doc — the credential boundary, the
+three-level skew handling and the backend-parity repairs all re-measured clean. Not a proposal to
+reopen the enum, which would restore what 💬 **17** §7 step 3 closed. Not a new contribution kind:
+the `config-overlay` `profile` gate `568d5a3a` landed is the right mechanism, and OQ-PT3 asks only
+whether it may carry the placeholder vocabulary `env_shape` already has.
 
 
 

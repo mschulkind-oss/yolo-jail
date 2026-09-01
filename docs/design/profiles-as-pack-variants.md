@@ -9,7 +9,17 @@ summary: "Counter-design to pack-profiles.md. Most of what that doc proposes is 
 # A profile is a pack's own variant, not a cross-pack fragment
 
 **Status:** DECIDED, 2026-09-01 — every open question settled (ledger, §14); implementation
-underway against §12's build order. Originally DESIGN, 2026-08-29, nothing built. This is a counter-proposal to
+underway against §12's build order.
+
+> [!NOTE]
+> **Follow-up, 2026-09-01:** the implementation shipped through `980aed71`, including §12 step 6's
+> `config-overlay` `profile` gate. A review of it re-measured this doc's claims clean — the
+> credential boundary, the three-level skew handling and the backend-parity repairs all hold — and
+> found six defects at the edges, five of them needing a ruling. They live in
+> [`provider-table-fidelity.md`](provider-table-fidelity.md) (`OQ-PT1`…`OQ-PT5`), not here; §6.2's
+> preflight and §4.1's `wire_api` enum are the two sections that row reports against.
+
+Originally DESIGN, 2026-08-29, nothing built. This is a counter-proposal to
 [`pack-profiles.md`](pack-profiles.md), written after measuring what that doc's §2 diagnoses
 against the code as it stands today. File:line claims were verified on 2026-08-29 and
 **re-anchored 2026-09-01** after `784dd209` extracted the profile env out of `assemble.go` —
