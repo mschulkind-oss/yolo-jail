@@ -1,25 +1,28 @@
 ---
-title: "Briefing audiences: a pack's prose should be able to name who it is for"
+title: "Audiences: a pack's content should be able to name who it is for"
 date: 2026-08-31
-status: in-review
-tags: [packs, briefing, resolution, context]
-summary: "A pack's briefing prose reaches every agent in the jail, so a rule that applies to one agent is either broadcast to all of them or deleted. This proposes an optional `agents` selector on the `briefing` kind, keyed by launcher command (the `bin` namespace `-p` and `pack_profiles` already use) rather than by pack slug, matched against an `agent` identity the destination declares for itself, so a content pack names its audience and never a path — and shows that the host notch needs a filter while the jail notch needs its composition moved inside its own write loop."
+status: accepted
+tags: [packs, briefing, skills, resolution, context]
+summary: "A pack's briefing prose and skills reach every agent in the jail, so content that applies to one agent is either broadcast to all of them or deleted. An optional `agents` selector on `briefing` and `skills`, keyed by launcher command (the `bin` namespace `-p` and `pack_profiles` already use) rather than by pack slug, matched against an `agent` identity the destination declares for itself — so a content pack names its audience and never a path. Naming an agent the jail has not enabled is fatal, one name has exactly one owning pack, and all seven questions are ruled."
 ---
 
-# Briefing audiences: a pack's prose should be able to name who it is for
+# Audiences: a pack's content should be able to name who it is for
 
-**Status:** DESIGN SKETCH, 2026-08-31. Nothing built. One thing already ruled (Decision
-Ledger, OQ-BA1).
+**Status:** DECIDED, 2026-08-31 — all seven questions this doc asked are settled (Decision
+Ledger, at the foot). Nothing built; §9 is the build order.
 
 **The short version.** Every pack's briefing prose is composed **once** and written to
 **every** destination, so a pack whose rules apply to one agent must broadcast them to all
-of them or drop them. The fix is an optional `agents` selector on the `briefing` contribution — a
-list of **launcher commands**, which is the same `bin` namespace `-p <name> -- <bin>` and
-`pack_profiles.<cli>` already key on, and explicitly **not** the pack slug. The destination it
-matches against **declares** that name as `agent`, exactly as a config surface already does —
-nothing is derived, because nothing in the `-p` chain derives anything either (§4.2). And a
-content pack names only the audience, never a path: that constraint (P4) is what turns `into`
-from a required field into one the selector replaces (§4.1). The host notch already composes per-destination and needs a filter; the jail notch composes
+of them or drop them. Skills have the same defect and take the same fix. The
+answer is an optional `agents` selector on `briefing` and `skills` — a list of **launcher
+commands**, which is the same `bin` namespace `-p <name> -- <bin>` and `pack_profiles.<cli>`
+already key on, and explicitly **not** the pack slug. The destination it matches against
+**declares** that name as `agent`, exactly as a config surface already does — nothing is derived,
+because nothing in the `-p` chain derives anything either (§4.2). A content pack names only the
+audience, never a path: that constraint (P4) is what turns `into` from a required field into one
+the selector replaces (§4.1). Naming an agent this jail has not enabled is **fatal**, with no
+laxer tier (P3), and a name has exactly **one** owning pack, which provides all of that agent's
+plumbing (P5). The host notch already composes per-destination and needs a filter; the jail notch composes
 once before its per-destination loop and needs that composition moved inside it — which is
 also how the jail's known one-prose-per-pack limit gets lifted for free (§5).
 
@@ -37,8 +40,8 @@ which govern any new name-a-component-by-string field),
 
 ## 1. Verdict, and the principles it rests on
 
-**Build it, as one optional field on one kind.** No new contribution kind, no new namespace,
-no config key. Three principles carry the design:
+**Build it, as one optional field on `briefing` and `skills`.** No new contribution kind, no
+new namespace, no config key. Five principles carry the design:
 
 **P1. The audience namespace is the CLI-name namespace, and there is no second one.**
 [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) §2.5 already settled this for
@@ -46,25 +49,43 @@ profiles: `program` and `launch` are `CombineExclusive` by `bin`
 ([`kinds.go:197-198`](../../internal/packdecl/kinds.go#L197-L198),
 [`:100`](../../internal/packdecl/kinds.go#L100)), so a CLI name resolves to at most one pack
 by construction, and *"the agents"* are simply the union of the `bin`s the selected packs
-install. A briefing audience is the same question about the same set, so it gets the same key.
+install. An audience is the same question about the same set, so it gets the same key.
 
 **P2. Scoping is opt-in and silence means broadcast.** A `briefing` with no selector behaves
 exactly as it does today. This is what makes the change safe to land ahead of any pack
 adopting it, and it is why the zero-ceremony pack — a bare `AGENTS.md` at a pack root, with
 no manifest to put a selector in — keeps working unchanged.
 
-**P3. A name that resolves to nothing is fatal; a name that is merely unselected is a clean
-skip.** Straight from [R1/R2](stringly-typed-references-principle.md#6-the-rules) and the
-[§3 two-questions table](stringly-typed-references-principle.md#3-a-reference-asks-two-questions-and-only-one-of-them-is-optional).
-A selector naming `cloude` is a typo and must stop the launch; a selector naming `codex` in a
-jail that did not select codex is an opportunistic pack working as designed.
+**P3. The vocabulary is the ENABLED packs, and anything else is fatal.** *(Maintainer,
+2026-08-31: "the choices are only the enabled packs. otherwise fatal.")* There is no second,
+laxer tier for a name that exists somewhere but is not here — `agents: ["cloude"]` and
+`agents: ["codex"]` in a jail that did not select codex fail the same way, because from the
+jail's point of view they are the same mistake: the prose names an audience this jail does not
+have. That is [R2](stringly-typed-references-principle.md#6-the-rules) taken at its word —
+*"explicit opt-in for permissive selection"* — and this field has no such opt-in, so the strict
+reading is the only one available.
 
 **P4. A content pack names its audience; it never names a path.** *(Maintainer, 2026-08-31:
 "a pack that needs to add claude-specific briefing shouldn't need to know anything about where
-claude puts its briefings.")* Where an agent reads is the agent pack's business and changes when
-that agent changes; a house-rules pack that hardcoded `.claude/CLAUDE.md` would be coupled to a
-fact it has no way to keep current. This is not a nicety — §4.1 shows it is the difference
-between a selector that works and one that delivers nowhere.
+claude puts its briefings.")* Where an agent reads — prose or skills — is the agent pack's
+business and changes when that agent changes; a house-rules pack that hardcoded
+`.claude/CLAUDE.md` would be coupled to a fact it has no way to keep current. This is not a
+nicety — §4.1 shows it is the difference between a selector that works and one that delivers
+nowhere.
+
+**P5. A name has exactly ONE owner, and that owner provides all of the agent's plumbing.**
+*(Maintainer, 2026-08-31.)* There is one `claude`. A pack that provides it provides everything
+that goes with it — where its briefing lands, where its skills land, its config surfaces, its
+launch flags — whether it installs the binary (`program`) or asserts one already there
+(`requires`). Two packs cannot both be the claude pack:
+
+> Imagine you could have one of two packs: `claude-official` and `claude-matt-fork`. Both launch
+> with `yolo -- claude`. I want to apply `-p claude=zai` for either. They clearly can't both be
+> enabled.
+
+The exclusivity that makes `-p claude=zai` unambiguous is the same exclusivity that makes
+"deliver this prose to claude" unambiguous. It is one rule, not two, and §4.2 is where it lands
+in the code.
 
 **The fields are spelled `agent` / `agents`; the VALUE is still the bin.** *(Maintainer,
 2026-08-31: "they are bins, but users think of them by their launcher command and call them
@@ -168,10 +189,19 @@ other holds** (P4).
 
 ```jsonc
 // any content pack — house rules. It names WHO, and nothing else.
-{ "kind": "briefing", "from": "AGENTS.md" },                            // everyone (today's behavior)
+{ "kind": "briefing", "from": "AGENTS.md" },                              // everyone (today's behavior)
 { "kind": "briefing", "from": "prose/claude.md", "agents": ["claude"] },  // claude only — no path
+{ "kind": "skills",   "from": "skills/claude",   "agents": ["claude"] },  // same field, same rule
 { "kind": "briefing", "from": "prose/pi.md",     "agents": ["pi"] }       // pi only — no path
 ```
+
+**`skills` takes the same field, and the parallel is exact** *(maintainer, 2026-08-31: "they're
+parallel in every way here and basically come for free")*. Both kinds have a conventional source
+and a required `into`; both are merged from many packs into destinations the agent packs name;
+both misdirect today for the same reason. A Claude-specific skill is broadcast to `.pi/agent/skills`
+right now ([`mergedest.go:74-76`](../../internal/packload/mergedest.go#L74-L76)). Everything below
+is written about `briefing` because that is where the cost is loudest — a briefing is read in full
+every session — but every rule in §4.2 and §4.3 reads the same with `skills` substituted.
 
 **`into` and `agents` are two answers to one question, and a contribution gives exactly one.**
 That is not a stylistic rule; it falls out of what the validator already says. `into` is
@@ -241,8 +271,16 @@ complications the derived version dragged in all disappear with it:
 > omits it fails the same way a pack that omits `bin` does. What it is NOT allowed to do is fail
 > *silently*, which is §4.3's job.
 
-**The declaring pack OWNS that name, and two packs claiming it is fatal** *(maintainer,
-2026-08-31)*. This needs its own collision pass rather than falling out of the generic one:
+**Ownership is per NAME, not per kind (P5), and two packs claiming one name is fatal.** So the
+check is not "two `briefing` contributions declared `agent: claude`" but "two packs claimed
+`claude` **at all**" — across `program`, `requires`, `launch`, `briefing` and `skills` together.
+A same-pack repeat stays normal and legal: `packs/copilot` declares `copilot` on both `program`
+and `launch`, and one pack claiming its own name in five kinds is one pack owning one name.
+`Collisions` already ignores that case — it skips any target whose claimants are a single pack
+([`footprint.go:390-392`](../../internal/packload/footprint.go#L390-L392)) — so what changes is
+the KEY, from `(kind, target)` to the name itself for this one namespace.
+
+This also needs its own pass rather than falling out of the generic one:
 [`Collisions`](../../internal/packload/footprint.go#L364) keys claims by `(kind, target)` and
 **skips every kind that is not `CombineExclusive`** ([`:400`](../../internal/packload/footprint.go#L400)),
 and `briefing` is `CombineConcat` by design — several packs contributing prose at one path is the
@@ -250,25 +288,37 @@ whole point. So an `agent` claim inside it is invisible to that loop. The preced
 already in the file twice: `pluginNameCollisions` exists because *"the generic loop above cannot
 see this (the claim's kind is skills, which merges by design), so it is its own pass"*
 ([`:498-501`](../../internal/packload/footprint.go#L498-L501)), and `LoopholeNameCollisions`
-([`:530`](../../internal/packload/footprint.go#L530)) is the same shape. A briefing `agent` is a
-third instance of it.
+([`:530`](../../internal/packload/footprint.go#L530)) is the same shape. The agent-name namespace
+is a third instance of it — and the widest, since it spans five kinds rather than sitting inside
+one.
 
 ### 4.3 Resolution and severity
 
-Per P3, and per [R5](stringly-typed-references-principle.md#6-the-rules) on placement:
+**One question, one answer** (P3). An earlier draft had three rows here, splitting "is this a
+real name?" from "is it selected?" and skipping cleanly on the second. That split is gone:
 
-| Question | Checked against | Disposition |
-| :--- | :--- | :--- |
-| Does this string name a real CLI? | the **universe** — `bin`s of every resolvable pack | **Fatal, always.** Names the string, the declaring pack, the candidate set, and a did-you-mean (R3). |
-| Is that CLI selected this launch? | `bin`s of the **selected** packs | Clean skip, reported. |
-| Does any selected destination declare it? | the identity declared on each selected `briefing` | Clean skip, reported. |
+> **Does every name in `agents` belong to a pack enabled in this jail? If not, refuse the
+> launch.** The candidate set is the enabled packs — nothing wider.
+
+The diagnostic still does the work [R3](stringly-typed-references-principle.md#6-the-rules) asks
+of it: name the offending string, the declaring pack, **the enabled agents as the candidate
+list**, and a did-you-mean. What it must not do is print two different messages for `cloude` and
+for `codex`-in-a-jail-without-codex, because the remedy is the same either way — fix the name, or
+enable the pack.
 
 **The gate lands at the host launch pre-flight and at `yolo host apply`**, because those are the
-two points holding the full resolved pack set. `yolo pack lint` takes a single pack root with
-no config (`yolo pack --help`), so it **cannot** decide the universe question and must not
-pretend to: it reports the targeting a contribution declares, and refuses nothing. That is R5's
-"move the gate, do not lower the severity" applied literally — the severity lives upstream where
-the user has every remedy.
+two points that hold the enabled set. `yolo pack lint` takes a single pack root with no config
+(`yolo pack --help`), so it **cannot** decide the question and must not pretend to: it reports
+the targeting a contribution declares and refuses nothing. That is R5's "move the gate, do not
+lower the severity" applied literally — the severity lives upstream where the user has every
+remedy.
+
+> [!NOTE]
+> **This is why there is no denylist.** An `except: ["pi"]` form exists to spare an author from
+> listing names — but under P3 the author must name only enabled agents anyway, so the list is
+> already bounded by the jail rather than by the set of agents that exist. A negative form would
+> buy nothing and would need its own answer to "except an agent that is not enabled", which under
+> P3 is a refusal. Allowlist only.
 
 ---
 
@@ -311,14 +361,13 @@ load-bearing in two places.
 | A2 | **Derive the destination's identity** from the `bin`s its declaring pack installs, so no pack is edited. | **Rejected 2026-08-31 (OQ-BA2), and it was this doc's own first proposal.** Nothing in the `-p` chain derives an identity — the name is typed, carried as a map key, and matched against a string the pack declared about itself, down to `derive.lua` hardcoding `ctx.agent_profiles.claude`. There is no `bin`→pack index to derive through, and inventing one for briefings alone would make this the only kind whose owner is inferred. §4.2. |
 | A3 | **Use `files` instead** — deliver agent-specific prose as an owned tree at an agent-specific path. | **Rejected.** `files` is `CombineExclusive` ([`kinds.go:218`](../../internal/packdecl/kinds.go#L218)), so it cannot co-exist with the agent pack's briefing at that path, and it bypasses both the composed jail-environment prose and the provenance header. It works today only where an agent reads a *second* file nobody else claims (pi's `APPEND_SYSTEM.md`), which is precisely the split-mechanism problem this design closes. |
 | A4 | **Per-entry `only`/`exclude` globs** ([`packs.go:94`](../../internal/config/packs.go#L94)). | **Not applicable.** They filter the pack *tree* by glob — which files stage — not the destination. No combination of them routes one file to claude and another to pi. |
-| A5 | **A denylist form** (`not_bins`). | **Deferred, not rejected** — see OQ-BA3. |
+| A5 | **A denylist form** (`except: ["pi"]`). | **Rejected 2026-08-31 (OQ-BA3).** Under P3 an author may name only ENABLED agents, so an allowlist is already bounded by the jail rather than by the set of agents that exist — the burden a denylist relieves does not arise. §4.3. |
 
 ---
 
 ## 7. Non-goals
 
 - **Not per-project scoping.** A rule that matters in one repo belongs in that repo's own `AGENTS.md`, which is already the right mechanism and needs nothing from yolo. Different axis, and it is not a gap.
-- **Not a scoping story for `skills`.** The same misdirection exists there ([`mergedest.go:74-76`](../../internal/packload/mergedest.go#L74-L76): a pack declaring `into: ".claude/skills"` still merges into `.pi/agent/skills`), and it is deliberately out of scope — see OQ-BA4 for the one constraint this design accepts on its account.
 - **Not a scoping story for `agents_md_extra`.** It is the user's own config key, and a user who wants it addressed can put the prose in a local pack instead.
 - **Not a new contribution kind, config key, or CLI flag.** One optional field on one existing kind.
 - **Not a way for a pack to address a destination another pack owns.** The selector filters what a pack's *own* prose reaches; it never lets a pack write somewhere it could not already write.
@@ -344,7 +393,8 @@ load-bearing in two places.
 3. **The path-free half** — `agents` on a contribution, `into` refused alongside it and required without it, `declares` testing `Into != ""`, and `borrowedDestinations` filtered by the selector (§4.1). This is what makes P4 true rather than aspirational, and step 2 is worth little without it.
 4. **The jail notch move** — composition into the write loop, staging keyed by destination, `assemble.go` following. This is where the one-prose-per-pack limit lifts (§5).
 5. **Resolution and severity** (§4.3) at the two gates R5 selects, with R3-grade diagnostics.
-6. **Reporting** — `yolo pack lint` and `yolo pack footprint` state a contribution's targeting, so a pack's briefing claims read as legibly as its file claims.
+6. **`skills`, by substitution** — the same field, the same resolution, the same refusal. Left last only because a briefing's cost is read every session and a skill's is not; nothing in it is a new decision.
+7. **Reporting** — `yolo pack lint` and `yolo pack footprint` state a contribution's targeting, so a pack's claims read as legibly as its file claims.
 
 Steps 1–2 are independently shippable and answer nothing this doc leaves open. **Step 3 is the one
 to review hardest**: it makes `into` conditional on a field, and a briefing that silently delivers
@@ -354,54 +404,8 @@ nowhere is the exact failure mode `declares` would produce if that change were m
 
 ## 10. Open Questions
 
-1. 💬 **OQ-BA7: Is a launcher command owned per NAME, or per kind?** OQ-BA6 settled that a
-   briefing's `agent` is owned and that two packs claiming it is fatal. It did not settle what
-   happens ACROSS kinds — and the rename makes the question easier to see, not different: `program
-   bin: "claude"` and `briefing agent: "claude"` are two spellings of one string. Today collisions
-   key on `(kind, target)` ([`footprint.go:364`](../../internal/packload/footprint.go#L364)), and
-   `packs/copilot` relies on that: it declares `bin: "copilot"` on both `program` and `launch`, so
-   a same-pack repeat is normal and must stay legal. The open case is **two different packs**: A
-   declares `program bin: "claude"`, B declares `briefing agent: "claude"`. **This decides whether
-   a briefing-only agent pack is a legitimate shape** — and there is a real one, since `requires`
-   exists precisely for a binary the pack does not install (a baked or user-provided `claude`), and
-   such a pack naming claude's briefing file is doing nothing wrong.
-
-   _Leaning:_ Ownership is per-NAME, not per-kind — one pack owns `claude` and may claim it in as
-   many kinds as it likes; two packs claiming it in any kinds is fatal. The `requires` case is then
-   served by that pack declaring `requires bin: "claude"` **and** the briefing, which is one pack
-   owning the name honestly. But this generalizes the collision key beyond this doc's blast radius,
-   so it may be right to scope it to briefing-vs-briefing for v1 and file the rest.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-BA3: Allowlist only, or also a denylist?** A house-rules pack that means "everyone
-   except pi" writes five names today and silently stops covering the sixth agent the day one
-   arrives — the allowlist fails *closed* on new agents, which is wrong for the shared-prose
-   case and right for the addressed one. **This decides whether the common case is expressible
-   without a maintenance burden.**
-
-   _Leaning:_ Allowlist only for v1, and revisit when a real pack wants the negative. But I hold
-   this weakly — the "everyone except one" shape is exactly `matt-local`'s pi section inverted,
-   so the demand may already exist on this machine.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-BA4: Is `skills` in or out, and does that change the field now?** `skills` has the
-   identical misdirection and larger bytes, but its cost is lazy (a skill costs its description
-   until invoked) where a briefing costs its full text on every session. §7 puts it out of scope.
-   **What this decides is not whether to build it, but whether `agents` is shaped so `skills` can
-   take the same field later** — a `briefing`-only mechanism `skills` cannot reuse would mean two
-   vocabularies for one question. The word survives the move (`skills` is per-agent too); what may
-   not is P4's `into`-replacement, since a skills destination is a directory packs already merge
-   into rather than one they choose between.
-
-   _Leaning:_ Out of scope to build, in scope to accommodate — the selector is defined on the
-   contribution, not on the briefing kind, so `skills` can adopt it without a new name.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+**None.** Every question this doc asked is settled — see the Decision Ledger below, and §1's
+principles for the rulings that shaped the body. What is left is build order (§9).
 
 ---
 
@@ -412,4 +416,7 @@ nowhere is the exact failure mode `declares` would produce if that change were m
 | OQ-BA1 | Key the selector by **CLI name (`bin`)**, not by pack slug — the namespace `-p <name> -- <bin>` and `pack_profiles.<cli>` already use | 2026-08-31 | §1 P1, §4.1, §6 A1 |
 | OQ-BA6 | The identity is **declared by the agent pack, which OWNS that name** — two packs claiming one `bin` is a **fatal** error. Needs its own collision pass, since `briefing` is `CombineConcat` and the generic loop skips non-exclusive kinds (`pluginNameCollisions`/`LoopholeNameCollisions` are the precedent). | 2026-08-31 | §4.1, §4.2 |
 | OQ-BA5 | The fields are **`agent`** (identity) and **`agents`** (selector) — not `bins`, not `for`. The value is still the bin; the spelling follows what users call the thing and what a config surface already calls it. | 2026-08-31 | §1 (after P4), §4.1 |
+| OQ-BA7 | Ownership is **per NAME, across kinds** — one `claude`, one owner, which provides all of that agent's plumbing (briefing, skills, surfaces, launch flags) whether it `program`s the binary or `requires` it. The "briefing-only pack owned by a second pack" case this question posed does not exist: `claude-official` and `claude-matt-fork` both launch as `claude` and cannot both be enabled. Collision key moves from `(kind, target)` to the name. | 2026-08-31 | §1 P5, §4.2 |
+| OQ-BA3 | **Allowlist only, and the candidate set is the ENABLED packs — anything else is fatal.** No universe/selection split and no denylist: naming an agent this jail does not have is the same mistake as a typo, with the same remedy. | 2026-08-31 | §1 P3, §4.3, §6 A5 |
+| OQ-BA4 | **`skills` is IN**, taking the same `agents` field and every rule in §4.2–§4.3 unchanged. The two kinds are parallel — conventional source, required `into`, many packs merging into destinations agent packs name — so this is one mechanism, not two. | 2026-08-31 | §4.1, §9 |
 | OQ-BA2 | The destination's identity is **declared, not derived**. This doc's first draft proposed deriving it from the declaring pack's `bin`s; the `-p` chain derives nothing (name typed → map key → literal comparison, with `derive.lua` hardcoding its own name), there is no `bin`→pack index, and identity-by-declaration is what `program`, `config` and `state` all already do. Deleting the derivation also deletes the `ResolveDestinations` wrinkle and the unaudienced-destination state. | 2026-08-31 | §4.2, §6 A2 |

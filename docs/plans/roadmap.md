@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 16 needing you · 2 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
+**Status: 15 needing you · 3 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
 
 Last updated **2026-08-31**. Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph matches the section it is
@@ -590,61 +590,11 @@ unmatched `supersedes` warns and the loophole keeps running — the safe directi
 stops the launch. That is the intended trade under your ruling, and it is the one row worth reading
 §6 for before agreeing to the rest.
 
-### 💬 18 — Every pack's briefing goes to every agent, and there is no way to say who it is for
-
-📄 [`briefing-audiences.md`](../design/briefing-audiences.md) —
-**OQ-BA3 · OQ-BA4 · OQ-BA7** · four already ruled (OQ-BA1, OQ-BA2, OQ-BA5, OQ-BA6) · reuses
-[`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) §2.5's CLI-name namespace
-and [`stringly-typed-references-principle.md`](../design/stringly-typed-references-principle.md)
-R1–R5
-
-**A pack's briefing prose is composed once and written to every destination**
-([`prepare.go:154`](../../internal/cli/run/prepare.go#L154), before the per-destination write loop
-at [`:170`](../../internal/cli/run/prepare.go#L170)), so a pack whose rules apply to one agent must
-broadcast them to all of them or delete them. Both outcomes are live on this machine: `matt-fzf`'s
-prose about Claude Code's `fileSuggestion` setting was **deleted** rather than scoped, and
-`matt-local`'s Pi Agent Config section — a token minter and a theme dir — is **broadcast** to
-claude, codex, opencode and copilot, none of which can act on it. It is synced in from backplane,
-so it cannot be fixed downstream either. Briefing prose is the one content kind that costs its full
-text on every session in every project.
-
-**You ruled three things on 2026-08-31.** The key is the **CLI name, not the pack slug** (OQ-BA1)
-— the namespace `-p <name> -- <bin>` and `pack_profiles.<cli>` already use. The agent pack
-**declares** that name and **owns** it, two packs claiming one being fatal (OQ-BA6); nothing is
-derived, because nothing in the `-p` chain derives anything either (OQ-BA2 — the name is typed,
-carried as a map key, and matched against a string the pack hardcodes about itself). And the
-constraint that shapes the rest: **a content pack names its audience and never a path** —
-*"a pack that needs to add claude-specific briefing shouldn't need to know anything about where
-claude puts its briefings."* That is the doc's P4, and it is not a nicety: `into` is **required**
-on `briefing` today, and the validator's own rationale says why it cannot be defaulted — *"a
-destination has one right answer per AGENT, so inferring it means inferring the agent set."* The
-selector supplies exactly that input, so a contribution that names `agents` omits `into` and the
-destination becomes inferable. It also sidesteps the tombstone at
-[`packs.go:73-80`](../../internal/config/packs.go#L73-L80), where a per-entry `agents` filter was
-deleted for presuming a fixed agent list. **That removal's rationale has two clauses and this
-design kills only the second** — *"redundant with where filtering happens"* is true for `skills`
-and false for `briefing`, whose delivery is per-destination but whose composition is not.
-
-**The two notches cost differently, and the cheap half needs no ruling.**
-`ComposeHostBriefings` ([`hostbriefing.go:133-172`](../../internal/entrypoint/hostbriefing.go#L133-L172))
-is already a per-destination `byPath` loop — the filter drops in beside its existing skip. The jail
-half moves composition inside its own write loop, and **that move lifts a limit already recorded in
-the tree**: [`briefingsource.go:106-108`](../../internal/packload/briefingsource.go#L106-L108) says
-a pack declaring two briefing contributions cannot deliver both in a jail, and names per-destination
-composition as the fix it declined to build. Same change, so §9 steps 1–2 are shippable ahead of
-every open question.
-
-**What this row is NOT.** Not per-project scoping — that is a repo's own `AGENTS.md`, already the
-right mechanism. Not a new contribution kind, config key, or CLI flag: one optional field on
-`briefing`. Not a scoping story for `skills`, which has the identical misdirection
-([`mergedest.go:74-76`](../../internal/packload/mergedest.go#L74-L76)) and larger bytes but a lazy
-cost — deliberately out of scope, with **OQ-BA4** asking only that the field be shaped so `skills`
-can reuse it rather than mint a second vocabulary.
 
 
 # 📦 Up next
 
-**Two items.** 💬 6's four rulings (2026-08-25) unblocked **C2** and **C3** out of
+**Three items.** 💬 6's four rulings (2026-08-25) unblocked **C2** and **C3** out of
 [`image-staging-vs-baking.md`](../design/image-staging-vs-baking.md) §11 and created the
 disk-footprint item the maintainer asked for. **C2 and C3 shipped in `be7b8591`, 2026-08-25**, the same day they
 were queued, and left this file under the rule at the top of it. **C4 and C5 are deliberately NOT
@@ -768,34 +718,34 @@ on: trust-paths has TP4's pin and TP7's catch-up.
 
 ---
 
-### Release notes now have a home, and they are caught up
 
-Three shipped behaviour changes had nowhere to be announced — a design ruling discharged its residual
-risk as *"a release note"* and no CHANGELOG, NEWS or release-notes file existed anywhere in the repo
-(found 2026-08-18 while verifying the `default_enabled` rename).
-
-📄 [`RELEASE-NOTES.md`](../RELEASE-NOTES.md) now carries **twenty-eight** entries under `## Unreleased`
-(tallied 2026-08-25: `rg -c '^### ' docs/RELEASE-NOTES.md` → 28, and `rg -n '^## '` returns that one
-section, so all 28 are under it — the row said "nineteen" for long enough to go stale),
-including the original three (**`audio` is now off by default**, **an unreachable host service
-refuses the launch**, **a non-interactive launch stops auto-accepting config changes**) and the two
-that were still queued when this section was written: **npm-installed agent CLIs no longer update
-themselves** (OQ-TP5) and **a pack whose claims you never approved now refuses the launch**
-(OQ-TP6). The broker's move ships with its own entry plus an upgrade warning — *restart the broker
-singleton after upgrading, or every OAuth refresh on that host fails.* **Newest, 2026-08-23:**
-`workspace_readonly` was a silent no-op on `macos-user` and now enforces through Seatbelt, so anyone
-who set it there and has been writing to the workspace will start seeing failures.
-
-**"Caught up" has one open edge as of 2026-08-25, and it is a decision rather than an oversight.**
-Neither **C2** (the image ref moves from `localhost/yolo-jail:latest` to a per-config content tag,
-and superseded images now accumulate as retained rows instead of being orphaned) nor **C3**
-(`cache/images` stops growing on podman) has an entry, and both change what a user sees in `podman
-images` and on disk immediately after upgrading. Whether that clears the bar for a release note is
-unruled — `:latest` was expressly ruled *not* a public surface (OQ-3), which is the argument against,
-while "your image list grows now" is a visible change nobody was told about, which is the argument
-for. **Decide it explicitly; do not let the absence stand as the answer.**
-
----
+- 📦 **Scoping pack content to the agents it is for.** 📄
+  [`briefing-audiences.md`](../design/briefing-audiences.md) — **DECIDED 2026-08-31, all seven
+  questions ruled**; reuses [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md)
+  §2.5's CLI-name namespace and R2 of
+  [`stringly-typed-references-principle.md`](../design/stringly-typed-references-principle.md).
+  A pack's briefing prose and skills reach **every** agent with no way to say who they are for:
+  prose is composed once and written to every destination
+  ([`prepare.go:154`](../../internal/cli/run/prepare.go#L154), before the per-destination write
+  loop at [`:170`](../../internal/cli/run/prepare.go#L170)), and a pack declaring
+  `into: ".claude/skills"` still merges into `.pi/agent/skills`
+  ([`mergedest.go:74-76`](../../internal/packload/mergedest.go#L74-L76)). Both outcomes are live
+  here — `matt-fzf`'s `fileSuggestion` prose was **deleted** rather than scoped, and
+  `matt-local`'s Pi Agent Config section is **broadcast** to four agents that cannot act on it.
+  The fix is an optional `agents` selector on both kinds, naming **launcher commands** (not the
+  pack slug); the destination **declares** its own `agent` rather than anything being derived; a
+  name has **one owner across all kinds**, since `claude-official` and `claude-matt-fork` both
+  launch as `claude` and cannot both be enabled; naming an agent this jail has not enabled is
+  **fatal**, with no laxer tier and no denylist; and a content pack names its audience, **never a
+  path**. Cheap half first — `ComposeHostBriefings` is already per-destination and takes a filter
+  ([`hostbriefing.go:133-172`](../../internal/entrypoint/hostbriefing.go#L133-L172)) — and the
+  jail half's composition move **lifts a limit already recorded in the tree**
+  ([`briefingsource.go:106-108`](../../internal/packload/briefingsource.go#L106-L108) names
+  per-destination composition as the fix it declined to build). **Review the path-free half
+  hardest** (§9 step 3): `declares`
+  ([`mergedest.go:141-148`](../../internal/packload/mergedest.go#L141-L148)) returns true for
+  *any* contribution of the kind, so an `agents`-only briefing that misses that change skips
+  destination inference and **delivers nowhere**, silently.
 
 # 🔒 Waiting
 
