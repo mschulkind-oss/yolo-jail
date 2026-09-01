@@ -28,7 +28,7 @@ func TestLaunchFlagsReachTheMacosUserBackend(t *testing.T) {
 	o.Args = []string{"copilot"}
 
 	var got []string
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _ []string, agentArgv []string, _, _ string, _ bool) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _ []string, agentArgv []string, _, _ string, _ bool, _ *jsonx.OrderedMap) int {
 		got = agentArgv
 		return 0
 	}
@@ -58,7 +58,7 @@ func TestBareLaunchStillGetsTheBackendDefault(t *testing.T) {
 	o.Args = nil
 
 	var got []string
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _ []string, agentArgv []string, _, _ string, _ bool) int {
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _ []string, agentArgv []string, _, _ string, _ bool, _ *jsonx.OrderedMap) int {
 		got = agentArgv
 		return 0
 	}

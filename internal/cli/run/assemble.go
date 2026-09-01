@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -81,11 +80,13 @@ type assembleInput struct {
 	hostFiles []config.HostFileEntry
 
 	// userEnv is the env_sources the run pipeline hydrated — the same resolution that
-	// wrote yolo-user-env.sh, handed to assembly rather than read a second time. Assembly
-	// reads it for one thing only: a provider env_shape's {key} placeholder, which may
-	// resolve to nothing the launch would not have carried anyway. Nil — every
-	// construction that does not come from the run pipeline — means nothing was hydrated,
-	// and the lookup then falls back to the CLI's own environment.
+	// wrote yolo-user-env.sh, handed to assembly rather than read a second time. It is
+	// the secret channel inside the composed channel (a provider env_shape's {key}
+	// placeholder resolves through it, and so does the credential pre-flight); assembly
+	// reads it only through envChannel, and only when the pipeline did not hand a channel
+	// over — every construction that does not come from the run pipeline is a test. Nil
+	// there means nothing was hydrated, and the lookup then falls back to the CLI's own
+	// environment.
 	userEnv *jsonx.OrderedMap
 
 	// acCtxMaterialized is set by EITHER host-file emitter when it copies a grant into
@@ -94,6 +95,25 @@ type assembleInput struct {
 	// the same -e on the argv twice, which is at best noise on a frozen argv and at worst
 	// a backend that rejects a duplicate flag.
 	acCtxMaterialized bool
+
+	// channel is the profile/provider environment the run pipeline composed above the
+	// backend dispatch (profilechannel.go). The env block below EMITS it; it must not
+	// re-derive any part of it, or the argv and whatever the macos-user arm delivered
+	// from the same launch could disagree. Nil only on a hand-built assembleInput that
+	// never came from the run pipeline — every one is a test — which envChannel then
+	// composes from these same fields through the one composer.
+	channel *packChannel
+}
+
+// envChannel returns this input's composed channel, composing it from the input's own
+// fields when the pipeline did not hand one over. There is one composer, so the fallback
+// cannot produce a different channel — it exists so a test that assembles an argv by hand
+// still exercises the same fold, not as a second production path.
+func (in *assembleInput) envChannel(o *Options) *packChannel {
+	if in.channel != nil {
+		return in.channel
+	}
+	return o.composePackChannel(in.cfg, in.packs, in.userEnv)
 }
 
 // lspNPM / lspGo return the resolved YOLO_LSP_*_INSTALL values.
@@ -108,24 +128,6 @@ func (in *assembleInput) storePruneEnv() []string {
 		return []string{"-e", "YOLO_STORE_PRUNE_OK=1"}
 	}
 	return nil
-}
-
-// hydratedLookup reports what the launch environment carries for one variable name: the
-// env_sources the run pipeline hydrated first, then the CLI's own inherited environment.
-// A provider env_shape's {key} placeholder resolves through this and nowhere else, which
-// is what bounds it to values the launch already carries — a credential is relayed, never
-// invented (agentenv.Lookup). Emitted only when found, so a launch whose key was never
-// hydrated simply carries no alias for it; naming that is the preflight's job.
-func (in *assembleInput) hydratedLookup(o *Options) agentenv.Lookup {
-	return func(name string) (string, bool) {
-		if s := mapStr(in.userEnv, name); s != "" {
-			return s, true
-		}
-		if v := o.Getenv(name); v != "" {
-			return v, true
-		}
-		return "", false
-	}
 }
 
 // assembleRunCmd builds the ordered container argv: flags-before-image, the -e
@@ -609,11 +611,10 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// THE SAME merge the launch line describes: the CLI-keyed profile table is folded in
 	// (EnvVarsFor, not EnvVars) so a selected variant later-wins over the pack's own
 	// static value (OQ-8), and a null in it removes the key — the jail starts from an
-	// empty env, so "unset" here is simply an absent -e. Resolved through the one
-	// effectivePackProfiles the env block below also reads, so the table this argv carries
-	// and the table YOLO_PACK_PROFILES carries cannot disagree.
-	if packEnv := packload.EnvVarsFor(in.packs, packload.ProfileTable(
-		o.effectivePackProfiles(in.cfg, in.packs))); len(packEnv) > 0 {
+	// empty env, so "unset" here is simply an absent -e. Read off the composed channel
+	// rather than re-folded here: Run composed it above the backend dispatch, and the
+	// macos-user arm delivers that same fold to its own plan env.
+	if packEnv := in.envChannel(o).packEnv; len(packEnv) > 0 {
 		keys := make([]string, 0, len(packEnv))
 		for k := range packEnv {
 			keys = append(keys, k)
@@ -749,11 +750,14 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	if in.hostTZ != "" {
 		env = append(env, "-e", "TZ="+in.hostTZ)
 	}
-	effectiveProfiles := o.effectivePackProfiles(in.cfg, in.packs)
-	// Composed ONCE for both consumers below: the table the derives read (YOLO_PROVIDERS)
-	// and the table the env-shape composition reads cannot be allowed to differ, or an
-	// agent's env and its derived config would disagree about where a protocol points.
-	providers := composedProviders(cfg, in.packs)
+	// Composed ONCE for the three readers below — the YOLO_PROVIDERS pair, the
+	// YOLO_PACK_PROFILES pair, and the env-shape vars — all read off the channel Run
+	// composed above the backend dispatch, and which the macos-user arm delivers to its
+	// own plan env and bootstrap. Re-deriving any part of it here would let the argv and
+	// the native arm answer differently about what the same profile delivers.
+	channel := in.envChannel(o)
+	effectiveProfiles := channel.profiles
+	providers := channel.providers
 	env = append(env,
 		"-e", "YOLO_HOST_DIR="+o.Workspace,
 		"-e", "YOLO_VERSION="+in.yoloVersion,
@@ -780,22 +784,19 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	// The shape's VALUES come from the composed table YOLO_PROVIDERS carries above, and
 	// the shape ITSELF from packs/claude. What this block does not deliver is the
 	// variant's own literal env (claude's CLAUDE_CODE_USE_BEDROCK) — that rode the pack
-	// env block above, through the same profile table.
-	lookup := in.hydratedLookup(o)
-	for _, agent := range effectiveProfiles.Keys() {
-		profile := mapStr(effectiveProfiles, agent)
-		for _, v := range agentenv.Resolve(providers, agent, profile,
-			packload.ProviderFor(in.packs, agent, profile), lookup) {
-			if v.Unset {
-				// Not reachable from a profile today, and deliberately not guessed at:
-				// podman's `-e KEY` (no `=`) means INHERIT KEY from the host env, which
-				// is the opposite of a removal. A jail starts from an empty environment
-				// anyway, so "remove" is already its default state for anything we do
-				// not pass; the host exec path is where Unset does real work.
-				continue
-			}
-			env = append(env, "-e", v.Key+"="+v.Value)
+	// env block above, through the same profile table. The vars are the channel's, not
+	// re-resolved here: Run composed them above the backend dispatch, and the macos-user
+	// arm delivers that same list to its plan env.
+	for _, v := range channel.shapeVars {
+		if v.Unset {
+			// Not reachable from a profile today, and deliberately not guessed at:
+			// podman's `-e KEY` (no `=`) means INHERIT KEY from the host env, which
+			// is the opposite of a removal. A jail starts from an empty environment
+			// anyway, so "remove" is already its default state for anything we do
+			// not pass; the host exec path is where Unset does real work.
+			continue
 		}
+		env = append(env, "-e", v.Key+"="+v.Value)
 	}
 	// No YOLO_REPO_ROOT: the in-jail CLI resolves its repo root the same way the
 	// host does — exe-relative to the baked /opt/yolo-jail bundle, or the

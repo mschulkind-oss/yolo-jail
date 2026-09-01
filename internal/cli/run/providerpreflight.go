@@ -25,26 +25,31 @@ import (
 // The packs argument IS the selected set — the same slice staging produced — so an
 // unselected pack cannot reach this.
 //
-// WHY HERE and not in stagePacks beside the other bespoke pre-flights: the question it
-// answers is "does the assembled launch environment carry the key", and until env_sources
-// is hydrated and the argv built, there is no assembled launch environment. WHY NOT LATER:
-// past this point the pipeline spawns host daemons and takes the terminal, and a refusal
-// that arrives after a loophole daemon is already running cleans up badly.
+// WHY NOT in stagePacks beside the other bespoke pre-flights: the question it answers is
+// "does the environment this launch composes carry the key", so it belongs with the
+// composition — the channel (profilechannel.go) — rather than with the pack set. WHY ONE
+// CALLER PER ARM and not one call above the dispatch: both arms check the SAME channel,
+// but the container arm gates the FRESH-LAUNCH path only (attaching to a running jail
+// delivers no environment, so the question has no subject there), while on macos-user
+// every invocation is fresh. That is the config-change approval's split, and for the same
+// reason; the dispatch-level tests in profilechanneldispatch_test.go fail if either arm
+// stops calling this.
+//
+// argvPairs is the `-e K=V` map of the assembled container argv, or nil off the container.
+// It is folded into the delivery lookup because a pack-shipped loophole's jail_env can put
+// a credential on the argv that the channel alone does not know about.
 //
 // The escape hatch is consulted only where it suppresses something — a launch with no gap
 // never announces it, which is the same rule the reachability witness's override notice
 // follows. When it DOES suppress, the notice says what it is suppressing rather than going
 // quiet: nothing was repaired, and the agent's first request against that provider still
 // fails.
-//
-// The container arm only, as a consequence of living in runContainer: macos-user returns
-// above the dispatch and composes no env_sources table, so this notch says nothing there.
 func (o *Options) checkProviderCredentials(cfg *jsonx.OrderedMap, packs []*packload.Pack,
-	userEnv *jsonx.OrderedMap, runCmd []string) (lines []string, refuse bool) {
+	channel *packChannel, argvPairs map[string]string) (lines []string, refuse bool) {
 	consulted := config.DescribeEnvSources(o.Workspace, cfg)
 	consulted = append(consulted, "the environment yolo was launched from")
-	facts := packload.ProviderCredentialGaps(packs, composedProviders(cfg, packs),
-		o.launchEnvLookup(userEnv, runCmd), consulted)
+	facts := packload.ProviderCredentialGaps(packs, channel.providers,
+		channel.deliveryLookup(o, argvPairs), consulted)
 	if len(facts) == 0 {
 		return nil, false
 	}
@@ -61,29 +66,17 @@ func (o *Options) checkProviderCredentials(cfg *jsonx.OrderedMap, packs []*packl
 			paths.AllowMissingProvidersEnv+"=1.")...), true
 }
 
-// launchEnvLookup is what "set in this launch's environment" means at the jail notch, in
-// the order the launch would have used the value: the env_sources hydration, then the -e
-// pairs of the assembled argv (pack env, a variant's env, and the env_shape aliases the
-// composition already relayed from somewhere), then the environment yolo itself was
-// launched from — which the relay can draw on, so a key exported in the invoking shell
-// counts as delivered even though no -e pair carries it verbatim.
-//
-// An EMPTY value is unset, at every step: agentenv drops an empty placeholder result
-// rather than composing an empty token, and an empty credential is the failure this
-// pre-flight exists to name, not an escape from it.
-func (o *Options) launchEnvLookup(userEnv *jsonx.OrderedMap, runCmd []string) func(string) (string, bool) {
-	envArgs := envPairs(runCmd)
-	return func(name string) (string, bool) {
-		if s := mapStr(userEnv, name); s != "" {
-			return s, true
+// printProviderRefusal renders the check's output: the first line as the bold verdict,
+// the rest as its facts. One renderer for both arms, so the same refusal reads the same
+// way on a container and on a native sandbox.
+func (o *Options) printProviderRefusal(lines []string) {
+	out := o.pr(o.Stderr)
+	for i, line := range lines {
+		if i == 0 {
+			out.printf("[bold red]%s[/bold red]", line)
+			continue
 		}
-		if v := envArgs[name]; v != "" {
-			return v, true
-		}
-		if v := o.Getenv(name); v != "" {
-			return v, true
-		}
-		return "", false
+		out.print(line)
 	}
 }
 

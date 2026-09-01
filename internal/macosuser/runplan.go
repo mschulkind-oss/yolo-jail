@@ -210,6 +210,26 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 		bootstrapEnv.Set("YOLO_PACK_ROOT", packRoot)
 	}
 
+	// THE TWO PROVIDER/PROFILE WIRE TABLES, relayed from the launch env into the
+	// bootstrap env. The container boot reads both out of the jail environment
+	// (ConfigurePackSurfaces resolves the profile table into every pack's config patch;
+	// the derives read the provider table through the prism), and the native bootstrap
+	// runs the SAME generators — so without this relay a `-p` launch would compose the
+	// variant's env correctly and still render every pack surface as if no variant were
+	// selected, which is the silent half of the same defect. Read out of sandboxEnv by
+	// name, the way git identity above is read out of it by prefix: the launch env is
+	// the ONE place the channel lands, and the bootstrap is a consumer of it, not a
+	// second composition site.
+	//
+	// Always relayed when present, including the empty `{}`: an absent variable and an
+	// empty table mean the same thing to the readers, but the container emits the empty
+	// table explicitly, so the two backends' bootstraps see the same input shape.
+	for _, wire := range []string{"YOLO_PROVIDERS", "YOLO_PACK_PROFILES"} {
+		if v, ok := sandboxEnv.Get(wire); ok {
+			bootstrapEnv.Set(wire, v)
+		}
+	}
+
 	// Darwin extras consumed by `yolo internal darwin-bootstrap`.
 	bootstrapEnv.Set("YOLO_DARWIN_WORKSPACE", workspace)
 	bootstrapEnv.Set("YOLO_DARWIN_MACOS_LOG", macosLogMode(cfg))
@@ -316,6 +336,27 @@ func PlanInvariants(plan RunPlan) []string {
 				"YOLO_PACK_ROOT="+plan.PackRoot+" is not baked into the bootstrap env; "+
 					"LoadJailPacks would find no packs and every surface/hook loop would "+
 					"iterate an empty list")
+		}
+	}
+
+	// The two provider/profile wire tables must reach BOTH the launch env and the
+	// BOOTSTRAP env. The launch env alone composes the agent's process env; the bootstrap
+	// env is what renders the pack surfaces and the derives — so a launch that carries
+	// YOLO_PACK_PROFILES while the bootstrap does not would run the selected variant's
+	// environment against config written as if no variant were selected. Relayed by name
+	// in BuildRunPlan; this is what fails if that relay is deleted, which no test on the
+	// launch env alone can see.
+	for _, wire := range []string{"YOLO_PROVIDERS", "YOLO_PACK_PROFILES"} {
+		for _, a := range plan.LaunchArgv {
+			if !strings.HasPrefix(a, wire+"=") {
+				continue
+			}
+			if !containsArg(plan.BootstrapArgv, a) {
+				problems = append(problems,
+					wire+" is in the launch env but not baked into the bootstrap env "+
+						"("+a+"); the pack surfaces and derives would render as if no "+
+						"profile were selected")
+			}
 		}
 	}
 

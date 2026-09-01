@@ -68,7 +68,7 @@ func TestMacosUserNotesMachineWideWorkspaceState(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, bool) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, bool, *jsonx.OrderedMap) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {
@@ -96,7 +96,7 @@ func TestMacosUserNotesContentGaps(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, bool) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, bool, *jsonx.OrderedMap) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {
@@ -164,7 +164,7 @@ func TestMacosUserNotesHostByteGaps(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, t.TempDir(), "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, bool) int {
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, bool, *jsonx.OrderedMap) int {
 		return 0
 	}
 	if rc := Run(*o); rc != 0 {

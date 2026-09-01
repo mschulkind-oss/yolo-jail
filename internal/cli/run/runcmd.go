@@ -126,7 +126,8 @@ type Options struct {
 	IsTTYStdin  func() bool
 	// MacosUserRun handles the runtime==macos-user native branch. It receives the resolved config,
 	// workspace, selected agents, the post-`--` argv, the repo root, the staged pack
-	// root, and the dry-run flag, returning the process exit code. nil => the branch
+	// root, the dry-run flag, and the launch's composed profile/provider channel in
+	// launch-env form, returning the process exit code. nil => the branch
 	// prints an actionable "not wired" error (keeps run free of the macosuser +
 	// darwinpkg deps; the front door injects the real handler).
 	//
@@ -134,7 +135,15 @@ type Options struct {
 	// rather than something the handler re-derives, because the whole B-0 defect was
 	// this backend running with no pack root at all: making it an argument means a
 	// backend cannot be dispatched without one being decided.
-	MacosUserRun func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot, packRoot string, dryRun bool) int
+	//
+	// packEnv is the channel in the same spirit, one hoist later: the pack env fold, the
+	// provider env_shape vars and the two wire tables (YOLO_PROVIDERS,
+	// YOLO_PACK_PROFILES), composed above the dispatch and handed to whichever arm runs.
+	// The container arm emits the same content onto its argv; this arm layers it into its
+	// plan env and relays the wire tables to its bootstrap. Making it an argument means a
+	// `-p` launch cannot be dispatched to this backend without the environment it
+	// selected being decided.
+	MacosUserRun func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot, packRoot string, dryRun bool, packEnv *jsonx.OrderedMap) int
 	// CaptureOnTerminate folds this session's in-jail edits to capture-mode surfaces
 	// into their overlay sidecars once the jail is down (E3). It receives the
 	// workspace and the resolved runtime, and reads only HOST-side dirs — by

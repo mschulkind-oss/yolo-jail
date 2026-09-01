@@ -562,8 +562,13 @@ func runRun(args []string) int {
 	opts.Color = true
 	parseRunArgs(args, &opts)
 	// Wire the macos-user native branch. run stays free of the macosuser +
-	// darwinpkg deps; the front door injects the handler.
-	opts.MacosUserRun = macosUserRun
+	// darwinpkg deps; the front door injects the handler. packEnv is the launch's
+	// composed profile/provider channel, which run.Run composes above the backend
+	// dispatch and passes to whichever arm runs — forwarded verbatim.
+	opts.MacosUserRun = func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string,
+		repoRoot, packRoot string, dryRun bool, packEnv *jsonx.OrderedMap) int {
+		return macosUserRun(cfg, workspace, agents, agentArgv, repoRoot, packRoot, dryRun, packEnv)
+	}
 	// Wire E3's capture-on-terminate. Same injection shape and same reason: the
 	// capture engine lives in THIS package, which imports run, so run cannot call it
 	// directly. Warnings go to stderr — the capture is an observability aid, and its
@@ -586,9 +591,11 @@ func runRun(args []string) int {
 // Seatbelt-sandboxed launch. repoRoot is the yolo-jail checkout root (the nix
 // build root for darwin `packages:`); the native-Go bootstrap self-execs the
 // staged yolo binary and needs no source tree. packRoot is the host-side staged
-// pack tree, which the run pipeline staged before dispatching here. macos-hardware-gated;
+// pack tree, which the run pipeline staged before dispatching here, and packEnv is the
+// profile/provider channel it composed before dispatching there too. macos-hardware-gated;
 // on Linux macosuser fails closed at its IsMacOS precondition (dry-run works anywhere).
-func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot, packRoot string, dryRun bool) int {
+func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string,
+	repoRoot, packRoot string, dryRun bool, packEnv *jsonx.OrderedMap) int {
 	runProxy := run.RunWithProxy
 	materialize := func(nixRoot string, packages []any) (*macosuser.Darwin, bool, error) {
 		// system "" → darwinpkg.NativeSystem(), the running platform. NOT a
@@ -630,6 +637,7 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 		AgentArgv:    agentArgv,
 		RepoRoot:     repoRoot,
 		HostPackRoot: packRoot,
+		PackEnv:      packEnv,
 		DryRun:       dryRun,
 	})
 }

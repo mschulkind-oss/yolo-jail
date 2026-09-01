@@ -83,6 +83,20 @@ type Options struct {
 	// named to the bootstrap as YOLO_PACK_ROOT. Empty means this launch staged no
 	// packs, and the bootstrap is told nothing rather than pointed at an absent dir.
 	HostPackRoot string
+	// PackEnv is the launch's composed profile/provider channel in launch-env form: the
+	// pack env fold, the provider env_shape vars, and the two wire tables
+	// (YOLO_PROVIDERS, YOLO_PACK_PROFILES). The run pipeline composes it above the
+	// backend dispatch and hands it to BOTH arms — the container arm emits the same
+	// content onto its argv — so a `-p` launch composes the same environment natively
+	// that it does in a container. Nil is the pre-channel shape and layers nothing.
+	//
+	// Layered into the plan env BEFORE env_sources and SandboxEnv, which is the
+	// container's precedence: there the channel rides the `-e` base env and
+	// yolo-user-env.sh (sourced later by the rc files) overrides it, so a user's own
+	// dotenv entry beats a pack's default here too. Its two wire tables are ALSO relayed
+	// into the bootstrap env (BuildRunPlan), because the native bootstrap renders pack
+	// surfaces and derives from them exactly as the container boot does.
+	PackEnv *jsonx.OrderedMap
 	// SandboxEnv is an optional caller-supplied env layered LAST; nil is the
 	// common case.
 	SandboxEnv *jsonx.OrderedMap
@@ -141,6 +155,19 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// that environment and have no business asserting trust in it.
 	if opts.Workspace != "" {
 		env.Set("MISE_TRUSTED_CONFIG_PATHS", resolvePathAbs(opts.Workspace))
+	}
+	// The composed profile/provider channel, ahead of env_sources — the container's
+	// precedence, where the channel rides the `-e` base env and yolo-user-env.sh
+	// (sourced later) overrides it. Before the channel crossed at all, a `-p` launch on
+	// this backend validated the selector and then composed nothing: no variant env, no
+	// env_shape relay, no provider table for the derives. Layering it here is what makes
+	// "a profile works on macos-user" a property of the pipeline rather than a second
+	// implementation.
+	if opts.PackEnv != nil {
+		for _, k := range opts.PackEnv.Keys() {
+			v, _ := opts.PackEnv.Get(k)
+			env.Set(k, v)
+		}
 	}
 	// The resolver's warnings (e.g. "env_sources file not found") must reach
 	// deps.Out via the rich-stripping printer so the plan output includes them

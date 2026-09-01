@@ -139,16 +139,27 @@ func Run(opts Options) int {
 	// is also the set the jail's own alias fold reads (LoadJailPacks over the staged
 	// tree), so using it here is what keeps the two spellings of one launch — the
 	// interactive alias and `yolo -- <bin>` — from disagreeing. The profile table is
-	// the same merge the env block emits (effectivePackProfiles), so the flags this
-	// argv carries and the table YOLO_PACK_PROFILES carries cannot answer differently.
+	// the one the channel composed just below, so the flags this argv carries and the
+	// table YOLO_PACK_PROFILES carries cannot answer differently.
 	//
 	// Guarded on len>0 so the empty case still reaches each arm's own default (a bare
 	// `yolo` is bash in a container and an interactive zsh natively); injecting into an
 	// empty argv would invent a binary neither arm asked for.
+	//
+	// THE CHANNEL, composed once here — the third B-0 hoist, after the pack trees and the
+	// launch flags. The effective profile table the injection reads is one third of what
+	// a profile launch composes; the pack env fold, the composed provider table, the
+	// env_shape vars and the hydrated env_sources are the rest, and every one of them
+	// used to be composed inside the container arm, which this branch returns before
+	// reaching. internal/cli/run/profilechannel.go is the whole story; what matters here
+	// is that both arms below consume THIS value, so `yolo -p zai -- claude` composes the
+	// same environment on a container and on a native sandbox instead of composing it
+	// twice (or, on one of them, not at all).
+	channel := o.composePackChannel(cfg, staged.packs, nil)
 	injectedArgs := o.Args
 	if len(injectedArgs) > 0 {
-		profiles := packload.ProfileTable(o.effectivePackProfiles(cfg, staged.packs))
-		injectedArgs = packload.InjectLaunchFlags(staged.packs, profiles, injectedArgs)
+		injectedArgs = packload.InjectLaunchFlags(staged.packs,
+			packload.ProfileTable(channel.profiles), injectedArgs)
 	}
 
 	// macos-user native branch: route to the injected handler,
@@ -229,14 +240,48 @@ func Run(opts Options) int {
 		// is a design change and not a launch-time patch.
 		o.noteMachineWideWorkspaceState(staged.packs)
 		o.noteMacosUserContentGaps(staged.packs, cfg)
+		// WHERE THE PROFILE SELECTIONS LANDED, on this arm too. Until the channel hoist
+		// this line had no honest form here — the launch line prints what a launch
+		// DELIVERS (OQ-10: never a verb that overclaims), and this backend delivered
+		// nothing. It now layers the whole channel into its plan env, so the line
+		// describes a delivery again. Printed beside the three notes above rather than
+		// beside the container's banner: this is the block that answers "what will this
+		// launch do for you", and it is the only stderr this arm writes before the
+		// backend takes the terminal.
+		o.notePackProfiles(channel.profiles, staged.packs)
+		// THE SELECTED-PACK CREDENTIAL PRE-FLIGHT, on this arm too. It used to live only
+		// in runContainer, below the return above, so a native launch with a provider
+		// pack and no key started a sandbox that failed its first API call and said
+		// nothing about why — the §6.1 symptom, unrefused on exactly the backend that
+		// composes no env of its own.
+		//
+		// This arm rather than above the dispatch, deliberately, and for the reason the
+		// config-change approval above gives: the container arm gates the FRESH-LAUNCH
+		// path only (attaching to a running jail delivers no environment, so the
+		// question "would this launch deliver the key" has no subject there and refusing
+		// it would block re-entry into a jail that already has its key). On THIS backend
+		// every invocation is a fresh sandbox, so the arm's own call site is where the
+		// two backends agree. The channel is the same value both arms check.
+		if lines, refuse := o.checkProviderCredentials(cfg, staged.packs, channel, nil); len(lines) > 0 {
+			o.printProviderRefusal(lines)
+			if refuse {
+				return 1
+			}
+		}
+		// The channel crosses in launch-env form — the pack env fold, the shape vars and
+		// the two wire tables, flattened in the container argv's layering order. The
+		// backend layers it into its plan env ahead of env_sources (the container's
+		// precedence) and relays the two wire tables to its bootstrap, so the native
+		// derives read the same provider table a container jail's do.
+		//
 		// The staged tree crosses as a PATH, not as the loaded declarations: the native
 		// bootstrap re-reads the manifests itself (LoadJailPacks), exactly as the
 		// container entrypoint does off its /ctx/packs mount, so the two backends render
 		// from the same input in the same way.
 		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
-			repoRoot, staged.root, o.DryRun)
+			repoRoot, staged.root, o.DryRun, channel.launchEnv())
 	}
-	return o.runContainer(cfg, rt, repoRoot, cname, staged, injectedArgs)
+	return o.runContainer(cfg, rt, repoRoot, cname, staged, injectedArgs, channel)
 }
 
 // stagedPacks is one run's staged pack set — the single result of the single staging
@@ -454,8 +499,12 @@ func ensureStorage() error {
 // workspace flock + raced re-check, stale-container removal, image load, argv
 // assembly, host-service start, tracking/owner-PID, port forwarding, the
 // run_with_proxy launch with the FROZEN teardown guard stack).
+//
+// channel is the profile/provider environment Run composed above the dispatch. This arm
+// consumes it rather than re-deriving any part of it: assembly emits it onto the argv,
+// and the credential pre-flight answers against it.
 func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string, staged stagedPacks,
-	injectedArgs []string) int {
+	injectedArgs []string, channel *packChannel) int {
 	out := o.pr(o.Stdout)
 	// Staged above the dispatch (see Run): this path consumes the result rather than
 	// producing it. packStaging is the tree /ctx/packs binds; loadedPacks is what the
@@ -556,8 +605,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// ws_state overlay prep.
 	wsState := o.prepareWsState(cfg, loadedPacks)
 
-	// yolo-user-env.sh (frozen writer).
-	userEnv := config.ResolveEnvSources(o.Workspace, cfg, func(msg string) { out.print(msg) })
+	// yolo-user-env.sh (frozen writer). The map is the channel's hydration, not a second
+	// ResolveEnvSources pass: one walk, one set of warnings, and the file cannot describe
+	// a channel the pre-flight below checked a different copy of.
+	userEnv := channel.userEnv
 	writeUserEnvFile(filepath.Join(wsState, "yolo-user-env.sh"), userEnv)
 
 	// Broker singleton + relay: ensure BEFORE building the argv (the sockets-dir
@@ -680,6 +731,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		writableHomeDirs: config.WritableHomeDirs(cfg),
 		hostFiles:        hostFiles,
 		userEnv:          userEnv,
+		channel:          channel,
 	}
 	runCmd := o.assembleRunCmd(in)
 
@@ -690,14 +742,15 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// below, keeps the failure before any host-side process a refusal would have to clean
 	// up — a jail that would fail its first API call is a failed launch, and the lock is
 	// already held so the release travels with the return.
-	if lines, refuse := o.checkProviderCredentials(cfg, loadedPacks, userEnv, runCmd); len(lines) > 0 {
-		for i, line := range lines {
-			if i == 0 {
-				out.printf("[bold red]%s[/bold red]", line)
-				continue
-			}
-			out.print(line)
-		}
+	//
+	// The channel it checks is the one Run composed above the dispatch — the same value
+	// the macos-user arm checks — and the argv pairs are folded into its lookup, because
+	// a pack-shipped loophole's jail_env can put a credential on this argv that the
+	// channel alone does not know about. The check itself is shared
+	// (checkProviderCredentials); only the placement differs, for the attach reason
+	// recorded on the macos-user arm.
+	if lines, refuse := o.checkProviderCredentials(cfg, loadedPacks, channel, envPairs(runCmd)); len(lines) > 0 {
+		o.printProviderRefusal(lines)
 		lock.Close()
 		// A set escape hatch turns the refusal into a loud continuation, so the verdict —
 		// not the presence of output — is what ends the launch.
@@ -805,7 +858,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// dim register, same reason — a selected profile is part of the effective
 	// environment, and the human reading the launch should see the name every pack's
 	// derive is about to receive rather than infer it from an env var.
-	o.notePackProfiles(o.effectivePackProfiles(cfg, loadedPacks), loadedPacks)
+	o.notePackProfiles(channel.profiles, loadedPacks)
 
 	rc, runErr := runWithProxy(runCmd, onStarted, onTerminate)
 	if runErr != nil {

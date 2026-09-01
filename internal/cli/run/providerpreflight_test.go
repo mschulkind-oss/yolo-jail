@@ -20,11 +20,13 @@ import (
 // has no such provider or when the credential variable it points at was never hydrated.
 //
 // The facts live in packload.ProviderCredentialGaps, which both notches call; what this
-// file pins at the run pipeline is the SEAM: that runContainer asks the question on the
-// environment it actually assembled, and refuses before anything is spawned. The unit
+// file pins at the run pipeline is the SEAM: that the container arm asks the question on
+// the environment it actually assembled, and refuses before anything is spawned. The unit
 // tests below would stay green if the call site vanished, which is why the last test
 // reads the source — the same answer this package already gives for a disclosure that
-// exists and is never printed.
+// exists and is never printed. The check itself is now shared with the macos-user arm
+// (profilechanneldispatch_test.go pins that half at the dispatch, where a refusal has to
+// land before the backend starts); both arms answer against the SAME composed channel.
 
 // zaiPackFixture is a real staged-shape pack (LoadDir) that ships a provider requiring a
 // credential, plus a variant naming it — the shape packs/zai would have. It installs no
@@ -65,8 +67,7 @@ func TestCheckProviderCredentialsRefusesAnUnhydratedKey(t *testing.T) {
 		}
 		return ""
 	}
-	lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")},
-		emptyEnv(), nil)
+	lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, o.composePackChannel(newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, emptyEnv()), nil)
 	if len(lines) == 0 || !refuse {
 		t.Fatalf("a selected provider pack with no key hydrated must refuse the launch "+
 			"(lines=%d refuse=%v)", len(lines), refuse)
@@ -92,8 +93,7 @@ func TestCheckProviderCredentialsRefusesAMissingProvider(t *testing.T) {
 	providers := jsonx.NewOrderedMap()
 	providers.Set("zai", nil) // the user dropped the shipped entry
 	cfg := newConfig("providers", providers)
-	lines, refuse := o.checkProviderCredentials(cfg, []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")},
-		emptyEnv(), nil)
+	lines, refuse := o.checkProviderCredentials(cfg, []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, o.composePackChannel(cfg, []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, emptyEnv()), nil)
 	if len(lines) == 0 || !refuse {
 		t.Fatalf("a required provider the composed table has no entry for must refuse the "+
 			"launch (lines=%d refuse=%v)", len(lines), refuse)
@@ -117,8 +117,7 @@ func TestCheckProviderCredentialsHatchLiftsTheRefusal(t *testing.T) {
 		}
 		return ""
 	}
-	lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")},
-		emptyEnv(), nil)
+	lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, o.composePackChannel(newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, emptyEnv()), nil)
 	got := strings.Join(lines, "\n")
 	if !strings.HasPrefix(got, "Warning: "+paths.AllowMissingProvidersEnv+" is set") {
 		t.Errorf("the override must say what it is suppressing, first line:\n%s", lines[0])
@@ -149,13 +148,13 @@ func TestCheckProviderCredentialsSilentOnceTheKeyArrives(t *testing.T) {
 	hydrated := jsonx.NewOrderedMap()
 	hydrated.Set("ZAI_API_KEY", "sk-envsource")
 	o := retireOptions(t, discardBuf())
-	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, hydrated, nil); len(lines) != 0 || refuse {
+	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, o.composePackChannel(newConfig(), packs, hydrated), nil); len(lines) != 0 || refuse {
 		t.Errorf("a key from env_sources must satisfy the check:\n%s", strings.Join(lines, "\n"))
 	}
 
-	assembled := []string{"-e", "SOME_OTHER=1", "-e", "ZAI_API_KEY=sk-argv", "-e", "YOLO_VERSION=9"}
+	assembled := envPairs([]string{"-e", "SOME_OTHER=1", "-e", "ZAI_API_KEY=sk-argv", "-e", "YOLO_VERSION=9"})
 	o = retireOptions(t, discardBuf())
-	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, emptyEnv(), assembled); len(lines) != 0 || refuse {
+	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, o.composePackChannel(newConfig(), packs, emptyEnv()), assembled); len(lines) != 0 || refuse {
 		t.Errorf("a key already on the assembled argv must satisfy the check:\n%s", strings.Join(lines, "\n"))
 	}
 
@@ -166,7 +165,7 @@ func TestCheckProviderCredentialsSilentOnceTheKeyArrives(t *testing.T) {
 		}
 		return ""
 	}
-	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, emptyEnv(), nil); len(lines) != 0 || refuse {
+	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, o.composePackChannel(newConfig(), packs, emptyEnv()), nil); len(lines) != 0 || refuse {
 		t.Errorf("a key exported in the invoking shell must satisfy the check — the env_shape "+
 			"relay can draw on it:\n%s", strings.Join(lines, "\n"))
 	}
@@ -181,8 +180,7 @@ func TestCheckProviderCredentialsTreatsAnEmptyValueAsMissing(t *testing.T) {
 	hydrated := jsonx.NewOrderedMap()
 	hydrated.Set("ZAI_API_KEY", "")
 	o := retireOptions(t, discardBuf())
-	if lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")},
-		hydrated, nil); len(lines) == 0 || !refuse {
+	if lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, o.composePackChannel(newConfig(), []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, hydrated), nil); len(lines) == 0 || !refuse {
 		t.Fatal("an empty credential variable must not satisfy the check")
 	}
 }
@@ -208,7 +206,7 @@ func TestCheckProviderCredentialsExistenceOnlyWithoutAKeyVariable(t *testing.T) 
 		t.Fatalf("loading fixture pack: %v", problems)
 	}
 	o := retireOptions(t, discardBuf())
-	if lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{p}, emptyEnv(), nil); len(lines) != 0 || refuse {
+	if lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{p}, o.composePackChannel(newConfig(), []*packload.Pack{p}, emptyEnv()), nil); len(lines) != 0 || refuse {
 		t.Errorf("a provider with no credential pointer must be satisfied by existing:\n%s",
 			strings.Join(lines, "\n"))
 	}
@@ -225,11 +223,11 @@ func TestCheckProviderCredentialsIgnoresAnUnselectedPack(t *testing.T) {
 	selected := packsFixture(t, "pi") // the shipped pi pack: no provider, no key, no claim
 
 	o := retireOptions(t, discardBuf())
-	if lines, refuse := o.checkProviderCredentials(newConfig(), selected, emptyEnv(), nil); len(lines) != 0 || refuse {
+	if lines, refuse := o.checkProviderCredentials(newConfig(), selected, o.composePackChannel(newConfig(), selected, emptyEnv()), nil); len(lines) != 0 || refuse {
 		t.Fatalf("a launch that does not select the requiring pack must stay silent:\n%s",
 			strings.Join(lines, "\n"))
 	}
-	if lines, refuse := o.checkProviderCredentials(newConfig(), append(selected, requireing), emptyEnv(), nil); len(lines) == 0 || !refuse {
+	if lines, refuse := o.checkProviderCredentials(newConfig(), append(selected, requireing), o.composePackChannel(newConfig(), append(selected, requireing), emptyEnv()), nil); len(lines) == 0 || !refuse {
 		t.Fatalf("the same launch with the requiring pack SELECTED must refuse (lines=%d refuse=%v)",
 			len(lines), refuse)
 	}
@@ -270,7 +268,9 @@ func TestFreshLaunchChecksProviderCredentialsOnTheAssembledEnv(t *testing.T) {
 		t.Fatalf("runContainer no longer calls %s. The check still exists and its unit tests "+
 			"still pass, so a launch with no provider credential would start a jail that fails "+
 			"its first API call and say nothing — the failure §6.1 records. If the seam moved, "+
-			"move this assertion with it rather than deleting it.", check)
+			"move this assertion with it rather than deleting it. (The macos-user arm's own "+
+			"call site is pinned at the dispatch, not here — see "+
+			"TestProfileChannelPreflightRefusesTheMacosUserLaunch.)", check)
 	}
 	if pos[check] < pos[assemble] {
 		t.Errorf("runContainer calls %s BEFORE %s: the check answers against the assembled -e "+
@@ -303,7 +303,7 @@ func TestShippedPacksRequireNoCredential(t *testing.T) {
 			programPacks = append(programPacks, p)
 		}
 		o := retireOptions(t, discardBuf())
-		if lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{p}, emptyEnv(), nil); len(lines) != 0 || refuse {
+		if lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{p}, o.composePackChannel(newConfig(), []*packload.Pack{p}, emptyEnv()), nil); len(lines) != 0 || refuse {
 			requiring = append(requiring, p)
 		}
 	}
@@ -311,7 +311,7 @@ func TestShippedPacksRequireNoCredential(t *testing.T) {
 		t.Fatal("no shipped pack installs anything — this test is not testing anything")
 	}
 	o := retireOptions(t, discardBuf())
-	if lines, refuse := o.checkProviderCredentials(newConfig(), programPacks, emptyEnv(), nil); len(lines) != 0 || refuse {
+	if lines, refuse := o.checkProviderCredentials(newConfig(), programPacks, o.composePackChannel(newConfig(), programPacks, emptyEnv()), nil); len(lines) != 0 || refuse {
 		t.Errorf("the shipped packs that install a CLI must not require a credential on a bare "+
 			"launch:\n%s", strings.Join(lines, "\n"))
 	}

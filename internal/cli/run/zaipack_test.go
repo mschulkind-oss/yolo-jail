@@ -165,7 +165,7 @@ func TestZaiPackRefusesALaunchWithNoKey(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "zai")}
 
 	o := retireOptions(t, discardBuf())
-	lines, refuse := o.checkProviderCredentials(bareConfig(), packs, emptyEnv(), nil)
+	lines, refuse := o.checkProviderCredentials(bareConfig(), packs, o.composePackChannel(bareConfig(), packs, emptyEnv()), nil)
 	if !refuse {
 		t.Fatal("a selected zai pack with no key hydrated must refuse the launch")
 	}
@@ -177,7 +177,7 @@ func TestZaiPackRefusesALaunchWithNoKey(t *testing.T) {
 	}
 
 	o = retireOptions(t, discardBuf())
-	if lines, refuse := o.checkProviderCredentials(bareConfig(), packs, hydratedKey(), nil); len(lines) != 0 || refuse {
+	if lines, refuse := o.checkProviderCredentials(bareConfig(), packs, o.composePackChannel(bareConfig(), packs, hydratedKey()), nil); len(lines) != 0 || refuse {
 		t.Errorf("the key the README says to drop in must satisfy the check:\n%s",
 			strings.Join(lines, "\n"))
 	}

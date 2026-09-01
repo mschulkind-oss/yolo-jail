@@ -362,3 +362,84 @@ func TestPrinterColorRendersANSI(t *testing.T) {
 type errFake string
 
 func (e errFake) Error() string { return string(e) }
+
+// THE CHANNEL LAYERING (fix B of the 2026-09-01 review, the macos-user half). The run
+// pipeline composes the profile/provider environment above the backend dispatch and hands
+// it to BOTH arms; here is where this arm is proved to receive it. Three properties, each
+// one a way the delivery could silently half-happen:
+//
+//  1. the channel reaches the launch env at all (a `-p` launch that composes the variant
+//     env on the container and nothing here is the defect);
+//  2. it layers BEFORE env_sources, the container's precedence — there the channel rides
+//     the `-e` base env and yolo-user-env.sh (sourced later by the rc files) overrides it,
+//     so a user's own dotenv entry must beat a pack's default here too;
+//  3. the two wire tables are relayed into the BOOTSTRAP env, because the native
+//     bootstrap renders the pack surfaces and derives from them. Without the relay the
+//     agent would run the selected variant's environment against config written as if no
+//     variant were selected — the silent half of the same defect.
+func TestPackEnvReachesTheLaunchEnvAheadOfEnvSources(t *testing.T) {
+	opts := newOpts("/Users/Shared/proj")
+	opts.Config = jsonx.NewOrderedMap()
+	inline := jsonx.NewOrderedMap()
+	inline.Set("ZAI_API_KEY", "from-envsource")
+	opts.Config.Set("env_sources", []any{inline})
+	opts.PackEnv = jsonx.NewOrderedMap()
+	opts.PackEnv.Set("ZAI_API_KEY", "from-pack")
+	opts.PackEnv.Set("ANTHROPIC_BASE_URL", "https://api.z.ai/api/anthropic")
+	opts.PackEnv.Set("YOLO_PROVIDERS", `{"zai": {}}`)
+	opts.PackEnv.Set("YOLO_PACK_PROFILES", `{"claude": "zai"}`)
+
+	argv := strings.Join(buildPlan(mockDeps(nil), opts, nil).LaunchArgv, " ")
+	for _, want := range []string{
+		"ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic",
+		"YOLO_PROVIDERS={\"zai\": {}}",
+		"YOLO_PACK_PROFILES={\"claude\": \"zai\"}",
+	} {
+		if !strings.Contains(argv, want) {
+			t.Errorf("the composed channel never reached the launch env; LaunchArgv = %s", argv)
+		}
+	}
+	// The precedence half: env_sources wins over the channel, as yolo-user-env.sh wins
+	// over the container's `-e` base env.
+	if !strings.Contains(argv, "ZAI_API_KEY=from-envsource") {
+		t.Errorf("env_sources must still win over the channel; LaunchArgv = %s", argv)
+	}
+	if strings.Contains(argv, "ZAI_API_KEY=from-pack") {
+		t.Errorf("the channel must not override a user's own env_sources entry: %s", argv)
+	}
+}
+
+// The relay half, asserted on the plan the way the runner executes it: the bootstrap argv
+// is the env -i the sandbox user's yolo self-execs with, and EnvFromOS is how the darwin
+// entry reads the tables back. PlanInvariants carries the same check; this is the
+// direct pin on the produced argv.
+func TestPackEnvWireTablesReachTheBootstrapEnv(t *testing.T) {
+	opts := newOpts("/Users/Shared/proj")
+	opts.PackEnv = jsonx.NewOrderedMap()
+	opts.PackEnv.Set("YOLO_PROVIDERS", `{"zai": {"api_key_env_name": "ZAI_API_KEY"}}`)
+	opts.PackEnv.Set("YOLO_PACK_PROFILES", `{"claude": "zai"}`)
+
+	plan := buildPlan(mockDeps(nil), opts, nil)
+	for _, wire := range []string{`YOLO_PROVIDERS={"zai": {"api_key_env_name": "ZAI_API_KEY"}}`, `YOLO_PACK_PROFILES={"claude": "zai"}`} {
+		if !containsArg(plan.BootstrapArgv, wire) {
+			t.Errorf("%s is in the launch env but never reached the bootstrap argv %v — "+
+				"the native bootstrap would render every pack surface as if no profile "+
+				"were selected", wire, plan.BootstrapArgv)
+		}
+	}
+	if problems := PlanInvariants(plan); len(problems) > 0 {
+		t.Errorf("a plan carrying the channel must satisfy every invariant: %v", problems)
+	}
+}
+
+// The negative half: no channel, no wire tables anywhere, which is the pre-channel shape
+// every existing plan still renders.
+func TestNoPackEnvMeansNoWireTables(t *testing.T) {
+	plan := buildPlan(mockDeps(nil), newOpts("/Users/Shared/proj"), nil)
+	joined := strings.Join(plan.BootstrapArgv, " ")
+	for _, wire := range []string{"YOLO_PROVIDERS=", "YOLO_PACK_PROFILES="} {
+		if strings.Contains(joined, wire) {
+			t.Errorf("a launch with no channel must not invent %s: %s", wire, joined)
+		}
+	}
+}
