@@ -177,6 +177,39 @@ func TestProviderDerivesKeepTheBaseURLShorthand(t *testing.T) {
 	}
 }
 
+// TestCodexDeriveDefaultsToOpenaiChat pins the measured default (zai OQ-Z1: an
+// authenticated probe 2026-09-01 put POST /v4/responses at 404 on both z.ai routes while
+// /v4/chat/completions returned a real completion). A provider that omits wire_api is the
+// ordinary case — it is optional — so the default decides which endpoint codex actually
+// POSTs to, and "responses" wired every chat-only provider to a 404 that surfaced as a
+// codex error rather than a config one.
+func TestCodexDeriveDefaultsToOpenaiChat(t *testing.T) {
+	tables := map[string]map[string]any{
+		manifest.SourceProviders: {
+			"zai": map[string]any{
+				"base_url":         "https://api.z.ai/api/paas/v4",
+				"api_key_env_name": "ZAI_API_KEY",
+			},
+		},
+	}
+	script, s := deriveSurface(t, "codex", "codex/config")
+	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, tables)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provs, ok := got["model_providers"].(map[string]any)
+	if !ok {
+		t.Fatalf("codex/config produced no model_providers table: %#v", got)
+	}
+	zai, ok := provs["zai"].(map[string]any)
+	if !ok {
+		t.Fatalf("model_providers.zai missing: %#v", provs)
+	}
+	if zai["wire_api"] != "openai-chat" {
+		t.Errorf("wire_api = %v, want the measured default openai-chat", zai["wire_api"])
+	}
+}
+
 // TestProviderDerivesSkipAProviderWithNoURLForThem pins BOTH halves of the gate: a
 // provider that names no URL at all is not a catalog row (the sentinel a host render
 // probes with relies on this), and neither is one whose only endpoint speaks a protocol

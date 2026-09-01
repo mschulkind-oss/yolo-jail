@@ -46,8 +46,11 @@ yolo.derive("codex", "config", function(ctx)
         local entry = {
           base_url = baseUrl,
           -- An endpoint's own wire_api is the per-protocol fact; the provider-level one
-          -- only speaks for the shorthand.
-          wire_api = wireApi or prov.wire_api or "responses",
+          -- only speaks for the shorthand. The DEFAULT is openai-chat by measurement
+          -- (zai OQ-Z1, 2026-09-01: POST /v4/responses is 404 on both z.ai routes while
+          -- /v4/chat/completions returns a real completion) — the old "responses" default
+          -- wired every provider that omitted wire_api to an endpoint that 404s.
+          wire_api = wireApi or prov.wire_api or "openai-chat",
         }
         if prov.api_key_env_name then
           entry.api_key_env = prov.api_key_env_name

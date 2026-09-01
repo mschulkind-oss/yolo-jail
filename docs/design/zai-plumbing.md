@@ -63,12 +63,12 @@ measured 2026-09-01 with an authenticated probe: `POST /v4/responses` is 404 on 
 while `/v4/chat/completions` returns a real completion on the same host** (a keyless probe
 cannot settle this — z.ai's edge 401s garbage paths too, authenticating before routing).
 
-> [!WARNING]
-> **codex's derive DEFAULTS `wire_api` to `"responses"`**
-> ([`packs/codex/derive.lua:27`](../../packs/codex/derive.lua#L27)) — a zai provider entry that
-> omits `wire_api` gets codex wired to a route that 404s. Every zai entry must set
-> `wire_api: "openai-chat"` explicitly until that default is reconsidered (it predates this
-> measurement; a provider-agnostic default of `"openai-chat"` is the safe correction).
+> [!IMPORTANT]
+> **codex's derive default is `"openai-chat"`** (corrected 2026-09-01, per this measurement:
+> [`packs/codex/derive.lua`](../../packs/codex/derive.lua)). Before the correction the default
+> was `"responses"` — it predated the probe above — so a provider entry that omitted
+> `wire_api` got codex wired to a route that 404s. Setting it explicitly is still fine; it
+> is just no longer required.
 
 ## 3. Route A — name the protocol, fill the values (pure config)
 
@@ -79,8 +79,9 @@ cannot settle this — z.ai's edge 401s garbage paths too, authenticating before
   "providers": {
     "zai": {
       "base_url": "https://api.z.ai/api/paas/v4",
-      "wire_api": "openai-chat",            // measured: /v4/responses is 404 — and REQUIRED,
-                                            // because codex's derive defaults to "responses"
+      "wire_api": "openai-chat",            // measured: /v4/responses is 404. Optional
+                                            // today — codex defaults to this — but spelling
+                                            // it costs one line and survives a default change.
       "api_key_env_name": "ZAI_API_KEY",     // renamed per parent OQ-6; the value is the NAME
       "models": { "default": "glm-4.7", "fast": "glm-4.7-air" }
     }
@@ -206,7 +207,7 @@ for "this provider also speaks X" marking, if it graduates.
 | :--- | :--- |
 | `providers` key, closed schema, `api_key_env_name` name-contract | **shipped** ([`validate.go:885-945`](../../internal/config/validate.go#L885-L945)) |
 | pi / codex / opencode derives wiring every provider | **shipped** — Route A works today, endpoints included |
-| z.ai wire protocol: chat-completions only | **measured 2026-09-01** (OQ-Z1; codex's `responses` derive default is a known 404 for zai — §2) |
+| z.ai wire protocol: chat-completions only | **measured 2026-09-01** (OQ-Z1; codex's derive default was that 404ing `responses` and is now `openai-chat` — §2) |
 | `kind: "provider"` (pack-shipped service facts) + `kind: "profile"` + the selected-pack preflight | **shipped** (the §6.2 missing-credential refusal is still proposed) |
 | `-p <name>` global, declared-or-not | **ruled 2026-08-31** (parent OQ-5); mechanism proposed |
 | claude bridge (settings `env` block honored for `ANTHROPIC_*`) | **measured YES, 2026-08-31** (OQ-Z4: controlled listener, settings-only run hit) |
@@ -247,7 +248,7 @@ the parent doc and code comments cite them.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-Z1 | **z.ai's OpenAI route speaks chat-completions only.** Authenticated probe: `POST /v4/responses` → 404 on both `api/paas/v4` and `api/coding/paas/v4`, while `/v4/chat/completions` → a real completion. `wire_api: "openai-chat"` always; codex's `"responses"` derive default is a known 404 for zai. (A keyless probe cannot settle this — the edge 401s nonexistent paths too.) | 2026-09-01 | §2 |
+| OQ-Z1 | **z.ai's OpenAI route speaks chat-completions only.** Authenticated probe: `POST /v4/responses` → 404 on both `api/paas/v4` and `api/coding/paas/v4`, while `/v4/chat/completions` → a real completion. `wire_api: "openai-chat"` always; the derive default was the `"responses"` 404 and is now `openai-chat`. (A keyless probe cannot settle this — the edge 401s nonexistent paths too.) | 2026-09-01 | §2 |
 | OQ-Z2 | **One provider, one api key, any shape needed** — the two-entry bridge is a temporary spell; `endpoints`-by-protocol is the required end-state. *(Ruled by the maintainer.)* | 2026-08-31 | §3, §5 |
 | OQ-Z3 | **No env reference form — env stays literal-only.** The controlling ruling is shipped: yolo's `${VAR}` expansion was REMOVED from MCP rendering 2026-08-03 (ambient process env must not be a config-rendering input; yolo writes references verbatim and the consumer resolves them). The alias costs one literal line in the same `0600` file; the shipped pattern everywhere else is consumer-deref (`apiKeyEnv` name-slots), with the derive `ctx` a closed set of config tables that never carries secret values. | 2026-09-01 | §4.1 |
 | OQ-Z4 | **Claude Code honors `settings.json`'s `env` block before the first API call.** Controlled listener, claude 2.1.252, scratch `CLAUDE_CONFIG_DIR`, inherited `ANTHROPIC_*` scrubbed: settings-only `ANTHROPIC_BASE_URL` produced traffic identical to the process-env control. Retires the parent's R3. | 2026-08-31 | §4.1, parent §5 |
