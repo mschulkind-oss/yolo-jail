@@ -103,8 +103,19 @@ func Main(argv []string) int {
 }
 
 // firstPositional returns the first non-flag token before any `--`, or "".
+//
+// The value of a value-taking flag is NOT a positional: it skips those values for the
+// same reason namesSubcommand does, and the two are two halves of one decision. This
+// half stayed behind when that skip was added, and nothing noticed until global -p made
+// `yolo -p dev` a spelling a user would type — the front door answered
+// `unknown command "dev"` and the run pipeline that implements the flag never ran.
 func firstPositional(args []string) string {
-	for _, a := range args {
+	for i := 0; i < len(args); i++ {
+		if valueTakingFlags[args[i]] {
+			i++ // its value, whatever it looks like
+			continue
+		}
+		a := args[i]
 		if a == "--" {
 			return ""
 		}

@@ -58,3 +58,26 @@ func TestIsNative(t *testing.T) {
 		t.Error("IsNative(\"\") = true, want false")
 	}
 }
+
+// A run flag's VALUE is not a subcommand name. `namesSubcommand` has skipped those
+// values since the `--network host` collision was fixed, but `firstPositional` — the
+// other half of the same decision, the one that decides between "unknown command" and
+// the run route — never got the same skip. Nothing noticed until global -p made
+// `yolo -p dev` (no command) a spelling a user would actually type: the front door
+// answered "unknown command \"dev\"" and the run pipeline, which implements the flag,
+// was never reached. Every value in valueTakingFlags is user text, so `-p host` and
+// `--auth check` were the same trap waiting.
+func TestAFlagValueIsNotASubcommand(t *testing.T) {
+	cases := map[string]string{
+		"-p dev":         "run", // global -p: the name is a profile, not a verb
+		"-p host":        "run", // the value spells a registry key on purpose
+		"--auth check":   "run",
+		"-p dev -- bash": "dispatch:run", // the --→run rewrite, with the value skipped
+		"chekc":          "unknown",      // a real typo'd subcommand still errors
+	}
+	for in, want := range cases {
+		if got := routeDecision(strings.Fields(in)); got != want {
+			t.Errorf("routeDecision(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
