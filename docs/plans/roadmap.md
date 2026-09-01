@@ -1,8 +1,8 @@
 # Roadmap
 
-**Status: 15 needing you · 2 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
+**Status: 16 needing you · 2 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
 
-Last updated **2026-08-30**. Counts tallied from this file, not asserted — one per `### 💬` heading,
+Last updated **2026-08-31**. Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph matches the section it is
 in.
 
@@ -589,6 +589,50 @@ question wearing different clothes — a `check` that passes on a config the nex
 unmatched `supersedes` warns and the loophole keeps running — the safe direction — and after this it
 stops the launch. That is the intended trade under your ruling, and it is the one row worth reading
 §6 for before agreeing to the rest.
+
+### 💬 18 — Every pack's briefing goes to every agent, and there is no way to say who it is for
+
+📄 [`briefing-audiences.md`](../design/briefing-audiences.md) —
+**OQ-BA2 · OQ-BA3 · OQ-BA4 · OQ-BA5** · one already ruled (OQ-BA1) · reuses
+[`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) §2.5's CLI-name namespace
+and [`stringly-typed-references-principle.md`](../design/stringly-typed-references-principle.md)
+R1–R5
+
+**A pack's briefing prose is composed once and written to every destination**
+([`prepare.go:154`](../../internal/cli/run/prepare.go#L154), before the per-destination write loop
+at [`:170`](../../internal/cli/run/prepare.go#L170)), so a pack whose rules apply to one agent must
+broadcast them to all of them or delete them. Both outcomes are live on this machine: `matt-fzf`'s
+prose about Claude Code's `fileSuggestion` setting was **deleted** rather than scoped, and
+`matt-local`'s Pi Agent Config section — a token minter and a theme dir — is **broadcast** to
+claude, codex, opencode and copilot, none of which can act on it. It is synced in from backplane,
+so it cannot be fixed downstream either. Briefing prose is the one content kind that costs its full
+text on every session in every project.
+
+**You ruled the key on 2026-08-31: not the pack slug, the CLI name.** That is OQ-BA1, and it puts
+the selector in the namespace `-p <name> -- <bin>` and `pack_profiles.<cli>` already use — the one
+that is `CombineExclusive` by construction, so a name resolves to at most one pack without core
+knowing what an agent is. It also sidesteps the tombstone at
+[`packs.go:73-80`](../../internal/config/packs.go#L73-L80), where a per-entry `agents` filter was
+deleted for presuming a fixed agent list. **That removal's rationale has two clauses and this
+design kills only the second** — *"redundant with where filtering happens"* is true for `skills`
+and false for `briefing`, whose delivery is per-destination but whose composition is not.
+
+**The two notches cost differently, and the cheap half needs no ruling.**
+`ComposeHostBriefings` ([`hostbriefing.go:133-172`](../../internal/entrypoint/hostbriefing.go#L133-L172))
+is already a per-destination `byPath` loop — the filter drops in beside its existing skip. The jail
+half moves composition inside its own write loop, and **that move lifts a limit already recorded in
+the tree**: [`briefingsource.go:106-108`](../../internal/packload/briefingsource.go#L106-L108) says
+a pack declaring two briefing contributions cannot deliver both in a jail, and names per-destination
+composition as the fix it declined to build. Same change, so §9 steps 1–2 are shippable ahead of
+every open question.
+
+**What this row is NOT.** Not per-project scoping — that is a repo's own `AGENTS.md`, already the
+right mechanism. Not a new contribution kind, config key, or CLI flag: one optional field on
+`briefing`. Not a scoping story for `skills`, which has the identical misdirection
+([`mergedest.go:74-76`](../../internal/packload/mergedest.go#L74-L76)) and larger bytes but a lazy
+cost — deliberately out of scope, with **OQ-BA4** asking only that the field be shaped so `skills`
+can reuse it rather than mint a second vocabulary.
+
 
 # 📦 Up next
 
