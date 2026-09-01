@@ -307,52 +307,87 @@ func (p *Pack) HonoredMounts() (granted []packdecl.HostFile, refused []string) {
 	return nil, refused
 }
 
-// EnvVars merges the env contributions of every pack into one map, later packs
-// winning a key. Static values only, so this is not origin-gated. Deterministic is
-// not guaranteed across a key set two packs both write; a collision is reported by
-// the footprint's env-key claims rather than resolved here.
-//
-// No profile table — the launch paths that have one call EnvVarsFor, which is this fold
-// with the selected variants applied after each pack's static map.
-func EnvVars(packs []*Pack) map[string]string {
-	return EnvVarsFor(packs, nil)
+// EnvFoldEntry is one operation of the pack env fold, in the order it applies: an
+// assignment, or (Unset) a removal.
+type EnvFoldEntry struct {
+	Key   string
+	Value string
+	Unset bool
 }
 
-// EnvVarsFor is EnvVars with the launch's CLI-keyed profile table applied (§3.4, OQ-8):
-// each pack's own variants fold AFTER its static `env`, so a variant later-wins over the
-// pack's own default — a variant is the more specific intent, declared after the baseline,
-// and overriding it is not a collision.
+// EnvFold is the pack env fold as the ORDERED OPERATION SEQUENCE both notches consume:
+// for each pack in delivery order, its static `kind: "env"` keys sorted, then each
+// variant it has active (ActiveProfiles' order — sorted by the CLI name that selected it)
+// with that variant's `env` keys sorted.
+//
+// It is the one definition of the OQ-8 order, and the order is the whole point: static
+// then variants PER PACK, so a later pack's static value beats an earlier pack's variant —
+// the cross-pack rule is unchanged by the variant kind. EnvVarsFor is this sequence
+// reduced over a map (the jail notch's form: the env starts empty, so a removal is a
+// delete), and the host notch composes the process env it will exec from the same
+// sequence (internal/cli host.go). Reducing it twice, once per notch, is what keeps a key
+// that pack A's variant and pack B's static both write resolving to ONE winner.
+//
+// Static values only, so this is not origin-gated. Which pack wins a key TWO packs write
+// is delivery order, not something this fold resolves; a collision is reported by the
+// footprint's env-key claims.
+func EnvFold(packs []*Pack, profiles map[string]string) []EnvFoldEntry {
+	var out []EnvFoldEntry
+	for _, p := range packs {
+		static := p.Decl.EnvContributions()
+		for _, k := range sortedMapKeys(static) {
+			out = append(out, EnvFoldEntry{Key: k, Value: static[k]})
+		}
+		for _, prof := range p.ActiveProfiles(profiles) {
+			for _, k := range sortedEnvValueKeys(prof.Env) {
+				if v := prof.Env[k]; v.Unset() {
+					out = append(out, EnvFoldEntry{Key: k, Unset: true})
+					continue
+				}
+				out = append(out, EnvFoldEntry{Key: k, Value: prof.Env[k].Value})
+			}
+		}
+	}
+	return out
+}
+
+// sortedEnvValueKeys is sortedMapKeys for a profile's `env` map, whose values carry the
+// null bit a plain string map cannot.
+func sortedEnvValueKeys(m map[string]packdecl.EnvValue) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// EnvVarsFor is the pack env fold as a map — the launch's CLI-keyed profile table
+// applied (§3.4, OQ-8), so each pack's own variants fold AFTER its static `env` and a
+// variant later-wins over its own pack's default: a variant is the more specific intent,
+// declared after the baseline, and overriding it is not a collision.
 //
 // A null in a profile's env UNSETS the key (OQ-7), and the merge-patch semantics mean it
 // removes the key outright rather than setting it empty: a caller composing an environment
 // cannot tell "absent" from "removed" here, and for the jail notch that distinction does
 // not exist (the jail starts from an empty env). A caller that must REMOVE a real value —
-// the host notch, where the process env is inherited — reads the profile's Env map itself,
-// whose EnvValue carries the bit this map's value type cannot.
+// the host notch, where the process env is inherited — walks EnvFold itself, whose entries
+// carry the bit this map's value type cannot.
+//
+// THE REDUCTION, not a second fold: applied in order over a map, EnvFold's operations
+// yield exactly this result, which is why the jail and the host cannot disagree about who
+// wrote a key last.
 func EnvVarsFor(packs []*Pack, profiles map[string]string) map[string]string {
 	var out map[string]string
-	for _, p := range packs {
-		// Static first, then the pack's own variants on top: the OQ-8 order is per pack,
-		// so a later pack's static value still beats an earlier pack's variant — the
-		// cross-pack rule is unchanged by the new kind.
-		for k, v := range p.Decl.EnvContributions() {
-			if out == nil {
-				out = map[string]string{}
-			}
-			out[k] = v
+	for _, e := range EnvFold(packs, profiles) {
+		if e.Unset {
+			delete(out, e.Key) // a no-op on a nil map, which is the empty-fold case
+			continue
 		}
-		for _, prof := range p.ActiveProfiles(profiles) {
-			for k, v := range prof.Env {
-				if v.Unset() {
-					delete(out, k)
-					continue
-				}
-				if out == nil {
-					out = map[string]string{}
-				}
-				out[k] = v.Value
-			}
+		if out == nil {
+			out = map[string]string{}
 		}
+		out[e.Key] = e.Value
 	}
 	return out
 }

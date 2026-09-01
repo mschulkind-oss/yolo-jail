@@ -99,7 +99,7 @@ func TestMountOriginGateAndEnvUngated(t *testing.T) {
 	}
 
 	// env is honored regardless of origin (static values, no host read).
-	if v := EnvVars([]*Pack{fetched}); v["ACME_MODE"] != "fast" {
+	if v := EnvVarsFor([]*Pack{fetched}, nil); v["ACME_MODE"] != "fast" {
 		t.Errorf("env must be honored even for a fetched pack: %v", v)
 	}
 

@@ -226,8 +226,9 @@ func yoloManagedDirs() []string {
 type hostComposition struct {
 	// agent is the CLI name the profile table is keyed by (the target's basename).
 	agent string
-	// vars is the composition proper, in application order: pack env, the selected
-	// variants' env, env_sources, the provider's env shape, and the removals last.
+	// vars is the composition proper, in application order: the pack env fold (per pack,
+	// static then that pack's selected variants), env_sources, the provider's env shape,
+	// and the removals last.
 	vars []agentenv.Var
 	// packs and providers are the selected pack set and the composed provider table the
 	// vars were composed from.
@@ -307,9 +308,10 @@ func composeHostLaunch(bin, profile string, warn func(string)) *hostComposition 
 //
 // The sources are docs/design/host-agent-environment.md §5.4's, in order:
 //
-//  1. a pack's static `kind: "env"` contributions, then (1b) the env of the variant each
-//     pack has selected — the same literals, gated on the launch's profile table, folded
-//     after the pack's own so the variant wins (OQ-8);
+//  1. the pack env fold, per pack — each pack's static `kind: "env"` contributions, then
+//     the env of the variants that pack has selected, gated on the launch's profile table,
+//     so a variant wins over its own pack's static (OQ-8). packload.EnvFold's sequence,
+//     the same one the jail's env block reduces, so a cross-pack key has one winner;
 //  2. env_sources — the SECRET channel, and the step that gives "env_sources hydrates
 //     your credentials" something to hydrate INTO on a host;
 //  3. the resolved profile's provider vars — the env shape of the provider the variant
@@ -338,10 +340,12 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	// The selected packs, read once for both the env they declare and the provider they
 	// ship. The config here is USER SCOPE ONLY (the boundary this function's doc records),
 	// so the composed provider table below is user entries over pack facts and never a
-	// workspace's.
-	packs, packErr := loadedHostPacks()
+	// workspace's. A pack set that cannot be resolved right now contributes nothing — an
+	// empty slice makes every fold below a no-op — which is loadedHostPacks' own contract,
+	// so the error needs no second handling here.
+	packs, _ := loadedHostPacks()
 	c.packs = packs
-	// The variant this launch selects, resolved once: it gates (1b) and feeds (3), and
+	// The variant this launch selects, resolved once: it gates (1) and feeds (3), and
 	// both must read the same selection or the env a host launch carries and the one its
 	// launch line describes would disagree.
 	effective := effectiveHostProfiles(cfg, agent, profile)
@@ -359,43 +363,29 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 		agentTable[agent] = profileName
 	}
 
-	// (1) pack-declared env. Sorted, because a map has no order and an argv (or an
-	// `export` script) that reshuffles between runs is a diff nobody can read.
-	if packErr == nil {
-		packEnv := packload.EnvVars(packs)
-		keys := make([]string, 0, len(packEnv))
-		for k := range packEnv {
-			keys = append(keys, k)
+	// (1) the pack env fold, PER PACK — each pack's static `kind: "env"` keys, then its own
+	// selected variants' literals (OQ-8). The sequence is packload.EnvFold's, the ONE fold
+	// the jail notch reduces through packload.EnvVarsFor: folding it here as all-static-
+	// then-all-variant instead gave a key that pack A's variant and pack B's static both
+	// write two answers (the jail said the later pack's static wins, the host the earlier
+	// pack's variant). hostFoldParity_test.go pins the two notches to the same winner.
+	//
+	// Keys are sorted within each pack, because a map has no order and an `export` script
+	// that reshuffles between runs is a diff nobody can read.
+	//
+	// Assignments land here. A null's UNSET is held for (4), because on the host a removal
+	// is only a removal if it comes after every assignment — including one an env_sources
+	// file below would make. An unset a LATER fold entry assigns over is dropped: the fold
+	// already decided that key, and holding the removal would have the host overrule the
+	// very order it just applied to the jail.
+	heldUnset := map[string]bool{}
+	for _, e := range packload.EnvFold(packs, agentTable) {
+		if e.Unset {
+			heldUnset[e.Key] = true
+			continue
 		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			vars = append(vars, agentenv.Var{Key: k, Value: packEnv[k]})
-		}
-	}
-
-	// (1b) the SELECTED VARIANTS' own env (OQ-7/OQ-8), folded after the pack's static map
-	// because a variant is the more specific intent. Assignments land here; a null's UNSET
-	// is held for (4), because on the host a removal is only a removal if it comes after
-	// every assignment — including one an env_sources file below would make.
-	var profileUnsets []agentenv.Var
-	if packErr == nil {
-		for _, p := range packs {
-			for _, prof := range p.ActiveProfiles(agentTable) {
-				keys := make([]string, 0, len(prof.Env))
-				for k := range prof.Env {
-					keys = append(keys, k)
-				}
-				sort.Strings(keys)
-				for _, k := range keys {
-					v := prof.Env[k]
-					if v.Unset() {
-						profileUnsets = append(profileUnsets, agentenv.Var{Key: k, Unset: true})
-						continue
-					}
-					vars = append(vars, agentenv.Var{Key: k, Value: v.Value})
-				}
-			}
-		}
+		delete(heldUnset, e.Key)
+		vars = append(vars, agentenv.Var{Key: e.Key, Value: e.Value})
 	}
 
 	// (2) the secret channel. The loader anchors relative entries beside the file that
@@ -429,10 +419,6 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	// notches cannot disagree about what a resolved profile delivers. A {key}
 	// placeholder resolves through what this launch actually carries: the hydrated
 	// env_sources above, then the environment this process inherited.
-	var userProviders *jsonx.OrderedMap
-	if v, ok := cfg.Get("providers"); ok {
-		userProviders, _ = v.(*jsonx.OrderedMap)
-	}
 	lookup := func(name string) (string, bool) {
 		if v, ok := userEnv.Get(name); ok {
 			if s, isStr := v.(string); isStr && s != "" {
@@ -441,21 +427,47 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 		}
 		return os.LookupEnv(name)
 	}
+	providers := composedHostProviders(cfg, packs)
 	vars = append(vars, agentenv.Resolve(
-		packload.ComposeProviders(userProviders, packs),
+		providers,
 		agent, profileName, packload.ProviderFor(packs, agent, profileName), lookup)...)
-	c.providers = packload.ComposeProviders(userProviders, packs)
+	c.providers = providers
 
 	// (4) removals last, so an unset beats every assignment above no matter which source
 	// made it — the env_sources nulls from the same pass as (2) (the same scoped config,
 	// so an inline null's cancellation by a later dotenv cannot disagree with the
-	// assignments), then a variant's own nulls from (1b).
+	// assignments), then the pack fold's own nulls from (1) that no later fold entry
+	// assigned over. Sorted, because a set of removals has no order to preserve and the
+	// `export` script must not reshuffle between runs.
+	foldUnsets := make([]string, 0, len(heldUnset))
+	for k := range heldUnset {
+		foldUnsets = append(foldUnsets, k)
+	}
+	sort.Strings(foldUnsets)
 	for _, k := range removals {
 		vars = append(vars, agentenv.Var{Key: k, Unset: true})
 	}
-	vars = append(vars, profileUnsets...)
+	for _, k := range foldUnsets {
+		vars = append(vars, agentenv.Var{Key: k, Unset: true})
+	}
 	c.vars = vars
 	return c
+}
+
+// composedHostProviders is the host notch's ONE provider composition — the host spelling
+// of the jail notch's composedProviders (internal/cli/run/assemble.go): the user's
+// `providers` config entries with every selected pack's shipped `kind: "provider"` facts
+// composed under them, per field. Composed ONCE and its result handed to BOTH of this
+// launch's consumers — the env_shape resolve in composeHostVars and the §6.2 pre-flight's
+// c.providers — because packload/providers.go states the composition happens exactly once
+// per launch, and two compositions would be two chances for the check and the exec to
+// disagree about what the launch carries.
+func composedHostProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack) *jsonx.OrderedMap {
+	var user *jsonx.OrderedMap
+	if v, ok := cfg.Get("providers"); ok {
+		user, _ = v.(*jsonx.OrderedMap)
+	}
+	return packload.ComposeProviders(user, packs)
 }
 
 // hostScopedEnvSources returns cfg with any still-RELATIVE env_sources file entry

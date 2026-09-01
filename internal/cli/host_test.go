@@ -612,7 +612,7 @@ func hostExportKeys(out string) []string {
 // block in hostEnvVars that asks loadedHostPacks for the selected packs and folds their
 // kind:"env" contributions in FIRST, sorted.
 //
-// internal/packload's own tests prove packload.EnvVars merges what it is handed; this
+// internal/packload's own tests prove packload.EnvVarsFor merges what it is handed; this
 // proves `yolo host` actually HANDS it anything. Measured before this test existed:
 // deleting the whole `if packs, err := loadedHostPacks(); ...` block from hostEnvVars
 // compiled and passed the entire suite — meaning no pack's env vars were reaching a host

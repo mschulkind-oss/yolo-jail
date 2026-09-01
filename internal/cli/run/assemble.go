@@ -609,8 +609,9 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// Sorted for a deterministic argv.
 	//
 	// THE SAME merge the launch line describes: the CLI-keyed profile table is folded in
-	// (EnvVarsFor, not EnvVars) so a selected variant later-wins over the pack's own
-	// static value (OQ-8), and a null in it removes the key — the jail starts from an
+	// (EnvVarsFor, not a static-only fold) so a selected variant later-wins over the
+	// pack's own static value (OQ-8), and a null in it removes the key — the jail starts
+	// from an
 	// empty env, so "unset" here is simply an absent -e. Read off the composed channel
 	// rather than re-folded here: Run composed it above the backend dispatch, and the
 	// macos-user arm delivers that same fold to its own plan env.

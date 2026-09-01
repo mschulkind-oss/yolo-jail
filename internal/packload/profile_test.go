@@ -79,7 +79,7 @@ func TestProfileConfigFoldsAfterAutonomy(t *testing.T) {
 func TestProfileEnvFoldsOverStatic(t *testing.T) {
 	p := profileFixture(t)
 
-	if got := EnvVars([]*Pack{p}); got["SHARED"] != "from-env" || got["PROFILE"] != "" {
+	if got := EnvVarsFor([]*Pack{p}, nil); got["SHARED"] != "from-env" || got["PROFILE"] != "" {
 		t.Errorf("no profile selected: static env only, got %v", got)
 	}
 	got := EnvVarsFor([]*Pack{p}, map[string]string{"claude": "bedrock"})
@@ -94,6 +94,50 @@ func TestProfileEnvFoldsOverStatic(t *testing.T) {
 	}
 	if got["STATIC"] != "from-env" {
 		t.Errorf("a key the profile does not name keeps the static value: %v", got)
+	}
+}
+
+// EnvFold is the ordered sequence the HOST notch composes a process env from, so the
+// order is the contract and not an implementation detail: static then variants PER PACK,
+// keys sorted within each half. The winner that order produces across two packs is pinned
+// at the consuming end (internal/cli hostfoldparity_test.go runs this fold and the host's
+// over one fixture), because a fold tested only here is a fold whose caller can still
+// apply it in a different order.
+func TestEnvFoldIsPerPack(t *testing.T) {
+	alpha := &Pack{Name: "alpha", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"program","bin":"claude","via":"npm","package":"@acme/claude"},
+	  {"kind":"env","vars":{"A2":"static","A1":"static"}},
+	  {"kind":"profile","name":"p","env":{"A1":"variant","SHARED":"variant"}}]}`)}
+	beta := &Pack{Name: "beta", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"program","bin":"pi","via":"npm","package":"@acme/pi"},
+	  {"kind":"env","vars":{"SHARED":"static","B1":"static"}}]}`)}
+
+	type step struct {
+		key, val string
+		unset    bool
+	}
+	var got []step
+	for _, e := range EnvFold([]*Pack{alpha, beta}, map[string]string{"claude": "p"}) {
+		got = append(got, step{e.Key, e.Value, e.Unset})
+	}
+	want := []step{
+		{"A1", "static", false}, {"A2", "static", false}, // alpha's static, sorted
+		{"A1", "variant", false}, {"SHARED", "variant", false}, // then alpha's own variant
+		{"B1", "static", false}, {"SHARED", "static", false}, // then beta, static only
+	}
+	if len(got) != len(want) {
+		t.Fatalf("EnvFold = %v, want %d steps", got, len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("EnvFold[%d] = %v, want %v — the OQ-8 order is per pack, so the later "+
+				"pack's static must come after the earlier pack's variant", i, got[i], want[i])
+		}
+	}
+
+	// The reduction the jail notch consumes answers the same winner the sequence implies.
+	if v := EnvVarsFor([]*Pack{alpha, beta}, map[string]string{"claude": "p"}); v["SHARED"] != "static" {
+		t.Errorf("EnvVarsFor SHARED = %q, want beta's static (later pack) to beat alpha's variant", v["SHARED"])
 	}
 }
 

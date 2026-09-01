@@ -322,7 +322,7 @@ func profilePackFixture(t *testing.T, name string) *packload.Pack {
 // A selected variant's env reaches the ASSEMBLED argv: the -e block and the
 // YOLO_PACK_PROFILES table must describe the same launch. This is the pin on the call
 // site, not on the fold — packload.EnvVarsFor is covered in packload's own tests, and
-// nothing there would notice if assemble went back to the static-only EnvVars, which
+// nothing there would notice if assemble went back to a static-only fold, which
 // would ship every profile env silently missing from the jail.
 func TestAssembleSelectedProfileEnvReachesTheJailArgv(t *testing.T) {
 	packs := []*packload.Pack{profilePackFixture(t, "acme")}
