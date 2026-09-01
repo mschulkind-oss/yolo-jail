@@ -111,6 +111,7 @@ func TestNoPacksMeansNoDeclarations(t *testing.T) {
 		// RetireMiseTools is deliberately NOT per-pack any more (OQ11): it returns a
 		// fixed CORE list of yolo's own retired mise tokens regardless of packs, so it
 		// is not asserted empty here.
+		//
 		// A command must pass through untouched rather than picking up flags from
 		// nowhere — with no table and with one, since the table only ever ADDS flags.
 		cmd := []string{"claude", "--print"}
