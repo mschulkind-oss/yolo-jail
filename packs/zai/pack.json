@@ -1,0 +1,34 @@
+{
+  "contributes": [
+    {
+      "api_key_env_name": "ZAI_API_KEY",
+      "endpoints": {
+        "anthropic": {
+          "base_url": "https://api.z.ai/api/anthropic"
+        },
+        "openai": {
+          "base_url": "https://api.z.ai/api/paas/v4",
+          "wire_api": "openai-chat"
+        }
+      },
+      "env_shape": {
+        "anthropic": {
+          "ANTHROPIC_AUTH_TOKEN": "{key}",
+          "ANTHROPIC_BASE_URL": "{endpoint}"
+        }
+      },
+      "kind": "provider",
+      "models": {
+        "default": "glm-4.7",
+        "fast": "glm-4.7-air"
+      },
+      "name": "zai"
+    },
+    {
+      "kind": "profile",
+      "name": "zai",
+      "requires_provider": "zai"
+    }
+  ],
+  "name": "zai"
+}

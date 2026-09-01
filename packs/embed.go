@@ -55,5 +55,5 @@ package packs
 
 import "embed"
 
-//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:audio all:host-processes all:journal all:cgroup-delegate all:serial
+//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:zai all:audio all:host-processes all:journal all:cgroup-delegate all:serial
 var FS embed.FS

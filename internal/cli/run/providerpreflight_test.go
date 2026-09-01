@@ -282,10 +282,13 @@ func TestFreshLaunchChecksProviderCredentialsOnTheAssembledEnv(t *testing.T) {
 	}
 }
 
-// guard: the fixture above must never be able to satisfy the check by accident — the
-// shipped packs carry no key-bearing provider, so the official set is silent on a launch
-// with no credentials at all. If a shipped pack ever grows one, the golden argv tests and
-// the integration suite start refusing, and this is the test that says why.
+// guard: the fixture above must never be able to satisfy the check by accident. The shipped
+// packs were credential-silent for exactly as long as none of them shipped a provider; zai
+// ends that (zai-plumbing.md §4), so the guard narrows instead of dying: every pack that
+// INSTALLS something must still need no key — a golden-argv launch or an integration jail
+// selects one of those, and a key-bearing program pack would refuse every one of them — and
+// the exception must be a pack no launch reaches without naming it. That is what keeps "the
+// shipped set" and "the set a launch is asked to deliver" different things.
 func TestShippedPacksRequireNoCredential(t *testing.T) {
 	home := retireHome(t)
 	writeUserPacks(t, home, `[]`)
@@ -293,9 +296,40 @@ func TestShippedPacksRequireNoCredential(t *testing.T) {
 	if len(problems) != 0 {
 		t.Fatalf("materializing official packs: %v", problems)
 	}
+
+	var programPacks, requiring []*packload.Pack
+	for _, p := range loaded {
+		if len(p.Decl.InstallContributions()) > 0 {
+			programPacks = append(programPacks, p)
+		}
+		o := retireOptions(t, discardBuf())
+		if lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{p}, emptyEnv(), nil); len(lines) != 0 || refuse {
+			requiring = append(requiring, p)
+		}
+	}
+	if len(programPacks) == 0 {
+		t.Fatal("no shipped pack installs anything — this test is not testing anything")
+	}
 	o := retireOptions(t, discardBuf())
-	if lines, refuse := o.checkProviderCredentials(newConfig(), loaded, emptyEnv(), nil); len(lines) != 0 || refuse {
-		t.Errorf("the shipped pack set must not require a credential on a bare launch:\n%s",
-			strings.Join(lines, "\n"))
+	if lines, refuse := o.checkProviderCredentials(newConfig(), programPacks, emptyEnv(), nil); len(lines) != 0 || refuse {
+		t.Errorf("the shipped packs that install a CLI must not require a credential on a bare "+
+			"launch:\n%s", strings.Join(lines, "\n"))
+	}
+
+	// The exception, named: today that is zai alone, and it installs no CLI, so it is
+	// delivered only to a launch that selected it — which is the launch that also owes it a
+	// key. A second credential-bearing pack needs the same property, or this narrow guard
+	// has to become an explicit allowlist instead.
+	for _, p := range requiring {
+		if p.Name != "zai" {
+			t.Errorf("shipped pack %q requires a credential — the set of credential-bearing "+
+				"shipped packs is deliberate, and a second entry is a decision to make here, "+
+				"not drift", p.Name)
+		}
+		if len(p.Decl.InstallContributions()) > 0 {
+			t.Errorf("shipped pack %q both installs a CLI and requires a credential: every "+
+				"launch that selects it would refuse until the key is present, which is the "+
+				"property the program-pack check above guards", p.Name)
+		}
 	}
 }
