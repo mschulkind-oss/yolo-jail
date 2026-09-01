@@ -140,11 +140,14 @@ superseded by uniformity, and the token alias is superseded by launch-time env c
   ] }
 ```
 
-The **payload split** still does its job, with both halves now composed rather than hand-written:
-`ANTHROPIC_BASE_URL` is configuration and ALSO lands in the settings `env` block where that
-survives invocation (measured honored, OQ-Z4); the token is a credential and reaches claude only
-through **launch-time env composition** — the provider's `env_shape`, applied when profile `zai`
-is active for an agent that speaks that protocol. The launcher mapping a hydrated credential into
+The **payload split** in v1, stated as shipped *(corrected 2026-09-01, parent OQ-16)*: BOTH
+halves reach claude through **launch-time env composition** — the provider's `env_shape`, applied
+when profile `zai` is active for an agent that speaks that protocol. The settings-`env`-block
+landing (measured honored, OQ-Z4) is NOT wired for zai: packs/zai owns no claude surface, and the
+cross-pack config channel (`config-overlay` + the `profile` field) is deliberately deferred
+(parent §12 step 6) — until it lands, a bare `claude` outside yolo's launch path gets nothing from
+this pack, which is the documented cost of deferral. Where the profile DOES own the surface the
+config half ships today: packs/claude's bedrock profile patches its own settings `env` block. The launcher mapping a hydrated credential into
 the process env is the process-env channel doing its designed job, not the config-file
 interpolation the 2026-08-03 `${VAR}` ruling removed — the reference form stays refused for
 USER-WRITTEN config (OQ-Z3 unchanged).
@@ -232,8 +235,9 @@ key, nothing else)*:
 ZAI_API_KEY=<key>                          # the ONLY secret, spelled once
 ```
 
-Then `yolo -p zai` (or `-p zai -- claude`) fires every selected agent at GLM: claude via the
-anthropic endpoint (settings env block + launch-composed `ANTHROPIC_AUTH_TOKEN`), pi/codex/
+Then `yolo -p zai` (or `--pack-profile claude=zai -- claude`) fires every selected agent at
+GLM: claude via the anthropic endpoint (launch-composed `ANTHROPIC_BASE_URL` +
+`ANTHROPIC_AUTH_TOKEN`, both from `env_shape`), pi/codex/
 opencode via the openai endpoint (catalog + selection). Without `-p zai` the catalogs still
 contain zai — presence is not selection. A selected `packs/zai` with `ZAI_API_KEY` in neither the
 invoking environment nor any consulted `env_sources` file refuses the launch outright (OQ-13).
