@@ -592,18 +592,12 @@ func union(packs []*Pack, pick func(*Pack) []string) []string {
 	return out
 }
 
-// LaunchFlags merges every pack's launchFlags, keyed by binary name. A later pack wins
-// on a conflicting binary, matching the "later entries win" rule packs already use.
-// It applies autonomy ON (the jail/guest default); the host path calls LaunchFlagsFor(false).
-// No profile table — the callers that have one call LaunchFlagsFor directly.
-func LaunchFlags(packs []*Pack) map[string][]string {
-	return LaunchFlagsFor(packs, true, nil)
-}
-
-// LaunchFlagsFor is LaunchFlags with the §4.2 autonomy policy applied: on top of each
-// pack's plain `launch` contributions it folds the selected autonomy posture's per-binary
-// launch flags. So the `--dangerously-*` flags live in the autonomous posture and vanish
-// at the host notch (autonomy=false), where the guarded posture (usually no flags) applies.
+// LaunchFlagsFor merges every pack's launch contributions, keyed by binary name — a later
+// pack wins on a conflicting binary, matching the "later entries win" rule packs already
+// use — with the §4.2 autonomy policy applied: on top of each pack's plain `launch`
+// contributions it folds the selected autonomy posture's per-binary launch flags. So the
+// `--dangerously-*` flags live in the autonomous posture and vanish at the host notch
+// (autonomy=false), where the guarded posture (usually no flags) applies.
 //
 // profiles is the launch's CLI-keyed profile table: after the posture, each pack's own
 // selected variants fold in, later-wins per bin (§3.4, OQ-8) — the same order the env fold
@@ -667,15 +661,23 @@ func RetireMiseTools(_ []*Pack) []string {
 // InjectLaunchFlags returns fullCommand with the flags declared for its leading binary
 // injected right after it.
 //
+// profiles is the same CLI-keyed table LaunchFlagsFor folds: a selected variant's launch
+// contribution is injected exactly as a static one is. Callers that hold the launch's
+// effective table must pass it — the direct `yolo -- <bin>` invocation is one of TWO
+// spellings of the same launch, and the other (the interactive alias the entrypoint writes)
+// already folds the table. A nil table here is how the two spellings diverge: a pack's
+// variant flags appear on the alias and vanish from the direct command, silently, which is
+// why the run pipeline passes what effectivePackProfiles merged.
+//
 // Moved out of internal/agents unchanged in behavior: flags are inserted in reverse
 // (each at index 1) so their declared order is preserved, and a flag already present —
 // or a declared alias of one — is skipped, so a user who passed `-y` does not also get
 // `--yolo`. A binary no pack declares is returned untouched.
-func InjectLaunchFlags(packs []*Pack, fullCommand []string) []string {
+func InjectLaunchFlags(packs []*Pack, profiles map[string]string, fullCommand []string) []string {
 	if len(fullCommand) == 0 {
 		return fullCommand
 	}
-	flags := LaunchFlags(packs)[filepath.Base(fullCommand[0])]
+	flags := LaunchFlagsFor(packs, true, profiles)[filepath.Base(fullCommand[0])]
 	if len(flags) == 0 {
 		return fullCommand
 	}

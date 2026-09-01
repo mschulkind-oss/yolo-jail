@@ -128,16 +128,27 @@ func Run(opts Options) int {
 	// 100% drop; claude's `--dangerously-skip-permissions` fell back to
 	// defaultMode: acceptEdits, which auto-accepts EDITS and not Bash or WebFetch.
 	//
-	// Embedded(), not the configured set, deliberately — see the note at the container
-	// call site this replaces: what yolo ships is what a bare `yolo -- <bin>` gets, on
-	// either backend.
+	// THE STAGED SET, and the EFFECTIVE PROFILE TABLE with it — both read off staging,
+	// which is why this sits BELOW stageRunPacks rather than above it. When the
+	// injection moved up out of runContainer, staging had not moved yet, so this line
+	// took packload.Embedded(): it was the only pack set in scope, and "what yolo ships
+	// is what a bare `yolo -- <bin>` gets" was the cheapest true sentence available. It
+	// stopped being the right sentence the moment staging hoisted: the embedded set is
+	// NOT what the jail runs, the staged set is, and the difference is every configured
+	// pack — whose launch contributions an embedded-set injection drops, silently. It
+	// is also the set the jail's own alias fold reads (LoadJailPacks over the staged
+	// tree), so using it here is what keeps the two spellings of one launch — the
+	// interactive alias and `yolo -- <bin>` — from disagreeing. The profile table is
+	// the same merge the env block emits (effectivePackProfiles), so the flags this
+	// argv carries and the table YOLO_PACK_PROFILES carries cannot answer differently.
 	//
 	// Guarded on len>0 so the empty case still reaches each arm's own default (a bare
 	// `yolo` is bash in a container and an interactive zsh natively); injecting into an
 	// empty argv would invent a binary neither arm asked for.
 	injectedArgs := o.Args
 	if len(injectedArgs) > 0 {
-		injectedArgs = packload.InjectLaunchFlags(packload.Embedded(), injectedArgs)
+		profiles := packload.ProfileTable(o.effectivePackProfiles(cfg, staged.packs))
+		injectedArgs = packload.InjectLaunchFlags(staged.packs, profiles, injectedArgs)
 	}
 
 	// macos-user native branch: route to the injected handler,
@@ -453,21 +464,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 
 	// Command construction (needed for both exec and run paths).
 	//
-	// Flags come from the EMBEDDED packs, not this run's loaded set, for two reasons that
-	// both point the same way. Ordering: the command is built here, before packs are staged
-	// (staging needs the container name, which needs the workspace). And reachability: this
-	// same construction serves the ATTACH path into an already-running jail, where the
-	// loaded set belongs to whatever launched it. Using what yolo ships means `yolo --
-	// copilot` gets its flags identically on both paths.
-	//
-	// The cost is that a CONFIGURED pack's launchFlags do not apply to a bare `yolo --
-	// <bin>` invocation. Real but narrow — but NOT for the reason this comment used to
-	// give. It claimed "the in-jail launcher that pack generates still applies them, so
-	// the flags are not lost", and that is false: both launcher templates end
-	// `exec "$REAL_BIN" "$@"` (entrypoint/shims.go) and never read
-	// LaunchFlagContributions. Nothing downstream recovers a missed injection, which is
-	// why the injection moved above the backend dispatch in Run() — this arm now
-	// consumes that one result rather than repeating it.
+	// The flags are already in injectedArgs: Run resolves them above the backend dispatch,
+	// from the staged set and the launch's effective profile table, and this arm consumes
+	// that one result rather than repeating the fold (see the note at the injection site).
+	// That placement is also why this construction serves the ATTACH path into an
+	// already-running jail unchanged: staging runs on attach too, so the set the injection
+	// read is the set the jail is running.
 	fullCommand := append([]string{}, injectedArgs...)
 	targetCmd := "bash"
 	if len(fullCommand) > 0 {

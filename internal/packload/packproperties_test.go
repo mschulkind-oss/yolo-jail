@@ -111,14 +111,13 @@ func TestNoPacksMeansNoDeclarations(t *testing.T) {
 		// RetireMiseTools is deliberately NOT per-pack any more (OQ11): it returns a
 		// fixed CORE list of yolo's own retired mise tokens regardless of packs, so it
 		// is not asserted empty here.
-		if got := packload.LaunchFlags(empty); len(got) != 0 {
-			t.Errorf("LaunchFlags(%v) = %v, want none", empty, got)
-		}
 		// A command must pass through untouched rather than picking up flags from
-		// nowhere.
+		// nowhere — with no table and with one, since the table only ever ADDS flags.
 		cmd := []string{"claude", "--print"}
-		if got := packload.InjectLaunchFlags(empty, cmd); len(got) != len(cmd) {
-			t.Errorf("InjectLaunchFlags with no packs altered the command: %v", got)
+		for _, profiles := range []map[string]string{nil, {"claude": "bedrock"}} {
+			if got := packload.InjectLaunchFlags(empty, profiles, cmd); len(got) != len(cmd) {
+				t.Errorf("InjectLaunchFlags with no packs altered the command: %v", got)
+			}
 		}
 	}
 }
@@ -202,23 +201,23 @@ func TestFetchedPacksGetNoHostAccess(t *testing.T) {
 func TestCopilotFlagsInjectFromItsRealDeclaration(t *testing.T) {
 	packs := loadAll(t)
 
-	got := packload.InjectLaunchFlags(packs, []string{"copilot", "sub"})
+	got := packload.InjectLaunchFlags(packs, nil, []string{"copilot", "sub"})
 	want := "copilot --yolo --no-auto-update sub"
 	if strings.Join(got, " ") != want {
 		t.Errorf("got %q, want %q", strings.Join(got, " "), want)
 	}
 	// Alias suppression against the real declaration.
-	got = packload.InjectLaunchFlags(packs, []string{"copilot", "-y", "chat"})
+	got = packload.InjectLaunchFlags(packs, nil, []string{"copilot", "-y", "chat"})
 	if strings.Contains(strings.Join(got, " "), "--yolo") {
 		t.Errorf("-y must suppress --yolo: %v", got)
 	}
 	// A binary no pack declares passes through.
-	if got := packload.InjectLaunchFlags(packs, []string{"bash", "-c", "echo"}); len(got) != 3 {
+	if got := packload.InjectLaunchFlags(packs, nil, []string{"bash", "-c", "echo"}); len(got) != 3 {
 		t.Errorf("bash must be untouched: %v", got)
 	}
 	// The input slice is not mutated — the caller reuses it for the attach path.
 	in := []string{"copilot", "chat"}
-	_ = packload.InjectLaunchFlags(packs, in)
+	_ = packload.InjectLaunchFlags(packs, nil, in)
 	if strings.Join(in, " ") != "copilot chat" {
 		t.Errorf("input mutated: %v", in)
 	}

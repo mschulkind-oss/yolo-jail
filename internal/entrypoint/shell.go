@@ -10,6 +10,10 @@ import (
 // packAliases writes a shell alias for each pack whose install binary has launchFlags,
 // so an interactive shell gets the same flags a `yolo -- <bin>` invocation does.
 //
+// The profile table is folded here (LaunchFlagsFor, not LaunchFlagsFor(packs, true, nil)):
+// a selected variant's launch contribution must reach the alias or the two spellings of one
+// launch disagree — the variant's flags on the alias, gone from the direct invocation.
+//
 // DERIVED rather than declared. It used to be an AgentSpec.Alias string holding a whole
 // command line ("copilot --yolo --no-auto-update"), which duplicated the launchFlags the
 // same spec already carried — two places to change, and a pack shipping only one of them
@@ -31,7 +35,15 @@ func packAliases(e *Env) string {
 			if len(flags) == 0 {
 				continue
 			}
-			lines = append(lines, "alias "+inst.Bin+"='"+inst.Bin+" "+strings.Join(flags, " ")+"'")
+			// Quoted, not interpolated into a '…' pair. The alias line is shell source the
+			// jail sources on every interactive shell, so a pack-declared flag is code this
+			// file emits; a flag carrying a quote used to terminate the enclosing quotes
+			// and render a .bashrc bash refused to parse. Quote(Join(argv)) is a single
+			// shell word that expands back to exactly the argv the direct invocation
+			// passes — byte-identical to the old rendering for the common all-safe case,
+			// where Join quotes nothing and Quote wraps the spaces.
+			argv := append([]string{inst.Bin}, flags...)
+			lines = append(lines, "alias "+inst.Bin+"="+shquote.Quote(shquote.Join(argv)))
 		}
 	}
 	return strings.Join(lines, "\n")
