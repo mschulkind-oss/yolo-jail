@@ -106,8 +106,12 @@ var (
 	// now says so before the regex has to). Listed alongside its replacement so the
 	// rename message is the only error a config carrying the old spelling gets, the
 	// `agent_profiles` convention above.
+	// `env_shape` is OQ-15 (profiles-as-pack-variants.md §14): a service fact like
+	// endpoints and models, so the user may override it. Its VALUES are checked against
+	// the same closed placeholder set a manifest's is — validateProviderEnvShape, which
+	// the census alone cannot do, which is why the key is here AND in validate.go.
 	knownProviderKeys = set("base_url", "endpoints", "wire_api", "api_key_env_name",
-		"api_key_env", "models", "region", "capabilities")
+		"api_key_env", "models", "region", "capabilities", "env_shape")
 	knownDeviceKeys    = set("usb", "description", "cgroup_rule")
 	knownResourcesKeys = set("memory", "cpus", "pids_limit")
 	// knownHostServiceKeys is the INLINE loophole entry's key census. It must

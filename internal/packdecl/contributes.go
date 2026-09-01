@@ -173,7 +173,7 @@ type Contribution struct {
 	Models map[string]string `json:"models,omitempty"`
 	// EnvShape is how a profile ACTIVE for an agent delivers THIS provider to it, by
 	// protocol: protocol → {ENV_VAR → placeholder}. The placeholders are the closed set
-	// declared below validateProviderEnvShape — "{endpoint}" (that protocol's base_url),
+	// ValidateProviderEnvShape enforces — "{endpoint}" (that protocol's base_url),
 	// "{key}" (the hydrated value of APIKeyEnvName), "{region}" (Region) and
 	// "{model:<alias>}" (an alias of Models); anything else is refused, because anything
 	// else would be the credential or a host fact smuggled in through a template
@@ -1259,7 +1259,7 @@ func validateContribution(label string, c Contribution) []string {
 	case KindProvider:
 		req("name", c.Name)
 		problems = append(problems, validateProviderEndpoints(label, c.Endpoints)...)
-		problems = append(problems, validateProviderEnvShape(label, c.EnvShape)...)
+		problems = append(problems, ValidateProviderEnvShape(label, c.EnvShape)...)
 	case KindProfile:
 		// `name` is the whole selector, so it is the one required field: a variant that
 		// answers to nothing is unreachable, and nothing else about the body would tell
@@ -1402,14 +1402,19 @@ func EnvShapeModelAlias(v string) (string, bool) {
 	return alias, true
 }
 
-// validateProviderEnvShape checks the env_shape template values: the ONLY placeholders
+// ValidateProviderEnvShape checks the env_shape template values: the ONLY placeholders
 // are "{endpoint}" (that protocol's base_url), "{key}" (the user's hydrated credential),
 // "{region}" (the provider's region) and "{model:<alias>}" (a named model id).
 //
 // A closed set, and deliberately not a template language: an env_shape value that could
 // interpolate anything else would be a channel for exactly the two things this kind must
 // never ship — a credential, or a fact about the authoring machine.
-func validateProviderEnvShape(label string, shape map[string]map[string]string) []string {
+//
+// Exported because the value is no longer pack-only: a provider entry the USER wrote
+// carries the same field with the same meaning (profiles-as-pack-variants.md §14,
+// OQ-15), and internal/config's ValidateConfig calls this rather than keeping a second
+// copy of the set — one placeholder vocabulary, enforced once.
+func ValidateProviderEnvShape(label string, shape map[string]map[string]string) []string {
 	var problems []string
 	for _, proto := range sortedKeys(shape) {
 		vars := shape[proto]
