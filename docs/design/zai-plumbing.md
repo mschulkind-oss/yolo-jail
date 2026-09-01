@@ -8,7 +8,7 @@ summary: "The first real consumer of profiles-as-pack-variants: what it takes to
 
 # Z.ai plumbing: one provider, every agent
 
-**Status:** DECIDED, 2026-09-01 — every question this doc asked is settled (ledger, §7);
+**Status:** DECIDED, 2026-09-01 — every question this doc asked is settled (ledger, §8);
 implementation rides the parent doc's build order. Nothing here is built beyond what it inherits
 from the shipped `providers` key and the three derives. This doc is the **first real consumer**
 of [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md): where the two disagree, that
@@ -226,7 +226,39 @@ for "this provider also speaks X" marking, if it graduates.
 | `endpoints` by protocol + resolution | **ruled 2026-08-31** (OQ-Z2: one provider, one key, any shape); schema proposed (§5, with its three closure rules) |
 | provider defaults layer (B2) | not needed while B3 covers it; only if B3 proves insufficient |
 
-## 7. Decision Ledger
+## 7. What you actually do (the acceptance story)
+
+The maintainer's own comprehension check, answered as the checklist the implementation must
+satisfy — when this lands, the whole user story is:
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc — the USER's entire setup
+{
+  "packs": [ …, "zai" ],                  // the wiring pack, at user level
+  "providers": { "zai": {
+      "api_key_env_name": "ZAI_API_KEY",
+      "models": { "default": "glm-4.7", "fast": "glm-4.7-air" },
+      "endpoints": {
+        "anthropic": { "base_url": "https://api.z.ai/api/anthropic" },
+        "openai":    { "base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat" }
+      } } },
+  "env_sources": ["~/.config/yolo-jail/env"]   // or the key is simply in the invoking env
+}
+```
+
+```bash
+# ~/.config/yolo-jail/env (untracked, 0600) — the ONE duplicate line is claude's:
+ZAI_API_KEY=<key>
+ANTHROPIC_AUTH_TOKEN=<the same key>      # no env reference form (OQ-Z3 ruling) — claude's token
+```
+
+Then `yolo -p zai` (or `-p zai -- claude`) fires every selected agent at GLM: claude via the
+anthropic endpoint (settings patch + process-env token), pi/codex/opencode via the openai
+endpoint (catalog + selection overlays). Without `-p zai` the catalogs still contain zai —
+presence is not selection. The §6.2 preflight refuses a launch where `-p zai` is active but
+`ZAI_API_KEY` is in neither the invoking environment nor any consulted `env_sources` file.
+
+## 8. Decision Ledger
 
 No open questions remain in this doc or in the parent — the family's last live decision, the
 `api_key_env` rename, was ruled 2026-09-01 (parent OQ-6: `api_key_env_name`). IDs are stable —
