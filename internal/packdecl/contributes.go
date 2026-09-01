@@ -177,7 +177,10 @@ type Contribution struct {
 	// "{key}" (the hydrated value of APIKeyEnvName), "{region}" (Region) and
 	// "{model:<alias>}" (an alias of Models); anything else is refused, because anything
 	// else would be the credential or a host fact smuggled in through a template
-	// (validateContribution). Declared per protocol so one provider can spell claude's
+	// (validateContribution) — refused at authoring time, and dropped one VARIABLE at a
+	// time across a version boundary, where a placeholder a newer host staged is skew
+	// rather than corruption (unknownEnvShapeValueSkip). Declared per protocol so one
+	// provider can spell claude's
 	// ANTHROPIC_* pair and leave the OpenAI-shaped agents to their config files (parent
 	// OQ-14: no agent is special-cased, the provider says how it is delivered).
 	EnvShape map[string]map[string]string `json:"env_shape,omitempty"`
@@ -1402,6 +1405,28 @@ func EnvShapeModelAlias(v string) (string, bool) {
 	return alias, true
 }
 
+// KnownEnvShapeValue reports whether v is a placeholder this build can compose: one of
+// the three parameterless forms, or a well-formed {model:<alias>} reference. An empty
+// string is NOT known — it names no fact at all, and like an empty `via` it stays a hard
+// problem on BOTH decode paths rather than version skew (unknownEnvShapeValueSkip).
+//
+// THE membership test for the placeholder set, and deliberately not a second spelling of
+// it: the strict validator (ValidateProviderEnvShape) and the tolerant decoder's skip
+// both ask this rather than comparing the constants themselves, so the two cannot come to
+// disagree about which placeholders exist. That disagreement is not hypothetical — it was
+// MEASURED for `via` (knownVias): teaching both switches a new value left the whole suite
+// green while the tolerant decoder still dropped every contribution using it.
+func KnownEnvShapeValue(v string) bool {
+	if v == EnvShapeEndpoint || v == EnvShapeKey || v == EnvShapeRegion {
+		return true
+	}
+	// The alias is checked for well-formedness, not resolved: `models` may be entirely
+	// the user's, and a shape naming an alias no entry carries yet composes nothing
+	// rather than failing a launch (agentenv's rule).
+	_, isModel := EnvShapeModelAlias(v)
+	return isModel
+}
+
 // ValidateProviderEnvShape checks the env_shape template values: the ONLY placeholders
 // are "{endpoint}" (that protocol's base_url), "{key}" (the user's hydrated credential),
 // "{region}" (the provider's region) and "{model:<alias>}" (a named model id).
@@ -1409,6 +1434,17 @@ func EnvShapeModelAlias(v string) (string, bool) {
 // A closed set, and deliberately not a template language: an env_shape value that could
 // interpolate anything else would be a channel for exactly the two things this kind must
 // never ship — a credential, or a fact about the authoring machine.
+//
+// THE SET IS SKEW-SENSITIVE, and this refusal is only the AUTHORING half of the rule (the
+// same split validateSkillsTier documents for its own two-value risk): a pack staged by a
+// newer host may name a placeholder this build has never heard of, and refusing it here
+// on the tolerant path would be the `tier` incident again — every jail on a
+// pre-`just load` image refusing to boot over a variable it was never going to compose.
+// So DecodeTolerant drops the unknown VARIABLE and reports it (unknownEnvShapeValueSkip)
+// while this check keeps refusing it, and membership is KnownEnvShapeValue's on both
+// sides so they cannot drift apart. Whoever adds a placeholder teaches the composer
+// (agentenv) and this predicate in the same change — teaching only one of them is a
+// manifest that validates and composes nothing.
 //
 // Exported because the value is no longer pack-only: a provider entry the USER wrote
 // carries the same field with the same meaning (profiles-as-pack-variants.md §14,
@@ -1419,19 +1455,12 @@ func ValidateProviderEnvShape(label string, shape map[string]map[string]string) 
 	for _, proto := range sortedKeys(shape) {
 		vars := shape[proto]
 		for _, name := range sortedKeys(vars) {
-			v := vars[name]
-			if v == EnvShapeEndpoint || v == EnvShapeKey || v == EnvShapeRegion {
-				continue
-			}
-			if _, isModel := EnvShapeModelAlias(v); isModel {
-				// The alias is checked for well-formedness, not resolved: `models` may be
-				// entirely the user's, and a shape naming an alias no entry carries yet
-				// composes nothing rather than failing a launch (agentenv's rule).
+			if KnownEnvShapeValue(vars[name]) {
 				continue
 			}
 			problems = append(problems, fmt.Sprintf(
 				"%s.env_shape[%q][%q]: must be \"{endpoint}\", \"{key}\", \"{region}\" or "+
-					"\"{model:<alias>}\" (%q)", label, proto, name, v))
+					"\"{model:<alias>}\" (%q)", label, proto, name, vars[name]))
 		}
 	}
 	return problems

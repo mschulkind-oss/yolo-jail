@@ -251,6 +251,16 @@ func (m *Manifest) retiredFieldProblems() []string {
 // unknown (Decode → Validate still refuses it loudly), and a jail must boot when the two
 // ends of the version boundary disagree about which kinds exist.
 //
+// An env_shape PLACEHOLDER is the same class at the deepest nesting a manifest reaches,
+// and the finest grain the rule has yet been asked to work at: a provider variable naming
+// a placeholder this build does not know is dropped, and the REST of the contribution is
+// kept — its endpoints, its credential pointer and its other variables all render exactly
+// as declared, and the launch-time composer already treats an unknown template as "renders
+// nothing" (agentenv.providerVars). Dropping the whole provider for one variable would be
+// trading a degraded jail for a broken one. Like `via`, an EMPTY value is NOT skew and
+// stays a hard problem on both paths: it names no fact at all, in a way both ends
+// understand.
+//
 // Structural validation still runs over what is KEPT, so a manifest that is malformed in a
 // way BOTH builds understand (a missing "kind", a missing required field) still fails
 // loudly here — with each problem labeled by the entry's ORIGINAL index, the one the
@@ -277,6 +287,10 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 		if note := unknownViaSkip(i, c); note != "" {
 			skipped = append(skipped, note)
 			continue
+		}
+		if trimmed, notes := unknownEnvShapeValueSkip(i, c); len(notes) > 0 {
+			skipped = append(skipped, notes...)
+			c = trimmed
 		}
 		problems = append(problems, validateContributionAt(i, c)...)
 		kept = append(kept, c)
@@ -308,6 +322,60 @@ func unknownViaSkip(i int, c Contribution) string {
 		"contributes[%d]: skipping unknown via %q for program %q — this build does not know it, "+
 			"so the contribution is not rendered (version skew; a build that "+
 			"knows the via will render it)", i, c.Via, c.Bin)
+}
+
+// unknownEnvShapeValueSkip returns the provider contribution with every env_shape variable
+// naming a placeholder this build does not know REMOVED, plus one skew note per dropped
+// variable — or (c, nil) when there is nothing to drop.
+//
+// The VALUE-level twin of unknownViaSkip, kept beside it for the same reason: both report
+// what they drop, and the strict path (ValidateProviderEnvShape) still refuses both
+// loudly, so an author hears and a jail boots. It differs in GRAIN, and that is the point:
+// an unknown via costs the whole program, but an unknown placeholder costs one variable of
+// one protocol of one provider, and the rest of that provider renders exactly as declared.
+// A skip that took the provider with it would unresolve every profile naming it for want
+// of a variable no build was going to compose.
+//
+// An EMPTY value drops nothing — it is a hard problem on BOTH paths, never skew (an empty
+// `via` follows the same rule).
+//
+// Membership is KnownEnvShapeValue's and not a second spelling of the set: the strict
+// validator and this skip have to change together or a manifest validates for its author
+// and composes nothing in the jail (knownVias records the `via` measurement).
+func unknownEnvShapeValueSkip(i int, c Contribution) (Contribution, []string) {
+	if c.Kind != KindProvider || len(c.EnvShape) == 0 {
+		return c, nil
+	}
+	trimmed := make(map[string]map[string]string, len(c.EnvShape))
+	var notes []string
+	for _, proto := range sortedKeys(c.EnvShape) {
+		vars := c.EnvShape[proto]
+		kept := make(map[string]string, len(vars))
+		for _, name := range sortedKeys(vars) {
+			v := vars[name]
+			if v != "" && !KnownEnvShapeValue(v) {
+				notes = append(notes, fmt.Sprintf(
+					"contributes[%d]: skipping unknown env_shape placeholder %q for provider "+
+						"%q (env_shape[%q][%q]) — this build does not know it, so the variable "+
+						"is not composed (version skew; a build that knows the placeholder "+
+						"will compose it)", i, v, c.Name, proto, name))
+				continue
+			}
+			kept[name] = v
+		}
+		if len(kept) > 0 {
+			trimmed[proto] = kept
+		}
+	}
+	if notes == nil {
+		return c, nil
+	}
+	if len(trimmed) == 0 {
+		trimmed = nil
+	}
+	out := c
+	out.EnvShape = trimmed
+	return out, notes
 }
 
 // Validate reports every structural problem — the pack-level fields, then per-kind over
