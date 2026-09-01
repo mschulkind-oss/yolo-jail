@@ -593,7 +593,7 @@ stops the launch. That is the intended trade under your ruling, and it is the on
 ### 💬 18 — Every pack's briefing goes to every agent, and there is no way to say who it is for
 
 📄 [`briefing-audiences.md`](../design/briefing-audiences.md) —
-**OQ-BA2 · OQ-BA3 · OQ-BA4 · OQ-BA5** · one already ruled (OQ-BA1) · reuses
+**OQ-BA3 · OQ-BA4 · OQ-BA5 · OQ-BA6** · two already ruled (OQ-BA1, OQ-BA2) · reuses
 [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) §2.5's CLI-name namespace
 and [`stringly-typed-references-principle.md`](../design/stringly-typed-references-principle.md)
 R1–R5

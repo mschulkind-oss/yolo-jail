@@ -3,7 +3,7 @@ title: "Briefing audiences: a pack's prose should be able to name who it is for"
 date: 2026-08-31
 status: in-review
 tags: [packs, briefing, resolution, context]
-summary: "A pack's briefing prose reaches every agent in the jail, so a rule that applies to one agent is either broadcast to all of them or deleted. This proposes an optional audience selector on the `briefing` kind, keyed by CLI name (the `bin` namespace `-p` and `pack_profiles` already use) rather than by pack slug — and shows that the host notch needs a filter while the jail notch needs its composition moved inside its own write loop."
+summary: "A pack's briefing prose reaches every agent in the jail, so a rule that applies to one agent is either broadcast to all of them or deleted. This proposes an optional selector on the `briefing` kind, keyed by CLI name (the `bin` namespace `-p` and `pack_profiles` already use) rather than by pack slug, matched against an identity the destination declares for itself — and shows that the host notch needs a filter while the jail notch needs its composition moved inside its own write loop."
 ---
 
 # Briefing audiences: a pack's prose should be able to name who it is for
@@ -15,15 +15,15 @@ Ledger, OQ-BA1).
 **every** destination, so a pack whose rules apply to one agent must broadcast them to all
 of them or drop them. The fix is an optional selector on the `briefing` contribution naming
 the **CLI names** it is for — the same `bin` namespace `-p <name> -- <bin>` and
-`pack_profiles.<cli>` already key on, and explicitly **not** the pack slug. A destination's
-own audience is *derived*, not declared: it is the set of `bin`s installed by the pack that
-declared the destination, which is a total function over every pack yolo ships today (§4.2).
-The host notch already composes per-destination and needs a filter; the jail notch composes
+`pack_profiles.<cli>` already key on, and explicitly **not** the pack slug. The destination it
+matches against **declares** that name, exactly as a config surface already declares its `agent`
+and a program its `bin` — nothing is derived, because nothing in the `-p` chain derives anything
+either (§4.2). The host notch already composes per-destination and needs a filter; the jail notch composes
 once before its per-destination loop and needs that composition moved inside it — which is
 also how the jail's known one-prose-per-pack limit gets lifted for free (§5).
 
-**The most important section is §4.2** — where a destination's audience comes from. Everything
-else follows from it.
+**The most important section is §4.2** — where a destination's identity comes from, and why an
+earlier draft got it wrong. Everything else follows from it.
 
 **Reads with:** [`agent-briefings.md`](agent-briefings.md) (how briefings are composed and
 delivered today), [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) §2.5 and §8
@@ -87,17 +87,20 @@ appends every pack to every path.
 **The shipped shape.** All six agent packs declare exactly one `program` and exactly one
 `briefing`:
 
-| Pack | `program.bin` | `briefing.into` |
-| :--- | :--- | :--- |
-| `claude` | `claude` | `.claude/CLAUDE.md` |
-| `codex` | `codex` | `.codex/AGENTS.md` |
-| `copilot` | `copilot` | `.copilot/copilot-instructions.md` |
-| `opencode` | `opencode` | `.config/opencode/AGENTS.md` |
-| `pi` | `pi` | `.pi/agent/AGENTS.md` |
-| `agy` | `agy` | `.gemini/config/AGENTS.md` |
+| Pack | `program.bin` | surface `agent` id | `briefing.into` |
+| :--- | :--- | :--- | :--- |
+| `claude` | `claude` | `claude` | `.claude/CLAUDE.md` |
+| `codex` | `codex` | `codex` | `.codex/AGENTS.md` |
+| `copilot` | `copilot` | `copilot` | `.copilot/copilot-instructions.md` |
+| `opencode` | `opencode` | `opencode` | `.config/opencode/AGENTS.md` |
+| `pi` | `pi` | `pi` | `.pi/agent/AGENTS.md` |
+| `agy` | `agy` | `agy` | `.gemini/config/AGENTS.md` |
 
-The five loophole-only packs (`audio`, `cgroup-delegate`, `host-processes`, `journal`,
-`serial`) declare neither, so they are neither destinations nor audiences.
+**Read the middle column against the second: every agent pack already writes its own identity
+out by hand, and it already equals its `bin`.** That is §4.2's whole foundation. The third
+column is the one thing a `briefing` cannot say anything about — it names a path and nothing
+else. The five loophole-only packs (`audio`, `cgroup-delegate`, `host-processes`, `journal`,
+`serial`) declare none of the three.
 
 ---
 
@@ -150,29 +153,58 @@ rules and addressed rules live in one pack:
 Absent selector = today's behavior (P2). The `<!-- from pack: NAME -->` provenance header is
 unchanged; traceability does not move.
 
-### 4.2 Where a destination's audience comes from — derive, do not declare
+### 4.2 Where a destination's identity comes from — declared, like every other kind
 
-This is the crux. A `briefing` contribution names a **path**, not a CLI name, so the selector
-`bins: ["claude"]` has nothing to match against until a destination has an **audience**
-*(coined here: the set of CLI names a briefing destination serves)*.
+This was the crux and it turned out not to be one. A `briefing` contribution names a **path**,
+not a CLI name, so `bins: ["claude"]` needs something to match against — and an earlier draft of
+this doc proposed *deriving* it, computing each destination's audience from the `bin`s its
+declaring pack installs. **That was wrong, and the `-p` mechanism is the evidence** *(corrected
+2026-08-31 — see OQ-BA2 in the Decision Ledger)*.
 
-**The audience of a destination is the union of the `bin`s installed by the pack that declared
-it.** Nothing new is declared and no pack is edited: §2's table shows the derivation is a
-**total function over every pack yolo ships**, and it yields exactly the six names a user
-would type. It is also the same move [`mergedest.go:20-25`](../../internal/packload/mergedest.go#L20-L25)
-already makes for destinations themselves — *"answered by the `packs` list, and not by core
-knowing any tool's name."*
+**Nothing in the profile chain derives an identity. The string is typed, carried, and matched
+against a string a pack declared about itself.** End to end:
 
-Two consequences to state rather than discover:
+| Step | Code | What happens to the name |
+| :--- | :--- | :--- |
+| produce | [`assemble.go:768-773`](../../internal/cli/run/assemble.go#L768-L773) | `filepath.Base(o.Args[0])` — literally the word the user typed after `--`, stored as a map key |
+| carry | [`assemble.go:730`](../../internal/cli/run/assemble.go#L730) | `for _, agent := range effectiveProfiles.Keys()` — iterates the keys of the map the user wrote |
+| match | [`agentenv.go:66`](../../internal/agentenv/agentenv.go#L66) | `if agent == "claude"` — a literal comparison |
+| match | [`packs/claude/derive.lua:5`](../../packs/claude/derive.lua#L5) | `ctx.agent_profiles.claude` — **the pack hardcodes its own name** |
 
-- **A destination whose declaring pack installs no program is *unaudienced*.** It receives all
-  unscoped prose and no scoped prose — it cannot match a selector, because there is nothing to
-  match. This is the bare content pack that named a path.
-- **The derivation must read the ORIGINAL declaring pack.** `ResolveDestinations`
-  ([`mergedest.go:84`](../../internal/packload/mergedest.go#L84)) folds an inferred destination
-  into a *copy of the borrowing pack's* declaration, so the audience cannot be recomputed from
-  the contribution's new owner. The destination→audience map is built once over the selected
-  set, keyed by `into`, before inference runs.
+**There is no `bin`→pack index in the tree** (checked 2026-08-31), because nothing needs one. And
+identity-by-declaration is not a quirk of profiles — it is the house style. A config surface's
+owner is a declared string, [`SurfaceDTO.Agent`](../../internal/agentcfg/manifest/load.go#L27),
+keyed as [`SurfaceKey{Agent, Name}`](../../internal/agentcfg/manifest/manifest.go#L208), and all
+six agent packs write it out by hand — `"agent": "pi"`, `"agent": "claude"` — identical to their
+own `bin` in every case.
+
+**So the design is: the agent pack declares its briefing destination's identity, the same way it
+already declares its surfaces'.** One field on the contribution that names the file:
+
+```jsonc
+// packs/claude/pack.json — the destination says whose file it is
+{ "kind": "briefing", "into": ".claude/CLAUDE.md", "agent": "claude" }
+```
+
+A selector then matches that string directly. No map built over the selected set, no derivation,
+no new concept — and the three complications the derived version dragged in all disappear with it:
+
+- The `ResolveDestinations` wrinkle is gone. Inference folds a borrowed destination into a *copy
+  of the borrowing pack's* declaration ([`mergedest.go:84`](../../internal/packload/mergedest.go#L84)),
+  which would have broken a derivation that had to read the original declaring pack. A declared
+  string travels with the contribution and is unaffected.
+- **Unaudienced destinations** are no longer a special state to define — a destination that
+  declares no identity is simply never named by any selector.
+- The audience stops being a thing to compute, so it stops being a thing that can be computed
+  differently at the two notches.
+
+> [!NOTE]
+> **The cost this moves rather than removes: six pack.json files gain a field, and a
+> third-party agent pack must declare one to be addressable.** That is the objection the derived
+> version was invented to dodge, and it is not worth dodging — declaring identity is what
+> `program` (`bin`), `config` (`agent`) and `state` (`at`) all already require, and a pack that
+> omits it fails the same way a pack that omits `bin` does. What it is NOT allowed to do is fail
+> *silently*, which is §4.3's job.
 
 ### 4.3 Resolution and severity
 
@@ -182,7 +214,7 @@ Per P3, and per [R5](stringly-typed-references-principle.md#6-the-rules) on plac
 | :--- | :--- | :--- |
 | Does this string name a real CLI? | the **universe** — `bin`s of every resolvable pack | **Fatal, always.** Names the string, the declaring pack, the candidate set, and a did-you-mean (R3). |
 | Is that CLI selected this launch? | `bin`s of the **selected** packs | Clean skip, reported. |
-| Does any selected destination have it in its audience? | the destination→audience map | Clean skip, reported. |
+| Does any selected destination declare it? | the identity declared on each selected `briefing` | Clean skip, reported. |
 
 **The gate lands at the host launch pre-flight and at `yolo host apply`**, because those are the
 two points holding the full resolved pack set. `yolo pack lint` takes a single pack root with
@@ -229,7 +261,7 @@ load-bearing in two places.
 | # | Alternative | Verdict |
 | :--- | :--- | :--- |
 | A1 | **Key by pack slug** — `for: ["claude"]` meaning *the pack named claude*. | **Rejected (maintainer, 2026-08-31).** A slug is a fetch-address artifact that config can rename per entry (`PackEntry.Name`, [`packs.go:88`](../../internal/config/packs.go#L88)), so a reference to it can be broken by a line the referencing pack cannot see. The `bin` namespace is exclusive by construction and is what the user types. |
-| A2 | **Declare the audience on the agent pack's own `briefing`** (`audience: ["claude"]`). | **Rejected for v1.** Every agent pack must be edited, and a third-party agent pack that forgets it becomes silently unaudienced — the failure is invisible rather than loud. Kept in reserve as an *override* for the case §4.2's derivation cannot express (see OQ-BA2). |
+| A2 | **Derive the destination's identity** from the `bin`s its declaring pack installs, so no pack is edited. | **Rejected 2026-08-31 (OQ-BA2), and it was this doc's own first proposal.** Nothing in the `-p` chain derives an identity — the name is typed, carried as a map key, and matched against a string the pack declared about itself, down to `derive.lua` hardcoding `ctx.agent_profiles.claude`. There is no `bin`→pack index to derive through, and inventing one for briefings alone would make this the only kind whose owner is inferred. §4.2. |
 | A3 | **Use `files` instead** — deliver agent-specific prose as an owned tree at an agent-specific path. | **Rejected.** `files` is `CombineExclusive` ([`kinds.go:218`](../../internal/packdecl/kinds.go#L218)), so it cannot co-exist with the agent pack's briefing at that path, and it bypasses both the composed jail-environment prose and the provenance header. It works today only where an agent reads a *second* file nobody else claims (pi's `APPEND_SYSTEM.md`), which is precisely the split-mechanism problem this design closes. |
 | A4 | **Per-entry `only`/`exclude` globs** ([`packs.go:94`](../../internal/config/packs.go#L94)). | **Not applicable.** They filter the pack *tree* by glob — which files stage — not the destination. No combination of them routes one file to claude and another to pi. |
 | A5 | **A denylist form** (`not_bins`). | **Deferred, not rejected** — see OQ-BA3. |
@@ -254,13 +286,13 @@ load-bearing in two places.
 | **R1. A pack addresses a CLI whose pack is unselected, and silently briefs nothing.** The whole point of the pack is then inert with no signal. | The skip is *reported*, not silent (§4.3) — the launch banner already lists what each pack reads and honors; an addressed contribution that matched no destination belongs in the same report. |
 | **R2. The jail's staging-key change is a host↔jail contract move.** Renaming the staging file while `assemble.go` still emits the old name is exactly the skew class `AGENTS.md` warns about. | Both spellings are in one package and one commit; `version.SourceSkew` refuses a skewed launch. The existing comment coupling them ([`assemble.go:611-614`](../../internal/cli/run/assemble.go#L611-L614)) becomes a shared helper. |
 | **R3. A test that pins the selector's resolver while the call site stays unpinned.** The repo has shipped this shape five times. | The test that must exist: delete the filter call in `ComposeHostBriefings` and in the jail loop, and assert both fail. Per-notch, since §5 shows the two notches change differently. |
-| **R4. Unaudienced destinations become a silent hole** as third-party packs that brief without installing a program become common. | §4.2 makes the state explicit and reportable rather than inferred; OQ-BA2 asks whether it needs an escape hatch before that happens. |
+| **R4. A third-party agent pack that declares no identity is not addressable**, and its users cannot tell why a scoped pack skipped it. | The remedy is one field in that pack, and §4.3's reporting names the destination that declared nothing whenever a selector finds no match. This is the cost §4.2 accepts in exchange for deleting the derivation, not one it hides. |
 
 ---
 
 ## 9. What I would build, in order
 
-1. **The destination→audience map**, over the selected pack set, keyed by `into` — built before `ResolveDestinations` runs (§4.2). It is inspectable on its own and both notches consume it.
+1. **The identity field on `briefing`**, plus the six one-line additions to the shipped agent packs (§4.2). Inert on its own — nothing reads it yet — so it lands and is reviewable before any behavior changes.
 2. **The host notch filter**, in `ComposeHostBriefings`. Smallest change, immediately observable via `yolo host apply --observe`, and it needs nothing from the jail half.
 3. **The jail notch move** — composition into the write loop, staging keyed by destination, `assemble.go` following. This is where the one-prose-per-pack limit lifts (§5).
 4. **Resolution and severity** (§4.3) at the two gates R5 selects, with R3-grade diagnostics.
@@ -272,16 +304,19 @@ Steps 1–2 are independently shippable and answer nothing this doc leaves open.
 
 ## 10. Open Questions
 
-1. 💬 **OQ-BA2: Does the derived audience need a declared override?** §4.2 derives a
-   destination's audience from its declaring pack's `bin`s, which is total over every shipped
-   pack — but it cannot express a pack that installs two CLIs sharing one briefing file, or an
-   agent pack that installs nothing (a `requires`-only pack for a baked binary). A2 is the
-   override shape. **This decides whether agent packs get edited at all**, and therefore whether
-   a third-party agent pack has to know about this feature to participate in it.
+1. 💬 **OQ-BA6: What is the identity field called, and is it checked against `bin`?** §4.2 has
+   the destination declare its own name. Two spellings are already in the tree for the same
+   string: `agent` (what a config surface uses —
+   [`load.go:27`](../../internal/agentcfg/manifest/load.go#L27)) and `bin` (what `program` uses).
+   They are identical for all six shipped agent packs, but the surface namespace is **wider** —
+   its doc comment admits non-agent owners like `mcp`, `lsp`, `mise`, `identity`. **What this
+   decides is whether a briefing identity that does not match its own pack's `bin` is a
+   contradiction to refuse or a legitimate thing to allow.**
 
-   _Leaning:_ Derive only, for v1. No shipped pack needs the override, `requires` could be
-   folded into the derivation cheaply if one appears, and shipping the override up front means
-   every agent pack carries a field that restates what core already knows.
+   _Leaning:_ Spell it `agent`, matching the surface, and **refuse a mismatch with the declaring
+   pack's `bin` when the pack declares one** — that keeps the two namespaces provably aligned
+   where they overlap without pretending they are the same namespace. But I hold this weakly;
+   the alternative (spell it `bin`, no check needed) is simpler and may be the right trade.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -330,3 +365,4 @@ Steps 1–2 are independently shippable and answer nothing this doc leaves open.
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-BA1 | Key the selector by **CLI name (`bin`)**, not by pack slug — the namespace `-p <name> -- <bin>` and `pack_profiles.<cli>` already use | 2026-08-31 | §1 P1, §4.1, §6 A1 |
+| OQ-BA2 | The destination's identity is **declared, not derived**. This doc's first draft proposed deriving it from the declaring pack's `bin`s; the `-p` chain derives nothing (name typed → map key → literal comparison, with `derive.lua` hardcoding its own name), there is no `bin`→pack index, and identity-by-declaration is what `program`, `config` and `state` all already do. Deleting the derivation also deletes the `ResolveDestinations` wrinkle and the unaudienced-destination state. | 2026-08-31 | §4.2, §6 A2 |
