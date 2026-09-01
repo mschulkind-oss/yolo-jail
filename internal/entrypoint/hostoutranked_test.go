@@ -50,7 +50,7 @@ func TestHostRenderNamesOutrankedAutonomyKey(t *testing.T) {
 		"permissions": map[string]any{"defaultMode": "acceptEdits"},
 	})
 	// autonomy=false, matching applyHost: the host notch renders the guarded posture.
-	overlays := packoverlay.Collect([]*packload.Pack{claude, p1, p2}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{claude, p1, p2}, false, nil)
 
 	results, rerr := RenderHostPack(claude, home, false, overlays)
 	if rerr != nil {
@@ -101,7 +101,7 @@ func TestHostRenderDoesNotBlameAnOutrankedOverlayForTheOverwrite(t *testing.T) {
 	pushy := claudeSettingsOverlay(t, "pushy", map[string]any{
 		"permissions": map[string]any{"defaultMode": "acceptEdits"},
 	})
-	overlays := packoverlay.Collect([]*packload.Pack{claude, pushy}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{claude, pushy}, false, nil)
 
 	// Observe: the report must be honest BEFORE anything is written.
 	results, rerr := RenderHostPack(claude, home, true, overlays)
@@ -143,7 +143,7 @@ func TestHostRenderDoesNotCallAWinningOverlayKeyIgnored(t *testing.T) {
 	contributor := overlayContributorPack(t, "acme-fzf", map[string]any{
 		"fileSuggestion": "run-fzf", "telemetry": true,
 	})
-	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
 	results, err := RenderHostPack(owner, home, false, overlays)
 	if err != nil {
@@ -182,7 +182,7 @@ func TestHostRenderRedundantOverlayKeyIsNotReportedAsIgnored(t *testing.T) {
 	home := t.TempDir()
 	owner := overlayOwnerPack(t, "") // manages telemetry=false
 	agreeable := overlayContributorPack(t, "agreeable", map[string]any{"telemetry": false})
-	overlays := packoverlay.Collect([]*packload.Pack{owner, agreeable}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{owner, agreeable}, false, nil)
 
 	results, err := RenderHostPack(owner, home, false, overlays)
 	if err != nil {
@@ -214,7 +214,7 @@ func TestHostRenderOutrankedIsPerLeafNotPerBranch(t *testing.T) {
 			"deny":  []any{"CONTESTED"},   // the owner's key — loses
 		},
 	})
-	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
 	results, rerr := RenderHostPack(owner, home, false, overlays)
 	if rerr != nil {

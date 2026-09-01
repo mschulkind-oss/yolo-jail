@@ -288,8 +288,11 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 	// — so the owner set matches the surfaces RenderHostPack will actually produce, which is
 	// the property this call needs; but it now reads that from the same render.Host target
 	// the render itself keys on, so the two cannot disagree about the notch. The literal
-	// could only agree by inspection.
-	overlays := packoverlay.Collect(loaded, render.Host(home, nil).Profile().AgentAutonomy)
+	// could only agree by inspection. The profile table is the host notch's own (see
+	// overlayGateProfiles): a `profile`-gated overlay renders here only while its name is
+	// active at the surface's agent.
+	overlays := packoverlay.Collect(loaded, render.Host(home, nil).Profile().AgentAutonomy,
+		overlayGateProfiles(render.KindHost))
 	for _, prob := range overlays.Problems {
 		pr.Printf("  [red]config-overlay refused[/red] — %s", prob)
 		rc = 1

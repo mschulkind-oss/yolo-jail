@@ -288,8 +288,11 @@ func overlayContributionRows(agent, surface string) ([]overlayContribution, []st
 	// autonomy ON, the host renders the guarded posture (§4.2). It only patches the owner's
 	// managed layer, so it changes which keys an overlay LOSES, not which surfaces exist —
 	// but that is exactly the thing being reported, so it must match. Read off the notch's
-	// PROFILE, so this report cannot disagree with the render it is describing.
-	set := packoverlay.Collect(packs, render.ProfileFor(notch).AgentAutonomy)
+	// PROFILE, so this report cannot disagree with the render it is describing. The profile
+	// table matches the same notch for the same reason: a `profile`-gated overlay is not a
+	// contribution this report may list when the selection that gates it is off.
+	set := packoverlay.Collect(packs, render.ProfileFor(notch).AgentAutonomy,
+		overlayGateProfiles(notch))
 	var out []overlayContribution
 	for _, s := range packSurfacesForAgent(packs, agent, surface) {
 		overlays := set.For(s.Agent, s.Name)

@@ -83,7 +83,7 @@ func TestHostCensusIsWhatKeepsADroppedPacksKeyAttributable(t *testing.T) {
 	owner := overlayOwnerPack(t, manifest.ModeRMW)
 	dropme := overlayContributorPack(t, "dropme", map[string]any{"fileSuggestion": "run-fzf"})
 
-	overlays := packoverlay.Collect([]*packload.Pack{owner, dropme}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{owner, dropme}, false, nil)
 	if _, err := RenderHostPack(owner, home, false, overlays); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}

@@ -77,7 +77,7 @@ func TestHostRenderWritesProvenanceNamingTheContributingPack(t *testing.T) {
 	home := t.TempDir()
 	owner := overlayOwnerPack(t, "")
 	contributor := overlayContributorPack(t, "acme-fzf", map[string]any{"fileSuggestion": "run-fzf"})
-	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
 	if _, err := RenderHostPack(owner, home, false, overlays); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
@@ -109,7 +109,7 @@ func TestHostRenderProvenanceRecordsAGenuineOverlayLoss(t *testing.T) {
 	// `telemetry` IS the owner's managed key, so the overlay must lose it; `theme` is only
 	// the owner's default, so the overlay must win that one.
 	pushy := overlayContributorPack(t, "pushy", map[string]any{"telemetry": true, "theme": "dark"})
-	overlays := packoverlay.Collect([]*packload.Pack{owner, pushy}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{owner, pushy}, false, nil)
 
 	if _, err := RenderHostPack(owner, home, false, overlays); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
@@ -144,7 +144,7 @@ func TestHostProvenanceLivesInTheStateDirNotTheConfigDir(t *testing.T) {
 	t.Chdir(cwd) // a host apply runs from anywhere; nothing may land here
 
 	owner := overlayOwnerPack(t, "")
-	overlays := packoverlay.Collect([]*packload.Pack{owner}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{owner}, false, nil)
 	if _, err := RenderHostPack(owner, home, false, overlays); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestHostRenderObserveWritesNoProvenance(t *testing.T) {
 	home := t.TempDir()
 	owner := overlayOwnerPack(t, "")
 	contributor := overlayContributorPack(t, "acme-fzf", map[string]any{"fileSuggestion": "run-fzf"})
-	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
 	if _, err := RenderHostPack(owner, home, true, overlays); err != nil {
 		t.Fatalf("RenderHostPack observe: %v", err)
@@ -259,7 +259,7 @@ func TestHostProvenanceGranularityMatchesTheJail(t *testing.T) {
 	}
 	// The HOST path (rmw → rmwProvenance).
 	home := t.TempDir()
-	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 	if _, err := RenderHostPack(owner, home, false, overlays); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}

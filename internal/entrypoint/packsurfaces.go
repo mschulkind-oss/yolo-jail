@@ -161,8 +161,10 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 	// config-overlay contributions are collected BEFORE the per-pack loop and across the
 	// whole set, because an overlay in pack B targets a surface pack A owns — the only
 	// case the kind exists for. Collecting per-pack would find, for that case, exactly
-	// none (docs/design/pack-config-collaboration.md §6).
-	overlays := packoverlay.Collect(packs, autonomy)
+	// none (docs/design/pack-config-collaboration.md §6). The profile table gates the
+	// `profile` modifier on the same table the variant folds above read, so a gated
+	// overlay and the variants it belongs beside cannot disagree about what is selected.
+	overlays := packoverlay.Collect(packs, autonomy, profiles)
 	reportOverlayResolution(e, overlays)
 	for _, p := range packs {
 		surfaces, problems, notes := p.SurfacesForReport(autonomy, profiles)

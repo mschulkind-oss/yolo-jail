@@ -328,8 +328,18 @@ func FootprintOf(p *Pack) Footprint {
 	// the omission would mean the one report a user reads before trusting a pack cannot
 	// show its most collaborative claim. It does not collide (CombineOverlay), so it is a
 	// claim line only.
+	//
+	// A `profile`-gated overlay CLAIMS UNCONDITIONALLY, like every other kind, because the
+	// footprint reports what a pack WANTS and selection is a launch fact — the same
+	// scoping `pack footprint`'s own doc states for loophole argv. The Detail names the
+	// gate, so the line under which the keys land says what has to be true for them to.
 	for _, ov := range p.Decl.ConfigOverlayContributions() {
-		add(packdecl.KindConfigOverlay, ov.Surface, "contributes keys (owner still wins)", false)
+		detail := "contributes keys (owner still wins)"
+		if ov.Profile != "" {
+			detail = fmt.Sprintf("contributes keys when profile %q is active for the "+
+				"owner's agent (owner still wins)", ov.Profile)
+		}
+		add(packdecl.KindConfigOverlay, ov.Surface, detail, false)
 	}
 
 	// Stable order: contribution order is map-dependent for launch/…, so sort by

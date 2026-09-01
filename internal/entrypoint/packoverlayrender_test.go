@@ -327,7 +327,7 @@ func TestHostRenderAppliesOverlayFromAnotherPack(t *testing.T) {
 	owner := overlayOwnerPack(t, "")
 	contributor := overlayContributorPack(t, "acme-fzf", map[string]any{"fileSuggestion": "run-fzf"})
 	// autonomy=false, matching applyHost: the host notch renders the guarded posture.
-	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
 	results, err := RenderHostPack(owner, home, false, overlays)
 	if err != nil {
@@ -354,7 +354,7 @@ func TestHostRenderOwnersManagedBeatsOverlay(t *testing.T) {
 	home := t.TempDir()
 	owner := overlayOwnerPack(t, "")
 	pushy := overlayContributorPack(t, "pushy", map[string]any{"telemetry": true, "theme": "dark"})
-	overlays := packoverlay.Collect([]*packload.Pack{owner, pushy}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{owner, pushy}, false, nil)
 
 	if _, err := RenderHostPack(owner, home, false, overlays); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
@@ -375,7 +375,7 @@ func TestHostRenderOwnersManagedBeatsOverlay(t *testing.T) {
 func TestHostRenderOrphanOverlayWritesNothing(t *testing.T) {
 	home := t.TempDir()
 	contributor := overlayContributorPack(t, "acme-fzf", map[string]any{"fileSuggestion": "run-fzf"})
-	overlays := packoverlay.Collect([]*packload.Pack{contributor}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{contributor}, false, nil)
 
 	if len(overlays.Orphans) != 1 {
 		t.Fatalf("want the overlay reported as orphaned, got %+v", overlays.Orphans)
@@ -408,7 +408,7 @@ func TestHostRenderWarnsWhenAnOverlayClobbersAUserValue(t *testing.T) {
 	}
 	owner := overlayOwnerPack(t, "")
 	contributor := overlayContributorPack(t, "acme-fzf", map[string]any{"fileSuggestion": "run-fzf"})
-	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false)
+	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false, nil)
 
 	// observe=true: the warning must appear BEFORE anything is written (finding D2).
 	results, err := RenderHostPack(owner, home, true, overlays)
@@ -444,5 +444,116 @@ func TestHostRenderWithNilOverlaySetIsUnchanged(t *testing.T) {
 	}
 	if _, present := got["fileSuggestion"]; present {
 		t.Errorf("a nil overlay set contributed a key from nowhere: %#v", got)
+	}
+}
+
+// --- the `profile` modifier at the render paths (profiles-as-pack-variants.md §7) --------------
+//
+// These drive ConfigurePackSurfaces itself, not the collector: the jail's profile table
+// is resolved inside that function and handed to packoverlay.Collect there, so a wiring
+// that stops passing the table (or resolves a different one than the variant folds read)
+// fails HERE rather than in a unit test that bypasses the call site.
+
+// gatedOverlayContributorPack is overlayContributorPack with the profile gate set.
+func gatedOverlayContributorPack(t *testing.T, name, profile string, managed map[string]any) *packload.Pack {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{"managed": managed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &packload.Pack{Name: name, Decl: &packdecl.Manifest{
+		Contributes: []packdecl.Contribution{
+			{Kind: packdecl.KindConfigOverlay, Surface: "acme/settings", Profile: profile, Raw: raw},
+		},
+	}}
+}
+
+// THE GATE AT THE JAIL RENDER, active half: with the profile selected at the surface's
+// agent, the overlay's keys land in the file and the provenance sidecar attributes them
+// to the contributing pack — everything an ungated overlay already guarantees, inherited
+// unchanged (the gate decides presence, not precedence or attribution).
+func TestJailRenderGatedOverlayAppliesWhenProfileActive(t *testing.T) {
+	e, _ := overlayRenderEnv(t)
+	e.Vars["YOLO_PACK_PROFILES"] = `{"acme":"zai"}`
+	ConfigurePackSurfaces(e, []*packload.Pack{
+		overlayOwnerPack(t, ""),
+		gatedOverlayContributorPack(t, "acme-zai", "zai", map[string]any{"theme": "dark"}),
+	})
+	if fails := e.GenFailures(); len(fails) != 0 {
+		t.Fatalf("render failed: %v", fails)
+	}
+
+	got := readRenderedJSON(t, e.Home, ".acme/settings.json")
+	if got["theme"] != "dark" {
+		t.Errorf("the gated overlay's key is absent with the profile ACTIVE:\n%#v", got)
+	}
+	if got["telemetry"] != false {
+		t.Errorf("the owner's managed key did not survive the gated overlay: telemetry=%v", got["telemetry"])
+	}
+	data, err := os.ReadFile(prismProvenancePath(e, "acme", "settings"))
+	if err != nil {
+		t.Fatalf("read provenance sidecar: %v", err)
+	}
+	if !strings.Contains(string(data), "theme\tconfig-overlay:acme-zai") {
+		t.Errorf("provenance must attribute the gated key to the contributing pack:\n%s", data)
+	}
+}
+
+// THE GATE AT THE JAIL RENDER, inactive half: without the profile selected, the boot
+// succeeds, the owner's surface renders exactly what it declares, nothing is announced,
+// and no overlay state is left behind for the next boot to resurrect.
+func TestJailRenderGatedOverlaySkipsWhenProfileInactive(t *testing.T) {
+	e, errw := overlayRenderEnv(t)
+	// A profile IS active — just not this one, so the skip cannot be mistaken for "no
+	// table reached the render".
+	e.Vars["YOLO_PACK_PROFILES"] = `{"acme":"bedrock"}`
+	ConfigurePackSurfaces(e, []*packload.Pack{
+		overlayOwnerPack(t, ""),
+		gatedOverlayContributorPack(t, "acme-zai", "zai", map[string]any{"theme": "dark"}),
+	})
+	if fails := e.GenFailures(); len(fails) != 0 {
+		t.Errorf("an inactive profile must not fail the launch: %v", fails)
+	}
+
+	// The base surface is the owner's and only the owner's.
+	got := readRenderedJSON(t, e.Home, ".acme/settings.json")
+	if got["theme"] != "system" {
+		t.Errorf("the owner's default was displaced by an INACTIVE overlay: theme=%v", got["theme"])
+	}
+	if got["telemetry"] != false {
+		t.Errorf("the owner's managed key changed under an inactive overlay: telemetry=%v", got["telemetry"])
+	}
+	// Quiet in both directions: no applied notice (it did not apply) and no orphan report
+	// (the reason it did not apply is the selection, which the launch line already states).
+	if report := errw.String(); strings.Contains(report, "config-overlay") {
+		t.Errorf("an inactive overlay must be a clean skip, not a report:\n%s", report)
+	}
+	data, err := os.ReadFile(prismProvenancePath(e, "acme", "settings"))
+	if err != nil {
+		t.Fatalf("read provenance sidecar: %v", err)
+	}
+	if strings.Contains(string(data), "config-overlay:") {
+		t.Errorf("an inactive overlay left provenance behind:\n%s", data)
+	}
+}
+
+// THE HOST PATH, gated exactly as applyHost gates it: the same Collect call shape with a
+// profile table, rendered through RenderHostPack. The active half only — the inactive half
+// is the jail test's property plus the collector's, and `yolo host apply`'s own table
+// source is pinned in internal/cli (configoverlayprofile_test.go).
+func TestHostRenderGatedOverlayAppliesWhenProfileActive(t *testing.T) {
+	home := t.TempDir()
+	owner := overlayOwnerPack(t, "")
+	contributor := gatedOverlayContributorPack(t, "acme-zai", "zai", map[string]any{"theme": "dark"})
+	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false,
+		map[string]string{"acme": "zai"})
+
+	if _, err := RenderHostPack(owner, home, false, overlays); err != nil {
+		t.Fatalf("RenderHostPack: %v", err)
+	}
+	got := readRenderedJSON(t, home, ".acme/settings.json")
+	if got["theme"] != "dark" {
+		t.Errorf("the gated overlay's key is absent from the host render with the profile "+
+			"active:\n%#v", got)
 	}
 }

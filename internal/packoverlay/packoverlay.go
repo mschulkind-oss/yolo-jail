@@ -133,7 +133,25 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 // identities exist here. This package does not resolve variants — it resolves owners — and
 // if a profile patch ever could add or remove an identity, that is the property that breaks
 // and the same test class catches it.
-func Collect(packs []*packload.Pack, autonomy bool) *OverlaySet {
+//
+// profiles is the ACTIVE profile table the CALLER's render resolved — packload.ProfileTable's
+// lowering of YOLO_PACK_PROFILES in the jail, of the config's pack_profiles at the host —
+// keyed by CLI name, and it gates the `profile` MODIFIER (profiles-as-pack-variants.md §7):
+// an overlay declaring a profile contributes only while that name is the one active for the
+// surface's OWNING agent, which is the target identity's agent segment (an "agent/name"
+// identity's agent half IS a CLI name, the namespace the table keys on). Taking the table
+// as a parameter rather than re-deriving it is what keeps the gate from answering the
+// "which variant is selected" question differently than the render folding beside it — the
+// caller already resolved the table for its own variant folds.
+//
+// An inactive profile is a CLEAN SKIP — no error, no orphan report, no applied notice —
+// because selection is the optionality (§7.1, the same rule that makes an unselected owner
+// a skip rather than a refusal) and profile VALUES are free-form (parent OQ-3): a name
+// nothing selected is inert, and reporting it would be a launch that second-guesses the
+// user's `-p`. A profile-gated overlay whose target has no owner while the profile IS
+// active is still an orphan — R2's report fires for the reason that actually stopped the
+// contribution.
+func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) *OverlaySet {
 	set := &OverlaySet{byTarget: map[manifest.SurfaceKey][]agentcfg.Overlay{}}
 
 	// Pass 1: who owns what. A surface's owner is the pack whose `config` contribution
@@ -163,6 +181,17 @@ func Collect(packs []*packload.Pack, autonomy bool) *OverlaySet {
 				for _, prob := range probs {
 					set.Problems = append(set.Problems, "pack "+p.Name+": "+prob)
 				}
+				continue
+			}
+			// The PROFILE GATE, after the body decode and before the owner check, and both
+			// positions are load-bearing. A malformed body is the AUTHOR's mistake and is
+			// reported whatever the launch selected — an overlay that renders only under
+			// profile X is still wrong when X is off, or the author would never hear it.
+			// The owner check comes AFTER the gate so a profile-inactive overlay is not
+			// reported as an orphan: the reason it contributed nothing is the selection,
+			// and R2's report exists to name the remedy ("select that pack"), which here
+			// would be a remedy the user deliberately declined.
+			if ov.Profile != "" && profiles[key.Agent] != ov.Profile {
 				continue
 			}
 			if _, owned := owners[key]; !owned {

@@ -69,7 +69,7 @@ func hostRenderClaude(t *testing.T, home string, observe bool, contributors ...*
 	if err != nil {
 		t.Fatalf("embedded claude: %v", err)
 	}
-	overlays := packoverlay.Collect(append([]*packload.Pack{claude}, contributors...), false)
+	overlays := packoverlay.Collect(append([]*packload.Pack{claude}, contributors...), false, nil)
 	results, err := RenderHostPack(claude, home, observe, overlays)
 	if err != nil {
 		t.Fatalf("RenderHostPack: %v", err)

@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -554,6 +555,44 @@ func effectiveHostProfiles(cfg *jsonx.OrderedMap, agent, profile string) *jsonx.
 		out.Set(agent, profile)
 	}
 	return out
+}
+
+// overlayGateProfiles is the ACTIVE profile table the config-overlay `profile` modifier
+// gates on, for the notch being rendered or described — the shared source for `yolo host
+// apply`'s render and `yolo config diff`'s report, so the two cannot describe a different
+// selection than the render either of them is reasoning about.
+//
+// The JAIL half reads YOLO_PACK_PROFILES: the effective workspace < user < CLI table the
+// launcher emitted, which is the very table the boot render gated on, so an in-jail
+// inspection answers with the render that actually happened rather than a re-derivation
+// that could disagree with it.
+//
+// The HOST half reads the USER-SCOPE config's pack_profiles and nothing else, and that is
+// the boundary every host composition draws (UserScopeConfig's whole argument): a gated
+// overlay's payload lands in the user's REAL config files, and the one this design ships
+// first rewrites ANTHROPIC_BASE_URL — where an agent sends the credentials the user
+// already has. Letting a workspace yolo-jail.jsonc (agent-editable, /workspace is
+// bind-mounted rw) switch that on would hand a cloned repository the redirection
+// host_wrappers refuses it, so workspace scope stays inexpressible here exactly as it is
+// there. No `-p` is honored because neither caller takes one — the flag exists on `yolo
+// host --` and `yolo --`, which compose per-process and read this same table through their
+// own channels.
+func overlayGateProfiles(notch render.Kind) map[string]string {
+	if notch == render.KindJail {
+		raw := os.Getenv("YOLO_PACK_PROFILES")
+		if raw == "" {
+			return nil
+		}
+		decoded, err := jsonx.Decode([]byte(raw))
+		if err != nil {
+			return nil
+		}
+		if m, ok := decoded.(*jsonx.OrderedMap); ok {
+			return packload.ProfileTable(m)
+		}
+		return nil
+	}
+	return packload.ProfileTable(effectiveHostProfiles(config.UserScopeConfigOrEmpty(), "", ""))
 }
 
 // hostEnv prints the composed environment instead of exec'ing into it — the third front

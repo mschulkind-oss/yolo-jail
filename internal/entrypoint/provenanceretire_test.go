@@ -36,7 +36,7 @@ import (
 // which is what models a pack being dropped from `packs`.
 func applyToHome(t *testing.T, home string, owner *packload.Pack, contributors ...*packload.Pack) {
 	t.Helper()
-	overlays := packoverlay.Collect(append([]*packload.Pack{owner}, contributors...), false)
+	overlays := packoverlay.Collect(append([]*packload.Pack{owner}, contributors...), false, nil)
 	if _, err := RenderHostPack(owner, home, false, overlays); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
 	}

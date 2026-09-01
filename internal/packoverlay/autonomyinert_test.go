@@ -66,8 +66,8 @@ func TestCollectAutonomyDoesNotChangeTheResolution(t *testing.T) {
 	phantomOverlay := overlayPack("hopeful", "acme/phantom", map[string]any{"k": 2})
 
 	packs := []*packload.Pack{owner, contributor, phantomOverlay}
-	on := Collect(packs, true)
-	off := Collect(packs, false)
+	on := Collect(packs, true, nil)
+	off := Collect(packs, false, nil)
 
 	if len(on.For("acme", "settings")) != 1 || len(off.For("acme", "settings")) != 1 {
 		t.Errorf("the owned surface must carry its overlay at BOTH postures: on=%d off=%d",

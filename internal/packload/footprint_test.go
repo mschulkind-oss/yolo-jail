@@ -2,6 +2,7 @@ package packload
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -206,5 +207,37 @@ func TestEmbeddedPacksNoCollisions(t *testing.T) {
 	}
 	if cols := Collisions(packs); len(cols) != 0 {
 		t.Errorf("shipped packs collide (they must not):\n%+v", cols)
+	}
+}
+
+// A `profile`-gated config-overlay still CLAIMS its target — the footprint reports what
+// a pack WANTS and selection is a launch fact (the same scoping the loophole claims use)
+// — and the Detail names the gate, so the claim says what has to be true for the keys to
+// land. The claim must survive the gate exactly as an ungated one does, or `pack
+// footprint` would understate a selected pack's most collaborative line.
+func TestFootprintClaimsGatedConfigOverlay(t *testing.T) {
+	ungated := &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindConfigOverlay, Surface: "claude/settings", Raw: []byte(`{"managed":{"k":1}}`)},
+	}}
+	gated := &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindConfigOverlay, Surface: "claude/settings", Profile: "zai",
+			Raw: []byte(`{"managed":{"k":1}}`)},
+	}}
+	cs := claimSet(FootprintOf(pk("zai", true, gated)))
+	c, ok := cs["config-overlay claude/settings"]
+	if !ok {
+		t.Fatalf("a selected pack's gated overlay must still claim its target: %+v", cs)
+	}
+	if !strings.Contains(c.Detail, `profile "zai"`) {
+		t.Errorf("the claim's Detail must name the gate, got %q", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "owner still wins") {
+		t.Errorf("the gated claim must keep the precedence statement, got %q", c.Detail)
+	}
+	// Same claim, same target, for the ungated shape — the field adds the gate sentence
+	// and changes nothing else.
+	plain := claimSet(FootprintOf(pk("zai", true, ungated)))["config-overlay claude/settings"]
+	if plain.Target != c.Target || plain.Kind != c.Kind || plain.ReviewWorthy != c.ReviewWorthy {
+		t.Errorf("the gate changed more than the Detail: %+v vs %+v", plain, c)
 	}
 }

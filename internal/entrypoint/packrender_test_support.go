@@ -62,8 +62,10 @@ func ConfigurePackByName(e *Env, name string) error {
 	// Overlays over the ONE pack asked for, so a pack that overlays a surface it owns
 	// itself still renders. A cross-pack overlay cannot resolve from a single-pack view
 	// and is reported ownerless (R2) — correct here rather than a limitation, since this
-	// entry means "render this pack" and the boot loop is what sees the whole set.
-	overlays := packoverlay.Collect([]*packload.Pack{p}, autonomy)
+	// entry means "render this pack" and the boot loop is what sees the whole set. The
+	// profile table is the one resolved above, so this entry gates a `profile`-scoped
+	// overlay on the same selection the variant folds honor.
+	overlays := packoverlay.Collect([]*packload.Pack{p}, autonomy, profiles)
 	for _, s := range surfaces {
 		if err := renderDeclaredSurface(e, s, tables, deriveScript,
 			overlays.For(s.Agent, s.Name)); err != nil {

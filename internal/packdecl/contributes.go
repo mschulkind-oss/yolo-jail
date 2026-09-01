@@ -99,6 +99,21 @@ type Contribution struct {
 
 	// --- config / config-overlay ---
 	Surface string `json:"surface,omitempty"` // config-overlay: the target surface "agent/name"
+	// Profile, on a config-overlay contribution, gates the whole contribution on a profile
+	// being ACTIVE for the target surface's OWNING agent — the name the active-profile
+	// table holds at the target's agent segment, which is a CLI name, the namespace the
+	// table keys on (profiles-as-pack-variants.md §7). Absent means UNCONDITIONAL, the
+	// pre-field behavior every existing overlay keeps; an explicitly empty string decodes
+	// to the same fact, so there is no emptiness to validate — "" and undeclared are one
+	// declaration.
+	//
+	// The gate is a SKIP, not an error: profile values are free-form (parent OQ-3), so a
+	// name nothing selected is inert exactly like an unselected owner is. REFUSED ON EVERY
+	// OTHER KIND (validateContribution) — the same modifier is contemplated for `env` and
+	// `launch` (parent §7.2's closing line), but config-overlay is the one consumer today,
+	// and a field silently doing nothing on the kinds it does not gate is the
+	// accepted-and-ignored defect this schema refuses everywhere else.
+	Profile string `json:"profile,omitempty"`
 
 	// --- state ---
 	At    string `json:"at,omitempty"`    // state: the home-relative subtree
@@ -845,6 +860,10 @@ func (m *Manifest) MountContributions() []Mount {
 type ConfigOverlay struct {
 	// Surface is the target surface identity, "agent/name".
 	Surface string
+	// Profile is the optional gate: when non-empty, the contribution applies only while
+	// that name is the active profile for the surface's owning agent (the identity's agent
+	// segment). Empty is unconditional — the behavior before the field existed.
+	Profile string
 	// Config is the raw `config` body — the keys this pack asserts onto the target.
 	// Decoded by internal/agentcfg/manifest (DecodeOverlay), kept as RawMessage for the
 	// same reason Contribution.Raw is: packdecl stays free of the engine dependency.
@@ -853,12 +872,15 @@ type ConfigOverlay struct {
 
 // ConfigOverlayContributions returns every config-overlay the pack declares, in
 // declaration order — which is the FOLD order the engine applies (later wins), so the
-// order must not be normalized here.
+// order must not be normalized here. Every overlay is returned regardless of its profile
+// gate: the gate is a LAUNCH fact (which profile is active), not a declaration fact, and
+// the readers that owe a per-launch answer — the collector that gates, the footprint that
+// claims — both decide it from their own inputs rather than from a filtered projection.
 func (m *Manifest) ConfigOverlayContributions() []ConfigOverlay {
 	var out []ConfigOverlay
 	for _, c := range m.Contributions() {
 		if c.Kind == KindConfigOverlay {
-			out = append(out, ConfigOverlay{Surface: c.Surface, Config: c.Raw})
+			out = append(out, ConfigOverlay{Surface: c.Surface, Profile: c.Profile, Config: c.Raw})
 		}
 	}
 	return out
@@ -1132,6 +1154,19 @@ func validateContribution(label string, c Contribution) []string {
 		if val == "" {
 			problems = append(problems, fmt.Sprintf("%s: kind %q needs %q", label, c.Kind, field))
 		}
+	}
+	// `profile` gates ONE kind, and the refusal is this schema's standing answer to a
+	// field that would otherwise be accepted and ignored: the modifier is contemplated for
+	// `env` and `launch` too (profiles-as-pack-variants.md §7.2's closing line), but until
+	// one of those ships its consumer, a `profile` on any other kind is a declaration that
+	// silently does nothing — the exact defect `requires does not take "via"` refuses
+	// below, for the same reason. Ahead of the kind switch so a kind added tomorrow
+	// inherits the refusal instead of learning about it the hard way.
+	if c.Profile != "" && c.Kind != KindConfigOverlay {
+		problems = append(problems, fmt.Sprintf(
+			"%s: kind %q does not take \"profile\" — it is the config-overlay modifier, "+
+				"gating a cross-pack contribution on a profile being active for the target "+
+				"surface's agent", label, c.Kind))
 	}
 	switch c.Kind {
 	case KindProgram:

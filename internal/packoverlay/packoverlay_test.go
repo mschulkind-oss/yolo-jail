@@ -49,7 +49,7 @@ func TestOverlayFromOtherPackResolvesOntoOwnersSurface(t *testing.T) {
 	set := Collect([]*packload.Pack{
 		ownerPack("claude"),
 		overlayPack("claude-fzf", "claude/settings", map[string]any{"fileSuggestion": "cmd"}),
-	}, true)
+	}, true, nil)
 
 	if len(set.Problems) != 0 {
 		t.Fatalf("well-formed overlay reported problems: %v", set.Problems)
@@ -77,7 +77,7 @@ func TestOverlayFoldOrderFollowsPackOrder(t *testing.T) {
 		ownerPack("claude"),
 		overlayPack("team", "claude/settings", map[string]any{"theme": "dark"}),
 		overlayPack("personal", "claude/settings", map[string]any{"theme": "gruvbox"}),
-	}, true)
+	}, true, nil)
 	got := set.For("claude", "settings")
 	if len(got) != 2 {
 		t.Fatalf("want both overlays, got %d", len(got))
@@ -93,7 +93,7 @@ func TestOverlayFoldOrderFollowsPackOrder(t *testing.T) {
 func TestOrphanOverlayIsInertAndNamesTheMissingOwner(t *testing.T) {
 	set := Collect([]*packload.Pack{
 		overlayPack("claude-fzf", "claude/settings", map[string]any{"fileSuggestion": "cmd"}),
-	}, true)
+	}, true, nil)
 
 	if got := set.For("claude", "settings"); len(got) != 0 {
 		t.Errorf("an ownerless overlay must contribute NOTHING (it would otherwise own the "+
@@ -119,7 +119,7 @@ func TestOrphanOverlayIsInertAndNamesTheMissingOwner(t *testing.T) {
 func TestOrphanOverlayWithNoOwnerAnywhereSaysSo(t *testing.T) {
 	set := Collect([]*packload.Pack{
 		overlayPack("typo", "clod/settings", map[string]any{"k": 1}),
-	}, true)
+	}, true, nil)
 	if len(set.Orphans) != 1 {
 		t.Fatalf("want 1 orphan, got %+v", set.Orphans)
 	}
@@ -137,7 +137,7 @@ func TestOrphanOverlayWithNoOwnerAnywhereSaysSo(t *testing.T) {
 func TestOverlayOntoCoreSurfaceIsInertAndSaysWhy(t *testing.T) {
 	set := Collect([]*packload.Pack{
 		overlayPack("meddler", "mise/config", map[string]any{"k": 1}),
-	}, true)
+	}, true, nil)
 	if len(set.Orphans) != 1 {
 		t.Fatalf("want 1 orphan, got %+v", set.Orphans)
 	}
@@ -172,7 +172,7 @@ func TestMalformedOverlaysAreProblems(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			set := Collect([]*packload.Pack{ownerPack("claude"), tc.pack}, true)
+			set := Collect([]*packload.Pack{ownerPack("claude"), tc.pack}, true, nil)
 			if len(set.For("claude", "settings")) != 0 {
 				t.Error("a malformed overlay must contribute nothing")
 			}
@@ -191,7 +191,7 @@ func TestOverlayCannotFlipTheOwnersMode(t *testing.T) {
 	owner := ownerPack("claude")
 	set := Collect([]*packload.Pack{owner,
 		rawOverlayPack("claude-fzf", "claude/settings",
-			`{"mode":"rmw","managed":{"fileSuggestion":"cmd"}}`)}, true)
+			`{"mode":"rmw","managed":{"fileSuggestion":"cmd"}}`)}, true, nil)
 	if len(set.Problems) == 0 {
 		t.Fatal("an overlay naming `mode` must be refused — silently flipping the owner's " +
 			"mode is the general hazard (R1) this kind exists to remove")
@@ -210,7 +210,7 @@ func TestAppliedReportsContributorsInFoldOrder(t *testing.T) {
 		ownerPack("claude"),
 		overlayPack("team", "claude/settings", map[string]any{"a": 1}),
 		overlayPack("personal", "claude/settings", map[string]any{"b": 2}),
-	}, true)
+	}, true, nil)
 	applied := set.Applied()
 	if len(applied) != 1 {
 		t.Fatalf("want 1 overlaid surface, got %+v", applied)
@@ -226,7 +226,7 @@ func TestAppliedReportsContributorsInFoldOrder(t *testing.T) {
 // A pack set with NO overlays yields an empty set and a nil lookup — the invariant that
 // makes wiring this a no-op for every pack yolo ships.
 func TestNoOverlaysIsEmpty(t *testing.T) {
-	set := Collect([]*packload.Pack{ownerPack("claude")}, true)
+	set := Collect([]*packload.Pack{ownerPack("claude")}, true, nil)
 	if len(set.Problems) != 0 || len(set.Orphans) != 0 || len(set.Applied()) != 0 {
 		t.Errorf("a pack set with no overlays must resolve to nothing: %+v", set)
 	}
@@ -259,8 +259,125 @@ func TestOverlayOntoOwnSurfaceResolves(t *testing.T) {
 		{Kind: packdecl.KindConfig, Raw: surface},
 		{Kind: packdecl.KindConfigOverlay, Surface: "solo/settings", Raw: body},
 	}}}
-	set := Collect([]*packload.Pack{p}, true)
+	set := Collect([]*packload.Pack{p}, true, nil)
 	if len(set.For("solo", "settings")) != 1 {
 		t.Errorf("a self-overlay should resolve; orphans=%+v problems=%v", set.Orphans, set.Problems)
+	}
+}
+
+// --- the `profile` modifier (profiles-as-pack-variants.md §7) ---------------------------------
+//
+// One optional field gating a cross-pack contribution on a profile being ACTIVE for the
+// surface's OWNING agent — the target identity's agent segment, which is a CLI name, the
+// namespace the profile table keys on. These tests pin the gate at the collection: what
+// reaches the render decides everything downstream (provenance, footprint notices, the
+// fold), so the property to hold is "the overlay resolves onto its target or is absent
+// from the set entirely".
+
+// gatedOverlayPack is overlayPack carrying the profile gate.
+func gatedOverlayPack(name, target, profile string, managed map[string]any) *packload.Pack {
+	body, _ := json.Marshal(map[string]any{"managed": managed})
+	return &packload.Pack{Name: name, Decl: &packdecl.Manifest{
+		Contributes: []packdecl.Contribution{
+			{Kind: packdecl.KindConfigOverlay, Surface: target, Profile: profile, Raw: body},
+		},
+	}}
+}
+
+// THE GATE'S POSITIVE HALF: with the named profile active at the target's agent, the
+// overlay resolves exactly as an ungated one does — same fold slot, same provenance
+// attribution — because the gate only decides PRESENCE.
+func TestGatedOverlayResolvesWhenProfileIsActiveForTheOwner(t *testing.T) {
+	set := Collect([]*packload.Pack{
+		ownerPack("claude"),
+		gatedOverlayPack("zai", "claude/settings", "zai", map[string]any{"env": map[string]any{"A": "b"}}),
+	}, true, map[string]string{"claude": "zai"})
+
+	if len(set.Problems) != 0 || len(set.Orphans) != 0 {
+		t.Fatalf("an active, well-formed overlay must be clean: problems=%v orphans=%+v",
+			set.Problems, set.Orphans)
+	}
+	got := set.For("claude", "settings")
+	if len(got) != 1 {
+		t.Fatalf("want the gated overlay on claude/settings, got %d", len(got))
+	}
+	if got[0].Pack != "zai" {
+		t.Errorf("attribution = %q, want zai — the gate must not disturb provenance", got[0].Pack)
+	}
+	if layer, _ := got[0].Data.(map[string]any); layer["env"] == nil {
+		t.Errorf("overlay layer = %#v, want the contributed keys", got[0].Data)
+	}
+}
+
+// THE GATE'S NEGATIVE HALF, three ways to be inactive: another name active at that agent,
+// NO name active at that agent, and the name active at a DIFFERENT agent (the table keys
+// on the surface's owner, not on the contributor). All three are a clean skip — no keys,
+// no error, no orphan, no applied notice — because selection is the optionality (§7.1)
+// and profile values are free-form (parent OQ-3), so an unmatched name is inert.
+func TestGatedOverlaySkipsCleanlyWhenProfileIsNotActive(t *testing.T) {
+	cases := []struct {
+		name     string
+		profiles map[string]string
+	}{
+		{"another name active", map[string]string{"claude": "bedrock"}},
+		{"nothing active", nil},
+		{"active at another agent", map[string]string{"pi": "zai"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			owner := ownerPack("claude")
+			set := Collect([]*packload.Pack{
+				owner,
+				gatedOverlayPack("zai", "claude/settings", "zai", map[string]any{"env": map[string]any{"A": "b"}}),
+			}, true, tc.profiles)
+
+			if got := set.For("claude", "settings"); got != nil {
+				t.Errorf("an inactive profile must contribute NOTHING (a skip, not an error): %+v", got)
+			}
+			if len(set.Problems) != 0 {
+				t.Errorf("an inactive profile is not an ERROR: %v", set.Problems)
+			}
+			if len(set.Orphans) != 0 {
+				t.Errorf("an inactive profile must not be reported as an orphan — the reason it "+
+					"contributed nothing is the selection, not a missing owner: %+v", set.Orphans)
+			}
+			if len(set.Applied()) != 0 {
+				t.Errorf("an inactive profile must not be announced as applied: %+v", set.Applied())
+			}
+			// And the owner's own surface is untouched by the skip: it still declares
+			// exactly what it declared.
+			surfaces, _ := owner.SurfacesFor(true, nil)
+			if len(surfaces) != 1 {
+				t.Errorf("the owner's surface set changed under an inactive overlay: %+v", surfaces)
+			}
+		})
+	}
+}
+
+// BACK-COMPAT: an overlay with NO profile field is unconditional, whatever the table
+// holds. The field must not become an implicit gate on "some profile is active" — every
+// existing overlay depends on the absence meaning pre-field behavior.
+func TestUngatedOverlayIgnoresTheProfileTable(t *testing.T) {
+	set := Collect([]*packload.Pack{
+		ownerPack("claude"),
+		overlayPack("claude-fzf", "claude/settings", map[string]any{"fileSuggestion": "cmd"}),
+	}, true, map[string]string{"claude": "bedrock"})
+	if got := set.For("claude", "settings"); len(got) != 1 {
+		t.Errorf("an ungated overlay must render regardless of the active profile, got %d", len(got))
+	}
+}
+
+// The gate does not swallow R2: with the profile ACTIVE and the owner unselected, the
+// overlay is still reported as an orphan — the reason it contributed nothing is now a
+// missing owner, and that report's remedy ("select that pack") is actionable.
+func TestGatedOverlayStillReportsOrphanWhenProfileIsActive(t *testing.T) {
+	set := Collect([]*packload.Pack{
+		gatedOverlayPack("zai", "claude/settings", "zai", map[string]any{"k": 1}),
+	}, true, map[string]string{"claude": "zai"})
+	if len(set.Orphans) != 1 {
+		t.Fatalf("want the active-but-ownerless overlay reported as an orphan, got %+v", set.Orphans)
+	}
+	if reason := set.Orphans[0].Reason(); !strings.Contains(reason, "`claude` pack is not selected") {
+		t.Errorf("orphan reason should name the pack to select, got %q", reason)
 	}
 }
