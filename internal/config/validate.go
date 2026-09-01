@@ -1084,10 +1084,18 @@ func validateProviderEnvShape(v any, path string, errs *[]string) {
 // (pi's `api`, codex's `wire_api`), where a typo surfaces later as a protocol error the
 // agent reports — the debugging nightmare
 // stringly-typed-references-principle.md §2 names. Rule 4, applied to a fixed slot.
+//
+// The set is not restated here. packdecl's KnownWireAPIs is the one vocabulary for both
+// spellings of a provider — the entry a user writes and the entry a pack ships compose
+// into the same table — so this pass asks for it rather than keeping a second copy that
+// could drift away from the one the manifest layer enforces
+// (packdecl.validateProviderEndpoints). That is the field's own contract:
+// ProviderEndpoint.WireAPI's "the enum that tightens one tightens both".
 func validateWireAPI(w any, path string, errs *[]string) {
-	if !inStrList(providerWireAPIs, w) {
+	apis := packdecl.KnownWireAPIs()
+	if !inStrList(apis, w) {
 		add(errs, fmt.Sprintf("%s: expected one of %s (got %s)",
-			path, pyListRepr(providerWireAPIs), pyReprValue(w)))
+			path, pyListRepr(apis), pyReprValue(w)))
 	}
 }
 

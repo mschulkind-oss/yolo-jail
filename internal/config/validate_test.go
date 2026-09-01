@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
 // Unit tests for ValidateConfig's cache_relocations rules. Other validators are
@@ -567,9 +568,10 @@ func providerErrors(t *testing.T, body string) []string {
 
 // wire_api reaches three agents' config files verbatim, so a typo here is a protocol
 // error the AGENT reports, later. The vocabulary is closed for the reason Rule 4 closes
-// any fixed syntactic slot (profiles-as-pack-variants.md §4.3).
+// any fixed syntactic slot (profiles-as-pack-variants.md §4.3), and the set itself is
+// packdecl's — the layer a manifest declares the same field in.
 func TestValidateProvidersWireAPIIsAClosedEnum(t *testing.T) {
-	for _, api := range providerWireAPIs {
+	for _, api := range packdecl.KnownWireAPIs() {
 		errs := providerErrors(t, `{"glm": {"wire_api": "`+api+`"}}`)
 		if len(errs) != 0 {
 			t.Errorf("wire_api %q is in the vocabulary, got error: %v", api, errs)
@@ -579,13 +581,36 @@ func TestValidateProvidersWireAPIIsAClosedEnum(t *testing.T) {
 	if len(errs) != 1 {
 		t.Fatalf("want exactly one wire_api error, got: %v", errs)
 	}
-	for _, api := range providerWireAPIs {
+	for _, api := range packdecl.KnownWireAPIs() {
 		if !strings.Contains(errs[0], api) {
 			t.Errorf("the error must name the vocabulary it wants, missing %q: %s", api, errs[0])
 		}
 	}
 	if errs := providerErrors(t, `{"glm": {"wire_api": 4}}`); len(errs) != 1 {
 		t.Errorf("a non-string wire_api is still one error, got: %v", errs)
+	}
+}
+
+// TestWireAPIEnumIsPackdeclsSet pins the ONE-SET claim from the config side:
+// validateWireAPI asks packdecl for the enum (KnownWireAPIs), so a wire_api a manifest
+// may declare is exactly the wire_api a user may write — the two validators cannot
+// disagree about what a provider is. The sweep fails the day a fifth value reaches one
+// layer without the other, which each layer's own closed-enum test above would survive:
+// both would still be self-consistent, and a manifest would validate for an author whose
+// config the same value refused.
+func TestWireAPIEnumIsPackdeclsSet(t *testing.T) {
+	probes := append(append([]string{}, packdecl.KnownWireAPIs()...),
+		"", "openai-chatt", "Anthropic", "chat")
+	for _, v := range probes {
+		t.Run("value="+v, func(t *testing.T) {
+			errs := providerErrors(t, `{"glm": {"wire_api": "`+v+`"}}`)
+			accepted := len(errs) == 0
+			if accepted != packdecl.KnownWireAPI(v) {
+				t.Errorf("config accepts wire_api %q = %v, packdecl.KnownWireAPI = %v — the "+
+					"enum has drifted between the config layer and the manifest layer", v, accepted,
+					packdecl.KnownWireAPI(v))
+			}
+		})
 	}
 }
 

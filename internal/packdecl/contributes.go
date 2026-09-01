@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -585,10 +586,10 @@ type ProviderEndpoint struct {
 	// BaseURL is the endpoint's root URL. Must be http/https and carry no userinfo —
 	// `https://user:tok@host/v1` is a credential in a file a pack ships to strangers.
 	BaseURL string `json:"base_url,omitempty"`
-	// WireAPI is the wire protocol that URL speaks ("openai-chat", "anthropic", …). Free
-	// text here, matching the `providers` config key it composes into: the enum that
-	// tightens one tightens both, or the two validators would disagree about what a
-	// provider is.
+	// WireAPI is the wire protocol that URL speaks — one of the closed set KnownWireAPIs
+	// returns, the same enum the `providers` config key composes into: the enum that
+	// tightens one tightens both (internal/config's validateWireAPI asks packdecl for the
+	// set), or the two validators would disagree about what a provider is.
 	WireAPI string `json:"wire_api,omitempty"`
 }
 
@@ -1324,8 +1325,9 @@ func validateAutonomyPosture(label string, p *AutonomyPosture) []string {
 	return problems
 }
 
-// validateProviderEndpoints checks each endpoint's base_url: it must be an http/https
-// URL carrying NO userinfo.
+// validateProviderEndpoints checks each endpoint's address and protocol: the base_url
+// must be an http/https URL carrying NO userinfo, and the wire_api — when the endpoint
+// declares one — must be in the closed set KnownWireAPIs returns.
 //
 // The userinfo half is the credential rule, and it is a refusal rather than a warning
 // because a manifest is the most shareable artifact yolo has: `https://user:tok@host/v1`
@@ -1333,10 +1335,26 @@ func validateAutonomyPosture(label string, p *AutonomyPosture) []string {
 // that only asked "does it parse" would wave it through. The scheme half is the same rule
 // pointed the other way — a `file://` or bare-host URL is a fact about the local machine
 // a stranger's manifest cannot know.
+//
+// The wire_api half is closed because the value crosses VERBATIM: it composes into the
+// providers table, the table crosses to the jail as YOLO_PROVIDERS with no re-validation,
+// and the derives write it into the agents' own config files — where a name no agent
+// knows is a protocol error at first request, reported by the agent, from a jail that
+// booted green. The enum is the same one internal/config enforces for user-written
+// providers (validateWireAPI asks KnownWireAPIs), because the two spellings of a provider
+// are the same entry in the same table.
+//
+// THE SET IS SKEW-SENSITIVE, and this refusal is only the AUTHORING half of the rule (the
+// same split ValidateProviderEnvShape documents): a pack staged by a newer host may name a
+// wire protocol this build has never heard of, and refusing it on the tolerant path would
+// be the `tier` incident again. DecodeTolerant drops the unknown VALUE and reports it
+// (unknownWireAPISkip); an endpoint that declares NO wire_api is simply unremarkable here,
+// so the skip's output passes this check clean.
 func validateProviderEndpoints(label string, endpoints map[string]ProviderEndpoint) []string {
 	var problems []string
 	for _, proto := range sortedKeys(endpoints) {
-		u := endpoints[proto].BaseURL
+		ep := endpoints[proto]
+		u := ep.BaseURL
 		if u == "" {
 			problems = append(problems, fmt.Sprintf("%s.endpoints[%q]: needs a \"base_url\"", label, proto))
 			continue
@@ -1356,8 +1374,70 @@ func validateProviderEndpoints(label string, endpoints map[string]ProviderEndpoi
 					"file a pack ships to strangers; name an env var in api_key_env_name and let "+
 					"the user hydrate it", label, proto, u))
 		}
+		if w := ep.WireAPI; w != "" && !KnownWireAPI(w) {
+			problems = append(problems, fmt.Sprintf(
+				"%s.endpoints[%q].wire_api: unknown wire_api %q (%s) — the value crosses into the "+
+					"agents' config files verbatim, so a typo here is a protocol error at first "+
+					"request, not a load error", label, proto, w, wireAPIList()))
+		}
 	}
 	return problems
+}
+
+// knownWireAPIs is THE authority for the `wire_api` vocabulary, closed in the same sense
+// kinds.go's kind set is — the value crosses verbatim into the agents' config files
+// (codex's `wire_api`, pi's `api`), where a name no agent knows is a protocol error at
+// first request rather than a load error anywhere, so "a protocol yolo has never heard
+// of" is not a thing a manifest gets to declare.
+//
+// It lives HERE and not beside the config key it composes into because both layers read
+// one vocabulary: a provider a pack ships and the same provider a user writes over are
+// the same entry in the same table, and the field's own doc (ProviderEndpoint.WireAPI)
+// says the enum that tightens one tightens both. internal/config's validateWireAPI asks
+// KnownWireAPIs for exactly that reason — a second copy of the literals is a second
+// vocabulary that can drift away from the one this validator enforces.
+//
+// Sorted, because the enum's error message lists it and the message is a frozen string.
+// Four values, one per wire shape a provider can speak; a fifth is a one-line addition
+// here and nowhere else.
+var knownWireAPIs = []string{"anthropic", "openai-chat", "openai-completions", "responses"}
+
+// KnownWireAPI reports whether v names a wire protocol this build knows. An empty string
+// is NOT known — but for this field an empty value is the ABSENT claim rather than a
+// defect (the field is omitempty, so "" and undeclared decode to the same fact, and an
+// endpoint may leave the protocol to the consumer's own default), so emptiness is simply
+// nobody's problem rather than the hard-problem-on-both-paths rule an empty `via` or
+// env_shape value follows.
+func KnownWireAPI(v string) bool {
+	for _, api := range knownWireAPIs {
+		if v == api {
+			return true
+		}
+	}
+	return false
+}
+
+// KnownWireAPIs returns the closed wire_api set, sorted, for diagnostics and tests —
+// internal/config's validateWireAPI is the non-test consumer, so the enum a user's config
+// is held to and the enum a manifest is held to are one list.
+func KnownWireAPIs() []string {
+	out := make([]string, len(knownWireAPIs))
+	copy(out, knownWireAPIs)
+	return out
+}
+
+// wireAPIList renders the closed set the way the validator's diagnostics name it
+// ("\"anthropic\", \"openai-chat\", \"openai-completions\" or \"responses\""), so the
+// message cannot outlive the vocabulary it quotes (viaList's rule).
+func wireAPIList() string {
+	parts := make([]string, len(knownWireAPIs))
+	for i, v := range knownWireAPIs {
+		parts[i] = strconv.Quote(v)
+	}
+	if len(parts) < 2 {
+		return strings.Join(parts, "")
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " or " + parts[len(parts)-1]
 }
 
 // The placeholders an env_shape value may be. Declared beside the validation that

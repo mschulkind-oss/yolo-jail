@@ -292,6 +292,10 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 			skipped = append(skipped, notes...)
 			c = trimmed
 		}
+		if trimmed, notes := unknownWireAPISkip(i, c); len(notes) > 0 {
+			skipped = append(skipped, notes...)
+			c = trimmed
+		}
 		problems = append(problems, validateContributionAt(i, c)...)
 		kept = append(kept, c)
 	}
@@ -375,6 +379,57 @@ func unknownEnvShapeValueSkip(i int, c Contribution) (Contribution, []string) {
 	}
 	out := c
 	out.EnvShape = trimmed
+	return out, notes
+}
+
+// unknownWireAPISkip returns the provider contribution with every endpoint's wire_api
+// naming a protocol this build does not know DROPPED — the endpoint keeps its base_url,
+// the provider keeps everything else — plus one skew note per dropped value, or (c, nil)
+// when there is nothing to drop.
+//
+// The VALUE-level twin of unknownEnvShapeValueSkip, one grain coarser: an unknown
+// placeholder costs one variable of one protocol, an unknown wire_api costs the protocol
+// CLAIM of one endpoint, and in both cases the rest of the provider renders exactly as
+// declared. A skip that took the provider with it would unresolve every profile naming
+// it for want of a protocol name no build was going to speak; a skip that took the
+// endpoint would drop a base_url this build renders fine.
+//
+// What the degradation costs is real and worth naming: the composed providers table
+// carries the endpoint with no `wire_api` (shippedProviderEntry omits the empty field),
+// so the consumer's own default protocol applies — a jail that talks, possibly in the
+// wrong dialect, rather than a jail that refuses to boot.
+//
+// An EMPTY value drops nothing — it is the absent claim, not skew (see KnownWireAPI for
+// why this field's empty value is nobody's problem, unlike `via`'s and env_shape's).
+//
+// Membership is KnownWireAPI's and not a second spelling of the set: the strict
+// validator (validateProviderEndpoints) and this skip have to change together or a
+// manifest validates for its author and declares no protocol in the jail (knownVias
+// records the `via` measurement of that drift).
+func unknownWireAPISkip(i int, c Contribution) (Contribution, []string) {
+	if c.Kind != KindProvider || len(c.Endpoints) == 0 {
+		return c, nil
+	}
+	var notes []string
+	trimmed := make(map[string]ProviderEndpoint, len(c.Endpoints))
+	for _, proto := range sortedKeys(c.Endpoints) {
+		ep := c.Endpoints[proto]
+		if ep.WireAPI != "" && !KnownWireAPI(ep.WireAPI) {
+			notes = append(notes, fmt.Sprintf(
+				"contributes[%d]: skipping unknown wire_api %q for provider %q "+
+					"(endpoints[%q].wire_api) — this build does not know it, so the endpoint "+
+					"declares no wire protocol and the consumer's own default applies "+
+					"(version skew; a build that knows the wire_api will declare it)",
+				i, ep.WireAPI, c.Name, proto))
+			ep.WireAPI = ""
+		}
+		trimmed[proto] = ep
+	}
+	if notes == nil {
+		return c, nil
+	}
+	out := c
+	out.Endpoints = trimmed
 	return out, notes
 }
 

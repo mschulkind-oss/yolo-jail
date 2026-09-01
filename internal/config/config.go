@@ -83,12 +83,6 @@ var knownTopLevelConfigKeys = set(
 
 var ephemeralStorageModes = []string{"volume", "tmpfs"}
 
-// providerWireAPIs is the closed vocabulary of `wire_api` — at the provider level and
-// inside an endpoint alike (profiles-as-pack-variants.md §4.3). Sorted, because the
-// enum's error message lists it and the message is a frozen string. Four values, one per
-// wire shape a provider can speak; a fifth is a one-line addition here and nowhere else.
-var providerWireAPIs = []string{"anthropic", "openai-chat", "openai-completions", "responses"}
-
 // knownEndpointKeys is the census for ONE protocol's entry inside a provider's
 // `endpoints` map — the two keys a derive can consume, which is also what the
 // pack-declared form of an endpoint carries (packdecl.ProviderEndpoint).
