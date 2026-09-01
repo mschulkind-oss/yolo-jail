@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -161,6 +162,10 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// jail wrote NO briefing at all. It now follows declarations, so a pack always gets
 	// its briefing whether or not anything calls it an agent.
 	home := homeDir()
+	// The destinations `yolo host apply` composed itself, which must NOT be prepended: they
+	// already hold every pack's prose, and this loop is about to compose the same packs again.
+	// See entrypoint.GeneratedHostBriefings — the briefing half of S3.
+	generated := entrypoint.GeneratedHostBriefings(home)
 	briefingsWritten := 0
 	for _, p := range loadedPacks {
 		for _, c := range p.Decl.Contributions() {
@@ -169,7 +174,9 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 			}
 			content := briefingBody
 			if hostOverlay := briefingHostOverlay(c); hostOverlay != "" && p.MayAccessHost {
-				content = jailcontent.PrependHostBriefing(filepath.Join(home, hostOverlay), content)
+				if src := filepath.Join(home, hostOverlay); !generated[src] {
+					content = jailcontent.PrependHostBriefing(src, content)
+				}
 			}
 			if err := jailcontent.WriteBriefing(filepath.Join(staging, briefingStagingName(p.Name)), content); err != nil {
 				return "", err

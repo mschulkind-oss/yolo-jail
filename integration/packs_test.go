@@ -419,3 +419,48 @@ func TestFzfAcceptanceCaseInJail(t *testing.T) {
 		}
 	}
 }
+
+// THE HOST NOTCH AND THE JAIL NOTCH MUST NOT BOTH DELIVER THE SAME PACK. This is the briefing
+// half of S3 — "the jail reads its own output as the user's tree" — end to end, across the two
+// commands that produce it.
+//
+// The loop: `yolo apply --at host` composes ~/.claude/CLAUDE.md wholesale from every pack's
+// prose (the 2026-08-04 ruling, entrypoint.RenderHostBriefings), and the claude pack's briefing
+// declares `after: "host:.claude/CLAUDE.md"` — so a launch prepended that composition to a
+// briefing it was about to compose the same packs into. Measured in a real jail on 2026-08-31:
+// every pack section appeared twice in /home/agent/.claude/CLAUDE.md, byte-identical, and every
+// instruction in it cost double the context.
+//
+// It has to be an integration test, and specifically a TWO-COMMAND one: each half is correct on
+// its own, and the only way to see the defect is to run the host render and then launch. A unit
+// test of either notch reproduces nothing.
+func TestHostComposedBriefingIsNotDeliveredTwice(t *testing.T) {
+	requireJail(t)
+
+	pack := t.TempDir()
+	if err := os.WriteFile(filepath.Join(pack, "AGENTS.md"),
+		[]byte("PACKRULE always prefer rg\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["claude", "file://`+pack+`"]}`)
+
+	// The host notch first: this is what makes ~/.claude/CLAUDE.md yolo's own output rather
+	// than the user's file, and it is the precondition the bug needs.
+	if a := runYoloCLI(t, dir, "apply", "--at", "host", "--assert"); a.rc != 0 {
+		t.Fatalf("yolo apply --at host --assert failed: rc %d\nstdout: %s\nstderr: %s",
+			a.rc, a.stdout, a.stderr)
+	}
+
+	r := runYolo(t, dir, `rg -c PACKRULE /home/agent/.claude/CLAUDE.md`)
+	if r.rc != 0 {
+		t.Fatalf("the pack's prose did not reach the jail at all: rc %d\nstdout: %s\nstderr: %s",
+			r.rc, r.stdout, r.stderr)
+	}
+	if got := strings.TrimSpace(r.stdout); got != "1" {
+		t.Errorf("the pack's prose reached the jail %s times, want 1 — the jail prepended the "+
+			"host briefing yolo composed and then composed the same packs again:\n%s",
+			got, r.combined())
+	}
+}

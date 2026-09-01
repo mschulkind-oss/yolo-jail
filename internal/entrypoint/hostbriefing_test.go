@@ -680,3 +680,53 @@ func TestHostBriefingShippedClaudePack(t *testing.T) {
 		}
 	}
 }
+
+// THE ROUND TRIP THE TWO NOTCHES SHARE. `yolo host apply` records what it composed; the run
+// pipeline asks GeneratedHostBriefings whether a `after: "host:<path>"` source is one of those,
+// so a jail does not prepend yolo's own output to a briefing it is about to compose the same
+// packs into (the briefing half of S3 — see GeneratedHostBriefings).
+//
+// Pinned as a ROUND TRIP rather than as two unit tests, because the failure mode is neither
+// half being wrong: it is the writer and the reader keying the record differently, or reading
+// two files. Both are invisible to a test that only exercises one side.
+func TestGeneratedHostBriefingsSeesWhatTheHostRenderRecorded(t *testing.T) {
+	home := t.TempDir()
+	packs := []*packload.Pack{briefingPack(t, "matt-core", ".claude/CLAUDE.md", "Prefer rg.\n")}
+	req, man := briefingReq(t, home)
+	if _, err := RenderHostBriefings(packs, home, req, false); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if err := man.Save(HostBriefingManifestPath(home)); err != nil {
+		t.Fatalf("save manifest: %v", err)
+	}
+
+	dest := filepath.Join(home, ".claude", "CLAUDE.md")
+	if got := GeneratedHostBriefings(home); !got[dest] {
+		t.Errorf("the run pipeline cannot tell yolo's own composition from the user's file — "+
+			"%s is missing from %v; a jail will prepend it and deliver every pack twice",
+			dest, got)
+	}
+}
+
+// A destination yolo never composed is the user's, and must NOT be reported as generated —
+// otherwise the fix for the doubling would silently drop a hand-written briefing instead.
+func TestGeneratedHostBriefingsExcludesTheUsersOwnFile(t *testing.T) {
+	home := t.TempDir()
+	man := &hostskills.Manifest{Entries: map[string]string{}}
+	dest := filepath.Join(home, ".claude", "CLAUDE.md")
+	if err := man.Save(HostBriefingManifestPath(home)); err != nil {
+		t.Fatalf("save manifest: %v", err)
+	}
+	if got := GeneratedHostBriefings(home); got[dest] {
+		t.Errorf("an unrecorded destination was reported as yolo's own output: %v", got)
+	}
+}
+
+// An ABSENT record proves nothing and must fail OPEN — an empty set, so every destination
+// reads as the user's and is prepended as before. Losing the user's instructions from their
+// jail is a worse failure than repeating a pack's prose.
+func TestGeneratedHostBriefingsFailsOpenWithNoRecord(t *testing.T) {
+	if got := GeneratedHostBriefings(t.TempDir()); len(got) != 0 {
+		t.Errorf("want an empty set with no record on disk, got %v", got)
+	}
+}

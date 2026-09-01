@@ -40,13 +40,16 @@ import (
 // the skills/files one under the state dir.
 //
 // Separate, not shared, and the reason is a defect the shared version produced immediately: a
-// composed destination's owner is a pseudo-owner (entrypoint's hostBriefingOwner) because the
+// composed destination's owner is a pseudo-owner (entrypoint's HostBriefingOwner) because the
 // file belongs to the pack SET, while droppedPackOrphans reads every owner in the skills record
 // as a PACK NAME and archives the paths of any owner absent from `packs`. So every briefing yolo
 // composed was retired as a dropped pack's output on the very next apply. Two questions, two key
 // spaces, two files.
 func hostBriefingManifestPath(home string) string {
-	return filepath.Join(paths.GlobalStorageUnder(home), "host-briefing-manifest.json")
+	// Delegated, not re-spelled: the run pipeline reads this same record to keep a jail from
+	// prepending a briefing yolo composed (entrypoint.GeneratedHostBriefings), and a gate that
+	// consults a different file from the one the writer writes is a gate that never fires.
+	return entrypoint.HostBriefingManifestPath(home)
 }
 
 // localPackBriefingPath is where an adopted destination's prose MOVES to: the conventional local

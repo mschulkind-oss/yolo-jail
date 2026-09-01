@@ -48,6 +48,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // hostBriefingProvenance is the per-section header, shared verbatim with the jail's
@@ -204,7 +205,7 @@ func HostBriefingAdoptions(packs []*packload.Pack, homeDir string,
 			continue
 		}
 		if man != nil {
-			if owner, recorded := man.Owner(d.Path); recorded && owner == hostBriefingOwner {
+			if owner, recorded := man.Owner(d.Path); recorded && owner == HostBriefingOwner {
 				continue // yolo's own previous composition — regenerating it is not an adoption
 			}
 		}
@@ -213,7 +214,7 @@ func HostBriefingAdoptions(packs []*packload.Pack, homeDir string,
 	return out
 }
 
-// hostBriefingOwner is the name recorded as the owner of a composed destination.
+// HostBriefingOwner is the name recorded as the owner of a composed destination.
 //
 // A single pseudo-owner rather than a contributing pack's name, because a destination is owned
 // by the pack SET: `~/.claude/CLAUDE.md` composed from claude + two content packs belongs to no
@@ -228,7 +229,52 @@ func HostBriefingAdoptions(packs []*packload.Pack, homeDir string,
 // any owner missing from `packs`, so a pseudo-owner no config can ever name made every composed
 // briefing look like a dropped pack's output. Two records answering two different questions with
 // two different key spaces cannot make that mistake.
-const hostBriefingOwner = "yolo/briefing"
+const HostBriefingOwner = "yolo/briefing"
+
+// HostBriefingManifestPath is where the briefing ownership record lives — its OWN file under
+// the state dir, beside the skills/files one.
+//
+// It is spelled HERE, not at the one caller that used to own it, because two notches now ask
+// the record the same question and must ask the same FILE. `yolo host apply` writes it
+// (internal/cli's applyHostBriefings); the run pipeline reads it, to keep a jail from
+// prepending a destination yolo composed — see GeneratedHostBriefings. Two spellings of one
+// path is how a gate comes to consult a record nobody writes.
+func HostBriefingManifestPath(home string) string {
+	return filepath.Join(paths.GlobalStorageUnder(home), "host-briefing-manifest.json")
+}
+
+// GeneratedHostBriefings is the set of briefing destinations under home that yolo composed
+// ITSELF, as absolute paths — what a caller must not read back in as the user's own prose.
+//
+// THIS IS THE BRIEFING HALF OF S3, the defect packSkillTargets records for skills: "since
+// `yolo host apply` composes those directories, the jail was reading yolo's generated output
+// back in as the user's tree". A `briefing` contribution's `after: "host:<path>"` names the
+// very path RenderHostBriefings composes, so on any machine where the host notch has run, the
+// jail prepended every pack's prose and then composed the same packs again — measured
+// 2026-08-31 in a real jail: ~/.claude/CLAUDE.md carried each pack section twice.
+//
+// OWNERSHIP IS PROVED FROM THE RECORD, never inferred from the content, for the reason
+// HostBriefingAdoptions states it: a file that merely LOOKS composed (it has provenance
+// headers because the user pasted them) is still the user's.
+//
+// It FAILS OPEN — an unreadable or absent record yields an empty set, so every destination
+// reads as the user's and is prepended as before. That is the opposite posture from the
+// adoption gate, and deliberately: there, proving nothing must not overwrite the user's file;
+// here, proving nothing must not DROP the user's instructions from their jail. Duplicated
+// prose is a cost; silently missing prose is a broken agent.
+func GeneratedHostBriefings(home string) map[string]bool {
+	man, err := hostskills.LoadManifest(HostBriefingManifestPath(home))
+	if err != nil || man == nil {
+		return nil
+	}
+	out := map[string]bool{}
+	for dest, owner := range man.Entries {
+		if owner == HostBriefingOwner {
+			out[dest] = true
+		}
+	}
+	return out
+}
 
 // MigrateHostBriefings moves each adopted destination's prose into the local pack's AGENTS.md,
 // so the user's instructions keep reaching their agents — through the layer model instead of a
@@ -360,7 +406,7 @@ func RenderHostBriefings(packs []*packload.Pack, homeDir string, req HostBriefin
 			// Recorded on every write, including an unchanged one: the record is what makes the
 			// NEXT apply's regeneration unprompted, and a home where the content happened to
 			// match already must not stay stuck behind the adoption gate forever.
-			req.Manifest.Record(d.Path, hostBriefingOwner)
+			req.Manifest.Record(d.Path, HostBriefingOwner)
 		}
 		out = append(out, HostRenderResult{Surface: id, Path: d.Path, Action: action})
 	}
@@ -439,7 +485,7 @@ func PruneHostBriefings(candidates []*packload.Pack, active map[string]bool, hom
 		// OWNERSHIP IS REQUIRED TO RETIRE. A destination yolo never composed is the user's
 		// file at a path some pack happens to name, and a prune with no record is a prune with
 		// no authority — the same fail-closed reading droppedPackOrphans takes.
-		if req.Manifest == nil || !req.Manifest.OwnedBy(path, hostBriefingOwner) {
+		if req.Manifest == nil || !req.Manifest.OwnedBy(path, HostBriefingOwner) {
 			continue
 		}
 		if _, err := os.Lstat(path); err != nil {

@@ -60,7 +60,7 @@ import (
 // THE COMPOSED RECORD holds path → LAST COMPOSING PACK, and both halves of that are decisions.
 //
 // A REAL PACK NAME, not a pseudo-owner — which is where this deliberately diverges from the sibling
-// briefing kind, whose record uses one (entrypoint.hostBriefingOwner). There, a destination is one
+// briefing kind, whose record uses one (entrypoint.HostBriefingOwner). There, a destination is one
 // FILE many packs concatenate into, so no single pack owns it and naming one would make dropping
 // that pack read as "the file is the user's". Here a destination is a DIRECTORY and each entry in it
 // has exactly one composer, so the pack name is both true and the only thing that answers the
