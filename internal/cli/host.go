@@ -224,8 +224,9 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 //  1. a pack's static `kind: "env"` contributions — literal strings from a manifest;
 //  2. env_sources — the SECRET channel, and the step that gives "env_sources hydrates
 //     your credentials" something to hydrate INTO on a host;
-//  3. the resolved profile's vars, composed by internal/agentenv — the same function the
-//     jail's podman argv is built from.
+//  3. the resolved profile's vars — what the variant declares plus the env shape of the
+//     provider it names — composed by internal/agentenv, the same function the jail's
+//     podman argv is built from.
 //
 // Removals come last so an `unset` beats an assignment from any earlier source, including
 // one inherited from the invoking shell.
@@ -237,9 +238,15 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn func(string)) []agentenv.Var {
 	var vars []agentenv.Var
 
+	// The selected packs, read once for both the env they declare and the provider they
+	// ship. The config here is USER SCOPE ONLY (the boundary this function's doc records),
+	// so the composed provider table below is user entries over pack facts and never a
+	// workspace's.
+	packs, packErr := loadedHostPacks()
+
 	// (1) pack-declared env. Sorted, because a map has no order and an argv (or an
 	// `export` script) that reshuffles between runs is a diff nobody can read.
-	if packs, err := loadedHostPacks(); err == nil {
+	if packErr == nil {
 		packEnv := packload.EnvVars(packs)
 		keys := make([]string, 0, len(packEnv))
 		for k := range packEnv {
@@ -271,8 +278,34 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 		}
 	}
 
-	// (3) the profile's own vars.
-	vars = append(vars, agentenv.Resolve(cfg, agent, effectiveHostProfiles(cfg, agent, profile))...)
+	// (3) the profile's own vars: what the variant declares, plus the env shape of the
+	// provider it names, for the protocol this agent speaks (OQ-14). internal/agentenv is
+	// the ONE composition — the jail's podman argv is built from the same call — so the
+	// two notches cannot disagree about what a resolved profile delivers. A {key}
+	// placeholder resolves through what this launch actually carries: the hydrated
+	// env_sources above, then the environment this process inherited.
+	effective := effectiveHostProfiles(cfg, agent, profile)
+	profileName := ""
+	if v, ok := effective.Get(agent); ok {
+		if s, isStr := v.(string); isStr {
+			profileName = s
+		}
+	}
+	var userProviders *jsonx.OrderedMap
+	if v, ok := cfg.Get("providers"); ok {
+		userProviders, _ = v.(*jsonx.OrderedMap)
+	}
+	lookup := func(name string) (string, bool) {
+		if v, ok := userEnv.Get(name); ok {
+			if s, isStr := v.(string); isStr && s != "" {
+				return s, true
+			}
+		}
+		return os.LookupEnv(name)
+	}
+	vars = append(vars, agentenv.Resolve(
+		packload.ComposeProviders(userProviders, packs),
+		agent, profileName, packload.ProviderFor(packs, agent, profileName), lookup)...)
 
 	// (4) removals last, from the same pass as (2) — the same scoped config, so an
 	// inline null's cancellation by a later dotenv cannot disagree with the assignments.

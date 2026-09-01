@@ -21,16 +21,14 @@ func cfgFrom(t *testing.T, text string) *jsonx.OrderedMap {
 	return m
 }
 
-func profiles(t *testing.T, text string) *jsonx.OrderedMap { return cfgFrom(t, text) }
-
 // TestResolveBedrockFullBlock pins the exact vars AND their order for the one profile
 // that implies environment today. The order is the jail's frozen podman argv order.
 func TestResolveBedrockFullBlock(t *testing.T) {
-	cfg := cfgFrom(t, `{"providers": {"bedrock": {
+	cfg := cfgFrom(t, `{"bedrock": {
 		"region": "us-east-1",
 		"models": {"default": "opus-x", "haiku": "haiku-x", "sonnet": "sonnet-x"}
-	}}}`)
-	got := Resolve(cfg, "claude", profiles(t, `{"claude": "bedrock"}`))
+	}}`)
+	got := Resolve(cfg, "claude", "bedrock", "bedrock", nil)
 	want := []Var{
 		{Key: "CLAUDE_CODE_USE_BEDROCK", Value: "1"},
 		{Key: "AWS_REGION", Value: "us-east-1"},
@@ -45,59 +43,233 @@ func TestResolveBedrockFullBlock(t *testing.T) {
 
 // TestResolveBedrockWithoutProviderEntry covers the case the flag alone must survive:
 // the profile says bedrock but no provider block configures it. Claude Code still has to
-// be told to USE bedrock — the region and models simply go undeclared.
+// be told to USE bedrock — the region and models simply go undeclared. A nil provider
+// TABLE behaves the same way: the flag is the profile's own content, not the provider's.
 func TestResolveBedrockWithoutProviderEntry(t *testing.T) {
-	got := Resolve(cfgFrom(t, `{}`), "claude", profiles(t, `{"claude": "bedrock"}`))
+	got := Resolve(cfgFrom(t, `{}`), "claude", "bedrock", "bedrock", nil)
 	want := []Var{{Key: "CLAUDE_CODE_USE_BEDROCK", Value: "1"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Resolve with no providers = %+v, want %+v", got, want)
+	}
+	if got := Resolve(nil, "claude", "bedrock", "bedrock", nil); !reflect.DeepEqual(got, want) {
+		t.Errorf("Resolve(nil providers) = %+v, want %+v", got, want)
 	}
 }
 
 // TestResolveQuietCases: a shared config routinely names providers a machine cannot use.
 // None of these may error or emit anything.
 func TestResolveQuietCases(t *testing.T) {
-	cfg := cfgFrom(t, `{"providers": {"bedrock": {"region": "us-east-1"}}}`)
+	providers := cfgFrom(t, `{"bedrock": {"region": "us-east-1"}}`)
 	cases := []struct {
 		name     string
 		agent    string
-		profiles string
+		profile  string
+		provider string
 	}{
-		{"no profile for this agent", "claude", `{"codex": "bedrock"}`},
-		{"unknown profile name", "claude", `{"claude": "not-a-provider"}`},
-		{"empty profile value", "claude", `{"claude": ""}`},
-		{"another agent on bedrock carries no claude flag", "codex", `{"codex": "bedrock"}`},
-		{"empty agent name", "", `{"claude": "bedrock"}`},
+		{"no profile for this agent", "claude", "", "bedrock"},
+		{"unknown provider name", "claude", "not-a-provider", "not-a-provider"},
+		{"another agent on bedrock carries no claude flag", "codex", "bedrock", "bedrock"},
+		{"empty agent name", "", "bedrock", "bedrock"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Resolve(cfg, tc.agent, profiles(t, tc.profiles)); len(got) != 0 {
+			got := Resolve(providers, tc.agent, tc.profile, tc.provider, nil)
+			if len(got) != 0 {
 				t.Errorf("Resolve = %+v, want nothing", got)
 			}
 		})
-	}
-	if got := Resolve(nil, "claude", profiles(t, `{"claude": "bedrock"}`)); got != nil {
-		t.Errorf("Resolve(nil cfg) = %+v, want nil", got)
-	}
-	if got := Resolve(cfg, "claude", nil); got != nil {
-		t.Errorf("Resolve(nil profiles) = %+v, want nil", got)
 	}
 }
 
 // TestResolveSkipsNonStringAndEmpty: a wrong-typed or empty model must be dropped rather
 // than emitted as an empty assignment, which would override the agent's own default.
 func TestResolveSkipsNonStringAndEmpty(t *testing.T) {
-	cfg := cfgFrom(t, `{"providers": {"bedrock": {
+	providers := cfgFrom(t, `{"bedrock": {
 		"region": "",
 		"models": {"default": 42, "haiku": "", "sonnet": "sonnet-x"}
-	}}}`)
-	got := Resolve(cfg, "claude", profiles(t, `{"claude": "bedrock"}`))
+	}}`)
+	got := Resolve(providers, "claude", "bedrock", "bedrock", nil)
 	want := []Var{
 		{Key: "CLAUDE_CODE_USE_BEDROCK", Value: "1"},
 		{Key: "ANTHROPIC_DEFAULT_SONNET_MODEL", Value: "sonnet-x"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Resolve = %+v\nwant %+v", got, want)
+	}
+}
+
+// --- the provider's own delivery shape (OQ-14, zai-plumbing.md §4.1 Route B) ---
+
+// zaiTable is the composed providers table a zai-style pack produces: endpoints by
+// protocol, the credential as a variable NAME, and one env shape per protocol
+// (zai-plumbing.md §4.1's env_shape, verbatim).
+func zaiTable(t *testing.T) *jsonx.OrderedMap {
+	t.Helper()
+	return cfgFrom(t, `{"zai": {
+		"api_key_env": "ZAI_API_KEY",
+		"endpoints": {
+			"anthropic": {"base_url": "https://api.z.ai/api/anthropic"},
+			"openai":    {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat"}
+		},
+		"env_shape": {
+			"anthropic": {"ANTHROPIC_BASE_URL": "{endpoint}", "ANTHROPIC_AUTH_TOKEN": "{key}"},
+			"openai":    {"OPENAI_BASE_URL": "{endpoint}"}
+		}
+	}}`)
+}
+
+// lookupOf returns a Lookup over fixed values — the shape both notches build from their
+// hydrated env_sources plus the environment they already carry.
+func lookupOf(values map[string]string) Lookup {
+	return func(name string) (string, bool) {
+		v, ok := values[name]
+		return v, ok
+	}
+}
+
+// TestResolveComposesTheProviderEnvShapeForTheAgentsProtocol is OQ-14's contract. One
+// provider, one key, two protocols: claude is delivered the anthropic shape (the endpoint
+// of THAT protocol, and the key relayed from the hydrated variable), an OpenAI-shaped
+// agent the openai one. No agent is named anywhere in the provider.
+func TestResolveComposesTheProviderEnvShapeForTheAgentsProtocol(t *testing.T) {
+	lookup := lookupOf(map[string]string{"ZAI_API_KEY": "tok-9"})
+
+	got := Resolve(zaiTable(t), "claude", "zai", "zai", lookup)
+	want := []Var{
+		{Key: "ANTHROPIC_AUTH_TOKEN", Value: "tok-9"},
+		{Key: "ANTHROPIC_BASE_URL", Value: "https://api.z.ai/api/anthropic"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("claude env = %+v\nwant %+v", got, want)
+	}
+
+	// The same table, an agent that speaks the other protocol: the shape follows the
+	// agent's protocol, and the openai shape names no key, so no credential is invented
+	// for an agent that reads its key through its own config file.
+	openai := Resolve(zaiTable(t), "pi", "zai", "zai", lookup)
+	wantOpenai := []Var{{Key: "OPENAI_BASE_URL", Value: "https://api.z.ai/api/paas/v4"}}
+	if !reflect.DeepEqual(openai, wantOpenai) {
+		t.Errorf("pi env = %+v\nwant %+v", openai, wantOpenai)
+	}
+}
+
+// TestResolveEnvShapeFollowsRequiresProviderNotTheProfileName: a variant may name a
+// provider other than itself, and the shape must come from the provider NAMED.
+func TestResolveEnvShapeFollowsRequiresProviderNotTheProfileName(t *testing.T) {
+	providers := cfgFrom(t, `{
+	  "glm": {"endpoints": {"anthropic": {"base_url": "https://wrong.example/anthropic"}}},
+	  "zai": {"api_key_env": "ZAI_API_KEY",
+	          "endpoints": {"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}},
+	          "env_shape": {"anthropic": {"ANTHROPIC_BASE_URL": "{endpoint}"}}}
+	}`)
+	got := Resolve(providers, "claude", "glm", "zai", nil)
+	want := []Var{{Key: "ANTHROPIC_BASE_URL", Value: "https://api.z.ai/api/anthropic"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("env = %+v\nwant %+v (from the REQUIRED provider, not the profile name)", got, want)
+	}
+}
+
+// TestResolveEnvShapeQuietWhenAnInputIsMissing: every half-composed shape must drop the
+// var it cannot fill rather than emit an empty one — an empty base URL is a request to the
+// wrong host, and an empty token is a credential that gets SENT.
+func TestResolveEnvShapeQuietWhenAnInputIsMissing(t *testing.T) {
+	cases := []struct {
+		name      string
+		table     string
+		agent     string
+		provider  string
+		lookup    Lookup
+		wantSuite []Var
+	}{
+		{
+			name:  "provider absent from the composed table",
+			table: `{"other": {"env_shape": {"anthropic": {"A": "{endpoint}"}}}}`,
+			agent: "claude", provider: "zai",
+		},
+		{
+			name:  "no env shape declared",
+			table: `{"zai": {"endpoints": {"anthropic": {"base_url": "https://x.example"}}}}`,
+			agent: "claude", provider: "zai",
+		},
+		{
+			name: "no shape for the protocol this agent speaks",
+			table: `{"zai": {"endpoints": {"openai": {"base_url": "https://x.example/v4"}},
+			        "env_shape": {"openai": {"OPENAI_BASE_URL": "{endpoint}"}}}}`,
+			agent: "claude", provider: "zai",
+		},
+		{
+			name: "agent speaks nothing yolo knows",
+			table: `{"zai": {"endpoints": {"anthropic": {"base_url": "https://x.example"}},
+			        "env_shape": {"anthropic": {"ANTHROPIC_BASE_URL": "{endpoint}"}}}}`,
+			agent: "copilot", provider: "zai",
+		},
+		{
+			name: "endpoint missing for the protocol the shape names",
+			table: `{"zai": {"endpoints": {"openai": {"base_url": "https://x.example/v4"}},
+			        "env_shape": {"anthropic": {"ANTHROPIC_BASE_URL": "{endpoint}"}}}}`,
+			agent: "claude", provider: "zai",
+		},
+		{
+			name: "credential pointer names no variable",
+			table: `{"zai": {"endpoints": {"anthropic": {"base_url": "https://x.example"}},
+			        "env_shape": {"anthropic": {"ANTHROPIC_AUTH_TOKEN": "{key}"}}}}`,
+			agent: "claude", provider: "zai", lookup: lookupOf(map[string]string{"ANY": "v"}),
+		},
+		{
+			name: "the named variable was never hydrated",
+			table: `{"zai": {"api_key_env": "ZAI_API_KEY",
+			        "env_shape": {"anthropic": {"ANTHROPIC_AUTH_TOKEN": "{key}"}}}}`,
+			agent: "claude", provider: "zai", lookup: lookupOf(nil),
+		},
+		{
+			name:  "a value that is neither placeholder renders nothing",
+			table: `{"zai": {"env_shape": {"anthropic": {"ANTHROPIC_BASE_URL": "https://x.example"}}}}`,
+			agent: "claude", provider: "zai",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Resolve(cfgFrom(t, tc.table), tc.agent, "zai", tc.provider, tc.lookup)
+			if len(got) != 0 {
+				t.Errorf("Resolve = %+v, want nothing", got)
+			}
+		})
+	}
+}
+
+// TestResolveEnvShapeEndpointSurvivesAMissingKey: the two placeholders are independent.
+// A provider whose key is not hydrated yet still delivers its endpoint — the shape is not
+// all-or-nothing, and the §6.2 preflight is what escalates the missing half.
+func TestResolveEnvShapeEndpointSurvivesAMissingKey(t *testing.T) {
+	providers := cfgFrom(t, `{"zai": {"api_key_env": "ZAI_API_KEY",
+	  "endpoints": {"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}},
+	  "env_shape": {"anthropic": {"ANTHROPIC_BASE_URL": "{endpoint}", "ANTHROPIC_AUTH_TOKEN": "{key}"}}}}`)
+	got := Resolve(providers, "claude", "zai", "zai", nil)
+	want := []Var{{Key: "ANTHROPIC_BASE_URL", Value: "https://api.z.ai/api/anthropic"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("env = %+v\nwant %+v", got, want)
+	}
+}
+
+// TestProtocolFor pins the resolution table itself: the §5 table is the one place the
+// agent→protocol mapping lives in Go, so a wrong entry here is a wrong env for every
+// launch, and an agent that gains a protocol gains it HERE.
+func TestProtocolFor(t *testing.T) {
+	want := map[string]string{
+		"claude":   "anthropic",
+		"pi":       "openai",
+		"codex":    "openai",
+		"opencode": "openai",
+	}
+	for agent, proto := range want {
+		if got := ProtocolFor(agent); got != proto {
+			t.Errorf("ProtocolFor(%q) = %q, want %q", agent, got, proto)
+		}
+	}
+	for _, agent := range []string{"", "copilot", "agy", "not-an-agent"} {
+		if got := ProtocolFor(agent); got != "" {
+			t.Errorf("ProtocolFor(%q) = %q, want none", agent, got)
+		}
 	}
 }
 

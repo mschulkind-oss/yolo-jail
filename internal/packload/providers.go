@@ -76,6 +76,52 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack) *jsonx.OrderedMap {
 	return orderedOrNil(out)
 }
 
+// ProviderFor returns the provider the variant active at CLI name `bin` delivers: the
+// requires_provider of a profile declared under that name by a selected pack, or — when
+// no pack declares one — the profile's own name, which is the convention the composed
+// table has always keyed on (pack_profiles.claude = "bedrock" reaching providers.bedrock).
+//
+// The declaration need NOT live on the pack that installs the bin. Profile names are
+// free-form and global (profiles-as-pack-variants.md §3.3), and a provider pack usually
+// installs no CLI at all — so keying this on the bin's owner would make its
+// requires_provider unreachable and, with it, the whole deliver-the-provider-to-the-agent
+// shape the kind exists for. The bin owner's own declaration wins when both declare (the
+// agent's variant is the more specific intent), then the first pack in delivery order, so
+// the answer is stable rather than map-order.
+//
+// Empty when no variant is active, and the bare name when nothing requires anything:
+// agentenv treats both as inert, because escalating a provider that is missing or
+// unhydrated is the §6.2 preflight's business, not this lookup's.
+func ProviderFor(packs []*Pack, bin, profile string) string {
+	if profile == "" {
+		return ""
+	}
+	for _, p := range packs {
+		if !p.installsBin(bin) {
+			continue
+		}
+		if prof := p.Decl.ProfileFor(profile); prof != nil && prof.RequiresProvider != "" {
+			return prof.RequiresProvider
+		}
+	}
+	for _, p := range packs {
+		if prof := p.Decl.ProfileFor(profile); prof != nil && prof.RequiresProvider != "" {
+			return prof.RequiresProvider
+		}
+	}
+	return profile
+}
+
+// installsBin reports whether this pack puts bin on PATH.
+func (p *Pack) installsBin(bin string) bool {
+	for _, b := range p.InstallBins() {
+		if b == bin {
+			return true
+		}
+	}
+	return false
+}
+
 // shippedProviderEntry renders one pack's provider declaration as an entry of the
 // providers table — the SAME shape a user-written entry has, because what consumes the
 // table (the three derives) reads one schema.

@@ -677,6 +677,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		cacheRelocations: relocations,
 		writableHomeDirs: config.WritableHomeDirs(cfg),
 		hostFiles:        hostFiles,
+		userEnv:          userEnv,
 	}
 	runCmd := o.assembleRunCmd(in)
 

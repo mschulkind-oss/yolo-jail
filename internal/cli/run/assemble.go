@@ -80,6 +80,14 @@ type assembleInput struct {
 	// writable staging before assembly.
 	hostFiles []config.HostFileEntry
 
+	// userEnv is the env_sources the run pipeline hydrated — the same resolution that
+	// wrote yolo-user-env.sh, handed to assembly rather than read a second time. Assembly
+	// reads it for one thing only: a provider env_shape's {key} placeholder, which may
+	// resolve to nothing the launch would not have carried anyway. Nil — every
+	// construction that does not come from the run pipeline — means nothing was hydrated,
+	// and the lookup then falls back to the CLI's own environment.
+	userEnv *jsonx.OrderedMap
+
 	// acCtxMaterialized is set by EITHER host-file emitter when it copies a grant into
 	// the Apple Container ctx dir. The YOLO_CTX_ROOT that tells the entrypoint where to
 	// look is then emitted ONCE, below — two emitters each appending their own would put
@@ -100,6 +108,24 @@ func (in *assembleInput) storePruneEnv() []string {
 		return []string{"-e", "YOLO_STORE_PRUNE_OK=1"}
 	}
 	return nil
+}
+
+// hydratedLookup reports what the launch environment carries for one variable name: the
+// env_sources the run pipeline hydrated first, then the CLI's own inherited environment.
+// A provider env_shape's {key} placeholder resolves through this and nowhere else, which
+// is what bounds it to values the launch already carries — a credential is relayed, never
+// invented (agentenv.Lookup). Emitted only when found, so a launch whose key was never
+// hydrated simply carries no alias for it; naming that is the preflight's job.
+func (in *assembleInput) hydratedLookup(o *Options) agentenv.Lookup {
+	return func(name string) (string, bool) {
+		if s := mapStr(in.userEnv, name); s != "" {
+			return s, true
+		}
+		if v := o.Getenv(name); v != "" {
+			return v, true
+		}
+		return "", false
+	}
 }
 
 // assembleRunCmd builds the ordered container argv: flags-before-image, the -e
@@ -724,6 +750,10 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		env = append(env, "-e", "TZ="+in.hostTZ)
 	}
 	effectiveProfiles := o.effectivePackProfiles(in.cfg, in.packs)
+	// Composed ONCE for both consumers below: the table the derives read (YOLO_PROVIDERS)
+	// and the table the env-shape composition reads cannot be allowed to differ, or an
+	// agent's env and its derived config would disagree about where a protocol points.
+	providers := composedProviders(cfg, in.packs)
 	env = append(env,
 		"-e", "YOLO_HOST_DIR="+o.Workspace,
 		"-e", "YOLO_VERSION="+in.yoloVersion,
@@ -734,19 +764,25 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_LSP_GO_INSTALL="+in.lspGo(),
 		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "mcp_servers")),
 		"-e", "YOLO_MCP_PRESETS="+jsonDumpsOrEmptyList(cfgList(cfg, "mcp_presets")),
-		"-e", "YOLO_PROVIDERS="+jsonDumpsOrEmptyObj(composedProviders(cfg, in.packs)),
+		"-e", "YOLO_PROVIDERS="+jsonDumpsOrEmptyObj(providers),
 		"-e", "YOLO_PACK_PROFILES="+jsonDumpsOrEmptyObj(effectiveProfiles),
 		"-e", "YOLO_REQUIRED_CAPABILITIES="+jsonDumpsOrEmptyList(cfgList(cfg, "required_capabilities")),
 		"-e", "YOLO_RUNTIME=podman",
 	)
-	// The profile-derived environment (bedrock's CLAUDE_CODE_USE_BEDROCK, AWS_REGION and
-	// model defaults) is composed by internal/agentenv, which is ALSO what
+	// The profile-derived environment — bedrock's CLAUDE_CODE_USE_BEDROCK, AWS_REGION and
+	// model defaults, plus the env shape a provider declares for the protocol an agent
+	// speaks (OQ-14) — is composed by internal/agentenv, which is ALSO what
 	// `yolo host -- <agent>` applies on the host. One implementation, so the two notches
 	// cannot drift — that is the jail/host parity claim in host-agent-environment.md §2.2,
 	// and it is not a claim two copies of this block could keep. This used to be thirty
 	// lines of nested type assertions inline here, covered by no test at all.
+	//
+	// The provider half reads the composed table YOLO_PROVIDERS carries above.
+	lookup := in.hydratedLookup(o)
 	for _, agent := range effectiveProfiles.Keys() {
-		for _, v := range agentenv.Resolve(cfg, agent, effectiveProfiles) {
+		profile := mapStr(effectiveProfiles, agent)
+		for _, v := range agentenv.Resolve(providers, agent, profile,
+			packload.ProviderFor(in.packs, agent, profile), lookup) {
 			if v.Unset {
 				// Not reachable from a profile today, and deliberately not guessed at:
 				// podman's `-e KEY` (no `=`) means INHERIT KEY from the host env, which

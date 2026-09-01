@@ -1348,6 +1348,19 @@ func validateProviderEndpoints(label string, endpoints map[string]ProviderEndpoi
 	return problems
 }
 
+// The only two placeholders an env_shape value may be. Declared beside the validation
+// that enforces them and exported because the consumer of the shape — the launch-time env
+// composition in internal/agentenv — has to spell them identically: a second copy of the
+// literal in the composer is a second vocabulary that can drift away from the one the
+// validator enforces.
+const (
+	// EnvShapeEndpoint is that protocol's base_url.
+	EnvShapeEndpoint = "{endpoint}"
+	// EnvShapeKey is the hydrated value of the provider's api_key_env_name variable —
+	// relayed by the launcher from the launch environment, never carried by a manifest.
+	EnvShapeKey = "{key}"
+)
+
 // validateProviderEnvShape checks the env_shape template values: the ONLY two
 // placeholders are "{endpoint}" (that protocol's base_url) and "{key}" (the user's
 // hydrated credential).
@@ -1361,7 +1374,7 @@ func validateProviderEnvShape(label string, shape map[string]map[string]string) 
 		vars := shape[proto]
 		for _, name := range sortedKeys(vars) {
 			v := vars[name]
-			if v == "{endpoint}" || v == "{key}" {
+			if v == EnvShapeEndpoint || v == EnvShapeKey {
 				continue
 			}
 			problems = append(problems, fmt.Sprintf(
