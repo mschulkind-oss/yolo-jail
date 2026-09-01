@@ -140,14 +140,13 @@ superseded by uniformity, and the token alias is superseded by launch-time env c
   ] }
 ```
 
-The **payload split** in v1, stated as shipped *(corrected 2026-09-01, parent OQ-16)*: BOTH
-halves reach claude through **launch-time env composition** — the provider's `env_shape`, applied
-when profile `zai` is active for an agent that speaks that protocol. The settings-`env`-block
-landing (measured honored, OQ-Z4) is NOT wired for zai: packs/zai owns no claude surface, and the
-cross-pack config channel (`config-overlay` + the `profile` field) is deliberately deferred
-(parent §12 step 6) — until it lands, a bare `claude` outside yolo's launch path gets nothing from
-this pack, which is the documented cost of deferral. Where the profile DOES own the surface the
-config half ships today: packs/claude's bedrock profile patches its own settings `env` block. The launcher mapping a hydrated credential into
+The **payload split**, both halves shipped as of step 6 *(2026-09-01, parent OQ-16)*: the
+credential half reaches claude through **launch-time env composition** — the provider's
+`env_shape`, applied when profile `zai` is active for an agent that speaks that protocol — and
+the configuration half (`ANTHROPIC_BASE_URL`) ALSO lands in the settings `env` block via
+`packs/zai`'s gated `config-overlay` (clean skip when the profile is inactive; at the HOST notch
+the gate reads user-scope `pack_profiles` only, parent OQ-17), surviving a bare `claude`, cron,
+or an IDE absolute path. packs/claude's bedrock profile patches its own surface the same way. The launcher mapping a hydrated credential into
 the process env is the process-env channel doing its designed job, not the config-file
 interpolation the 2026-08-03 `${VAR}` ruling removed — the reference form stays refused for
 USER-WRITTEN config (OQ-Z3 unchanged).
