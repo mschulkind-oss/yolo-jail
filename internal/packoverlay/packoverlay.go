@@ -114,9 +114,13 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 //
 // AND ITS EFFECT ON THIS FUNCTION'S OUTPUT IS ZERO, which is worth stating because it looks
 // like a gap. The posture fold (packload.foldPostureManaged) merges keys into the Managed
-// layer of surfaces already declared and IGNORES a patch naming no base surface, so both
-// postures yield the same surface-identity set — and identities are all this function reads.
-// Inverting the argument at every caller therefore leaves the suite green. That survival is a
+// layer of surfaces already declared, IGNORES a patch naming no base surface, and never adds
+// or removes an identity — it only deep-merges into one that is there — so both postures
+// yield the same surface-identity set — and identities are all this function reads.
+// (The ignored patch is now REPORTED, by the render paths that run the fold; that this
+// package reads surfaces through the same SurfacesFor and discards the notes is fine, since
+// it is not the notch whose user wrote the patch.) Inverting the argument at every caller
+// therefore leaves the suite green. That survival is a
 // property, not missing coverage, and autonomyinert_test.go pins it so the two stay
 // distinguishable: if a posture ever gains the power to add or remove an identity, the
 // parameter starts deciding which overlays find an owner, and that test fails at the moment it

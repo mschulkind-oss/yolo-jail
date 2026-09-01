@@ -47,9 +47,16 @@ func ConfigurePackByName(e *Env, name string) error {
 	// fold the same variants or the parity proofs above measure a render the boot never
 	// produces.
 	profiles := packload.ProfileTable(e.LoadPackProfiles())
-	surfaces, problems := p.SurfacesFor(autonomy, profiles)
+	surfaces, problems, notes := p.SurfacesForReport(autonomy, profiles)
 	if len(problems) > 0 {
 		return fmt.Errorf("pack %s: %s", name, problems[0])
+	}
+	// A config patch that named no surface of its own pack merged into nothing. This entry
+	// is `yolo check`'s dry-run probe, which makes it the FIRST place an authoring mistake
+	// of that shape can be seen — a pack is checked before any jail renders it — so the
+	// note is not optional here. Same ruling as the boot loop's: a warning, never an error.
+	for _, n := range notes {
+		e.warnOnce(n.String())
 	}
 	deriveScript := loadPackDeriveScript(p)
 	// Overlays over the ONE pack asked for, so a pack that overlays a surface it owns

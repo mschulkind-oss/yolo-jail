@@ -165,11 +165,24 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 	overlays := packoverlay.Collect(packs, autonomy)
 	reportOverlayResolution(e, overlays)
 	for _, p := range packs {
-		surfaces, problems := p.SurfacesFor(autonomy, profiles)
+		surfaces, problems, notes := p.SurfacesForReport(autonomy, profiles)
 		for _, prob := range problems {
 			// A malformed surface is fatal: rendering the rest and skipping this one
 			// yields a jail whose config is quietly incomplete.
 			genStep(e, "pack_"+p.Name+"_surfaces", func() error { return fmt.Errorf("%s", prob) })
+		}
+		// A config patch that named no surface of its own pack merged into nothing — the
+		// OQ-Z5 shape, where the author's patch reads, to them, exactly like one that
+		// folded. Named, never fatal: the render is complete, the patch is merely inert
+		// (the same ruling that makes an ownerless config-overlay a warning).
+		//
+		// warnOnce, not warn, for the reason LoadJailPacks gives: the note is a property
+		// of the staged manifest, not of the pass that noticed it, and more than one
+		// entry renders the same pack's surfaces (the darwin boot path here,
+		// ConfigurePackByName for `yolo check`), so an unchanged manifest would print the
+		// same line twice and read as two problems.
+		for _, n := range notes {
+			e.warnOnce(n.String())
 		}
 		// A pack's derive.lua (if any) produces every dynamic layer for its surfaces
 		// — the projection Lua (docs/design/pack-system.md §7). Read once per pack;

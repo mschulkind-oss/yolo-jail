@@ -82,10 +82,33 @@ func (p *Pack) Surfaces() ([]manifest.Surface, []string) {
 // posture, any variant this pack declares for one of ITS OWN installed CLI names folds on
 // top, later-wins (§3.4). A nil table — the host render's, which selects no variant — is
 // the pre-profile behavior exactly.
+//
+// The notes a fold produces are dropped here. Callers that report them call
+// SurfacesForReport; this signature stays the one every reader of surfaces wants, because
+// most of them (the footprint, the overlay collector, the pruning pass) read identities and
+// would only be re-plumbing a third slice to `_`.
 func (p *Pack) SurfacesFor(autonomy bool, profiles map[string]string) ([]manifest.Surface, []string) {
+	surfaces, problems, _ := p.SurfacesForReport(autonomy, profiles)
+	return surfaces, problems
+}
+
+// SurfacesForReport is SurfacesFor with the fold's dead patches carried out as notes.
+//
+// foldPostureManaged drops a patch that names no surface of this pack — it has nothing to
+// merge into — and until the notes existed that drop was SILENT, which is the OQ-Z5 shape:
+// a patch written for a claude surface and moved into a pack owning no claude surface reads,
+// to its author, exactly like a patch that folded. The report is the config-overlay orphan's
+// posture for a declaration with no effect (ruling R2), and deliberately NOT a problem: a
+// problem is fatal at every render path, and an inert patch breaks nothing — it writes
+// nothing. The disposition stays "ignored"; what changed is that "ignored" is now said.
+//
+// Nothing is reported for a patch that was never folded: an unselected variant merges
+// nothing, so it misses nothing, and a host render (no profile table) can only ever produce
+// a posture's note.
+func (p *Pack) SurfacesForReport(autonomy bool, profiles map[string]string) ([]manifest.Surface, []string, []FoldNote) {
 	rawSurfaces := p.Decl.SurfaceContributions()
 	if len(rawSurfaces) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	surfaces, problems := manifest.DecodeSurfaces(rawSurfaces)
 	for i, prob := range problems {
@@ -95,17 +118,20 @@ func (p *Pack) SurfacesFor(autonomy bool, profiles map[string]string) ([]manifes
 	for i := range surfaces {
 		surfaces[i].HostSource = p.hostSourceFor(surfaces[i].Path, granted)
 	}
+	var notes []FoldNote
 	// Fold the selected autonomy posture's config patch into the matching surfaces.
 	if posture := p.Decl.PostureFor(autonomy); posture != nil && len(posture.Config) > 0 {
 		patches, probs := manifest.DecodeSurfaces(posture.Config)
 		for _, prob := range probs {
 			problems = append(problems, "pack "+p.Name+" (autonomy): "+prob)
 		}
-		surfaces = foldPostureManaged(surfaces, patches)
+		var missed []manifest.SurfaceKey
+		surfaces, missed = foldPostureManaged(surfaces, patches)
+		notes = append(notes, foldNotes(p.Name, postureName(autonomy), missed, surfaces)...)
 	}
 	// THEN the selected profile's patch, so a key both touch reads the variant's value.
-	// Same fold, same ignoring of a patch naming no base surface — a profile is a variant
-	// of the pack's own surfaces, not a second writer of them.
+	// Same fold, same carrying-out of a patch naming no base surface — a profile is a
+	// variant of the pack's own surfaces, not a second writer of them.
 	for _, prof := range p.ActiveProfiles(profiles) {
 		if len(prof.Config) == 0 {
 			continue
@@ -114,9 +140,74 @@ func (p *Pack) SurfacesFor(autonomy bool, profiles map[string]string) ([]manifes
 		for _, prob := range probs {
 			problems = append(problems, "pack "+p.Name+" (profile "+prof.Name+"): "+prob)
 		}
-		surfaces = foldPostureManaged(surfaces, patches)
+		var missed []manifest.SurfaceKey
+		surfaces, missed = foldPostureManaged(surfaces, patches)
+		notes = append(notes, foldNotes(p.Name, "profile "+prof.Name, missed, surfaces)...)
 	}
-	return surfaces, problems
+	return surfaces, problems, notes
+}
+
+// postureName is the label a note carries for the fold's autonomy half — which of the two
+// postures the dead patch rode, so a reader knows which half of the manifest to fix.
+func postureName(autonomy bool) string {
+	if autonomy {
+		return "autonomous posture"
+	}
+	return "guarded posture"
+}
+
+// FoldNote is one config patch that merged into nothing: it named a surface identity its own
+// pack does not declare. A NOTE, never a problem and never a refusal — see
+// SurfacesForReport for why the disposition does not change.
+type FoldNote struct {
+	// Pack is the pack that declared the patch.
+	Pack string
+	// Source names the declaration the patch rode: "autonomous posture", "guarded
+	// posture", or "profile <name>".
+	Source string
+	// Target is the (agent, name) the patch named — the identity nothing matched.
+	Target manifest.SurfaceKey
+	// Declared lists the surface identities the pack DOES declare, so the fix is in the
+	// message rather than one manifest-open away. Never empty: a pack with no config
+	// contributions has no fold and so produces no note.
+	Declared []string
+}
+
+// reason is the body both renderings share, so the two notches cannot disagree about what
+// happened to the patch.
+func (n FoldNote) reason() string {
+	return fmt.Sprintf("%s patches %s, which pack %s does not declare (declares: %s)",
+		n.Source, n.Target, n.Pack, strings.Join(n.Declared, ", "))
+}
+
+// String renders the note as the one line a render path warns with — shaped like the
+// config-overlay notice it is modelled on: a kind label, what has no effect, and the
+// declaration that went nowhere.
+func (n FoldNote) String() string {
+	return fmt.Sprintf("config patch  %s — folded nowhere", n.reason())
+}
+
+// Action renders the same finding the way a host render result line states it: what the
+// render did (nothing), since that notch's report is a row per surface, not a boot notice.
+func (n FoldNote) Action() string {
+	return "ignored: " + n.reason()
+}
+
+// foldNotes turns one fold's misses into notes, each naming the pack, the declaration the
+// patch rode, and every surface the pack actually declares.
+func foldNotes(pack, source string, missed []manifest.SurfaceKey, base []manifest.Surface) []FoldNote {
+	if len(missed) == 0 {
+		return nil
+	}
+	declared := make([]string, 0, len(base))
+	for _, s := range base {
+		declared = append(declared, s.Key().String())
+	}
+	out := make([]FoldNote, 0, len(missed))
+	for _, key := range missed {
+		out = append(out, FoldNote{Pack: pack, Source: source, Target: key, Declared: declared})
+	}
+	return out
 }
 
 // ActiveProfiles returns the variants THIS pack has selected, in the order they must
@@ -173,24 +264,31 @@ func ProfileTable(m *jsonx.OrderedMap) map[string]string {
 }
 
 // foldPostureManaged deep-merges each patch surface's Managed map into the base surface
-// with the same (agent, name), the patch winning per key. A patch that names no existing
-// base surface is ignored (the posture may only touch a subset). This is how an autonomy
-// posture asserts its permission keys onto the pack's OWN surface without being a second
-// config writer.
-func foldPostureManaged(base, patches []manifest.Surface) []manifest.Surface {
+// with the same (agent, name), the patch winning per key, and returns alongside the merged
+// set the identities that matched NOTHING. The caller reports those (foldNotes) — the loop
+// knows which patches missed, and discarding that knowledge here is what made a dead patch
+// indistinguishable from a live one. This is how an autonomy posture asserts its permission
+// keys onto the pack's OWN surface without being a second config writer.
+func foldPostureManaged(base, patches []manifest.Surface) ([]manifest.Surface, []manifest.SurfaceKey) {
+	var missed []manifest.SurfaceKey
 	for _, patch := range patches {
 		pm := patch.ManagedMap()
 		if pm == nil {
 			continue
 		}
+		matched := false
 		for i := range base {
 			if base[i].Agent != patch.Agent || base[i].Name != patch.Name {
 				continue
 			}
+			matched = true
 			base[i].Managed = mergeManagedMap(base[i].ManagedMap(), pm)
 		}
+		if !matched {
+			missed = append(missed, patch.Key())
+		}
 	}
-	return base
+	return base, missed
 }
 
 // mergeManagedMap deep-merges over into base (over wins), returning a new map. A nil base
