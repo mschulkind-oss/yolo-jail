@@ -276,6 +276,28 @@ func (p *Pack) HonoredInstalls() (granted []packdecl.Install, refused []string) 
 	return granted, refused
 }
 
+// InstallBins lists the binaries this pack installs, sorted — the CLI names it puts on
+// PATH, one per `program` contribution with a bin.
+//
+// "CLI name" is the namespace a `pack_profiles` key resolves in
+// (profiles-as-pack-variants.md §2.5): `program` is CombineExclusive by bin, so a CLI
+// name resolves to at most one pack and the agents a config yields ARE the bins its
+// packs install. Config validation and the launch pre-flight both answer "does this key
+// name an installed CLI" through this one method, so the two cannot disagree about what
+// is installed — and a global `-p` keys each selected pack's profile by the same list,
+// so every key in the effective table is a key the namespace would have accepted.
+func (p *Pack) InstallBins() []string {
+	var bins []string
+	for _, in := range p.Decl.InstallContributions() {
+		if in.Bin == "" {
+			continue
+		}
+		bins = append(bins, in.Bin)
+	}
+	sort.Strings(bins)
+	return bins
+}
+
 // RefusedBriefingOverlays names every `briefing` contribution whose `after: "host:<path>"`
 // this pack's origin does not permit — the FIFTH gated claim, and the only one that had no
 // reporter at all.

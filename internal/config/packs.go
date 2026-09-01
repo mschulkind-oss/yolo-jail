@@ -29,11 +29,13 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -489,6 +491,75 @@ func validatePacks(workspace string, errs *[]string) {
 			"(skills and briefing prose an agent then follows) into the jail. A repo "+
 			"that wants to configure its own agents can just commit the files.")
 	}
+}
+
+// PackProfileCLINames is the CLI-name namespace a pack_profiles key resolves in
+// (profiles-as-pack-variants.md §2.5, §8): every binary a `program` contribution of a
+// RESOLVABLE pack installs — the packs yolo ships plus whatever the user configured,
+// selected or not. §8's split is why selection is deliberately not consulted here:
+// whether a key names a real CLI is answered against the universe, always, and
+// selection only decides whether the chosen profile renders.
+//
+// `program` contributions only. A `requires` entry ASSERTS a binary exists and
+// installs nothing, so it puts no name in the namespace a user can select a profile
+// by — and a bin yolo does not install is not a bin a profile can gate.
+//
+// known=false when the universe cannot be enumerated: a configured pack that cannot
+// be resolved from the store (never installed, offline, moved). The caller then steps
+// ASIDE rather than refusing keys it cannot check — an unresolvable pack is its own
+// failure, reported louder and first by `yolo check`'s Packs section and by the
+// launch's staging, and reporting it here too would dress a broken install up as a
+// typo'd profile key. Same contract as resolvePackLoopholeModules on the run side,
+// whose silent-and-empty answer is this one's twin.
+func PackProfileCLINames() ([]string, bool) {
+	entries, err := LoadPacks(func(string) {})
+	if err != nil {
+		return nil, false
+	}
+	embedded := packload.Embedded()
+	// EmbeddedNames reads the embed.FS directly, so a non-empty name list beside an
+	// empty materialized set means materialization failed — a yolo bug, not a user
+	// condition. Reporting "nothing is installed" from it would turn every key into a
+	// false fatal, so it is an unknowable universe instead.
+	if len(embedded) == 0 && len(packload.EmbeddedNames()) > 0 {
+		return nil, false
+	}
+	seen := map[string]bool{}
+	for _, p := range embedded {
+		for _, bin := range p.InstallBins() {
+			seen[bin] = true
+		}
+	}
+	store := &packsrc.Store{Dir: paths.PacksDir()}
+	for _, entry := range entries {
+		if entry.Embedded() {
+			continue // already in the set above
+		}
+		// nil Getenv: the store falls back to the real environment, which is what a
+		// resolver running behind a read-only surface wants (the staged-tree fallback
+		// is how a nested launch's local packs resolve). See packRoot on the run side.
+		addr, err := packsrc.Parse(entry.Source)
+		if err != nil {
+			return nil, false
+		}
+		res, err := store.Resolve(addr, entry.Slug())
+		if err != nil {
+			return nil, false
+		}
+		p, problems := packload.LoadDir(res.Root, entry.Name, false)
+		if len(problems) > 0 || p == nil {
+			return nil, false
+		}
+		for _, bin := range p.InstallBins() {
+			seen[bin] = true
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, true
 }
 
 // MarshalPacks renders resolved entries as the compact JSON that travels in

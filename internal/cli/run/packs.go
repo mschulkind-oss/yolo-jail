@@ -313,6 +313,22 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(conflicts, "\npacks: "))
 	}
 
+	// THE FIFTH bespoke pre-flight: a profile selector keyed to a CLI name no pack
+	// installs (profiles-as-pack-variants.md §2.5, §8). The two spellings are
+	// `--pack-profile <cli>=<name>` and `-p <name> -- <bin>`, and both key the profile
+	// by a CLI name the way `pack_profiles` does in config — which is validated there
+	// and is NOT validated anywhere here, because a flag never reaches ValidateConfig.
+	// Without this the typo passed silently: the key went into the table no derive
+	// read, and the launch looked exactly like the profile working.
+	//
+	// Here rather than in the parse (runcmd.go), deliberately: parseRunArgs is a pure
+	// fold over argv with no pack data and no error return, and this is where the pack
+	// universe is knowable. FATAL, like the four above, for the same reason they are:
+	// a silently inert selector is indistinguishable from a working one.
+	if err := o.checkProfileTargets(); err != nil {
+		return "", nil, nil, err
+	}
+
 	jailcontent.SetPackSkillDirs(skillDirs)
 	// Record the pack-contributed loophole modules for every host-side consumer, with
 	// each one's origin gate already evaluated. THE convergence point
@@ -326,6 +342,61 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	// has to come from what actually staged rather than from what config named.
 	loopholes.SetPackSupersessions(packSupersessions(loaded))
 	return stagingRoot, loaded, briefings, nil
+}
+
+// checkProfileTargets refuses a profile selector keyed to a CLI name no resolvable pack
+// installs — the FIFTH launch pre-flight, and the flag half of the check
+// ValidateConfig does for `pack_profiles` keys.
+//
+// The namespace is the SAME one config validation uses (config.PackProfileCLINames), so
+// a key `yolo check` accepts a launch accepts and neither can drift from what is
+// actually installed. It steps aside on the same condition too: an unresolvable
+// configured pack makes the namespace unknowable, and that pack already fails staging
+// above with its own message.
+//
+// A GLOBAL -p (no command) is not checked here at all: it names no CLI, and the keys it
+// generates are the selected packs' own installed bins — in the namespace by
+// construction.
+func (o *Options) checkProfileTargets() error {
+	if o.ProfileName == "" && len(o.PackProfiles) == 0 {
+		return nil
+	}
+	names, known := config.PackProfileCLINames()
+	if !known {
+		return nil
+	}
+	installed := map[string]bool{}
+	for _, n := range names {
+		installed[n] = true
+	}
+	have := strings.Join(names, ", ")
+	var problems []string
+	// --pack-profile <cli>=<name>: the KEY is the CLI name.
+	clis := make([]string, 0, len(o.PackProfiles))
+	for cli := range o.PackProfiles {
+		clis = append(clis, cli)
+	}
+	sort.Strings(clis)
+	for _, cli := range clis {
+		if installed[cli] {
+			continue
+		}
+		problems = append(problems, fmt.Sprintf("--pack-profile %s=%s: no pack installs a "+
+			"CLI named %q (installed: %s)", cli, o.PackProfiles[cli], cli, have))
+	}
+	// -p <name> -- <bin>: the COMMAND's basename is the CLI name, the same keying
+	// effectivePackProfiles applies downstream.
+	if o.ProfileName != "" && len(o.Args) > 0 {
+		bin := filepath.Base(o.Args[0])
+		if !installed[bin] {
+			problems = append(problems, fmt.Sprintf("-p %s -- %s: no pack installs a CLI "+
+				"named %q (installed: %s)", o.ProfileName, o.Args[0], bin, have))
+		}
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("packs: %s", strings.Join(problems, "\npacks: "))
 }
 
 // packLoopholeKind is the `loophole` contribution kind.

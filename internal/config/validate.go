@@ -974,7 +974,35 @@ func validatePackProfiles(config *jsonx.OrderedMap, errs *[]string) {
 		add(errs, "config.pack_profiles: expected an object")
 		return
 	}
-	for _, agent := range profiles.Keys() {
+	// The KEY is a CLI name — the binary a pack installs — and an unknown one is fatal
+	// (§2.5, §8). Before this check {"cloude": "bedrock"} validated clean and silently
+	// did nothing, which is the live hole the design documents: the values were checked
+	// as strings while the thing they were keyed by was never checked at all.
+	//
+	// A null value REMOVES a profile and asserts nothing about its key, so an object
+	// holding only nulls costs no pack resolution at all — the same leniency the
+	// retired-key convention gives a key being deleted.
+	keys := profiles.Keys()
+	wantsNamespace := false
+	for _, k := range keys {
+		if val, _ := profiles.Get(k); val != nil {
+			wantsNamespace = true
+			break
+		}
+	}
+	var installed []string
+	if wantsNamespace {
+		names, known := PackProfileCLINames()
+		if !known {
+			// An unresolvable configured pack makes the namespace unknowable, and that
+			// pack is refused on its own terms — louder, and first — by `yolo check`'s
+			// Packs section and by the launch's staging. Reporting it here too would
+			// misdiagnose a broken install as a typo'd profile key.
+			return
+		}
+		installed = names
+	}
+	for _, agent := range keys {
 		profV, _ := profiles.Get(agent)
 		path := "config.pack_profiles." + agent
 		if profV == nil {
@@ -982,8 +1010,27 @@ func validatePackProfiles(config *jsonx.OrderedMap, errs *[]string) {
 		}
 		if !isStr(profV) {
 			add(errs, path+": expected a string profile name")
+			continue
+		}
+		if !containsStr(installed, agent) {
+			add(errs, path+": "+unknownProfileCLIMessage(agent, installed))
 		}
 	}
+}
+
+// unknownProfileCLIMessage explains a pack_profiles key no resolvable pack answers to.
+//
+// It lists what IS installed, because the most likely cause is a typo in a tool name and
+// the real list is the whole fix — the same reason unknownEmbeddedMessage lists pack
+// names, and the same list: both name the CLIs yolo can actually launch.
+func unknownProfileCLIMessage(key string, installed []string) string {
+	have := "none"
+	if len(installed) > 0 {
+		have = strings.Join(installed, ", ")
+	}
+	return fmt.Sprintf("no pack installs a CLI named %q (installed: %s) — a pack_profiles "+
+		"key selects a profile by the binary a pack installs, not by pack or agent name",
+		key, have)
 }
 
 func validateRequiredCapabilities(config *jsonx.OrderedMap, errs *[]string) {
