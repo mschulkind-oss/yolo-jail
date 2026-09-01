@@ -3,17 +3,20 @@ title: "A profile is a pack's own variant, not a cross-pack fragment"
 date: 2026-08-29
 status: in-review
 tags: [packs, config, profiles, providers, prism, architecture, secrets]
-summary: "Counter-design to pack-profiles.md. Most of what that doc proposes is already shipped: providers are already a typed extension point consumed by three packs' derives, and profile-conditional pack behavior already works in Lua. The real gap is one channel (process env, profile-gated) and one hardcode (assemble.go:722). So this design adds no new merge engine and no cross-pack fragment kind — it generalizes the shipped `autonomy` contribution from a closed two-valued selector to an open named one, keeps `providers` as a config key with a stricter schema, and fixes the delivery channel so the Claude/Bedrock case works at the host notch too."
+summary: "Counter-design to pack-profiles.md. Most of what that doc proposes is already shipped: providers are already a typed extension point consumed by three packs' derives, and profile-conditional pack behavior already works in Lua. The real gap is one channel (process env, profile-gated) and one hardcode (now `internal/agentenv`, originally assemble.go:722). So this design adds no new merge engine and no cross-pack fragment kind — it generalizes the shipped `autonomy` contribution from a closed two-valued selector to an open named one, keeps `providers` as a config key with a stricter schema, and fixes the delivery channel so the Claude/Bedrock case works at the host notch too."
 ---
 
 # A profile is a pack's own variant, not a cross-pack fragment
 
 **Status:** DESIGN, 2026-08-29. Nothing built. This is a counter-proposal to
 [`pack-profiles.md`](pack-profiles.md), written after measuring what that doc's §2 diagnoses
-against the code as it stands today. All file:line claims below were verified on 2026-08-29.
+against the code as it stands today. File:line claims were verified on 2026-08-29 and
+**re-anchored 2026-09-01** after `784dd209` extracted the profile env out of `assemble.go` —
+the extraction is itself the ninth removal site (§2.4).
 
 **The short version.** `pack-profiles.md` is right that `agent_profiles` is an inversion and that
-[`assemble.go:722-754`](../../internal/cli/run/assemble.go#L722-L754) must die. It is wrong about
+the Bedrock hardcode (originally `assemble.go:722`, now
+[`internal/agentenv`](../../internal/agentenv/agentenv.go#L61-L94)) must die. It is wrong about
 how much is missing. Providers are **already** a typed extension point, already exposed to Lua as
 `ctx.providers`, and already consumed by `packs/pi`, `packs/codex` and `packs/opencode` with no
 adapter packs. Profile-conditional pack behavior **already works** — `packs/claude/derive.lua:5`
@@ -179,23 +182,26 @@ environment — and `kind: "env"` is *static only*, literal strings with no sele
 ([`kinds.go:96-99`](../../internal/packdecl/kinds.go#L96-L99),
 [`packload.go:241-251`](../../internal/packload/packload.go#L241-L251)).
 
-There was no profile-gated env channel, so the Bedrock case went into Go:
+There was no profile-gated env channel, so the Bedrock case went into Go — originally at
+`assemble.go:722`, and since extracted wholesale into core's own package *(re-anchored 2026-09-01;
+the extraction is itself the ninth site, §2.4)*:
 
 ```go
-// assemble.go:722 — the whole reason pack-profiles.md exists
-if prof, ok := effectiveProfiles.Get("claude"); ok && prof == "bedrock" {
-    env = append(env, "-e", "CLAUDE_CODE_USE_BEDROCK=1")
-    // …region, Opus/Haiku/Sonnet model IDs…
+// internal/agentenv/agentenv.go:66 — the whole reason pack-profiles.md exists,
+// moved out of assemble.go by 784dd209 but still core, still hardcoded
+if agent == "claude" && profile == "bedrock" {
+    return bedrockVars(region, models)   // CLAUDE_CODE_USE_BEDROCK, AWS_REGION, ANTHROPIC_DEFAULT_*_MODEL
 }
 ```
 
 **That is the gap — and it is narrower than "no env channel."** The channel itself exists at both
-notches now: the host launch wrapper set ([`hostwrap`](../../internal/hostwrap/hostwrap.go)) puts
-every installed program's invocation through `yolo host --`, where environment composition happens
-at LAUNCH time from live config — one implementation, decided in one place, reachable from any
-invocation once the wrap dir is on `PATH`. What the channel cannot do is *vary by profile*,
-because `kind: "env"` is static. So the gap is one missing selector on one existing kind, not a
-missing delivery mechanism — and
+notches now: the host launch wrapper set ([`hostwrap`](../../internal/hostwrap/hostwrap.go)) can
+put every installed program's invocation through `yolo host --`, where environment composition happens
+at LAUNCH time from live config — one implementation, decided in one place — once the user opts in
+(`host_wrappers: true` and the wrap dir on `PATH`; P6 states the qualifier). What the channel
+cannot do is *vary by profile*, because `kind: "env"` is static. So the gap is the selector, and
+this design builds it as the new kind's own `env` field (§3.1) rather than a modifier on `env` —
+and
 [§5](#5-the-delivery-channel-rule--and-why-it-kills-the-worked-example) still routes the
 non-secret half of this case to the config file, because invocations that bypass yolo (a bare
 `claude` from a shell without the wrap dir on `PATH`, cron, an IDE-configured absolute path) are
@@ -209,27 +215,41 @@ more places, and a full removal has to take them:
 - **`--claude-auth` / `--auth`** ([`runcmd.go:99`](../../internal/cli/runcmd.go#L99),
   [`runcmd.go:166-173`](../../internal/cli/runcmd.go#L166-L173)) is an agent name in the CLI
   surface, feeding `o.ClaudeAuth` → `out.Set("claude", …)`
-  ([`assemble.go:776-777`](../../internal/cli/run/assemble.go#L776-L777)). A design that deletes
-  `agent_profiles` and leaves `--claude-auth` has moved the inversion, not removed it.
-- **The full `agent_profiles` footprint is eight sites, not two**: `config.go:67`,
-  `validate.go:902-922`, `inherit.go:132`, `sources.go:20-21`, `derive.go:180`,
+  ([`assemble.go:764-766`](../../internal/cli/run/assemble.go#L764-L766)). So is
+  **`--agent-profile <agent>=<provider>`** ([`runcmd.go:52`](../../internal/cli/runcmd.go#L52),
+  [`runcmd.go:175-194`](../../internal/cli/runcmd.go#L175-L194)), a second flag whose fate the
+  rename has to decide *(found in the 2026-09-01 audit; the site census below predates it)*. A
+  design that deletes `agent_profiles` and leaves either flag has moved the inversion, not
+  removed it.
+- **The full `agent_profiles` footprint is ten sites, not two** *(re-anchored 2026-09-01 after
+  `784dd209` extracted the profile env into `internal/agentenv`)*: `config.go:67`,
+  `validateAgentProfiles` at [`validate.go:947-967`](../../internal/config/validate.go#L947-L967),
+  `inherit.go:132`, `sources.go:20-21`, `derive.go:180`,
   `entrypoint/providers.go:27-41` (`LoadAgentProfiles`), the `YOLO_AGENT_PROFILES` env channel at
-  `assemble.go:718`, and `effectiveAgentProfiles` at `assemble.go:763-789`. `pack-profiles.md` §9 claims the design "deletes all hardcoded `claude`
+  [`assemble.go:720`](../../internal/cli/run/assemble.go#L720), `effectiveAgentProfiles` at
+  [`assemble.go:751-777`](../../internal/cli/run/assemble.go#L751-L777), the bin-keyed `-p` read
+  at [`assemble.go:767-775`](../../internal/cli/run/assemble.go#L767-L775), and **the hardcode's
+  new home, [`internal/agentenv`](../../internal/agentenv/agentenv.go#L61-L94)** — the extraction
+  that made this list true. `pack-profiles.md` §9 claims the design "deletes all hardcoded `claude`
   Bedrock checks from `assemble.go` and removes `knownProviderKeys`" — that is under half of it.
 
 ### 2.5 The stringly-typed hole that is live today
 
-[`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) lists
-`pack_profiles.<pack_name>` as "Required / Validation error if pack is not in configured universe."
-**It is not.** `validateAgentProfiles` ([`validate.go:902-922`](../../internal/config/validate.go#L902-L922))
-checks only that the value is a string; the *key* is never checked against anything. So today:
+[`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) originally
+listed `pack_profiles.<pack_name>` as "Required / Validation error if pack is not in configured
+universe." **That census row was wrong when this doc measured it** — `validateAgentProfiles`
+([`validate.go:947-967`](../../internal/config/validate.go#L947-L967)) checks only that the value
+is a string; the *key* is never checked against anything — and the principle doc has since been
+amended to agree (its row now reads *"**Unchecked.** … `{"cloude": "bedrock"}` returns
+[PASS]"* with the fatal-against-the-universe disposition). The bug it records is still live in
+the code, so today:
 
 ```jsonc
 { "agent_profiles": { "cloude": "bedrock" } }   // accepted silently, does nothing
 ```
 
 And the CLI keys the profile by the **binary basename**
-([`assemble.go:779-787`](../../internal/cli/run/assemble.go#L779-L787)). That keying is right and
+([`assemble.go:767-775`](../../internal/cli/run/assemble.go#L767-L775)). That keying is right and
 this design keeps it *(amended 2026-08-30, review)*: the CLI-name namespace is already exclusively
 owned — `program` and `launch` are `CombineExclusive` by `bin`, so two packs claiming one CLI name
 is a load error today, and `bin` is an explicitly declared bare program name in every install
@@ -272,6 +292,21 @@ one of its two permission variants — named instead of positional:
   "requires_provider": "bedrock" }
 ```
 
+**`autonomy` and `profile` stay two kinds** *(OQ-1, settled 2026-09-01 — ledger)*. The posture
+body is shared because the SHAPE generalizes, but the selectors have different authorities: the
+confinement notch chooses autonomy — unreachable from config or CLI by construction, fail-closed
+(`Target.Profile()` derives it only from the notch) — while the user chooses a profile through
+channels a workspace config can write. Merging them would put a notch-owned decision behind a
+user-owned selector.
+
+> [!WARNING]
+> The dangerous direction is `-p autonomous` **at the host notch**, not `-p guarded`: a real host
+> gaining the agent's permission bypass re-creates the §4.2 leak verbatim. Prompts-appearing-in-a-
+> jail is the side the code explicitly calls the non-regression
+> ([`confinement.go:149-153`](../../internal/render/confinement.go#L149-L153)). An earlier draft
+> of this doc named the wrong direction; the correction is load-bearing for anyone tempted to
+> re-litigate the split.
+
 Field semantics:
 
 | Field | Type | Required | Meaning |
@@ -279,7 +314,7 @@ Field semantics:
 | `name` | `string` | **Yes** | The profile name this variant answers to. Unique within the pack. |
 | `config` | surface-patch list | No | Patches the **managed** layer of a surface **this same pack owns**, identified by `agent`/`name` — byte-identical to `AutonomyPosture.Config` ([`contributes.go:347-356`](../../internal/packdecl/contributes.go#L347-L356)). |
 | `launch` | `[{bin, flags}]` | No | Flags merged into the binary's launch flags, same shape as `AutonomyLaunch`. |
-| `env` | `map[string]string` | No | Static process env, jail-notch only ([§5](#5-the-delivery-channel-rule--and-why-it-kills-the-worked-example) says when this is the wrong field). |
+| `env` | `map[string]string` (value may be `null`) | No | Static process env delivered wherever yolo launches the process — both notches, refused only by the `host apply` verb (P6). A `null` value UNSETS the variable, the merge-patch convention `providers` already uses (`validate.go` treats null as disable). [§5](#5-the-delivery-channel-rule--and-why-it-kills-the-worked-example) says when the config surface is the better channel. |
 | `requires_provider` | `string` | No | A closed-namespace reference into `providers`. Unresolvable → fatal preflight ([§6.2](#62-an-activated-profile-with-no-credential-is-a-preflight-failure)). |
 
 ### 3.2 Why the pack's own declarations, and not a target
@@ -324,12 +359,19 @@ Rename, don't redesign:
 | `YOLO_AGENT_PROFILES` | `YOLO_PACK_PROFILES` | Same. |
 | `ctx.agent_profiles` (Lua) | `ctx.pack_profiles` | Keeps `packs/claude/derive.lua` working with a one-word edit. |
 | `--claude-auth` / `--auth` | *(deleted; `--pack-profile claude=bedrock`)* | §2.4. |
-| `-p <name> -- <bin>`, keyed by bin basename | same keying, now checked: fatal if no pack owns that bin | §2.5 — the CLI-name namespace is exclusive by construction. |
+| `-p <name> -- <bin>`, keyed by bin basename | same keying, now checked: fatal if no pack owns that bin; `-p <name>` **without** a command sets the name for EVERY selected pack (OQ-5's ruling — Decision Ledger) | §2.5 — the CLI-name namespace is exclusive by construction. |
 
 Resolution order is the shipped one, extended by nothing: workspace config < user config < CLI. The
 selected profile name for CLI *c* is then a plain string that (a) gates the `kind: "profile"`
 contributions of the pack that owns *c* and (b) reaches that pack's derive as
-`ctx.pack_profiles[c]` — the same CLI-keyed table `ctx.agent_profiles` is today.
+`ctx.pack_profiles[c]` — the same CLI-keyed table `ctx.agent_profiles` is today. Every derive
+receives the **whole** table (one table for all packs,
+[`derive.go:160-180`](../../internal/agentcfg/luahook/derive.go#L160-L180)), so a pack owning no
+bin — a provider pack — still reads any CLI's selected name. **The launch line prints what the
+name landed on: DECLARED** (which selected packs ship a `kind: "profile"` with that name) **and
+RECEIVED** (every selected pack, since all derives get the table). *"Honored"* is deliberately
+not claimed — what a derive does with the string is unobservable, and a transparency print that
+overclaims is the silent-skip failure wearing a badge.
 
 ### 3.4 The combine rule and the footprint — stated, because P5 requires it
 
@@ -349,7 +391,11 @@ Within a launch, a selected profile's patches fold into the **managed** layer of
 after `autonomy`'s. Two patches from the same pack on the same key — its autonomy posture and its
 profile — are one pack's own business and resolve later-wins, in declaration order. That is the
 existing managed-layer contract ([`compose.go:355-380`](../../internal/agentcfg/compose.go#L355-L380)),
-not a new one.
+not a new one. The same later-wins rule governs the profile's `env` and `launch` against the
+pack's **own static** contributions of those kinds *(added 2026-09-01; the rule was unstated)*:
+the profile is the more specific intent, declared after the baseline, and it wins — a pack whose
+static `kind: "env"` sets a key its profile also sets is not a load error, it is a variant
+overriding its own default.
 
 ---
 
@@ -406,7 +452,8 @@ Extend [`validate.go:885-944`](../../internal/config/validate.go#L885-L944) rath
 - **`base_url` must parse as `http`/`https` and must carry no userinfo.** `https://user:tok@host/v1`
   is a credential in a git-tracked file, and no current check catches it; this rule is the check.
 - **`models` gets a documented alias vocabulary** (`default`, `fast`, `coder`, …), because
-  `assemble.go:731-750` reads `default`/`haiku`/`sonnet` — Claude-specific alias names in core, a
+  [`agentenv.go:84-88`](../../internal/agentenv/agentenv.go#L84-L88) reads
+  `default`/`haiku`/`sonnet` — Claude-specific alias names in core, a
   fourth inversion nobody has named.
 
 > [!NOTE]
@@ -487,7 +534,8 @@ flowchart LR
 
 The **non-secret** half of the motivating example dissolves into a managed-layer patch on a surface
 `packs/claude` already owns — no fragment, no adapter pack, no new merge engine, and it works from
-any invocation at both notches. The **secret** half (AWS credentials, and §2.2's `unset
+any invocation at both notches. The **secret** half (AWS credentials, and
+[`host-agent-environment.md`](host-agent-environment.md) §2.2's `unset
 AWS_PROFILE`, which no config surface can express at all) goes through the process env and needs
 `yolo host` on the host side.
 
@@ -521,7 +569,8 @@ What adopting §4 leaves open is one asymmetry and one gate:
 ### 6.1 `env_sources` fails open while the config layer fails closed
 
 The census in [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md)
-records `env_sources` as *"Permissive on missing — silent skip with trace log"*, which
+records `env_sources` as *warn + skip* (its row has since absorbed this section's gate as the
+disposition), which
 [`envsources.go:172-176`](../../internal/config/envsources.go#L172-L176) confirms (a warn, then
 continue). That asymmetry is deliberate and right for host portability. But it means the *secret*
 channel is the permissive one while the *configuration* channel is fail-closed — so a profile that
@@ -534,7 +583,11 @@ The fix is narrow and it is the highest-value gate in either design:
 
 > **When a profile is ACTIVE and its resolved provider declares `api_key_env: "X"`, and `X` is
 > unset in the assembled launch environment, refuse the launch** — naming the variable, the
-> provider, the profile, and the `env_sources` entries that were consulted.
+> provider, the profile, and the `env_sources` entries that were consulted. **The same refusal
+> covers the missing-PROVIDER case** *(specified 2026-09-01)*: `requires_provider: "zai"` with no
+> `providers.zai` in the resolved config is fatal with the same shape, naming the provider and the
+> profile. Escape hatch for both: `YOLO_ALLOW_MISSING_PROVIDERS=1`, forwarded from the host env —
+> the reachability witness's `YOLO_ALLOW_UNREACHABLE_SERVICES` pattern.
 
 Scoped to *active* profiles, so a configured-but-unselected provider with no key on this machine
 stays inert, which is the ordinary case for a shared workspace config.
@@ -663,12 +716,12 @@ whether the contribution renders.
 | :--- | :--- | :--- | :--- |
 | D1 | Two new kinds: `provider` + `pack-fragment` | One new kind: `profile` | Three of four proposed mechanisms are shipped (§2.1–2.2). The gap is one selector on one kind (§2.3). |
 | D2 | Providers move into pack manifests | Providers stay a config key, schema tightened | A provider is a machine-local fact; a pack per endpoint is a regression, and the two sources' combine rule is unanswered (§4.1). |
-| D3 | §2.3: delete core's provider schema; §5.1: add a stricter one | Keep and tighten it, and retract §2.3 | The doc argues both sides; providers are an extension point strangers write, so P2 says the schema stays (§4.3). |
+| D3 | §2.3: delete core's provider schema; §5.1: add a stricter one | Keep and tighten it, and retract §2.3 | The doc argues both sides; providers are an extension point strangers write, so P3 says the schema stays (§4.3). |
 | D4 | Fragments carry inline provider dicts | A pack may only *name* a provider | The untyped path makes the typed one decorative — and the doc's own flagship manifest uses only the untyped path (§4.2). |
 | D5 | Cross-pack `target: "<pack>"` | The pack's own declarations only | `autonomy`'s restriction to its own surfaces is what lets it skip a collision rule; fragments give that up and don't replace it (§3.2). |
 | D6 | Silent on combine + footprint | `CombineExclusive` by `(pack, name)`, `Claims` stated | [`kinds.go:196`](../../internal/packdecl/kinds.go#L196) makes a footprint structural — a kind without one cannot be registered (P5). |
 | D7 | Modeled on the skills broker (§6) | Modeled on `autonomy` | Skills invert the direction for fragments (consumer-declares vs contributor-declares); `autonomy` is literally a two-valued profile (§3.1). |
-| D8 | Bedrock delivered as process `env` | Delivered as a managed patch to `claude/settings` | `env` is *refused* at the host notch, which is where the stated motivation lives (§5). |
+| D8 | Bedrock delivered as process `env` | Delivered as a managed patch to `claude/settings` | `env` is refused by the *apply verb*, and the flagship case's motivation lives at the host notch apply cannot reach (§5, amended). |
 | D9 | `optional` gates the typo check | Universe-existence always fatal; selection gates rendering | An `optional` typo is silently skipped today under that design (§8). |
 | D10 | Secrets: harden `api_key_env` | Schema stays name-only; userinfo refused in `base_url`; active-profile credential preflight (§6.2); **no secrets scanner** | Content scanning is a product category of its own, refused in review — the structural pieces are the in-scope remainder (§6). |
 | D11 | Removal scope: 2 sites | 8 sites, plus `--claude-auth` | §2.4. |
@@ -719,14 +772,17 @@ instinct — applied to a different set (§8).
 2. **`kind: "profile"`**, its footprint entry, and its managed-layer fold — modeled on `autonomy`,
    which means the loader, the render path and the host notch already know the posture shape.
 3. **Move Bedrock into `packs/claude`** as a profile patching `claude/settings`, and delete
-   [`assemble.go:722-754`](../../internal/cli/run/assemble.go#L722-L754) and `--claude-auth`.
+   the Bedrock hardcode (now
+   [`internal/agentenv:61-94`](../../internal/agentenv/agentenv.go#L61-L94), originally
+   `assemble.go:722-754`) and `--claude-auth`.
    R3 is measured and retired (OQ-4, 2026-08-31); a cheap AWS-creds re-test of
    `CLAUDE_CODE_USE_BEDROCK` itself is the remaining insurance *before* deleting the Go path.
 
    ⚠ **`yolo host` is a prerequisite for the HOST half of this step, not a follow-on** (amended
    2026-08-30). The flags move to `claude/settings`, but the AWS credentials and the
    `unset AWS_PROFILE` cannot — so until the process-env channel exists on the host, a `bedrock`
-   profile is jail-only and §2.2's `.bashrc` wrapper cannot actually be deleted. See
+   profile is jail-only and [`host-agent-environment.md`](host-agent-environment.md) §2.2's
+   `.bashrc` wrapper cannot actually be deleted. See
    [`host-agent-environment.md` §5](host-agent-environment.md#5-the-recommended-host-environment-architecture).
 4. **Tighten the provider schema** (§4.3) and add `requires_provider`.
 5. **The credential preflight gate** (§6.2).
@@ -752,7 +808,7 @@ host-side `.bashrc` wrapper.
 
 **D. Let each pack solve profiles in its own `derive.lua` and add nothing.** This is the status quo,
 and it genuinely covers `packs/claude`'s MCP-suppression case today (§2.2). Rejected because a
-derive cannot set process env or launch flags, so the residue that forced `assemble.go:722` would
+derive cannot set process env or launch flags, so the residue that forced the agentenv hardcode would
 survive — and because "every pack invents its own profile convention in Lua" is the stringly-typed
 chaos `pack-profiles.md` §3 correctly warns about, just relocated.
 
@@ -762,110 +818,46 @@ of the D5 problem, with no manifest to review.
 
 ---
 
-## 14. Open Questions
+## 14. Decision Ledger — and the one open question
 
-1. 💬 **OQ-1: Does `kind: "profile"` subsume `kind: "autonomy"`?** Autonomy is a profile with a
-   closed two-value selector chosen by the confinement notch rather than by the user. Once `profile`
-   exists, `autonomy` could become two reserved profile names selected by policy instead of by
-   `-p`. **This decides whether the design adds a kind or replaces one**, and therefore whether
-   step 2 of §12 is additive or a migration.
+Every question this design asked is settled except one. Rulings are woven into the body sections
+named below; the ledger is the greppable index. IDs are stable — sibling docs and code comments
+cite them.
 
-   _Leaning:_ Keep them separate. The selectors have different **authorities** — the notch chooses
-   autonomy, the user chooses a profile — and per [`gate-placement-principle.md`](gate-placement-principle.md)
-   that is exactly where two mechanisms should stay two. Merging them would let `-p guarded` override
-   a notch policy, which is a security regression, not a simplification.
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| OQ-1 | **Keep `autonomy` and `profile` as two kinds.** Corpus-forced three ways: environment-manager OQ-11 (resolved 2026-08-01, shipped) placed the confinement-conditional keys in the autonomy kind "and nowhere else" so unconditional config cannot contain a bypass; OQ-5 made profile values free-form and derive-reaching, leaving no expressible way to reserve two names; and the selector asymmetry IS the shipped §4.2 fix — autonomy keys off the constructor-only, fail-closed notch (`Target.Profile()`), while profile names arrive through the workspace-over-user merge an agent can edit (gate-placement Test 1). | 2026-09-01 | §3.1 |
+| OQ-2 | **`providers` stays flat.** A profile selects a provider by name (`requires_provider`); it never reshapes the map. Where one key must produce many endpoint shapes, the shape axis lives INSIDE the entry (`endpoints`, per the zai OQ-Z2 ruling) — which supersedes this doc's earlier "two regions are two providers" whenever the variants share one credential. | 2026-09-01 | §4.1 |
+| OQ-3 | **Profile names are free-form and global; values are never name-checked.** Entailed by OQ-5's ruling. Config KEYS stay checked against the CLI-name namespace (§2.5, §8); typo defense is the launch line's DECLARED/RECEIVED print, not a gate. | 2026-09-01 | §3.3 |
+| OQ-4 | **Claude Code honors `settings.json`'s `env` block before the first API call — YES, measured.** Controlled listener experiment, claude 2.1.252, scratch `CLAUDE_CONFIG_DIR`, inherited `ANTHROPIC_*` scrubbed: settings-only `ANTHROPIC_BASE_URL` produced traffic identical to the process-env control. Witness var is `ANTHROPIC_BASE_URL`; `CLAUDE_CODE_USE_BEDROCK` rides the same mechanism (a cheap AWS-creds re-test is the insurance before deleting the Go path). R3 retired. | 2026-08-31 | §5, §12.3 |
+| OQ-5 | **`-p <name>` is global, declared or not** — the active profile name reaches every selected pack; consistency is the point. *(Ruled by the maintainer; supersedes the declare-only leaning and withdrew OQ-3's fatality.)* | 2026-08-31 | §3.3 |
+| OQ-7 | **The profile `env` field may carry `null` to UNSET a variable** — the merge-patch convention `providers` already uses; `unset` was named as a payload in §5 with no field able to express it. | 2026-09-01 | §3.1 |
+| OQ-8 | **A profile's `env`/`launch` later-wins over the pack's own static contributions** — the variant overrides its own default; not a load error. | 2026-09-01 | §3.4 |
+| OQ-9 | **A missing provider is the same refusal as an unhydrated key** — `requires_provider` naming nothing in `providers` is fatal with the §6.2 message shape; escape hatch `YOLO_ALLOW_MISSING_PROVIDERS=1`. | 2026-09-01 | §6.2 |
+| OQ-10 | **The launch line prints DECLARED and RECEIVED, never "honored"** — what a derive does with the string is unobservable; a print that overclaims is the silent-skip failure wearing a badge. | 2026-09-01 | §3.3 |
+| OQ-11 | **The removal census is ten sites plus two flags** — the 2026-08-29 list of eight predates `internal/agentenv` (the extraction itself) and missed `--agent-profile` beside `--claude-auth`. | 2026-09-01 | §2.4 |
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+*(OQ-7…OQ-11 were found unset by the 2026-09-01 completeness audit — decisions a builder would
+otherwise have made silently — and settled from the corpus in the sections named.)*
 
-2. 💬 **OQ-2: Does `providers` stay flat, or gain a per-profile shape?** Today `providers.<name>` is
-   flat and every provider is visible to every pack's derive. A profile currently selects *pack
-   behavior*, not *which providers exist*. If two profiles want the same provider name with
-   different regions, the flat map cannot express it.
+### The one open question
 
-   _Leaning:_ Flat, and let the profile name the provider it wants (`requires_provider`). Two
-   regions are two providers (`bedrock-use1`, `bedrock-euw1`), which is greppable and keeps the
-   derive contract unchanged. Revisit only if a real config needs the same name twice.
+1. 💬 🤷 **OQ-6: Rename `api_key_env`?** The maintainer read it as holding the key, not the NAME
+   of the env var holding it — and that misreading is the dangerous one: a reader who expects a
+   key pastes a key, and the name-contract regex backstops only non-name-shaped keys (`ghp_…`
+   passes). The corpus has ELIMINATED two of the four positions: "keep" is near-indefensible
+   (the one recorded real misreading, by the field's own reader, plus §6's
+   prevention-over-detection layering), and `_ref` is out (the stringly-typed principle's
+   reference vocabulary is explicitly not about env probes — its scope note says so). What
+   survives is **rename — to what spelling**, and that is taste:
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   - `api_key_env_name` — the doc's leaning: the value's type is the last word read; no
+     convention required.
+   - `api_key_from_env` — says where the key lives, not what the value is.
 
-3. 💬 **OQ-3: Is a profile name a closed set per pack, or free-form?** `-p glm` against a pack that
-   declares no `glm` profile: fatal, or inert? Under §8's split this is the "does the string name a
-   real thing" question, and the answer should be fatal — but a profile also reaches the derive as a
-   plain string, so a pack can meaningfully honor a name it never declared (which is exactly what
-   `packs/claude/derive.lua` does today with `"bedrock"`).
-
-   _Leaning (amended 2026-08-31):_ **Free-form and global — OQ-5's ruling decides this.** With
-   `-p <name>` setting the profile name for every selected pack, a name no pack declared is not a
-   typo signal, it is the ordinary state of a global selector; fatality would fire on every launch
-   that names a profile only some packs know. The original leaning (a pack-level `"profiles":
-   [...]` advertisement making the namespace closed and checkable) survives only as the
-   tab-completion argument, not as a gate. Typo transparency comes from the launch line OQ-5 keeps:
-   it prints which packs declared or honored the active name, so a `bedrok` that landed on nothing
-   is visible without being fatal.
+   _Leaning:_ `api_key_env_name`. Cost is at its lifetime minimum: `knownProviderKeys`, the regex
+   error message, three derives, docs — one refuse-by-name migration naming the replacement.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. ✅ **OQ-4: Does Claude Code honor `settings.json`'s `env` block for `CLAUDE_CODE_USE_BEDROCK`
-   and `ANTHROPIC_DEFAULT_*_MODEL`?** **§5 is load-bearing on this and it is unverified.** If yes,
-   the Bedrock profile is a managed patch and works at both notches, and `assemble.go:722-754` can
-   be deleted outright. If no, the fallback is profile-gated `kind: "env"` (alternative C) and the
-   host-notch parity claim in §5 must be retracted for this case.
-
-   _Leaning:_ Likely yes — `packs/claude/derive.lua` already writes `env.ENABLE_LSP_TOOL` into that
-   surface and it works, so the block is honored for at least one variable. But "honored for a
-   yolo-set flag" is not "honored for auth-mode selection read at startup", and the difference is
-   measurable in about ten minutes. **Blocked on that measurement, not on a ruling** — and no code
-   should be deleted before it.
-
-   **Answer (measured 2026-08-31 — method and result in [`zai-plumbing.md`](zai-plumbing.md)
-   OQ-Z4):**
-   > **YES.** Controlled listener experiment, claude 2.1.252, scratch `CLAUDE_CONFIG_DIR`,
-   > inherited `ANTHROPIC_*` scrubbed: with `ANTHROPIC_BASE_URL` present ONLY in `settings.json`'s
-   > `env` block, the CLI sent its startup probe and `POST /v1/messages?beta=true` to the listener
-   > — identical signature to the control run carrying the same var in process env. The block is
-   > applied before the first API call, so auth-mode selection read at startup rides it. Scope:
-   > the witness var is `ANTHROPIC_BASE_URL`; `CLAUDE_CODE_USE_BEDROCK` uses the same mechanism
-   > but was not separately exercised (a Bedrock re-test needs AWS credentials). **R3 is retired;
-   > step 3 of §12 may proceed and delete the Go path.**
-
-5. ✅ **OQ-5: `-p` with no `--` command.** `yolo -p dev` with three agent packs selected: apply
-   `dev` to every pack that declares it, or refuse as ambiguous? `pack-profiles.md` OQ-2 leans
-   "globally"; that is a real behavioral choice, not a spelling one.
-
-   _Leaning (superseded by the ruling):_ Apply to every pack that declares the name, and **print
-   which packs it landed on**. Silent multi-pack activation is the "silent skip" failure with the
-   sign flipped. If it lands on zero packs, that is OQ-3's fatal case.
-
-   **Answer (ruled by the maintainer, 2026-08-31):**
-   > **Global, declared or not: `-p dev` means `dev` is the active profile name for EVERY selected
-   > pack — consistency is the point.** A pack with no declared `dev` profile still receives it
-   > (`ctx.pack_profiles[c] == "dev"`) and may honor it in its derive; a pack that declares one
-   > renders its `kind: "profile"` contributions. The leaning's declare-only gating is rejected:
-   > a global selector that some packs ignore silently is exactly the inconsistency `-p` exists to
-   > remove. The launch line keeps the transparency — it prints which packs declared or honored the
-   > name — and OQ-3's fatality is withdrawn accordingly (values are free-form; config KEYS stay
-   > checked against the CLI-name namespace).
-
-6. 💬 **OQ-6: Rename `api_key_env`?** The maintainer read it as holding the key, not the NAME of
-   the env var holding the key (2026-08-31) — a real reader failing the name, and the dangerous
-   failure: someone who expects a key pastes a key, and the name-contract regex is the only
-   backstop, catching only keys that are not name-shaped (`ghp_…` passes). A name that prevents
-   the paste outranks a check that sometimes catches it — the same prevention-over-detection
-   layering [§6](#6-credentials--pack-profilesmd-4s-architecture-minus-the-scanner) argues.
-
-   _Leaning:_ **Rename to `api_key_env_name`.** "Name" states the value's type outright, with no
-   convention required — and the naive-reader test is not hypothetical, it is the comment that
-   opened this question. Weighed and lost: `api_key_from_env` (says where the key lives, not what
-   the value is), `api_key_env_ref` (the [stringly-typed principle's](stringly-typed-references-principle.md)
-   reference vocabulary, with Kubernetes' `secretKeyRef` as the field-standard anchor for the
-   `_ref` convention — but it demands the reader already know the convention). Cost is low and at
-   its lifetime minimum: `knownProviderKeys`, the regex's error message, three derives, docs — one
-   refuse-by-name migration naming the replacement, the `agent_profiles` pattern again. If
-   credential shapes ever grow past api keys, the family answer is nesting
-   (`credentials: { api_key: { env: … } }`), not more suffixed fields.
-
-   **Answer:**
-   > _(empty — fill in when decided)_

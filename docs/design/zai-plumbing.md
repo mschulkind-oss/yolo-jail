@@ -1,17 +1,19 @@
 ---
 title: "Z.ai plumbing: one provider, every agent"
 date: 2026-08-31
-status: draft
+status: accepted
 tags: [packs, providers, profiles, resolution, zai]
 summary: "The first real consumer of profiles-as-pack-variants: what it takes to go from a z.ai key in an untracked file to `-p zai` firing every selected agent at GLM by whatever protocol it speaks. Maps both routes the maintainer named — name-the-protocol-and-fill-the-values (pure config, mostly shipped), and a layered zai pack you drop a key into — and the endpoint-by-protocol resolution that would make `-p zai` anywhere automatic."
 ---
 
 # Z.ai plumbing: one provider, every agent
 
-**Status:** DRAFT, 2026-08-31. Nothing here is built beyond what it inherits from the shipped
-`providers` key and the three derives. This doc is the **first real consumer** of
-[`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) and is meant to evolve in parallel
-with it: where the two disagree, that design wins and this one files an issue against it.
+**Status:** DECIDED, 2026-09-01 — every question this doc asked is settled (ledger, §7);
+implementation rides the parent doc's build order. Nothing here is built beyond what it inherits
+from the shipped `providers` key and the three derives. This doc is the **first real consumer**
+of [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md): where the two disagree, that
+design wins and this one files an issue against it — one such conflict was found and corrected
+(§4.1, OQ-Z5).
 
 **The want** *(the maintainer's words, 2026-08-31, lightly compressed)*: the user has
 `providers: { zai: { … } }` and a key; `-p zai` works anywhere; every selected agent fires at
@@ -56,9 +58,17 @@ each with its own base URL:
 | Anthropic-compatible | `https://api.z.ai/api/anthropic` | Claude Code (its native wire), anything Anthropic-shaped |
 | OpenAI-compatible | `https://api.z.ai/api/paas/v4` (coding-plan route: `…/api/coding/paas/v4`) | pi, codex, opencode, anything OpenAI-client-shaped |
 
-One API key from the z.ai console serves both. Whether the OpenAI route speaks only
-chat-completions or also the **Responses API** is **unverified** — OQ-Z1; it decides
-`wire_api: "openai-chat"` vs `"responses"` for codex, which defaults to `"responses"`.
+One API key from the z.ai console serves both. **The OpenAI route speaks chat-completions only —
+measured 2026-09-01 with an authenticated probe: `POST /v4/responses` is 404 on BOTH routes
+while `/v4/chat/completions` returns a real completion on the same host** (a keyless probe
+cannot settle this — z.ai's edge 401s garbage paths too, authenticating before routing).
+
+> [!WARNING]
+> **codex's derive DEFAULTS `wire_api` to `"responses"`**
+> ([`packs/codex/derive.lua:27`](../../packs/codex/derive.lua#L27)) — a zai provider entry that
+> omits `wire_api` gets codex wired to a route that 404s. Every zai entry must set
+> `wire_api: "openai-chat"` explicitly until that default is reconsidered (it predates this
+> measurement; a provider-agnostic default of `"openai-chat"` is the safe correction).
 
 ## 3. Route A — name the protocol, fill the values (pure config)
 
@@ -69,7 +79,8 @@ chat-completions or also the **Responses API** is **unverified** — OQ-Z1; it d
   "providers": {
     "zai": {
       "base_url": "https://api.z.ai/api/paas/v4",
-      "wire_api": "openai-chat",            // OQ-Z1: or "responses"
+      "wire_api": "openai-chat",            // measured: /v4/responses is 404 — and REQUIRED,
+                                            // because codex's derive defaults to "responses"
       "api_key_env": "ZAI_API_KEY",          // the NAME of the var — rename under review, parent OQ-6
       "models": { "default": "glm-4.7", "fast": "glm-4.7-air" }
     }
@@ -107,29 +118,37 @@ exists for. That gap is Route B's entrance.
 
 A `packs/zai` that carries everything except the key. Two payloads:
 
-**4.1 The claude bridge** — a profile plus, if claude needs teaching, a config-overlay (the exact
-shape the parent doc's [§7.1
-audit](profiles-as-pack-variants.md#71-feature-complete-against-the-fragment-wish-list) proved
-feature-complete against fragments):
+**4.1 The claude bridge** — a profile for the pack's OWN env, plus a `config-overlay` for
+claude's surface. **The earlier draft of this manifest was wrong** *(corrected 2026-09-01,
+found by the completeness audit)*: it put a `config` patch targeting `claude/settings` inside
+the `kind: "profile"` — but a profile's config patches fold into surfaces **the same pack owns**
+(parent §3.1/§3.2, `autonomy`'s own-surfaces rule), and `packs/zai` owns no claude surface. The
+cross-pack shape is exactly what `config-overlay` + the `profile` modifier is for (parent §7.1):
 
 ```jsonc
 // packs/zai/pack.json
 { "name": "zai",
   "contributes": [
+    // own declarations: env is ambient to the launch, so any pack may set it
     { "kind": "profile", "name": "zai", "requires_provider": "zai",
-      "env": { "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic" },
-      "config": [ { "agent": "claude", "name": "settings",
-                    "managed": { "env": { "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic" } } } ] },
+      "env": { "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic" } },
+    // another pack's surface: config-overlay, gated on the same profile name
     { "kind": "config-overlay", "profile": "zai", "surface": "claude/settings",
-      "config": { } }   // only if claude needs a key the owner doesn't write — see the split below
+      "config": { "env": { "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic" } } }
   ] }
 ```
 
-The **payload split** (parent §5, corrected) doing its job: `ANTHROPIC_BASE_URL` is
-configuration (routes, no secret) → settings `env` block, surviving any invocation;
+The **payload split** (parent §5) doing its job: `ANTHROPIC_BASE_URL` is
+configuration (routes, no secret) → settings `env` block (**measured honored**, OQ-Z4 — applied
+before the first API call), surviving any invocation;
 `ANTHROPIC_AUTH_TOKEN` **routes but cannot deliver** — the settings block would need the key
 *value*, and `kind: "env"` is literal-only with no interpolation
-([`kinds.go:96-99`](../../internal/packdecl/kinds.go#L96-L99)). So the token rides the
+([`kinds.go:96-99`](../../internal/packdecl/kinds.go#L96-L99)), a boundary that is now
+**ruled, not just shipped**: yolo's `${VAR}` env-reference expansion was REMOVED from MCP
+rendering by maintainer ruling on 2026-08-03
+([`mcp-configuration.md:208-212`](mcp-configuration.md#L208-L212),
+[`agent-credentials.md:214-218`](agent-credentials.md#L214-L218)) — yolo writes the reference
+verbatim and the *consumer* resolves it from its own environment. So the token rides the
 **process env** under its own name — one more line in the same `0600` file:
 
 ```bash
@@ -137,10 +156,12 @@ ZAI_API_KEY=<key>
 ANTHROPIC_AUTH_TOKEN=<the same key, when -p zai is active for claude>
 ```
 
-That second line is Route B's real cost and OQ-Z3's question in one line: a profile
-cannot *compose* env (say "token = the zai key") until env gains a reference form — which the
-parent design deliberately does not have yet. (The `env` **block** itself is now measured
-honored — OQ-Z4 — so the `ANTHROPIC_BASE_URL` half of the patch above is confirmed working.)
+That second line is the settled cost of the no-reference-form ruling (OQ-Z3, ledger) — and it is
+one line, because the **consumer derefs** everywhere else: pi's derive writes
+`apiKeyEnv: "ZAI_API_KEY"` (a NAME) into `models.json` and the agent resolves it per request.
+Compose-time code never sees secret values — the derive's `ctx` is a closed set of config tables
+(`mcp_servers`, `lsp_servers`, `providers`, `agent_profiles` — [`sources.go`](../../internal/agentcfg/manifest/sources.go)),
+and that boundary is the point.
 
 **4.2 The template itself** — the pack shipping the provider's *facts* (base URLs, wire protocols,
 model aliases) so the user's config shrinks to the key. Three shapes, in increasing machinery:
@@ -168,116 +189,56 @@ speaks:
 
 Resolution is then a fixed table — no pack per agent, no N×M (the parent doc §3.2's argument,
 kept): claude → `anthropic`; pi → `openai` (`openai-completions`/`openai-chat`); codex →
-`openai` (`responses` or chat, OQ-Z1); opencode → `openai`. With OQ-5's global ruling, `-p zai`
+`openai` (**chat-completions only — measured, OQ-Z1: `/v4/responses` is 404 on both routes**);
+opencode → `openai`. With OQ-5's global ruling, `-p zai`
 sets the name everywhere and each agent's derive (or a shared derive library) emits its own
-dialect of the one provider it selected. The `capabilities` string-list already in the schema
-(`validate.go`'s `knownProviderKeys`) is a natural home for "this provider also speaks X"
-marking, if it graduates.
+dialect of the one provider it selected.
+
+Three closure rules the schema sketch owed *(added 2026-09-01, from the completeness audit)*:
+
+1. **Coexistence:** `base_url` is valid ONLY alone — the single-protocol shorthand. `endpoints`
+   and `base_url` together is a validation error (refuse the ambiguity; the message points at
+   `endpoints`). Neither is an error too (a provider that exists only to be named).
+2. **The derive gate must move:** all three derives currently skip a provider without
+   `prov.base_url` (pi/derive.lua:8, codex/derive.lua:24, opencode/derive.lua:25) — an
+   `endpoints`-only provider would be silently dropped from every catalog. The gate becomes
+   `base_url OR endpoints`, with the per-protocol endpoint feeding each agent's dialect.
+3. **Selection is config, and the mechanism exists:** the derives write a *catalog* (presence),
+   not a choice — `-p zai` must also set each agent's use-this-one field (pi's default model,
+   codex's `model`/`model_provider`, opencode's `provider`). That is one more
+   `config-overlay`+`profile` patch per agent from `packs/zai` — no new mechanism, just this
+   pack doing its job with the §4.1 shape.
+
+The `capabilities` string-list already in the schema
+([`config.go:88`](../../internal/config/config.go#L88)'s `knownProviderKeys`) is a natural home
+for "this provider also speaks X" marking, if it graduates.
 
 ## 6. Shipped vs proposed
 
 | Piece | State |
 | :--- | :--- |
-| `providers` key, closed schema, `api_key_env` name-contract | **shipped** (`validate.go:885-944`) |
+| `providers` key, closed schema, `api_key_env` name-contract | **shipped** ([`validate.go:885-945`](../../internal/config/validate.go#L885-L945)) |
 | pi / codex / opencode derives wiring every provider | **shipped** — Route A works today, minus the endpoint wrinkle |
-| `kind: "profile"` + `requires_provider` + §6.2 preflight | proposed (parent §3.1, §6.2) |
-| `-p <name>` global, declared-or-not | ruled 2026-08-31 (parent OQ-5); mechanism proposed |
+| z.ai wire protocol: chat-completions only | **measured 2026-09-01** (OQ-Z1; codex's `responses` derive default is a known 404 for zai — §2) |
+| `kind: "profile"` + `requires_provider` + §6.2 preflight | proposed (parent §3.1, §6.2 — which now also covers the missing-provider case, parent OQ-9) |
+| `-p <name>` global, declared-or-not | **ruled 2026-08-31** (parent OQ-5); mechanism proposed |
 | claude bridge (settings `env` block honored for `ANTHROPIC_*`) | **measured YES, 2026-08-31** (OQ-Z4: controlled listener, settings-only run hit) |
-| `endpoints` by protocol + resolution | proposed (§5); OQ-Z2 |
-| provider defaults layer (B2) | proposed, amends a non-goal; only if B3 is insufficient |
+| `endpoints` by protocol + resolution | **ruled 2026-08-31** (OQ-Z2: one provider, one key, any shape); schema proposed (§5, with its three closure rules) |
+| provider defaults layer (B2) | not needed while B3 covers it; only if B3 proves insufficient |
 
-## 7. Open Questions
+## 7. Decision Ledger
 
-1. 💬 🔒 **OQ-Z1: Does z.ai's OpenAI route speak the Responses API, or only chat-completions?**
-   Decides `wire_api` for codex (which defaults to `"responses"`). Ten minutes against the live
-   endpoint with a scratch key; no design work should guess it.
+No open questions remain in this doc; the one live decision in the family is the parent's OQ-6
+(the `api_key_env` rename). IDs are stable — the parent doc and code comments cite them.
 
-   _Leaning:_ Test before writing either config.
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| OQ-Z1 | **z.ai's OpenAI route speaks chat-completions only.** Authenticated probe: `POST /v4/responses` → 404 on both `api/paas/v4` and `api/coding/paas/v4`, while `/v4/chat/completions` → a real completion. `wire_api: "openai-chat"` always; codex's `"responses"` derive default is a known 404 for zai. (A keyless probe cannot settle this — the edge 401s nonexistent paths too.) | 2026-09-01 | §2 |
+| OQ-Z2 | **One provider, one api key, any shape needed** — the two-entry bridge is a temporary spell; `endpoints`-by-protocol is the required end-state. *(Ruled by the maintainer.)* | 2026-08-31 | §3, §5 |
+| OQ-Z3 | **No env reference form — env stays literal-only.** The controlling ruling is shipped: yolo's `${VAR}` expansion was REMOVED from MCP rendering 2026-08-03 (ambient process env must not be a config-rendering input; yolo writes references verbatim and the consumer resolves them). The alias costs one literal line in the same `0600` file; the shipped pattern everywhere else is consumer-deref (`apiKeyEnv` name-slots), with the derive `ctx` a closed set of config tables that never carries secret values. | 2026-09-01 | §4.1 |
+| OQ-Z4 | **Claude Code honors `settings.json`'s `env` block before the first API call.** Controlled listener, claude 2.1.252, scratch `CLAUDE_CONFIG_DIR`, inherited `ANTHROPIC_*` scrubbed: settings-only `ANTHROPIC_BASE_URL` produced traffic identical to the process-env control. Retires the parent's R3. | 2026-08-31 | §4.1, parent §5 |
 
-   **Answer (leaning affirmed by the maintainer, 2026-08-31):**
-   > Test first — and note the keyless probe was TRIED and is insufficient: unauthenticated
-   > `POST` to `…/v4/chat/completions`, `…/v4/responses`, and (as the control) a garbage path
-   > `…/v4/nonexistent-probe` all return **401** — z.ai's edge authenticates before routing, so
-   > path existence cannot be read without a credential. Only an authenticated probe settles it.
-
-2. ✅ **OQ-Z2: `endpoints` by protocol, or two provider entries?** §5's map is one subscription,
-   one key, two URLs; two entries (`zai`, `zai-claude`) work today but split the name and
-   duplicate the key. If `endpoints` lands, `base_url` becomes the single-protocol shorthand.
-
-   _Leaning:_ `endpoints`, with `base_url` kept as shorthand for single-protocol providers —
-   the wrinkle in §3 is the motivating case and it is not rare (Bedrock is the same shape).
-
-   **Answer (ruled by the maintainer, 2026-08-31):**
-   > "However you do it, **one provider**: one provider and one api key should be able to
-   > produce any shape needed." The two-entry bridge is demoted to a temporary spell; §5's
-   > endpoint map (or equivalent) is the required end-state.
-
-3. 💬 **OQ-Z3: Does env need a reference form?** — *(rewritten in files, per review)* Route B's
-   token line (`ANTHROPIC_AUTH_TOKEN` = the zai key) is spelled by hand today because no writer
-   of files knows the key's value. Two questions inside the review comment, answered first:
-
-   - **"A derive can do whatever it wants — why can't it deref?"** It cannot see a value to
-     deref: the derive's `ctx` is a **closed set of live config tables** — `mcp_servers`,
-     `lsp_servers`, `providers`, `agent_profiles`
-     ([`sources.go`](../../internal/agentcfg/manifest/sources.go)) — and no member carries
-     secret values. Compose-time code sees configuration, never credentials; that boundary is
-     the point.
-   - **"I guess a kind is just from another pack?"** No — a **kind** is the closed vocabulary of
-     declarative contribution shapes core renders (footprint-checked,
-     [`kinds.go`](../../internal/packdecl/kinds.go)); a **derive** is the pack's own Lua at
-     compose time. Neither is "from another pack" — and neither needs to deref, because the
-     **consumer** does. File A shows the shipped pattern.
-
-   **A. What ships — the consumer derefs, nobody else.** pi's derive writes a NAME into pi's
-   config and the agent resolves it per request:
-
-   ```jsonc
-   // ~/.pi/agent/models.json — written by packs/pi/derive.lua
-   { "zai": { "baseUrl": "https://api.z.ai/api/paas/v4", "api": "openai-chat",
-              "apiKeyEnv": "ZAI_API_KEY", "models": [ … ] } }   // a NAME; pi reads $ZAI_API_KEY itself
-   ```
-
-   Claude is the gap only because its equivalent slot — `settings.json`'s `env` block — takes
-   **literal values** (now measured honored, OQ-Z4), and nothing that writes a file may know the
-   token's value, so nothing can fill a literal slot with it.
-
-   **B. Today's answer — the alias is spelled by hand, once, in the env file:**
-
-   ```bash
-   # ~/.config/yolo-jail/env (untracked, 0600)
-   ZAI_API_KEY=<key>
-   ANTHROPIC_AUTH_TOKEN=<the same key>   # the alias; claude reads process env (works today — measured)
-   ```
-
-   **C. The proposal — launch-time deref in the env renderer.** A `{env:VAR}` value expanded
-   where `env_sources` hydration already happens (the run pipeline's env assembly) — not in the
-   derive, not in a kind:
-
-   ```jsonc
-   // packs/zai/pack.json — the profile says where the value comes FROM
-   { "kind": "profile", "name": "zai",
-     "env": { "ANTHROPIC_AUTH_TOKEN": "{env:ZAI_API_KEY}" } }   // expanded at launch → process env
-   ```
-
-   _Leaning:_ Keep env literal (B). C is real machinery — a renderer that composes values
-   instead of names, plus a security read (what else `{env:…}` could pull, and who may write the
-   string). Pattern A covers every agent with a name-slot; claude is the only literal-slot
-   agent, and B costs one duplicated line in a `0600` file.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. ✅ **OQ-Z4: Does Claude Code honor `settings.json`'s `env` block for `ANTHROPIC_BASE_URL`
-   and friends?** Inherited from the parent's OQ-4 — this doc's Route B was blocked on the same
-   measurement. If no, the claude bridge is profile-gated `kind: "env"`, jail-notch plus wrapper.
-
-   **Answer (measured 2026-08-31):**
-   > **YES.** Controlled listener experiment — claude 2.1.252, scratch `CLAUDE_CONFIG_DIR`,
-   > inherited `ANTHROPIC_*` scrubbed from the process env. Control run: `ANTHROPIC_BASE_URL`
-   > in the **process env** → the CLI sent its startup probe (`HEAD /api/hello`) and
-   > `POST /v1/messages?beta=true` to the listener (8 attempts with backoff). Experiment run:
-   > the same var present **ONLY in `settings.json`'s `env` block** → identical traffic to the
-   > listener, same startup probe. The block is applied before the first API call. Scope: the
-   > witness var is `ANTHROPIC_BASE_URL`; `CLAUDE_CODE_USE_BEDROCK` rides the same
-   > settings-env mechanism but was not separately exercised (a Bedrock re-test needs AWS
-   > credentials). **Resolves the parent's OQ-4 and retires R3.**
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| OQ-Z5 | **The claude patch is `config-overlay`, not the profile's `config` field** — `packs/zai` owns no claude surface, and a profile's config patches fold only into surfaces the same pack owns (parent §3.1/§3.2). Found as a live bug in the flagship manifest by the 2026-09-01 completeness audit. | 2026-09-01 | §4.1 |
+| OQ-Z6 | **`endpoints` closure rules:** `base_url` valid only alone (together = validation error naming `endpoints`); the derives' `prov.base_url` gate becomes `base_url OR endpoints`; and selection is one more `config-overlay`+`profile` patch per agent setting that agent's use-this-one field — no new mechanism. | 2026-09-01 | §5 |
