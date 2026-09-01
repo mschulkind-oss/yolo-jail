@@ -593,7 +593,7 @@ stops the launch. That is the intended trade under your ruling, and it is the on
 ### 💬 18 — The provider table is checked in yolo's vocabulary and delivered in everyone else's
 
 📄 [`provider-table-fidelity.md`](../design/provider-table-fidelity.md) —
-**OQ-PT1 · OQ-PT2 · OQ-PT3 · OQ-PT4 · OQ-PT5** · follow-on to
+**OQ-PT1 · OQ-PT2 · OQ-PT3 · OQ-PT4 · OQ-PT5 · OQ-PT6 · OQ-PT7** · follow-on to
 [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) and
 [`zai-plumbing.md`](../design/zai-plumbing.md), both of which shipped 2026-08-29 → 2026-09-01 and are
 otherwise sound · continues 💬 **17** §7 step 3 rather than contradicting it
@@ -624,11 +624,23 @@ fix in code.
 `980aed71` now spells one z.ai URL **twice** in `packs/zai/pack.json` with no test pinning them
 equal — the duplication `d1e45e8d` had explicitly declined one commit earlier, for the right reason.
 
-**Three more, sharing no cause.** A `providers: {"bedrock": null}` — the documented opt-out — refuses
-a `claude` launch outright (measured). `--profile` means startup timing *or* a pack profile depending
-on the next token, and two commits have already gone into patching that parse. And the census: this
-work made `zai` the **twelfth** pack and the first that installs no CLI *and* ships no loophole,
-while `AGENTS.md:8` still says ten.
+**And the enum is not four protocols but three.** `openai-chat` and `openai-completions` name the
+same wire protocol under two agents' spellings, responses carries only codex's, and copilot's
+`{completions, responses}` is a fifth dialect nothing models. The set was assembled by collecting
+the spellings that appeared in the derives, which is why it validates and cannot translate — there
+is no canonical member to translate *from*.
+
+**Four more, sharing no cause — the largest raised in review, not found in the code.** **"Profile"
+names three things**: a pack's declared variant, a global free-form mode string any pack may gate on
+(`-p`, `ctx.pack_profiles`, the new `config-overlay` gate), and `render.Profile`'s confinement
+preset. Only the first has a schema, and **only providers have a user layer** — `pack_profiles` is a
+selector, so "take `bedrock` plus one launch flag" has no spelling short of forking the pack.
+Measured: `packs/zai`'s own `kind: "profile"` has an **empty body**, its `requires_provider` is
+already implied by the provider half, and **deleting it leaves the whole suite green**. Then: a
+`providers: {"bedrock": null}` — the documented opt-out — refuses a `claude` launch outright
+(measured); `--profile` means startup timing *or* a pack profile depending on the next token, after
+two commits patching that parse; and the census — this work made `zai` the **twelfth** pack and the
+first that installs no CLI *and* ships no loophole, while `AGENTS.md:8` still says ten.
 
 **What needs no ruling, and is worth doing regardless:** the missing integration test — nothing in
 `integration/` mentions `zai`, `pack_profiles` or `providers`, though the pattern exists and **an

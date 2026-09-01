@@ -3,7 +3,7 @@ title: "The provider table is checked in yolo's vocabulary and delivered in ever
 date: 2026-09-01
 status: draft
 tags: [packs, providers, profiles, derives, zai, codex, pi]
-summary: "Follow-up to profiles-as-pack-variants and zai-plumbing, written from a review of the shipped work. The provider/profile machinery is sound; three defects share one cause — a value is validated against a set yolo owns and then handed verbatim to consumers that own different sets and different resolution rules. The headline instance ships a wire_api into codex's config that the repo's own source-verified research says codex refuses. Three further defects are independent: a preflight that overrules the user's documented opt-out, an overloaded --profile, and a census the work did not update."
+summary: "Follow-up to profiles-as-pack-variants and zai-plumbing, written from a review of the shipped work. The provider/profile machinery is sound; three defects share one cause — a value is validated against a set yolo owns and then handed verbatim to consumers that own different sets and different resolution rules. The headline instance ships a wire_api into codex's config that the repo's own source-verified research says codex refuses, and the enum it comes from turns out to be four borrowed spellings naming three protocols. Four further defects are independent, the largest of them conceptual: \"profile\" names three things, only one of which has a user layer, and zai's own profile declaration is measurably a no-op."
 ---
 
 # The provider table is checked in yolo's vocabulary and delivered in everyone else's
@@ -19,7 +19,11 @@ the derives pass them through verbatim. The same shape recurs twice more: the co
 table can hold a `base_url`/`endpoints` pair that the config validator refuses when a user
 writes it directly, and `packs/zai` now spells one endpoint URL twice with nothing pinning the
 two copies equal. All three are **the abstraction being internally consistent and externally
-unchecked**. Three further defects share no cause with those and are listed separately (§5).
+unchecked**, and §3.0a takes it one step further: the enum is not four protocols but three, with
+chat completions spelled twice. **Four** further defects share no cause with those (§5) — the
+largest of them conceptual, and raised in review rather than found in the code: the word "profile"
+names three different things, only one of which a user can override, and `packs/zai`'s own
+`kind: "profile"` declaration is measurably a no-op (§5.4).
 
 > [!IMPORTANT]
 > **The most important section is [§3](#3-d1--the-wire_api-enum-names-nobodys-protocol).** It is
@@ -65,7 +69,7 @@ manufacture a violation of is a lint, not an invariant.
 > [`zai-plumbing.md`](zai-plumbing.md) that those docs claim to have measured, I re-measured and
 > it holds. The provider kind cannot express a credential, the skew handling is right at all
 > three levels, the backend-parity repairs are real, and `d1e45e8d`'s reasoning about not
-> duplicating a provider fact into a config patch is correct — §5.3 is where a sibling commit
+> duplicating a provider fact into a config patch is correct — §4.2 is where a sibling commit
 > then did the thing that commit declined to do.
 
 ---
@@ -132,6 +136,36 @@ consumers' own vocabularies:
 `openai-responses`. `openai-completions` is pi's spelling; codex has no such value.
 `openai-chat` belongs to neither — it resembles codex's **removed** `chat`, with a prefix codex
 never used.
+
+### 3.0a The enum is not four protocols — it is three, one of them spelled twice
+
+Line the four values up against what each actually names on the wire, and the set stops being a
+protocol vocabulary at all:
+
+| Canonical value | Protocol it names | Whose spelling it is |
+| :--- | :--- | :--- |
+| `anthropic` | Anthropic Messages | shared |
+| `openai-chat` | OpenAI **chat completions** | nobody's — resembles codex's removed `chat` with a prefix codex never used |
+| `openai-completions` | OpenAI **chat completions** — *the same protocol* | pi's |
+| `responses` | OpenAI responses | codex's |
+
+**Two of the four name one protocol, and the protocol pi and codex actually differ over —
+responses — has only codex's spelling.** A fifth dialect is already in the tree unmodelled:
+copilot's `COPILOT_PROVIDER_WIRE_API ∈ {completions, responses}`, where `completions` again means
+chat completions ([`local-model-endpoints.md`](../research/local-model-endpoints.md) §"Copilot
+CLI", 2026-08-20).
+
+So the enum was assembled by collecting the spellings that appeared in the derives, not by
+enumerating protocols. That is why it validates and does not translate: a set of borrowed
+spellings has no canonical member to translate *from*.
+
+> [!NOTE]
+> **Residual uncertainty, stated rather than smoothed over.** That `openai-completions` means chat
+> completions rather than the legacy `/v1/completions` is strongly indicated — pi's own module is
+> `dist/api/openai-completions.js`, and the maintainer's working `~/.pi/agent/models.json` points
+> that value at z.ai's `/api/paas/v4`, which serves `/chat/completions` and nothing else — but it
+> is inferred from two data points, not read out of pi's source. It carries the same verification
+> debt this doc charges D1 with, and §9 step 2 pays it.
 
 ### 3.1 Where the value came from, and why the check missed it
 
@@ -256,9 +290,11 @@ which is a schema question, not a code-placement one, and is OQ-PT3.
 
 ---
 
-## 5. Three more, sharing no cause with §3–§4
+## 5. Four more, sharing no cause with §3–§4
 
-These are grouped only by "found in the same review". Each stands alone.
+These are grouped only by "found in the same review". Each stands alone. **§5.4 is the
+conceptual one, and it is the one a reader is most likely to have already noticed** — it came out of
+review, not out of the code.
 
 ### 5.1 D4 — the preflight overrules the user's documented opt-out
 
@@ -319,6 +355,68 @@ Two independent gaps, both cheap:
 
 ---
 
+### 5.4 D7 — "profile" names three things, and only one of them has a user layer
+
+This one came out of review rather than out of the code, and it is the finding most likely to be
+independently noticed, because the confusion is in the vocabulary rather than in a behaviour.
+
+**What a profile is, stated plainly.** A `kind: "profile"` contribution is *a named variant of one
+pack's own declarations* — the shipped `autonomy` contribution with an open selector instead of a
+two-valued one ([`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) §3.1). Its body is a
+`config` patch folded into the managed layer of a surface **that same pack owns**, launch flags
+merged into a binary's, a static `env` map of literals, and `requires_provider`. That is the whole
+mechanism.
+
+**But the word does three jobs**, and only the first is that mechanism:
+
+| # | What "profile" means there | Who owns it | Where |
+| :--- | :--- | :--- | :--- |
+| 1 | a **named variant of a pack's own declarations** | the pack | `kind: "profile"` |
+| 2 | a **global free-form mode name** any pack may test against | nobody — it is a bare string | `pack_profiles[cli]`, `-p`, `ctx.pack_profiles`, the `config-overlay` `profile` gate |
+| 3 | the **confinement preset** a render happens under (jail/host, autonomy bit) | core | [`render.Profile`](../../internal/render/confinement.go#L96), `Target.Profile()` |
+
+(3) is unrelated and predates the rest; it is listed because a reader grepping `Profile` in the Go
+tree meets it first. **The live confusion is (1) against (2)**, and it is structural, not
+cosmetic: (1) is declared and scoped to a pack, (2) is undeclared and global. OQ-5's ruling made
+profile names free-form and global on purpose — `-p zai` sets the name for every selected pack
+whether or not any of them declared it — so **(2) works with no `kind: "profile"` anywhere in the
+tree.** "Cross-pack profile filtering" is just (2): the `config-overlay` `profile` field
+([`packoverlay.go:194`](../../internal/packoverlay/packoverlay.go#L194)) tests the active name for
+the target surface's owning agent. It is not reaching into another pack's variant; there is no
+variant involved, only a string comparison.
+
+**Measured, 2026-09-01.** `packs/zai`'s `kind: "profile"` contribution carries an **empty body** —
+no config, no launch, no env, only `requires_provider: "zai"`. And that assertion is redundant:
+`requiredProviders` already adds every provider a selected pack *ships*, so the provider is required
+by the `kind: "provider"` half regardless. **Deleting the contribution outright leaves the entire
+test suite green** — including the tests written for the zai pack. It is a no-op declaration that
+reads like the thing making `-p zai` work.
+
+> [!WARNING]
+> **Do not conclude from this that `kind: "profile"` is dead weight.** `packs/claude`'s `bedrock`
+> profile carries a real body — `env.CLAUDE_CODE_USE_BEDROCK`, a `config` patch onto
+> `claude/settings`, and `requires_provider` — and none of that has another home. The finding is
+> that the kind is load-bearing for a pack varying **its own** surfaces and inert for a pack whose
+> only job is to name a provider. zai is the second shape and was written as if it were the first.
+
+**And the layer asymmetry is the part that reads as "weird".** Set the two kinds side by side:
+
+| | Who may declare it | Who may override it | Result |
+| :--- | :--- | :--- | :--- |
+| `kind: "provider"` | pack **and** user | user, **per field**, via the `providers` config key | pack ships facts, user retunes one URL or one alias and keeps the rest |
+| `kind: "profile"` | **pack only** | nobody — `pack_profiles` is a *selector*, a CLI name to a profile **name** | pack ships the body, user may only pick it by name or not |
+
+There is no config key holding a profile *body*, so a user who wants `bedrock` but with one extra
+launch flag has no spelling for it — the options are take the pack's variant whole, or fork the
+pack. That is a real gap and it is invisible from the schema, because `pack_profiles` *looks* like
+the user-side half of a two-layer story and is only a selector.
+
+It also means the natural reading of the two words is **inverted from the implementation**: one
+would expect the provider to carry the service's facts (it does) and the profile to carry what this
+machine or this user contributes (it does not — machine values arrive through `env_sources` and the
+process env, and the profile carries pack-authored literals). Whether that is a naming problem or a
+missing layer is OQ-PT6; whether (1) and (2) should stop sharing a word is OQ-PT7.
+
 ## 6. What this does NOT propose
 
 - **No change to `kind: "provider"`'s schema**, its exclusivity, its skew handling, or the fact
@@ -342,8 +440,8 @@ Two independent gaps, both cheap:
 | # | Alternative | Verdict |
 | :--- | :--- | :--- |
 | A1 | **Make the enum the union of all agents' spellings** (add `openai-responses`, `chat`, …) and keep verbatim pass-through. | **Rejected.** Two agents spelling the same protocol differently makes the union ambiguous by construction — a pack author writing `openai-responses` has silently chosen "pi, and nothing else". The canonical/dialect split exists to stop that. |
-| A2 | **Translate centrally in Go**, composing a per-agent value into the table before it crosses. | **Rejected for v1.** It puts an agent-name switch back in core, which is what `pack-code-separation.md` forbids and what `agentenv.agentProtocols` is already an acknowledged exception to. Reconsider only if a fourth consumer appears. |
-| A3 | **Declare the dialect in the manifest** — a per-agent spelling table on the pack. | **Rejected as premature.** It is schema for a fact that changes when an agent releases, not when a pack does; the derive is already versioned with the pack that owns the agent. |
+| A2 | **Translate centrally in Go**, composing a per-agent value into the table before it crosses. | **Rejected, and it was rejected before this doc.** It puts an agent-name switch back in core, which `pack-code-separation.md` forbids and which `agentenv.agentProtocols` is already an acknowledged exception to. Recorded here so the refusal has a home, not because it was ever live — see OQ-PT1's rescoping note. |
+| A3 | **Declare the dialect in the manifest** — a per-agent spelling table on the pack. | **Rejected as premature**, same status as A2. It is schema for a fact that changes when an agent releases, not when a pack does; the derive is already versioned with the pack that owns the agent, which is the same argument that made the placement question not a question. |
 | A4 | **Refuse the composed `base_url`/`endpoints` pair** rather than resolving it. | **Rejected as the primary fix, viable as an addition.** A refusal makes a per-field override of a pack-shipped provider impossible to spell, which is the feature `zai-plumbing.md` §7 calls "overrides, not authoring". The resolution rule is the fix; a warning on the manufactured pair is the open half of OQ-PT2. |
 | A5 | **Leave D4 as-is and document the hatch.** | **Rejected.** `YOLO_ALLOW_MISSING_PROVIDERS=1` is a launch-refusal escape hatch; a user who has to set it permanently has lost the refusal for every real case too. |
 
@@ -367,31 +465,53 @@ Three of these need no ruling and are independent of the rest.
 1. **The integration test first** (§5.3), asserting the rendered codex and pi config against each
    agent's real vocabulary. It fails today, which is the point: it is the regression test for D1
    and it makes step 2 verifiable rather than argued. No ruling needed.
-2. **The dialect translation in the three derives** (§3.4), with provenance on every entry, plus
-   correcting `packs/zai/README.md`'s parity table to record §3.3's finding. Needs OQ-PT1.
+2. **The canonical vocabulary, then the dialect translation in the three derives** (§3.0a, §3.4),
+   with provenance on every entry — including paying the pi verification debt §3.0a's note names —
+   plus correcting `packs/zai/README.md`'s parity table to record §3.3's finding. Needs OQ-PT1.
 3. **The census and the guide line** (§5.3, §5.2's doc half) — `AGENTS.md`, `packs/embed.go`,
    `USER_GUIDE.md:217`. No ruling needed, and worth doing regardless of everything above.
 4. **The address resolution rule** (§4.1), one answer for four consumers. Needs OQ-PT2.
 5. **The `config-overlay` placeholder** (§4.2), removing zai's duplicated literal. Needs OQ-PT3,
    and is the only item here that touches a schema.
 6. **The preflight discriminator** (§5.1). Needs OQ-PT4.
+7. **The profile layer, if it gets one** (§5.4). Needs OQ-PT6, and it is the only item that adds a
+   user-facing config surface rather than correcting one.
 
-D5 (§5.2) is deliberately not in this list — it is a breaking CLI change gated on OQ-PT5, and its
-documentation half rides step 3.
+Two are deliberately not in this list. **D5** (§5.2) is a breaking CLI change gated on OQ-PT5, and
+its documentation half rides step 3. **OQ-PT7's rename** is a break across a config key, a CLI flag,
+a Lua `ctx` field and an env var; if it happens it should ride whichever other break lands first,
+not lead one.
+
+**One thing worth doing whatever is ruled:** `packs/zai`'s no-op `kind: "profile"` contribution
+(§5.4) either grows the body its README implies or comes out. Leaving a declaration that reads as
+load-bearing and is measurably inert is the same failure mode as the stale census — it is a place a
+reader stops checking.
 
 ---
 
 ## 10. Open Questions
 
-1. 💬 **OQ-PT1: Where does the canonical→dialect translation live?** §3.4 puts a per-agent map in
-   each derive; A2 puts it in Go; A3 puts it in the manifest. This decides whether core ever
-   learns an agent's protocol spelling, and it is the one architectural call in the doc — the rest
-   of §3 follows from it.
+1. 💬 **OQ-PT1: What should the canonical protocol vocabulary BE?** *(Rescoped after review —
+   the original question asked **where** the translation lives, and that was never open: the pack
+   that ships the agent knows its dialect, so it is the derive, and
+   [`zai-plumbing.md`](zai-plumbing.md) §5 already ruled it in as many words — "each agent's derive
+   (or a shared derive library) emits its own dialect of the one provider it selected". §3.4 is
+   executing that ruling, not proposing it. A2/A3 in §7 are kept as recorded refusals, not as live
+   options.)*
 
-   _Leaning:_ The derive. It is already the one place that knows exactly one agent, it versions
-   with the pack that owns that agent, and it keeps core free of the agent-name switch
-   `pack-code-separation.md` forbids. The cost is three small tables instead of one, which is the
-   right cost — they are three different facts.
+   What is actually open is the set being translated **from**. §3.0a shows `knownWireAPIs` is not a
+   protocol vocabulary — it is four borrowed spellings naming three protocols, with chat
+   completions spelled twice (`openai-chat`, `openai-completions`) and responses carrying only
+   codex's spelling. A translation table has to map from canonical names, and today there is no
+   canonical name to map from. This decides what a pack author writes and what the config validator
+   enforces.
+
+   _Leaning:_ Three protocol-shaped names — `anthropic`, `openai-chat-completions`,
+   `openai-responses` — chosen to be nobody's dialect so that no derive can pass one through by
+   accident and have it work. That last property is worth more than the migration cost: a canonical
+   value that happens to be valid in one agent's config is exactly how D1 stayed invisible. The
+   cost is a rename of a key `packs/zai` and any user `providers` entry already carry, which the
+   retired-key convention (`api_key_env` → `api_key_env_name`) already has a shape for.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -455,6 +575,40 @@ documentation half rides step 3.
    **Answer:**
    > _(empty — fill in when decided)_
 
+6. 💬 **OQ-PT6: Does a profile get a user layer, the way a provider has one?** §5.4. A provider is
+   declared by packs **and** users and merges per field; a profile is declared only by packs, and
+   `pack_profiles` is a selector, not an override. So "take `bedrock` but with one more launch flag"
+   has no spelling short of forking the pack. This decides whether `pack_profiles` stays a
+   name-to-name map or grows an optional body.
+
+   _Leaning:_ Yes, and by making the profile body mergeable exactly the way a provider entry is —
+   pack under user, per field, `null` to drop — because that convention is already built, already
+   documented, and already what a reader expects on seeing the two kinds side by side. What I would
+   **not** do is invent a second merge shape for it. The honest counter-argument is that a profile
+   body can carry launch flags and a config patch, which are a good deal more dangerous in a
+   workspace-scope config than a URL is; if this lands it should be user-scope only, the way `packs`
+   already is.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+7. 💬 **OQ-PT7: Should the pack-variant and the global mode name stop sharing the word "profile"?**
+   §5.4's (1) versus (2). They are different mechanisms with different owners and different scopes —
+   a declared, pack-scoped variant, and an undeclared, global, free-form string — and (2) works with
+   no instance of (1) anywhere, which is measurably true of `packs/zai` today. This decides whether
+   the confusion is fixed in the vocabulary or documented and lived with.
+
+   _Leaning:_ Rename (2), not (1). (1) is the one with a schema, a footprint claim and a
+   ledger behind it; (2) is a bare selector string and is the cheaper thing to move. Something like
+   **mode** for (2) would make the `config-overlay` gate read as what it is — "render this when mode
+   X is active" — and would leave "profile" meaning exactly one thing. But this is a rename across
+   a config key, a CLI flag, a Lua `ctx` field and an env var, so the cost is real and it is
+   plausibly not worth paying until something else forces a break. I would not do it alone; I would
+   do it with OQ-PT5 if that one lands.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
 ---
 
 ## 11. Decision Ledger
@@ -477,3 +631,7 @@ _Empty — nothing in this doc is settled yet. Rulings compact here from §10, k
 - `AGENTS.md`'s pack census matching `ls packs/`, checkable by the sweep
   [`docs/plans/README.md`](../plans/README.md) already defines.
 - `providers: {"<name>": null}` meaning the same thing to the composer and to the preflight.
+- Every `kind: "profile"` in the tree failing at least one test when deleted — the property
+  `packs/zai`'s does not have today (§5.4), and the cheapest guard against the next inert
+  declaration.
+- A reader able to say what "profile" means without asking which of three things is meant.
