@@ -212,3 +212,42 @@ func TestEnvSourcesAnchorBesideTheDeclaringFile(t *testing.T) {
 		t.Error("the workspace's prod.env leaked in — a user-config entry resolved against the workspace")
 	}
 }
+
+// DescribeEnvSources is the "here is where I looked" half of the §6.2 credential refusal
+// (profiles-as-pack-variants.md §6.1): a launch that refuses because a key never arrived
+// has to name the entries it walked, or the reader is left hunting through their config
+// for the channel that was supposed to deliver it. Pinned per entry kind, because a
+// description that renders a dotenv file as "(inline dict)" — or a path that never
+// resolved — is a refusal that misdirects the reader.
+func TestDescribeEnvSourcesNamesEveryEntryKind(t *testing.T) {
+	ws := t.TempDir()
+	envFile := filepath.Join(ws, "secrets.env")
+	if err := os.WriteFile(envFile, []byte("ZAI_API_KEY=sk\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := decode(t, `{
+		"env_sources": [
+			"`+envFile+`",
+			{"INLINE": "yes", "OTHER": null},
+			"~/relative-home.env"
+		]
+	}`)
+
+	got := DescribeEnvSources(ws, cfg)
+	if len(got) != 3 {
+		t.Fatalf("DescribeEnvSources = %#v, want one description per entry", got)
+	}
+	if got[0] != envFile {
+		t.Errorf("file entry described as %q, want the path as resolved", got[0])
+	}
+	if !strings.Contains(got[1], "INLINE") || !strings.Contains(got[1], "OTHER") {
+		t.Errorf("inline entry must name the keys it assigns: %q", got[1])
+	}
+	if !strings.HasPrefix(got[2], homeForExpand()) {
+		t.Errorf("~ entry must be described expanded, got %q", got[2])
+	}
+
+	if none := DescribeEnvSources(ws, decode(t, `{}`)); len(none) != 0 {
+		t.Errorf("a config with no env_sources described %#v, want nothing", none)
+	}
+}

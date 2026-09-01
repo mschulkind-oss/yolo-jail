@@ -122,6 +122,133 @@ func (p *Pack) installsBin(bin string) bool {
 	return false
 }
 
+// requiredProviders is what the SELECTED pack set demands of the composed providers
+// table (profiles-as-pack-variants.md §6.2 as rescoped, OQ-13), in pack order and
+// deduplicated: every provider a pack SHIPS (`kind: "provider"` — selecting the pack is
+// the intent, so its facts are not decoration) plus every provider a declared variant
+// NAMES (`kind: "profile"` requires_provider). The profile half is deliberately not
+// gated on the variant being ACTIVE: OQ-13 withdraws the earlier active-profile scoping,
+// because a variant that resolved to nothing would still have written a config pointing
+// at a provider this launch never delivered.
+//
+// The check is per PACK, not per launch: the pair is what a refusal names ("pack zai
+// requires provider zai"), which is the only actionable form — "provider zai is missing"
+// alone does not say who wanted it.
+func requiredProviders(packs []*Pack) []providerRequirement {
+	var out []providerRequirement
+	for _, p := range packs {
+		seen := map[string]bool{}
+		add := func(name string) {
+			if name == "" || seen[name] {
+				return
+			}
+			seen[name] = true
+			out = append(out, providerRequirement{pack: p.Name, provider: name})
+		}
+		for _, prov := range p.Decl.Providers() {
+			add(prov.Name)
+		}
+		for _, prof := range p.Decl.Profiles() {
+			add(prof.RequiresProvider)
+		}
+	}
+	return out
+}
+
+// providerRequirement is one (pack, provider) pair requiredProviders collected.
+type providerRequirement struct {
+	pack     string
+	provider string
+}
+
+// entryString reads one string field out of a composed provider entry, "" when the
+// entry is absent or the field is not a string. The composed table is what the derives
+// read, so it is also what the pre-flight reads: a user override of api_key_env_name
+// re-points the check at the variable the launch would actually have hydrated.
+func entryString(entry *jsonx.OrderedMap, key string) string {
+	if entry == nil {
+		return ""
+	}
+	v, ok := entry.Get(key)
+	if !ok {
+		return ""
+	}
+	s, _ := v.(string)
+	return s
+}
+
+// ProviderCredentialGaps is the SELECTED-PACK CREDENTIAL PRE-FLIGHT
+// (profiles-as-pack-variants.md §6.2 as rescoped by OQ-13): for every provider a selected
+// pack requires, the composed table must name it and the variable its api_key_env_name
+// points at must be set in the launch environment, or the launch is refused.
+//
+// lookup answers "is this variable set in what this launch would deliver" — the whole
+// assembled environment, not one channel of it. On the jail notch that is the env_sources
+// hydration, the -e pairs of the assembled argv, and the environment yolo itself was
+// launched from (which the env_shape relay can draw on); on the host notch it is the
+// composed process env. A provider that declares no api_key_env_name (Bedrock, whose
+// credential is the ambient AWS chain) is checked for EXISTENCE only.
+//
+// consulted is what the caller asked for credentials — the env_sources entries it walked,
+// the invoking environment, whatever this notch actually consults — and is quoted verbatim
+// in the facts. Naming it is the §6.1 half of the ruling: env_sources fails open (a
+// missing file warns and skips), so without this line the reader is told only that a key
+// never arrived, not which channel was supposed to bring it.
+//
+// Returns the FACT lines, empty when every requirement is deliverable. No lead and no
+// remedy: the lead is the refusing notch's voice, and the remedy names the channels only
+// that notch knows — including the escape hatch (paths.AllowMissingProvidersEnv), which a
+// refusal must name and an override notice must not re-offer.
+func ProviderCredentialGaps(packs []*Pack, providers *jsonx.OrderedMap,
+	lookup func(string) (string, bool), consulted []string) []string {
+	var facts []string
+	for _, req := range requiredProviders(packs) {
+		entry := providerEntry(providers, req.provider)
+		keyName := entryString(entry, "api_key_env_name")
+		if keyName == "" {
+			if entry != nil {
+				continue // the provider is there and needs no credential pointer
+			}
+			facts = append(facts, "  • pack "+req.pack+" requires provider "+quoted(req.provider)+
+				", and the composed providers table has no entry by that name")
+			continue
+		}
+		if v, ok := lookup(keyName); ok && v != "" {
+			continue
+		}
+		facts = append(facts, "  • pack "+req.pack+" requires provider "+quoted(req.provider)+
+			", whose credential variable "+keyName+" is not set in this launch's environment")
+	}
+	if len(facts) == 0 {
+		return nil
+	}
+	where := "nothing — no env_sources entries are configured, and no inherited environment was consulted"
+	if len(consulted) > 0 {
+		where = strings.Join(consulted, ", ")
+	}
+	return append(facts, "  consulted for credentials: "+where)
+}
+
+// providerEntry returns the entry m holds at key, or nil when m is nil, the key is
+// absent, or the value is not an object — a null entry (the user's "drop this provider")
+// and a malformed one read the same to a caller that only wants fields out of it.
+func providerEntry(m *jsonx.OrderedMap, key string) *jsonx.OrderedMap {
+	if m == nil {
+		return nil
+	}
+	v, ok := m.Get(key)
+	if !ok || v == nil {
+		return nil
+	}
+	e, _ := v.(*jsonx.OrderedMap)
+	return e
+}
+
+// quoted wraps a provider name the way a refusal quotes a name from config.
+func quoted(s string) string {
+	return `"` + s + `"`
+}
+
 // shippedProviderEntry renders one pack's provider declaration as an entry of the
 // providers table — the SAME shape a user-written entry has, because what consumes the
 // table (the three derives) reads one schema.

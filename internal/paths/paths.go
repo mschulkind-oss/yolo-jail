@@ -227,6 +227,16 @@ const (
 // it into the container — an escape hatch nobody can reach is not one.
 const AllowUnreachableServicesEnv = "YOLO_ALLOW_UNREACHABLE_SERVICES"
 
+// AllowMissingProvidersEnv is the escape hatch out of the selected-pack credential
+// pre-flight (profiles-as-pack-variants.md §6.2 as rescoped by OQ-13): any non-empty
+// value keeps the launch going, loudly, and says what it is suppressing. The named-var
+// const is the same convention AllowUnreachableServicesEnv is — the producer (this CLI)
+// and every consumer read one spelling, so a hatch cannot drift out of reach by a
+// re-typing. Both notches that refuse read it host-side (internal/cli/run and the
+// `yolo host` exec half), so — unlike the reachability witness — nothing has to forward
+// it into the container.
+const AllowMissingProvidersEnv = "YOLO_ALLOW_MISSING_PROVIDERS"
+
 // hostServicesDirPrefix names the per-jail host-side directory. The 8-hex suffix
 // is JailShortHash(cname).
 const hostServicesDirPrefix = "yolo-host-services-"

@@ -826,3 +826,103 @@ func TestHostEnvStillResolvesAbsoluteEnvSourceFiles(t *testing.T) {
 		t.Error("an absolute env_sources entry in the user config stopped resolving")
 	}
 }
+
+// writeZaiLocalPack is hostprovidershape_test.go's fixture: the conventional local pack
+// shipping a provider whose credential is a variable NAME the user hydrates, plus a
+// variant naming it — the shape packs/zai would have (zai-plumbing.md §7). It installs no
+// CLI, which is the ordinary provider pack.
+
+// The host half of the selected-pack credential pre-flight (§6.2, OQ-13): selecting a
+// provider pack with no key hydrated refuses the exec, naming the variable, the provider
+// and where it looked. rc 1 is the pre-flight's own exit; rc 127 below is PATH resolution
+// failing, which is how the two are told apart.
+func TestHostExecRefusesASelectedPackWithNoKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("ZAI_API_KEY", "")
+	t.Chdir(t.TempDir())
+	writeZaiLocalPack(t, home)
+	userCfg(t, home, `{}`)
+
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 1 {
+		t.Fatalf("rc = %d, want the pre-flight's 1 (stderr: %s)", rc, errw.String())
+	}
+	got := errw.String()
+	// The pack is named by its STAGING name — the conventional local pack dir is `local`,
+	// whatever the manifest's own name field says — which is the identity every other
+	// launch-time message uses for it too.
+	for _, want := range []string{"ZAI_API_KEY", `provider "zai"`, "pack local", "consulted for credentials"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal must name %q:\n%s", want, got)
+		}
+	}
+}
+
+// The positive half, and the ordering pin: once the key IS hydrated the pre-flight passes
+// and hostExec goes on to PATH resolution, which fails with 127 for a binary that does not
+// exist. A refusal here would mean the check stopped reading the composed environment.
+func TestHostExecProceedsOnceTheKeyIsHydrated(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Chdir(t.TempDir())
+	writeZaiLocalPack(t, home)
+	userCfg(t, home, `{"env_sources": [{"ZAI_API_KEY": "sk-zai"}]}`)
+
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 127 {
+		t.Fatalf("rc = %d, want the PATH miss's 127 — the pre-flight must have passed (stderr: %s)",
+			rc, errw.String())
+	}
+}
+
+// The escape hatch lifts the host refusal too, loudly — same var, same discipline as the
+// jail notch, because the two notches refuse on the same fact.
+func TestHostExecHatchLiftsTheRefusal(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("ZAI_API_KEY", "")
+	t.Setenv(paths.AllowMissingProvidersEnv, "1")
+	t.Cleanup(func() { os.Unsetenv(paths.AllowMissingProvidersEnv) })
+	t.Chdir(t.TempDir())
+	writeZaiLocalPack(t, home)
+	userCfg(t, home, `{}`)
+
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 127 {
+		t.Fatalf("rc = %d, want 127 — the hatch must let the launch reach PATH resolution (stderr: %s)",
+			rc, errw.String())
+	}
+	if got := errw.String(); !strings.Contains(got, paths.AllowMissingProvidersEnv+" is set") {
+		t.Errorf("the override must say what it is suppressing:\n%s", got)
+	}
+}
+
+// `yolo host env` is an OBSERVE verb, and stays one: it shares the composition the exec
+// half pre-flights, and must keep answering even when the answer is "this launch is
+// missing a key" — that is exactly the situation it exists to debug. An unrelated entry
+// gives it something to print, so the assertion is that the answer came back rather than
+// that it happened to be empty.
+func TestHostEnvIsNotGatedByTheCredentialPreflight(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("ZAI_API_KEY", "")
+	t.Chdir(t.TempDir())
+	writeZaiLocalPack(t, home)
+	userCfg(t, home, `{"env_sources": [{"KEEP": "yes"}]}`)
+
+	var out, errw bytes.Buffer
+	if rc := hostEnv(nil, &out, &errw); rc != 0 {
+		t.Fatalf("host env rc = %d (stderr: %s)", rc, errw.String())
+	}
+	if !strings.Contains(out.String(), "export KEEP='yes'") {
+		t.Errorf("host env stopped composing:\n%s", out.String())
+	}
+	if strings.Contains(errw.String(), "ZAI_API_KEY") {
+		t.Errorf("the observe verb must not inherit the exec half's refusal:\n%s", errw.String())
+	}
+}

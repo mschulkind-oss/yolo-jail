@@ -146,12 +146,42 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer) int {
 	}
 	_ = out
 
-	env, agent, err := composeHostEnv(cmd[0], flags.profile, func(msg string) {
+	launch := composeHostLaunch(cmd[0], flags.profile, func(msg string) {
 		fmt.Fprintf(errw, "Warning: %s\n", msg)
 	})
-	if err != nil {
-		fmt.Fprintf(errw, "yolo host: %v\n", err)
-		return 1
+
+	// THE CREDENTIAL PRE-FLIGHT at the host notch (profiles-as-pack-variants.md §6.2,
+	// OQ-13) — the same check the jail's launcher runs, on the environment THIS notch
+	// would exec with. Before resolveHostTarget, deliberately: a launch that would fail
+	// at the agent's first API call should be refused while the only thing it has done is
+	// compose an environment.
+	//
+	// It lives here and not inside the composition because `yolo host env` shares that
+	// composition and is an OBSERVE verb — a debugging front door that has to answer even
+	// when the answer is "this launch is missing a key".
+	if lines := launch.credentialGaps(os.Getenv); len(lines) > 0 {
+		held := os.Getenv(paths.AllowMissingProvidersEnv) != ""
+		if held {
+			// The override says what it is suppressing rather than going quiet — and does
+			// not re-offer the hatch it just honoured.
+			lines = append([]string{"Warning: " + paths.AllowMissingProvidersEnv +
+				" is set — CONTINUING, with a selected pack's provider credential still " +
+				"missing. Nothing was repaired: the agent's first request against that " +
+				"provider will still fail."}, lines...)
+		} else {
+			lines = append(lines, "  Put the variable in one of the consulted channels, or "+
+				"launch anyway with "+paths.AllowMissingProvidersEnv+"=1.")
+		}
+		for i, line := range lines {
+			if i == 0 {
+				fmt.Fprintf(errw, "yolo host: %s\n", line)
+				continue
+			}
+			fmt.Fprintln(errw, line)
+		}
+		if !held {
+			return 1
+		}
 	}
 
 	target, err := resolveHostTarget(os.Getenv("PATH"), cmd[0])
@@ -159,12 +189,10 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "yolo host: %v\n", err)
 		return 127
 	}
-	_ = agent
-
 	// argv[0] stays the name the user typed, not the resolved path: agents branch on it
 	// (usage text, `$0`), and handing them an absolute path changes what they print.
 	argv := append([]string{cmd[0]}, cmd[1:]...)
-	if err := syscall.Exec(target, argv, env); err != nil {
+	if err := syscall.Exec(target, argv, launch.environ()); err != nil {
 		fmt.Fprintf(errw, "yolo host: exec %s: %v\n", target, err)
 		return 126
 	}
@@ -190,8 +218,66 @@ func yoloManagedDirs() []string {
 	return []string{paths.GeneratedBinDir()}
 }
 
+// hostComposition is one host agent launch's composed environment, with the facts the
+// §6.2 credential pre-flight reads beside it. It exists because the pre-flight has to
+// answer against the SAME packs, the SAME composed provider table and the SAME env_sources
+// walk the vars were composed from — loading them a second time would not just double the
+// work, it would let the check and the exec disagree about what the launch carries.
+type hostComposition struct {
+	// agent is the CLI name the profile table is keyed by (the target's basename).
+	agent string
+	// vars is the composition proper, in application order: pack env, the selected
+	// variants' env, env_sources, the provider's env shape, and the removals last.
+	vars []agentenv.Var
+	// packs and providers are the selected pack set and the composed provider table the
+	// vars were composed from.
+	packs     []*packload.Pack
+	providers *jsonx.OrderedMap
+	// consulted is everything this launch asked for credentials: the env_sources entries
+	// it walked (relative ones already dropped, with their own warning) and the invoking
+	// shell's environment.
+	consulted []string
+}
+
+// environ applies the composition over the environment this process inherited — the env
+// the exec hands the agent, and therefore the thing "is the key set in this launch" is
+// asked of.
+func (c *hostComposition) environ() []string {
+	return agentenv.Apply(os.Environ(), c.vars)
+}
+
+// credentialGaps is the §6.2 pre-flight for this launch, answered against environ().
+// getenv is the process lookup, passed rather than closed over so a test can stand in for
+// the shell this process inherited.
+func (c *hostComposition) credentialGaps(getenv func(string) string) []string {
+	idx := make(map[string]string, len(c.vars))
+	for _, kv := range c.environ() {
+		if i := strings.IndexByte(kv, '='); i > 0 {
+			idx[kv[:i]] = kv[i+1:]
+		}
+	}
+	consulted := append([]string(nil), c.consulted...)
+	return packload.ProviderCredentialGaps(c.packs, c.providers, func(name string) (string, bool) {
+		if v := idx[name]; v != "" {
+			return v, true
+		}
+		if v := getenv(name); v != "" {
+			return v, true
+		}
+		return "", false
+	}, consulted)
+}
+
 // composeHostEnv builds the environment for one agent launch, and returns it alongside
 // the agent name it resolved.
+func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, error) {
+	c := composeHostLaunch(bin, profile, warn)
+	return c.environ(), c.agent, nil
+}
+
+// composeHostLaunch composes the whole launch `yolo host -- <bin>` would exec: the
+// environment, the agent name it resolved, and the facts the credential pre-flight reads
+// beside them.
 //
 // The order is the one docs/design/host-agent-environment.md §6.1 step 3 specifies, and
 // each step is there for a reason the previous one cannot cover:
@@ -204,7 +290,7 @@ func yoloManagedDirs() []string {
 //     podman argv is built from.
 //  4. removals — a null in env_sources or in a variant's env, i.e. `unset AWS_PROFILE`.
 //     Last, so a removal beats an assignment from any earlier step.
-func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, error) {
+func composeHostLaunch(bin, profile string, warn func(string)) *hostComposition {
 	agent := filepath.Base(bin)
 	cfg := config.UserScopeConfigOrEmpty()
 	workspace, err := os.Getwd()
@@ -212,8 +298,7 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 		workspace = "."
 	}
 
-	vars := hostEnvVars(cfg, workspace, agent, profile, warn)
-	return agentenv.Apply(os.Environ(), vars), agent, nil
+	return composeHostVars(cfg, workspace, agent, profile, warn)
 }
 
 // hostEnvVars is the composition itself, without the inherited environment — shared by
@@ -239,13 +324,23 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 // hand a cloned repo LD_PRELOAD on the user's machine. See UserScopeConfig for the whole
 // argument.
 func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn func(string)) []agentenv.Var {
+	return composeHostVars(cfg, workspace, agent, profile, warn).vars
+}
+
+// composeHostVars is hostEnvVars' body, returning the whole composition rather than just
+// the vars: the credential pre-flight reads the same packs, the same composed provider
+// table and the same env_sources walk the vars were composed from, and re-reading them
+// for the check would let the check and the exec disagree about what the launch carries.
+func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn func(string)) *hostComposition {
 	var vars []agentenv.Var
+	c := &hostComposition{agent: agent}
 
 	// The selected packs, read once for both the env they declare and the provider they
 	// ship. The config here is USER SCOPE ONLY (the boundary this function's doc records),
 	// so the composed provider table below is user entries over pack facts and never a
 	// workspace's.
 	packs, packErr := loadedHostPacks()
+	c.packs = packs
 	// The variant this launch selects, resolved once: it gates (1b) and feeds (3), and
 	// both must read the same selection or the env a host launch carries and the one its
 	// launch line describes would disagree.
@@ -316,6 +411,11 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 	// walk, and asking for them separately would read every dotenv file twice and warn
 	// twice — noise a missing host-only file used to produce on every `yolo host env`.
 	userEnv, removals := config.ResolveEnvSourcesFull(workspace, scoped, warn)
+	// What this launch consulted for credentials, recorded as it is consulted: the
+	// env_sources entries that survived the scope filter, plus the shell this process
+	// inherited. The §6.2 pre-flight quotes the list verbatim, so a refusal says where it
+	// looked and not only that the key never arrived.
+	c.consulted = append(config.DescribeEnvSources(workspace, scoped), "the invoking shell's environment")
 	for _, k := range userEnv.Keys() {
 		v, _ := userEnv.Get(k)
 		if s, ok := v.(string); ok {
@@ -344,6 +444,7 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 	vars = append(vars, agentenv.Resolve(
 		packload.ComposeProviders(userProviders, packs),
 		agent, profileName, packload.ProviderFor(packs, agent, profileName), lookup)...)
+	c.providers = packload.ComposeProviders(userProviders, packs)
 
 	// (4) removals last, so an unset beats every assignment above no matter which source
 	// made it — the env_sources nulls from the same pass as (2) (the same scoped config,
@@ -353,7 +454,8 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 		vars = append(vars, agentenv.Var{Key: k, Unset: true})
 	}
 	vars = append(vars, profileUnsets...)
-	return vars
+	c.vars = vars
+	return c
 }
 
 // hostScopedEnvSources returns cfg with any still-RELATIVE env_sources file entry

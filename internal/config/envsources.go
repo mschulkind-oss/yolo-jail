@@ -194,6 +194,30 @@ func ResolveEnvSourcesFull(workspace string, config *jsonx.OrderedMap, warn Warn
 	return merged, out
 }
 
+// DescribeEnvSources returns one description per env_sources entry in cfg, in order: a
+// file entry as the path it resolves to, an inline dict as the keys it assigns. Empty
+// when cfg declares none.
+//
+// It is the "here is where I looked" half of the launch credential pre-flight
+// (profiles-as-pack-variants.md §6.2): a refusal that says only "ZAI_API_KEY is not set"
+// sends the reader hunting through their config for the channel that was supposed to
+// deliver it, which is the debugging nightmare §6.1 records. Naming the entries consulted
+// is the same message discipline as the reachability witness's — say what was checked,
+// not only what failed.
+func DescribeEnvSources(workspace string, cfg *jsonx.OrderedMap) []string {
+	var out []string
+	for _, entry := range getListOrNilFalsy(cfg, "env_sources") {
+		if em, ok := asMap(entry); ok {
+			out = append(out, "inline dict (keys: "+strings.Join(em.Keys(), ", ")+")")
+			continue
+		}
+		if s, ok := asStr(entry); ok {
+			out = append(out, ResolveEnvSourcePath(s, workspace))
+		}
+	}
+	return out
+}
+
 // EnvSourceRemovals returns the variable names an `env_sources` entry asks to be REMOVED
 // — the keys whose value is JSON null.
 //

@@ -681,6 +681,29 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 	runCmd := o.assembleRunCmd(in)
 
+	// THE SEVENTH bespoke pre-flight (profiles-as-pack-variants.md §6.2, OQ-13), at the
+	// one point in the pipeline where the assembled launch environment exists to check it
+	// against: userEnv was hydrated above, and runCmd carries every -e pair the container
+	// will start with. Refusing HERE, before the port forwarders and the loophole daemons
+	// below, keeps the failure before any host-side process a refusal would have to clean
+	// up — a jail that would fail its first API call is a failed launch, and the lock is
+	// already held so the release travels with the return.
+	if lines, refuse := o.checkProviderCredentials(cfg, loadedPacks, userEnv, runCmd); len(lines) > 0 {
+		for i, line := range lines {
+			if i == 0 {
+				out.printf("[bold red]%s[/bold red]", line)
+				continue
+			}
+			out.print(line)
+		}
+		lock.Close()
+		// A set escape hatch turns the refusal into a loud continuation, so the verdict —
+		// not the presence of output — is what ends the launch.
+		if refuse {
+			return 1
+		}
+	}
+
 	// Determine the port-forward socket dir (Linux podman + AC only).
 	var forwardHostPorts []any
 	netMode := o.Network
