@@ -70,7 +70,7 @@ chat-completions or also the **Responses API** is **unverified** — OQ-Z1; it d
     "zai": {
       "base_url": "https://api.z.ai/api/paas/v4",
       "wire_api": "openai-chat",            // OQ-Z1: or "responses"
-      "api_key_env": "ZAI_API_KEY",
+      "api_key_env": "ZAI_API_KEY",          // the NAME of the var — rename under review, parent OQ-6
       "models": { "default": "glm-4.7", "fast": "glm-4.7-air" }
     }
   },

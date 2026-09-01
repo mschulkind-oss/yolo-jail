@@ -839,3 +839,24 @@ of the D5 problem, with no manifest to review.
    > remove. The launch line keeps the transparency — it prints which packs declared or honored the
    > name — and OQ-3's fatality is withdrawn accordingly (values are free-form; config KEYS stay
    > checked against the CLI-name namespace).
+
+6. 💬 **OQ-6: Rename `api_key_env`?** The maintainer read it as holding the key, not the NAME of
+   the env var holding the key (2026-08-31) — a real reader failing the name, and the dangerous
+   failure: someone who expects a key pastes a key, and the name-contract regex is the only
+   backstop, catching only keys that are not name-shaped (`ghp_…` passes). A name that prevents
+   the paste outranks a check that sometimes catches it — the same prevention-over-detection
+   layering [§6](#6-credentials--pack-profilesmd-4s-architecture-minus-the-scanner) argues.
+
+   _Leaning:_ **Rename to `api_key_env_name`.** "Name" states the value's type outright, with no
+   convention required — and the naive-reader test is not hypothetical, it is the comment that
+   opened this question. Weighed and lost: `api_key_from_env` (says where the key lives, not what
+   the value is), `api_key_env_ref` (the [stringly-typed principle's](stringly-typed-references-principle.md)
+   reference vocabulary, with Kubernetes' `secretKeyRef` as the field-standard anchor for the
+   `_ref` convention — but it demands the reader already know the convention). Cost is low and at
+   its lifetime minimum: `knownProviderKeys`, the regex's error message, three derives, docs — one
+   refuse-by-name migration naming the replacement, the `agent_profiles` pattern again. If
+   credential shapes ever grow past api keys, the family answer is nesting
+   (`credentials: { api_key: { env: … } }`), not more suffixed fields.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
