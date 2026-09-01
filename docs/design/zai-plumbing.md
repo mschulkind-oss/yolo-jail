@@ -81,7 +81,7 @@ cannot settle this — z.ai's edge 401s garbage paths too, authenticating before
       "base_url": "https://api.z.ai/api/paas/v4",
       "wire_api": "openai-chat",            // measured: /v4/responses is 404 — and REQUIRED,
                                             // because codex's derive defaults to "responses"
-      "api_key_env": "ZAI_API_KEY",          // the NAME of the var — rename under review, parent OQ-6
+      "api_key_env_name": "ZAI_API_KEY",     // renamed per parent OQ-6; the value is the NAME
       "models": { "default": "glm-4.7", "fast": "glm-4.7-air" }
     }
   },
@@ -228,8 +228,9 @@ for "this provider also speaks X" marking, if it graduates.
 
 ## 7. Decision Ledger
 
-No open questions remain in this doc; the one live decision in the family is the parent's OQ-6
-(the `api_key_env` rename). IDs are stable — the parent doc and code comments cite them.
+No open questions remain in this doc or in the parent — the family's last live decision, the
+`api_key_env` rename, was ruled 2026-09-01 (parent OQ-6: `api_key_env_name`). IDs are stable —
+the parent doc and code comments cite them.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |

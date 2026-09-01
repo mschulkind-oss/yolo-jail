@@ -1,14 +1,15 @@
 ---
 title: "A profile is a pack's own variant, not a cross-pack fragment"
 date: 2026-08-29
-status: in-review
+status: accepted
 tags: [packs, config, profiles, providers, prism, architecture, secrets]
 summary: "Counter-design to pack-profiles.md. Most of what that doc proposes is already shipped: providers are already a typed extension point consumed by three packs' derives, and profile-conditional pack behavior already works in Lua. The real gap is one channel (process env, profile-gated) and one hardcode (now `internal/agentenv`, originally assemble.go:722). So this design adds no new merge engine and no cross-pack fragment kind — it generalizes the shipped `autonomy` contribution from a closed two-valued selector to an open named one, keeps `providers` as a config key with a stricter schema, and fixes the delivery channel so the Claude/Bedrock case works at the host notch too."
 ---
 
 # A profile is a pack's own variant, not a cross-pack fragment
 
-**Status:** DESIGN, 2026-08-29. Nothing built. This is a counter-proposal to
+**Status:** DECIDED, 2026-09-01 — every open question settled (ledger, §14); implementation
+underway against §12's build order. Originally DESIGN, 2026-08-29, nothing built. This is a counter-proposal to
 [`pack-profiles.md`](pack-profiles.md), written after measuring what that doc's §2 diagnoses
 against the code as it stands today. File:line claims were verified on 2026-08-29 and
 **re-anchored 2026-09-01** after `784dd209` extracted the profile env out of `assemble.go` —
@@ -451,6 +452,9 @@ Extend [`validate.go:885-944`](../../internal/config/validate.go#L885-L944) rath
   syntactic slot. It is a free-form string today.
 - **`base_url` must parse as `http`/`https` and must carry no userinfo.** `https://user:tok@host/v1`
   is a credential in a git-tracked file, and no current check catches it; this rule is the check.
+- **`api_key_env` is renamed `api_key_env_name`** *(OQ-6, ruled 2026-09-01)* — the value is the
+  NAME of the env var, and the spelling now says so before the regex has to. The old key is
+  refused by name with the replacement in the message, the `agent_profiles` pattern.
 - **`models` gets a documented alias vocabulary** (`default`, `fast`, `coder`, …), because
   [`agentenv.go:84-88`](../../internal/agentenv/agentenv.go#L84-L88) reads
   `default`/`haiku`/`sonnet` — Claude-specific alias names in core, a
@@ -818,11 +822,11 @@ of the D5 problem, with no manifest to review.
 
 ---
 
-## 14. Decision Ledger — and the one open question
+## 14. Decision Ledger
 
-Every question this design asked is settled except one. Rulings are woven into the body sections
-named below; the ledger is the greppable index. IDs are stable — sibling docs and code comments
-cite them.
+Every question this design asked is settled — none remain open. Rulings are woven into the body
+sections named below; the ledger is the greppable index. IDs are stable — sibling docs and code
+comments cite them.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
@@ -836,28 +840,8 @@ cite them.
 | OQ-9 | **A missing provider is the same refusal as an unhydrated key** — `requires_provider` naming nothing in `providers` is fatal with the §6.2 message shape; escape hatch `YOLO_ALLOW_MISSING_PROVIDERS=1`. | 2026-09-01 | §6.2 |
 | OQ-10 | **The launch line prints DECLARED and RECEIVED, never "honored"** — what a derive does with the string is unobservable; a print that overclaims is the silent-skip failure wearing a badge. | 2026-09-01 | §3.3 |
 | OQ-11 | **The removal census is ten sites plus two flags** — the 2026-08-29 list of eight predates `internal/agentenv` (the extraction itself) and missed `--agent-profile` beside `--claude-auth`. | 2026-09-01 | §2.4 |
+| OQ-6 | **Rename `api_key_env` → `api_key_env_name`** — the value's type is the last word read; no convention required. *(Ruled by the maintainer.)* One refuse-by-name migration: `knownProviderKeys`, the regex error message, three derives, docs. | 2026-09-01 | §4.3 |
 
 *(OQ-7…OQ-11 were found unset by the 2026-09-01 completeness audit — decisions a builder would
 otherwise have made silently — and settled from the corpus in the sections named.)*
-
-### The one open question
-
-1. 💬 🤷 **OQ-6: Rename `api_key_env`?** The maintainer read it as holding the key, not the NAME
-   of the env var holding it — and that misreading is the dangerous one: a reader who expects a
-   key pastes a key, and the name-contract regex backstops only non-name-shaped keys (`ghp_…`
-   passes). The corpus has ELIMINATED two of the four positions: "keep" is near-indefensible
-   (the one recorded real misreading, by the field's own reader, plus §6's
-   prevention-over-detection layering), and `_ref` is out (the stringly-typed principle's
-   reference vocabulary is explicitly not about env probes — its scope note says so). What
-   survives is **rename — to what spelling**, and that is taste:
-
-   - `api_key_env_name` — the doc's leaning: the value's type is the last word read; no
-     convention required.
-   - `api_key_from_env` — says where the key lives, not what the value is.
-
-   _Leaning:_ `api_key_env_name`. Cost is at its lifetime minimum: `knownProviderKeys`, the regex
-   error message, three derives, docs — one refuse-by-name migration naming the replacement.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
 
