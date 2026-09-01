@@ -86,7 +86,8 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateMCPPresets(config, errs)
 	validateMCPServers(config, errs)
 	validateProviders(config, errs)
-	validateAgentProfiles(config, errs)
+	validateAgentProfilesRetired(config, errs, warns)
+	validatePackProfiles(config, errs)
 	validateRequiredCapabilities(config, errs)
 	validateDevices(config, errs, warns)
 	validateGPU(config, errs, warns)
@@ -944,19 +945,38 @@ func validateProviders(config *jsonx.OrderedMap, errs *[]string) {
 	}
 }
 
-func validateAgentProfiles(config *jsonx.OrderedMap, errs *[]string) {
-	v, present := config.Get("agent_profiles")
+// validateAgentProfilesRetired refuses the pre-rename spelling by name, the
+// validateJournalRetired pattern: error on the host, warning in-jail (a snapshot
+// written by an older launcher legitimately carries the old key).
+func validateAgentProfilesRetired(config *jsonx.OrderedMap, errs, warns *[]string) {
+	if _, present := config.Get("agent_profiles"); !present {
+		return
+	}
+	msg := "config.agent_profiles: RENAMED — this key is now `pack_profiles`, because " +
+		"the keys were always CLI names and core knows packs, not agents " +
+		"(docs/design/profiles-as-pack-variants.md §3.3). Rename the key in place; " +
+		"the values are unchanged."
+	if inJail() {
+		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
+			"so rename the key in the HOST config.)")
+		return
+	}
+	add(errs, msg)
+}
+
+func validatePackProfiles(config *jsonx.OrderedMap, errs *[]string) {
+	v, present := config.Get("pack_profiles")
 	if !present || v == nil {
 		return
 	}
 	profiles, ok := asMap(v)
 	if !ok {
-		add(errs, "config.agent_profiles: expected an object")
+		add(errs, "config.pack_profiles: expected an object")
 		return
 	}
 	for _, agent := range profiles.Keys() {
 		profV, _ := profiles.Get(agent)
-		path := "config.agent_profiles." + agent
+		path := "config.pack_profiles." + agent
 		if profV == nil {
 			continue
 		}

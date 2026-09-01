@@ -94,7 +94,7 @@ func TestHostEnvExportFormat(t *testing.T) {
 	t.Chdir(ws)
 	userCfg(t, home, `{
 	  "providers": {"bedrock": {"region": "us-east-1"}},
-	  "agent_profiles": {"claude": "bedrock"},
+	  "pack_profiles": {"claude": "bedrock"},
 	  "env_sources": [{"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_PROFILE": null}]
 	}`)
 
@@ -164,7 +164,7 @@ func TestComposeHostEnvOrdering(t *testing.T) {
 	t.Chdir(t.TempDir())
 	userCfg(t, home, `{
 	  "providers": {"bedrock": {"region": "us-east-1"}},
-	  "agent_profiles": {"claude": "bedrock"},
+	  "pack_profiles": {"claude": "bedrock"},
 	  "env_sources": [{"AWS_PROFILE": null}]
 	}`)
 
@@ -471,7 +471,7 @@ func TestHostEnvAgentFlagSelectsTheProfile(t *testing.T) {
 	t.Chdir(t.TempDir())
 	userCfg(t, home, `{
 	  "providers": {"bedrock": {"region": "us-east-1"}},
-	  "agent_profiles": {"claude": "bedrock"}
+	  "pack_profiles": {"claude": "bedrock"}
 	}`)
 
 	// Default agent picks up claude's profile.

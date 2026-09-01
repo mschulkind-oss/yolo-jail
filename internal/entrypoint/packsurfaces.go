@@ -245,10 +245,10 @@ func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, 
 // produce the table and a pack only says which one it wants and what shape it needs.
 func liveTables(e *Env) map[string]map[string]any {
 	return map[string]map[string]any{
-		manifest.SourceMCPServers:    prismMap(e.LoadMCPServers()),
-		manifest.SourceLSPServers:    prismMap(LoadLSPServers(e)),
-		manifest.SourceProviders:     prismMap(e.LoadProviders()),
-		manifest.SourceAgentProfiles: prismMap(e.LoadAgentProfiles()),
+		manifest.SourceMCPServers:   prismMap(e.LoadMCPServers()),
+		manifest.SourceLSPServers:   prismMap(LoadLSPServers(e)),
+		manifest.SourceProviders:    prismMap(e.LoadProviders()),
+		manifest.SourcePackProfiles: prismMap(e.LoadPackProfiles()),
 	}
 }
 

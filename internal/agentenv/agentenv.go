@@ -1,5 +1,5 @@
 // Package agentenv composes the process environment an agent runs with, from the
-// resolved `agent_profiles` + `providers` configuration.
+// resolved `pack_profiles` + `providers` configuration.
 //
 // # Why this is its own package
 //
@@ -39,8 +39,8 @@ type Var struct {
 
 // Resolve returns the profile-derived environment for one agent, in a stable order.
 //
-// `agent` is the agent's own name as `agent_profiles` keys it ("claude"), and profiles
-// is the EFFECTIVE profile map — config's `agent_profiles` after any per-launch
+// `agent` is the agent's own name as `pack_profiles` keys it ("claude"), and profiles
+// is the EFFECTIVE profile map — config's `pack_profiles` after any per-launch
 // overrides, which the caller has already merged.
 //
 // An agent with no profile, an unknown profile, or a profile naming no configured

@@ -531,25 +531,60 @@ func TestValidateProviders(t *testing.T) {
 	}
 }
 
-func TestValidateAgentProfiles(t *testing.T) {
-	valid := `{"agent_profiles": {"claude": "bedrock", "pi": "glm", "codex": "default"}}`
+func TestValidatePackProfiles(t *testing.T) {
+	valid := `{"pack_profiles": {"claude": "bedrock", "pi": "glm", "codex": "default"}}`
 	errs, _ := ValidateConfig(decode(t, valid), t.TempDir(), nil)
 	for _, e := range errs {
-		if strings.HasPrefix(e, "config.agent_profiles") {
-			t.Errorf("valid agent_profiles should pass validation, got: %s", e)
+		if strings.HasPrefix(e, "config.pack_profiles") {
+			t.Errorf("valid pack_profiles should pass validation, got: %s", e)
 		}
 	}
 
-	invalid := `{"agent_profiles": {"pi": 123}}`
+	invalid := `{"pack_profiles": {"pi": 123}}`
 	errs, _ = ValidateConfig(decode(t, invalid), t.TempDir(), nil)
 	found := false
 	for _, e := range errs {
-		if strings.Contains(e, "config.agent_profiles.pi") {
+		if strings.Contains(e, "config.pack_profiles.pi") {
 			found = true
 		}
 	}
 	if !found {
 		t.Errorf("expected validation error for non-string profile, got: %v", errs)
+	}
+}
+
+// The old spelling is refused BY NAME — and that refusal is the ONLY error it
+// produces, so the key must stay in knownTopLevelConfigKeys (the generic
+// unknown-key error would duplicate it). The agents-retirement twins.
+func TestValidateAgentProfilesRetiredIsTheOnlyError(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "") // the host view: in-jail the retirement downgrades to a warning
+	if _, known := knownTopLevelConfigKeys["agent_profiles"]; !known {
+		t.Error("`agent_profiles` must stay in knownTopLevelConfigKeys so the retirement " +
+			"message is the ONLY error — otherwise the generic unknown-key error " +
+			"duplicates it")
+	}
+	errs, _ := ValidateConfig(decode(t, `{"agent_profiles": {"claude": "bedrock"}}`), t.TempDir(), nil)
+	if len(errs) != 1 {
+		t.Errorf("want exactly one config.agent_profiles error, got %d: %v", len(errs), errs)
+	}
+	for _, e := range errs {
+		if e == "config.agent_profiles: unknown key" {
+			t.Errorf("the bare unknown-key error duplicates the retirement message: %v", errs)
+		}
+		if !strings.Contains(e, "pack_profiles") {
+			t.Errorf("the retirement message must name the replacement spelling: %v", errs)
+		}
+	}
+}
+
+// A config with NO `agent_profiles` key must stay clean — the regression if the
+// retirement check ever conflates "absent" with "present".
+func TestValidateAgentProfilesAbsentIsClean(t *testing.T) {
+	errs, _ := ValidateConfig(decode(t, `{}`), t.TempDir(), nil)
+	for _, e := range errs {
+		if strings.HasPrefix(e, "config.agent_profiles") {
+			t.Errorf("absent retired key must not error, got: %s", e)
+		}
 	}
 }
 

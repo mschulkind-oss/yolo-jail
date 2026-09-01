@@ -177,7 +177,7 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 // Kept in step with manifest's Source* constants by the caller (which builds the
 // Tables map from exactly these); listed here so a derive always sees every
 // source as at least an empty table, never a nil index.
-var knownDeriveSources = []string{"mcp_servers", "lsp_servers", "providers", "agent_profiles"}
+var knownDeriveSources = []string{"mcp_servers", "lsp_servers", "providers", "pack_profiles"}
 
 // deriveTableToGo is luaTableToGo specialized for the derive return: a value
 // equal to the tombstone sentinel decodes to Go nil (the RFC-7386 delete marker

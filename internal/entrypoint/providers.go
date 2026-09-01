@@ -22,11 +22,11 @@ func (e *Env) LoadProviders() *jsonx.OrderedMap {
 	return out
 }
 
-// LoadAgentProfiles reads the YOLO_AGENT_PROFILES JSON object passed into the jail environment.
+// LoadPackProfiles reads the YOLO_PACK_PROFILES JSON object passed into the jail environment.
 // Returns an OrderedMap mapping agent names to active profile names.
-func (e *Env) LoadAgentProfiles() *jsonx.OrderedMap {
+func (e *Env) LoadPackProfiles() *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
-	raw := e.Getenv("YOLO_AGENT_PROFILES")
+	raw := e.Getenv("YOLO_PACK_PROFILES")
 	if raw == "" {
 		return out
 	}

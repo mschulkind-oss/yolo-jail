@@ -17,6 +17,6 @@ const (
 	SourceLSPServers = "lsp_servers"
 	// SourceProviders is the declared cloud providers table (config providers).
 	SourceProviders = "providers"
-	// SourceAgentProfiles is the active agent profile assignments (config agent_profiles).
-	SourceAgentProfiles = "agent_profiles"
+	// SourcePackProfiles is the active agent profile assignments (config pack_profiles).
+	SourcePackProfiles = "pack_profiles"
 )

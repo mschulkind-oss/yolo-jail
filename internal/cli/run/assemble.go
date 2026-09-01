@@ -705,7 +705,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	if in.hostTZ != "" {
 		env = append(env, "-e", "TZ="+in.hostTZ)
 	}
-	effectiveProfiles := in.effectiveAgentProfiles(o)
+	effectiveProfiles := in.effectivePackProfiles(o)
 	env = append(env,
 		"-e", "YOLO_HOST_DIR="+o.Workspace,
 		"-e", "YOLO_VERSION="+in.yoloVersion,
@@ -717,7 +717,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "mcp_servers")),
 		"-e", "YOLO_MCP_PRESETS="+jsonDumpsOrEmptyList(cfgList(cfg, "mcp_presets")),
 		"-e", "YOLO_PROVIDERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "providers")),
-		"-e", "YOLO_AGENT_PROFILES="+jsonDumpsOrEmptyObj(effectiveProfiles),
+		"-e", "YOLO_PACK_PROFILES="+jsonDumpsOrEmptyObj(effectiveProfiles),
 		"-e", "YOLO_REQUIRED_CAPABILITIES="+jsonDumpsOrEmptyList(cfgList(cfg, "required_capabilities")),
 		"-e", "YOLO_RUNTIME=podman",
 	)
@@ -748,9 +748,9 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	return env
 }
 
-func (in *assembleInput) effectiveAgentProfiles(o *Options) *jsonx.OrderedMap {
+func (in *assembleInput) effectivePackProfiles(o *Options) *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
-	if cfgProfiles, ok := in.cfg.Get("agent_profiles"); ok {
+	if cfgProfiles, ok := in.cfg.Get("pack_profiles"); ok {
 		if m, ok := cfgProfiles.(*jsonx.OrderedMap); ok {
 			for _, k := range m.Keys() {
 				v, _ := m.Get(k)
@@ -758,7 +758,7 @@ func (in *assembleInput) effectiveAgentProfiles(o *Options) *jsonx.OrderedMap {
 			}
 		}
 	}
-	for k, v := range o.AgentProfiles {
+	for k, v := range o.PackProfiles {
 		out.Set(k, v)
 	}
 	if o.ClaudeAuth != "" {

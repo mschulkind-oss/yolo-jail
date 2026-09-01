@@ -58,6 +58,13 @@ skip.** Straight from [R1/R2](stringly-typed-references-principle.md#6-the-rules
 A selector naming `cloude` is a typo and must stop the launch; a selector naming `codex` in a
 jail that did not select codex is an opportunistic pack working as designed.
 
+**P4. A content pack names its audience; it never names a path.** *(Maintainer, 2026-08-31:
+"a pack that needs to add claude-specific briefing shouldn't need to know anything about where
+claude puts its briefings.")* Where an agent reads is the agent pack's business and changes when
+that agent changes; a house-rules pack that hardcoded `.claude/CLAUDE.md` would be coupled to a
+fact it has no way to keep current. This is not a nicety — §4.1 shows it is the difference
+between a selector that works and one that delivers nowhere.
+
 > [!NOTE]
 > **"CLI name" here means the `bin` of a `program`/`requires` contribution — a binary
 > basename such as `claude` or `pi`.** *(Term used in this sense throughout; it is
@@ -139,19 +146,44 @@ already knows without knowing what an agent is.
 
 ## 4. The design
 
-### 4.1 The field
+### 4.1 The two halves, and why neither knows the other's business
 
-An optional selector on the existing `briefing` kind. A pack may declare several, so shared
-rules and addressed rules live in one pack:
+There are two declarations, in two packs, and **the whole design is that neither needs what the
+other holds** (P4).
 
 ```jsonc
-{ "kind": "briefing", "from": "AGENTS.md" },                              // everyone
-{ "kind": "briefing", "from": "prose/claude.md", "bins": ["claude"] },    // claude only
-{ "kind": "briefing", "from": "prose/pi.md",     "bins": ["pi"] }         // pi only
+// packs/claude/pack.json — the AGENT pack. It owns the name and the path,
+// because both are facts about claude. `into` is what it declares today; `bin` is new.
+{ "kind": "briefing", "into": ".claude/CLAUDE.md", "bin": "claude" }
 ```
 
-Absent selector = today's behavior (P2). The `<!-- from pack: NAME -->` provenance header is
-unchanged; traceability does not move.
+```jsonc
+// any content pack — house rules. It names WHO, and nothing else.
+{ "kind": "briefing", "from": "AGENTS.md" },                            // everyone (today's behavior)
+{ "kind": "briefing", "from": "prose/claude.md", "bins": ["claude"] },  // claude only — no path
+{ "kind": "briefing", "from": "prose/pi.md",     "bins": ["pi"] }       // pi only — no path
+```
+
+**`into` and `bins` are two answers to one question, and a contribution gives exactly one.**
+That is not a stylistic rule; it falls out of what the validator already says. `into` is
+**required** on `briefing` today ([`contributes.go:907`](../../internal/packdecl/contributes.go#L907)),
+and its own rationale states the reason it cannot be defaulted
+([`:899-903`](../../internal/packdecl/contributes.go#L899-L903)):
+
+> *"A source has one right answer per KIND; a destination has one right answer **per AGENT**, so
+> inferring it means inferring the agent set — which is what the `packs` list is for."*
+
+**The selector supplies precisely that missing input.** A contribution that says `bins: ["claude"]`
+has named the agent, so its destination becomes inferable — and `into` must then be *omitted*,
+because declaring both would be the content pack asserting a path it has no business knowing.
+A contribution with neither is today's zero-ceremony broadcast, unchanged.
+
+Two mechanism consequences follow, and they are the concrete content of P4:
+
+- **`declares` must test for a DESTINATION, not for the kind.** [`mergedest.go:141-148`](../../internal/packload/mergedest.go#L141-L148) returns true for *any* contribution of the kind, so a `bins`-only briefing would look like a pack that named its own destinations and skip inference entirely — **prose delivered nowhere**. It has to test `Into != ""`.
+- **`borrowedDestinations` filters by the selector.** [`mergedest.go:174-192`](../../internal/packload/mergedest.go#L174-L192) already hands a silent pack every other pack's briefing `into`, which is exactly the path-free routing P4 wants; the selector narrows that list to destinations whose owner declared a matching `bin`.
+
+The `<!-- from pack: NAME -->` provenance header is unchanged; traceability does not move.
 
 ### 4.2 Where a destination's identity comes from — declared, like every other kind
 
@@ -178,16 +210,10 @@ keyed as [`SurfaceKey{Agent, Name}`](../../internal/agentcfg/manifest/manifest.g
 six agent packs write it out by hand — `"agent": "pi"`, `"agent": "claude"` — identical to their
 own `bin` in every case.
 
-**So the design is: the agent pack declares its briefing destination's identity, the same way it
-already declares its surfaces'.** One field on the contribution that names the file:
-
-```jsonc
-// packs/claude/pack.json — the destination says whose file it is
-{ "kind": "briefing", "into": ".claude/CLAUDE.md", "agent": "claude" }
-```
-
-A selector then matches that string directly. No map built over the selected set, no derivation,
-no new concept — and the three complications the derived version dragged in all disappear with it:
+**So the design is: the agent pack declares its briefing destination's `bin`, the same way it
+already declares its surfaces' `agent`** (§4.1's first block). A selector then matches that string
+directly. No map built over the selected set, no derivation, no new concept — and the three
+complications the derived version dragged in all disappear with it:
 
 - The `ResolveDestinations` wrinkle is gone. Inference folds a borrowed destination into a *copy
   of the borrowing pack's* declaration ([`mergedest.go:84`](../../internal/packload/mergedest.go#L84)),
@@ -205,6 +231,18 @@ no new concept — and the three complications the derived version dragged in al
 > `program` (`bin`), `config` (`agent`) and `state` (`at`) all already require, and a pack that
 > omits it fails the same way a pack that omits `bin` does. What it is NOT allowed to do is fail
 > *silently*, which is §4.3's job.
+
+**The declaring pack OWNS that name, and two packs claiming it is fatal** *(maintainer,
+2026-08-31)*. This needs its own collision pass rather than falling out of the generic one:
+[`Collisions`](../../internal/packload/footprint.go#L364) keys claims by `(kind, target)` and
+**skips every kind that is not `CombineExclusive`** ([`:400`](../../internal/packload/footprint.go#L400)),
+and `briefing` is `CombineConcat` by design — several packs contributing prose at one path is the
+whole point. So a `bin` claim inside it is invisible to that loop. The precedent is exact and
+already in the file twice: `pluginNameCollisions` exists because *"the generic loop above cannot
+see this (the claim's kind is skills, which merges by design), so it is its own pass"*
+([`:498-501`](../../internal/packload/footprint.go#L498-L501)), and `LoopholeNameCollisions`
+([`:530`](../../internal/packload/footprint.go#L530)) is the same shape. A briefing `bin` is a
+third instance of it.
 
 ### 4.3 Resolution and severity
 
@@ -292,31 +330,37 @@ load-bearing in two places.
 
 ## 9. What I would build, in order
 
-1. **The identity field on `briefing`**, plus the six one-line additions to the shipped agent packs (§4.2). Inert on its own — nothing reads it yet — so it lands and is reviewable before any behavior changes.
+1. **`bin` on `briefing`**, plus the six one-line additions to the shipped agent packs (§4.1), and its collision pass (§4.2). Inert as *routing* — nothing reads it for delivery yet — but the ownership check is real from day one, which is the half that wants to land before anyone depends on a name.
 2. **The host notch filter**, in `ComposeHostBriefings`. Smallest change, immediately observable via `yolo host apply --observe`, and it needs nothing from the jail half.
-3. **The jail notch move** — composition into the write loop, staging keyed by destination, `assemble.go` following. This is where the one-prose-per-pack limit lifts (§5).
-4. **Resolution and severity** (§4.3) at the two gates R5 selects, with R3-grade diagnostics.
-5. **Reporting** — `yolo pack lint` and `yolo pack footprint` state a contribution's targeting, so a pack's briefing claims read as legibly as its file claims.
+3. **The path-free half** — `bins` on a contribution, `into` refused alongside it and required without it, `declares` testing `Into != ""`, and `borrowedDestinations` filtered by the selector (§4.1). This is what makes P4 true rather than aspirational, and step 2 is worth little without it.
+4. **The jail notch move** — composition into the write loop, staging keyed by destination, `assemble.go` following. This is where the one-prose-per-pack limit lifts (§5).
+5. **Resolution and severity** (§4.3) at the two gates R5 selects, with R3-grade diagnostics.
+6. **Reporting** — `yolo pack lint` and `yolo pack footprint` state a contribution's targeting, so a pack's briefing claims read as legibly as its file claims.
 
-Steps 1–2 are independently shippable and answer nothing this doc leaves open.
+Steps 1–2 are independently shippable and answer nothing this doc leaves open. **Step 3 is the one
+to review hardest**: it makes `into` conditional on a field, and a briefing that silently delivers
+nowhere is the exact failure mode `declares` would produce if that change were missed.
 
 ---
 
 ## 10. Open Questions
 
-1. 💬 **OQ-BA6: What is the identity field called, and is it checked against `bin`?** §4.2 has
-   the destination declare its own name. Two spellings are already in the tree for the same
-   string: `agent` (what a config surface uses —
-   [`load.go:27`](../../internal/agentcfg/manifest/load.go#L27)) and `bin` (what `program` uses).
-   They are identical for all six shipped agent packs, but the surface namespace is **wider** —
-   its doc comment admits non-agent owners like `mcp`, `lsp`, `mise`, `identity`. **What this
-   decides is whether a briefing identity that does not match its own pack's `bin` is a
-   contradiction to refuse or a legitimate thing to allow.**
+1. 💬 **OQ-BA7: Is the `bin` namespace one namespace across kinds, or one per kind?**
+   OQ-BA6 settled that a briefing's `bin` is owned and that two packs claiming it is fatal. It did
+   not settle what happens ACROSS kinds. Today collisions key on `(kind, target)`
+   ([`footprint.go:364`](../../internal/packload/footprint.go#L364)), and `packs/copilot` relies on
+   that: it declares `bin: "copilot"` on both `program` and `launch`. So a same-pack repeat is
+   normal and must stay legal. The open case is **two different packs**: pack A declares
+   `program bin: "claude"`, pack B declares `briefing bin: "claude"`. **This decides whether a
+   briefing-only agent pack is a legitimate shape** — and there is a real one, since `requires`
+   exists precisely for a binary the pack does not install (a baked or user-provided `claude`),
+   and such a pack naming claude's briefing file is doing nothing wrong.
 
-   _Leaning:_ Spell it `agent`, matching the surface, and **refuse a mismatch with the declaring
-   pack's `bin` when the pack declares one** — that keeps the two namespaces provably aligned
-   where they overlap without pretending they are the same namespace. But I hold this weakly;
-   the alternative (spell it `bin`, no check needed) is simpler and may be the right trade.
+   _Leaning:_ Ownership is per-NAME, not per-kind — one pack owns `claude` and may claim it in as
+   many kinds as it likes; two packs claiming it in any kinds is fatal. The `requires` case is then
+   served by that pack declaring `requires bin: "claude"` **and** the briefing, which is one pack
+   owning the name honestly. But this generalizes the collision key beyond this doc's blast radius,
+   so it may be right to scope it to briefing-vs-briefing for v1 and file the rest.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -365,4 +409,5 @@ Steps 1–2 are independently shippable and answer nothing this doc leaves open.
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-BA1 | Key the selector by **CLI name (`bin`)**, not by pack slug — the namespace `-p <name> -- <bin>` and `pack_profiles.<cli>` already use | 2026-08-31 | §1 P1, §4.1, §6 A1 |
+| OQ-BA6 | The identity field is spelled **`bin`**, declared by the agent pack, which **OWNS** that name — two packs claiming one `bin` is a **fatal** error. Needs its own collision pass, since `briefing` is `CombineConcat` and the generic loop skips non-exclusive kinds (`pluginNameCollisions`/`LoopholeNameCollisions` are the precedent). | 2026-08-31 | §4.1, §4.2 |
 | OQ-BA2 | The destination's identity is **declared, not derived**. This doc's first draft proposed deriving it from the declaring pack's `bin`s; the `-p` chain derives nothing (name typed → map key → literal comparison, with `derive.lua` hardcoding its own name), there is no `bin`→pack index, and identity-by-declaration is what `program`, `config` and `state` all already do. Deleting the derivation also deletes the `ResolveDestinations` wrinkle and the unaudienced-destination state. | 2026-08-31 | §4.2, §6 A2 |

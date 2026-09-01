@@ -64,7 +64,12 @@ var knownTopLevelConfigKeys = set(
 	"loopholes", "host_processes", "journal",
 	"kvm", "prune", "ephemeral_storage", "include_if_found", "agents_md_extra",
 	"cache_relocations", "writable_home_dirs", "host_files", "host_wrappers", "packs",
-	"providers", "agent_profiles", "required_capabilities",
+	"providers", "pack_profiles", "required_capabilities",
+	// `agent_profiles` retired 2026-09-01, renamed to `pack_profiles` (the keys were
+	// always CLI names, and core knows packs, not agents — docs/design/
+	// profiles-as-pack-variants.md §3.3). Listed so the retirement message is the
+	// only error, per the convention above.
+	"agent_profiles",
 )
 
 // `journalModes` — the off/user/full vocabulary — went with the key on 2026-08-18.

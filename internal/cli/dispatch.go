@@ -50,13 +50,13 @@ var registry = map[string]func(args []string) int{
 // runHelpRequested (runcmd.go) carries the same skip for its own scan; the two lists are
 // pinned together by TestValueTakingFlagsCoverRunHelpSkips.
 var valueTakingFlags = map[string]bool{
-	"--at":            true,
-	"--network":       true,
-	"--profile":       true,
-	"-p":              true,
-	"--auth":          true,
-	"--claude-auth":   true,
-	"--agent-profile": true,
+	"--at":           true,
+	"--network":      true,
+	"--profile":      true,
+	"-p":             true,
+	"--auth":         true,
+	"--claude-auth":  true,
+	"--pack-profile": true,
 	// Stripped by StripUserLayer before RewriteArgv sees argv, so this entry is
 	// defensive — it costs nothing and removes an ordering dependency.
 	"--user-layer": true,

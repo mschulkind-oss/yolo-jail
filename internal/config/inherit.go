@@ -129,7 +129,7 @@ var inheritCensus = map[string]keyDisposition{
 	"mcp_presets":           {preflight: true, nested: true, reason: "MCP presets the check dry-run resolves and an inner launcher passes on"},
 	"lsp_servers":           {preflight: true, nested: true, reason: "LSP servers installed in the jail; the check dry-run renders their config"},
 	"providers":             {preflight: true, nested: true, reason: "cloud provider declarations for agent configuration and nested launches"},
-	"agent_profiles":        {preflight: true, nested: true, reason: "active agent-to-provider mappings for this jail and nested launches"},
+	"pack_profiles":         {preflight: true, nested: true, reason: "active CLI-to-profile-name selections for this jail and nested launches (keys are CLI names: core knows packs, not agents)"},
 	"required_capabilities": {preflight: true, nested: true, reason: "required capabilities validated at pre-flight and passed to nested launches"},
 
 	// ---- Preflight only ---------------------------------------------------------
@@ -218,6 +218,9 @@ var inheritCensus = map[string]keyDisposition{
 	// (already in both scopes, three entries up) carries the switch and the settings.
 	"host_processes": {reason: "RETIRED — the keys moved to loopholes.host-processes.settings; emitting it would re-trigger the retirement error"},
 	"journal":        {reason: "RETIRED — the switch moved to loopholes.journal.enabled and the mode to its settings; emitting it would re-trigger the retirement error"},
+	// `agent_profiles` joined them on 2026-09-01, renamed to `pack_profiles` — the
+	// keys were always CLI names and core knows packs, not agents.
+	"agent_profiles": {reason: "RETIRED — renamed to pack_profiles; emitting it would re-trigger the retirement error"},
 }
 
 // InheritDisposition returns the census entry for a key, and ok=false for a key the census

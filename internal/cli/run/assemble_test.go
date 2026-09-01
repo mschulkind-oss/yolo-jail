@@ -491,7 +491,7 @@ func podmanLinuxGolden(home string) []string {
 		"-e", "YOLO_MCP_SERVERS={}",
 		"-e", "YOLO_MCP_PRESETS=[]",
 		"-e", "YOLO_PROVIDERS={}",
-		"-e", "YOLO_AGENT_PROFILES={}",
+		"-e", "YOLO_PACK_PROFILES={}",
 		"-e", "YOLO_REQUIRED_CAPABILITIES=[]",
 		"-e", "YOLO_RUNTIME=podman",
 	)

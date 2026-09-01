@@ -54,7 +54,7 @@ env flags:
   --format <fmt>  export (default) or json.
   --profile <name>, -p <name>   As above.
   --agent <name>  Compose as if launching this agent (default: claude). The agent name
-                  selects which agent_profiles entry applies.
+                  selects which pack_profiles entry applies.
 
 Examples:
   yolo host -- claude                 # bare claude, with the composed environment
@@ -349,12 +349,12 @@ func loadedHostPacks() ([]*packload.Pack, error) {
 	return packs, nil
 }
 
-// effectiveHostProfiles returns the agent_profiles map with a `-p` override applied to
+// effectiveHostProfiles returns the pack_profiles map with a `-p` override applied to
 // the agent being launched, mirroring what `yolo run -p` does for a jail so the two
 // notches agree about what a profile selects.
 func effectiveHostProfiles(cfg *jsonx.OrderedMap, agent, profile string) *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
-	if v, ok := cfg.Get("agent_profiles"); ok {
+	if v, ok := cfg.Get("pack_profiles"); ok {
 		if m, ok := v.(*jsonx.OrderedMap); ok {
 			for _, k := range m.Keys() {
 				val, _ := m.Get(k)
@@ -417,7 +417,7 @@ func hostEnv(args []string, out, errw io.Writer) int {
 	}
 	if agent == "" {
 		// A default rather than "every configured agent": the composition is per-agent by
-		// construction (agent_profiles maps ONE profile per agent), so there is no single
+		// construction (pack_profiles maps ONE profile per agent), so there is no single
 		// environment that is right for all of them — two agents on different providers
 		// would produce contradictory values for the same variable. `claude` is the
 		// default because it is the pack this repo's own workflows assume; --agent names

@@ -57,8 +57,8 @@ type Options struct {
 	ProfileName string
 	// ClaudeAuth is --claude-auth <mode> or --auth <mode> (e.g. "bedrock", "teams").
 	ClaudeAuth string
-	// AgentProfiles is --agent-profile <agent>=<provider> overrides.
-	AgentProfiles map[string]string
+	// PackProfiles is --pack-profile <agent>=<provider> overrides.
+	PackProfiles map[string]string
 	// Args is ctx.args — the command after `--` (empty → interactive bash).
 	Args []string
 
