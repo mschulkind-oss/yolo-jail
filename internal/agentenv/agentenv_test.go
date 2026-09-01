@@ -21,45 +21,65 @@ func cfgFrom(t *testing.T, text string) *jsonx.OrderedMap {
 	return m
 }
 
-// TestResolveBedrockFullBlock pins the exact vars AND their order for the one profile
-// that implies environment today. The order is the jail's frozen podman argv order.
-func TestResolveBedrockFullBlock(t *testing.T) {
-	cfg := cfgFrom(t, `{"bedrock": {
+// bedrockTable is the composed providers entry the bedrock shape composes from: the
+// delivery shape packs/claude ships, the region and model ids the user's own
+// `providers.bedrock` carries. This is the whole bedrock env — the shape says which
+// variable takes its value from where, and the entry says what the value IS.
+func bedrockTable(t *testing.T) *jsonx.OrderedMap {
+	t.Helper()
+	return cfgFrom(t, `{"bedrock": {
 		"region": "us-east-1",
-		"models": {"default": "opus-x", "haiku": "haiku-x", "sonnet": "sonnet-x"}
+		"models": {"default": "opus-x", "haiku": "haiku-x", "sonnet": "sonnet-x"},
+		"env_shape": {"anthropic": {
+			"ANTHROPIC_DEFAULT_HAIKU_MODEL":  "{model:haiku}",
+			"ANTHROPIC_DEFAULT_OPUS_MODEL":   "{model:default}",
+			"ANTHROPIC_DEFAULT_SONNET_MODEL": "{model:sonnet}",
+			"AWS_REGION":                     "{region}"
+		}}
 	}}`)
-	got := Resolve(cfg, "claude", "bedrock", "bedrock", nil)
+}
+
+// TestResolveBedrockFullBlock pins the bedrock delivery the shipped packs/claude shape
+// composes. The order here is the composer's own: the shape's variable names sorted — no
+// agent or provider is named in the code that produces it, which is the point of moving
+// the shape out of Go and into the pack.
+func TestResolveBedrockFullBlock(t *testing.T) {
+	got := Resolve(bedrockTable(t), "claude", "bedrock", "bedrock", nil)
 	want := []Var{
-		{Key: "CLAUDE_CODE_USE_BEDROCK", Value: "1"},
-		{Key: "AWS_REGION", Value: "us-east-1"},
-		{Key: "ANTHROPIC_DEFAULT_OPUS_MODEL", Value: "opus-x"},
 		{Key: "ANTHROPIC_DEFAULT_HAIKU_MODEL", Value: "haiku-x"},
+		{Key: "ANTHROPIC_DEFAULT_OPUS_MODEL", Value: "opus-x"},
 		{Key: "ANTHROPIC_DEFAULT_SONNET_MODEL", Value: "sonnet-x"},
+		{Key: "AWS_REGION", Value: "us-east-1"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Resolve = %+v\nwant %+v", got, want)
 	}
 }
 
-// TestResolveBedrockWithoutProviderEntry covers the case the flag alone must survive:
-// the profile says bedrock but no provider block configures it. Claude Code still has to
-// be told to USE bedrock — the region and models simply go undeclared. A nil provider
-// TABLE behaves the same way: the flag is the profile's own content, not the provider's.
-func TestResolveBedrockWithoutProviderEntry(t *testing.T) {
-	got := Resolve(cfgFrom(t, `{}`), "claude", "bedrock", "bedrock", nil)
-	want := []Var{{Key: "CLAUDE_CODE_USE_BEDROCK", Value: "1"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Resolve with no providers = %+v, want %+v", got, want)
-	}
-	if got := Resolve(nil, "claude", "bedrock", "bedrock", nil); !reflect.DeepEqual(got, want) {
-		t.Errorf("Resolve(nil providers) = %+v, want %+v", got, want)
+// TestResolveBedrockWithNothingToFillIn: the profile says bedrock but no provider block
+// configures it. The shape delivers nothing it cannot fill — an empty AWS_REGION or an
+// empty model id would be a request to the wrong place — and there is no hardcoded
+// fallback var to fall back to: what the variant itself contributes (claude's
+// CLAUDE_CODE_USE_BEDROCK) is a profile `env` literal, delivered by the pack env channel,
+// not by this composition.
+func TestResolveBedrockWithNothingToFillIn(t *testing.T) {
+	for name, table := range map[string]*jsonx.OrderedMap{
+		"no providers at all": nil,
+		"entry without the facts": cfgFrom(t,
+			`{"bedrock": {"env_shape": {"anthropic": {"AWS_REGION": "{region}"}}}}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := Resolve(table, "claude", "bedrock", "bedrock", nil); len(got) != 0 {
+				t.Errorf("Resolve = %+v, want nothing", got)
+			}
+		})
 	}
 }
 
 // TestResolveQuietCases: a shared config routinely names providers a machine cannot use.
 // None of these may error or emit anything.
 func TestResolveQuietCases(t *testing.T) {
-	providers := cfgFrom(t, `{"bedrock": {"region": "us-east-1"}}`)
+	providers := bedrockTable(t)
 	cases := []struct {
 		name     string
 		agent    string
@@ -68,7 +88,7 @@ func TestResolveQuietCases(t *testing.T) {
 	}{
 		{"no profile for this agent", "claude", "", "bedrock"},
 		{"unknown provider name", "claude", "not-a-provider", "not-a-provider"},
-		{"another agent on bedrock carries no claude flag", "codex", "bedrock", "bedrock"},
+		{"an agent that speaks another protocol gets no anthropic shape", "codex", "bedrock", "bedrock"},
 		{"empty agent name", "", "bedrock", "bedrock"},
 	}
 	for _, tc := range cases {
@@ -86,13 +106,16 @@ func TestResolveQuietCases(t *testing.T) {
 func TestResolveSkipsNonStringAndEmpty(t *testing.T) {
 	providers := cfgFrom(t, `{"bedrock": {
 		"region": "",
-		"models": {"default": 42, "haiku": "", "sonnet": "sonnet-x"}
+		"models": {"default": 42, "haiku": "", "sonnet": "sonnet-x"},
+		"env_shape": {"anthropic": {
+			"ANTHROPIC_DEFAULT_HAIKU_MODEL":  "{model:haiku}",
+			"ANTHROPIC_DEFAULT_OPUS_MODEL":   "{model:default}",
+			"ANTHROPIC_DEFAULT_SONNET_MODEL": "{model:sonnet}",
+			"AWS_REGION":                     "{region}"
+		}}
 	}}`)
 	got := Resolve(providers, "claude", "bedrock", "bedrock", nil)
-	want := []Var{
-		{Key: "CLAUDE_CODE_USE_BEDROCK", Value: "1"},
-		{Key: "ANTHROPIC_DEFAULT_SONNET_MODEL", Value: "sonnet-x"},
-	}
+	want := []Var{{Key: "ANTHROPIC_DEFAULT_SONNET_MODEL", Value: "sonnet-x"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Resolve = %+v\nwant %+v", got, want)
 	}

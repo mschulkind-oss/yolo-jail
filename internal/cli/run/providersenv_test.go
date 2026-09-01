@@ -99,12 +99,14 @@ func TestAssembleEmitsComposedProvidersTable(t *testing.T) {
 }
 
 // A launch with no provider from either side still emits `{}` — the golden argv's
-// byte-for-byte shape must not change because the kind exists.
+// byte-for-byte shape must not change because the kind exists. The pack here is one that
+// ships no provider on purpose: packs/claude now always ships one (bedrock's shape), so
+// a claude launch can never be the empty case again.
 func TestAssembleEmitsEmptyProvidersTableWithoutProviders(t *testing.T) {
 	sec := jsonx.NewOrderedMap()
 	sec.Set("blocked_tools", []any{})
-	argv := assembleWithPacksAndConfig(t, claudePackFixture(t),
-		newConfig("agents", []any{"claude"}, "security", sec))
+	argv := assembleWithPacksAndConfig(t, packsFixture(t, "pi"),
+		newConfig("agents", []any{"pi"}, "security", sec))
 	got := envArgValues(argv, "YOLO_PROVIDERS")
 	if len(got) != 1 || got[0] != "YOLO_PROVIDERS={}" {
 		t.Errorf("an unprofiled, provider-less launch must carry YOLO_PROVIDERS={}; got %q", got)

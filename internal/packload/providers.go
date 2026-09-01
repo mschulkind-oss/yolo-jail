@@ -138,6 +138,9 @@ func shippedProviderEntry(prov packdecl.ProviderContribution) *jsonx.OrderedMap 
 	if prov.APIKeyEnvName != "" {
 		entry.Set("api_key_env", prov.APIKeyEnvName)
 	}
+	if prov.Region != "" {
+		entry.Set("region", prov.Region)
+	}
 	if len(prov.Models) > 0 {
 		models := jsonx.NewOrderedMap()
 		for _, alias := range sortedMapKeys(prov.Models) {

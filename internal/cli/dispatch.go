@@ -44,7 +44,7 @@ var registry = map[string]func(args []string) int{
 // `yolo --network host -- bash` stops meaning "run bash in a host-networked jail" and
 // starts meaning "run bash at the host notch" — a silent change of meaning, in the
 // direction of running the command OUTSIDE the sandbox. Every value here is
-// user-supplied text (`-p pack`, `--auth check`), so the collision is open-ended and
+// user-supplied text (`-p pack`, `--profile check`), so the collision is open-ended and
 // listing the flags is the only closed way to describe it.
 //
 // runHelpRequested (runcmd.go) carries the same skip for its own scan; the two lists are
@@ -54,8 +54,6 @@ var valueTakingFlags = map[string]bool{
 	"--network":      true,
 	"--profile":      true,
 	"-p":             true,
-	"--auth":         true,
-	"--claude-auth":  true,
 	"--pack-profile": true,
 	// Stripped by StripUserLayer before RewriteArgv sees argv, so this entry is
 	// defensive — it costs nothing and removes an ordering dependency.

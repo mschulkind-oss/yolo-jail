@@ -161,18 +161,25 @@ type Contribution struct {
 	// The `_name` is the value's type read out loud (parent OQ-6), the same distinction
 	// the `providers` config key draws with `api_key_env`.
 	APIKeyEnvName string `json:"api_key_env_name,omitempty"`
+	// Region is the region a regional provider is reached through — Bedrock's address
+	// half, where "where is this service" is a region plus a well-known host rather than
+	// a base URL. It is a service fact for the same reason an endpoint is: it says where
+	// the provider lives, never who is calling, and the user's own `providers` entry
+	// overrides it like any other field.
+	Region string `json:"region,omitempty"`
 	// Models maps a model ALIAS an agent asks for to the provider's model ID —
 	// "default"/"fast" → "glm-4.7". Alias names are open vocabulary: which aliases a
 	// provider's consumers read is the consumer's business, not core's.
 	Models map[string]string `json:"models,omitempty"`
 	// EnvShape is how a profile ACTIVE for an agent delivers THIS provider to it, by
-	// protocol: protocol → {ENV_VAR → placeholder}. The only two placeholders are the
-	// literals "{endpoint}" (that protocol's base_url) and "{key}" (the hydrated value of
-	// APIKeyEnvName) — a value that is neither is refused, because anything else would be
-	// the credential or a host fact smuggled in through a template (validateContribution).
-	// Declared per protocol so one provider can spell claude's ANTHROPIC_* pair and leave
-	// the OpenAI-shaped agents to their config files (parent OQ-14: no agent is
-	// special-cased, the provider says how it is delivered).
+	// protocol: protocol → {ENV_VAR → placeholder}. The placeholders are the closed set
+	// declared below validateProviderEnvShape — "{endpoint}" (that protocol's base_url),
+	// "{key}" (the hydrated value of APIKeyEnvName), "{region}" (Region) and
+	// "{model:<alias>}" (an alias of Models); anything else is refused, because anything
+	// else would be the credential or a host fact smuggled in through a template
+	// (validateContribution). Declared per protocol so one provider can spell claude's
+	// ANTHROPIC_* pair and leave the OpenAI-shaped agents to their config files (parent
+	// OQ-14: no agent is special-cased, the provider says how it is delivered).
 	EnvShape map[string]map[string]string `json:"env_shape,omitempty"`
 
 	// --- profile (profiles-as-pack-variants.md §3.1) ---
@@ -589,6 +596,7 @@ type ProviderContribution struct {
 	Name          string
 	Endpoints     map[string]ProviderEndpoint
 	APIKeyEnvName string
+	Region        string
 	Models        map[string]string
 	EnvShape      map[string]map[string]string
 }
@@ -610,6 +618,7 @@ func (m *Manifest) Providers() []ProviderContribution {
 			Name:          c.Name,
 			Endpoints:     c.Endpoints,
 			APIKeyEnvName: c.APIKeyEnvName,
+			Region:        c.Region,
 			Models:        c.Models,
 			EnvShape:      c.EnvShape,
 		})
@@ -1348,38 +1357,76 @@ func validateProviderEndpoints(label string, endpoints map[string]ProviderEndpoi
 	return problems
 }
 
-// The only two placeholders an env_shape value may be. Declared beside the validation
-// that enforces them and exported because the consumer of the shape — the launch-time env
+// The placeholders an env_shape value may be. Declared beside the validation that
+// enforces them and exported because the consumer of the shape — the launch-time env
 // composition in internal/agentenv — has to spell them identically: a second copy of the
 // literal in the composer is a second vocabulary that can drift away from the one the
 // validator enforces.
+//
+// Every placeholder names a field of the COMPOSED provider entry, which is the whole
+// point of the closed set: a pack ships which variable takes its value from where, and
+// the value itself is the user's — their endpoints, their region, their model ids, their
+// hydrated credential. There is deliberately no literal form, because a literal in a
+// git-tracked manifest is exactly where a credential gets shipped to strangers (§4.2's
+// escape hatch); a static value belongs in a profile's own `env`, which is what that
+// field is for.
 const (
 	// EnvShapeEndpoint is that protocol's base_url.
 	EnvShapeEndpoint = "{endpoint}"
 	// EnvShapeKey is the hydrated value of the provider's api_key_env_name variable —
 	// relayed by the launcher from the launch environment, never carried by a manifest.
 	EnvShapeKey = "{key}"
+	// EnvShapeRegion is the provider's region — the address half of a provider reached
+	// by region rather than by base URL (Bedrock).
+	EnvShapeRegion = "{region}"
+	// EnvShapeModelPrefix opens a {model:<alias>} reference: the model id the entry's
+	// `models` map names for <alias>. The alias is whoever declares the shape's choice of
+	// word — core keeps no model vocabulary, so an agent pack's own alias names
+	// (claude's "haiku"/"sonnet") live in the pack that needs them, not here.
+	EnvShapeModelPrefix = "{model:"
 )
 
-// validateProviderEnvShape checks the env_shape template values: the ONLY two
-// placeholders are "{endpoint}" (that protocol's base_url) and "{key}" (the user's
-// hydrated credential).
+// EnvShapeModelAlias reports whether v is a {model:<alias>} reference — the one
+// placeholder that carries a parameter, so it is spelled as a prefix and parsed rather
+// than compared — returning the alias it names. An empty alias is not a reference:
+// "{model:}" is an author's typo, and reading it as "alias empty" would compose nothing
+// with nothing to say why.
+func EnvShapeModelAlias(v string) (string, bool) {
+	if !strings.HasPrefix(v, EnvShapeModelPrefix) || !strings.HasSuffix(v, "}") {
+		return "", false
+	}
+	alias := v[len(EnvShapeModelPrefix) : len(v)-1]
+	if alias == "" {
+		return "", false
+	}
+	return alias, true
+}
+
+// validateProviderEnvShape checks the env_shape template values: the ONLY placeholders
+// are "{endpoint}" (that protocol's base_url), "{key}" (the user's hydrated credential),
+// "{region}" (the provider's region) and "{model:<alias>}" (a named model id).
 //
-// A closed two-value set, and deliberately not a template language: an env_shape value
-// that could interpolate anything else would be a channel for exactly the two things this
-// kind must never ship — a credential, or a fact about the authoring machine.
+// A closed set, and deliberately not a template language: an env_shape value that could
+// interpolate anything else would be a channel for exactly the two things this kind must
+// never ship — a credential, or a fact about the authoring machine.
 func validateProviderEnvShape(label string, shape map[string]map[string]string) []string {
 	var problems []string
 	for _, proto := range sortedKeys(shape) {
 		vars := shape[proto]
 		for _, name := range sortedKeys(vars) {
 			v := vars[name]
-			if v == EnvShapeEndpoint || v == EnvShapeKey {
+			if v == EnvShapeEndpoint || v == EnvShapeKey || v == EnvShapeRegion {
+				continue
+			}
+			if _, isModel := EnvShapeModelAlias(v); isModel {
+				// The alias is checked for well-formedness, not resolved: `models` may be
+				// entirely the user's, and a shape naming an alias no entry carries yet
+				// composes nothing rather than failing a launch (agentenv's rule).
 				continue
 			}
 			problems = append(problems, fmt.Sprintf(
-				"%s.env_shape[%q][%q]: must be exactly \"{endpoint}\" or \"{key}\" (%q)",
-				label, proto, name, v))
+				"%s.env_shape[%q][%q]: must be \"{endpoint}\", \"{key}\", \"{region}\" or "+
+					"\"{model:<alias>}\" (%q)", label, proto, name, v))
 		}
 	}
 	return problems

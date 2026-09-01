@@ -173,8 +173,9 @@ func TestAssembleProfileWithACommandKeysOnlyThatBin(t *testing.T) {
 // THE LAUNCH LINE (§3.3): one line per distinct name, naming what DECLARED it and who
 // RECEIVED it. RECEIVED is every selected pack — the table crosses to the jail whole
 // and every pack's derive sees all of it — and DECLARED is the packs shipping a
-// `profile` variant with that name, which is none for every launch this build can
-// produce because the kind does not exist yet (§12 step 2 adds it).
+// `profile` variant with that name. `glm` is a name no shipped pack declares, so this
+// pins the undeclared half of the print (packs/claude's own `bedrock` is the declared
+// one, which is why these tests cannot use it).
 //
 // Driven through the same merge the env block consumes, so the line cannot claim
 // something the table does not carry.
@@ -186,13 +187,13 @@ func TestNotePackProfilesPrintsDeclaredAndReceived(t *testing.T) {
 	o.Stderr = &out
 	cfg := newConfig()
 	profiles := jsonx.NewOrderedMap()
-	profiles.Set("claude", "bedrock")
-	profiles.Set("pi", "bedrock")
+	profiles.Set("claude", "glm")
+	profiles.Set("pi", "glm")
 	cfg.Set("pack_profiles", profiles)
 	effective := o.effectivePackProfiles(cfg, packs)
 	o.notePackProfiles(effective, packs)
 
-	want := "Profile bedrock: declared: none; received: claude, pi"
+	want := "Profile glm: declared: none; received: claude, pi"
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("launch line %q, want it to contain %q", out.String(), want)
 	}
@@ -220,7 +221,7 @@ func TestNotePackProfilesPrintsOneLinePerName(t *testing.T) {
 	o.notePackProfiles(o.effectivePackProfiles(cfg, packs), packs)
 
 	for _, want := range []string{
-		"Profile bedrock: declared: none; received: claude, pi",
+		"Profile bedrock: declared: claude; received: claude, pi",
 		"Profile glm: declared: none; received: claude, pi",
 	} {
 		if !strings.Contains(out.String(), want) {

@@ -24,6 +24,32 @@ func userCfg(t *testing.T, home, text string) {
 	}
 }
 
+// writeClaudeBedrockLocalPack writes the conventional local pack carrying the bedrock
+// declarations the shipped packs/claude pack owns: the provider's delivery SHAPE — which
+// variable takes its value from which fact — and the variant that switches claude into
+// Bedrock mode. It installs the claude CLI on purpose: a variant is active only at a CLI
+// name its OWN pack installs (§3.3), which is why the shape lives there and not in a
+// CLI-less provider pack.
+func writeClaudeBedrockLocalPack(t *testing.T, home string) {
+	t.Helper()
+	dir := filepath.Join(home, ".config", "yolo-jail", "local")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"claude","contributes":[` +
+		`{"kind":"program","bin":"claude","via":"npm","package":"@anthropic-ai/claude-code"},` +
+		`{"kind":"provider","name":"bedrock",` +
+		`"env_shape":{"anthropic":{"AWS_REGION":"{region}",` +
+		`"ANTHROPIC_DEFAULT_OPUS_MODEL":"{model:default}",` +
+		`"ANTHROPIC_DEFAULT_HAIKU_MODEL":"{model:haiku}",` +
+		`"ANTHROPIC_DEFAULT_SONNET_MODEL":"{model:sonnet}"}}},` +
+		`{"kind":"profile","name":"bedrock","requires_provider":"bedrock",` +
+		`"env":{"CLAUDE_CODE_USE_BEDROCK":"1"}}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHostMainAnswersHelpAndRejectsUnknownVerb(t *testing.T) {
 	var out, errw bytes.Buffer
 	if rc := hostMain(nil, &out, &errw, false, nil); rc != 0 {
@@ -92,6 +118,7 @@ func TestHostEnvExportFormat(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	ws := t.TempDir()
 	t.Chdir(ws)
+	writeClaudeBedrockLocalPack(t, home)
 	userCfg(t, home, `{
 	  "providers": {"bedrock": {"region": "us-east-1"}},
 	  "pack_profiles": {"claude": "bedrock"},
@@ -162,6 +189,7 @@ func TestComposeHostEnvOrdering(t *testing.T) {
 	t.Setenv("AWS_PROFILE", "work-sso")
 	t.Setenv("AWS_REGION", "eu-west-1")
 	t.Chdir(t.TempDir())
+	writeClaudeBedrockLocalPack(t, home)
 	userCfg(t, home, `{
 	  "providers": {"bedrock": {"region": "us-east-1"}},
 	  "pack_profiles": {"claude": "bedrock"},
@@ -202,6 +230,7 @@ func TestComposeHostEnvProfileFlagOverrides(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
 	t.Chdir(t.TempDir())
+	writeClaudeBedrockLocalPack(t, home)
 	userCfg(t, home, `{"providers": {"bedrock": {"region": "us-east-1"}}}`)
 
 	env, _, err := composeHostEnv("claude", "bedrock", func(string) {})
@@ -220,6 +249,62 @@ func hasEnv(env []string, kv string) bool {
 		}
 	}
 	return false
+}
+
+// TestHostEnvCarriesTheVariantEnv pins the (1b) source at the host notch: the variant's
+// own `env` rides the same process-env channel its provider's shape does, because a
+// profile that sets nothing but its provider's vars would be half a profile — claude's
+// bedrock variant has to say CLAUDE_CODE_USE_BEDROCK=1 somewhere, and the jail's argv
+// already carries it through the same fold (packload.EnvVarsFor). Deleting the fold makes
+// this test fail; deleting the jail's fold makes agentprofileenv_test.go fail.
+func TestHostEnvCarriesTheVariantEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("AWS_PROFILE", "work-sso") // what the invoking shell had
+	t.Chdir(t.TempDir())
+	dir := filepath.Join(home, ".config", "yolo-jail", "local")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"claude","contributes":[` +
+		`{"kind":"program","bin":"claude","via":"npm","package":"@anthropic-ai/claude-code"},` +
+		`{"kind":"env","vars":{"PACK_STATIC":"static","VARIANT_ONLY_KEY":"static"}},` +
+		`{"kind":"profile","name":"bedrock","env":{` +
+		`"CLAUDE_CODE_USE_BEDROCK":"1",` +
+		`"VARIANT_ONLY_KEY":"variant",` +
+		`"AWS_PROFILE":null}}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	userCfg(t, home, `{"pack_profiles": {"claude": "bedrock"}}`)
+
+	env, _, err := composeHostEnv("claude", "", func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]string{}
+	for _, kv := range env {
+		if i := strings.IndexByte(kv, '='); i > 0 {
+			seen[kv[:i]] = kv[i+1:]
+		}
+	}
+	if !hasEnv(env, "CLAUDE_CODE_USE_BEDROCK=1") {
+		t.Errorf("the variant's env literal did not reach the host process: %q", env)
+	}
+	// OQ-8: the variant is the more specific intent, so it beats its own pack's static
+	// value, which the earlier source had already set.
+	if seen["VARIANT_ONLY_KEY"] != "variant" {
+		t.Errorf("VARIANT_ONLY_KEY = %q, want the variant's value to beat the static one", seen["VARIANT_ONLY_KEY"])
+	}
+	if seen["PACK_STATIC"] != "static" {
+		t.Errorf("PACK_STATIC = %q, want the pack's static env untouched by the variant", seen["PACK_STATIC"])
+	}
+	// OQ-7: a null in the variant UNSETS — and it beats both the inherited value and the
+	// env_sources assignment, because a removal is only a removal if it comes last.
+	if _, present := seen["AWS_PROFILE"]; present {
+		t.Errorf("AWS_PROFILE = %q, want the variant's null to remove it outright", seen["AWS_PROFILE"])
+	}
 }
 
 // TestComposeHostEnvReadsUserScopeOnly pins the host env channel's security boundary.
@@ -469,6 +554,7 @@ func TestHostEnvAgentFlagSelectsTheProfile(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
 	t.Chdir(t.TempDir())
+	writeClaudeBedrockLocalPack(t, home)
 	userCfg(t, home, `{
 	  "providers": {"bedrock": {"region": "us-east-1"}},
 	  "pack_profiles": {"claude": "bedrock"}

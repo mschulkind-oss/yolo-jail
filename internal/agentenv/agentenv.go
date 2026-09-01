@@ -88,25 +88,16 @@ func Resolve(providers *jsonx.OrderedMap, agent, profile, provider string, looku
 	if agent == "" || profile == "" {
 		return nil
 	}
-	var out []Var
-	// The provider's own delivery shape first (OQ-14: no agent is special-cased — the
-	// provider says how it is delivered, per protocol, and the composition follows the
-	// protocol the agent speaks). It reads the composed table — the same table the derives
-	// read — so the env an agent is launched with and the config its derive wrote cannot
-	// disagree about where a protocol points.
+	// The provider's own delivery shape (OQ-14: no agent is special-cased — the provider
+	// says how it is delivered, per protocol, and the composition follows the protocol the
+	// agent speaks). It reads the composed table — the same table the derives read — so
+	// the env an agent is launched with and the config its derive wrote cannot disagree
+	// about where a protocol points. Bedrock is the shipped consumer: its shape lives in
+	// packs/claude like any other pack's, and nothing here knows its name.
 	if prov := mapAt(providers, provider); prov != nil {
-		out = append(out, providerVars(prov, ProtocolFor(agent), lookup)...)
+		return providerVars(prov, ProtocolFor(agent), lookup)
 	}
-
-	// Bedrock is the only profile that implies environment today, and only for claude:
-	// CLAUDE_CODE_USE_BEDROCK is a variable Claude Code reads, not a property of the
-	// provider. Extracted verbatim from the jail's assemble path so the two notches
-	// cannot drift; a general provider->env mapping is what the env shape above now is,
-	// and this block survives only until the Bedrock profile moves into packs/claude.
-	if agent == "claude" && profile == "bedrock" {
-		out = append(out, bedrockVars(mapAt(providers, profile))...)
-	}
-	return out
+	return nil
 }
 
 // providerVars composes the env shape one provider declares for `protocol` — the
@@ -114,10 +105,10 @@ func Resolve(providers *jsonx.OrderedMap, agent, profile, provider string, looku
 //
 // A placeholder whose input is missing drops its VAR rather than composing an empty one:
 // an empty base URL is a request to the wrong host, and an empty token is a credential
-// that gets SENT. The two placeholders are independent, so the half that CAN resolve
-// still does. Vars are sorted so the same table composes the same order on every launch
+// that gets SENT. The placeholders are independent, so the half that CAN resolve still
+// does. Vars are sorted so the same table composes the same order on every launch
 // regardless of which spelling — pack-shipped or user-written — produced it, and a value
-// that is neither placeholder renders nothing: packdecl refuses it at authoring time, and
+// that is no placeholder renders nothing: packdecl refuses it at authoring time, and
 // staying silent here keeps a smuggled template from rendering.
 func providerVars(prov *jsonx.OrderedMap, protocol string, lookup Lookup) []Var {
 	if protocol == "" {
@@ -129,6 +120,8 @@ func providerVars(prov *jsonx.OrderedMap, protocol string, lookup Lookup) []Var 
 	}
 	endpoint, _ := getStr(mapAt(mapAt(prov, "endpoints"), protocol), "base_url")
 	keyName, _ := getStr(prov, "api_key_env")
+	region, _ := getStr(prov, "region")
+	models := mapAt(prov, "models")
 	names := append([]string(nil), shape.Keys()...)
 	sort.Strings(names)
 	var out []Var
@@ -153,30 +146,19 @@ func providerVars(prov *jsonx.OrderedMap, protocol string, lookup Lookup) []Var 
 			if v, ok := lookup(keyName); ok && v != "" {
 				out = append(out, Var{Key: name, Value: v})
 			}
-		}
-	}
-	return out
-}
-
-// bedrockVars is the claude+bedrock block. Order is frozen: it is the order the jail's
-// podman argv has always emitted, and an argv golden test is cheaper to keep passing than
-// to re-baseline.
-func bedrockVars(provider *jsonx.OrderedMap) []Var {
-	out := []Var{{Key: "CLAUDE_CODE_USE_BEDROCK", Value: "1"}}
-	if provider == nil {
-		return out
-	}
-	if region, ok := getStr(provider, "region"); ok && region != "" {
-		out = append(out, Var{Key: "AWS_REGION", Value: region})
-	}
-	models := mapAt(provider, "models")
-	for _, m := range []struct{ key, env string }{
-		{"default", "ANTHROPIC_DEFAULT_OPUS_MODEL"},
-		{"haiku", "ANTHROPIC_DEFAULT_HAIKU_MODEL"},
-		{"sonnet", "ANTHROPIC_DEFAULT_SONNET_MODEL"},
-	} {
-		if v, ok := getStr(models, m.key); ok && v != "" {
-			out = append(out, Var{Key: m.env, Value: v})
+		case packdecl.EnvShapeRegion:
+			if region == "" {
+				continue
+			}
+			out = append(out, Var{Key: name, Value: region})
+		default:
+			alias, isModel := packdecl.EnvShapeModelAlias(tmpl)
+			if !isModel {
+				continue
+			}
+			if v, ok := getStr(models, alias); ok && v != "" {
+				out = append(out, Var{Key: name, Value: v})
+			}
 		}
 	}
 	return out

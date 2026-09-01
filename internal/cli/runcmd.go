@@ -48,9 +48,6 @@ Flags:
                      With a command, keys the profile to that command's binary; with no
                      command, applies it to every pack this launch selects. Without an
                      argument at all, reports startup timings.
-  --auth <mode>      Select Claude auth mode / provider preset (also --claude-auth=<mode>).
-  --claude-auth <mode>
-                     Select Claude auth mode / provider preset (e.g. bedrock, teams).
   --pack-profile <cli>=<name>
                      Select the profile for one CLI (e.g. pi=glm,claude=bedrock). The key is
                      the binary a pack installs; an unknown one is refused at launch.
@@ -71,7 +68,7 @@ Global options are listed by 'yolo --help'; the full config reference is
 // runFlags is every flag runRun itself consumes. It exists so the usage text and
 // the parser cannot drift apart silently (TestRunUsageListsEveryRunFlag), and so
 // runHelpRequested's "keep scanning past a run flag" branch has one definition.
-var runFlags = []string{"--new", "--profile", "--dry-run", "--network", "--accept-config-changes", "--auth", "--claude-auth", "--pack-profile"}
+var runFlags = []string{"--new", "--profile", "--dry-run", "--network", "--accept-config-changes", "--pack-profile"}
 
 // runHelpRequested reports whether args (the rewritten argv[1:], so it may carry
 // the injected "run" token anywhere before `--`) asks for RUN's help rather than
@@ -99,7 +96,7 @@ func runHelpRequested(args []string) bool {
 			return true
 		case a == "run" && !sawRun:
 			sawRun = true // the injected/leading subcommand token
-		case a == "--network" || a == "--claude-auth" || a == "--auth" || a == "--pack-profile" || a == "-p":
+		case a == "--network" || a == "--pack-profile" || a == "-p":
 			i++ // its value, whatever it looks like
 		case len(a) > 1 && a[0] == '-':
 			// Another flag (a run flag, or a stray one runRun ignores). Keep scanning:
@@ -166,15 +163,6 @@ func parseRunArgs(args []string, opts *run.Options) {
 			}
 		case len(a) > len("-p=") && strings.HasPrefix(a, "-p="):
 			opts.ProfileName = strings.TrimPrefix(a, "-p=")
-		case a == "--claude-auth" || a == "--auth":
-			if i+1 < len(args) {
-				i++
-				opts.ClaudeAuth = args[i]
-			}
-		case len(a) > len("--claude-auth=") && strings.HasPrefix(a, "--claude-auth="):
-			opts.ClaudeAuth = strings.TrimPrefix(a, "--claude-auth=")
-		case len(a) > len("--auth=") && strings.HasPrefix(a, "--auth="):
-			opts.ClaudeAuth = strings.TrimPrefix(a, "--auth=")
 		case a == "--pack-profile":
 			if i+1 < len(args) {
 				i++

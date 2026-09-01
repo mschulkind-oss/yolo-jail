@@ -124,8 +124,8 @@ func TestValidateContributes(t *testing.T) {
 			"does not take \"into\""},
 		// provider: `name` is the identity (required), a base_url must be an http(s) URL
 		// with NO userinfo (a credential in a shipped manifest is a credential handed to
-		// everyone who installs it), and an env_shape value may only name where the
-		// endpoint and the key go — never carry either.
+		// everyone who installs it), and an env_shape value may only name WHERE a value
+		// goes and which of the entry's own facts fills it — never carry a value.
 		{"good provider", Contribution{Kind: KindProvider, Name: "acme",
 			Endpoints:     map[string]ProviderEndpoint{"openai": {BaseURL: "https://api.acme.dev/v4", WireAPI: "openai-chat"}},
 			APIKeyEnvName: "ACME_API_KEY", Models: map[string]string{"default": "acme-large"},
@@ -151,7 +151,15 @@ func TestValidateContributes(t *testing.T) {
 			EnvShape: map[string]map[string]string{"anthropic": {"ANTHROPIC_AUTH_TOKEN": "{key}"}}}, ""},
 		{"provider env_shape template", Contribution{Kind: KindProvider, Name: "acme",
 			EnvShape: map[string]map[string]string{"anthropic": {"ANTHROPIC_AUTH_TOKEN": "Bearer {key}"}}},
-			"must be exactly"},
+			`must be "{endpoint}"`},
+		// The other two placeholders: a region reference, and a model id by alias — the
+		// alias is checked for shape only, since `models` may be entirely user config.
+		{"provider env_shape region and model refs", Contribution{Kind: KindProvider, Name: "acme",
+			EnvShape: map[string]map[string]string{"anthropic": {
+				"ACME_REGION": "{region}", "ACME_LARGE": "{model:default}"}}}, ""},
+		{"provider env_shape model ref with no alias", Contribution{Kind: KindProvider, Name: "acme",
+			EnvShape: map[string]map[string]string{"anthropic": {"ACME_LARGE": "{model:}"}}},
+			`must be "{endpoint}"`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -628,6 +636,7 @@ func TestProviderDecodesIntoDistinctProviders(t *testing.T) {
 	   "endpoints":{"openai":{"base_url":"https://api.acme.dev/v4","wire_api":"openai-chat"},
 	                "anthropic":{"base_url":"https://api.acme.dev/anthropic"}},
 	   "api_key_env_name":"ACME_API_KEY",
+	   "region":"eu-central-1",
 	   "models":{"default":"acme-large","fast":"acme-small"},
 	   "env_shape":{"anthropic":{"ANTHROPIC_BASE_URL":"{endpoint}",
 	                             "ANTHROPIC_AUTH_TOKEN":"{key}"}}},
@@ -643,6 +652,9 @@ func TestProviderDecodesIntoDistinctProviders(t *testing.T) {
 	zai := got[0]
 	if zai.Name != "acme" || zai.APIKeyEnvName != "ACME_API_KEY" {
 		t.Errorf("name/credential pointer lost: %+v", zai)
+	}
+	if zai.Region != "eu-central-1" {
+		t.Errorf("region lost: %+v", zai)
 	}
 	if len(zai.Endpoints) != 2 || zai.Endpoints["openai"].BaseURL != "https://api.acme.dev/v4" ||
 		zai.Endpoints["openai"].WireAPI != "openai-chat" ||

@@ -57,8 +57,6 @@ type Options struct {
 	// command it keys the name to that command's binary; with no command it is GLOBAL —
 	// the selected profile of every pack this launch selects (effectivePackProfiles).
 	ProfileName string
-	// ClaudeAuth is --claude-auth <mode> or --auth <mode> (e.g. "bedrock", "teams").
-	ClaudeAuth string
 	// PackProfiles is --pack-profile <cli>=<name> overrides, keyed by CLI name. A name
 	// no resolvable pack installs is refused at launch (checkProfileTargets).
 	PackProfiles map[string]string

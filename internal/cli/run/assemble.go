@@ -769,15 +769,18 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_REQUIRED_CAPABILITIES="+jsonDumpsOrEmptyList(cfgList(cfg, "required_capabilities")),
 		"-e", "YOLO_RUNTIME=podman",
 	)
-	// The profile-derived environment — bedrock's CLAUDE_CODE_USE_BEDROCK, AWS_REGION and
-	// model defaults, plus the env shape a provider declares for the protocol an agent
-	// speaks (OQ-14) — is composed by internal/agentenv, which is ALSO what
+	// The profile-derived provider environment — the env shape a provider declares for
+	// the protocol an agent speaks (OQ-14), which for bedrock is AWS_REGION and the
+	// model ids — is composed by internal/agentenv, which is ALSO what
 	// `yolo host -- <agent>` applies on the host. One implementation, so the two notches
 	// cannot drift — that is the jail/host parity claim in host-agent-environment.md §2.2,
 	// and it is not a claim two copies of this block could keep. This used to be thirty
 	// lines of nested type assertions inline here, covered by no test at all.
 	//
-	// The provider half reads the composed table YOLO_PROVIDERS carries above.
+	// The shape's VALUES come from the composed table YOLO_PROVIDERS carries above, and
+	// the shape ITSELF from packs/claude. What this block does not deliver is the
+	// variant's own literal env (claude's CLAUDE_CODE_USE_BEDROCK) — that rode the pack
+	// env block above, through the same profile table.
 	lookup := in.hydratedLookup(o)
 	for _, agent := range effectiveProfiles.Keys() {
 		profile := mapStr(effectiveProfiles, agent)
@@ -802,11 +805,10 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	return env
 }
 
-// effectivePackProfiles merges the four profile sources, later winning: workspace/user
-// config, then --pack-profile, then the --claude-auth residue, then -p. Every key in
-// the result is a CLI name — the bin a pack installs — which is what makes the table
-// readable as "the profile each CLI runs" and what lets `yolo check` and the launch
-// pre-flight validate it against one namespace.
+// effectivePackProfiles merges the three profile sources, later winning: workspace/user
+// config, then --pack-profile, then -p. Every key in the result is a CLI name — the bin a
+// pack installs — which is what makes the table readable as "the profile each CLI runs"
+// and what lets `yolo check` and the launch pre-flight validate it against one namespace.
 //
 // A method on Options taking the config and the pack set, rather than a method on
 // assembleInput, because it has TWO consumers that must agree byte for byte: the env
@@ -824,9 +826,6 @@ func (o *Options) effectivePackProfiles(cfg *jsonx.OrderedMap, packs []*packload
 	}
 	for k, v := range o.PackProfiles {
 		out.Set(k, v)
-	}
-	if o.ClaudeAuth != "" {
-		out.Set("claude", o.ClaudeAuth)
 	}
 	if o.ProfileName != "" {
 		if len(o.Args) == 0 {

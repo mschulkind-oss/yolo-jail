@@ -199,10 +199,11 @@ func yoloManagedDirs() []string {
 //  1. os.Environ() — the user's own shell, which the agent should otherwise inherit whole.
 //  2. env_sources — the SECRET channel. This is the step that gives "env_sources
 //     hydrates your credentials" something to hydrate INTO on a host.
-//  3. the resolved profile's vars — the non-secret flags a provider implies, composed by
-//     internal/agentenv, which is the same function the jail's podman argv is built from.
-//  4. removals — a null in env_sources, i.e. `unset AWS_PROFILE`. Last, so a removal
-//     beats an assignment from any earlier step.
+//  3. the resolved profile's vars — the variant's own env plus the flags a provider
+//     implies, composed by internal/agentenv, which is the same function the jail's
+//     podman argv is built from.
+//  4. removals — a null in env_sources or in a variant's env, i.e. `unset AWS_PROFILE`.
+//     Last, so a removal beats an assignment from any earlier step.
 func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, error) {
 	agent := filepath.Base(bin)
 	cfg := config.UserScopeConfigOrEmpty()
@@ -219,14 +220,16 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 // the exec half and by `yolo host env`, so the two can never disagree about what a launch
 // would carry.
 //
-// The three sources are docs/design/host-agent-environment.md §5.4's, in order:
+// The sources are docs/design/host-agent-environment.md §5.4's, in order:
 //
-//  1. a pack's static `kind: "env"` contributions — literal strings from a manifest;
+//  1. a pack's static `kind: "env"` contributions, then (1b) the env of the variant each
+//     pack has selected — the same literals, gated on the launch's profile table, folded
+//     after the pack's own so the variant wins (OQ-8);
 //  2. env_sources — the SECRET channel, and the step that gives "env_sources hydrates
 //     your credentials" something to hydrate INTO on a host;
-//  3. the resolved profile's vars — what the variant declares plus the env shape of the
-//     provider it names — composed by internal/agentenv, the same function the jail's
-//     podman argv is built from.
+//  3. the resolved profile's provider vars — the env shape of the provider the variant
+//     names, composed by internal/agentenv, the same function the jail's podman argv is
+//     built from.
 //
 // Removals come last so an `unset` beats an assignment from any earlier source, including
 // one inherited from the invoking shell.
@@ -243,6 +246,23 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 	// so the composed provider table below is user entries over pack facts and never a
 	// workspace's.
 	packs, packErr := loadedHostPacks()
+	// The variant this launch selects, resolved once: it gates (1b) and feeds (3), and
+	// both must read the same selection or the env a host launch carries and the one its
+	// launch line describes would disagree.
+	effective := effectiveHostProfiles(cfg, agent, profile)
+	profileName := ""
+	if v, ok := effective.Get(agent); ok {
+		if s, isStr := v.(string); isStr {
+			profileName = s
+		}
+	}
+	// Scoped to the ONE agent this process is. A jail carries the whole CLI-keyed table
+	// because one container holds every agent; a host launch composes a single process, so
+	// only the variant selected at THIS agent's own CLI name may contribute env to it.
+	agentTable := map[string]string{}
+	if profileName != "" {
+		agentTable[agent] = profileName
+	}
 
 	// (1) pack-declared env. Sorted, because a map has no order and an argv (or an
 	// `export` script) that reshuffles between runs is a diff nobody can read.
@@ -255,6 +275,31 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 		sort.Strings(keys)
 		for _, k := range keys {
 			vars = append(vars, agentenv.Var{Key: k, Value: packEnv[k]})
+		}
+	}
+
+	// (1b) the SELECTED VARIANTS' own env (OQ-7/OQ-8), folded after the pack's static map
+	// because a variant is the more specific intent. Assignments land here; a null's UNSET
+	// is held for (4), because on the host a removal is only a removal if it comes after
+	// every assignment — including one an env_sources file below would make.
+	var profileUnsets []agentenv.Var
+	if packErr == nil {
+		for _, p := range packs {
+			for _, prof := range p.ActiveProfiles(agentTable) {
+				keys := make([]string, 0, len(prof.Env))
+				for k := range prof.Env {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				for _, k := range keys {
+					v := prof.Env[k]
+					if v.Unset() {
+						profileUnsets = append(profileUnsets, agentenv.Var{Key: k, Unset: true})
+						continue
+					}
+					vars = append(vars, agentenv.Var{Key: k, Value: v.Value})
+				}
+			}
 		}
 	}
 
@@ -278,19 +323,12 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 		}
 	}
 
-	// (3) the profile's own vars: what the variant declares, plus the env shape of the
-	// provider it names, for the protocol this agent speaks (OQ-14). internal/agentenv is
-	// the ONE composition — the jail's podman argv is built from the same call — so the
-	// two notches cannot disagree about what a resolved profile delivers. A {key}
+	// (3) the profile's provider vars: the env shape of the provider the variant names,
+	// for the protocol this agent speaks (OQ-14). internal/agentenv is the ONE
+	// composition — the jail's podman argv is built from the same call — so the two
+	// notches cannot disagree about what a resolved profile delivers. A {key}
 	// placeholder resolves through what this launch actually carries: the hydrated
 	// env_sources above, then the environment this process inherited.
-	effective := effectiveHostProfiles(cfg, agent, profile)
-	profileName := ""
-	if v, ok := effective.Get(agent); ok {
-		if s, isStr := v.(string); isStr {
-			profileName = s
-		}
-	}
 	var userProviders *jsonx.OrderedMap
 	if v, ok := cfg.Get("providers"); ok {
 		userProviders, _ = v.(*jsonx.OrderedMap)
@@ -307,11 +345,14 @@ func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn f
 		packload.ComposeProviders(userProviders, packs),
 		agent, profileName, packload.ProviderFor(packs, agent, profileName), lookup)...)
 
-	// (4) removals last, from the same pass as (2) — the same scoped config, so an
-	// inline null's cancellation by a later dotenv cannot disagree with the assignments.
+	// (4) removals last, so an unset beats every assignment above no matter which source
+	// made it — the env_sources nulls from the same pass as (2) (the same scoped config,
+	// so an inline null's cancellation by a later dotenv cannot disagree with the
+	// assignments), then a variant's own nulls from (1b).
 	for _, k := range removals {
 		vars = append(vars, agentenv.Var{Key: k, Unset: true})
 	}
+	vars = append(vars, profileUnsets...)
 	return vars
 }
 

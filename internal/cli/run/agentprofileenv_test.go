@@ -28,7 +28,8 @@ func envArgValues(argv []string, keys ...string) []string {
 }
 
 // bedrockConfig is a config whose claude agent is on the bedrock profile with a fully
-// populated provider block.
+// populated provider block. It carries the VALUES only — region and model ids — because
+// the delivery SHAPE is packs/claude's own declaration, which claudePackFixture loads.
 func bedrockConfig() *jsonx.OrderedMap {
 	models := jsonx.NewOrderedMap()
 	models.Set("default", "us.anthropic.opus")
@@ -80,6 +81,13 @@ func assembleWithConfig(t *testing.T, cfg *jsonx.OrderedMap) []string {
 // once in the whole tree — in assemble.go — and deleting the entire block would not have
 // failed a single test. This is that missing test: it asserts the assembled podman argv
 // actually carries the profile-derived environment.
+//
+// The five vars arrive by two routes, and both are this launch's own composition: the
+// provider env_shape packs/claude ships composes AWS_REGION and the three model ids from
+// the user's providers.bedrock entry (commonEnvBlock's agentenv loop), and the variant's
+// own CLAUDE_CODE_USE_BEDROCK literal rides the pack env block (EnvVarsFor), which sits
+// LATER in the argv — hence the order, and hence the two routes being pinned together
+// here rather than in either of their own packages.
 func TestAssembleEmitsProfileEnvForBedrock(t *testing.T) {
 	argv := assembleWithConfig(t, bedrockConfig())
 	got := envArgValues(argv,
@@ -87,11 +95,11 @@ func TestAssembleEmitsProfileEnvForBedrock(t *testing.T) {
 		"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL")
 	want := []string{
-		"CLAUDE_CODE_USE_BEDROCK=1",
-		"AWS_REGION=us-east-1",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL=us.anthropic.opus",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL=us.anthropic.haiku",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL=us.anthropic.opus",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL=us.anthropic.sonnet",
+		"AWS_REGION=us-east-1",
+		"CLAUDE_CODE_USE_BEDROCK=1",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("profile env args = %q, want %q", got, want)

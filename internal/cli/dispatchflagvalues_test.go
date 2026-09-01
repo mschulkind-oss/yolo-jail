@@ -111,7 +111,7 @@ func TestSubcommandSkipsFlagValues(t *testing.T) {
 // added there and not here, `yolo --newflag host -- bash` silently relocates again.
 func TestValueTakingFlagsCoverRunHelpSkips(t *testing.T) {
 	// The flags runHelpRequested consumes a value for, transcribed from its switch.
-	runHelpSkips := []string{"--network", "--claude-auth", "--auth", "--pack-profile", "-p"}
+	runHelpSkips := []string{"--network", "--pack-profile", "-p"}
 	for _, f := range runHelpSkips {
 		if !valueTakingFlags[f] {
 			t.Errorf("runHelpRequested skips %q's value but valueTakingFlags does not — "+

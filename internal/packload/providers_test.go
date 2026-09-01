@@ -21,6 +21,15 @@ func shippedZaiPack(t *testing.T) *Pack {
 	                             "ANTHROPIC_AUTH_TOKEN":"{key}"}}}]}`)}
 }
 
+// shippedBedrockPack returns a pack declaring a REGIONAL provider — one whose address is
+// a region rather than a base URL, which is the shape packs/claude ships for bedrock.
+func shippedBedrockPack(t *testing.T) *Pack {
+	return &Pack{Name: "bedrock", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"provider","name":"bedrock",
+	   "region":"us-east-1",
+	   "env_shape":{"anthropic":{"AWS_REGION":"{region}"}}}]}`)}
+}
+
 // userProviders decodes a `providers` config block into the map the composer takes.
 func userProviders(t *testing.T, body string) *jsonx.OrderedMap {
 	t.Helper()
@@ -94,6 +103,24 @@ func TestComposeProvidersShipsUnderUserConfig(t *testing.T) {
 	user = userProviders(t, `{"zai":null}`)
 	if got := ComposeProviders(user, []*Pack{pack}); got != nil {
 		t.Errorf("a null user entry should drop the shipped provider, got %s", dump(t, got))
+	}
+}
+
+// TestComposeProvidersCarriesARegionalProviderFacts pins the region: a provider whose
+// address is a region composes it into the entry under the key the config key uses, so a
+// user override of one field replaces it and the env shape's {region} placeholder reads
+// the same value the derives would see.
+func TestComposeProvidersCarriesARegionalProviderFacts(t *testing.T) {
+	pack := shippedBedrockPack(t)
+	want := `{"bedrock": {"region": "us-east-1", ` +
+		`"env_shape": {"anthropic": {"AWS_REGION": "{region}"}}}}`
+	if s := dump(t, ComposeProviders(nil, []*Pack{pack})); s != want {
+		t.Errorf("regional provider composition:\n got %s\nwant %s", s, want)
+	}
+	// The user's own region is the override, per field like any other.
+	user := userProviders(t, `{"bedrock":{"region":"eu-central-1"}}`)
+	if s := dump(t, ComposeProviders(user, []*Pack{pack})); !strings.Contains(s, `"region": "eu-central-1"`) {
+		t.Errorf("a user region should override the shipped one, got %s", s)
 	}
 }
 

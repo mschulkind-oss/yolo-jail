@@ -106,7 +106,7 @@ func (p *Pack) SurfacesFor(autonomy bool, profiles map[string]string) ([]manifes
 	// THEN the selected profile's patch, so a key both touch reads the variant's value.
 	// Same fold, same ignoring of a patch naming no base surface — a profile is a variant
 	// of the pack's own surfaces, not a second writer of them.
-	for _, prof := range p.activeProfiles(profiles) {
+	for _, prof := range p.ActiveProfiles(profiles) {
 		if len(prof.Config) == 0 {
 			continue
 		}
@@ -119,12 +119,17 @@ func (p *Pack) SurfacesFor(autonomy bool, profiles map[string]string) ([]manifes
 	return surfaces, problems
 }
 
-// activeProfiles returns the variants THIS pack has selected, in the order they must
+// ActiveProfiles returns the variants THIS pack has selected, in the order they must
 // fold: sorted by the CLI name that selected them, so a pack owning two bins with two
 // active names is deterministic rather than map-order. A name is active for this pack only
 // when it sits at a CLI name the pack installs (§3.3) — a key for some other pack's CLI
 // gates that pack, not this one.
-func (p *Pack) activeProfiles(profiles map[string]string) []packdecl.ProfileContribution {
+//
+// Exported because the fold has one more consumer than the pack's own render paths: the
+// host notch composes the selected variant's `env` into the process it execs
+// (hostEnvVars), and the jail does the same through EnvVarsFor — both go through here, so
+// the two notches cannot disagree about WHICH variants are active.
+func (p *Pack) ActiveProfiles(profiles map[string]string) []packdecl.ProfileContribution {
 	if len(profiles) == 0 {
 		return nil
 	}
@@ -336,7 +341,7 @@ func EnvVarsFor(packs []*Pack, profiles map[string]string) map[string]string {
 			}
 			out[k] = v
 		}
-		for _, prof := range p.activeProfiles(profiles) {
+		for _, prof := range p.ActiveProfiles(profiles) {
 			for k, v := range prof.Env {
 				if v.Unset() {
 					delete(out, k)
@@ -617,7 +622,7 @@ func LaunchFlagsFor(packs []*Pack, autonomy bool, profiles map[string]string) ma
 				}
 			}
 		}
-		for _, prof := range p.activeProfiles(profiles) {
+		for _, prof := range p.ActiveProfiles(profiles) {
 			for _, l := range prof.Launch {
 				if l.Bin != "" {
 					out[l.Bin] = l.Flags
