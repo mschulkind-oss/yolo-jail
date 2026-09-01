@@ -241,3 +241,25 @@ func TestFootprintClaimsGatedConfigOverlay(t *testing.T) {
 		t.Errorf("the gate changed more than the Detail: %+v vs %+v", plain, c)
 	}
 }
+
+// The REAL packs/zai claims its gated overlay, with the gate named in the Detail — the
+// selection-scoped half of the footprint contract on the pack that actually ships one
+// (a fixture proving the shape is worthless if the shipped manifest forgot the field).
+func TestFootprintOfEmbeddedZaiClaimsTheGatedOverlay(t *testing.T) {
+	var zai *Pack
+	for _, p := range Embedded() {
+		if p.Name == "zai" {
+			zai = p
+		}
+	}
+	if zai == nil {
+		t.Fatal("no embedded pack named zai")
+	}
+	c, ok := claimSet(FootprintOf(zai))["config-overlay claude/settings"]
+	if !ok {
+		t.Fatalf("packs/zai must claim the claude/settings overlay it ships: %+v", FootprintOf(zai).Claims)
+	}
+	if !strings.Contains(c.Detail, `profile "zai"`) {
+		t.Errorf("the shipped claim must name its gate, got %q", c.Detail)
+	}
+}

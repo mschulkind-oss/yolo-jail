@@ -28,6 +28,18 @@
       "kind": "profile",
       "name": "zai",
       "requires_provider": "zai"
+    },
+    {
+      "config": {
+        "managed": {
+          "env": {
+            "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic"
+          }
+        }
+      },
+      "kind": "config-overlay",
+      "profile": "zai",
+      "surface": "claude/settings"
     }
   ],
   "name": "zai"
