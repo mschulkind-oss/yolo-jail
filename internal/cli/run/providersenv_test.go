@@ -90,7 +90,7 @@ func TestAssembleEmitsComposedProvidersTable(t *testing.T) {
 		`"wire_api": "openai-chat"`,                                   // pack fact survives
 		`"fast": "glm-5"`,                                             // user override wins
 		`"default": "glm-4.7"`,                                        // pack alias the user did not mention survives
-		`"api_key_env": "ZAI_API_KEY"`,                                // the credential POINTER, never a key
+		`"api_key_env_name": "ZAI_API_KEY"`,                           // the credential POINTER, never a key
 	} {
 		if !strings.Contains(env, want) {
 			t.Errorf("composed provider table missing %s\ngot: %s", want, env)

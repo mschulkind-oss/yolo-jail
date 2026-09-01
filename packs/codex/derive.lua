@@ -26,8 +26,8 @@ yolo.derive("codex", "config", function(ctx)
           base_url = prov.base_url,
           wire_api = prov.wire_api or "responses",
         }
-        if prov.api_key_env then
-          entry.api_key_env = prov.api_key_env
+        if prov.api_key_env_name then
+          entry.api_key_env = prov.api_key_env_name
         end
         provOut[name] = entry
       end

@@ -111,7 +111,7 @@ link their owner:
 7. **P7 — Git-tracked packs never contain secrets; the schema makes compliance the default.**
    A secret is a value whose disclosure would force rotation. Kept from `pack-profiles.md` P4 as
    *recommendation plus mechanism*, not enforcement: the mechanism is the schema —
-   credential-pointer fields (`api_key_env`) hold env-var names by contract
+   credential-pointer fields (`api_key_env_name`) hold env-var names by contract
    ([`validate.go:922-927`](../../internal/config/validate.go#L922-L927)), credential values
    travel `env_sources`, and §4.3 refuses userinfo in `base_url`. A pack is a *distribution
    artifact* — fetched from a git remote, approved at a commit — which is why the recommendation
@@ -435,7 +435,7 @@ worked manifest contributes a fragment whose body is:
 ```
 
 That **is** a `ProviderSpec`, written in the untyped layer. Every guarantee its §5.1 buys — the URL
-check, the `wire_api` enum, the `api_key_env` regex, the §4.3 credential refusal — is bypassed by
+check, the `wire_api` enum, the `api_key_env_name` regex, the §4.3 credential refusal — is bypassed by
 writing the same object one nesting level over. The type discipline is voluntary.
 
 > [!WARNING]
@@ -508,7 +508,7 @@ obviating the `.bashrc` `claude()` wrapper).
 half it is wrong for is the half that carries credentials:
 
 > [!WARNING]
-> **A config file ROUTES a credential; it cannot DELIVER one.** `api_key_env` / `apiKeyEnv` /
+> **A config file ROUTES a credential; it cannot DELIVER one.** `api_key_env_name` / `apiKeyEnv` /
 > `{env:VAR}` all write the **name** of a variable the agent then reads from **its own process
 > environment** — verified against the three shipped derives in
 > [`host-agent-environment.md` §4](host-agent-environment.md#4-per-agent-host-capabilities-matrix).
@@ -517,7 +517,7 @@ half it is wrong for is the half that carries credentials:
 > ranked — they carry different things.
 
 > **P6 restated (corrected).** Split by **payload type**, not by preference and not per agent.
-> **Configuration** — endpoints, model aliases, `wire_api`, permissions, and the `api_key_env`
+> **Configuration** — endpoints, model aliases, `wire_api`, permissions, and the `api_key_env_name`
 > *name* — patches the config surface, which is the only channel that survives an invocation yolo is
 > not part of (IDE, cron, absolute path). **Environment** — secrets, process flags, and **unsets** —
 > goes through the process env, which requires yolo in the launch path
@@ -561,7 +561,7 @@ AWS_PROFILE`, which no config surface can express at all) goes through the proce
 ## 6. Credentials — `pack-profiles.md` §4's architecture, minus the scanner
 
 `pack-profiles.md` §4 is the best-argued part of that doc and this design adopts its
-architecture: configuration and credentials are decoupled, packs carry `api_key_env` *names*
+architecture: configuration and credentials are decoupled, packs carry `api_key_env_name` *names*
 only (a name-syntax contract, enforced by one regex at
 [`validate.go:922-927`](../../internal/config/validate.go#L922-L927)), and credential values
 travel the `env_sources` channel — untracked host files, hydrated at launch. As
@@ -582,7 +582,7 @@ disposition), which
 [`envsources.go:172-176`](../../internal/config/envsources.go#L172-L176) confirms (a warn, then
 continue). That asymmetry is deliberate and right for host portability. But it means the *secret*
 channel is the permissive one while the *configuration* channel is fail-closed — so a profile that
-resolves perfectly, with an `api_key_env` naming a variable that was never hydrated, produces
+resolves perfectly, with an `api_key_env_name` naming a variable that was never hydrated, produces
 exactly the *"mysterious auth failures"* §2 of that principle calls the debugging nightmare.
 
 ### 6.2 An activated profile with no credential is a preflight failure

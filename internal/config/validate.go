@@ -85,7 +85,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateLSPServers(config, errs)
 	validateMCPPresets(config, errs)
 	validateMCPServers(config, errs)
-	validateProviders(config, errs)
+	validateProviders(config, errs, warns)
 	validateAgentProfilesRetired(config, errs, warns)
 	validatePackProfiles(config, errs)
 	validateRequiredCapabilities(config, errs)
@@ -883,7 +883,7 @@ func validateMCPServers(config *jsonx.OrderedMap, errs *[]string) {
 	}
 }
 
-func validateProviders(config *jsonx.OrderedMap, errs *[]string) {
+func validateProviders(config *jsonx.OrderedMap, errs, warns *[]string) {
 	v, present := config.Get("providers")
 	if !present || v == nil {
 		return
@@ -905,6 +905,7 @@ func validateProviders(config *jsonx.OrderedMap, errs *[]string) {
 			continue
 		}
 		reportUnknownKeys(cfg, knownProviderKeys, path, errs)
+		validateProviderAPIKeyEnvRetired(cfg, path, errs, warns)
 		if u, ok := cfg.Get("base_url"); ok && u != nil {
 			if !isStr(u) {
 				add(errs, path+".base_url: expected a string")
@@ -920,9 +921,9 @@ func validateProviders(config *jsonx.OrderedMap, errs *[]string) {
 				add(errs, path+".region: expected a string")
 			}
 		}
-		if a, ok := cfg.Get("api_key_env"); ok && a != nil {
+		if a, ok := cfg.Get("api_key_env_name"); ok && a != nil {
 			if s, ok := asStr(a); !ok || !envVarNameRe.MatchString(s) {
-				add(errs, fmt.Sprintf("%s.api_key_env: invalid env var name %s (must match [A-Za-z_][A-Za-z0-9_]*)",
+				add(errs, fmt.Sprintf("%s.api_key_env_name: invalid env var name %s (must match [A-Za-z_][A-Za-z0-9_]*)",
 					path, pyReprValue(a)))
 			}
 		}
@@ -956,6 +957,29 @@ func validateAgentProfilesRetired(config *jsonx.OrderedMap, errs, warns *[]strin
 		"the keys were always CLI names and core knows packs, not agents " +
 		"(docs/design/profiles-as-pack-variants.md §3.3). Rename the key in place; " +
 		"the values are unchanged."
+	if inJail() {
+		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
+			"so rename the key in the HOST config.)")
+		return
+	}
+	add(errs, msg)
+}
+
+// validateProviderAPIKeyEnvRetired refuses a provider's pre-rename credential key by
+// name — validateAgentProfilesRetired one nesting level down, and the same downgrade
+// with it: the in-jail config is the host-generated snapshot, so a jail can be carrying
+// an `api_key_env` an older host launcher wrote, and renaming it is the host config's
+// job. The key stays in knownProviderKeys so this message is the only error the old
+// spelling produces.
+func validateProviderAPIKeyEnvRetired(cfg *jsonx.OrderedMap, path string, errs, warns *[]string) {
+	if _, present := cfg.Get("api_key_env"); !present {
+		return
+	}
+	msg := path + ".api_key_env: RENAMED — this key is now `api_key_env_name`, because " +
+		"the value is the NAME of the env var that carries the credential, and the " +
+		"spelling says so before the regex has to " +
+		"(docs/design/profiles-as-pack-variants.md §4.3). Rename the key in place; " +
+		"the value is unchanged."
 	if inJail() {
 		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
 			"so rename the key in the HOST config.)")

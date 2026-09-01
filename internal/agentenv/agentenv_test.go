@@ -129,7 +129,7 @@ func TestResolveSkipsNonStringAndEmpty(t *testing.T) {
 func zaiTable(t *testing.T) *jsonx.OrderedMap {
 	t.Helper()
 	return cfgFrom(t, `{"zai": {
-		"api_key_env": "ZAI_API_KEY",
+		"api_key_env_name": "ZAI_API_KEY",
 		"endpoints": {
 			"anthropic": {"base_url": "https://api.z.ai/api/anthropic"},
 			"openai":    {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat"}
@@ -181,7 +181,7 @@ func TestResolveComposesTheProviderEnvShapeForTheAgentsProtocol(t *testing.T) {
 func TestResolveEnvShapeFollowsRequiresProviderNotTheProfileName(t *testing.T) {
 	providers := cfgFrom(t, `{
 	  "glm": {"endpoints": {"anthropic": {"base_url": "https://wrong.example/anthropic"}}},
-	  "zai": {"api_key_env": "ZAI_API_KEY",
+	  "zai": {"api_key_env_name": "ZAI_API_KEY",
 	          "endpoints": {"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}},
 	          "env_shape": {"anthropic": {"ANTHROPIC_BASE_URL": "{endpoint}"}}}
 	}`)
@@ -240,7 +240,7 @@ func TestResolveEnvShapeQuietWhenAnInputIsMissing(t *testing.T) {
 		},
 		{
 			name: "the named variable was never hydrated",
-			table: `{"zai": {"api_key_env": "ZAI_API_KEY",
+			table: `{"zai": {"api_key_env_name": "ZAI_API_KEY",
 			        "env_shape": {"anthropic": {"ANTHROPIC_AUTH_TOKEN": "{key}"}}}}`,
 			agent: "claude", provider: "zai", lookup: lookupOf(nil),
 		},
@@ -264,7 +264,7 @@ func TestResolveEnvShapeQuietWhenAnInputIsMissing(t *testing.T) {
 // A provider whose key is not hydrated yet still delivers its endpoint — the shape is not
 // all-or-nothing, and the §6.2 preflight is what escalates the missing half.
 func TestResolveEnvShapeEndpointSurvivesAMissingKey(t *testing.T) {
-	providers := cfgFrom(t, `{"zai": {"api_key_env": "ZAI_API_KEY",
+	providers := cfgFrom(t, `{"zai": {"api_key_env_name": "ZAI_API_KEY",
 	  "endpoints": {"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}},
 	  "env_shape": {"anthropic": {"ANTHROPIC_BASE_URL": "{endpoint}", "ANTHROPIC_AUTH_TOKEN": "{key}"}}}}`)
 	got := Resolve(providers, "claude", "zai", "zai", nil)

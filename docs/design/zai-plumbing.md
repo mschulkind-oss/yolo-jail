@@ -36,7 +36,7 @@ The schema confusion is real and it is one word doing three jobs. Separated:
 | Thing | Where it lives | What it is |
 | :--- | :--- | :--- |
 | **the provider name** | the key in the `providers` map (`providers.zai`) | pure namespace. The derives iterate it and it lands in each agent's file as the provider/model id. Nothing resolves it; it is what other things reference. |
-| **`requires_provider`** | a field on a `kind: "profile"` declaration | an **assertion, not a definition and not a reference anything follows**: when that profile is ACTIVE, `providers.zai` must exist and its `api_key_env` must be hydrated in the launch environment, or the launch refuses (the [§6.2 preflight](profiles-as-pack-variants.md#62-an-activated-profile-with-no-credential-is-a-preflight-failure)). It demands; it does not supply. |
+| **`requires_provider`** | a field on a `kind: "profile"` declaration | an **assertion, not a definition and not a reference anything follows**: when that profile is ACTIVE, `providers.zai` must exist and its `api_key_env_name` must be hydrated in the launch environment, or the launch refuses (the [§6.2 preflight](profiles-as-pack-variants.md#62-an-activated-profile-with-no-credential-is-a-preflight-failure)). It demands; it does not supply. |
 | **the profile name `zai`** | the selector value `-p` sets | gates `kind: "profile"` contributions and reaches every selected pack's derive as `ctx.pack_profiles[c] == "zai"` — globally, declared or not (OQ-5's ruling, 2026-08-31). |
 
 > [!IMPORTANT]
@@ -106,7 +106,7 @@ ZAI_API_KEY=<the actual key>
 
 **The wrinkle:** the schema has ONE `base_url` per provider, and z.ai needs two — one per
 protocol. Today that means two provider entries (`zai` and `zai-claude`) sharing one
-`api_key_env` — a bridge only, and **ruled out as an end-state** (OQ-Z2, 2026-08-31: one
+`api_key_env_name` — a bridge only, and **ruled out as an end-state** (OQ-Z2, 2026-08-31: one
 provider and one key must produce any shape needed). §5's endpoint map is the fix.
 
 **What Route A cannot reach:** claude. No derive consumes `providers` on claude's behalf — claude
@@ -164,7 +164,7 @@ speaks:
 
 ```jsonc
 { "providers": { "zai": {
-    "api_key_env": "ZAI_API_KEY",
+    "api_key_env_name": "ZAI_API_KEY",
     "models": { "default": "glm-4.7", "fast": "glm-4.7-air" },
     "endpoints": {
       "anthropic": { "base_url": "https://api.z.ai/api/anthropic" },
@@ -202,7 +202,7 @@ for "this provider also speaks X" marking, if it graduates.
 
 | Piece | State |
 | :--- | :--- |
-| `providers` key, closed schema, `api_key_env` name-contract | **shipped** ([`validate.go:885-945`](../../internal/config/validate.go#L885-L945)) |
+| `providers` key, closed schema, `api_key_env_name` name-contract | **shipped** ([`validate.go:885-945`](../../internal/config/validate.go#L885-L945)) |
 | pi / codex / opencode derives wiring every provider | **shipped** — Route A works today, minus the endpoint wrinkle |
 | z.ai wire protocol: chat-completions only | **measured 2026-09-01** (OQ-Z1; codex's `responses` derive default is a known 404 for zai — §2) |
 | `kind: "provider"` (pack-shipped service facts) + `kind: "profile"` + the selected-pack preflight | proposed (parent §4.1 as ruled, OQ-12/13) |

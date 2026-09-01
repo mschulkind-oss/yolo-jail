@@ -31,7 +31,7 @@ live. Two things reach a host agent, split by what they carry:
                  process environment, via ` + "`yolo host -- <agent>`" + `. Works wherever
                  yolo is in the launch path.
 
-Both always apply. A config file cannot deliver a secret — api_key_env carries a
+Both always apply. A config file cannot deliver a secret — api_key_env_name carries a
 variable's NAME, not its value — so the environment channel is not a fallback.
 
 Usage:

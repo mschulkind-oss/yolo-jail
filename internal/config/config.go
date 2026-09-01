@@ -90,9 +90,15 @@ var (
 	knownPackageKeys     = set("name", "nixpkgs", "version", "url", "hash", "outputs")
 	knownLSPServerKeys   = set("command", "args", "fileExtensions")
 	knownMCPServerKeys   = set("command", "args", "env", "requires_env", "provides")
-	knownProviderKeys    = set("base_url", "wire_api", "api_key_env", "models", "region", "capabilities")
-	knownDeviceKeys      = set("usb", "description", "cgroup_rule")
-	knownResourcesKeys   = set("memory", "cpus", "pids_limit")
+	// `api_key_env` retired 2026-09-01, renamed to `api_key_env_name` (parent OQ-6 — the
+	// value was always the NAME of the env var carrying the credential, and the spelling
+	// now says so before the regex has to). Listed alongside its replacement so the
+	// rename message is the only error a config carrying the old spelling gets, the
+	// `agent_profiles` convention above.
+	knownProviderKeys = set("base_url", "wire_api", "api_key_env_name", "api_key_env",
+		"models", "region", "capabilities")
+	knownDeviceKeys    = set("usb", "description", "cgroup_rule")
+	knownResourcesKeys = set("memory", "cpus", "pids_limit")
 	// knownHostServiceKeys is the INLINE loophole entry's key census. It must
 	// cover every key the loader reads: `description` and `doctor_cmd` are read
 	// by discover.go's synthesizeConfigLoopholes, and `jail_endpoint` is the

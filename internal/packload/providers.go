@@ -125,18 +125,10 @@ func (p *Pack) installsBin(bin string) bool {
 // shippedProviderEntry renders one pack's provider declaration as an entry of the
 // providers table — the SAME shape a user-written entry has, because what consumes the
 // table (the three derives) reads one schema.
-//
-// api_key_env is the one translated key, and the translation is a deliberate bridge: the
-// contribution's field is `api_key_env_name` (parent OQ-6 — the value's type read out
-// loud), while the shipped table schema and every derive still read `api_key_env`, the
-// spelling the user-facing config key has until the schema step renames it. Emitting the
-// declared value under the key the derives read is what makes a pack-shipped credential
-// pointer reach an agent's config at all; when the config key is renamed, this line
-// becomes the no-op it looks like.
 func shippedProviderEntry(prov packdecl.ProviderContribution) *jsonx.OrderedMap {
 	entry := jsonx.NewOrderedMap()
 	if prov.APIKeyEnvName != "" {
-		entry.Set("api_key_env", prov.APIKeyEnvName)
+		entry.Set("api_key_env_name", prov.APIKeyEnvName)
 	}
 	if prov.Region != "" {
 		entry.Set("region", prov.Region)

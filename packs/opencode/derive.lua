@@ -34,8 +34,8 @@ yolo.derive("opencode", "config", function(ctx)
           baseURL = prov.base_url,
           models = models,
         }
-        if prov.api_key_env then
-          entry.apiKey = "{env:" .. prov.api_key_env .. "}"
+        if prov.api_key_env_name then
+          entry.apiKey = "{env:" .. prov.api_key_env_name .. "}"
         end
         provOut[name] = entry
       end

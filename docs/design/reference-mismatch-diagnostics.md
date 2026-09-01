@@ -64,7 +64,7 @@ Three defects in four lines, all clean:
    `packs/codex`'s derives, which pass it straight through into `models.json` / `config.toml`. You
    find out from the agent, later, as a protocol error.
 3. **A plaintext credential sits in a git-tracked config file** and validation does not mind. The one
-   field guarded against this is `api_key_env`
+   field guarded against this is `api_key_env_name`
    ([`validate.go:876-881`](../../internal/config/validate.go#L876-L881)); `base_url` is wide open.
 
 Now move one typo, from a *value* to a *key*, in the same file:
@@ -156,7 +156,7 @@ existing check or gives an existing namespace the check its neighbours already h
 | | |
 | :--- | :--- |
 | **Today** | `[PASS]` — and the file is usually git-tracked |
-| **After** | `[FAIL] config.providers.bedrock.base_url: URL carries embedded credentials ('user:…@'). Put the secret in a 0600 file referenced by env_sources and name the variable in api_key_env.` |
+| **After** | `[FAIL] config.providers.bedrock.base_url: URL carries embedded credentials ('user:…@'). Put the secret in a 0600 file referenced by env_sources and name the variable in api_key_env_name.` |
 | **Where** | `yolo check`. Also `yolo pack lint`, so a pack author hears it before publishing. |
 
 ### 4.4 A supersession that matches nothing
@@ -223,7 +223,7 @@ The honest list. Each of these is a config that launches now and will not after.
 | :--- | :--- | :--- | :--- |
 | A profile keyed to a pack you did not select | silently inert | **refused** | select the pack, or delete the entry |
 | A `wire_api` outside the four known protocols | passes through to the agent | **refused** | use one of the four; if you need a fifth, it is a one-line enum addition |
-| A `base_url` with embedded credentials | accepted | **refused** | move the secret to `env_sources` + `api_key_env` |
+| A `base_url` with embedded credentials | accepted | **refused** | move the secret to `env_sources` + `api_key_env_name` |
 | A pack superseding a capability nothing serves | warns, launch proceeds | **refused at launch** | fix the capability name, or drop the `supersedes` |
 | An active profile whose key was never hydrated | launches, fails at the agent | **refused** | populate the `env_sources` file |
 | A pack tree newer than the image | any of the above, unexplained | **refused, naming `just load`** | `just load` on the host |

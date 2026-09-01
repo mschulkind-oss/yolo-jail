@@ -22,7 +22,7 @@ beside their declaring file, both notches — `7f600ef7`).
 > **What the amendment changed, and it is the doc's central claim.** The first version was organized
 > as a *preference order*: config first, process env as a fallback for the one agent that cannot do
 > better. That is wrong, and §4's matrix encoded the error — it marked pi, opencode and codex
-> *"Can Avoid Shims Completely? ✅ Yes"* on the strength of `apiKeyEnv` / `{env:…}` / `api_key_env`.
+> *"Can Avoid Shims Completely? ✅ Yes"* on the strength of `apiKeyEnv` / `{env:…}` / `api_key_env_name`.
 > **Those fields carry the NAME of a variable, not its value** (`packs/pi/derive.lua`,
 > `packs/opencode/derive.lua`, `packs/codex/derive.lua` — each writes the name). The agent then reads
 > that variable from **its own process environment**. So a config file cannot deliver a credential,
@@ -37,7 +37,7 @@ beside their declaring file, both notches — `7f600ef7`).
 
 **The short version.** Inside a jail, injecting environment variables is trivial because yolo
 controls the process spawn (`podman run -e …`). On the host it is not, and it cannot be avoided:
-the `api_key_env` + `env_sources` architecture deliberately puts only variable *names* in config, so
+the `api_key_env_name` + `env_sources` architecture deliberately puts only variable *names* in config, so
 **something must populate the agent's process environment or BYOK does not work on the host at all.**
 This doc designs **two always-present channels split by what they carry** — configuration into the
 agent's native config surface (universal invocation coverage: IDE, cron, absolute path), environment
@@ -66,7 +66,7 @@ and §5.1 (where launch wrappers live, and the PATH claim that costs).**
 
    There is no per-agent method selection, and that is the point: selecting per agent was the
    fragility, not the fix for it. A pack that needs neither channel declares neither.
-2. **P2 — The env channel is mandatory, not a fallback.** `api_key_env` and `env_sources` put only a
+2. **P2 — The env channel is mandatory, not a fallback.** `api_key_env_name` and `env_sources` put only a
    variable *name* in config. Nothing else populates it on the host. **Any BYOK provider is
    unusable on the host without this channel** — for every agent, not just the one with no config
    file. §4 measures which is which.
@@ -330,10 +330,10 @@ exec yolo host -- claude "$@"            # one env-composition implementation; t
 > needed amending.** It marked pi, opencode and codex *"Can Avoid Shims Completely? ✅ Yes"* because
 > each has a credential field in its config file. **Each of those fields carries the NAME of an
 > environment variable, not its value** — verified against the shipped derives on 2026-08-30:
-> `apiKeyEnv = prov.api_key_env` ([`packs/pi/derive.lua`](../../packs/pi/derive.lua)),
-> `entry.apiKey = "{env:" .. prov.api_key_env .. "}"`
+> `apiKeyEnv = prov.api_key_env_name` ([`packs/pi/derive.lua`](../../packs/pi/derive.lua)),
+> `entry.apiKey = "{env:" .. prov.api_key_env_name .. "}"`
 > ([`packs/opencode/derive.lua`](../../packs/opencode/derive.lua)),
-> `entry.api_key_env = prov.api_key_env` ([`packs/codex/derive.lua`](../../packs/codex/derive.lua)).
+> `entry.api_key_env = prov.api_key_env_name` ([`packs/codex/derive.lua`](../../packs/codex/derive.lua)).
 > The agent reads that variable from **its own process environment**, so the config file routes the
 > credential rather than delivering it.
 
@@ -365,7 +365,7 @@ optional front door onto the second.
 flowchart TD
     PROF["resolved profile for pack P"]
 
-    PROF -->|"CONFIGURATION<br/>endpoints · model aliases · wire_api<br/>permissions · MCP · api_key_env NAME"| C["Channel 1 — config surface<br/>apply --host renders settings.json,<br/>models.json, opencode.json, config.toml"]
+    PROF -->|"CONFIGURATION<br/>endpoints · model aliases · wire_api<br/>permissions · MCP · api_key_env_name NAME"| C["Channel 1 — config surface<br/>apply --host renders settings.json,<br/>models.json, opencode.json, config.toml"]
     PROF -->|"ENVIRONMENT<br/>secrets · flags · unsets"| E["Channel 2 — process env<br/>yolo host -p PROFILE -- AGENT"]
 
     C --> CANY["works from ANY invocation:<br/>IDE, cron, absolute path,<br/>another process"]
@@ -570,9 +570,9 @@ live state. Three sources feed that composition, and only the first is anything 
 
 1. **Static `env`** — a `kind: "env"` contribution, or the `env` block of the pack's active
    `kind: "profile"` variant. Literal strings, known from the manifest.
-2. **Provider credentials** — the `api_key_env` name of every provider the pack projects. Today the
+2. **Provider credentials** — the `api_key_env_name` of every provider the pack projects. Today the
    three provider-consuming derives project **every** configured provider into their surface, so in
-   practice this is the union of `api_key_env` across `providers`, for every pack whose derive reads
+   practice this is the union of `api_key_env_name` across `providers`, for every pack whose derive reads
    `ctx.providers`.
 3. **Removals** — a `null` value, i.e. §2.2's `unset AWS_PROFILE`. It has no config-surface
    equivalent at all, so its presence alone requires the channel.

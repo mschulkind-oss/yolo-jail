@@ -60,12 +60,12 @@ func dump(t *testing.T, v any) string {
 func TestComposeProvidersShipsUnderUserConfig(t *testing.T) {
 	pack := shippedZaiPack(t)
 
-	// Pack alone: the facts verbatim, with the credential pointer under the key the
-	// derives read today.
+	// Pack alone: the facts verbatim, the credential pointer spelled the way the
+	// config key is.
 	got := ComposeProviders(nil, []*Pack{pack})
 	// Key ORDER is pinned too: the entry is serialized into an env var the derives read,
 	// so a run that reshuffles it would turn every jail's provider table into a diff.
-	want := `{"zai": {"api_key_env": "ZAI_API_KEY", ` +
+	want := `{"zai": {"api_key_env_name": "ZAI_API_KEY", ` +
 		`"models": {"default": "glm-4.7", "fast": "glm-4.7-air"}, ` +
 		`"endpoints": {"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}, ` +
 		`"openai": {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat"}}, ` +
@@ -93,8 +93,8 @@ func TestComposeProvidersShipsUnderUserConfig(t *testing.T) {
 	}
 
 	// A provider only the user declares passes through whole.
-	user = userProviders(t, `{"mine":{"base_url":"https://mine.example/v4","api_key_env":"MINE_KEY"}}`)
-	if s := dump(t, ComposeProviders(user, []*Pack{pack})); !strings.Contains(s, `"mine": {"base_url": "https://mine.example/v4", "api_key_env": "MINE_KEY"}`) {
+	user = userProviders(t, `{"mine":{"base_url":"https://mine.example/v4","api_key_env_name":"MINE_KEY"}}`)
+	if s := dump(t, ComposeProviders(user, []*Pack{pack})); !strings.Contains(s, `"mine": {"base_url": "https://mine.example/v4", "api_key_env_name": "MINE_KEY"}`) {
 		t.Errorf("a user-only provider should pass through, got %s", s)
 	}
 

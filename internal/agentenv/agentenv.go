@@ -12,7 +12,7 @@
 //
 // # Why the environment channel exists at all
 //
-// A provider's `api_key_env` carries the NAME of a variable, never its value: config
+// A provider's `api_key_env_name` carries the NAME of a variable, never its value: config
 // files are committed and secrets are not. Every agent that reads a credential therefore
 // reads it from its own PROCESS environment, so a config surface can route a credential
 // but cannot deliver one (host-agent-environment.md §1 P2). Resolve does not invent
@@ -119,7 +119,7 @@ func providerVars(prov *jsonx.OrderedMap, protocol string, lookup Lookup) []Var 
 		return nil
 	}
 	endpoint, _ := getStr(mapAt(mapAt(prov, "endpoints"), protocol), "base_url")
-	keyName, _ := getStr(prov, "api_key_env")
+	keyName, _ := getStr(prov, "api_key_env_name")
 	region, _ := getStr(prov, "region")
 	models := mapAt(prov, "models")
 	names := append([]string(nil), shape.Keys()...)

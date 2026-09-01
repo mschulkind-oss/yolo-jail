@@ -15,7 +15,7 @@ yolo.derive("pi", "models", function(ctx)
       providers[name] = {
         baseUrl = prov.base_url,
         api = prov.wire_api or "openai-completions",
-        apiKeyEnv = prov.api_key_env,
+        apiKeyEnv = prov.api_key_env_name,
         models = modelList,
       }
     end
