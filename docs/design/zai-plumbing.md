@@ -114,54 +114,39 @@ needs the *anthropic* endpoint delivered as `ANTHROPIC_BASE_URL` + `ANTHROPIC_AU
 process env or settings `env` block, which is precisely the Bedrock-shape case the parent design
 exists for. That gap is Route B's entrance.
 
-## 4. Route B — the zai pack (a layered template; drop in a key)
+## 4. Route B — the zai pack (enable it, drop in a key)
 
-A `packs/zai` that carries everything except the key. Two payloads:
-
-**4.1 The claude bridge** — a profile for the pack's OWN env, plus a `config-overlay` for
-claude's surface. **The earlier draft of this manifest was wrong** *(corrected 2026-09-01,
-found by the completeness audit)*: it put a `config` patch targeting `claude/settings` inside
-the `kind: "profile"` — but a profile's config patches fold into surfaces **the same pack owns**
-(parent §3.1/§3.2, `autonomy`'s own-surfaces rule), and `packs/zai` owns no claude surface. The
-cross-pack shape is exactly what `config-overlay` + the `profile` modifier is for (parent §7.1):
+*(Rewritten 2026-09-01 under the OQ-12/14 rulings: the pack ships the provider's SERVICE FACTS as
+`kind: "provider"`, and claude is not special-cased. The earlier draft's config-overlay claude
+bridge and the user-written `ANTHROPIC_AUTH_TOKEN` line are both GONE — OQ-Z5's correction is
+superseded by uniformity, and the token alias is superseded by launch-time env composition.)*
 
 ```jsonc
 // packs/zai/pack.json
 { "name": "zai",
   "contributes": [
-    // own declarations: env is ambient to the launch, so any pack may set it
-    { "kind": "profile", "name": "zai", "requires_provider": "zai",
-      "env": { "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic" } },
-    // another pack's surface: config-overlay, gated on the same profile name
-    { "kind": "config-overlay", "profile": "zai", "surface": "claude/settings",
-      "config": { "env": { "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic" } } }
+    { "kind": "provider", "name": "zai",
+      "endpoints": {
+        "anthropic": { "base_url": "https://api.z.ai/api/anthropic" },
+        "openai":    { "base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat" }
+      },
+      "api_key_env_name": "ZAI_API_KEY",
+      "models": { "default": "glm-4.7", "fast": "glm-4.7-air" },
+      "env_shape": {                       // OQ-14: how a profile delivers THIS provider per protocol
+        "anthropic": { "ANTHROPIC_BASE_URL": "{endpoint}", "ANTHROPIC_AUTH_TOKEN": "{key}" }
+      } },
+    { "kind": "profile", "name": "zai", "requires_provider": "zai" }
   ] }
 ```
 
-The **payload split** (parent §5) doing its job: `ANTHROPIC_BASE_URL` is
-configuration (routes, no secret) → settings `env` block (**measured honored**, OQ-Z4 — applied
-before the first API call), surviving any invocation;
-`ANTHROPIC_AUTH_TOKEN` **routes but cannot deliver** — the settings block would need the key
-*value*, and `kind: "env"` is literal-only with no interpolation
-([`kinds.go:96-99`](../../internal/packdecl/kinds.go#L96-L99)), a boundary that is now
-**ruled, not just shipped**: yolo's `${VAR}` env-reference expansion was REMOVED from MCP
-rendering by maintainer ruling on 2026-08-03
-([`mcp-configuration.md:208-212`](mcp-configuration.md#L208-L212),
-[`agent-credentials.md:214-218`](agent-credentials.md#L214-L218)) — yolo writes the reference
-verbatim and the *consumer* resolves it from its own environment. So the token rides the
-**process env** under its own name — one more line in the same `0600` file:
-
-```bash
-ZAI_API_KEY=<key>
-ANTHROPIC_AUTH_TOKEN=<the same key, when -p zai is active for claude>
-```
-
-That second line is the settled cost of the no-reference-form ruling (OQ-Z3, ledger) — and it is
-one line, because the **consumer derefs** everywhere else: pi's derive writes
-`apiKeyEnv: "ZAI_API_KEY"` (a NAME) into `models.json` and the agent resolves it per request.
-Compose-time code never sees secret values — the derive's `ctx` is a closed set of config tables
-(`mcp_servers`, `lsp_servers`, `providers`, `agent_profiles` — [`sources.go`](../../internal/agentcfg/manifest/sources.go)),
-and that boundary is the point.
+The **payload split** still does its job, with both halves now composed rather than hand-written:
+`ANTHROPIC_BASE_URL` is configuration and ALSO lands in the settings `env` block where that
+survives invocation (measured honored, OQ-Z4); the token is a credential and reaches claude only
+through **launch-time env composition** — the provider's `env_shape`, applied when profile `zai`
+is active for an agent that speaks that protocol. The launcher mapping a hydrated credential into
+the process env is the process-env channel doing its designed job, not the config-file
+interpolation the 2026-08-03 `${VAR}` ruling removed — the reference form stays refused for
+USER-WRITTEN config (OQ-Z3 unchanged).
 
 **4.2 The template itself** — the pack shipping the provider's *facts* (base URLs, wire protocols,
 model aliases) so the user's config shrinks to the key. Three shapes, in increasing machinery:
@@ -220,7 +205,7 @@ for "this provider also speaks X" marking, if it graduates.
 | `providers` key, closed schema, `api_key_env` name-contract | **shipped** ([`validate.go:885-945`](../../internal/config/validate.go#L885-L945)) |
 | pi / codex / opencode derives wiring every provider | **shipped** — Route A works today, minus the endpoint wrinkle |
 | z.ai wire protocol: chat-completions only | **measured 2026-09-01** (OQ-Z1; codex's `responses` derive default is a known 404 for zai — §2) |
-| `kind: "profile"` + `requires_provider` + §6.2 preflight | proposed (parent §3.1, §6.2 — which now also covers the missing-provider case, parent OQ-9) |
+| `kind: "provider"` (pack-shipped service facts) + `kind: "profile"` + the selected-pack preflight | proposed (parent §4.1 as ruled, OQ-12/13) |
 | `-p <name>` global, declared-or-not | **ruled 2026-08-31** (parent OQ-5); mechanism proposed |
 | claude bridge (settings `env` block honored for `ANTHROPIC_*`) | **measured YES, 2026-08-31** (OQ-Z4: controlled listener, settings-only run hit) |
 | `endpoints` by protocol + resolution | **ruled 2026-08-31** (OQ-Z2: one provider, one key, any shape); schema proposed (§5, with its three closure rules) |
@@ -229,34 +214,28 @@ for "this provider also speaks X" marking, if it graduates.
 ## 7. What you actually do (the acceptance story)
 
 The maintainer's own comprehension check, answered as the checklist the implementation must
-satisfy — when this lands, the whole user story is:
+satisfy *(simplified 2026-09-01 by OQ-12/13/14 — the pack carries the facts, the user carries the
+key, nothing else)*:
 
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc — the USER's entire setup
 {
-  "packs": [ …, "zai" ],                  // the wiring pack, at user level
-  "providers": { "zai": {
-      "api_key_env_name": "ZAI_API_KEY",
-      "models": { "default": "glm-4.7", "fast": "glm-4.7-air" },
-      "endpoints": {
-        "anthropic": { "base_url": "https://api.z.ai/api/anthropic" },
-        "openai":    { "base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat" }
-      } } },
-  "env_sources": ["~/.config/yolo-jail/env"]   // or the key is simply in the invoking env
+  "packs": [ …, "zai" ]                    // the provider pack, at user level — that is all
 }
 ```
 
 ```bash
-# ~/.config/yolo-jail/env (untracked, 0600) — the ONE duplicate line is claude's:
-ZAI_API_KEY=<key>
-ANTHROPIC_AUTH_TOKEN=<the same key>      # no env reference form (OQ-Z3 ruling) — claude's token
+# ~/.config/yolo-jail/env (untracked, 0600) — or the invoking environment:
+ZAI_API_KEY=<key>                          # the ONLY secret, spelled once
 ```
 
 Then `yolo -p zai` (or `-p zai -- claude`) fires every selected agent at GLM: claude via the
-anthropic endpoint (settings patch + process-env token), pi/codex/opencode via the openai
-endpoint (catalog + selection overlays). Without `-p zai` the catalogs still contain zai —
-presence is not selection. The §6.2 preflight refuses a launch where `-p zai` is active but
-`ZAI_API_KEY` is in neither the invoking environment nor any consulted `env_sources` file.
+anthropic endpoint (settings env block + launch-composed `ANTHROPIC_AUTH_TOKEN`), pi/codex/
+opencode via the openai endpoint (catalog + selection). Without `-p zai` the catalogs still
+contain zai — presence is not selection. A selected `packs/zai` with `ZAI_API_KEY` in neither the
+invoking environment nor any consulted `env_sources` file refuses the launch outright (OQ-13).
+Overrides — a different region, an extra model alias — are lines of `providers.zai` in user
+config, composed OVER the pack's defaults; authoring a whole provider is never required.
 
 ## 8. Decision Ledger
 

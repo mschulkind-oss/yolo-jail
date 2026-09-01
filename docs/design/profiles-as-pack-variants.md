@@ -402,16 +402,20 @@ overriding its own default.
 
 ## 4. Providers stay a config key — and the schema gets stricter, not deleted
 
-### 4.1 Why not a contribution kind
+### 4.1 The contribution kind — ruled in 2026-09-01 *(reversing this section's original verdict)*
 
-`pack-profiles.md` §5.1 moves providers into pack manifests. My read is that this gets the ownership
-backwards. A provider is a **machine-local fact**: my endpoint, my region, my model aliases, the
-name of the variable my key lives in. Under `kind: "provider"`, adding a personal DeepSeek endpoint
-means authoring a pack; today it means four lines in `~/.config/yolo-jail/config.jsonc`. That is a
-real ergonomic regression, and `pack-profiles.md` never says whether `config.providers` survives
-alongside its new kind — which leaves the combine question ([P5](#1-principles-and-verdict-up-front))
-unanswered in the one place it is most likely to bite: a pack-shipped `bedrock` and a user-configured
-`bedrock`.
+`pack-profiles.md` §5.1 moves providers into pack manifests; this section originally argued that
+was backwards ("a provider is a machine-local fact"). **The maintainer reversed it, and the
+reversal is right** (OQ-12): the claim was half-true. The **credential pointer is machine-local**
+(`api_key_env_name` names a variable only this machine hydrates), but the **endpoints are facts
+about the service** — z.ai's URLs and wire protocols are the same for every user, which is exactly
+what a shareable pack exists to carry. So `kind: "provider"` ships the service facts; user config
+keeps the key pointer and any overrides; the composed map (pack defaults < user overrides) feeds
+the unchanged `ctx.providers` table and the three derives. A personal endpoint is still four lines
+of user config — an override of nothing — so the ergonomic argument survives as "overrides, not
+authoring." P5's answer for the kind: sole-owned by provider NAME across packs (two packs shipping
+`zai` collide), `Claims: "a named provider's endpoints, wire protocols and model aliases, with the
+credential supplied by user config"`.
 
 The narrow thing a pack *does* legitimately want is to say **"I need a provider named X"** —
 `requires_provider` in §3.1 — which is an assertion, not a definition (the three things the word
@@ -585,13 +589,14 @@ exactly the *"mysterious auth failures"* §2 of that principle calls the debuggi
 
 The fix is narrow and it is the highest-value gate in either design:
 
-> **When a profile is ACTIVE and its resolved provider declares `api_key_env: "X"`, and `X` is
-> unset in the assembled launch environment, refuse the launch** — naming the variable, the
-> provider, the profile, and the `env_sources` entries that were consulted. **The same refusal
-> covers the missing-PROVIDER case** *(specified 2026-09-01)*: `requires_provider: "zai"` with no
-> `providers.zai` in the resolved config is fatal with the same shape, naming the provider and the
-> profile. Escape hatch for both: `YOLO_ALLOW_MISSING_PROVIDERS=1`, forwarded from the host env —
-> the reachability witness's `YOLO_ALLOW_UNREACHABLE_SERVICES` pattern.
+> **When a SELECTED PACK requires a provider and either half is missing, refuse the launch** —
+> *(rescoped 2026-09-01, OQ-13: selection, not profile activation — the earlier active-profile
+> scoping is withdrawn)* the composed provider map lacks the named provider, or the provider's
+> `api_key_env_name` variable is unset in the assembled launch environment. The refusal names the
+> variable, the provider, the requiring pack, and the `env_sources` entries consulted. Escape
+> hatch: `YOLO_ALLOW_MISSING_PROVIDERS=1`, forwarded from the host env — the reachability
+> witness's `YOLO_ALLOW_UNREACHABLE_SERVICES` pattern. Selecting a provider pack is the intent;
+> intent without its credential is a launch that would fail at first request anyway.
 
 Scoped to *active* profiles, so a configured-but-unselected provider with no key on this machine
 stays inert, which is the ordinary case for a shared workspace config.
@@ -841,6 +846,9 @@ comments cite them.
 | OQ-10 | **The launch line prints DECLARED and RECEIVED, never "honored"** — what a derive does with the string is unobservable; a print that overclaims is the silent-skip failure wearing a badge. | 2026-09-01 | §3.3 |
 | OQ-11 | **The removal census is ten sites plus two flags** — the 2026-08-29 list of eight predates `internal/agentenv` (the extraction itself) and missed `--agent-profile` beside `--claude-auth`. | 2026-09-01 | §2.4 |
 | OQ-6 | **Rename `api_key_env` → `api_key_env_name`** — the value's type is the last word read; no convention required. *(Ruled by the maintainer.)* One refuse-by-name migration: `knownProviderKeys`, the regex error message, three derives, docs. | 2026-09-01 | §4.3 |
+| OQ-12 | **D2 REVERSED — `kind: "provider"` exists.** A pack ships a provider's SERVICE facts (endpoints by protocol, wire_api, model aliases); the user's config carries only the credential pointer (`api_key_env_name`) and overrides. The composed provider map is pack-defaults < user-overrides, feeding the unchanged `ctx.providers` table. What survives P3 is the narrower truth: the *credential* is machine-local; the *endpoints* are facts about the service, the same for everyone — exactly what a shareable pack carries. *(Ruled by the maintainer, 2026-09-01.)* | 2026-09-01 | §4.1 |
+| OQ-13 | **Preflight scope: SELECTED PACK, not active profile.** A selected pack whose required provider (or its key) is missing refuses the launch, unconditionally — "configured-but-unselected stays inert" is withdrawn; selecting a provider pack IS the intent. *(Ruled by the maintainer, 2026-09-01; supersedes §6.2's scoping.)* | 2026-09-01 | §6.2 |
+| OQ-14 | **No agent is special-cased — claude included.** The provider declares its per-protocol ENV SHAPE (anthropic → `ANTHROPIC_BASE_URL` from the endpoint, `ANTHROPIC_AUTH_TOKEN` from the hydrated key); when a profile naming that provider is active for an agent, launch-time env composition applies it. The launcher mapping a hydrated credential into the process env is the §5 payload split's own channel — NOT the config-file interpolation the 2026-08-03 `${VAR}` ruling removed. No user-written token alias, no per-agent overlay bridge. *(Ruled by the maintainer, 2026-09-01.)* | 2026-09-01 | §5 |
 
 *(OQ-7…OQ-11 were found unset by the 2026-09-01 completeness audit — decisions a builder would
 otherwise have made silently — and settled from the corpus in the sections named.)*
