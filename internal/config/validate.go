@@ -906,7 +906,6 @@ func validateProviders(config *jsonx.OrderedMap, errs, warns *[]string) {
 			continue
 		}
 		reportUnknownKeys(cfg, knownProviderKeys, path, errs)
-		validateProviderAPIKeyEnvRetired(cfg, path, errs, warns)
 		if s, ok := cfg.Get("env_shape"); ok && s != nil {
 			validateProviderEnvShape(s, path, errs)
 		}
@@ -1110,29 +1109,6 @@ func validateAgentProfilesRetired(config *jsonx.OrderedMap, errs, warns *[]strin
 		"the keys were always CLI names and core knows packs, not agents " +
 		"(docs/design/profiles-as-pack-variants.md §3.3). Rename the key in place; " +
 		"the values are unchanged."
-	if inJail() {
-		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
-			"so rename the key in the HOST config.)")
-		return
-	}
-	add(errs, msg)
-}
-
-// validateProviderAPIKeyEnvRetired refuses a provider's pre-rename credential key by
-// name — validateAgentProfilesRetired one nesting level down, and the same downgrade
-// with it: the in-jail config is the host-generated snapshot, so a jail can be carrying
-// an `api_key_env` an older host launcher wrote, and renaming it is the host config's
-// job. The key stays in knownProviderKeys so this message is the only error the old
-// spelling produces.
-func validateProviderAPIKeyEnvRetired(cfg *jsonx.OrderedMap, path string, errs, warns *[]string) {
-	if _, present := cfg.Get("api_key_env"); !present {
-		return
-	}
-	msg := path + ".api_key_env: RENAMED — this key is now `api_key_env_name`, because " +
-		"the value is the NAME of the env var that carries the credential, and the " +
-		"spelling says so before the regex has to " +
-		"(docs/design/profiles-as-pack-variants.md §4.3). Rename the key in place; " +
-		"the value is unchanged."
 	if inJail() {
 		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
 			"so rename the key in the HOST config.)")

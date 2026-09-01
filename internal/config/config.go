@@ -95,17 +95,19 @@ var (
 	knownPackageKeys     = set("name", "nixpkgs", "version", "url", "hash", "outputs")
 	knownLSPServerKeys   = set("command", "args", "fileExtensions")
 	knownMCPServerKeys   = set("command", "args", "env", "requires_env", "provides")
-	// `api_key_env` retired 2026-09-01, renamed to `api_key_env_name` (parent OQ-6 — the
-	// value was always the NAME of the env var carrying the credential, and the spelling
-	// now says so before the regex has to). Listed alongside its replacement so the
-	// rename message is the only error a config carrying the old spelling gets, the
-	// `agent_profiles` convention above.
+	// `api_key_env` was renamed to `api_key_env_name` on 2026-09-01 and is NOT listed here.
+	// It carried a by-name rename message for one day; the maintainer's call was that a key
+	// that never shipped in a release does not earn a deprecation path, so the old spelling
+	// is now an ordinary unknown key. `agent_profiles` KEEPS its rename message — that one
+	// is written into every host-generated jail snapshot in existence, which is the
+	// distinction: a retired-key message is for a spelling that is out there, not for one
+	// that was briefly in the tree.
 	// `env_shape` is OQ-15 (profiles-as-pack-variants.md §14): a service fact like
 	// endpoints and models, so the user may override it. Its VALUES are checked against
 	// the same closed placeholder set a manifest's is — validateProviderEnvShape, which
 	// the census alone cannot do, which is why the key is here AND in validate.go.
 	knownProviderKeys = set("base_url", "endpoints", "wire_api", "api_key_env_name",
-		"api_key_env", "models", "region", "capabilities", "env_shape")
+		"models", "region", "capabilities", "env_shape")
 	knownDeviceKeys    = set("usb", "description", "cgroup_rule")
 	knownResourcesKeys = set("memory", "cpus", "pids_limit")
 	// knownHostServiceKeys is the INLINE loophole entry's key census. It must

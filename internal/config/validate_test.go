@@ -762,44 +762,48 @@ func TestValidateProvidersWithNoAddressIsLegal(t *testing.T) {
 	}
 }
 
-// The old credential-pointer spelling is refused BY NAME — and that refusal is the
-// ONLY error it produces, so the key stays in knownProviderKeys and the generic
-// unknown-key error never duplicates it. TestValidateAgentProfilesRetiredIsTheOnlyError,
-// one nesting level down.
-func TestValidateProvidersAPIKeyEnvRetiredIsTheOnlyError(t *testing.T) {
-	t.Setenv("YOLO_VERSION", "") // the host view: in-jail the rename downgrades to a warning
-	if _, known := knownProviderKeys["api_key_env"]; !known {
-		t.Error("`api_key_env` must stay in knownProviderKeys so the rename message is " +
-			"the ONLY error — otherwise the generic unknown-key error duplicates it")
+// The old credential-pointer spelling gets NO special handling: it was renamed on
+// 2026-09-01, never shipped in a release under the old name, and the maintainer's call was
+// that it does not earn a deprecation path. So it is an ordinary unknown key — which is
+// still a refusal, just a generic one. `agent_profiles` keeps its by-name message because
+// that spelling IS out there, in every host-generated jail snapshot.
+func TestValidateProvidersAPIKeyEnvIsAnOrdinaryUnknownKey(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "") // the host view
+	if _, listed := knownProviderKeys["api_key_env"]; listed {
+		t.Error("`api_key_env` must NOT be in knownProviderKeys — listing it would make the " +
+			"old spelling silently legal now that nothing refuses it by name")
 	}
 	errs, warns := ValidateConfig(decode(t,
 		`{"providers": {"zai": {"api_key_env": "ZAI_API_KEY"}}}`), t.TempDir(), nil)
 	if len(errs) != 1 {
-		t.Fatalf("want exactly one rename error, got %d: %v", len(errs), errs)
+		t.Fatalf("want exactly one unknown-key error, got %d: %v", len(errs), errs)
 	}
-	if !strings.Contains(errs[0], "api_key_env_name") {
-		t.Errorf("the rename message must name the replacement spelling: %v", errs)
+	if !strings.Contains(errs[0], "api_key_env") {
+		t.Errorf("the unknown-key error must name the key: %v", errs)
+	}
+	// The distinguishing assertion: no rename machinery is left behind. If someone
+	// reinstates a by-name message, this is the test that says the ruling was reversed.
+	if strings.Contains(errs[0], "RENAMED") {
+		t.Errorf("the by-name rename message was removed on purpose: %v", errs)
 	}
 	if len(warns) != 0 {
-		t.Errorf("the host refusal is an error, not a warning: %v", warns)
+		t.Errorf("no warning either, on any notch: %v", warns)
 	}
 }
 
-// A jail's config is the host-generated snapshot, so one written by an older launcher
-// legitimately carries the old spelling — the same downgrade every retired key gets.
-func TestValidateProvidersAPIKeyEnvRetiredWarnsInJail(t *testing.T) {
+// In-jail is the SAME answer, and that is the change: the retired-key convention
+// downgrades to a warning because a snapshot can legitimately carry an old spelling, and
+// this key has no such history to protect.
+func TestValidateProvidersAPIKeyEnvErrorsInJailToo(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "0.0.0-dev") // in-jail
-	errs, warns := ValidateConfig(decode(t,
+	errs, _ := ValidateConfig(decode(t,
 		`{"providers": {"zai": {"api_key_env": "ZAI_API_KEY"}}}`), t.TempDir(), nil)
-	if len(errs) != 0 {
-		t.Errorf("in-jail the rename is a warning, not an error: %v", errs)
-	}
-	if len(warns) != 1 || !strings.Contains(warns[0], "api_key_env_name") {
-		t.Errorf("want one rename warning naming the replacement spelling, got: %v", warns)
+	if len(errs) != 1 {
+		t.Fatalf("want the same unknown-key error in-jail, got %d: %v", len(errs), errs)
 	}
 }
 
-// The rename must not conflate "absent" with "present" — the twin of
+// The removal must not conflate "absent" with "present" — the twin of
 // TestValidateAgentProfilesAbsentIsClean.
 func TestValidateProvidersAPIKeyEnvAbsentIsClean(t *testing.T) {
 	errs, _ := ValidateConfig(decode(t,
