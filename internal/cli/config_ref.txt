@@ -877,6 +877,16 @@
                     {config:[surface...]} patching the managed layer of a surface THIS
                     pack owns, plus {launch:[{bin, flags}]}.  Either posture may be
                     empty (a permissive-by-default tool only needs `guarded`).
+      provider      {name, endpoints:{protocol:{base_url, wire_api}}, api_key_env_name,
+                    models:{alias: id}, env_shape:{protocol:{VAR: "{endpoint}|{key}"}}} —
+                    the SERVICE facts of a named provider: the endpoints that speak each
+                    wire protocol and the model ids an alias names.  Composed UNDER your
+                    `providers` entries per field, so overriding one model alias or one
+                    URL keeps everything else the pack shipped.  The credential is NEVER
+                    here: api_key_env_name is the NAME of a variable you hydrate
+                    (env_sources), and a base_url carrying userinfo is refused.  A
+                    provider name is sole-owned — two packs shipping one is a launch
+                    error.
       loophole      {from} — a loophole MODULE dir the pack ships, holding a
                     manifest.jsonc (the same on-disk shape a bundled loophole has, so a
                     loophole can be developed standalone and dropped into a pack).

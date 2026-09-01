@@ -122,6 +122,36 @@ func TestValidateContributes(t *testing.T) {
 			"must not contain"},
 		{"loophole with into", Contribution{Kind: KindLoophole, From: "loopholes/acme", Into: ".acme"},
 			"does not take \"into\""},
+		// provider: `name` is the identity (required), a base_url must be an http(s) URL
+		// with NO userinfo (a credential in a shipped manifest is a credential handed to
+		// everyone who installs it), and an env_shape value may only name where the
+		// endpoint and the key go — never carry either.
+		{"good provider", Contribution{Kind: KindProvider, Name: "acme",
+			Endpoints:     map[string]ProviderEndpoint{"openai": {BaseURL: "https://api.acme.dev/v4", WireAPI: "openai-chat"}},
+			APIKeyEnvName: "ACME_API_KEY", Models: map[string]string{"default": "acme-large"},
+			EnvShape: map[string]map[string]string{"anthropic": {
+				"ANTHROPIC_BASE_URL": "{endpoint}", "ANTHROPIC_AUTH_TOKEN": "{key}"}}}, ""},
+		{"provider no name", Contribution{Kind: KindProvider,
+			Endpoints: map[string]ProviderEndpoint{"openai": {BaseURL: "https://api.acme.dev/v4"}}},
+			"needs \"name\""},
+		{"provider name-only", Contribution{Kind: KindProvider, Name: "acme"}, ""},
+		{"provider endpoint no base_url", Contribution{Kind: KindProvider, Name: "acme",
+			Endpoints: map[string]ProviderEndpoint{"openai": {WireAPI: "openai-chat"}}},
+			"needs a \"base_url\""},
+		{"provider non-http scheme", Contribution{Kind: KindProvider, Name: "acme",
+			Endpoints: map[string]ProviderEndpoint{"openai": {BaseURL: "ftp://api.acme.dev/v4"}}},
+			"must be an http or https URL"},
+		{"provider bare-host base_url", Contribution{Kind: KindProvider, Name: "acme",
+			Endpoints: map[string]ProviderEndpoint{"openai": {BaseURL: "api.acme.dev/v4"}}},
+			"must be an http or https URL"},
+		{"provider userinfo base_url", Contribution{Kind: KindProvider, Name: "acme",
+			Endpoints: map[string]ProviderEndpoint{"openai": {BaseURL: "https://user:tok@api.acme.dev/v4"}}},
+			"must not carry userinfo"},
+		{"provider env_shape literal", Contribution{Kind: KindProvider, Name: "acme",
+			EnvShape: map[string]map[string]string{"anthropic": {"ANTHROPIC_AUTH_TOKEN": "{key}"}}}, ""},
+		{"provider env_shape template", Contribution{Kind: KindProvider, Name: "acme",
+			EnvShape: map[string]map[string]string{"anthropic": {"ANTHROPIC_AUTH_TOKEN": "Bearer {key}"}}},
+			"must be exactly"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -586,5 +616,89 @@ func TestAutonomyValidation(t *testing.T) {
 	  {"kind":"autonomy","autonomous":{"launch":[{"flags":["--x"]}]}}]}`))
 	if len(probs) == 0 {
 		t.Error("an autonomy launch entry with no bin should be a validation error")
+	}
+}
+
+// A provider contribution decodes through strict Decode and reads back through the
+// accessor, keeping each provider SEPARATE — the kind is exclusive per NAME, so a pack
+// shipping two providers is two declarations and nothing may fold them into one.
+func TestProviderDecodesIntoDistinctProviders(t *testing.T) {
+	m, probs := Decode([]byte(`{"name":"acme","contributes":[
+	  {"kind":"provider","name":"acme",
+	   "endpoints":{"openai":{"base_url":"https://api.acme.dev/v4","wire_api":"openai-chat"},
+	                "anthropic":{"base_url":"https://api.acme.dev/anthropic"}},
+	   "api_key_env_name":"ACME_API_KEY",
+	   "models":{"default":"acme-large","fast":"acme-small"},
+	   "env_shape":{"anthropic":{"ANTHROPIC_BASE_URL":"{endpoint}",
+	                             "ANTHROPIC_AUTH_TOKEN":"{key}"}}},
+	  {"kind":"provider","name":"acme-alt",
+	   "endpoints":{"openai":{"base_url":"https://alt.acme.dev/v4"}}}]}`))
+	if len(probs) != 0 {
+		t.Fatalf("providers should decode cleanly, got: %v", probs)
+	}
+	got := m.Providers()
+	if len(got) != 2 {
+		t.Fatalf("want 2 providers (the exclusivity is per NAME, not per pack), got %d: %+v", len(got), got)
+	}
+	zai := got[0]
+	if zai.Name != "acme" || zai.APIKeyEnvName != "ACME_API_KEY" {
+		t.Errorf("name/credential pointer lost: %+v", zai)
+	}
+	if len(zai.Endpoints) != 2 || zai.Endpoints["openai"].BaseURL != "https://api.acme.dev/v4" ||
+		zai.Endpoints["openai"].WireAPI != "openai-chat" ||
+		zai.Endpoints["anthropic"].BaseURL != "https://api.acme.dev/anthropic" {
+		t.Errorf("endpoints lost or reordered: %+v", zai.Endpoints)
+	}
+	if zai.Models["fast"] != "acme-small" {
+		t.Errorf("model aliases lost: %+v", zai.Models)
+	}
+	if zai.EnvShape["anthropic"]["ANTHROPIC_AUTH_TOKEN"] != "{key}" {
+		t.Errorf("env_shape lost: %+v", zai.EnvShape)
+	}
+	if got[1].Name != "acme-alt" || len(got[1].Endpoints) != 1 {
+		t.Errorf("the second provider is not its own declaration: %+v", got[1])
+	}
+	// A pack with no provider gets none — the nil-ness the composition keys off.
+	none := &Manifest{Contributes: []Contribution{{Kind: KindEnv, Vars: map[string]string{"X": "1"}}}}
+	if got := none.Providers(); len(got) != 0 {
+		t.Errorf("a pack declaring no provider should have none, got %+v", got)
+	}
+}
+
+// One provider NAME declared twice by one pack is refused: the composed providers table
+// is keyed by name, so the second declaration would silently replace the first while the
+// footprint showed two healthy claims.
+//
+// AUTHORING-TIME only (validateContributions runs on the strict path); DecodeTolerant
+// validates entries one at a time and cannot see siblings, which is the same
+// authoring/jail line retiredFieldProblems draws.
+func TestProviderNameDeclaredTwiceByOnePackIsRefused(t *testing.T) {
+	_, probs := Decode([]byte(`{"name":"acme","contributes":[
+	  {"kind":"provider","name":"acme","endpoints":{"openai":{"base_url":"https://a.example/v4"}}},
+	  {"kind":"provider","name":"acme","endpoints":{"openai":{"base_url":"https://b.example/v4"}}}]}`))
+	joined := strings.Join(probs, "; ")
+	if !contains(joined, `provider "acme" is declared again`) {
+		t.Errorf("a duplicate provider name must be refused with the first index named, got %q", joined)
+	}
+	// Two DIFFERENT names are the ordinary multi-provider pack, not a collision.
+	_, probs = Decode([]byte(`{"name":"acme","contributes":[
+	  {"kind":"provider","name":"acme","endpoints":{"openai":{"base_url":"https://a.example/v4"}}},
+	  {"kind":"provider","name":"other","endpoints":{"openai":{"base_url":"https://b.example/v4"}}}]}`))
+	if len(probs) != 0 {
+		t.Errorf("two distinct provider names should validate, got %v", probs)
+	}
+}
+
+// A provider ships SERVICE facts only. It must never read the host: nothing here is
+// machine-local except the credential, and the credential is a NAME the user hydrates.
+func TestProviderMakesNoHostAccessClaim(t *testing.T) {
+	m := &Manifest{Contributes: []Contribution{{Kind: KindProvider, Name: "acme",
+		Endpoints:     map[string]ProviderEndpoint{"openai": {BaseURL: "https://api.acme.dev/v4"}},
+		APIKeyEnvName: "ACME_API_KEY"}}}
+	if r := m.NeedsHostAccess(); len(r) != 0 {
+		t.Errorf("a provider reads nothing from the host, got %v", r)
+	}
+	if c := m.HostAccessClaims(); len(c) != 0 {
+		t.Errorf("a provider makes no host-access claim, got %v", c)
 	}
 }

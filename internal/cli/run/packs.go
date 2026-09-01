@@ -329,6 +329,18 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 		return "", nil, nil, err
 	}
 
+	// THE SIXTH bespoke pre-flight: a provider NAME shipped by two declarations
+	// (profiles-as-pack-variants.md §4.1, OQ-12). Beside the others, because this is
+	// where the pack set becomes complete, and FATAL because the collision has no
+	// runtime symptom to fall back on: the composed providers table is keyed by name, so
+	// the second shipper would silently replace the first while both packs' `footprint`
+	// showed one healthy provider each. `yolo pack lint` and `yolo check` report the
+	// same collision through packload.Collisions' exclusive loop (the claim target is the
+	// bare name); the loop is not consulted at launch, which is why this is its own pass.
+	if conflicts := packProviderNameConflicts(loaded); len(conflicts) > 0 {
+		return "", nil, nil, fmt.Errorf("packs: %s", strings.Join(conflicts, "\npacks: "))
+	}
+
 	jailcontent.SetPackSkillDirs(skillDirs)
 	// Record the pack-contributed loophole modules for every host-side consumer, with
 	// each one's origin gate already evaluated. THE convergence point
@@ -990,4 +1002,56 @@ func copyTree(src, dest string) error {
 		// existing file, so neither path reliably lands the exec bit on its own.
 		return os.Chmod(target, mode)
 	})
+}
+
+// packProviderNameConflicts is the launch half of provider-name exclusivity: one message
+// per provider name shipped by more than one DECLARATION, in a deterministic order.
+//
+// Per declaration, not per pack, for the reason the loophole pre-flight states: the
+// generic exclusive loop in packload.Collisions skips a group of one, so a single manifest
+// declaring `zai` twice would be invisible there — and it is exactly as silent at the
+// compose, where the second entry would replace the first. The one-pack case is refused
+// at authoring time too (packdecl's validateContributions); this pass is the launch-time
+// backstop for a pack that arrives already broken.
+func packProviderNameConflicts(loaded []*packload.Pack) []string {
+	type decl struct{ pack string }
+	byName := map[string][]decl{}
+	var order []string
+	for _, p := range loaded {
+		for _, prov := range p.Decl.Providers() {
+			if _, seen := byName[prov.Name]; !seen {
+				order = append(order, prov.Name)
+			}
+			byName[prov.Name] = append(byName[prov.Name], decl{pack: p.Name})
+		}
+	}
+	sort.Strings(order)
+
+	var out []string
+	for _, name := range order {
+		group := byName[name]
+		if len(group) < 2 {
+			continue
+		}
+		var names []string
+		seen := map[string]bool{}
+		for _, d := range group {
+			if !seen[d.pack] {
+				seen[d.pack] = true
+				names = append(names, "pack "+d.pack)
+			}
+		}
+		who := strings.Join(names, " and ")
+		if len(names) == 1 {
+			who = names[0] + " twice"
+		}
+		out = append(out, fmt.Sprintf(
+			"provider %q is shipped by %s — a provider name is sole-owned: it is the key in "+
+				"the composed providers table and what a profile's requires_provider names, so "+
+				"two shippers would each be supplying \"the\" %s and one would silently replace "+
+				"the other. Drop one of the declarations; overrides of the survivor are lines "+
+				"of providers.%s in user config.",
+			name, who, name, name))
+	}
+	return out
 }

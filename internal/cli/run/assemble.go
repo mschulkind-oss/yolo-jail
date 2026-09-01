@@ -665,6 +665,16 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	return runCmd
 }
 
+// composedProviders is the providers table this launch carries: the user's `providers`
+// config entries with every selected pack's `kind: "provider"` service facts composed
+// UNDER them, per field (packload.ComposeProviders). It is the ONLY place that composition
+// happens — the result crosses to the jail whole and the derives read it verbatim — so a
+// user override of one model alias cannot cost the pack's endpoints, and nothing
+// downstream re-derives a second copy of the merge.
+func composedProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack) *jsonx.OrderedMap {
+	return packload.ComposeProviders(cfgMap(cfg, "providers"), packs)
+}
+
 // commonEnvBlock builds the big -e env block. Frozen contract (order and
 // content must not drift — yolo-entrypoint reads these exact vars).
 func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode string) []string {
@@ -716,7 +726,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_LSP_GO_INSTALL="+in.lspGo(),
 		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "mcp_servers")),
 		"-e", "YOLO_MCP_PRESETS="+jsonDumpsOrEmptyList(cfgList(cfg, "mcp_presets")),
-		"-e", "YOLO_PROVIDERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "providers")),
+		"-e", "YOLO_PROVIDERS="+jsonDumpsOrEmptyObj(composedProviders(cfg, in.packs)),
 		"-e", "YOLO_PACK_PROFILES="+jsonDumpsOrEmptyObj(effectiveProfiles),
 		"-e", "YOLO_REQUIRED_CAPABILITIES="+jsonDumpsOrEmptyList(cfgList(cfg, "required_capabilities")),
 		"-e", "YOLO_RUNTIME=podman",

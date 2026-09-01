@@ -101,6 +101,14 @@ var hostUnimplemented = map[packdecl.Kind]string{
 		"would mean editing your shell rc, a much larger claim than a pack's env " +
 		"contribution asks for. `yolo host -- <program>` delivers them at launch instead, " +
 		"to that process only",
+	// provider rides the same channel and so hits the same limit of the same COMMAND: its
+	// service facts compose into the providers table a launch carries into the derives.
+	// A host apply renders config files, and nothing in those files is a provider — an
+	// agent's provider catalog is derived at launch, from the table, not written here.
+	packdecl.KindProvider: "a shipped provider's facts feed the derives at LAUNCH, and " +
+		"`yolo host apply` only configures your tools — it never runs one, so there is no " +
+		"derive to feed. `yolo host -- <program>` (or a jail launch) composes the providers " +
+		"table instead",
 	// The three shipped hooks are all jail plumbing: shared_credentials symlinks a
 	// credentials file into a machine-global dir, per_jail_history isolates a history
 	// file PER JAIL, claude_plugins reconciles in-jail plugin installs. Off-container
@@ -184,6 +192,12 @@ func HostFields() FieldSet {
 		// implies an install nobody wanted.
 		packdecl.KindRequires: true,
 		packdecl.KindAutonomy: true, // honored: host renders the GUARDED posture (§4.2)
+		// provider is honored at this notch, and the reason is the channel rather than the
+		// census: a shipped provider's facts compose into the providers table the LAUNCH
+		// carries, exactly as a pack's `env` does — they are not a file this command writes.
+		// Honored-but-unbuilt below is that limit stated (hostUnimplemented), the same
+		// sentence env and launch get.
+		packdecl.KindProvider: true,
 		// files is honored by WRITING the tree, not binding it. The old refusal ("nothing
 		// to bind into off-container") was true of the mechanism and false of the intent: a
 		// pack that owns ~/.claude/file-suggestion.sh means "this file is mine to

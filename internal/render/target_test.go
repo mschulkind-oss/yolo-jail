@@ -208,6 +208,11 @@ func TestFieldSetCensus(t *testing.T) {
 	for _, k := range []packdecl.Kind{
 		packdecl.KindConfig, packdecl.KindSkills, packdecl.KindBriefing, packdecl.KindEnv,
 		packdecl.KindAutonomy,
+		// provider is honored for the same reason env is: its facts compose into the
+		// providers table a LAUNCH carries, which is the notch's channel and not a file
+		// this target writes. Honored-but-unbuilt at `yolo host apply` is stated in
+		// hostUnimplemented, so the census line still names it.
+		packdecl.KindProvider,
 		// files MOVED into the honored set (plan Phase 7). The old refusal — "files binds a
 		// pack tree into a jail, nothing to bind into off-container" — was true of the
 		// MECHANISM and false of the intent: a pack owning ~/.claude/bin/file-suggestion.sh

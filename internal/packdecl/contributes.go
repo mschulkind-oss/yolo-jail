@@ -11,6 +11,7 @@ package packdecl
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 )
@@ -127,6 +128,52 @@ type Contribution struct {
 	// autonomous is empty and only guarded tightens it).
 	Autonomous *AutonomyPosture `json:"autonomous,omitempty"`
 	Guarded    *AutonomyPosture `json:"guarded,omitempty"`
+
+	// --- provider (profiles-as-pack-variants.md §4.1 as ruled, OQ-12) ---
+	// Name is REQUIRED and is the provider's whole identity: the key the entry lands
+	// under in the composed `providers` table, what a profile's `requires_provider`
+	// names, and what the derives emit as the provider/model id. Sole-owned across packs
+	// (kinds.go), so two packs shipping one name is a collision — while one pack shipping
+	// two names is two contributions, which is the ordinary multi-provider pack.
+	Name string `json:"name,omitempty"`
+	// Endpoints carries the SERVICE FACTS by protocol: which URL speaks which wire
+	// protocol. An endpoint is {base_url, wire_api}, and the keys are protocol names —
+	// "anthropic" (Claude's native wire) and "openai" (the OpenAI-client shape) are the
+	// two anything consumes today.
+	//
+	// The KEY set is deliberately left open, unlike the kinds themselves: a protocol core
+	// does not know resolves to nothing (no agent speaks it), which is inert rather than
+	// dangerous, and closing it here would make a third protocol the `tier` incident a
+	// fifth time — a manifest a newer host staged would refuse an older baked entrypoint's
+	// boot, because DecodeTolerant validates per entry and cannot skip a value it cannot
+	// see (knownVias records the measurement). The VALUES are not free: each base_url is
+	// checked below.
+	//
+	// Top-level `base_url` is NOT part of this kind, on purpose: that spelling is the
+	// single-protocol shorthand the user's `providers` entry has, and a pack that ships
+	// one protocol still names which one, so the composed entry has exactly one shape for
+	// "where does this protocol point".
+	Endpoints map[string]ProviderEndpoint `json:"endpoints,omitempty"`
+	// APIKeyEnvName is the NAME of the environment variable holding the credential —
+	// never the credential. It is the one key-shaped field on the kind, which is what
+	// makes a literal key unrepresentable: the user hydrates the variable through
+	// env_sources or the invoking environment, and the pack ships only where to look.
+	// The `_name` is the value's type read out loud (parent OQ-6), the same distinction
+	// the `providers` config key draws with `api_key_env`.
+	APIKeyEnvName string `json:"api_key_env_name,omitempty"`
+	// Models maps a model ALIAS an agent asks for to the provider's model ID —
+	// "default"/"fast" → "glm-4.7". Alias names are open vocabulary: which aliases a
+	// provider's consumers read is the consumer's business, not core's.
+	Models map[string]string `json:"models,omitempty"`
+	// EnvShape is how a profile ACTIVE for an agent delivers THIS provider to it, by
+	// protocol: protocol → {ENV_VAR → placeholder}. The only two placeholders are the
+	// literals "{endpoint}" (that protocol's base_url) and "{key}" (the hydrated value of
+	// APIKeyEnvName) — a value that is neither is refused, because anything else would be
+	// the credential or a host fact smuggled in through a template (validateContribution).
+	// Declared per protocol so one provider can spell claude's ANTHROPIC_* pair and leave
+	// the OpenAI-shaped agents to their config files (parent OQ-14: no agent is
+	// special-cased, the provider says how it is delivered).
+	EnvShape map[string]map[string]string `json:"env_shape,omitempty"`
 
 	// Raw carries kind-specific structured payloads that do not fit a scalar field
 	// — today only a `config` contribution's surface definition (the agentcfg
@@ -398,6 +445,56 @@ func (m *Manifest) PostureFor(autonomy bool) *AutonomyPosture {
 		return ac.Autonomous
 	}
 	return ac.Guarded
+}
+
+// ProviderEndpoint is one protocol's half of a provider: the URL that speaks it and the
+// wire protocol that URL speaks. Both are SERVICE facts — the same for every user of the
+// provider — which is why a pack may declare them and why neither can carry a credential
+// (validateContribution refuses userinfo in a base_url for exactly that reason).
+type ProviderEndpoint struct {
+	// BaseURL is the endpoint's root URL. Must be http/https and carry no userinfo —
+	// `https://user:tok@host/v1` is a credential in a file a pack ships to strangers.
+	BaseURL string `json:"base_url,omitempty"`
+	// WireAPI is the wire protocol that URL speaks ("openai-chat", "anthropic", …). Free
+	// text here, matching the `providers` config key it composes into: the enum that
+	// tightens one tightens both, or the two validators would disagree about what a
+	// provider is.
+	WireAPI string `json:"wire_api,omitempty"`
+}
+
+// ProviderContribution is one provider a pack ships: a name and the service facts that
+// go with it. The credential is deliberately absent — the only key-shaped field is the
+// NAME of the variable the user hydrates.
+type ProviderContribution struct {
+	Name          string
+	Endpoints     map[string]ProviderEndpoint
+	APIKeyEnvName string
+	Models        map[string]string
+	EnvShape      map[string]map[string]string
+}
+
+// Providers returns every provider the pack ships, in declaration order.
+//
+// A SLICE, not a first-match accessor like AutonomyContributions: the exclusivity this
+// kind is sole-owned under is per NAME, so a pack declaring two DIFFERENT providers is
+// the ordinary multi-provider pack and nothing here may fold them into one. The same
+// name twice is the collision, and that is validateContributions' to refuse — it can see
+// the siblings, which an accessor cannot.
+func (m *Manifest) Providers() []ProviderContribution {
+	var out []ProviderContribution
+	for _, c := range m.Contributions() {
+		if c.Kind != KindProvider {
+			continue
+		}
+		out = append(out, ProviderContribution{
+			Name:          c.Name,
+			Endpoints:     c.Endpoints,
+			APIKeyEnvName: c.APIKeyEnvName,
+			Models:        c.Models,
+			EnvShape:      c.EnvShape,
+		})
+	}
+	return out
 }
 
 // DefaultSkillsDir is the conventional pack-relative directory a `skills`
@@ -781,6 +878,36 @@ func (m *Manifest) validateContributions() []string {
 	for i, c := range m.Contributes {
 		problems = append(problems, validateContributionAt(i, c)...)
 	}
+	problems = append(problems, m.validateProviderNames()...)
+	return problems
+}
+
+// validateProviderNames refuses a provider NAME declared twice by ONE pack.
+//
+// Cross-pack, the name is sole-owned and packload.Collisions' exclusive loop is the
+// check — the claim target is the bare name, so two packs shipping `zai` group on it.
+// Within a pack that loop is silent by design (`len(packSet) < 2`), and the failure it
+// would leave behind is the silent kind: the composed providers table is keyed by name,
+// so the second declaration would REPLACE the first while every footprint and lint run
+// showed two healthy claims. So this is the authoring-time half, strict path only — the
+// same place `retiredFieldProblems` draws the authoring/jail line, and for the same
+// reason: DecodeTolerant validates entries one at a time and cannot see siblings.
+func (m *Manifest) validateProviderNames() []string {
+	var problems []string
+	seen := map[string]int{}
+	for i, c := range m.Contributes {
+		if c.Kind != KindProvider || c.Name == "" {
+			continue
+		}
+		if first, dup := seen[c.Name]; dup {
+			problems = append(problems, fmt.Sprintf(
+				"contributes[%d]: provider %q is declared again (first at contributes[%d]) — a "+
+					"provider name is sole-owned, and the composed providers table is keyed by "+
+					"name, so the second declaration would silently replace the first", i, c.Name, first))
+			continue
+		}
+		seen[c.Name] = i
+	}
 	return problems
 }
 
@@ -968,6 +1095,10 @@ func validateContribution(label string, c Contribution) []string {
 		}
 		problems = append(problems, validateAutonomyPosture(label+".autonomous", c.Autonomous)...)
 		problems = append(problems, validateAutonomyPosture(label+".guarded", c.Guarded)...)
+	case KindProvider:
+		req("name", c.Name)
+		problems = append(problems, validateProviderEndpoints(label, c.Endpoints)...)
+		problems = append(problems, validateProviderEnvShape(label, c.EnvShape)...)
 	case KindLoophole:
 		// `from` is REQUIRED, unlike skills/briefing and like files: a loophole module has
 		// no conventional location to fall back to, and the whole contribution is the
@@ -1007,4 +1138,76 @@ func validateAutonomyPosture(label string, p *AutonomyPosture) []string {
 		problems = binProblem(problems, fmt.Sprintf("%s.launch[%d].bin", label, i), l.Bin)
 	}
 	return problems
+}
+
+// validateProviderEndpoints checks each endpoint's base_url: it must be an http/https
+// URL carrying NO userinfo.
+//
+// The userinfo half is the credential rule, and it is a refusal rather than a warning
+// because a manifest is the most shareable artifact yolo has: `https://user:tok@host/v1`
+// puts a working credential in front of everyone who installs the pack, and a URL check
+// that only asked "does it parse" would wave it through. The scheme half is the same rule
+// pointed the other way — a `file://` or bare-host URL is a fact about the local machine
+// a stranger's manifest cannot know.
+func validateProviderEndpoints(label string, endpoints map[string]ProviderEndpoint) []string {
+	var problems []string
+	for _, proto := range sortedKeys(endpoints) {
+		u := endpoints[proto].BaseURL
+		if u == "" {
+			problems = append(problems, fmt.Sprintf("%s.endpoints[%q]: needs a \"base_url\"", label, proto))
+			continue
+		}
+		parsed, err := url.Parse(u)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("%s.endpoints[%q].base_url: %v", label, proto, err))
+			continue
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			problems = append(problems, fmt.Sprintf(
+				"%s.endpoints[%q].base_url: must be an http or https URL (%s)", label, proto, u))
+		}
+		if parsed.User != nil {
+			problems = append(problems, fmt.Sprintf(
+				"%s.endpoints[%q].base_url: must not carry userinfo — %q is a credential in a "+
+					"file a pack ships to strangers; name an env var in api_key_env_name and let "+
+					"the user hydrate it", label, proto, u))
+		}
+	}
+	return problems
+}
+
+// validateProviderEnvShape checks the env_shape template values: the ONLY two
+// placeholders are "{endpoint}" (that protocol's base_url) and "{key}" (the user's
+// hydrated credential).
+//
+// A closed two-value set, and deliberately not a template language: an env_shape value
+// that could interpolate anything else would be a channel for exactly the two things this
+// kind must never ship — a credential, or a fact about the authoring machine.
+func validateProviderEnvShape(label string, shape map[string]map[string]string) []string {
+	var problems []string
+	for _, proto := range sortedKeys(shape) {
+		vars := shape[proto]
+		for _, name := range sortedKeys(vars) {
+			v := vars[name]
+			if v == "{endpoint}" || v == "{key}" {
+				continue
+			}
+			problems = append(problems, fmt.Sprintf(
+				"%s.env_shape[%q][%q]: must be exactly \"{endpoint}\" or \"{key}\" (%q)",
+				label, proto, name, v))
+		}
+	}
+	return problems
+}
+
+// sortedKeys returns a string-keyed map's keys sorted, so a validation pass over a map
+// reports problems in a deterministic order — the same reason footprint.go sorts the maps
+// it renders.
+func sortedKeys[T any](m map[string]T) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

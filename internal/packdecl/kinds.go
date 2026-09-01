@@ -109,6 +109,29 @@ const (
 	// per pack); it patches surfaces the same pack owns, so it never collides across
 	// packs the way a second config writer would.
 	KindAutonomy Kind = "autonomy"
+	// KindProvider: a NAMED PROVIDER'S SERVICE FACTS — the endpoints that speak each
+	// wire protocol, and the model aliases an agent can ask for by name
+	// (profiles-as-pack-variants.md §4.1 as ruled, OQ-12). The pack composes them INTO
+	// the user's `providers` config table (pack defaults < user overrides, per field),
+	// and the composed table feeds the unchanged YOLO_PROVIDERS → ctx.providers chain
+	// the three derives already read; the pack authorship a user never has to repeat is
+	// the point, so overrides — not authoring — are what user config is for.
+	//
+	// THE CREDENTIAL IS NOT A DECLARATION, and the schema cannot express one: the only
+	// key-shaped field is APIKeyEnvName, which names a variable the USER hydrates
+	// (env_sources or the invoking environment). Endpoints are facts about the service —
+	// z.ai's URLs are the same for everyone — which is exactly what a shareable pack may
+	// carry; a key is a fact about this machine, which is not.
+	//
+	// Exclusive by provider NAME, and the name is the whole identity: it is the key the
+	// entry lands under in the composed table, what a profile's `requires_provider`
+	// names, and what the derives emit as the provider/model id. Two packs shipping one
+	// name would each be supplying "the" zai, so the second is a collision — the same
+	// name-keyed exclusivity `program` has per bin, and unlike `program` nothing is
+	// installed, so there is no filesystem the collision could otherwise surface in.
+	// A pack shipping TWO providers is ordinary: the exclusivity is per NAME, not per
+	// pack.
+	KindProvider Kind = "provider"
 	// KindLoophole: a loophole MODULE the pack ships — a directory holding a
 	// `manifest.jsonc`, named by `from` (loophole-packaging.md §3).
 	//
@@ -253,6 +276,16 @@ var footprints = map[Kind]Footprint{
 	KindAutonomy: {
 		Kind: KindAutonomy, Combine: CombineExclusive,
 		Claims: "the agent's autonomous/guarded permission postures (notch-selected)",
+	},
+	KindProvider: {
+		// Exclusive by provider NAME, not by pack: one pack shipping two providers is the
+		// ordinary multi-provider case, and two packs shipping ONE name is the collision.
+		// The claim target is the bare name (no discriminator), so the generic exclusive
+		// loop in packload.Collisions compares the names directly — no dedicated pass, the
+		// way loophole's needs.
+		Kind: KindProvider, Combine: CombineExclusive,
+		Claims: "a named provider's endpoints, wire protocols and model aliases; " +
+			"the credential is supplied by user config",
 	},
 	KindLoophole: {
 		// Exclusive by loophole NAME (the module dir's basename). MayBeReviewWorthy is

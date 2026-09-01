@@ -106,6 +106,13 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	packdecl.KindLaunch:        disclosureSkip,
 	packdecl.KindHook:          disclosureSkip,
 	packdecl.KindAutonomy:      disclosureSkip,
+	// provider is jail-internal too, and the tempting reading — "it names a credential, so
+	// it must be disclosed" — is backwards: the ONLY credential-shaped thing it carries is
+	// the NAME of a variable the user hydrates, which is a pointer, not a read. The facts
+	// it does carry are the service's own URLs and model ids, composed into a config table
+	// the jail's derives consume; nothing on the host is touched, so there is nothing to
+	// announce at the spawn.
+	packdecl.KindProvider: disclosureSkip,
 
 	// loophole: the kind whose crossing can be HOST EXECUTION. Classified here so the
 	// exhaustiveness test is satisfied, but the read/exec split for a loophole is decided

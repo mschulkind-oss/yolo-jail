@@ -197,6 +197,15 @@ func FootprintOf(p *Pack) Footprint {
 				detail = "autonomous posture only"
 			}
 			add(packdecl.KindAutonomy, p.Name, detail, false)
+		case packdecl.KindProvider:
+			// The target IS the provider name, with no discriminator: the kind is
+			// sole-owned per name, so the generic exclusive loop in Collisions is the
+			// whole cross-pack check and two packs shipping one provider group right onto
+			// it. Not review-worthy — service facts widen nothing; the credential is a
+			// variable NAME the user hydrates, and the Detail says so where a reader can
+			// see it without opening the manifest.
+			add(packdecl.KindProvider, c.Name,
+				providerClaimDetail(c.Endpoints, c.Models, c.APIKeyEnvName), false)
 		}
 		// KindConfig / KindConfigOverlay claims come from the decoded surfaces
 		// below, where the surface identity (agent/name) is available. KindLoophole

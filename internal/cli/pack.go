@@ -84,6 +84,8 @@ effect, with a "kind" from a closed set:
   launch           inject launch flags after a binary
   hook             a named capability (shared_credentials, …)
   autonomy         the agent's autonomous/guarded permission postures (notch-selected)
+  provider         ship a provider's service facts: endpoints by wire protocol, model
+                   aliases; the credential is an env-var NAME only you hydrate
   loophole         ship a host-capability loophole: a module dir with a manifest.jsonc
 
 loophole is the sharpest kind: its module may declare a daemon that runs ON YOUR MACHINE,

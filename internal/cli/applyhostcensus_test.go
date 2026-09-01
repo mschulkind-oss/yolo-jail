@@ -117,6 +117,9 @@ func writeCensusPack(t *testing.T, dir string) {
 		packdecl.KindHook:      `{"kind":"hook","hook":"per_jail_history","from":".census/history"}`,
 		packdecl.KindAutonomy: `{"kind":"autonomy","autonomous":{"launch":[{"bin":"censusbin",` +
 			`"flags":["--yolo"]}]},"guarded":{"launch":[{"bin":"censusbin"}]}}`,
+		packdecl.KindProvider: `{"kind":"provider","name":"census",` +
+			`"endpoints":{"openai":{"base_url":"https://census.example/v4","wire_api":"openai-chat"}},` +
+			`"api_key_env_name":"CENSUS_API_KEY"}`,
 		packdecl.KindLoophole: `{"kind":"loophole","from":"loopholes/censushole"}`,
 	}
 

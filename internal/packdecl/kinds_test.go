@@ -13,7 +13,7 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 	for _, k := range []Kind{
 		KindProgram, KindRequires, KindSkills, KindBriefing, KindFiles, KindConfig,
 		KindConfigOverlay, KindState, KindReadsHost, KindMount, KindEnv,
-		KindLaunch, KindHook, KindAutonomy, KindLoophole,
+		KindLaunch, KindHook, KindAutonomy, KindProvider, KindLoophole,
 	} {
 		fp, ok := FootprintOf(k)
 		if !ok {
@@ -27,8 +27,8 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 			t.Errorf("kind %q has an empty Claims description", k)
 		}
 	}
-	if got := len(KnownKinds()); got != 15 {
-		t.Errorf("KnownKinds() has %d entries, want 15 — a kind was added/removed without updating the test", got)
+	if got := len(KnownKinds()); got != 16 {
+		t.Errorf("KnownKinds() has %d entries, want 16 — a kind was added/removed without updating the test", got)
 	}
 }
 
@@ -91,6 +91,13 @@ func TestCombineRulesMatchDesign(t *testing.T) {
 		// (packload.loopholeNameCollisions), because the claim TARGETS carry a
 		// discriminator and the generic loop compares those.
 		KindLoophole: CombineExclusive,
+		// provider is EXCLUSIVE by provider NAME — the target IS the name, with no
+		// discriminator, so unlike loophole it needs no pass of its own: the generic
+		// exclusive loop compares two packs' provider names directly. Written here even
+		// though CombineExclusive is the zero value, because a row that is absent from
+		// this map is a combine rule nobody pinned (the reason autonomy went unpinned for
+		// so long).
+		KindProvider: CombineExclusive,
 	}
 	for k, c := range want {
 		fp, _ := FootprintOf(k)
