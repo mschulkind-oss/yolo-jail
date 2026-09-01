@@ -593,7 +593,7 @@ stops the launch. That is the intended trade under your ruling, and it is the on
 ### 💬 18 — Every pack's briefing goes to every agent, and there is no way to say who it is for
 
 📄 [`briefing-audiences.md`](../design/briefing-audiences.md) —
-**OQ-BA3 · OQ-BA4 · OQ-BA5 · OQ-BA7** · three already ruled (OQ-BA1, OQ-BA2, OQ-BA6) · reuses
+**OQ-BA3 · OQ-BA4 · OQ-BA7** · four already ruled (OQ-BA1, OQ-BA2, OQ-BA5, OQ-BA6) · reuses
 [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) §2.5's CLI-name namespace
 and [`stringly-typed-references-principle.md`](../design/stringly-typed-references-principle.md)
 R1–R5
@@ -610,7 +610,7 @@ text on every session in every project.
 
 **You ruled three things on 2026-08-31.** The key is the **CLI name, not the pack slug** (OQ-BA1)
 — the namespace `-p <name> -- <bin>` and `pack_profiles.<cli>` already use. The agent pack
-**declares** its `bin` and **owns** it, two packs claiming one being fatal (OQ-BA6); nothing is
+**declares** that name and **owns** it, two packs claiming one being fatal (OQ-BA6); nothing is
 derived, because nothing in the `-p` chain derives anything either (OQ-BA2 — the name is typed,
 carried as a map key, and matched against a string the pack hardcodes about itself). And the
 constraint that shapes the rest: **a content pack names its audience and never a path** —
@@ -618,7 +618,7 @@ constraint that shapes the rest: **a content pack names its audience and never a
 claude puts its briefings."* That is the doc's P4, and it is not a nicety: `into` is **required**
 on `briefing` today, and the validator's own rationale says why it cannot be defaulted — *"a
 destination has one right answer per AGENT, so inferring it means inferring the agent set."* The
-selector supplies exactly that input, so a contribution that names `bins` omits `into` and the
+selector supplies exactly that input, so a contribution that names `agents` omits `into` and the
 destination becomes inferable. It also sidesteps the tombstone at
 [`packs.go:73-80`](../../internal/config/packs.go#L73-L80), where a per-entry `agents` filter was
 deleted for presuming a fixed agent list. **That removal's rationale has two clauses and this
