@@ -53,11 +53,14 @@ type Options struct {
 	// child process or outlive the launch that was approved. See
 	// config.AcceptConfigChangesFlag, which owns the spelling.
 	AcceptConfigChanges bool
-	// ProfileName is --profile <name> or -p <name> (e.g. "glm" or "glm-dev").
+	// ProfileName is --profile <name> or -p <name> (e.g. "glm" or "glm-dev"). With a
+	// command it keys the name to that command's binary; with no command it is GLOBAL —
+	// the selected profile of every pack this launch selects (effectivePackProfiles).
 	ProfileName string
 	// ClaudeAuth is --claude-auth <mode> or --auth <mode> (e.g. "bedrock", "teams").
 	ClaudeAuth string
-	// PackProfiles is --pack-profile <agent>=<provider> overrides.
+	// PackProfiles is --pack-profile <cli>=<name> overrides, keyed by CLI name. A name
+	// no resolvable pack installs is refused at launch (checkProfileTargets).
 	PackProfiles map[string]string
 	// Args is ctx.args — the command after `--` (empty → interactive bash).
 	Args []string

@@ -2,8 +2,14 @@ package run
 
 import (
 	"bytes"
+	"go/ast"
+	"go/token"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // This file pins the FLAG half of the CLI-name namespace
@@ -68,5 +74,218 @@ func TestStageRunPacksAcceptsProfileTargetsThePacksInstall(t *testing.T) {
 	o.PackProfiles = map[string]string{"pi": "glm"}
 	if _, ok := o.stageRunPacks("yolo-profile-target-known"); !ok {
 		t.Fatalf("selectors naming installed CLIs must stage cleanly:\n%s", out.String())
+	}
+}
+
+// --- GLOBAL -p, and the launch line ---
+
+// packsFixture loads the shipped packs named, in the order given — the selected set
+// assembly and the launch line both read. Two packs, because the point of the global
+// form is that MORE THAN ONE pack receives the name.
+func packsFixture(t *testing.T, names ...string) []*packload.Pack {
+	t.Helper()
+	loaded, problems := packload.MaterializeEmbedded(officialpacks.FS, t.TempDir())
+	if len(problems) != 0 {
+		t.Fatalf("materializing official packs: %v", problems)
+	}
+	var out []*packload.Pack
+	for _, name := range names {
+		for _, p := range loaded {
+			if p.Name == name {
+				out = append(out, p)
+				break
+			}
+		}
+	}
+	if len(out) != len(names) {
+		t.Fatalf("official packs %v not all found (loaded %d)", names, len(loaded))
+	}
+	return out
+}
+
+// assembleWithProfiles is assembleWithConfig with an options hook, so a test can drive
+// a launch-time flag through the real env block rather than the merge in isolation.
+func assembleWithProfiles(t *testing.T, cfg *jsonx.OrderedMap, packs []*packload.Pack,
+	set func(*Options)) []string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := goldenOptions("/ws", home)
+	if set != nil {
+		set(o)
+	}
+	in := &assembleInput{
+		cfg:          cfg,
+		rt:           "podman",
+		cname:        "yolo-ws-abcd1234",
+		imageRef:     goldenImageRef,
+		packs:        packs,
+		agentsPath:   "/agents/yolo-ws-abcd1234",
+		wsState:      "/ws/.yolo/home",
+		miseStore:    "/mise-store",
+		yoloVersion:  "9.9.9-test",
+		mountTargets: map[string]struct{}{},
+	}
+	return o.assembleRunCmd(in)
+}
+
+// GLOBAL -p (§3.3, OQ-5): `-p dev` with NO command keys the name for every selected
+// pack, by the CLI name each one installs. Before this the empty-argv case was a no-op
+// — the target bin was "" and the assignment was silently skipped — so `yolo -p dev`
+// looked accepted and selected nothing.
+//
+// Asserted on the ASSEMBLED env, not the merge, because the table is the launch's
+// contract with the jail: a merge that changed and an env block that did not follow
+// would pass a test on the merge alone.
+func TestAssembleGlobalProfileReachesEverySelectedPack(t *testing.T) {
+	packs := packsFixture(t, "claude", "pi")
+	argv := assembleWithProfiles(t, newConfig(), packs, func(o *Options) { o.ProfileName = "dev" })
+	got := envArgValues(argv, "YOLO_PACK_PROFILES")
+	if len(got) != 1 {
+		t.Fatalf("YOLO_PACK_PROFILES emitted %q, want exactly one", got)
+	}
+	if got[0] != `YOLO_PACK_PROFILES={"claude": "dev", "pi": "dev"}` {
+		t.Errorf("global -p must key every selected pack by the CLI it installs, got %s", got[0])
+	}
+}
+
+// -p WITH a command keeps the bin keying, and only the pack owning that bin gets the
+// name — the other selected packs are untouched. Pinned beside the global form so the
+// two branches cannot quietly converge.
+func TestAssembleProfileWithACommandKeysOnlyThatBin(t *testing.T) {
+	packs := packsFixture(t, "claude", "pi")
+	argv := assembleWithProfiles(t, newConfig(), packs, func(o *Options) {
+		o.ProfileName = "dev"
+		o.Args = []string{"claude"}
+	})
+	got := envArgValues(argv, "YOLO_PACK_PROFILES")
+	if len(got) != 1 {
+		t.Fatalf("YOLO_PACK_PROFILES emitted %q, want exactly one", got)
+	}
+	if got[0] != `YOLO_PACK_PROFILES={"claude": "dev"}` {
+		t.Errorf("-p with a command must key only that bin, got %s", got[0])
+	}
+}
+
+// THE LAUNCH LINE (§3.3): one line per distinct name, naming what DECLARED it and who
+// RECEIVED it. RECEIVED is every selected pack — the table crosses to the jail whole
+// and every pack's derive sees all of it — and DECLARED is the packs shipping a
+// `profile` variant with that name, which is none for every launch this build can
+// produce because the kind does not exist yet (§12 step 2 adds it).
+//
+// Driven through the same merge the env block consumes, so the line cannot claim
+// something the table does not carry.
+func TestNotePackProfilesPrintsDeclaredAndReceived(t *testing.T) {
+	packs := packsFixture(t, "claude", "pi")
+	var out bytes.Buffer
+	o := goldenOptions("/ws", t.TempDir())
+	o.Stdout = discardBuf()
+	o.Stderr = &out
+	cfg := newConfig()
+	profiles := jsonx.NewOrderedMap()
+	profiles.Set("claude", "bedrock")
+	profiles.Set("pi", "bedrock")
+	cfg.Set("pack_profiles", profiles)
+	effective := o.effectivePackProfiles(cfg, packs)
+	o.notePackProfiles(effective, packs)
+
+	want := "Profile bedrock: declared: none; received: claude, pi"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("launch line %q, want it to contain %q", out.String(), want)
+	}
+	// OQ-10: the line may not claim the name was honored. What a derive does with the
+	// string is unobservable from here, and a transparency print that overclaims is
+	// the silent-skip failure wearing a badge.
+	if strings.Contains(out.String(), "honored") {
+		t.Errorf("the launch line must never claim a profile was honored:\n%s", out.String())
+	}
+}
+
+// Two names in play print two lines, so a launch that selected differently for
+// different CLIs says both rather than the winner.
+func TestNotePackProfilesPrintsOneLinePerName(t *testing.T) {
+	packs := packsFixture(t, "claude", "pi")
+	var out bytes.Buffer
+	o := goldenOptions("/ws", t.TempDir())
+	o.Stdout = discardBuf()
+	o.Stderr = &out
+	cfg := newConfig()
+	profiles := jsonx.NewOrderedMap()
+	profiles.Set("claude", "bedrock")
+	profiles.Set("pi", "glm")
+	cfg.Set("pack_profiles", profiles)
+	o.notePackProfiles(o.effectivePackProfiles(cfg, packs), packs)
+
+	for _, want := range []string{
+		"Profile bedrock: declared: none; received: claude, pi",
+		"Profile glm: declared: none; received: claude, pi",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("launch line missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// No profile selected, no line: a plain launch is the common case, and restating the
+// absence on every launch is noise rather than disclosure.
+func TestNotePackProfilesPrintsNothingWithoutAProfile(t *testing.T) {
+	packs := packsFixture(t, "claude")
+	var out bytes.Buffer
+	o := goldenOptions("/ws", t.TempDir())
+	o.Stdout = discardBuf()
+	o.Stderr = &out
+	o.notePackProfiles(o.effectivePackProfiles(newConfig(), packs), packs)
+	if out.String() != "" {
+		t.Errorf("an unprofiled launch must print no profile line, got:\n%s", out.String())
+	}
+}
+
+// The launch line is called from the fresh-launch notice block, and AFTER the host-access
+// disclosure — beside it, in the block that is the last host-side output before the
+// container takes the terminal.
+//
+// The tests above pin what the line SAYS; nothing about them would notice if runContainer
+// stopped calling it, and runContainer starts a real container, so a unit test has no other
+// witness. Reading the source is the repo's existing answer to that shape
+// (TestFreshLaunchCallsTheConfigArtifactWriter, which this mirrors, including the ordering
+// assertion): a disclosure that exists and is never printed is the silent-skip failure with
+// an extra step.
+func TestFreshLaunchPrintsTheProfileLineBesideTheHostAccessLine(t *testing.T) {
+	const (
+		hostAccess = "notePackHostAccess"
+		profiles   = "notePackProfiles"
+	)
+	fn := methodDecl(t, "run.go", "runContainer")
+
+	pos := map[string]token.Pos{}
+	ast.Inspect(fn, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if _, seen := pos[sel.Sel.Name]; !seen {
+			pos[sel.Sel.Name] = call.Pos()
+		}
+		return true
+	})
+
+	if _, ok := pos[profiles]; !ok {
+		t.Fatalf("runContainer no longer calls %s. The launch line still exists and its test "+
+			"still passes, so a profile selection would be invisible at every launch — the "+
+			"name the derives receive is then something the user infers rather than reads. "+
+			"If the notice block moved, move this check with it rather than deleting it.", profiles)
+	}
+	if _, ok := pos[hostAccess]; !ok {
+		t.Fatalf("runContainer no longer calls %s — a larger regression than the one this "+
+			"test was written for", hostAccess)
+	}
+	if pos[profiles] < pos[hostAccess] {
+		t.Errorf("runContainer calls %s BEFORE %s: the profile line belongs beside the other "+
+			"pack disclosures, after the host-access half", profiles, hostAccess)
 	}
 }

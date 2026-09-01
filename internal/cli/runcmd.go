@@ -45,12 +45,15 @@ Flags:
   --network <mode>   Override the network mode for this launch
                      (also --network=<mode>).
   --profile <name>   Select active profile or provider preset for this launch (also -p <name>).
-                     Without an argument, reports startup timings.
+                     With a command, keys the profile to that command's binary; with no
+                     command, applies it to every pack this launch selects. Without an
+                     argument at all, reports startup timings.
   --auth <mode>      Select Claude auth mode / provider preset (also --claude-auth=<mode>).
   --claude-auth <mode>
                      Select Claude auth mode / provider preset (e.g. bedrock, teams).
-  --pack-profile <agent>=<provider>
-                     Override active provider for specific agents (e.g. pi=glm,claude=bedrock).
+  --pack-profile <cli>=<name>
+                     Select the profile for one CLI (e.g. pi=glm,claude=bedrock). The key is
+                     the binary a pack installs; an unknown one is refused at launch.
   --dry-run          macos-user runtime only: print the plan without launching.
   --accept-config-changes
                      Approve a changed jail config on a launch with no terminal

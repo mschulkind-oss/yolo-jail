@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -350,6 +351,62 @@ func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack) {
 	out.print("[dim]Pack environment this launch:[/dim]")
 	for _, l := range lines {
 		out.print("[dim]  " + l.pack + ": " + l.claim + "[/dim]")
+	}
+}
+
+// notePackProfiles prints, to stderr, where this launch's profile selections landed
+// (profiles-as-pack-variants.md §3.3): one line per DISTINCT name in the effective
+// table, naming the packs that DECLARE a variant of that name and the packs that
+// RECEIVED it. It reads the same merge the env block emits (effectivePackProfiles), so
+// the line cannot describe a table the jail did not get.
+//
+// RECEIVED is deliberately every selected pack, not the pack the name keys to: the
+// table crosses to the jail whole and every pack's derive sees all of it, so "who got
+// it" has no narrower honest answer. DECLARED is the packs shipping a `kind: "profile"`
+// with that name — which is NONE for every launch this build can produce, because
+// packdecl has no profile kind yet (§12 step 2 adds it, together with the `name` field
+// a lookup would compare against). "None" is therefore the true answer and not a
+// degraded one; when the kind lands, this is the one list that grows.
+//
+// The verb is deliberately never "honored" (OQ-10). What a derive does with the string
+// is unobservable from here, and a transparency print that overclaims is the
+// silent-skip failure wearing a badge.
+//
+// Printed only when a name was selected at all. A launch with no profile is the common
+// case, and restating its absence on every launch would be noise, not disclosure.
+func (o *Options) notePackProfiles(effective *jsonx.OrderedMap, loadedPacks []*packload.Pack) {
+	if effective.Len() == 0 {
+		return
+	}
+	// The line is per NAME, and the table is keyed by CLI: fold the values to the
+	// distinct set. A non-string value (a null in pack_profiles, which REMOVES a
+	// profile) is not a selection and prints nothing.
+	seen := map[string]bool{}
+	var names []string
+	for _, cli := range effective.Keys() {
+		v, _ := effective.Get(cli)
+		name, ok := v.(string)
+		if !ok || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return
+	}
+	sort.Strings(names)
+	received := make([]string, 0, len(loadedPacks))
+	for _, p := range loadedPacks {
+		received = append(received, p.Name)
+	}
+	sort.Strings(received)
+	out := o.pr(o.Stderr)
+	for _, name := range names {
+		// DECLARED is the half that stays empty until the kind exists. See the comment
+		// above for what replaces "none".
+		out.print("[dim]Profile " + name + ":[/dim] declared: none; received: " +
+			strings.Join(received, ", "))
 	}
 }
 
@@ -705,6 +762,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// deliberately not repeated here: this point in the pipeline is after the spawn, where
 	// the same line would be a notification rather than a disclosure (§4.3 G4).
 	o.notePackHostAccess(loadedPacks)
+
+	// Right behind that: where the launch's profile selections landed. Same stderr, same
+	// dim register, same reason — a selected profile is part of the effective
+	// environment, and the human reading the launch should see the name every pack's
+	// derive is about to receive rather than infer it from an env var.
+	o.notePackProfiles(o.effectivePackProfiles(cfg, loadedPacks), loadedPacks)
 
 	rc, runErr := runWithProxy(runCmd, onStarted, onTerminate)
 	if runErr != nil {

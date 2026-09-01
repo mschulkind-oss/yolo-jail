@@ -705,7 +705,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	if in.hostTZ != "" {
 		env = append(env, "-e", "TZ="+in.hostTZ)
 	}
-	effectiveProfiles := in.effectivePackProfiles(o)
+	effectiveProfiles := o.effectivePackProfiles(in.cfg, in.packs)
 	env = append(env,
 		"-e", "YOLO_HOST_DIR="+o.Workspace,
 		"-e", "YOLO_VERSION="+in.yoloVersion,
@@ -748,9 +748,19 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	return env
 }
 
-func (in *assembleInput) effectivePackProfiles(o *Options) *jsonx.OrderedMap {
+// effectivePackProfiles merges the four profile sources, later winning: workspace/user
+// config, then --pack-profile, then the --claude-auth residue, then -p. Every key in
+// the result is a CLI name — the bin a pack installs — which is what makes the table
+// readable as "the profile each CLI runs" and what lets `yolo check` and the launch
+// pre-flight validate it against one namespace.
+//
+// A method on Options taking the config and the pack set, rather than a method on
+// assembleInput, because it has TWO consumers that must agree byte for byte: the env
+// block below (the jail's copy of the table) and the launch's profile disclosure line,
+// which describes the same table to the human. One merge, so neither can drift.
+func (o *Options) effectivePackProfiles(cfg *jsonx.OrderedMap, packs []*packload.Pack) *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
-	if cfgProfiles, ok := in.cfg.Get("pack_profiles"); ok {
+	if cfgProfiles, ok := cfg.Get("pack_profiles"); ok {
 		if m, ok := cfgProfiles.(*jsonx.OrderedMap); ok {
 			for _, k := range m.Keys() {
 				v, _ := m.Get(k)
@@ -765,12 +775,20 @@ func (in *assembleInput) effectivePackProfiles(o *Options) *jsonx.OrderedMap {
 		out.Set("claude", o.ClaudeAuth)
 	}
 	if o.ProfileName != "" {
-		targetBin := ""
-		if len(o.Args) > 0 {
-			targetBin = filepath.Base(o.Args[0])
-		}
-		if targetBin != "" {
-			out.Set(targetBin, o.ProfileName)
+		if len(o.Args) == 0 {
+			// GLOBAL -p (§3.3, OQ-5): with no command there is no bin to key on, so the
+			// name is the selected profile of EVERY selected pack. The key is the CLI
+			// name each pack installs, not the pack slug — the table's keys are CLI
+			// names everywhere else, and a derive reads its own bin. A pack that
+			// installs nothing gets no key, because there is no CLI to select for;
+			// it is still a receiver of the table, which is what the launch line says.
+			for _, p := range packs {
+				for _, bin := range p.InstallBins() {
+					out.Set(bin, o.ProfileName)
+				}
+			}
+		} else {
+			out.Set(filepath.Base(o.Args[0]), o.ProfileName)
 		}
 	}
 	return out
