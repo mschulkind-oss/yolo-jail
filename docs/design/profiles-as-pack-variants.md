@@ -703,7 +703,7 @@ instinct — applied to a different set (§8).
 | :--- | :--- | :--- |
 | R1 | The `pack_profiles` rename breaks existing configs and `packs/claude/derive.lua`. | Refuse `agent_profiles` by name with a message that gives the replacement — the pattern `journal`/`host_processes` already set ([AGENTS.md](../../AGENTS.md)). The derive is a one-word edit. |
 | R2 | Refusing the cross-pack fragment means a third-party provider genuinely cannot adapt an agent pack it does not control. | §7 is the designed answer, one field on a shipped kind. Ship it the moment a real second consumer appears; the namespace is settled now, which is what [`extension-point-principle.md`](extension-point-principle.md) Rule 6 asks for. |
-| R3 | Moving Bedrock env into `claude/settings` depends on Claude Code honoring `settings.json`'s `env` block for these specific variables. | **Unverified — this is the design's load-bearing empirical assumption.** OQ-4. If it does not hold, the fallback is profile-gated `kind: "env"`, jail-only, and §5's host-notch parity is lost for this one case. |
+| R3 | Moving Bedrock env into `claude/settings` depends on Claude Code honoring `settings.json`'s `env` block for these specific variables. | **Retired by measurement 2026-08-31 (OQ-4)** — the settings `env` block IS honored, applied before the first API call; witness `ANTHROPIC_BASE_URL`. The Bedrock-mode var rides the same mechanism; a re-test with AWS creds is cheap insurance before deleting the Go path. |
 | R4 | `CombineExclusive` by `(pack, name)` forbids a pack splitting one profile across several contributions. | Deliberate — it is the same one-declaration rule `autonomy` has, and it keeps "what does profile X do" answerable by reading one object. |
 | R5 | The active-profile credential preflight (§6.2) turns a working-but-degraded launch into a refusal. | Scoped to *active* profiles only, and the message names the variable, the provider and the `env_sources` files consulted. Same disposition as the reachability witness in [AGENTS.md](../../AGENTS.md). |
 
@@ -720,7 +720,8 @@ instinct — applied to a different set (§8).
    which means the loader, the render path and the host notch already know the posture shape.
 3. **Move Bedrock into `packs/claude`** as a profile patching `claude/settings`, and delete
    [`assemble.go:722-754`](../../internal/cli/run/assemble.go#L722-L754) and `--claude-auth`.
-   Verify against R3 *before* deleting the Go path.
+   R3 is measured and retired (OQ-4, 2026-08-31); a cheap AWS-creds re-test of
+   `CLAUDE_CODE_USE_BEDROCK` itself is the remaining insurance *before* deleting the Go path.
 
    ⚠ **`yolo host` is a prerequisite for the HOST half of this step, not a follow-on** (amended
    2026-08-30). The flags move to `claude/settings`, but the AWS credentials and the
@@ -807,7 +808,7 @@ of the D5 problem, with no manifest to review.
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 🔒 **OQ-4: Does Claude Code honor `settings.json`'s `env` block for `CLAUDE_CODE_USE_BEDROCK`
+4. ✅ **OQ-4: Does Claude Code honor `settings.json`'s `env` block for `CLAUDE_CODE_USE_BEDROCK`
    and `ANTHROPIC_DEFAULT_*_MODEL`?** **§5 is load-bearing on this and it is unverified.** If yes,
    the Bedrock profile is a managed patch and works at both notches, and `assemble.go:722-754` can
    be deleted outright. If no, the fallback is profile-gated `kind: "env"` (alternative C) and the
@@ -819,8 +820,16 @@ of the D5 problem, with no manifest to review.
    measurable in about ten minutes. **Blocked on that measurement, not on a ruling** — and no code
    should be deleted before it.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (measured 2026-08-31 — method and result in [`zai-plumbing.md`](zai-plumbing.md)
+   OQ-Z4):**
+   > **YES.** Controlled listener experiment, claude 2.1.252, scratch `CLAUDE_CONFIG_DIR`,
+   > inherited `ANTHROPIC_*` scrubbed: with `ANTHROPIC_BASE_URL` present ONLY in `settings.json`'s
+   > `env` block, the CLI sent its startup probe and `POST /v1/messages?beta=true` to the listener
+   > — identical signature to the control run carrying the same var in process env. The block is
+   > applied before the first API call, so auth-mode selection read at startup rides it. Scope:
+   > the witness var is `ANTHROPIC_BASE_URL`; `CLAUDE_CODE_USE_BEDROCK` uses the same mechanism
+   > but was not separately exercised (a Bedrock re-test needs AWS credentials). **R3 is retired;
+   > step 3 of §12 may proceed and delete the Go path.**
 
 5. ✅ **OQ-5: `-p` with no `--` command.** `yolo -p dev` with three agent packs selected: apply
    `dev` to every pack that declares it, or refuse as ambiguous? `pack-profiles.md` OQ-2 leans
