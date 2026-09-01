@@ -18,6 +18,7 @@ package cli
 // property cli.go's top-level help branch documents for itself.
 
 import (
+	"errors"
 	"io"
 	"strings"
 
@@ -48,6 +49,10 @@ Flags:
                      With a command, keys the profile to that command's binary; with no
                      command, applies it to every pack this launch selects. Without an
                      argument at all, reports startup timings.
+                     -p always takes the name as its own argument, and refuses an argv
+                     where the next token cannot be one; a name spelling a flag or the
+                     word "run" is written -p=<name>. Only --profile with no argument
+                     reports timings — a bare -p is a parse error.
   --pack-profile <cli>=<name>
                      Select the profile for one CLI (e.g. pi=glm,claude=bedrock). The key is
                      the binary a pack installs; an unknown one is refused at launch.
@@ -84,7 +89,10 @@ var runFlags = []string{"--new", "--profile", "--dry-run", "--network", "--accep
 //     "run `foo --help` in the jail" and must keep meaning that.
 //
 // `--network`'s value is consumed the same way runRun consumes it, so
-// `yolo run --network -h` reads `-h` as the network mode, not as help.
+// `yolo run --network -h` reads `-h` as the network mode, not as help. `-p` applies
+// profileValueAt's guard instead of eating whatever follows, so `yolo -p -h` is
+// answered as the mistyped help request it almost certainly is rather than left to
+// die as errProfileNameMissing with the -h it was never offered.
 func runHelpRequested(args []string) bool {
 	sawRun := false
 	for i := 0; i < len(args); i++ {
@@ -96,8 +104,12 @@ func runHelpRequested(args []string) bool {
 			return true
 		case a == "run" && !sawRun:
 			sawRun = true // the injected/leading subcommand token
-		case a == "--network" || a == "--pack-profile" || a == "-p":
+		case a == "--network" || a == "--pack-profile":
 			i++ // its value, whatever it looks like
+		case a == "-p":
+			if _, ok := profileValueAt(args, i); ok {
+				i++
+			}
 		case len(a) > 1 && a[0] == '-':
 			// Another flag (a run flag, or a stray one runRun ignores). Keep scanning:
 			// a flag never starts the implicit command.
@@ -106,6 +118,43 @@ func runHelpRequested(args []string) bool {
 		}
 	}
 	return false
+}
+
+// errProfileNameMissing is what parseRunArgs returns when `-p` is followed by no
+// token that can be a profile name. FATAL at the parse, not a silent fallback,
+// because both things -p could otherwise do are lies: taking the next token selects a
+// profile the user never named (see profileValueAt), and --profile's timing-report
+// fallback answers a question nobody asked.
+var errProfileNameMissing = errors.New("-p needs a profile name: 'yolo -p <name> [-- <command>]' " +
+	"or '-p=<name>' when the name would read as a flag or as the word 'run'")
+
+// profileValueAt reads the profile NAME that follows args[i] — the shared guard for
+// the two spellings that take a name as its own token (`--profile <name>`,
+// `-p <name>`).
+//
+// A token is NOT a name when it is:
+//
+//   - anything starting with `-`: the next flag, whose meaning the name must not
+//     swallow (`yolo -p -- claude` would otherwise be a profile called "--");
+//   - `run`: the token RewriteArgv inserts at the `--` position. It lands directly
+//     after a value-taking flag that had no value of its own, so `-p` would read it
+//     as a name and silently select a profile literally called "run" — a name
+//     profiles-as-pack-variants.md OQ-3 rules free-form, so nothing downstream could
+//     call it a typo;
+//   - `--`: the separator itself.
+//
+// The last is subsumed by the `-` prefix; it is spelled out because the separator is
+// what this guard exists to protect, not just another flag. A name that genuinely
+// reads as one of these is spelled `--profile=<name>` / `-p=<name>`.
+func profileValueAt(args []string, i int) (string, bool) {
+	if i+1 >= len(args) {
+		return "", false
+	}
+	v := args[i+1]
+	if strings.HasPrefix(v, "-") || v == "run" || v == "--" {
+		return "", false
+	}
+	return v, true
 }
 
 // runHelp answers a help request for `run`: it writes run's usage to out and
@@ -130,7 +179,17 @@ func runHelp(args []string, out io.Writer) bool {
 // [--new, run, --, true]). So it scans the WHOLE argv: skip the "run" token
 // wherever it appears, parse flags until `--`, and take everything after `--` as
 // the command.
-func parseRunArgs(args []string, opts *run.Options) {
+//
+// The error return is the ONE refusal the fold makes: `-p` followed by nothing that
+// can be a profile name (errProfileNameMissing). It is fatal at the parse rather
+// than a launch pre-flight because both alternatives — taking the token anyway, or
+// --profile's timing-report fallback — are answers to a question nobody asked, and
+// because the launch pipeline is a long way past this point (config load, pack
+// staging) for a mistake that is visible in the argv alone. --network and
+// --pack-profile keep their older silent swallow of a missing value: their values
+// are arbitrary user text, so nothing downstream can mistake a swallowed one for a
+// selection. Reported as a deliberate asymmetry, not an oversight to copy.
+func parseRunArgs(args []string, opts *run.Options) error {
 	afterDashDash := false
 	sawRun := false
 	var cmdArgs []string
@@ -148,19 +207,21 @@ func parseRunArgs(args []string, opts *run.Options) {
 		case a == "--new":
 			opts.New = true
 		case a == "--profile":
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && args[i+1] != "run" && args[i+1] != "--" {
+			if v, ok := profileValueAt(args, i); ok {
 				i++
-				opts.ProfileName = args[i]
+				opts.ProfileName = v
 			} else {
 				opts.Profile = true
 			}
 		case len(a) > len("--profile=") && strings.HasPrefix(a, "--profile="):
 			opts.ProfileName = strings.TrimPrefix(a, "--profile=")
 		case a == "-p":
-			if i+1 < len(args) {
-				i++
-				opts.ProfileName = args[i]
+			v, ok := profileValueAt(args, i)
+			if !ok {
+				return errProfileNameMissing
 			}
+			i++
+			opts.ProfileName = v
 		case len(a) > len("-p=") && strings.HasPrefix(a, "-p="):
 			opts.ProfileName = strings.TrimPrefix(a, "-p=")
 		case a == "--pack-profile":
@@ -215,4 +276,5 @@ func parseRunArgs(args []string, opts *run.Options) {
 		}
 	}
 	opts.Args = cmdArgs
+	return nil
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -51,6 +52,15 @@ func TestRunHelpRequested(t *testing.T) {
 
 		// --network eats its value, so this -h is a network mode, not help.
 		"run --network -h": false,
+
+		// -p applies --profile's guard instead of eating anything: a token that
+		// cannot be a name leaves -h reachable, so `yolo -p -h` reads as the mistyped
+		// help request it almost certainly is. With a name present, -p still owns it
+		// and the scan continues past both.
+		"run -p -h":                   true,
+		"run -p --help":               true,
+		"run -p dev -h":               true,
+		"run -p dev -- claude --help": false,
 
 		// No help anywhere.
 		"run":              false,
@@ -198,6 +208,165 @@ func TestRunUsageListsEveryRunFlag(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("runFlags is stale: parseRunArgs consumes %v, runFlags says %v", got, want)
 	}
+}
+
+// THE -p HALF OF THE PROFILE SELECTOR. `--profile` refuses a following token that
+// cannot be a name ('-', the injected "run", '--') and falls back to the startup
+// timing report. `-p` had no such guard: it took the next token WHATEVER it was, and
+// RewriteArgv inserts "run" at the `--` position, so `yolo -p -- claude` reached the
+// parser as [-p, run, --, claude] and silently selected a profile literally named
+// "run" — a name OQ-3 rules free-form, so no downstream check could call it a typo —
+// while a trailing bare `yolo -p` silently selected no profile at all.
+//
+// Unlike --profile, -p does NOT fall back to the timing report: a -p that named
+// nothing is a mistake about the profile, and a mistake must not be read as "the
+// user asked for timings".
+
+// TestParseRunArgsRefusesAnUnreadablePName pins the guard, not just the refusal: the
+// tokens -p must NOT read as a name are exactly the ones --profile refuses.
+func TestParseRunArgsRefusesAnUnreadablePName(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+	}{
+		// `yolo run -p -- claude`, typed as the subcommand spelling.
+		{"the separator directly after -p", "run -p -- claude"},
+		// `yolo -p -- claude` as the front door delivers it: the injected "run" sits
+		// between -p and the separator, and is what -p used to swallow.
+		{"the injected run token", "-p run -- claude"},
+		{"the injected run token after run", "run -p run -- claude"},
+		{"a following flag", "run -p --new -- true"},
+		{"a trailing bare -p", "run -p"},
+		{"a trailing bare -p, no subcommand", "-p"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var opts run.Options
+			err := parseRunArgs(strings.Fields(tc.in), &opts)
+			if !errors.Is(err, errProfileNameMissing) {
+				t.Fatalf("parseRunArgs(%q) error = %v, want errProfileNameMissing", tc.in, err)
+			}
+			if opts.ProfileName != "" {
+				t.Errorf("ProfileName = %q, want none — -p must never guess a name", opts.ProfileName)
+			}
+			if opts.Profile {
+				t.Error("Profile = true — the timing report is --profile's fallback, not -p's")
+			}
+		})
+	}
+}
+
+// TestParseRunArgsStillReadsAProfileName pins the spellings the guard must not break,
+// in the two argv shapes the front door actually produces (an explicit `run` keeps its
+// leading token; the rewrite moves "run" next to the `--` instead).
+func TestParseRunArgsStillReadsAProfileName(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"run -p dev -- claude", "dev"},
+		{"-p dev run -- claude", "dev"},
+		{"run -p=dev -- claude", "dev"},
+		// The glued form is the only way to name a profile "run": positionally, that
+		// token is indistinguishable from the injected one.
+		{"-p=run -- claude", "run"},
+		{"--profile dev -- true", "dev"},
+	}
+	for _, tc := range cases {
+		var opts run.Options
+		if err := parseRunArgs(strings.Fields(tc.in), &opts); err != nil {
+			t.Errorf("parseRunArgs(%q) error = %v, want a name", tc.in, err)
+			continue
+		}
+		if opts.ProfileName != tc.want {
+			t.Errorf("parseRunArgs(%q).ProfileName = %q, want %q", tc.in, opts.ProfileName, tc.want)
+		}
+	}
+	opts := run.Options{}
+	if err := parseRunArgs(strings.Fields("-p dev run -- claude"), &opts); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(opts.Args, []string{"claude"}) {
+		t.Errorf("Args = %q, want [claude] — the guard must not eat the command", opts.Args)
+	}
+	// --profile's own fallback is untouched: no argument at all still means timings,
+	// which is exactly the fallback -p must NOT share.
+	opts = run.Options{}
+	if err := parseRunArgs(strings.Fields("--profile run -- claude"), &opts); err != nil {
+		t.Fatal(err)
+	}
+	if !opts.Profile || opts.ProfileName != "" {
+		t.Errorf("--profile run → %+v, want the timing flag and no name", opts)
+	}
+}
+
+// TestRunRejectsAPWithoutAName drives the REAL entry point, because the pure parser
+// returning an error is worthless if runRun never looks at it — the exact
+// callee-pinned/call-site-unpinned shape this repo keeps shipping. The fixture config
+// is unparseable so that a runRun which LOST the check falls through to run.Run and
+// fails on the config (non-zero, no container) instead of launching one: the
+// assertion that stderr NAMES -p is what distinguishes the two failures.
+func TestRunRejectsAPWithoutAName(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "yolo-jail.jsonc"),
+		[]byte("{ this is not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	out, errOut := captureBoth(t, func() {
+		if rc := Main([]string{"yolo", "-p", "--", "claude"}); rc == 0 {
+			t.Error("Main([yolo -p -- claude]) = 0, want non-zero")
+		}
+	})
+	joined := out + errOut
+	if !strings.Contains(joined, "-p") {
+		t.Errorf("the refusal never names the flag, so the reader cannot tell which "+
+			"spelling was wrong:\nstdout: %s\nstderr: %s", out, errOut)
+	}
+	if strings.Contains(joined, "not json") {
+		t.Errorf("run.Run ran — the -p check is not wired into runRun:\n%s", joined)
+	}
+}
+
+// captureBoth redirects stdout AND stderr for the duration of body and returns what
+// each caught. runRun answers help on stdout and refuses argv on stderr, so a test
+// that wants "the user was told" has to read both.
+func captureBoth(t *testing.T, body func()) (stdout, stderr string) {
+	t.Helper()
+	stdout = captureStdout(t, func() { stderr = captureStderr(t, body) })
+	return stdout, stderr
+}
+
+// captureStderr is captureStdout's twin for os.Stderr. Both redirects have to nest
+// (captureBoth), which is why neither captures both streams itself.
+func captureStderr(t *testing.T, body func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stderr
+	os.Stderr = w
+	done := make(chan string, 1)
+	go func() {
+		var sb strings.Builder
+		buf := make([]byte, 4096)
+		for {
+			n, err := r.Read(buf)
+			sb.Write(buf[:n])
+			if err != nil {
+				break
+			}
+		}
+		done <- sb.String()
+	}()
+	body()
+	os.Stderr = saved
+	_ = w.Close()
+	out := <-done
+	_ = r.Close()
+	return out
 }
 
 // TestRunHelpAnsweredWithoutConfig is R3: help must be reachable exactly when it

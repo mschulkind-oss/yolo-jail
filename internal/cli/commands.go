@@ -560,7 +560,12 @@ func runRun(args []string) int {
 	}
 	opts := run.NewDefaultOptions()
 	opts.Color = true
-	parseRunArgs(args, &opts)
+	// Refused before anything is loaded or staged: a -p that named nothing is visible
+	// in the argv alone, and errProfileNameMissing is the only refusal the fold makes.
+	if err := parseRunArgs(args, &opts); err != nil {
+		fmt.Fprintln(os.Stderr, "yolo run:", err)
+		return 1
+	}
 	// Wire the macos-user native branch. run stays free of the macosuser +
 	// darwinpkg deps; the front door injects the handler. packEnv is the launch's
 	// composed profile/provider channel, which run.Run composes above the backend
