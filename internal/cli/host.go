@@ -301,9 +301,9 @@ func composeHostLaunch(bin, profile string, warn func(string)) *hostComposition 
 	return composeHostVars(cfg, workspace, agent, profile, warn)
 }
 
-// hostEnvVars is the composition itself, without the inherited environment — shared by
-// the exec half and by `yolo host env`, so the two can never disagree about what a launch
-// would carry.
+// hostEnvVars is the composition itself, without the inherited environment — the
+// vars-only projection `yolo host env` reads, so the observe verb and the exec half
+// cannot disagree about what a launch would carry.
 //
 // The sources are docs/design/host-agent-environment.md §5.4's, in order:
 //
