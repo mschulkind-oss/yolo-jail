@@ -26,9 +26,11 @@ session start comes from, why editing it in-jail fails, or how to inject
 project-specific instructions.
 
 **Source of truth:** `internal/jailcontent/briefing.go` (composition —
-`BriefingContent:208`, `ComposeBriefing:425`, `PrependHostBriefing:435`,
-`ComposePackBriefings:552`), `internal/jailcontent/write.go` (`WriteBriefing:71`),
-and `internal/cli/run/prepare.go` (`refreshJailBriefings:29` — refresh + mounts).
+`BriefingContent:220`, `ComposeBriefing:445`, `PrependHostBriefing:455`,
+`ComposePackBriefings:572`), `internal/jailcontent/write.go` (`WriteBriefing:71`),
+`internal/cli/run/prepare.go` (`refreshJailBriefings:30` — refresh + mounts), and
+`internal/entrypoint/hostbriefing.go` (`GeneratedHostBriefings` — the ownership
+gate on part 1's prepend).
 
 ## The two layers
 
@@ -68,16 +70,18 @@ podman rejects a duplicate mount destination. See
 
 ## What the generated briefing contains
 
-`jailcontent.BriefingContent` (`internal/jailcontent/briefing.go:208`) composes
-each file from three parts, in order:
+`jailcontent.BriefingContent` (`internal/jailcontent/briefing.go:220`) composes
+each file from four parts, in order:
 
-1. **The host user's own briefing, prepended.** Driven by the pack's
-   `briefing` contribution `after: "host:<path>"` field (not a `BriefingSpec`
-   any more) — e.g. `after: "host:.claude/CLAUDE.md"`. If that host file
-   exists, its content comes first, separated from the jail part by a `---`
-   rule (`PrependHostBriefing`, `internal/jailcontent/briefing.go:435`). This is
+1. **The host user's own briefing, prepended — and only if it *is* the user's.**
+   Driven by the pack's `briefing` contribution `after: "host:<path>"` field
+   (not a `BriefingSpec` any more) — e.g. `after: "host:.claude/CLAUDE.md"`. If
+   that host file exists **and yolo did not compose it itself**, its content
+   comes first, separated from the jail part by a `---` rule
+   (`PrependHostBriefing`, `internal/jailcontent/briefing.go:455`). This is
    how the user's global instructions (commit rules, skill architecture, tool
-   preferences) reach every jail. Note the mapping is filename-exact: Claude
+   preferences) reach every jail *on a machine where the host notch has never
+   run*. Note the mapping is filename-exact: Claude
    reads `CLAUDE.md`, the others read `AGENTS.md`; variants like
    `CLAUDE.local.md` are not picked up.
 
@@ -87,6 +91,29 @@ each file from three parts, in order:
    > pack install`; and at the `yolo host apply` notch the path it names IS the
    > generated destination, so the host render ignores it outright. See
    > [`pack-system.md`](pack-system.md) §3 and §9.
+
+   > [!IMPORTANT]
+   > **The jail must not read yolo's own host output back in** — the briefing
+   > half of **S3**, the defect `packSkillTargets` records for skills ("the jail
+   > was reading yolo's generated output back in as the user's tree",
+   > `internal/cli/run/prepare.go`). Once the 2026-08-04 ruling
+   > ([`shipped-2026-08-pack-batch.md`](../plans/shipped-2026-08-pack-batch.md)
+   > §6a) made the host destination a file
+   > yolo composes wholesale, `after: "host:.claude/CLAUDE.md"` named yolo's own
+   > output: the jail prepended a file already holding every pack's prose and
+   > then composed the same packs again at part 4. Measured 2026-08-31 in a real
+   > jail — `~/.claude/CLAUDE.md` carried each pack section **twice**, and the
+   > duplicate was byte-identical.
+   >
+   > The prepend is now gated on **ownership, proved from the record**
+   > (`entrypoint.GeneratedHostBriefings`, reading the same
+   > `host-briefing-manifest.json` that `yolo host apply` writes) rather than
+   > inferred from content — a file that merely *looks* composed is still the
+   > user's. It **fails open**: an absent or unreadable record prepends as
+   > before, because dropping the user's instructions from their jail is a worse
+   > failure than repeating a pack's prose. The user's own prose reaches a jail
+   > that *has* run the host notch through the **local pack**, which composes
+   > into part 4 like any other pack — the same route the skills fix took.
 2. **The jail-managed briefing** — one `# YOLO Jail Environment` document
    describing this specific jail, deliberately limited to what an agent
    *cannot* discover through its own native mechanisms, with inline
@@ -118,9 +145,19 @@ each file from three parts, in order:
 3. **`agents_md_extra`**, appended verbatim — the config key
    (`yolo-jail.jsonc`, user- or workspace-level; string) for injecting
    arbitrary extra instructions into every generated briefing.
+4. **Each selected pack's own prose**, appended last, in config order, under a
+   `<!-- from pack: NAME -->` provenance header
+   (`ComposePackBriefings`, `internal/jailcontent/briefing.go:572`). The header is
+   not decoration: pack prose is *instructions an agent will follow*, so a reader
+   hitting a surprising rule must be able to find out which pack shipped it. This
+   is also the route the **user's own** instructions take on any machine where
+   `yolo host apply` has run — they live in the local pack
+   (`~/.config/yolo-jail/local/AGENTS.md`), which composes here like any other
+   pack rather than through part 1.
 
 The same jail content goes to every briefing destination; only the prepended
-host file (and each pack's own prose) differs per destination.
+host file differs per destination (each pack's prose reaches every destination
+that pack declares).
 
 ## Where the files live and how they get into the jail
 

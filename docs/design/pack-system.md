@@ -385,6 +385,13 @@ GENERATED WHOLESALE at every notch** (ruling 2026-08-04 — see the ownership no
   **JAIL-ONLY**: at the host notch the path it names IS the generated destination, so there is no
   user-maintained file left to prepend and the host render ignores it. It is still a host-access
   claim at both notches, since declaring it means reading the host home.
+  **And "the user's own" is now CHECKED, not assumed:** once a machine has run `yolo apply --at
+  host`, that same path holds yolo's own composition, so the jail prepended every pack's prose
+  and then composed the same packs again — each pack arrived twice (measured 2026-08-31). The
+  run pipeline asks `entrypoint.GeneratedHostBriefings` — ownership proved from
+  `host-briefing-manifest.json`, never inferred from content, and failing OPEN so an absent
+  record still prepends. See [`agent-briefings.md`](agent-briefings.md) "What the generated
+  briefing contains", part 1.
 
 ```json
 { "kind": "briefing", "from": "AGENTS.md", "into": ".claude/CLAUDE.md", "after": "host:.claude/CLAUDE.md" }

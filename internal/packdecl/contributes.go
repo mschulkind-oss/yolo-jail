@@ -70,7 +70,13 @@ type Contribution struct {
 	// user-maintained file left to prepend: the host render ignores After entirely, and the user's
 	// own prose reaches every destination through the local pack instead. It survives because the
 	// jail case is still real (a `:ro`-mounted staging copy composed from a host file yolo does
-	// not own), not because it means something at both notches.
+	// NOT OWN), not because it means something at both notches.
+	//
+	// "DOES NOT OWN" IS NOW CHECKED, not assumed. Once §6a made the host destination yolo's own
+	// output, this field named that output on every machine where `yolo host apply` had run: the
+	// jail prepended a file already holding every pack's prose and then composed the same packs
+	// again, so each pack arrived TWICE (measured 2026-08-31). The run pipeline asks
+	// entrypoint.GeneratedHostBriefings before prepending — the briefing half of S3.
 	//
 	// It is still a HOST-ACCESS CLAIM either way (HostAccessClaims, NeedsHostAccessContributions)
 	// — declaring it means reading the host home, which is exactly what a fetched pack needs
