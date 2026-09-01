@@ -23,7 +23,8 @@ unchecked**, and §3.0a takes it one step further: the enum is not four protocol
 chat completions spelled twice. **Four** further defects share no cause with those (§5) — the
 largest of them conceptual, and raised in review rather than found in the code: the word "profile"
 names three different things, only one of which a user can override, and `packs/zai`'s own
-`kind: "profile"` declaration is measurably a no-op (§5.4).
+`kind: "profile"` declaration is measurably a no-op — and, review found, **structurally unreachable**,
+because a variant activates only through a CLI its own pack installs (§5.4).
 
 > [!IMPORTANT]
 > **The most important section is [§3](#3-d1--the-wire_api-enum-names-nobodys-protocol).** It is
@@ -399,12 +400,38 @@ reads like the thing making `-p zai` work.
 > that the kind is load-bearing for a pack varying **its own** surfaces and inert for a pack whose
 > only job is to name a provider. zai is the second shape and was written as if it were the first.
 
+**It is not a prism layer — it is a patch of one.** A profile's `config` body does not push a layer
+onto the stack (`defaults < host < workspace < overlay < computed`, then Lua, then a re-asserted
+`managed`). It deep-merges into the **`managed` map of a surface the pack already owns**, before
+composition ([`foldPostureManaged`](../../internal/packload/packload.go), the same mechanism an
+`autonomy` posture uses). That placement is why there is no user override to find: `managed` is the
+layer re-asserted *last*, so a profile's config keys outrank every user-writable layer by
+construction. The missing user layer in the table below is not an oversight in the config schema —
+it is where the body lands.
+
+**And the body is structurally unreachable for a pack that installs no CLI.** `ActiveProfiles`
+iterates the pack's **own** `InstallBins()` and looks each one up in the profile table
+([`packload.go`](../../internal/packload/packload.go), `ActiveProfiles`). `packs/zai` installs
+nothing, so its bin list is empty and the loop never runs. **Measured 2026-09-01** — under
+`{claude: zai}`, `{zai: zai}`, and `{claude: zai, pi: zai, codex: zai}`, `zai.ActiveProfiles`
+returns empty every time, while `claude.ActiveProfiles({claude: bedrock})` returns its one entry.
+So zai's variant is not merely empty; **a non-empty body there would have been silently dead too.**
+
+> [!IMPORTANT]
+> **The same pack already demonstrates the mechanism that does work.** `packs/zai`'s delivery to
+> `claude/settings` rides the `config-overlay` `profile` modifier `568d5a3a` landed — and that gate
+> keys on **the target surface's owning agent**
+> ([`packoverlay.go:194`](../../internal/packoverlay/packoverlay.go#L194):
+> `profiles[key.Agent] != ov.Profile`), not on the contributing pack's bins. So the modifier is
+> **strictly more reachable than the kind**: it activates for a provider pack, and the kind cannot.
+> zai ships both, and only the modifier does anything.
+
 **And the layer asymmetry is the part that reads as "weird".** Set the two kinds side by side:
 
 | | Who may declare it | Who may override it | Result |
 | :--- | :--- | :--- | :--- |
 | `kind: "provider"` | pack **and** user | user, **per field**, via the `providers` config key | pack ships facts, user retunes one URL or one alias and keeps the rest |
-| `kind: "profile"` | **pack only** | nobody — `pack_profiles` is a *selector*, a CLI name to a profile **name** | pack ships the body, user may only pick it by name or not |
+| `kind: "profile"` | **pack only** | nobody — `pack_profiles` is a *selector*, a CLI name to a profile **name**, and the config half lands in `managed`, the re-asserted layer | pack ships the body, user may only pick it by name or not |
 
 There is no config key holding a profile *body*, so a user who wants `bedrock` but with one extra
 launch flag has no spelling for it — the options are take the pack's variant whole, or fork the
@@ -605,6 +632,36 @@ reader stops checking.
    a config key, a CLI flag, a Lua `ctx` field and an env var, so the cost is real and it is
    plausibly not worth paying until something else forces a break. I would not do it alone; I would
    do it with OQ-PT5 if that one lands.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+8. 💬 **OQ-PT8: Should `kind: "profile"` shrink to a declaration, with the body moving to a
+   `profile:` modifier on the kinds that already exist?** *(Raised in review: "isn't this just
+   syntax sugar?")* Decompose the body and every part has a non-profile spelling — the `config`
+   patch is `config`/`config-overlay` plus a gate, `launch` is `kind: "launch"` plus a gate, `env`
+   is `kind: "env"` plus a gate. `568d5a3a` **already built that gate** as a modifier on
+   `config-overlay`, and its own commit message says the modifier "is contemplated for `env` and
+   `launch` too". So the sugar reading is the design's own trajectory, not an outside proposal.
+   This decides whether the kind survives at all.
+
+   Three things are **not** sugar, and all three are about the declaration rather than the body:
+   the **name anchor** (something must say "this pack answers to X" for the footprint claim,
+   `validateProfileNames`' duplicate detection, and the launch disclosure at
+   [`run.go:467`](../../internal/cli/run/run.go#L467)); **`requires_provider`**, which has no other
+   home; and **`env`'s null-unset**, which `kind: "env"`'s `map[string]string` cannot express at all
+   (`EnvValue` exists for exactly that bit).
+
+   _Leaning:_ Yes — shrink it to the anchor plus `requires_provider`, and move the body to
+   modifiers. Two reasons beyond tidiness. **The modifier is strictly more reachable** (§5.4): it
+   gates on the target surface's owning agent, so it works for a pack that installs no CLI, which
+   the kind cannot — and that is precisely the case zai is. And it removes a whole class of silent
+   deadness: a body on a CLI-less pack is unreachable today with nothing reporting it, whereas an
+   orphaned overlay is already named by `OrphanOverlay`. The honest cost is that `packs/claude`'s
+   `bedrock` — the one real body in the tree — becomes three gated contributions instead of one
+   block, which reads worse. If that cost is judged too high, the fallback is to keep the kind and
+   make an unreachable body a **load error** for a pack with no `InstallBins()`, which is the
+   smaller change and fixes the measured defect without touching the schema.
 
    **Answer:**
    > _(empty — fill in when decided)_

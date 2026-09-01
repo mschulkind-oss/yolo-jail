@@ -593,7 +593,7 @@ stops the launch. That is the intended trade under your ruling, and it is the on
 ### 💬 18 — The provider table is checked in yolo's vocabulary and delivered in everyone else's
 
 📄 [`provider-table-fidelity.md`](../design/provider-table-fidelity.md) —
-**OQ-PT1 · OQ-PT2 · OQ-PT3 · OQ-PT4 · OQ-PT5 · OQ-PT6 · OQ-PT7** · follow-on to
+**OQ-PT1 · OQ-PT2 · OQ-PT3 · OQ-PT4 · OQ-PT5 · OQ-PT6 · OQ-PT7 · OQ-PT8** · follow-on to
 [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) and
 [`zai-plumbing.md`](../design/zai-plumbing.md), both of which shipped 2026-08-29 → 2026-09-01 and are
 otherwise sound · continues 💬 **17** §7 step 3 rather than contradicting it
@@ -636,7 +636,12 @@ names three things**: a pack's declared variant, a global free-form mode string 
 preset. Only the first has a schema, and **only providers have a user layer** — `pack_profiles` is a
 selector, so "take `bedrock` plus one launch flag" has no spelling short of forking the pack.
 Measured: `packs/zai`'s own `kind: "profile"` has an **empty body**, its `requires_provider` is
-already implied by the provider half, and **deleting it leaves the whole suite green**. Then: a
+already implied by the provider half, and **deleting it leaves the whole suite green** — and a body
+there would have been dead too, because a variant activates only through a CLI its **own** pack
+installs, and zai installs none. The `config-overlay` `profile` modifier `568d5a3a` landed gates on
+the *target* surface's agent instead, so it is **strictly more reachable than the kind**; zai ships
+both and only the modifier does anything, which is what puts OQ-PT8 — *is the kind just sugar?* — on
+the table. Then: a
 `providers: {"bedrock": null}` — the documented opt-out — refuses a `claude` launch outright
 (measured); `--profile` means startup timing *or* a pack profile depending on the next token, after
 two commits patching that parse; and the census — this work made `zai` the **twelfth** pack and the
