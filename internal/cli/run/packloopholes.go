@@ -106,6 +106,14 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	packdecl.KindLaunch:        disclosureSkip,
 	packdecl.KindHook:          disclosureSkip,
 	packdecl.KindAutonomy:      disclosureSkip,
+	// profile is the same call as autonomy, with one more reason on top: the variant the
+	// user can NAME here is the one they SELECTED, and that selection already prints by
+	// name in the launch's profile line (notePackProfiles, DECLARED/RECEIVED, never
+	// "honored" — OQ-10). The footprint's claim is per DECLARATION, so classifying it read
+	// would print every variant a pack ships whether or not it is active this launch — a
+	// line claiming an env change that is not happening, which is the overclaim OQ-10
+	// exists to stop, wearing a disclosure badge.
+	packdecl.KindProfile: disclosureSkip,
 	// provider is jail-internal too, and the tempting reading — "it names a credential, so
 	// it must be disclosed" — is backwards: the ONLY credential-shaped thing it carries is
 	// the NAME of a variable the user hydrates, which is a pointer, not a read. The facts

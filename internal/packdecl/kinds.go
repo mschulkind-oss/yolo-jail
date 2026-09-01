@@ -109,6 +109,29 @@ const (
 	// per pack); it patches surfaces the same pack owns, so it never collides across
 	// packs the way a second config writer would.
 	KindAutonomy Kind = "autonomy"
+	// KindProfile: a NAMED VARIANT of the pack's own declarations
+	// (profiles-as-pack-variants.md §3.1). `autonomy` with an open selector: where the
+	// confinement notch chooses between exactly two postures and no user input can reach
+	// that choice, a profile's selector is a NAME the user picks per CLI (`pack_profiles`,
+	// `-p`), and the pack declares one contribution per name it answers to. The BODY is the
+	// posture shape — config patches folding into the managed layer of a surface THIS pack
+	// owns, launch flags merged into a binary's, plus a static env map — so a profile is
+	// not a second config writer either; it is a variant of what the pack already ships.
+	//
+	// NOT origin-gated, like autonomy: it patches the pack's own surfaces and its env is
+	// literal strings, so it reads nothing from the host. `requires_provider` NAMES a
+	// provider entry — a reference into the user's `providers` config, not a read of it —
+	// so it makes no host-access claim either; the credential behind that name is a
+	// variable the user hydrates, and whether it is hydrated is the launch pre-flight's
+	// question (parent §6.2), not an approval `pack install` can grant.
+	//
+	// Exclusive by (pack, name) — the claim target carries BOTH, deliberately, because
+	// unlike a provider name a profile name is NOT globally owned: `bedrock` in packs/claude
+	// and `bedrock` in packs/pi are unrelated declarations that happen to share a selector
+	// value, and neither can touch the other's surfaces (§3.4). Within one pack the same
+	// name twice is a load error (validateProfileNames), which is what makes the key
+	// exclusive at all.
+	KindProfile Kind = "profile"
 	// KindProvider: a NAMED PROVIDER'S SERVICE FACTS — the endpoints that speak each
 	// wire protocol, and the model aliases an agent can ask for by name
 	// (profiles-as-pack-variants.md §4.1 as ruled, OQ-12). The pack composes them INTO
@@ -276,6 +299,16 @@ var footprints = map[Kind]Footprint{
 	KindAutonomy: {
 		Kind: KindAutonomy, Combine: CombineExclusive,
 		Claims: "the agent's autonomous/guarded permission postures (notch-selected)",
+	},
+	KindProfile: {
+		// Exclusive by (pack, name), and the target carries both — the pack prefix is what
+		// keeps the generic exclusive loop in packload.Collisions from ever firing, because
+		// two packs selecting the same NAME are the unrelated-coincidence case §3.4 rules
+		// legal. Not review-worthy: a variant narrows or retunes what the pack already
+		// ships, and the env half is literal strings exactly like `env`.
+		Kind: KindProfile, Combine: CombineExclusive,
+		Claims: "a named variant of the pack's own surfaces, launch flags and env, " +
+			"selected at launch",
 	},
 	KindProvider: {
 		// Exclusive by provider NAME, not by pack: one pack shipping two providers is the

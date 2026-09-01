@@ -151,6 +151,13 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 	// changes is that the boot path and the host path now read ONE statement of the policy
 	// instead of each carrying its own constant.
 	autonomy := e.renderTarget().Profile().AgentAutonomy
+	// The active profile table (YOLO_PACK_PROFILES), keyed by CLI name. The WHOLE table is
+	// resolved here and each pack selects from it by its own installed bins — the same
+	// rule the derives follow (every pack sees every key), so a pack owning no CLI still
+	// has its profile visible to its derive even though it folds nothing. A profile's
+	// config patch folds inside SurfacesFor, after the posture's, so this loop stays
+	// per-kind-free: a variant is not a render pass, it is more of the same patch.
+	profiles := packload.ProfileTable(e.LoadPackProfiles())
 	// config-overlay contributions are collected BEFORE the per-pack loop and across the
 	// whole set, because an overlay in pack B targets a surface pack A owns — the only
 	// case the kind exists for. Collecting per-pack would find, for that case, exactly
@@ -158,7 +165,7 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 	overlays := packoverlay.Collect(packs, autonomy)
 	reportOverlayResolution(e, overlays)
 	for _, p := range packs {
-		surfaces, problems := p.SurfacesFor(autonomy)
+		surfaces, problems := p.SurfacesFor(autonomy, profiles)
 		for _, prob := range problems {
 			// A malformed surface is fatal: rendering the rest and skipping this one
 			// yields a jail whose config is quietly incomplete.

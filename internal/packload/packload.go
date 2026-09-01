@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
@@ -67,7 +68,8 @@ func (p *Pack) Surfaces() ([]manifest.Surface, []string) {
 	// The jail/guest default is autonomy ON — so the boot path (which calls Surfaces)
 	// renders the autonomous posture, keeping boot output byte-identical after packs
 	// move their bypass keys into the autonomy kind. The host path calls SurfacesFor(false).
-	return p.SurfacesFor(true)
+	// No profile table: the callers that have one call SurfacesFor directly.
+	return p.SurfacesFor(true, nil)
 }
 
 // SurfacesFor is Surfaces with the §4.2 autonomy policy applied: it decodes the pack's
@@ -75,7 +77,12 @@ func (p *Pack) Surfaces() ([]manifest.Surface, []string) {
 // the matching surface's Managed layer (deep-merged, posture wins). autonomy=true selects
 // the autonomous posture, false the guarded one. A pack with no autonomy contribution, or
 // whose selected posture is empty, gets its surfaces unchanged.
-func (p *Pack) SurfacesFor(autonomy bool) ([]manifest.Surface, []string) {
+//
+// profiles is the launch's CLI-keyed profile table (pack_profiles + the flags): after the
+// posture, any variant this pack declares for one of ITS OWN installed CLI names folds on
+// top, later-wins (§3.4). A nil table — the host render's, which selects no variant — is
+// the pre-profile behavior exactly.
+func (p *Pack) SurfacesFor(autonomy bool, profiles map[string]string) ([]manifest.Surface, []string) {
 	rawSurfaces := p.Decl.SurfaceContributions()
 	if len(rawSurfaces) == 0 {
 		return nil, nil
@@ -96,7 +103,68 @@ func (p *Pack) SurfacesFor(autonomy bool) ([]manifest.Surface, []string) {
 		}
 		surfaces = foldPostureManaged(surfaces, patches)
 	}
+	// THEN the selected profile's patch, so a key both touch reads the variant's value.
+	// Same fold, same ignoring of a patch naming no base surface — a profile is a variant
+	// of the pack's own surfaces, not a second writer of them.
+	for _, prof := range p.activeProfiles(profiles) {
+		if len(prof.Config) == 0 {
+			continue
+		}
+		patches, probs := manifest.DecodeSurfaces(prof.Config)
+		for _, prob := range probs {
+			problems = append(problems, "pack "+p.Name+" (profile "+prof.Name+"): "+prob)
+		}
+		surfaces = foldPostureManaged(surfaces, patches)
+	}
 	return surfaces, problems
+}
+
+// activeProfiles returns the variants THIS pack has selected, in the order they must
+// fold: sorted by the CLI name that selected them, so a pack owning two bins with two
+// active names is deterministic rather than map-order. A name is active for this pack only
+// when it sits at a CLI name the pack installs (§3.3) — a key for some other pack's CLI
+// gates that pack, not this one.
+func (p *Pack) activeProfiles(profiles map[string]string) []packdecl.ProfileContribution {
+	if len(profiles) == 0 {
+		return nil
+	}
+	var out []packdecl.ProfileContribution
+	for _, bin := range p.InstallBins() {
+		name, selected := profiles[bin]
+		if !selected || name == "" {
+			continue
+		}
+		if prof := p.Decl.ProfileFor(name); prof != nil {
+			out = append(out, *prof)
+		}
+	}
+	return out
+}
+
+// ProfileTable lowers a decoded profile table — YOLO_PACK_PROFILES in the jail, the
+// config's `pack_profiles` on the host — into the map the three folds above take.
+//
+// THE one lowering, and not a convenience: a JSON null at a key REMOVES that profile
+// (the merge-patch convention the table uses), and a null decoded into map[string]string
+// would arrive as "" and read as a selection of an empty name. Dropping the key here is
+// what keeps "no profile" and "profile removed" the same fact at every fold.
+func ProfileTable(m *jsonx.OrderedMap) map[string]string {
+	if m == nil {
+		return nil
+	}
+	var out map[string]string
+	for _, k := range m.Keys() {
+		v, _ := m.Get(k)
+		name, ok := v.(string)
+		if !ok || name == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[k] = name
+	}
+	return out
 }
 
 // foldPostureManaged deep-merges each patch surface's Managed map into the base surface
@@ -238,14 +306,47 @@ func (p *Pack) HonoredMounts() (granted []packdecl.HostFile, refused []string) {
 // winning a key. Static values only, so this is not origin-gated. Deterministic is
 // not guaranteed across a key set two packs both write; a collision is reported by
 // the footprint's env-key claims rather than resolved here.
+//
+// No profile table — the launch paths that have one call EnvVarsFor, which is this fold
+// with the selected variants applied after each pack's static map.
 func EnvVars(packs []*Pack) map[string]string {
+	return EnvVarsFor(packs, nil)
+}
+
+// EnvVarsFor is EnvVars with the launch's CLI-keyed profile table applied (§3.4, OQ-8):
+// each pack's own variants fold AFTER its static `env`, so a variant later-wins over the
+// pack's own default — a variant is the more specific intent, declared after the baseline,
+// and overriding it is not a collision.
+//
+// A null in a profile's env UNSETS the key (OQ-7), and the merge-patch semantics mean it
+// removes the key outright rather than setting it empty: a caller composing an environment
+// cannot tell "absent" from "removed" here, and for the jail notch that distinction does
+// not exist (the jail starts from an empty env). A caller that must REMOVE a real value —
+// the host notch, where the process env is inherited — reads the profile's Env map itself,
+// whose EnvValue carries the bit this map's value type cannot.
+func EnvVarsFor(packs []*Pack, profiles map[string]string) map[string]string {
 	var out map[string]string
 	for _, p := range packs {
+		// Static first, then the pack's own variants on top: the OQ-8 order is per pack,
+		// so a later pack's static value still beats an earlier pack's variant — the
+		// cross-pack rule is unchanged by the new kind.
 		for k, v := range p.Decl.EnvContributions() {
 			if out == nil {
 				out = map[string]string{}
 			}
 			out[k] = v
+		}
+		for _, prof := range p.activeProfiles(profiles) {
+			for k, v := range prof.Env {
+				if v.Unset() {
+					delete(out, k)
+					continue
+				}
+				if out == nil {
+					out = map[string]string{}
+				}
+				out[k] = v.Value
+			}
 		}
 	}
 	return out
@@ -489,15 +590,21 @@ func union(packs []*Pack, pick func(*Pack) []string) []string {
 // LaunchFlags merges every pack's launchFlags, keyed by binary name. A later pack wins
 // on a conflicting binary, matching the "later entries win" rule packs already use.
 // It applies autonomy ON (the jail/guest default); the host path calls LaunchFlagsFor(false).
+// No profile table — the callers that have one call LaunchFlagsFor directly.
 func LaunchFlags(packs []*Pack) map[string][]string {
-	return LaunchFlagsFor(packs, true)
+	return LaunchFlagsFor(packs, true, nil)
 }
 
 // LaunchFlagsFor is LaunchFlags with the §4.2 autonomy policy applied: on top of each
 // pack's plain `launch` contributions it folds the selected autonomy posture's per-binary
 // launch flags. So the `--dangerously-*` flags live in the autonomous posture and vanish
 // at the host notch (autonomy=false), where the guarded posture (usually no flags) applies.
-func LaunchFlagsFor(packs []*Pack, autonomy bool) map[string][]string {
+//
+// profiles is the launch's CLI-keyed profile table: after the posture, each pack's own
+// selected variants fold in, later-wins per bin (§3.4, OQ-8) — the same order the env fold
+// applies, so the two halves of one variant cannot disagree about who beat the static
+// baseline. A nil table is the pre-profile behavior exactly.
+func LaunchFlagsFor(packs []*Pack, autonomy bool, profiles map[string]string) map[string][]string {
 	out := map[string][]string{}
 	for _, p := range packs {
 		for bin, flags := range p.Decl.LaunchFlagContributions() {
@@ -505,6 +612,13 @@ func LaunchFlagsFor(packs []*Pack, autonomy bool) map[string][]string {
 		}
 		if posture := p.Decl.PostureFor(autonomy); posture != nil {
 			for _, l := range posture.Launch {
+				if l.Bin != "" {
+					out[l.Bin] = l.Flags
+				}
+			}
+		}
+		for _, prof := range p.activeProfiles(profiles) {
+			for _, l := range prof.Launch {
 				if l.Bin != "" {
 					out[l.Bin] = l.Flags
 				}

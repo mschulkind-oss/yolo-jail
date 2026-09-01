@@ -122,6 +122,13 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 // parameter starts deciding which overlays find an owner, and that test fails at the moment it
 // does. Where the bit IS consequential — p.SurfacesFor at the render — it is pinned in both
 // directions by internal/entrypoint/bootautonomy_test.go.
+//
+// The profile fold has the same shape and gets the same answer: SurfacesFor is called with
+// NO profile table, because a variant patch merges into the managed layer of a surface the
+// pack already declares and ignores a patch naming none, so no table can change which
+// identities exist here. This package does not resolve variants — it resolves owners — and
+// if a profile patch ever could add or remove an identity, that is the property that breaks
+// and the same test class catches it.
 func Collect(packs []*packload.Pack, autonomy bool) *OverlaySet {
 	set := &OverlaySet{byTarget: map[manifest.SurfaceKey][]agentcfg.Overlay{}}
 
@@ -131,7 +138,7 @@ func Collect(packs []*packload.Pack, autonomy bool) *OverlaySet {
 	// message on a broken manifest.
 	owners := map[manifest.SurfaceKey]string{}
 	for _, p := range packs {
-		surfaces, _ := p.SurfacesFor(autonomy)
+		surfaces, _ := p.SurfacesFor(autonomy, nil)
 		for _, s := range surfaces {
 			owners[s.Key()] = p.Name
 		}
@@ -196,7 +203,9 @@ func Collect(packs []*packload.Pack, autonomy bool) *OverlaySet {
 // lookup reads.
 func shippedOwnerOf(key manifest.SurfaceKey, autonomy bool) string {
 	for _, p := range packload.Embedded() {
-		surfaces, _ := p.SurfacesFor(autonomy)
+		// No profile table, for the reason Collect states: identities are all this reads,
+		// and no variant fold can add or remove one.
+		surfaces, _ := p.SurfacesFor(autonomy, nil)
 		for _, s := range surfaces {
 			if s.Key() == key {
 				return p.Name

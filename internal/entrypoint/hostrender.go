@@ -138,7 +138,13 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 	// — the guarded posture, so a pack's jail-bypass permission keys do NOT reach the real
 	// home, which is the fix for the host apply bypass leak. Reading it from the profile is
 	// what makes that one statement rather than a boolean repeated in four files.
-	surfaces, problems := p.SurfacesFor(e.renderTarget().Profile().AgentAutonomy)
+	//
+	// And NO profile table. A host apply selects no variant — there is no launch here and
+	// no `-p`, so there is nothing a table could be read from — and folding one anyway
+	// would write a variant's keys into the real home under an intent nobody expressed.
+	// A pack's BASE surfaces render, its variants do not; render's hostUnimplemented says
+	// the same thing to the human.
+	surfaces, problems := p.SurfacesFor(e.renderTarget().Profile().AgentAutonomy, nil)
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("pack %s: %s", p.Name, problems[0])
 	}

@@ -298,7 +298,10 @@ func hostOverlaySurfaces(candidates []*packload.Pack, prof render.Profile) []man
 		if p == nil {
 			continue
 		}
-		surfaces, _ := p.SurfacesFor(prof.AgentAutonomy)
+		// No profile table, matching the render this pass retires keys FOR: RenderHostPack
+		// selects no variant, so a variant's keys were never written here and must not be
+		// looked for in a surface no render ever produced.
+		surfaces, _ := p.SurfacesFor(prof.AgentAutonomy, nil)
 		for _, s := range surfaces {
 			if s.ResolvedMode() == manifest.ModeUnrendered {
 				continue

@@ -175,6 +175,29 @@ type Contribution struct {
 	// special-cased, the provider says how it is delivered).
 	EnvShape map[string]map[string]string `json:"env_shape,omitempty"`
 
+	// --- profile (profiles-as-pack-variants.md §3.1) ---
+	// The body rides fields declared above: Name is the profile's SELECTOR VALUE (the
+	// name the user writes in pack_profiles or -p) and Raw is its `config` patch. What is
+	// new here is the part no other kind needed:
+	//
+	// Launch is the same per-binary shape a posture's is, at the TOP level of a
+	// contribution for the first time — `launch` the KIND carries Bin and Flags flat, and
+	// this is a LIST of those, so it cannot reuse the kind's own field.
+	//
+	// Env is deliberately NOT Vars: map[string]string cannot tell a JSON null from an
+	// empty string, and for a variant the difference is the whole meaning — null UNSETS
+	// the variable (OQ-7, the merge-patch convention `providers` already uses), an empty
+	// string sets it empty. EnvValue carries that bit. Its values are literal strings, the
+	// same restriction Vars carries — so like `env` and `autonomy` the kind reads nothing
+	// from the host and is not origin-gated.
+	//
+	// RequiresProvider names a provider entry this variant needs (parent §6.2): a
+	// reference into the user's `providers` config, resolved at launch — not a credential
+	// and not a host read, which is why the kind makes no host-access claim.
+	Launch           []AutonomyLaunch    `json:"launch,omitempty"`
+	Env              map[string]EnvValue `json:"env,omitempty"`
+	RequiresProvider string              `json:"requires_provider,omitempty"`
+
 	// Raw carries kind-specific structured payloads that do not fit a scalar field
 	// — today only a `config` contribution's surface definition (the agentcfg
 	// surface schema), decoded by internal/agentcfg/manifest, kept as RawMessage
@@ -445,6 +468,103 @@ func (m *Manifest) PostureFor(autonomy bool) *AutonomyPosture {
 		return ac.Autonomous
 	}
 	return ac.Guarded
+}
+
+// EnvValue is one value in a profile's `env` map, which — alone in the manifest — may be
+// an explicit JSON null. Null means UNSET the variable (OQ-7), and it needs a type of its
+// own because map[string]string decodes a null to "" with no error, which would read back
+// as a deliberate empty value: the one distinction the field exists to carry.
+//
+// encoding/json calls UnmarshalJSON for a literal null too, so both shapes land here and
+// nothing about the null is lost on either decode path (the tolerant path decodes the same
+// field with the same method, so skew cannot turn an unset into an empty value).
+type EnvValue struct {
+	// Set is false only when the JSON value was null. An empty STRING is a real value —
+	// "set it to empty" is a different declaration from "remove it" — so Set is the
+	// meaning-bearing bit and Value is not consulted when it is false.
+	Set bool
+	// Value is the literal string to set. No interpolation, no host references: the same
+	// restriction Vars carries, so a profile is origin-gated exactly like autonomy is not.
+	Value string
+}
+
+// UnmarshalJSON accepts a JSON string or a JSON null, and refuses everything else — a
+// number or a bool in an env map is an author's typo, and a silent false would set the
+// variable to the empty string.
+func (v *EnvValue) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		*v = EnvValue{}
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	*v = EnvValue{Set: true, Value: s}
+	return nil
+}
+
+// Unset reports whether this value REMOVES the variable rather than setting it — the
+// meaning of a JSON null in the map (OQ-7).
+func (v EnvValue) Unset() bool { return !v.Set }
+
+// ProfileContribution is one named variant of a pack's own declarations: the name it
+// answers to, the config patch it folds into the pack's own surfaces, the launch flags it
+// merges, the env it sets (or unsets), and the provider it requires. The open-selector
+// twin of AutonomyContribution — whose selector is the confinement notch, not a name.
+type ProfileContribution struct {
+	Name             string
+	Config           json.RawMessage
+	Launch           []AutonomyLaunch
+	Env              map[string]EnvValue
+	RequiresProvider string
+}
+
+// Profiles returns every profile the pack declares, in declaration order — which is the
+// later-wins fold order, so it must not be normalized here.
+//
+// A SLICE, not a first-match accessor: a pack may ship as many variants as it has
+// intentions (`bedrock` and `glm` on one pack is the ordinary case). The name is
+// sole-owned WITHIN the pack (validateProfileNames), so the slice never carries two
+// entries a ProfileFor lookup would have to choose between.
+func (m *Manifest) Profiles() []ProfileContribution {
+	var out []ProfileContribution
+	for _, c := range m.Contributions() {
+		if c.Kind != KindProfile {
+			continue
+		}
+		out = append(out, ProfileContribution{
+			Name:             c.Name,
+			Config:           c.Raw,
+			Launch:           c.Launch,
+			Env:              c.Env,
+			RequiresProvider: c.RequiresProvider,
+		})
+	}
+	return out
+}
+
+// ProfileFor returns the pack's profile declaration named by `name`, or nil when the pack
+// declares none — the shape the fold and the launch disclosure both key off ("did any
+// selected pack DECLARE this variant?").
+//
+// The selector is the name the user chose (`pack_profiles`, `-p`), which is what makes
+// this the open-selector twin of PostureFor(autonomy bool): same body, different
+// authority for the choice (§3.1).
+func (m *Manifest) ProfileFor(name string) *ProfileContribution {
+	for _, c := range m.Contributions() {
+		if c.Kind != KindProfile || c.Name != name {
+			continue
+		}
+		return &ProfileContribution{
+			Name:             c.Name,
+			Config:           c.Raw,
+			Launch:           c.Launch,
+			Env:              c.Env,
+			RequiresProvider: c.RequiresProvider,
+		}
+	}
+	return nil
 }
 
 // ProviderEndpoint is one protocol's half of a provider: the URL that speaks it and the
@@ -879,6 +999,38 @@ func (m *Manifest) validateContributions() []string {
 		problems = append(problems, validateContributionAt(i, c)...)
 	}
 	problems = append(problems, m.validateProviderNames()...)
+	problems = append(problems, m.validateProfileNames()...)
+	return problems
+}
+
+// validateProfileNames refuses a profile NAME declared twice by ONE pack (§3.4).
+//
+// Within a pack the name is sole-owned: it is the selector value, and ProfileFor returns
+// the FIRST match, so a second declaration with the same name would silently replace the
+// first in every fold while the footprint showed two healthy variants. Cross-pack the
+// same name is NOT owned — profile `bedrock` in two packs is two unrelated declarations
+// that happen to share a selector value — so nothing here looks beyond one manifest, and
+// packload.Collisions never sees a profile collision either (the claim target carries the
+// pack name for exactly that reason).
+//
+// Strict path only, like validateProviderNames: DecodeTolerant validates entries one at a
+// time and cannot see siblings.
+func (m *Manifest) validateProfileNames() []string {
+	var problems []string
+	seen := map[string]int{}
+	for i, c := range m.Contributes {
+		if c.Kind != KindProfile || c.Name == "" {
+			continue
+		}
+		if first, dup := seen[c.Name]; dup {
+			problems = append(problems, fmt.Sprintf(
+				"contributes[%d]: profile %q is declared again (first at contributes[%d]) — a "+
+					"profile name is sole-owned within a pack: it is the selector value, and "+
+					"the second declaration would silently replace the first", i, c.Name, first))
+			continue
+		}
+		seen[c.Name] = i
+	}
 	return problems
 }
 
@@ -1099,6 +1251,26 @@ func validateContribution(label string, c Contribution) []string {
 		req("name", c.Name)
 		problems = append(problems, validateProviderEndpoints(label, c.Endpoints)...)
 		problems = append(problems, validateProviderEnvShape(label, c.EnvShape)...)
+	case KindProfile:
+		// `name` is the whole selector, so it is the one required field: a variant that
+		// answers to nothing is unreachable, and nothing else about the body would tell
+		// the author that. Everything else is optional — a named variant carrying only an
+		// env map, or only launch flags, is a perfectly good one.
+		req("name", c.Name)
+		// The launch entries are the posture's shape, so they go through the same bin
+		// guard the four other users of it do — the message cannot be allowed to drift
+		// from theirs.
+		for i, l := range c.Launch {
+			if l.Bin == "" {
+				problems = append(problems, fmt.Sprintf("%s.launch[%d]: needs a \"bin\"", label, i))
+			}
+			problems = binProblem(problems, fmt.Sprintf("%s.launch[%d].bin", label, i), l.Bin)
+		}
+		for _, k := range sortedKeys(c.Env) {
+			if k == "" {
+				problems = append(problems, label+": profile has an empty variable name")
+			}
+		}
 	case KindLoophole:
 		// `from` is REQUIRED, unlike skills/briefing and like files: a loophole module has
 		// no conventional location to fall back to, and the whole contribution is the

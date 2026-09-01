@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"go/ast"
 	"go/token"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -287,5 +289,95 @@ func TestFreshLaunchPrintsTheProfileLineBesideTheHostAccessLine(t *testing.T) {
 	if pos[profiles] < pos[hostAccess] {
 		t.Errorf("runContainer calls %s BEFORE %s: the profile line belongs beside the other "+
 			"pack disclosures, after the host-access half", profiles, hostAccess)
+	}
+}
+
+// --- kind "profile": DECLARED, and the env the selected variant contributes ---
+
+// profilePackFixture is a real staged-shape pack (LoadDir, not a hand-built struct) that
+// installs `claude` and declares one `bedrock` variant overriding its own static env
+// baseline — the shape §3.4's later-wins rule exists to resolve.
+func profilePackFixture(t *testing.T, name string) *packload.Pack {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), name)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"` + name + `","contributes":[` +
+		`{"kind":"program","bin":"claude","via":"npm","package":"@acme/claude"},` +
+		`{"kind":"env","vars":{"SHARED":"static","BASE":"static"}},` +
+		`{"kind":"profile","name":"bedrock",` +
+		`"env":{"PROFILE_ONLY":"from-profile","SHARED":null}}]}`
+	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, problems := packload.LoadDir(root, name, false)
+	if len(problems) != 0 {
+		t.Fatalf("loading fixture pack: %v", problems)
+	}
+	return p
+}
+
+// A selected variant's env reaches the ASSEMBLED argv: the -e block and the
+// YOLO_PACK_PROFILES table must describe the same launch. This is the pin on the call
+// site, not on the fold — packload.EnvVarsFor is covered in packload's own tests, and
+// nothing there would notice if assemble went back to the static-only EnvVars, which
+// would ship every profile env silently missing from the jail.
+func TestAssembleSelectedProfileEnvReachesTheJailArgv(t *testing.T) {
+	packs := []*packload.Pack{profilePackFixture(t, "acme")}
+	argv := assembleWithProfiles(t, newConfig(), packs, func(o *Options) {
+		o.PackProfiles = map[string]string{"claude": "bedrock"}
+	})
+	env := strings.Join(envArgValues(argv, "PROFILE_ONLY", "BASE", "SHARED"), " ")
+	if !strings.Contains(env, "PROFILE_ONLY=from-profile") {
+		t.Errorf("the selected variant's env must be in the jail argv, got %s", env)
+	}
+	if !strings.Contains(env, "BASE=static") {
+		t.Errorf("a key the variant does not name keeps the static value, got %s", env)
+	}
+	// OQ-7: a null in the variant UNSETS the key, so the static value must not survive
+	// as an -e at all — a jail starts from an empty env, so absent IS removed.
+	if strings.Contains(env, "SHARED=") {
+		t.Errorf("the variant's null must remove the key from the argv, got %s", env)
+	}
+
+	// No profile selected: the static baseline, unchanged.
+	argv = assembleWithProfiles(t, newConfig(), packs, nil)
+	env = strings.Join(envArgValues(argv, "PROFILE_ONLY", "SHARED"), " ")
+	if strings.Contains(env, "PROFILE_ONLY=") || !strings.Contains(env, "SHARED=static") {
+		t.Errorf("without a selection the static env must stand, got %s", env)
+	}
+}
+
+// DECLARED now names the packs that actually declare the variant — the half of the line
+// that tells a user whether the name they typed means anything. A pack shipping no such
+// variant is RECEIVED only, and stays listed there.
+func TestNotePackProfilesNamesTheDeclaringPack(t *testing.T) {
+	declares := profilePackFixture(t, "acme")
+	silent := packsFixture(t, "pi")
+	all := append([]*packload.Pack{declares}, silent...)
+	var out bytes.Buffer
+	o := goldenOptions("/ws", t.TempDir())
+	o.Stdout = discardBuf()
+	o.Stderr = &out
+	cfg := newConfig()
+	profiles := jsonx.NewOrderedMap()
+	profiles.Set("claude", "bedrock")
+	cfg.Set("pack_profiles", profiles)
+	o.notePackProfiles(o.effectivePackProfiles(cfg, all), all)
+	if !strings.Contains(out.String(), "declared: acme; received: acme, pi") {
+		t.Errorf("the declaring pack must be named:\n%s", out.String())
+	}
+
+	// A name nothing declares still prints — that is the silent-typo signal the line
+	// exists for — and says plainly that nothing declared it.
+	profiles.Set("claude", "bedrok")
+	o2 := goldenOptions("/ws", t.TempDir())
+	o2.Stdout = discardBuf()
+	var out2 bytes.Buffer
+	o2.Stderr = &out2
+	o2.notePackProfiles(o2.effectivePackProfiles(cfg, all), all)
+	if !strings.Contains(out2.String(), "Profile bedrok: declared: none;") {
+		t.Errorf("an undeclared name must say so rather than vanish:\n%s", out2.String())
 	}
 }

@@ -363,10 +363,9 @@ func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack) {
 // RECEIVED is deliberately every selected pack, not the pack the name keys to: the
 // table crosses to the jail whole and every pack's derive sees all of it, so "who got
 // it" has no narrower honest answer. DECLARED is the packs shipping a `kind: "profile"`
-// with that name — which is NONE for every launch this build can produce, because
-// packdecl has no profile kind yet (§12 step 2 adds it, together with the `name` field
-// a lookup would compare against). "None" is therefore the true answer and not a
-// degraded one; when the kind lands, this is the one list that grows.
+// with that name — the half that says whether the name means anything to any selected
+// pack. It is NOT the packs that will act on it: a pack may declare the name and then do
+// its variant work inside a derive this process cannot see.
 //
 // The verb is deliberately never "honored" (OQ-10). What a derive does with the string
 // is unobservable from here, and a transparency print that overclaims is the
@@ -403,9 +402,22 @@ func (o *Options) notePackProfiles(effective *jsonx.OrderedMap, loadedPacks []*p
 	sort.Strings(received)
 	out := o.pr(o.Stderr)
 	for _, name := range names {
-		// DECLARED is the half that stays empty until the kind exists. See the comment
-		// above for what replaces "none".
-		out.print("[dim]Profile " + name + ":[/dim] declared: none; received: " +
+		// DECLARED: every selected pack whose manifest ships a variant of this exact name.
+		// The name is owned only WITHIN a pack (§3.4), so two packs declaring it are both
+		// listed — they are unrelated declarations of one selector value, and saying so is
+		// more useful than hiding the coincidence.
+		var declared []string
+		for _, p := range loadedPacks {
+			if p.Decl.ProfileFor(name) != nil {
+				declared = append(declared, p.Name)
+			}
+		}
+		sort.Strings(declared)
+		who := "none"
+		if len(declared) > 0 {
+			who = strings.Join(declared, ", ")
+		}
+		out.print("[dim]Profile " + name + ":[/dim] declared: " + who + "; received: " +
 			strings.Join(received, ", "))
 	}
 }

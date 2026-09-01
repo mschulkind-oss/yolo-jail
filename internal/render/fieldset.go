@@ -117,6 +117,15 @@ var hostUnimplemented = map[packdecl.Kind]string{
 	packdecl.KindHook: "hooks are jail provisioning steps (credential symlinks, " +
 		"per-jail history, plugin reconciliation) — `yolo host apply` does not run them " +
 		"against your real home",
+	// profile is the same limit of the same command, arrived at from the selector rather
+	// than the verb: which variant of a pack applies is a LAUNCH decision (pack_profiles /
+	// -p), and this command writes config without launching anything, so it has no variant
+	// to select and writes none — your base surfaces, unmodified. A jail launch (or a
+	// future `yolo host -- <program>`) is where a selection exists to be honored.
+	packdecl.KindProfile: "a profile is a VARIANT of this pack's own config, selected at " +
+		"launch — and `yolo host apply` selects none, so it writes the pack's base surfaces " +
+		"only. Launch a jail with `-p <name>` (or `--pack-profile <cli>=<name>`) to apply the " +
+		"variant",
 }
 
 // HostUnimplemented returns the reason a kind is honored-but-unbuilt at a host target, and
@@ -198,6 +207,14 @@ func HostFields() FieldSet {
 		// Honored-but-unbuilt below is that limit stated (hostUnimplemented), the same
 		// sentence env and launch get.
 		packdecl.KindProvider: true,
+		// profile is honored in the sense the census means — a variant patches the managed
+		// layer of a surface the pack already declares, which is exactly the kind of write
+		// this command performs. It is not APPLIED here, and the reason is the selector
+		// rather than the mechanism: which variant applies is a launch decision
+		// (`pack_profiles`, `-p`), and a command that writes config selects no variant.
+		// hostUnimplemented carries that sentence, and RenderHostPack passes no profile
+		// table so the base surfaces render and no variant's keys are written.
+		packdecl.KindProfile: true,
 		// files is honored by WRITING the tree, not binding it. The old refusal ("nothing
 		// to bind into off-container") was true of the mechanism and false of the intent: a
 		// pack that owns ~/.claude/file-suggestion.sh means "this file is mine to

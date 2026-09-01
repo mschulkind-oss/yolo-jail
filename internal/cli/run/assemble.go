@@ -579,7 +579,15 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// straight onto the command as -e. A key two packs both set is last-writer-wins
 	// here; the footprint's per-key env claims are what surface such a collision.
 	// Sorted for a deterministic argv.
-	if packEnv := packload.EnvVars(in.packs); len(packEnv) > 0 {
+	//
+	// THE SAME merge the launch line describes: the CLI-keyed profile table is folded in
+	// (EnvVarsFor, not EnvVars) so a selected variant later-wins over the pack's own
+	// static value (OQ-8), and a null in it removes the key — the jail starts from an
+	// empty env, so "unset" here is simply an absent -e. Resolved through the one
+	// effectivePackProfiles the env block below also reads, so the table this argv carries
+	// and the table YOLO_PACK_PROFILES carries cannot disagree.
+	if packEnv := packload.EnvVarsFor(in.packs, packload.ProfileTable(
+		o.effectivePackProfiles(in.cfg, in.packs))); len(packEnv) > 0 {
 		keys := make([]string, 0, len(packEnv))
 		for k := range packEnv {
 			keys = append(keys, k)

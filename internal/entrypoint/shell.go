@@ -19,7 +19,7 @@ func packAliases(e *Env) string {
 	if err != nil {
 		return ""
 	}
-	flagsByBin := packload.LaunchFlagsFor(packs, true)
+	flagsByBin := packload.LaunchFlagsFor(packs, true, packload.ProfileTable(e.LoadPackProfiles()))
 	var lines []string
 	for _, p := range packs {
 		// Every honored install, not the first: a pack declaring two programs with

@@ -688,7 +688,7 @@ func TestHostTableKeysUniformAcrossShippedPacks(t *testing.T) {
 		if err != nil {
 			t.Fatalf("embedded %s: %v", name, err)
 		}
-		surfaces, _ := p.SurfacesFor(false)
+		surfaces, _ := p.SurfacesFor(false, nil)
 		for _, s := range surfaces {
 			id := s.Agent + "/" + s.Name
 			keys := hostTableKeys(p, s)

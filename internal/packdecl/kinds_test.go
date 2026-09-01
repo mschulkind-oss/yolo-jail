@@ -13,7 +13,7 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 	for _, k := range []Kind{
 		KindProgram, KindRequires, KindSkills, KindBriefing, KindFiles, KindConfig,
 		KindConfigOverlay, KindState, KindReadsHost, KindMount, KindEnv,
-		KindLaunch, KindHook, KindAutonomy, KindProvider, KindLoophole,
+		KindLaunch, KindHook, KindAutonomy, KindProfile, KindProvider, KindLoophole,
 	} {
 		fp, ok := FootprintOf(k)
 		if !ok {
@@ -27,8 +27,8 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 			t.Errorf("kind %q has an empty Claims description", k)
 		}
 	}
-	if got := len(KnownKinds()); got != 16 {
-		t.Errorf("KnownKinds() has %d entries, want 16 — a kind was added/removed without updating the test", got)
+	if got := len(KnownKinds()); got != 17 {
+		t.Errorf("KnownKinds() has %d entries, want 17 — a kind was added/removed without updating the test", got)
 	}
 }
 
@@ -98,6 +98,13 @@ func TestCombineRulesMatchDesign(t *testing.T) {
 		// this map is a combine rule nobody pinned (the reason autonomy went unpinned for
 		// so long).
 		KindProvider: CombineExclusive,
+		// profile is EXCLUSIVE by (pack, name) — §3.4's stated rule, and the one kind whose
+		// claim target carries the pack on purpose: a profile name is NOT owned across
+		// packs (two packs both answering to "bedrock" is the unrelated-coincidence case),
+		// so the pack prefix is what keeps the generic exclusive loop from firing. Written
+		// here although Exclusive is the zero value, because a row absent from this map is
+		// a combine rule nobody pinned.
+		KindProfile: CombineExclusive,
 	}
 	for k, c := range want {
 		fp, _ := FootprintOf(k)

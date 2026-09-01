@@ -121,6 +121,14 @@ func writeCensusPack(t *testing.T, dir string) {
 			`"endpoints":{"openai":{"base_url":"https://census.example/v4","wire_api":"openai-chat"}},` +
 			`"api_key_env_name":"CENSUS_API_KEY"}`,
 		packdecl.KindLoophole: `{"kind":"loophole","from":"loopholes/censushole"}`,
+		// profile patches the SAME surface the `config` entry declares (a variant of it, per
+		// §3.1), and names the provider the `provider` entry above ships — the realistic
+		// shape, and the one that would go silently wrong if the fold misfired.
+		packdecl.KindProfile: `{"kind":"profile","name":"census",` +
+			`"config":[{"agent":"census","name":"settings","codec":"json","path":"~/.census/settings.json",` +
+			`"managed":{"censusProfileKey":"censusProfileValue"}}],` +
+			`"launch":[{"bin":"censusbin","flags":["--census-profile"]}],` +
+			`"env":{"CENSUS_PROFILE_VAR":"1"},"requires_provider":"census"}`,
 	}
 
 	var entries []string

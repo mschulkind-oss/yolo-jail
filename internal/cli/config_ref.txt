@@ -877,6 +877,20 @@
                     {config:[surface...]} patching the managed layer of a surface THIS
                     pack owns, plus {launch:[{bin, flags}]}.  Either posture may be
                     empty (a permissive-by-default tool only needs `guarded`).
+      profile       {name, config:[surface...], launch:[{bin, flags}], env:{KEY: "v"|null},
+                    requires_provider} — a NAMED VARIANT of this pack's own declarations,
+                    selected at launch by `pack_profiles` or `-p <name>`.  `config` patches
+                    the managed layer of a surface THIS pack owns, exactly as a posture's
+                    does, and folds AFTER it (later-wins on a key both touch); `launch`
+                    replaces that binary's own `launch` contribution for the same bin;
+                    `env` is literal strings, where a `null` UNSETS the variable instead of
+                    setting it empty.  A variant later-wins over its pack's own static
+                    `env`/`launch` — it is the more specific intent, not a second writer.
+                    `requires_provider` names a `providers` entry this variant needs — a
+                    reference the launch resolves, never a credential (the pack carries
+                    only a name, as `provider`'s api_key_env_name does).  A profile name is
+                    sole-owned WITHIN the pack only: two packs may both declare `bedrock`
+                    and stay unrelated.  A profile no launch selects does nothing.
       provider      {name, endpoints:{protocol:{base_url, wire_api}}, api_key_env_name,
                     models:{alias: id}, env_shape:{protocol:{VAR: "{endpoint}|{key}"}}} —
                     the SERVICE facts of a named provider: the endpoints that speak each

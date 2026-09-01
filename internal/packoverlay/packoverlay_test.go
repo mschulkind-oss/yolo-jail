@@ -197,7 +197,7 @@ func TestOverlayCannotFlipTheOwnersMode(t *testing.T) {
 			"mode is the general hazard (R1) this kind exists to remove")
 	}
 	// And the owner's own surface is untouched by the attempt.
-	surfaces, _ := owner.SurfacesFor(true)
+	surfaces, _ := owner.SurfacesFor(true, nil)
 	if len(surfaces) != 1 || surfaces[0].ResolvedMode() != "stateful" {
 		t.Errorf("owner's mode changed: %+v", surfaces)
 	}

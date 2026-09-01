@@ -19,7 +19,7 @@ func TestAutonomyPostureFoldAndLaunch(t *testing.T) {
 	        "managed":{"permissions":{"defaultMode":"default"}}}]}}]}`)}
 
 	// autonomy ON: the base benign key survives, and the autonomous bypass keys are folded in.
-	on, probs := p.SurfacesFor(true)
+	on, probs := p.SurfacesFor(true, nil)
 	if len(probs) != 0 {
 		t.Fatalf("SurfacesFor(true) problems: %v", probs)
 	}
@@ -36,7 +36,7 @@ func TestAutonomyPostureFoldAndLaunch(t *testing.T) {
 
 	// autonomy OFF (host): the benign key still survives, but the guarded posture wins —
 	// defaultMode is "default" and the bypass-only key is NOT present.
-	off, _ := p.SurfacesFor(false)
+	off, _ := p.SurfacesFor(false, nil)
 	mo := off[0].ManagedMap()
 	if prefs, _ := mo["preferences"].(map[string]any); prefs == nil || prefs["autoUpdaterStatus"] != "disabled" {
 		t.Errorf("benign base managed key must survive the guarded fold too: %+v", mo)
@@ -49,10 +49,10 @@ func TestAutonomyPostureFoldAndLaunch(t *testing.T) {
 	}
 
 	// Launch flags follow the same policy.
-	if got := LaunchFlagsFor([]*Pack{p}, true)["claude"]; len(got) != 1 || got[0] != "--dangerously-skip-permissions" {
+	if got := LaunchFlagsFor([]*Pack{p}, true, nil)["claude"]; len(got) != 1 || got[0] != "--dangerously-skip-permissions" {
 		t.Errorf("autonomy ON launch flags = %v, want the bypass flag", got)
 	}
-	if got := LaunchFlagsFor([]*Pack{p}, false)["claude"]; len(got) != 0 {
+	if got := LaunchFlagsFor([]*Pack{p}, false, nil)["claude"]; len(got) != 0 {
 		t.Errorf("autonomy OFF launch flags = %v, want none (guarded)", got)
 	}
 }

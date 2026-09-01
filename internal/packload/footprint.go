@@ -197,6 +197,22 @@ func FootprintOf(p *Pack) Footprint {
 				detail = "autonomous posture only"
 			}
 			add(packdecl.KindAutonomy, p.Name, detail, false)
+		case packdecl.KindProfile:
+			// ONE claim per variant, and the target carries BOTH the pack and the name: the
+			// name is the selector the user types, but it is owned only WITHIN the pack, so
+			// `claude` and `pi` both answering to "bedrock" must not read as two claimants on
+			// one target (§3.4 rules them unrelated). The pack prefix is what makes the
+			// generic exclusive loop below inert for this kind — the same trick autonomy's
+			// pack-name target uses, with the name readable beside it.
+			//
+			// Not review-worthy: a variant retunes what the pack already ships, and its env
+			// is literal strings exactly like `env`'s. Whether the PROVIDER it names is
+			// hydrated is a launch pre-flight, not an approval question.
+			detail := "variant of this pack's own surfaces, launch flags and env"
+			if c.RequiresProvider != "" {
+				detail += "; requires provider " + c.RequiresProvider
+			}
+			add(packdecl.KindProfile, p.Name+"/"+c.Name, detail, false)
 		case packdecl.KindProvider:
 			// The target IS the provider name, with no discriminator: the kind is
 			// sole-owned per name, so the generic exclusive loop in Collisions is the
