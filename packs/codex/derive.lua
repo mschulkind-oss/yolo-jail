@@ -1,4 +1,24 @@
 -- codex: project MCP servers and model_providers into codex's TOML format.
+
+-- The provider's URL for the protocol codex speaks — `openai`, per the resolution table
+-- in zai-plumbing.md §5. The single-protocol `base_url` shorthand wins; otherwise the
+-- openai endpoint. Total over non-tables so the call site stays a one-line gate. Returns
+-- nil when the provider names no URL an openai-speaking agent can use, which is what
+-- keeps that gate honest: an endpoints-only provider still reaches the catalog (the
+-- pre-endpoints gate on prov.base_url silently dropped it), while a provider whose only
+-- endpoint speaks anthropic would emit an entry with no URL.
+local function providerEndpoint(prov)
+  if type(prov) ~= "table" then return nil end
+  if prov.base_url then
+    return prov.base_url, prov.wire_api
+  end
+  local ep = prov.endpoints and prov.endpoints.openai or nil
+  if type(ep) == "table" and ep.base_url then
+    return ep.base_url, ep.wire_api
+  end
+  return nil
+end
+
 yolo.derive("codex", "config", function(ctx)
   local res = {}
 
@@ -21,10 +41,13 @@ yolo.derive("codex", "config", function(ctx)
   if ctx.providers and next(ctx.providers) ~= nil then
     local provOut = {}
     for name, prov in pairs(ctx.providers) do
-      if type(prov) == "table" and prov.base_url then
+      local baseUrl, wireApi = providerEndpoint(prov)
+      if baseUrl then
         local entry = {
-          base_url = prov.base_url,
-          wire_api = prov.wire_api or "responses",
+          base_url = baseUrl,
+          -- An endpoint's own wire_api is the per-protocol fact; the provider-level one
+          -- only speaks for the shorthand.
+          wire_api = wireApi or prov.wire_api or "responses",
         }
         if prov.api_key_env_name then
           entry.api_key_env = prov.api_key_env_name

@@ -184,10 +184,12 @@ Three closure rules the schema sketch owed *(added 2026-09-01, from the complete
 1. **Coexistence:** `base_url` is valid ONLY alone — the single-protocol shorthand. `endpoints`
    and `base_url` together is a validation error (refuse the ambiguity; the message points at
    `endpoints`). Neither is an error too (a provider that exists only to be named).
-2. **The derive gate must move:** all three derives currently skip a provider without
-   `prov.base_url` (pi/derive.lua:8, codex/derive.lua:24, opencode/derive.lua:25) — an
-   `endpoints`-only provider would be silently dropped from every catalog. The gate becomes
-   `base_url OR endpoints`, with the per-protocol endpoint feeding each agent's dialect.
+   *(Rules 1 and 2 shipped 2026-09-01; rule 3 is still `packs/zai`'s to do.)*
+2. **The derive gate must move:** the derives gated on `prov.base_url` alone — an
+   `endpoints`-only provider was silently dropped from every catalog. The gate is now the
+   provider's URL FOR THE PROTOCOL THAT AGENT SPEAKS (the §5 table: pi, codex and opencode
+   all resolve `openai`), so an endpoints-only provider reaches the catalog and an
+   anthropic-only one correctly does not — an agent cannot use a URL it cannot speak.
 3. **Selection is config, and the mechanism exists:** the derives write a *catalog* (presence),
    not a choice — `-p zai` must also set each agent's use-this-one field (pi's default model,
    codex's `model`/`model_provider`, opencode's `provider`). That is one more
@@ -203,12 +205,12 @@ for "this provider also speaks X" marking, if it graduates.
 | Piece | State |
 | :--- | :--- |
 | `providers` key, closed schema, `api_key_env_name` name-contract | **shipped** ([`validate.go:885-945`](../../internal/config/validate.go#L885-L945)) |
-| pi / codex / opencode derives wiring every provider | **shipped** — Route A works today, minus the endpoint wrinkle |
+| pi / codex / opencode derives wiring every provider | **shipped** — Route A works today, endpoints included |
 | z.ai wire protocol: chat-completions only | **measured 2026-09-01** (OQ-Z1; codex's `responses` derive default is a known 404 for zai — §2) |
-| `kind: "provider"` (pack-shipped service facts) + `kind: "profile"` + the selected-pack preflight | proposed (parent §4.1 as ruled, OQ-12/13) |
+| `kind: "provider"` (pack-shipped service facts) + `kind: "profile"` + the selected-pack preflight | **shipped** (the §6.2 missing-credential refusal is still proposed) |
 | `-p <name>` global, declared-or-not | **ruled 2026-08-31** (parent OQ-5); mechanism proposed |
 | claude bridge (settings `env` block honored for `ANTHROPIC_*`) | **measured YES, 2026-08-31** (OQ-Z4: controlled listener, settings-only run hit) |
-| `endpoints` by protocol + resolution | **ruled 2026-08-31** (OQ-Z2: one provider, one key, any shape); schema proposed (§5, with its three closure rules) |
+| `endpoints` by protocol + resolution | **ruled 2026-08-31** (OQ-Z2: one provider, one key, any shape); schema + the derive half of resolution **shipped** — validation and the three derives; selection (closure rule 3) still proposed |
 | provider defaults layer (B2) | not needed while B3 covers it; only if B3 proves insufficient |
 
 ## 7. What you actually do (the acceptance story)

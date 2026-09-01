@@ -492,16 +492,24 @@ func TestValidateProviders(t *testing.T) {
 	valid := `{"providers": {
 		"glm": {
 			"base_url": "https://open.bigmodel.cn/api/paas/v4",
-			"wire_api": "openai_completions",
+			"wire_api": "openai-chat",
 			"api_key_env_name": "GLM_API_KEY",
 			"models": {"default": "glm-4-plus", "fast": "glm-4-flash"},
 			"capabilities": ["code_editing"]
 		},
 		"bedrock": {
-			"wire_api": "anthropic_bedrock",
+			"wire_api": "anthropic",
 			"region": "us-east-1",
 			"models": {"default": "us.anthropic.claude-opus-5[1m]"}
 		},
+		"zai": {
+			"api_key_env_name": "ZAI_API_KEY",
+			"endpoints": {
+				"anthropic": {"base_url": "https://api.z.ai/api/anthropic"},
+				"openai": {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat"}
+			}
+		},
+		"named_only": {},
 		"disabled_provider": null
 	}}`
 	errs, _ := ValidateConfig(decode(t, valid), t.TempDir(), nil)
@@ -539,6 +547,127 @@ func TestValidateProviders(t *testing.T) {
 	}
 	if !named {
 		t.Errorf("expected an api_key_env_name error naming the new key, got: %v", provErrs)
+	}
+}
+
+// providerErrors runs ValidateConfig over a providers block and returns only the
+// config.providers.* diagnostics.
+func providerErrors(t *testing.T, body string) []string {
+	t.Helper()
+	t.Setenv("YOLO_VERSION", "") // the host view: the retirement checks differ in-jail
+	errs, _ := ValidateConfig(decode(t, `{"providers": `+body+`}`), t.TempDir(), nil)
+	var out []string
+	for _, e := range errs {
+		if strings.HasPrefix(e, "config.providers") {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// wire_api reaches three agents' config files verbatim, so a typo here is a protocol
+// error the AGENT reports, later. The vocabulary is closed for the reason Rule 4 closes
+// any fixed syntactic slot (profiles-as-pack-variants.md §4.3).
+func TestValidateProvidersWireAPIIsAClosedEnum(t *testing.T) {
+	for _, api := range providerWireAPIs {
+		errs := providerErrors(t, `{"glm": {"wire_api": "`+api+`"}}`)
+		if len(errs) != 0 {
+			t.Errorf("wire_api %q is in the vocabulary, got error: %v", api, errs)
+		}
+	}
+	errs := providerErrors(t, `{"glm": {"wire_api": "totally-not-a-wire-api"}}`)
+	if len(errs) != 1 {
+		t.Fatalf("want exactly one wire_api error, got: %v", errs)
+	}
+	for _, api := range providerWireAPIs {
+		if !strings.Contains(errs[0], api) {
+			t.Errorf("the error must name the vocabulary it wants, missing %q: %s", api, errs[0])
+		}
+	}
+	if errs := providerErrors(t, `{"glm": {"wire_api": 4}}`); len(errs) != 1 {
+		t.Errorf("a non-string wire_api is still one error, got: %v", errs)
+	}
+}
+
+// `https://user:tok@host/v1` is a credential in a git-tracked config file, and this rule
+// is the check (profiles-as-pack-variants.md §4.3): base_url routes an ADDRESS, and the
+// credential travels by NAME through api_key_env_name.
+func TestValidateProvidersBaseURLMustBeAnAddress(t *testing.T) {
+	for _, u := range []string{
+		"http://host.example/v1",
+		"https://host.example/v1",
+		"https://open.bigmodel.cn/api/paas/v4",
+	} {
+		if errs := providerErrors(t, `{"glm": {"base_url": "`+u+`"}}`); len(errs) != 0 {
+			t.Errorf("base_url %q is a usable address, got error: %v", u, errs)
+		}
+	}
+	for _, u := range []string{
+		"ftp://host.example/v1",            // not a wire protocol yolo can speak
+		"file:///etc/hosts",                // a fact about this machine, not a service
+		"host.example/v1",                  // no scheme at all
+		"https://user:tok@host.example/v1", // the credential the rule exists for
+		"https://user@host.example/v1",     // userinfo without a password counts too
+	} {
+		errs := providerErrors(t, `{"glm": {"base_url": "`+u+`"}}`)
+		if len(errs) != 1 {
+			t.Errorf("base_url %q should be refused once, got: %v", u, errs)
+			continue
+		}
+		if strings.Contains(errs[0], "expected a string") {
+			t.Errorf("the refusal should say WHY, not the type: %s", errs[0])
+		}
+	}
+}
+
+// The §5 endpoint map: per-protocol objects whose contents are schema like any other.
+func TestValidateProvidersEndpoints(t *testing.T) {
+	valid := `{"zai": {"endpoints": {
+		"anthropic": {"base_url": "https://api.z.ai/api/anthropic"},
+		"openai": {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat"}
+	}}}`
+	if errs := providerErrors(t, valid); len(errs) != 0 {
+		t.Errorf("valid endpoints should pass, got: %v", errs)
+	}
+
+	for _, body := range []string{
+		// Not a map of objects.
+		`{"zai": {"endpoints": "https://api.z.ai/api/paas/v4"}}`,
+		`{"zai": {"endpoints": {"openai": "https://api.z.ai/api/paas/v4"}}}`,
+		// The URL rule and the wire vocabulary hold one level down too.
+		`{"zai": {"endpoints": {"openai": {"base_url": "https://u:pw@api.z.ai/v4"}}}}`,
+		`{"zai": {"endpoints": {"openai": {"base_url": 4}}}}`,
+		`{"zai": {"endpoints": {"openai": {"base_url": "https://api.z.ai/v4", "wire_api": "chat"}}}}`,
+		// An unknown key inside an endpoint is refused, not inherited.
+		`{"zai": {"endpoints": {"openai": {"base_url": "https://api.z.ai/v4", "models": {}}}}}`,
+	} {
+		if errs := providerErrors(t, body); len(errs) == 0 {
+			t.Errorf("expected a refusal for %s", body)
+		}
+	}
+}
+
+// Closure rule 1 (zai OQ-Z6): base_url is the single-protocol shorthand and is valid
+// ONLY alone. Carrying both is an ambiguity, and the refusal names `endpoints` because
+// that is where the URL belongs.
+func TestValidateProvidersBaseURLAndEndpointsTogetherIsRefused(t *testing.T) {
+	errs := providerErrors(t, `{"zai": {
+		"base_url": "https://api.z.ai/api/paas/v4",
+		"endpoints": {"openai": {"base_url": "https://api.z.ai/api/paas/v4"}}
+	}}`)
+	if len(errs) != 1 {
+		t.Fatalf("want exactly one coexistence error, got: %v", errs)
+	}
+	if !strings.Contains(errs[0], "endpoints") {
+		t.Errorf("the coexistence refusal must point at endpoints: %s", errs[0])
+	}
+}
+
+// ...and the other half of rule 1: a provider that is a NAME only — the thing a
+// requires_provider assertion or a profile selection points at — is not an error.
+func TestValidateProvidersWithNoAddressIsLegal(t *testing.T) {
+	if errs := providerErrors(t, `{"bedrock": {"region": "us-east-1"}}`); len(errs) != 0 {
+		t.Errorf("a provider that exists to be named is legal, got: %v", errs)
 	}
 }
 

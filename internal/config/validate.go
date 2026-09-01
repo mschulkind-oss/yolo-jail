@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -906,15 +907,29 @@ func validateProviders(config *jsonx.OrderedMap, errs, warns *[]string) {
 		}
 		reportUnknownKeys(cfg, knownProviderKeys, path, errs)
 		validateProviderAPIKeyEnvRetired(cfg, path, errs, warns)
+		base, hasBase := cfg.Get("base_url")
+		endpoints, hasEndpoints := cfg.Get("endpoints")
+		// Closure rule 1 (zai OQ-Z6): the shorthand and the endpoint map are two ways to
+		// say where a protocol points, and one provider carrying both is an ambiguity no
+		// consumer could resolve. The refusal names `endpoints` because that is where a
+		// URL belongs once more than one protocol is in play.
+		if hasBase && base != nil && hasEndpoints && endpoints != nil {
+			add(errs, path+": base_url and endpoints are both set — base_url is the "+
+				"single-protocol shorthand and cannot be combined with it; move the URL "+
+				"into endpoints, under the protocol it speaks (zai-plumbing.md §5)")
+		}
 		if u, ok := cfg.Get("base_url"); ok && u != nil {
-			if !isStr(u) {
+			if s, isStrOk := asStr(u); !isStrOk {
 				add(errs, path+".base_url: expected a string")
+			} else if problem := providerURLProblem(s); problem != "" {
+				add(errs, path+".base_url: "+problem)
 			}
 		}
+		if hasEndpoints && endpoints != nil {
+			validateProviderEndpoints(endpoints, path, errs)
+		}
 		if w, ok := cfg.Get("wire_api"); ok && w != nil {
-			if !isStr(w) {
-				add(errs, path+".wire_api: expected a string")
-			}
+			validateWireAPI(w, path+".wire_api", errs)
 		}
 		if r, ok := cfg.Get("region"); ok && r != nil {
 			if !isStr(r) {
@@ -943,6 +958,86 @@ func validateProviders(config *jsonx.OrderedMap, errs, warns *[]string) {
 		if c, ok := cfg.Get("capabilities"); ok && c != nil {
 			validateStringList(c, path+".capabilities", errs)
 		}
+	}
+}
+
+// providerURLProblem returns what is wrong with a provider base_url, or "" when it is a
+// usable address: it must parse as an http or https URL and carry no userinfo.
+//
+// The userinfo half is the credential rule (profiles-as-pack-variants.md §4.3):
+// `https://user:tok@host/v1` is a credential in a git-tracked config file, and this rule
+// is the check. A base_url routes an ADDRESS; the credential travels by NAME through
+// api_key_env_name and is hydrated from env_sources. The scheme half is the same rule
+// pointed the other way — `file://` or a bare host is a fact about the local machine, not
+// about a service. packdecl's validateProviderEndpoints is this rule for the manifest
+// layer, where the file ships to strangers; here it stays on the machine, so only the
+// wording differs.
+func providerURLProblem(u string) string {
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return err.Error()
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Sprintf("must be an http or https URL (%s)", u)
+	}
+	if parsed.User != nil {
+		return fmt.Sprintf("must not carry userinfo — %q is a credential in a git-tracked "+
+			"file; name an env var in api_key_env_name and let env_sources hydrate it", u)
+	}
+	return ""
+}
+
+// validateProviderEndpoints checks one provider's per-protocol endpoint map: every
+// protocol names an endpoint object, whose base_url obeys providerURLProblem and whose
+// wire_api is in the closed vocabulary.
+//
+// The PROTOCOL names stay open. Which protocols any agent speaks is decided by the
+// resolution table (agentenv.agentProtocols) and by the derives in their own dialects, so
+// a protocol nobody speaks yet is inert rather than invalid — closing the names here would
+// make the config schema the one place a new protocol has to be registered, ahead of
+// anything that could consume it. The VALUES are schema, and an unknown key inside an
+// endpoint is refused for the same reason one at the provider level is: accepted one level
+// down, it would be inert where the user meant it to work.
+func validateProviderEndpoints(v any, path string, errs *[]string) {
+	endpoints, ok := asMap(v)
+	if !ok {
+		add(errs, path+".endpoints: expected an object")
+		return
+	}
+	for _, proto := range endpoints.Keys() {
+		epPath := path + ".endpoints." + proto
+		epV, _ := endpoints.Get(proto)
+		if epV == nil {
+			continue // null disables the protocol's endpoint
+		}
+		ep, ok := asMap(epV)
+		if !ok {
+			add(errs, epPath+": expected an object or null")
+			continue
+		}
+		reportUnknownKeys(ep, knownEndpointKeys, epPath, errs)
+		if u, ok := ep.Get("base_url"); ok && u != nil {
+			if s, isStrOk := asStr(u); !isStrOk {
+				add(errs, epPath+".base_url: expected a string")
+			} else if problem := providerURLProblem(s); problem != "" {
+				add(errs, epPath+".base_url: "+problem)
+			}
+		}
+		if w, ok := ep.Get("wire_api"); ok && w != nil {
+			validateWireAPI(w, epPath+".wire_api", errs)
+		}
+	}
+}
+
+// validateWireAPI checks the wire protocol a provider speaks. A closed vocabulary rather
+// than a free string because the value crosses verbatim into three agents' config files
+// (pi's `api`, codex's `wire_api`), where a typo surfaces later as a protocol error the
+// agent reports — the debugging nightmare
+// stringly-typed-references-principle.md §2 names. Rule 4, applied to a fixed slot.
+func validateWireAPI(w any, path string, errs *[]string) {
+	if !inStrList(providerWireAPIs, w) {
+		add(errs, fmt.Sprintf("%s: expected one of %s (got %s)",
+			path, pyListRepr(providerWireAPIs), pyReprValue(w)))
 	}
 }
 

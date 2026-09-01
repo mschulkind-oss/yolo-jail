@@ -83,6 +83,17 @@ var knownTopLevelConfigKeys = set(
 
 var ephemeralStorageModes = []string{"volume", "tmpfs"}
 
+// providerWireAPIs is the closed vocabulary of `wire_api` — at the provider level and
+// inside an endpoint alike (profiles-as-pack-variants.md §4.3). Sorted, because the
+// enum's error message lists it and the message is a frozen string. Four values, one per
+// wire shape a provider can speak; a fifth is a one-line addition here and nowhere else.
+var providerWireAPIs = []string{"anthropic", "openai-chat", "openai-completions", "responses"}
+
+// knownEndpointKeys is the census for ONE protocol's entry inside a provider's
+// `endpoints` map — the two keys a derive can consume, which is also what the
+// pack-declared form of an endpoint carries (packdecl.ProviderEndpoint).
+var knownEndpointKeys = set("base_url", "wire_api")
+
 var (
 	knownNetworkKeys     = set("mode", "ports", "forward_host_ports")
 	knownSecurityKeys    = set("blocked_tools")
@@ -95,8 +106,8 @@ var (
 	// now says so before the regex has to). Listed alongside its replacement so the
 	// rename message is the only error a config carrying the old spelling gets, the
 	// `agent_profiles` convention above.
-	knownProviderKeys = set("base_url", "wire_api", "api_key_env_name", "api_key_env",
-		"models", "region", "capabilities")
+	knownProviderKeys = set("base_url", "endpoints", "wire_api", "api_key_env_name",
+		"api_key_env", "models", "region", "capabilities")
 	knownDeviceKeys    = set("usb", "description", "cgroup_rule")
 	knownResourcesKeys = set("memory", "cpus", "pids_limit")
 	// knownHostServiceKeys is the INLINE loophole entry's key census. It must
