@@ -224,6 +224,82 @@ func TestCopilotFlagsInjectFromItsRealDeclaration(t *testing.T) {
 	}
 }
 
+// TestBedrockProfilePatchesItsOwnSettingsEnv ports the config-surface half of the payload
+// split (profiles-as-pack-variants.md §5, D8, OQ-16) onto the declaration that ships it:
+// the NON-SECRET half of a profile routes into the pack's own config file as well as the
+// process env, because the settings env block is honored before the first API call (OQ-4,
+// measured 2026-08-31) while process env needs yolo in the launch path — a bare `claude`,
+// cron, or an IDE's absolute path gets nothing from env alone.
+//
+// The bedrock profile is the shipped instance: CLAUDE_CODE_USE_BEDROCK into the env block
+// of the claude/settings surface packs/claude itself owns, so the variant survives an
+// invocation yolo did not launch. The mechanism is already pinned by
+// TestProfileConfigFoldsAfterAutonomy on a synthetic fixture; this pins the DECLARATION,
+// which is the half that can silently rot — the profile shipped env-only for its whole
+// first day because nothing asked the real manifest what it folded.
+func TestBedrockProfilePatchesItsOwnSettingsEnv(t *testing.T) {
+	var claude *packload.Pack
+	for _, p := range loadAll(t) {
+		if p.Name == "claude" {
+			claude = p
+		}
+	}
+	if claude == nil {
+		t.Fatal("the claude pack did not materialize")
+	}
+
+	surfaces, probs := claude.SurfacesFor(true, map[string]string{"claude": "bedrock"})
+	if len(probs) != 0 {
+		t.Fatalf("folding the bedrock profile raised problems: %v", probs)
+	}
+	var env map[string]any
+	for i := range surfaces {
+		if surfaces[i].Key().String() != "claude/settings" {
+			continue
+		}
+		m := surfaces[i].ManagedMap()
+		var ok bool
+		if env, ok = m["env"].(map[string]any); !ok {
+			t.Fatalf("the composed claude/settings managed layer carries no env block: %+v", m)
+		}
+	}
+	if env == nil {
+		t.Fatal("packs/claude declares no claude/settings surface to fold into")
+	}
+	if env["CLAUDE_CODE_USE_BEDROCK"] != "1" {
+		t.Errorf("with the bedrock profile selected, the settings env block must carry "+
+			"CLAUDE_CODE_USE_BEDROCK — the half that survives an invocation yolo did not "+
+			"launch: %+v", env)
+	}
+
+	// The payload split's other half: what composes from provider VALUES stays
+	// env-delivered. AWS_REGION and the ANTHROPIC_* model ids are the provider entry's
+	// own facts (env_shape composes them at launch), and a literal here would be a second
+	// copy of a fact packs/claude's provider declaration already owns.
+	for _, k := range []string{
+		"AWS_REGION", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL",
+	} {
+		if _, present := env[k]; present {
+			t.Errorf("%s must stay env-delivered (composed from the provider at launch), not "+
+				"hand-copied into the settings patch: %+v", k, env)
+		}
+	}
+
+	// The discriminator: without the variant selected the key is absent — pinning that
+	// the patch rides the PROFILE and not the pack's static managed layer, where it would
+	// switch Bedrock on for users who never chose the variant.
+	base, _ := claude.SurfacesFor(true, nil)
+	for i := range base {
+		if base[i].Key().String() != "claude/settings" {
+			continue
+		}
+		if m := base[i].ManagedMap(); m["env"] != nil {
+			t.Errorf("an unselected profile must fold nothing into the env block: %+v", m["env"])
+		}
+	}
+}
+
 // TestNativeInstallerURLsAreLive fetches every shipped installerUrl and asserts it still
 // serves a shell script.
 //

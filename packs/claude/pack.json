@@ -129,6 +129,19 @@
       "name": "bedrock"
     },
     {
+      "config": [
+        {
+          "agent": "claude",
+          "codec": "json",
+          "managed": {
+            "env": {
+              "CLAUDE_CODE_USE_BEDROCK": "1"
+            }
+          },
+          "name": "settings",
+          "path": "~/.claude/settings.json"
+        }
+      ],
       "env": {
         "CLAUDE_CODE_USE_BEDROCK": "1"
       },
