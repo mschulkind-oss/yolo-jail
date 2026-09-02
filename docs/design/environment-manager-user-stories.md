@@ -1,8 +1,10 @@
 # User Stories: meeting yolo when it manages the environment, not just the box
 
 **Status:** STORIES + OPEN QUESTIONS, written 2026-07-27; **re-verified against the tree
-2026-08-23.** Most of the verbs the stories exercise **have since shipped** (`apply`, `apply
---host`, `apply --sealed`, `describe`, `check-deps`, the `confinement` key — env-manager plan
+2026-08-23, anchors repinned 2026-09-02.** Most of the verbs the stories exercise **have since
+shipped** (`apply`, `yolo host apply` — the `apply --host` spelling this line used to name was
+REMOVED outright by `e23df4aa`, 2026-08-30 — `apply --sealed`, `describe`, `check-deps`, the
+`confinement` key — env-manager plan
 Phases 0–6, 8, 9), and **all three "live defects" (G1, G2, G3) are FIXED**. Every gap below now carries
 a dated verdict; read those before hunting for a bug. **Eleven questions are still live**
 (Q1 · Q1a · Q1b · Q2–Q9, below); **Q1 is the closure question and the biggest one in the
@@ -174,7 +176,7 @@ when the definition does not bind. If yolo's answer to "is this the environment 
    >
    > **What HAS shipped:** `yolo apply --sealed` now refuses while any capture is outstanding
    > (`applySealed`, `internal/cli/apply.go:617-651`; tests `internal/cli/describe_test.go:264-287`).
-   > **What has NOT:** `yolo config promote` (plan Phase 5.3). The refusal message at `apply.go:635`
+   > **What has NOT:** `yolo config promote` (plan Phase 5.3). The refusal message at `apply.go:648-652`
    > tells the user to "promote them into a pack" — advice for a verb that does not exist. The only
    > shipped remedy is `yolo config reset`. That is precisely the half of Q1's leaning still owed.
    >
@@ -226,7 +228,7 @@ when the definition does not bind. If yolo's answer to "is this the environment 
    > [!NOTE]
    > **Decided and shipped as a FLAG — verified 2026-08-23.** The design doc §3.3 rules
    > "`--sealed` is an opt-in flag, not the default, and the split is the point," and the code
-   > agrees: `internal/cli/apply.go:69-70,101-102`. Maya's complaint therefore stands as written —
+   > agrees: `internal/cli/apply.go:67-68,99-100`. Maya's complaint therefore stands as written —
    > the guarantee is off until she asks. **Q1a is not closed by this**, because its leaning was a
    > *third* option (default-on in CI/non-TTY, flag-on interactively) and nothing in `applySealed`
    > consults TTY-ness.
@@ -710,7 +712,7 @@ agent that believes it is disposable when it is not will take a disposable agent
    > **Overtaken by two separate shipments — verified 2026-08-23.**
    >
    > 1. **The briefing now states the notch (plan Phase 8.1, shipped).** `confinementHeader`
-   >    (`internal/jailcontent/briefing.go:86-170`, called at `:287`) emits a per-notch opening
+   >    (`internal/jailcontent/briefing.go:122-181`, called at `:307`) emits a per-notch opening
    >    block with a dedicated `host` body at `:124` (*"this is the human's REAL…"*) and a `guest`
    >    body at `:133`, plus a derived enforcement tail (`enforcementLines`, `:171`). Step 1's
    >    "different first 40 lines of context" is substantially real; the story's *"every
@@ -989,7 +991,7 @@ saying what moved and what the question still decides. **IDs are cited from
    (`internal/cli/apply.go:617-651`) — that is the "sealing refuses" clause. But **`yolo config
    promote` does not exist** (`internal/cli/config.go:33-60`: `ls, render, diff, reset, capture,
    drift, dump`), so capture is still a *winning layer* with no promotion path, and the refusal
-   message at `apply.go:635` advises a verb that is not there. Two corrections to the question's
+   message at `apply.go:648-652` advises a verb that is not there. Two corrections to the question's
    premise, neither of which retires it: capture loses to `computed`/`transform`/`managed`
    (`internal/agentcfg/compose.go:357-379`), so "outranks every declared layer" is true only of
    the lower half of the stack; and the closure hole is now *detectable* even though it is not
@@ -1010,7 +1012,7 @@ saying what moved and what the question still decides. **IDs are cited from
    promote verb, or the interactive notice is just the boot banner again — visible and unbinding.
 
    _Shipped since (2026-08-23):_ **it shipped as a plain flag, defaulting off** — parsed at
-   `internal/cli/apply.go:69-70`, dispatched at `:101-102`, and the design doc §3.3 argues for
+   `internal/cli/apply.go:67-68`, dispatched at `:99-100`, and the design doc §3.3 argues for
    exactly that. The question is **not** thereby closed: its leaning proposed a third shape
    (default-on when non-TTY, flag-on interactively, with the interactive path *printing* the
    open-closure summary), and `applySealed` consults no TTY state at all. So today the flag is
@@ -1099,7 +1101,7 @@ saying what moved and what the question still decides. **IDs are cited from
    missing, halt. Cheap, and it fails in the safe direction. Rename `jail-startup` while doing it.
 
    _Shipped since (2026-08-23):_ **the generator states the notch; the artifact still does not
-   carry it.** `confinementHeader` (`internal/jailcontent/briefing.go:86-170`) emits a per-notch
+   carry it.** `confinementHeader` (`internal/jailcontent/briefing.go:122-181`) emits a per-notch
    header with distinct `host` (`:124`) and `guest` (`:133`) bodies — plan Phase 8.1. But nothing
    stamps the rendered file with a hash or asserts it at startup, so a `host` briefing left on
    disk and read inside a jail is still unremarked. **The rename clause is moot:** there is no
@@ -1176,7 +1178,7 @@ saying what moved and what the question still decides. **IDs are cited from
    (`internal/render/modes.go:185`). Meanwhile the three-notch vocabulary **is** user-facing:
    `confinement: jail|guest|host` validates (`internal/config/confinement.go:65-79`), `apply --at
    guest` parses, `describe` prints the notch, and the briefing has a `guest` body
-   (`internal/jailcontent/briefing.go:133`). The leaning's precondition — *"do not ship the
+   (`internal/jailcontent/briefing.go:143`). The leaning's precondition — *"do not ship the
    three-notch vocabulary until `guest` renders on at least one platform"* — was overtaken by G3
    landing on macOS 2026-08-12, but that platform's staging remains **UNVERIFIED on real hardware**
    (`docs/design/macos-user-nix-and-features.md:174`). So Q7's real question today is narrower and
