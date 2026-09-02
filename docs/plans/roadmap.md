@@ -696,7 +696,7 @@ whether it may carry the placeholder vocabulary `env_shape` already has.
 ### 💬 19 — A catalog and a selection are two features, and only one of them ships
 
 📄 [`provider-catalog-and-selection.md`](../design/provider-catalog-and-selection.md) —
-**OQ-CS3 · OQ-CS5 · OQ-CS7 · OQ-CS8 · OQ-CS9** open · ~~OQ-CS1~~ ~~OQ-CS2~~ ~~OQ-CS4~~ ~~OQ-CS6~~ ruled · sibling to 💬 **18**, which reports defects in the same machinery ·
+**OQ-CS3 · OQ-CS5 (scope) · OQ-CS7 · OQ-CS8** open · ~~OQ-CS1~~ ~~OQ-CS2~~ ~~OQ-CS4~~ ~~OQ-CS6~~ ruled · sibling to 💬 **18**, which reports defects in the same machinery ·
 splits what [`zai-plumbing.md`](../design/zai-plumbing.md) §5 assumed was one thing
 
 **The maintainer's own framing, 2026-09-01:** *"populating a directory of providers in an agent
@@ -792,9 +792,26 @@ semantics to save one field. The residual case is honest and unresolved — a va
 customized profile would restate everything — but no profile in the tree has more than one option
 yet, so that evidence does not exist.
 
-**What remains is OQ-CS3 (which model a selection picks), OQ-CS5 (scope and the selection key's
-name), OQ-CS7 (what validation a provider-declared option gets — I lean against the provider's own
-declaration and nothing else), OQ-CS8, OQ-CS9, and the research gap below.**
+**Both ruled: `use_profiles`, and (a).** The selection key becomes **`use_profiles`** — *"use profile
+zai-fast for claude"* — so the config reads `profiles` for what a profile IS and `use_profiles` for
+which CLI uses it, with no two keys that sound alike. And **profiles POINT at a provider; no
+`extends`** (OQ-CS9): provider-declared option defaults already remove the duplication inheritance
+would fix, and the residual case (a variant of a heavily customized profile) is recorded as the
+evidence that would reopen it, which does not exist yet.
+
+**The rename is one step, not two, by the maintainer's own precedent.** `pack_profiles` landed
+2026-08-31 and `v0.8.0` is dated 2026-08-13, so the intermediate name **has never been in a
+release** — it gets no deprecation path and becomes an ordinary unknown key, exactly as
+`api_key_env` did this morning. `agent_profiles` KEEPS its by-name message, because that spelling is
+in every host-generated jail snapshot in existence. Size on the record before scheduling: **92
+non-test occurrences** of `pack_profiles`/`YOLO_PACK_PROFILES`/`PackProfiles` across 12+ files plus
+88 in tests — a config key, an env var, a Lua `ctx` field the derives read, and the Go identifiers
+between them. Mechanical, but its own commit.
+
+**What remains is OQ-CS3 (which model a selection picks), OQ-CS5's SCOPE half (I lean user-scope
+only for both keys, same as `packs`, since a profile steers which endpoint an agent talks to — the
+honest cost is that a repo cannot ship "use this model here"), OQ-CS7 (what validation a
+provider-declared option gets), OQ-CS8, and the research gap below.**
 
 **Measured in a live jail today**, `packs: ["claude","zai"]` with `providers.zai` set:
 

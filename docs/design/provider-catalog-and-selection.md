@@ -40,7 +40,7 @@ solved), [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) (the par
 | | **Catalog** | **Selection** |
 | :--- | :--- | :--- |
 | The want | "my agents should know z.ai exists" | "start this agent using z.ai" |
-| Natural trigger | a provider entry being **present** | an explicit act — `-p zai`, `pack_profiles` |
+| Natural trigger | a provider entry being **present** | an explicit act — `-p zai`, `use_profiles` |
 | Scope | every agent that speaks a protocol the provider offers | the agent(s) being launched |
 | Lifetime | durable — it is a directory | per-launch |
 | Ships today | ✅ all four agents | ⚠️ **claude only** |
@@ -345,7 +345,7 @@ name resolves to a provider that does not exist):
   "profiles": {
     "zai-fast": { "provider": "zai", "model": "fast" }       // NEW name, SAME provider
   },
-  "pack_profiles": { "claude": "zai-fast" }                  // or: yolo -p zai-fast
+  "use_profiles": { "claude": "zai-fast" }                   // or: yolo -p zai-fast
 }
 ```
 
@@ -473,7 +473,7 @@ and the names hide that, which is a fair reason to distrust them.
 | | Holds | Keyed by | Lifetime |
 | :--- | :--- | :--- | :--- |
 | **declaration** (`profiles`) | *what a profile IS* — provider + options | profile name | durable |
-| **selection** (`pack_profiles`) | *which profile each CLI uses* | **CLI name** | per-launch intent, persisted |
+| **selection** (`use_profiles`, `pack_profiles` today) | *which profile each CLI uses* | **CLI name** | per-launch intent, persisted |
 
 The split is the same one §1 draws between catalog and selection, one level up: a declaration is
 inert until something selects it, and a selection is a pointer, not a definition. Merging them
@@ -487,9 +487,27 @@ always CLI names and core knows packs, not agents"* — which is true about `age
 `pack` right. The rename traded one wrong word for another, and putting `profiles` beside it now
 would leave two keys that read as synonyms and are not.
 
-_Leaning:_ rename the selection key to say what it does — `use_profile: { claude: "zai" }`, which
-reads as *"use profile zai for claude"* and cannot be mistaken for the declaration map. That is
-OQ-CS5's second half; the scope question is its first.
+**RULED 2026-09-01: the selection key becomes `use_profiles`.**
+
+```jsonc
+{ "profiles":     { "zai-fast": { "provider": "zai", "model": "fast" } },   // what it IS
+  "use_profiles": { "claude": "zai-fast" } }                               // which CLI uses it
+```
+
+It reads as *"use profile zai-fast for claude"* and cannot be mistaken for the declaration map.
+**And the migration is ONE step, not two**, which is the maintainer's own `api_key_env` precedent
+applied a second time. `pack_profiles` landed 2026-08-31 and `v0.8.0` is dated 2026-08-13, so **the
+intermediate name has never been in a release** — nothing outside this machine has ever written it.
+So it gets no deprecation path and becomes an ordinary unknown key, exactly as `api_key_env` did.
+What *keeps* its by-name rename message is `agent_profiles`, because that spelling IS out there: it
+is in every host-generated jail snapshot in existence. The rule both cases follow: **a retired-key
+message is for a spelling users have, not for one that was briefly in the tree.**
+
+**The rename is not free and the size should be on the record before it is scheduled**: 92 non-test
+occurrences of `pack_profiles` / `YOLO_PACK_PROFILES` / `PackProfiles` across 12+ files, plus 88 in
+tests (counted 2026-09-01). It crosses a config key, an env var, a Lua `ctx` field the derives read,
+and the Go identifiers between them — so it is one mechanical commit rather than a hard one, but it
+is not a one-liner and it should not ride another change.
 
 ---
 
@@ -551,20 +569,21 @@ unrelated to the sequence above.
    an instance of it; the agent's derive decides where each option lands. My leaning — fix the field
    set at two and defer — is overruled. Folded into §5.2.
 
-4. 💬 **OQ-CS5: Where do user-declared profiles live, at what scope, and what is the selection key
-   called?** §5.2's examples assume a top-level `profiles` key beside `pack_profiles` — declaration
-   and selection kept separate, since one is durable and the other per-launch. Two sub-questions:
-   the **scope** (`packs` is user-scope only, because a workspace config travels with the repo and
-   is agent-editable), and the **name** — §5.4 shows `pack_profiles` names neither packs nor
-   profiles, and standing it next to `profiles` would put two near-synonyms in one config.
+4. 💬 **OQ-CS5: At what SCOPE do user-declared profiles live?** *(The naming half is RESOLVED,
+   2026-09-01: the selection key becomes **`use_profiles`**, `pack_profiles` retired by name — §5.4.
+   What is left is the scope, deliberately not read into that answer, because it is the half with a
+   security consequence.)*
 
-   _Leaning:_ A separate top-level `profiles` key, **user-scope only**, for the same reason `packs`
-   is — and rename the selection key to `use_profile`, which says what it does and cannot be read as
-   the declaration map. A profile names a provider and therefore steers which endpoint an agent talks to; a repo
-   that could set that could point its own agent at a service the user never chose. Merging
-   declaration into `pack_profiles`' values (making them objects as well as strings) is the
-   tempting alternative and I would not take it — it overloads one key with a durable declaration
-   and a per-launch selection, which is the exact conflation this doc exists to undo.
+   A profile names a provider and therefore steers **which endpoint an agent talks to**. `packs` is
+   already user-scope only, on the reasoning that a workspace config travels with the repo and is
+   agent-editable.
+
+   _Leaning:_ **User-scope only, same as `packs`, for both keys.** A repo that could declare a
+   profile could point its own agent at a service the user never chose — and a repo that could
+   *select* one could activate a profile the user declared for something else. The cost is that a
+   project cannot ship "use this model for this repo", which is a real want and the honest argument
+   against; my answer is that it is the same want `packs` already refuses, and refusing it in one
+   place and allowing it in another is worse than either rule consistently applied.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -621,36 +640,15 @@ unrelated to the sequence above.
    > _(empty — fill in when decided)_
 
 
-9. 💬 **OQ-CS9: Does a profile point at a provider, inherit from another profile, or both?** *"Should
-   new profiles point to a provider? Or copy and override another profile? Option for both?"* Three
-   shapes for `zai-fast`:
+9. ✅ **OQ-CS9: Does a profile point at a provider, inherit from another profile, or both? —
+   RESOLVED (2026-09-01). Point only — option (a).** No `extends`, no inheritance semantics to
+   define. A provider declares its options with defaults (OQ-CS4), so a profile states only what it
+   changes and there is little left to duplicate. The residual case — a variant of a heavily
+   customized profile, which would restate every option — is recorded as the evidence that would
+   reopen this, and it does not exist yet because no profile in the tree carries more than one
+   option. Same-NAME merging (a user's `zai` over a pack's `zai`, per field) is unaffected: that is
+   a different feature and it stays.
 
-   ```jsonc
-   // (a) provider-pointing only
-   { "zai-fast": { "provider": "zai", "model": "fast" } }
-   // (b) inheritance
-   { "zai-fast": { "extends": "zai", "model": "fast" } }
-   // (c) both accepted
-   ```
-
-   _Leaning:_ **(a) only, and the reason is that OQ-CS4 already removed most of (b)'s value.** A
-   provider declares its options *with defaults*, so a profile states only what it CHANGES — `zai` is
-   `{provider: "zai"}` and `zai-fast` is `{provider: "zai", model: "fast"}`. Neither restates the
-   defaults, so the duplication `extends` exists to remove is mostly not there. What (a) costs is one
-   repeated field; what (b) costs is inheritance semantics — cycles, chains, and what "override"
-   means for a nested value — which is a lot of machinery to save `"provider": "zai"`.
-
-   **The residual case is real and I would not pretend otherwise:** a variant of a *heavily
-   customized* profile. If a user sets six options on `zai` and wants `zai-fast` to be that plus one
-   change, (a) makes them restate six. That is the evidence that would justify `extends`, and it is
-   evidence we do not have yet — no profile in the tree has more than one option, because the option
-   mechanism is unbuilt. Ship (a), and let a real profile that hurts to copy be the argument for (b).
-
-   *(Note that same-NAME merging already exists and is a different thing: a user declaring `zai`
-   over a pack's `zai` merges per field, §5.2. What (b) would add is copy-under-a-DIFFERENT-name.)*
-
-   **Answer:**
-   > _(empty — fill in when decided)_
 
 ---
 
@@ -662,6 +660,8 @@ folded into the section named in the last column.
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-CS1 | **Option D** — catalog from presence, selection written into each agent's own selection key. *"Activating a profile should work for all."* B (gating the catalog) rejected with it. | 2026-09-01 | §5, §5.1 |
+| OQ-CS5 *(naming half)* | **The selection key becomes `use_profiles`**; `pack_profiles` retired by name — it named neither packs nor profiles, its keys being CLI names. The scope half stays open. | 2026-09-01 | §5.4 |
+| OQ-CS9 | **Profiles POINT at a provider; no `extends`.** Provider-declared option defaults already remove the duplication inheritance would fix; same-name merging is a separate feature and stays. | 2026-09-01 | §5.2, §5.4 |
 | OQ-CS4 | **A provider declares an `options` block; a profile is an instance of it** — *"model can't be the only config we'll want."* The derive decides where each option lands; core learns no option names. Supersedes the fixed two-field draft. | 2026-09-01 | §5.2 |
 | OQ-CS6 | **OQ-5's free-form profile names are SUPERSEDED** — declaration is mandatory, and an undeclared name is a reportable error, not a silent no-op. *"Reversing old decisions is fine."* | 2026-09-01 | §5.2 property 3 |
 | OQ-CS2 | **Never write the selection key when no profile is active** — *"default can be left to the specific agent."* The no-profile case is the agent's own, and a written default would revert an interactive choice each boot. | 2026-09-01 | §5.1 |
