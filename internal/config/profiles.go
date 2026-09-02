@@ -5,13 +5,16 @@ package config
 // provider, user intent over a surface the provider defines).
 //
 // SCOPE, and it is the same security model `packs` runs (packs.go's header carries the
-// full argument, OQ-CS5 ruled it for this key too): USER-SCOPE ONLY, read from
-// paths.UserConfigPath() DIRECTLY rather than from the merged config, so workspace scope
-// is inexpressible by construction. The reason is one sentence long: a workspace config
+// full argument, OQ-CS5 ruled it for BOTH keys — `profiles` and the `use_profiles`
+// selector it defines, the pair this file's validateProfiles refuses at workspace
+// scope): USER-SCOPE ONLY. `profiles` is read from paths.UserConfigPath() DIRECTLY
+// rather than from the merged config, so workspace scope is inexpressible by
+// construction; `use_profiles` is read from the merged map by the launch (assemble's
+// effectiveUseProfiles), so a workspace spelling there is a REFUSAL rather than an
+// impossibility. The reason is one sentence long and covers the pair: a workspace config
 // travels with the repo and is agent-editable, and a profile steers which ENDPOINT and
 // which MODEL an agent talks to — the steering a committed, agent-writable file may not
-// do. This file is where the ruling lands, and validateProfiles is what makes a
-// workspace spelling a hard error rather than a silently inert key.
+// do, whether it does it by declaring the profile or by switching it on.
 //
 // This file LOWERS only. It decides that an entry is well-formed — an object naming a
 // provider, with string option values — and nothing else: what an option MEANS is the
@@ -138,6 +141,14 @@ func checkProfileEntry(name string, raw any) (packload.UserProfile, string) {
 // launch, so a profile that cannot lower refuses the launch instead of silently not
 // existing (the OQ-CS6 failure mode, one layer up).
 //
+// It owns the SCOPE half of BOTH profile keys (OQ-CS5 — user scope only, both of them,
+// the same rule `packs` follows): `profiles` is what a profile declares, `use_profiles`
+// is what activates one, and a workspace config may write neither, because activating a
+// profile steers the endpoint and the model an agent talks to exactly as declaring one
+// does. `use_profiles` is the reason this is a refusal rather than a construction: the
+// selection is read off the merged config (assemble.effectiveUseProfiles), so a
+// workspace spelling would have taken effect, and only this check stops it.
+//
 // It reads the USER config and the WORKSPACE config separately, never the merged map —
 // validatePacks is the pattern and the reason is stated there: in the merged map a
 // `profiles` key from either scope looks the same, and only the workspace one is wrong.
@@ -155,11 +166,27 @@ func validateProfiles(workspace string, errs *[]string) {
 	if err != nil || wsCfg == nil {
 		return
 	}
-	if _, atWorkspace := wsCfg.Get(profilesKey); atWorkspace {
-		add(errs, "config."+profilesKey+": user-scope only — move it to "+
-			"~/.config/yolo-jail/config.jsonc. A workspace config travels with the repo "+
-			"and is agent-editable, so it cannot decide which provider an agent talks to "+
-			"— a profile steers the endpoint and the model an agent uses, which is "+
-			"exactly the steering a committed, agent-writable file must not do.")
+	for _, key := range []string{profilesKey, useProfilesKey} {
+		if _, atWorkspace := wsCfg.Get(key); atWorkspace {
+			add(errs, userScopeOnlyMessage(key))
+		}
 	}
+}
+
+// useProfilesKey is the top-level config key that ACTIVATES a profile per CLI. It lives
+// beside profilesKey because the two share one scope rule and one refusal.
+const useProfilesKey = "use_profiles"
+
+// userScopeOnlyMessage is the ONE workspace-scope refusal both profile keys give. The
+// shape is validatePacks' (the key that drew the boundary first), and the reason is
+// shared rather than restated per key: a profile steers which provider an agent talks
+// to, and the workspace file is the committed, agent-editable one — declaring the
+// profile and activating it are two spellings of the same steering, so they get the same
+// words with the key name swapped.
+func userScopeOnlyMessage(key string) string {
+	return "config." + key + ": user-scope only — move it to " +
+		"~/.config/yolo-jail/config.jsonc. A workspace config travels with the repo " +
+		"and is agent-editable, so it cannot decide which provider an agent talks to " +
+		"— a profile steers the endpoint and the model an agent uses, which is " +
+		"exactly the steering a committed, agent-writable file must not do."
 }

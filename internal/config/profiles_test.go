@@ -71,10 +71,70 @@ func TestValidateProfilesRejectsWorkspaceScope(t *testing.T) {
 	}
 }
 
+// TestValidateProfilesRejectsWorkspaceScopeForBothKeys is OQ-CS5's ruling as an
+// assertion: USER SCOPE ONLY, BOTH keys. `profiles` declares what a profile is and
+// `use_profiles` switches one on, and the second is the dangerous half to have missed —
+// it is read off the MERGED config by the launch, so a workspace spelling did not sit
+// inert the way a workspace `profiles` does, it took effect. Same refusal both ways, and
+// the message names the file to move it to, because that is the whole fix.
+func TestValidateProfilesRejectsWorkspaceScopeForBothKeys(t *testing.T) {
+	home := t.TempDir()
+	ws := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{}`)
+	write(t, filepath.Join(ws, WorkspaceConfigName),
+		`{"profiles": {"zai": {"provider": "zai"}}, "use_profiles": {"claude": "zai"}}`)
+
+	errs, _ := ValidateConfig(decode(t, `{}`), ws, nil)
+	for _, key := range []string{profilesKey, useProfilesKey} {
+		found := ""
+		for _, e := range errs {
+			if strings.HasPrefix(e, "config."+key+":") {
+				found = e
+			}
+		}
+		if found == "" {
+			t.Errorf("no config.%s error; got %v", key, errs)
+			continue
+		}
+		for _, want := range []string{"user-scope only", "~/.config/yolo-jail/config.jsonc"} {
+			if !strings.Contains(found, want) {
+				t.Errorf("config.%s error %q missing %q", key, found, want)
+			}
+		}
+		// ONE message for the pair, the key name swapped: the two keys are one boundary,
+		// and two wordings of a boundary is how the boundary stops being one.
+		if !strings.Contains(found, "a profile steers the endpoint and the model an agent uses") {
+			t.Errorf("config.%s error is not the shared user-scope text: %q", key, found)
+		}
+	}
+}
+
+// TestValidateProfilesAcceptsBothKeysAtUserScope is the inverse pin: the ruling limits
+// SCOPE, not the keys. A user config may declare a profile and select it in the same
+// file, and nothing here may refuse that — the launch is where the declared name is
+// resolved, not where the user is told they cannot have one.
+func TestValidateProfilesAcceptsBothKeysAtUserScope(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"profiles": {"zai-fast": {"provider": "zai", "model": "fast"}},`+
+			` "use_profiles": {"claude": "zai-fast"}}`)
+
+	errs, _ := ValidateConfig(decode(t, `{}`), t.TempDir(), nil)
+	for _, e := range errs {
+		if strings.Contains(e, "profiles") {
+			t.Errorf("both keys at user scope must validate clean, got %q", e)
+		}
+	}
+}
+
 // TestValidateProfilesAcceptsTheBriefsEntry is the shape the whole step exists for: a
-// new profile name over a shipped provider, stating one option. No pack declares
-// `options` yet, so the entry must lower clean HERE — the census, if any, is the
-// provider's to impose later, in packload.ResolveProfiles.
+// new profile name over a shipped provider, stating one option. The entry must lower
+// clean HERE — the option-name census, if any, is the provider's to impose later, in
+// packload.ResolveProfiles, which is what reads the composed table.
 func TestValidateProfilesAcceptsTheBriefsEntry(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

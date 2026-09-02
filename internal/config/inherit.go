@@ -129,10 +129,15 @@ var inheritCensus = map[string]keyDisposition{
 	"mcp_presets": {preflight: true, nested: true, reason: "MCP presets the check dry-run resolves and an inner launcher passes on"},
 	"lsp_servers": {preflight: true, nested: true, reason: "LSP servers installed in the jail; the check dry-run renders their config"},
 	"providers":   {preflight: true, nested: true, reason: "cloud provider declarations for agent configuration and nested launches"},
-	// `profiles` is user-scope-only BY CONSTRUCTION, exactly like `packs` two entries up
-	// (config/profiles.go reads the user file directly), so it too can only arrive through
-	// this file: the host CLI resolves the entries into the YOLO_PROFILES table for THIS
-	// jail, and an inner launcher composes the same table for the jail it spawns.
+	// `profiles` and `use_profiles` are user-scope-only (OQ-CS5 ruled BOTH keys), exactly
+	// like `packs` three entries up — so a workspace spelling can never reach the render
+	// that this census classifies, because the launch refuses it first. The two keys
+	// arrive here differently, which is the distinction worth recording: `profiles` is
+	// user-scope-only BY CONSTRUCTION (config/profiles.go reads the user file directly),
+	// while `use_profiles` is read off the merged config and is user-scope-only BY
+	// REFUSAL (config.validateProfiles errors on a workspace spelling). The host CLI
+	// resolves both into the YOLO_PROFILES/YOLO_USE_PROFILES tables for THIS jail, and an
+	// inner launcher composes the same tables for the jail it spawns.
 	"profiles":              {preflight: true, nested: true, reason: "user-declared profiles over provider-declared options; the launch resolves them into YOLO_PROFILES here and in nested launches"},
 	"use_profiles":          {preflight: true, nested: true, reason: "active CLI-to-profile-name selections for this jail and nested launches (keys are CLI names: core knows packs, not agents)"},
 	"required_capabilities": {preflight: true, nested: true, reason: "required capabilities validated at pre-flight and passed to nested launches"},
