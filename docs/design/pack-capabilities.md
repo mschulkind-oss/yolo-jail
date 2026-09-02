@@ -363,9 +363,22 @@ delivers; a contribution that contributes nothing is a category error. **(B) str
 the thing that *is* a contribution is the loophole; `supersedes` staying top-level keeps the two
 visibly different.
 
-**The one-line residue is work, not a question:** the leaning's second half — `yolo pack footprint`
-taught to print `supersedes` — is still unbuilt (verified 2026-09-02: `internal/cli/pack.go`
-mentions supersession nowhere). It is queued as a small repair on the roadmap.
+**There is no residue: the leaning's second half was already built too.** This paragraph claimed
+`yolo pack footprint` still had to be taught to print `supersedes`, *"verified 2026-09-02:
+`internal/cli/pack.go` mentions supersession nowhere."* **That negative is textually true and
+behaviourally false**, and it is worth keeping as the cautionary example. The line has printed since
+`d776c902` (2026-08-15): `packload.FootprintOf` appends a `SupersedesClaimKind` claim
+(`internal/packload/footprint.go:292-297`) and `printClaimLines` formats `string(c.Kind)`
+generically (`internal/cli/pack.go:566`), so the CLI renders it **without ever containing the
+word** — which is exactly why grepping the CLI for the feature name found nothing. Measured output:
+`supersedes  claude-oauth-refresh  retires the loophole serving it — …`.
+
+**A grep for a feature's name cannot see a generic renderer.** The only thing genuinely missing was
+a test at the surface this ruling names — `packload`'s existing test asserts the `Claim` struct one
+layer below the output — and that landed 2026-09-02 as
+`TestSupersedesPrintsAtBothInspectionCommands` (`internal/cli/packsupersedes_test.go`),
+mutation-verified against both the emit loop and a `KnownKind` filter in the renderer. **OQ-CAP is
+closed outright, with nothing queued.**
 
 **Answer:**
 > _(empty — fill in when decided)_

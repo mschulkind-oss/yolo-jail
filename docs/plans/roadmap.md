@@ -30,9 +30,11 @@ in.
 >   file.
 > - **💬 12 (OQ-CAP + OQ-B)** — OQ-CAP was a confirmation of a decision the code had already built
 >   and pinned (`supersedes` top-level; the alternative is test-refused), now compacted into
->   [`pack-capabilities.md`](../design/pack-capabilities.md) §10. Its one-line residue is queued
->   under Small repairs. OQ-B folds into 💬 8, whose row already said the four `0o444`-vs-`:ro`
->   instances are one decision.
+>   [`pack-capabilities.md`](../design/pack-capabilities.md) §10 — and on 2026-09-02 the "one-line
+>   residue" this row queued turned out to be shipped too, since `d776c902` (2026-08-15): the audit
+>   grepped the CLI for the word *supersede* and missed a generic renderer. OQ-CAP is closed with
+>   nothing owed; a surface test now pins it. OQ-B folds into 💬 8, whose row already said the four
+>   `0o444`-vs-`:ro` instances are one decision.
 >
 > **The same audit found the census had a 26th row nobody had written** — pack-shipped `derive.lua`
 > runs ungated for every origin, in-jail and now at host launch with real credential-bearing inputs
@@ -839,8 +841,11 @@ it is the largest.
     is worst (`splitNpmSpec` is deliberately verbatim; `packdecl` checks presence only). Refuse the
     shapes npm itself refuses — whitespace, quotes, `@@` — and nothing stricter, which dissolves
     the old "how strict" hesitation.
-  - **`yolo pack footprint` prints `supersedes`** — the one-line residue of OQ-CAP, which is now
-    settled in [`pack-capabilities.md`](../design/pack-capabilities.md) §10.
+  - ~~**`yolo pack footprint` prints `supersedes`**~~ — **not work at all: already shipped**
+    (`d776c902`, 2026-08-15). This bullet existed because the audit grepped `internal/cli/pack.go`
+    for *supersede* and found nothing, while the claim reaches the output through
+    `packload.FootprintOf` and a renderer that formats `string(c.Kind)` generically. Closed
+    2026-09-02 with a surface test instead of a feature.
 
 - 📦 **Minimal disk footprint — OQ-5's ruling, which is broader than the tars.** 📄
   [`minimal-disk-footprint.md`](../design/minimal-disk-footprint.md). The ruling is *"bug, for sure …
