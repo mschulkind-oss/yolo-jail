@@ -406,12 +406,15 @@ Anthropic's analytics and changing them silently is unusual.
 Open after this round of research. None of these block the implemented
 fix, but they are worth investigating before any *next* round.
 
-1. **`ANTHROPIC_BASE_URL` for `/v1/messages` in prod.** Bundle resolves
-   `BASE_API_URL` from a hardcoded constant in prod mode; would unlock
-   the cleaner "intercept `api.anthropic.com` reverse-proxy" approach (the
-   Option B explored in the archived `claude-oauth-mitm-proxy-plan.md` — see git
-   history). 30-second test: set the env var, `claude -p hi`, tcpdump for
-   outbound :443 to `api.anthropic.com`.
+1. ~~**`ANTHROPIC_BASE_URL` for `/v1/messages` in prod.**~~ **ANSWERED 2026-09-02: the env var is
+   honored in prod, and the saved subscription bearer follows it.** Measured with exactly the
+   30-second test this item proposed (loopback listener + `claude -p`, claude-cli 2.1.220, team
+   OAuth login, no `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY` set): every `/v1/messages?beta=true`
+   request landed on the redirected base URL carrying `Authorization: Bearer sk-ant-oat0…`. So the
+   reverse-proxy approach ("intercept `api.anthropic.com`", Option B of the archived
+   `claude-oauth-mitm-proxy-plan.md`) is viable by base URL alone — and the same fact is a measured
+   exfiltration channel, recorded with implications in
+   [`agent-auth-modes.md`](../design/agent-auth-modes.md) §8.1.
 2. **Anthropic's server-side grace window past `expiresAt`.** The
    2026-05-17 incident showed Claude happy for 23 min past `expiresAt`
    client-side; could be Anthropic leniency, could be Claude idle. Test

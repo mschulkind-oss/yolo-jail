@@ -10,6 +10,25 @@ summary: "A unified design for declarative cloud provider switching (Anthropic T
 
 **Status:** ACCEPTED (2026-08-29), expanded from the 2026-08-05 sketch.
 
+> [!NOTE]
+> **Vocabulary drift (2026-09-02).** This doc's spellings are the 2026-08-29 design as accepted;
+> the implementation renamed several of them within days, and the provider-catalog work
+> ([`provider-catalog-and-selection.md`](provider-catalog-and-selection.md)) supersedes parts of
+> §4/§5. When the body below disagrees with the code, the code is right:
+>
+> - `agent_profiles` → `pack_profiles` (2026-08-31) → **`use_profiles`** (2026-09-02, `43d24e9e`);
+>   the first two spellings are refused by name.
+> - `--claude-auth` / `--auth` / `--agent-profile` were built and then **deleted** (`4f589610`);
+>   the surviving spellings are `-p`/`--profile` (name-only since `886a9191`, OQ-PT5) and
+>   `--pack-profile agent=profile,…`.
+> - `api_key_env` → **`api_key_env_name`** (`8b24a67a`).
+> - The `wire_api` values in §4.1 (`openai_completions`, `anthropic_bedrock`) were never members of
+>   the shipped enum, which is canonical and closed: `anthropic`, `openai-chat-completions`,
+>   `openai-responses` (`internal/packdecl/contributes.go:1473`, per 💬 18's OQ-PT1).
+> - There is no Bedrock *bundle switching* (§5.1 item 1's shape): bedrock shipped as a
+>   `kind: "provider"` + `kind: "profile"` pair inside `packs/claude/pack.json` (`4f589610`), and
+>   model IDs are pinned in the **user's** `providers.bedrock.models`, never in a pack.
+
 **The short version.** yolo-jail manages the agent development environment so users never have to hand-edit disparate native agent config files (`~/.pi/agent/models.json`, `~/.claude/settings.json`, `~/.codex/config.toml`, `.opencode.json`). A provider or auth mode is an atomic **bundle** ($$\text{credentials} + \text{endpoint} + \text{wire format} + \text{model IDs} + \text{env vars}$$). This doc specifies declarative cloud provider configuration in `yolo-jail.jsonc`, transient CLI swapping (`yolo --claude-auth=bedrock`, `yolo --agent-profile pi=glm`), projection via Prism (`derive.lua`), selective capability augmentation (e.g. Tavily search for agents lacking native search), and fixing in-jail vs. host-CLI auto-YOLO permission parity.
 
 **Reads with:** [`agent-credentials.md`](agent-credentials.md) (boundary credential crossing), [`pack-system.md`](pack-system.md) (the layer model, `config-overlay`, and `derive.lua`), [`pack-config-collaboration.md`](pack-config-collaboration.md) (surface sharing), [`../research/local-model-endpoints.md`](../research/local-model-endpoints.md) (per-agent wire formats and BYOK surfaces), [`../plans/roadmap.md`](../plans/roadmap.md) (**💬 3**).
@@ -282,7 +301,34 @@ The original ask proposed "subscription primary, with automatic overflow to Bedr
 2. **Rate limits are per-model-bucket**: An Opus 429 does not mean Sonnet or Haiku is exhausted. A global failover switch would prematurely migrate unaffected models.
 3. **Mid-session state**: Claude Code reads credentials at startup; changing credentials mid-flight without process restart leads to credential collisions and invalid sessions.
 
-**Verdict:** Launch-time selection (`agent_profiles` in config and CLI `--claude-auth=bedrock`) is deterministic, safe, and solves 95% of the requirement without fragile in-jail interceptors.
+**Verdict:** Launch-time selection (`use_profiles` in config — spelled `agent_profiles` when this
+was written — and the `-p`/`--pack-profile` flags) is deterministic, safe, and solves 95% of the
+requirement without fragile in-jail interceptors.
+
+### 8.1 Measured 2026-09-02: the subscription bearer follows `ANTHROPIC_BASE_URL`
+
+The question the roadmap carried as *"auth OQ-1"* — does Claude Code send a subscription OAuth
+bearer to a non-Anthropic base URL? — **is answered: yes, unconditionally.** Method: a loopback
+HTTP listener on `127.0.0.1:18923` returning 503 `overloaded_error` (no 401, so no refresh path
+was triggered); then `ANTHROPIC_BASE_URL=http://127.0.0.1:18923 claude -p 'say hi'` in a jail with
+a saved **team** subscription login (`sk-ant-oat01…`) and neither `ANTHROPIC_AUTH_TOKEN` nor
+`ANTHROPIC_API_KEY` set. `claude-cli/2.1.220` sent 8/8 requests to
+`POST /v1/messages?beta=true` on the listener, each carrying `Authorization: Bearer sk-ant-oat0…`
+and **no** `x-api-key`, retrying through the 503s. Three consequences:
+
+1. **A config-writable base URL is a credential-exfiltration channel for subscription auth even
+   when no API key is configured anywhere.** §9's scope-isolation trap is a measured fact, not a
+   caution: whoever can set `ANTHROPIC_BASE_URL` (a provider entry, a `config-overlay`, a raw env
+   var) receives the OAuth bearer of a logged-in claude. The zai pack's wiring is safe for a
+   *different* reason — it sets `ANTHROPIC_AUTH_TOKEN`, which overrides the saved login
+   ([`local-model-endpoints.md`](../research/local-model-endpoints.md) §env-var table) — so the
+   safety is the token override, not any endpoint check in the client.
+2. **[`boundary-broker.md`](boundary-broker.md) B2's mechanism is viable without client changes:**
+   a broker/proxy can be interposed by base URL alone and will receive claude's real
+   authentication. (Whether B2 is *wanted* is still open; this settles only that it can work.)
+3. It also settles [`claude-oauth-refresh-mechanics.md`](../research/claude-oauth-refresh-mechanics.md)'s
+   doubt that `BASE_API_URL` might be hardcoded in prod bundles: the env var is honored — the
+   requests landed on the listener.
 
 ---
 
@@ -290,12 +336,19 @@ The original ask proposed "subscription primary, with automatic overflow to Bedr
 
 * **Never export a blank `ANTHROPIC_API_KEY=""`**: A blank variable takes precedence in SDK credential resolution and attempts authentication with an empty key. Variables must be unset, never blank.
 * **Single-use Refresh Tokens**: Anthropic OAuth refresh tokens are single-use. If two jails attempt to refresh concurrently without serialization, tokens are permanently burned. The Claude OAuth broker singleton remains mandatory for subscription mode.
-* **Scope Isolation**: `providers` and `agent_profiles` must be **user-scope only** (or gated by the config-approval flow). An in-jail agent or untrusted workspace repo must never be able to silently redirect inference endpoints to an attacker-controlled server.
+* **Scope Isolation**: `providers` and `use_profiles` must be **user-scope only** (or gated by the config-approval flow). An in-jail agent or untrusted workspace repo must never be able to silently redirect inference endpoints to an attacker-controlled server. **This is measured, not hypothetical** — §8.1 shows a redirected base URL receives the full subscription bearer with no other misconfiguration required.
 * **Wire API Incompatibilities**: Codex only speaks `wire_api = "responses"` (Chat Completions was removed upstream). pi and opencode speak OpenAI Chat Completions. Ensure `derive.lua` converts provider endpoints into the exact wire format expected by the target agent.
 
 ---
 
 ## 10. Order of Work
+
+> [!NOTE]
+> **Status 2026-09-02: every step below has shipped**, several under different spellings (see the
+> vocabulary note at the top). Step 1 landed in the same commit that published this doc
+> (`937bddf2`); step 5 landed as the provider+profile pair in `packs/claude` (`4f589610`), not as
+> bundle switching; step 7's flags were built and then deleted — `-p`/`--profile` (name-only) and
+> `--pack-profile` are what survives. This list is kept as the record of the plan, not as work.
 
 1. **Fix in-jail auto-YOLO alias parity (§7)**: Update `packAliases` in `internal/entrypoint/shell.go` to use `LaunchFlagsFor(packs, true)`.
 2. **Define `providers` and `agent_profiles` config schema (§4)**: Add typed schema and validation in `internal/config/`.
@@ -309,7 +362,23 @@ The original ask proposed "subscription primary, with automatic overflow to Bedr
 
 ## 11. Open Questions
 
-*(All design questions settled — see Decision Ledger below).*
+One — carried over from the pre-rewrite doc under its original ID, because the 2026-08-29 rewrite
+dropped it without answering it (the roadmap and sibling docs cited it as `auth OQ-9`):
+
+1. 💬 **OQ-9: AWS's two-part credential has no declarative home.** The provider vocabulary carries
+   a single credential pointer (`api_key_env_name`, hydrated as `{key}`), and `packs/claude`'s
+   `bedrock` provider declares only `AWS_REGION` — so `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`
+   still flow through `env_sources` exactly as §2.1 measured. That works today and is not blocking
+   anything; the question is whether a credential *pair* ever gets first-class declaration or
+   whether `env_sources` is the permanent answer.
+
+   _Leaning:_ leave it on `env_sources` until a second multi-var credential shows up. The
+   provider-catalog work (💬 19's OQ-CS8) is moving env composition into per-agent env derives,
+   which can read whatever the environment holds — that likely absorbs this question rather than
+   answering it, and deciding it now would design against a moving surface.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ---
 
