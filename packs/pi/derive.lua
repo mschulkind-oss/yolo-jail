@@ -1,4 +1,5 @@
--- pi: render ~/.pi/agent/models.json from declared providers.
+-- pi: render ~/.pi/agent/models.json from declared providers, and write the selection
+-- pair into ~/.pi/agent/settings.json when a profile is active at pi's CLI name.
 
 -- The DIALECT MAP (provider-table-fidelity.md §3.4 / OQ-PT1): yolo's canonical wire_api
 -- → the value pi reads from providers.<id>.api. Every row is a measured fact about pi,
@@ -51,13 +52,46 @@ local function providerEndpoint(prov)
   return nil
 end
 
+-- piReachable is THE gate both halves below ask — can pi reach this provider at all — so
+-- the catalog and the selection cannot grow two answers to the same question. It returns
+-- the URL and the `api` value pi would use, or nil when the provider names no URL pi can
+-- speak to.
+--
+-- "A protocol pi can speak" is the whole piDialect map, not one row of it, and that is the
+-- sense in which this gate is wider than a chat-completions one: pi registers
+-- openai-completions, openai-responses AND anthropic-messages, so a provider declaring
+-- `wire_api = "anthropic"` reaches pi and is a catalog row — the shorthand form arrives
+-- here through providerEndpoint with its wire_api intact, and translates to
+-- anthropic-messages like any other protocol. What does NOT widen with it is the ENDPOINT
+-- KEY: providerEndpoint resolves `openai` only, and that is the resolution table's ruling
+-- (zai-plumbing.md §5, pinned by providerderive_test.go) — an endpoints-only provider with
+-- no openai endpoint names no URL for the protocol pi resolves to, so it is no row, and a
+-- provider that loses its catalog row loses its selection key with it. Writing
+-- defaultProvider for such a provider would name an id pi has no entry for — the
+-- half-selection a shared gate exists to make unrepresentable.
+--
+-- Total over non-tables, like providerEndpoint: a selected name that is absent from the
+-- composed table (a variant whose requires_provider the table does not hold — which
+-- creates no requirement of its own) reads as nil here, and nil selects nothing.
+local function piReachable(prov)
+  if type(prov) ~= "table" then return nil end
+  local baseUrl, wireApi = providerEndpoint(prov)
+  -- An endpoint's own wire_api is the per-protocol fact; the provider-level one only
+  -- speaks for the shorthand.
+  local api = piAPI(wireApi or prov.wire_api)
+  if baseUrl and api then
+    return baseUrl, api
+  end
+  return nil
+end
+
 yolo.derive("pi", "models", function(ctx)
   if not ctx.providers or next(ctx.providers) == nil then
     return {}
   end
   local providers = {}
   for name, prov in pairs(ctx.providers) do
-    local baseUrl, wireApi = providerEndpoint(prov)
+    local baseUrl, api = piReachable(prov)
     if baseUrl then
       local modelList = {}
       if type(prov.models) == "table" then
@@ -65,33 +99,79 @@ yolo.derive("pi", "models", function(ctx)
           table.insert(modelList, { id = modelId, name = alias })
         end
       end
-      -- An endpoint's own wire_api is the per-protocol fact; the provider-level one
-      -- only speaks for the shorthand. A canonical value with no row in piDialect drops
-      -- the whole entry: pi would list the provider and fail on every request.
-      local api = piAPI(wireApi or prov.wire_api)
-      if api then
-        local entry = {
-          baseUrl = baseUrl,
-          api = api,
-          models = modelList,
-        }
-        -- D11: pi has no `apiKeyEnv` field — ProviderConfigSchema is name, baseUrl, apiKey,
-        -- api, oauth, headers, compat, authHeader, models, modelOverrides, and nothing in the
-        -- package reads one, so the name we used to write here was dead configuration that
-        -- read as the thing delivering the credential. pi's env indirection is the config-value
-        -- syntax ON apiKey (`${VAR}`; docs/custom-provider.md — the maintainer's own hand-written
-        -- models.json uses it), and pi expands it at read time, so yolo writes the reference
-        -- verbatim and the consumer resolves it. Written only when the provider names a var, so
-        -- a key-less provider stays key-less rather than claiming an empty one.
-        if prov.api_key_env_name then
-          entry.apiKey = "${" .. prov.api_key_env_name .. "}"
-        end
-        providers[name] = entry
+      local entry = {
+        baseUrl = baseUrl,
+        api = api,
+        models = modelList,
+      }
+      -- D11: pi has no `apiKeyEnv` field — ProviderConfigSchema is name, baseUrl, apiKey,
+      -- api, oauth, headers, compat, authHeader, models, modelOverrides, and nothing in the
+      -- package reads one, so the name we used to write here was dead configuration that
+      -- read as the thing delivering the credential. pi's env indirection is the config-value
+      -- syntax ON apiKey (`${VAR}`; docs/custom-provider.md — the maintainer's own hand-written
+      -- models.json uses it), and pi expands it at read time, so yolo writes the reference
+      -- verbatim and the consumer resolves it. Written only when the provider names a var, so
+      -- a key-less provider stays key-less rather than claiming an empty one.
+      if prov.api_key_env_name then
+        entry.apiKey = "${" .. prov.api_key_env_name .. "}"
       end
+      providers[name] = entry
     end
   end
   if next(providers) == nil then
     return {}
   end
   return { providers = providers }
+end)
+
+-- The selection — defaultProvider and defaultModel, pi's OWN selection keys, verified from
+-- the published package the launcher installs (pi 0.84.4, npm-extracted, the CLI never
+-- run): dist/core/settings-manager.d.ts:71-72 declares the pair, the ids match EXACTLY
+-- (`===`) against the provider's model list, and pi's own interactive writer persists
+-- exactly this pair (core/settings-manager.js:460-475) — so the pair this writes is
+-- byte-for-byte the shape pi itself would write, never a yolo spelling of it
+-- (provider-catalog-and-selection.md §3 pi row). Two verification notes that shaped the
+-- surface rather than this function: a project-scope twin (.pi/settings.json in the
+-- working directory) deep-merges over the global file, so the GLOBAL file is the right
+-- surface for a jail-wide default; and pi resolves a saved default only when the
+-- provider's credential is configured, which is D11's `apiKey: "${VAR}"` fix, already
+-- landed in the catalog half above.
+--
+-- The pair travels under the RESERVED `selection` key of the computed layer, exactly as
+-- codex's does (packs/codex/derive.lua), and for the same reason. A plain computed key is
+-- re-asserted by every boot — right for models.json, which is yolo's own output, and
+-- exactly wrong for a model the user can change interactively mid-session — so a key yolo
+-- re-asserted would silently revert their choice on the next launch
+-- (provider-catalog-and-selection.md §5.1, the hazard OQ-CS2 names). The stateful render
+-- takes the namespace, decides per key — write on activation, never on absence, and a
+-- user's interactive edit stands until a NEW selection value differs from the last one
+-- yolo wrote — and lifts the winners onto the surface root, so settings.json shows
+-- defaultProvider/defaultModel at top level where pi reads them. The namespace is an
+-- implementation detail of the layer, never of the file.
+--
+-- OQ-CS2 is the GUARD, not a default: when no variant is active at pi's CLI name, nothing
+-- selection-shaped is written — not a default, not a clear; the no-profile case is the
+-- agent's own (pi's own persisted interactive choice stands). And when the selected
+-- provider is not pi-reachable, the SAME gate that keeps it out of the catalog above keeps
+-- it out of the selection: no keys at all, never a defaultProvider naming a provider whose
+-- catalog row the same gate dropped.
+--
+-- defaultModel is the provider's declared `default` alias (OQ-CS3: the fallback is the
+-- derive's business, and `default` stays an ordinary open-vocabulary alias). It is omitted
+-- when the provider declares no models or names no default, leaving pi to resolve its own
+-- model within the named provider — model ids must match the provider's list exactly, so
+-- guessing one would be a selection pi refuses at resolution time.
+yolo.derive("pi", "settings", function(ctx)
+  if ctx.selected_provider == nil or ctx.selected_provider == "" then
+    return {}
+  end
+  local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
+  if not piReachable(p) then
+    return {}
+  end
+  local sel = { defaultProvider = ctx.selected_provider }
+  if type(p) == "table" and type(p.models) == "table" and p.models.default then
+    sel.defaultModel = p.models.default
+  end
+  return { selection = sel }
 end)
