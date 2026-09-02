@@ -187,6 +187,20 @@ type Contribution struct {
 	// "default"/"fast" → "glm-4.7". Alias names are open vocabulary: which aliases a
 	// provider's consumers read is the consumer's business, not core's.
 	Models map[string]string `json:"models,omitempty"`
+	// Options is the profile surface the provider DECLARES (provider-catalog-and-
+	// selection.md §5.2, OQ-CS4): a FLAT map of option name to default value, read
+	// exactly like its neighbour Models — no `kind`, no `values`, no wrapper object
+	// (OQ-CS7 ruled the nested form out; `default` was the only field left in it).
+	//
+	// A profile is an instance of this declaration: it states a provider and only the
+	// options it changes, and core merges the declared defaults under those values while
+	// refusing a profile key this map does not hold — naming what it accepts. Core learns
+	// no option name and validates no VALUE: what `model` or `thinking` means is the
+	// derive's business, so an option no derive consumes is inert rather than invalid.
+	//
+	// The value is an OptionDefault and not a string for one reason: null is LEGAL here
+	// and means something no other null in this config means (see that type).
+	Options map[string]OptionDefault `json:"options,omitempty"`
 	// --- profile (profiles-as-pack-variants.md §3.1) ---
 	// The body rides fields declared above: Name is the profile's SELECTOR VALUE (the
 	// name the user writes in use_profiles or -p) and Raw is its `config` patch. What is
@@ -520,6 +534,50 @@ func (v *EnvValue) UnmarshalJSON(b []byte) error {
 // meaning of a JSON null in the map (OQ-7).
 func (v EnvValue) Unset() bool { return !v.Set }
 
+// OptionDefault is one value in a provider's `options` map — the profile surface the
+// provider declares (ProviderContribution.Options). Like EnvValue it must tell a JSON
+// null from an empty string, and like EnvValue it carries that distinction as an
+// explicit bit rather than letting map[string]string collapse the null to "".
+//
+// THE NULL MEANS THE OPPOSITE OF WHAT IT MEANS IN EnvValue, and that is a decision on
+// the record rather than an accident of sharing a decoder (provider-catalog-and-
+// selection.md §9 OQ-CS7, note): here null is *declared, no default* — an option a
+// profile may set and whose absence hands the derive nothing. It is NOT the merge-patch
+// delete convention that null carries almost everywhere else in this config, including
+// one type up in EnvValue. The reason to depart: un-declaring an option is something
+// nobody wants (an unset option already reaches the derive as nothing, so a user gains
+// nothing by removing one their provider offers), while "keep the option, drop the
+// default" is a real override — and since the two readings would otherwise pick
+// different behaviours for the same syntax, the rule is written into the type's own
+// documentation, which is the place a reader lands when they ask what the null did.
+//
+// The empty STRING, by contrast, is a real default: an option whose default is "".
+type OptionDefault struct {
+	// Defaulted is true only when the JSON value was a string — the option HAS a
+	// default, and Value is it. False (a JSON null) leaves the option declared and
+	// defaultless: a profile may set it, and until one does the derive reads nothing.
+	Defaulted bool
+	// Value is the default the profile inherits when it does not state the option
+	// itself. Consulted only when Defaulted is true.
+	Value string
+}
+
+// UnmarshalJSON accepts a JSON string or a JSON null, and refuses everything else — a
+// number or a bool in an options map is an author's typo, and a silent false would turn
+// it into an option that quietly has no default.
+func (v *OptionDefault) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		*v = OptionDefault{}
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	*v = OptionDefault{Defaulted: true, Value: s}
+	return nil
+}
+
 // ProfileContribution is one named variant of a pack's own declarations: the name it
 // answers to, the config patch it folds into the pack's own surfaces, the launch flags it
 // merges, the env it sets (or unsets), and the provider it requires. The open-selector
@@ -607,6 +665,10 @@ type ProviderContribution struct {
 	APIKeyEnvName string
 	Region        string
 	Models        map[string]string
+	// Options is the profile surface this provider declares — the key set a profile for
+	// it may carry, with each option's default. The profile-schema owner (OQ-CS4); see
+	// the field's own comment on Contribution for why it is flat and what null means.
+	Options map[string]OptionDefault
 }
 
 // Providers returns every provider the pack ships, in declaration order.
@@ -628,6 +690,7 @@ func (m *Manifest) Providers() []ProviderContribution {
 			APIKeyEnvName: c.APIKeyEnvName,
 			Region:        c.Region,
 			Models:        c.Models,
+			Options:       c.Options,
 		})
 	}
 	return out
@@ -1286,6 +1349,17 @@ func validateContribution(label string, c Contribution) []string {
 	case KindProvider:
 		req("name", c.Name)
 		problems = append(problems, validateProviderEndpoints(label, c.Endpoints)...)
+		// The option NAMES are the one thing here worth checking: they are the key set
+		// every profile for this provider is measured against, so an empty one declares a
+		// key no profile can ever spell and the refusal downstream would quote it. The
+		// VALUES need no check from this layer — OptionDefault's decoder already refused
+		// anything that is neither a string nor null, and what a default MEANS is the
+		// derive's business, not the manifest's (OQ-CS7: core validates no values).
+		for _, k := range sortedKeys(c.Options) {
+			if k == "" {
+				problems = append(problems, label+": provider has an empty option name")
+			}
+		}
 
 	case KindProfile:
 		// `name` is the whole selector, so it is the one required field: a variant that
