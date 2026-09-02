@@ -1,12 +1,30 @@
 ---
 title: "Pack Profiles: Typed Providers, Cross-Pack Fragments, and Generic Merging"
 date: 2026-08-29
-status: in-review
+status: superseded
 tags: [packs, config, profiles, providers, prism, architecture, secrets]
 summary: "Replaces the inverted agent_profiles schema with a dual-layer architecture: (1) a strictly-typed ProviderSpec extension point for universal LLM endpoints, and (2) generic pack-fragment adapters for tool-specific configuration. Solves the secrets issue by decoupling git-tracked configuration from credentials via api_key_env and env_sources. Unifies profile activation and standardized runtime projection while eliminating agent-specific residue in core."
 ---
 
 # Pack Profiles: Typed Providers, Cross-Pack Fragments, and Generic Merging
+
+> **DRAFT SUPERSEDED, 2026-09-02.** This first pass never left draft, and the design was built
+> from a different shape — read [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md)
+> (the parent), [`provider-table-fidelity.md`](provider-table-fidelity.md) and
+> [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md), plus the two plans
+> that carried their build order
+> ([`provider-table-fidelity-plan.md`](provider-table-fidelity-plan.md),
+> [`provider-catalog-and-selection-plan.md`](provider-catalog-and-selection-plan.md)).
+> Three positions below were **reversed**, not refined: the `wire_api` vocabulary is three
+> canonical names — `anthropic`, `openai-chat-completions`, `openai-responses` — and never the
+> four borrowed spellings the §3 diagram, §5's two examples and §8.2's derive listings still use
+> (OQ-PT1); profile names are declared by the user, at user scope only (OQ-CS5), and
+> **declaration is mandatory** — an undeclared name is a reportable error, not a silent no-op
+> (OQ-CS6, reversing `profiles-as-pack-variants.md` OQ-5); and `env_shape` is deleted — an
+> agent's delivery, credential included, is composed by that agent pack's own env-emitting
+> derive (OQ-PT9, folded into OQ-CS8). The body below is kept as the argument that produced
+> those answers, and still spells the key `api_key_env`, renamed `api_key_env_name`; §5.1's
+> `wire_api` row alone was corrected in place (2026-09-02, `a01dbda5`).
 
 **Status:** DRAFT, 2026-08-29. Nothing built.
 
