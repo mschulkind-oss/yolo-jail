@@ -17,10 +17,10 @@ table is retired. **Read the map below before trusting any section of this docum
 > **This document's central premise is FALSE, established by the inventory it provoked.** §3 says the
 > commit pin "is the rule already applied one level up". It is applied **nowhere**:
 > `LockEntry.Commit` has four readers, all display-only, and the launch path re-resolves the
-> *config's* ref against the local mirror instead. **Still true, verified 2026-08-23**: the field is
+> *config's* ref against the local mirror instead. **Still true, verified 2026-08-23, repinned 2026-09-02**: the field is
 > declared at [`lock.go:39-44`](../../internal/packsrc/lock.go) and every reader prints —
-> [`pack.go:1110-1112`](../../internal/cli/pack.go) (the moved-pin message) and
-> [`pack.go:1335-1338`](../../internal/cli/pack.go) (the `pack status` listing). Read
+> [`pack.go:1121-1126`](../../internal/cli/pack.go) (the moved-pin message) and
+> [`pack.go:1350`](../../internal/cli/pack.go) (the `pack status` listing). Read
 > [`trust-paths.md`](./trust-paths.md) first — it enumerates all 25 paths, finds that pinning changes
 > an outcome in **three** of them, and surfaced a verified hole that outranked this proposal
 > entirely: the origin gate this document generalizes **was not enforced in the jail**. *That hole is
@@ -43,12 +43,12 @@ out to be false; see §3.*
 
 | § | What it claims | Status as of 2026-08-23 |
 | :--- | :--- | :--- |
-| **§1** | the origin gate covers `reads-host`, `mount`, host-prepending `briefing` and `program via installer`; `via: npm` is ungated | ✅ **authoritative** — re-verified today at [`contributes.go:632-646`](../../internal/packdecl/contributes.go) and [`contributes.go:30`](../../internal/packdecl/contributes.go). One thing moved: a refusal is now **fatal**, not a warning (OQ-TP6) |
+| **§1** | the origin gate covers `reads-host`, `mount`, host-prepending `briefing` and `program via installer`; `via: npm` is ungated | ✅ **authoritative** — re-verified today at [`contributes.go:963-981`](../../internal/packdecl/contributes.go) and [`contributes.go:30`](../../internal/packdecl/contributes.go). One thing moved: a refusal is now **fatal**, not a warning (OQ-TP6) |
 | **§2** | `npm install -g` runs arbitrary code too, so containment cannot separate the two | ✅ **the observation stands** — but the asymmetry is now a **decided** one rather than an oversight. See the note inside §2 |
 | **§3** | P1: a fetched pack may cause execution only of content it pins — *"the rule already applied one level up"* | ⚠️ **premise FALSE, shape survives.** No commit pin is enforced anywhere; P1 itself is neither adopted nor rejected |
 | **§4** | the permit/refuse table | ❌ **retired.** Its live-hole row was closed a different way (OQ-TP5, `b3a29ad8`); the rest are unbuilt proposals. Kept as documentation, annotated in place |
 | **§5** | a digest-pinned installer script is not a digest-pinned binary | ✅ **authoritative and live** — untouched by anything since, and it is what OQ-X1 turns on |
-| **§6** | approval prose must say what is touched, in which direction, on whose machine | ✅ **authoritative, RULED, NOT BUILT** — claims still render as terse tokens ([`contributes.go:655-671`](../../internal/packdecl/contributes.go), verified 2026-08-23) |
+| **§6** | approval prose must say what is touched, in which direction, on whose machine | ✅ **authoritative, RULED, NOT BUILT** — claims still render as terse tokens ([`contributes.go:983-1005`](../../internal/packdecl/contributes.go), verified 2026-08-23, repinned 2026-09-02) |
 | **§7** | four things this does not license | ✅ **three of four hold**; the *"not a new lockfile"* bullet is refuted — see the warning there |
 
 **Reads with:** [`trust-paths.md`](./trust-paths.md) (**read this first** — the inventory that
@@ -63,7 +63,7 @@ other half of this question) · [`gate-placement-principle.md`](./gate-placement
 
 ## 1. What the gate does today
 
-`NeedsHostAccessContributions` (`internal/packdecl/contributes.go:632-645`) origin-gates exactly four
+`NeedsHostAccessContributions` (`internal/packdecl/contributes.go:963-981`) origin-gates exactly four
 things: `reads-host`, `mount`, a host-prepending `briefing`, and — the one at issue —
 `KindProgram && Via == "installer"`.
 
@@ -139,8 +139,8 @@ things a pack pulls in from outside its own tree.
 > [!WARNING]
 > **That justification is FALSE, and it is the sentence the whole section rests on.** The commit
 > approval is *recorded* and never *consulted*: `LockEntry.Commit` has four readers and all four
-> print ([`pack.go:1110-1112`](../../internal/cli/pack.go),
-> [`pack.go:1335-1338`](../../internal/cli/pack.go)), while the launch path re-resolves the
+> print ([`pack.go:1121-1126`](../../internal/cli/pack.go),
+> [`pack.go:1350`](../../internal/cli/pack.go)), while the launch path re-resolves the
 > **config's** `?ref=` against the local mirror. Verified 2026-08-18 by
 > [`trust-paths.md`](./trust-paths.md) §1 and re-verified 2026-08-23; the gap is tracked there as
 > **OQ-LP8 / G2b**. So P1 is not "the same rule one level down" — there is no rule one level up yet,
@@ -224,9 +224,9 @@ question here.
 *"Print the claims at approval time, but they need to be understandable by a new user."*
 
 **This is the one ruling in this document that nothing has superseded, and nothing has implemented
-either.** Verified 2026-08-23: claims still render as terse tokens, one line each, from
-[`HostAccessClaims`](../../internal/packdecl/contributes.go) at `contributes.go:655-671` — and that
-is the string the approval prompt prints ([`pack.go:1224-1227`](../../internal/cli/pack.go)), the
+either.** Verified 2026-08-23, repinned 2026-09-02: claims still render as terse tokens, one line each, from
+[`HostAccessClaims`](../../internal/packdecl/contributes.go) at `contributes.go:983-1005` — and that
+is the string the approval prompt prints ([`pack.go:1236-1239`](../../internal/cli/pack.go)), the
 string the lockfile records, and the string the launch gate compares. Exactly as below:
 
 ```text

@@ -3,21 +3,24 @@ title: "Every path by which someone else's content runs in your jail"
 date: 2026-08-17
 status: in-review
 tags: [trust, packs, security, inventory]
-summary: "Twenty-five paths, enumerated from the code, each with when trust is extended and whether the content can change afterwards. The answer to 'where does pinning even help' is: three of them."
+summary: "Twenty-six paths, enumerated from the code, each with when trust is extended and whether the content can change afterwards. The answer to 'where does pinning even help' is: three of them. (Row 26 — pack-shipped derive.lua — was added 2026-09-02; pinning does not change its outcome, so the three stand.)"
 ---
 
 # Every path by which someone else's content runs in your jail
 
 **Status:** INVENTORY, 2026-08-17. Four questions settled since, and **two of them SHIPPED and are
 still in the tree** — OQ-TP5 (`b3a29ad8`) and OQ-TP6 (`6385dfbb`), both 2026-08-18, both re-verified
-against the code **2026-08-23** with the anchors inline below. **Three remain open — [OQ-TP3](#-oq-tp3--given-1-is-pinning-worth-building-at-all-and-where-first),
-[OQ-TP4](#-oq-tp4--where-does-an-embedded-packs-npm-version-get-pinned) and
-[OQ-TP7](#-oq-tp7--the-refusal-is-fatal-the-preflight-and-the-approve-path-are-not-caught-up)** —
+against the code **2026-08-23**, anchors repinned **2026-09-02** (the provider arc moved several
+files under them; every behaviour is unchanged). **Four remain open — [OQ-TP3](#-oq-tp3--given-1-is-pinning-worth-building-at-all-and-where-first),
+[OQ-TP4](#-oq-tp4--where-does-an-embedded-packs-npm-version-get-pinned),
+[OQ-TP7](#-oq-tp7--the-refusal-is-fatal-the-preflight-and-the-approve-path-are-not-caught-up) and
+[OQ-TP8](#-oq-tp8--pack-shipped-lua-runs-ungated-on-both-sides-of-the-boundary--is-that-a-ruling-or-an-accident)
+(added 2026-09-02 with census row 26)** —
 and the first two are one question wearing two hats: *where does an npm pin live, and who is required
 to carry one?* This document is organised to answer them. Beyond the two rulings that shipped,
 **everything here is inventory** — traced in the code, with the anchors inline.
 
-**The short version.** Twenty-five paths deliver someone else's content into a jail.
+**The short version.** Twenty-six paths deliver someone else's content into a jail.
 **Pinning changes an outcome in three of them** ([§1](#1-the-verdict)); everywhere else it is
 theatre, because **every gate in this system keys on a DECLARATION and none on CONTENT.** Of the
 three, row 1 (`program via npm`) is ruled and half built: the silent-change half is gone, and what is
@@ -54,17 +57,19 @@ against exactly one threat, the silent update.
 | **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **Built 2026-08-18 (`6385dfbb`)** | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
 
 > [!NOTE]
-> **Both builds re-verified in the tree 2026-08-23, by anchor rather than by commit.** A merged commit
-> is not evidence that the behaviour is still there, so:
-> **TP5** — [`shims.go:423-430`](../../internal/entrypoint/shims.go) is `_poll_and_report`, which runs
+> **Both builds re-verified in the tree 2026-08-23, by anchor rather than by commit — anchors
+> repinned 2026-09-02** (the install-receipts feature and the provider arc pushed `shims.go` and
+> `run/packs.go` down by hundreds of lines; every quoted behaviour is unchanged at its new line).
+> A merged commit is not evidence that the behaviour is still there, so:
+> **TP5** — [`shims.go:680-687`](../../internal/entrypoint/shims.go) is `_poll_and_report`, which runs
 > `npm view` and *prints* `"<installed> → <latest> is available. Run 'yolo pack update'"`; the only
 > resolving path is `_update`, reachable solely through
-> [`shims.go:486-498`](../../internal/entrypoint/shims.go)'s `YOLO_PACK_UPDATE=1` guard, which exits
+> [`shims.go:743-755`](../../internal/entrypoint/shims.go)'s `YOLO_PACK_UPDATE=1` guard, which exits
 > instead of exec'ing; `yolo pack update` is the one setter
 > ([`packupdate.go:60`](../../internal/cli/packupdate.go)); the cold branch
-> ([`shims.go:500-509`](../../internal/entrypoint/shims.go)) is still deliberately untouched.
-> **TP6** — [`run/packs.go:229`](../../internal/cli/run/packs.go) accumulates `packRefusals(p)` and
-> `:248` returns `refusedLaunchError`, ahead of the mechanical pre-flights; the message itself is
+> ([`shims.go:757-766`](../../internal/entrypoint/shims.go)) is still deliberately untouched.
+> **TP6** — [`run/packs.go:228`](../../internal/cli/run/packs.go) accumulates `packRefusals(p)` and
+> `:247` returns `refusedLaunchError`, ahead of the mechanical pre-flights; the message itself is
 > [`packrefusal.go:104-119`](../../internal/cli/run/packrefusal.go) and still names the pack, the
 > claim and all three ways out.
 
@@ -89,14 +94,15 @@ against exactly one threat, the silent update.
 
 ## 1. The verdict
 
-**Pinning changes an outcome in three of twenty-five paths.** Everywhere else it is theatre, and the
+**Pinning changes an outcome in three of twenty-six paths.** Everywhere else it is theatre, and the
 reason is structural: **every gate in this system keys on a DECLARATION** — a URL, a path, a
 component name, a config value — **and none on CONTENT.** That is a coherent design. It answers *"did
 the footprint grow?"* well. It cannot answer *"is this the same code I looked at?"* at all.
 
 **And the sharpest form of your instinct, which I had not seen:** `pack install` syncs the mirror and
 writes the lockfile **in the same loop iteration**
-([`pack.go`](../../internal/cli/pack.go#L1104-L1131)). The act that moves the content *is* the act
+([`pack.go`](../../internal/cli/pack.go#L1104-L1143) — `store.Sync` at `:1104`, the `lock.Set`
+write now at `:1140-1143`). The act that moves the content *is* the act
 that moves the pin. A pin advanced by the same command that changes the bytes is a receipt. It
 becomes a gate only if three things hold together — (i) enforced at use, (ii) advanced by a
 *different* act than the one that changes content, (iii) that act shows you what changed. Today
@@ -110,8 +116,8 @@ per row. `LockEntry` ([`lock.go`](../../internal/packsrc/lock.go#L33-L53)) recor
 
 | Field | Enforced at launch? | Evidence |
 | :--- | :--- | :--- |
-| `ApprovedHostAccess` | **Yes** — `packMayAccessHost` ([`run/packs.go`](../../internal/cli/run/packs.go#L794)) grants a fetched pack host access only for claims recorded here, and a claim set that grew re-prompts | this is a real gate |
-| `Commit` · `Ref` | **No.** Every reader is **display-only**: the moved-pin message ([`pack.go:1110-1112`](../../internal/cli/pack.go#L1110-L1112)) and the `pack status` listing ([`pack.go:1335-1338`](../../internal/cli/pack.go#L1335-L1338)). The launch path never consults either — it re-resolves the **config's ref** against the local mirror | verified 2026-08-18, **still true 2026-08-23**: four readers, all printing |
+| `ApprovedHostAccess` | **Yes** — `packMayAccessHost` ([`run/packs.go`](../../internal/cli/run/packs.go#L876)) grants a fetched pack host access only for claims recorded here, and a claim set that grew re-prompts | this is a real gate |
+| `Commit` · `Ref` | **No.** Every reader is **display-only**: the moved-pin message ([`pack.go:1121-1126`](../../internal/cli/pack.go#L1121-L1126)) and the `pack status` listing ([`pack.go:1350`](../../internal/cli/pack.go#L1350)). The launch path never consults either — it re-resolves the **config's ref** against the local mirror | verified 2026-08-18, **still true 2026-09-02** (anchors repinned): four readers, all printing |
 
 That split is **OQ-LP8 / G2b**, already open and already ruled in shape. It is the same shape the
 origin gate had before [§3.1](#31-a-refused-contribution-refuses-the-launch-): *true of the decision,
@@ -164,7 +170,7 @@ false of its enforcement.*
 
    > [!WARNING]
    > **npm installs are deliberately NOT origin-gated, and this ruling does not change that.**
-   > `HonoredInstalls` ([`packload.go`](../../internal/packload/packload.go#L254-L278)) gates a
+   > `HonoredInstalls` ([`packload.go`](../../internal/packload/packload.go#L493-L516)) gates a
    > `curl`-piped installer and lets an npm install through, on the reasoning that a registry package
    > is *"the same trust as any dependency the user already installs."* That reasoning should stay:
    > this row is about **when the bytes change**, not about **whose bytes they are.**
@@ -292,7 +298,8 @@ not set up its own children, which is the dev loop this repo runs on.
 ## 2. The inventory
 
 Ordered from most-trusted origin to least. "Silent change" is the column the exercise exists for, and
-this table is the evidence for §1's "three of twenty-five".
+this table is the evidence for §1's "three of twenty-six" (row 26 arrived 2026-09-02 and pinning
+does not move it — a derive is inside the commit the lockfile already closes over).
 
 | # | Path | Grants | Trust extended | Can change silently? |
 | :-- | :--- | :--- | :--- | :--- |
@@ -321,6 +328,7 @@ this table is the evidence for §1's "three of twenty-five".
 | 23 | fetched pack — loophole with a `host_daemon` | **host execution** + a CA trusted in-jail | explicit, per crossing | yes — the claim pins the argv, not the file (OQ-LP8) |
 | 24 | `yolo host apply` | **host write** into your real home | explicit per invocation, `--assert` required | for a local pack, yes — source re-read each apply |
 | 25 | the mirror + ref resolution behind rows 17–23 | selects which bytes every row above delivers | — | **three verified mechanisms** |
+| 26 | **any pack's `derive.lua`** (`yolo.derive` + the dormant `yolo.env`, `f55f2109`) — **row added 2026-09-02**; this census had no entry for pack-shipped Lua, the gap 💬 18's D9 filed | **sandboxed Lua execution** — in-jail at every boot with live tables (`packsurfaces.go:193`), and **host-side** during `yolo host apply` as a sentinel-input key-name probe (`hostrender.go:377`); the VM is allowlist-built (no `os`/`io`/`require`/`load`, fresh state, timeout — `agentcfg/luahook/vm.go`), so the grant is *unvalidated config-surface output* plus whatever `ctx` carries — which, under 💬 18's OQ-PT9 ruling, will include resolved provider credentials — **not** process exec | **never, any origin** — `DeriveScript` reads `<pack root>/derive.lua` with no origin gate and no claim (`packload/deriveenv.go:35`), while the same fetched pack may not *name a host file to read* | yes — the mirror re-resolves, and a derive is content, not a claim |
 
 ### Agent context needs no gate of its own
 
@@ -381,9 +389,9 @@ origin decides exactly one thing — whether a host-access declaration is honore
 | **fetched** | `git+https://…?ref=…`, content someone else controls | ⚠️ **only what you approved** |
 
 `MayAccessHost` is that verdict, carried on the loaded pack. For the first two it is `true` by
-construction ([`packs.go`](../../internal/config/packs.go#L175):
+construction ([`packs.go`](../../internal/config/packs.go#L182):
 `MayGrantHostFiles() { return p.Origin() != OriginFetched }`). For a **fetched** pack it is decided
-per launch by `packMayAccessHost` ([`run/packs.go`](../../internal/cli/run/packs.go#L794)), and it is
+per launch by `packMayAccessHost` ([`run/packs.go`](../../internal/cli/run/packs.go#L876)), and it is
 `true` only when the lockfile records approval for **every** host-access claim the staged pack
 *currently* makes: a fresh install never run through `yolo pack install` **fails closed**; a pin that
 moved and **gained** a claim fails closed and re-prompts; a missing or corrupt lockfile **approves
@@ -608,6 +616,19 @@ The honest cost of (b) is the first run: with no lockfile row yet, *something* h
 version, and that act should be `install` recording what it got rather than the launcher resolving
 `latest` behind everyone's back.
 
+**New fact since the options were written (2026-09-02):** the **observation half of (b) now
+exists.** Install receipts (`af46c9b4`, 2026-08-24) record the *resolved* npm version per install —
+`_resolved_version()` reads the installed `package.json` and `_yolo_receipt` appends it to
+`<workspace>/.yolo/receipts.jsonl` (`internal/entrypoint/shims.go:633-661`). But a receipt is not a
+pin: the file is workspace-scoped, append-only, and **nothing reads it back** — the same
+receipt-not-a-gate shape as `LockEntry.Commit` above. So (b)'s remaining work is narrower than it
+was: not "start recording versions" but "promote the recorded version into a row `install` obeys" —
+which is also exactly [`program-delivery.md`](./program-delivery.md) §10's *user-scope gap receipt*
+step. The two should land as one design. For completeness: `mise.lock` covers no npm agent CLI
+(checked — none of the four packages appear in any mise file), and the live `packs.lock.json` is
+`{"schema":1,"packs":{}}` with embedded packs explicitly skipped before `lock.Set`
+(`pack.go:1086`).
+
 **Answer:**
 > _(empty — fill in when decided)_
 
@@ -658,7 +679,7 @@ argument is explicit that this fatal differs from `YOLO_ALLOW_UNREACHABLE_SERVIC
 states where it is not:
 
 - **No terminal.** `resolveHostApproval` refuses before reading a byte when stdin is not a tty
-  ([`pack.go`](../../internal/cli/pack.go#L1228)) — correct on its own terms (`yes | yolo pack install`
+  ([`pack.go`](../../internal/cli/pack.go#L1240)) — correct on its own terms (`yes | yolo pack install`
   is not consent), but it means CI and any scripted run have **FIX and REMOVE only**.
 - **Offline.** `yolo pack install` is the only place network access happens; `store.Sync` failing
   `continue`s past the `lock.Set`, so no approval is recorded. A launch resolves offline and does not
@@ -670,12 +691,13 @@ question is whether the refusal message should SAY so (it currently names `yolo 
 hint that it wants a terminal and a network), and whether a recorded approval should be expressible
 without a fetch.
 
-> **Still true, re-verified 2026-08-23, and the two ends have drifted apart rather than together.**
+> **Still true, re-verified 2026-08-23 and again 2026-09-02 (anchors repinned), and the two ends
+> have drifted apart rather than together.**
 > `refusedLaunchError` ([`packrefusal.go:104-119`](../../internal/cli/run/packrefusal.go)) still
 > spells the third choice as *"APPROVE — run `yolo pack install`, which shows every claim the pack
 > makes and records your yes in the lockfile"* — **no mention of a terminal, none of a network.**
 > Meanwhile the *other* end did catch up: `resolveHostApproval`'s own non-tty refusal
-> ([`pack.go:1228-1236`](../../internal/cli/pack.go)) now says *"approval requires an interactive
+> ([`pack.go:1240-1246`](../../internal/cli/pack.go)) now says *"approval requires an interactive
 > terminal, and stdin is not one … rerun `yolo pack install` from a terminal"*. So a user who has
 > already reached `pack install` is told; a user who only ever sees the launch refusal is not, and
 > the launch refusal is the one this ruling made the entire user experience of the failure.
@@ -683,6 +705,49 @@ without a fetch.
 **What it decides:** whether OQ-TP6's "the reader can act on it" claim is true from every place a user
 actually reads it — a CI log, an offline laptop, and the preflight command the workflow tells them to
 run before restarting.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### 💬 OQ-TP8 — pack-shipped Lua runs ungated on both sides of the boundary — is that a ruling or an accident?
+
+Added 2026-09-02, executing 💬 18's **D9**, which found this census had no row for the one channel
+where a pack ships *code yolo runs* rather than content an agent reads. Row 26 now records the
+facts; this question asks for the ruling the row cannot supply.
+
+**The facts (row 26's evidence, spelled out):** `packload.DeriveScript` reads
+`<pack root>/derive.lua` for **every** pack with no origin check
+(`internal/packload/deriveenv.go:35` — contrast `LoadDir`'s explicit `MayGrantHostFiles` gate
+parameter). It executes **in-jail on every boot** with live tables
+(`internal/entrypoint/packsurfaces.go:193` → `deriveComputedLayer`), and — less obviously —
+**host-side during `yolo host apply`**, as `hostTableKeys`' sentinel-input probe
+(`internal/entrypoint/hostrender.go:377`), i.e. a fetched pack's Lua runs as the host user on the
+real host. The differential D9 named is real: the same fetched pack **may not name a host file to
+read** without approval, and may ship Lua yolo executes with none.
+
+**What bounds the stakes, and why this is narrower than "arbitrary code":** the VM is an
+allowlist sandbox — `SkipOpenLibs`, only base/string/table/math opened, `os`/`io`/`require`/`load*`
+deleted, fresh state per run, instruction-budget timeout (`internal/agentcfg/luahook/vm.go`). So a
+derive cannot exec, read files, or reach the network. Its two real powers are (i) **unvalidated
+output into config surfaces** — the same trust as row 17's content and the place 💬 18's headline
+defect lived — and (ii) **reading whatever `ctx` carries**, which under OQ-PT9's ruling includes
+resolved provider credentials, with the auditability trade that ruling recorded (a derive reading a
+secret is silent; a written config artifact shows in `yolo config diff`).
+
+**What it decides:** whether ungated stays the documented rule, or pack Lua joins the claim table.
+Options: (a) **rule it ungated and record why** — rows 18/19 already grant fetched packs equivalent
+in-jail channels knowingly, the sandbox bounds it, and the commit pin (OQ-LP8, once enforced)
+closes over `derive.lua` like all content; (b) an approval claim for *fetched* packs' derives
+("runs sandboxed config code at boot and at host apply"), which adds a prompt line but no new
+mechanism; (c) gate only the **host-side** probe on origin, since that is the one place the Lua
+runs outside the jail.
+
+_Leaning:_ **(a), with (c) worth pricing.** The in-jail half is squarely inside what rows 18/19
+already extend, and a claim for a sandboxed compute hook would be disclosure theatre — the honest
+disclosure is the lockfile pin. The host-side probe is the only genuinely new boundary crossing,
+and it runs the same sandbox with sentinel inputs; if that ever grows real inputs (the env-derive
+work is heading that way — `yolo.env` at host launch), (c) stops being optional and should be
+decided *before* that lands, not after.
 
 **Answer:**
 > _(empty — fill in when decided)_
