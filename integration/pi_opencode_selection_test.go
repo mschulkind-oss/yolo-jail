@@ -110,7 +110,14 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 				"alias glm-4.7 — the model id must match pi's provider list exactly "+
 				"(OQ-CS3: the fallback is the derive's business)", piSettings.model)
 		}
-		requireCataloged(t, piSettings.raw, "providers", "zai", "pi settings.json")
+		// The catalog and the selection are DIFFERENT FILES for pi: yolo's computed
+		// models.json holds the providers table, settings.json holds the pair pi reads
+		// (packs/pi declares the two surfaces separately), so the guard reads the file the
+		// catalog actually lands in. Asserting it against settings.json could only ever
+		// fail — and as shipped, it failed every launch here, including the ones whose
+		// selection had landed.
+		piModels := readPioencodeSurface(t, dir, "pi", "agent", "models.json")
+		requireCataloged(t, piModels.raw, "providers", "zai", "pi models.json")
 
 		ocConfig := readPioencodeSurface(t, dir, "config", "opencode", "opencode.json")
 		if ocConfig.slashJoin != "zai/glm-4.7" {
@@ -172,8 +179,10 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 
 		// Vacuity guard: the catalog half is NOT gated on the selection (OQ-CS1 option D),
 		// so the provider must still be a row both agents can pick interactively — the
-		// catalogue disappearing with the selection is option B, rejected.
-		requireCataloged(t, piSettings.raw, "providers", "zai", "pi settings.json")
+		// catalogue disappearing with the selection is option B, rejected. Read from
+		// models.json, where pi's catalog lives (see the guard above).
+		piModels := readPioencodeSurface(t, dir, "pi", "agent", "models.json")
+		requireCataloged(t, piModels.raw, "providers", "zai", "pi models.json")
 		requireCataloged(t, ocConfig.raw, "provider", "zai", "opencode.json")
 	})
 }

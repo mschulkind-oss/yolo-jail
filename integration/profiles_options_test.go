@@ -132,7 +132,11 @@ func TestProfileOptionSelectsTheAliasInTheAgentsOwnFile(t *testing.T) {
 			"{default: glm-4.7, fast: glm-4.7-air}), not the declared default glm-4.7",
 			piSettings.model)
 	}
-	requireCataloged(t, piSettings.raw, "providers", "zai", "pi settings.json")
+	// The vacuity guard reads the file the catalog lands in: pi's providers table is
+	// yolo's computed models.json, not settings.json, which holds only the selection pair
+	// (packs/pi declares the two surfaces separately).
+	piModels := readPioencodeSurface(t, dir, "pi", "agent", "models.json")
+	requireCataloged(t, piModels.raw, "providers", "zai", "pi models.json")
 
 	config := string(renderedSurface(t, dir, "codex", "config.toml"))
 	if m := codexModelProviderAssign.FindStringSubmatch(config); m != nil {
