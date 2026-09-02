@@ -1023,6 +1023,9 @@
   [bold]use_profiles[/bold] (object): The selections this launch ACTIVATES — CLI name →
     profile name, where the key is the BINARY a pack installs (`claude`, `pi`, `codex`)
     and NOT a pack or agent name; an unknown key is fatal, naming what is installed.
+    USER-SCOPE ONLY, like `profiles`: this key is read from the merged config, so a
+    workspace spelling would TAKE EFFECT rather than sit inert — it is REFUSED there
+    for the same reason `profiles` is (OQ-CS5).
     A global `-p <name>` with no command keys the same name for every selected pack, by
     the CLI name each one installs.  A null value REMOVES a key and asserts nothing
     about it.  Selecting a name nothing declares (pack-shipped or yours) refuses the
