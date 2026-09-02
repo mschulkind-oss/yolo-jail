@@ -643,8 +643,9 @@ the *target* surface's agent instead, so it is **strictly more reachable than th
 both and only the modifier does anything, which is what puts OQ-PT8 — *is the kind just sugar?* — on
 the table. Then: a
 `providers: {"bedrock": null}` — the documented opt-out — refuses a `claude` launch outright
-(measured); `--profile` means startup timing *or* a pack profile depending on the next token, after
-two commits patching that parse; and the census — this work made `zai` the **twelfth** pack and the
+(measured); `--profile` meant startup timing *or* a pack profile depending on the next token, after
+two commits patching that parse — OQ-PT5 has since taken the timing meaning away (`--timing`) and
+left the flag name-only; and the census — this work made `zai` the **twelfth** pack and the
 first that installs no CLI *and* ships no loophole, while `AGENTS.md:8` still says ten.
 
 **What needs no ruling, and is worth doing regardless:** the missing integration test — nothing in
