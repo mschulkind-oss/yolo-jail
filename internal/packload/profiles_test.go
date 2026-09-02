@@ -74,8 +74,7 @@ func TestResolveProfilesDefaultlessOptionIsSettable(t *testing.T) {
 
 // TestResolveProfilesUserEntryCustomizesAPackProfile pins the §5.2 worked example: the
 // user declares the PACK's own profile name with no `provider` of its own, and keeps the
-// pack's — field merge, pack under user, exactly the convention `providers` uses. This
-// is also where the requires_provider compat shim is the code under test.
+// pack's — field merge, pack under user, exactly the convention `providers` uses.
 func TestResolveProfilesUserEntryCustomizesAPackProfile(t *testing.T) {
 	pack := optionProviderPack(t)
 	pack.Decl = declFrom(t, `{"contributes":[

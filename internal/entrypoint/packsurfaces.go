@@ -235,12 +235,14 @@ func reportOverlayResolution(e *Env, overlays *packoverlay.OverlaySet) {
 //
 // "Resolved" is the operative word, and it is why the surface loop computes this rather
 // than leaving the derive to read the profile table itself: the provider is NOT
-// necessarily the profile's name. packload.ProviderFor prefers a pack's
-// `requires_provider` declaration, and the pack that declares it usually installs no CLI
-// at all (packs/zai is the shipped case) — so the fallback a derive can write for
-// itself, "index use_profiles by my own agent name", answers a different question. The
-// Provider field is "" when no variant is active at this agent's CLI name, which is the
-// derive's signal to write nothing (OQ-CS2: the no-profile case is the agent's own).
+// necessarily the profile's name. packload.ProviderFor reads the `provider` field of the
+// profile a selected pack declares under that name — the CLI-owning pack's declaration
+// winning when both declare — and it reads EVERY selected pack's, because the pack that
+// declares it usually installs no CLI at all (packs/zai is the shipped case); so the
+// fallback a derive can write for itself, "index use_profiles by my own agent name",
+// answers a different question. The Provider field is "" when no profile is active at
+// this agent's CLI name, which is the derive's signal to write nothing (OQ-CS2: the
+// no-profile case is the agent's own).
 type surfaceSelection struct {
 	// Profile is the variant name active at this surface's agent's CLI name —
 	// ctx.profile_name; "" when none is.
