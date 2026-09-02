@@ -1,14 +1,16 @@
 ---
 title: "The provider table is checked in yolo's vocabulary and delivered in everyone else's"
 date: 2026-09-01
-status: draft
+status: accepted
 tags: [packs, providers, profiles, derives, zai, codex, pi]
 summary: "Follow-up to profiles-as-pack-variants and zai-plumbing, written from a review of the shipped work. The provider/profile machinery is sound; three defects share one cause — a value is validated against a set yolo owns and then handed verbatim to consumers that own different sets and different resolution rules. The headline instance ships a wire_api into codex's config that the repo's own source-verified research says codex refuses, and the enum it comes from turns out to be four borrowed spellings naming three protocols. Four further defects are independent, the largest of them conceptual: \"profile\" names three things, only one of which has a user layer, and zai's own profile declaration is measurably a no-op."
 ---
 
 # The provider table is checked in yolo's vocabulary and delivered in everyone else's
 
-**Status:** DESIGN, 2026-09-01. Nothing built. Written against `980aed71`.
+**Status:** DECIDED, 2026-09-01 — every open question ruled (ledger, §11); nothing built. Written
+against `980aed71`. **D9 (§5.6) is the one finding that outgrew this doc**: it belongs to
+[`trust-paths.md`](trust-paths.md)'s census, not here.
 
 **The short version.** The provider/profile design that shipped between `15688da1` and
 `980aed71` is architecturally right and unusually well tested — I mutated two production call
@@ -20,7 +22,7 @@ table can hold a `base_url`/`endpoints` pair that the config validator refuses w
 writes it directly, and `packs/zai` now spells one endpoint URL twice with nothing pinning the
 two copies equal. All three are **the abstraction being internally consistent and externally
 unchecked**, and §3.0a takes it one step further: the enum is not four protocols but three, with
-chat completions spelled twice. **Five** further defects share no cause with those (§5) — the
+chat completions spelled twice. **Six** further defects share no cause with those (§5) — the
 largest of them conceptual, and raised in review rather than found in the code: the word "profile"
 names three different things, only one of which a user can override, and `packs/zai`'s own
 `kind: "profile"` declaration is measurably a no-op — and, review found, **structurally unreachable**,
@@ -294,7 +296,7 @@ which is a schema question, not a code-placement one, and is OQ-PT3.
 
 ---
 
-## 5. Five more, sharing no cause with §3–§4
+## 5. Six more, sharing no cause with §3–§4
 
 These are grouped only by "found in the same review". Each stands alone. **§5.4 is the
 conceptual one, and it is the one a reader is most likely to have already noticed** — it came out of
@@ -487,6 +489,33 @@ Neither is a hazard the provider work introduced — `env_sources` predates it �
 provider/profile design is what made a credential routinely travel this path, and (1) is a
 one-character fix whose only real cost is deciding whether anything reads that file as a non-owner.
 
+
+### 5.6 D9 — `derive.lua` is executable pack content with no row in the trust census
+
+Found while settling OQ-PT9, and it outranks it. A pack's `derive.lua` is **Lua that yolo executes**,
+loaded by `loadPackDeriveScript` from any pack's root
+([`entrypoint/packsurfaces.go`](../../internal/entrypoint/packsurfaces.go)) with **no origin gate** —
+the check `host_files` gets (`MayGrantHostFiles`: fetched content may never name a host file) has no
+counterpart here. Its output becomes a config surface's computed layer, unvalidated against any
+schema, and for claude and codex that layer includes `mcp_servers` with `command` and `args`.
+
+**It does not appear in [`trust-paths.md`](trust-paths.md)'s 25-path census.** Searched 2026-09-01:
+the word "lua" occurs once in that document, inside the phrase "re-derive", and no row names
+`derive.lua`. Row 13 covers a *workspace* `yolo-jail.config.lua`, a different file; row 17 covers
+fetched-pack **content** (skills, briefing, files, config-overlay), which is declarative data rather
+than code.
+
+The asymmetry is the finding: **a fetched pack may not name a host file to READ, and may ship code
+yolo RUNS.** The weaker capability is gated and the stronger one is not.
+
+> [!NOTE]
+> **Stated as a census gap, not a verdict on what the rule should be.** It is possible the right
+> answer is that derives are fine ungated — every shipped derive is embedded, and the census's own
+> rows 18 and 19 show yolo knowingly granting fetched packs in-jail execution elsewhere. What is
+> not defensible is that the decision was never made: [`trust-paths.md`](trust-paths.md) claims to
+> enumerate every path and this one is absent, so no ruling exists to point at. That doc owns the
+> census and should gain the row; the rule that follows is its call, not this doc's.
+
 ## 6. What this does NOT propose
 
 - **No change to `kind: "provider"`'s schema**, its exclusivity, its skew handling, or the fact
@@ -632,49 +661,41 @@ reader stops checking.
    [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2.
 
 
-9. 💬 **OQ-PT9: What replaces the placeholder vocabulary?** *(Rescoped 2026-09-01 — two halves of
-   the original question are now settled, and only the third is open.)*
+9. ✅ **OQ-PT9: What replaces the placeholder vocabulary? — RESOLVED (2026-09-01). Everything goes
+   to the derive, credential included.** *"So it can set environment vars that can do literally
+   anything, but we won't let it pass through a token, in a way that would simplify everything?"*
 
-   **Settled: derives must be able to augment the environment.** *"Of course derive needs to be able
-   to augment the env, that's need to be built."* Derives are keyed `(agent, surface)` and emit
-   config surfaces only ([`luahook/derive.go`](../../internal/agentcfg/luahook/derive.go)); there is
-   no env-emitting derive, and that is the capability gap, not a reason to keep a template language.
-   It also needs the error propagation the question offered, since a derive that fails today has no
-   path to report.
+   **That is the right objection and my two previous positions were both wrong.** I argued for a
+   `yolo.secret()` sentinel, withdrew it in favour of a declared `credential_env`, and both rested on
+   a boundary the derive already crosses. Checked, 2026-09-01:
 
-   **Settled: the placeholder vocabulary goes.** `{endpoint}`, `{region}` and `{model:alias}` are
-   substitution a real language does better, and the parameterised `{model:alias}` — alone in the
-   set — was the vocabulary running out of room. With an env-emitting derive, claude's binding is a
-   few lines of Lua over `prov.endpoints` and `prov.models`, and the model-delivery gap
-   ([`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §3.1) closes by writing
-   the loop.
+   - **The derive already has arbitrary in-jail execution.** It controls its surface's computed
+     layer, and that layer includes `mcp_servers` entries — `command` plus `args`. Nothing validates
+     the returned table against a schema. A derive that wants to run something already can.
+   - **yolo already accepts exactly this for fetched packs, in writing.**
+     [`trust-paths.md`](trust-paths.md) row 18 records a fetched pack's `env` as *"in-jail exec in
+     practice (no key allowlist, so `LD_PRELOAD` etc.)"* with approval *"never, explicitly"*. So the
+     capability the objection names is not hypothetical and is not being withheld — it is granted,
+     knowingly, one row down.
+   - The agent's own process **already holds the credential** (sourced from `yolo-user-env.sh`), so
+     anything with execution there can read it without asking `ctx`.
 
-   **Open: how the credential reaches the agent, given that it must not reach the derive.** *"So
-   you're trying to avoid passing credentials through derive?"* — yes, and the reason is a trust
-   boundary rather than tidiness. `liveTables` builds ONE context handed to **every** selected pack's
-   derive ([`entrypoint/packsurfaces.go`](../../internal/entrypoint/packsurfaces.go)), and a pack may
-   be `OriginFetched` — a git ref whose content yolo already refuses to let name a host file
-   ([`config/packs.go`](../../internal/config/packs.go), `MayGrantHostFiles`). If `ctx.providers`
-   carried credential VALUES, installing any fetched pack would hand that pack's code every
-   provider's key. Today it carries names, and that is worth keeping.
+   The Lua sandbox is real — `SkipOpenLibs`, only base/table/string/math, `os` and `io` deliberately
+   closed ([`luahook/vm.go`](../../internal/agentcfg/luahook/vm.go)) — and it is beside the point: it
+   stops a derive reading the environment *directly*, not from reaching it through the file it
+   writes.
 
-   _Leaning:_ **The credential never enters Lua in any form — not even as a sentinel — and its
-   destination stays a one-field declaration on the agent's binding.** I proposed
-   `yolo.secret(name)` last round and now think it is the weaker half of the answer: a sentinel stops
-   pack code *reading* the credential but still lets it *route* one, and a destination chosen by code
-   is a destination nobody can audit. A declared `credential_env: "ANTHROPIC_AUTH_TOKEN"` is a fact
-   `yolo pack footprint` can print — which it cannot today, since the footprint names the source
-   variable and never the destination.
+   **So: the derive gets the resolved credential, and `{endpoint}`, `{key}`, `{region}`,
+   `{model:alias}`, the sentinel and `credential_env` all go.** One mechanism — a derive composes the
+   agent's env and its config file — and the whole substitution vocabulary disappears rather than
+   being replaced.
 
-   The split falls out cleanly: **everything computable goes to Lua; the one thing worth auditing
-   stays declarative.** And it is needed by exactly one agent/protocol pair — claude over
-   `anthropic`, the rename case. codex, pi and opencode take the credential's NAME into their config
-   files, which is not a secret and which a derive may write freely; bedrock authenticates through
-   the ambient AWS chain and declares nothing. If an agent ever needs the credential in a *computed*
-   form (`Bearer <key>` in a config file), that is the case to revisit this on, and none exists.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+   > [!NOTE]
+   > **The cost, recorded rather than argued away.** This is an auditability trade, not a security
+   > one. A derive reading a token from `ctx` is silent; a derive exfiltrating it by writing an MCP
+   > command leaves an artifact in a rendered config file that `yolo config diff` shows. Containment
+   > bought that difference and nothing more — which is not enough to justify a template language,
+   > and is worth knowing when the real boundary gets placed (D9).
 
 
 ---
@@ -690,6 +711,7 @@ the section named in the last column.
 | OQ-PT2 | **No resolution rule — the composed `base_url`/`endpoints` pair is REFUSED.** Overriding a pack that ships `endpoints` is spelled `endpoints.<protocol>.base_url`; only the shorthand-as-override is lost, and it is the ambiguous spelling. §7 A4's original rejection corrected. | 2026-09-01 | §4.1, §7 A4 |
 | OQ-PT3 | **A profile-gated `config-overlay` composes the provider's fact rather than restating it** — zai's duplicated URL literal comes out. Which substitution mechanism is OQ-PT9's. | 2026-09-01 | §4.2 |
 | OQ-PT5 | **The profile wins the good name** — the startup-timing flag is renamed, `-p`/`--profile` become unambiguous, and `profileValueAt`'s next-token heuristic is deleted. | 2026-09-01 | §5.2 |
+| OQ-PT9 | **Everything goes to the derive, credential included** — the placeholder vocabulary, the `yolo.secret()` sentinel and the declared `credential_env` are all dropped. The containment they protected is not a boundary: a derive already controls `mcp_servers` commands, and `trust-paths.md` row 18 already grants a fetched pack's `env` in-jail exec unapproved. An auditability trade, recorded as such. | 2026-09-01 | §5.5, and D9 for where the boundary actually belongs |
 | OQ-PT6 | **A profile gets a user layer, and it is the primary one** — a profile is user-declared intent: a named selection over a provider, customizable by name, with a pack-shipped one as an overridable default. | 2026-09-01 | [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2 |
 | OQ-PT7 | **The selector meaning becomes the only meaning** — no rename. The pack-variant body is not a profile; it is contributions gated on a profile name. `render.Profile` stays an unrelated Go homonym. | 2026-09-01 | [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2 |
 | OQ-PT8 | **`kind: "profile"` shrinks to name + provider**; `env`, `launch` and the config patch move to `profile:`-modified contributions. Derived from OQ-PT6/PT7, and it removes the CLI-less reachability defect rather than guarding it. | 2026-09-01 | [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2 |

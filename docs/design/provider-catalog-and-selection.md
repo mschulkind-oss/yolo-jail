@@ -169,15 +169,19 @@ a selection through a config file, one through the environment, and all four dec
 Whether the binding is a new contribution kind or a field on the existing ones is OQ-CS8.
 
 > [!NOTE]
-> **The example above is written in today's placeholder vocabulary, and that vocabulary is going.**
-> [`provider-table-fidelity.md`](provider-table-fidelity.md) OQ-PT9 settles two of its three parts:
-> **derives will be able to emit environment** (*"of course derive needs to be able to augment the
-> env, that's need to be built"*), and `{endpoint}`/`{region}`/`{model:alias}` go with it, because
-> that is substitution a real language does better. So claude's binding becomes a few lines of Lua
-> over `prov.endpoints` and `prov.models` — and **§3.1's missing model loop gets written rather than
-> encoded in a new placeholder.** What stays declarative is the credential's destination alone, for
-> the trust reason OQ-PT9 records: one `ctx` is handed to every selected pack's derive, a pack may be
-> fetched from a git ref, and a credential VALUE in that context would be readable by all of them.
+> **The example above is written in today's placeholder vocabulary, and that vocabulary is GONE.**
+> [`provider-table-fidelity.md`](provider-table-fidelity.md) OQ-PT9 ruled 2026-09-01 that everything
+> goes to the derive, credential included — so read the block below as *what claude needs delivered*,
+> not as the syntax that delivers it. In the ruled shape it is Lua over `prov.endpoints`,
+> `prov.models` and the resolved key.
+>
+> Two things follow. **Derives gain the ability to emit environment** (*"of course derive needs to be
+> able to augment the env, that's need to be built"*), which is the capability gap that made a
+> template language look necessary. And **§3.1's missing model loop gets written rather than encoded
+> in a new placeholder** — nothing about the credential stays declarative, because the trust argument
+> I built for keeping it so did not survive review: a derive already controls `mcp_servers` commands,
+> and a fetched pack's `env` is already granted in-jail exec unapproved
+> ([`trust-paths.md`](trust-paths.md) row 18).
 
 ---
 

@@ -593,7 +593,7 @@ stops the launch. That is the intended trade under your ruling, and it is the on
 ### 💬 18 — The provider table is checked in yolo's vocabulary and delivered in everyone else's
 
 📄 [`provider-table-fidelity.md`](../design/provider-table-fidelity.md) —
-**OQ-PT9** open · OQ-PT1…PT8 all ruled 2026-09-01 · follow-on to
+**all nine ruled 2026-09-01** — the doc is DECIDED; **D9** is the finding that outgrew it · follow-on to
 [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) and
 [`zai-plumbing.md`](../design/zai-plumbing.md), both of which shipped 2026-08-29 → 2026-09-01 and are
 otherwise sound · continues 💬 **17** §7 step 3 rather than contradicting it
@@ -663,24 +663,28 @@ good name — *"make the pack profile stuff short and easy"* — so the startup-
 and `profileValueAt`'s next-token heuristic, which cost two fix commits, is deleted rather than made
 more careful.
 
-**What is left is OQ-PT9, and two of its three parts are now settled.** *"Of course derive needs to
-be able to augment the env, that's need to be built"* — so **env-emitting derives are work, not a
-question** (they are keyed `(agent, surface)` today and emit config surfaces only), and with them the
-placeholder vocabulary goes: `{endpoint}`, `{region}` and `{model:alias}` are substitution a real
-language does better, and the parameterised `{model:alias}`, alone in the set, was the vocabulary
-running out of room.
+**OQ-PT9 closed, against both positions I had argued.** *"So it can set environment vars that can do
+literally anything, but we won't let it pass through a token, in a way that would simplify
+everything?"* — right, and checked: a derive **already** controls its surface's computed layer
+including `mcp_servers` `command`/`args` with no schema validation, and
+[`trust-paths.md`](../design/trust-paths.md) **row 18 already records a fetched pack's `env` as
+"in-jail exec in practice (no key allowlist, so LD_PRELOAD etc.)" with approval "never,
+explicitly."** The capability is not being withheld; it is granted knowingly one row down. So the
+derive gets the resolved credential, and `{endpoint}`/`{key}`/`{region}`/`{model:alias}`, the
+`yolo.secret()` sentinel and the declared `credential_env` **all go** — the substitution vocabulary
+disappears rather than being replaced. The cost is recorded honestly as an auditability trade, not a
+security one: a derive reading a token from `ctx` is silent, while exfiltration through a written MCP
+command leaves an artifact `yolo config diff` shows.
 
-**What stays open is how the credential reaches the agent, given that it must not reach the derive**
-— and *"so you're trying to avoid passing credentials through derive?"* is answered yes, for a trust
-reason rather than tidiness: `liveTables` builds **one** context handed to **every** selected pack's
-derive, and a pack may be `OriginFetched`, a git ref whose content yolo already refuses to let name a
-host file. A credential VALUE in that context would be readable by every installed pack's code.
-**I withdraw the `yolo.secret()` sentinel I proposed last round**: it stops pack code *reading* a
-credential but still lets it *route* one, and a destination chosen by code is a destination nobody
-can audit. The leaning is now that the credential never enters Lua in any form and its destination is
-a one-field declaration on the agent's binding — a fact `yolo pack footprint` can print, which it
-cannot today. Needed by exactly one agent/protocol pair (claude over `anthropic`, the rename case);
-codex, pi and opencode take the credential's NAME into their config files, which is not a secret.
+**And settling it found D9, which outranks the whole row.** `derive.lua` is **Lua that yolo executes**,
+loaded from any pack's root with **no origin gate** — the check `host_files` gets
+(`MayGrantHostFiles`: fetched content may never name a host file) has no counterpart — and its output
+becomes a config surface unvalidated. **It has no row in `trust-paths.md`'s 25-path census**: "lua"
+occurs once in that document, inside "re-derive". Row 13 is a *workspace* `yolo-jail.config.lua`; row
+17 is fetched-pack **content**, which is data. So: **a fetched pack may not name a host file to READ,
+and may ship code yolo RUNS.** The weaker capability is gated, the stronger is not. Filed as a census
+gap rather than a verdict — ungated derives may well be the right answer, given rows 18 and 19 — but
+no ruling exists to point at, and `trust-paths.md` owns that call.
 
 **What this row is NOT.** Not a retraction of either parent doc — the credential boundary, the
 three-level skew handling and the backend-parity repairs all re-measured clean. Not a proposal to
