@@ -338,12 +338,15 @@ Two things to decide alongside it, in §7.
    | Instance | Where | What it prints | Why it is the same question |
    | :--- | :--- | :--- | :--- |
    | Loopholes skipped in-jail | `sections_loopholes.go:23` | `[PASS] Inside jail — loophole checks skipped` | A skip claimed as a pass. §3.3 — this is the one that hid the broker |
-   | `sectionRunningJails` | [`check.go:514`](../../internal/cli/check/check.go#L514) | `[PASS] No jails currently running` | Reports the **nested podman's** view while reading as a statement about the host. Not a skip but the same failure: a confident token over a boundary the checker did not cross |
+   | `sectionRunningJails` | [`check.go:622`](../../internal/cli/check/check.go#L622) | `[PASS] No jails currently running` | Reports the **nested podman's** view while reading as a statement about the host. Not a skip but the same failure: a confident token over a boundary the checker did not cross |
    | `sectionGPUNvidia` | [`sections_devices.go:38`](../../internal/cli/check/sections_devices.go#L38) | three `[FAIL]`s (`nvidia-smi not found`, `nvidia-ctk not found`, …) | Host facts graded as failures of the thing being checked. Confident in the *other* direction, from the same absent vocabulary |
 
-   The count in the original leaning was low. Measured 2026-08-23: **ten** call sites already say
-   "I did not look" through `r.ok` — `sections_loopholes.go:23` and `:364`, `sections_devices.go:128`,
-   `:137` and `:218`, `check.go:448`, `:482` and `:607`, `sections_macos.go:49`, `sections_misc.go:19`.
+   The count in the original leaning was low. Measured 2026-08-23, **recounted 2026-09-02 and
+   unchanged**: **ten** call sites across nine sections already say "I did not look" through
+   `r.ok` — `sections_loopholes.go:23` and `:364`, `sections_devices.go:128`, `:137` and `:218`,
+   `check.go:481`, `:529` and `:673` (these three drifted lines since 08-23; same sites),
+   `sections_macos.go:49`, `sections_misc.go:19`. `reporter.go` has had zero commits in that
+   window — nothing about the vocabulary moved.
 
    **What it decides:** whether this is a one-line wording fix or a `[SKIP]` level added to the
    reporter (with its own counter, excluded from the pass tally) and applied to every section that
@@ -355,6 +358,17 @@ Two things to decide alongside it, in §7.
    in-jail case greppable, which is what a jail-as-host guard will need later, and it stops a skip
    inflating the pass count — which is what made the all-green readable as an answer. I would decide
    the two siblings in the same breath rather than leave them in the roadmap as wording nits.
+
+   **Costed 2026-09-02, so the ruling knows its price.** The `[SKIP]` option is small and local:
+   `reporter` already carries three independent counters plus a fourth, non-counting channel
+   (`warningLine`, `reporter.go:84-89`), so `r.skip(msg)` is ~10 lines mirroring `ok`/`warn`, one
+   `summaryFinal` branch mirroring the existing `r.warned > 0` pattern (`reporter.go:133-135`),
+   and ten mechanical `r.ok` → `r.skip` flips at the sites above — no section-function signature
+   changes. The scope-suffix alternative is strictly more invasive: it needs a way to distinguish
+   "I stepped aside" (the ten sites) from "this is a host fact" (`sectionRunningJails`,
+   `sectionGPUNvidia`), which are different defects wearing the same shape. A shippable split:
+   `[SKIP]` covers the ten now; the two wrong-boundary sections stay with the 🔒 GPU row, which
+   needs a host with a card to decide *which rows* to guard.
 
    **Answer:**
    > _(empty — fill in when decided)_
