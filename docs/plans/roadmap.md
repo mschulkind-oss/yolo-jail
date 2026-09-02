@@ -652,13 +652,16 @@ has since said twelve.
 **What needs no ruling, and is worth doing regardless:** the integration test this called missing —
 nothing in `integration/` mentioned `zai`, `pack_profiles` or `providers`, though the pattern existed
 and **an in-jail assertion on the rendered `~/.codex/config.toml` is the single check that would have
-caught the headline defect**. `cee9c1fc` landed that test on 2026-09-02, **RED on purpose**: its
-assertions name only what pi, codex and opencode themselves accept, so it fails on today's
-`openai-chat` and stays red until D1's derive fix (§3.4) and D10/D11's catalog fix (§3.5) land.
-`pack_profiles` is the one word of the original complaint still without any coverage. The census half
-is done: `67f87f36` rewrote `AGENTS.md` and `packs/embed.go`, and `886a9191` fixed `USER_GUIDE.md:217`
-— which was never a census line but §5.2's `--profile` doc half, since renamed `--timing`. The doc's
-§9 puts the test first deliberately: it fails today.
+caught the headline defect**. `cee9c1fc` landed that test on 2026-09-02, **RED on purpose** — its
+assertions name only what pi, codex and opencode themselves accept — and it went green in the same
+cycle: `7fa624ba` turned the D10/D11 subtests green and `0f04632d` the D1 subtests, so all four
+subtests now pass (re-verified by running it). `pack_profiles` is the one word of the original
+complaint still without coverage **in `integration/`** — its unit coverage exists
+(`internal/config/packprofilekeys_test.go`, `internal/cli/configoverlayprofile_test.go`). The census
+half is done: `67f87f36` rewrote `AGENTS.md` and `packs/embed.go`, and `886a9191` fixed
+`USER_GUIDE.md:217` — which was never a census line but §5.2's `--profile` doc half, since renamed
+`--timing`. The doc's §9 puts the test first deliberately: it landed red, which is how it caught the
+defect.
 
 **Eight of nine ruled in one review round, and two of my leanings were overturned.** OQ-PT1 takes
 three protocol-shaped canonical names that are deliberately **nobody's dialect**, so a pass-through
