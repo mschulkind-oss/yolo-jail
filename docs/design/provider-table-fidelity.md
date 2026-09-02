@@ -632,42 +632,50 @@ reader stops checking.
    [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2.
 
 
-9. 💬 **OQ-PT9: Does the placeholder vocabulary survive, or does a derive replace it?** *"I'm not
-   convinced we should have some interpolation format. What does that buy us? Are we now having a
-   typechecker? Why not just throw everything at derive? Could propagate errors from derive if
-   needed."*
+9. 💬 **OQ-PT9: What replaces the placeholder vocabulary?** *(Rescoped 2026-09-01 — two halves of
+   the original question are now settled, and only the third is open.)*
 
-   **What it buys, honestly: exactly one thing.** `{key}` is the only way a credential enters a
-   composed value, and `ValidateProviderEnvShape` refuses every other spelling — so **the secret
-   never enters Lua**. Derives receive the composed table, which carries `api_key_env_name` (a name)
-   and never a value; that is a real guarantee and the reason the vocabulary is closed. Everything
-   *else* the placeholders do — `{endpoint}`, `{region}`, `{model:alias}` — is substitution a real
-   language does better, and the awkwardness of `{model:alias}` (a parameterised placeholder, alone
-   in the set) is the vocabulary running out of room.
+   **Settled: derives must be able to augment the environment.** *"Of course derive needs to be able
+   to augment the env, that's need to be built."* Derives are keyed `(agent, surface)` and emit
+   config surfaces only ([`luahook/derive.go`](../../internal/agentcfg/luahook/derive.go)); there is
+   no env-emitting derive, and that is the capability gap, not a reason to keep a template language.
+   It also needs the error propagation the question offered, since a derive that fails today has no
+   path to report.
 
-   **So the two properties are separable, and only one needs a mini-language.**
+   **Settled: the placeholder vocabulary goes.** `{endpoint}`, `{region}` and `{model:alias}` are
+   substitution a real language does better, and the parameterised `{model:alias}` — alone in the
+   set — was the vocabulary running out of room. With an env-emitting derive, claude's binding is a
+   few lines of Lua over `prov.endpoints` and `prov.models`, and the model-delivery gap
+   ([`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §3.1) closes by writing
+   the loop.
 
-   _Leaning:_ Keep the containment, drop the vocabulary. A derive composes the env freely, and the
-   one thing it may not have is fetched through a **sentinel** — `yolo.secret("ZAI_API_KEY")` —
-   whose value Go substitutes on the way out. This is not a new mechanism: the derive path already
-   round-trips two `LUserData` sentinels (`ctx.tombstone`, `ctx.empty_array`,
-   [`luahook/derive.go`](../../internal/agentcfg/luahook/derive.go)) for exactly this
-   "Lua carries a marker Go interprets" reason. Under it, `{endpoint}`/`{region}`/`{model:alias}`
-   all disappear, and §3.1's model-delivery gap in
-   [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) closes by writing the
-   loop rather than by minting a placeholder.
+   **Open: how the credential reaches the agent, given that it must not reach the derive.** *"So
+   you're trying to avoid passing credentials through derive?"* — yes, and the reason is a trust
+   boundary rather than tidiness. `liveTables` builds ONE context handed to **every** selected pack's
+   derive ([`entrypoint/packsurfaces.go`](../../internal/entrypoint/packsurfaces.go)), and a pack may
+   be `OriginFetched` — a git ref whose content yolo already refuses to let name a host file
+   ([`config/packs.go`](../../internal/config/packs.go), `MayGrantHostFiles`). If `ctx.providers`
+   carried credential VALUES, installing any fetched pack would hand that pack's code every
+   provider's key. Today it carries names, and that is worth keeping.
 
-   To the typechecker question: **no, and that is the point.** The closed set exists to make a
-   *credential* unrepresentable, not to type-check substitution. Errors move from authoring time to
-   derive-run time, which needs the error propagation the question already offers — and the derive
-   path has no propagation today, so that is the real cost, not a footnote.
+   _Leaning:_ **The credential never enters Lua in any form — not even as a sentinel — and its
+   destination stays a one-field declaration on the agent's binding.** I proposed
+   `yolo.secret(name)` last round and now think it is the weaker half of the answer: a sentinel stops
+   pack code *reading* the credential but still lets it *route* one, and a destination chosen by code
+   is a destination nobody can audit. A declared `credential_env: "ANTHROPIC_AUTH_TOKEN"` is a fact
+   `yolo pack footprint` can print — which it cannot today, since the footprint names the source
+   variable and never the destination.
 
-   The genuine blocker is that **derives emit config surfaces, not environment** — they are keyed
-   `(agent, surface)` and there is no env-emitting derive. That is the work this question is really
-   asking to authorize, and it is larger than it looks.
+   The split falls out cleanly: **everything computable goes to Lua; the one thing worth auditing
+   stays declarative.** And it is needed by exactly one agent/protocol pair — claude over
+   `anthropic`, the rename case. codex, pi and opencode take the credential's NAME into their config
+   files, which is not a secret and which a derive may write freely; bedrock authenticates through
+   the ambient AWS chain and declares nothing. If an agent ever needs the credential in a *computed*
+   form (`Bearer <key>` in a config file), that is the case to revisit this on, and none exists.
 
    **Answer:**
    > _(empty — fill in when decided)_
+
 
 ---
 

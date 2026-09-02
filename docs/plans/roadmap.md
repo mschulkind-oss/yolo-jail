@@ -663,17 +663,24 @@ good name — *"make the pack profile stuff short and easy"* — so the startup-
 and `profileValueAt`'s next-token heuristic, which cost two fix commits, is deleted rather than made
 more careful.
 
-**What is left is one question, and it is the biggest.** *"I'm not convinced we should have some
-interpolation format. What does that buy us? Are we now having a typechecker? Why not just throw
-everything at derive?"* — **OQ-PT9**. Honest answer: the placeholders buy exactly ONE thing, which is
-that `{key}` is the only way a credential enters a composed value, so **the secret never enters
-Lua**. Everything else they do is substitution a real language does better, and `{model:alias}` — a
-parameterised placeholder, alone in the set — is the vocabulary running out of room. The two
-properties separate: keep the containment, drop the vocabulary, and fetch the one forbidden value
-through a `yolo.secret()` **sentinel** — which is not a new mechanism, since the derive path already
-round-trips `ctx.tombstone` and `ctx.empty_array` as `LUserData` for the same reason. The real cost
-is that derives are keyed `(agent, surface)` and **emit no environment at all**, plus the error
-propagation the question already offers; that is what OQ-PT9 is really asking to authorize.
+**What is left is OQ-PT9, and two of its three parts are now settled.** *"Of course derive needs to
+be able to augment the env, that's need to be built"* — so **env-emitting derives are work, not a
+question** (they are keyed `(agent, surface)` today and emit config surfaces only), and with them the
+placeholder vocabulary goes: `{endpoint}`, `{region}` and `{model:alias}` are substitution a real
+language does better, and the parameterised `{model:alias}`, alone in the set, was the vocabulary
+running out of room.
+
+**What stays open is how the credential reaches the agent, given that it must not reach the derive**
+— and *"so you're trying to avoid passing credentials through derive?"* is answered yes, for a trust
+reason rather than tidiness: `liveTables` builds **one** context handed to **every** selected pack's
+derive, and a pack may be `OriginFetched`, a git ref whose content yolo already refuses to let name a
+host file. A credential VALUE in that context would be readable by every installed pack's code.
+**I withdraw the `yolo.secret()` sentinel I proposed last round**: it stops pack code *reading* a
+credential but still lets it *route* one, and a destination chosen by code is a destination nobody
+can audit. The leaning is now that the credential never enters Lua in any form and its destination is
+a one-field declaration on the agent's binding — a fact `yolo pack footprint` can print, which it
+cannot today. Needed by exactly one agent/protocol pair (claude over `anthropic`, the rename case);
+codex, pi and opencode take the credential's NAME into their config files, which is not a secret.
 
 **What this row is NOT.** Not a retraction of either parent doc — the credential boundary, the
 three-level skew handling and the backend-parity repairs all re-measured clean. Not a proposal to

@@ -166,13 +166,18 @@ declaration serves bedrock (no endpoint, no key, a region) and zai (endpoint and
 with no per-provider subset to choose. **claude stops being the special case**: three agents deliver
 a selection through a config file, one through the environment, and all four declare it themselves.
 
-Whether the binding is a new contribution kind or a field on the existing ones is OQ-CS8 — and
-whether its values stay placeholders at all is
-[`provider-table-fidelity.md`](provider-table-fidelity.md) **OQ-PT9**, which asks why there is an
-interpolation format rather than a derive. The example above is written in today's vocabulary
-because that is what exists; if OQ-PT9 goes the way it leans, the same binding is a few lines of Lua
-reading `prov.endpoints`, `prov.models` and a `yolo.secret()` sentinel, and **the model loop that
-§3.1 says is missing gets written rather than encoded in a new placeholder.**
+Whether the binding is a new contribution kind or a field on the existing ones is OQ-CS8.
+
+> [!NOTE]
+> **The example above is written in today's placeholder vocabulary, and that vocabulary is going.**
+> [`provider-table-fidelity.md`](provider-table-fidelity.md) OQ-PT9 settles two of its three parts:
+> **derives will be able to emit environment** (*"of course derive needs to be able to augment the
+> env, that's need to be built"*), and `{endpoint}`/`{region}`/`{model:alias}` go with it, because
+> that is substitution a real language does better. So claude's binding becomes a few lines of Lua
+> over `prov.endpoints` and `prov.models` — and **§3.1's missing model loop gets written rather than
+> encoded in a new placeholder.** What stays declarative is the credential's destination alone, for
+> the trust reason OQ-PT9 records: one `ctx` is handed to every selected pack's derive, a pack may be
+> fetched from a git ref, and a credential VALUE in that context would be readable by all of them.
 
 ---
 
