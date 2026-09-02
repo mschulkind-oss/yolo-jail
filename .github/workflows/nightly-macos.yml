@@ -29,8 +29,12 @@ jobs:
             experimental-features = nix-command flakes
 
       - name: Build jail image
+        # --accept-flake-config: honor the flake's yolo-jail.cachix.org
+        # substituter. Without it nix discards it with a warning and this job
+        # builds the whole closure from source — on the runner where that costs
+        # the most (darwin realises an image on every launch).
         run: |
-          nix build --impure .#ociImage
+          nix build --impure --accept-flake-config .#ociImage
           ./result > /tmp/jail-image.tar
 
       - name: Upload jail image

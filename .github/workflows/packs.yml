@@ -74,7 +74,9 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
       - name: Build image
-        run: nix build --impure .#ociImageMinimal && ./result > /tmp/jail-image.tar
+        # --accept-flake-config: honor the flake's own cachix substituter (nix
+        # discards it with a warning otherwise, and this job has no cachix-action).
+        run: nix build --impure --accept-flake-config .#ociImageMinimal && ./result > /tmp/jail-image.tar
       - uses: actions/upload-artifact@v7
         with:
           name: packs-jail-image-${{ matrix.os }}

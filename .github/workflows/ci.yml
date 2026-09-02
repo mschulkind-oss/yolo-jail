@@ -131,8 +131,13 @@ jobs:
         # and assorted dev/debug tools — roughly 1.6–2 GB off the streamed tar.
         # It still contains everything the ./integration suite exercises.  The full
         # image builds locally via `just build-image` and runs in production.
+        # --accept-flake-config so the flake's own yolo-jail.cachix.org
+        # substituter is honored; without it nix warns and DISCARDS it, and this
+        # job (which has no cachix-action to add it to nix.conf) builds every
+        # image path from source. Added 2026-09-02 after measuring the publish
+        # job reading the cache only by the action's grace.
         run: |
-          nix build --impure .#ociImageMinimal
+          nix build --impure --accept-flake-config .#ociImageMinimal
           ./result > /tmp/jail-image.tar
           ls -lh /tmp/jail-image.tar
 

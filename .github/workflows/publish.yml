@@ -136,12 +136,24 @@ jobs:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       # cachix-action auto-pushes every path built while it's active, so a
-      # plain `nix build` of both variants populates the cache.
+      # `nix build` of both variants populates the cache.
+      #
+      # --accept-flake-config IS LOAD-BEARING, and its absence was a real defect
+      # (fixed 2026-09-02). Without it nix prints `ignoring untrusted flake
+      # configuration setting 'extra-substituters'` and the flake's own
+      # yolo-jail.cachix.org declaration (flake.nix nixConfig) is DISCARDED — so
+      # this job read the cache only by cachix-action's grace, which adds the
+      # substituter to nix.conf itself. Measured on the v0.8.0 run
+      # (31749547095): the four yolo-jail paths were substituted, and the two
+      # warnings were printed in the same log. It worked, for a reason that
+      # would vanish silently if this step were reordered or the action swapped.
+      # Every other nix invocation this project makes passes the flag
+      # (internal/image/nixflags.go, internal/darwinpkg/darwinpkg.go).
       - name: Build + push both image variants
         if: steps.gate.outputs.enabled == 'true'
         run: |
-          nix build --impure .#ociImage
-          nix build --impure .#ociImageMinimal
+          nix build --impure --accept-flake-config .#ociImage
+          nix build --impure --accept-flake-config .#ociImageMinimal
           echo "Pushed image closures to ${{ steps.gate.outputs.cache }}.cachix.org"
 
   # Build the macOS container-Linux-builder image and push it to GHCR, so
@@ -225,8 +237,9 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           REPO="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/yolo-jail-builder"
           ARCH="${{ matrix.arch }}"
-          STREAMER=$(nix build --impure --no-link --print-out-paths \
-            .#packages.${{ matrix.system }}.builderImage)
+          # --accept-flake-config: honor the flake's cachix substituter.
+          STREAMER=$(nix build --impure --accept-flake-config --no-link \
+            --print-out-paths .#packages.${{ matrix.system }}.builderImage)
           "$STREAMER" > /tmp/builder.tar
           skopeo copy "docker-archive:/tmp/builder.tar" \
             "docker://${REPO}:${VERSION}-${ARCH}"
