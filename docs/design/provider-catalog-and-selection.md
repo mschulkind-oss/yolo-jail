@@ -1,16 +1,17 @@
 ---
 title: "A catalog and a selection are two features — and only one of them ships"
 date: 2026-09-01
-status: accepted
+status: in-review
 tags: [providers, profiles, packs, derives, selection, zai]
 summary: "Splits the knot that profiles-as-pack-variants and zai-plumbing left tangled. Populating an agent's provider directory and telling that agent which provider to USE are different features with different triggers; today the first works for every agent and the second is implemented for claude only. Measured in a live jail: pi, opencode and codex all carry zai in their catalog with no selection key set, so `-p zai` reaches three of the four agents it claims. The disable-without-deleting complaint falls out of the same conflation."
 ---
 
 # A catalog and a selection are two features — and only one of them ships
 
-**Status:** DECIDED, 2026-09-01 — all nine questions ruled the day they were asked (ledger, §10).
-**Nothing built**, and §3's empty pi row is the blocker: it needs no ruling and no other step can be
-designed around it.
+**Status:** IN REVIEW, 2026-09-01 — nine questions ruled the day they were asked (ledger, §10), and
+**writing the implementation plan opened a tenth**: OQ-CS8's ruling did not say whether the HOST
+notch runs the env derive, and `yolo host -- claude` has no jail to run one in (OQ-CS10). **Nothing
+built**, and §3's empty pi row remains the research blocker.
 
 **The short version.** *"Put z.ai in my agents' provider directory"* and *"start this agent
 **using** z.ai"* are two features. yolo drives both off one table and one selector, which is why
@@ -670,6 +671,36 @@ unrelated to the sequence above.
    option. Same-NAME merging (a user's `zai` over a pack's `zai`, per field) is unaffected: that is
    a different feature and it stays.
 
+
+
+10. 💬 **OQ-CS10: Does the HOST notch run the env derive?** *(Opened 2026-09-01 while writing
+    [`provider-catalog-and-selection-plan.md`](provider-catalog-and-selection-plan.md) — a
+    consequence of OQ-CS8 that the ruling did not reach, not a reversal of it.)*
+
+    Env composition today is **host-launch-time**, in one implementation with three consumers:
+    [`profilechannel.go:93`](../../internal/cli/run/profilechannel.go#L93) (the container argv),
+    [`host.go:432`](../../internal/cli/host.go#L432) — **`yolo host`, where there is no jail at
+    all** — and the macos-user arm via `Options.PackEnv`. A **derive runs in-jail, at boot.** So
+    "the agent pack composes it in its own derive" silently drops the env for `yolo host -- claude`
+    unless the host notch runs that derive too.
+
+    This is exactly the parity [`internal/agentenv`](../../internal/agentenv/agentenv.go)'s package
+    doc exists to hold: *"the ONE env-composition implementation both notches use … what makes
+    `yolo -- claude` and `yolo host -- claude` compose the same environment … a claim two
+    independent copies of this logic could not keep."* OQ-CS8 deletes that implementation without
+    saying what keeps the claim.
+
+    _Leaning:_ the host notch runs the env derive, through the seam that already exists —
+    [`hostrender.go:377`](../../internal/entrypoint/hostrender.go#L377) runs pack derives host-side
+    against a sentinel live table today, so this is reusing a path rather than building one. What I
+    will not do is guess: it decides whether OQ-CS8 is a contained change or a three-site rework,
+    and it is **behaviour the design fixes**, not an implementation detail. The alternative worth
+    weighing is that `yolo host` keeps a narrow Go composition and parity is asserted by a test
+    rather than by shared code — cheaper now, and the exact shape §2's B-0 hoists kept having to
+    repair.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
 
 ---
 
