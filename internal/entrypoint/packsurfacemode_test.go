@@ -45,7 +45,7 @@ func TestStatefulModeWritesCaptureSidecars(t *testing.T) {
 		Agent: "example", Name: "stateful", Path: "~/.example/s.json", Codec: "json",
 		Defaults: map[string]any{"a": 1},
 	}
-	if err := renderDeclaredSurface(e, s, nil, "", nil); err != nil {
+	if err := renderDeclaredSurface(e, s, nil, "", surfaceSelection{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range []string{
@@ -67,7 +67,7 @@ func TestComputedModeWritesNoSidecars(t *testing.T) {
 		Agent: "example", Name: "computed", Path: "~/.example/c.json", Codec: "json",
 		Defaults: map[string]any{"a": 1}, Mode: manifest.ModeComputed,
 	}
-	if err := renderDeclaredSurface(e, s, nil, "", nil); err != nil {
+	if err := renderDeclaredSurface(e, s, nil, "", surfaceSelection{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(expandHomePath(e, s.Path)); err != nil {
@@ -94,7 +94,7 @@ func TestRMWModePreservesUnknownKeys(t *testing.T) {
 		Agent: "example", Name: "rmw", Path: "~/.example/r.json", Codec: "json",
 		Managed: map[string]any{"yolo": true}, Mode: manifest.ModeRMW,
 	}
-	if err := renderDeclaredSurface(e, s, nil, "", nil); err != nil {
+	if err := renderDeclaredSurface(e, s, nil, "", surfaceSelection{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -118,7 +118,7 @@ func TestUnrenderedModeWritesNothing(t *testing.T) {
 		Agent: "example", Name: "none", Path: "~/.example/u.json", Codec: "json",
 		Defaults: map[string]any{"a": 1}, Mode: manifest.ModeUnrendered,
 	}
-	if err := renderDeclaredSurface(e, s, nil, "", nil); err != nil {
+	if err := renderDeclaredSurface(e, s, nil, "", surfaceSelection{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(expandHomePath(e, s.Path)); err == nil {

@@ -72,7 +72,7 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 
 	t.Run("pi", func(t *testing.T) {
 		script, s := deriveSurface(t, "pi", "pi/models")
-		got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, tables)
+		got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -113,7 +113,7 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 
 	t.Run("codex", func(t *testing.T) {
 		script, s := deriveSurface(t, "codex", "codex/config")
-		got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, tables)
+		got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -135,7 +135,7 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 
 	t.Run("opencode", func(t *testing.T) {
 		script, s := deriveSurface(t, "opencode", "opencode/config")
-		got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, tables)
+		got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -193,7 +193,7 @@ func TestClaudeDeriveReadsTheUseProfilesTable(t *testing.T) {
 	}
 	render := func(tables map[string]map[string]any) map[string]any {
 		t.Helper()
-		got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, tables)
+		got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -240,7 +240,7 @@ func TestProviderDerivesKeepTheBaseURLShorthand(t *testing.T) {
 		},
 	}
 	script, s := deriveSurface(t, "pi", "pi/models")
-	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, tables)
+	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestProviderDerivesTranslateTheCanonicalVocabulary(t *testing.T) {
 
 			t.Run("pi", func(t *testing.T) {
 				script, s := deriveSurface(t, "pi", "pi/models")
-				got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, tables)
+				got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -345,7 +345,7 @@ func TestProviderDerivesTranslateTheCanonicalVocabulary(t *testing.T) {
 
 			t.Run("codex", func(t *testing.T) {
 				script, s := deriveSurface(t, "codex", "codex/config")
-				got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, tables)
+				got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -404,7 +404,7 @@ func TestProviderDerivesSkipAProviderWithNoURLForThem(t *testing.T) {
 		},
 	}
 	script, s := deriveSurface(t, "pi", "pi/models")
-	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, tables)
+	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, tables)
 	if err != nil {
 		t.Fatal(err)
 	}

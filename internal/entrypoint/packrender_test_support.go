@@ -38,6 +38,19 @@ func ConfigurePackByName(e *Env, name string) error {
 	if err != nil {
 		return err
 	}
+	// The WHOLE embedded set, not just the pack asked for: the selection a derive sees
+	// (surfaceSelection) resolves across packs, because the pack that declares a
+	// `requires_provider` usually installs no CLI — packs/zai is the shipped case, and
+	// the surface it speaks to is claude's. Resolving against one pack would answer with
+	// the profile's bare name wherever requires_provider differs from it, and `yolo
+	// check` would then validate a render the boot never produces. The embedded set is
+	// all this entry has — a CONFIGURED pack's declaration stays outside its reach, the
+	// same reach the overlays below are bounded by, and for the opposite reason: there
+	// the entry must not RENDER a pack nobody asked for, here it simply cannot see one.
+	set, err := embeddedPackSet()
+	if err != nil {
+		return err
+	}
 	tables := liveTables(e)
 	// The autonomy policy reads off the target's profile, exactly as the boot loop does
 	// (ConfigurePackSurfaces) — this entry has to agree with it or the parity proofs above
@@ -68,6 +81,7 @@ func ConfigurePackByName(e *Env, name string) error {
 	overlays := packoverlay.Collect([]*packload.Pack{p}, autonomy, profiles)
 	for _, s := range surfaces {
 		if err := renderDeclaredSurface(e, s, tables, deriveScript,
+			surfaceSelectionFor(set, profiles, s),
 			overlays.For(s.Agent, s.Name)); err != nil {
 			return err
 		}
@@ -86,6 +100,22 @@ func ConfigurePackByName(e *Env, name string) error {
 // repeatedly across a test's boots, and re-copying the tree each time would be wasted work
 // on the path that is meant to mirror what the boot loop does with a mounted tree.
 func embeddedPack(name string) (*packload.Pack, error) {
+	packs, err := embeddedPackSet()
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range packs {
+		if p.Name == name {
+			return p, nil
+		}
+	}
+	return nil, fmt.Errorf("no embedded pack named %q", name)
+}
+
+// embeddedPackSet materializes the embedded official packs once and returns all of them.
+// Split out of embeddedPack for the one caller that needs the SET rather than a member —
+// the selection a surface derive sees resolves across packs (ConfigurePackByName).
+func embeddedPackSet() ([]*packload.Pack, error) {
 	embeddedOnce.Do(func() {
 		packs, problems := packload.MaterializeEmbedded(officialpacks.FS, embeddedDir())
 		if len(problems) > 0 {
@@ -97,12 +127,7 @@ func embeddedPack(name string) (*packload.Pack, error) {
 	if embeddedErr != nil {
 		return nil, embeddedErr
 	}
-	for _, p := range embeddedPacks {
-		if p.Name == name {
-			return p, nil
-		}
-	}
-	return nil, fmt.Errorf("no embedded pack named %q", name)
+	return embeddedPacks, nil
 }
 
 var (

@@ -392,7 +392,12 @@ func hostTableKeys(p *packload.Pack, s manifest.Surface) []string {
 		manifest.SourceProviders:   sentinel,
 		manifest.SourceUseProfiles: sentinel,
 	}
-	derived, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, probe)
+	// The selection is deliberately empty here: this probe asks which keys the derive
+	// PRODUCES, and a selection-keyed producer answers it the same way either way —
+	// the catalog tables come from presence (OQ-CS1 option D), the selection key itself
+	// is a scalar. A real selection would make the probe's answer a fact about a launch
+	// this function has no launch for.
+	derived, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, surfaceSelection{}, probe)
 	if err != nil {
 		return nil // a broken derive is the jail path's error to report, not this one's
 	}

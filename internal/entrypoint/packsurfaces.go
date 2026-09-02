@@ -195,6 +195,7 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 			surface := s
 			genStep(e, "configure_"+surface.Agent+"_"+surface.Name, func() error {
 				return renderDeclaredSurface(e, surface, tables, deriveScript,
+					surfaceSelectionFor(packs, profiles, surface),
 					overlays.For(surface.Agent, surface.Name))
 			})
 		}
@@ -226,19 +227,60 @@ func reportOverlayResolution(e *Env, overlays *packoverlay.OverlaySet) {
 	}
 }
 
+// surfaceSelection is the RESOLVED SELECTION a surface derive sees as
+// ctx.profile_name and ctx.selected_provider — the same two fields the env path
+// (packload.AgentEnv) hands its producer, set here so a surface derive reads one
+// resolution rule instead of re-deriving the provider from ctx.use_profiles in Lua
+// (provider-catalog-and-selection.md §5.1, §9 OQ-CS3).
+//
+// "Resolved" is the operative word, and it is why the surface loop computes this rather
+// than leaving the derive to read the profile table itself: the provider is NOT
+// necessarily the profile's name. packload.ProviderFor prefers a pack's
+// `requires_provider` declaration, and the pack that declares it usually installs no CLI
+// at all (packs/zai is the shipped case) — so the fallback a derive can write for
+// itself, "index use_profiles by my own agent name", answers a different question. The
+// Provider field is "" when no variant is active at this agent's CLI name, which is the
+// derive's signal to write nothing (OQ-CS2: the no-profile case is the agent's own).
+type surfaceSelection struct {
+	// Profile is the variant name active at this surface's agent's CLI name —
+	// ctx.profile_name; "" when none is.
+	Profile string
+	// Provider is what that variant delivers — ctx.selected_provider; "" when no
+	// variant is active.
+	Provider string
+}
+
+// surfaceSelectionFor resolves one surface's selection: packload.ProviderFor — the ONE
+// rule both derive paths answer through — over the set of loaded packs and the profile
+// table the caller already lowered. Both entries that render surfaces call this
+// (ConfigurePackSurfaces on the boot path, ConfigurePackByName for `yolo check`), so
+// there is no second place to spell the resolution differently.
+func surfaceSelectionFor(packs []*packload.Pack, profiles map[string]string, s manifest.Surface) surfaceSelection {
+	return surfaceSelection{
+		Profile:  profiles[s.Agent],
+		Provider: packload.ProviderFor(packs, s.Agent, profiles[s.Agent]),
+	}
+}
+
 // deriveComputedLayer runs a surface's derive producer to build its dynamic
 // (computed) layer — the map that feeds Inputs.Computed and, for an RMW surface,
 // the managed dynamic table. Returns nil when the pack ships no derive or none is
 // registered for this surface (the identity: no dynamic layer). A Lua error is
 // fatal, matching the old BuildComputed error contract.
-func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, tables map[string]map[string]any) (map[string]any, error) {
+//
+// sel is the resolved selection the ctx exposes (surfaceSelection); the env path's
+// producer reads the same fields, so neither derive path can grow a private answer to
+// "which provider is active".
+func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, sel surfaceSelection, tables map[string]map[string]any) (map[string]any, error) {
 	if deriveScript == "" {
 		return nil, nil
 	}
 	out, err := (luahook.GopherLuaVM{}).Derive(deriveScript, &luahook.DeriveCtx{
-		Agent:   surface.Agent,
-		Surface: surface.Name,
-		Tables:  tables,
+		Agent:            surface.Agent,
+		Surface:          surface.Name,
+		ProfileName:      sel.Profile,
+		SelectedProvider: sel.Provider,
+		Tables:           tables,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("surface %s/%s: derive: %w", surface.Agent, surface.Name, err)
@@ -263,11 +305,14 @@ func liveTables(e *Env) map[string]map[string]any {
 
 // renderDeclaredSurface writes one declared surface by the mechanism its mode names.
 //
+// sel is the resolved selection this surface's derive reads (surfaceSelection), computed
+// by the caller from the same profile table it folded the variants with.
+//
 // overlays are the config-overlay layers other packs contribute to THIS surface,
 // resolved cross-pack by the caller. Empty for every surface nobody overlays, which is
 // all of them today — Compose folds an empty slice as a no-op, so the boot output of a
 // pack set with no overlays is byte-identical (pinned by TestRenderFingerprintStable).
-func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]map[string]any, deriveScript string, overlays []agentcfg.Overlay) error {
+func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]map[string]any, deriveScript string, sel surfaceSelection, overlays []agentcfg.Overlay) error {
 	if surface.ResolvedMode() == manifest.ModeUnrendered {
 		// Declared so `yolo config ls` can describe the file and so host_files cannot
 		// claim its path, but yolo does not write it. Skipping silently is correct here
@@ -285,7 +330,7 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 	// The dynamic (computed) layer: produced by the surface's derive function over the
 	// live tables (docs/design/pack-system.md §7). One map serves both the compose
 	// path (as Inputs.Computed) and the RMW path (as the managed dynamic table).
-	computed, err := deriveComputedLayer(e, surface, deriveScript, tables)
+	computed, err := deriveComputedLayer(e, surface, deriveScript, sel, tables)
 	if err != nil {
 		return err
 	}
