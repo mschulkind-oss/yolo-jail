@@ -696,7 +696,7 @@ whether it may carry the placeholder vocabulary `env_shape` already has.
 ### 💬 19 — A catalog and a selection are two features, and only one of them ships
 
 📄 [`provider-catalog-and-selection.md`](../design/provider-catalog-and-selection.md) —
-**OQ-CS7** open · the other eight ruled 2026-09-01 · ~~OQ-CS1~~ ~~OQ-CS2~~ ~~OQ-CS4~~ ~~OQ-CS6~~ ruled · sibling to 💬 **18**, which reports defects in the same machinery ·
+**all nine ruled 2026-09-01** — the doc is DECIDED; what blocks it is research, not a decision · ~~OQ-CS1~~ ~~OQ-CS2~~ ~~OQ-CS4~~ ~~OQ-CS6~~ ruled · sibling to 💬 **18**, which reports defects in the same machinery ·
 splits what [`zai-plumbing.md`](../design/zai-plumbing.md) §5 assumed was one thing
 
 **The maintainer's own framing, 2026-09-01:** *"populating a directory of providers in an agent
@@ -821,26 +821,21 @@ protocol table**, which is `pack-code-separation.md`'s "core does not know what 
 somewhere it had been explicitly excepted. And *"yes of course user"* settles OQ-CS5's scope: user
 scope only, both keys.
 
-**One left, and two review rounds sharpened it rather than answering it.** *"Exactly what? Check a
-few things? Some optional half schema thing with a low grade type checker?"* — deserved; the leaning
-proposed value-checking against a provider-declared shape without saying what the shape was.
-Rescoped: **core validates nothing** (a typechecker there is `wire_api`'s enum again — a set core
-owns, delivered verbatim to consumers that own different ones); the derive validates and errors
-propagate.
+**The last one closed, and the review corrected its shape.** OQ-CS7: core validates **nothing** — a
+typechecker there is `wire_api`'s enum again, a set core owns delivered verbatim to consumers that
+own different ones — and the derive validates with errors propagating. What core does keep is the
+**key census** this repo already runs everywhere (`knownProviderKeys`, `reportUnknownKeys`), which is
+a different thing from validating a value and is what makes the answer not a half-schema. So a
+provider declares its option names and defaults, a mistyped profile key errors *naming what the
+provider accepts*, and the footprint can print `accepts: model, thinking`.
 
-**The distinction that draft blurred, and the one the choice turns on:** *validating a value* ("is
-`low` a legal `thinking`?") is what core is getting out of; *checking a key census* ("does zai accept
-a `thinking` at all?") is a different thing this repo already does everywhere —
-`knownProviderKeys`, `reportUnknownKeys`. So **(i)** — a provider declares option NAMES and DEFAULTS,
-`{"model": {"default": "default"}}` and nothing more — buys the census, not the typechecker: a
-mistyped profile key errors *naming what the provider does accept*, defaults merge so a profile
-states only what it changes, and the footprint can print `accepts: model, thinking`. **(ii)** — no
-declaration, free-form profile keys — has the appeal of zero schema and two costs I had
-under-weighted: a typo is **silently inert** (the `[PASS]`-then-nothing-works class 💬 **17** exists
-to close, minted fresh in a new key), and defaults do not vanish but **move into each agent's derive**,
-so N derives default the same provider's option independently — and without them a profile restates
-everything, which **weakens OQ-CS9's ruling**, made precisely on the grounds that defaults leave
-little to duplicate. Leaning (i) on those two consequences.
+**And the shape got simpler under review:** *"I don't get why `{options: {model: {default: foo}}}`
+and not just `{options: {model: foo}}`"* — no reason. Once `kind`, `values` and enum checking were
+gone, `default` was the only field left and the wrapper object was the half-schema keeping a hole to
+climb back through. It is now a **flat name → default-value map**, which also matches its neighbour
+`models`. One wrinkle written into the ruling rather than left to be discovered: **`null` means
+*declared, no default*, NOT the delete convention** — un-declaring an option is a thing nobody wants,
+while "keep the option, drop the default" is a real override.
 
 **Step 1 needs no ruling and blocks the rest:** the doc's §3 per-agent selection table has one row
 empty (pi — its `models.json` carries only `providers`, and where pi records "the model I use" is

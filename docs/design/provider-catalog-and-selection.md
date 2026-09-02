@@ -1,15 +1,16 @@
 ---
 title: "A catalog and a selection are two features — and only one of them ships"
 date: 2026-09-01
-status: draft
+status: accepted
 tags: [providers, profiles, packs, derives, selection, zai]
 summary: "Splits the knot that profiles-as-pack-variants and zai-plumbing left tangled. Populating an agent's provider directory and telling that agent which provider to USE are different features with different triggers; today the first works for every agent and the second is implemented for claude only. Measured in a live jail: pi, opencode and codex all carry zai in their catalog with no selection key set, so `-p zai` reaches three of the four agents it claims. The disable-without-deleting complaint falls out of the same conflation."
 ---
 
 # A catalog and a selection are two features — and only one of them ships
 
-**Status:** DESIGN, 2026-09-01. Nothing built. **OQ-CS1 and OQ-CS2 ruled the same day**
-(ledger, §10); OQ-CS3 open, and §3's research gap is the real blocker.
+**Status:** DECIDED, 2026-09-01 — all nine questions ruled the day they were asked (ledger, §10).
+**Nothing built**, and §3's empty pi row is the blocker: it needs no ruling and no other step can be
+designed around it.
 
 **The short version.** *"Put z.ai in my agents' provider directory"* and *"start this agent
 **using** z.ai"* are two features. yolo drives both off one table and one selector, which is why
@@ -400,21 +401,17 @@ The distinction that keeps this from being magic: the provider declares the **op
 the provider's shape, and core learns no option names at all.
 
 ```jsonc
-// the provider declares its surface
+// the provider declares its surface — a flat map of option name to DEFAULT VALUE
 { "kind": "provider", "name": "zai",
   "endpoints": { … }, "models": { "default": "glm-4.7", "fast": "glm-4.7-air" },
-  "options": {
-    "model":    { "kind": "model-alias", "default": "default" },
-    "thinking": { "kind": "enum", "values": ["off", "low", "high"] }
-  } }
+  "options": { "model": "default", "thinking": "off" } }
 
-// a profile is an instance of it
+// a profile is an instance of it, stating only what it changes
 { "profiles": { "zai-fast": { "provider": "zai", "model": "fast", "thinking": "low" } } }
 ```
 
-`model` stops being special — it becomes one option of a declared kind, whose legal values are the
-provider's own `models` aliases. That is the same sentence as before, generalized: **the provider
-says what can be set and what the legal values are; the agent's own derive says where it lands.**
+`model` stops being special — it is one option like any other. **The provider says what can be set
+and what it defaults to; the agent's own derive says where it lands and what the value means.**
 
 > [!WARNING]
 > **An option nothing consumes is inert, and that has to stay true rather than become an error.**
@@ -636,76 +633,33 @@ unrelated to the sequence above.
    What core still does: compose the providers table, resolve which profile is active, hydrate the
    credential, and run derives. What it stops doing is knowing what any of it *means*.
 
-8. 💬 **OQ-CS7: Does a provider's `options` declaration carry any validation at all — or any
-   schema?** *(Rescoped after review: "Exactly what? Check a few things? Some optional half schema
-   thing with a low grade type checker?" The previous leaning deserved that. It proposed
-   value-checking against a provider-declared shape without saying what the shape was, which is a
-   half-schema by any name.)*
-
-   **The consistent answer is that core validates nothing**, and I now think the previous leaning was
-   inconsistent with two rulings already made. OQ-PT9 sends the values to the derive; OQ-CS3 makes
-   the derive resolve them. A typechecker in core would be the only place left that claims to
-   understand an option — and it is the same shape as `wire_api`'s enum, which validated against a
-   set core owned and delivered verbatim to consumers that owned different ones. **The derive
-   validates, and errors propagate** — the propagation OQ-PT9 already requires.
-
-   What that leaves open is whether `options` is a small declaration or nothing at all. Spelled out,
-   because the difference is easy to under-describe:
-
-   **First, a distinction the previous draft blurred.** *Validating a value* ("is `low` a legal
-   `thinking`?") is what core is getting out of. *Checking a key census* ("does zai accept a
-   `thinking` at all?") is a different thing, and this repo already does it everywhere —
-   `knownProviderKeys`, `knownEndpointKeys`, `reportUnknownKeys`. Option (i) buys the census, not the
-   typechecker.
-
-   **(i) — the provider declares option NAMES and DEFAULTS.**
+8. ✅ **OQ-CS7: Does a provider's `options` declaration carry any validation or schema? — RESOLVED
+   (2026-09-01). Option (i), and FLAT.** *"Yes, (i), but I don't get why `{options: {model: {default:
+   foo}}}` and not just `{options: {model: foo}}`."* — no reason, and the nesting was the half-schema
+   leaving a hole to climb back through. Once `kind`, `values` and enum checking are gone, `default`
+   is the only field, and a one-key object is a wrapper with nothing to wrap.
 
    ```jsonc
-   // packs/zai — the declaration
-   { "kind": "provider", "name": "zai",
-     "models":  { "default": "glm-4.7", "fast": "glm-4.7-air" },
-     "options": { "model": { "default": "default" }, "thinking": { "default": "off" } } }
-
-   // user config — the profile states only what it changes
-   { "profiles": { "zai-fast": { "provider": "zai", "model": "fast" } } }
+   "options": { "model": "default", "thinking": "off" }    // name → default value
    ```
 
-   - The derive receives the **merged** result — `{model = "fast", thinking = "off"}` — so a profile
-     never restates a default.
-   - A profile key the provider does not declare is an **error naming what it does accept**:
-     `profiles.zai-fast.thinkng: unknown option for provider "zai" (accepts: model, thinking)`. That
-     is `reportUnknownKeys` on a per-provider census, not a new mechanism.
-   - `yolo pack footprint zai` can print `accepts: model, thinking`.
-   - Core still never asks what `low` means. `{ "default": … }` is the whole option schema — no
-     `kind`, no `values`, no enum.
+   It also matches its neighbour: `models` in the same manifest is already a flat name → value map,
+   so the two read alike instead of one being an object-of-objects for no reason.
 
-   **(ii) — no declaration; profile keys are free-form.**
+   **What core does, complete:** merge the declared defaults under the profile's own values, refuse a
+   profile key the provider does not declare (naming what it does accept), and hand the result to the
+   derive. It never asks what a value means — the derive validates and its errors propagate.
 
-   ```jsonc
-   // packs/zai declares no options at all
-   { "profiles": { "zai-fast": { "provider": "zai", "model": "fast", "thinking": "low" } } }
-   ```
-
-   - Core passes the profile through untouched; the derive reads what it recognizes.
-   - A typo is **silently inert** — `"thinkng": "low"` reaches the derive, matches nothing, and
-     nothing reports it. That is the `[PASS]`-then-nothing-works class
-     [`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md) exists to close, minted
-     fresh in a new key.
-   - **No defaults, and this is the cost I under-weighted.** Defaults do not disappear; they move
-     into each agent's derive, so N derives each default the same provider's option independently and
-     can disagree. And without them a profile must restate every option — which **weakens OQ-CS9**,
-     since "point, don't inherit" was ruled precisely on the grounds that defaults leave little to
-     duplicate.
-   - Nothing to print in a footprint, and a user discovers the available options by reading Lua.
-
-   _Leaning:_ **(i)**, and the case rests on the two consequences above rather than on tidiness — it
-   is the only one of the pair that keeps a typo reportable and keeps OQ-CS9's ruling standing on its
-   own reasoning. It costs one new provider key (`options`) whose value schema is a single optional
-   field. If even that proves unearned, (ii) is a smaller doc change than a larger one, which is the
-   direction to be wrong in.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+   > [!NOTE]
+   > **One wrinkle, stated rather than discovered later: `null` is NOT the delete convention here.**
+   > A declared option with no sensible default needs a spelling, and `"thinking": null` is it —
+   > *declared, no default*, so a profile may set it and the derive gets nothing when the profile
+   > does not. It deliberately does **not** mean "un-declare this option", which is the meaning
+   > `null` carries almost everywhere else in this config. The reason to depart: un-declaring is a
+   > thing nobody wants (a user gains nothing by removing an option their provider offers, since an
+   > unset option already reaches the derive as nothing), while "keep the option, drop the default"
+   > is a real override. Since the two readings would otherwise pick different behaviours for the
+   > same syntax, the rule is worth writing into the key's own documentation.
 
 9. ✅ **OQ-CS9: Does a profile point at a provider, inherit from another profile, or both? —
    RESOLVED (2026-09-01). Point only — option (a).** No `extends`, no inheritance semantics to
@@ -727,6 +681,7 @@ folded into the section named in the last column.
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-CS1 | **Option D** — catalog from presence, selection written into each agent's own selection key. *"Activating a profile should work for all."* B (gating the catalog) rejected with it. | 2026-09-01 | §5, §5.1 |
+| OQ-CS7 | **Option (i), flat: `options` is a name → default-value map.** No `kind`, no `values`, no enum — `default` was the only field left, so the wrapper object goes; it now reads like its neighbour `models`. Core merges defaults, refuses an undeclared profile key, and validates no value. `null` means *declared, no default* — deliberately not the delete convention. | 2026-09-01 | §5.2, §9 OQ-CS7 |
 | OQ-CS3 | **Core resolves no model** — it hands the derive the active profile and the provider entry; the derive writes its agent's selection key and picks its own fallback. `default` stays an ordinary open-vocabulary alias. | 2026-09-01 | §9 OQ-CS3 |
 | OQ-CS8 | **Nothing declares the binding — the agent's pack composes it in its own env-emitting derive.** Deletes `env_shape` and its validators, the four placeholder constants, and most of `internal/agentenv` including core's `agentProtocols` agent→protocol table. | 2026-09-01 | §3.1, §9 OQ-CS8 |
 | OQ-CS5 *(scope)* | **User scope only, both keys** — a profile steers which endpoint an agent talks to, and a workspace config is agent-editable. Same rule `packs` follows. | 2026-09-01 | §9 OQ-CS5 |
