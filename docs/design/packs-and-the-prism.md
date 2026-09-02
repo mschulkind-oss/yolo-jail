@@ -3,8 +3,9 @@
 **Status:** conceptual sketch, 2026-07-26 — **and the bet it describes was TAKEN.** Re-checked
 2026-08-23: the pack system is the architecture, not a sharing feature. `AGENTS.md` now opens with
 *"AGENTS ARE PACKS. Core does not know what an agent is"*; there is no agent registry, `internal/agents`
-was renamed `internal/jailcontent` when the registry it named was deleted, and all ten shipped packs —
-including the four that install no CLI at all — are pack files rather than Go code. Read this as the
+was renamed `internal/jailcontent` when the registry it named was deleted, and all twelve shipped packs
+(verified 2026-09-02) — including the six that install no CLI at all: five loophole-only packs and
+`zai`, which ships no CLI and no loophole — are pack files rather than Go code. Read this as the
 argument that produced that, not as a shape still being argued. **Not a plan** — a shape to argue with
 before anyone commits. Written in response to: *"what would it be like if we built the pack
 system and then pulled all agent support out into 'official' packs?"*

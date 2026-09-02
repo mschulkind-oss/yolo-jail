@@ -31,10 +31,11 @@ numbers are "look here", not eternal truth.
 > gemini, …) → `"agents"` in `yolo-jail.jsonc`"* is **wrong twice**: there is no
 > `agents` config key (it is a hard error on the host,
 > `internal/config/validate.go`), and there is no Gemini agent. The key is
-> `"packs"`, selected by bare name — `"packs": ["claude"]`. Six shipped packs
-> install an agent (`claude`, `copilot`, `opencode`, `pi`, `codex`, `agy`) and
-> four install no CLI at all (`audio`, `host-processes`, `journal`,
-> `cgroup-delegate`). Verified against `packs/` 2026-08-23. See
+> `"packs"`, selected by bare name — `"packs": ["claude"]`. Twelve packs ship;
+> six of them install an agent (`claude`, `copilot`, `opencode`, `pi`, `codex`,
+> `agy`) and six install no CLI at all — `audio`, `host-processes`, `journal`,
+> `cgroup-delegate` and `serial` ship a loophole each, and `zai` ships neither CLI
+> nor loophole. Verified against `packs/` 2026-09-02. See
 > [`../design/pack-system.md`](../design/pack-system.md).
 
 ---

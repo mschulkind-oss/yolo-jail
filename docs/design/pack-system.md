@@ -27,11 +27,14 @@ examples, and the §14 gap list beyond the two items named above.
 
 > [!NOTE]
 > **§0 says "the six that ship with yolo" and that is the AGENT subset, not the
-> pack inventory.** `packs/` holds **ten** packs (verified 2026-08-23): six agent
-> packs — `claude`, `copilot`, `opencode`, `pi`, `codex`, `agy` — plus four that
-> install no CLI at all and ship only a loophole: `audio`, `host-processes`,
-> `journal`, `cgroup-delegate`. The last two were Go functions the run pipeline
-> called by hand until 2026-08-19. `claude-oauth-broker` is not a pack of its own
+> pack inventory.** `packs/` holds **twelve** packs (verified 2026-09-02): six agent
+> packs — `claude`, `copilot`, `opencode`, `pi`, `codex`, `agy` — plus six that
+> install no CLI at all, in two kinds: `audio`, `host-processes`,
+> `journal`, `cgroup-delegate` and `serial` ship only a loophole, and `zai` ships
+> neither CLI nor loophole (a provider, a profile and a config overlay — the first
+> pack whose whole content is declarative facts). `journal` and `cgroup-delegate`
+> were Go functions the run pipeline called by hand until 2026-08-19.
+> `claude-oauth-broker` is not a pack of its own
 > — it is a **contribution of `packs/claude`**, because the dependency is
 > structural.
 

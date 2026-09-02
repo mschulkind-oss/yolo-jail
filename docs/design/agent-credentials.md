@@ -20,8 +20,9 @@ identity for the supported agents across the three backends (`podman`,
 > seven agents as "six".** There is **no `gemini` pack** and there never was
 > (`git log -- packs/gemini` is empty; `ls packs/` verified 2026-08-23). The six
 > packs that install an agent are **`claude`, `copilot`, `opencode`, `pi`,
-> `codex`, `agy`**; the other four shipped packs (`audio`, `host-processes`,
-> `journal`, `cgroup-delegate`) install no CLI at all.
+> `codex`, `agy`**; the other six shipped packs install no CLI at all —
+> `audio`, `host-processes`, `journal`, `cgroup-delegate` and `serial` ship a
+> loophole each, and `zai` ships neither CLI nor loophole (verified 2026-09-02).
 >
 > **The gemini AGENT is gone; the gemini PATH is not, and this passage understated that until
 > 2026-08-23.** It said gemini survives "only as log-dir names and one comment". In the live tree:
