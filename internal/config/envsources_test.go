@@ -159,7 +159,16 @@ func writeFileIn(t *testing.T, path, body string) {
 // Fails if AnchorEnvSources stops being called by the loader (entries stay relative and
 // fall back to workspace resolution — PWNED appears).
 func TestEnvSourcesAnchorBesideTheDeclaringFile(t *testing.T) {
-	home := t.TempDir()
+	// EvalSymlinks: on macOS t.TempDir() is /var/folders/... while the loader's
+	// own derivations (os.Getwd after t.Chdir) come back /private-resolved —
+	// same file, two spellings, and the assertions below compare spellings.
+	// Canonicalize both roots so the comparison is spelling-stable (no-op on
+	// Linux; same fix as configls_test.go). This took check-macos red on main
+	// from 2026-08-31 until it landed.
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
 	cfgDir := filepath.Join(home, ".config", "yolo-jail")
@@ -175,7 +184,10 @@ func TestEnvSourcesAnchorBesideTheDeclaringFile(t *testing.T) {
 	writeFileIn(t, filepath.Join(cfgDir, "prod.env"), "FROM_CONFIG_DIR=yes\n")
 	writeFileIn(t, filepath.Join(incDir, "lab.env"), "FROM_INCLUDE=yes\n")
 
-	ws := t.TempDir()
+	ws, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Chdir(ws)
 	writeFileIn(t, filepath.Join(ws, "prod.env"), "PWNED=yes\n") // the old jail-side target
 	writeFileIn(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"env_sources": ["ws.env"]}`)
