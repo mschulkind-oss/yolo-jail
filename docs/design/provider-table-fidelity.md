@@ -40,7 +40,10 @@ four `wire_api` values were minted; this doc is its follow-on, not its contradic
 [`local-model-endpoints.md`](../research/local-model-endpoints.md) (the source-verified
 vocabulary evidence, §"Codex CLI" and §"pi"),
 [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) (the principle
-D1 shows is only half-applied).
+D1 shows is only half-applied),
+[`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) (the sibling this doc's
+§5.4 spawned — populating an agent's provider directory and telling it which provider to USE are
+two features, and only the first ships for three agents of four).
 
 ---
 
@@ -625,13 +628,15 @@ reader stops checking.
    no instance of (1) anywhere, which is measurably true of `packs/zai` today. This decides whether
    the confusion is fixed in the vocabulary or documented and lived with.
 
-   _Leaning:_ Rename (2), not (1). (1) is the one with a schema, a footprint claim and a
-   ledger behind it; (2) is a bare selector string and is the cheaper thing to move. Something like
-   **mode** for (2) would make the `config-overlay` gate read as what it is — "render this when mode
-   X is active" — and would leave "profile" meaning exactly one thing. But this is a rename across
-   a config key, a CLI flag, a Lua `ctx` field and an env var, so the cost is real and it is
-   plausibly not worth paying until something else forces a break. I would not do it alone; I would
-   do it with OQ-PT5 if that one lands.
+   _Leaning:_ Rename (2), not (1). (1) is the one with a schema, a footprint claim and a ledger
+   behind it; (2) is a bare selector string and is the cheaper thing to move. **I floated "mode" for
+   (2) and withdraw it** — the maintainer's objection is right that a third generic noun beside
+   "provider" and "profile" costs more than it buys, and
+   [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) shows the vocabulary that
+   actually earns its place is **catalog** and **selection**, which name features rather than
+   renaming a string. If (2) is renamed at all it should borrow from that pair. And this is a rename
+   across a config key, a CLI flag, a Lua `ctx` field and an env var, so I would not do it alone; I
+   would ride it on whichever break lands first.
 
    **Answer:**
    > _(empty — fill in when decided)_

@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 16 needing you · 3 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
+**Status: 17 needing you · 3 ready · 0 in progress · 6 waiting · 0 broken · 2 icebox.**
 
 Last updated **2026-09-01**. Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph matches the section it is
@@ -659,6 +659,49 @@ reopen the enum, which would restore what 💬 **17** §7 step 3 closed. Not a n
 the `config-overlay` `profile` gate `568d5a3a` landed is the right mechanism, and OQ-PT3 asks only
 whether it may carry the placeholder vocabulary `env_shape` already has.
 
+
+### 💬 19 — A catalog and a selection are two features, and only one of them ships
+
+📄 [`provider-catalog-and-selection.md`](../design/provider-catalog-and-selection.md) —
+**OQ-CS1 · OQ-CS2 · OQ-CS3** · sibling to 💬 **18**, which reports defects in the same machinery ·
+splits what [`zai-plumbing.md`](../design/zai-plumbing.md) §5 assumed was one thing
+
+**The maintainer's own framing, 2026-09-01:** *"populating a directory of providers in an agent
+config"* and *"starting an agent using a specific profile"* are two features, and yolo mixes them.
+They are — and separating them shows the second is largely **unbuilt**.
+
+**Measured in a live jail today**, `packs: ["claude","zai"]` with `providers.zai` set:
+
+| Agent | Catalog | Selection key | Set? |
+|---|---|---|---|
+| pi | `providers: {bedrock-mantle, zai}` | the file has only a `providers` key | **absent** |
+| opencode | `provider: {zai}` | top-level `model` | **absent** |
+| codex | `[model_providers.zai]` | `model_provider` / `model` | **absent** |
+| claude | *(no catalog)* | `ANTHROPIC_BASE_URL` + token | **set** |
+
+So *"what do pi and opencode do if no provider is specified?"* — they fall through to their own
+built-in default and the `zai` entry sits in the directory unused. **`-p zai` changes the behaviour
+of exactly one agent of four**, while [`zai-plumbing.md`](../design/zai-plumbing.md)'s stated want is
+*"`-p zai` works anywhere; every selected agent fires at z.ai"*. The catalog half works everywhere;
+the selection half is claude-only, and nothing prevents fixing it — the derives are ordinary Lua in
+the packs that own each agent.
+
+**And the disable complaint falls out of the same conflation.** A provider entry can only express
+catalog presence, so "off" can only mean "absent", the only absence-maker is `null`, and `null`
+replaces the settings it disables — with no alternative, since `knownProviderKeys` is closed and
+`enabled: false` would be refused as an unknown key. Once the two features are separate the want is
+trivial: the entry stays, nothing selects it.
+
+**Step 1 needs no ruling and blocks the rest:** the doc's §3 per-agent selection table has one row
+empty (pi — its `models.json` carries only `providers`, and where pi records "the model I use" is
+not established) and one inferred rather than source-verified (opencode's `"<provider>/<model>"`).
+That is the same unverified-vocabulary class 💬 **18** exists to report, so this doc writes the rule
+down before building rather than after.
+
+**What this row is NOT.** No new vocabulary — two words, **catalog** and **selection**, both already
+meaningful; the "mode" coinage floated in 💬 18 is withdrawn. No new config key in the recommended
+option, which writes into keys the agents already define. No change to `kind: "provider"`, the
+composition, or the credential boundary — that is 💬 18's territory.
 
 
 # 📦 Up next
