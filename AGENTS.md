@@ -11,7 +11,7 @@ Six install an agent (`claude`, `copilot`, `opencode`, `pi`, `codex`, `agy`) and
 **six install no CLI at all**, in two kinds: `audio`, `host-processes`, `journal`,
 `cgroup-delegate` and `serial` ship a LOOPHOLE each (`audio` also contributes two env
 vars — the only one of the five that ships anything beside its loophole), and `zai`
-ships neither CLI nor loophole — a provider, a profile and a config overlay, the first
+ships neither CLI nor loophole — a provider and a profile, the first
 pack whose whole content is declarative facts. Anything that says "the six" is
 describing the agent SUBSET.
 

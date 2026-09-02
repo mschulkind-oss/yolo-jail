@@ -24,7 +24,7 @@
 // `audio` also contributes an `env` block, the only one of the five that ships anything
 // beside its loophole — and they are the dogfood for docs/design/loophole-packaging.md
 // §7 / OQ-LP11, whose prize is that "AGENTS ARE PACKS" becomes true of loopholes too.
-// `zai` ships neither CLI nor loophole: a provider, a profile and a config overlay, the
+// `zai` ships neither CLI nor loophole: a provider and a profile, the
 // first pack whose whole content is declarative facts. Anything here that reasons
 // about "the six agent packs" (a comment, a test's name list) is describing the agent
 // SUBSET, not this list.

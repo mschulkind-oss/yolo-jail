@@ -32,7 +32,7 @@ examples, and the §14 gap list beyond the two items named above.
 > install no CLI at all, in two kinds: `audio`, `host-processes`,
 > `journal`, `cgroup-delegate` and `serial` ship a loophole each (`audio` also
 > contributes two env vars), and `zai` ships
-> neither CLI nor loophole (a provider, a profile and a config overlay — the first
+> neither CLI nor loophole (a provider and a profile — the first
 > pack whose whole content is declarative facts). `journal` and `cgroup-delegate`
 > were Go functions the run pipeline called by hand until 2026-08-19.
 > `claude-oauth-broker` is not a pack of its own
