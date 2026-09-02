@@ -14,14 +14,25 @@ built**, and `60376fed` does not invalidate any premise below — see the postsc
 > [!NOTE]
 > **Postscript, 2026-08-23 — audit against the tree, and against `60376fed`.**
 >
-> **"Nothing built" holds.** Every mechanism this doc proposes to change is untouched:
+> **"Nothing built" holds — re-verified 2026-09-02.** Every mechanism this doc proposes to change
+> is untouched:
 > `packageNameRe` is still the single-optional-dot pattern `^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)?$`
-> (declared at [`internal/config/config.go#L134`](../../internal/config/config.go#L134), enforced at
-> [`validate.go#L217`](../../internal/config/validate.go#L217)); `parseDottedSpec` still splits on
+> (declared at [`internal/config/config.go#L165`](../../internal/config/config.go#L165), enforced at
+> [`validate.go#L224`](../../internal/config/validate.go#L224) — both anchors drifted ~30 lines
+> under the unrelated `use_profiles` key-census work and are repinned here);
+> `parseDottedSpec` still splits on
 > one dot at [`flake.nix#L173`](../../flake.nix#L173) under the comment *"Validator (yolo check)
 > rejects multi-dot strings, so we only handle one dot here"*; and `flake.nix` contains no
 > `attrByPath`, no `hasAttrByPath`, and no `resolvePackagePath`. §5.1's resolver does not exist in
 > any form.
+>
+> **One worked example has died in the pin (found 2026-09-02):** `llvmPackages_16` was removed
+> from nixpkgs (*"unmaintained and obsolete"*), so this doc's `llvmPackages_16.libclang.dev`
+> example no longer evaluates against the pinned rev (`f13ff45a`). The *shape* it illustrates is
+> unchanged — substitute a maintained set (e.g. `llvmPackages_19.libclang.dev`) when implementing
+> the test list in §7. The other examples still hold against the pin: `rocmPackages` has exactly
+> 114 attributes, `rocmPackages.clr` and `xorg.libX11` are derivations, `gtk4.outputs` is
+> `[out dev devdoc debug]`.
 >
 > **`60376fed` (2026-08-20) does not change this doc's premises — it *is* one of them.** This doc
 > was written on 2026-08-22, two days after that commit, and §2.1 already cites it by hash and
@@ -197,11 +208,11 @@ resolvePackagePath = rootPkgs: entryStr:
 
 The pattern and its enforcement live in two files, and both move (verified 2026-08-23):
 
-1. Update `packageNameRe` — declared at [`internal/config/config.go#L134`](../../internal/config/config.go#L134), not in `validate.go` — to allow multi-segment dotted identifiers:
+1. Update `packageNameRe` — declared at [`internal/config/config.go#L165`](../../internal/config/config.go#L165), not in `validate.go` — to allow multi-segment dotted identifiers:
    ```go
    packageNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)*$`)
    ```
-2. Update the error message on regex mismatch, raised at [`internal/config/validate.go#L217`](../../internal/config/validate.go#L217), which today reads *"expected '\<name>' or '\<name>.\<output>' (letters, digits, '_' and '-' only; at most one dot)"*:
+2. Update the error message on regex mismatch, raised at [`internal/config/validate.go#L224`](../../internal/config/validate.go#L224), which today reads *"expected '\<name>' or '\<name>.\<output>' (letters, digits, '_' and '-' only; at most one dot)"*:
    `"expected '<name>', '<collection>.<name>', or '<name>.<output>' (letters, digits, '_' and '-' separated by dots)"`.
 3. Rewrite the collection-refusal advice in `nonPackageError` ([`flake.nix#L248`](../../flake.nix#L248)) — see the postscript at the top. It currently tells the user a collection member is not selectable from `packages`, which is the sentence this design falsifies.
 

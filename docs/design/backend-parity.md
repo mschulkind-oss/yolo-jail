@@ -36,7 +36,9 @@ user-facing consequence).
 ## 1. The verdict
 
 **Build the census (§4), but do the briefing fix (§6) first** — it is smaller and it closes
-the sub-class the census structurally cannot reach.
+the sub-class the census structurally cannot reach. *(Status 2026-09-02: the briefing fix is
+DONE — `28ddea11` shipped it the day this verdict was written; see §6. The census is the whole
+remainder, and it waits on OQ-BP-1.)*
 
 Three claims, argued below:
 
@@ -269,11 +271,16 @@ are false:
 - loopholes → a section headed *"host capabilities wired into this jail"* listing daemons
   that never started.
 
-The third is fixed (`a639394d`); the first two are live. **The real fix is to feed
-`BriefingContent` from what `assembleRunCmd` actually emitted** — it already computes all of
-it — which makes the class unrepresentable rather than fixed case by case.
+The third is fixed (`a639394d`); ~~the first two are live~~ — **§6 SHIPPED the same day this doc
+was last edited** (`28ddea11`, 2026-08-24, *"fix(run): compose the briefing from what the launch
+applies, not the config"* — its commit message names this section), and this paragraph was never
+updated. `appliedNetMode`, `appliedCtxMounts` and `appliedResourceLimits` live in
+`internal/cli/run/backendcaps.go:52-208`, wired through `assemble.go`, which is exactly the
+"feed `BriefingContent` from what `assembleRunCmd` actually emitted" fix this section asked for.
+*(Verified 2026-09-02; the census in §4 remains unbuilt — no `Cell`/`Disposition` type exists
+anywhere in the tree.)*
 
-**Why this outranks the census in sequencing:** an absent capability is a jail that is
+**Why this outranked the census in sequencing:** an absent capability is a jail that is
 missing something. A false briefing is a jail that **told the agent something untrue**, and
 an agent plans around it.
 
@@ -306,10 +313,11 @@ an agent plans around it.
    *wrong*, not silent, and a census marks both Honored. What it buys is that the other
    nineteen become unwritable.
 
-   _Leaning:_ **Yes, but after §6.** The class has now produced twenty-one instances, and
+   _Leaning:_ **Yes — and its "after §6" condition is now discharged, since §6 shipped**
+   (`28ddea11`). The class has now produced twenty-one instances, and
    twenty of them were found by a human noticing. The twenty-first was found by an invariant
    (§5.2) — one narrow one, written in an afternoon, over a single argv shape. The census converts that into a compile-or-test-time
-   answer, and the deciding work is already done. But if only one thing gets built, build §6.
+   answer, and the deciding work is already done.
 
    **Answer:**
    > _(empty — fill in when decided)_

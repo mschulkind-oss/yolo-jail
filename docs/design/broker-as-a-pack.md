@@ -517,7 +517,7 @@ Three things follow, and the first is the one to notice:
 | 1 | Daemon moves from `ServeEndpoint`/`{endpoint}` to `ServeUnix`/`{socket}`, with `publishes: "socket"` in the manifest | the framework front can carry a real daemon — the same flip the broker needs, without the relay |
 | 2 | The connection preamble is prepended on the accepted connection (**P5**), `preamble` defaulting to true | the §5.5 rule works for an endpoint-shaped daemon *and* a fronted one, from one implementation — and `hostservice` reading it once covers every Go daemon |
 | 3 | `yolo-ps` stops self-reporting `jail_id` | the field's only source is now the host — and tier 2's `jail=` becomes as trustworthy as tier 1's |
-| 4 | Manifest moves to `packs/host-processes/loophole/host-processes/`, an official pack; bundled copy deleted | a bundled loophole can become a pack at all — staging, selection, exclusivity pre-flight, `doctor_cmd` |
+| 4 | Manifest moves to `packs/host-processes/loopholes/host-processes/`, an official pack; bundled copy deleted | a bundled loophole can become a pack at all — staging, selection, exclusivity pre-flight, `doctor_cmd` |
 | 5 | `requires.command_on_path: ps` and the workspace `host_processes.visible` list keep working | the pack-shipped subset's `requires` rule accepts a real manifest unchanged |
 
 **Settled decisions this rests on**, so implementation does not have to re-litigate them:
@@ -653,7 +653,7 @@ block the first pack that wants to ship a binary of its own.
 
    §3.1's two-gate split says a jail-side binary is roughly as sharp as what a pack can already do, while a host-side one is a host-execution grant. This asks whether the second is available to a fetched pack at all, or whether — like `InstallerURL` and `host_files` — it is refused by origin regardless of what the user would approve. Not needed for the broker, which is official; needed before anyone else ships one.
 
-   _Leaning:_ **Allow it, gated by the existing host-execution approval rather than refused by origin.** A fetched pack can already declare a `host_daemon.cmd` naming an arbitrary host argv, so refusing a *binary* while permitting an arbitrary *command* would repeat the halfway-measure shape OQ-LP14 already suffers from — blocking the declarative form of a capability while permitting the imperative one. But this genuinely is a widening and should be answered deliberately.
+   _Leaning:_ **Allow it, gated by the existing host-execution approval rather than refused by origin.** A fetched pack can already declare a `host_daemon.cmd` naming an arbitrary host argv — verified 2026-09-02: `internal/packload/loopholesource.go:258-310` enumerates `host_daemon.cmd + doctor_cmd` as an **approvable** claim (*"host EXECUTION"*, `:270`), distinct from the origin-refused fields (`reads-host`, `mount`, `InstallerURL`) — so refusing a *binary* while permitting an arbitrary *command* would repeat the halfway-measure shape OQ-LP14 already suffers from: blocking the declarative form of a capability while permitting the imperative one. But this genuinely is a widening and should be answered deliberately.
 
    **Answer:**
    > _(empty — fill in when decided)_
