@@ -8,16 +8,24 @@ summary: "Closing the gap between what stringly-typed-references-principle.md as
 
 # What a mistyped name does to you today
 
-**Status:** DESIGN, 2026-08-30. Nothing built. Executes the amended
+**Status:** DESIGN, 2026-08-30 — **and 4 of §7's 6 steps SHIPPED within 72 hours, out of order**
+(re-verified 2026-09-02). Steps 2, 3 and 6 landed in the provider arc — the selection-key
+validation (`86a56f6b`, then renamed with everything else to `use_profiles` in `43d24e9e`), the
+`wire_api` closed enum (`2ced4944`, `0f04632d`) plus the `base_url` userinfo refusal (`0bc29bd5`),
+and the credential preflight (`c77cfd05`, **with a scope deviation this doc must own** — see §7
+step 6). **Step 1 — the warning channel — is still unbuilt and is still the highest-payoff item
+here**; steps 4 and 5 wait on OQ-RM2/OQ-RM3, which remain unruled. Executes the amended
 [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) — its §7 census
 is the gap; this doc is how it closes, from the user's side.
 
-**The short version.** Four references that name a component by string are unchecked today, and the
-way you find out is that nothing happens. A fifth — capability supersession — *is* checked, produces
+**The short version (as written 2026-08-30; three of the four are now checked).** Four references
+that name a component by string were unchecked, and the
+way you found out is that nothing happened. A fifth — capability supersession — *is* checked, produces
 an excellent message, and prints it to a channel the summary line does not count. So the work is not
 "add validation": it is **move three checks to a surface that can decide them, make one of them
 exist at all, and stop printing findings where nobody reads them.** No new mechanism, no new config
-key, no new manifest field.
+key, no new manifest field. **What survives today: the buried-warning channel (§3, step 1) and the
+supersession relocation (step 4).**
 
 **The most important sections are [§1](#1-the-reproduction) (the four-line config that returns
 `[PASS]`), [§4](#4-every-message-before-and-after) (what each message becomes), and
@@ -34,6 +42,15 @@ applied to a design that has not shipped).
 ## 1. The reproduction
 
 Not an argument — a measurement, taken 2026-08-30 in this jail against `yolo` 0.8.0+614.
+
+> [!NOTE]
+> **This reproduction is DEAD as of 2026-09-02, which is the point of keeping it.** The
+> `agent_profiles` spelling below now refuses by name before any value is read
+> (`validate.go:1108-1122`), and rewritten with the current key (`use_profiles`) the same config
+> produces **three separate `[FAIL]` rows** — unknown CLI name `cloude`, unknown `wire_api` value,
+> `base_url` carrying userinfo — the exact opposite of the `[PASS]` measured here. The one
+> mechanism from this section still reproducing is the buried supersession warning (§3), because
+> step 1 has not shipped. Read the rest of §1 as the before picture.
 
 ```jsonc
 // yolo-jail.jsonc
@@ -65,7 +82,9 @@ Three defects in four lines, all clean:
    find out from the agent, later, as a protocol error.
 3. **A plaintext credential sits in a git-tracked config file** and validation does not mind. The one
    field guarded against this is `api_key_env_name`
-   ([`validate.go:876-881`](../../internal/config/validate.go#L876-L881)); `base_url` is wide open.
+   ([`validate.go:944-950`](../../internal/config/validate.go#L944-L950), repinned 2026-09-02);
+   `base_url` **was** wide open — `0bc29bd5` closed it (`providerURLProblem`,
+   `validate.go:981-990`).
 
 Now move one typo, from a *value* to a *key*, in the same file:
 
@@ -84,11 +103,14 @@ $ yolo check --no-build
 
 ## 2. The three experiences a mismatch produces today
 
+*(Status 2026-09-02: the first row is EMPTY now — its three mechanisms all moved to the third row
+when §7 steps 2–3 shipped. The second row is the whole live problem.)*
+
 | What you get | Which mechanisms | What it costs you |
 | :--- | :--- | :--- |
-| **`[PASS]`, then nothing works** | `agent_profiles` keys, `wire_api`, `base_url` | The whole debugging distance. The symptom is an agent using the wrong endpoint or no profile at all, several layers from the typo. |
+| **`[PASS]`, then nothing works** | ~~`use_profiles` keys, `wire_api`, `base_url`~~ — none left | The whole debugging distance. The symptom is an agent using the wrong endpoint or no profile at all, several layers from the typo. |
 | **A warning you will not see** | `supersedes` capability match, `env_sources` missing files | Printed, then buried — see §3. |
-| **`[FAIL]`, named, with the fix** | every config **key** | Nothing. This is the model. |
+| **`[FAIL]`, named, with the fix** | every config **key**, and since 2026-09-01/02 the three reference checks above | Nothing. This is the model. |
 
 ---
 
@@ -138,9 +160,9 @@ existing check or gives an existing namespace the check its neighbours already h
 
 | | |
 | :--- | :--- |
-| **Today** | `[PASS] Merged config is semantically valid` |
-| **After** | `[FAIL] config.pack_profiles.cloude: no pack named 'cloude' is selected — did you mean 'claude'? Selected packs: [claude, pi, codex]. Add the pack to 'packs', or remove this entry.` |
-| **Where** | `yolo check` **and** launch preflight. Both, because a config edit and a launch are different moments and the second is where it bites. |
+| **Today** | ~~`[PASS] Merged config is semantically valid`~~ **SHIPPED (§7 step 2)**: a mistyped `use_profiles` key now `[FAIL]`s naming every installed CLI (`unknownProfileCLIMessage`, `validate.go:1178-1189`) |
+| **After (as proposed)** | `[FAIL] config.pack_profiles.cloude: no pack named 'cloude' is selected — did you mean 'claude'? Selected packs: [claude, pi, codex]. Add the pack to 'packs', or remove this entry.` — the shipped message differs in two honest ways: the key is `use_profiles`, and there is **no edit-distance did-you-mean**, only the full candidate list. Whether that residue is worth building is R3's call, not settled here. |
+| **Where** | `yolo check` **and** launch preflight. Both shipped. |
 | **Also fixed** | `-p <name> -- <bin>` resolves the binary to a pack slug and refuses when no pack owns that bin. Today it keys the profile by binary basename with no check; every shipped pack happens to have `bin == slug`, so it works by coincidence. |
 
 ### 4.2 An invented `wire_api`
@@ -269,21 +291,39 @@ when they fire.** That is the premise this work is built on; it is a ruling, not
 
 ## 7. Sequencing, by user-visible payoff
 
+*(Per-step status added 2026-09-02 — the arc shipped these out of this order.)*
+
 1. **Count the second channel.** Make bare `Warning:` lines reach `yolo check`'s summary, or route
    them through the reporter. **Everything else in this doc is worth less until findings are
    visible** — and this alone makes the supersedes diagnostic reach the user it was written for.
-2. **`pack_profiles` key validation.** No ruling needed, no skew story, nothing else waits on it. It
-   is the §1 reproduction's first line, and it is the smallest change in the doc.
-3. **`wire_api` enum and `base_url` credential refusal.** Parse-time, decidable, no registry.
+   **NOT SHIPPED** — `warningLine` (`internal/cli/check/reporter.go:84-89`) is still non-counting
+   and its three callers are unchanged. Still the highest payoff per line in this doc.
+2. **Selection-key validation.** *(Written as `pack_profiles`; the key is `use_profiles` since
+   `43d24e9e`.)* **SHIPPED** — `86a56f6b` (key-namespace check), `5124dee3` (shape-check survives an
+   unresolvable pack); live at `validateUseProfiles` (`validate.go:1124-1175`) with the CLI-flag
+   preflight in `internal/cli/run/packs.go:363-400`, pinned by
+   `internal/config/useprofilekeys_test.go`. One deviation from §4.1's proposed message: the shipped
+   refusal **lists every installed CLI name but computes no edit-distance did-you-mean**.
+3. **`wire_api` enum and `base_url` credential refusal.** **SHIPPED** — the canonical closed enum
+   (`2ced4944` + `0f04632d`, `validateWireAPI` at `validate.go:1097-1103`) and the userinfo refusal
+   (`0bc29bd5`, `providerURLProblem` at `validate.go:981-990`). Adjacent hardening from the same
+   cluster: a composed `base_url`+`endpoints` pair is refused (`5d8bd1fe`, OQ-PT2).
 4. **Relocate the supersession match to the launch path.** Message unchanged; disposition and
-   surface change. Needs OQ-RM2 ruled first.
+   surface change. Needs OQ-RM2 ruled first. **NOT SHIPPED** — `discover.go:717-728` /
+   `supersede.go:207-237` still carry the report-not-refuse comments verbatim, and
+   `SupersessionProblems()` still reaches no `yolo check` section.
 5. **The skew diagnostic.** Ships with or before step 4 — a refusal that cannot say "your image is
-   old" is a worse refusal than the warning it replaces.
-6. **The active-profile credential preflight.** Last, because it is the only one that needs a notion
-   of "active profile" that is still being designed
-   ([`profiles-as-pack-variants.md`](profiles-as-pack-variants.md)).
+   old" is a worse refusal than the warning it replaces. **NOT SHIPPED**; needs OQ-RM3.
+6. **The active-profile credential preflight.** **SHIPPED — with a deliberate scope change this doc
+   must record rather than paper over.** `c77cfd05` gates on the **selected pack**, not the active
+   profile — its commit message says *"the earlier active-profile scoping is withdrawn"* — and the
+   requirement now keys on catalog membership (`868b610f`, OQ-PT4's dissolution:
+   `packload.ProviderCredentialGaps`, `internal/packload/providers.go:271-298`, wired at
+   `internal/cli/run/providerpreflight.go:51-63`). §4.5's "Scope: Active profiles only" is
+   therefore superseded; the shipped rule is broader and was chosen on review, not by accident.
 
-Steps 1–3 are independent of every design question in flight.
+Steps 1–3 were independent of every design question in flight, which is presumably why 2 and 3 are
+the ones that shipped first. **Step 1 remains independent, unshipped, and first by payoff.**
 
 ---
 
@@ -315,7 +355,11 @@ Steps 1–3 are independent of every design question in flight.
    _Leaning:_ `check` shows `[FAIL]` and exits non-zero — it already does exactly this for unknown
    keys, and a `check` that passes on a config the next launch refuses is the defect roadmap 💬 10
    is about. The "don't break the diagnostic tool" carve-out belongs to `loopholes list`, which
-   reports one subsystem, not to `check`, which is the pre-flight.
+   reports one subsystem, not to `check`, which is the pre-flight. *(Narrowed by events 2026-09-02:
+   steps 2–3 shipped as `[FAIL]`s that already exit non-zero — `check.go:112-115` short-circuits on
+   `sectionMergedConfig` failures — so the leaning is the shipped behaviour for every parse-time
+   check. What this question still decides is only the LAUNCH-ONLY checks: §4.4's supersession
+   match and anything else `check` cannot decide from the host.)*
 
    **Answer:**
    > _(empty — fill in when decided)_

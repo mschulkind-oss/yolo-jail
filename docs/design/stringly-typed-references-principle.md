@@ -198,8 +198,9 @@ attributable to skew, say *that*, with the rebuild command.
   time. Shipped examples: contribution `kind` ([`kinds.go`](../../internal/packdecl/kinds.go)),
   surface `mode` ([`load.go:38`](../../internal/agentcfg/manifest/load.go#L38)), surface `codec`
   ([`manifest.go:215`](../../internal/agentcfg/manifest/manifest.go#L215)). **`providers.*.wire_api`
-  is a slot of this shape that is NOT closed today** — free-form string,
-  [`validate.go:867-869`](../../internal/config/validate.go#L867-L869). *(`notch` is not an example
+  was a slot of this shape that was not closed** — it is now (2026-09-01, `2ced4944`/`0f04632d`): a
+  canonical three-member enum checked at parse time, `validateWireAPI`
+  ([`validate.go:1097-1103`](../../internal/config/validate.go#L1097-L1103)). *(`notch` is not an example
   of this rule at all: it is a Go type a constructor sets, never a manifest string.)*
 - **Open semantic slots** — pack slugs, profile names, capability identifiers, provider names — are
   validated against the live resolved registry, at the point R5 selects.
@@ -220,20 +221,28 @@ this rule exists to name.
 > the columns is queued as roadmap 💬 **17** and designed in
 > [`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md).
 
-| Mechanism | String field | **Today (measured 2026-08-30)** | **Target under R1–R5** |
+*(Third column re-measured 2026-09-02: three rows flipped to their targets when
+[`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md) §7 steps 2–3 shipped in
+the provider arc. The strikethrough text is the 2026-08-30 measurement, kept as the before
+picture.)*
+
+| Mechanism | String field | **Today (2026-08-30, updated 2026-09-02)** | **Target under R1–R5** |
 | :--- | :--- | :--- | :--- |
-| `agent_profiles` (→ `pack_profiles`) | the `<pack>` key | **Unchecked.** [`validate.go:947-967`](../../internal/config/validate.go#L947-L967) validates the *value* is a string; the key is compared to nothing. `{"cloude": "bedrock"}` returns `[PASS] Merged config is semantically valid`. | Fatal at `check` and at launch, against the pack universe. |
-| `pack-capabilities` | `supersedes.capability` | **A stderr warning** at discovery ([`discover.go:717-729`](../../internal/loopholes/discover.go#L717-L729)). `SupersessionProblems()` is a value-shaped seam whose "obvious next reader" does not exist yet. Structural validity (empty `capability`, missing `because`, duplicates) *is* refused at load in `packdecl`. | Fatal on the **launch** path, where `NewHostSet` holds the full set. Reported, not fatal, at `loopholes list`. Message unchanged (§5.2). |
-| `providers.*` | `wire_api` | **Unchecked beyond "is a string"** ([`validate.go:867-869`](../../internal/config/validate.go#L867-L869)). `"totally-not-a-wire-api"` passes. | Closed enum at parse time (R4). |
-| `providers.*` | `base_url` | **Unchecked beyond "is a string".** `https://user:sk-secret@x.com/v1` passes validation — a plaintext credential in a git-tracked file. | Parse as `http`/`https`; refuse userinfo. |
-| `env_sources` | file paths | **Warn + skip** ([`envsources.go:85-87`](../../internal/config/envsources.go#L85-L87)) — a stderr `warning:` line, not a trace log. | **Unchanged — this is correct.** A host path absent on this machine is portability, not a typo, and there is no registry to check it against. But an *active* profile whose `api_key_env` was never hydrated by any source is a launch refusal. |
-| Config **keys** (all) | key names | **Fatal.** `reportUnknownKeys` ([`validate.go:116-124`](../../internal/config/validate.go#L116-L124)) — `[FAIL] config.agent_profilez: unknown key`. | Unchanged — this row is the model. |
+| `use_profiles` (was `agent_profiles` → `pack_profiles`) | the `<cli>` key | ~~**Unchecked.** The key is compared to nothing; `{"cloude": "bedrock"}` returns `[PASS]`.~~ **CHECKED since `86a56f6b`**: `validateUseProfiles` ([`validate.go:1124-1175`](../../internal/config/validate.go#L1124-L1175)) fails a key naming no installed CLI, listing the candidates; the retired spellings refuse by name (`validate.go:1108-1122`). | ✅ **Reached.** Fatal at `check` and at launch, against the installed-CLI universe. |
+| `pack-capabilities` | `supersedes.capability` | **A stderr warning** at discovery ([`discover.go:717-728`](../../internal/loopholes/discover.go#L717-L728)). `SupersessionProblems()` is a value-shaped seam whose "obvious next reader" does not exist yet. Structural validity (empty `capability`, missing `because`, duplicates) *is* refused at load in `packdecl`. **Still true 2026-09-02 — the one unreached row.** | Fatal on the **launch** path, where `NewHostSet` holds the full set. Reported, not fatal, at `loopholes list`. Message unchanged (§5.2). Gated on OQ-RM2. |
+| `providers.*` | `wire_api` | ~~**Unchecked beyond "is a string".** `"totally-not-a-wire-api"` passes.~~ **CLOSED ENUM since `2ced4944`/`0f04632d`** (`validateWireAPI`, [`validate.go:1097-1103`](../../internal/config/validate.go#L1097-L1103)) — three canonical members, translated per agent by the derives. | ✅ **Reached** (R4). |
+| `providers.*` | `base_url` | ~~**Unchecked beyond "is a string".** A plaintext credential in a git-tracked file passes.~~ **REFUSED since `0bc29bd5`** (`providerURLProblem`, [`validate.go:981-990`](../../internal/config/validate.go#L981-L990)): userinfo in a provider URL fails validation. | ✅ **Reached.** |
+| `env_sources` | file paths | **Warn + skip** ([`envsources.go:173-175`](../../internal/config/envsources.go#L173-L175), repinned — the file was restructured) — a stderr `warning:` line, not a trace log. | **Unchanged — this is correct.** A host path absent on this machine is portability, not a typo. The *active-selection* credential preflight shipped separately (`c77cfd05`, scoped to the selected pack — see reference-mismatch §7 step 6). |
+| Config **keys** (all) | key names | **Fatal.** `reportUnknownKeys` ([`validate.go:119-126`](../../internal/config/validate.go#L119-L126)) — `[FAIL] config.agent_profilez: unknown key`. | Unchanged — this row is the model. |
 
 > [!NOTE]
-> **The shape of the gap, in one observation.** In the same file, one line apart: mistype a **key**
-> and you get `[FAIL] config.providers.bedrock.wire_apid: unknown key`; mistype a **value that names
-> a component** and you get `[PASS]`. Field names live in a closed namespace and are enforced.
-> References to components do not, and are not. That asymmetry is the entire subject of this doc.
+> **The shape of the gap, in one observation (2026-08-30 — since mostly closed).** In the same
+> file, one line apart: mistype a **key**
+> and you got `[FAIL] config.providers.bedrock.wire_apid: unknown key`; mistype a **value that names
+> a component** and you got `[PASS]`. Field names lived in a closed namespace and were enforced;
+> references to components were not. That asymmetry was the entire subject of this doc — and as of
+> 2026-09-02 it survives in exactly one mechanism, the supersession match, whose relocation waits
+> on OQ-RM2.
 
 **`pack-fragment` has been removed from this census.** It is a proposal in an `in-review` doc
 ([`pack-profiles.md`](pack-profiles.md)), not a mechanism; the first version listed it as a live test
