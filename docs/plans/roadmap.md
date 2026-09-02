@@ -696,7 +696,7 @@ whether it may carry the placeholder vocabulary `env_shape` already has.
 ### 💬 19 — A catalog and a selection are two features, and only one of them ships
 
 📄 [`provider-catalog-and-selection.md`](../design/provider-catalog-and-selection.md) —
-**OQ-CS3 · OQ-CS5 · OQ-CS7 · OQ-CS8** open · ~~OQ-CS1~~ ~~OQ-CS2~~ ~~OQ-CS4~~ ~~OQ-CS6~~ ruled · sibling to 💬 **18**, which reports defects in the same machinery ·
+**OQ-CS3 · OQ-CS5 · OQ-CS7 · OQ-CS8 · OQ-CS9** open · ~~OQ-CS1~~ ~~OQ-CS2~~ ~~OQ-CS4~~ ~~OQ-CS6~~ ruled · sibling to 💬 **18**, which reports defects in the same machinery ·
 splits what [`zai-plumbing.md`](../design/zai-plumbing.md) §5 assumed was one thing
 
 **The maintainer's own framing, 2026-09-01:** *"populating a directory of providers in an agent
@@ -773,10 +773,28 @@ per protocol — codex and opencode name a config key, claude names a set of env
 declares no `env_shape` at all and claude stops being the special case. New **OQ-CS8** asks whether
 that is a new kind or the existing field relocated (I lean relocate).
 
-**What remains is OQ-CS3 (which model a selection picks), OQ-CS5 (where user profiles live and at
-what scope — I lean a `profiles` key, user-scope only, for the reason `packs` is), OQ-CS7 (what
-validation a provider-declared option gets — I lean: against the provider's own declaration and
-nothing else), OQ-CS8, and the research gap below.**
+**Two follow-ups, and the first found a naming problem worth fixing before anything ships.** *"Why do
+we have profiles and pack profiles? What's the diff?"* — they ARE two things (a **declaration**, name
+→ provider + options, durable; and a **selection**, which profile each CLI uses), and that split is
+the catalog/selection one a level up, so merging them re-creates the conflation this row exists to
+undo. **But `pack_profiles` names neither.** Its keys are **CLI names**, validated as such by
+`config.PackProfileCLINames`; no pack is named in it anywhere. It was `agent_profiles` until
+2026-09-01 and the rename's stated reason — *"the keys were always CLI names and core knows packs,
+not agents"* — is true about `agent` and does not make `pack` right. Standing a new `profiles` key
+beside it would leave two near-synonyms. I lean renaming the selection key to `use_profile`
+(*"use profile zai for claude"*), folded into OQ-CS5.
+
+*"Should new profiles point to a provider, or copy and override another profile? Option for both?"* —
+new **OQ-CS9**, leaning **provider-pointing only**, because OQ-CS4 already removed most of
+inheritance's value: a provider declares its options WITH DEFAULTS, so a profile states only what it
+changes and there is little to duplicate. `extends` costs cycles, chains and nested-override
+semantics to save one field. The residual case is honest and unresolved — a variant of a heavily
+customized profile would restate everything — but no profile in the tree has more than one option
+yet, so that evidence does not exist.
+
+**What remains is OQ-CS3 (which model a selection picks), OQ-CS5 (scope and the selection key's
+name), OQ-CS7 (what validation a provider-declared option gets — I lean against the provider's own
+declaration and nothing else), OQ-CS8, OQ-CS9, and the research gap below.**
 
 **Measured in a live jail today**, `packs: ["claude","zai"]` with `providers.zai` set:
 

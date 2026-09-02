@@ -464,6 +464,33 @@ in the wrong record.
 > fix — both are recorded as **D8** in
 > [`provider-table-fidelity.md`](provider-table-fidelity.md), which owns the defect list.
 
+
+### 5.4 Two keys, and why the names are wrong
+
+*"Why do we have profiles and pack profiles? What's the diff?"* They are genuinely two things —
+and the names hide that, which is a fair reason to distrust them.
+
+| | Holds | Keyed by | Lifetime |
+| :--- | :--- | :--- | :--- |
+| **declaration** (`profiles`) | *what a profile IS* — provider + options | profile name | durable |
+| **selection** (`pack_profiles`) | *which profile each CLI uses* | **CLI name** | per-launch intent, persisted |
+
+The split is the same one §1 draws between catalog and selection, one level up: a declaration is
+inert until something selects it, and a selection is a pointer, not a definition. Merging them
+re-creates the conflation this whole doc exists to undo — a value that is sometimes a name and
+sometimes an object.
+
+**But `pack_profiles` names neither of the things it holds.** Its keys are **CLI names**, validated
+as such ([`config.PackProfileCLINames`](../../internal/config/packs.go)); no pack is named anywhere
+in it. It was `agent_profiles` until 2026-09-01 and was renamed on the grounds that *"the keys were
+always CLI names and core knows packs, not agents"* — which is true about `agent` and does not make
+`pack` right. The rename traded one wrong word for another, and putting `profiles` beside it now
+would leave two keys that read as synonyms and are not.
+
+_Leaning:_ rename the selection key to say what it does — `use_profile: { claude: "zai" }`, which
+reads as *"use profile zai for claude"* and cannot be mistaken for the declaration map. That is
+OQ-CS5's second half; the scope question is its first.
+
 ---
 
 ## 6. What this does NOT propose
@@ -524,14 +551,16 @@ unrelated to the sequence above.
    an instance of it; the agent's derive decides where each option lands. My leaning — fix the field
    set at two and defer — is overruled. Folded into §5.2.
 
-4. 💬 **OQ-CS5: Where do user-declared profiles live in config, and at which scope?** §5.2's
-   examples assume a top-level `profiles` key beside `pack_profiles` (declaration and selection
-   kept separate, since one is durable and the other per-launch). The scope question is the sharper
-   half: `packs` is **user-scope only**, because a workspace config travels with the repo and is
-   agent-editable.
+4. 💬 **OQ-CS5: Where do user-declared profiles live, at what scope, and what is the selection key
+   called?** §5.2's examples assume a top-level `profiles` key beside `pack_profiles` — declaration
+   and selection kept separate, since one is durable and the other per-launch. Two sub-questions:
+   the **scope** (`packs` is user-scope only, because a workspace config travels with the repo and
+   is agent-editable), and the **name** — §5.4 shows `pack_profiles` names neither packs nor
+   profiles, and standing it next to `profiles` would put two near-synonyms in one config.
 
    _Leaning:_ A separate top-level `profiles` key, **user-scope only**, for the same reason `packs`
-   is. A profile names a provider and therefore steers which endpoint an agent talks to; a repo
+   is — and rename the selection key to `use_profile`, which says what it does and cannot be read as
+   the declaration map. A profile names a provider and therefore steers which endpoint an agent talks to; a repo
    that could set that could point its own agent at a service the user never chose. Merging
    declaration into `pack_profiles`' values (making them objects as well as strings) is the
    tempting alternative and I would not take it — it overloads one key with a durable declaration
@@ -587,6 +616,38 @@ unrelated to the sequence above.
    vocabulary, it catches the typo class that matters (`"thinkng": "low"`, `"model": "fastt"`), and
    it cannot repeat `wire_api`'s failure because the authority being checked against is shipped
    alongside the value rather than baked into a yolo release.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+
+9. 💬 **OQ-CS9: Does a profile point at a provider, inherit from another profile, or both?** *"Should
+   new profiles point to a provider? Or copy and override another profile? Option for both?"* Three
+   shapes for `zai-fast`:
+
+   ```jsonc
+   // (a) provider-pointing only
+   { "zai-fast": { "provider": "zai", "model": "fast" } }
+   // (b) inheritance
+   { "zai-fast": { "extends": "zai", "model": "fast" } }
+   // (c) both accepted
+   ```
+
+   _Leaning:_ **(a) only, and the reason is that OQ-CS4 already removed most of (b)'s value.** A
+   provider declares its options *with defaults*, so a profile states only what it CHANGES — `zai` is
+   `{provider: "zai"}` and `zai-fast` is `{provider: "zai", model: "fast"}`. Neither restates the
+   defaults, so the duplication `extends` exists to remove is mostly not there. What (a) costs is one
+   repeated field; what (b) costs is inheritance semantics — cycles, chains, and what "override"
+   means for a nested value — which is a lot of machinery to save `"provider": "zai"`.
+
+   **The residual case is real and I would not pretend otherwise:** a variant of a *heavily
+   customized* profile. If a user sets six options on `zai` and wants `zai-fast` to be that plus one
+   change, (a) makes them restate six. That is the evidence that would justify `extends`, and it is
+   evidence we do not have yet — no profile in the tree has more than one option, because the option
+   mechanism is unbuilt. Ship (a), and let a real profile that hurts to copy be the argument for (b).
+
+   *(Note that same-NAME merging already exists and is a different thing: a user declaring `zai`
+   over a pack's `zai` merges per field, §5.2. What (b) would add is copy-under-a-DIFFERENT-name.)*
 
    **Answer:**
    > _(empty — fill in when decided)_
