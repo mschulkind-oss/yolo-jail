@@ -342,6 +342,11 @@ The shape of the fix is the placeholder vocabulary the `env_shape` field already
 `config-overlay` gated on a profile should be able to name `{endpoint}` rather than restate it —
 which is a schema question, not a code-placement one, and is OQ-PT3.
 
+*(Resolved 2026-09-02 by OQ-PT9's ruling instead, which made the schema question moot: the
+`config-overlay` is deleted from `packs/zai` outright — `env_shape` went with it — and the
+endpoint reaches claude through the agent pack's own env derive. The duplicate literal is gone
+because the second copy is, not because it learned to compose.)*
+
 ---
 
 ## 5. Six more, sharing no cause with §3–§4

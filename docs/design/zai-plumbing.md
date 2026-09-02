@@ -143,6 +143,12 @@ exists for. That gap is Route B's entrance.
 bridge and the user-written `ANTHROPIC_AUTH_TOKEN` line are both GONE — OQ-Z5's correction is
 superseded by uniformity, and the token alias is superseded by launch-time env composition.)*
 
+*(Superseded again 2026-09-02, OQ-CS8/OQ-PT9: the `env_shape` block in the excerpt below and the
+gated `config-overlay` described in the payload-split paragraph are BOTH deleted — the whole
+delivery is the agent pack's own env derive now, run host-side at both notches
+([provider-catalog-and-selection.md](provider-catalog-and-selection.md) §3.1). The excerpt stays
+as the historical shape; [`packs/zai/pack.json`](../../packs/zai/pack.json) is the current one.)*
+
 ```jsonc
 // packs/zai/pack.json
 { "name": "zai",
