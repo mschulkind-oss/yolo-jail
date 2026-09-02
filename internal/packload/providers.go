@@ -169,40 +169,82 @@ func (p *Pack) installsBin(bin string) bool {
 	return false
 }
 
-// requiredProviders is what the SELECTED pack set demands of the composed providers
-// table (profiles-as-pack-variants.md §6.2 as rescoped, OQ-13), in pack order and
-// deduplicated: every provider a pack SHIPS (`kind: "provider"` — selecting the pack is
-// the intent, so its facts are not decoration) plus every provider a declared variant
-// NAMES (`kind: "profile"` requires_provider). The profile half is deliberately not
-// gated on the variant being ACTIVE: OQ-13 withdraws the earlier active-profile scoping,
-// because a variant that resolved to nothing would still have written a config pointing
-// at a provider this launch never delivered.
+// requiredProviders is what the COMPOSED CATALOG demands of this launch's environment
+// (provider-catalog-and-selection.md §4, OQ-PT4): every entry of the composed providers
+// table that is cataloged — present AND carrying at least one endpoint — in catalog order,
+// attributed to the pack that shipped it, or to the user's config when no selected pack
+// did.
 //
-// The check is per PACK, not per launch: the pair is what a refusal names ("pack zai
-// requires provider zai"), which is the only actionable form — "provider zai is missing"
-// alone does not say who wanted it.
-func requiredProviders(packs []*Pack) []providerRequirement {
-	var out []providerRequirement
+// The rule is one sentence — in a dictionary means you need the key; not in one means you
+// do not — and it replaces the pack-declaration walk this used to be, which required every
+// provider a selected pack SHIPS and so refused a launch whose user had dropped that
+// provider with `providers.<name>: null`: the pack still declared it, so the null bought a
+// refusal naming the provider it had just removed (provider-table-fidelity.md §5.1, D4).
+// Keyed to the table instead, the null removes the requirement with the entry.
+//
+// "Carries at least one endpoint" is the launch-level union of the predicate each derive
+// applies per agent — a provider enters an AGENT's catalog only when it has an endpoint
+// for a protocol that agent speaks, so an entry with no endpoint at all (the shipped
+// bedrock, which composes env_shape facts and nothing else) reaches no agent's catalog and
+// no key can be demanded of it without refusing launches nothing was wrong with. This
+// function cannot know which protocols a launch's agents speak, so it takes the union's
+// conservative form: some endpoint is what being in a dictionary means here.
+//
+// A variant's requires_provider creates NO requirement of its own. It selects a provider;
+// one the catalog does not hold delivers nothing to any agent — no derive sees an entry,
+// and the env_shape relay composes nothing — so demanding its credential would be
+// demanding a key for a delivery that cannot happen.
+//
+// Attribution is kept because it is the only actionable form: "pack zai requires provider
+// zai" says where the entry came from, which "provider zai is missing a credential" does
+// not; the user-config attribution covers an entry only the user's config put there.
+func requiredProviders(packs []*Pack, providers *jsonx.OrderedMap) []providerRequirement {
+	shipper := map[string]string{}
 	for _, p := range packs {
-		seen := map[string]bool{}
-		add := func(name string) {
-			if name == "" || seen[name] {
-				return
-			}
-			seen[name] = true
-			out = append(out, providerRequirement{pack: p.Name, provider: name})
-		}
 		for _, prov := range p.Decl.Providers() {
-			add(prov.Name)
+			if _, seen := shipper[prov.Name]; !seen {
+				shipper[prov.Name] = p.Name
+			}
 		}
-		for _, prof := range p.Decl.Profiles() {
-			add(prof.RequiresProvider)
+	}
+	if providers == nil {
+		return nil
+	}
+	var out []providerRequirement
+	for _, name := range providers.Keys() {
+		if !hasEndpoint(providerEntry(providers, name)) {
+			continue
 		}
+		out = append(out, providerRequirement{pack: shipper[name], provider: name})
 	}
 	return out
 }
 
-// providerRequirement is one (pack, provider) pair requiredProviders collected.
+// hasEndpoint reports whether one composed entry is cataloged — carrying at least one
+// protocol endpoint. It is the predicate requiredProviders gates on, and the reason a
+// region-addressed provider composes without ever becoming a requirement.
+func hasEndpoint(entry *jsonx.OrderedMap) bool {
+	if entry == nil {
+		return false
+	}
+	v, ok := entry.Get("endpoints")
+	if !ok {
+		return false
+	}
+	eps, ok := v.(*jsonx.OrderedMap)
+	if !ok {
+		return false
+	}
+	for _, proto := range eps.Keys() {
+		if e, _ := eps.Get(proto); e != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// providerRequirement is one cataloged provider requiredProviders collected: the entry's
+// name, and the pack that shipped it — empty when only the user's config did.
 type providerRequirement struct {
 	pack     string
 	provider string
@@ -225,16 +267,21 @@ func entryString(entry *jsonx.OrderedMap, key string) string {
 }
 
 // ProviderCredentialGaps is the SELECTED-PACK CREDENTIAL PRE-FLIGHT
-// (profiles-as-pack-variants.md §6.2 as rescoped by OQ-13): for every provider a selected
-// pack requires, the composed table must name it and the variable its api_key_env_name
-// points at must be set in the launch environment, or the launch is refused.
+// (profiles-as-pack-variants.md §6.2 as rescoped by OQ-13; the requirement itself re-ruled
+// by OQ-PT4): every provider the composed table CATALOGS — present and carrying an
+// endpoint, per requiredProviders — must have the variable its api_key_env_name points at
+// set in the launch environment, or the launch is refused. An entry the table does not
+// hold is nobody's requirement: the user's null dropped it, or nothing ever put it there,
+// and an agent that cannot reach the provider owes nobody a credential.
 //
 // lookup answers "is this variable set in what this launch would deliver" — the whole
 // assembled environment, not one channel of it. On the jail notch that is the env_sources
 // hydration, the -e pairs of the assembled argv, and the environment yolo itself was
 // launched from (which the env_shape relay can draw on); on the host notch it is the
-// composed process env. A provider that declares no api_key_env_name (Bedrock, whose
-// credential is the ambient AWS chain) is checked for EXISTENCE only.
+// composed process env. A cataloged provider that declares no api_key_env_name is checked
+// for EXISTENCE only — an entry can be in an agent's dictionary without naming where its
+// key lives — and a provider with no endpoint (Bedrock, whose credential is the ambient
+// AWS chain yolo cannot inspect) is not required at all, because it reaches no catalog.
 //
 // consulted is what the caller asked for credentials — the env_sources entries it walked,
 // the invoking environment, whatever this notch actually consults — and is quoted verbatim
@@ -249,21 +296,20 @@ func entryString(entry *jsonx.OrderedMap, key string) string {
 func ProviderCredentialGaps(packs []*Pack, providers *jsonx.OrderedMap,
 	lookup func(string) (string, bool), consulted []string) []string {
 	var facts []string
-	for _, req := range requiredProviders(packs) {
+	for _, req := range requiredProviders(packs, providers) {
 		entry := providerEntry(providers, req.provider)
 		keyName := entryString(entry, "api_key_env_name")
 		if keyName == "" {
-			if entry != nil {
-				continue // the provider is there and needs no credential pointer
-			}
-			facts = append(facts, "  • pack "+req.pack+" requires provider "+quoted(req.provider)+
-				", and the composed providers table has no entry by that name")
-			continue
+			continue // cataloged and needs no credential pointer
 		}
 		if v, ok := lookup(keyName); ok && v != "" {
 			continue
 		}
-		facts = append(facts, "  • pack "+req.pack+" requires provider "+quoted(req.provider)+
+		who := "your config declares" // an entry only the user's config put in the table
+		if req.pack != "" {
+			who = "pack " + req.pack + " requires"
+		}
+		facts = append(facts, "  • "+who+" provider "+quoted(req.provider)+
 			", whose credential variable "+keyName+" is not set in this launch's environment")
 	}
 	if len(facts) == 0 {

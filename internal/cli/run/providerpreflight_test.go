@@ -15,9 +15,10 @@ import (
 )
 
 // This file pins the SELECTED-PACK CREDENTIAL PRE-FLIGHT (profiles-as-pack-variants.md
-// §6.2 as rescoped by OQ-13): a pack this launch selects that requires a provider — by
-// shipping one, or by a variant naming one — refuses the launch when the composed table
-// has no such provider or when the credential variable it points at was never hydrated.
+// §6.2 as rescoped by OQ-13, the requirement itself re-ruled by OQ-PT4): every provider
+// the composed table CATALOGS — present and carrying an endpoint — refuses the launch when
+// the credential variable its api_key_env_name points at was never hydrated, and an entry
+// the table does not hold is nobody's requirement.
 //
 // The facts live in packload.ProviderCredentialGaps, which both notches call; what this
 // file pins at the run pipeline is the SEAM: that the container arm asks the question on
@@ -98,24 +99,68 @@ func TestCheckProviderCredentialsRefusesAnUnhydratedKey(t *testing.T) {
 	}
 }
 
-// A variant's requires_provider naming a provider NOTHING ships — the pack ships no
-// provider and the user config carries no entry — is the same refusal, and names the
-// missing provider rather than a variable.
-func TestCheckProviderCredentialsRefusesAMissingProvider(t *testing.T) {
+// The requirement follows CATALOG MEMBERSHIP (provider-table-fidelity.md §5.1 / D4, ruled
+// by OQ-PT4; provider-catalog-and-selection.md §4): in a dictionary means you need the
+// key; not in one means you do not. Three sides of that one sentence, pinned at the seam
+// that consumes the answer:
+//
+//   - a provider the user null-drops left the composed table, and the requirement left
+//     with it. This is the launch the design measured refusing before the rule moved —
+//     `providers: {"zai": null}` over a pack shipping zai came out as "pack zai requires
+//     provider "zai", and the composed providers table has no entry by that name", the
+//     user's own "no" read back as a fault;
+//   - the same pack with its entry cataloged still refuses, naming the provider and the
+//     variable — which is what keeps this a refusal test rather than a delete-the-check
+//     test. The ONLY thing that changed between the two halves is table membership;
+//   - a variant naming a provider nothing ships and nothing catalogues delivers nothing to
+//     any agent — no derive sees an entry, the env_shape relay composes nothing — so it is
+//     not a requirement either.
+func TestCheckProviderCredentialsFollowCatalogMembership(t *testing.T) {
 	home := retireHome(t)
 	writeUserPacks(t, home, `[]`)
+	packs := []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}
+
+	dropped := jsonx.NewOrderedMap()
+	dropped.Set("zai", nil) // the user's "no" — the entry leaves the composed table
+	cfg := newConfig("providers", dropped)
 	o := retireOptions(t, discardBuf())
-	providers := jsonx.NewOrderedMap()
-	providers.Set("zai", nil) // the user dropped the shipped entry
-	cfg := newConfig("providers", providers)
-	lines, refuse := o.checkProviderCredentials(cfg, []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, channelFor(t, o, cfg, []*packload.Pack{zaiPackFixture(t, "zai", "zai", "ZAI_API_KEY")}, emptyEnv()), nil)
+	if lines, refuse := o.checkProviderCredentials(cfg, packs, channelFor(t, o, cfg, packs, emptyEnv()), nil); len(lines) != 0 || refuse {
+		t.Errorf("a provider the user null-dropped left the catalog and must not be required "+
+			"(lines=%d refuse=%v):\n%s", len(lines), refuse, strings.Join(lines, "\n"))
+	}
+
+	o = retireOptions(t, discardBuf())
+	lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), nil)
 	if len(lines) == 0 || !refuse {
-		t.Fatalf("a required provider the composed table has no entry for must refuse the "+
-			"launch (lines=%d refuse=%v)", len(lines), refuse)
+		t.Fatalf("the same pack with its provider cataloged must still refuse "+
+			"(lines=%d refuse=%v)", len(lines), refuse)
 	}
 	if got := strings.Join(lines, "\n"); !strings.Contains(got, `provider "zai"`) ||
-		!strings.Contains(got, "no entry by that name") {
-		t.Errorf("the refusal must name the missing provider, not a variable:\n%s", got)
+		!strings.Contains(got, "ZAI_API_KEY") {
+		t.Errorf("the refusal must name the provider and its variable:\n%s", got)
+	}
+
+	// The profile half: requires_provider selecting a provider the catalog never held. The
+	// fixture ships the variant and NO provider contribution, so nothing composes an entry
+	// for "nowhere" — the delivery is nothing, and so is the demand.
+	root := filepath.Join(t.TempDir(), "ghost")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"ghost","contributes":[` +
+		`{"kind":"profile","name":"ghost","requires_provider":"nowhere"}]}`
+	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ghost, problems := packload.LoadDir(root, "ghost", false)
+	if len(problems) != 0 {
+		t.Fatalf("loading fixture pack: %v", problems)
+	}
+	o = retireOptions(t, discardBuf())
+	if lines, refuse := o.checkProviderCredentials(newConfig(), []*packload.Pack{ghost}, channelFor(t, o, newConfig(), []*packload.Pack{ghost}, emptyEnv()), nil); len(lines) != 0 || refuse {
+		t.Errorf("a variant naming an uncataloged provider must demand no credential, "+
+			"because it delivers none (lines=%d refuse=%v):\n%s", len(lines), refuse,
+			strings.Join(lines, "\n"))
 	}
 }
 
