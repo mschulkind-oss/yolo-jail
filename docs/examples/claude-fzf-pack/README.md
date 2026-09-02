@@ -11,9 +11,10 @@ existed to enable, and the worked example behind
 
 **It is an EXAMPLE, not something yolo ships.** It deliberately does not live in
 `packs/` — that directory holds the official packs baked into the binary, and
-adding one would change the shipped product. *(That count has moved since this was
-written: `packs/` holds **ten** as of 2026-08-23 — six that install an agent and four
-that ship only a loophole. The argument is unaffected; the number was.)* Copy this directory to
+adding one would change the shipped product. *(That count has moved twice since this was
+written: `packs/` held **ten** on 2026-08-23 and holds **twelve** as of 2026-09-02 — six
+install an agent; five of the other six ship a loophole, `audio` also shipping an `env`
+block; and `zai` ships neither. The argument is unaffected; the number was.)* Copy this directory to
 `~/.dotfiles/claude-fzf/` (or anywhere) and point your config at it.
 
 ---
