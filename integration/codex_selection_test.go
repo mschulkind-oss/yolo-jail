@@ -99,10 +99,15 @@ func TestCodexSelectionFollowsTheActiveProfile(t *testing.T) {
 	t.Run("a profile naming a provider codex can speak writes the pair", func(t *testing.T) {
 		dir := writeProject(t, codexProbeProject)
 		// Only the codex pack: the provider is the user's, so the launch needs the one
-		// pack that owns the surface. The persistent spelling this time (use_profiles,
+		// pack that owns the surface. The profile is DECLARED beside the provider
+		// (OQ-CS6 — a name nothing declares refuses the launch, as the undeclared
+		// spelling of this very fixture proved), and it names the provider it selects,
+		// which is itself. The persistent spelling for the selection (use_profiles,
 		// OQ-CS5 — the same merge the flag above feeds), so both spellings of a
 		// selection are covered by one file.
-		packHome(t, `{"packs": ["codex"], "use_profiles": {"codex": "llamacpp"}}`)
+		packHome(t, `{"packs": ["codex"], `+
+			`"profiles": {"llamacpp": {"provider": "llamacpp"}}, `+
+			`"use_profiles": {"codex": "llamacpp"}}`)
 		r := runYolo(t, dir, "true")
 		if r.rc != 0 {
 			t.Fatalf("profiled codex launch failed: rc %d\n%s", r.rc, r.combined())
@@ -114,8 +119,9 @@ func TestCodexSelectionFollowsTheActiveProfile(t *testing.T) {
 				"whose provider codex can reach (OQ-CS1: activating a profile works for "+
 				"all):\n%s", config)
 		} else if m[1] != "llamacpp" {
-			t.Errorf("model_provider = %q, want the provider the variant delivers "+
-				"(llamacpp — the bare name, no pack declaring the variant)", m[1])
+			t.Errorf("model_provider = %q, want the provider the profile delivers "+
+				"(llamacpp — the provider the user's own declaration names, which is "+
+				"itself)", m[1])
 		}
 		if m := codexModelAssign.FindStringSubmatch(config); m == nil {
 			t.Errorf("codex config.toml carries no model; the provider declares a `default` "+
