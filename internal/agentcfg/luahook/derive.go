@@ -41,6 +41,24 @@ type DeriveCtx struct {
 	Agent   string
 	Surface string
 
+	// Env selects the ENV producer instead of a surface derive: when true, Derive
+	// invokes the yolo.env(agent, fn) registration — a THIRD registration with a key
+	// space of its own, so a pack declaring a real surface named "env" can never
+	// collide with the environment composition (the surface loop never sets this, and
+	// never sees the env registration at all). The producer returns a flat table of
+	// string values; ctx.tombstone in a value is a REMOVAL, decoded to Go nil here
+	// exactly as on the surface path.
+	Env bool
+
+	// SelectedProvider is the provider the active profile resolved to at this agent's
+	// CLI name — the key the env producer reads ctx.providers with. Exposed as
+	// ctx.selected_provider; "" when no variant is active.
+	SelectedProvider string
+
+	// ProfileName is the variant active at this agent's CLI name, exposed as
+	// ctx.profile_name.
+	ProfileName string
+
 	// Tables are the live config tables a derive may read, keyed by source name
 	// (manifest.SourceMCPServers / SourceLSPServers). Exposed read-only as
 	// ctx.<name>. Absent source => an empty table (a jail with no MCP configured
@@ -115,6 +133,18 @@ func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, err
 		derives[key{agent, surface}] = fn
 		return 0
 	}))
+	// yolo.env(agent, fn) records fn keyed by agent ALONE. A separate table, not a
+	// surface name: the environment composition is not a surface (nothing renders it
+	// to a file), so keying it by (agent, "env") would let a pack's REAL surface named
+	// "env" collide with it. Distinct storage is what makes the collision
+	// unrepresentable — see DeriveCtx.Env.
+	envs := map[string]*lua.LFunction{}
+	L.SetField(yolo, "env", L.NewFunction(func(L *lua.LState) int {
+		agent := L.CheckString(1)
+		fn := L.CheckFunction(2)
+		envs[agent] = fn
+		return 0
+	}))
 	L.SetGlobal("yolo", yolo)
 
 	ctxTable, err := buildDeriveCtxTable(L, ctx, sentinel, emptyArr)
@@ -128,8 +158,15 @@ func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, err
 	}
 
 	fn, ok := derives[key{ctx.Agent, ctx.Surface}]
+	who := fmt.Sprintf("derive for %s/%s", ctx.Agent, ctx.Surface)
+	if ctx.Env {
+		fn, ok = envs[ctx.Agent]
+		who = "env producer for " + ctx.Agent
+	}
 	if !ok {
 		// No derive registered for this surface — the identity (no computed layer).
+		// The env spelling lands here the same way: an agent whose pack registered no
+		// yolo.env composes no environment.
 		return nil, nil
 	}
 	if err := L.CallByParam(lua.P{Fn: fn, NRet: 1, Protect: true}, ctxTable); err != nil {
@@ -140,8 +177,8 @@ func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, err
 
 	tbl, isTable := ret.(*lua.LTable)
 	if !isTable {
-		return nil, fmt.Errorf("luahook: derive for %s/%s returned %s, want a table (the computed layer)",
-			ctx.Agent, ctx.Surface, ret.Type())
+		return nil, fmt.Errorf("luahook: %s returned %s, want a table (the computed layer)",
+			who, ret.Type())
 	}
 	out, err := deriveTableToGo(tbl, sentinel, emptyArr)
 	if err != nil {
@@ -151,14 +188,17 @@ func (vm GopherLuaVM) Derive(script string, ctx *DeriveCtx) (map[string]any, err
 }
 
 // buildDeriveCtxTable exposes the derive inputs: the two sentinels
-// (ctx.tombstone, ctx.empty_array), ctx.agent / ctx.surface, and one read-only
-// table per live source (ctx.mcp_servers, ctx.lsp_servers).
+// (ctx.tombstone, ctx.empty_array), ctx.agent / ctx.surface, the resolved selection
+// (ctx.selected_provider, ctx.profile_name), and one read-only table per live source
+// (ctx.mcp_servers, ctx.lsp_servers).
 func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.LUserData) (*lua.LTable, error) {
 	t := L.NewTable()
 	L.SetField(t, "tombstone", sentinel)
 	L.SetField(t, "empty_array", emptyArr)
 	L.SetField(t, "agent", lua.LString(ctx.Agent))
 	L.SetField(t, "surface", lua.LString(ctx.Surface))
+	L.SetField(t, "selected_provider", lua.LString(ctx.SelectedProvider))
+	L.SetField(t, "profile_name", lua.LString(ctx.ProfileName))
 	for _, src := range knownDeriveSources {
 		table := ctx.Tables[src]
 		if table == nil {

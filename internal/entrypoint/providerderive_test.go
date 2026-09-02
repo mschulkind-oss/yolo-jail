@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // The provider half of the three derives that read ctx.providers. pi/models, codex/config
@@ -24,7 +25,7 @@ func deriveSurface(t *testing.T, pack, id string) (string, manifest.Surface) {
 	if err != nil {
 		t.Fatalf("embedded %s: %v", pack, err)
 	}
-	script := loadPackDeriveScript(p)
+	script := packload.DeriveScript(p)
 	if script == "" {
 		t.Fatalf("pack %s ships no derive.lua", pack)
 	}

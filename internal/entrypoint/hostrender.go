@@ -374,7 +374,7 @@ func hostProvenanceExists(e *Env, s manifest.Surface) bool {
 // A pack with no derive, or a surface with no producer, has no tables: the result is nil and
 // every key merges, which is the pre-existing behavior for every other surface.
 func hostTableKeys(p *packload.Pack, s manifest.Surface) []string {
-	script := loadPackDeriveScript(p)
+	script := packload.DeriveScript(p)
 	if script == "" {
 		return nil
 	}

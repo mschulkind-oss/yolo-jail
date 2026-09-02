@@ -188,8 +188,9 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 		}
 		// A pack's derive.lua (if any) produces every dynamic layer for its surfaces
 		// — the projection Lua (docs/design/pack-system.md §7). Read once per pack;
-		// absent means no surface has a dynamic layer.
-		deriveScript := loadPackDeriveScript(p)
+		// absent means no surface has a dynamic layer. packload owns the reader —
+		// the host notch's env derive reads the same file through it.
+		deriveScript := packload.DeriveScript(p)
 		for _, s := range surfaces {
 			surface := s
 			genStep(e, "configure_"+surface.Agent+"_"+surface.Name, func() error {
@@ -223,20 +224,6 @@ func reportOverlayResolution(e *Env, overlays *packoverlay.OverlaySet) {
 		e.warn(fmt.Sprintf("%s: config-overlay keys from %s (yolo config diff %s)",
 			applied.Target, strings.Join(applied.Packs, ", "), applied.Agent))
 	}
-}
-
-// loadPackDeriveScript reads a pack's derive.lua (at its tree root), or "" when
-// absent. The script registers per-surface producers via yolo.derive(agent,
-// surface, fn); a surface with no registered derive gets no dynamic layer.
-func loadPackDeriveScript(p *packload.Pack) string {
-	if p.Root == "" {
-		return ""
-	}
-	data, err := os.ReadFile(filepath.Join(p.Root, "derive.lua"))
-	if err != nil {
-		return ""
-	}
-	return string(data)
 }
 
 // deriveComputedLayer runs a surface's derive producer to build its dynamic

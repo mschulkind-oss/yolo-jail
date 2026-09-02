@@ -58,7 +58,7 @@ func ConfigurePackByName(e *Env, name string) error {
 	for _, n := range notes {
 		e.warnOnce(n.String())
 	}
-	deriveScript := loadPackDeriveScript(p)
+	deriveScript := packload.DeriveScript(p)
 	// Overlays over the ONE pack asked for, so a pack that overlays a surface it owns
 	// itself still renders. A cross-pack overlay cannot resolve from a single-pack view
 	// and is reported ownerless (R2) — correct here rather than a limitation, since this

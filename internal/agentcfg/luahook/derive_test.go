@@ -200,3 +200,113 @@ func TestDerive_Sandboxed(t *testing.T) {
 		t.Fatal("os must be absent in a derive sandbox")
 	}
 }
+
+// runEnvDerive is runDerive for the ENV producer: DeriveCtx.Env selects the
+// yolo.env(agent, fn) registration instead of a (agent, surface) derive.
+func runEnvDerive(t *testing.T, agent, script string, tables map[string]map[string]any) (map[string]any, error) {
+	t.Helper()
+	return GopherLuaVM{}.Derive(script, &DeriveCtx{
+		Agent:            agent,
+		Env:              true,
+		SelectedProvider: "zai",
+		ProfileName:      "zai",
+		Tables:           tables,
+	})
+}
+
+// The env registration is a THIRD registration, invoked through DeriveCtx.Env, and it
+// sees the resolved selection the runner hands it (ctx.selected_provider,
+// ctx.profile_name) beside the live tables every derive sees.
+func TestDeriveEnv_ProducerRunsAndSeesTheSelection(t *testing.T) {
+	script := `
+yolo.env("claude", function(ctx)
+  local out = {}
+  local p = ctx.providers[ctx.selected_provider]
+  if p then out.ENDPOINT = p.endpoints.anthropic.base_url end
+  out.PROFILE = ctx.profile_name
+  return out
+end)`
+	tables := map[string]map[string]any{
+		"providers": {"zai": map[string]any{
+			"endpoints": map[string]any{
+				"anthropic": map[string]any{"base_url": "https://api.z.ai/api/anthropic"},
+			},
+		}},
+	}
+	got, err := runEnvDerive(t, "claude", script, tables)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["ENDPOINT"] != "https://api.z.ai/api/anthropic" {
+		t.Errorf("env producer should read the selected provider's endpoint, got %#v", got)
+	}
+	if got["PROFILE"] != "zai" {
+		t.Errorf("env producer should see ctx.profile_name, got %#v", got)
+	}
+}
+
+// THE COLLISION THE SEPARATE REGISTRATION EXISTS TO MAKE UNREPRESENTABLE: a pack may
+// declare a real surface named "env" (yolo.derive(agent, "env", fn)), and that
+// registration must satisfy the SURFACE path only — never the environment composition.
+// If env were keyed as a surface, this script would hand the launch's provider
+// environment to whatever a surface named "env" produced.
+func TestDeriveEnv_ASurfaceNamedEnvIsNotTheEnvProducer(t *testing.T) {
+	script := `yolo.derive("claude", "env", function(ctx) return { WRONG = "surface" } end)`
+	got, err := runEnvDerive(t, "claude", script, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Errorf("a yolo.derive(agent, \"env\", …) registration must NOT answer the env "+
+			"composition — got %#v from a surface producer", got)
+	}
+	// And the converse: the surface registration still fires for the surface itself,
+	// with the env registration nowhere in its way.
+	both := `
+yolo.derive("claude", "env", function(ctx) return { WHO = "surface" } end)
+yolo.env("claude", function(ctx) return { WHO = "env" } end)`
+	surface, err := runDerive(t, "claude", "env", both, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if surface["WHO"] != "surface" {
+		t.Errorf("the surface named env keeps its own derive, got %#v", surface)
+	}
+}
+
+// A script that registers no yolo.env for this agent is the identity: no environment
+// to compose (the same contract a surface with no derive has).
+func TestDeriveEnv_NoRegistrationIsNil(t *testing.T) {
+	got, err := runEnvDerive(t, "claude", `yolo.env("other", function() return {} end)`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Errorf("no yolo.env for this agent → nil, got %#v", got)
+	}
+}
+
+// A tombstoned env value is a REMOVAL: it decodes present-with-nil, which the runner
+// turns into agentenv.Var{Unset: true} — the vocabulary a plain Lua nil cannot spell.
+func TestDeriveEnv_TombstoneIsARemoval(t *testing.T) {
+	script := `yolo.env("claude", function(ctx) return { AWS_PROFILE = ctx.tombstone, KEEP = "1" } end)`
+	got, err := runEnvDerive(t, "claude", script, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, present := got["AWS_PROFILE"]; !present || v != nil {
+		t.Errorf("tombstoned env var must be present-with-nil (a removal), got present=%v v=%#v",
+			present, v)
+	}
+	if got["KEEP"] != "1" {
+		t.Errorf("KEEP should survive beside the tombstone, got %#v", got)
+	}
+}
+
+// A non-table return fails loud on the env path too (fail-closed).
+func TestDeriveEnv_NonTableReturnFails(t *testing.T) {
+	_, err := runEnvDerive(t, "claude", `yolo.env("claude", function() return "nope" end)`, nil)
+	if err == nil {
+		t.Fatal("an env producer returning a non-table must be a loud error")
+	}
+}
