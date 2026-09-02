@@ -328,7 +328,7 @@ does not move it — a derive is inside the commit the lockfile already closes o
 | 23 | fetched pack — loophole with a `host_daemon` | **host execution** + a CA trusted in-jail | explicit, per crossing | yes — the claim pins the argv, not the file (OQ-LP8) |
 | 24 | `yolo host apply` | **host write** into your real home | explicit per invocation, `--assert` required | for a local pack, yes — source re-read each apply |
 | 25 | the mirror + ref resolution behind rows 17–23 | selects which bytes every row above delivers | — | **three verified mechanisms** |
-| 26 | **any pack's `derive.lua`** (`yolo.derive` + the dormant `yolo.env`, `f55f2109`) — **row added 2026-09-02**; this census had no entry for pack-shipped Lua, the gap 💬 18's D9 filed | **sandboxed Lua execution** — in-jail at every boot with live tables (`packsurfaces.go:193`), and **host-side** during `yolo host apply` as a sentinel-input key-name probe (`hostrender.go:377`); the VM is allowlist-built (no `os`/`io`/`require`/`load`, fresh state, timeout — `agentcfg/luahook/vm.go`), so the grant is *unvalidated config-surface output* plus whatever `ctx` carries — which, under 💬 18's OQ-PT9 ruling, will include resolved provider credentials — **not** process exec | **never, any origin** — `DeriveScript` reads `<pack root>/derive.lua` with no origin gate and no claim (`packload/deriveenv.go:35`), while the same fetched pack may not *name a host file to read* | yes — the mirror re-resolves, and a derive is content, not a claim |
+| 26 | **any pack's `derive.lua`** (`yolo.derive` + `yolo.env`) — **row added 2026-09-02**; this census had no entry for pack-shipped Lua, the gap 💬 18's D9 filed | **sandboxed Lua execution** — in-jail at every boot with live tables (`packsurfaces.go:193`); **host-side** during `yolo host apply` as a sentinel-input key-name probe (`hostrender.go:377`); and — since `3144fbed`, the same day this row was written — **host-side at every `yolo host -- <cmd>` launch with REAL inputs**: `packload.AgentEnv` runs the pack's env derive over the resolved provider table, credential included (`internal/cli/host.go:458`; the jail-launch twin is `run/profilechannel.go:97`). The VM is allowlist-built (no `os`/`io`/`require`/`load`, fresh state, timeout — `agentcfg/luahook/vm.go`), so the grant is *unvalidated config-surface and env output* plus whatever `ctx` carries — under 💬 18's OQ-PT9 ruling, resolved provider credentials — **not** process exec | **never, any origin** — `DeriveScript` reads `<pack root>/derive.lua` with no origin gate and no claim (`packload/deriveenv.go:35`), while the same fetched pack may not *name a host file to read* | yes — the mirror re-resolves, and a derive is content, not a claim |
 
 ### Agent context needs no gate of its own
 
@@ -742,12 +742,17 @@ closes over `derive.lua` like all content; (b) an approval claim for *fetched* p
 mechanism; (c) gate only the **host-side** probe on origin, since that is the one place the Lua
 runs outside the jail.
 
-_Leaning:_ **(a), with (c) worth pricing.** The in-jail half is squarely inside what rows 18/19
-already extend, and a claim for a sandboxed compute hook would be disclosure theatre — the honest
-disclosure is the lockfile pin. The host-side probe is the only genuinely new boundary crossing,
-and it runs the same sandbox with sentinel inputs; if that ever grows real inputs (the env-derive
-work is heading that way — `yolo.env` at host launch), (c) stops being optional and should be
-decided *before* that lands, not after.
+_Leaning:_ **(a) for the in-jail half; (c) needs an actual decision now, because its trigger
+already fired.** The in-jail half is squarely inside what rows 18/19 already extend, and a claim
+for a sandboxed compute hook would be disclosure theatre — the honest disclosure is the lockfile
+pin. But the host side is no longer only a sentinel probe: **`3144fbed` (2026-09-02) put the env
+derive on the `yolo host -- <cmd>` launch path with real, credential-bearing inputs**
+(`host.go:458`). A fetched pack's Lua now computes the environment a process runs with *on the real
+host* — still sandboxed, still unable to exec or do I/O itself, but its output IS that process's
+env (`LD_PRELOAD` and friends), which is row 18's in-jail concern arrived at the host notch. That
+is precisely the crossing this census exists to name before it becomes load-bearing by habit. The
+cheap containment if (c) is taken: run only *embedded/local* packs' env derives at the host notch
+until a fetched case exists and is ruled on.
 
 **Answer:**
 > _(empty — fill in when decided)_
