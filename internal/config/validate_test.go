@@ -493,7 +493,7 @@ func TestValidateProviders(t *testing.T) {
 	valid := `{"providers": {
 		"glm": {
 			"base_url": "https://open.bigmodel.cn/api/paas/v4",
-			"wire_api": "openai-chat",
+			"wire_api": "openai-chat-completions",
 			"api_key_env_name": "GLM_API_KEY",
 			"models": {"default": "glm-4-plus", "fast": "glm-4-flash"},
 			"capabilities": ["code_editing"]
@@ -507,7 +507,7 @@ func TestValidateProviders(t *testing.T) {
 			"api_key_env_name": "ZAI_API_KEY",
 			"endpoints": {
 				"anthropic": {"base_url": "https://api.z.ai/api/anthropic"},
-				"openai": {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat"}
+				"openai": {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat-completions"}
 			}
 		},
 		"named_only": {},
@@ -566,9 +566,11 @@ func providerErrors(t *testing.T, body string) []string {
 	return out
 }
 
-// wire_api reaches three agents' config files verbatim, so a typo here is a protocol
-// error the AGENT reports, later. The vocabulary is closed for the reason Rule 4 closes
-// any fixed syntactic slot (profiles-as-pack-variants.md §4.3), and the set itself is
+// wire_api is yolo's CANONICAL protocol name (provider-table-fidelity.md §3.4 / OQ-PT1):
+// the derives translate it into each agent's own spelling, and a name outside the set
+// translates to nothing, so it would reach every consumer as no protocol — silently, from
+// a jail that booted green. The vocabulary is closed for the reason Rule 4 closes any
+// fixed syntactic slot (profiles-as-pack-variants.md §4.3), and the set itself is
 // packdecl's — the layer a manifest declares the same field in.
 func TestValidateProvidersWireAPIIsAClosedEnum(t *testing.T) {
 	for _, api := range packdecl.KnownWireAPIs() {
@@ -600,7 +602,10 @@ func TestValidateProvidersWireAPIIsAClosedEnum(t *testing.T) {
 // config the same value refused.
 func TestWireAPIEnumIsPackdeclsSet(t *testing.T) {
 	probes := append(append([]string{}, packdecl.KnownWireAPIs()...),
-		"", "openai-chatt", "Anthropic", "chat")
+		"", "openai-chatt", "Anthropic", "chat",
+		// The spellings OQ-PT1 retired: unknown now, exactly as a value this build never
+		// knew would be.
+		"openai-chat", "openai-completions", "responses")
 	for _, v := range probes {
 		t.Run("value="+v, func(t *testing.T) {
 			errs := providerErrors(t, `{"glm": {"wire_api": "`+v+`"}}`)
@@ -649,7 +654,7 @@ func TestValidateProvidersBaseURLMustBeAnAddress(t *testing.T) {
 func TestValidateProvidersEndpoints(t *testing.T) {
 	valid := `{"zai": {"endpoints": {
 		"anthropic": {"base_url": "https://api.z.ai/api/anthropic"},
-		"openai": {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat"}
+		"openai": {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat-completions"}
 	}}}`
 	if errs := providerErrors(t, valid); len(errs) != 0 {
 		t.Errorf("valid endpoints should pass, got: %v", errs)

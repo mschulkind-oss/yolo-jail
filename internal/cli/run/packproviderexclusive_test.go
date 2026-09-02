@@ -26,7 +26,7 @@ func providerPackDir(t *testing.T, name, provider, baseURL string) string {
 	}
 	manifest := `{"name":"` + name + `","contributes":[` +
 		`{"kind":"provider","name":"` + provider + `",` +
-		`"endpoints":{"openai":{"base_url":"` + baseURL + `","wire_api":"openai-chat"}},` +
+		`"endpoints":{"openai":{"base_url":"` + baseURL + `","wire_api":"openai-chat-completions"}},` +
 		`"api_key_env_name":"` + strings.ToUpper(provider) + `_API_KEY"}]}`
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)

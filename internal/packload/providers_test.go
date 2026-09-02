@@ -14,7 +14,7 @@ func shippedZaiPack(t *testing.T) *Pack {
 	return &Pack{Name: "zai", Decl: declFrom(t, `{"contributes":[
 	  {"kind":"provider","name":"zai",
 	   "endpoints":{"anthropic":{"base_url":"https://api.z.ai/api/anthropic"},
-	                "openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat"}},
+	                "openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat-completions"}},
 	   "api_key_env_name":"ZAI_API_KEY",
 	   "models":{"default":"glm-4.7","fast":"glm-4.7-air"},
 	   "env_shape":{"anthropic":{"ANTHROPIC_BASE_URL":"{endpoint}",
@@ -68,7 +68,7 @@ func TestComposeProvidersShipsUnderUserConfig(t *testing.T) {
 	want := `{"zai": {"api_key_env_name": "ZAI_API_KEY", ` +
 		`"models": {"default": "glm-4.7", "fast": "glm-4.7-air"}, ` +
 		`"endpoints": {"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}, ` +
-		`"openai": {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat"}}, ` +
+		`"openai": {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat-completions"}}, ` +
 		`"env_shape": {"anthropic": {"ANTHROPIC_AUTH_TOKEN": "{key}", ` +
 		`"ANTHROPIC_BASE_URL": "{endpoint}"}}}}`
 	if s := dump(t, got); s != want {
@@ -85,7 +85,7 @@ func TestComposeProvidersShipsUnderUserConfig(t *testing.T) {
 		!strings.Contains(s, `"coder": "glm-4.7-coder"`) || !strings.Contains(s, `"default": "glm-4.7"`) {
 		t.Errorf("models should merge per alias, got %s", s)
 	}
-	if s := dump(t, got); !strings.Contains(s, `"openai": {"base_url": "https://proxy.example.internal/v4", "wire_api": "openai-chat"}`) {
+	if s := dump(t, got); !strings.Contains(s, `"openai": {"base_url": "https://proxy.example.internal/v4", "wire_api": "openai-chat-completions"}`) {
 		t.Errorf("an overridden endpoint should keep the pack's wire_api, got %s", s)
 	}
 	if s := dump(t, got); !strings.Contains(s, `"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}`) {

@@ -8,7 +8,7 @@
         },
         "openai": {
           "base_url": "https://api.z.ai/api/paas/v4",
-          "wire_api": "openai-chat"
+          "wire_api": "openai-chat-completions"
         }
       },
       "env_shape": {

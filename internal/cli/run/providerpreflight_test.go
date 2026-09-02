@@ -40,7 +40,7 @@ func zaiPackFixture(t *testing.T, name, provider, keyEnv string) *packload.Pack 
 	}
 	manifest := `{"name":"` + name + `","contributes":[` +
 		`{"kind":"provider","name":"` + provider + `","api_key_env_name":"` + keyEnv + `",` +
-		`"endpoints":{"openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat"}}},` +
+		`"endpoints":{"openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat-completions"}}},` +
 		`{"kind":"profile","name":"` + provider + `","requires_provider":"` + provider + `"}]}`
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)

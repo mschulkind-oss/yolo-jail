@@ -601,10 +601,14 @@ type ProviderEndpoint struct {
 	// BaseURL is the endpoint's root URL. Must be http/https and carry no userinfo —
 	// `https://user:tok@host/v1` is a credential in a file a pack ships to strangers.
 	BaseURL string `json:"base_url,omitempty"`
-	// WireAPI is the wire protocol that URL speaks — one of the closed set KnownWireAPIs
-	// returns, the same enum the `providers` config key composes into: the enum that
-	// tightens one tightens both (internal/config's validateWireAPI asks packdecl for the
-	// set), or the two validators would disagree about what a provider is.
+	// WireAPI is the wire protocol that URL speaks, named in yolo's CANONICAL protocol
+	// vocabulary — one of the closed set KnownWireAPIs returns, the same enum the
+	// `providers` config key composes into: the enum that tightens one tightens both
+	// (internal/config's validateWireAPI asks packdecl for the set), or the two validators
+	// would disagree about what a provider is. It is a protocol name, NOT a wire value:
+	// nothing consumes it verbatim. Each agent's derive translates it into that agent's
+	// own spelling and emits no entry at all for a protocol that agent cannot speak
+	// (provider-table-fidelity.md §3.4 / OQ-PT1).
 	WireAPI string `json:"wire_api,omitempty"`
 }
 
@@ -1371,13 +1375,15 @@ func validateAutonomyPosture(label string, p *AutonomyPosture) []string {
 // pointed the other way — a `file://` or bare-host URL is a fact about the local machine
 // a stranger's manifest cannot know.
 //
-// The wire_api half is closed because the value crosses VERBATIM: it composes into the
-// providers table, the table crosses to the jail as YOLO_PROVIDERS with no re-validation,
-// and the derives write it into the agents' own config files — where a name no agent
-// knows is a protocol error at first request, reported by the agent, from a jail that
-// booted green. The enum is the same one internal/config enforces for user-written
-// providers (validateWireAPI asks KnownWireAPIs), because the two spellings of a provider
-// are the same entry in the same table.
+// The wire_api half is closed because the value is TRANSLATED, not passed through: it
+// composes into the providers table, the table crosses to the jail as YOLO_PROVIDERS with
+// no re-validation, and each derive maps it onto that agent's own spelling — emitting no
+// entry at all for a protocol that agent cannot speak (provider-table-fidelity.md §3.4).
+// A name outside the set is therefore one NO derive can translate: it would reach every
+// consumer as no protocol, silently, from a jail that booted green. The enum is the same
+// one internal/config enforces for user-written providers (validateWireAPI asks
+// KnownWireAPIs), because the two spellings of a provider are the same entry in the same
+// table.
 //
 // THE SET IS SKEW-SENSITIVE, and this refusal is only the AUTHORING half of the rule (the
 // same split ValidateProviderEnvShape documents): a pack staged by a newer host may name a
@@ -1411,19 +1417,28 @@ func validateProviderEndpoints(label string, endpoints map[string]ProviderEndpoi
 		}
 		if w := ep.WireAPI; w != "" && !KnownWireAPI(w) {
 			problems = append(problems, fmt.Sprintf(
-				"%s.endpoints[%q].wire_api: unknown wire_api %q (%s) — the value crosses into the "+
-					"agents' config files verbatim, so a typo here is a protocol error at first "+
-					"request, not a load error", label, proto, w, wireAPIList()))
+				"%s.endpoints[%q].wire_api: unknown wire_api %q (%s) — the derives translate "+
+					"this value into each agent's own spelling, and a name outside the set "+
+					"translates to nothing, so no agent would get the provider at all", label, proto, w, wireAPIList()))
 		}
 	}
 	return problems
 }
 
-// knownWireAPIs is THE authority for the `wire_api` vocabulary, closed in the same sense
-// kinds.go's kind set is — the value crosses verbatim into the agents' config files
-// (codex's `wire_api`, pi's `api`), where a name no agent knows is a protocol error at
-// first request rather than a load error anywhere, so "a protocol yolo has never heard
-// of" is not a thing a manifest gets to declare.
+// knownWireAPIs is THE canonical protocol vocabulary (provider-table-fidelity.md §3.0a,
+// OQ-PT1): three PROTOCOL-shaped names, chosen to be NOBODY'S dialect, so a derive cannot
+// pass one through and have it work by accident. `openai-chat` and `openai-completions`
+// were one protocol under two agents' spellings and collapse into `openai-chat-completions`;
+// codex's `responses` loses its spelling in favour of `openai-responses`. A canonical name
+// names a protocol — it is never a value any agent reads.
+//
+// It is closed in the same sense kinds.go's kind set is, but what the closure guards is no
+// longer a verbatim crossing: each derive translates canonical → its own agent's spelling
+// and emits NOTHING for a protocol that agent cannot speak (§3.4). A name outside the set
+// is therefore not "a name some agent happens to know" — it is a name no derive can
+// translate, which reaches every consumer as no protocol at all, silently, from a jail
+// that booted green. Refusing it here is that failure moved to authoring time, where the
+// pack author is still looking.
 //
 // It lives HERE and not beside the config key it composes into because both layers read
 // one vocabulary: a provider a pack ships and the same provider a user writes over are
@@ -1433,9 +1448,10 @@ func validateProviderEndpoints(label string, endpoints map[string]ProviderEndpoi
 // vocabulary that can drift away from the one this validator enforces.
 //
 // Sorted, because the enum's error message lists it and the message is a frozen string.
-// Four values, one per wire shape a provider can speak; a fifth is a one-line addition
-// here and nowhere else.
-var knownWireAPIs = []string{"anthropic", "openai-chat", "openai-completions", "responses"}
+// Three values, one per protocol a provider can speak; a fourth is one line here PLUS a
+// dialect row in every derive that can speak it — a protocol no derive translates is a
+// name in this list that delivers nothing.
+var knownWireAPIs = []string{"anthropic", "openai-chat-completions", "openai-responses"}
 
 // KnownWireAPI reports whether v names a wire protocol this build knows. An empty string
 // is NOT known — but for this field an empty value is the ABSENT claim rather than a
@@ -1462,7 +1478,7 @@ func KnownWireAPIs() []string {
 }
 
 // wireAPIList renders the closed set the way the validator's diagnostics name it
-// ("\"anthropic\", \"openai-chat\", \"openai-completions\" or \"responses\""), so the
+// ("\"anthropic\", \"openai-chat-completions\" or \"openai-responses\""), so the
 // message cannot outlive the vocabulary it quotes (viaList's rule).
 func wireAPIList() string {
 	parts := make([]string, len(knownWireAPIs))

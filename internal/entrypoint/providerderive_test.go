@@ -52,7 +52,7 @@ func zaiEndpointsTable() map[string]map[string]any {
 					"anthropic": map[string]any{"base_url": "https://api.z.ai/api/anthropic"},
 					"openai": map[string]any{
 						"base_url": "https://api.z.ai/api/paas/v4",
-						"wire_api": "openai-chat",
+						"wire_api": "openai-chat-completions",
 					},
 				},
 			},
@@ -61,15 +61,13 @@ func zaiEndpointsTable() map[string]map[string]any {
 }
 
 // TestProviderDerivesResolveAnEndpointsOnlyProvider pins the resolution half of the
-// endpoints schema (zai-plumbing.md §5, closure rule 2): an agent that speaks `openai`
-// emits the openai endpoint's URL and wire protocol, and an endpoints-only provider
-// reaches every catalog instead of vanishing from it.
+// endpoints schema (zai-plumbing.md §5, closure rule 2) against the canonical vocabulary
+// (provider-table-fidelity.md §3.4): the composed wire_api is YOLO's canonical protocol
+// name, so what reaches an agent is that agent's own spelling of the protocol its endpoint
+// resolves to — or, when the agent cannot speak it, NO entry at all.
 func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 	tables := zaiEndpointsTable()
-	const (
-		openaiURL = "https://api.z.ai/api/paas/v4"
-		anthroURL = "https://api.z.ai/api/anthropic"
-	)
+	const openaiURL = "https://api.z.ai/api/paas/v4"
 
 	t.Run("pi", func(t *testing.T) {
 		script, s := deriveSurface(t, "pi", "pi/models")
@@ -85,13 +83,17 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 		if !ok {
 			t.Fatalf("providers.zai missing: %#v", providers)
 		}
-		// pi speaks openai, so it takes the openai endpoint — not the one for the
-		// protocol it cannot speak.
+		// pi resolves `openai`, so it takes the openai endpoint — not the one for the
+		// protocol it is not here to speak — and the endpoint's CANONICAL
+		// openai-chat-completions reaches pi translated into pi's own spelling, not
+		// verbatim (OQ-PT1).
 		if zai["baseUrl"] != openaiURL {
 			t.Errorf("baseUrl = %v, want the openai endpoint %s", zai["baseUrl"], openaiURL)
 		}
-		if zai["api"] != "openai-chat" {
-			t.Errorf("api = %v, want the endpoint's wire_api openai-chat", zai["api"])
+		if zai["api"] != "openai-completions" {
+			t.Errorf("api = %v, want pi's spelling of chat completions, openai-completions — "+
+				"the canonical openai-chat-completions translated, never passed through "+
+				"(nothing consumes yolo's spelling)", zai["api"])
 		}
 		// pi has no apiKeyEnv field (provider-table-fidelity.md §3.5 D11): its env
 		// indirection is the config-value syntax ON apiKey, so the credential reaches pi
@@ -114,22 +116,19 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		provs, ok := got["model_providers"].(map[string]any)
-		if !ok {
-			t.Fatalf("codex/config produced no model_providers table: %#v", got)
+		// z.ai speaks chat completions only and codex speaks responses only, so the openai
+		// endpoint's canonical openai-chat-completions has NO codex spelling: the derive
+		// emits no zai entry at all rather than one that 404s at first request (design
+		// §3.3 — a fact about the world, not a bug). Dropping the entry is the fix; a
+		// wire_api value that made it "work" would be the defect reintroduced.
+		provs, present := got["model_providers"].(map[string]any)
+		if !present {
+			return // no provider survived: nothing for codex, which is the assertion
 		}
-		zai, ok := provs["zai"].(map[string]any)
-		if !ok {
-			t.Fatalf("model_providers.zai missing: %#v", provs)
-		}
-		if zai["base_url"] != openaiURL {
-			t.Errorf("base_url = %v, want the openai endpoint %s", zai["base_url"], openaiURL)
-		}
-		if zai["wire_api"] != "openai-chat" {
-			t.Errorf("wire_api = %v, want the endpoint's openai-chat", zai["wire_api"])
-		}
-		if zai["api_key_env"] != "ZAI_API_KEY" {
-			t.Errorf("api_key_env = %v, want ZAI_API_KEY (codex's own field name, from our api_key_env_name)", zai["api_key_env"])
+		if zai, still := provs["zai"]; still {
+			t.Fatalf("codex got a zai entry (%#v), and none is reachable: z.ai's openai "+
+				"route speaks chat completions, codex accepts responses only — the derive "+
+				"must emit nothing for a protocol it cannot speak (§3.4)", zai)
 		}
 	})
 
@@ -175,14 +174,14 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 }
 
 // TestProviderDerivesKeepTheBaseURLShorthand: the single-protocol form still works and
-// still carries the provider's own wire_api, which is what every provider written before
-// `endpoints` existed relies on.
+// still carries the provider's own wire_api — translated, like every other path — which is
+// what every provider written before `endpoints` existed relies on.
 func TestProviderDerivesKeepTheBaseURLShorthand(t *testing.T) {
 	tables := map[string]map[string]any{
 		manifest.SourceProviders: {
 			"glm": map[string]any{
 				"base_url":         "https://open.bigmodel.cn/api/paas/v4",
-				"wire_api":         "openai-chat",
+				"wire_api":         "openai-chat-completions",
 				"api_key_env_name": "GLM_API_KEY",
 			},
 		},
@@ -197,8 +196,9 @@ func TestProviderDerivesKeepTheBaseURLShorthand(t *testing.T) {
 	if zai["baseUrl"] != "https://open.bigmodel.cn/api/paas/v4" {
 		t.Errorf("baseUrl = %v, want the shorthand base_url", zai["baseUrl"])
 	}
-	if zai["api"] != "openai-chat" {
-		t.Errorf("api = %v, want the provider's own wire_api", zai["api"])
+	if zai["api"] != "openai-completions" {
+		t.Errorf("api = %v, want the shorthand's canonical openai-chat-completions translated "+
+			"into pi's openai-completions", zai["api"])
 	}
 	// The credential rides the same config-value syntax on the shorthand path too — the
 	// shorthand and the endpoints form share one body, and this is what keeps them shared.
@@ -207,36 +207,103 @@ func TestProviderDerivesKeepTheBaseURLShorthand(t *testing.T) {
 	}
 }
 
-// TestCodexDeriveDefaultsToOpenaiChat pins the measured default (zai OQ-Z1: an
-// authenticated probe 2026-09-01 put POST /v4/responses at 404 on both z.ai routes while
-// /v4/chat/completions returned a real completion). A provider that omits wire_api is the
-// ordinary case — it is optional — so the default decides which endpoint codex actually
-// POSTs to, and "responses" wired every chat-only provider to a 404 that surfaced as a
-// codex error rather than a config one.
-func TestCodexDeriveDefaultsToOpenaiChat(t *testing.T) {
-	tables := map[string]map[string]any{
-		manifest.SourceProviders: {
-			"zai": map[string]any{
-				"base_url":         "https://api.z.ai/api/paas/v4",
-				"api_key_env_name": "ZAI_API_KEY",
-			},
-		},
+// TestProviderDerivesTranslateTheCanonicalVocabulary is the dialect map, asserted row by
+// row (provider-table-fidelity.md §3.4, OQ-PT1): yolo's canonical protocol name goes IN,
+// each agent's own spelling comes OUT, and a canonical value the agent cannot speak
+// produces NO entry rather than a half-configured one. Every row runs both derives over
+// the same provider, so a translation added for one agent and forgotten for the other
+// cannot land, and neither can a pass-through — no agent reads yolo's spelling, so a
+// verbatim value shows up here as a wrong `api`/`wire_api` or as a dropped entry.
+//
+// The undeclared row is the only default in the table, and it is deliberately an agent
+// fact rather than an endpoint one: codex has exactly one value it accepts, so that is
+// what an omitted wire_api means for it; pi has NO default (an absent api is a
+// composition error that deletes the provider, pi 0.84.4 provider-composer.js:48-52), so
+// the derive must choose, and it chooses pi's chat-completions spelling — the protocol
+// the `openai` endpoint key names (zai-plumbing.md §5).
+func TestProviderDerivesTranslateTheCanonicalVocabulary(t *testing.T) {
+	const url = "https://provider.example/v1"
+	cases := []struct {
+		name      string
+		wireAPI   string // "" declares nothing
+		wantPi    string // pi's `api`, or "" for NO pi entry
+		wantCodex string // codex's `wire_api`, or "" for NO codex entry
+	}{
+		{name: "openai-chat-completions", wireAPI: "openai-chat-completions",
+			wantPi: "openai-completions", wantCodex: ""},
+		{name: "openai-responses", wireAPI: "openai-responses",
+			wantPi: "openai-responses", wantCodex: "responses"},
+		{name: "anthropic", wireAPI: "anthropic",
+			wantPi: "anthropic-messages", wantCodex: ""},
+		{name: "undeclared", wireAPI: "",
+			wantPi: "openai-completions", wantCodex: "responses"},
 	}
-	script, s := deriveSurface(t, "codex", "codex/config")
-	got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, tables)
-	if err != nil {
-		t.Fatal(err)
-	}
-	provs, ok := got["model_providers"].(map[string]any)
-	if !ok {
-		t.Fatalf("codex/config produced no model_providers table: %#v", got)
-	}
-	zai, ok := provs["zai"].(map[string]any)
-	if !ok {
-		t.Fatalf("model_providers.zai missing: %#v", provs)
-	}
-	if zai["wire_api"] != "openai-chat" {
-		t.Errorf("wire_api = %v, want the measured default openai-chat", zai["wire_api"])
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prov := map[string]any{"base_url": url}
+			if tc.wireAPI != "" {
+				prov["wire_api"] = tc.wireAPI
+			}
+			tables := map[string]map[string]any{
+				manifest.SourceProviders: {"acme": prov},
+			}
+
+			t.Run("pi", func(t *testing.T) {
+				script, s := deriveSurface(t, "pi", "pi/models")
+				got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, tables)
+				if err != nil {
+					t.Fatal(err)
+				}
+				providers, _ := got["providers"].(map[string]any)
+				entry, present := providers["acme"].(map[string]any)
+				if tc.wantPi == "" {
+					if present {
+						t.Fatalf("pi got an entry (%#v) for a protocol it cannot speak — the "+
+							"derive must emit nothing rather than a provider that fails at "+
+							"first request", entry)
+					}
+					return
+				}
+				if !present {
+					t.Fatalf("pi/models has no acme entry: %#v", got)
+				}
+				if entry["api"] != tc.wantPi {
+					t.Errorf("api = %v, want pi's %q (canonical %q translated, never passed "+
+						"through — no agent reads yolo's spelling)", entry["api"], tc.wantPi, tc.wireAPI)
+				}
+				if entry["baseUrl"] != url {
+					t.Errorf("baseUrl = %v, want the provider's %s", entry["baseUrl"], url)
+				}
+			})
+
+			t.Run("codex", func(t *testing.T) {
+				script, s := deriveSurface(t, "codex", "codex/config")
+				got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, tables)
+				if err != nil {
+					t.Fatal(err)
+				}
+				provs, _ := got["model_providers"].(map[string]any)
+				entry, present := provs["acme"].(map[string]any)
+				if tc.wantCodex == "" {
+					if present {
+						t.Fatalf("codex got an entry (%#v) for a protocol it cannot speak — the "+
+							"derive must emit nothing rather than a wire_api codex refuses "+
+							"(chat was removed from the product)", entry)
+					}
+					return
+				}
+				if !present {
+					t.Fatalf("codex/config has no acme entry: %#v", got)
+				}
+				if entry["wire_api"] != tc.wantCodex {
+					t.Errorf("wire_api = %v, want codex's %q (canonical %q translated)", entry["wire_api"], tc.wantCodex, tc.wireAPI)
+				}
+				if entry["base_url"] != url {
+					t.Errorf("base_url = %v, want the provider's %s", entry["base_url"], url)
+				}
+			})
+		})
 	}
 }
 
@@ -250,7 +317,12 @@ func TestProviderDerivesSkipAProviderWithNoURLForThem(t *testing.T) {
 		manifest.SourceProviders: {
 			// The host-render sentinel entry: a table with neither key.
 			"__yolo_table_probe__": map[string]any{"command": "probe"},
-			// Anthropic-only: claude's endpoint, not one pi can speak.
+			// Anthropic-endpoint-only. pi CAN speak Anthropic Messages
+			// (anthropic-messages is in its registry) — the reason this is not a pi row
+			// is the resolution table (zai-plumbing.md §5): pi resolves `openai`, and an
+			// endpoints-only provider with no openai endpoint names no URL for the
+			// protocol pi resolves to. Inventing an entry here would point pi's
+			// chat-completions api at an anthropic URL.
 			"claude_only": map[string]any{
 				"api_key_env_name": "ANTHROPIC_API_KEY",
 				"endpoints": map[string]any{
@@ -284,7 +356,8 @@ func TestProviderDerivesSkipAProviderWithNoURLForThem(t *testing.T) {
 	}
 	for _, name := range []string{"__yolo_table_probe__", "claude_only"} {
 		if _, present := providers[name]; present {
-			t.Errorf("%s has no openai endpoint and must not become a pi catalog row: %#v", name, providers[name])
+			t.Errorf("%s names no openai endpoint — no URL for the protocol pi resolves to — "+
+				"and must not become a pi catalog row: %#v", name, providers[name])
 		}
 	}
 }

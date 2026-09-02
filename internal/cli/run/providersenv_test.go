@@ -27,7 +27,7 @@ func providerEnvPack(t *testing.T, name string) *packload.Pack {
 	manifest := `{"name":"` + name + `","contributes":[` +
 		`{"kind":"provider","name":"zai",` +
 		`"endpoints":{"anthropic":{"base_url":"https://api.z.ai/api/anthropic"},` +
-		`"openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat"}},` +
+		`"openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat-completions"}},` +
 		`"api_key_env_name":"ZAI_API_KEY",` +
 		`"models":{"default":"glm-4.7","fast":"glm-4.7-air"}}]}`
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
@@ -87,7 +87,7 @@ func TestAssembleEmitsComposedProvidersTable(t *testing.T) {
 		"YOLO_PROVIDERS=", // present at all
 		`"zai": {`,        // keyed by the provider name
 		`"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}`, // pack fact survives
-		`"wire_api": "openai-chat"`,                                   // pack fact survives
+		`"wire_api": "openai-chat-completions"`,                       // pack fact survives
 		`"fast": "glm-5"`,                                             // user override wins
 		`"default": "glm-4.7"`,                                        // pack alias the user did not mention survives
 		`"api_key_env_name": "ZAI_API_KEY"`,                           // the credential POINTER, never a key

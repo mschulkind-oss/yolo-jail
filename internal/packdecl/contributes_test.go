@@ -127,7 +127,7 @@ func TestValidateContributes(t *testing.T) {
 		// everyone who installs it), and an env_shape value may only name WHERE a value
 		// goes and which of the entry's own facts fills it — never carry a value.
 		{"good provider", Contribution{Kind: KindProvider, Name: "acme",
-			Endpoints:     map[string]ProviderEndpoint{"openai": {BaseURL: "https://api.acme.dev/v4", WireAPI: "openai-chat"}},
+			Endpoints:     map[string]ProviderEndpoint{"openai": {BaseURL: "https://api.acme.dev/v4", WireAPI: "openai-chat-completions"}},
 			APIKeyEnvName: "ACME_API_KEY", Models: map[string]string{"default": "acme-large"},
 			EnvShape: map[string]map[string]string{"anthropic": {
 				"ANTHROPIC_BASE_URL": "{endpoint}", "ANTHROPIC_AUTH_TOKEN": "{key}"}}}, ""},
@@ -136,7 +136,7 @@ func TestValidateContributes(t *testing.T) {
 			"needs \"name\""},
 		{"provider name-only", Contribution{Kind: KindProvider, Name: "acme"}, ""},
 		{"provider endpoint no base_url", Contribution{Kind: KindProvider, Name: "acme",
-			Endpoints: map[string]ProviderEndpoint{"openai": {WireAPI: "openai-chat"}}},
+			Endpoints: map[string]ProviderEndpoint{"openai": {WireAPI: "openai-responses"}}},
 			"needs a \"base_url\""},
 		{"provider non-http scheme", Contribution{Kind: KindProvider, Name: "acme",
 			Endpoints: map[string]ProviderEndpoint{"openai": {BaseURL: "ftp://api.acme.dev/v4"}}},
@@ -633,7 +633,7 @@ func TestAutonomyValidation(t *testing.T) {
 func TestProviderDecodesIntoDistinctProviders(t *testing.T) {
 	m, probs := Decode([]byte(`{"name":"acme","contributes":[
 	  {"kind":"provider","name":"acme",
-	   "endpoints":{"openai":{"base_url":"https://api.acme.dev/v4","wire_api":"openai-chat"},
+	   "endpoints":{"openai":{"base_url":"https://api.acme.dev/v4","wire_api":"openai-chat-completions"},
 	                "anthropic":{"base_url":"https://api.acme.dev/anthropic"}},
 	   "api_key_env_name":"ACME_API_KEY",
 	   "region":"eu-central-1",
@@ -657,7 +657,7 @@ func TestProviderDecodesIntoDistinctProviders(t *testing.T) {
 		t.Errorf("region lost: %+v", zai)
 	}
 	if len(zai.Endpoints) != 2 || zai.Endpoints["openai"].BaseURL != "https://api.acme.dev/v4" ||
-		zai.Endpoints["openai"].WireAPI != "openai-chat" ||
+		zai.Endpoints["openai"].WireAPI != "openai-chat-completions" ||
 		zai.Endpoints["anthropic"].BaseURL != "https://api.acme.dev/anthropic" {
 		t.Errorf("endpoints lost or reordered: %+v", zai.Endpoints)
 	}

@@ -2,18 +2,21 @@ package packdecl
 
 // skewwireapi_test.go pins the WIRE_API-level half of the skew rule — the fourth closed
 // VALUE set a manifest carries, after the kinds, a program's `via` and an env_shape's
-// placeholders. An endpoint's `wire_api` names which protocol that URL speaks, and the
-// value crosses into the composed providers table — and from there into codex's and pi's
-// config files — VERBATIM, with no consumer re-checking it: a typo is not a load error
-// anywhere, it is a protocol error the agent reports at first request, from a jail that
-// booted green. The strict decode refuses it at authoring time; before this, nothing did.
+// placeholders. An endpoint's `wire_api` names which protocol that URL speaks, in yolo's
+// CANONICAL protocol vocabulary (provider-table-fidelity.md §3.0a / OQ-PT1 — nobody's
+// dialect, so no agent could consume it verbatim by accident): what crosses into the
+// composed providers table is TRANSLATED per agent, each derive emitting its own spelling
+// or nothing at all. A name outside the set is one no derive can translate, so the strict
+// decode refuses it at authoring time; before this, nothing did.
 //
 // The split is the one the other closed sets have: an author must hear (Decode refuses,
 // naming the enum), a jail must boot (DecodeTolerant drops the VALUE and reports it). The
 // degradation is paid at the FINEST grain available — the endpoint's wire_api, not the
 // endpoint and not the provider — because the base_url beside it is a fact this build
 // still renders, and dropping the provider would unresolve every profile naming it for
-// want of a protocol name no build was going to speak anyway.
+// want of a protocol name no build was going to speak anyway. A RETIRED canonical name
+// (`openai-chat`, `openai-completions`, `responses`) is an ordinary unknown value here:
+// refused on the authoring path, dropped-and-reported across a version boundary.
 
 import (
 	"strings"
@@ -28,7 +31,7 @@ const wireAPISkewManifest = `{"name":"acme","contributes":[
 	{"kind":"provider","name":"acme",
 	 "api_key_env_name":"ACME_API_KEY",
 	 "endpoints":{
-	     "openai":{"base_url":"https://api.acme.dev/v4","wire_api":"openai-chat"},
+	     "openai":{"base_url":"https://api.acme.dev/v4","wire_api":"openai-chat-completions"},
 	     "glm":{"base_url":"https://api.acme.dev/glm","wire_api":"openai-chatt"}},
 	 "env_shape":{"openai":{"ACME_BASE":"{endpoint}"}}},
 	{"kind":"env","vars":{"ACME":"1"}}]}`
@@ -85,7 +88,7 @@ func TestUnknownWireAPIIsAuthoringFatalAndSkewSkipped(t *testing.T) {
 	if ep := provs[0].Endpoints["glm"]; ep.BaseURL != "https://api.acme.dev/glm" || ep.WireAPI != "" {
 		t.Errorf("the endpoint must keep its base_url and lose only the wire_api: %+v", ep)
 	}
-	if ep := provs[0].Endpoints["openai"]; ep.WireAPI != "openai-chat" {
+	if ep := provs[0].Endpoints["openai"]; ep.WireAPI != "openai-chat-completions" {
 		t.Errorf("the KNOWN wire_api must survive untouched: %+v", ep)
 	}
 
@@ -138,7 +141,12 @@ func TestWireAPISkipIsNotAnAmnesty(t *testing.T) {
 // suite green, the jail installing nothing.
 func TestWireAPIVocabularyIsOneSet(t *testing.T) {
 	probes := append(append([]string{}, KnownWireAPIs()...),
-		"", "openai-chatt", "Anthropic", "chat", "openai-completions/")
+		// "" (the absent claim), a typo, a case mismatch, a trailing slash — and the three
+		// spellings the vocabulary RETIRED (OQ-PT1). A retired name must behave exactly
+		// like a value no build ever knew: refused at authoring time, dropped-and-reported
+		// across a version boundary, never silently re-admitted because it once was known.
+		"", "openai-chatt", "Anthropic", "chat",
+		"openai-chat", "openai-completions", "responses")
 	for _, v := range probes {
 		t.Run("value="+v, func(t *testing.T) {
 			known := KnownWireAPI(v)
@@ -170,16 +178,24 @@ func TestWireAPIVocabularyIsOneSet(t *testing.T) {
 	}
 }
 
-// TestKnownWireAPIsCoverTheShippedValues is the floor under the equivalence above, which
-// a predicate that knew NOTHING would satisfy. These four are the wire shapes the agents'
-// own config files name — packs/zai ships "openai-chat" today — so a predicate that
-// dropped one would skip the wire_api of every provider declaring it, and the composed
-// entry would fall back to each consumer's default protocol unasked.
-func TestKnownWireAPIsCoverTheShippedValues(t *testing.T) {
-	for _, v := range []string{"anthropic", "openai-chat", "openai-completions", "responses"} {
+// TestKnownWireAPIsAreTheCanonicalVocabulary is the floor under the equivalence above,
+// which a predicate that knew NOTHING would satisfy. Three PROTOCOL names (OQ-PT1),
+// deliberately nobody's dialect — every derive translates them and emits nothing for the
+// protocols its agent cannot speak — so a predicate that dropped one would silently strip
+// the protocol from every provider declaring it. Below it, the spellings the vocabulary
+// retired: each was known once, which is exactly why it must be asserted unknown — the
+// drift to catch is a retired name creeping back in through a copy-pasted manifest.
+func TestKnownWireAPIsAreTheCanonicalVocabulary(t *testing.T) {
+	for _, v := range []string{"anthropic", "openai-chat-completions", "openai-responses"} {
 		if !KnownWireAPI(v) {
-			t.Errorf("KnownWireAPI(%q) = false — a value the agents' config files name must be "+
-				"known, or every provider declaring it composes with no wire protocol", v)
+			t.Errorf("KnownWireAPI(%q) = false — a canonical protocol name must be known, or "+
+				"every provider declaring it composes with no protocol at all", v)
+		}
+	}
+	for _, retired := range []string{"openai-chat", "openai-completions", "responses"} {
+		if KnownWireAPI(retired) {
+			t.Errorf("KnownWireAPI(%q) = true — this spelling was retired by OQ-PT1 and must "+
+				"be an ordinary unknown value, or a pass-through works by accident again", retired)
 		}
 	}
 	if KnownWireAPI("openai-chatt") {

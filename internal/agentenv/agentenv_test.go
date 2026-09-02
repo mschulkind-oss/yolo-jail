@@ -132,7 +132,7 @@ func zaiTable(t *testing.T) *jsonx.OrderedMap {
 		"api_key_env_name": "ZAI_API_KEY",
 		"endpoints": {
 			"anthropic": {"base_url": "https://api.z.ai/api/anthropic"},
-			"openai":    {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat"}
+			"openai":    {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat-completions"}
 		},
 		"env_shape": {
 			"anthropic": {"ANTHROPIC_BASE_URL": "{endpoint}", "ANTHROPIC_AUTH_TOKEN": "{key}"},

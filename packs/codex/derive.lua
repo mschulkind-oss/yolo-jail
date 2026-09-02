@@ -1,5 +1,50 @@
 -- codex: project MCP servers and model_providers into codex's TOML format.
 
+-- The DIALECT MAP (provider-table-fidelity.md §3.4 / OQ-PT1): yolo's canonical wire_api
+-- → the value codex reads from model_providers.<id>.wire_api. Every row is a measured
+-- fact about codex, carried here because a dialect map with no provenance is the same
+-- unverified assertion in a new location:
+--
+--   openai-responses → "responses"  codex's one value. `chat` was removed from the
+--                                   product; verified from source: codex-cli 0.145.0
+--                                   binary, strings @0x7B7B47, 2026-08-20
+--                                   (docs/research/local-model-endpoints.md §"Codex CLI").
+--
+-- The canonical names ABSENT here are the protocols codex cannot speak, and the caller
+-- drops the whole entry for them rather than emitting a half-configured one: `anthropic`
+-- (Anthropic Messages) and `openai-chat-completions` (chat completions) — chat is the
+-- value codex removed, so no spelling of it works. An unknown value (a newer build's
+-- canonical name) is unspeakable the same way, which is the safe direction: codex loses a
+-- catalog row it could not have used.
+local codexDialect = {
+  ["openai-responses"] = "responses",
+}
+
+-- codexWireAPI maps one canonical protocol to the wire_api codex reads, or nil when this
+-- derive must emit NO entry for the provider at all. The two nils mean different things
+-- and only one of them is a default:
+--
+--   nothing declared → "responses", the one value codex accepts. The default is a fact
+--                      about CODEX's vocabulary, not about the endpoint's HTTP surface:
+--                      zai OQ-Z1 (2026-09-01, authenticated probe: POST /v4/responses is
+--                      404 on both z.ai routes while /v4/chat/completions completes) says
+--                      what z.ai speaks, and an endpoint whose protocol codex cannot speak
+--                      must SAY SO in its wire_api and lose the entry — not inherit a
+--                      default that hides the mismatch behind a 404 at first request.
+--   declared, no row → nil. Emitting an entry would hand codex a provider it cannot
+--                      reach; dropping it is the honest degradation (design §3.4).
+--
+-- THE SHIPPED CONSEQUENCE (design §3.3): packs/zai's openai endpoint declares
+-- openai-chat-completions, so zai yields NO codex entry at all — z.ai speaks chat
+-- completions only, codex speaks responses only, and no wire_api value makes that pairing
+-- work. That is a fact about the world to record, not a bug to fix here.
+local function codexWireAPI(canonical)
+  if canonical == nil then
+    return "responses"
+  end
+  return codexDialect[canonical]
+end
+
 -- The provider's URL for the protocol codex speaks — `openai`, per the resolution table
 -- in zai-plumbing.md §5. The single-protocol `base_url` shorthand wins; otherwise the
 -- openai endpoint. Total over non-tables so the call site stays a one-line gate. Returns
@@ -42,15 +87,13 @@ yolo.derive("codex", "config", function(ctx)
     local provOut = {}
     for name, prov in pairs(ctx.providers) do
       local baseUrl, wireApi = providerEndpoint(prov)
-      if baseUrl then
+      -- An endpoint's own wire_api is the per-protocol fact; the provider-level one only
+      -- speaks for the shorthand.
+      local api = codexWireAPI(wireApi or prov.wire_api)
+      if baseUrl and api then
         local entry = {
           base_url = baseUrl,
-          -- An endpoint's own wire_api is the per-protocol fact; the provider-level one
-          -- only speaks for the shorthand. The DEFAULT is openai-chat by measurement
-          -- (zai OQ-Z1, 2026-09-01: POST /v4/responses is 404 on both z.ai routes while
-          -- /v4/chat/completions returns a real completion) — the old "responses" default
-          -- wired every provider that omitted wire_api to an endpoint that 404s.
-          wire_api = wireApi or prov.wire_api or "openai-chat",
+          wire_api = api,
         }
         if prov.api_key_env_name then
           entry.api_key_env = prov.api_key_env_name

@@ -1079,10 +1079,10 @@ func validateProviderEnvShape(v any, path string, errs *[]string) {
 }
 
 // validateWireAPI checks the wire protocol a provider speaks. A closed vocabulary rather
-// than a free string because the value crosses verbatim into three agents' config files
-// (pi's `api`, codex's `wire_api`), where a typo surfaces later as a protocol error the
-// agent reports — the debugging nightmare
-// stringly-typed-references-principle.md §2 names. Rule 4, applied to a fixed slot.
+// than a free string because the value is the CANONICAL name the derives translate from
+// (provider-table-fidelity.md §3.4 / OQ-PT1): a name outside the set translates to
+// nothing, so it would reach every agent as no protocol at all — silently, from a jail
+// that booted green. Rule 4, applied to a fixed slot.
 //
 // The set is not restated here. packdecl's KnownWireAPIs is the one vocabulary for both
 // spellings of a provider — the entry a user writes and the entry a pack ships compose

@@ -152,8 +152,10 @@ func TestZaiPackShipsTheCatalogTheDerivesRead(t *testing.T) {
 		t.Errorf("anthropic endpoint = %v, want the measured base URL", anthropic)
 	}
 	if mapStr(openai, "base_url") != "https://api.z.ai/api/paas/v4" ||
-		mapStr(openai, "wire_api") != "openai-chat" {
-		t.Errorf("openai endpoint = %v, want the chat-only route the probe measured (OQ-Z1)", openai)
+		mapStr(openai, "wire_api") != "openai-chat-completions" {
+		t.Errorf("openai endpoint = %v, want the canonical name for the chat-completions route "+
+			"the probe measured (OQ-Z1: /v4/responses 404s there) — yolo's vocabulary, which the "+
+			"derives translate, never codex's or pi's spelling", openai)
 	}
 }
 
