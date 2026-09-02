@@ -57,7 +57,7 @@ pieces are shipped.
 | A framed request/response protocol across the boundary | `internal/frameproto`, [`loophole-protocol.md`](loophole-protocol.md) | **shipped**, versioned, documented for external authors |
 | A host-side daemon framework with per-jail identity | `internal/hostservice`, `yolo internal daemon <name>` | **shipped** — 4 daemons ride it |
 | A host daemon holding CROSS-JAIL state behind a lock | `internal/oauthbroker` — `RefreshLockPath`, an flock every broker instance agrees on | **shipped**, and it is the closest precedent |
-| Argv safety for host-side execution | `Session.exec_allowlisted(argv, allowlist=…)` — argv positions validated against a server-owned allowlist | **shipped**, enforced by construction |
+| Argv safety for host-side execution | `Session.ExecAllowlisted` (`internal/hostservice/hostservice.go` — the Python-era spelling `exec_allowlisted` survives only in its doc comment) — argv positions validated against a server-owned allowlist | **shipped**, enforced by construction |
 | A request that outlives its connection | — | **MISSING** |
 | A human in the answer path | — | **MISSING** |
 
@@ -89,7 +89,10 @@ decides several things below, and getting it wrong would oversell the feature.
 ### 2.1 A request that outlives its connection
 
 Every loophole today is synchronous: *"A client opens the Unix socket, sends one length-prefixed
-JSON request, and reads framed response data until the server closes the connection."* The request
+JSON request, and reads framed response data until the server closes the connection."* *(That
+quote is the pre-loopback-TLS wording, like §1's — the current
+[`loophole-protocol.md`](loophole-protocol.md) says the same thing transport-generically, since
+the jail-facing hop is no longer a socket file. The constraint is unchanged.)* The request
 lives exactly as long as the connection.
 
 An approval cannot work that way. The human may be at lunch. The agent may want to do something
@@ -235,7 +238,10 @@ every request passes through one place.
 
 **And yolo already ships this mechanism.** `claude-oauth-broker` is a credential-injecting
 TLS-interception proxy today — an `intercepts` list, an in-jail terminator on
-`127.0.0.1:443`, a per-jail host relay that stamps `jail_id` host-side, a host singleton holding the
+`127.0.0.1:443`, a per-jail loopback-TLS front over a host-wide singleton socket with `jail_id`
+host-asserted from the connection preamble (`internal/svcendpoint/preamble.go`,
+`internal/hostservice`; the per-jail *relay* this sentence used to name was deleted 2026-08-19,
+`7df7c5aa`), a host singleton holding the
 credential. B1b is that pattern re-aimed from `platform.claude.com` at `github.com`, which is why
 [§10.6](#106-recommendation--build-b1b-vendor-the-policy-engine-do-not-adopt-gh-broker) concludes
 it is a build rather than an adoption.
@@ -357,20 +363,29 @@ Asked for explicitly, so stated plainly rather than hedged.
 **Below everything currently in [`roadmap.md`](../plans/roadmap.md), except
 possibly step 1.** The reasons:
 
-- **The queue's remaining items are defects and rulings; this is a new capability.** S1 (skills
-  collisions are silently lost), S3 (the jail reads its own output as the user's tree), P7 (the
-  middle notch does not work) are all *things that are wrong*. This is a thing that does not exist
-  yet. Wrong-things-first is the right default when the wrong things include silent data loss.
-- **It has an unanswered design question upstream of it:** nix **OQ-1** (formerly *N3*) — whether `host` is a place
-  agents *run* or only get *configured*. A boundary approval service is much more compelling in a
-  world where yolo launches processes at multiple notches, and its shape differs. Deciding nix OQ-1
-  first costs nothing and de-risks this.
+- **The queue's remaining items are defects and rulings; this is a new capability.** The wrong
+  things this sentence named by retired IDs are still wrong and still queued elsewhere: skills
+  collisions silently lost in-jail (**S5**, [`BACKLOG.md`](../plans/BACKLOG.md) §Stage E — cited
+  here as "S1" from a numbering the 2026-08-17 roadmap restructure retired), the capture layer
+  reading the jail's own output back as the user's intent
+  ([`environment-manager-user-stories.md`](environment-manager-user-stories.md) **Q1** — was
+  "S3"), and the unbuilt `guest` notch
+  ([`handoff-guest-notch-macos.md`](../plans/handoff-guest-notch-macos.md), env-manager Phase 7 —
+  was "P7"). This is a thing that does not exist yet. Wrong-things-first is the right default when
+  the wrong things include silent data loss.
+- **Its upstream design question is now answered:** nix **OQ-1** (formerly *N3*) — whether `host`
+  is a place agents *run* or only get *configured* — closed 2026-09-02 as **run**
+  ([`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) Decision Ledger): `yolo
+  host -- <cmd>` shipped with a composed launch env. That is the world in which this doc said a
+  boundary approval service is *"much more compelling"*, so the priority argument here is now
+  weaker than when written — the capability question (OQ-A) is what remains, and it no longer has
+  anything upstream of it.
 - **Step 1 (the audit log) is the exception** and could be done any time: it is small, it is
   strictly additive, it has no design risk, and it produces the evidence that would tell us which
   verbs are worth gating. If any part of this jumps the queue, that is the part.
-- **Step 2 (the injecting proxy) is the second exception**, and it is not blocked on nix OQ-1 the
-  way the approval tier is — it has no human in it, so it does not care whether `host` is a place
-  agents run. It is also the step that makes the motivating use case work, which is a better
+- **Step 2 (the injecting proxy) is the second exception**, and it never waited on nix OQ-1 the
+  way the approval tier did (both are now unblocked — OQ-1 closed 2026-09-02) — it has no human in
+  it, so it does not care whether `host` is a place agents run. It is also the step that makes the motivating use case work, which is a better
   reason to do it than its position here suggests.
 - **Auth-mode modeling was split out** to [`agent-auth-modes.md`](agent-auth-modes.md) (**B3** in §7's numbering)
   and is **higher value than anything in this doc**, because it is a real gap today rather than a
@@ -395,7 +410,11 @@ delegated; both are in §9.1 so they stop being counted as open here.
    _Leaning:_ **Yes for v1** — build step 2 synchronously and let a real timeout teach us whether a
    request needs to outlive its connection. The durability design does not get cheaper by being
    written first, and §2 names outliving-the-connection as one of the two absences, so this is the
-   one worth testing rather than assuming.
+   one worth testing rather than assuming. *(Sharpened 2026-09-02: every verb yolo ships today is
+   synchronous request/response over `hostservice` — `refresh`/`cached`/`proxy`/`ping` in
+   `internal/oauthbroker/handler.go` — and nothing anywhere in the repo has yet needed a request
+   that outlives its connection. Nothing has forced this question; that is evidence for the
+   leaning, not an answer to it.)*
 
    **Resolved by:** trying step 2.
 
@@ -409,7 +428,12 @@ delegated; both are in §9.1 so they stop being counted as open here.
 
    _Leaning:_ **A per-verb response schema, server-owned** — the jail sees what the verb's schema
    says it may see, defaulting to success/failure. Anything else makes "no credential crosses" a
-   property of each verb's implementation rather than of the protocol.
+   property of each verb's implementation rather than of the protocol. *(Sharpened 2026-09-02:
+   the shipped broker is already this shape — each of its four actions returns a distinct,
+   hand-built response (`internal/oauthbroker/handler.go:89-121`), not one generic envelope. The
+   caveat is the trust regime: the oauth broker returns the jail's OWN subscription credential,
+   which the jail is entitled to, so the precedent proves the machinery is comfortable, not that a
+   third-party-credential verb may return what it fetched.)*
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -590,17 +614,21 @@ explicitly `--dev-token-fallback`, "for local development only."
 and it was not visible from the website. `claude-oauth-broker` is *already* a
 credential-injecting TLS-interception proxy: an `intercepts` list (the transport field is
 `loopback-tls`, which is a different axis), an in-jail terminator
-binding `127.0.0.1:443` in the container netns with a CA-signed leaf, a per-jail host relay that
-stamps `jail_id` **host-side** (so attribution is not an in-jail self-report), and a host singleton
-that holds the credential. B1b is that pattern aimed at `github.com` instead of
+binding `127.0.0.1:443` in the container netns with a CA-signed leaf, a per-jail loopback-TLS
+front whose connection preamble lets the host assert `jail_id` **host-side** (so attribution is
+not an in-jail self-report — the per-jail *relay* that used to do this was deleted 2026-08-19,
+`7df7c5aa`; `internal/svcendpoint` + `internal/hostservice` are the current mechanism), and a host
+singleton that holds the credential. B1b is that pattern aimed at `github.com` instead of
 `platform.claude.com` — including the `ca.key`-must-not-cross lesson already learned the hard way
 (#33). **The mechanism §5 called "not speculative" is not merely not speculative; it is shipped, in
 this repo, and debugged.**
 
-**b. The dependency asymmetry rules out wholesale adoption.** yolo has **2 direct dependencies**
-(`gopher-lua`, `x/sys`) and a 7.9 MB `vendor/` under a hermetic offline `-mod=vendor` nix build
+**b. The dependency asymmetry rules out wholesale adoption.** yolo has **3 direct dependencies**
+(`BurntSushi/toml`, `gopher-lua`, `x/sys` — this sentence said 2, and it was already 3 when
+written) and a 7.9 MB `vendor/` under a hermetic offline `-mod=vendor` nix build
 whose `goSrc` fileset sees only `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`,
-`bundled_loopholes/`. unYOLO has **16 direct + 57 indirect**: embedded SQLite
+`packs/` (`bundled_loopholes/` when written; that directory was deleted 2026-08-19). unYOLO has
+**16 direct + 57 indirect**: embedded SQLite
 (`modernc.org/sqlite` + `modernc.org/libc`, a transpiled C runtime), goose migrations, echo,
 Prometheus, the charm TUI stack, go-git, go-github v88. Vendoring that is a category change in
 yolo's build, for a feature whose transport we already have.
