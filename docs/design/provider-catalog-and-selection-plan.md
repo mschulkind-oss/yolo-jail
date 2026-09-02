@@ -24,7 +24,7 @@ refusal are its steps, not these.
 | :--- | :--- |
 | `internal/agentcfg/luahook/derive.go` | derive gains an env output; `DeriveCtx` gains the active profile + selected provider |
 | `internal/entrypoint/packsurfaces.go` | drive an env derive — **not** surface-keyed (see traps) |
-| `internal/entrypoint/hostrender.go` | same driver at the host notch, or `yolo host` loses env |
+| `internal/entrypoint/hostrender.go` | NEW host-side env-derive invocation with real tables — not `hostTableKeys`, which is a sentinel probe |
 | `internal/agentenv/agentenv.go` | delete `agentProtocols`, `ProtocolFor`, `Resolve`, `providerVars`; keep `Var`/`Apply` |
 | `internal/cli/run/profilechannel.go:93` | drop the `agentenv.Resolve` loop |
 | `internal/cli/host.go:432` | same |
@@ -55,8 +55,11 @@ refusal are its steps, not these.
   sites resolve it now — `profilechannel.go:93` (container argv), `host.go:432` (`yolo host`, where
   **there is no jail at all**), and macos-user via `Options.PackEnv`. `agentenv`'s package doc names
   jail/host parity as the reason it is one implementation. **Constraint:** an env derive that runs
-  only in the entrypoint silently drops `yolo host`. `hostrender.go:377` already runs derives
-  host-side against a sentinel table — that is the seam.
+  only in the entrypoint silently drops `yolo host`. **`hostrender.go:377` is NOT the seam** —
+  `hostTableKeys` probes for KEY NAMES against a sentinel, and its comment is explicit that content
+  deliberately does not cross ("a jail's derived MCP table embeds jail-absolute paths … which is why
+  a host render passes no computed layer"). A host-side env derive needs REAL tables: a new
+  invocation, not a reuse.
 - **Derives are keyed `(agent, surface)`** and the boot loop iterates surfaces
   (`packsurfaces.go:193`). Env is not a surface, so it needs a driver that is not the surface loop.
   Reusing `Surface: "env"` is the cheap route; it collides with a real surface named `env`.
@@ -121,7 +124,9 @@ refusal are its steps, not these.
 
 - **Step 1 is a hard gate.** Design §3's pi row is empty. Steps 5 cannot be designed around it, and
   guessing produces exactly D1 (a value written into an agent's config that the agent rejects).
-- **Stop and ask — where the env derive runs.** The design rules that the agent pack composes env
-  and does not say whether the host notch runs the same derive or keeps a separate path. It is
-  externally visible (`yolo host -- claude` breaks silently if guessed wrong) and it decides whether
-  OQ-CS8 is cheap or a rework of three call sites. Not the implementer's call.
+- **The host notch runs the env derive. Constraint, not a choice** — `yolo host -- claude` composing
+  the same environment is behaviour `host-agent-environment.md` §2.2 fixes, and OQ-CS10 was withdrawn
+  for having asked it as though it were open. Budget the new host-side invocation (see Traps); do not
+  budget a decision.
+- **Cheap and yours:** how the env derive's return is keyed and shaped. Advice: whatever the surface
+  loop's marshaller already gives you — this is one map of strings.

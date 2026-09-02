@@ -696,7 +696,7 @@ whether it may carry the placeholder vocabulary `env_shape` already has.
 ### 💬 19 — A catalog and a selection are two features, and only one of them ships
 
 📄 [`provider-catalog-and-selection.md`](../design/provider-catalog-and-selection.md) —
-**OQ-CS10** open — nine ruled 2026-09-01, and writing the plan opened a tenth · plans: [`catalog`](../design/provider-catalog-and-selection-plan.md) · [`fidelity`](../design/provider-table-fidelity-plan.md) · ~~OQ-CS1~~ ~~OQ-CS2~~ ~~OQ-CS4~~ ~~OQ-CS6~~ ruled · sibling to 💬 **18**, which reports defects in the same machinery ·
+**all ruled 2026-09-01** — the doc is DECIDED; a tenth was raised and withdrawn · plans: [`catalog`](../design/provider-catalog-and-selection-plan.md) · [`fidelity`](../design/provider-table-fidelity-plan.md) · ~~OQ-CS1~~ ~~OQ-CS2~~ ~~OQ-CS4~~ ~~OQ-CS6~~ ruled · sibling to 💬 **18**, which reports defects in the same machinery ·
 splits what [`zai-plumbing.md`](../design/zai-plumbing.md) §5 assumed was one thing
 
 **The maintainer's own framing, 2026-09-01:** *"populating a directory of providers in an agent
@@ -837,15 +837,17 @@ climb back through. It is now a **flat name → default-value map**, which also 
 *declared, no default*, NOT the delete convention** — un-declaring an option is a thing nobody wants,
 while "keep the option, drop the default" is a real override.
 
-**Writing the implementation plans opened one more question, and it is a real one.** Env composition
-is **host-launch-time** today — one implementation, three consumers, one of them `yolo host` where
-**there is no jail at all** — while a derive runs **in-jail at boot**. So OQ-CS8's "the agent pack
-composes it in its own derive" silently drops the env for `yolo host -- claude` unless the host notch
-runs that derive too. `internal/agentenv`'s own package doc is explicit that it exists to hold that
-parity — *"a claim two independent copies of this logic could not keep"* — and the ruling deletes the
-implementation without saying what keeps it. **OQ-CS10**, leaning: run the derive host-side through
-the seam `hostrender.go:377` already uses. It decides whether OQ-CS8 is contained or a three-site
-rework, so it is not the implementer's call.
+**Writing the plans raised a tenth question and it was withdrawn on sight** — *"I don't get it, why
+would we NOT support env on the host too?"* There is no case on the other side: `yolo host -- claude`
+composing the same environment is behaviour [`host-agent-environment.md`](../design/host-agent-environment.md)
+§2.2 already fixes. Asking it as open invited a "no" nobody wants. **The fact underneath is real and
+moved to the plan as a constraint:** env composition is host-launch-time with three consumers —
+`profilechannel.go:93`, `host.go:432` (**no jail there**) and macos-user — while a derive runs in-jail
+at boot, so OQ-CS8's work must give the host notch a way to run the env derive. And the seam that was
+cited for it is wrong: `hostrender.go:377` is a **key-name probe against sentinel inputs**, whose own
+comment says content deliberately does not cross ("a jail's derived MCP table embeds jail-absolute
+paths"). A host-side env derive needs real tables — a new invocation, not a reuse. Both corrections
+are in the plan.
 
 **Step 1 needs no ruling and blocks the rest:** the doc's §3 per-agent selection table has one row
 empty (pi — its `models.json` carries only `providers`, and where pi records "the model I use" is

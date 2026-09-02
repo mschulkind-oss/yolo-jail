@@ -1,17 +1,16 @@
 ---
 title: "A catalog and a selection are two features — and only one of them ships"
 date: 2026-09-01
-status: in-review
+status: accepted
 tags: [providers, profiles, packs, derives, selection, zai]
 summary: "Splits the knot that profiles-as-pack-variants and zai-plumbing left tangled. Populating an agent's provider directory and telling that agent which provider to USE are different features with different triggers; today the first works for every agent and the second is implemented for claude only. Measured in a live jail: pi, opencode and codex all carry zai in their catalog with no selection key set, so `-p zai` reaches three of the four agents it claims. The disable-without-deleting complaint falls out of the same conflation."
 ---
 
 # A catalog and a selection are two features — and only one of them ships
 
-**Status:** IN REVIEW, 2026-09-01 — nine questions ruled the day they were asked (ledger, §10), and
-**writing the implementation plan opened a tenth**: OQ-CS8's ruling did not say whether the HOST
-notch runs the env derive, and `yolo host -- claude` has no jail to run one in (OQ-CS10). **Nothing
-built**, and §3's empty pi row remains the research blocker.
+**Status:** DECIDED, 2026-09-01 — all questions ruled the day they were asked (ledger, §10); the
+tenth was **withdrawn as never having been a design question**. **Nothing built**, and §3's empty pi
+row remains the research blocker.
 
 **The short version.** *"Put z.ai in my agents' provider directory"* and *"start this agent
 **using** z.ai"* are two features. yolo drives both off one table and one selector, which is why
@@ -673,34 +672,30 @@ unrelated to the sequence above.
 
 
 
-10. 💬 **OQ-CS10: Does the HOST notch run the env derive?** *(Opened 2026-09-01 while writing
-    [`provider-catalog-and-selection-plan.md`](provider-catalog-and-selection-plan.md) — a
-    consequence of OQ-CS8 that the ruling did not reach, not a reversal of it.)*
+10. ✅ **OQ-CS10: Does the HOST notch run the env derive? — WITHDRAWN (2026-09-01). It was not a
+    design question.** *"I don't get it, why would we NOT support env on the host too?"* — right, and
+    there is no case on the other side. `yolo host -- claude` composing the same environment is
+    behaviour [`host-agent-environment.md`](host-agent-environment.md) §2.2 already fixes and this
+    doc never proposed changing. Asking it as though it were open invited a "no" that nobody wants.
 
-    Env composition today is **host-launch-time**, in one implementation with three consumers:
-    [`profilechannel.go:93`](../../internal/cli/run/profilechannel.go#L93) (the container argv),
-    [`host.go:432`](../../internal/cli/host.go#L432) — **`yolo host`, where there is no jail at
-    all** — and the macos-user arm via `Options.PackEnv`. A **derive runs in-jail, at boot.** So
-    "the agent pack composes it in its own derive" silently drops the env for `yolo host -- claude`
-    unless the host notch runs that derive too.
+    **The underlying fact is real and moves to the plan**, where it is a constraint rather than a
+    choice: env composition is host-launch-time with three consumers —
+    [`profilechannel.go:93`](../../internal/cli/run/profilechannel.go#L93),
+    [`host.go:432`](../../internal/cli/host.go#L432) (**no jail there**), and macos-user via
+    `Options.PackEnv` — while a derive runs in-jail at boot. So OQ-CS8's work must give the host
+    notch a way to run the env derive; it does not get to skip it.
 
-    This is exactly the parity [`internal/agentenv`](../../internal/agentenv/agentenv.go)'s package
-    doc exists to hold: *"the ONE env-composition implementation both notches use … what makes
-    `yolo -- claude` and `yolo host -- claude` compose the same environment … a claim two
-    independent copies of this logic could not keep."* OQ-CS8 deletes that implementation without
-    saying what keeps the claim.
+    > [!WARNING]
+    > **And the seam I named does not do what I said.** I leaned on
+    > [`hostrender.go:377`](../../internal/entrypoint/hostrender.go#L377) as "reusing a path rather
+    > than building one". `hostTableKeys` runs a derive host-side as a **key-name probe against
+    > SENTINEL inputs**, and its own comment is explicit that content deliberately does not cross:
+    > *"The CONTENT does not, and must not. A jail's derived MCP table embeds jail-absolute paths …
+    > which is exactly why a host render passes no computed layer."* It cannot be reused to compose
+    > real values. A host-side env derive needs REAL tables, which is a new invocation — and the
+    > jail-absolute-path hazard that rule exists for is worth a pack-authoring note, since a derive
+    > could put a jail path in an env value the host then exports.
 
-    _Leaning:_ the host notch runs the env derive, through the seam that already exists —
-    [`hostrender.go:377`](../../internal/entrypoint/hostrender.go#L377) runs pack derives host-side
-    against a sentinel live table today, so this is reusing a path rather than building one. What I
-    will not do is guess: it decides whether OQ-CS8 is a contained change or a three-site rework,
-    and it is **behaviour the design fixes**, not an implementation detail. The alternative worth
-    weighing is that `yolo host` keeps a narrow Go composition and parity is asserted by a test
-    rather than by shared code — cheaper now, and the exact shape §2's B-0 hoists kept having to
-    repair.
-
-    **Answer:**
-    > _(empty — fill in when decided)_
 
 ---
 
@@ -712,6 +707,7 @@ folded into the section named in the last column.
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-CS1 | **Option D** — catalog from presence, selection written into each agent's own selection key. *"Activating a profile should work for all."* B (gating the catalog) rejected with it. | 2026-09-01 | §5, §5.1 |
+| OQ-CS10 | **WITHDRAWN — not a design question.** `yolo host` composing the same env is behaviour already fixed; the fact underneath (host-launch-time composition, three consumers, one with no jail) is a plan CONSTRAINT. The `hostrender.go` seam cited for it is a sentinel key-name probe and cannot compose real values. | 2026-09-01 | §9 OQ-CS10 |
 | OQ-CS7 | **Option (i), flat: `options` is a name → default-value map.** No `kind`, no `values`, no enum — `default` was the only field left, so the wrapper object goes; it now reads like its neighbour `models`. Core merges defaults, refuses an undeclared profile key, and validates no value. `null` means *declared, no default* — deliberately not the delete convention. | 2026-09-01 | §5.2, §9 OQ-CS7 |
 | OQ-CS3 | **Core resolves no model** — it hands the derive the active profile and the provider entry; the derive writes its agent's selection key and picks its own fallback. `default` stays an ordinary open-vocabulary alias. | 2026-09-01 | §9 OQ-CS3 |
 | OQ-CS8 | **Nothing declares the binding — the agent's pack composes it in its own env-emitting derive.** Deletes `env_shape` and its validators, the four placeholder constants, and most of `internal/agentenv` including core's `agentProtocols` agent→protocol table. | 2026-09-01 | §3.1, §9 OQ-CS8 |
