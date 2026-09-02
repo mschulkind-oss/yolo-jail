@@ -119,9 +119,20 @@ var gitStateEnv = []string{
 	"GIT_PREFIX", "GIT_CEILING_DIRECTORIES",
 }
 
-// cleanGitEnv drops gitStateEnv keys from env so a git run against one repo
+// CleanGitEnv drops gitStateEnv keys from env so a git run against one repo
 // cannot be redirected by state git set for another.
-func cleanGitEnv(env []string) []string {
+//
+// Exported for the TEST helpers that shell out to git against scratch
+// repositories (internal/cli, internal/cli/run): a pre-commit hook runs the
+// test suite, git exports its own state to hooks, and from a LINKED WORKTREE
+// that state is ABSOLUTE (GIT_DIR, GIT_INDEX_FILE, GIT_WORK_TREE) — so a test
+// helper that inherits it would operate on the COMMITTER's worktree and index
+// instead of its scratch repo, staging the committer's tree wholesale
+// (measured 2026-09-02: 1441 bogus deletions staged into a worktree index by
+// `git add -A` from a temp dir). This is the same bug this function already
+// fixed for the mirror checkout at the call site below; the helpers get the
+// same treatment.
+func CleanGitEnv(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
 		key := kv
@@ -154,7 +165,7 @@ func (s *Store) run(dir string, args ...string) (string, error) {
 	if env == nil {
 		env = os.Environ()
 	}
-	cmd.Env = append(cleanGitEnv(env),
+	cmd.Env = append(CleanGitEnv(env),
 		"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=")
 
 	done := make(chan struct{})

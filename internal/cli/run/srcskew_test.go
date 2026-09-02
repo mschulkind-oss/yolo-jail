@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"time"
 
@@ -35,6 +36,11 @@ func skewRepo(t *testing.T) string {
 		}, args...)
 		cmd := exec.Command("git", full...)
 		cmd.Dir = root
+		// CleanGitEnv: under the pre-commit hook git exports its own (worktree-
+		// relative, and ABSOLUTE from a linked worktree) state; without the strip
+		// this helper would commit into the COMMITTER's index, not this scratch
+		// repo (packsrc.CleanGitEnv's doc has the measurement).
+		cmd.Env = packsrc.CleanGitEnv(os.Environ())
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
@@ -168,6 +174,7 @@ func headCommit(t *testing.T, root string) string {
 	t.Helper()
 	cmd := exec.Command("git", "rev-parse", "HEAD")
 	cmd.Dir = root
+	cmd.Env = packsrc.CleanGitEnv(os.Environ()) // same strip as the helper above
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatal(err)
