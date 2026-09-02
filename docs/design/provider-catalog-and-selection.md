@@ -8,7 +8,8 @@ summary: "Splits the knot that profiles-as-pack-variants and zai-plumbing left t
 
 # A catalog and a selection are two features — and only one of them ships
 
-**Status:** DESIGN, 2026-09-01. Nothing built.
+**Status:** DESIGN, 2026-09-01. Nothing built. **OQ-CS1 and OQ-CS2 ruled the same day**
+(ledger, §10); OQ-CS3 open, and §3's research gap is the real blocker.
 
 **The short version.** *"Put z.ai in my agents' provider directory"* and *"start this agent
 **using** z.ai"* are two features. yolo drives both off one table and one selector, which is why
@@ -114,6 +115,16 @@ turning zai off.* Today they cannot, and the reason is entirely §1's conflation
 So the user's options are *keep it and have it appear everywhere*, or *delete it*. Once catalog and
 selection are separate, the want is trivial — the entry stays, and nothing selects it.
 
+**And catalog membership is what should carry the credential requirement.** The maintainer's rule,
+2026-09-01: *pack presence means in the dictionary, which also means fatal errors if no API key
+found.* That is stricter than what ships and better defined — and adopting it repairs a defect the
+sibling doc reports separately. Today the requirement is computed from what a pack **declares**
+(`requiredProviders` walks `p.Decl.Providers()`), not from the composed catalog, so a user who drops
+a provider with `null` **still has the launch refused for it** — measured: with `packs: ["claude"]`
+and `providers: {"bedrock": null}` the catalog composes empty and `bedrock` is still required. Keyed
+to catalog membership instead, the null removes the entry and the requirement with it, and the rule
+reads as one sentence: **in the dictionary means you need the key; not in it means you do not.**
+
 > [!NOTE]
 > **A smaller, separate bug found while measuring this** (belongs in the sibling doc's defect list,
 > recorded here because §4 is where it surfaced): the `null`-drop convention is implemented only at
@@ -130,8 +141,27 @@ selection are separate, the want is trivial — the entry stays, and nothing sel
 | **A** | **Status quo** — catalog from presence, selection for claude only. | **Rejected.** It is the state this doc reports, and it makes the parent design's headline claim false for three agents of four. |
 | **B** | **Gate the catalog on selection** — a provider reaches an agent's directory only when selected. | **Rejected.** It fixes disable by deleting the catalog feature. pi and opencode both have interactive model pickers, so a populated directory is a real affordance, and `-p` would become mandatory to use any provider at all. |
 | **C** | **Keep catalog from presence; add an explicit non-`null` disable** (`providers.zai.enabled: false`, or an exclusion list). | **Viable, and the smallest change.** Fixes §4 exactly and nothing else — selection stays unimplemented. Worth doing only if D is judged too large; it is not a substitute for it. |
-| **D** | **Catalog from presence, selection written into each agent's own selection key** — `-p zai` sets `model_provider`/`model`/`model` (per §3) the way it already sets claude's env. | **Recommended.** It is the feature the parent design claims and does not have; it makes §4's want expressible for free (an unselected entry is inert *as a selection* while staying in the catalog); and it needs no new config surface, only the per-agent knowledge §3 is missing two rows of. |
+| **D** | **Catalog from presence, selection written into each agent's own selection key** — `-p zai` sets `model_provider`/`model`/`model` (per §3) the way it already sets claude's env. | **RULED IN, 2026-09-01 (OQ-CS1).** *"Activating a profile should work for all."* It is the feature the parent design claims and does not have; it makes §4's want expressible for free (an unselected entry is inert *as a selection* while staying in the catalog); and it needs no new config surface, only the per-agent knowledge §3 is missing two rows of. |
 | **E** | D, plus C's explicit disable for the catalog half. | **The likely end state**, but sequence it after D — a user who can select is much less bothered by a catalog entry they do not use, so C's urgency is unknown until D lands. |
+
+
+### 5.1 The no-profile case is the agent's own (OQ-CS2)
+
+**When no profile is active for an agent, yolo writes nothing to its selection key** — not a
+default, not a clear. *"Default can be left to the specific agent."*
+
+This is a deliberate exception to how the prism normally behaves, and it is worth naming as one
+rather than letting it read as an oversight. Every other composed surface is regenerated wholesale
+each boot, which is what makes a dropped input disappear rather than needing to be un-applied. A
+selection key cannot follow that rule, because pi and opencode both let a user change the model
+**interactively, mid-session**: a key yolo re-asserted every boot would let that choice survive
+until the next launch and then silently revert. So the rule is *write on activation, never on
+absence*, and the surface is one yolo touches sometimes and not others.
+
+The consequence to keep in view: yolo can turn a selection **on** and cannot turn it **off**. A
+user who selects a profile once and then launches without one keeps the selection that launch
+wrote. Whether that needs an explicit "back to the agent's default" spelling is not settled here —
+it is the first thing to re-examine once D has shipped and there is real usage to look at.
 
 ---
 
@@ -178,31 +208,14 @@ unrelated to the sequence above.
 
 ## 9. Open Questions
 
-1. 💬 **OQ-CS1: Is D the shape — selection written into each agent's own selection key?** §5. This
-   is the doc's central call and everything else is downstream of it. The alternative that is not
-   simply "do less" is B, which trades the catalog away to get disable.
+1. ✅ **OQ-CS1: Is D the shape — selection written into each agent's own selection key? — RESOLVED
+   (2026-09-01).** *"Activating a profile should work for all."* Option D; B is off the table with
+   it. Folded into §5 and §1's ships-today column.
 
-   _Leaning:_ Yes, D. It is the feature the parent design already claims, it costs no new config
-   surface, and it makes the disable complaint disappear as a side effect rather than needing its
-   own mechanism. My hesitation is entirely §7's first risk — this writes into keys users also
-   edit by hand — which is why OQ-CS2 is separate rather than folded in.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-CS2: When a launch has no active profile, does yolo write the selection key at all?**
-   Three behaviours: never touch it (the agent keeps whatever it had), clear it, or write a
-   default. This decides whether `yolo -- pi` with no `-p` is a no-op for pi's model choice or
-   resets it every boot.
-
-   _Leaning:_ Never touch it. The prism regenerates every boot, so anything else means a user's
-   interactive `/model` choice survives until their next launch and then silently reverts — the
-   worst of the three for a setting people change by hand. The cost is that the key is then a
-   surface yolo writes sometimes and not others, which is unusual for the prism and worth naming
-   as a deliberate exception rather than letting it look like an oversight.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+2. ✅ **OQ-CS2: When a launch has no active profile, does yolo write the selection key? — RESOLVED
+   (2026-09-01).** *"Default can be left to the specific agent."* Never touch it — the no-profile
+   case is the agent's own business, and yolo writing a default would silently revert an
+   interactive `/model` choice on the next boot. Folded into §5.1.
 
 3. 💬 **OQ-CS3: Which model does selecting a provider select?** A provider carries `models` aliases
    (`default`, `fast`, …) and the alias vocabulary is deliberately open. Selection needs one
@@ -221,12 +234,13 @@ unrelated to the sequence above.
 
 ## 10. Decision Ledger
 
-_Empty — nothing here is settled. Rulings compact into this table from §9, keeping their `OQ-CS<n>`
-IDs, with the normative text folded into the section named in the last column._
+Rulings compact into this table from §9, keeping their `OQ-CS<n>` IDs, with the normative text
+folded into the section named in the last column.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| — | — | — | — |
+| OQ-CS1 | **Option D** — catalog from presence, selection written into each agent's own selection key. *"Activating a profile should work for all."* B (gating the catalog) rejected with it. | 2026-09-01 | §5, §5.1 |
+| OQ-CS2 | **Never write the selection key when no profile is active** — *"default can be left to the specific agent."* The no-profile case is the agent's own, and a written default would revert an interactive choice each boot. | 2026-09-01 | §5.1 |
 
 ---
 

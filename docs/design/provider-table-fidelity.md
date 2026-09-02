@@ -320,9 +320,12 @@ asserting this shape (`TestCheckProviderCredentialsRefusesAMissingProvider`), so
 but that test's fixture is a *provider pack*, where refusing is right, and the behaviour
 generalizes to a pack that merely happens to ship a provider, where it is not.
 
-The distinction the preflight is missing is **who wanted the provider**: a provider the pack ships
-as one of several optional variants is not the same claim as a provider the pack exists to supply.
-Which of the candidate discriminators to use is OQ-PT4.
+**RULED 2026-09-01 (OQ-PT4), and the fix is smaller than the diagnosis suggested.** No
+supplies-versus-offers discriminator is needed: the requirement should follow **catalog
+membership** rather than the pack declaration, so the `null` that removes a provider from the
+catalog removes the requirement with it. One sentence — *in the dictionary means you need the key* —
+and the measurement above stops reproducing. The catalog model that rule belongs to is
+[`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §4.
 
 ### 5.2 D5 — `--profile` means two unrelated things
 
@@ -576,21 +579,15 @@ reader stops checking.
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-PT4: What distinguishes a provider a pack *supplies* from one it *offers*?** §5.1
-   needs a discriminator so a null-drop of `bedrock` does not refuse a `claude` launch, without
-   reopening OQ-13. Candidates: the pack ships **only** provider/profile contributions (zai's
-   shape) and is therefore its provider's reason to exist; or the requirement follows the
-   **active** variant for a pack that also installs a CLI; or the user's explicit `null` is
-   simply honored as consent everywhere.
-
-   _Leaning:_ Honor the explicit `null`. It is the smallest change, it needs no new concept, and
-   it reads correctly out loud — a user who typed the provider's name to remove it has answered
-   the question the preflight is asking. The "pack ships only providers" discriminator is
-   tempting and I distrust it: it makes a pack's refusal behaviour change the day it grows a
-   `program` contribution.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+4. ✅ **OQ-PT4: What distinguishes a provider a pack *supplies* from one it *offers*? — RESOLVED
+   (2026-09-01), and the question dissolved rather than being answered.** The maintainer's rule —
+   *"pack presence means in the dictionary, which also means fatal errors if no API key found"* —
+   makes the discriminator unnecessary: the requirement follows **catalog membership**, not the pack
+   declaration, so a `null`-dropped provider leaves the catalog and stops being required. Neither
+   candidate discriminator is needed, and my leaning ("honor the explicit null") was the right
+   outcome reached by a worse mechanism. Settled in
+   [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §4, which owns the
+   catalog model; §5.1 here keeps the measurement.
 
 5. 💬 🤷 **OQ-PT5: Does `--profile` keep both meanings?** §5.2. `--pack-profile` already spells
    the profile case unambiguously, and the timing meaning is older. Options: leave it (and fix
@@ -675,12 +672,12 @@ reader stops checking.
 
 ## 11. Decision Ledger
 
-_Empty — nothing in this doc is settled yet. Rulings compact here from §10, keeping their
-`OQ-PT<n>` IDs, with the normative text folded into the section named in the last column._
+Rulings compact here from §10, keeping their `OQ-PT<n>` IDs, with the normative text folded into
+the section named in the last column.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| — | — | — | — |
+| OQ-PT4 | **The credential requirement follows CATALOG MEMBERSHIP, not the pack declaration** — *"pack presence means in the dictionary, which also means fatal errors if no API key found."* A `null`-dropped provider leaves the catalog and stops being required, so the supplies-vs-offers discriminator is unnecessary. | 2026-09-01 | [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §4; measurement kept in §5.1 |
 
 ---
 
