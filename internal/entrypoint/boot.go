@@ -451,6 +451,20 @@ func Main(args []string) error {
 	CatalogInstalledOrphans(e)
 	p.mark("catalog_installed_orphans")
 
+	// The reconcile is the catalog's other half and runs beside it, for the same reasons and
+	// with the same non-genStep status: it compares what the receipts say this jail GOT
+	// against what is on disk, offline, and reports (program-delivery.md §10 step two, A4 as
+	// ruled in §5.4 — "reconcile reports; it does not install"). A drifted version is not a
+	// broken generator, so a fatal here would mean a jail whose vendor CLI self-updated
+	// refuses to START — and OQ-PD7 rules that this reports first and gates only if the
+	// reports ever justify one.
+	//
+	// AFTER the catalog, deliberately: the catalog's question is "what has no owner at all",
+	// and this one's is "what does the record get wrong about the things that do". The
+	// coarser finding comes first, the same way AssertRequiredBins precedes the catalog.
+	ReconcileInstalledPrograms(e)
+	p.mark("reconcile_installed_programs")
+
 	// Build the combined CA bundle BEFORE bashrc and before any child spawn, so
 	// the env vars we export propagate to every child the entrypoint spawns.
 	if bundle, err := GenerateCABundle(e); err != nil {
