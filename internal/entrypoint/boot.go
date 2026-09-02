@@ -524,12 +524,13 @@ func Main(args []string) error {
 	startJailDaemonSupervisor(e)
 	p.mark("jail_daemon_supervisor")
 
-	// Set PATH including mise shims so tools like copilot/gemini/claude are found
-	// (matches the pre-exec PATH set in main(), used by the mise trust subprocess).
-	_ = os.Setenv("PATH", strings.Join([]string{
-		e.BlockDir(), e.NpmBin(), e.MiseShims(), e.GoBin(), "/bin", "/usr/bin",
-		e.LaunchDir(),
-	}, ":"))
+	// There used to be a second os.Setenv of PATH here, hand-spelling the same list
+	// BootPath builds — for `mise trust`, the only subprocess that ran below this point.
+	// That subprocess went with trustWorkspaceConfigs (3a309da4), and nothing between
+	// here and execBash spawns a child or resolves a name on PATH any more, so the write
+	// was dead. It also never MATCHED, its comment's claim notwithstanding: it omitted
+	// e.LocalBin() from its first commit onward. BootPath is the single authority, applied
+	// once in execBash; TestBootPathIsTheOnlyPathAuthority refuses a second spelling.
 
 	// The in-jail reachability witness runs LAST, and both halves of that are
 	// deliberate. Its finding is then the closest thing to the agent's first prompt

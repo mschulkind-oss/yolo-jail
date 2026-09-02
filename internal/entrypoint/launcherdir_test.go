@@ -1,6 +1,9 @@
 package entrypoint
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,6 +71,97 @@ func TestBootPathOrdersBlockersFirstAndInstallersLast(t *testing.T) {
 	if idx(e.LaunchDir()) != len(got)-1 {
 		t.Error("the launcher dir must be LAST — it is the fallback of last resort")
 	}
+}
+
+// TestBootPathIsTheOnlyPathAuthority is the CALL SITE test for BootPath, and it is the
+// thing every other BootPath test in this file is missing.
+//
+// The tests above exercise BootPath directly, so all of them stay green against a boot.go
+// that never applies it — the callee-pinned/call-site-unpinned shape AGENTS.md says this
+// repo has shipped five times. Main cannot be called from a test (it ends in execBash,
+// which replaces the process), so the call site is pinned by reading the source, the way
+// catalog_test.go pins the orphan catalog and bootlog_test.go pins the log wiring.
+//
+// It asserts a COUNT, not just a presence, because the defect it closes had both halves:
+//
+//   - delete the one `os.Setenv("PATH", BootPath(e))` in execBash and the agent inherits
+//     the container's default PATH — no blockers, no launchers, no mise shims — while
+//     every ordering assertion above still passes;
+//   - add a SECOND, hand-spelled PATH write and the authority silently forks. That is not
+//     hypothetical: boot.go carried exactly such a write for the `mise trust` subprocess,
+//     it omitted e.LocalBin() from its first commit while claiming to "match", and it
+//     outlived its subprocess by a month after 3a309da4 deleted trustWorkspaceConfigs.
+//
+// Parsed rather than substring-matched: this package's comments name os.Setenv and PATH
+// freely (including the comment left where that second write used to be), so a text search
+// would be satisfied by prose. A literal "PATH" key is the whole scope — a dynamic key
+// (setEnvBoth's, or hydrateEnvFromUserEnvFile's loop over the user env file) is a different
+// mechanism and lands BEFORE execBash either way, so BootPath still wins the last word.
+func TestBootPathIsTheOnlyPathAuthority(t *testing.T) {
+	dir := filepath.Join(repoRoot(t), "internal", "entrypoint")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+
+	fset := token.NewFileSet()
+	var viaBootPath, handSpelled []string
+	for _, ent := range entries {
+		name := ent.Name()
+		if ent.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) != 2 || !isSelector(call.Fun, "os", "Setenv") {
+				return true
+			}
+			if lit, ok := call.Args[0].(*ast.BasicLit); !ok || lit.Kind != token.STRING ||
+				lit.Value != `"PATH"` {
+				return true
+			}
+			where := fset.Position(call.Pos()).String()
+			if inner, ok := call.Args[1].(*ast.CallExpr); ok {
+				if id, ok := inner.Fun.(*ast.Ident); ok && id.Name == "BootPath" {
+					viaBootPath = append(viaBootPath, where)
+					return true
+				}
+			}
+			handSpelled = append(handSpelled, where)
+			return true
+		})
+	}
+
+	if len(handSpelled) > 0 {
+		t.Errorf("PATH is set from something other than BootPath at %v — BootPath is the "+
+			"single authority (its doc comment, AGENTS.md's \"PATH order (exact)\" line and "+
+			"the .bashrc export all claim to mirror it). A second spelling drifts: the one "+
+			"deleted in favor of this test omitted $HOME/.local/bin and said it matched.",
+			handSpelled)
+	}
+	if len(viaBootPath) != 1 {
+		t.Fatalf("found %d os.Setenv(\"PATH\", BootPath(...)) call(s) %v, want exactly 1 "+
+			"(execBash's). Zero means the entrypoint computes the agent's PATH and never "+
+			"applies it — the agent gets the container default, with no blocker dir, no "+
+			"launcher dir and no mise shims, and every other BootPath test here still passes.",
+			len(viaBootPath), viaBootPath)
+	}
+}
+
+// isSelector reports whether expr is the selector pkg.sel (e.g. os.Setenv), written against
+// the plain identifier: internal/entrypoint imports os unaliased everywhere, and an alias
+// would be a change worth failing on.
+func isSelector(expr ast.Expr, pkg, sel string) bool {
+	s, ok := expr.(*ast.SelectorExpr)
+	if !ok || s.Sel.Name != sel {
+		return false
+	}
+	id, ok := s.X.(*ast.Ident)
+	return ok && id.Name == pkg
 }
 
 // TestBashrcPathMatchesBootPathOrder: the .bashrc export is the PATH an agent's interactive
