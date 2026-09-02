@@ -74,11 +74,19 @@ while `/v4/chat/completions` returns a real completion on the same host** (a key
 cannot settle this — z.ai's edge 401s garbage paths too, authenticating before routing).
 
 > [!IMPORTANT]
-> **codex's derive default is `"openai-chat"`** (corrected 2026-09-01, per this measurement:
-> [`packs/codex/derive.lua`](../../packs/codex/derive.lua)). Before the correction the default
-> was `"responses"` — it predated the probe above — so a provider entry that omitted
-> `wire_api` got codex wired to a route that 404s. Setting it explicitly is still fine; it
-> is just no longer required.
+> **SUPERSEDED, 2026-09-02** — [`provider-table-fidelity.md`](provider-table-fidelity.md) §3.4 /
+> OQ-PT1 retired the vocabulary this block was written in, and with it the claim. `openai-chat`
+> is a RETIRED spelling (refused at decode, in user config too), and codex's derive default is
+> **`"responses"` again — because it is the one value codex accepts**. An agent whose vocabulary
+> has exactly one entry has no default to choose: the omitted-`wire_api` case can only mean that
+> entry. What the probe below still buys is §3.3's consequence, never a default — z.ai's openai
+> endpoint has no codex spelling at all, so codex's derive emits NOTHING for it.
+>
+> *(What this block said 2026-09-01, so the losing step stays readable: the default is
+> `"openai-chat"`, "corrected" per the measurement, and setting `wire_api` explicitly is fine but
+> no longer required. The error is §3.2's exact confusion — the probe measured z.ai's HTTP
+> surface, and a default is a fact about codex's config vocabulary. One does not measure the
+> other.)*
 
 ## 3. Route A — name the protocol, fill the values (pure config)
 
@@ -89,9 +97,12 @@ cannot settle this — z.ai's edge 401s garbage paths too, authenticating before
   "providers": {
     "zai": {
       "base_url": "https://api.z.ai/api/paas/v4",
-      "wire_api": "openai-chat",            // measured: /v4/responses is 404. Optional
-                                            // today — codex defaults to this — but spelling
-                                            // it costs one line and survives a default change.
+      "wire_api": "openai-chat-completions", // yolo's CANONICAL protocol name (OQ-PT1), not
+                                             // any agent's spelling — each derive translates
+                                             // it. Declaring it is what lets a derive that
+                                             // cannot speak the protocol DROP the entry
+                                             // (codex, §3.3) instead of inheriting a default
+                                             // that hides the mismatch behind a 404.
       "api_key_env_name": "ZAI_API_KEY",     // renamed per parent OQ-6; the value is the NAME
       "models": { "default": "glm-4.7", "fast": "glm-4.7-air" }
     }
@@ -111,8 +122,8 @@ ZAI_API_KEY=<the actual key>
 
 | Agent | File | Row the derive writes |
 | :--- | :--- | :--- |
-| pi | `~/.pi/agent/models.json` | `zai: { baseUrl, api: "openai-chat", apiKeyEnv: "ZAI_API_KEY", models: […] }` |
-| codex | `~/.codex/config.toml` | `[model_providers.zai] base_url, wire_api, api_key_env` |
+| pi | `~/.pi/agent/models.json` | `zai: { baseUrl, api: "openai-completions", apiKey: "${ZAI_API_KEY}", models: […] }` — pi's spelling of the canonical `openai-chat-completions`, and the credential on `apiKey` in pi's config-value syntax (pi has no `apiKeyEnv` field) |
+| codex | `~/.codex/config.toml` | **nothing, for zai** (§3.3): z.ai's openai endpoint speaks chat-completions and codex accepts `responses` only, so the canonical `openai-chat-completions` has no codex spelling and the derive emits no entry at all |
 | opencode | `opencode.json` | `provider: zai` with `{env:ZAI_API_KEY}` interpolation |
 
 **The wrinkle:** the schema has ONE `base_url` per provider, and z.ai needs two — one per
@@ -139,7 +150,7 @@ superseded by uniformity, and the token alias is superseded by launch-time env c
     { "kind": "provider", "name": "zai",
       "endpoints": {
         "anthropic": { "base_url": "https://api.z.ai/api/anthropic" },
-        "openai":    { "base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat" }
+        "openai":    { "base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat-completions" }
       },
       "api_key_env_name": "ZAI_API_KEY",
       "models": { "default": "glm-4.7", "fast": "glm-4.7-air" },
@@ -181,16 +192,19 @@ speaks:
     "models": { "default": "glm-4.7", "fast": "glm-4.7-air" },
     "endpoints": {
       "anthropic": { "base_url": "https://api.z.ai/api/anthropic" },
-      "openai":    { "base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat" }
+      "openai":    { "base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat-completions" }
     } } } }
 ```
 
 Resolution is then a fixed table — no pack per agent, no N×M (the parent doc §3.2's argument,
-kept): claude → `anthropic`; pi → `openai` (`openai-completions`/`openai-chat`); codex →
-`openai` (**chat-completions only — measured, OQ-Z1: `/v4/responses` is 404 on both routes**);
-opencode → `openai`. With OQ-5's global ruling, `-p zai`
+kept): claude → `anthropic`; pi → `openai`; codex → `openai` (**but nothing lands for zai:
+z.ai's openai route speaks chat-completions only — measured, OQ-Z1: `/v4/responses` is 404 on
+both routes — and codex accepts `responses` only, so the endpoint has no codex spelling and the
+derive emits no entry at all, §3.3**); opencode → `openai`. With OQ-5's global ruling, `-p zai`
 sets the name everywhere and each agent's derive (or a shared derive library) emits its own
-dialect of the one provider it selected.
+dialect of the one provider it selected — its own dialect, that is, **translated from yolo's
+canonical name and never passed through** (OQ-PT1): the `wire_api` values in the examples above
+are canonical, and no agent reads them verbatim.
 
 Three closure rules the schema sketch owed *(added 2026-09-01, from the completeness audit)*:
 
@@ -200,9 +214,13 @@ Three closure rules the schema sketch owed *(added 2026-09-01, from the complete
    *(Rules 1 and 2 shipped 2026-09-01; rule 3 is still `packs/zai`'s to do.)*
 2. **The derive gate must move:** the derives gated on `prov.base_url` alone — an
    `endpoints`-only provider was silently dropped from every catalog. The gate is now the
-   provider's URL FOR THE PROTOCOL THAT AGENT SPEAKS (the §5 table: pi, codex and opencode
+   provider's URL FOR THE PROTOCOL THAT AGENT RESOLVES (the §5 table: pi, codex and opencode
    all resolve `openai`), so an endpoints-only provider reaches the catalog and an
-   anthropic-only one correctly does not — an agent cannot use a URL it cannot speak.
+   anthropic-only one does not. Name the reason per agent, because it is not one reason: for
+   codex it is incapacity — its dialect map has no `anthropic` row. For pi it is **resolution,
+   not incapacity** — pi DOES speak `anthropic-messages`, and it still gets no row because it
+   resolves the `openai` endpoint key, which an anthropic-only provider does not name.
+   *(opencode consumes no `wire_api` at all, so for it the resolution key is the whole story.)*
 3. **Selection is config, and the mechanism exists:** the derives write a *catalog* (presence),
    not a choice — `-p zai` must also set each agent's use-this-one field (pi's default model,
    codex's `model`/`model_provider`, opencode's `provider`). That is one more
@@ -219,7 +237,7 @@ for "this provider also speaks X" marking, if it graduates.
 | :--- | :--- |
 | `providers` key, closed schema, `api_key_env_name` name-contract | **shipped** ([`validate.go:885-945`](../../internal/config/validate.go#L885-L945)) |
 | pi / codex / opencode derives wiring every provider | **shipped** — Route A works today, endpoints included |
-| z.ai wire protocol: chat-completions only | **measured 2026-09-01** (OQ-Z1; codex's derive default was that 404ing `responses` and is now `openai-chat` — §2) |
+| z.ai wire protocol: chat-completions only | **measured 2026-09-01** (OQ-Z1; the derive-default half of that ruling is **superseded 2026-09-02** — OQ-Z7 below) |
 | `kind: "provider"` (pack-shipped service facts) + `kind: "profile"` + the selected-pack preflight | **shipped** (the §6.2 missing-credential refusal is still proposed) |
 | `-p <name>` global, declared-or-not | **ruled 2026-08-31** (parent OQ-5); mechanism proposed |
 | claude bridge (settings `env` block honored for `ANTHROPIC_*`) | **measured YES, 2026-08-31** (OQ-Z4: controlled listener, settings-only run hit) |
@@ -256,7 +274,8 @@ config, composed OVER the pack's defaults; authoring a whole provider is never r
 ## 8. Decision Ledger
 
 No open questions remain in this doc or in the parent — the family's last live decision, the
-`api_key_env` rename, was ruled 2026-09-01 (parent OQ-6: `api_key_env_name`). IDs are stable —
+`api_key_env` rename, was ruled 2026-09-01 (parent OQ-6: `api_key_env_name`); OQ-Z7 is a
+supersession of an already-ruled item, not a reopened one. IDs are stable —
 the parent doc and code comments cite them.
 
 | ID | Ruling / Decision | Date | Settled in |
@@ -270,3 +289,4 @@ the parent doc and code comments cite them.
 | :--- | :--- | :--- | :--- |
 | OQ-Z5 | **The claude patch is `config-overlay`, not the profile's `config` field** — `packs/zai` owns no claude surface, and a profile's config patches fold only into surfaces the same pack owns (parent §3.1/§3.2). Found as a live bug in the flagship manifest by the 2026-09-01 completeness audit. | 2026-09-01 | §4.1 |
 | OQ-Z6 | **`endpoints` closure rules:** `base_url` valid only alone (together = validation error naming `endpoints`); the derives' `prov.base_url` gate becomes `base_url OR endpoints`; and selection is one more `config-overlay`+`profile` patch per agent setting that agent's use-this-one field — no new mechanism. | 2026-09-01 | §5 |
+| OQ-Z7 | **`wire_api` is translated, not passed; codex's derive default is `"responses"`; `openai-chat` is retired, not renamed.** Supersedes the derive-default half of OQ-Z1 — that row's probe stands, its inference did not (§3.2's warning: a provider's HTTP surface is not an agent's config vocabulary). The canonical vocabulary is three protocol-shaped names nobody speaks (OQ-PT1), each derive owns a provenance-bearing dialect map and emits NOTHING for a canonical value its agent cannot spell, so zai's openai endpoint yields no codex entry at all (§3.3). An omitted `wire_api` means the agent's own single accepted value where it has one (codex: `responses`) and the derive's choice where it does not (pi: `openai-completions`; pi has no default — an absent `api` deletes the provider). | 2026-09-02 | §2, §3.3, §5 |
