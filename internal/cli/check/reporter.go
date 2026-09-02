@@ -81,12 +81,37 @@ func (r *reporter) warn(msg, note string) {
 	r.note(note)
 }
 
-// warningLine prints a non-counting "Warning: <msg>" line (yellow), e.g. an
-// env_sources file not found during the preflight — informational, NOT a graded
-// [WARN] badge, so it does NOT touch the warn count.
-func (r *reporter) warningLine(msg string) {
-	r.line(r.style("Warning: "+msg, ansiYellow))
-}
+// configWarn is this reporter's config.Warn — the ONE sink every config loader
+// and resolver in this package hands its non-fatal findings to. It routes them
+// onto the graded [WARN] path, so the summary counts them like any other finding.
+//
+// IT USED TO BE A SECOND CHANNEL, and that was the whole defect: it printed an
+// ungraded "Warning: <msg>" line and said in as many words that it did NOT touch
+// the warn count. `yolo check` therefore had two diagnostic channels and a summary
+// that aggregated one — measured, three bogus env_sources entries printed five
+// Warning lines under a summary reading "2 warnings". See
+// docs/design/reference-mismatch-diagnostics.md §3 and §7 step 1, which offered
+// "make bare Warning: lines reach the summary, or route them through the
+// reporter"; this is the latter, because the former would have meant a third count
+// and a badge nobody else uses.
+//
+// THIS CLOSES THE CONFIG-RESOLUTION HALF ONLY, and §3 names two producers:
+// "config resolution and loophole discovery". The loophole half is untouched and is
+// NOT a config.Warn sink at all — the supersedes did-you-mean (the best mismatch
+// diagnostic in the tree) goes through internal/loopholes' package-level warnf,
+// straight to os.Stderr (loopholes/runtime.go:27, called at discover.go:728). Worse
+// for `check` specifically: it never reaches that emission site, because the
+// loopholes section calls ValidateSet (sections_loopholes.go:60), which walks via
+// ValidateLoopholes + applySupersessions and deliberately bypasses Discover
+// (discover.go:821-822 says why). So that diagnostic is neither counted nor printed
+// here, and grading this channel did not change that. Relocating it is §7 step 4,
+// which needs OQ-RM2 ruled first.
+//
+// GRADING DOES NOT CHANGE THE EXIT CODE. Check() returns 1 on r.failed alone (its
+// three gates at check.go), and r.warned is read only by summaryFailWarn and
+// summaryFinal below. So a finding that used to scroll past now lands in the count
+// and nothing starts refusing — which is why this step needed no ruling on OQ-RM1.
+func (r *reporter) configWarn(msg string) { r.warn(msg, "") }
 
 // style wraps s in an ANSI SGR sequence when color is on; otherwise returns s
 // unchanged. Combined-SGR sequences (e.g. "1;97;41") pass through verbatim.

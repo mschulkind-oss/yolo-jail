@@ -51,8 +51,14 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 		"YOLO_WORKSPACE": filepath.Join(tmp, "workspace"),
 	}
 
-	// env_sources overrides (resolved against the workspace).
-	resolvedEnv := config.ResolveEnvSources(workspace, merged, r.warningLine)
+	// env_sources overrides (resolved against the workspace). A missing or unreadable
+	// file is a GRADED [WARN] row the summary counts (r.configWarn), not the ungraded
+	// "Warning:" line this used to emit: an env_sources entry naming a file that is not
+	// on this machine is the measured case in
+	// docs/design/reference-mismatch-diagnostics.md §3 where five printed warnings sat
+	// under a summary saying two. It stays a warning, never a failure — §8's non-goal:
+	// a host file absent here is portability, not a typo.
+	resolvedEnv := config.ResolveEnvSources(workspace, merged, r.configWarn)
 	for _, k := range resolvedEnv.Keys() {
 		v, _ := resolvedEnv.Get(k)
 		vars[k] = asString(v)

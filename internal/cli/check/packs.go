@@ -45,12 +45,23 @@ func (o *Options) sectionPacks(r *reporter) {
 	r.section("Packs")
 	defer r.blank()
 
-	// Per-entry problems land on warningLine as informational "Warning:" lines. Unlike
-	// the launch-side notice, check does NOT suppress the empty-packs warning when they
-	// occur: the problems are printed right above it here, so the two together read as
-	// "these entries were skipped, and what is left is nothing" rather than as a
-	// misdiagnosis.
-	entries, err := config.LoadPacks(r.warningLine)
+	// Per-entry problems land on r.configWarn as GRADED [WARN] rows the summary counts.
+	// They were ungraded "Warning:" lines until step 1 of
+	// docs/design/reference-mismatch-diagnostics.md, which meant a skipped pack entry —
+	// a pack the user asked for and did not get — would not have been counted.
+	//
+	// SAY "WOULD NOT HAVE BEEN" RATHER THAN "WAS NOT", because this sink is UNREACHABLE
+	// from Check() today, the same way LoadCacheRelocations' is (see check.go's note).
+	// Measured 2026-09-02 across five reportable shapes: every problem checkPacks can
+	// report here is also added as a hard error by config.validatePacks, which runs the
+	// SAME checkPacks (config/packs.go:477) — so sectionMergedConfig emits [FAIL] and the
+	// accumulated-fail gate returns before sectionPacks runs. Wired anyway, and graded,
+	// because the alternative is a discarding sink that goes wrong silently the day a
+	// warn-only shape appears. Unlike the launch-side notice, check does NOT suppress the
+	// empty-packs warning when they occur: the problems are printed right above it here,
+	// so the two together read as "these entries were skipped, and what is left is
+	// nothing" rather than as a misdiagnosis.
+	entries, err := config.LoadPacks(r.configWarn)
 	if err != nil {
 		r.fail("Loading packs: "+err.Error(), "")
 		return

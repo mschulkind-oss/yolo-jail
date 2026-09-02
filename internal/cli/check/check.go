@@ -147,11 +147,23 @@ func Check(opts Options) int {
 	// leaves an empty dir in the cache that reads like lost data.
 	// Silent on a load error (the Config Files section above reports a bad user
 	// config with far better context) and silent when nothing is configured. The
-	// loader's own warnings ARE surfaced: the "target directory does not exist"
-	// skip is the loader's alone, and it is the one problem that makes a run
-	// quietly leave the cache where it was.
+	// loader's own warnings go to r.configWarn — the GRADED [WARN] path the summary
+	// counts, not the ungraded "Warning:" line this used to emit (step 1 of
+	// docs/design/reference-mismatch-diagnostics.md §7).
+	//
+	// MEASURED 2026-09-02, and worth knowing before trusting this line: that sink is
+	// currently UNREACHABLE from here. Every problem checkCacheRelocations can report
+	// through warn — a relative target, a non-string, a ':' in the path, a bad subdir
+	// key, a missing target parent — is ALSO a ValidateConfig error, in the same words
+	// (both go through checkCacheRelocations; see its doc comment). So sectionMergedConfig
+	// has already emitted it as a [FAIL] and the accumulated-fail gate above has already
+	// returned. The sink is wired anyway, because the alternative is a call site that
+	// discards findings and relies on that coincidence holding: the day a relocation
+	// problem exists that validation does not decide — a target that vanished between
+	// validation and here is the obvious shape — this is the one place that would see it,
+	// and a warning nothing counts is the defect §3 measured.
 	if !isNativeRuntime && runtimeSel != "container" {
-		if rels, err := config.LoadCacheRelocations(r.warningLine); err == nil && len(rels) > 0 {
+		if rels, err := config.LoadCacheRelocations(r.configWarn); err == nil && len(rels) > 0 {
 			if err := storage.EnsureCacheRelocations(rels); err != nil {
 				r.fail(err.Error(), "Fix the path or drop the key from "+paths.UserConfigPath())
 			}
