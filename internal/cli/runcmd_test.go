@@ -238,8 +238,12 @@ func TestRunUsageListsEveryRunFlag(t *testing.T) {
 // runHelp's edge, which subhelp_test's registry probe pins independently.
 //
 // No behavioral unit pin is reachable instead. Every field parseRunArgs sets is
-// first observable inside run.Run, past the config gate, the runtime probe and
-// pack staging, and the one pre-launch refusal the parse used to make
+// first observable inside run.Run, and the earliest of them — --dry-run's
+// refusal at run.go:67 — is behind a config that loads (run.go:51) and a runtime
+// that resolves (run.go:55); the rest are behind pack staging and the profile
+// channel (run.go:118, run.go:158). Watching one from a unit test therefore
+// assumes a connectable container runtime, which is exactly what a unit test may
+// not, and the one pre-launch refusal the parse itself used to make
 // (errProfileNameMissing) is gone with the heuristic that needed it. So the
 // cheapest test that fails on the deletion reads the call out of the source,
 // exactly as parseCLISource reads the registry out of dispatch.go — and as a
