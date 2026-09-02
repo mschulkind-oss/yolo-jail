@@ -8,8 +8,19 @@ summary: "Follow-up to profiles-as-pack-variants and zai-plumbing, written from 
 
 # The provider table is checked in yolo's vocabulary and delivered in everyone else's
 
-**Status:** DECIDED, 2026-09-01 — every open question ruled (ledger, §11); nothing built. Written
-against `980aed71`. **D9 (§5.6) is the one finding that outgrew this doc**: it belongs to
+**Status:** DECIDED, 2026-09-01 — every open question ruled (ledger, §11). Written against
+`980aed71`. **Built 2026-09-02 — §9's build order is executed.** The failing-first integration
+tier landed first (`cee9c1fc`, then `2627563e`), the canonical vocabulary with the per-agent
+dialect translation second (`0f04632d`, the pi verification debt of §3.0a's note paid in
+`4f580756`), the census
+and the guide line third (`67f87f36`, `16e004ad`; `USER_GUIDE.md:217` documents `--timing` now),
+the composed-address refusal fourth (`5d8bd1fe`, OQ-PT2) and the credential rule sixth
+(`868b610f`, OQ-PT4) — with the `mergeUnder` null bug riding along (`ce5ad699`). **Step 5 did not
+get built and does not need to be**: OQ-PT9 took the substitution vocabulary away, so the
+`config-overlay` came out of `packs/zai` outright rather than learning to compose. Step 7 landed
+as the user layer itself (`ad1899c0`), not as a question of "if". **D10/D11 are fixed**
+(`7fa624ba`), and **D9's census row exists** (`471bc565`, trust-paths row 26). **D9 (§5.6) is
+still the one finding that outgrew this doc**: it belongs to
 [`trust-paths.md`](trust-paths.md)'s census, not here.
 
 **The short version.** The provider/profile design that shipped between `15688da1` and
@@ -400,12 +411,14 @@ yours.
 
 Two independent gaps, both cheap:
 
-- **`AGENTS.md:8` says "the ten that ship with yolo"** and names four CLI-less packs. There are
-  **twelve**: `serial` (already stale before this work) and `zai`, which is a *third* category —
-  installs no CLI **and** ships no loophole, the first pack whose whole content is declarative
-  facts. [`packs/embed.go:20`](../../packs/embed.go#L20) carries the same stale list. The repo's
-  own rule at [`AGENTS.md`](../../AGENTS.md) §Workflow step 6 says a number is *"the exact place a
-  reader stops checking"*.
+- **`AGENTS.md`'s pack census was two packs short** — it named ten and listed four CLI-less packs,
+  when the tree holds **twelve**: `serial` (already stale before this work) and `zai`, which is a
+  *third* category — installs no CLI **and** ships no loophole, the first pack whose whole content
+  is declarative facts. [`packs/embed.go`](../../packs/embed.go) carried the same short list. The
+  repo's own rule at [`AGENTS.md`](../../AGENTS.md) §Workflow step 6 says a number is *"the exact
+  place a reader stops checking"*. *(Shipped 2026-09-02, `67f87f36`: both now say twelve — six
+  agent packs, and six that install no CLI, five of them shipping a loophole each and `zai`
+  declarative — with "the six" everywhere meaning the agent subset alone.)*
 - **`integration/` has zero coverage of this feature.** Nothing there mentions `zai`,
   `pack_profiles`, or `providers`, though the pattern exists (`packs_test.go`, `mcp_test.go`
   assert in-jail rendering) and the feature's whole point is a host→jail crossing. The only

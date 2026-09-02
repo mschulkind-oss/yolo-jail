@@ -9,10 +9,18 @@ summary: "Splits the knot that profiles-as-pack-variants and zai-plumbing left t
 # A catalog and a selection are two features — and only one of them ships
 
 **Status:** DECIDED, 2026-09-01 — all questions ruled the day they were asked (ledger, §10); the
-tenth was **withdrawn as never having been a design question**. **Nothing built.** §3's empty pi
-row was **filled 2026-09-02 from source** (pi 0.84.4, opencode `v1.18.18`) — the research blocker
-is closed, and the verification found two delivery defects recorded in the sibling doc as
-D10/D11: the pi and opencode catalog entries render fields those agents do not read.
+tenth was **withdrawn as never having been a design question**. **Built 2026-09-02** — §8's order,
+executed from the canonical-vocabulary work through the profiles/options work: `0f04632d`
+(canonical `wire_api`, translated per agent) opens the run and `e338c9e7` (HEAD) closes it, with
+the failing-first integration tier and the D10/D11 catalog fixes just before it (`cee9c1fc`,
+`7fa624ba`), and selection landing for all four agents inside the window — the profiles table and
+its options (`ad1899c0`, `8aceeb0f`, `767170ec`), codex (`58437e8b`), pi and opencode
+(`6d1d7c54`), the edge-triggered apply (`36dbc88e`), and the profile kind shrunken to a selection
+(`714e987e`). §8 step 4 — option C's explicit disable — is the one step still unbuilt. §3's empty
+pi row was **filled 2026-09-02 from source** (pi 0.84.4, opencode `v1.18.18`) — the research
+blocker is closed, and the verification found two delivery defects recorded in the sibling doc as
+D10/D11: the pi and opencode catalog entries rendered fields those agents do not read, both fixed
+in that window.
 
 **The short version.** *"Put z.ai in my agents' provider directory"* and *"start this agent
 **using** z.ai"* are two features. yolo drives both off one table and one selector, which is why
@@ -320,6 +328,12 @@ it is the first thing to re-examine once D has shipped and there is real usage t
 > yolo's selection moves, and it is written only where a selection exists: a surface whose derive
 > emits none keeps no selection state at all, and a lost or corrupt record claims nothing, which
 > is the safe direction (it costs yolo a claim, never the user a value).
+>
+> That direction's cost has a name, and review asked for it to be stated here — **the re-arm
+> path**: with the record gone, a key the file already holds has no recorded write to be compared
+> against, so every later selection reads as the user's edit and lifts the value already there,
+> and yolo never writes that key again until the user deletes it once by hand, which puts the key
+> back under the activation rule and re-arms the mechanism.
 
 
 ### 5.2 What a profile is — user-declared intent, over a surface the provider defines
@@ -405,12 +419,24 @@ user, the convention `providers` already uses:
 
 **What each agent then gets**, from one selection — this is §3's table doing its job:
 
+> [!NOTE]
+> **Corrected 2026-09-02, when the selection shipped.** The table that stood here before was a
+> pre-implementation snapshot, and it was wrong in three rows: codex's claimed a selection for
+> `zai`; pi's said **unknown**; claude's named `env_shape` as the mechanism, and `env_shape` is
+> gone. What follows is what shipped, read off the tests that pin it — codex at both tiers
+> ([`providerderive_test.go`](../../internal/entrypoint/providerderive_test.go) unit,
+> [`codex_selection_test.go`](../../integration/codex_selection_test.go) integration), pi and
+> opencode at both tiers likewise
+> ([`pioencodeselection_test.go`](../../internal/entrypoint/pioencodeselection_test.go),
+> [`pi_opencode_selection_test.go`](../../integration/pi_opencode_selection_test.go)), and
+> claude's env in [`providers_test.go`](../../integration/providers_test.go).
+
 | Agent | Written | From |
 | :--- | :--- | :--- |
-| claude | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` | the provider's `env_shape` *(ships today)* |
-| codex | `model_provider = "zai"`, `model = "glm-4.7-air"` | the profile's provider + resolved model |
-| opencode | `model = "zai/glm-4.7-air"` | same, in opencode's spelling |
-| pi | **unknown** | §3's empty row — the blocker |
+| claude | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_DEFAULT_OPUS_MODEL = "glm-4.7-air"` | the claude pack's own `yolo.env` derive, reading the composed table — §3.1's fix, and the reason `env_shape` is gone. An input zai does not carry is dropped: no `AWS_REGION`, no `SONNET`/`HAIKU`. |
+| codex | **nothing** | zai's openai endpoint declares the canonical `openai-chat-completions`, and codex speaks `responses` only — the sibling doc's §3.3, so the derive emits no catalog row, and the selection shares that gate rather than writing a key naming a row that is not there. **A provider codex can reach is the case that works**: a responses-speaking entry gets `model_provider` + `model` at the top level of `config.toml`. |
+| opencode | `model = "zai/glm-4.7-air"`, top level | `<provider>/<model id>`, split on the first slash — the one row the earlier draft had right |
+| pi | `defaultProvider = "zai"` + `defaultModel = "glm-4.7-air"` in `~/.pi/agent/settings.json` | pi's own pair, §3's pi row, matched exactly against the provider's model list |
 
 #### What happens to the pack's variant body
 
