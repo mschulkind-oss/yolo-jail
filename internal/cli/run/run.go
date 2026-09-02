@@ -768,16 +768,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	// Determine the port-forward socket dir (Linux podman + AC only).
-	var forwardHostPorts []any
-	netMode := o.Network
-	if netSec := cfgMap(cfg, "network"); netSec != nil {
-		if m := mapStr(netSec, "mode"); m != "" {
-			netMode = m
-		}
-		if netMode == "bridge" {
-			forwardHostPorts = asAnyList(mapGet(netSec, "forward_host_ports"))
-		}
-	}
+	//
+	// Through hostForwardPorts, which reads the APPLIED network mode: this site used to
+	// re-derive the CONFIGURED one inline and was the last of the four port gates not
+	// reading the shared predicate (see the method's comment for both failures that
+	// caused).
+	forwardHostPorts := o.hostForwardPorts(cfg, rt)
 	var portSocketDir string
 	if len(forwardHostPorts) > 0 && (rt == "container" || !o.IsMacOS) {
 		portSocketDir = o.fwdSocketDir(cname)
@@ -905,6 +901,42 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		o.pr(o.Stderr).printf("  Total (host-side):  %.3fs", o.Now().Sub(timingStart).Seconds())
 	}
 	return rc
+}
+
+// hostForwardPorts is the `network.forward_host_ports` entries this launch will
+// actually forward — the list the socat spawner and the socket dir answer to.
+//
+// THE FOURTH AND LAST SPELLING OF THE PORT GATE. a38fe0ab moved `-p`,
+// `forward_host_ports` and the `route_localnet` sysctl onto appliedNetMode — the mode
+// the launch RUNS under rather than the one the config asked for — and its own commit
+// message recorded what it left behind: this site, which re-derived the CONFIGURED mode
+// inline. So the host half and the container half of one feature read two different
+// answers, and they disagree in both directions:
+//
+//   - a NESTED launch declaring the key started one socat per forward and a socket dir
+//     on the host, while the assembler (reading the applied mode, which is "host" there
+//     because podman-in-podman is forced onto the launcher's netns) emitted neither the
+//     `-v /tmp/yolo-fwd-…` mount nor `YOLO_FORWARD_HOST_PORTS`. Harmless — the processes
+//     die at exit and a shared netns needs no forwarding hop — but nothing in the jail
+//     was ever told about them;
+//   - on Apple Container an unhonored `network.mode: "host"` was the harmful direction:
+//     appliedNetMode answers "bridge" there whatever the key says, so the assembler
+//     emitted `--publish-socket <hostSock>:…` for sockets THIS function then declined to
+//     create, leaving the jail's forwards dead rather than merely unmentioned.
+//
+// One predicate for both halves is what makes each of those unrepresentable instead of
+// separately fixed — the reason backendcaps.go gives for appliedNetMode existing at all.
+// resolveNetMode and o.inContainer() rather than fresh copies of either, for the same
+// reason the assembler uses them.
+func (o *Options) hostForwardPorts(cfg *jsonx.OrderedMap, rt string) []any {
+	netSec := cfgMap(cfg, "network")
+	if netSec == nil {
+		return nil
+	}
+	if appliedNetMode(rt, o.resolveNetMode(cfg), o.inContainer()) != "bridge" {
+		return nil
+	}
+	return asAnyList(mapGet(netSec, "forward_host_ports"))
 }
 
 // insertHostServiceEnv splices each host service's `-e VAR=<jailPath>` pair into

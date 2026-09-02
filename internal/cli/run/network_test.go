@@ -16,23 +16,10 @@ func TestStartHostPortForwardingEmpty(t *testing.T) {
 }
 
 func TestStartHostPortForwardingSpawnsSocat(t *testing.T) {
-	// Put a fake `socat` on PATH that just creates the listen socket file so the
-	// condition-poll succeeds fast, then sleeps.
-	bin := t.TempDir()
-	fakeSocat := filepath.Join(bin, "socat")
-	// The socat argv is: socat UNIX-LISTEN:<sock>,fork,mode=777 TCP:...
-	// Extract the path between "UNIX-LISTEN:" and "," and touch it.
-	script := `#!/bin/sh
-arg="$1"
-p="${arg#UNIX-LISTEN:}"
-p="${p%%,*}"
-: > "$p"
-sleep 30
-`
-	if err := os.WriteFile(fakeSocat, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	// The fake socat lives in hostforwardgate_test.go now that a second test needs
+	// it: two hand-written copies of one shell script is the drift this package's
+	// shared-predicate comments are about, at the fixture level.
+	fakeSocatOnPath(t)
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
