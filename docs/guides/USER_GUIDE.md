@@ -214,7 +214,7 @@ yolo -- bash -c "make"     # Run a specific command
 **Options:**
 - `--new` — Force a new container even if one exists for this workspace
 - `--network bridge|host` — Override network mode for this run
-- `--profile` — Show detailed startup performance timing
+- `--timing` — Show detailed startup performance timing
 
 ### `yolo init` — Initialize a Project
 

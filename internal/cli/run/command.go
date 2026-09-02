@@ -75,19 +75,21 @@ var provisionScript = "" +
 // buildFinalInternalCmd assembles the final_internal_cmd:
 // the provisioning message → provision_script → mise activate → executing
 // message → target command. displayCmd is target_cmd with single quotes escaped
-// as '\”. profile wraps each phase with timing (the profile branch).
+// as '\”. timing wraps each phase in timers (the timing branch; --timing since
+// provider-table-fidelity.md OQ-PT5 — the in-jail report it prints still says
+// "YOLO Jail Profile", which is a name this step did not own).
 //
 // THIS is where the "frozen bytes" claim the three constants above make actually
-// lives: TestBuildFinalInternalCmdBashGolden pins this function's non-profile output
+// lives: TestBuildFinalInternalCmdBashGolden pins this function's non-timing output
 // against testdata/final_cmd_bash.txt, and that output closes over setupScript,
 // provisionScript and miseActivate — so the golden is the single binder for all four.
-// The profile branch has NO golden, and the two other tests here are property checks
-// rather than byte pins: TestBuildFinalInternalCmdQuotingEscapesDisplay (non-profile
+// The timing branch has NO golden, and the two other tests here are property checks
+// rather than byte pins: TestBuildFinalInternalCmdQuotingEscapesDisplay (non-timing
 // only, display escaping) and TestFinalInternalCmdNeverUpgrades (both branches, the
-// one OQ-PD3 property). So a change confined to the profile branch ships green.
-func buildFinalInternalCmd(targetCmd string, profile bool) string {
+// one OQ-PD3 property). So a change confined to the timing branch ships green.
+func buildFinalInternalCmd(targetCmd string, timing bool) string {
 	displayCmd := strings.ReplaceAll(targetCmd, "'", `'\''`)
-	if profile {
+	if timing {
 		return "" +
 			"exec 3>&2; " +
 			`printf '\033[2m📦 Provisioning tools...\033[0m\n' >&2; ` +

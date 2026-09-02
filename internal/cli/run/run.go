@@ -597,7 +597,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// Retire jail-made workspace venvs from the old shared-store model.
 	o.retireJailMadeVenv(cfg)
 
-	profileStart := o.Now()
+	timingStart := o.Now()
 
 	// Image build/load. The result carries the REF of the image it made ready —
 	// content-addressed on the normal path (C2), the legacy :latest tag on a
@@ -813,7 +813,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	runCmd = insertHostServiceEnv(runCmd, in.imageRef, hostServices)
 
 	// Final internal command tail.
-	runCmd = append(runCmd, buildFinalInternalCmd(targetCmd, o.Profile))
+	runCmd = append(runCmd, buildFinalInternalCmd(targetCmd, o.Timing))
 
 	if o.Getenv("YOLO_DEBUG") != "" {
 		// Write RAW (not via the rich-stripping printer): the argv contains
@@ -891,9 +891,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	clearOwnerPID(cname)
 	o.maybeWarnAboutOOMKiller(rc, rt)
 
-	if o.Profile {
+	if o.Timing {
 		o.pr(o.Stderr).printf("[bold cyan]--- Host-side timing ---[/bold cyan]")
-		o.pr(o.Stderr).printf("  Total (host-side):  %.3fs", o.Now().Sub(profileStart).Seconds())
+		o.pr(o.Stderr).printf("  Total (host-side):  %.3fs", o.Now().Sub(timingStart).Seconds())
 	}
 	return rc
 }

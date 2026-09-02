@@ -18,7 +18,6 @@ package cli
 // property cli.go's top-level help branch documents for itself.
 
 import (
-	"errors"
 	"io"
 	"strings"
 
@@ -45,14 +44,15 @@ Flags:
                      already running for this workspace.
   --network <mode>   Override the network mode for this launch
                      (also --network=<mode>).
-  --profile <name>   Select active profile or provider preset for this launch (also -p <name>).
-                     With a command, keys the profile to that command's binary; with no
-                     command, applies it to every pack this launch selects. Without an
-                     argument at all, reports startup timings.
-                     -p always takes the name as its own argument, and refuses an argv
-                     where the next token cannot be one; a name spelling a flag or the
-                     word "run" is written -p=<name>. Only --profile with no argument
-                     reports timings — a bare -p is a parse error.
+  --profile <name>   Select active profile or provider preset for this launch (also -p <name>,
+                     --profile=<name>, -p=<name>). The name is whatever token follows —
+                     there is nothing else the flag can mean. With a command, keys the
+                     profile to that command's binary; with no command, applies it to
+                     every pack this launch selects. Like --network and --pack-profile, a
+                     --profile or -p with no token after it selects nothing.
+  --timing           Report startup performance timings: the host-side total, plus the
+                     in-container breakdown (entrypoint config generation, mise, the
+                     command itself).
   --pack-profile <cli>=<name>
                      Select the profile for one CLI (e.g. pi=glm,claude=bedrock). The key is
                      the binary a pack installs; an unknown one is refused at launch.
@@ -73,7 +73,7 @@ Global options are listed by 'yolo --help'; the full config reference is
 // runFlags is every flag runRun itself consumes. It exists so the usage text and
 // the parser cannot drift apart silently (TestRunUsageListsEveryRunFlag), and so
 // runHelpRequested's "keep scanning past a run flag" branch has one definition.
-var runFlags = []string{"--new", "--profile", "--dry-run", "--network", "--accept-config-changes", "--pack-profile"}
+var runFlags = []string{"--new", "--profile", "--timing", "--dry-run", "--network", "--accept-config-changes", "--pack-profile"}
 
 // runHelpRequested reports whether args (the rewritten argv[1:], so it may carry
 // the injected "run" token anywhere before `--`) asks for RUN's help rather than
@@ -88,11 +88,13 @@ var runFlags = []string{"--new", "--profile", "--dry-run", "--network", "--accep
 //     unrecognized bare token as the command, so `yolo run foo --help` means
 //     "run `foo --help` in the jail" and must keep meaning that.
 //
-// `--network`'s value is consumed the same way runRun consumes it, so
-// `yolo run --network -h` reads `-h` as the network mode, not as help. `-p` applies
-// profileValueAt's guard instead of eating whatever follows, so `yolo -p -h` is
-// answered as the mistyped help request it almost certainly is rather than left to
-// die as errProfileNameMissing with the -h it was never offered.
+// Every one of run's value flags consumes its value the same way parseRunArgs does,
+// so `yolo run --network -h` reads `-h` as the network mode and `yolo -p -h` as a
+// profile named "-h" — neither is the mistyped help request it might look like. -p
+// and --profile used to be gentler here: a token that could not be a name left -h
+// reachable, so the mistyped help got answered. OQ-PT5 (provider-table-fidelity.md
+// §5.2) took away their other meaning, and with it the reason to second-guess the
+// next token; they are value flags now, indistinguishable from --network.
 func runHelpRequested(args []string) bool {
 	sawRun := false
 	for i := 0; i < len(args); i++ {
@@ -104,12 +106,8 @@ func runHelpRequested(args []string) bool {
 			return true
 		case a == "run" && !sawRun:
 			sawRun = true // the injected/leading subcommand token
-		case a == "--network" || a == "--pack-profile":
+		case a == "--network" || a == "--pack-profile" || a == "--profile" || a == "-p":
 			i++ // its value, whatever it looks like
-		case a == "-p":
-			if _, ok := profileValueAt(args, i); ok {
-				i++
-			}
 		case len(a) > 1 && a[0] == '-':
 			// Another flag (a run flag, or a stray one runRun ignores). Keep scanning:
 			// a flag never starts the implicit command.
@@ -118,43 +116,6 @@ func runHelpRequested(args []string) bool {
 		}
 	}
 	return false
-}
-
-// errProfileNameMissing is what parseRunArgs returns when `-p` is followed by no
-// token that can be a profile name. FATAL at the parse, not a silent fallback,
-// because both things -p could otherwise do are lies: taking the next token selects a
-// profile the user never named (see profileValueAt), and --profile's timing-report
-// fallback answers a question nobody asked.
-var errProfileNameMissing = errors.New("-p needs a profile name: 'yolo -p <name> [-- <command>]' " +
-	"or '-p=<name>' when the name would read as a flag or as the word 'run'")
-
-// profileValueAt reads the profile NAME that follows args[i] — the shared guard for
-// the two spellings that take a name as its own token (`--profile <name>`,
-// `-p <name>`).
-//
-// A token is NOT a name when it is:
-//
-//   - anything starting with `-`: the next flag, whose meaning the name must not
-//     swallow (`yolo -p -- claude` would otherwise be a profile called "--");
-//   - `run`: the token RewriteArgv inserts at the `--` position. It lands directly
-//     after a value-taking flag that had no value of its own, so `-p` would read it
-//     as a name and silently select a profile literally called "run" — a name
-//     profiles-as-pack-variants.md OQ-3 rules free-form, so nothing downstream could
-//     call it a typo;
-//   - `--`: the separator itself.
-//
-// The last is subsumed by the `-` prefix; it is spelled out because the separator is
-// what this guard exists to protect, not just another flag. A name that genuinely
-// reads as one of these is spelled `--profile=<name>` / `-p=<name>`.
-func profileValueAt(args []string, i int) (string, bool) {
-	if i+1 >= len(args) {
-		return "", false
-	}
-	v := args[i+1]
-	if strings.HasPrefix(v, "-") || v == "run" || v == "--" {
-		return "", false
-	}
-	return v, true
 }
 
 // runHelp answers a help request for `run`: it writes run's usage to out and
@@ -180,16 +141,23 @@ func runHelp(args []string, out io.Writer) bool {
 // wherever it appears, parse flags until `--`, and take everything after `--` as
 // the command.
 //
-// The error return is the ONE refusal the fold makes: `-p` followed by nothing that
-// can be a profile name (errProfileNameMissing). It is fatal at the parse rather
-// than a launch pre-flight because both alternatives — taking the token anyway, or
-// --profile's timing-report fallback — are answers to a question nobody asked, and
-// because the launch pipeline is a long way past this point (config load, pack
-// staging) for a mistake that is visible in the argv alone. --network and
-// --pack-profile keep their older silent swallow of a missing value: their values
-// are arbitrary user text, so nothing downstream can mistake a swallowed one for a
-// selection. Reported as a deliberate asymmetry, not an oversight to copy.
-func parseRunArgs(args []string, opts *run.Options) error {
+// The fold makes NO refusal. Every value flag takes its value from the next token
+// when there is one and silently takes none when there is not: --network and
+// --pack-profile have always worked that way, and since OQ-PT5
+// (provider-table-fidelity.md §5.2) --profile and -p do too. The asymmetry the old
+// note here reported is gone rather than copied — it existed only because a bare
+// --profile meant something else (the startup-timing report, now --timing), which
+// gave the parser a second reading to protect and a heuristic (profileValueAt) to
+// guess which one the user meant. That heuristic cost two fix commits (bd2186d1,
+// 8868326a) and is deleted rather than made more careful: with one meaning left,
+// the next token is a name, and a missing one selects nothing.
+//
+// KNOWN TRANSIENT, deliberately not coded around: `yolo -p -- claude` reaches this
+// as [-p, run, --, claude], so -p reads the injected "run" as a profile name. The
+// guard that used to catch it is superseded later in this same cycle by mandatory
+// profile declaration (provider-catalog-and-selection-plan.md step 6, OQ-CS6), which
+// makes an undeclared name a reportable error at launch.
+func parseRunArgs(args []string, opts *run.Options) {
 	afterDashDash := false
 	sawRun := false
 	var cmdArgs []string
@@ -206,22 +174,18 @@ func parseRunArgs(args []string, opts *run.Options) error {
 			sawRun = true // the injected/leading subcommand token
 		case a == "--new":
 			opts.New = true
-		case a == "--profile":
-			if v, ok := profileValueAt(args, i); ok {
+		case a == "--timing":
+			opts.Timing = true
+		// An ordinary value flag, in both spellings: the next token is the name, glued
+		// or not, exactly as --network and --pack-profile read theirs. No look-ahead
+		// and no fallback — see the function comment for what that replaced.
+		case a == "--profile" || a == "-p":
+			if i+1 < len(args) {
 				i++
-				opts.ProfileName = v
-			} else {
-				opts.Profile = true
+				opts.ProfileName = args[i]
 			}
 		case len(a) > len("--profile=") && strings.HasPrefix(a, "--profile="):
 			opts.ProfileName = strings.TrimPrefix(a, "--profile=")
-		case a == "-p":
-			v, ok := profileValueAt(args, i)
-			if !ok {
-				return errProfileNameMissing
-			}
-			i++
-			opts.ProfileName = v
 		case len(a) > len("-p=") && strings.HasPrefix(a, "-p="):
 			opts.ProfileName = strings.TrimPrefix(a, "-p=")
 		case a == "--pack-profile":
@@ -276,5 +240,4 @@ func parseRunArgs(args []string, opts *run.Options) error {
 		}
 	}
 	opts.Args = cmdArgs
-	return nil
 }

@@ -539,9 +539,9 @@ func psRunCmd(argv []string) (string, bool) {
 	return string(out), true
 }
 
-// runRun parses the run flags (--network, --new, --profile, --dry-run) and the
-// post-`--` command from args (the rewritten argv[1:]) and runs the container
-// launch.
+// runRun parses the run flags (--network, --new, --profile, --timing, --dry-run)
+// and the post-`--` command from args (the rewritten argv[1:]) and runs the
+// container launch.
 //
 // The front-door RewriteArgv inserts "run" at the `--` position, so flags that
 // preceded `--` end up BEFORE the "run" token (e.g. `yolo --new -- true` →
@@ -560,12 +560,11 @@ func runRun(args []string) int {
 	}
 	opts := run.NewDefaultOptions()
 	opts.Color = true
-	// Refused before anything is loaded or staged: a -p that named nothing is visible
-	// in the argv alone, and errProfileNameMissing is the only refusal the fold makes.
-	if err := parseRunArgs(args, &opts); err != nil {
-		fmt.Fprintln(os.Stderr, "yolo run:", err)
-		return 1
-	}
+	// Nothing here can fail: the fold makes no refusal, so a mistyped flag is either
+	// swallowed or read as the command it follows, never an early exit. The one
+	// refusal the fold used to make (a -p with no readable name) went with the
+	// heuristic that needed it — provider-table-fidelity.md OQ-PT5.
+	parseRunArgs(args, &opts)
 	// Wire the macos-user native branch. run stays free of the macosuser +
 	// darwinpkg deps; the front door injects the handler. packEnv is the launch's
 	// composed profile/provider channel, which run.Run composes above the backend

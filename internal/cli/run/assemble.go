@@ -694,11 +694,14 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// why the source is the STAGED tree.
 	runCmd = append(runCmd, o.packFilesMountArgs(in)...)
 
-	// --- TERM + profile ---
+	// --- TERM + timing ---
 	if term := o.Getenv("TERM"); term != "" {
 		runCmd = append(runCmd, "-e", "TERM="+term)
 	}
-	if o.Profile {
+	if o.Timing {
+		// Named for the flag that used to own this meaning (--profile, before
+		// provider-table-fidelity.md OQ-PT5 renamed it --timing). Nothing in the image
+		// reads it, so it stays put rather than gaining a rename this step does not own.
 		runCmd = append(runCmd, "-e", "YOLO_PROFILE=1")
 	}
 

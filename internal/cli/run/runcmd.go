@@ -40,8 +40,8 @@ type Options struct {
 	// --- CLI surface (typer options + ctx.args) ---
 	Network string
 	New     bool
-	// Profile is --profile (startup timing report).
-	Profile bool
+	// Timing is --timing: report this launch's startup performance timings.
+	Timing bool
 	// DryRun is --dry-run (macos-user only; a hard error elsewhere).
 	DryRun bool
 	// AcceptConfigChanges is --accept-config-changes: it grants the config-change
@@ -53,7 +53,8 @@ type Options struct {
 	// child process or outlive the launch that was approved. See
 	// config.AcceptConfigChangesFlag, which owns the spelling.
 	AcceptConfigChanges bool
-	// ProfileName is --profile <name> or -p <name> (e.g. "glm" or "glm-dev"). With a
+	// ProfileName is --profile <name> or -p <name> (e.g. "glm" or "glm-dev" — the
+	// name is the next token, and there is no other reading of either flag). With a
 	// command it keys the name to that command's binary; with no command it is GLOBAL —
 	// the selected profile of every pack this launch selects (effectivePackProfiles).
 	ProfileName string

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -53,13 +52,15 @@ func TestRunHelpRequested(t *testing.T) {
 		// --network eats its value, so this -h is a network mode, not help.
 		"run --network -h": false,
 
-		// -p applies --profile's guard instead of eating anything: a token that
-		// cannot be a name leaves -h reachable, so `yolo -p -h` reads as the mistyped
-		// help request it almost certainly is. With a name present, -p still owns it
-		// and the scan continues past both.
-		"run -p -h":                   true,
-		"run -p --help":               true,
+		// -p and --profile are value flags like --network: the next token is the name
+		// whatever it spells, so a help token directly after the flag is a profile
+		// called "-h", not a help request. With a name present, the flag owns it and
+		// the scan continues past both.
+		"run -p -h":                   false,
+		"run -p --help":               false,
+		"run --profile -h":            false,
 		"run -p dev -h":               true,
+		"run --profile dev -h":        true,
 		"run -p dev -- claude --help": false,
 
 		// No help anywhere.
@@ -126,12 +127,15 @@ func TestRunPassesHelpThroughToInnerCommand(t *testing.T) {
 // creates.
 func TestParseRunArgsFlags(t *testing.T) {
 	var opts run.Options
-	parseRunArgs(strings.Fields("--new run --profile --dry-run --network host -- true"), &opts)
-	if !opts.New || !opts.Profile || !opts.DryRun {
+	parseRunArgs(strings.Fields("--new run --timing --dry-run --network host -- true"), &opts)
+	if !opts.New || !opts.Timing || !opts.DryRun {
 		t.Errorf("flags not parsed: %+v", opts)
 	}
 	if opts.Network != "host" {
 		t.Errorf("Network = %q, want host", opts.Network)
+	}
+	if opts.ProfileName != "" {
+		t.Errorf("ProfileName = %q, want none — --timing is not a profile flag", opts.ProfileName)
 	}
 	if !reflect.DeepEqual(opts.Args, []string{"true"}) {
 		t.Errorf("Args = %q, want [true]", opts.Args)
@@ -141,6 +145,14 @@ func TestParseRunArgsFlags(t *testing.T) {
 	parseRunArgs(strings.Fields("run --network=none -- true"), &opts)
 	if opts.Network != "none" {
 		t.Errorf("--network=none → %q, want none", opts.Network)
+	}
+
+	// --timing names nothing and selects no profile: it is the renamed startup-timing
+	// report (OQ-PT5), the flag the old bare --profile used to be.
+	opts = run.Options{}
+	parseRunArgs(strings.Fields("run --timing -- true"), &opts)
+	if !opts.Timing || opts.ProfileName != "" {
+		t.Errorf("--timing → %+v, want the timing flag and no name", opts)
 	}
 }
 
@@ -210,103 +222,107 @@ func TestRunUsageListsEveryRunFlag(t *testing.T) {
 	}
 }
 
-// THE -p HALF OF THE PROFILE SELECTOR. `--profile` refuses a following token that
-// cannot be a name ('-', the injected "run", '--') and falls back to the startup
-// timing report. `-p` had no such guard: it took the next token WHATEVER it was, and
-// RewriteArgv inserts "run" at the `--` position, so `yolo -p -- claude` reached the
-// parser as [-p, run, --, claude] and silently selected a profile literally named
-// "run" — a name OQ-3 rules free-form, so no downstream check could call it a typo —
-// while a trailing bare `yolo -p` silently selected no profile at all.
+// THE PROFILE SELECTOR, AFTER OQ-PT5 (provider-table-fidelity.md §5.2). The
+// startup-timing report moved to --timing, so --profile and -p have ONE meaning
+// left: take the next token as the name. profileValueAt — which looked ahead and
+// refused to read a `-`-prefixed token, the injected "run", or the separator as a
+// name — is gone rather than more careful, and with it errProfileNameMissing, the
+// only refusal the fold made. Both spellings are ordinary value flags now, which is
+// exactly how --network and --pack-profile have always read theirs: a missing value
+// silently selects nothing, and a value that looks like a flag IS the value.
 //
-// Unlike --profile, -p does NOT fall back to the timing report: a -p that named
-// nothing is a mistake about the profile, and a mistake must not be read as "the
-// user asked for timings".
+// The heuristic existed because the flags had a second reading to protect. Its two
+// fix commits were correct about the ambiguity; the ruling removed the ambiguity.
 
-// TestParseRunArgsRefusesAnUnreadablePName pins the guard, not just the refusal: the
-// tokens -p must NOT read as a name are exactly the ones --profile refuses.
-func TestParseRunArgsRefusesAnUnreadablePName(t *testing.T) {
+// TestParseRunArgsProfileTakesTheNextToken pins the ruled reading, including the
+// cases the old guard refused: those tokens are names now, and the tests say so
+// rather than leaving them implied, because they are the ones a future reader will
+// want to "fix" back.
+func TestParseRunArgsProfileTakesTheNextToken(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		// The ordinary spellings, in the two argv shapes the front door produces
+		// (an explicit `run` keeps its leading token; the rewrite moves "run" next
+		// to the `--` instead).
+		{"run -p dev -- claude", "dev"},
+		{"-p dev run -- claude", "dev"},
+		{"run --profile dev -- claude", "dev"},
+		{"--profile dev run -- claude", "dev"},
+		// The glued forms, which are also the only way to name a profile "run":
+		// positionally that token is indistinguishable from the injected one.
+		{"run -p=dev -- claude", "dev"},
+		{"--profile=dev -- true", "dev"},
+		{"-p=run -- claude", "run"},
+		{"--profile=run -- true", "run"},
+		// What the deleted guard used to refuse, now read literally as names —
+		// the ruling's whole point is that there is no second reading to protect.
+		{"run -p -- claude", "--"},
+		{"-p run -- claude", "run"},
+		{"run -p --new -- true", "--new"},
+		{"--profile --new -- true", "--new"},
+	}
+	for _, tc := range cases {
+		var opts run.Options
+		parseRunArgs(strings.Fields(tc.in), &opts)
+		if opts.ProfileName != tc.want {
+			t.Errorf("parseRunArgs(%q).ProfileName = %q, want %q", tc.in, opts.ProfileName, tc.want)
+		}
+		if opts.Timing {
+			t.Errorf("parseRunArgs(%q) set Timing — the timing report is --timing's, "+
+				"not something a profile flag falls back to", tc.in)
+		}
+	}
+
+	// A name in the value position must not eat the command with it.
+	opts := run.Options{}
+	parseRunArgs(strings.Fields("-p dev run -- claude"), &opts)
+	if !reflect.DeepEqual(opts.Args, []string{"claude"}) {
+		t.Errorf("Args = %q, want [claude] — the value flag must not eat the command", opts.Args)
+	}
+}
+
+// TestParseRunArgsBareProfileSelectsNothing pins the silent swallow a value flag
+// gets when its value is missing — the documented behavior --network and
+// --pack-profile already had, which --profile and -p now share instead of the old
+// timing fallback and the old parse error.
+func TestParseRunArgsBareProfileSelectsNothing(t *testing.T) {
 	cases := []struct {
 		name string
 		in   string
 	}{
-		// `yolo run -p -- claude`, typed as the subcommand spelling.
-		{"the separator directly after -p", "run -p -- claude"},
-		// `yolo -p -- claude` as the front door delivers it: the injected "run" sits
-		// between -p and the separator, and is what -p used to swallow.
-		{"the injected run token", "-p run -- claude"},
-		{"the injected run token after run", "run -p run -- claude"},
-		{"a following flag", "run -p --new -- true"},
 		{"a trailing bare -p", "run -p"},
+		{"a trailing bare --profile", "run --profile"},
 		{"a trailing bare -p, no subcommand", "-p"},
+		{"a trailing bare --profile, no subcommand", "--profile"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var opts run.Options
-			err := parseRunArgs(strings.Fields(tc.in), &opts)
-			if !errors.Is(err, errProfileNameMissing) {
-				t.Fatalf("parseRunArgs(%q) error = %v, want errProfileNameMissing", tc.in, err)
-			}
+			parseRunArgs(strings.Fields(tc.in), &opts)
 			if opts.ProfileName != "" {
-				t.Errorf("ProfileName = %q, want none — -p must never guess a name", opts.ProfileName)
+				t.Errorf("parseRunArgs(%q).ProfileName = %q, want none", tc.in, opts.ProfileName)
 			}
-			if opts.Profile {
-				t.Error("Profile = true — the timing report is --profile's fallback, not -p's")
+			if opts.Timing {
+				t.Errorf("parseRunArgs(%q) set Timing — a nameless --profile no longer "+
+					"reports timings; that is --timing's job", tc.in)
+			}
+			if opts.Args != nil {
+				t.Errorf("parseRunArgs(%q).Args = %q, want nothing to start a command", tc.in, opts.Args)
 			}
 		})
 	}
 }
 
-// TestParseRunArgsStillReadsAProfileName pins the spellings the guard must not break,
-// in the two argv shapes the front door actually produces (an explicit `run` keeps its
-// leading token; the rewrite moves "run" next to the `--` instead).
-func TestParseRunArgsStillReadsAProfileName(t *testing.T) {
-	cases := []struct {
-		in   string
-		want string
-	}{
-		{"run -p dev -- claude", "dev"},
-		{"-p dev run -- claude", "dev"},
-		{"run -p=dev -- claude", "dev"},
-		// The glued form is the only way to name a profile "run": positionally, that
-		// token is indistinguishable from the injected one.
-		{"-p=run -- claude", "run"},
-		{"--profile dev -- true", "dev"},
-	}
-	for _, tc := range cases {
-		var opts run.Options
-		if err := parseRunArgs(strings.Fields(tc.in), &opts); err != nil {
-			t.Errorf("parseRunArgs(%q) error = %v, want a name", tc.in, err)
-			continue
-		}
-		if opts.ProfileName != tc.want {
-			t.Errorf("parseRunArgs(%q).ProfileName = %q, want %q", tc.in, opts.ProfileName, tc.want)
-		}
-	}
-	opts := run.Options{}
-	if err := parseRunArgs(strings.Fields("-p dev run -- claude"), &opts); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(opts.Args, []string{"claude"}) {
-		t.Errorf("Args = %q, want [claude] — the guard must not eat the command", opts.Args)
-	}
-	// --profile's own fallback is untouched: no argument at all still means timings,
-	// which is exactly the fallback -p must NOT share.
-	opts = run.Options{}
-	if err := parseRunArgs(strings.Fields("--profile run -- claude"), &opts); err != nil {
-		t.Fatal(err)
-	}
-	if !opts.Profile || opts.ProfileName != "" {
-		t.Errorf("--profile run → %+v, want the timing flag and no name", opts)
-	}
-}
-
-// TestRunRejectsAPWithoutAName drives the REAL entry point, because the pure parser
-// returning an error is worthless if runRun never looks at it — the exact
-// callee-pinned/call-site-unpinned shape this repo keeps shipping. The fixture config
-// is unparseable so that a runRun which LOST the check falls through to run.Run and
-// fails on the config (non-zero, no container) instead of launching one: the
-// assertion that stderr NAMES -p is what distinguishes the two failures.
-func TestRunRejectsAPWithoutAName(t *testing.T) {
+// TestRunHelpNeverClaimsAHelpTokenAfterProfileName drives the REAL entry point,
+// because the pure scanner's verdict is worthless if runRun never consults it — the
+// exact callee-pinned/call-site-unpinned shape this repo keeps shipping. A help
+// token directly after -p is a profile named "-h" (see TestParseRunArgsProfileTakesTheNextToken),
+// so run must NOT answer with its own usage; the fixture config is unparseable so
+// that a runRun which DID answer help (exit 0, usage printed) is distinguishable
+// from the run.Run failure (non-zero, the config error on stderr, no container).
+func TestRunHelpNeverClaimsAHelpTokenAfterProfileName(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "yolo-jail.jsonc"),
 		[]byte("{ this is not json"), 0o644); err != nil {
@@ -315,17 +331,20 @@ func TestRunRejectsAPWithoutAName(t *testing.T) {
 	t.Chdir(dir)
 
 	out, errOut := captureBoth(t, func() {
-		if rc := Main([]string{"yolo", "-p", "--", "claude"}); rc == 0 {
-			t.Error("Main([yolo -p -- claude]) = 0, want non-zero")
+		if rc := Main([]string{"yolo", "-p", "-h"}); rc == 0 {
+			t.Error("Main([yolo -p -h]) = 0, want non-zero — -h is a profile name here")
 		}
 	})
 	joined := out + errOut
-	if !strings.Contains(joined, "-p") {
-		t.Errorf("the refusal never names the flag, so the reader cannot tell which "+
-			"spelling was wrong:\nstdout: %s\nstderr: %s", out, errOut)
+	if strings.Contains(joined, "Usage: yolo run") {
+		t.Errorf("run answered its own help for a -p whose value is \"-h\":\nstdout: %s\nstderr: %s",
+			out, errOut)
 	}
-	if strings.Contains(joined, "not json") {
-		t.Errorf("run.Run ran — the -p check is not wired into runRun:\n%s", joined)
+	// run.Run's config load is the proof the launch pipeline was reached (and the
+	// json5 error never quotes the fixture, so "not json" cannot appear).
+	if !strings.Contains(joined, "Failed to parse yolo-jail.jsonc") {
+		t.Errorf("run.Run never ran — runRun stopped consulting the scanner or stopped "+
+			"parsing before launch:\n%s", joined)
 	}
 }
 
