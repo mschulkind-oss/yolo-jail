@@ -62,23 +62,26 @@ func renderedSurface(t *testing.T, dir string, rel ...string) []byte {
 // validates a value against a set YOLO owns; the defect is that the consumer owns a
 // different set, so the whole chain went green while writing values the agents refuse.
 //
-// THIS TEST LANDS RED, ON PURPOSE (provider-table-fidelity-plan.md build order step 1).
-// It is the regression test for three defects, and all three ship today:
+// This test LANDED RED, ON PURPOSE (commit cee9c1fc, per provider-table-fidelity-plan.md
+// build order step 1): it is the regression test for three defects that shipped, and the
+// step that fixed each turned its subtest green — A0 (7fa624ba) turned D10/D11 green, A3
+// (0f04632d) turned D1 green, and all four subtests are green as of A3.
 //
-//   - D1 (§3): codex renders `wire_api = "openai-chat"` — codex accepts `responses` only
+//   - D1 (§3): codex rendered `wire_api = "openai-chat"` — codex accepts `responses` only
 //     (`chat` was removed from the product; local-model-endpoints.md §"Codex CLI",
-//     source-verified 2026-08-20) — and pi renders `api = "openai-chat"`, which is in no
-//     pi registry (piBuiltinApis above). → the first two subtests
-//   - D11 (§3.5): the credential is named on `apiKeyEnv`, a field pi's
+//     source-verified 2026-08-20) — and pi rendered `api = "openai-chat"`, which is in no
+//     pi registry (piBuiltinApis above). → the first two subtests. A3 retired the
+//     four-value enum for the three canonical protocol names and gave each derive a
+//     dialect map, so a value reaches an agent only in that agent's own spelling — or the
+//     agent gets no entry at all.
+//   - D11 (§3.5): the credential was named on `apiKeyEnv`, a field pi's
 //     ProviderConfigSchema does not have (model-config.js — name, baseUrl, apiKey, api,
-//     oauth, headers, compat, authHeader, models, modelOverrides), so the provider has no
+//     oauth, headers, compat, authHeader, models, modelOverrides), so the provider had no
 //     configured credential at all. pi's indirection is the config-value syntax on
 //     `apiKey`. → the third subtest
 //   - D10 (§3.5): opencode reads `baseURL`/`apiKey` only inside a provider's `options`
 //     object (`provider.ts:82-94` of upstream v1.18.18 — the tag the shipped binary
-//     reports), and the derive writes them top-level. → the fourth subtest
-//
-// Plan A step A0 owns D10/D11 and step A3 owns D1; each turns its subtest green.
+//     reports), and the derive wrote them top-level. → the fourth subtest
 //
 // One launch, five packs. Selecting a pack RENDERS its surfaces and installs no CLI, so
 // the four agent packs plus zai cost one boot rather than four vendor installs
@@ -139,8 +142,9 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 	t.Run("codex renders only wire_api values codex accepts", func(t *testing.T) {
 		// `responses` is the only wire_api codex has: `chat` was deprecated 2025-12-09,
 		// non-functional by v0.92.0 and removed early Feb 2026, and the binary says so
-		// itself ("`wire_api = "chat"` is no longer supported"). Rendered verbatim from
-		// yolo's enum today, so this finds "openai-chat" — D1.
+		// itself ("`wire_api = "chat"` is no longer supported"). The red this subtest
+		// landed with (cee9c1fc) was `wire_api = "openai-chat"`, rendered verbatim from
+		// yolo's then-four-value enum — D1, closed by A3's dialect map.
 		for _, m := range wireAPIAssign.FindAllStringSubmatch(string(codexTOML), -1) {
 			if got := m[1]; got != "responses" {
 				t.Errorf("codex config.toml carries wire_api = %q, and codex accepts "+
@@ -217,9 +221,11 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 			t.Errorf("opencode's zai entry carries options.apiKey = %q; the credential must be "+
 				"under options too, and name ZAI_API_KEY (D10)", zai.Options.APIKey)
 		}
-		// The negative half of D10: the top-level spelling is what the derive emits today,
-		// and it is the part opencode ignores. Both halves must move together, or the fix
-		// reads green while the URL still never reaches the SDK.
+		// The negative half of D10: the top-level spelling is the part opencode ignores, and
+		// it is what the derive emitted before A0 (7fa624ba) moved both halves under
+		// `options`. Both halves must move together, or the fix reads green while the URL
+		// still never reaches the SDK — so this asserts the top-level keys are GONE, not
+		// merely that `options` exists.
 		if zai.BaseURL != "" {
 			t.Errorf("opencode's zai entry still carries a TOP-LEVEL baseURL = %q; opencode "+
 				"reads it only under options, so a value here is dead configuration (D10)", zai.BaseURL)
