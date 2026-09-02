@@ -11,7 +11,12 @@ side, and which yolo machinery would carry the config.
 see [Open Questions](#open-questions). Read §"Fast-moving — verify before
 building" first: this is the shortest-half-life doc in `docs/research/`, and
 several of its claims are expected to be stale within three months of the gather
-date.
+date. **Partial re-verification 2026-09-02**: the **pi** and **opencode**
+sections were re-read from source at the currently-installed versions (pi
+0.84.4, opencode 1.18.18) and dated subsections were added to each —
+[pi, 2026-09-02](#pi-2026-09-02-re-verification) and
+[opencode, 2026-09-02](#opencode-2026-09-02-re-verification). The other four
+agents' sections are still 2026-08-20 material.
 
 Every per-agent claim was verified against the **shipped implementation** — the
 installed binary or npm bundle in this jail — not just vendor docs, and carries a
@@ -77,8 +82,8 @@ Companion docs: [`agent-config-distribution.md`](./agent-config-distribution.md)
 |---|---|---|---|---|
 | **Copilot CLI** | OpenAI Chat Completions | **env vars only** | trivial | **Adopt** — documented BYOK, skips GitHub auth |
 | **Claude Code** | **Anthropic Messages** | **env vars only** | trivial | **Adopt** — llama-server speaks it natively |
-| **pi** | OpenAI Chat Completions | `~/.pi/agent/models.json` | one JSON file | **Adopt** — working precedent already on this machine |
-| **opencode** | OpenAI Chat Completions | `~/.config/opencode/opencode.json` | one JSON file | **Adopt** — adapter is compiled into the binary |
+| **pi** | OpenAI Chat Completions | `~/.pi/agent/models.json` *(2026-09-02: plus `~/.pi/agent/settings.json` for selection — see [below](#pi-2026-09-02-re-verification))* | one JSON file | **Adopt** — working precedent already on this machine |
+| **opencode** | OpenAI Chat Completions | `~/.config/opencode/opencode.json` *(2026-09-02: plus a `~/.local/state/opencode/model.json` fallback when `model` is unset — see [below](#opencode-2026-09-02-re-verification))* | one JSON file | **Adopt** — adapter is compiled into the binary |
 | **Codex CLI** | **OpenAI Responses** | `~/.codex/config.toml` | one TOML file + upstream risk | **Shortlist** — blocked on an unmerged llama.cpp PR |
 | **agy** | — | — | — | **Reject** — no provider extension point exists |
 
@@ -324,6 +329,119 @@ Details that matter:
   `[verified from source: dist/extensions/llama/client.js:144-175, 2026-08-20]`.
   Against a plain `-m model.gguf` server it finds zero models.
 
+#### <a id="pi-2026-09-02-re-verification"></a>2026-09-02 re-verification — the `api` vocabulary, selection, and what 0.84.4 changed
+
+Re-read from source at **pi 0.84.4** (`@earendil-works/pi-coding-agent` 0.84.4,
+which bundles `@earendil-works/pi-ai` 0.84.4; see
+[Sources](#sources)). Everything above this subsection is 2026-08-20 material
+gathered on **0.82.1**; the bullets below are what that pass did not know.
+
+**`api` is a free string resolved against a runtime registry, not an enum.**
+The registry is a plain `Map`
+(`@earendil-works/pi-ai/dist/compat.js:48`), populated by
+`registerApiProvider` / `getApiProvider` (`compat.js:65-77`) and seeded by
+`BUILTIN_APIS`
+(`compat.js:108-119`) with **exactly ten ids**:
+
+| `api` id | What it speaks |
+|---|---|
+| `anthropic-messages` | Anthropic Messages — `client.messages.create` (`dist/api/anthropic-messages.js:382`) |
+| **`openai-completions`** | **OpenAI Chat Completions** — `client.chat.completions.create` (`dist/api/openai-completions.js:213`) |
+| `openai-responses` | OpenAI Responses — `client.responses.create` (`dist/api/openai-responses.js:111`) |
+| `openai-codex-responses` | ChatGPT backend-api Responses over zstd-compressed SSE / websocket (`dist/api/openai-codex-responses.js:19-31`) |
+| `azure-openai-responses` | Azure Responses — `client.responses.create` (`dist/api/azure-openai-responses.js:85`) |
+| `google-generative-ai` | *id verified from `BUILTIN_APIS` only; transport not read* |
+| `google-vertex` | *id verified from `BUILTIN_APIS` only; transport not read* |
+| `mistral-conversations` | *id verified from `BUILTIN_APIS` only; transport not read* |
+| `bedrock-converse-stream` | *id verified from `BUILTIN_APIS` only; transport not read* |
+| `pi-messages` | pi's own protocol: `POST <baseUrl>/messages`, SSE of serialized assistant messages (`dist/api/pi-messages.js:1-9`) |
+
+`[verified from source: pi 0.84.4, compat.js:108-119 plus the per-api files
+cited, 2026-09-02]`. Extensions may register further ids at runtime, which is
+why "ten" is the *built-in* set and not a closed grammar.
+
+Three consequences for the llama.cpp case:
+
+- **`openai-completions` is the only id that means Chat Completions.**
+  `openai-chat` and bare `responses` are **not pi values** — `openai-chat`
+  appears nowhere in the 0.84.4 `dist/` or docs, and nothing assigns bare
+  `responses` as an `api` value. A config copied from another tool's vocabulary
+  loads without complaint and fails later (next bullet).
+- **An unknown `api` loads fine and dies on the first request.** The schema is
+  `Type.Optional(Type.String({ minLength: 1 }))` — no enum — at
+  `dist/core/model-config.js:139` (model level) and `:173` (provider level), so
+  config validation passes. The failure comes when the stream is opened:
+  `` throw new Error(`No API provider registered for api: ${model.api}`) ``
+  `dist/core/provider-composer.js:318-320`.
+- **There is no default.** `modelFromJson` resolves
+  `definition.api ?? providerConfig.api ?? defaults?.api` and throws otherwise —
+  *"Provider X, model Y: no 'api' specified. Set at provider or model level."*
+  `dist/core/provider-composer.js:48-52`. Omitting `api` is a composition
+  error, not a silent OpenAI assumption.
+
+**`apiKeyEnv` is dead config.** `ProviderConfigSchema`
+(`dist/core/model-config.js:169-180`) declares exactly `name`, `baseUrl`,
+`apiKey`, `api`, `oauth`, `headers`, `compat`, `authHeader`, `models`,
+`modelOverrides` — and no `apiKeyEnv`. The schema sets no
+`additionalProperties: false`, so an `apiKeyEnv` key is accepted, read by
+nothing, and silently ignored. The only `apiKeyEnv` in the bundle is a local
+variable inside `getEnvApiKey` (`pi-ai/dist/env-api-keys.js:120-126`), whose
+provider→env-var table (`env-api-keys.js:63`, a long literal map) is hardcoded
+for *built-in* providers and is not user-configurable. **The env indirection
+for a custom provider is the `apiKey` config-value syntax instead**:
+`"$ENV_VAR"` / `"${ENV_VAR}"` interpolate, `"!command"` executes, `$$` and `$!`
+escape `[docs: pi docs/custom-provider.md:186, 2026-09-02]`, spelled out with
+examples for `models.json` in `docs/models.md:147-170`.
+
+**Selection is a separate file from definition, and it is two bare ids.**
+`Settings` carries `defaultProvider?: string; defaultModel?: string;`
+(`dist/core/settings-manager.d.ts:69-73`), persisted to
+`<agentDir>/settings.json` (`dist/core/settings-manager.js:54`;
+`dist/config.js:439-442`; agent dir is `$PI_CODING_AGENT_DIR` or `~/.pi/agent`,
+`dist/config.js:420-426`). `defaultModel` is a **bare model id**, not
+`provider/model` — the resolver combines the two and uses the compound spelling
+only as a key into `modelThinkingLevels`
+(`dist/core/model-resolver.js:502-506`). Live on this machine:
+`"defaultProvider": "zai"`, `"defaultModel": "glm-5"` in
+`~/.pi/agent/settings.json`. Two corollaries for the projection design:
+
+- a `yolo.derive` that wants to *select*, not just define, must write two flat
+  keys into `settings.json` — it cannot emit one compound `model` string;
+- the saved default is honored **only if the provider resolves a credential**
+  (`model-resolver.js:501-504` → `dist/core/model-runtime.js:336-338` →
+  `checkProviderAuth`, which returns `undefined` when
+  `provider.auth.apiKey` is absent). The dummy-`apiKey` rule above is therefore
+  load-bearing for *selection* too, not only for `/model` listing.
+
+**Corrections to the 2026-08-20 material above, from the same re-read:**
+
+- **The `compat` block transcription is stale on one flag.** The example JSON
+  carries `supportsUsageInStreaming: false` because that is what pi 0.82.1's
+  built-in llama.cpp provider generated. In **0.84.4** the same block
+  (`dist/extensions/llama/provider.js:46-53`) says
+  **`supportsUsageInStreaming: true`**; the other five flags and
+  `maxTokensField: "max_tokens"` are unchanged. The example is therefore
+  conservative on that one flag, and `true` is what pi now generates for its own
+  llama provider.
+- **The same file stopped hardcoding the context window.** 0.84.4's llama
+  provider derives `contextWindow` from the server's reported
+  `meta.n_ctx` / `n_ctx_train` and sets `maxTokens` to the same value
+  (`provider.js:32-45`), falling back to 128000 only when the server reports
+  nothing. The 2026-08-20 advice to set both explicitly still stands for a
+  hand-written provider — the defaults remain `128000`/`16384`
+  (`provider-composer.js:72-73`).
+- **Cited line numbers have drifted** (same claims, new locations):
+  `baseUrl` passed straight to the SDK is now
+  `dist/api/openai-completions.js:575` (was `:505-510`); the llama compat block
+  is now `provider.js:46-53` (was `:18-35`, in a file rewritten around it).
+
+**Resolved from the 2026-08-20 UNCONFIRMED list:** pi's `samplingParams` —
+listed there as *absent from shipped 0.82.1* — **exists in 0.84.4**, as
+`Type.Optional(Type.Record(Type.String(), Type.Unknown()))` at
+`dist/core/model-config.js:147` (model level) and `:165` (model overrides), and
+is merged in `provider-composer.js:42-44`. It was a newer-release field, not a
+fork.
+
 ### opencode
 
 **Verdict: easy, and unusually container-friendly.** The
@@ -381,6 +499,87 @@ matters for a hermetic image. The official docs even carry a llama.cpp example.
   `[verified from source: bin/opencode, config loader, 2026-08-20]`.
 - `OPENAI_BASE_URL` will **not** redirect opencode: it passes an explicit
   `baseURL` into the factory for its built-in `openai` provider `[inferred]`.
+
+#### <a id="opencode-2026-09-02-re-verification"></a>2026-09-02 re-verification — how `model` is resolved (opencode 1.18.18)
+
+Re-read from source at **v1.18.18** — the version actually installed here
+(`opencode --version` → `1.18.18`; npm `opencode-ai` 1.18.18 and its
+`opencode-linux-x64` 1.18.18 both dated 2026-08-14), read against the source
+tree at commit `31406ccc51b4bd2a4e1e086b2bcaa5f7f804f26d`, the commit tagged
+`v1.18.18` (2026-08-13); see [Sources](#sources). Three cross-checks that the
+checkout is the shipped code: the binary embeds the schema description text
+*"Model to use in the format of provider/model"* verbatim (`config.ts:75`);
+a copy of the served `opencode.ai/config.json` has a `Config` definition whose
+property list matches `packages/core/src/v1/config/config.ts` field-for-field;
+and the binary contains the literal error strings the source formats
+(`Did you mean: `, `AZURE_RESOURCE_NAME is missing`).
+
+> [!WARNING]
+> **Correction (2026-09-02).** The 2026-08-20 citations in this section name
+> `opencode-linux-x64@1.18.19`. The artifact of that name on this machine is
+> **1.18.18** (npm `opencode-linux-x64` 1.18.18, files dated 2026-08-14), and it
+> is the only opencode binary here — the launcher's
+> `~/.cache/opencode/bin/` is empty. Either the binary changed under the
+> citation or the number was transcribed wrong; the version the findings below
+> describe is **1.18.18**.
+
+Everything below is what the 2026-08-20 pass did not establish.
+
+- **`model` is a single top-level string, split on the first slash.** Schema:
+  `model: Schema.optional(Schema.String)` annotated *"Model to use in the format
+  of provider/model, eg anthropic/claude-2"*
+  (`packages/core/src/v1/config/config.ts:74-76`; `small_model` beside it at
+  `:77-79`). The split is `ModelV2.parse`:
+  `const [providerID, ...modelID] = input.split("/")`, with the remainder
+  **re-joined** with `/` (`packages/core/src/model.ts:33-39`) — so the provider
+  prefix is everything before the **first** slash and the model id may itself
+  contain slashes. A live example from this machine's
+  `~/.local/state/opencode/model.json`: `providerID: "kilo"`,
+  `modelID: "deepseek/deepseek-v4-pro-0813"`.
+- **An unknown prefix is a hard `ModelNotFoundError` with no fallback.**
+  `getModel` looks up `s.providers[providerID]` and returns the tagged error
+  `"ProviderModelNotFoundError"` when absent
+  (`packages/opencode/src/provider/provider.ts:1811-1822`); the message carries
+  fuzzy *suggestions*, never a substitute model (`:1099-1108`). Note that the
+  config value is **not** validated on the way in: `defaultModel` returns
+  `parseModel(cfg.model)` unvalidated (`provider.ts:1947-1949`), and the error
+  only surfaces when an agent resolves the model
+  (`packages/opencode/src/agent/agent.ts:373-374`). A typo in `model` is a
+  first-session failure, not a config-load failure.
+- **`baseURL` and `apiKey` are read only under `options`.** A v1 provider entry
+  has exactly `api`, `name`, `env`, `id`, `npm`, `whitelist`, `blacklist`,
+  `options`, `models`
+  (`packages/core/src/v1/config/provider.ts:82-126`), and `apiKey` /
+  `baseURL` are the first two fields of the nested `options` struct
+  (`:90-94`). The shipped `$schema` agrees: `$defs.ProviderConfig` →
+  `properties.options.properties.{apiKey, baseURL}`. There is no top-level
+  `baseURL` on a provider to confuse with the OpenAI SDK's spelling.
+- **Unset `model` falls back to the persisted interactive choice.**
+  `defaultModel` (`provider.ts:1947-1980`) resolves in order: (1) `cfg.model`;
+  (2) the `recent` array in `<state>/model.json`, taking the first entry whose
+  provider **and** model still exist; (3) the first configured provider's first
+  model under opencode's `sort` — priority ids `gpt-5`, `claude-sonnet-4`,
+  `big-pickle`, `gemini-3-pro` first, then id descending
+  (`:1986-1995`); else `NoProvidersError` / `NoModelsError`. `<state>` is
+  `xdgState/opencode` (`packages/core/src/global.ts:14`), i.e.
+  `~/.local/state/opencode/model.json` — a path the source names in its own
+  comment (`packages/opencode/src/cli/cmd/run/variant.shared.ts:6`).
+
+**What this changes for the projection.** The 2026-08-20 recipe writes
+`provider` + `model` + `small_model` into `opencode.json` and is still correct,
+but it is now clear that **`model` is load-bearing in a way `provider` is not**:
+a config that defines a local provider and leaves `model` unset silently
+inherits whatever the interactive TUI last picked — normally a hosted model —
+because the state file is consulted *before* any "first configured provider"
+guess. A projection that wants local-only inference must therefore write
+`model` explicitly, and should know that `~/.local/state/opencode/model.json`
+is a runtime file no yolo surface covers: it lives under `$XDG_STATE_HOME`, the
+TUI rewrites it on every interactive model switch, and while an explicit config
+`model` beats it, the moment that key is dropped the agent silently reverts to
+its last interactive choice. It is the same two-writers shape
+[OQ-LM6](#oq-lm6) worries about, on the *selection* axis rather than the
+definition one — except that here the second writer is the agent itself, so no
+mount-level gate can close it.
 
 ### Codex CLI
 
@@ -819,6 +1018,16 @@ Ranked by how likely each is to be stale within three months.
 8. **`--tools`/`--agent`** are explicitly experimental **and a security landmine**
    (`exec_shell_command`, `write_file` over HTTP). Do not enable on anything
    network-reachable.
+9. **pi's built-in llama.cpp `compat` block.** Proven within this doc's own
+   lifetime: `supportsUsageInStreaming` flipped `false` → `true` between pi
+   0.82.1 (gathered 2026-08-20) and 0.84.4 (re-read 2026-09-02), and the same
+   file stopped hardcoding the context window. Transcribing it once and keeping
+   the transcription is not safe — re-read
+   `dist/extensions/llama/provider.js` at whatever version ships
+   (see [pi, 2026-09-02](#pi-2026-09-02-re-verification)).
+10. **pi's `api` id vocabulary.** A free string checked against a registry only
+    at request time, so a vocabulary change is invisible until the first turn
+    fails (see [pi, 2026-09-02](#pi-2026-09-02-re-verification)).
 
 ---
 
@@ -846,13 +1055,21 @@ Carry these forward; do not build on them without re-checking.
   it applies to them. Almost certainly a version delta (2.1.223+), not re-verified.
 - Whether a config-only opencode custom provider appears in `/models` with no
   `/connect` step. If it doesn't, run `/connect → Other` with a dummy key.
+  *(Re-checked 2026-09-02: still unconfirmed — the re-read covered model
+  resolution, not the `/models` list filter.)*
 - Codex: whether the *"only supports changing `base_url`, `auth`, `http_headers`…"*
   restriction applies to built-in provider IDs only (the reading here) or to all
   entries. A 30-second `codex doctor` check settles it.
 - Whether llama.cpp's context-overflow error string matches pi's compaction
   patterns. Given the non-OpenAI error type, **assume not**.
-- pi's `samplingParams` appears in web results but is **absent from shipped
-  0.82.1** — likely a fork or newer release. It would fail schema validation today.
+- ~~pi's `samplingParams` appears in web results but is **absent from shipped
+  0.82.1** — likely a fork or newer release. It would fail schema validation
+  today.~~ **Resolved 2026-09-02:** it was a newer-release field. `samplingParams`
+  exists in pi 0.84.4
+  (`Type.Record(Type.String(), Type.Unknown())` at
+  `dist/core/model-config.js:147`, merged in
+  `dist/core/provider-composer.js:42-44`) — see
+  [pi, 2026-09-02](#pi-2026-09-02-re-verification).
 
 ---
 
@@ -973,7 +1190,37 @@ implementation agreed with them.
 - `@earendil-works/pi-coding-agent` 0.82.1 `dist/` — the compiled TypeBox schema
   at `core/model-config.js:112-176` is authoritative over the prose docs.
 - `opencode-linux-x64@1.18.19` `bin/opencode` — proves the SDK adapter is
-  in-binary, and is the source of every defaults claim.
+  in-binary, and is the source of every defaults claim. *(2026-09-02: the
+  version number in this line is wrong — the artifact of that name on this
+  machine is 1.18.18, files dated 2026-08-14; see the
+  [opencode correction](#opencode-2026-09-02-re-verification).)*
+
+**Added 2026-09-02** (the re-verification pass):
+
+- `@earendil-works/pi-coding-agent` **0.84.4**, staged at
+  `/tmp/pi-scout/lib/node_modules/@earendil-works/pi-coding-agent` (scout
+  scratch; re-create with
+  `npm i @earendil-works/pi-coding-agent@0.84.4`). Bundles
+  `@earendil-works/pi-ai` 0.84.4. Source of the `BUILTIN_APIS` table, the
+  free-string `api` schema, the no-default error, the dead-`apiKeyEnv` result,
+  and the `supportsUsageInStreaming` drift.
+- pi's shipped prose docs, same tree: `docs/custom-provider.md:186` (the
+  `apiKey` config-value syntax) and `docs/models.md:147-170` (the same, spelled
+  out for `models.json`).
+- opencode source at `31406ccc51b4bd2a4e1e086b2bcaa5f7f804f26d` — the commit
+  tagged `v1.18.18` in `https://github.com/anomalyco/opencode`, checked out at
+  `/tmp/opencode-repo`. Source of the `model` split, the
+  `ModelNotFoundError` path, the `options`-only `baseURL`/`apiKey` fields, and
+  the `defaultModel` fallback chain. Matched to the installed binary by version
+  string, by the shipped `$schema`'s `Config` property list, and by literal
+  error strings present in the binary.
+- `/tmp/opencode-config-schema.json` — a fetched copy of
+  `https://opencode.ai/config.json`, the `$schema` the shipped binary publishes;
+  `$defs.ProviderConfig` is the independent confirmation that `apiKey` /
+  `baseURL` live only under `options`.
+- `~/.pi/agent/settings.json` and `~/.local/state/opencode/model.json` — the
+  live selection state on this machine, quoted as evidence for the two-bare-ids
+  and recent-model claims.
 - `~/.local/bin/agy` 1.1.7 — proves the *absence* of any base-URL/API-key var
   and the closed transport enum. A negative result, read from the binary.
 - `~/.pi/agent/models.json` — the live, working custom-provider precedent on this
