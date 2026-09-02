@@ -8,7 +8,14 @@ summary: "Config approval previously diffed the merged (user + workspace) config
 
 # Workspace Config Approvals: Approving Agent Edits, Trusting Host User Config
 
-**Status:** DECIDED 2026-08-29. Nothing built.
+**Status:** DECIDED 2026-08-29, **and built the same day** (`27b335ce` — this line said "Nothing
+built" because it was written 77 minutes before the implementation landed, and was never updated).
+Verified 2026-09-02: `CheckConfigChanges` takes workspace-only config at both call sites
+(`internal/cli/run/run.go:210,557` via `LoadWorkspaceConfig`), the legacy-marker branch and
+`retireLegacyWorkspaceSnapshot` are deleted, a fresh non-empty workspace prompts
+(`internal/config/snapshot.go:211–222`), and `yolo check --accept-config-changes` is wired
+(`internal/cli/check/checkcmd.go:56-57`). The `TestCheckConfigChanges*` suite pins every branch,
+including `FreshWorkspaceNonTTYRefuses` and `FreshWorkspaceRefusedRecordsNoSnapshot`.
 
 **The short version.** Config change confirmation previously diffed the fully merged config against a per-workspace snapshot (`~/.local/share/yolo-jail/approvals/<container-name>.json`). Adding a user-level setting—such as the `serial` loophole in `~/.config/yolo-jail/config.jsonc`—forced a repetitive approval prompt across every existing workspace jail on the machine. We eliminate approval gating for host user config (which the human already authored with host privileges) and scope the approval baseline strictly to workspace configuration (`yolo-jail.jsonc` + `.local.jsonc`). Workspace config edits require confirmation, and brand-new workspace launches confirm their initial configuration.
 

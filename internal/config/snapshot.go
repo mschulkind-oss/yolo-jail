@@ -47,29 +47,16 @@ func ApprovalSnapshotPath(workspace string) string {
 // LegacyWorkspaceSnapshotPath is where the approval snapshot lived BEFORE OQ-D1:
 // <workspace>/.yolo/config-snapshot.json.
 //
-// It survives only as a MIGRATION SIGNAL, and it is never read as a baseline. Its
-// content is exactly what the ruling declares untrustworthy — a file the jail
-// could have written — so adopting it once "to avoid a prompt" would carry the
-// defect across the very change that closes it. Its PRESENCE is what we read
-// instead: it says this workspace has been launched before, so the absence of a
-// host-side record is a migration and not a first run. That distinction matters,
-// because first run accepts silently and a migration must not.
+// NOTHING IN PRODUCTION READS IT ANY MORE — neither its content nor its
+// presence. It briefly survived OQ-D1 as a migration signal (presence meant "not
+// a first run"), which left a residual hole: an agent could delete it alongside
+// a config edit and pass the edit off as a silent first run. OQ-S3
+// (docs/design/scoped-config-approvals.md) closed that on 2026-08-29 by making a
+// fresh workspace with a NON-EMPTY config prompt regardless, at which point the
+// signal meant nothing and CheckConfigChanges stopped consulting it.
 //
-// KNOWN RESIDUAL HOLE, stated rather than implied. Presence is not more
-// trustworthy than content — it is the same bit, held by the same rw bind mount.
-// An agent that edits yolo-jail.jsonc AND deletes this file turns its own change
-// into a genuine-looking first run, which accepts silently and records the result
-// as approved. The window is per-workspace and one-shot (it closes the first time
-// a host-side record is written) but it is open on every workspace that has not
-// been launched since OQ-D1 landed, which on upgrade day is all of them.
-//
-// It is documented and not closed because closing it is a DESIGN decision, not a
-// bug fix: there is no host-side per-workspace artifact that predates the ruling
-// and survives (paths.ContainerDir's tracking files are pruned when the container
-// stops, and paths.AgentsDir's staging is recreated by THIS launch before the gate
-// runs), so the only sound repair is to stop letting a missing record mean "first
-// run" — i.e. to prompt on the very first launch of a brand-new workspace, which
-// docs/design/config-safety.md deliberately ruled against.
+// The function is kept for the tests that assert the old path is never written
+// again (a regression here would silently resurrect a jail-writable record).
 func LegacyWorkspaceSnapshotPath(workspace string) string {
 	if workspace == "" {
 		workspace = cwd()
