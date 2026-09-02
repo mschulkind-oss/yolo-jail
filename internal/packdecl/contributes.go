@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Contribution is one typed effect a pack declares. Exactly one kind per entry;
@@ -285,6 +286,65 @@ func KnownVias() []string {
 // ("npm or installer"), so the message cannot outlive the vocabulary it quotes.
 func viaList() string {
 	return strings.Join(KnownVias(), " or ")
+}
+
+// NpmPackageProblem reports why an npm `package` selector is unusable, or "" when its
+// SHAPE is fine.
+//
+// A SHAPE check and deliberately nothing more. It refuses the spellings npm itself
+// refuses — whitespace, a quote, a doubled `@` — and asks no further question: whether
+// the name exists, whether the version resolves, and whether a range is a good idea are
+// registry and policy questions, and a manifest validator that answered them would
+// either need the network or would encode a version policy nobody ruled on. Anything
+// npm would accept, this accepts: `@scope/name`, `@scope/name@1.2.3`, `name@latest`,
+// `name@^1.0.0` all pass.
+//
+// It exists because the field was checked for PRESENCE ONLY, and the value's next reader
+// is the in-jail launcher, where diagnosis is worst. internal/entrypoint's splitNpmSpec
+// returns the version selector VERBATIM by design (npm accepts an exact version, a
+// dist-tag and a range in the same position, and choosing between them is not that
+// function's business), so npmInstallSpec reconstructs a typo like `foo@@1.2.3`
+// unchanged and hands it to `npm install -g` inside the container — a failure the pack
+// author never sees. The shape is knowable on the HOST, at authoring time, from the
+// string alone; that is what this moves.
+//
+// Version-invariant, like validateSupersedes' rules and unlike a closed enum: every
+// spelling refused here is a typo both ends of a version boundary agree about, so it is
+// safe on the tolerant decode path too and cannot become the `tier` incident again.
+func NpmPackageProblem(pkg string) string {
+	if pkg == "" {
+		return "" // empty is the required-field check's own message
+	}
+	for _, r := range pkg {
+		switch {
+		case unicode.IsSpace(r):
+			return fmt.Sprintf("contains whitespace (U+%04X) — npm resolves the whole string as "+
+				"one package selector, so a space makes it name nothing", r)
+		case r == '"' || r == '\'' || r == '`':
+			return fmt.Sprintf("contains a quote (%q) — a selector is not shell-quoted; the "+
+				"quote would become part of the package name npm looks up", r)
+		case r < 0x20 || r == 0x7f:
+			return fmt.Sprintf("contains a control character (U+%04X)", r)
+		}
+	}
+	// A DOUBLED `@` ANYWHERE, tested as a substring rather than only at the separator
+	// position. `@` is legal in exactly two places — a scope's leading character and the
+	// one version separator — so two adjacent ones are never a selector npm resolves,
+	// whether they land as `foo@@1.2.3` (an empty version) or `@@scope/name` (a scope
+	// whose name starts with `@`). One substring test covers both, and a positional
+	// version would have to re-derive splitNpmSpec's separator rule to say less.
+	//
+	// A TRAILING `@` is deliberately NOT refused: `npm install foo@` is an error, but the
+	// value never reaches npm that way — internal/entrypoint's splitNpmSpec reads it as
+	// "no version at all", on the stated grounds that the author's evident intent is the
+	// unversioned package, so npmInstallSpec renders `foo@latest`. Refusing here would
+	// break an accommodation that already ships, which is stricter than the shapes npm
+	// itself refuses.
+	if strings.Contains(pkg, "@@") {
+		return "has a doubled \"@\" — `@` is legal only as a scope's first character and as " +
+			"the one version separator, so `name@@1.2.3` asks npm for an empty version"
+	}
+	return ""
 }
 
 // installKindFor returns the legacy Install.Kind a via renders as, and "" for a via
@@ -1244,6 +1304,15 @@ func validateContribution(label string, c Contribution) []string {
 			problems = append(problems, fmt.Sprintf("%s: unknown via %q (%s)", label, c.Via, viaList()))
 		case c.Via == "npm":
 			req("package", c.Package)
+			// PRESENCE was the whole check until 2026-09-02, and presence is not enough: the
+			// value's next reader is the in-jail launcher, which reconstructs the selector
+			// VERBATIM (entrypoint's splitNpmSpec/npmInstallSpec) and hands it to
+			// `npm install -g` inside the container, where the author never sees the failure.
+			// The SHAPE is decidable here, from the string alone, with no registry and no
+			// version policy — see NpmPackageProblem for exactly how far it goes.
+			if prob := NpmPackageProblem(c.Package); prob != "" {
+				problems = append(problems, fmt.Sprintf("%s.package %q: %s", label, c.Package, prob))
+			}
 		case c.Via == "installer":
 			req("url", c.URL)
 		}
