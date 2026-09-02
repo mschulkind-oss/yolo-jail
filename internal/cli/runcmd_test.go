@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"go/ast"
+	"go/token"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -220,6 +222,102 @@ func TestRunUsageListsEveryRunFlag(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("runFlags is stale: parseRunArgs consumes %v, runFlags says %v", got, want)
 	}
+}
+
+// TestRunRunParsesArgvIntoTheOptionsItLaunches pins parseRunArgs's CALL SITE,
+// which nothing else in this package pins.
+//
+// Every other test here drives the pure parser directly, so the whole run flag
+// surface — --new, --timing, --profile/-p, --pack-profile, --dry-run,
+// --accept-config-changes, --network and the post-`--` command argv — could be
+// switched off wholesale with `just test-fast` green if runRun simply stopped
+// consulting it. That is the callee-pinned / call-site-unpinned shape AGENTS.md
+// documents this repo shipping five times, and it is not hypothetical: deleting
+// `parseRunArgs(args, &opts)` from runRun left this package's short suite green
+// at `5afbb592`. The Main-driven help test does not fill the gap — it pins
+// runHelp's edge, which subhelp_test's registry probe pins independently.
+//
+// No behavioral unit pin is reachable instead. Every field parseRunArgs sets is
+// first observable inside run.Run, past the config gate, the runtime probe and
+// pack staging, and the one pre-launch refusal the parse used to make
+// (errProfileNameMissing) is gone with the heuristic that needed it. So the
+// cheapest test that fails on the deletion reads the call out of the source,
+// exactly as parseCLISource reads the registry out of dispatch.go — and as a
+// side effect it is what keeps TestUsageListsEveryParsedFlag's one hop of
+// delegation (runRun → parseRunArgs) from going vacuous: the hop is where run's
+// documented flag inventory comes from, so a handler that no longer delegates
+// documents nothing.
+func TestRunRunParsesArgvIntoTheOptionsItLaunches(t *testing.T) {
+	_, funcs := parseCLISource(t)
+	runRun, ok := funcs["runRun"]
+	if !ok {
+		t.Fatal("runRun is gone — run's flags have no consumer")
+	}
+	parsed, launched := optionsFlow(runRun)
+	// "_" counts as missing: an Options handed to the parser and thrown away is
+	// the subtler version of not consulting it at all.
+	if parsed == "" || parsed == "_" {
+		t.Errorf("runRun never passes a plain Options variable to parseRunArgs (got %q) — "+
+			"run's flags are read by nobody", parsed)
+	}
+	if launched == "" || launched == "_" {
+		t.Errorf("runRun never passes a plain Options variable to run.Run (got %q)", launched)
+	}
+	if parsed != "" && launched != "" && parsed != launched {
+		t.Errorf("runRun parses argv into %s but launches %s — the parse never reaches "+
+			"the launch, so no run flag has any effect", parsed, launched)
+	}
+}
+
+// optionsFlow reports the Options variable fn parses argv into (the second
+// argument of a call to parseRunArgs) and the one it launches (the first argument
+// of a call to run.Run), unwrapping the `&` the parser's pointer parameter puts
+// on the first. "" where a call is absent or names anything but a plain
+// identifier — a composite literal, a selector, `_` — so the caller can tell
+// "pins a variable it never launched" from "pins nothing".
+func optionsFlow(fn *ast.FuncDecl) (parsed, launched string) {
+	ast.Inspect(fn, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		switch pkg, name := calleeName(call); {
+		case pkg == "" && name == "parseRunArgs" && len(call.Args) >= 2:
+			parsed = identArg(call.Args[1])
+		case pkg == "run" && name == "Run" && len(call.Args) >= 1:
+			launched = identArg(call.Args[0])
+		}
+		return true
+	})
+	return parsed, launched
+}
+
+// calleeName names a call's callee as a (package, function) pair, "" for the
+// package of an unqualified — therefore same-package — call. That is the same
+// distinction parsedFlagLiterals draws when it decides what counts as a delegated
+// parser, and it is why run.Run needs the qualifier while parseRunArgs does not.
+func calleeName(call *ast.CallExpr) (pkg, name string) {
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		return "", fn.Name
+	case *ast.SelectorExpr:
+		if x, ok := fn.X.(*ast.Ident); ok {
+			return x.Name, fn.Sel.Name
+		}
+	}
+	return "", ""
+}
+
+// identArg names the variable an argument refers to, looking through the `&` of
+// an address-of. "" for anything else.
+func identArg(e ast.Expr) string {
+	if u, ok := e.(*ast.UnaryExpr); ok && u.Op == token.AND {
+		e = u.X
+	}
+	if id, ok := e.(*ast.Ident); ok {
+		return id.Name
+	}
+	return ""
 }
 
 // THE PROFILE SELECTOR, AFTER OQ-PT5 (provider-table-fidelity.md §5.2). The
