@@ -91,7 +91,7 @@ In `~/.config/yolo-jail/config.jsonc` (or workspace `yolo-jail.jsonc`):
   "providers": {
     "glm": {
       "base_url": "https://open.bigmodel.cn/api/paas/v4",
-      "wire_api": "openai_completions",
+      "wire_api": "openai-chat-completions",
       "api_key_env": "GLM_API_KEY",
       "models": {
         "default": "glm-4-plus",
@@ -99,7 +99,7 @@ In `~/.config/yolo-jail/config.jsonc` (or workspace `yolo-jail.jsonc`):
       }
     },
     "bedrock": {
-      "wire_api": "anthropic_bedrock",
+      "wire_api": "anthropic",
       "region": "us-east-1",
       "models": {
         "default": "us.anthropic.claude-opus-5[1m]",
@@ -108,7 +108,7 @@ In `~/.config/yolo-jail/config.jsonc` (or workspace `yolo-jail.jsonc`):
     },
     "deepseek": {
       "base_url": "https://api.deepseek.com/v1",
-      "wire_api": "openai_completions",
+      "wire_api": "openai-chat-completions",
       "api_key_env": "DEEPSEEK_API_KEY",
       "models": {
         "default": "deepseek-coder",
@@ -126,6 +126,33 @@ In `~/.config/yolo-jail/config.jsonc` (or workspace `yolo-jail.jsonc`):
   }
 }
 ```
+
+> **CORRECTED 2026-09-02 — the `wire_api` spellings this example shipped with were never valid.**
+> The original text held `openai_completions` (twice) and `anthropic_bedrock`. Neither was ever a
+> member of any closed enum the tree enforced, and neither is a value any agent reads:
+> `openai_completions` differs from pi's real value `openai-completions` by one underscore, and
+> `anthropic_bedrock` names no protocol at all. The honest history is three steps. Until
+> 2026-09-01 (`0bc29bd5`) `wire_api` carried no closed vocabulary — any spelling passed the
+> validator's string-type check — so nothing accepted or rejected either value, and it crossed
+> into the agents' config files verbatim, failing at first request. `0bc29bd5` introduced the
+> first closed enum
+> (`anthropic`, `openai-chat`, `openai-completions`, `responses`) and never held either
+> underscore spelling; the same commit had to re-spell `internal/config`'s test fixture, which had
+> used the same two values. `0f04632d` (2026-09-02) then replaced that four-value union of
+> borrowed dialects with the **canonical protocol vocabulary** this example now uses —
+> `anthropic`, `openai-chat-completions`, `openai-responses` — three names chosen to be
+> **nobody's dialect** (defined: a name that names a protocol, never a value an agent's config
+> file reads), so a value cannot pass through and work by accident
+> ([`provider-table-fidelity.md`](provider-table-fidelity.md) §3.0a, OQ-PT1). Translation, not
+> pass-through, is the contract: each derive maps canonical → its own agent's spelling and emits
+> nothing for a protocol that agent cannot speak (§3.4) — which is also why the Codex row of §5.1
+> still says `responses`: that is codex's own dialect, the derive's output, not yolo's input.
+>
+> Two other keys in this example are stale and left as written, since renaming them is not this
+> note's job: `api_key_env` became `api_key_env_name` on 2026-09-01 (now an ordinary unknown key),
+> and `agent_profiles` became `pack_profiles` on 2026-09-01 and `use_profiles` on 2026-09-02
+> (still named by the validator, but only
+> to emit its rename message) — see the key censuses in `internal/config/config.go`.
 
 ### 4.2 Launch-time CLI Swapping & Ergonomics
 

@@ -151,6 +151,23 @@ existing check or gives an existing namespace the check its neighbours already h
 | **After** | `[FAIL] config.providers.bedrock.wire_api: unknown protocol 'totally-not-a-wire-api' — expected one of: anthropic, openai-chat, openai-completions, responses` |
 | **Where** | `yolo check`, at parse time. It is a closed enum; nothing needs resolving. |
 
+> **CORRECTED 2026-09-02 by OQ-PT1 in [`provider-table-fidelity.md`](provider-table-fidelity.md)
+> §3.0a/§3.1.** This mock-up is where the enum's four values were minted, and the list it quoted is
+> retired: `anthropic`, `openai-chat`, `openai-completions` and `responses` were the union of the
+> spellings three agents happened to use, in which two names covered ONE protocol and the protocol
+> pi and codex really differ over had only codex's spelling. The vocabulary is now three
+> **canonical protocol names** — `anthropic`, `openai-chat-completions`, `openai-responses` —
+> chosen to be **nobody's dialect** (defined: a name that names a protocol, never a value an
+> agent's config file reads). Translation, not pass-through, is the contract: each derive maps
+> canonical → its own agent's spelling and emits nothing for a protocol that agent cannot speak
+> (§3.4). "The value lands verbatim" in the **Today** row describes a world that ended twice:
+> `0bc29bd5` (2026-09-01) began refusing values outside the set, and `0f04632d` (2026-09-02) made
+> the derives translate a value inside it. The one part of the mock-up that was ever load-bearing
+> can no longer go stale the way it just did: `validateWireAPI` renders its list by asking
+> `packdecl.KnownWireAPIs` rather than quoting a frozen literal
+> ([`validate.go`](../../internal/config/validate.go) `validateWireAPI`), so the message tracks
+> the vocabulary instead of outliving it.
+
 ### 4.3 A credential in a URL
 
 | | |
@@ -227,6 +244,15 @@ The honest list. Each of these is a config that launches now and will not after.
 | A pack superseding a capability nothing serves | warns, launch proceeds | **refused at launch** | fix the capability name, or drop the `supersedes` |
 | An active profile whose key was never hydrated | launches, fails at the agent | **refused** | populate the `env_sources` file |
 | A pack tree newer than the image | any of the above, unexplained | **refused, naming `just load`** | `just load` on the host |
+
+> **CORRECTED 2026-09-02 by OQ-PT1 in [`provider-table-fidelity.md`](provider-table-fidelity.md)
+> §3.0a/§3.4.** Row 2's "four known protocols" and its recovery column are both retired. The
+> vocabulary is the three canonical names above (§4.2's note), and adding one is **not** "a
+> one-line enum addition": it is a line in `packdecl`'s `knownWireAPIs` **plus a dialect row in
+> every derive that can speak it**, because a protocol no derive translates is a name in the list
+> that delivers nothing to any agent. That cost is the point of OQ-PT1 — a canonical name that
+> nobody translates is worthless by construction, so the enum may no longer grow ahead of the
+> derives that would give it meaning.
 
 > [!WARNING]
 > **Row 4 is the behaviour change with the widest blast radius**, because a supersession is how a
