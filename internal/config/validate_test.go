@@ -677,69 +677,15 @@ func TestValidateProvidersEndpoints(t *testing.T) {
 	}
 }
 
-// OQ-15 (profiles-as-pack-variants.md §14): `env_shape` is a service fact like
-// endpoints and models, so user config may override it — the validator refusing the key
-// while ComposeProviders merged it was a vocabulary disagreement, not a rule. The
-// PLACEHOLDER vocabulary stays closed, and it is packdecl's own check that enforces it
-// here, so a user-written shape and a pack-shipped one are judged by the same function
-// and cannot drift.
-func TestValidateProvidersEnvShape(t *testing.T) {
-	valid := `{"bedrock": {"env_shape": {"anthropic": {
-		"AWS_REGION": "{region}",
-		"ANTHROPIC_BASE_URL": "{endpoint}",
-		"ANTHROPIC_AUTH_TOKEN": "{key}",
-		"ANTHROPIC_DEFAULT_SONNET_MODEL": "{model:sonnet}"
-	}}}}`
-	if errs := providerErrors(t, valid); len(errs) != 0 {
-		t.Errorf("every legal placeholder should pass, got: %v", errs)
-	}
-
-	// The refusal names the var that carries the bad template and the allowed set —
-	// the user has to be able to fix the line from the message alone.
-	errs := providerErrors(t, `{"bedrock": {"env_shape": {"anthropic": {
-		"ANTHROPIC_AUTH_TOKEN": "Bearer {key}"
-	}}}}`)
-	if len(errs) != 1 {
-		t.Fatalf("want exactly one placeholder refusal, got: %v", errs)
-	}
-	for _, want := range []string{"ANTHROPIC_AUTH_TOKEN", `{endpoint}`, `{key}`, `{region}`, `{model:<alias>}`} {
-		if !strings.Contains(errs[0], want) {
-			t.Errorf("refusal should name %s: %s", want, errs[0])
-		}
-	}
-
-	// A literal is the same refusal: there is no static form in a shape, only
-	// placeholders resolved from the provider's own entry (§4.2's escape hatch is a
-	// profile's `env`, not this field).
-	if errs := providerErrors(t, `{"zai": {"env_shape": {"openai": {
-		"OPENAI_BASE_URL": "https://api.z.ai/api/paas/v4"}}}}`); len(errs) != 1 {
-		t.Errorf("a literal value is a template the composer silently drops, want a refusal, got: %v", errs)
-	}
-
-	// Structure is schema, like endpoints one level up.
-	for _, body := range []string{
-		`{"zai": {"env_shape": "https://api.z.ai/api/paas/v4"}}`,
-		`{"zai": {"env_shape": {"openai": "https://api.z.ai/api/paas/v4"}}}`,
-		`{"zai": {"env_shape": {"openai": {"OPENAI_BASE_URL": 4}}}}`,
-	} {
-		if errs := providerErrors(t, body); len(errs) == 0 {
-			t.Errorf("expected a refusal for %s", body)
-		}
-	}
-
-	// Null is "absent", the convention every other provider key follows.
-	if errs := providerErrors(t, `{"zai": {"env_shape": null}}`); len(errs) != 0 {
-		t.Errorf("a null env_shape should be inert, got: %v", errs)
-	}
-}
-
-// The override is the user's own, so the key must be IN the census — an env_shape that
-// passed the placeholder check but died on "unknown key" would be the disagreement
-// OQ-15 records, one spelling of it further down.
-func TestValidateProvidersEnvShapeIsAKnownKey(t *testing.T) {
-	if _, known := knownProviderKeys["env_shape"]; !known {
-		t.Error("`env_shape` must be in knownProviderKeys, or a valid user shape is " +
-			"refused as an unknown key after passing the placeholder check")
+// OQ-CS8 deleted the env_shape vocabulary whole (2026-09-02): the provider→environment
+// binding lives in the agent pack's derive.lua now, so a user `env_shape` key is an
+// ordinary unknown key — the same refusal every other retired spelling gets, pinned
+// here so the retirement cannot silently re-admit it.
+func TestValidateProvidersEnvShapeIsRetired(t *testing.T) {
+	errs := providerErrors(t, `{"bedrock": {"env_shape": {"anthropic": {"AWS_REGION": "{region}"}}}}`)
+	if len(errs) == 0 {
+		t.Error("`env_shape` was deleted with its vocabulary (OQ-CS8); a config carrying it " +
+			"must be refused as an unknown key")
 	}
 }
 

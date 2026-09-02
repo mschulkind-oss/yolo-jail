@@ -83,8 +83,8 @@ func assembleWithConfig(t *testing.T, cfg *jsonx.OrderedMap) []string {
 // actually carries the profile-derived environment.
 //
 // The five vars arrive by two routes, and both are this launch's own composition: the
-// provider env_shape packs/claude ships composes AWS_REGION and the three model ids from
-// the user's providers.bedrock entry (commonEnvBlock's agentenv loop), and the variant's
+// env derive packs/claude ships composes AWS_REGION and the three model ids from the
+// user's providers.bedrock entry (the packload.AgentEnv loop), and the variant's
 // own CLAUDE_CODE_USE_BEDROCK literal rides the pack env block (EnvVarsFor), which sits
 // LATER in the argv — hence the order, and hence the two routes being pinned together
 // here rather than in either of their own packages.

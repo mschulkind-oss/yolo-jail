@@ -88,8 +88,8 @@ func renderedSurface(t *testing.T, dir string, rel ...string) []byte {
 // (agents_test.go TestPackRendersConfigAndLauncher is the same trick, one pack at a
 // time). The composed table needs no user `providers` entry: pack-shipped `kind:
 // "provider"` facts compose in on their own (internal/packload ComposeProviders), and
-// packs/claude's bedrock reaches no derive because it names neither a base_url nor an
-// endpoints entry — its declaration is env_shape only.
+// packs/claude's bedrock reaches no derive because it names no facts at all — its
+// declaration is a name, and the compose leaves the entry empty.
 func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 	requireJail(t)
 

@@ -117,14 +117,6 @@
       "kind": "autonomy"
     },
     {
-      "env_shape": {
-        "anthropic": {
-          "ANTHROPIC_DEFAULT_HAIKU_MODEL": "{model:haiku}",
-          "ANTHROPIC_DEFAULT_OPUS_MODEL": "{model:default}",
-          "ANTHROPIC_DEFAULT_SONNET_MODEL": "{model:sonnet}",
-          "AWS_REGION": "{region}"
-        }
-      },
       "kind": "provider",
       "name": "bedrock"
     },

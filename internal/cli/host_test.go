@@ -9,7 +9,9 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // userCfg writes the machine-wide user config under a temp HOME.
@@ -24,12 +26,17 @@ func userCfg(t *testing.T, home, text string) {
 	}
 }
 
-// writeClaudeBedrockLocalPack writes the conventional local pack carrying the bedrock
-// declarations the shipped packs/claude pack owns: the provider's delivery SHAPE — which
-// variable takes its value from which fact — and the variant that switches claude into
-// Bedrock mode. It installs the claude CLI on purpose: a variant is active only at a CLI
-// name its OWN pack installs (§3.3), which is why the shape lives there and not in a
-// CLI-less provider pack.
+// writeClaudeBedrockLocalPack writes a local pack shaped like the shipped packs/claude:
+// the variant that switches claude into Bedrock mode, plus the env derive that states
+// the delivery — which variable takes its value from which provider fact, in Claude
+// Code's own variable names (OQ-CS8: the binding lives in the agent pack's derive.lua,
+// nowhere else). It installs the claude CLI on purpose: a variant is active only at a
+// CLI name its OWN pack installs (§3.3), and the runner discovers the producer by bin
+// ownership — which is why both live here and not in a CLI-less provider pack.
+//
+// The derive is the shipped producer verbatim (packs/claude/derive.lua's yolo.env), not
+// a stub: bedrock parity is the acceptance bar of the whole move, and a stub here would
+// pin whatever the stub said instead of what ships.
 func writeClaudeBedrockLocalPack(t *testing.T, home string) {
 	t.Helper()
 	dir := filepath.Join(home, ".config", "yolo-jail", "local")
@@ -38,16 +45,37 @@ func writeClaudeBedrockLocalPack(t *testing.T, home string) {
 	}
 	manifest := `{"name":"claude","contributes":[` +
 		`{"kind":"program","bin":"claude","via":"npm","package":"@anthropic-ai/claude-code"},` +
-		`{"kind":"provider","name":"bedrock",` +
-		`"env_shape":{"anthropic":{"AWS_REGION":"{region}",` +
-		`"ANTHROPIC_DEFAULT_OPUS_MODEL":"{model:default}",` +
-		`"ANTHROPIC_DEFAULT_HAIKU_MODEL":"{model:haiku}",` +
-		`"ANTHROPIC_DEFAULT_SONNET_MODEL":"{model:sonnet}"}}},` +
+		`{"kind":"provider","name":"bedrock"},` +
 		`{"kind":"profile","name":"bedrock","requires_provider":"bedrock",` +
 		`"env":{"CLAUDE_CODE_USE_BEDROCK":"1"}}]}`
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "derive.lua"),
+		[]byte(shippedClaudeDeriveLua(t)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// shippedClaudeDeriveLua is the REAL packs/claude derive.lua, read from the embedded pack
+// tree rather than copied into this file: bedrock parity is the acceptance bar of the
+// env-derive move (provider-catalog-and-selection-plan.md build order step 3), and a
+// hand-written stub here would pin whatever the stub said instead of what ships. A local
+// fixture that drifted from the shipped producer would make the host notch look green
+// while composing different variables than the jail notch.
+func shippedClaudeDeriveLua(t *testing.T) string {
+	t.Helper()
+	loaded, problems := packload.MaterializeEmbedded(officialpacks.FS, t.TempDir())
+	if len(problems) != 0 {
+		t.Fatalf("materializing official packs: %v", problems)
+	}
+	for _, p := range loaded {
+		if p.Name == "claude" {
+			return packload.DeriveScript(p)
+		}
+	}
+	t.Fatal("official claude pack not found")
+	return ""
 }
 
 func TestHostMainAnswersHelpAndRejectsUnknownVerb(t *testing.T) {

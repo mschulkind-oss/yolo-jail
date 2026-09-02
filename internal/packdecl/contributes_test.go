@@ -122,15 +122,12 @@ func TestValidateContributes(t *testing.T) {
 			"must not contain"},
 		{"loophole with into", Contribution{Kind: KindLoophole, From: "loopholes/acme", Into: ".acme"},
 			"does not take \"into\""},
-		// provider: `name` is the identity (required), a base_url must be an http(s) URL
-		// with NO userinfo (a credential in a shipped manifest is a credential handed to
-		// everyone who installs it), and an env_shape value may only name WHERE a value
-		// goes and which of the entry's own facts fills it — never carry a value.
+		// provider: `name` is the identity (required) and a base_url must be an http(s)
+		// URL with NO userinfo (a credential in a shipped manifest is a credential handed
+		// to everyone who installs it).
 		{"good provider", Contribution{Kind: KindProvider, Name: "acme",
 			Endpoints:     map[string]ProviderEndpoint{"openai": {BaseURL: "https://api.acme.dev/v4", WireAPI: "openai-chat-completions"}},
-			APIKeyEnvName: "ACME_API_KEY", Models: map[string]string{"default": "acme-large"},
-			EnvShape: map[string]map[string]string{"anthropic": {
-				"ANTHROPIC_BASE_URL": "{endpoint}", "ANTHROPIC_AUTH_TOKEN": "{key}"}}}, ""},
+			APIKeyEnvName: "ACME_API_KEY", Models: map[string]string{"default": "acme-large"}}, ""},
 		{"provider no name", Contribution{Kind: KindProvider,
 			Endpoints: map[string]ProviderEndpoint{"openai": {BaseURL: "https://api.acme.dev/v4"}}},
 			"needs \"name\""},
@@ -147,19 +144,6 @@ func TestValidateContributes(t *testing.T) {
 		{"provider userinfo base_url", Contribution{Kind: KindProvider, Name: "acme",
 			Endpoints: map[string]ProviderEndpoint{"openai": {BaseURL: "https://user:tok@api.acme.dev/v4"}}},
 			"must not carry userinfo"},
-		{"provider env_shape literal", Contribution{Kind: KindProvider, Name: "acme",
-			EnvShape: map[string]map[string]string{"anthropic": {"ANTHROPIC_AUTH_TOKEN": "{key}"}}}, ""},
-		{"provider env_shape template", Contribution{Kind: KindProvider, Name: "acme",
-			EnvShape: map[string]map[string]string{"anthropic": {"ANTHROPIC_AUTH_TOKEN": "Bearer {key}"}}},
-			`must be "{endpoint}"`},
-		// The other two placeholders: a region reference, and a model id by alias — the
-		// alias is checked for shape only, since `models` may be entirely user config.
-		{"provider env_shape region and model refs", Contribution{Kind: KindProvider, Name: "acme",
-			EnvShape: map[string]map[string]string{"anthropic": {
-				"ACME_REGION": "{region}", "ACME_LARGE": "{model:default}"}}}, ""},
-		{"provider env_shape model ref with no alias", Contribution{Kind: KindProvider, Name: "acme",
-			EnvShape: map[string]map[string]string{"anthropic": {"ACME_LARGE": "{model:}"}}},
-			`must be "{endpoint}"`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -637,9 +621,7 @@ func TestProviderDecodesIntoDistinctProviders(t *testing.T) {
 	                "anthropic":{"base_url":"https://api.acme.dev/anthropic"}},
 	   "api_key_env_name":"ACME_API_KEY",
 	   "region":"eu-central-1",
-	   "models":{"default":"acme-large","fast":"acme-small"},
-	   "env_shape":{"anthropic":{"ANTHROPIC_BASE_URL":"{endpoint}",
-	                             "ANTHROPIC_AUTH_TOKEN":"{key}"}}},
+	   "models":{"default":"acme-large","fast":"acme-small"}},
 	  {"kind":"provider","name":"acme-alt",
 	   "endpoints":{"openai":{"base_url":"https://alt.acme.dev/v4"}}}]}`))
 	if len(probs) != 0 {
@@ -663,9 +645,6 @@ func TestProviderDecodesIntoDistinctProviders(t *testing.T) {
 	}
 	if zai.Models["fast"] != "acme-small" {
 		t.Errorf("model aliases lost: %+v", zai.Models)
-	}
-	if zai.EnvShape["anthropic"]["ANTHROPIC_AUTH_TOKEN"] != "{key}" {
-		t.Errorf("env_shape lost: %+v", zai.EnvShape)
 	}
 	if got[1].Name != "acme-alt" || len(got[1].Endpoints) != 1 {
 		t.Errorf("the second provider is not its own declaration: %+v", got[1])

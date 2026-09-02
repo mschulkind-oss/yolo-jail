@@ -1,8 +1,7 @@
 package packdecl
 
-// skewwireapi_test.go pins the WIRE_API-level half of the skew rule — the fourth closed
-// VALUE set a manifest carries, after the kinds, a program's `via` and an env_shape's
-// placeholders. An endpoint's `wire_api` names which protocol that URL speaks, in yolo's
+// skewwireapi_test.go pins the WIRE_API-level half of the skew rule — the third closed
+// VALUE set a manifest carries, after the kinds and a program's `via`. An endpoint's `wire_api` names which protocol that URL speaks, in yolo's
 // CANONICAL protocol vocabulary (provider-table-fidelity.md §3.0a / OQ-PT1 — nobody's
 // dialect, so no agent could consume it verbatim by accident): what crosses into the
 // composed providers table is TRANSLATED per agent, each derive emitting its own spelling
@@ -33,7 +32,7 @@ const wireAPISkewManifest = `{"name":"acme","contributes":[
 	 "endpoints":{
 	     "openai":{"base_url":"https://api.acme.dev/v4","wire_api":"openai-chat-completions"},
 	     "glm":{"base_url":"https://api.acme.dev/glm","wire_api":"openai-chatt"}},
-	 "env_shape":{"openai":{"ACME_BASE":"{endpoint}"}}},
+	 },
 	{"kind":"env","vars":{"ACME":"1"}}]}`
 
 // TestUnknownWireAPIIsAuthoringFatalAndSkewSkipped: both halves of the decision at once.
@@ -133,9 +132,7 @@ func TestWireAPISkipIsNotAnAmnesty(t *testing.T) {
 // with ONE documented exception, asserted rather than excused: an EMPTY wire_api is no
 // claim at all — the field is omitempty, so "" and absent decode to the same fact, and an
 // endpoint may legitimately leave the protocol to the consumer's own default. That is the
-// opposite of an empty env_shape value, which stays a hard problem on both paths because
-// an env_shape entry IS a claim and an empty one is a claim gone wrong.
-//
+
 // It fails if a wire_api reaches one site's set without reaching KnownWireAPI — the drift
 // the `via` vocabulary shipped with once, measured (knownVias): both switches taught, the
 // suite green, the jail installing nothing.

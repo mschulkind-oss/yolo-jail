@@ -108,13 +108,12 @@ var (
 	// `v0.8.0`, 2026-08-13), and it is not listed here either. `agent_profiles` KEEPS its
 	// rename message — that one is written into every host-generated jail snapshot in
 	// existence, which is the distinction: a retired-key message is for a spelling that is
-	// out there, not for one that was briefly in the tree.
-	// `env_shape` is OQ-15 (profiles-as-pack-variants.md §14): a service fact like
-	// endpoints and models, so the user may override it. Its VALUES are checked against
-	// the same closed placeholder set a manifest's is — validateProviderEnvShape, which
-	// the census alone cannot do, which is why the key is here AND in validate.go.
+	// out there, not for one that was briefly in the tree. `env_shape` is the rule's third
+	// application (deleted with its whole vocabulary on 2026-09-02, never in a release):
+	// a provider's delivery is the agent pack's env derive now (OQ-CS8), so the key is an
+	// ordinary unknown key and nothing checks its values.
 	knownProviderKeys = set("base_url", "endpoints", "wire_api", "api_key_env_name",
-		"models", "region", "capabilities", "env_shape")
+		"models", "region", "capabilities")
 	knownDeviceKeys    = set("usb", "description", "cgroup_rule")
 	knownResourcesKeys = set("memory", "cpus", "pids_limit")
 	// knownHostServiceKeys is the INLINE loophole entry's key census. It must

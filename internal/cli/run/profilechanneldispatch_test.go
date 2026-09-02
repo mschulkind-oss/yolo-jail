@@ -5,10 +5,10 @@ package run
 // the launch flags (launchflagsdispatch_test.go, profilelaunch_test.go).
 //
 // The channel used to be composed entirely inside the container arm: the profile table
-// and the pack env fold in assembleRunCmd, the composed provider table and the env_shape
-// vars in commonEnvBlock. The macos-user branch returns before reaching any of it, so
+// and the pack env fold in assembleRunCmd, the composed provider table and the provider
+// env vars in commonEnvBlock. The macos-user branch returns before reaching any of it, so
 // that backend parsed and validated `-p zai` (checkProfileTargets sits in stagePacks,
-// above the dispatch) and then delivered NOTHING — no variant env, no env_shape relay, no
+// above the dispatch) and then delivered NOTHING — no variant env, no env derive, no
 // provider table for its derives, no credential pre-flight. Nothing failed; the launch
 // just ran with no profile.
 //
@@ -67,9 +67,9 @@ func envAt(env *jsonx.OrderedMap, key string) string {
 	return s
 }
 
-// The macos-user arm must receive the channel the launch composed: the env_shape alias
-// for the protocol the profiled agent speaks (with the credential relayed from the
-// invoking shell) and the two wire tables its bootstrap renders from.
+// The macos-user arm must receive the channel the launch composed: the provider env the
+// agent pack's derive composed (with the credential relayed from the invoking shell) and
+// the two wire tables its bootstrap renders from.
 func TestProfileChannelReachesTheMacosUserBackend(t *testing.T) {
 	o, stderr := zaiNativeLaunch(t, true)
 
@@ -94,7 +94,7 @@ func TestProfileChannelReachesTheMacosUserBackend(t *testing.T) {
 		"ANTHROPIC_AUTH_TOKEN": "tok-shell",
 	} {
 		if gotAt := envAt(got, key); gotAt != want {
-			t.Errorf("macos-user launch env %s = %q, want %q — the env_shape relay never "+
+			t.Errorf("macos-user launch env %s = %q, want %q — the env derive never "+
 				"reached this backend, and nothing downstream recovers it: the sandbox env "+
 				"is baked onto the launch argv", key, gotAt, want)
 		}
@@ -159,7 +159,7 @@ func TestProfileChannelPreflightRefusesTheMacosUserLaunch(t *testing.T) {
 
 // An unprofiled launch carries the catalog and NO composed env: the packs still ship
 // their provider facts (the derives read the table either way), but presence is not
-// selection, so no env_shape var may appear and the profile table must be empty. The
+// selection, so no provider env var may appear and the profile table must be empty. The
 // container half of this claim is TestZaiPackComposesNoEnvWithoutTheProfile.
 func TestUnprofiledNativeLaunchStillCarriesTheEmptyWireTables(t *testing.T) {
 	o, stderr := zaiNativeLaunch(t, true)
@@ -182,7 +182,7 @@ func TestUnprofiledNativeLaunchStillCarriesTheEmptyWireTables(t *testing.T) {
 			"derives read, got %q", gotAt)
 	}
 	if envAt(got, "ANTHROPIC_AUTH_TOKEN") != "" {
-		t.Error("an unprofiled launch must compose no env_shape vars — presence is not " +
+		t.Error("an unprofiled launch must compose no provider env vars — presence is not " +
 			"selection, and a quiet reroute is the failure §7 names")
 	}
 }

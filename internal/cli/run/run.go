@@ -149,7 +149,7 @@ func Run(opts Options) int {
 	// THE CHANNEL, composed once here — the third B-0 hoist, after the pack trees and the
 	// launch flags. The effective profile table the injection reads is one third of what
 	// a profile launch composes; the pack env fold, the composed provider table, the
-	// env_shape vars and the hydrated env_sources are the rest, and every one of them
+	// provider env vars and the hydrated env_sources are the rest, and every one of them
 	// used to be composed inside the container arm, which this branch returns before
 	// reaching. internal/cli/run/profilechannel.go is the whole story; what matters here
 	// is that both arms below consume THIS value, so `yolo -p zai -- claude` composes the

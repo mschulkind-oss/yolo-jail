@@ -1,12 +1,13 @@
 package run
 
-// providershapeenv_test.go pins the CALL SITE of the provider env-shape composition, not
-// just the composer — the same discipline providersenv_test.go and agentprofileenv_test.go
-// state, for the third thing a launch composes from a provider. internal/agentenv has its
-// own unit tests for the placeholders; this proves the assembled podman argv actually
-// carries the composed environment, and that the {key} half resolves through the channel
-// the launch hydrates (in.userEnv, the same env_sources yolo-user-env.sh is written from)
-// rather than through anything the launch would not have carried.
+// providershapeenv_test.go pins the CALL SITE of the provider environment composition,
+// not just the runner — the same discipline providersenv_test.go and
+// agentprofileenv_test.go state, for the third thing a launch composes from a provider.
+// internal/packload has its own unit tests for the env-derive runner; this proves the
+// assembled podman argv actually carries the environment the agent's own derive
+// composed, and that the credential half resolves through the channel the launch
+// hydrates (in.userEnv, the same env_sources yolo-user-env.sh is written from) rather
+// than through anything the launch would not have carried.
 
 import (
 	"os"
@@ -17,14 +18,24 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-const zaiShapeManifestTail = `"endpoints":{"anthropic":{"base_url":"https://api.z.ai/api/anthropic"},` +
+// zaiFactsTail is the zai provider's service facts: two protocol endpoints and the
+// credential pointer. There is deliberately no delivery vocabulary here — WHICH variable
+// each fact lands in is the agent pack's derive, not a provider fact (OQ-CS8).
+const zaiFactsTail = `"endpoints":{"anthropic":{"base_url":"https://api.z.ai/api/anthropic"},` +
 	`"openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat-completions"}},` +
-	`"api_key_env_name":"ZAI_API_KEY",` +
-	`"env_shape":{"anthropic":{"ANTHROPIC_BASE_URL":"{endpoint}","ANTHROPIC_AUTH_TOKEN":"{key}"}}}`
+	`"api_key_env_name":"ZAI_API_KEY"`
 
 // writePackManifest writes a one-file pack and loads it the way the launch path does, so
 // every fixture here is a real staged-shape pack rather than a hand-built one.
 func writePackManifest(t *testing.T, name, manifest string) *packload.Pack {
+	t.Helper()
+	return writePackManifestWithDerive(t, name, manifest, "")
+}
+
+// writePackManifestWithDerive is writePackManifest that also ships a derive.lua — the
+// agent pack's own producer, without which a pack that installs a CLI composes no
+// provider environment at all.
+func writePackManifestWithDerive(t *testing.T, name, manifest, deriveLua string) *packload.Pack {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), name)
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -33,6 +44,11 @@ func writePackManifest(t *testing.T, name, manifest string) *packload.Pack {
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if deriveLua != "" {
+		if err := os.WriteFile(filepath.Join(root, "derive.lua"), []byte(deriveLua), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	p, problems := packload.LoadDir(root, name, false)
 	if len(problems) != 0 {
 		t.Fatalf("loading fixture pack: %v", problems)
@@ -40,30 +56,41 @@ func writePackManifest(t *testing.T, name, manifest string) *packload.Pack {
 	return p
 }
 
-// zaiProfilePack ships the zai provider, a variant requiring it, and the named CLI — the
-// one-pack shape. The variant is named "glm", NOT "zai": a same-named variant would let
-// the profile-name fallback produce the right answer for the wrong reason, and the test
-// could not tell resolution from luck.
+// shippedEnvDerive is the REAL packs/claude env producer, read from the embedded pack
+// tree rather than restated here: these tests pin the delivery a launch actually makes,
+// and a hand-written producer would pin whatever the fixture said instead of what ships.
+func shippedEnvDerive(t *testing.T) string {
+	t.Helper()
+	return packload.DeriveScript(claudePackFixture(t)[0])
+}
+
+// zaiProfilePack ships the zai provider, a variant requiring it, the named CLI and the
+// shipped producer — the one-pack shape. The variant is named "glm", NOT "zai": a
+// same-named variant would let the profile-name fallback produce the right answer for
+// the wrong reason, and the test could not tell resolution from luck.
 func zaiProfilePack(t *testing.T, name, bin string) *packload.Pack {
 	t.Helper()
-	return writePackManifest(t, name, `{"name":"`+name+`","contributes":[`+
+	return writePackManifestWithDerive(t, name, `{"name":"`+name+`","contributes":[`+
 		`{"kind":"program","bin":"`+bin+`","via":"npm","package":"example.com/`+bin+`"},`+
-		`{"kind":"provider","name":"zai",`+zaiShapeManifestTail+`,`+
-		`{"kind":"profile","name":"glm","requires_provider":"zai"}]}`)
+		`{"kind":"provider","name":"zai",`+zaiFactsTail+`},`+
+		`{"kind":"profile","name":"glm","requires_provider":"zai"}]}`,
+		shippedEnvDerive(t))
 }
 
 // zaiProviderOnlyPack ships the provider and the variant and installs NO cli — the
-// ordinary provider pack, which is why the bin-owner rule cannot be the whole lookup.
+// ordinary provider pack, which is why the producer lookup cannot be keyed on the
+// provider's shipper at all: the binding lives with the agent, the facts with the
+// provider, and neither needs the other.
 func zaiProviderOnlyPack(t *testing.T) *packload.Pack {
 	t.Helper()
 	return writePackManifest(t, "zai-facts", `{"name":"zai-facts","contributes":[`+
-		`{"kind":"provider","name":"zai",`+zaiShapeManifestTail+`,`+
+		`{"kind":"provider","name":"zai",`+zaiFactsTail+`},`+
 		`{"kind":"profile","name":"glm","requires_provider":"zai"}]}`)
 }
 
 // assembleWithProviderEnv is assembleWithPacksAndConfig with the hydrated env_sources the
-// run pipeline threads in, so the {key} placeholder has the channel it really resolves
-// through.
+// run pipeline threads in, so the producer's credential has the channel it really
+// resolves through.
 func assembleWithProviderEnv(t *testing.T, packs []*packload.Pack, cfg *jsonx.OrderedMap, userEnv *jsonx.OrderedMap) []string {
 	t.Helper()
 	home := t.TempDir()
@@ -105,11 +132,12 @@ func profiledConfig() *jsonx.OrderedMap {
 	)
 }
 
-// TestAssembleComposesProviderEnvShapeForTheSelectedProfile: `-p zai` on a launch whose
+// TestAssembleComposesProviderEnvForTheSelectedProfile: `-p glm` on a launch whose
 // selected pack ships the zai provider composes claude's anthropic pair onto the argv —
-// the endpoint of the protocol claude speaks, and the key relayed from the hydrated
-// variable. Both halves are asserted so a half-composed shape cannot pass.
-func TestAssembleComposesProviderEnvShapeForTheSelectedProfile(t *testing.T) {
+// the endpoint of the protocol claude speaks and the key relayed from the hydrated
+// variable, both named by the agent pack's own derive. Both halves are asserted so a
+// half-composed delivery cannot pass.
+func TestAssembleComposesProviderEnvForTheSelectedProfile(t *testing.T) {
 	argv := assembleWithProviderEnv(t,
 		[]*packload.Pack{zaiProfilePack(t, "zai-pack", "claude")},
 		profiledConfig(), hydratedKey())
@@ -145,10 +173,12 @@ func TestAssembleComposesNoProviderEnvWithoutAProfile(t *testing.T) {
 }
 
 // TestAssembleComposesProviderEnvDeclaredByAnotherPack: the variant and the provider may
-// be declared by a pack that installs NO cli, with the bin owned by another pack — profile
-// names are global (§3.3), and a provider pack installs no CLI at all. Keying the lookup
-// on the bin's owner alone would have made this whole shape unreachable while every
-// composer test stayed green.
+// be declared by a pack that installs NO cli, with the bin (and the producer) owned by
+// another pack — profile names are global (§3.3), and a provider pack installs no CLI at
+// all. Keying the producer on the provider's shipper would have made this whole shape
+// unreachable while every runner test stayed green. claudePackFixture is the EMBEDDED
+// pack, so this also proves a materialized embedded pack's Root is a derive the runner
+// can read — the same path the host notch takes.
 func TestAssembleComposesProviderEnvDeclaredByAnotherPack(t *testing.T) {
 	argv := assembleWithProviderEnv(t,
 		append(claudePackFixture(t), zaiProviderOnlyPack(t)),

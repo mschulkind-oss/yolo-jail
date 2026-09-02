@@ -11,12 +11,6 @@
           "wire_api": "openai-chat-completions"
         }
       },
-      "env_shape": {
-        "anthropic": {
-          "ANTHROPIC_AUTH_TOKEN": "{key}",
-          "ANTHROPIC_BASE_URL": "{endpoint}"
-        }
-      },
       "kind": "provider",
       "models": {
         "default": "glm-4.7",
@@ -28,18 +22,6 @@
       "kind": "profile",
       "name": "zai",
       "requires_provider": "zai"
-    },
-    {
-      "config": {
-        "managed": {
-          "env": {
-            "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic"
-          }
-        }
-      },
-      "kind": "config-overlay",
-      "profile": "zai",
-      "surface": "claude/settings"
     }
   ],
   "name": "zai"

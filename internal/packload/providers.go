@@ -187,14 +187,14 @@ func (p *Pack) installsBin(bin string) bool {
 // "Carries at least one endpoint" is the launch-level union of the predicate each derive
 // applies per agent — a provider enters an AGENT's catalog only when it has an endpoint
 // for a protocol that agent speaks, so an entry with no endpoint at all (the shipped
-// bedrock, which composes env_shape facts and nothing else) reaches no agent's catalog and
+// bedrock, which ships region and model facts and no endpoint) reaches no agent's catalog and
 // no key can be demanded of it without refusing launches nothing was wrong with. This
 // function cannot know which protocols a launch's agents speak, so it takes the union's
 // conservative form: some endpoint is what being in a dictionary means here.
 //
 // A variant's requires_provider creates NO requirement of its own. It selects a provider;
 // one the catalog does not hold delivers nothing to any agent — no derive sees an entry,
-// and the env_shape relay composes nothing — so demanding its credential would be
+// and the env derive composes nothing — so demanding its credential would be
 // demanding a key for a delivery that cannot happen.
 //
 // Attribution is kept because it is the only actionable form: "pack zai requires provider
@@ -279,7 +279,7 @@ func entryString(entry *jsonx.OrderedMap, key string) string {
 // lookup answers "is this variable set in what this launch would deliver" — the whole
 // assembled environment, not one channel of it. On the jail notch that is the env_sources
 // hydration, the -e pairs of the assembled argv, and the environment yolo itself was
-// launched from (which the env_shape relay can draw on); on the host notch it is the
+// launched from (which the env derive can draw on); on the host notch it is the
 // composed process env. A cataloged provider that declares no api_key_env_name is checked
 // for EXISTENCE only — an entry can be in an agent's dictionary without naming where its
 // key lives — and a provider with no endpoint (Bedrock, whose credential is the ambient
@@ -377,17 +377,6 @@ func shippedProviderEntry(prov packdecl.ProviderContribution) *jsonx.OrderedMap 
 		}
 		entry.Set("endpoints", endpoints)
 	}
-	if len(prov.EnvShape) > 0 {
-		shape := jsonx.NewOrderedMap()
-		for _, proto := range sortedStringMapKeys(prov.EnvShape) {
-			vars := jsonx.NewOrderedMap()
-			for _, name := range sortedMapKeys(prov.EnvShape[proto]) {
-				vars.Set(name, prov.EnvShape[proto][name])
-			}
-			shape.Set(proto, vars)
-		}
-		entry.Set("env_shape", shape)
-	}
 	return entry
 }
 
@@ -431,17 +420,6 @@ func sortedEndpointProtocols(endpoints map[string]packdecl.ProviderEndpoint) []s
 	out := make([]string, 0, len(endpoints))
 	for proto := range endpoints {
 		out = append(out, proto)
-	}
-	sort.Strings(out)
-	return out
-}
-
-// sortedStringMapKeys is sortedEndpointProtocols for the env_shape's
-// protocol → {VAR → placeholder} map.
-func sortedStringMapKeys(m map[string]map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
 	}
 	sort.Strings(out)
 	return out

@@ -558,66 +558,9 @@ func TestHostRenderGatedOverlayAppliesWhenProfileActive(t *testing.T) {
 	}
 }
 
-// THE FIRST REAL CONSUMER, end to end: packs/zai's profile-gated overlay delivering the
-// non-secret half of its payload split (zai-plumbing.md §4, parent OQ-16's deferred step
-// landing) into claude/settings' env block — the landing OQ-4 measured is honored before
-// the first API call, so a bare `claude` outside yolo's launch path now gets the endpoint
-// too. The env_shape launch composition still applies beside it; both channels carry the
-// same URL. This loads the REAL embedded packs rather than fixtures, so it fails if the
-// manifest's overlay drifts from what the render honors.
-func TestZaiOverlayDeliversTheEndpointToClaudeSettings(t *testing.T) {
-	claude, err := embeddedPack("claude")
-	if err != nil {
-		t.Fatalf("embedded claude: %v", err)
-	}
-	zai, err := embeddedPack("zai")
-	if err != nil {
-		t.Fatalf("embedded zai: %v", err)
-	}
-
-	renderWith := func(profiles string) map[string]any {
-		e, errw := overlayRenderEnv(t)
-		e.Vars["YOLO_USE_PROFILES"] = profiles
-		ConfigurePackSurfaces(e, []*packload.Pack{claude, zai})
-		if fails := e.GenFailures(); len(fails) != 0 {
-			t.Fatalf("render failed: %v", fails)
-		}
-		if report := errw.String(); strings.Contains(report, "no owner") {
-			t.Fatalf("the zai overlay found no owner for claude/settings:\n%s", report)
-		}
-		return readRenderedJSON(t, e.Home, ".claude/settings.json")
-	}
-
-	// ACTIVE: -p zai at claude — the overlay contributes its key under env, the owner's
-	// own keys survive, and provenance attributes it to the zai pack.
-	active := renderWith(`{"claude":"zai"}`)
-	env, _ := active["env"].(map[string]any)
-	if env == nil || env["ANTHROPIC_BASE_URL"] != "https://api.z.ai/api/anthropic" {
-		t.Errorf("claude/settings' env block must carry the zai endpoint with the profile "+
-			"active:\n%#v", active["env"])
-	}
-	prefs, _ := active["preferences"].(map[string]any)
-	if prefs == nil || prefs["autoUpdaterStatus"] != "disabled" || active["permissions"] == nil {
-		t.Errorf("the owner's own settings did not survive the overlay:\n%#v", active)
-	}
-
-	// INACTIVE: without the profile, the env block carries no zai key — and the settings
-	// file still renders, because the skip is the overlay's, not the surface's. The
-	// bedrock name selected here folds packs/claude's OWN variant (env.CLAUDE_CODE_USE_
-	// BEDROCK), which is the parity worth pinning: the overlay gate and the variant folds
-	// read ONE table, so a name can gate this pack's overlay while folding the owner's.
-	inactive := renderWith(`{"claude":"bedrock"}`)
-	env, _ = inactive["env"].(map[string]any)
-	if env == nil {
-		t.Fatalf("claude/settings has no env block at all:\n%#v", inactive)
-	}
-	if _, present := env["ANTHROPIC_BASE_URL"]; present {
-		t.Errorf("the zai endpoint landed without the profile selected:\n%#v", env)
-	}
-	if env["CLAUDE_CODE_USE_BEDROCK"] != "1" {
-		t.Errorf("the owner's own bedrock variant did not fold off the same table:\n%#v", env)
-	}
-	if inactive["permissions"] == nil {
-		t.Errorf("claude/settings stopped rendering without the zai profile:\n%#v", inactive)
-	}
-}
+// packs/zai's profile-gated overlay — this file's first real consumer — was deleted with
+// the env_shape vocabulary on 2026-09-02 (provider-catalog-and-selection.md §3.1): the
+// endpoint now reaches claude through the agent pack's own env derive
+// (internal/packload AgentEnv) at BOTH notches, so there is no settings key for a bare
+// `claude` to read. The gate MECHANISM keeps its fixture tests above; what shipped
+// through it moved.

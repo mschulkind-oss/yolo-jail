@@ -187,20 +187,6 @@ type Contribution struct {
 	// "default"/"fast" → "glm-4.7". Alias names are open vocabulary: which aliases a
 	// provider's consumers read is the consumer's business, not core's.
 	Models map[string]string `json:"models,omitempty"`
-	// EnvShape is how a profile ACTIVE for an agent delivers THIS provider to it, by
-	// protocol: protocol → {ENV_VAR → placeholder}. The placeholders are the closed set
-	// ValidateProviderEnvShape enforces — "{endpoint}" (that protocol's base_url),
-	// "{key}" (the hydrated value of APIKeyEnvName), "{region}" (Region) and
-	// "{model:<alias>}" (an alias of Models); anything else is refused, because anything
-	// else would be the credential or a host fact smuggled in through a template
-	// (validateContribution) — refused at authoring time, and dropped one VARIABLE at a
-	// time across a version boundary, where a placeholder a newer host staged is skew
-	// rather than corruption (unknownEnvShapeValueSkip). Declared per protocol so one
-	// provider can spell claude's
-	// ANTHROPIC_* pair and leave the OpenAI-shaped agents to their config files (parent
-	// OQ-14: no agent is special-cased, the provider says how it is delivered).
-	EnvShape map[string]map[string]string `json:"env_shape,omitempty"`
-
 	// --- profile (profiles-as-pack-variants.md §3.1) ---
 	// The body rides fields declared above: Name is the profile's SELECTOR VALUE (the
 	// name the user writes in use_profiles or -p) and Raw is its `config` patch. What is
@@ -621,7 +607,6 @@ type ProviderContribution struct {
 	APIKeyEnvName string
 	Region        string
 	Models        map[string]string
-	EnvShape      map[string]map[string]string
 }
 
 // Providers returns every provider the pack ships, in declaration order.
@@ -643,7 +628,6 @@ func (m *Manifest) Providers() []ProviderContribution {
 			APIKeyEnvName: c.APIKeyEnvName,
 			Region:        c.Region,
 			Models:        c.Models,
-			EnvShape:      c.EnvShape,
 		})
 	}
 	return out
@@ -1302,7 +1286,7 @@ func validateContribution(label string, c Contribution) []string {
 	case KindProvider:
 		req("name", c.Name)
 		problems = append(problems, validateProviderEndpoints(label, c.Endpoints)...)
-		problems = append(problems, ValidateProviderEnvShape(label, c.EnvShape)...)
+
 	case KindProfile:
 		// `name` is the whole selector, so it is the one required field: a variant that
 		// answers to nothing is unreachable, and nothing else about the body would tell
@@ -1386,7 +1370,7 @@ func validateAutonomyPosture(label string, p *AutonomyPosture) []string {
 // table.
 //
 // THE SET IS SKEW-SENSITIVE, and this refusal is only the AUTHORING half of the rule (the
-// same split ValidateProviderEnvShape documents): a pack staged by a newer host may name a
+// same split validateSkillsTier documents for its own two-value risk): a pack staged by a newer host may name a
 // wire protocol this build has never heard of, and refusing it on the tolerant path would
 // be the `tier` incident again. DecodeTolerant drops the unknown VALUE and reports it
 // (unknownWireAPISkip); an endpoint that declares NO wire_api is simply unremarkable here,
@@ -1476,8 +1460,7 @@ var knownWireAPIs = []string{"anthropic", "openai-chat-completions", "openai-res
 // is NOT known — but for this field an empty value is the ABSENT claim rather than a
 // defect (the field is omitempty, so "" and undeclared decode to the same fact, and an
 // endpoint may leave the protocol to the consumer's own default), so emptiness is simply
-// nobody's problem rather than the hard-problem-on-both-paths rule an empty `via` or
-// env_shape value follows.
+// nobody's problem rather than the hard-problem-on-both-paths rule an empty `via` value follows.
 func KnownWireAPI(v string) bool {
 	for _, api := range knownWireAPIs {
 		if v == api {
@@ -1508,112 +1491,6 @@ func wireAPIList() string {
 		return strings.Join(parts, "")
 	}
 	return strings.Join(parts[:len(parts)-1], ", ") + " or " + parts[len(parts)-1]
-}
-
-// The placeholders an env_shape value may be. Declared beside the validation that
-// enforces them and exported because the consumer of the shape — the launch-time env
-// composition in internal/agentenv — has to spell them identically: a second copy of the
-// literal in the composer is a second vocabulary that can drift away from the one the
-// validator enforces.
-//
-// Every placeholder names a field of the COMPOSED provider entry, which is the whole
-// point of the closed set: a pack ships which variable takes its value from where, and
-// the value itself is the user's — their endpoints, their region, their model ids, their
-// hydrated credential. There is deliberately no literal form, because a literal in a
-// git-tracked manifest is exactly where a credential gets shipped to strangers (§4.2's
-// escape hatch); a static value belongs in a profile's own `env`, which is what that
-// field is for.
-const (
-	// EnvShapeEndpoint is that protocol's base_url.
-	EnvShapeEndpoint = "{endpoint}"
-	// EnvShapeKey is the hydrated value of the provider's api_key_env_name variable —
-	// relayed by the launcher from the launch environment, never carried by a manifest.
-	EnvShapeKey = "{key}"
-	// EnvShapeRegion is the provider's region — the address half of a provider reached
-	// by region rather than by base URL (Bedrock).
-	EnvShapeRegion = "{region}"
-	// EnvShapeModelPrefix opens a {model:<alias>} reference: the model id the entry's
-	// `models` map names for <alias>. The alias is whoever declares the shape's choice of
-	// word — core keeps no model vocabulary, so an agent pack's own alias names
-	// (claude's "haiku"/"sonnet") live in the pack that needs them, not here.
-	EnvShapeModelPrefix = "{model:"
-)
-
-// EnvShapeModelAlias reports whether v is a {model:<alias>} reference — the one
-// placeholder that carries a parameter, so it is spelled as a prefix and parsed rather
-// than compared — returning the alias it names. An empty alias is not a reference:
-// "{model:}" is an author's typo, and reading it as "alias empty" would compose nothing
-// with nothing to say why.
-func EnvShapeModelAlias(v string) (string, bool) {
-	if !strings.HasPrefix(v, EnvShapeModelPrefix) || !strings.HasSuffix(v, "}") {
-		return "", false
-	}
-	alias := v[len(EnvShapeModelPrefix) : len(v)-1]
-	if alias == "" {
-		return "", false
-	}
-	return alias, true
-}
-
-// KnownEnvShapeValue reports whether v is a placeholder this build can compose: one of
-// the three parameterless forms, or a well-formed {model:<alias>} reference. An empty
-// string is NOT known — it names no fact at all, and like an empty `via` it stays a hard
-// problem on BOTH decode paths rather than version skew (unknownEnvShapeValueSkip).
-//
-// THE membership test for the placeholder set, and deliberately not a second spelling of
-// it: the strict validator (ValidateProviderEnvShape) and the tolerant decoder's skip
-// both ask this rather than comparing the constants themselves, so the two cannot come to
-// disagree about which placeholders exist. That disagreement is not hypothetical — it was
-// MEASURED for `via` (knownVias): teaching both switches a new value left the whole suite
-// green while the tolerant decoder still dropped every contribution using it.
-func KnownEnvShapeValue(v string) bool {
-	if v == EnvShapeEndpoint || v == EnvShapeKey || v == EnvShapeRegion {
-		return true
-	}
-	// The alias is checked for well-formedness, not resolved: `models` may be entirely
-	// the user's, and a shape naming an alias no entry carries yet composes nothing
-	// rather than failing a launch (agentenv's rule).
-	_, isModel := EnvShapeModelAlias(v)
-	return isModel
-}
-
-// ValidateProviderEnvShape checks the env_shape template values: the ONLY placeholders
-// are "{endpoint}" (that protocol's base_url), "{key}" (the user's hydrated credential),
-// "{region}" (the provider's region) and "{model:<alias>}" (a named model id).
-//
-// A closed set, and deliberately not a template language: an env_shape value that could
-// interpolate anything else would be a channel for exactly the two things this kind must
-// never ship — a credential, or a fact about the authoring machine.
-//
-// THE SET IS SKEW-SENSITIVE, and this refusal is only the AUTHORING half of the rule (the
-// same split validateSkillsTier documents for its own two-value risk): a pack staged by a
-// newer host may name a placeholder this build has never heard of, and refusing it here
-// on the tolerant path would be the `tier` incident again — every jail on a
-// pre-`just load` image refusing to boot over a variable it was never going to compose.
-// So DecodeTolerant drops the unknown VARIABLE and reports it (unknownEnvShapeValueSkip)
-// while this check keeps refusing it, and membership is KnownEnvShapeValue's on both
-// sides so they cannot drift apart. Whoever adds a placeholder teaches the composer
-// (agentenv) and this predicate in the same change — teaching only one of them is a
-// manifest that validates and composes nothing.
-//
-// Exported because the value is no longer pack-only: a provider entry the USER wrote
-// carries the same field with the same meaning (profiles-as-pack-variants.md §14,
-// OQ-15), and internal/config's ValidateConfig calls this rather than keeping a second
-// copy of the set — one placeholder vocabulary, enforced once.
-func ValidateProviderEnvShape(label string, shape map[string]map[string]string) []string {
-	var problems []string
-	for _, proto := range sortedKeys(shape) {
-		vars := shape[proto]
-		for _, name := range sortedKeys(vars) {
-			if KnownEnvShapeValue(vars[name]) {
-				continue
-			}
-			problems = append(problems, fmt.Sprintf(
-				"%s.env_shape[%q][%q]: must be \"{endpoint}\", \"{key}\", \"{region}\" or "+
-					"\"{model:<alias>}\" (%q)", label, proto, name, vars[name]))
-		}
-	}
-	return problems
 }
 
 // sortedKeys returns a string-keyed map's keys sorted, so a validation pass over a map

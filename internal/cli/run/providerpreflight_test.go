@@ -114,7 +114,7 @@ func TestCheckProviderCredentialsRefusesAnUnhydratedKey(t *testing.T) {
 //     variable — which is what keeps this a refusal test rather than a delete-the-check
 //     test. The ONLY thing that changed between the two halves is table membership;
 //   - a variant naming a provider nothing ships and nothing catalogues delivers nothing to
-//     any agent — no derive sees an entry, the env_shape relay composes nothing — so it is
+//     any agent — no env derive sees an entry, so it composes nothing — so it is
 //     not a requirement either.
 func TestCheckProviderCredentialsFollowCatalogMembership(t *testing.T) {
 	home := retireHome(t)
@@ -198,9 +198,9 @@ func TestCheckProviderCredentialsHatchLiftsTheRefusal(t *testing.T) {
 }
 
 // The refusal is quiet once the key arrives by ANY channel the launch would deliver —
-// env_sources, the assembled -e argv (a variant's own env, or a provider env_shape alias
-// already relayed), or the environment yolo itself was launched from. A check that only
-// looked in one of the three would refuse launches that work.
+// env_sources, the assembled -e argv (a variant's own env, or a provider variable the
+// agent's env derive already relayed), or the environment yolo itself was launched
+// from. A check that only looked in one of the three would refuse launches that work.
 func TestCheckProviderCredentialsSilentOnceTheKeyArrives(t *testing.T) {
 	home := retireHome(t)
 	writeUserPacks(t, home, `[]`)
@@ -227,8 +227,8 @@ func TestCheckProviderCredentialsSilentOnceTheKeyArrives(t *testing.T) {
 		return ""
 	}
 	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), nil); len(lines) != 0 || refuse {
-		t.Errorf("a key exported in the invoking shell must satisfy the check — the env_shape "+
-			"relay can draw on it:\n%s", strings.Join(lines, "\n"))
+		t.Errorf("a key exported in the invoking shell must satisfy the check — the env "+
+			"derive can draw on it:\n%s", strings.Join(lines, "\n"))
 	}
 }
 

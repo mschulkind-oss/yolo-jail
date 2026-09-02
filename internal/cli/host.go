@@ -301,9 +301,9 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 //  1. os.Environ() — the user's own shell, which the agent should otherwise inherit whole.
 //  2. env_sources — the SECRET channel. This is the step that gives "env_sources
 //     hydrates your credentials" something to hydrate INTO on a host.
-//  3. the resolved profile's vars — the variant's own env plus the flags a provider
-//     implies, composed by internal/agentenv, which is the same function the jail's
-//     podman argv is built from.
+//  3. the resolved profile's vars — the variant's own env plus the provider environment
+//     its agent pack's derive composes (packload.AgentEnv, the same runner the jail's
+//     podman argv is built from).
 //  4. removals — a null in env_sources or in a variant's env, i.e. `unset AWS_PROFILE`.
 //     Last, so a removal beats an assignment from any earlier step.
 func composeHostLaunch(bin, profile string, warn func(string)) *hostComposition {
@@ -329,9 +329,8 @@ func composeHostLaunch(bin, profile string, warn func(string)) *hostComposition 
 //     the same one the jail's env block reduces, so a cross-pack key has one winner;
 //  2. env_sources — the SECRET channel, and the step that gives "env_sources hydrates
 //     your credentials" something to hydrate INTO on a host;
-//  3. the resolved profile's provider vars — the env shape of the provider the variant
-//     names, composed by internal/agentenv, the same function the jail's podman argv is
-//     built from.
+//  3. the resolved profile's provider vars — the env derive of the agent's own pack, run
+//     by packload.AgentEnv, the same runner the jail's podman argv is built from.
 //
 // Removals come last so an `unset` beats an assignment from any earlier source, including
 // one inherited from the invoking shell.
@@ -429,12 +428,20 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 		}
 	}
 
-	// (3) the profile's provider vars: the env shape of the provider the variant names,
-	// for the protocol this agent speaks (OQ-14). internal/agentenv is the ONE
-	// composition — the jail's podman argv is built from the same call — so the two
-	// notches cannot disagree about what a resolved profile delivers. A {key}
-	// placeholder resolves through what this launch actually carries: the hydrated
-	// env_sources above, then the environment this process inherited.
+	// (3) the profile's provider vars, composed by the agent's OWN pack: the env-derive
+	// producer its derive.lua registers, run by packload.AgentEnv — the ONE runner the
+	// jail notch's channel reduces through too (OQ-CS8) — so the two notches cannot
+	// disagree about what a resolved profile delivers. A credential resolves through
+	// what this launch actually carries: the hydrated env_sources above, then the
+	// environment this process inherited.
+	//
+	// KNOWN GAP, left standing deliberately: loadedHostPacks drops a pack fetched from a
+	// git remote this launch (packForCheckDeps cannot resolve it offline), so an agent
+	// pack that lives in git contributes its env derive to the JAIL notch and nothing to
+	// this one. The gap predates the runner — the old agentenv.Resolve read the
+	// composed table, which the same dropped pack's provider facts were equally absent
+	// from — and closing it means teaching the host notch to resolve git packs, which is
+	// its own decision, not a side effect of this flip.
 	lookup := func(name string) (string, bool) {
 		if v, ok := userEnv.Get(name); ok {
 			if s, isStr := v.(string); isStr && s != "" {
@@ -448,9 +455,13 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 		c.err = err
 		return c
 	}
-	vars = append(vars, agentenv.Resolve(
-		providers,
-		agent, profileName, packload.ProviderFor(packs, agent, profileName), lookup)...)
+	providerVars, err := packload.AgentEnv(packs, providers, agentTable,
+		agent, profileName, lookup)
+	if err != nil {
+		c.err = err
+		return c
+	}
+	vars = append(vars, providerVars...)
 	c.providers = providers
 
 	// (4) removals last, so an unset beats every assignment above no matter which source
@@ -478,7 +489,7 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 // of the jail notch's composedProviders (internal/cli/run/assemble.go): the user's
 // `providers` config entries with every selected pack's shipped `kind: "provider"` facts
 // composed under them, per field. Composed ONCE and its result handed to BOTH of this
-// launch's consumers — the env_shape resolve in composeHostVars and the §6.2 pre-flight's
+// launch's consumers — the provider env derive in composeHostVars and the §6.2 pre-flight's
 // c.providers — because packload/providers.go states the composition happens exactly once
 // per launch, and two compositions would be two chances for the check and the exec to
 // disagree about what the launch carries.

@@ -16,18 +16,14 @@ func shippedZaiPack(t *testing.T) *Pack {
 	   "endpoints":{"anthropic":{"base_url":"https://api.z.ai/api/anthropic"},
 	                "openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat-completions"}},
 	   "api_key_env_name":"ZAI_API_KEY",
-	   "models":{"default":"glm-4.7","fast":"glm-4.7-air"},
-	   "env_shape":{"anthropic":{"ANTHROPIC_BASE_URL":"{endpoint}",
-	                             "ANTHROPIC_AUTH_TOKEN":"{key}"}}}]}`)}
+	   "models":{"default":"glm-4.7","fast":"glm-4.7-air"}}]}`)}
 }
 
 // shippedBedrockPack returns a pack declaring a REGIONAL provider — one whose address is
 // a region rather than a base URL, which is the shape packs/claude ships for bedrock.
 func shippedBedrockPack(t *testing.T) *Pack {
 	return &Pack{Name: "bedrock", Decl: declFrom(t, `{"contributes":[
-	  {"kind":"provider","name":"bedrock",
-	   "region":"us-east-1",
-	   "env_shape":{"anthropic":{"AWS_REGION":"{region}"}}}]}`)}
+	  {"kind":"provider","name":"bedrock","region":"us-east-1"}]}`)}
 }
 
 // userProviders decodes a `providers` config block into the map the composer takes.
@@ -80,9 +76,7 @@ func TestComposeProvidersShipsUnderUserConfig(t *testing.T) {
 	want := `{"zai": {"api_key_env_name": "ZAI_API_KEY", ` +
 		`"models": {"default": "glm-4.7", "fast": "glm-4.7-air"}, ` +
 		`"endpoints": {"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}, ` +
-		`"openai": {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat-completions"}}, ` +
-		`"env_shape": {"anthropic": {"ANTHROPIC_AUTH_TOKEN": "{key}", ` +
-		`"ANTHROPIC_BASE_URL": "{endpoint}"}}}}`
+		`"openai": {"base_url": "https://api.z.ai/api/paas/v4", "wire_api": "openai-chat-completions"}}}}`
 	if s := dump(t, got); s != want {
 		t.Errorf("pack-only composition:\n got %s\nwant %s", s, want)
 	}
@@ -138,14 +132,14 @@ func TestComposeProvidersHonorTheNullDropBelowTheTopLevel(t *testing.T) {
 	}
 
 	// Two levels under it, and over an OBJECT: the null takes the whole subtree with it.
-	user = userProviders(t, `{"zai":{"env_shape":{"anthropic":{"ANTHROPIC_AUTH_TOKEN":null,
-	  "ANTHROPIC_BASE_URL":"https://my.proxy.example/v1"}}}}`)
+	user = userProviders(t, `{"zai":{"endpoints":{"anthropic":{"base_url":null,
+	  "wire_api":"replaced"}}}}`)
 	got = compose(t, user, []*Pack{pack})
-	if s := dump(t, got); strings.Contains(s, "ANTHROPIC_AUTH_TOKEN") {
-		t.Errorf("a null placeholder mapping must delete the mapping, got %s", s)
+	if s := dump(t, got); strings.Contains(s, "api.z.ai/api/anthropic") {
+		t.Errorf("a null endpoint field must delete the field, got %s", s)
 	}
-	if s := dump(t, got); !strings.Contains(s, `"ANTHROPIC_BASE_URL": "https://my.proxy.example/v1"`) {
-		t.Errorf("the mapping beside the null must survive, got %s", s)
+	if s := dump(t, got); !strings.Contains(s, `"wire_api": "replaced"`) {
+		t.Errorf("the field beside the null must survive, got %s", s)
 	}
 	if s := dump(t, got); !strings.Contains(s, `"zai"`) {
 		t.Errorf("the entry itself must survive a null inside it, got %s", s)
@@ -200,12 +194,11 @@ func TestComposeProvidersRefusesAManufacturedAddressPair(t *testing.T) {
 
 // TestComposeProvidersCarriesARegionalProviderFacts pins the region: a provider whose
 // address is a region composes it into the entry under the key the config key uses, so a
-// user override of one field replaces it and the env shape's {region} placeholder reads
-// the same value the derives would see.
+// user override of one field replaces it and the agent's env derive reads the same value
+// the config derives would see.
 func TestComposeProvidersCarriesARegionalProviderFacts(t *testing.T) {
 	pack := shippedBedrockPack(t)
-	want := `{"bedrock": {"region": "us-east-1", ` +
-		`"env_shape": {"anthropic": {"AWS_REGION": "{region}"}}}}`
+	want := `{"bedrock": {"region": "us-east-1"}}`
 	if s := dump(t, compose(t, nil, []*Pack{pack})); s != want {
 		t.Errorf("regional provider composition:\n got %s\nwant %s", s, want)
 	}

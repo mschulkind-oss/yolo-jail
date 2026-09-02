@@ -906,9 +906,6 @@ func validateProviders(config *jsonx.OrderedMap, errs, warns *[]string) {
 			continue
 		}
 		reportUnknownKeys(cfg, knownProviderKeys, path, errs)
-		if s, ok := cfg.Get("env_shape"); ok && s != nil {
-			validateProviderEnvShape(s, path, errs)
-		}
 		base, hasBase := cfg.Get("base_url")
 		endpoints, hasEndpoints := cfg.Get("endpoints")
 		// Closure rule 1 (zai OQ-Z6): the shorthand and the endpoint map are two ways to
@@ -997,8 +994,8 @@ func providerURLProblem(u string) string {
 // protocol names an endpoint object, whose base_url obeys providerURLProblem and whose
 // wire_api is in the closed vocabulary.
 //
-// The PROTOCOL names stay open. Which protocols any agent speaks is decided by the
-// resolution table (agentenv.agentProtocols) and by the derives in their own dialects, so
+// The PROTOCOL names stay open. Which protocols any agent speaks is decided by the agent
+// packs' own derives in their dialects, so
 // a protocol nobody speaks yet is inert rather than invalid — closing the names here would
 // make the config schema the one place a new protocol has to be registered, ahead of
 // anything that could consume it. The VALUES are schema, and an unknown key inside an
@@ -1032,53 +1029,6 @@ func validateProviderEndpoints(v any, path string, errs *[]string) {
 		if w, ok := ep.Get("wire_api"); ok && w != nil {
 			validateWireAPI(w, epPath+".wire_api", errs)
 		}
-	}
-}
-
-// validateProviderEnvShape checks the env_shape a user wrote over a pack-shipped
-// provider (profiles-as-pack-variants.md §14, OQ-15): the field is a service fact like
-// endpoints and models, so the override is legal, but its values stay placeholders —
-// never literals.
-//
-// The placeholder set is not restated here. packdecl.ValidateProviderEnvShape is the one
-// vocabulary for both spellings of a provider, and this pass hands it the user's map
-// verbatim, so a placeholder accepted in a manifest is exactly the placeholder accepted
-// in config and a second copy of the set cannot drift away from the first. Only the
-// SHAPE of the value is this file's business, checked the way every other provider key
-// is ("expected an object", "expected a string"), so a mis-typed override is refused for
-// its type before the placeholder check ever reads it.
-func validateProviderEnvShape(v any, path string, errs *[]string) {
-	shape, ok := asMap(v)
-	if !ok {
-		add(errs, path+".env_shape: expected an object")
-		return
-	}
-	out := make(map[string]map[string]string)
-	for _, proto := range shape.Keys() {
-		protoPath := path + ".env_shape." + proto
-		protoV, _ := shape.Get(proto)
-		if protoV == nil {
-			continue // null disables the protocol's shape
-		}
-		vars, ok := asMap(protoV)
-		if !ok {
-			add(errs, protoPath+": expected an object or null")
-			continue
-		}
-		entry := make(map[string]string)
-		for _, name := range vars.Keys() {
-			val, _ := vars.Get(name)
-			s, ok := val.(string)
-			if !ok {
-				add(errs, protoPath+"."+name+": expected a string")
-				continue
-			}
-			entry[name] = s
-		}
-		out[proto] = entry
-	}
-	for _, problem := range packdecl.ValidateProviderEnvShape(path, out) {
-		add(errs, problem)
 	}
 }
 

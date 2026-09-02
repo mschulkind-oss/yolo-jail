@@ -7,10 +7,10 @@ package run
 //
 // The defect this removes: every piece of the channel was composed inside the container
 // arm — the profile table and the pack env fold in assembleRunCmd, the composed provider
-// table and the env_shape vars in commonEnvBlock — and the macos-user branch returns
+// table and the provider env vars in commonEnvBlock — and the macos-user branch returns
 // before reaching any of it. That backend therefore parsed and VALIDATED `-p zai`
 // (checkProfileTargets sits in stagePacks, above the dispatch) and then delivered nothing:
-// no variant env, no env_shape relay, no YOLO_PROVIDERS/YOLO_USE_PROFILES for its
+// no variant env, no provider env, no YOLO_PROVIDERS/YOLO_USE_PROFILES for its
 // bootstrap, no credential pre-flight. `yolo -p zai -- claude` on macos-user composed
 // nothing and said so to nobody — the same signature of silence B-0 found for the pack
 // trees, one layer down.
@@ -41,21 +41,21 @@ type packChannel struct {
 	profiles *jsonx.OrderedMap
 	// providers is the composed provider table (composedProviders): user `providers`
 	// entries over every selected pack's `kind: "provider"` service facts. Emitted as
-	// YOLO_PROVIDERS and read by the env_shape composition below.
+	// YOLO_PROVIDERS and read by the env derive below.
 	providers *jsonx.OrderedMap
 	// packEnv is the pack env fold over the profile table (packload.EnvVarsFor): each
 	// selected pack's static `kind: "env"` values with its selected variant's own
 	// literals folded on top (OQ-8).
 	packEnv map[string]string
-	// shapeVars are the provider env_shape variables the active profiles compose, per
-	// profiled agent, in the order the container argv emits them (agentenv.Resolve over
-	// profiles.Keys()). This is the half that routes a hydrated credential into the
-	// agent's process env (OQ-14).
+	// shapeVars are the provider environment variables the active profiles compose, per
+	// profiled agent, in the order the container argv emits them (packload.AgentEnv over
+	// profiles.Keys() — the env-derive runner). This is the half that routes a hydrated
+	// credential into the agent's process env (OQ-14).
 	shapeVars []agentenv.Var
 	// userEnv is the hydrated env_sources this launch would deliver — the secret channel
-	// both a {key} placeholder and the credential pre-flight consult. Hydrated once, here,
-	// because the container arm also writes it to yolo-user-env.sh and two hydrations
-	// would read every dotenv file twice and warn twice.
+	// both the env derive's credential and the credential pre-flight consult. Hydrated
+	// once, here, because the container arm also writes it to yolo-user-env.sh and two
+	// hydrations would read every dotenv file twice and warn twice.
 	userEnv *jsonx.OrderedMap
 }
 
@@ -83,27 +83,32 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 		packEnv:   packload.EnvVarsFor(packs, packload.ProfileTable(profiles)),
 		userEnv:   userEnv,
 	}
-	// The env_shape composition, one pass over the table in table order — the same
-	// iteration the container argv's env block makes, so the two spellings emit the same
-	// vars in the same order. A {key} placeholder resolves through what this launch
-	// carries: the hydrated env_sources, then the environment yolo was launched from.
-	// The relay is the delivery: whatever it composes is put onto the launch env
-	// verbatim, so drawing on the invoking shell does not claim a credential the launch
-	// would not have carried.
+	// The provider environment, one pass over the profile table in table order — the
+	// same iteration the container argv's env block makes, so the two spellings emit the
+	// same vars in the same order. Each agent's OWN pack composes its variables (the
+	// env-derive runner, OQ-CS8): the producer reads the composed table, with the
+	// selected provider's credential hydrated into its copy only, and the launch relays
+	// what it emitted. The credential resolves through what this launch carries — the
+	// hydrated env_sources, then the environment yolo was launched from — so the relay
+	// does not claim a credential the launch would not have carried.
 	lookup := c.shapeLookup(o)
 	for _, agent := range profiles.Keys() {
 		profile := mapStr(profiles, agent)
-		c.shapeVars = append(c.shapeVars, agentenv.Resolve(providers, agent, profile,
-			packload.ProviderFor(packs, agent, profile), lookup)...)
+		vars, err := packload.AgentEnv(packs, providers, packload.ProfileTable(profiles),
+			agent, profile, lookup)
+		if err != nil {
+			return nil, err
+		}
+		c.shapeVars = append(c.shapeVars, vars...)
 	}
 	return c, nil
 }
 
-// shapeLookup is the lookup the env_shape composition resolves a {key} placeholder
-// through: the hydrated env_sources, then the environment yolo itself was launched from.
-// It deliberately does NOT see the channel's own outputs — a placeholder must not resolve
-// through a var another placeholder composed.
-func (c *packChannel) shapeLookup(o *Options) agentenv.Lookup {
+// shapeLookup is the lookup the provider environment resolves a credential through: the
+// hydrated env_sources, then the environment yolo itself was launched from. It
+// deliberately does NOT see the channel's own outputs — a credential must not resolve
+// through a variable another part of this composition set.
+func (c *packChannel) shapeLookup(o *Options) func(string) (string, bool) {
 	return func(name string) (string, bool) {
 		if s := mapStr(c.userEnv, name); s != "" {
 			return s, true
@@ -120,14 +125,14 @@ func (c *packChannel) shapeLookup(o *Options) agentenv.Lookup {
 //
 //  1. the hydrated env_sources (the secret channel);
 //  2. argvPairs — the `-e K=V` pairs of the assembled container argv, which carry the
-//     pack env, the shape aliases and every pack-shipped loophole's jail_env. Nil on the
-//     macos-user arm, which assembles no argv;
+//     pack env, the provider env vars and every pack-shipped loophole's jail_env. Nil on
+//     the macos-user arm, which assembles no argv;
 //  3. the composed channel's own pack env and shape vars — the same pairs the container
 //     argv carries, spelled out so the check means the same thing on a backend that has
 //     no argv to read;
 //  4. the environment yolo itself was launched from, which the relay can draw on.
 //
-// An EMPTY value is unset at every step: agentenv drops an empty placeholder result
+// An EMPTY value is unset at every step: the env-derive runner drops an empty value
 // rather than composing an empty token, and an empty credential is the failure the
 // pre-flight exists to name, not an escape from it.
 func (c *packChannel) deliveryLookup(o *Options, argvPairs map[string]string) func(string) (string, bool) {
@@ -159,9 +164,9 @@ func (c *packChannel) deliveryLookup(o *Options, argvPairs map[string]string) fu
 //
 // The order mirrors the container argv's, because layering order is semantics for a key
 // two sources both set: the pack env fold first (sorted — a map has no order and the
-// environment it becomes must not reshuffle between runs), then the shape vars in table
-// order, so a shape alias is the more specific intent and wins (OQ-8's rule at the env
-// boundary rather than the fold's), then the two wire tables.
+// environment it becomes must not reshuffle between runs), then the provider env vars in
+// table order, so a provider var is the more specific intent and wins (OQ-8's rule at the
+// env boundary rather than the fold's), then the two wire tables.
 //
 // The shape vars' Unset half is skipped, exactly as the container env block skips it:
 // `env -i K=V…` starts from nothing, so there is nothing to remove, and spelling a

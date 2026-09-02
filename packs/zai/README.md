@@ -31,10 +31,10 @@ Then `yolo -p zai` (or the persistent spelling, `"use_profiles": {"claude": "zai
 
 | Agent | What it gets | Channel |
 |---|---|---|
-| claude | `ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic` + `ANTHROPIC_AUTH_TOKEN` | the provider's `env_shape`, composed at launch — the endpoint is configuration, the token is relayed from the hydrated variable and never written to a file |
+| claude | `ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic` + `ANTHROPIC_AUTH_TOKEN` | the agent pack's own env derive (`yolo.env` in `packs/claude/derive.lua`), composed at launch — the endpoint is configuration, the token is relayed from the hydrated variable and never written to a file |
 | pi | a `zai` entry pointing at the openai route, `api: "openai-completions"` | its derive, reading `YOLO_PROVIDERS` (the composed table) |
 | opencode | a `zai` entry pointing at the openai route | its derive, reading `YOLO_PROVIDERS` (the composed table) |
-| codex | **nothing** | codex speaks `responses` only and z.ai's openai route speaks chat completions only, so no `wire_api` value makes the pairing work — the derive emits no entry rather than one that 404s at first request ([provider-table-fidelity.md](../../docs/design/provider-table-fidelity.md) §3.3). Codex has no z.ai route; the anthropic endpoint is claude's, via `env_shape`. |
+| codex | **nothing** | codex speaks `responses` only and z.ai's openai route speaks chat completions only, so no `wire_api` value makes the pairing work — the derive emits no entry rather than one that 404s at first request ([provider-table-fidelity.md](../../docs/design/provider-table-fidelity.md) §3.3). Codex has no z.ai route; the anthropic endpoint is claude's, via claude's env derive. |
 
 A launch that selects this pack and never hydrates `ZAI_API_KEY` **refuses outright**
 (`yolo run`'s pre-flight, OQ-13) — the alternative is a jail whose first API call fails
@@ -48,8 +48,8 @@ them uses is still that agent's own setting** (pi's default model, opencode's `p
 until [`zai-plumbing.md`](../../docs/design/zai-plumbing.md) §5 closure rule 3 lands — one
 `config-overlay` with a `profile` modifier per agent
 ([`profiles-as-pack-variants.md`](../../docs/design/profiles-as-pack-variants.md) §7), which
-does not exist yet. Claude needs none of it: it has no catalog to choose from, and the
-`env_shape` above is its whole delivery.
+does not exist yet. Claude needs none of it: it has no catalog to choose from, and the env
+derive above is its whole delivery.
 
 Until then, a user who wants every agent that can reach z.ai on GLM writes the choice where
 the agent reads it — or waits for the overlay, which is the same keys delivered by the pack

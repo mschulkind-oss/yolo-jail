@@ -81,7 +81,7 @@ type assembleInput struct {
 
 	// userEnv is the env_sources the run pipeline hydrated — the same resolution that
 	// wrote yolo-user-env.sh, handed to assembly rather than read a second time. It is
-	// the secret channel inside the composed channel (a provider env_shape's {key}
+	// the secret channel inside the composed channel (an env derive's credential
 	// placeholder resolves through it, and so does the credential pre-flight); assembly
 	// reads it only through envChannel, and only when the pipeline did not hand a channel
 	// over — every construction that does not come from the run pipeline is a test. Nil

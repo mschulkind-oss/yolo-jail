@@ -39,3 +39,37 @@ yolo.derive("claude", "settings", function(ctx)
     env = { ENABLE_LSP_TOOL = next(ctx.lsp_servers) and "1" or ctx.tombstone },
   }
 end)
+
+-- env: the provider environment claude's own process launches with. The variable NAMES
+-- are Claude Code's facts, not any provider's, so the binding lives HERE — in the agent
+-- pack, where a rename of what claude reads is one edit — rather than in a manifest
+-- vocabulary every provider would restate (provider-catalog-and-selection.md §3.1,
+-- OQ-CS8). The producer reads the composed table; a selected provider's api_key arrives
+-- hydrated for this invocation only, and never crosses in the wire table itself (D8).
+-- An input that is absent drops its variable: an empty base URL is a request to the
+-- wrong host, and an empty token is a credential that gets SENT.
+yolo.env("claude", function(ctx)
+  local p = ctx.providers[ctx.selected_provider]
+  if not p then return {} end
+  local out = {}
+  if p.endpoints and p.endpoints.anthropic and p.endpoints.anthropic.base_url then
+    out.ANTHROPIC_BASE_URL = p.endpoints.anthropic.base_url
+  end
+  if p.api_key then
+    out.ANTHROPIC_AUTH_TOKEN = p.api_key
+  end
+  if p.region then
+    out.AWS_REGION = p.region
+  end
+  local m = p.models or {}
+  if m.default then
+    out.ANTHROPIC_DEFAULT_OPUS_MODEL = m.default
+  end
+  if m.sonnet then
+    out.ANTHROPIC_DEFAULT_SONNET_MODEL = m.sonnet
+  end
+  if m.haiku then
+    out.ANTHROPIC_DEFAULT_HAIKU_MODEL = m.haiku
+  end
+  return out
+end)

@@ -892,8 +892,7 @@
                     sole-owned WITHIN the pack only: two packs may both declare `bedrock`
                     and stay unrelated.  A profile no launch selects does nothing.
       provider      {name, endpoints:{protocol:{base_url, wire_api}}, api_key_env_name,
-                    region, models:{alias: id},
-                    env_shape:{protocol:{VAR: "{endpoint}|{key}|{region}|{model:alias}"}}} —
+                    region, models:{alias: id}} —
                     the SERVICE facts of a named provider: the endpoints that speak each
                     wire protocol, the region a regional provider is reached through, and
                     the model ids an alias names.  Composed UNDER your
@@ -901,10 +900,11 @@
                     region or one URL keeps everything else the pack shipped.  The
                     credential is NEVER
                     here: api_key_env_name is the NAME of a variable you hydrate
-                    (env_sources), and a base_url carrying userinfo is refused.  An
-                    env_shape value names only WHICH of the entry's own facts fills that
-                    variable, never a literal value — that is how a pack cannot ship a
-                    credential.  A
+                    (env_sources), and a base_url carrying userinfo is refused.  The
+                    entry carries facts only — WHICH environment variable each fact
+                    lands in is stated by the agent pack's own derive.lua (its
+                    yolo.env producer), never by provider vocabulary, so a pack cannot
+                    ship a credential that way either.  A
                     provider name is sole-owned — two packs shipping one is a launch
                     error.
       loophole      {from} — a loophole MODULE dir the pack ships, holding a

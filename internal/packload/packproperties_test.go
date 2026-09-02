@@ -274,7 +274,8 @@ func TestBedrockProfilePatchesItsOwnSettingsEnv(t *testing.T) {
 
 	// The payload split's other half: what composes from provider VALUES stays
 	// env-delivered. AWS_REGION and the ANTHROPIC_* model ids are the provider entry's
-	// own facts (env_shape composes them at launch), and a literal here would be a second
+	// own facts (the agent pack's env derive composes them at launch), and a literal
+	// here would be a second
 	// copy of a fact packs/claude's provider declaration already owns.
 	for _, k := range []string{
 		"AWS_REGION", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
