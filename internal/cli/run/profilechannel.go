@@ -10,7 +10,7 @@ package run
 // table and the env_shape vars in commonEnvBlock — and the macos-user branch returns
 // before reaching any of it. That backend therefore parsed and VALIDATED `-p zai`
 // (checkProfileTargets sits in stagePacks, above the dispatch) and then delivered nothing:
-// no variant env, no env_shape relay, no YOLO_PROVIDERS/YOLO_PACK_PROFILES for its
+// no variant env, no env_shape relay, no YOLO_PROVIDERS/YOLO_USE_PROFILES for its
 // bootstrap, no credential pre-flight. `yolo -p zai -- claude` on macos-user composed
 // nothing and said so to nobody — the same signature of silence B-0 found for the pack
 // trees, one layer down.
@@ -35,8 +35,8 @@ import (
 // reduced to the form each consumer reads. Composed once, by composePackChannel, above
 // the backend dispatch; never re-derived downstream.
 type packChannel struct {
-	// profiles is the CLI-keyed effective profile table (effectivePackProfiles): the
-	// merge the env block emits as YOLO_PACK_PROFILES, the launch-flag injection reads,
+	// profiles is the CLI-keyed effective profile table (effectiveUseProfiles): the
+	// merge the env block emits as YOLO_USE_PROFILES, the launch-flag injection reads,
 	// and the profile disclosure line describes.
 	profiles *jsonx.OrderedMap
 	// providers is the composed provider table (composedProviders): user `providers`
@@ -72,7 +72,7 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 			o.pr(o.Stdout).print(msg)
 		})
 	}
-	profiles := o.effectivePackProfiles(cfg, packs)
+	profiles := o.effectiveUseProfiles(cfg, packs)
 	providers, err := composedProviders(cfg, packs)
 	if err != nil {
 		return nil, err
@@ -183,6 +183,6 @@ func (c *packChannel) launchEnv() *jsonx.OrderedMap {
 		env.Set(v.Key, v.Value)
 	}
 	env.Set("YOLO_PROVIDERS", jsonDumpsOrEmptyObj(c.providers))
-	env.Set("YOLO_PACK_PROFILES", jsonDumpsOrEmptyObj(c.profiles))
+	env.Set("YOLO_USE_PROFILES", jsonDumpsOrEmptyObj(c.profiles))
 	return env
 }

@@ -495,7 +495,7 @@ re-creates the conflation this whole doc exists to undo — a value that is some
 sometimes an object.
 
 **But `pack_profiles` names neither of the things it holds.** Its keys are **CLI names**, validated
-as such ([`config.PackProfileCLINames`](../../internal/config/packs.go)); no pack is named anywhere
+as such ([`config.UseProfileCLINames`](../../internal/config/packs.go)); no pack is named anywhere
 in it. It was `agent_profiles` until 2026-09-01 and was renamed on the grounds that *"the keys were
 always CLI names and core knows packs, not agents"* — which is true about `agent` and does not make
 `pack` right. The rename traded one wrong word for another, and putting `profiles` beside it now

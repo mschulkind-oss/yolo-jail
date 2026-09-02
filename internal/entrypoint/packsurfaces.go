@@ -151,13 +151,13 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 	// changes is that the boot path and the host path now read ONE statement of the policy
 	// instead of each carrying its own constant.
 	autonomy := e.renderTarget().Profile().AgentAutonomy
-	// The active profile table (YOLO_PACK_PROFILES), keyed by CLI name. The WHOLE table is
+	// The active profile table (YOLO_USE_PROFILES), keyed by CLI name. The WHOLE table is
 	// resolved here and each pack selects from it by its own installed bins — the same
 	// rule the derives follow (every pack sees every key), so a pack owning no CLI still
 	// has its profile visible to its derive even though it folds nothing. A profile's
 	// config patch folds inside SurfacesFor, after the posture's, so this loop stays
 	// per-kind-free: a variant is not a render pass, it is more of the same patch.
-	profiles := packload.ProfileTable(e.LoadPackProfiles())
+	profiles := packload.ProfileTable(e.LoadUseProfiles())
 	// config-overlay contributions are collected BEFORE the per-pack loop and across the
 	// whole set, because an overlay in pack B targets a surface pack A owns — the only
 	// case the kind exists for. Collecting per-pack would find, for that case, exactly
@@ -267,10 +267,10 @@ func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, 
 // produce the table and a pack only says which one it wants and what shape it needs.
 func liveTables(e *Env) map[string]map[string]any {
 	return map[string]map[string]any{
-		manifest.SourceMCPServers:   prismMap(e.LoadMCPServers()),
-		manifest.SourceLSPServers:   prismMap(LoadLSPServers(e)),
-		manifest.SourceProviders:    prismMap(e.LoadProviders()),
-		manifest.SourcePackProfiles: prismMap(e.LoadPackProfiles()),
+		manifest.SourceMCPServers:  prismMap(e.LoadMCPServers()),
+		manifest.SourceLSPServers:  prismMap(LoadLSPServers(e)),
+		manifest.SourceProviders:   prismMap(e.LoadProviders()),
+		manifest.SourceUseProfiles: prismMap(e.LoadUseProfiles()),
 	}
 }
 

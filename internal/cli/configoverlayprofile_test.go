@@ -17,8 +17,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
-// gatedFixture is writeOverlayFixture plus a `pack_profiles` body, so a test can state
-// which profiles the user selected (an empty profilesJSON means no `pack_profiles` key).
+// gatedFixture is writeOverlayFixture plus a `use_profiles` body, so a test can state
+// which profiles the user selected (an empty profilesJSON means no `use_profiles` key).
 func gatedFixture(t *testing.T, profilesJSON string, packs map[string]string) string {
 	t.Helper()
 	home := writeOverlayFixture(t, packs)
@@ -32,7 +32,7 @@ func gatedFixture(t *testing.T, profilesJSON string, packs map[string]string) st
 	}
 	// Splice the key in ahead of the closing brace: the fixture's config is one object.
 	patched := strings.TrimRight(string(data), "\n")
-	patched = strings.TrimSuffix(patched, "}") + ",\"pack_profiles\":" + profilesJSON + "}"
+	patched = strings.TrimSuffix(patched, "}") + ",\"use_profiles\":" + profilesJSON + "}"
 	if err := os.WriteFile(cfgPath, []byte(patched), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -100,13 +100,13 @@ func TestApplyHostSkipsGatedOverlayWhenProfileNotSelected(t *testing.T) {
 }
 
 // overlayGateProfiles' two branches, pinned apart: the jail half decodes the very table
-// the boot render gated on (YOLO_PACK_PROFILES), the host half lowers the USER config's
-// pack_profiles and nothing else — the boundary UserScopeConfig states and the tests
+// the boot render gated on (YOLO_USE_PROFILES), the host half lowers the USER config's
+// use_profiles and nothing else — the boundary UserScopeConfig states and the tests
 // above exercise end to end.
 func TestOverlayGateProfilesReadsEachNotchesOwnTable(t *testing.T) {
 	// Jail: the launcher-emitted table, with a null at a key (the merge-patch removal the
 	// lowering exists to drop) beside a real selection.
-	t.Setenv("YOLO_PACK_PROFILES", `{"acme":"zai","pi":null}`)
+	t.Setenv("YOLO_USE_PROFILES", `{"acme":"zai","pi":null}`)
 	jail := overlayGateProfiles(render.KindJail)
 	if jail["acme"] != "zai" {
 		t.Errorf("jail table = %v, want acme=zai", jail)
@@ -115,7 +115,7 @@ func TestOverlayGateProfilesReadsEachNotchesOwnTable(t *testing.T) {
 		t.Errorf("a null profile decodes as a selection of an empty name: %v", jail)
 	}
 
-	// Host: the user config's pack_profiles, read through the fixture's $HOME.
+	// Host: the user config's use_profiles, read through the fixture's $HOME.
 	writeUserProfiles := func(body string) {
 		t.Helper()
 		home := t.TempDir()
@@ -123,7 +123,7 @@ func TestOverlayGateProfilesReadsEachNotchesOwnTable(t *testing.T) {
 		if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		cfg := `{"pack_profiles":` + body + `}`
+		cfg := `{"use_profiles":` + body + `}`
 		if err := os.WriteFile(filepath.Join(cfgDir, "config.jsonc"), []byte(cfg), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -136,7 +136,7 @@ func TestOverlayGateProfilesReadsEachNotchesOwnTable(t *testing.T) {
 		t.Errorf("host table = %v, want acme=zai from the user config", host)
 	}
 	// A jail-side env var must NOT leak into the host branch.
-	t.Setenv("YOLO_PACK_PROFILES", `{"acme":"bedrock"}`)
+	t.Setenv("YOLO_USE_PROFILES", `{"acme":"bedrock"}`)
 	if again := overlayGateProfiles(render.KindHost); again["acme"] != "zai" {
 		t.Errorf("the host branch read the jail's env table: %v", again)
 	}

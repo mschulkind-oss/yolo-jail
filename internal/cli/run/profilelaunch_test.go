@@ -5,7 +5,7 @@ package run
 // SELECTED variant, not just the pack's static baseline.
 //
 // The interactive alias learned profiles first (entrypoint/shell.go folds the jail's
-// YOLO_PACK_PROFILES table), and the host CLI's injection did not — so one pack's variant
+// YOLO_USE_PROFILES table), and the host CLI's injection did not — so one pack's variant
 // flags appeared on the alias and vanished from a direct invocation. Nothing failed: the
 // launch looked normal and ran with the wrong approval posture. That is why the test below
 // drives Run() and reads the argv the backend is handed, rather than calling
@@ -51,7 +51,7 @@ func TestRunInjectsTheSelectedProfilesLaunchFlags(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	o.Args = []string{"acme", "user-arg"}
-	o.PackProfiles = map[string]string{"acme": "bedrock"}
+	o.UseProfiles = map[string]string{"acme": "bedrock"}
 
 	var got []string
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, agentArgv []string, _, _ string, _ bool, _ *jsonx.OrderedMap) int {

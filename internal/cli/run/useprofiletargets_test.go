@@ -27,12 +27,12 @@ import (
 
 // A --pack-profile naming a CLI no pack installs is fatal, naming the CLI and the
 // installed names.
-func TestStageRunPacksRefusesAnUnknownPackProfileCLI(t *testing.T) {
+func TestStageRunPacksRefusesAnUnknownUseProfileCLI(t *testing.T) {
 	home := retireHome(t)
 	writeUserPacks(t, home, `[]`)
 	var out bytes.Buffer
 	o := retireOptions(t, &out)
-	o.PackProfiles = map[string]string{"cloude": "bedrock"}
+	o.UseProfiles = map[string]string{"cloude": "bedrock"}
 	if _, ok := o.stageRunPacks("yolo-profile-target-cli"); ok {
 		t.Fatalf("a --pack-profile naming a CLI no pack installs staged cleanly — " +
 			"the typo passes silently")
@@ -73,7 +73,7 @@ func TestStageRunPacksAcceptsProfileTargetsThePacksInstall(t *testing.T) {
 	o := retireOptions(t, &out)
 	o.ProfileName = "dev"
 	o.Args = []string{"claude"}
-	o.PackProfiles = map[string]string{"pi": "glm"}
+	o.UseProfiles = map[string]string{"pi": "glm"}
 	if _, ok := o.stageRunPacks("yolo-profile-target-known"); !ok {
 		t.Fatalf("selectors naming installed CLIs must stage cleanly:\n%s", out.String())
 	}
@@ -143,11 +143,11 @@ func assembleWithProfiles(t *testing.T, cfg *jsonx.OrderedMap, packs []*packload
 func TestAssembleGlobalProfileReachesEverySelectedPack(t *testing.T) {
 	packs := packsFixture(t, "claude", "pi")
 	argv := assembleWithProfiles(t, newConfig(), packs, func(o *Options) { o.ProfileName = "dev" })
-	got := envArgValues(argv, "YOLO_PACK_PROFILES")
+	got := envArgValues(argv, "YOLO_USE_PROFILES")
 	if len(got) != 1 {
-		t.Fatalf("YOLO_PACK_PROFILES emitted %q, want exactly one", got)
+		t.Fatalf("YOLO_USE_PROFILES emitted %q, want exactly one", got)
 	}
-	if got[0] != `YOLO_PACK_PROFILES={"claude": "dev", "pi": "dev"}` {
+	if got[0] != `YOLO_USE_PROFILES={"claude": "dev", "pi": "dev"}` {
 		t.Errorf("global -p must key every selected pack by the CLI it installs, got %s", got[0])
 	}
 }
@@ -161,11 +161,11 @@ func TestAssembleProfileWithACommandKeysOnlyThatBin(t *testing.T) {
 		o.ProfileName = "dev"
 		o.Args = []string{"claude"}
 	})
-	got := envArgValues(argv, "YOLO_PACK_PROFILES")
+	got := envArgValues(argv, "YOLO_USE_PROFILES")
 	if len(got) != 1 {
-		t.Fatalf("YOLO_PACK_PROFILES emitted %q, want exactly one", got)
+		t.Fatalf("YOLO_USE_PROFILES emitted %q, want exactly one", got)
 	}
-	if got[0] != `YOLO_PACK_PROFILES={"claude": "dev"}` {
+	if got[0] != `YOLO_USE_PROFILES={"claude": "dev"}` {
 		t.Errorf("-p with a command must key only that bin, got %s", got[0])
 	}
 }
@@ -179,7 +179,7 @@ func TestAssembleProfileWithACommandKeysOnlyThatBin(t *testing.T) {
 //
 // Driven through the same merge the env block consumes, so the line cannot claim
 // something the table does not carry.
-func TestNotePackProfilesPrintsDeclaredAndReceived(t *testing.T) {
+func TestNoteUseProfilesPrintsDeclaredAndReceived(t *testing.T) {
 	packs := packsFixture(t, "claude", "pi")
 	var out bytes.Buffer
 	o := goldenOptions("/ws", t.TempDir())
@@ -189,9 +189,9 @@ func TestNotePackProfilesPrintsDeclaredAndReceived(t *testing.T) {
 	profiles := jsonx.NewOrderedMap()
 	profiles.Set("claude", "glm")
 	profiles.Set("pi", "glm")
-	cfg.Set("pack_profiles", profiles)
-	effective := o.effectivePackProfiles(cfg, packs)
-	o.notePackProfiles(effective, packs)
+	cfg.Set("use_profiles", profiles)
+	effective := o.effectiveUseProfiles(cfg, packs)
+	o.noteUseProfiles(effective, packs)
 
 	want := "Profile glm: declared: none; received: claude, pi"
 	if !strings.Contains(out.String(), want) {
@@ -207,7 +207,7 @@ func TestNotePackProfilesPrintsDeclaredAndReceived(t *testing.T) {
 
 // Two names in play print two lines, so a launch that selected differently for
 // different CLIs says both rather than the winner.
-func TestNotePackProfilesPrintsOneLinePerName(t *testing.T) {
+func TestNoteUseProfilesPrintsOneLinePerName(t *testing.T) {
 	packs := packsFixture(t, "claude", "pi")
 	var out bytes.Buffer
 	o := goldenOptions("/ws", t.TempDir())
@@ -217,8 +217,8 @@ func TestNotePackProfilesPrintsOneLinePerName(t *testing.T) {
 	profiles := jsonx.NewOrderedMap()
 	profiles.Set("claude", "bedrock")
 	profiles.Set("pi", "glm")
-	cfg.Set("pack_profiles", profiles)
-	o.notePackProfiles(o.effectivePackProfiles(cfg, packs), packs)
+	cfg.Set("use_profiles", profiles)
+	o.noteUseProfiles(o.effectiveUseProfiles(cfg, packs), packs)
 
 	for _, want := range []string{
 		"Profile bedrock: declared: claude; received: claude, pi",
@@ -232,13 +232,13 @@ func TestNotePackProfilesPrintsOneLinePerName(t *testing.T) {
 
 // No profile selected, no line: a plain launch is the common case, and restating the
 // absence on every launch is noise rather than disclosure.
-func TestNotePackProfilesPrintsNothingWithoutAProfile(t *testing.T) {
+func TestNoteUseProfilesPrintsNothingWithoutAProfile(t *testing.T) {
 	packs := packsFixture(t, "claude")
 	var out bytes.Buffer
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stdout = discardBuf()
 	o.Stderr = &out
-	o.notePackProfiles(o.effectivePackProfiles(newConfig(), packs), packs)
+	o.noteUseProfiles(o.effectiveUseProfiles(newConfig(), packs), packs)
 	if out.String() != "" {
 		t.Errorf("an unprofiled launch must print no profile line, got:\n%s", out.String())
 	}
@@ -257,7 +257,7 @@ func TestNotePackProfilesPrintsNothingWithoutAProfile(t *testing.T) {
 func TestFreshLaunchPrintsTheProfileLineBesideTheHostAccessLine(t *testing.T) {
 	const (
 		hostAccess = "notePackHostAccess"
-		profiles   = "notePackProfiles"
+		profiles   = "noteUseProfiles"
 	)
 	fn := methodDecl(t, "run.go", "runContainer")
 
@@ -320,14 +320,14 @@ func profilePackFixture(t *testing.T, name string) *packload.Pack {
 }
 
 // A selected variant's env reaches the ASSEMBLED argv: the -e block and the
-// YOLO_PACK_PROFILES table must describe the same launch. This is the pin on the call
+// YOLO_USE_PROFILES table must describe the same launch. This is the pin on the call
 // site, not on the fold — packload.EnvVarsFor is covered in packload's own tests, and
 // nothing there would notice if assemble went back to a static-only fold, which
 // would ship every profile env silently missing from the jail.
 func TestAssembleSelectedProfileEnvReachesTheJailArgv(t *testing.T) {
 	packs := []*packload.Pack{profilePackFixture(t, "acme")}
 	argv := assembleWithProfiles(t, newConfig(), packs, func(o *Options) {
-		o.PackProfiles = map[string]string{"claude": "bedrock"}
+		o.UseProfiles = map[string]string{"claude": "bedrock"}
 	})
 	env := strings.Join(envArgValues(argv, "PROFILE_ONLY", "BASE", "SHARED"), " ")
 	if !strings.Contains(env, "PROFILE_ONLY=from-profile") {
@@ -353,7 +353,7 @@ func TestAssembleSelectedProfileEnvReachesTheJailArgv(t *testing.T) {
 // DECLARED now names the packs that actually declare the variant — the half of the line
 // that tells a user whether the name they typed means anything. A pack shipping no such
 // variant is RECEIVED only, and stays listed there.
-func TestNotePackProfilesNamesTheDeclaringPack(t *testing.T) {
+func TestNoteUseProfilesNamesTheDeclaringPack(t *testing.T) {
 	declares := profilePackFixture(t, "acme")
 	silent := packsFixture(t, "pi")
 	all := append([]*packload.Pack{declares}, silent...)
@@ -364,8 +364,8 @@ func TestNotePackProfilesNamesTheDeclaringPack(t *testing.T) {
 	cfg := newConfig()
 	profiles := jsonx.NewOrderedMap()
 	profiles.Set("claude", "bedrock")
-	cfg.Set("pack_profiles", profiles)
-	o.notePackProfiles(o.effectivePackProfiles(cfg, all), all)
+	cfg.Set("use_profiles", profiles)
+	o.noteUseProfiles(o.effectiveUseProfiles(cfg, all), all)
 	if !strings.Contains(out.String(), "declared: acme; received: acme, pi") {
 		t.Errorf("the declaring pack must be named:\n%s", out.String())
 	}
@@ -377,7 +377,7 @@ func TestNotePackProfilesNamesTheDeclaringPack(t *testing.T) {
 	o2.Stdout = discardBuf()
 	var out2 bytes.Buffer
 	o2.Stderr = &out2
-	o2.notePackProfiles(o2.effectivePackProfiles(cfg, all), all)
+	o2.noteUseProfiles(o2.effectiveUseProfiles(cfg, all), all)
 	if !strings.Contains(out2.String(), "Profile bedrok: declared: none;") {
 		t.Errorf("an undeclared name must say so rather than vanish:\n%s", out2.String())
 	}

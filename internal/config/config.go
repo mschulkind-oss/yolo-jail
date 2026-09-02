@@ -64,11 +64,16 @@ var knownTopLevelConfigKeys = set(
 	"loopholes", "host_processes", "journal",
 	"kvm", "prune", "ephemeral_storage", "include_if_found", "agents_md_extra",
 	"cache_relocations", "writable_home_dirs", "host_files", "host_wrappers", "packs",
-	"providers", "pack_profiles", "required_capabilities",
+	"providers", "use_profiles", "required_capabilities",
 	// `agent_profiles` retired 2026-09-01, renamed to `pack_profiles` (the keys were
 	// always CLI names, and core knows packs, not agents — docs/design/
-	// profiles-as-pack-variants.md §3.3). Listed so the retirement message is the
-	// only error, per the convention above.
+	// profiles-as-pack-variants.md §3.3), which was itself renamed to `use_profiles`
+	// on 2026-09-02 (provider-catalog-and-selection.md §5.4: `pack` named neither of
+	// the two things the key holds). NEITHER intermediate name ever shipped in a
+	// release, which is why `pack_profiles` earns no census entry of its own — see
+	// knownProviderKeys below for the rule. `agent_profiles` KEEPS its entry: that
+	// spelling is written into every host-generated jail snapshot in existence.
+	// Listed so the retirement message is the only error, per the convention above.
 	"agent_profiles",
 )
 
@@ -98,10 +103,12 @@ var (
 	// `api_key_env` was renamed to `api_key_env_name` on 2026-09-01 and is NOT listed here.
 	// It carried a by-name rename message for one day; the maintainer's call was that a key
 	// that never shipped in a release does not earn a deprecation path, so the old spelling
-	// is now an ordinary unknown key. `agent_profiles` KEEPS its rename message — that one
-	// is written into every host-generated jail snapshot in existence, which is the
-	// distinction: a retired-key message is for a spelling that is out there, not for one
-	// that was briefly in the tree.
+	// is now an ordinary unknown key. `pack_profiles` is the rule's second application
+	// (renamed to `use_profiles` on 2026-09-02, having landed 2026-08-31 — after
+	// `v0.8.0`, 2026-08-13), and it is not listed here either. `agent_profiles` KEEPS its
+	// rename message — that one is written into every host-generated jail snapshot in
+	// existence, which is the distinction: a retired-key message is for a spelling that is
+	// out there, not for one that was briefly in the tree.
 	// `env_shape` is OQ-15 (profiles-as-pack-variants.md §14): a service fact like
 	// endpoints and models, so the user may override it. Its VALUES are checked against
 	// the same closed placeholder set a manifest's is — validateProviderEnvShape, which

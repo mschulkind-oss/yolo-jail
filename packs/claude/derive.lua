@@ -2,7 +2,7 @@
 -- In subscription mode (default), Claude has native web search, so servers providing
 -- "web_search" are omitted. In Bedrock mode, search MCPs pass through.
 yolo.derive("claude", "config", function(ctx)
-  local claudeProfile = (ctx.pack_profiles and ctx.pack_profiles.claude) or "default"
+  local claudeProfile = (ctx.use_profiles and ctx.use_profiles.claude) or "default"
   local isBedrock = (claudeProfile == "bedrock")
   local servers = {}
   for name, cfg in pairs(ctx.mcp_servers or {}) do

@@ -85,7 +85,7 @@ type Options struct {
 	HostPackRoot string
 	// PackEnv is the launch's composed profile/provider channel in launch-env form: the
 	// pack env fold, the provider env_shape vars, and the two wire tables
-	// (YOLO_PROVIDERS, YOLO_PACK_PROFILES). The run pipeline composes it above the
+	// (YOLO_PROVIDERS, YOLO_USE_PROFILES). The run pipeline composes it above the
 	// backend dispatch and hands it to BOTH arms — the container arm emits the same
 	// content onto its argv — so a `-p` launch composes the same environment natively
 	// that it does in a container. Nil is the pre-channel shape and layers nothing.

@@ -46,7 +46,7 @@ func ConfigurePackByName(e *Env, name string) error {
 	// The profile table resolved the same way the boot loop resolves it — this entry must
 	// fold the same variants or the parity proofs above measure a render the boot never
 	// produces.
-	profiles := packload.ProfileTable(e.LoadPackProfiles())
+	profiles := packload.ProfileTable(e.LoadUseProfiles())
 	surfaces, problems, notes := p.SurfacesForReport(autonomy, profiles)
 	if len(problems) > 0 {
 		return fmt.Errorf("pack %s: %s", name, problems[0])

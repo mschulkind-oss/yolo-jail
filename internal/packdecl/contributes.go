@@ -203,7 +203,7 @@ type Contribution struct {
 
 	// --- profile (profiles-as-pack-variants.md §3.1) ---
 	// The body rides fields declared above: Name is the profile's SELECTOR VALUE (the
-	// name the user writes in pack_profiles or -p) and Raw is its `config` patch. What is
+	// name the user writes in use_profiles or -p) and Raw is its `config` patch. What is
 	// new here is the part no other kind needed:
 	//
 	// Launch is the same per-binary shape a posture's is, at the TOP level of a
@@ -574,7 +574,7 @@ func (m *Manifest) Profiles() []ProfileContribution {
 // declares none — the shape the fold and the launch disclosure both key off ("did any
 // selected pack DECLARE this variant?").
 //
-// The selector is the name the user chose (`pack_profiles`, `-p`), which is what makes
+// The selector is the name the user chose (`use_profiles`, `-p`), which is what makes
 // this the open-selector twin of PostureFor(autonomy bool): same body, different
 // authority for the choice (§3.1).
 func (m *Manifest) ProfileFor(name string) *ProfileContribution {

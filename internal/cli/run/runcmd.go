@@ -56,11 +56,11 @@ type Options struct {
 	// ProfileName is --profile <name> or -p <name> (e.g. "glm" or "glm-dev" — the
 	// name is the next token, and there is no other reading of either flag). With a
 	// command it keys the name to that command's binary; with no command it is GLOBAL —
-	// the selected profile of every pack this launch selects (effectivePackProfiles).
+	// the selected profile of every pack this launch selects (effectiveUseProfiles).
 	ProfileName string
-	// PackProfiles is --pack-profile <cli>=<name> overrides, keyed by CLI name. A name
+	// UseProfiles is --pack-profile <cli>=<name> overrides, keyed by CLI name. A name
 	// no resolvable pack installs is refused at launch (checkProfileTargets).
-	PackProfiles map[string]string
+	UseProfiles map[string]string
 	// Args is ctx.args — the command after `--` (empty → interactive bash).
 	Args []string
 
@@ -139,7 +139,7 @@ type Options struct {
 	//
 	// packEnv is the channel in the same spirit, one hoist later: the pack env fold, the
 	// provider env_shape vars and the two wire tables (YOLO_PROVIDERS,
-	// YOLO_PACK_PROFILES), composed above the dispatch and handed to whichever arm runs.
+	// YOLO_USE_PROFILES), composed above the dispatch and handed to whichever arm runs.
 	// The container arm emits the same content onto its argv; this arm layers it into its
 	// plan env and relays the wire tables to its bootstrap. Making it an argument means a
 	// `-p` launch cannot be dispatched to this backend without the environment it

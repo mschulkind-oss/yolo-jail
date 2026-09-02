@@ -85,8 +85,8 @@ func TestProfileChannelReachesTheMacosUserBackend(t *testing.T) {
 	if got == nil {
 		t.Fatal("Run() never handed the macos-user backend a launch environment")
 	}
-	if gotAt := envAt(got, "YOLO_PACK_PROFILES"); gotAt != `{"claude": "zai"}` {
-		t.Errorf("macos-user launch env YOLO_PACK_PROFILES = %q, want the global -p folded "+
+	if gotAt := envAt(got, "YOLO_USE_PROFILES"); gotAt != `{"claude": "zai"}` {
+		t.Errorf("macos-user launch env YOLO_USE_PROFILES = %q, want the global -p folded "+
 			"onto the CLI the selected agent pack installs", gotAt)
 	}
 	for key, want := range map[string]string{
@@ -174,7 +174,7 @@ func TestUnprofiledNativeLaunchStillCarriesTheEmptyWireTables(t *testing.T) {
 	if rc := Run(*o); rc != 0 {
 		t.Fatalf("Run() = %d, want 0\nstderr:\n%s", rc, stderr.String())
 	}
-	if gotAt := envAt(got, "YOLO_PACK_PROFILES"); gotAt != "{}" {
+	if gotAt := envAt(got, "YOLO_USE_PROFILES"); gotAt != "{}" {
 		t.Errorf("an unprofiled launch must carry an empty profile table, got %q", gotAt)
 	}
 	if gotAt := envAt(got, "YOLO_PROVIDERS"); !strings.Contains(gotAt, `"zai"`) {

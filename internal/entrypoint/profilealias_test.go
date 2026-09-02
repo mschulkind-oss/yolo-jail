@@ -5,7 +5,7 @@ package entrypoint
 //
 // Two consumers read one pack's launch list, and they must agree because shell.go says so:
 // packAliases exists so "an interactive shell gets the same flags a `yolo -- <bin>`
-// invocation does". The alias folds LaunchFlagsFor over the jail's YOLO_PACK_PROFILES
+// invocation does". The alias folds LaunchFlagsFor over the jail's YOLO_USE_PROFILES
 // table; the direct invocation is injected by the host CLI. When only the alias half
 // learned about profiles, a pack's variant flags appeared on the alias and vanished from
 // `yolo -- <bin>` — the divergence the parity test below exists to catch again.
@@ -55,7 +55,7 @@ func aliasEnv(t *testing.T, root, profiles string) *Env {
 	return NewEnv(map[string]string{
 		"JAIL_HOME":           t.TempDir(),
 		"YOLO_PACK_ROOT":      root,
-		"YOLO_PACK_PROFILES":  profiles,
+		"YOLO_USE_PROFILES":   profiles,
 		"YOLO_PACK_PROVIDERS": "",
 	})
 }
@@ -97,7 +97,7 @@ func TestAliasAndDirectInvocationAgreeOnAProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadJailPacks: %v", err)
 	}
-	table := packload.ProfileTable(e.LoadPackProfiles())
+	table := packload.ProfileTable(e.LoadUseProfiles())
 
 	// The direct path: what the host CLI injects into `yolo -- acme user-arg`.
 	direct := packload.InjectLaunchFlags(packs, table, []string{"acme", "user-arg"})

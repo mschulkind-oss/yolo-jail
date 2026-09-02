@@ -1,7 +1,7 @@
 package entrypoint
 
 // bootprofile_test.go pins that the BOOT LOOP's profile variant comes from the jail's
-// YOLO_PACK_PROFILES table, the way bootautonomy_test.go pins the posture from the
+// YOLO_USE_PROFILES table, the way bootautonomy_test.go pins the posture from the
 // confinement profile.
 //
 // Same reason, same trap: the profile fold lives INSIDE packload.SurfacesFor, so the
@@ -63,7 +63,7 @@ func renderAcmeSettings(t *testing.T, profiles string) map[string]any {
 	t.Helper()
 	var errw bytes.Buffer
 	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{
-		"YOLO_PACK_PROFILES": profiles,
+		"YOLO_USE_PROFILES": profiles,
 	}, Stderr: &errw}
 	withCtxRoot(t, t.TempDir(), "acme")
 

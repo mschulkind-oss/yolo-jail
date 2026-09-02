@@ -191,23 +191,23 @@ func parseRunArgs(args []string, opts *run.Options) {
 		case a == "--pack-profile":
 			if i+1 < len(args) {
 				i++
-				if opts.PackProfiles == nil {
-					opts.PackProfiles = make(map[string]string)
+				if opts.UseProfiles == nil {
+					opts.UseProfiles = make(map[string]string)
 				}
 				for _, pair := range strings.Split(args[i], ",") {
 					if parts := strings.SplitN(pair, "=", 2); len(parts) == 2 {
-						opts.PackProfiles[parts[0]] = parts[1]
+						opts.UseProfiles[parts[0]] = parts[1]
 					}
 				}
 			}
 		case len(a) > len("--pack-profile=") && strings.HasPrefix(a, "--pack-profile="):
-			if opts.PackProfiles == nil {
-				opts.PackProfiles = make(map[string]string)
+			if opts.UseProfiles == nil {
+				opts.UseProfiles = make(map[string]string)
 			}
 			val := strings.TrimPrefix(a, "--pack-profile=")
 			for _, pair := range strings.Split(val, ",") {
 				if parts := strings.SplitN(pair, "=", 2); len(parts) == 2 {
-					opts.PackProfiles[parts[0]] = parts[1]
+					opts.UseProfiles[parts[0]] = parts[1]
 				}
 			}
 		case a == "--dry-run":

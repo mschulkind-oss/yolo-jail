@@ -387,13 +387,13 @@ func TestPackEnvReachesTheLaunchEnvAheadOfEnvSources(t *testing.T) {
 	opts.PackEnv.Set("ZAI_API_KEY", "from-pack")
 	opts.PackEnv.Set("ANTHROPIC_BASE_URL", "https://api.z.ai/api/anthropic")
 	opts.PackEnv.Set("YOLO_PROVIDERS", `{"zai": {}}`)
-	opts.PackEnv.Set("YOLO_PACK_PROFILES", `{"claude": "zai"}`)
+	opts.PackEnv.Set("YOLO_USE_PROFILES", `{"claude": "zai"}`)
 
 	argv := strings.Join(buildPlan(mockDeps(nil), opts, nil).LaunchArgv, " ")
 	for _, want := range []string{
 		"ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic",
 		"YOLO_PROVIDERS={\"zai\": {}}",
-		"YOLO_PACK_PROFILES={\"claude\": \"zai\"}",
+		"YOLO_USE_PROFILES={\"claude\": \"zai\"}",
 	} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("the composed channel never reached the launch env; LaunchArgv = %s", argv)
@@ -417,10 +417,10 @@ func TestPackEnvWireTablesReachTheBootstrapEnv(t *testing.T) {
 	opts := newOpts("/Users/Shared/proj")
 	opts.PackEnv = jsonx.NewOrderedMap()
 	opts.PackEnv.Set("YOLO_PROVIDERS", `{"zai": {"api_key_env_name": "ZAI_API_KEY"}}`)
-	opts.PackEnv.Set("YOLO_PACK_PROFILES", `{"claude": "zai"}`)
+	opts.PackEnv.Set("YOLO_USE_PROFILES", `{"claude": "zai"}`)
 
 	plan := buildPlan(mockDeps(nil), opts, nil)
-	for _, wire := range []string{`YOLO_PROVIDERS={"zai": {"api_key_env_name": "ZAI_API_KEY"}}`, `YOLO_PACK_PROFILES={"claude": "zai"}`} {
+	for _, wire := range []string{`YOLO_PROVIDERS={"zai": {"api_key_env_name": "ZAI_API_KEY"}}`, `YOLO_USE_PROFILES={"claude": "zai"}`} {
 		if !containsArg(plan.BootstrapArgv, wire) {
 			t.Errorf("%s is in the launch env but never reached the bootstrap argv %v — "+
 				"the native bootstrap would render every pack surface as if no profile "+
@@ -437,7 +437,7 @@ func TestPackEnvWireTablesReachTheBootstrapEnv(t *testing.T) {
 func TestNoPackEnvMeansNoWireTables(t *testing.T) {
 	plan := buildPlan(mockDeps(nil), newOpts("/Users/Shared/proj"), nil)
 	joined := strings.Join(plan.BootstrapArgv, " ")
-	for _, wire := range []string{"YOLO_PROVIDERS=", "YOLO_PACK_PROFILES="} {
+	for _, wire := range []string{"YOLO_PROVIDERS=", "YOLO_USE_PROFILES="} {
 		if strings.Contains(joined, wire) {
 			t.Errorf("a launch with no channel must not invent %s: %s", wire, joined)
 		}

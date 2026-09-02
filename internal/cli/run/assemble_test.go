@@ -494,7 +494,7 @@ func podmanLinuxGolden(home string) []string {
 		// selects claude carries it — a shape with no values in it, since the region and
 		// model ids are the user's providers.bedrock entry to supply.
 		"-e", `YOLO_PROVIDERS={"bedrock": {"env_shape": {"anthropic": {"ANTHROPIC_DEFAULT_HAIKU_MODEL": "{model:haiku}", "ANTHROPIC_DEFAULT_OPUS_MODEL": "{model:default}", "ANTHROPIC_DEFAULT_SONNET_MODEL": "{model:sonnet}", "AWS_REGION": "{region}"}}}}`,
-		"-e", "YOLO_PACK_PROFILES={}",
+		"-e", "YOLO_USE_PROFILES={}",
 		"-e", "YOLO_REQUIRED_CAPABILITIES=[]",
 		"-e", "YOLO_RUNTIME=podman",
 	)

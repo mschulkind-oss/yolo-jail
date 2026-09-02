@@ -65,7 +65,7 @@ func TestJailRenderWarnsOnProfilePatchNamingNoSurface(t *testing.T) {
 		{false, false, "a patch that folds"},
 	} {
 		e, errw := overlayRenderEnv(t)
-		e.Vars["YOLO_PACK_PROFILES"] = `{"claude":"bedrock"}`
+		e.Vars["YOLO_USE_PROFILES"] = `{"claude":"bedrock"}`
 		ConfigurePackSurfaces(e, []*packload.Pack{foldNotePack(t, c.typo)})
 		if fails := e.GenFailures(); len(fails) != 0 {
 			t.Fatalf("%s: an inert patch is not a render failure: %v", c.label, fails)

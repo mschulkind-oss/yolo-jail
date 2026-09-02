@@ -55,7 +55,7 @@ env flags:
   --format <fmt>  export (default) or json.
   --profile <name>, -p <name>   As above.
   --agent <name>  Compose as if launching this agent (default: claude). The agent name
-                  selects which pack_profiles entry applies.
+                  selects which use_profiles entry applies.
 
 Examples:
   yolo host -- claude                 # bare claude, with the composed environment
@@ -557,12 +557,12 @@ func loadedHostPacks() ([]*packload.Pack, error) {
 	return packs, nil
 }
 
-// effectiveHostProfiles returns the pack_profiles map with a `-p` override applied to
+// effectiveHostProfiles returns the use_profiles map with a `-p` override applied to
 // the agent being launched, mirroring what `yolo run -p` does for a jail so the two
 // notches agree about what a profile selects.
 func effectiveHostProfiles(cfg *jsonx.OrderedMap, agent, profile string) *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
-	if v, ok := cfg.Get("pack_profiles"); ok {
+	if v, ok := cfg.Get("use_profiles"); ok {
 		if m, ok := v.(*jsonx.OrderedMap); ok {
 			for _, k := range m.Keys() {
 				val, _ := m.Get(k)
@@ -581,12 +581,12 @@ func effectiveHostProfiles(cfg *jsonx.OrderedMap, agent, profile string) *jsonx.
 // apply`'s render and `yolo config diff`'s report, so the two cannot describe a different
 // selection than the render either of them is reasoning about.
 //
-// The JAIL half reads YOLO_PACK_PROFILES: the effective workspace < user < CLI table the
+// The JAIL half reads YOLO_USE_PROFILES: the effective workspace < user < CLI table the
 // launcher emitted, which is the very table the boot render gated on, so an in-jail
 // inspection answers with the render that actually happened rather than a re-derivation
 // that could disagree with it.
 //
-// The HOST half reads the USER-SCOPE config's pack_profiles and nothing else, and that is
+// The HOST half reads the USER-SCOPE config's use_profiles and nothing else, and that is
 // the boundary every host composition draws (UserScopeConfig's whole argument): a gated
 // overlay's payload lands in the user's REAL config files, and the one this design ships
 // first rewrites ANTHROPIC_BASE_URL — where an agent sends the credentials the user
@@ -598,7 +598,7 @@ func effectiveHostProfiles(cfg *jsonx.OrderedMap, agent, profile string) *jsonx.
 // own channels.
 func overlayGateProfiles(notch render.Kind) map[string]string {
 	if notch == render.KindJail {
-		raw := os.Getenv("YOLO_PACK_PROFILES")
+		raw := os.Getenv("YOLO_USE_PROFILES")
 		if raw == "" {
 			return nil
 		}
@@ -663,7 +663,7 @@ func hostEnv(args []string, out, errw io.Writer) int {
 	}
 	if agent == "" {
 		// A default rather than "every configured agent": the composition is per-agent by
-		// construction (pack_profiles maps ONE profile per agent), so there is no single
+		// construction (use_profiles maps ONE profile per agent), so there is no single
 		// environment that is right for all of them — two agents on different providers
 		// would produce contradictory values for the same variable. `claude` is the
 		// default because it is the pack this repo's own workflows assume; --agent names

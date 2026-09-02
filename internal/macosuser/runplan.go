@@ -224,7 +224,7 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 	// Always relayed when present, including the empty `{}`: an absent variable and an
 	// empty table mean the same thing to the readers, but the container emits the empty
 	// table explicitly, so the two backends' bootstraps see the same input shape.
-	for _, wire := range []string{"YOLO_PROVIDERS", "YOLO_PACK_PROFILES"} {
+	for _, wire := range []string{"YOLO_PROVIDERS", "YOLO_USE_PROFILES"} {
 		if v, ok := sandboxEnv.Get(wire); ok {
 			bootstrapEnv.Set(wire, v)
 		}
@@ -342,11 +342,11 @@ func PlanInvariants(plan RunPlan) []string {
 	// The two provider/profile wire tables must reach BOTH the launch env and the
 	// BOOTSTRAP env. The launch env alone composes the agent's process env; the bootstrap
 	// env is what renders the pack surfaces and the derives — so a launch that carries
-	// YOLO_PACK_PROFILES while the bootstrap does not would run the selected variant's
+	// YOLO_USE_PROFILES while the bootstrap does not would run the selected variant's
 	// environment against config written as if no variant were selected. Relayed by name
 	// in BuildRunPlan; this is what fails if that relay is deleted, which no test on the
 	// launch env alone can see.
-	for _, wire := range []string{"YOLO_PROVIDERS", "YOLO_PACK_PROFILES"} {
+	for _, wire := range []string{"YOLO_PROVIDERS", "YOLO_USE_PROFILES"} {
 		for _, a := range plan.LaunchArgv {
 			if !strings.HasPrefix(a, wire+"=") {
 				continue

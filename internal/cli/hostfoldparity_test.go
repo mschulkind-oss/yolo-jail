@@ -64,7 +64,7 @@ func writeFoldParityPacks(t *testing.T, home string) {
 	    {"source": "file://`+filepath.Join(base, "alpha")+`", "name": "alpha"},
 	    {"source": "file://`+filepath.Join(base, "beta")+`", "name": "beta"}
 	  ],
-	  "pack_profiles": {"claude": "p"}
+	  "use_profiles": {"claude": "p"}
 	}`)
 }
 

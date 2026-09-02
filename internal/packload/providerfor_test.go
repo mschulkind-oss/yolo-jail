@@ -25,7 +25,7 @@ func claudePack(t *testing.T) *Pack {
 // TestProviderForNamesTheRequiredProvider pins the whole rule: a requires_provider any
 // selected pack declares wins, the bin owner's own declaration winning over another pack's;
 // and with no declaration anywhere the profile's own name is the answer, because that is
-// the convention the composed table has always keyed on (pack_profiles.claude = "bedrock"
+// the convention the composed table has always keyed on (use_profiles.claude = "bedrock"
 // reaching providers.bedrock).
 func TestProviderForNamesTheRequiredProvider(t *testing.T) {
 	zai := zaiProviderPack(t)

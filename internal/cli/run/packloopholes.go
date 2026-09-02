@@ -108,7 +108,7 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	packdecl.KindAutonomy:      disclosureSkip,
 	// profile is the same call as autonomy, with one more reason on top: the variant the
 	// user can NAME here is the one they SELECTED, and that selection already prints by
-	// name in the launch's profile line (notePackProfiles, DECLARED/RECEIVED, never
+	// name in the launch's profile line (noteUseProfiles, DECLARED/RECEIVED, never
 	// "honored" — OQ-10). The footprint's claim is per DECLARATION, so classifying it read
 	// would print every variant a pack ships whether or not it is active this launch — a
 	// line claiming an env change that is not happening, which is the overclaim OQ-10

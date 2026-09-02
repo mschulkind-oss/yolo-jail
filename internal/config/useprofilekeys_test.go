@@ -8,15 +8,15 @@ import (
 )
 
 // This file pins the KEY namespace check (profiles-as-pack-variants.md §2.5, §8):
-// a `pack_profiles` key is a CLI name — a bin some resolvable pack installs — and
+// a `use_profiles` key is a CLI name — a bin some resolvable pack installs — and
 // an unknown one is FATAL. Before the check, {"cloude": "bedrock"} validated clean
 // and silently did nothing, which is the live hole §2.5 documents.
 
-// packProfileKeysHome isolates the pack universe the check reads. The embedded half
+// useProfileKeysHome isolates the pack universe the check reads. The embedded half
 // is fixed by the binary; the CONFIGURED half comes from the user config and the pack
 // store, both under $HOME — without isolation these tests would assert whatever this
 // machine happens to have installed.
-func packProfileKeysHome(t *testing.T) string {
+func useProfileKeysHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -24,8 +24,8 @@ func packProfileKeysHome(t *testing.T) string {
 	return home
 }
 
-// writePackProfileKeysUserConfig lays down a user config whose only key is `packs`.
-func writePackProfileKeysUserConfig(t *testing.T, home, packsJSON string) {
+// writeUseProfileKeysUserConfig lays down a user config whose only key is `packs`.
+func writeUseProfileKeysUserConfig(t *testing.T, home, packsJSON string) {
 	t.Helper()
 	dir := filepath.Join(home, ".config", "yolo-jail")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -43,15 +43,15 @@ func writePackProfileKeysUserConfig(t *testing.T, home, packsJSON string) {
 //
 // Driven through ValidateConfig (the caller both `yolo check` and the launch preflight
 // use), not the validator, so the test fails if the check is unwired from validation.
-func TestValidatePackProfilesKeysAreCLINames(t *testing.T) {
-	packProfileKeysHome(t)
+func TestValidateUseProfilesKeysAreCLINames(t *testing.T) {
+	useProfileKeysHome(t)
 	errs, _ := ValidateConfig(decode(t,
-		`{"pack_profiles": {"claude": "bedrock", "cloude": "glm"}}`), t.TempDir(), nil)
+		`{"use_profiles": {"claude": "bedrock", "cloude": "glm"}}`), t.TempDir(), nil)
 	if len(errs) != 1 {
 		t.Fatalf("want exactly one error (the typo'd key), got %d: %v", len(errs), errs)
 	}
 	e := errs[0]
-	if !strings.HasPrefix(e, "config.pack_profiles.cloude:") {
+	if !strings.HasPrefix(e, "config.use_profiles.cloude:") {
 		t.Errorf("the error must name the unknown key: %s", e)
 	}
 	if !strings.Contains(e, `no pack installs a CLI named "cloude"`) {
@@ -67,10 +67,10 @@ func TestValidatePackProfilesKeysAreCLINames(t *testing.T) {
 // Keys the packs install stay legal — including for a pack this config does not
 // select, which is §8's split: existence is answered against the resolvable universe,
 // selection only governs whether the contribution renders.
-func TestValidatePackProfilesAcceptsKeysThePacksInstall(t *testing.T) {
-	packProfileKeysHome(t)
+func TestValidateUseProfilesAcceptsKeysThePacksInstall(t *testing.T) {
+	useProfileKeysHome(t)
 	errs, _ := ValidateConfig(decode(t,
-		`{"pack_profiles": {"claude": "bedrock", "pi": "glm", "codex": "default"}}`),
+		`{"use_profiles": {"claude": "bedrock", "pi": "glm", "codex": "default"}}`),
 		t.TempDir(), nil)
 	if len(errs) != 0 {
 		t.Fatalf("keys every embedded pack installs must validate clean, got: %v", errs)
@@ -80,10 +80,10 @@ func TestValidatePackProfilesAcceptsKeysThePacksInstall(t *testing.T) {
 // A null value removes a profile and asserts nothing about the key, so a nulled key
 // is not held to the namespace — the same leniency the retired-key convention gives a
 // key being deleted.
-func TestValidatePackProfilesSkipsNulledKeys(t *testing.T) {
-	packProfileKeysHome(t)
+func TestValidateUseProfilesSkipsNulledKeys(t *testing.T) {
+	useProfileKeysHome(t)
 	errs, _ := ValidateConfig(decode(t,
-		`{"pack_profiles": {"cloude": null}}`), t.TempDir(), nil)
+		`{"use_profiles": {"cloude": null}}`), t.TempDir(), nil)
 	if len(errs) != 0 {
 		t.Fatalf("a nulled key removes the profile and must not error, got: %v", errs)
 	}
@@ -94,14 +94,14 @@ func TestValidatePackProfilesSkipsNulledKeys(t *testing.T) {
 // key: the launch refuses an unresolvable pack (stagePacks) and `yolo check` fails it
 // in its Packs section, both louder and first. Pinning this so the degradation cannot
 // silently become either "always skip" or "false fatals".
-func TestValidatePackProfilesNamespaceStepsAsideWhenAPackCannotResolve(t *testing.T) {
-	home := packProfileKeysHome(t)
-	writePackProfileKeysUserConfig(t, home,
+func TestValidateUseProfilesNamespaceStepsAsideWhenAPackCannotResolve(t *testing.T) {
+	home := useProfileKeysHome(t)
+	writeUseProfileKeysUserConfig(t, home,
 		`[{"name": "gone", "source": "git+ssh://git@example.com/gone/pack.git"}]`)
 	errs, _ := ValidateConfig(decode(t,
-		`{"pack_profiles": {"cloude": "glm"}}`), t.TempDir(), nil)
+		`{"use_profiles": {"cloude": "glm"}}`), t.TempDir(), nil)
 	for _, e := range errs {
-		if strings.HasPrefix(e, "config.pack_profiles.") {
+		if strings.HasPrefix(e, "config.use_profiles.") {
 			t.Errorf("an unresolvable pack must not be misdiagnosed as a bad profile key: %s", e)
 		}
 	}
@@ -111,14 +111,14 @@ func TestValidatePackProfilesNamespaceStepsAsideWhenAPackCannotResolve(t *testin
 // not a string is a fact about this config alone, and reporting it depends on no pack
 // resolving. Split from the test above so the two halves of the step-aside cannot grow
 // back into one blanket return.
-func TestValidatePackProfilesStillChecksValuesWhenTheUniverseIsUnknown(t *testing.T) {
-	home := packProfileKeysHome(t)
-	writePackProfileKeysUserConfig(t, home,
+func TestValidateUseProfilesStillChecksValuesWhenTheUniverseIsUnknown(t *testing.T) {
+	home := useProfileKeysHome(t)
+	writeUseProfileKeysUserConfig(t, home,
 		`[{"name": "gone", "source": "git+ssh://git@example.com/gone/pack.git"}]`)
 	errs, _ := ValidateConfig(decode(t,
-		`{"pack_profiles": {"cloude": 4}}`), t.TempDir(), nil)
+		`{"use_profiles": {"cloude": 4}}`), t.TempDir(), nil)
 	for _, e := range errs {
-		if strings.HasPrefix(e, "config.pack_profiles.cloude:") {
+		if strings.HasPrefix(e, "config.use_profiles.cloude:") {
 			return
 		}
 	}

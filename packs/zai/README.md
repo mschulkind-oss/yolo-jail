@@ -25,7 +25,7 @@ itself is unrepresentable in a manifest — `api_key_env_name` carries a NAME, n
 ZAI_API_KEY=<key>                      # the ONLY secret, spelled once
 ```
 
-Then `yolo -p zai` (or the persistent spelling, `"pack_profiles": {"claude": "zai"}`).
+Then `yolo -p zai` (or the persistent spelling, `"use_profiles": {"claude": "zai"}`).
 
 ## What lands where
 

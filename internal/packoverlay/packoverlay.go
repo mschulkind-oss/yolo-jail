@@ -135,7 +135,7 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 // and the same test class catches it.
 //
 // profiles is the ACTIVE profile table the CALLER's render resolved — packload.ProfileTable's
-// lowering of YOLO_PACK_PROFILES in the jail, of the config's pack_profiles at the host —
+// lowering of YOLO_USE_PROFILES in the jail, of the config's use_profiles at the host —
 // keyed by CLI name, and it gates the `profile` MODIFIER (profiles-as-pack-variants.md §7):
 // an overlay declaring a profile contributes only while that name is the one active for the
 // surface's OWNING agent, which is the target identity's agent segment (an "agent/name"

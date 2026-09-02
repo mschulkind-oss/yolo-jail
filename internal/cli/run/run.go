@@ -140,7 +140,7 @@ func Run(opts Options) int {
 	// tree), so using it here is what keeps the two spellings of one launch — the
 	// interactive alias and `yolo -- <bin>` — from disagreeing. The profile table is
 	// the one the channel composed just below, so the flags this argv carries and the
-	// table YOLO_PACK_PROFILES carries cannot answer differently.
+	// table YOLO_USE_PROFILES carries cannot answer differently.
 	//
 	// Guarded on len>0 so the empty case still reaches each arm's own default (a bare
 	// `yolo` is bash in a container and an interactive zsh natively); injecting into an
@@ -256,7 +256,7 @@ func Run(opts Options) int {
 		// beside the container's banner: this is the block that answers "what will this
 		// launch do for you", and it is the only stderr this arm writes before the
 		// backend takes the terminal.
-		o.notePackProfiles(channel.profiles, staged.packs)
+		o.noteUseProfiles(channel.profiles, staged.packs)
 		// THE SELECTED-PACK CREDENTIAL PRE-FLIGHT, on this arm too. It used to live only
 		// in runContainer, below the return above, so a native launch with a provider
 		// pack and no key started a sandbox that failed its first API call and said
@@ -418,10 +418,10 @@ func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack) {
 	}
 }
 
-// notePackProfiles prints, to stderr, where this launch's profile selections landed
+// noteUseProfiles prints, to stderr, where this launch's profile selections landed
 // (profiles-as-pack-variants.md §3.3): one line per DISTINCT name in the effective
 // table, naming the packs that DECLARE a variant of that name and the packs that
-// RECEIVED it. It reads the same merge the env block emits (effectivePackProfiles), so
+// RECEIVED it. It reads the same merge the env block emits (effectiveUseProfiles), so
 // the line cannot describe a table the jail did not get.
 //
 // RECEIVED is deliberately every selected pack, not the pack the name keys to: the
@@ -437,12 +437,12 @@ func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack) {
 //
 // Printed only when a name was selected at all. A launch with no profile is the common
 // case, and restating its absence on every launch would be noise, not disclosure.
-func (o *Options) notePackProfiles(effective *jsonx.OrderedMap, loadedPacks []*packload.Pack) {
+func (o *Options) noteUseProfiles(effective *jsonx.OrderedMap, loadedPacks []*packload.Pack) {
 	if effective.Len() == 0 {
 		return
 	}
 	// The line is per NAME, and the table is keyed by CLI: fold the values to the
-	// distinct set. A non-string value (a null in pack_profiles, which REMOVES a
+	// distinct set. A non-string value (a null in use_profiles, which REMOVES a
 	// profile) is not a selection and prints nothing.
 	seen := map[string]bool{}
 	var names []string
@@ -866,7 +866,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// dim register, same reason — a selected profile is part of the effective
 	// environment, and the human reading the launch should see the name every pack's
 	// derive is about to receive rather than infer it from an env var.
-	o.notePackProfiles(channel.profiles, loadedPacks)
+	o.noteUseProfiles(channel.profiles, loadedPacks)
 
 	rc, runErr := runWithProxy(runCmd, onStarted, onTerminate)
 	if runErr != nil {

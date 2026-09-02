@@ -128,7 +128,7 @@ func addressConflict(name string, entry *jsonx.OrderedMap, shipper string) error
 // ProviderFor returns the provider the variant active at CLI name `bin` delivers: the
 // requires_provider of a profile declared under that name by a selected pack, or — when
 // no pack declares one — the profile's own name, which is the convention the composed
-// table has always keyed on (pack_profiles.claude = "bedrock" reaching providers.bedrock).
+// table has always keyed on (use_profiles.claude = "bedrock" reaching providers.bedrock).
 //
 // The declaration need NOT live on the pack that installs the bin. Profile names are
 // free-form and global (profiles-as-pack-variants.md §3.3), and a provider pack usually

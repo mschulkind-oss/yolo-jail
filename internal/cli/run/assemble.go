@@ -768,7 +768,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		env = append(env, "-e", "TZ="+in.hostTZ)
 	}
 	// Composed ONCE for the three readers below — the YOLO_PROVIDERS pair, the
-	// YOLO_PACK_PROFILES pair, and the env-shape vars — all read off the channel Run
+	// YOLO_USE_PROFILES pair, and the env-shape vars — all read off the channel Run
 	// composed above the backend dispatch, and which the macos-user arm delivers to its
 	// own plan env and bootstrap. Re-deriving any part of it here would let the argv and
 	// the native arm answer differently about what the same profile delivers.
@@ -786,7 +786,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "mcp_servers")),
 		"-e", "YOLO_MCP_PRESETS="+jsonDumpsOrEmptyList(cfgList(cfg, "mcp_presets")),
 		"-e", "YOLO_PROVIDERS="+jsonDumpsOrEmptyObj(providers),
-		"-e", "YOLO_PACK_PROFILES="+jsonDumpsOrEmptyObj(effectiveProfiles),
+		"-e", "YOLO_USE_PROFILES="+jsonDumpsOrEmptyObj(effectiveProfiles),
 		"-e", "YOLO_REQUIRED_CAPABILITIES="+jsonDumpsOrEmptyList(cfgList(cfg, "required_capabilities")),
 		"-e", "YOLO_RUNTIME=podman",
 	)
@@ -823,7 +823,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	return env
 }
 
-// effectivePackProfiles merges the three profile sources, later winning: workspace/user
+// effectiveUseProfiles merges the three profile sources, later winning: workspace/user
 // config, then --pack-profile, then -p. Every key in the result is a CLI name — the bin a
 // pack installs — which is what makes the table readable as "the profile each CLI runs"
 // and what lets `yolo check` and the launch pre-flight validate it against one namespace.
@@ -832,9 +832,9 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 // assembleInput, because it has TWO consumers that must agree byte for byte: the env
 // block below (the jail's copy of the table) and the launch's profile disclosure line,
 // which describes the same table to the human. One merge, so neither can drift.
-func (o *Options) effectivePackProfiles(cfg *jsonx.OrderedMap, packs []*packload.Pack) *jsonx.OrderedMap {
+func (o *Options) effectiveUseProfiles(cfg *jsonx.OrderedMap, packs []*packload.Pack) *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
-	if cfgProfiles, ok := cfg.Get("pack_profiles"); ok {
+	if cfgProfiles, ok := cfg.Get("use_profiles"); ok {
 		if m, ok := cfgProfiles.(*jsonx.OrderedMap); ok {
 			for _, k := range m.Keys() {
 				v, _ := m.Get(k)
@@ -842,7 +842,7 @@ func (o *Options) effectivePackProfiles(cfg *jsonx.OrderedMap, packs []*packload
 			}
 		}
 	}
-	for k, v := range o.PackProfiles {
+	for k, v := range o.UseProfiles {
 		out.Set(k, v)
 	}
 	if o.ProfileName != "" {

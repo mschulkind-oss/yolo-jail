@@ -493,7 +493,7 @@ func validatePacks(workspace string, errs *[]string) {
 	}
 }
 
-// PackProfileCLINames is the CLI-name namespace a pack_profiles key resolves in
+// UseProfileCLINames is the CLI-name namespace a use_profiles key resolves in
 // (profiles-as-pack-variants.md §2.5, §8): every binary a `program` contribution of a
 // RESOLVABLE pack installs — the packs yolo ships plus whatever the user configured,
 // selected or not. §8's split is why selection is deliberately not consulted here:
@@ -511,7 +511,7 @@ func validatePacks(workspace string, errs *[]string) {
 // launch's staging, and reporting it here too would dress a broken install up as a
 // typo'd profile key. Same contract as resolvePackLoopholeModules on the run side,
 // whose silent-and-empty answer is this one's twin.
-func PackProfileCLINames() ([]string, bool) {
+func UseProfileCLINames() ([]string, bool) {
 	entries, err := LoadPacks(func(string) {})
 	if err != nil {
 		return nil, false

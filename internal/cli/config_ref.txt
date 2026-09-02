@@ -879,7 +879,7 @@
                     empty (a permissive-by-default tool only needs `guarded`).
       profile       {name, config:[surface...], launch:[{bin, flags}], env:{KEY: "v"|null},
                     requires_provider} — a NAMED VARIANT of this pack's own declarations,
-                    selected at launch by `pack_profiles` or `-p <name>`.  `config` patches
+                    selected at launch by `use_profiles` or `-p <name>`.  `config` patches
                     the managed layer of a surface THIS pack owns, exactly as a posture's
                     does, and folds AFTER it (later-wins on a key both touch); `launch`
                     replaces that binary's own `launch` contribution for the same bin;

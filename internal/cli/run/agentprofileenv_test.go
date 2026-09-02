@@ -48,7 +48,7 @@ func bedrockConfig() *jsonx.OrderedMap {
 		"agents", []any{"claude"},
 		"security", sec,
 		"providers", providers,
-		"pack_profiles", profiles,
+		"use_profiles", profiles,
 	)
 }
 

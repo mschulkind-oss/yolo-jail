@@ -1,5 +1,5 @@
 // Package agentenv composes the process environment an agent runs with, from the
-// resolved `pack_profiles` + `providers` configuration.
+// resolved `use_profiles` + `providers` configuration.
 //
 // # Why this is its own package
 //

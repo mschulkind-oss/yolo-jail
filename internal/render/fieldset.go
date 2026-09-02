@@ -118,7 +118,7 @@ var hostUnimplemented = map[packdecl.Kind]string{
 		"per-jail history, plugin reconciliation) — `yolo host apply` does not run them " +
 		"against your real home",
 	// profile is the same limit of the same command, arrived at from the selector rather
-	// than the verb: which variant of a pack applies is a LAUNCH decision (pack_profiles /
+	// than the verb: which variant of a pack applies is a LAUNCH decision (use_profiles /
 	// -p), and this command writes config without launching anything, so it has no variant
 	// to select and writes none — your base surfaces, unmodified. A jail launch (or a
 	// future `yolo host -- <program>`) is where a selection exists to be honored.
@@ -211,7 +211,7 @@ func HostFields() FieldSet {
 		// layer of a surface the pack already declares, which is exactly the kind of write
 		// this command performs. It is not APPLIED here, and the reason is the selector
 		// rather than the mechanism: which variant applies is a launch decision
-		// (`pack_profiles`, `-p`), and a command that writes config selects no variant.
+		// (`use_profiles`, `-p`), and a command that writes config selects no variant.
 		// hostUnimplemented carries that sentence, and RenderHostPack passes no profile
 		// table so the base surfaces render and no variant's keys are written.
 		packdecl.KindProfile: true,

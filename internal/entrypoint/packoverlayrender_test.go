@@ -474,7 +474,7 @@ func gatedOverlayContributorPack(t *testing.T, name, profile string, managed map
 // unchanged (the gate decides presence, not precedence or attribution).
 func TestJailRenderGatedOverlayAppliesWhenProfileActive(t *testing.T) {
 	e, _ := overlayRenderEnv(t)
-	e.Vars["YOLO_PACK_PROFILES"] = `{"acme":"zai"}`
+	e.Vars["YOLO_USE_PROFILES"] = `{"acme":"zai"}`
 	ConfigurePackSurfaces(e, []*packload.Pack{
 		overlayOwnerPack(t, ""),
 		gatedOverlayContributorPack(t, "acme-zai", "zai", map[string]any{"theme": "dark"}),
@@ -506,7 +506,7 @@ func TestJailRenderGatedOverlaySkipsWhenProfileInactive(t *testing.T) {
 	e, errw := overlayRenderEnv(t)
 	// A profile IS active — just not this one, so the skip cannot be mistaken for "no
 	// table reached the render".
-	e.Vars["YOLO_PACK_PROFILES"] = `{"acme":"bedrock"}`
+	e.Vars["YOLO_USE_PROFILES"] = `{"acme":"bedrock"}`
 	ConfigurePackSurfaces(e, []*packload.Pack{
 		overlayOwnerPack(t, ""),
 		gatedOverlayContributorPack(t, "acme-zai", "zai", map[string]any{"theme": "dark"}),
@@ -577,7 +577,7 @@ func TestZaiOverlayDeliversTheEndpointToClaudeSettings(t *testing.T) {
 
 	renderWith := func(profiles string) map[string]any {
 		e, errw := overlayRenderEnv(t)
-		e.Vars["YOLO_PACK_PROFILES"] = profiles
+		e.Vars["YOLO_USE_PROFILES"] = profiles
 		ConfigurePackSurfaces(e, []*packload.Pack{claude, zai})
 		if fails := e.GenFailures(); len(fails) != 0 {
 			t.Fatalf("render failed: %v", fails)

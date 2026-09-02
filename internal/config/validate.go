@@ -88,7 +88,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateMCPServers(config, errs)
 	validateProviders(config, errs, warns)
 	validateAgentProfilesRetired(config, errs, warns)
-	validatePackProfiles(config, errs)
+	validateUseProfiles(config, errs)
 	validateRequiredCapabilities(config, errs)
 	validateDevices(config, errs, warns)
 	validateGPU(config, errs, warns)
@@ -1109,7 +1109,7 @@ func validateAgentProfilesRetired(config *jsonx.OrderedMap, errs, warns *[]strin
 	if _, present := config.Get("agent_profiles"); !present {
 		return
 	}
-	msg := "config.agent_profiles: RENAMED — this key is now `pack_profiles`, because " +
+	msg := "config.agent_profiles: RENAMED — this key is now `use_profiles`, because " +
 		"the keys were always CLI names and core knows packs, not agents " +
 		"(docs/design/profiles-as-pack-variants.md §3.3). Rename the key in place; " +
 		"the values are unchanged."
@@ -1121,14 +1121,14 @@ func validateAgentProfilesRetired(config *jsonx.OrderedMap, errs, warns *[]strin
 	add(errs, msg)
 }
 
-func validatePackProfiles(config *jsonx.OrderedMap, errs *[]string) {
-	v, present := config.Get("pack_profiles")
+func validateUseProfiles(config *jsonx.OrderedMap, errs *[]string) {
+	v, present := config.Get("use_profiles")
 	if !present || v == nil {
 		return
 	}
 	profiles, ok := asMap(v)
 	if !ok {
-		add(errs, "config.pack_profiles: expected an object")
+		add(errs, "config.use_profiles: expected an object")
 		return
 	}
 	// The KEY is a CLI name — the binary a pack installs — and an unknown one is fatal
@@ -1155,13 +1155,13 @@ func validatePackProfiles(config *jsonx.OrderedMap, errs *[]string) {
 		// broken install as a typo'd profile key, so the NAMESPACE half steps aside; the
 		// shape half below still runs, because a value that is not a string is a fact
 		// about this config alone.
-		if names, known := PackProfileCLINames(); known {
+		if names, known := UseProfileCLINames(); known {
 			installed, namespaceKnown = names, true
 		}
 	}
 	for _, agent := range keys {
 		profV, _ := profiles.Get(agent)
-		path := "config.pack_profiles." + agent
+		path := "config.use_profiles." + agent
 		if profV == nil {
 			continue
 		}
@@ -1175,7 +1175,7 @@ func validatePackProfiles(config *jsonx.OrderedMap, errs *[]string) {
 	}
 }
 
-// unknownProfileCLIMessage explains a pack_profiles key no resolvable pack answers to.
+// unknownProfileCLIMessage explains a use_profiles key no resolvable pack answers to.
 //
 // It lists what IS installed, because the most likely cause is a typo in a tool name and
 // the real list is the whole fix — the same reason unknownEmbeddedMessage lists pack
@@ -1185,7 +1185,7 @@ func unknownProfileCLIMessage(key string, installed []string) string {
 	if len(installed) > 0 {
 		have = strings.Join(installed, ", ")
 	}
-	return fmt.Sprintf("no pack installs a CLI named %q (installed: %s) — a pack_profiles "+
+	return fmt.Sprintf("no pack installs a CLI named %q (installed: %s) — a use_profiles "+
 		"key selects a profile by the binary a pack installs, not by pack or agent name",
 		key, have)
 }

@@ -316,7 +316,7 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 	// THE FIFTH bespoke pre-flight: a profile selector keyed to a CLI name no pack
 	// installs (profiles-as-pack-variants.md §2.5, §8). The two spellings are
 	// `--pack-profile <cli>=<name>` and `-p <name> -- <bin>`, and both key the profile
-	// by a CLI name the way `pack_profiles` does in config — which is validated there
+	// by a CLI name the way `use_profiles` does in config — which is validated there
 	// and is NOT validated anywhere here, because a flag never reaches ValidateConfig.
 	// Without this the typo passed silently: the key went into the table no derive
 	// read, and the launch looked exactly like the profile working.
@@ -358,9 +358,9 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 
 // checkProfileTargets refuses a profile selector keyed to a CLI name no resolvable pack
 // installs — the FIFTH launch pre-flight, and the flag half of the check
-// ValidateConfig does for `pack_profiles` keys.
+// ValidateConfig does for `use_profiles` keys.
 //
-// The namespace is the SAME one config validation uses (config.PackProfileCLINames), so
+// The namespace is the SAME one config validation uses (config.UseProfileCLINames), so
 // a key `yolo check` accepts a launch accepts and neither can drift from what is
 // actually installed. It steps aside on the same condition too: an unresolvable
 // configured pack makes the namespace unknowable, and that pack already fails staging
@@ -370,10 +370,10 @@ func (o *Options) stagePacks(cname string) (string, []*packload.Pack, []jailcont
 // generates are the selected packs' own installed bins — in the namespace by
 // construction.
 func (o *Options) checkProfileTargets() error {
-	if o.ProfileName == "" && len(o.PackProfiles) == 0 {
+	if o.ProfileName == "" && len(o.UseProfiles) == 0 {
 		return nil
 	}
-	names, known := config.PackProfileCLINames()
+	names, known := config.UseProfileCLINames()
 	if !known {
 		return nil
 	}
@@ -384,8 +384,8 @@ func (o *Options) checkProfileTargets() error {
 	have := strings.Join(names, ", ")
 	var problems []string
 	// --pack-profile <cli>=<name>: the KEY is the CLI name.
-	clis := make([]string, 0, len(o.PackProfiles))
-	for cli := range o.PackProfiles {
+	clis := make([]string, 0, len(o.UseProfiles))
+	for cli := range o.UseProfiles {
 		clis = append(clis, cli)
 	}
 	sort.Strings(clis)
@@ -394,10 +394,10 @@ func (o *Options) checkProfileTargets() error {
 			continue
 		}
 		problems = append(problems, fmt.Sprintf("--pack-profile %s=%s: no pack installs a "+
-			"CLI named %q (installed: %s)", cli, o.PackProfiles[cli], cli, have))
+			"CLI named %q (installed: %s)", cli, o.UseProfiles[cli], cli, have))
 	}
 	// -p <name> -- <bin>: the COMMAND's basename is the CLI name, the same keying
-	// effectivePackProfiles applies downstream.
+	// effectiveUseProfiles applies downstream.
 	if o.ProfileName != "" && len(o.Args) > 0 {
 		bin := filepath.Base(o.Args[0])
 		if !installed[bin] {

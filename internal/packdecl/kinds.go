@@ -112,7 +112,7 @@ const (
 	// KindProfile: a NAMED VARIANT of the pack's own declarations
 	// (profiles-as-pack-variants.md §3.1). `autonomy` with an open selector: where the
 	// confinement notch chooses between exactly two postures and no user input can reach
-	// that choice, a profile's selector is a NAME the user picks per CLI (`pack_profiles`,
+	// that choice, a profile's selector is a NAME the user picks per CLI (`use_profiles`,
 	// `-p`), and the pack declares one contribution per name it answers to. The BODY is the
 	// posture shape — config patches folding into the managed layer of a surface THIS pack
 	// owns, launch flags merged into a binary's, plus a static env map — so a profile is

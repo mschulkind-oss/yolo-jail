@@ -78,7 +78,7 @@ func (p *Pack) Surfaces() ([]manifest.Surface, []string) {
 // the autonomous posture, false the guarded one. A pack with no autonomy contribution, or
 // whose selected posture is empty, gets its surfaces unchanged.
 //
-// profiles is the launch's CLI-keyed profile table (pack_profiles + the flags): after the
+// profiles is the launch's CLI-keyed profile table (use_profiles + the flags): after the
 // posture, any variant this pack declares for one of ITS OWN installed CLI names folds on
 // top, later-wins (§3.4). A nil table — the host render's, which selects no variant — is
 // the pre-profile behavior exactly.
@@ -237,8 +237,8 @@ func (p *Pack) ActiveProfiles(profiles map[string]string) []packdecl.ProfileCont
 	return out
 }
 
-// ProfileTable lowers a decoded profile table — YOLO_PACK_PROFILES in the jail, the
-// config's `pack_profiles` on the host — into the map the three folds above take.
+// ProfileTable lowers a decoded profile table — YOLO_USE_PROFILES in the jail, the
+// config's `use_profiles` on the host — into the map the three folds above take.
 //
 // THE one lowering, and not a convenience: a JSON null at a key REMOVES that profile
 // (the merge-patch convention the table uses), and a null decoded into map[string]string
@@ -518,7 +518,7 @@ func (p *Pack) HonoredInstalls() (granted []packdecl.Install, refused []string) 
 // InstallBins lists the binaries this pack installs, sorted — the CLI names it puts on
 // PATH, one per `program` contribution with a bin.
 //
-// "CLI name" is the namespace a `pack_profiles` key resolves in
+// "CLI name" is the namespace a `use_profiles` key resolves in
 // (profiles-as-pack-variants.md §2.5): `program` is CombineExclusive by bin, so a CLI
 // name resolves to at most one pack and the agents a config yields ARE the bins its
 // packs install. Config validation and the launch pre-flight both answer "does this key
@@ -800,7 +800,7 @@ func RetireMiseTools(_ []*Pack) []string {
 // spellings of the same launch, and the other (the interactive alias the entrypoint writes)
 // already folds the table. A nil table here is how the two spellings diverge: a pack's
 // variant flags appear on the alias and vanish from the direct command, silently, which is
-// why the run pipeline passes what effectivePackProfiles merged.
+// why the run pipeline passes what effectiveUseProfiles merged.
 //
 // Moved out of internal/agents unchanged in behavior: flags are inserted in reverse
 // (each at index 1) so their declared order is preserved, and a flag already present —
