@@ -237,8 +237,8 @@ type hostComposition struct {
 	// agent is the CLI name the profile table is keyed by (the target's basename).
 	agent string
 	// vars is the composition proper, in application order: the pack env fold (per pack,
-	// static then that pack's selected variants), env_sources, the provider's env shape,
-	// and the removals last.
+	// static then that pack's profile-gated entries), env_sources, the provider's env
+	// shape, and the removals last.
 	vars []agentenv.Var
 	// packs and providers are the selected pack set and the composed provider table the
 	// vars were composed from.
@@ -301,11 +301,11 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 //  1. os.Environ() — the user's own shell, which the agent should otherwise inherit whole.
 //  2. env_sources — the SECRET channel. This is the step that gives "env_sources
 //     hydrates your credentials" something to hydrate INTO on a host.
-//  3. the resolved profile's vars — the variant's own env plus the provider environment
-//     its agent pack's derive composes (packload.AgentEnv, the same runner the jail's
-//     podman argv is built from).
-//  4. removals — a null in env_sources or in a variant's env, i.e. `unset AWS_PROFILE`.
-//     Last, so a removal beats an assignment from any earlier step.
+//  3. the resolved profile's vars — the profile-gated env entries its pack declares,
+//     plus the provider environment the agent pack's derive composes (packload.AgentEnv,
+//     the same runner the jail's podman argv is built from).
+//  4. removals — a null in env_sources, i.e. `unset AWS_PROFILE`. Last, so a removal
+//     beats an assignment from any earlier step.
 func composeHostLaunch(bin, profile string, warn func(string)) *hostComposition {
 	agent := filepath.Base(bin)
 	cfg := config.UserScopeConfigOrEmpty()
@@ -324,9 +324,9 @@ func composeHostLaunch(bin, profile string, warn func(string)) *hostComposition 
 // The sources are docs/design/host-agent-environment.md §5.4's, in order:
 //
 //  1. the pack env fold, per pack — each pack's static `kind: "env"` contributions, then
-//     the env of the variants that pack has selected, gated on the launch's profile table,
-//     so a variant wins over its own pack's static (OQ-8). packload.EnvFold's sequence,
-//     the same one the jail's env block reduces, so a cross-pack key has one winner;
+//     the ones the same pack gated on the launch's active profile, so a gated entry wins
+//     over its own pack's static (OQ-8). packload.EnvVarsFor's sequence, the same one the
+//     jail's env block reduces, so a cross-pack key has one winner;
 //  2. env_sources — the SECRET channel, and the step that gives "env_sources hydrates
 //     your credentials" something to hydrate INTO on a host;
 //  3. the resolved profile's provider vars — the env derive of the agent's own pack, run
@@ -360,7 +360,7 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	// so the error needs no second handling here.
 	packs, _ := loadedHostPacks()
 	c.packs = packs
-	// The variant this launch selects, resolved once: it gates (1) and feeds (3), and
+	// The profile this launch selects, resolved once: it gates (1) and feeds (3), and
 	// both must read the same selection or the env a host launch carries and the one its
 	// launch line describes would disagree.
 	effective := effectiveHostProfiles(cfg, agent, profile)
@@ -372,7 +372,7 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	}
 	// Scoped to the ONE agent this process is. A jail carries the whole CLI-keyed table
 	// because one container holds every agent; a host launch composes a single process, so
-	// only the variant selected at THIS agent's own CLI name may contribute env to it.
+	// only the profile selected at THIS agent's own CLI name may contribute env to it.
 	agentTable := map[string]string{}
 	if profileName != "" {
 		agentTable[agent] = profileName
@@ -413,28 +413,22 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 		}
 	}
 
-	// (1) the pack env fold, PER PACK — each pack's static `kind: "env"` keys, then its own
-	// selected variants' literals (OQ-8). The sequence is packload.EnvFold's, the ONE fold
-	// the jail notch reduces through packload.EnvVarsFor: folding it here as all-static-
-	// then-all-variant instead gave a key that pack A's variant and pack B's static both
-	// write two answers (the jail said the later pack's static wins, the host the earlier
-	// pack's variant). hostFoldParity_test.go pins the two notches to the same winner.
+	// (1) the pack env fold, PER PACK — each pack's static `kind: "env"` keys, then the
+	// keys of its `profile`-gated env contributions whose gate is satisfied (OQ-8). The
+	// sequence is packload.EnvFold's, the ONE fold the jail notch reduces through
+	// packload.EnvVarsFor: folding it here as all-static-then-all-gated instead gave a
+	// key that pack A's gated env and pack B's static both write two answers (the jail
+	// said the later pack's static wins, the host the earlier pack's gated value).
+	// hostFoldParity_test.go pins the two notches to the same winner.
 	//
 	// Keys are sorted within each pack, because a map has no order and an `export` script
 	// that reshuffles between runs is a diff nobody can read.
 	//
-	// Assignments land here. A null's UNSET is held for (4), because on the host a removal
-	// is only a removal if it comes after every assignment — including one an env_sources
-	// file below would make. An unset a LATER fold entry assigns over is dropped: the fold
-	// already decided that key, and holding the removal would have the host overrule the
-	// very order it just applied to the jail.
-	heldUnset := map[string]bool{}
+	// Assignments only, and that is the OQ-PT8 shrink rather than a shortcut: the only
+	// env map here that could spell a removal was the profile body's, whose
+	// null-means-unset decoder died with the body. What a removal still has is (2)'s
+	// env_sources nulls, held for (4) below.
 	for _, e := range packload.EnvFold(packs, agentTable) {
-		if e.Unset {
-			heldUnset[e.Key] = true
-			continue
-		}
-		delete(heldUnset, e.Key)
 		vars = append(vars, agentenv.Var{Key: e.Key, Value: e.Value})
 	}
 
@@ -502,18 +496,10 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 	// (4) removals last, so an unset beats every assignment above no matter which source
 	// made it — the env_sources nulls from the same pass as (2) (the same scoped config,
 	// so an inline null's cancellation by a later dotenv cannot disagree with the
-	// assignments), then the pack fold's own nulls from (1) that no later fold entry
-	// assigned over. Sorted, because a set of removals has no order to preserve and the
-	// `export` script must not reshuffle between runs.
-	foldUnsets := make([]string, 0, len(heldUnset))
-	for k := range heldUnset {
-		foldUnsets = append(foldUnsets, k)
-	}
-	sort.Strings(foldUnsets)
+	// assignments). The pack fold no longer contributes any: its only removal spelling
+	// died with the profile body. Sorted, because a set of removals has no order to
+	// preserve and the `export` script must not reshuffle between runs.
 	for _, k := range removals {
-		vars = append(vars, agentenv.Var{Key: k, Unset: true})
-	}
-	for _, k := range foldUnsets {
 		vars = append(vars, agentenv.Var{Key: k, Unset: true})
 	}
 	c.vars = vars

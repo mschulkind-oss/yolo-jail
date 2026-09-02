@@ -207,13 +207,12 @@ func HostFields() FieldSet {
 		// Honored-but-unbuilt below is that limit stated (hostUnimplemented), the same
 		// sentence env and launch get.
 		packdecl.KindProvider: true,
-		// profile is honored in the sense the census means — a variant patches the managed
-		// layer of a surface the pack already declares, which is exactly the kind of write
-		// this command performs. It is not APPLIED here, and the reason is the selector
-		// rather than the mechanism: which variant applies is a launch decision
-		// (`use_profiles`, `-p`), and a command that writes config selects no variant.
-		// hostUnimplemented carries that sentence, and RenderHostPack passes no profile
-		// table so the base surfaces render and no variant's keys are written.
+		// profile is honored in the sense the census means — since OQ-PT8 it IS a
+		// selection (`name` + `provider`), not a patch of its own, so there is nothing to
+		// apply at this notch and nothing to gate either: it carries no key a config write
+		// could render. Its config half lives in `config-overlay` contributions, which
+		// reach the host render through the same collector the boot uses — with no table
+		// passed, a gated overlay is a clean skip rather than a written key.
 		packdecl.KindProfile: true,
 		// files is honored by WRITING the tree, not binding it. The old refusal ("nothing
 		// to bind into off-container") was true of the mechanism and false of the intent: a

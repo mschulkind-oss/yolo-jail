@@ -151,23 +151,23 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 	// changes is that the boot path and the host path now read ONE statement of the policy
 	// instead of each carrying its own constant.
 	autonomy := e.renderTarget().Profile().AgentAutonomy
-	// The active profile table (YOLO_USE_PROFILES), keyed by CLI name. The WHOLE table is
-	// resolved here and each pack selects from it by its own installed bins — the same
-	// rule the derives follow (every pack sees every key), so a pack owning no CLI still
-	// has its profile visible to its derive even though it folds nothing. A profile's
-	// config patch folds inside SurfacesFor, after the posture's, so this loop stays
-	// per-kind-free: a variant is not a render pass, it is more of the same patch.
+	// The active profile table (YOLO_USE_PROFILES), keyed by CLI name. Resolved ONCE and
+	// handed to both consumers below, so the pack env fold and the config-overlay gate
+	// answer "which profile is active" from one resolution — the same rule the derives
+	// follow (every pack sees every key), which is what makes a profile visible to a pack
+	// that installs no CLI (packs/zai) rather than only to one with a bin to gate on.
 	profiles := packload.ProfileTable(e.LoadUseProfiles())
 	// config-overlay contributions are collected BEFORE the per-pack loop and across the
 	// whole set, because an overlay in pack B targets a surface pack A owns — the only
 	// case the kind exists for. Collecting per-pack would find, for that case, exactly
-	// none (docs/design/pack-config-collaboration.md §6). The profile table gates the
-	// `profile` modifier on the same table the variant folds above read, so a gated
-	// overlay and the variants it belongs beside cannot disagree about what is selected.
+	// none (docs/design/pack-config-collaboration.md §6). Since OQ-PT8 the gated overlay
+	// IS the profile's config channel — there is no separate variant fold beside it — so
+	// this table is that gate's whole input, and the same instance reaches
+	// surfaceSelectionFor below, so the gate and the derive cannot disagree.
 	overlays := packoverlay.Collect(packs, autonomy, profiles)
 	reportOverlayResolution(e, overlays)
 	for _, p := range packs {
-		surfaces, problems, notes := p.SurfacesForReport(autonomy, profiles)
+		surfaces, problems, notes := p.SurfacesForReport(autonomy)
 		for _, prob := range problems {
 			// A malformed surface is fatal: rendering the rest and skipping this one
 			// yields a jail whose config is quietly incomplete.

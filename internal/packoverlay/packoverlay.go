@@ -127,12 +127,12 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 // does. Where the bit IS consequential — p.SurfacesFor at the render — it is pinned in both
 // directions by internal/entrypoint/bootautonomy_test.go.
 //
-// The profile fold has the same shape and gets the same answer: SurfacesFor is called with
-// NO profile table, because a variant patch merges into the managed layer of a surface the
-// pack already declares and ignores a patch naming none, so no table can change which
-// identities exist here. This package does not resolve variants — it resolves owners — and
-// if a profile patch ever could add or remove an identity, that is the property that breaks
-// and the same test class catches it.
+// There is NO PROFILE FOLD for the same reason, and since OQ-PT8 that is a statement about
+// the kind rather than about a missing parameter: the profile's config body used to be a
+// variant patch merged inside SurfacesFor, and the shrink moved it HERE — a `config-overlay`
+// gated by the `profile` modifier — so a profile contributes through this function's own
+// gate, never by changing which identities exist. The owner pass still takes no table,
+// because ownership is a property of the packs alone.
 //
 // profiles is the ACTIVE profile table the CALLER's render resolved — packload.ProfileTable's
 // lowering of YOLO_USE_PROFILES in the jail, of the config's use_profiles at the host —
@@ -141,8 +141,8 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 // surface's OWNING agent, which is the target identity's agent segment (an "agent/name"
 // identity's agent half IS a CLI name, the namespace the table keys on). Taking the table
 // as a parameter rather than re-deriving it is what keeps the gate from answering the
-// "which variant is selected" question differently than the render folding beside it — the
-// caller already resolved the table for its own variant folds.
+// "which profile is selected" question differently than the other profile consumers in the
+// same render — the caller already resolved it once for all of them.
 //
 // An inactive profile is a CLEAN SKIP — no error, no orphan report, no applied notice —
 // because selection is the optionality (§7.1, the same rule that makes an unselected owner
@@ -160,7 +160,7 @@ func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) 
 	// message on a broken manifest.
 	owners := map[manifest.SurfaceKey]string{}
 	for _, p := range packs {
-		surfaces, _ := p.SurfacesFor(autonomy, nil)
+		surfaces, _ := p.SurfacesFor(autonomy)
 		for _, s := range surfaces {
 			owners[s.Key()] = p.Name
 		}
@@ -234,11 +234,15 @@ func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) 
 // layer of surfaces the pack already declares (foldPostureManaged ignores a patch naming no
 // base surface), so both postures yield the same surface-identity set — which is all this
 // lookup reads.
+//
+// (The two SurfacesFor calls above this comment carried a nil profile table before OQ-PT8
+// shrank the kind; the parameter is gone rather than accepted-and-ignored, because the fold
+// it fed no longer exists — see the paragraph above.)
 func shippedOwnerOf(key manifest.SurfaceKey, autonomy bool) string {
 	for _, p := range packload.Embedded() {
 		// No profile table, for the reason Collect states: identities are all this reads,
-		// and no variant fold can add or remove one.
-		surfaces, _ := p.SurfacesFor(autonomy, nil)
+		// and ownership is a property of the packs, not of a selection.
+		surfaces, _ := p.SurfacesFor(autonomy)
 		for _, s := range surfaces {
 			if s.Key() == key {
 				return p.Name

@@ -302,8 +302,9 @@ func TestFreshLaunchPrintsTheProfileLineBesideTheHostAccessLine(t *testing.T) {
 // --- kind "profile": DECLARED, and the env the selected variant contributes ---
 
 // profilePackFixture is a real staged-shape pack (LoadDir, not a hand-built struct) that
-// installs `claude` and declares one `bedrock` variant overriding its own static env
-// baseline — the shape §3.4's later-wins rule exists to resolve.
+// installs `claude`, declares the `bedrock` selection, and gates one env entry on it —
+// overriding the pack's own static baseline, the shape §3.4's later-wins rule exists to
+// resolve.
 func profilePackFixture(t *testing.T, name string) *packload.Pack {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), name)
@@ -312,9 +313,10 @@ func profilePackFixture(t *testing.T, name string) *packload.Pack {
 	}
 	manifest := `{"name":"` + name + `","contributes":[` +
 		`{"kind":"program","bin":"claude","via":"npm","package":"@acme/claude"},` +
+		`{"kind":"provider","name":"bedrock"},` +
+		`{"kind":"profile","name":"bedrock","provider":"bedrock"},` +
 		`{"kind":"env","vars":{"SHARED":"static","BASE":"static"}},` +
-		`{"kind":"profile","name":"bedrock",` +
-		`"env":{"PROFILE_ONLY":"from-profile","SHARED":null}}]}`
+		`{"kind":"env","profile":"bedrock","vars":{"PROFILE_ONLY":"from-profile"}}]}`
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -337,15 +339,16 @@ func TestAssembleSelectedProfileEnvReachesTheJailArgv(t *testing.T) {
 	})
 	env := strings.Join(envArgValues(argv, "PROFILE_ONLY", "BASE", "SHARED"), " ")
 	if !strings.Contains(env, "PROFILE_ONLY=from-profile") {
-		t.Errorf("the selected variant's env must be in the jail argv, got %s", env)
+		t.Errorf("the selected profile's gated env must be in the jail argv, got %s", env)
 	}
 	if !strings.Contains(env, "BASE=static") {
-		t.Errorf("a key the variant does not name keeps the static value, got %s", env)
+		t.Errorf("a key the gated entry does not name keeps the static value, got %s", env)
 	}
-	// OQ-7: a null in the variant UNSETS the key, so the static value must not survive
-	// as an -e at all — a jail starts from an empty env, so absent IS removed.
-	if strings.Contains(env, "SHARED=") {
-		t.Errorf("the variant's null must remove the key from the argv, got %s", env)
+	// The gated entry overrides by ASSIGNMENT: the static value of a key it names is
+	// replaced, never removed, because the fold's removal spelling died with the profile
+	// body (OQ-PT8).
+	if !strings.Contains(env, "SHARED=static") {
+		t.Errorf("the gated entry does not name SHARED, so the static value must stand, got %s", env)
 	}
 
 	// No profile selected: the static baseline, unchanged.

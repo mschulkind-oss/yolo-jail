@@ -38,18 +38,18 @@ func TestConfigOverlayProfileDecodesAndTravels(t *testing.T) {
 	}
 }
 
-// The field is config-overlay-ONLY: on any other kind it names a gate nothing honors,
-// which is the accepted-and-ignored defect this schema refuses everywhere (the
-// `requires does not take "via"` rule). The refusal must name the field and the one kind
-// that takes it, or an author cannot act on it.
+// The field is taken by exactly TWO kinds since the OQ-PT8 shrink — config-overlay and
+// env, the two that have a consumer for the gate. On any other kind it names a gate
+// nothing honors, which is the accepted-and-ignored defect this schema refuses everywhere
+// (the `requires does not take "via"` rule). The refusal must name the field and the kinds
+// that take it, or an author cannot act on it.
 func TestProfileFieldRefusedOffConfigOverlay(t *testing.T) {
 	cases := []struct {
 		name string
 		raw  string
 	}{
-		{"env", `{"kind": "env", "profile": "zai", "vars": {"A": "b"}}`},
 		{"launch", `{"kind": "launch", "profile": "zai", "bin": "claude"}`},
-		{"profile", `{"kind": "profile", "profile": "zai", "name": "zai"}`},
+		{"profile", `{"kind": "profile", "profile": "zai", "name": "zai", "provider": "zai"}`},
 		{"provider", `{"kind": "provider", "profile": "zai", "name": "zai"}`},
 		{"program", `{"kind": "program", "profile": "zai", "bin": "fzf", "via": "npm", "package": "fzf"}`},
 		{"config", `{"kind": "config", "profile": "zai", "config": [{"agent": "a", "name": "n"}]}`},
@@ -58,32 +58,17 @@ func TestProfileFieldRefusedOffConfigOverlay(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m, problems := Decode([]byte(`{"name": "p", "contributes": [` + tc.raw + `]}`))
 			if len(problems) == 0 {
-				t.Fatalf("a \"profile\" on kind %s must be refused — off the one kind that gates "+
+				t.Fatalf("a \"profile\" on kind %s must be refused — off the two kinds that gate "+
 					"on it, the field silently does nothing", tc.name)
 			}
 			joined := strings.Join(problems, "\n")
-			for _, want := range []string{"does not take \"profile\"", "config-overlay modifier"} {
+			for _, want := range []string{`does not take "profile"`, "config-overlay", "env"} {
 				if !strings.Contains(joined, want) {
-					t.Errorf("refusal %q missing %q — it must name the field and the kind that takes it", joined, want)
+					t.Errorf("refusal %q missing %q — it must name the field and the kinds that take it", joined, want)
 				}
 			}
 			_ = m
 		})
-	}
-}
-
-// The mirror half: ON config-overlay the field validates cleanly, and absent it is
-// unconditional — the back-compat shape every existing overlay keeps.
-func TestProfileFieldCleanOnConfigOverlay(t *testing.T) {
-	for _, raw := range []string{
-		`{"kind": "config-overlay", "profile": "zai", "surface": "claude/settings",
-		  "config": {"managed": {"k": 1}}}`,
-		`{"kind": "config-overlay", "surface": "claude/settings",
-		  "config": {"managed": {"k": 1}}}`,
-	} {
-		if _, problems := Decode([]byte(`{"name": "p", "contributes": [` + raw + `]}`)); len(problems) != 0 {
-			t.Errorf("config-overlay should validate with and without the field, got: %v", problems)
-		}
 	}
 }
 
@@ -93,9 +78,26 @@ func TestProfileFieldCleanOnConfigOverlay(t *testing.T) {
 // one-class-of-malformed both builds understand.
 func TestProfileFieldRefusedOnTolerantPath(t *testing.T) {
 	_, problems, _ := DecodeTolerant([]byte(`{"name": "p", "contributes": [
-		{"kind": "env", "profile": "zai", "vars": {"A": "b"}}]}`))
+		{"kind": "launch", "profile": "zai", "bin": "claude"}]}`))
 	joined := strings.Join(problems, "\n")
 	if !strings.Contains(joined, "does not take \"profile\"") {
 		t.Errorf("the tolerant path must refuse the field off config-overlay too, got: %q", joined)
+	}
+}
+
+// The mirror half: ON config-overlay and ON env the field validates cleanly, and absent
+// it is unconditional — the back-compat shape every existing contribution keeps.
+func TestProfileFieldCleanWhereTheGateIsTaken(t *testing.T) {
+	for _, raw := range []string{
+		`{"kind": "config-overlay", "profile": "zai", "surface": "claude/settings",
+		  "config": {"managed": {"k": 1}}}`,
+		`{"kind": "config-overlay", "surface": "claude/settings",
+		  "config": {"managed": {"k": 1}}}`,
+		`{"kind": "env", "profile": "zai", "vars": {"A": "b"}}`,
+		`{"kind": "env", "vars": {"A": "b"}}`,
+	} {
+		if _, problems := Decode([]byte(`{"name": "p", "contributes": [` + raw + `]}`)); len(problems) != 0 {
+			t.Errorf("the contribution should validate with and without the field, got: %v", problems)
+		}
 	}
 }

@@ -205,14 +205,13 @@ func FootprintOf(p *Pack) Footprint {
 			// generic exclusive loop below inert for this kind — the same trick autonomy's
 			// pack-name target uses, with the name readable beside it.
 			//
-			// Not review-worthy: a variant retunes what the pack already ships, and its env
-			// is literal strings exactly like `env`'s. Whether the PROVIDER it names is
-			// hydrated is a launch pre-flight, not an approval question.
-			detail := "variant of this pack's own surfaces, launch flags and env"
-			if c.RequiresProvider != "" {
-				detail += "; requires provider " + c.RequiresProvider
-			}
-			add(packdecl.KindProfile, p.Name+"/"+c.Name, detail, false)
+			// Not review-worthy: a variant selects a provider this pack ships, and selects
+			// nothing else — the body the kind used to carry (surfaces, launch flags, env)
+			// moved to `profile:`-modified contributions of the kinds that own them, and
+			// THOSE show up as their own claims here. Whether the PROVIDER is hydrated is a
+			// launch pre-flight, not an approval question.
+			add(packdecl.KindProfile, p.Name+"/"+c.Name,
+				"selection of provider "+c.Provider, false)
 		case packdecl.KindProvider:
 			// The target IS the provider name, with no discriminator: the kind is
 			// sole-owned per name, so the generic exclusive loop in Collisions is the
@@ -340,6 +339,18 @@ func FootprintOf(p *Pack) Footprint {
 				"owner's agent (owner still wins)", ov.Profile)
 		}
 		add(packdecl.KindConfigOverlay, ov.Surface, detail, false)
+	}
+
+	// Same rule for a `profile`-gated env contribution: it CLAIMS UNCONDITIONALLY and the
+	// Detail names the gate. It could not be seen here while it lived in a kind:profile
+	// body — the shrink is what surfaced it, and a bedrock key a pack ships under a
+	// profile is exactly the line a reader of a footprint wants to find, with the
+	// condition spelled out beside it.
+	for _, gated := range p.Decl.ProfiledEnvContributions() {
+		for _, k := range sortedMapKeys(gated.Vars) {
+			add(packdecl.KindEnv, k, "="+gated.Vars[k]+" when profile \""+
+				gated.Profile+"\" is active", false)
+		}
 	}
 
 	// Stable order: contribution order is map-dependent for launch/…, so sort by

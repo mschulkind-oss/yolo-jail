@@ -1,14 +1,16 @@
 package entrypoint
 
-// profilealias_test.go pins the SHELL half of a pack's launch flags against the
-// profiles-as-pack-variants.md §3.4 fold, and pins the CALL SITE that does the folding.
+// profilealias_test.go pins the SHELL half of a pack's launch flags against the fold, and
+// pins the CALL SITE that does the folding.
 //
 // Two consumers read one pack's launch list, and they must agree because shell.go says so:
 // packAliases exists so "an interactive shell gets the same flags a `yolo -- <bin>`
-// invocation does". The alias folds LaunchFlagsFor over the jail's YOLO_USE_PROFILES
-// table; the direct invocation is injected by the host CLI. When only the alias half
-// learned about profiles, a pack's variant flags appeared on the alias and vanished from
-// `yolo -- <bin>` — the divergence the parity test below exists to catch again.
+// invocation does". Both read LaunchFlagContributions plus the selected autonomy posture.
+// Before OQ-PT8 shrank the kind they ALSO read a profile table, because a kind:profile body
+// could carry launch flags; that body is gone (a profile-gated kind:launch has no consumer),
+// so the two spellings now agree by construction rather than by both folding the same
+// table — and the parity pin below is what would catch a second consumer growing a third
+// source of flags on one side only.
 //
 // The fixture is a real pack on disk read by LoadJailPacks, not a hand-built struct:
 // the alias derivation starts from the loaded set, and a test that bypassed the loader
@@ -26,10 +28,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
-// profileLaunchPack writes a pack that installs `acme`, gives it a static launch flag,
-// and declares one `bedrock` variant whose launch replaces the static one for the same
-// bin — the shape §3.4's later-wins rule exists to resolve. Returned is the staging root
-// the pack was written into, ready to hand to YOLO_PACK_ROOT.
+// profileLaunchPack writes a pack that installs `acme` and gives it one static launch flag,
+// plus a profile declaration to make the point the shrink makes: a declared profile
+// contributes no flag at all, because the launch body it used to carry has nowhere to live.
+// Returned is the staging root the pack was written into, ready to hand to YOLO_PACK_ROOT.
 func profileLaunchPack(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -40,8 +42,7 @@ func profileLaunchPack(t *testing.T) string {
 	manifest := `{"name":"acme","contributes":[` +
 		`{"kind":"program","bin":"acme","via":"npm","package":"@acme/acme"},` +
 		`{"kind":"launch","bin":"acme","flags":["--static"]},` +
-		`{"kind":"profile","name":"bedrock",` +
-		`"launch":[{"bin":"acme","flags":["--bedrock"]}]}]}`
+		`{"kind":"profile","name":"bedrock","provider":"bedrock"}]}`
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -60,36 +61,37 @@ func aliasEnv(t *testing.T, root, profiles string) *Env {
 	})
 }
 
-// A variant named in the jail's table must reach the alias. The fold lives inside
-// packAliases, so a test on LaunchFlagsFor alone would stay green if the alias stopped
-// handing the table over — and a real jail's alias would silently lose the variant's
-// flags while every unit test passed.
-func TestPackAliasesFoldTheSelectedProfile(t *testing.T) {
+// The alias is derived from the pack's launch contributions THROUGH packAliases — not from
+// a hand-built map — so deleting the LaunchFlagsFor call from packAliases fails this test
+// rather than leaving the alias silently empty while the fold stays green.
+func TestPackAliasesFoldTheLaunchContributions(t *testing.T) {
 	root := profileLaunchPack(t)
 
-	got := packAliases(aliasEnv(t, root, `{"acme":"bedrock"}`))
-	if !strings.Contains(got, "--bedrock") {
-		t.Errorf("the selected variant's flag must reach the alias, got %q", got)
-	}
-	if strings.Contains(got, "--static") {
-		t.Errorf("the variant replaces the static flags for the same bin (§3.4 OQ-8), got %q", got)
+	got := packAliases(aliasEnv(t, root, ``))
+	if !strings.Contains(got, "--static") {
+		t.Errorf("the pack's launch flag must reach the alias, got %q", got)
 	}
 
-	// No selection (or a name this pack does not declare): the static baseline stands.
-	for _, table := range []string{``, `{"acme":"nobody"}`, `{"claude":"bedrock"}`} {
+	// A declared profile adds nothing to the same alias, whatever the jail's table says:
+	// the flag list has one source, and it is not the profile.
+	for _, table := range []string{``, `{"acme":"bedrock"}`, `{"claude":"bedrock"}`} {
 		got := packAliases(aliasEnv(t, root, table))
-		if !strings.Contains(got, "--static") || strings.Contains(got, "--bedrock") {
-			t.Errorf("table %q: the static flags must stand and no variant may fold, got %q",
+		if !strings.Contains(got, "--static") {
+			t.Errorf("table %q: the static flags must stand, got %q", table, got)
+		}
+		if strings.Contains(got, "--bedrock") {
+			t.Errorf("table %q: a profile contributes no launch flag since the shrink, got %q",
 				table, got)
 		}
 	}
 }
 
-// THE PARITY: both consumers of a pack's launch list, run over the SAME table, must
-// produce the same flags. The direct invocation is represented by packload's injection —
-// the same call the host CLI makes — and the alias by packAliases. Either half that stops
-// folding the table breaks the equality, which is the property shell.go's doc claims.
-func TestAliasAndDirectInvocationAgreeOnAProfile(t *testing.T) {
+// THE PARITY: both consumers of a pack's launch list must produce the same flags. The
+// direct invocation is represented by packload's injection — the same call the host CLI
+// makes — and the alias by packAliases. Before the shrink this test took a profile table on
+// both sides, which is what made it a parity pin; now it pins the weaker (and sufficient)
+// fact that neither side has a second source the other lacks.
+func TestAliasAndDirectInvocationAgree(t *testing.T) {
 	root := profileLaunchPack(t)
 	e := aliasEnv(t, root, `{"acme":"bedrock"}`)
 
@@ -97,10 +99,9 @@ func TestAliasAndDirectInvocationAgreeOnAProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadJailPacks: %v", err)
 	}
-	table := packload.ProfileTable(e.LoadUseProfiles())
 
 	// The direct path: what the host CLI injects into `yolo -- acme user-arg`.
-	direct := packload.InjectLaunchFlags(packs, table, []string{"acme", "user-arg"})
+	direct := packload.InjectLaunchFlags(packs, []string{"acme", "user-arg"})
 	if len(direct) != 3 || direct[0] != "acme" || direct[len(direct)-1] != "user-arg" {
 		t.Fatalf("injected argv %v — the direct path must keep the user's own arguments", direct)
 	}

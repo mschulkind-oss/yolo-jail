@@ -171,18 +171,18 @@ func TestInjectLaunchFlags(t *testing.T) {
 		`{"contributes":[{"kind":"launch","bin":"tool","flags":["--yolo","--no-update"],"aliases":{"--yolo":["-y"]}}]}`)}
 	loaded := []*Pack{p}
 
-	got := InjectLaunchFlags(loaded, nil, []string{"tool", "sub"})
+	got := InjectLaunchFlags(loaded, []string{"tool", "sub"})
 	want := []string{"tool", "--yolo", "--no-update", "sub"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	// Alias suppression.
-	got = InjectLaunchFlags(loaded, nil, []string{"tool", "-y"})
+	got = InjectLaunchFlags(loaded, []string{"tool", "-y"})
 	if strings.Contains(strings.Join(got, " "), "--yolo") {
 		t.Errorf("-y must suppress --yolo: %v", got)
 	}
 	// A binary no pack declares is untouched.
-	if got := InjectLaunchFlags(loaded, nil, []string{"ls", "-la"}); len(got) != 2 {
+	if got := InjectLaunchFlags(loaded, []string{"ls", "-la"}); len(got) != 2 {
 		t.Errorf("undeclared binary must be untouched: %v", got)
 	}
 }

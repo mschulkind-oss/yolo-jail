@@ -197,7 +197,7 @@ func TestOverlayCannotFlipTheOwnersMode(t *testing.T) {
 			"mode is the general hazard (R1) this kind exists to remove")
 	}
 	// And the owner's own surface is untouched by the attempt.
-	surfaces, _ := owner.SurfacesFor(true, nil)
+	surfaces, _ := owner.SurfacesFor(true)
 	if len(surfaces) != 1 || surfaces[0].ResolvedMode() != "stateful" {
 		t.Errorf("owner's mode changed: %+v", surfaces)
 	}
@@ -346,7 +346,7 @@ func TestGatedOverlaySkipsCleanlyWhenProfileIsNotActive(t *testing.T) {
 			}
 			// And the owner's own surface is untouched by the skip: it still declares
 			// exactly what it declared.
-			surfaces, _ := owner.SurfacesFor(true, nil)
+			surfaces, _ := owner.SurfacesFor(true)
 			if len(surfaces) != 1 {
 				t.Errorf("the owner's surface set changed under an inactive overlay: %+v", surfaces)
 			}

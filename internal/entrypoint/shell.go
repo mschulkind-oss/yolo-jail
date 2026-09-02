@@ -10,9 +10,12 @@ import (
 // packAliases writes a shell alias for each pack whose install binary has launchFlags,
 // so an interactive shell gets the same flags a `yolo -- <bin>` invocation does.
 //
-// The profile table is folded here (LaunchFlagsFor, not LaunchFlagsFor(packs, true, nil)):
-// a selected variant's launch contribution must reach the alias or the two spellings of one
-// launch disagree — the variant's flags on the alias, gone from the direct invocation.
+// NO profile table. It took one until OQ-PT8 shrank the kind: a kind:profile body could
+// carry launch flags, and a selected variant's contribution had to reach the alias or the
+// two spellings of one launch would disagree — the variant's flags on the alias, gone from
+// the direct invocation. The shrink moved that body to the `profile:` modifier, and a
+// launch-kind contribution gated by it has no consumer yet (see LaunchFlagsFor), so the
+// two spellings now agree by construction rather than by both folding the same table.
 //
 // DERIVED rather than declared. It used to be an AgentSpec.Alias string holding a whole
 // command line ("copilot --yolo --no-auto-update"), which duplicated the launchFlags the
@@ -23,7 +26,7 @@ func packAliases(e *Env) string {
 	if err != nil {
 		return ""
 	}
-	flagsByBin := packload.LaunchFlagsFor(packs, true, packload.ProfileTable(e.LoadUseProfiles()))
+	flagsByBin := packload.LaunchFlagsFor(packs, true)
 	var lines []string
 	for _, p := range packs {
 		// Every honored install, not the first: a pack declaring two programs with

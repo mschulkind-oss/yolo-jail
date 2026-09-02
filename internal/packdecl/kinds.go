@@ -109,21 +109,20 @@ const (
 	// per pack); it patches surfaces the same pack owns, so it never collides across
 	// packs the way a second config writer would.
 	KindAutonomy Kind = "autonomy"
-	// KindProfile: a NAMED VARIANT of the pack's own declarations
-	// (profiles-as-pack-variants.md §3.1). `autonomy` with an open selector: where the
-	// confinement notch chooses between exactly two postures and no user input can reach
-	// that choice, a profile's selector is a NAME the user picks per CLI (`use_profiles`,
-	// `-p`), and the pack declares one contribution per name it answers to. The BODY is the
-	// posture shape — config patches folding into the managed layer of a surface THIS pack
-	// owns, launch flags merged into a binary's, plus a static env map — so a profile is
-	// not a second config writer either; it is a variant of what the pack already ships.
+	// KindProfile: a NAMED SELECTION OVER A PROVIDER
+	// (provider-catalog-and-selection.md §5.2) — `name` is the selector `-p` sets and
+	// `provider` is what it selects. THAT IS THE WHOLE BODY, since OQ-PT8 shrank the kind
+	// (the sibling doc's §5.4 note is the ruling): everything a `kind: "profile"` used to
+	// carry besides — a config patch, launch flags, a static env map — was never a profile
+	// at all, but a contribution GATED ON a profile name, and it now lives that way in the
+	// kinds that own those channels, under the `profile` modifier. packs/claude's
+	// `bedrock` is the decomposition's one worked case, table for table.
 	//
-	// NOT origin-gated, like autonomy: it patches the pack's own surfaces and its env is
-	// literal strings, so it reads nothing from the host. `requires_provider` NAMES a
-	// provider entry — a reference into the user's `providers` config, not a read of it —
-	// so it makes no host-access claim either; the credential behind that name is a
-	// variable the user hydrates, and whether it is hydrated is the launch pre-flight's
-	// question (parent §6.2), not an approval `pack install` can grant.
+	// NOT origin-gated, like autonomy: it names an entry of the composed `providers`
+	// table — a reference into the user's config, not a read of it — so it makes no
+	// host-access claim; the credential behind that name is a variable the user hydrates,
+	// and whether it is hydrated is the launch pre-flight's question (parent §6.2), not an
+	// approval `pack install` can grant.
 	//
 	// Exclusive by (pack, name) — the claim target carries BOTH, deliberately, because
 	// unlike a provider name a profile name is NOT globally owned: `bedrock` in packs/claude
@@ -147,8 +146,8 @@ const (
 	// carry; a key is a fact about this machine, which is not.
 	//
 	// Exclusive by provider NAME, and the name is the whole identity: it is the key the
-	// entry lands under in the composed table, what a profile's `requires_provider`
-	// names, and what the derives emit as the provider/model id. Two packs shipping one
+	// entry lands under in the composed table, what a profile's `provider` names, and
+	// what the derives emit as the provider/model id. Two packs shipping one
 	// name would each be supplying "the" zai, so the second is a collision — the same
 	// name-keyed exclusivity `program` has per bin, and unlike `program` nothing is
 	// installed, so there is no filesystem the collision could otherwise surface in.

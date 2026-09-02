@@ -73,7 +73,7 @@ func zaiProfilePack(t *testing.T, name, bin string) *packload.Pack {
 	return writePackManifestWithDerive(t, name, `{"name":"`+name+`","contributes":[`+
 		`{"kind":"program","bin":"`+bin+`","via":"npm","package":"example.com/`+bin+`"},`+
 		`{"kind":"provider","name":"zai",`+zaiFactsTail+`},`+
-		`{"kind":"profile","name":"glm","requires_provider":"zai"}]}`,
+		`{"kind":"profile","name":"glm","provider":"zai"}]}`,
 		shippedEnvDerive(t))
 }
 
@@ -85,7 +85,7 @@ func zaiProviderOnlyPack(t *testing.T) *packload.Pack {
 	t.Helper()
 	return writePackManifest(t, "zai-facts", `{"name":"zai-facts","contributes":[`+
 		`{"kind":"provider","name":"zai",`+zaiFactsTail+`},`+
-		`{"kind":"profile","name":"glm","requires_provider":"zai"}]}`)
+		`{"kind":"profile","name":"glm","provider":"zai"}]}`)
 }
 
 // assembleWithProviderEnv is assembleWithPacksAndConfig with the hydrated env_sources the

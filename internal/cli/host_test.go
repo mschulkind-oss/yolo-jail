@@ -27,12 +27,13 @@ func userCfg(t *testing.T, home, text string) {
 }
 
 // writeClaudeBedrockLocalPack writes a local pack shaped like the shipped packs/claude:
-// the variant that switches claude into Bedrock mode, plus the env derive that states
-// the delivery — which variable takes its value from which provider fact, in Claude
-// Code's own variable names (OQ-CS8: the binding lives in the agent pack's derive.lua,
-// nowhere else). It installs the claude CLI on purpose: a variant is active only at a
-// CLI name its OWN pack installs (§3.3), and the runner discovers the producer by bin
-// ownership — which is why both live here and not in a CLI-less provider pack.
+// the bedrock selection, the gated env entry that switches claude into Bedrock mode, and
+// the env derive that states the delivery — which variable takes its value from which
+// provider fact, in Claude Code's own variable names (OQ-CS8: the binding lives in the
+// agent pack's derive.lua, nowhere else). It installs the claude CLI on purpose: the env
+// derive is discovered by bin ownership, and the pack env fold's gate fires on an
+// installed bin first — which is why all three live here and not in a CLI-less provider
+// pack.
 //
 // The derive is the shipped producer verbatim (packs/claude/derive.lua's yolo.env), not
 // a stub: bedrock parity is the acceptance bar of the whole move, and a stub here would
@@ -46,8 +47,8 @@ func writeClaudeBedrockLocalPack(t *testing.T, home string) {
 	manifest := `{"name":"claude","contributes":[` +
 		`{"kind":"program","bin":"claude","via":"npm","package":"@anthropic-ai/claude-code"},` +
 		`{"kind":"provider","name":"bedrock"},` +
-		`{"kind":"profile","name":"bedrock","requires_provider":"bedrock",` +
-		`"env":{"CLAUDE_CODE_USE_BEDROCK":"1"}}]}`
+		`{"kind":"profile","name":"bedrock","provider":"bedrock"},` +
+		`{"kind":"env","profile":"bedrock","vars":{"CLAUDE_CODE_USE_BEDROCK":"1"}}]}`
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -279,13 +280,18 @@ func hasEnv(env []string, kv string) bool {
 	return false
 }
 
-// TestHostEnvCarriesTheVariantEnv pins the (1b) source at the host notch: the variant's
-// own `env` rides the same process-env channel its provider's shape does, because a
-// profile that sets nothing but its provider's vars would be half a profile — claude's
-// bedrock variant has to say CLAUDE_CODE_USE_BEDROCK=1 somewhere, and the jail's argv
-// already carries it through the same fold (packload.EnvVarsFor). Deleting the fold makes
-// this test fail; deleting the jail's fold makes agentprofileenv_test.go fail.
-func TestHostEnvCarriesTheVariantEnv(t *testing.T) {
+// TestHostEnvCarriesTheGatedEnv pins the gated half of the pack env fold at the host
+// notch: an entry a pack gated on the selected profile rides the same process-env channel
+// its provider's shape does, because a profile that set nothing but its provider's vars
+// would be half a profile — claude's bedrock has to say CLAUDE_CODE_USE_BEDROCK=1
+// somewhere, and the jail's argv carries it through the same fold (packload.EnvVarsFor).
+// Deleting the fold's gate makes this test fail; deleting the jail's fold makes
+// agentprofileenv_test.go fail.
+//
+// The null-unset half this fixture used to pin is gone with the body that spelled it
+// (OQ-PT8): a gated entry is a plain `vars` string, and the only removal left on a host
+// launch is env_sources' — TestComposeHostEnvOrdering pins that one.
+func TestHostEnvCarriesTheGatedEnv(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
@@ -297,11 +303,12 @@ func TestHostEnvCarriesTheVariantEnv(t *testing.T) {
 	}
 	manifest := `{"name":"claude","contributes":[` +
 		`{"kind":"program","bin":"claude","via":"npm","package":"@anthropic-ai/claude-code"},` +
-		`{"kind":"env","vars":{"PACK_STATIC":"static","VARIANT_ONLY_KEY":"static"}},` +
-		`{"kind":"profile","name":"bedrock","env":{` +
+		`{"kind":"provider","name":"bedrock"},` +
+		`{"kind":"profile","name":"bedrock","provider":"bedrock"},` +
+		`{"kind":"env","vars":{"PACK_STATIC":"static","GATED_ONLY_KEY":"static"}},` +
+		`{"kind":"env","profile":"bedrock","vars":{` +
 		`"CLAUDE_CODE_USE_BEDROCK":"1",` +
-		`"VARIANT_ONLY_KEY":"variant",` +
-		`"AWS_PROFILE":null}}]}`
+		`"GATED_ONLY_KEY":"gated"}}]}`
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -318,20 +325,20 @@ func TestHostEnvCarriesTheVariantEnv(t *testing.T) {
 		}
 	}
 	if !hasEnv(env, "CLAUDE_CODE_USE_BEDROCK=1") {
-		t.Errorf("the variant's env literal did not reach the host process: %q", env)
+		t.Errorf("the gated env literal did not reach the host process: %q", env)
 	}
-	// OQ-8: the variant is the more specific intent, so it beats its own pack's static
+	// OQ-8: the gated entry is the more specific intent, so it beats its own pack's static
 	// value, which the earlier source had already set.
-	if seen["VARIANT_ONLY_KEY"] != "variant" {
-		t.Errorf("VARIANT_ONLY_KEY = %q, want the variant's value to beat the static one", seen["VARIANT_ONLY_KEY"])
+	if seen["GATED_ONLY_KEY"] != "gated" {
+		t.Errorf("GATED_ONLY_KEY = %q, want the gated value to beat the static one", seen["GATED_ONLY_KEY"])
 	}
 	if seen["PACK_STATIC"] != "static" {
-		t.Errorf("PACK_STATIC = %q, want the pack's static env untouched by the variant", seen["PACK_STATIC"])
+		t.Errorf("PACK_STATIC = %q, want the pack's static env untouched by the gated one", seen["PACK_STATIC"])
 	}
-	// OQ-7: a null in the variant UNSETS — and it beats both the inherited value and the
-	// env_sources assignment, because a removal is only a removal if it comes last.
-	if _, present := seen["AWS_PROFILE"]; present {
-		t.Errorf("AWS_PROFILE = %q, want the variant's null to remove it outright", seen["AWS_PROFILE"])
+	// The inherited environment stands: a gated entry overrides by assignment, and the
+	// fold has no removal spelling to beat it with.
+	if seen["AWS_PROFILE"] != "work-sso" {
+		t.Errorf("AWS_PROFILE = %q, want the inherited value — the fold assigns, it never unsets", seen["AWS_PROFILE"])
 	}
 }
 

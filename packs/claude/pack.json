@@ -121,25 +121,28 @@
       "name": "bedrock"
     },
     {
-      "config": [
-        {
-          "agent": "claude",
-          "codec": "json",
-          "managed": {
-            "env": {
-              "CLAUDE_CODE_USE_BEDROCK": "1"
-            }
-          },
-          "name": "settings",
-          "path": "~/.claude/settings.json"
-        }
-      ],
-      "env": {
-        "CLAUDE_CODE_USE_BEDROCK": "1"
-      },
       "kind": "profile",
       "name": "bedrock",
-      "requires_provider": "bedrock"
+      "provider": "bedrock"
+    },
+    {
+      "kind": "env",
+      "profile": "bedrock",
+      "vars": {
+        "CLAUDE_CODE_USE_BEDROCK": "1"
+      }
+    },
+    {
+      "config": {
+        "managed": {
+          "env": {
+            "CLAUDE_CODE_USE_BEDROCK": "1"
+          }
+        }
+      },
+      "kind": "config-overlay",
+      "profile": "bedrock",
+      "surface": "claude/settings"
     },
     {
       "at": ".claude",

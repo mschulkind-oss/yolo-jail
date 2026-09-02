@@ -144,7 +144,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, observe bool, overlays *pa
 	// would write a variant's keys into the real home under an intent nobody expressed.
 	// A pack's BASE surfaces render, its variants do not; render's hostUnimplemented says
 	// the same thing to the human.
-	surfaces, problems, notes := p.SurfacesForReport(e.renderTarget().Profile().AgentAutonomy, nil)
+	surfaces, problems, notes := p.SurfacesForReport(e.renderTarget().Profile().AgentAutonomy)
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("pack %s: %s", p.Name, problems[0])
 	}

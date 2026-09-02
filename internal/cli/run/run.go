@@ -138,17 +138,19 @@ func Run(opts Options) int {
 	// pack — whose launch contributions an embedded-set injection drops, silently. It
 	// is also the set the jail's own alias fold reads (LoadJailPacks over the staged
 	// tree), so using it here is what keeps the two spellings of one launch — the
-	// interactive alias and `yolo -- <bin>` — from disagreeing. The profile table is
-	// the one the channel composed just below, so the flags this argv carries and the
-	// table YOLO_USE_PROFILES carries cannot answer differently.
+	// interactive alias and `yolo -- <bin>` — from disagreeing; they agree by
+	// construction rather than by both folding the same table. (The injection took a
+	// profile table until OQ-PT8 shrank the kind: profile bodies no longer carry launch
+	// flags, so there is no variant table left to fold, and the parameter is gone rather
+	// than accepted-and-ignored.)
 	//
 	// Guarded on len>0 so the empty case still reaches each arm's own default (a bare
 	// `yolo` is bash in a container and an interactive zsh natively); injecting into an
 	// empty argv would invent a binary neither arm asked for.
 	//
 	// THE CHANNEL, composed once here — the third B-0 hoist, after the pack trees and the
-	// launch flags. The effective profile table the injection reads is one third of what
-	// a profile launch composes; the pack env fold, the composed provider table, the
+	// launch flags. The effective profile table YOLO_USE_PROFILES carries is one part of
+	// what a profile launch composes; the pack env fold, the composed provider table, the
 	// provider env vars and the hydrated env_sources are the rest, and every one of them
 	// used to be composed inside the container arm, which this branch returns before
 	// reaching. internal/cli/run/profilechannel.go is the whole story; what matters here
@@ -166,8 +168,7 @@ func Run(opts Options) int {
 	}
 	injectedArgs := o.Args
 	if len(injectedArgs) > 0 {
-		injectedArgs = packload.InjectLaunchFlags(staged.packs,
-			packload.ProfileTable(channel.profiles), injectedArgs)
+		injectedArgs = packload.InjectLaunchFlags(staged.packs, injectedArgs)
 	}
 
 	// macos-user native branch: route to the injected handler,

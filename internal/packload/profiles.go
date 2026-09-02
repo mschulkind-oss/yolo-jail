@@ -13,9 +13,8 @@ package packload
 //
 // Three inputs make a resolution:
 //
-//   - the selected packs' shipped `kind: "profile"` declarations, which today name a
-//     provider and carry no option values (§5.2 sends their BODIES to the `profile:`
-//     modifier, which is the later shrink this file deliberately does not do);
+//   - the selected packs' shipped `kind: "profile"` declarations — name + provider, the
+//     whole kind since OQ-PT8 shrank it (their BODIES went to the `profile:` modifier);
 //   - the user's `profiles` config entries, read at USER SCOPE by config.LoadProfiles
 //     and handed here already lowered (OQ-CS5 — the same scope rule `packs` follows);
 //   - the options the RESOLVED provider declares (OQ-CS4), which are the only schema a
@@ -73,8 +72,8 @@ type ResolvedProfile struct {
 //     reaches the derive as nothing, which is exactly what "declared, no default"
 //     promises;
 //  2. the pack-shipped profile's own values — none exist today, because the kind
-//     carries no options field; the layer is here so the merge has one shape and the
-//     shrink that moves a body into options does not re-order it;
+//     declares a selection (name + provider) and no option values; the layer is here so
+//     the merge has one shape should a shipped profile ever carry one;
 //  3. the user's own values — the intent the definition puts on top.
 //
 // ONE refusal, fatal, because a launch that silently mis-composes a profile is
@@ -85,12 +84,14 @@ type ResolvedProfile struct {
 //     DECLARES at least one option — a provider with no `options` imposes no census, or
 //     every profile over today's shipped providers would be refused on sight.
 //
-// A name that resolves to NO provider is left OUT of the table rather than refused — see
-// the skip below for why that is the honest reading while a body-only kind:profile is
-// still a legal manifest shape.
+// Every name resolves to a provider, and that is property 3 rather than luck: the
+// manifest schema refuses a kind:profile with no `provider`, and the config layer
+// refuses a `profiles` entry with none (config.checkProfileEntry), so there is no
+// providerless case to skip — the pre-shrink version of this function carried one, for
+// a body-only declaration the schema no longer allows.
 //
 // A name both sides declare is the §5.2 "customize the pack's own profile" case: the
-// user's entry keeps the pack's provider when it states none, and wins per option key.
+// user's entry wins per option key, and keeps the pack's provider when it states none.
 // A name only a pack declares resolves to the pack's provider plus that provider's
 // defaults — the shipped profile is a DEFAULT a user overrides, never a second schema.
 func ResolveProfiles(packs []*Pack, user map[string]UserProfile) (map[string]ResolvedProfile, error) {
@@ -112,28 +113,22 @@ func ResolveProfiles(packs []*Pack, user map[string]UserProfile) (map[string]Res
 	var problems []string
 	for _, name := range names {
 		userProf, fromUser := user[name]
-		packProf, fromPack := shipped[name]
+		packProf := shipped[name]
 
-		provider := ""
-		switch {
-		case fromUser && userProf.Provider != "":
+		provider := packProf.Provider
+		if fromUser && userProf.Provider != "" {
 			provider = userProf.Provider
-		case fromPack:
-			provider = profileProvider(packProf)
 		}
 		if provider == "" {
-			// A declaration with NO provider is left out of the table, and that is
-			// deliberate rather than a refusal. The manifest schema still allows a
-			// kind:profile that is a pure BODY (env, launch flags) with no provider —
-			// validateContribution requires only the name, and the host fold's own test
-			// packs carry exactly that shape, which is what made this file's first draft
-			// refuse three otherwise-green host launches — and such a profile is legal
-			// and working today: its env folds, and ProviderFor falls back to the bare
-			// name. Refusing it would break launches selecting a pack that ships one,
-			// for a ruling (§5.2 property 3) the SHRINK is what lands, together with the
-			// schema change that makes the field mandatory. It composes no YOLO_PROFILES
-			// entry, so a derive activating it reads ctx.profile as empty — which is the
-			// truth: it selects nothing.
+			// Unreachable through a launch, which is the point of naming it: the
+			// manifest schema refuses a kind:profile with no provider and the config
+			// layer refuses a user entry with none, so this only fires for a caller
+			// that built its own table. A profile resolving to NO provider is not an
+			// empty answer — it is a selection of nothing, which is exactly what an
+			// entry in this table must never quietly be.
+			problems = append(problems, fmt.Sprintf(
+				"profile %q names no provider — a profile is a selection over a provider, "+
+					"so it declares nothing without one", name))
 			continue
 		}
 
@@ -176,18 +171,6 @@ func packShippedProfiles(packs []*Pack) map[string]packdecl.ProfileContribution 
 		}
 	}
 	return out
-}
-
-// profileProvider is the provider a pack-shipped profile selects.
-//
-// COMPAT SHIM, and the kind:profile shrink deletes it with its rename: the kind spells
-// the field `requires_provider` today, and §5.2 renames the concept to `provider` — a
-// profile does not REQUIRE a provider, it IS a selection of one. Read HERE only, in the
-// lowering, never in the schema: the schema keeps the one spelling until the shrink
-// lands, so a manifest author has exactly one word to write and no reason to learn this
-// function exists.
-func profileProvider(p packdecl.ProfileContribution) string {
-	return p.RequiresProvider
 }
 
 // providerOptions returns each pack-declared provider's `options` map, keyed by

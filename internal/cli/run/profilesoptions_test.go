@@ -35,7 +35,7 @@ func optionsZaiPack(t *testing.T) *packload.Pack {
 	  {"kind":"provider","name":"zai",
 	   "endpoints":{"anthropic":{"base_url":"https://api.z.ai/api/anthropic"}},
 	   "options":{"model":"default","thinking":null}},
-	  {"kind":"profile","name":"zai","requires_provider":"zai"}]}`
+	  {"kind":"profile","name":"zai","provider":"zai"}]}`
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}

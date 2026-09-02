@@ -42,7 +42,7 @@ func zaiPackFixture(t *testing.T, name, provider, keyEnv string) *packload.Pack 
 	manifest := `{"name":"` + name + `","contributes":[` +
 		`{"kind":"provider","name":"` + provider + `","api_key_env_name":"` + keyEnv + `",` +
 		`"endpoints":{"openai":{"base_url":"https://api.z.ai/api/paas/v4","wire_api":"openai-chat-completions"}}},` +
-		`{"kind":"profile","name":"` + provider + `","requires_provider":"` + provider + `"}]}`
+		`{"kind":"profile","name":"` + provider + `","provider":"` + provider + `"}]}`
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -141,15 +141,15 @@ func TestCheckProviderCredentialsFollowCatalogMembership(t *testing.T) {
 		t.Errorf("the refusal must name the provider and its variable:\n%s", got)
 	}
 
-	// The profile half: requires_provider selecting a provider the catalog never held. The
-	// fixture ships the variant and NO provider contribution, so nothing composes an entry
-	// for "nowhere" — the delivery is nothing, and so is the demand.
+	// The profile half: a selection naming a provider the catalog never held. The fixture
+	// ships the profile and NO provider contribution, so nothing composes an entry for
+	// "nowhere" — the delivery is nothing, and so is the demand.
 	root := filepath.Join(t.TempDir(), "ghost")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	manifest := `{"name":"ghost","contributes":[` +
-		`{"kind":"profile","name":"ghost","requires_provider":"nowhere"}]}`
+		`{"kind":"profile","name":"ghost","provider":"nowhere"}]}`
 	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}

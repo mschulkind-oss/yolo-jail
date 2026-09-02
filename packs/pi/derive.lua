@@ -71,7 +71,7 @@ end
 -- half-selection a shared gate exists to make unrepresentable.
 --
 -- Total over non-tables, like providerEndpoint: a selected name that is absent from the
--- composed table (a variant whose requires_provider the table does not hold — which
+-- composed table (a profile whose provider the table does not hold — which
 -- creates no requirement of its own) reads as nil here, and nil selects nothing.
 local function piReachable(prov)
   if type(prov) ~= "table" then return nil end
@@ -149,7 +149,7 @@ end)
 -- defaultProvider/defaultModel at top level where pi reads them. The namespace is an
 -- implementation detail of the layer, never of the file.
 --
--- OQ-CS2 is the GUARD, not a default: when no variant is active at pi's CLI name, nothing
+-- OQ-CS2 is the GUARD, not a default: when no profile is active at pi's CLI name, nothing
 -- selection-shaped is written — not a default, not a clear; the no-profile case is the
 -- agent's own (pi's own persisted interactive choice stands). And when the selected
 -- provider is not pi-reachable, the SAME gate that keeps it out of the catalog above keeps

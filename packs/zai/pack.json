@@ -16,12 +16,15 @@
         "default": "glm-4.7",
         "fast": "glm-4.7-air"
       },
-      "name": "zai"
+      "name": "zai",
+      "options": {
+        "model": "default"
+      }
     },
     {
       "kind": "profile",
       "name": "zai",
-      "requires_provider": "zai"
+      "provider": "zai"
     }
   ],
   "name": "zai"

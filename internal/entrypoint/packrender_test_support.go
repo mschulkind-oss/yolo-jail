@@ -40,9 +40,9 @@ func ConfigurePackByName(e *Env, name string) error {
 	}
 	// The WHOLE embedded set, not just the pack asked for: the selection a derive sees
 	// (surfaceSelection) resolves across packs, because the pack that declares a
-	// `requires_provider` usually installs no CLI — packs/zai is the shipped case, and
-	// the surface it speaks to is claude's. Resolving against one pack would answer with
-	// the profile's bare name wherever requires_provider differs from it, and `yolo
+	// `provider` for a profile usually installs no CLI — packs/zai is the shipped case,
+	// and the surface it speaks to is claude's. Resolving against one pack would answer
+	// with the profile's bare name wherever the provider differs from it, and `yolo
 	// check` would then validate a render the boot never produces. The embedded set is
 	// all this entry has — a CONFIGURED pack's declaration stays outside its reach, the
 	// same reach the overlays below are bounded by, and for the opposite reason: there
@@ -57,10 +57,10 @@ func ConfigurePackByName(e *Env, name string) error {
 	// would be measuring a posture the boot path never renders.
 	autonomy := e.renderTarget().Profile().AgentAutonomy
 	// The profile table resolved the same way the boot loop resolves it — this entry must
-	// fold the same variants or the parity proofs above measure a render the boot never
-	// produces.
+	// gate on the same selection, or the parity proofs above measure a render the boot
+	// never produces.
 	profiles := packload.ProfileTable(e.LoadUseProfiles())
-	surfaces, problems, notes := p.SurfacesForReport(autonomy, profiles)
+	surfaces, problems, notes := p.SurfacesForReport(autonomy)
 	if len(problems) > 0 {
 		return fmt.Errorf("pack %s: %s", name, problems[0])
 	}
@@ -77,7 +77,7 @@ func ConfigurePackByName(e *Env, name string) error {
 	// and is reported ownerless (R2) — correct here rather than a limitation, since this
 	// entry means "render this pack" and the boot loop is what sees the whole set. The
 	// profile table is the one resolved above, so this entry gates a `profile`-scoped
-	// overlay on the same selection the variant folds honor.
+	// overlay on the same selection the boot loop's gate reads.
 	overlays := packoverlay.Collect([]*packload.Pack{p}, autonomy, profiles)
 	for _, s := range surfaces {
 		if err := renderDeclaredSurface(e, s, tables, deriveScript,

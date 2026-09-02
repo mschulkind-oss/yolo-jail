@@ -29,7 +29,7 @@ func deriveSurface(t *testing.T, pack, id string) (string, manifest.Surface) {
 	if script == "" {
 		t.Fatalf("pack %s ships no derive.lua", pack)
 	}
-	surfaces, _ := p.SurfacesFor(false, nil)
+	surfaces, _ := p.SurfacesFor(false)
 	for _, s := range surfaces {
 		if s.Agent+"/"+s.Name == id {
 			return script, s

@@ -99,7 +99,7 @@ yolo.derive("opencode", "config", function(ctx)
   -- opencode, so a selection whose provider the catalog dropped would be a config that
   -- fails at first request, not a preference opencode quietly ignores.
   --
-  -- OQ-CS2 is the GUARD, not a default: no active variant at opencode's CLI name, or a
+  -- OQ-CS2 is the GUARD, not a default: no active profile at opencode's CLI name, or a
   -- selected provider the gate drops, writes nothing — not a default, not a clear. The
   -- no-profile case is opencode's own, and what opencode owns is a persisted interactive
   -- choice (~/.local/state/opencode/model.json) that `model` unset falls back to.

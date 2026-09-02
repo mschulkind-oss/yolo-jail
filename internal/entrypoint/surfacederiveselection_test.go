@@ -13,7 +13,7 @@ package entrypoint
 // the loop the entrypoint actually runs, over a derive that reports what its ctx held.
 //
 // The fixture derive reports BOTH fields, and the active-profile case asserts the
-// requires_provider value rather than the profile's name: the Lua a derive could write
+// selected provider value rather than the profile's name: the Lua a derive could write
 // for itself (index ctx.use_profiles by its own agent name) answers "aws" here, where
 // the resolution rule answers "aws-bedrock" — so a revert to re-deriving in Lua fails
 // this test instead of passing it.
@@ -58,13 +58,13 @@ func selectionAcmePack(t *testing.T) *packload.Pack {
 	return p
 }
 
-// selectionProviderPack declares the variant the test selects, installing no CLI — so
+// selectionProviderPack declares the profile the test selects, installing no CLI — so
 // the profile is reachable only through the cross-pack half of packload.ProviderFor.
 func selectionProviderPack(t *testing.T) *packload.Pack {
 	t.Helper()
 	dir := t.TempDir()
 	writeHostFile(t, filepath.Join(dir, "pack.json"), `{"name":"acme-prov","description":"d","contributes":[
-	  {"kind":"profile","name":"aws","requires_provider":"aws-bedrock"}]}`)
+	  {"kind":"profile","name":"aws","provider":"aws-bedrock"}]}`)
 	p, problems := packload.LoadDir(dir, "acme-prov", false)
 	if p == nil {
 		t.Fatalf("the provider fixture did not load: %v", problems)
@@ -98,7 +98,7 @@ func renderAcmeSelection(t *testing.T, profiles string) map[string]any {
 }
 
 // A profile active at the surface agent's CLI name: the derive sees the provider the
-// variant DELIVERS, not the variant's name — the distinction the resolution rule exists
+// profile DELIVERS, not the profile's name — the distinction the resolution rule exists
 // for, and the one a derive re-deriving from ctx.use_profiles in Lua would get wrong.
 func TestSurfaceDeriveSeesTheResolvedProvider(t *testing.T) {
 	got := renderAcmeSelection(t, `{"acme":"aws"}`)

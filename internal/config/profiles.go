@@ -112,6 +112,10 @@ func checkProfileEntry(name string, raw any) (packload.UserProfile, string) {
 	if !ok {
 		return packload.UserProfile{}, path + ".provider: expected a string"
 	}
+	if provider == "" {
+		return packload.UserProfile{}, path + `.provider: must not be "" — a profile is a ` +
+			`selection over a provider, and an empty one names nothing`
+	}
 	options := map[string]string{}
 	for _, key := range m.Keys() {
 		if key == "provider" {

@@ -75,7 +75,7 @@ end
 -- selection key with it.
 --
 -- Total over non-tables, like providerEndpoint: a selected name that is absent from the
--- composed table (a variant whose requires_provider the table does not hold — which
+-- composed table (a profile whose provider the table does not hold — which
 -- creates no requirement of its own) reads as nil here, and nil selects nothing.
 local function codexReachable(prov)
   if type(prov) ~= "table" then return nil end
@@ -130,8 +130,8 @@ yolo.derive("codex", "config", function(ctx)
 
   -- 3. The selection — model_provider and model, codex's OWN selection keys, verified from
   -- the codex CLI binary 2026-08-20 (docs/research/local-model-endpoints.md §"Codex CLI";
-  -- provider-catalog-and-selection.md §3 codex row). An active variant names the provider
-  -- its requires_provider delivers; a provider codex can reach becomes the selection, and
+  -- provider-catalog-and-selection.md §3 codex row). An active profile names the provider
+  -- it selects; a provider codex can reach becomes the selection, and
   -- its `default` alias becomes the model (provider-catalog-and-selection.md §9 OQ-CS3:
   -- core resolves no model — the fallback is the derive's business, and `default` stays an
   -- ordinary open-vocabulary alias. A profile naming one of the provider's own aliases is
@@ -149,7 +149,7 @@ yolo.derive("codex", "config", function(ctx)
   -- `model_provider` and `model` at top level where codex reads them. The namespace is an
   -- implementation detail of the layer, never of the file.
   --
-  -- OQ-CS2 is the GUARD, not a default: when no variant is active at codex's CLI name,
+  -- OQ-CS2 is the GUARD, not a default: when no profile is active at codex's CLI name,
   -- nothing selection-shaped is written — not a default, not a clear. The no-profile case
   -- is the agent's own (provider-catalog-and-selection.md §5.1). And when the selected
   -- provider is not codex-reachable, the SAME gate that keeps it out of the catalog keeps

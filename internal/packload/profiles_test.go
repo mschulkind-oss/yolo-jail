@@ -80,7 +80,7 @@ func TestResolveProfilesUserEntryCustomizesAPackProfile(t *testing.T) {
 	pack := optionProviderPack(t)
 	pack.Decl = declFrom(t, `{"contributes":[
 	  {"kind":"provider","name":"zai","options":{"model":"default","thinking":null}},
-	  {"kind":"profile","name":"zai","requires_provider":"zai"}]}`)
+	  {"kind":"profile","name":"zai","provider":"zai"}]}`)
 	got := resolve(t, []*Pack{pack}, map[string]UserProfile{
 		"zai": {Options: map[string]string{"model": "fast"}},
 	})
@@ -100,7 +100,7 @@ func TestResolveProfilesPackProfileAloneStillResolves(t *testing.T) {
 	pack := optionProviderPack(t)
 	pack.Decl = declFrom(t, `{"contributes":[
 	  {"kind":"provider","name":"zai","options":{"model":"default"}},
-	  {"kind":"profile","name":"zai","requires_provider":"zai"}]}`)
+	  {"kind":"profile","name":"zai","provider":"zai"}]}`)
 	got := resolve(t, []*Pack{pack}, nil)
 	p, ok := got["zai"]
 	if !ok || p.Provider != "zai" || p.Options["model"] != "default" {
@@ -146,22 +146,24 @@ func TestResolveProfilesNoDeclaredOptionsImposesNoCensus(t *testing.T) {
 	}
 }
 
-// TestResolveProfilesLeavesOutAProfileThatSelectsNothing pins the boundary the other
-// way: a kind:profile that names no provider is still a LEGAL manifest shape today (a
-// pure body — env, launch flags — which the shrink will move to `profile:`-gated
-// contributions), so it must not refuse the launch. It composes no entry, which is the
-// honest table: the name selects nothing, so there is nothing to resolve. Its env body
-// keeps folding through EnvVarsFor exactly as before this package existed.
-func TestResolveProfilesLeavesOutAProfileThatSelectsNothing(t *testing.T) {
+// TestResolveProfilesRefusesAProfileThatSelectsNothing pins the boundary the shrink
+// moved: a kind:profile that names no provider is no longer a legal manifest shape (the
+// schema refuses it, and so does the config layer for a user entry), so the one way this
+// branch is reachable is a CALLER that built its own table. That is refused rather than
+// skipped — a selection of nothing is exactly what an entry in the resolved table must
+// never quietly be, and the pre-shrink version of this function skipped it because the
+// schema still allowed the shape.
+func TestResolveProfilesRefusesAProfileThatSelectsNothing(t *testing.T) {
 	pack := &Pack{Name: "ghost", Decl: declFrom(t, `{"contributes":[
-	  {"kind":"profile","name":"ghost"},
-	  {"kind":"profile","name":"real","requires_provider":"zai"}]}`)}
-	got := resolve(t, []*Pack{pack}, nil)
-	if _, present := got["ghost"]; present {
-		t.Errorf("a profile that selects nothing has no resolution to carry, got %v", got)
+	  {"kind":"profile","name":"real","provider":"zai"}]}`)}
+	_, err := ResolveProfiles([]*Pack{pack}, map[string]UserProfile{
+		"ghost": {Options: map[string]string{"model": "fast"}},
+	})
+	if err == nil {
+		t.Fatal("a profile resolving to no provider must refuse, not resolve to an empty selection")
 	}
-	if _, present := got["real"]; !present {
-		t.Errorf("its provider-naming neighbour still resolves, got %v", got)
+	if !strings.Contains(err.Error(), `profile "ghost" names no provider`) {
+		t.Errorf("the refusal should name the profile and why, got: %v", err)
 	}
 }
 
@@ -184,12 +186,10 @@ func TestResolveProfilesUnknownProviderResolvesWithoutACensus(t *testing.T) {
 // error the message spells out with the list of what IS declared.
 func TestDeclaredProfileNamesIsTheUnionOfBothSides(t *testing.T) {
 	pack := &Pack{Name: "zai", Decl: declFrom(t, `{"contributes":[
-	  {"kind":"profile","name":"zai","requires_provider":"zai"},
-	  {"kind":"profile","name":"bedrock"}]}`)}
+	  {"kind":"profile","name":"zai","provider":"zai"},
+	  {"kind":"profile","name":"bedrock","provider":"bedrock"}]}`)}
 	user := map[string]UserProfile{"zai-fast": {Provider: "zai"}}
 	declared := DeclaredProfileNames([]*Pack{pack}, user)
-	// `bedrock` is in the list even though it names no provider: it IS declared, so
-	// selecting it is not the undeclared-name error (see the lowering's skip).
 	if strings.Join(declared, ",") != "bedrock,zai,zai-fast" {
 		t.Errorf("declared names should be the sorted union of both sides, got %v", declared)
 	}

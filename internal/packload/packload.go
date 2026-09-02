@@ -68,8 +68,7 @@ func (p *Pack) Surfaces() ([]manifest.Surface, []string) {
 	// The jail/guest default is autonomy ON — so the boot path (which calls Surfaces)
 	// renders the autonomous posture, keeping boot output byte-identical after packs
 	// move their bypass keys into the autonomy kind. The host path calls SurfacesFor(false).
-	// No profile table: the callers that have one call SurfacesFor directly.
-	return p.SurfacesFor(true, nil)
+	return p.SurfacesFor(true)
 }
 
 // SurfacesFor is Surfaces with the §4.2 autonomy policy applied: it decodes the pack's
@@ -78,17 +77,19 @@ func (p *Pack) Surfaces() ([]manifest.Surface, []string) {
 // the autonomous posture, false the guarded one. A pack with no autonomy contribution, or
 // whose selected posture is empty, gets its surfaces unchanged.
 //
-// profiles is the launch's CLI-keyed profile table (use_profiles + the flags): after the
-// posture, any variant this pack declares for one of ITS OWN installed CLI names folds on
-// top, later-wins (§3.4). A nil table — the host render's, which selects no variant — is
-// the pre-profile behavior exactly.
+// A profile contributes NO surface here, and that is the OQ-PT8 shrink rather than an
+// omission: the variant patch this fold used to take for a selected profile moved to
+// `config-overlay` contributions with `profile` set, which compose where every other
+// overlay does (packoverlay.Collect). The fold's profile half was the one place a
+// profile touched a surface, and it was unreachable for any pack that installs no CLI —
+// the defect the modifier form does not have.
 //
 // The notes a fold produces are dropped here. Callers that report them call
 // SurfacesForReport; this signature stays the one every reader of surfaces wants, because
 // most of them (the footprint, the overlay collector, the pruning pass) read identities and
 // would only be re-plumbing a third slice to `_`.
-func (p *Pack) SurfacesFor(autonomy bool, profiles map[string]string) ([]manifest.Surface, []string) {
-	surfaces, problems, _ := p.SurfacesForReport(autonomy, profiles)
+func (p *Pack) SurfacesFor(autonomy bool) ([]manifest.Surface, []string) {
+	surfaces, problems, _ := p.SurfacesForReport(autonomy)
 	return surfaces, problems
 }
 
@@ -102,10 +103,9 @@ func (p *Pack) SurfacesFor(autonomy bool, profiles map[string]string) ([]manifes
 // problem is fatal at every render path, and an inert patch breaks nothing — it writes
 // nothing. The disposition stays "ignored"; what changed is that "ignored" is now said.
 //
-// Nothing is reported for a patch that was never folded: an unselected variant merges
-// nothing, so it misses nothing, and a host render (no profile table) can only ever produce
-// a posture's note.
-func (p *Pack) SurfacesForReport(autonomy bool, profiles map[string]string) ([]manifest.Surface, []string, []FoldNote) {
+// Only a posture folds here, so only a posture's note can be produced — a host render
+// included, which selects no profile anyway.
+func (p *Pack) SurfacesForReport(autonomy bool) ([]manifest.Surface, []string, []FoldNote) {
 	rawSurfaces := p.Decl.SurfaceContributions()
 	if len(rawSurfaces) == 0 {
 		return nil, nil, nil
@@ -129,21 +129,6 @@ func (p *Pack) SurfacesForReport(autonomy bool, profiles map[string]string) ([]m
 		surfaces, missed = foldPostureManaged(surfaces, patches)
 		notes = append(notes, foldNotes(p.Name, postureName(autonomy), missed, surfaces)...)
 	}
-	// THEN the selected profile's patch, so a key both touch reads the variant's value.
-	// Same fold, same carrying-out of a patch naming no base surface — a profile is a
-	// variant of the pack's own surfaces, not a second writer of them.
-	for _, prof := range p.ActiveProfiles(profiles) {
-		if len(prof.Config) == 0 {
-			continue
-		}
-		patches, probs := manifest.DecodeSurfaces(prof.Config)
-		for _, prob := range probs {
-			problems = append(problems, "pack "+p.Name+" (profile "+prof.Name+"): "+prob)
-		}
-		var missed []manifest.SurfaceKey
-		surfaces, missed = foldPostureManaged(surfaces, patches)
-		notes = append(notes, foldNotes(p.Name, "profile "+prof.Name, missed, surfaces)...)
-	}
 	return surfaces, problems, notes
 }
 
@@ -162,8 +147,10 @@ func postureName(autonomy bool) string {
 type FoldNote struct {
 	// Pack is the pack that declared the patch.
 	Pack string
-	// Source names the declaration the patch rode: "autonomous posture", "guarded
-	// posture", or "profile <name>".
+	// Source names the declaration the patch rode: "autonomous posture" or "guarded
+	// posture". A profile is not among them since OQ-PT8 shrank the kind — its config
+	// half is a gated config-overlay, whose dead target packoverlay reports, not this
+	// fold.
 	Source string
 	// Target is the (agent, name) the patch named — the identity nothing matched.
 	Target manifest.SurfaceKey
@@ -210,35 +197,8 @@ func foldNotes(pack, source string, missed []manifest.SurfaceKey, base []manifes
 	return out
 }
 
-// ActiveProfiles returns the variants THIS pack has selected, in the order they must
-// fold: sorted by the CLI name that selected them, so a pack owning two bins with two
-// active names is deterministic rather than map-order. A name is active for this pack only
-// when it sits at a CLI name the pack installs (§3.3) — a key for some other pack's CLI
-// gates that pack, not this one.
-//
-// Exported because the fold has one more consumer than the pack's own render paths: the
-// host notch composes the selected variant's `env` into the process it execs
-// (hostEnvVars), and the jail does the same through EnvVarsFor — both go through here, so
-// the two notches cannot disagree about WHICH variants are active.
-func (p *Pack) ActiveProfiles(profiles map[string]string) []packdecl.ProfileContribution {
-	if len(profiles) == 0 {
-		return nil
-	}
-	var out []packdecl.ProfileContribution
-	for _, bin := range p.InstallBins() {
-		name, selected := profiles[bin]
-		if !selected || name == "" {
-			continue
-		}
-		if prof := p.Decl.ProfileFor(name); prof != nil {
-			out = append(out, *prof)
-		}
-	}
-	return out
-}
-
 // ProfileTable lowers a decoded profile table — YOLO_USE_PROFILES in the jail, the
-// config's `use_profiles` on the host — into the map the three folds above take.
+// config's `use_profiles` on the host — into the map the folds below take.
 //
 // THE one lowering, and not a convenience: a JSON null at a key REMOVES that profile
 // (the merge-patch convention the table uses), and a null decoded into map[string]string
@@ -405,28 +365,40 @@ func (p *Pack) HonoredMounts() (granted []packdecl.HostFile, refused []string) {
 	return nil, refused
 }
 
-// EnvFoldEntry is one operation of the pack env fold, in the order it applies: an
-// assignment, or (Unset) a removal.
+// EnvFoldEntry is one operation of the pack env fold, in the order it applies. Always an
+// assignment today: both maps the fold reads are `vars` maps of plain strings, the only
+// removal spelling (the profile body's null) having died with that body — so the host
+// notch's removals come from env_sources alone.
 type EnvFoldEntry struct {
 	Key   string
 	Value string
-	Unset bool
 }
 
 // EnvFold is the pack env fold as the ORDERED OPERATION SEQUENCE both notches consume:
-// for each pack in delivery order, its static `kind: "env"` keys sorted, then each
-// variant it has active (ActiveProfiles' order — sorted by the CLI name that selected it)
-// with that variant's `env` keys sorted.
+// for each pack in delivery order, its unconditional `kind: "env"` keys sorted, then the
+// keys of each `profile`-gated env contribution that gate is satisfied for, that pack's
+// in declaration order, each map sorted.
 //
-// It is the one definition of the OQ-8 order, and the order is the whole point: static
-// then variants PER PACK, so a later pack's static value beats an earlier pack's variant —
-// the cross-pack rule is unchanged by the variant kind. EnvVarsFor is this sequence
-// reduced over a map (the jail notch's form: the env starts empty, so a removal is a
-// delete), and the host notch composes the process env it will exec from the same
-// sequence (internal/cli host.go). Reducing it twice, once per notch, is what keeps a key
-// that pack A's variant and pack B's static both write resolving to ONE winner.
+// The GATE is the OQ-PT8 shrink's consumer — a profile's env used to ride the
+// `kind: "profile"` body, and it lives on the gated contribution now. A gate is
+// satisfied when the profile is active for a bin the pack installs, or — the second
+// pass, ProviderFor's two-pass shape — when it is active for ANY bin at all, which is
+// what makes a CLI-less pack's gated env reachable: packs/zai installs nothing, so
+// keying on its own bins could never fire (the reachability defect
+// provider-table-fidelity.md §5.4 measures for the kind). The gate asks the launch's
+// table, not the target surface's agent — an env has no surface to name one, which is
+// the one way it differs from config-overlay's gate (packoverlay.go).
 //
-// Static values only, so this is not origin-gated. Which pack wins a key TWO packs write
+// It is the one definition of the OQ-8 order, and the order is the whole point:
+// unconditional then gated PER PACK, so a later pack's unconditional value beats an
+// earlier pack's gated one — the cross-pack rule is unchanged by the gate. EnvVarsFor is
+// this sequence reduced over a map (the jail notch's form: the env starts empty, so a
+// removal is a delete), and the host notch composes the process env it will exec from
+// the same sequence (internal/cli host.go). Reducing it twice, once per notch, is what
+// keeps a key that pack A's gated env and pack B's static both write resolving to ONE
+// winner.
+//
+// Literal strings only, so this is not origin-gated. Which pack wins a key TWO packs write
 // is delivery order, not something this fold resolves; a collision is reported by the
 // footprint's env-key claims.
 func EnvFold(packs []*Pack, profiles map[string]string) []EnvFoldEntry {
@@ -436,41 +408,60 @@ func EnvFold(packs []*Pack, profiles map[string]string) []EnvFoldEntry {
 		for _, k := range sortedMapKeys(static) {
 			out = append(out, EnvFoldEntry{Key: k, Value: static[k]})
 		}
-		for _, prof := range p.ActiveProfiles(profiles) {
-			for _, k := range sortedEnvValueKeys(prof.Env) {
-				if v := prof.Env[k]; v.Unset() {
-					out = append(out, EnvFoldEntry{Key: k, Unset: true})
-					continue
-				}
-				out = append(out, EnvFoldEntry{Key: k, Value: prof.Env[k].Value})
+		for _, gated := range p.Decl.ProfiledEnvContributions() {
+			if !profileActive(packs, p, gated.Profile, profiles) {
+				continue
+			}
+			for _, k := range sortedMapKeys(gated.Vars) {
+				out = append(out, EnvFoldEntry{Key: k, Value: gated.Vars[k]})
 			}
 		}
 	}
 	return out
 }
 
-// sortedEnvValueKeys is sortedMapKeys for a profile's `env` map, whose values carry the
-// null bit a plain string map cannot.
-func sortedEnvValueKeys(m map[string]packdecl.EnvValue) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
+// profileActive answers the env fold's gate: is `name` active for a bin `p` installs,
+// or — the pass that reaches a pack installing nothing — for any bin the launch
+// installs at all? The two passes are in that order for the same reason ProviderFor's
+// are: the pack's own claim is the more specific question, and the wide one is what
+// keeps the answer from depending on who happens to install the CLI the profile steers.
+// The launch's bins, not the table's keys, are what the wide pass walks: a caller hands
+// this fold a table it built (the host notch's single-agent one), and a key that names
+// no installed CLI is no activation.
+func profileActive(packs []*Pack, p *Pack, name string, profiles map[string]string) bool {
+	if name == "" || len(profiles) == 0 {
+		return false
 	}
-	sort.Strings(keys)
-	return keys
+	if p.installsActiveBin(name, profiles) {
+		return true
+	}
+	for _, other := range packs {
+		if other.installsActiveBin(name, profiles) {
+			return true
+		}
+	}
+	return false
+}
+
+// installsActiveBin reports whether any bin THIS pack installs has `name` active.
+func (p *Pack) installsActiveBin(name string, profiles map[string]string) bool {
+	for _, bin := range p.InstallBins() {
+		if profiles[bin] == name {
+			return true
+		}
+	}
+	return false
 }
 
 // EnvVarsFor is the pack env fold as a map — the launch's CLI-keyed profile table
-// applied (§3.4, OQ-8), so each pack's own variants fold AFTER its static `env` and a
-// variant later-wins over its own pack's default: a variant is the more specific intent,
-// declared after the baseline, and overriding it is not a collision.
+// applied (OQ-8), so each pack's gated env folds AFTER its unconditional `env` and a
+// gated value later-wins over its own pack's default: the gate is the more specific
+// intent, declared after the baseline, and overriding it is not a collision.
 //
-// A null in a profile's env UNSETS the key (OQ-7), and the merge-patch semantics mean it
-// removes the key outright rather than setting it empty: a caller composing an environment
-// cannot tell "absent" from "removed" here, and for the jail notch that distinction does
-// not exist (the jail starts from an empty env). A caller that must REMOVE a real value —
-// the host notch, where the process env is inherited — walks EnvFold itself, whose entries
-// carry the bit this map's value type cannot.
+// The fold carries no UNSET any more, and that is the OQ-PT8 shrink, not a shortcut:
+// the only env map that could spell one was the profile body's, whose null-means-unset
+// decoder died with the body. What remains is unconditional literals and gated
+// literals — both `vars` maps of plain strings — so the sequence is assignments only.
 //
 // THE REDUCTION, not a second fold: applied in order over a map, EnvFold's operations
 // yield exactly this result, which is why the jail and the host cannot disagree about who
@@ -478,10 +469,6 @@ func sortedEnvValueKeys(m map[string]packdecl.EnvValue) []string {
 func EnvVarsFor(packs []*Pack, profiles map[string]string) map[string]string {
 	var out map[string]string
 	for _, e := range EnvFold(packs, profiles) {
-		if e.Unset {
-			delete(out, e.Key) // a no-op on a nil map, which is the empty-fold case
-			continue
-		}
 		if out == nil {
 			out = map[string]string{}
 		}
@@ -732,11 +719,13 @@ func union(packs []*Pack, pick func(*Pack) []string) []string {
 // `--dangerously-*` flags live in the autonomous posture and vanish at the host notch
 // (autonomy=false), where the guarded posture (usually no flags) applies.
 //
-// profiles is the launch's CLI-keyed profile table: after the posture, each pack's own
-// selected variants fold in, later-wins per bin (§3.4, OQ-8) — the same order the env fold
-// applies, so the two halves of one variant cannot disagree about who beat the static
-// baseline. A nil table is the pre-profile behavior exactly.
-func LaunchFlagsFor(packs []*Pack, autonomy bool, profiles map[string]string) map[string][]string {
+// No profile folds here, and that is the OQ-PT8 shrink rather than an omission: the
+// variant flags this used to take from a selected profile moved to `kind: "launch"`
+// contributions with `profile` set, and that modifier has NO CONSUMER yet — the schema
+// still refuses it — so a profile contributes no launch flag until one ships. Taking the
+// table as a parameter it could not read would be the accepted-and-ignored plumbing this
+// package refuses everywhere else.
+func LaunchFlagsFor(packs []*Pack, autonomy bool) map[string][]string {
 	out := map[string][]string{}
 	for _, p := range packs {
 		for bin, flags := range p.Decl.LaunchFlagContributions() {
@@ -744,13 +733,6 @@ func LaunchFlagsFor(packs []*Pack, autonomy bool, profiles map[string]string) ma
 		}
 		if posture := p.Decl.PostureFor(autonomy); posture != nil {
 			for _, l := range posture.Launch {
-				if l.Bin != "" {
-					out[l.Bin] = l.Flags
-				}
-			}
-		}
-		for _, prof := range p.ActiveProfiles(profiles) {
-			for _, l := range prof.Launch {
 				if l.Bin != "" {
 					out[l.Bin] = l.Flags
 				}
@@ -794,23 +776,23 @@ func RetireMiseTools(_ []*Pack) []string {
 // InjectLaunchFlags returns fullCommand with the flags declared for its leading binary
 // injected right after it.
 //
-// profiles is the same CLI-keyed table LaunchFlagsFor folds: a selected variant's launch
-// contribution is injected exactly as a static one is. Callers that hold the launch's
-// effective table must pass it — the direct `yolo -- <bin>` invocation is one of TWO
-// spellings of the same launch, and the other (the interactive alias the entrypoint writes)
-// already folds the table. A nil table here is how the two spellings diverge: a pack's
-// variant flags appear on the alias and vanish from the direct command, silently, which is
-// why the run pipeline passes what effectiveUseProfiles merged.
+// The direct `yolo -- <bin>` invocation and the interactive alias the entrypoint writes
+// are two spellings of one launch, and they agree BY CONSTRUCTION rather than by both
+// folding the same table: LaunchFlagsFor reads static and posture flags only, since the
+// OQ-PT8 shrink, so there is no per-launch input left for either spelling to disagree
+// about. (A profile-gated launch contribution has no consumer yet — see
+// LaunchFlagsFor — and whoever ships one re-introduces this function's old `profiles`
+// parameter and BOTH callers' threading of it in the same commit.)
 //
 // Moved out of internal/agents unchanged in behavior: flags are inserted in reverse
 // (each at index 1) so their declared order is preserved, and a flag already present —
 // or a declared alias of one — is skipped, so a user who passed `-y` does not also get
 // `--yolo`. A binary no pack declares is returned untouched.
-func InjectLaunchFlags(packs []*Pack, profiles map[string]string, fullCommand []string) []string {
+func InjectLaunchFlags(packs []*Pack, fullCommand []string) []string {
 	if len(fullCommand) == 0 {
 		return fullCommand
 	}
-	flags := LaunchFlagsFor(packs, true, profiles)[filepath.Base(fullCommand[0])]
+	flags := LaunchFlagsFor(packs, true)[filepath.Base(fullCommand[0])]
 	if len(flags) == 0 {
 		return fullCommand
 	}

@@ -132,7 +132,7 @@ func TestAutonomyPatchingOwnSurfaceIsNotACollision(t *testing.T) {
 	}
 	// True at either notch: the posture only ever patches surfaces the pack already declares,
 	// so the identity SET is notch-independent even though the keys are not.
-	if s, _ := p.SurfacesFor(false, nil); len(s) != 1 {
+	if s, _ := p.SurfacesFor(false); len(s) != 1 {
 		t.Errorf("the guarded posture must not add a surface identity, got %d", len(s))
 	}
 }

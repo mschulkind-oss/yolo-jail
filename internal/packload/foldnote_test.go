@@ -20,86 +20,67 @@ import (
 )
 
 // deadPatchFixture is a pack that installs `claude` and declares ONE surface, plus a
-// profile variant whose config patch targets `claude/setings` — the typo, letter for letter.
+// posture whose config patch targets `claude/setings` — the typo, letter for letter.
 func deadPatchFixture(t *testing.T) *Pack {
 	t.Helper()
 	return &Pack{Name: "acme", Decl: declFrom(t, `{"contributes":[
 	  {"kind":"program","bin":"claude","via":"npm","package":"@acme/claude"},
 	  {"kind":"config","config":[{"agent":"claude","name":"settings","codec":"json",
 	     "path":"~/.claude/settings.json","managed":{"base":"surface"}}]},
-	  {"kind":"profile","name":"bedrock",
-	   "config":[{"agent":"claude","name":"setings","codec":"json",
-	     "path":"~/.claude/settings.json","managed":{"profile":"yes"}}]}]}`)}
+	  {"kind":"autonomy",
+	   "autonomous":{"config":[{"agent":"claude","name":"setings","codec":"json",
+	     "path":"~/.claude/settings.json","managed":{"profile":"yes"}}]},
+	   "guarded":{"config":[{"agent":"claude","name":"setings","codec":"json",
+	     "path":"~/.claude/settings.json","managed":{"profile":"no"}}]}}]}`)}
 }
 
-func TestDeadProfilePatchIsNamedNotSilent(t *testing.T) {
-	p := deadPatchFixture(t)
+// gatedOverlayFixture is the same pack with the profile's old patch in its new home: a
+// `config-overlay` contribution gated on the profile, targeting the same typo'd identity.
+// It exists to pin that THIS fold never sees it — the miss is packoverlay's orphan to
+// report, not a note of this fold's.
+func gatedOverlayFixture(t *testing.T) *Pack {
+	t.Helper()
+	return &Pack{Name: "acme", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"program","bin":"claude","via":"npm","package":"@acme/claude"},
+	  {"kind":"config","config":[{"agent":"claude","name":"settings","codec":"json",
+	     "path":"~/.claude/settings.json","managed":{"base":"surface"}}]},
+	  {"kind":"profile","name":"bedrock","provider":"bedrock"},
+	  {"kind":"config-overlay","profile":"bedrock","surface":"claude/setings",
+	   "config":{"managed":{"profile":"yes"}}}]}`)}
+}
 
-	surfaces, problems, notes := p.SurfacesForReport(true, map[string]string{"claude": "bedrock"})
+// The profile's old variant patch is gone from this fold (OQ-PT8): it moved to a
+// `config-overlay` contribution, which composes where every other overlay does —
+// packoverlay.Collect — and whose miss is an ORPHAN report there, not a note here. The
+// pin is that the move is complete: this fold neither merges nor reports it.
+func TestProfilePatchIsNoLongerThisFold(t *testing.T) {
+	p := gatedOverlayFixture(t)
+
+	surfaces, problems, notes := p.SurfacesForReport(true)
 	if len(problems) != 0 {
-		t.Fatalf("a patch naming no base surface is INERT, not a problem: %v", problems)
+		t.Fatalf("a gated overlay naming no base surface is INERT here, not a problem: %v", problems)
 	}
 	if len(surfaces) != 1 {
 		t.Fatalf("the fold must not gain a surface, got %d: %+v", len(surfaces), surfaces)
 	}
 	if m := surfaces[0].ManagedMap(); m["profile"] != nil {
-		t.Errorf("the fold's disposition stays `ignored` — nothing merges, got %+v", m)
-	}
-	if len(notes) != 1 {
-		t.Fatalf("want exactly one note for the one dead patch, got %+v", notes)
-	}
-	if got := notes[0].Target.String(); got != "claude/setings" {
-		t.Errorf("the note must carry the patch's own (agent,name), got %q", got)
-	}
-	msg := notes[0].String()
-	for _, want := range []string{"acme", "bedrock", "claude/setings", "claude/settings"} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("the note is missing %q — the reader needs the pack, the declaration the "+
-				"patch rode, what was named, and what the pack actually declares: %q", want, msg)
-		}
-	}
-}
-
-// The other half of the pin: a patch that DOES match raises nothing, so the note stays a
-// signal rather than a line every profile prints.
-func TestLiveProfilePatchRaisesNoNote(t *testing.T) {
-	p := profileFixture(t)
-
-	_, problems, notes := p.SurfacesForReport(true, map[string]string{"claude": "bedrock"})
-	if len(problems) != 0 {
-		t.Fatalf("unexpected problems: %v", problems)
+		t.Errorf("the overlay's keys must not merge into the owner's managed layer: %+v", m)
 	}
 	if len(notes) != 0 {
-		t.Fatalf("a patch that folded must not be reported inert: %+v", notes)
+		t.Fatalf("a gated overlay is nobody's note to write here: %+v", notes)
 	}
-}
-
-// An UNSELECTED variant folds nothing at all, so it cannot miss anything either — the note
-// is about a fold that happened and found no base, not about a declaration somebody might
-// select later. (`yolo check`'s manifest lint is where a never-selected variant's dead patch
-// belongs, not the render path.)
-func TestUnselectedProfileRaisesNoNote(t *testing.T) {
-	p := deadPatchFixture(t)
-
-	_, _, notes := p.SurfacesForReport(true, nil)
-	if len(notes) != 0 {
-		t.Fatalf("no variant was selected, so nothing folded and nothing is inert: %+v", notes)
-	}
+	// The same miss, at the fold that owns it: the orphan report, fired only when the
+	// profile IS active — pinned in profileequivalence_test.go, the external test package
+	// that can reach both folds at once (packoverlay imports this one).
 }
 
 // The autonomy posture rides the same fold, so it gets the same note — and it is the ONLY
-// fold the host render can produce a miss from, because a host apply passes no profile table
-// (a variant is a launch decision). A posture naming a surface its own pack does not declare
-// is the same dead letter a profile's is.
+// fold the host render can produce a miss from, because a host apply passes no profile
+// table (a profile is a launch decision). A posture naming a surface its own pack does not
+// declare is the same dead letter a profile's gated overlay is, and deadPatchFixture is
+// its shape.
 func TestDeadPosturePatchIsNamedToo(t *testing.T) {
-	p := &Pack{Name: "acme", Decl: declFrom(t, `{"contributes":[
-	  {"kind":"config","config":[{"agent":"claude","name":"settings","codec":"json",
-	     "path":"~/.claude/settings.json","managed":{"base":"surface"}}]},
-	  {"kind":"autonomy",
-	   "autonomous":{"config":[{"agent":"pi","name":"settings","codec":"json",
-	     "path":"~/.pi/agent/settings.json","managed":{"auto":"yes"}}]},
-	   "guarded":{"config":[{"agent":"pi","name":"settings","codec":"json",
-	     "path":"~/.pi/agent/settings.json","managed":{"auto":"no"}}]}}]}`)}
+	p := deadPatchFixture(t)
 
 	for _, c := range []struct {
 		autonomy bool
@@ -108,7 +89,7 @@ func TestDeadPosturePatchIsNamedToo(t *testing.T) {
 		{true, "autonomous"},
 		{false, "guarded"},
 	} {
-		surfaces, problems, notes := p.SurfacesForReport(c.autonomy, nil)
+		surfaces, problems, notes := p.SurfacesForReport(c.autonomy)
 		if len(problems) != 0 {
 			t.Fatalf("%s posture: a dead patch is not a problem: %v", c.posture, problems)
 		}

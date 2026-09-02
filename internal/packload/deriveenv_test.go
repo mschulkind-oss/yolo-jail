@@ -16,9 +16,9 @@ import (
 // packChannel and the host notch's composition — are pinned in their own packages
 // (internal/cli/run, internal/cli); what belongs here is the runner's own contract.
 
-// envZaiPack ships the zai provider facts and a variant NAMED SOMETHING ELSE that
-// requires them — the mismatch is load-bearing, exactly as in providerfor_test.go: with
-// the variant named "zai" the profile-name fallback would return the same string and a
+// envZaiPack ships the zai provider facts and a profile NAMED SOMETHING ELSE that
+// selects them — the mismatch is load-bearing, exactly as in providerfor_test.go: with
+// the profile named "zai" the profile-name fallback would return the same string and a
 // selected_provider assertion could not tell resolution from luck.
 func envZaiPack(t *testing.T) *Pack {
 	t.Helper()
@@ -26,7 +26,7 @@ func envZaiPack(t *testing.T) *Pack {
 	  {"kind":"provider","name":"zai",
 	   "api_key_env_name":"ZAI_API_KEY",
 	   "endpoints":{"anthropic":{"base_url":"https://api.z.ai/api/anthropic"}}},
-	  {"kind":"profile","name":"glm","requires_provider":"zai"}]}`)}
+	  {"kind":"profile","name":"glm","provider":"zai"}]}`)}
 }
 
 // envClaudePack installs the claude bin and carries the given derive.lua at its root —

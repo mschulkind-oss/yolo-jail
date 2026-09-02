@@ -4,14 +4,15 @@ package cli
 //
 // The host composes the process env it execs from the same ordered sequence the jail's
 // env block reduces (packload.EnvFold, reduced by packload.EnvVarsFor). It did not
-// always: it folded every pack's static env first and every selected variant's env after
-// that, so a key pack A's variant and pack B's static both write had a different winner
-// per notch — the jail said the later pack's static, the host the earlier pack's variant.
-// This file is the pin: one two-pack fixture through both folds, one winner asserted.
+// always: it folded every pack's static env first and every selected profile's env after
+// that, so a key pack A's gated entry and pack B's static both write had a different
+// winner per notch — the jail said the later pack's static, the host the earlier pack's
+// gated value. This file is the pin: one two-pack fixture through both folds, one winner
+// asserted.
 //
 // It is a call-site test in the sense the review asked for: delete the host's fold and
 // the host side stops answering for the keys the fold writes; revert the host to the
-// all-static-then-all-variant order and the two sides disagree. Either way this fails.
+// all-static-then-all-gated order and the two sides disagree. Either way this fails.
 
 import (
 	"os"
@@ -24,31 +25,29 @@ import (
 
 // writeFoldParityPacks writes the two-pack fixture both folds consume, and selects it.
 //
-// alpha installs claude and declares the variant `p`; beta installs pi and declares CROSS
-// statically. alpha is the FIRST configured pack, so the per-pack fold (alpha's static,
-// alpha's variant, beta's static) answers "beta's static" for CROSS, while the retired
-// all-static-then-all-variant order answers "alpha's variant" — the two orders disagree
-// on exactly this fixture, which is what makes it the fixture.
+// alpha installs claude and declares the profile `p` with a gated env entry; beta installs
+// pi and declares CROSS statically. alpha is the FIRST configured pack, so the per-pack
+// fold (alpha's static, alpha's gated entry, beta's static) answers "beta's static" for
+// CROSS, while the retired all-static-then-all-gated order answers "alpha's gated value" —
+// the two orders disagree on exactly this fixture, which is what makes it the fixture.
 //
-// SHARED_OUT is the same shape with a removal: alpha's variant nulls it and beta's static
-// sets it, so the fold's own ordering has to decide it too. GONE is a null nothing
-// assigns over, inherited from the shell — the case the host's removals-last rule exists
-// for, and the one place the two notches are ALLOWED to differ (the jail starts from an
-// empty env, so it has nothing to remove).
+// The removal half this fixture used to carry (a profile body nulling a key nothing
+// assigned over) is gone with the body (OQ-PT8): both `vars` maps are plain strings, so
+// the fold's operations are assignments only. env_sources nulls are the removals a host
+// launch still has, and TestComposeHostEnvOrdering pins one beating the inherited shell.
 func writeFoldParityPacks(t *testing.T, home string) {
 	t.Helper()
 	base := filepath.Join(home, "packs")
 	manifests := map[string]string{
 		"alpha": `{"name":"alpha","contributes":[` +
 			`{"kind":"program","bin":"claude","via":"npm","package":"@acme/claude"},` +
-			`{"kind":"profile","name":"p","env":{` +
-			`"CROSS":"alpha-variant",` +
-			`"ALPHA_ONLY":"yes",` +
-			`"SHARED_OUT":null,` +
-			`"GONE":null}}]}`,
+			`{"kind":"profile","name":"p","provider":"p"},` +
+			`{"kind":"env","profile":"p","vars":{` +
+			`"CROSS":"alpha-gated",` +
+			`"ALPHA_ONLY":"yes"}}]}`,
 		"beta": `{"name":"beta","contributes":[` +
 			`{"kind":"program","bin":"pi","via":"npm","package":"@acme/pi"},` +
-			`{"kind":"env","vars":{"CROSS":"beta-static","SHARED_OUT":"beta-static","BETA_ONLY":"yes"}}]}`,
+			`{"kind":"env","vars":{"CROSS":"beta-static","BETA_ONLY":"yes"}}]}`,
 	}
 	for name, manifest := range manifests {
 		dir := filepath.Join(base, name)
@@ -88,7 +87,6 @@ func TestHostFoldMatchesTheJailFoldWinner(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
-	t.Setenv("GONE", "from-shell") // what the invoking shell had, for the null below
 	t.Chdir(t.TempDir())
 	writeFoldParityPacks(t, home)
 
@@ -109,7 +107,7 @@ func TestHostFoldMatchesTheJailFoldWinner(t *testing.T) {
 	// would exec with.
 	host := hostEnvMap(t, "claude", "")
 
-	for _, key := range []string{"CROSS", "SHARED_OUT"} {
+	for _, key := range []string{"CROSS", "BETA_ONLY"} {
 		if jail[key] == "" {
 			t.Fatalf("the jail fold has no %s; the fixture stopped exercising the fold order", key)
 		}
@@ -119,29 +117,19 @@ func TestHostFoldMatchesTheJailFoldWinner(t *testing.T) {
 		}
 	}
 	// The ruling itself, not only the parity: the LATER pack's static wins, which is the
-	// per-pack order and not the retired all-static-then-all-variant one.
+	// per-pack order and not the retired all-static-then-all-gated one.
 	if host["CROSS"] != "beta-static" {
 		t.Errorf("CROSS = %q, want beta-static (a later pack's static beats an earlier "+
-			"pack's variant under the per-pack fold)", host["CROSS"])
+			"pack's gated entry under the per-pack fold)", host["CROSS"])
 	}
-	if host["SHARED_OUT"] != "beta-static" {
-		t.Errorf("SHARED_OUT = %q, want beta-static — a removal a later fold entry assigns "+
-			"over is the fold's decision, not the host's to re-make last", host["SHARED_OUT"])
-	}
-	// Each pack's own contribution still arrives: the variant's literals and the other
-	// pack's static map are untouched by the reordering.
+	// Each pack's own contribution still arrives: the gated entry's literals and the
+	// other pack's static map are untouched by the reordering.
 	if host["ALPHA_ONLY"] != "yes" || host["BETA_ONLY"] != "yes" {
 		t.Errorf("the fold lost a pack's own env: alpha=%q beta=%q", host["ALPHA_ONLY"], host["BETA_ONLY"])
 	}
-	// And the one removal the fold was the last word on still removes — beating the shell
-	// this process inherited, which is what the host's removals-last rule is for.
-	if v, present := host["GONE"]; present {
-		t.Errorf("GONE = %q, want it removed: a null nothing assigns over must still unset, "+
-			"including over the inherited environment", v)
-	}
 }
 
-// TestHostFoldParityWithoutAProfile keeps the no-variant launch honest: with nothing
+// TestHostFoldParityWithoutAProfile keeps the no-profile launch honest: with nothing
 // selected the two folds are the plain static merge, and the host must not lose it.
 func TestHostFoldParityWithoutAProfile(t *testing.T) {
 	home := t.TempDir()
@@ -160,6 +148,6 @@ func TestHostFoldParityWithoutAProfile(t *testing.T) {
 		t.Errorf("CROSS: host = %q, jail = %q, want both beta-static", host["CROSS"], jail["CROSS"])
 	}
 	if _, present := host["ALPHA_ONLY"]; present {
-		t.Error("an unselected variant contributed env to the host launch")
+		t.Error("an unselected profile contributed env to the host launch")
 	}
 }

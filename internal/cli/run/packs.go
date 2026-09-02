@@ -1047,7 +1047,7 @@ func packProviderNameConflicts(loaded []*packload.Pack) []string {
 		}
 		out = append(out, fmt.Sprintf(
 			"provider %q is shipped by %s — a provider name is sole-owned: it is the key in "+
-				"the composed providers table and what a profile's requires_provider names, so "+
+				"the composed providers table and what a profile's `provider` names, so "+
 				"two shippers would each be supplying \"the\" %s and one would silently replace "+
 				"the other. Drop one of the declarations; overrides of the survivor are lines "+
 				"of providers.%s in user config.",

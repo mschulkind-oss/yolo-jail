@@ -202,13 +202,37 @@ func Decode(data []byte) (*Manifest, []string) {
 func (m *Manifest) retiredFieldProblems() []string {
 	var problems []string
 	for i, c := range m.Contributes {
-		if c.Tier == "" {
-			continue
+		if c.Tier != "" {
+			problems = append(problems, fmt.Sprintf(
+				"contributes[%d]: \"tier\" is no longer a contribution field — a tier decides what a "+
+					"skill is CALLED, which is one fact about the whole pack rather than one per "+
+					"destination. Move it to the manifest's top-level \"skills_tier\": %q", i, c.Tier))
 		}
-		problems = append(problems, fmt.Sprintf(
-			"contributes[%d]: \"tier\" is no longer a contribution field — a tier decides what a "+
-				"skill is CALLED, which is one fact about the whole pack rather than one per "+
-				"destination. Move it to the manifest's top-level \"skills_tier\": %q", i, c.Tier))
+		if c.RequiresProvider != "" {
+			problems = append(problems, fmt.Sprintf(
+				"contributes[%d]: \"requires_provider\" is no longer a contribution field — "+
+					"a kind \"profile\" is a SELECTION over a provider, so the field is now "+
+					"spelled \"provider\" and MANDATORY (provider-catalog-and-selection.md "+
+					"§5.2). Write {\"kind\": \"profile\", \"name\": %q, \"provider\": %q}",
+				i, c.Name, c.RequiresProvider))
+		}
+		// The two body halves the profile kind carried and no kind carries any more. The
+		// refusal names the modifier each half becomes, because that IS the migration:
+		// a body gated on a profile name is a contribution with `profile` set, not a
+		// variant (§5.2's decomposition table).
+		if len(c.Launch) > 0 {
+			problems = append(problems, fmt.Sprintf(
+				"contributes[%d]: \"launch\" is no longer a contribution field — a kind "+
+					"\"profile\"'s launch flags moved to kind \"launch\" contributions with "+
+					"\"profile\" set to the profile's name; no kind takes a top-level "+
+					"\"launch\" any more (OQ-PT8)", i))
+		}
+		if len(c.Env) > 0 {
+			problems = append(problems, fmt.Sprintf(
+				"contributes[%d]: \"env\" is no longer a contribution field — a kind "+
+					"\"profile\"'s env map moved to a kind \"env\" contribution (\"vars\", "+
+					"not \"env\") with \"profile\" set to the profile's name (OQ-PT8)", i))
+		}
 	}
 	return problems
 }

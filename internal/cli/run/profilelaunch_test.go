@@ -1,16 +1,19 @@
 package run
 
 // profilelaunch_test.go pins the DIRECT-INVOCATION half of a pack's launch flags
-// (profiles-as-pack-variants.md §3.4): `yolo -- <bin>` must carry the flags of the
-// SELECTED variant, not just the pack's static baseline.
+// (profiles-as-pack-variants.md §3.4): `yolo -- <bin>` and the interactive alias must
+// carry the SAME flags for the same launch.
 //
-// The interactive alias learned profiles first (entrypoint/shell.go folds the jail's
-// YOLO_USE_PROFILES table), and the host CLI's injection did not — so one pack's variant
-// flags appeared on the alias and vanished from a direct invocation. Nothing failed: the
-// launch looked normal and ran with the wrong approval posture. That is why the test below
-// drives Run() and reads the argv the backend is handed, rather than calling
-// packload.InjectLaunchFlags itself — a test on the callee would stay green if Run stopped
-// passing the table, which is exactly the defect.
+// The history is why this drives Run() and reads the argv the backend is handed, rather
+// than calling packload.InjectLaunchFlags itself: the interactive alias learned profiles
+// first and the host CLI's injection did not, so one pack's variant flags appeared on the
+// alias and vanished from a direct invocation — and nothing failed, because a test on the
+// callee stays green when Run stops passing the table. That defect is exactly the shape
+// the OQ-PT8 shrink left behind in reverse: a profile used to CARRY flags, and both
+// channels folded them; now no kind carries them (a `launch` with `profile` set is
+// refused at the schema — nothing consumes it), so the pin is the weaker and sufficient
+// fact that a SELECTED profile injects nothing the static baseline does not have. If a
+// profile ever grows flags again, one of these two tests is where it shows up first.
 
 import (
 	"bytes"
@@ -22,8 +25,9 @@ import (
 )
 
 // profileLaunchLocalPack writes the conventional LOCAL pack (paths.LocalPackDir, so no
-// `packs` config entry is needed) that installs `acme` with a static launch flag and a
-// `bedrock` variant replacing it.
+// `packs` config entry is needed) that installs `acme` with one static launch flag, plus
+// a profile declaration that contributes no flag of its own — the shrunken kind's whole
+// point.
 func profileLaunchLocalPack(t *testing.T, home string) {
 	t.Helper()
 	dir := filepath.Join(home, ".config", "yolo-jail", "local")
@@ -33,17 +37,16 @@ func profileLaunchLocalPack(t *testing.T, home string) {
 	manifest := `{"name":"local","contributes":[` +
 		`{"kind":"program","bin":"acme","via":"npm","package":"@acme/acme"},` +
 		`{"kind":"launch","bin":"acme","flags":["--static"]},` +
-		`{"kind":"profile","name":"bedrock",` +
-		`"launch":[{"bin":"acme","flags":["--bedrock"]}]}]}`
+		`{"kind":"profile","name":"bedrock","provider":"bedrock"}]}`
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// The selected variant's flags reach the command the backend is handed. Asserted through
-// Run on the macos-user arm, whose handler seam exposes the argv: the injection sits above
-// the backend dispatch, so either backend must see the same result.
-func TestRunInjectsTheSelectedProfilesLaunchFlags(t *testing.T) {
+// The selected profile's flag list is the static baseline: a profile is a selection, so
+// the argv it produces is the pack's own. Asserted through Run on the macos-user arm,
+// whose handler seam exposes the argv.
+func TestRunInjectsNoFlagForASelectedProfile(t *testing.T) {
 	home := packHome(t)
 	profileLaunchLocalPack(t, home)
 	ws := t.TempDir()
@@ -61,14 +64,15 @@ func TestRunInjectsTheSelectedProfilesLaunchFlags(t *testing.T) {
 	if rc := Run(*o); rc != 0 {
 		t.Fatalf("Run() = %d, want 0\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
 	}
-	if len(got) != 3 || got[0] != "acme" || got[1] != "--bedrock" || got[2] != "user-arg" {
-		t.Fatalf("the command must carry the selected variant's flag and the user's own "+
-			"arguments, got %v", got)
+	if len(got) != 3 || got[0] != "acme" || got[1] != "--static" || got[2] != "user-arg" {
+		t.Fatalf("a selected profile contributes no flag, so the argv must be the static "+
+			"baseline plus the user's own arguments, got %v", got)
 	}
 }
 
-// Without a selection the static baseline is what reaches the command — the same fixture,
-// no profile named, so the variant must stay inert rather than folding anyway.
+// Without a selection the same baseline reaches the command — the same fixture, no
+// profile named. The two tests together are the parity claim: selecting a profile and not
+// selecting one cannot change the flags, only the provider env and config.
 func TestRunWithoutAProfileSelectionInjectsTheStaticFlags(t *testing.T) {
 	home := packHome(t)
 	profileLaunchLocalPack(t, home)

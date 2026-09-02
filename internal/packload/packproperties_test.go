@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
@@ -113,12 +114,11 @@ func TestNoPacksMeansNoDeclarations(t *testing.T) {
 		// is not asserted empty here.
 		//
 		// A command must pass through untouched rather than picking up flags from
-		// nowhere — with no table and with one, since the table only ever ADDS flags.
+		// nowhere — the injection reads the packs and nothing else, since the profile
+		// table it used to also fold died with the kind's body (OQ-PT8).
 		cmd := []string{"claude", "--print"}
-		for _, profiles := range []map[string]string{nil, {"claude": "bedrock"}} {
-			if got := packload.InjectLaunchFlags(empty, profiles, cmd); len(got) != len(cmd) {
-				t.Errorf("InjectLaunchFlags with no packs altered the command: %v", got)
-			}
+		if got := packload.InjectLaunchFlags(empty, cmd); len(got) != len(cmd) {
+			t.Errorf("InjectLaunchFlags with no packs altered the command: %v", got)
 		}
 	}
 }
@@ -202,41 +202,41 @@ func TestFetchedPacksGetNoHostAccess(t *testing.T) {
 func TestCopilotFlagsInjectFromItsRealDeclaration(t *testing.T) {
 	packs := loadAll(t)
 
-	got := packload.InjectLaunchFlags(packs, nil, []string{"copilot", "sub"})
+	got := packload.InjectLaunchFlags(packs, []string{"copilot", "sub"})
 	want := "copilot --yolo --no-auto-update sub"
 	if strings.Join(got, " ") != want {
 		t.Errorf("got %q, want %q", strings.Join(got, " "), want)
 	}
 	// Alias suppression against the real declaration.
-	got = packload.InjectLaunchFlags(packs, nil, []string{"copilot", "-y", "chat"})
+	got = packload.InjectLaunchFlags(packs, []string{"copilot", "-y", "chat"})
 	if strings.Contains(strings.Join(got, " "), "--yolo") {
 		t.Errorf("-y must suppress --yolo: %v", got)
 	}
 	// A binary no pack declares passes through.
-	if got := packload.InjectLaunchFlags(packs, nil, []string{"bash", "-c", "echo"}); len(got) != 3 {
+	if got := packload.InjectLaunchFlags(packs, []string{"bash", "-c", "echo"}); len(got) != 3 {
 		t.Errorf("bash must be untouched: %v", got)
 	}
 	// The input slice is not mutated — the caller reuses it for the attach path.
 	in := []string{"copilot", "chat"}
-	_ = packload.InjectLaunchFlags(packs, nil, in)
+	_ = packload.InjectLaunchFlags(packs, in)
 	if strings.Join(in, " ") != "copilot chat" {
 		t.Errorf("input mutated: %v", in)
 	}
 }
 
 // TestBedrockProfilePatchesItsOwnSettingsEnv ports the config-surface half of the payload
-// split (profiles-as-pack-variants.md §5, D8, OQ-16) onto the declaration that ships it:
-// the NON-SECRET half of a profile routes into the pack's own config file as well as the
-// process env, because the settings env block is honored before the first API call (OQ-4,
-// measured 2026-08-31) while process env needs yolo in the launch path — a bare `claude`,
-// cron, or an IDE's absolute path gets nothing from env alone.
+// split (provider-catalog-and-selection.md §5.2, D8, OQ-4) onto the declaration that ships
+// it: the NON-SECRET half of a profile routes into the pack's own config file as well as
+// the process env, because the settings env block is honored before the first API call
+// while process env needs yolo in the launch path — a bare `claude`, cron, or an IDE's
+// absolute path gets nothing from env alone.
 //
-// The bedrock profile is the shipped instance: CLAUDE_CODE_USE_BEDROCK into the env block
-// of the claude/settings surface packs/claude itself owns, so the variant survives an
-// invocation yolo did not launch. The mechanism is already pinned by
-// TestProfileConfigFoldsAfterAutonomy on a synthetic fixture; this pins the DECLARATION,
-// which is the half that can silently rot — the profile shipped env-only for its whole
-// first day because nothing asked the real manifest what it folded.
+// The bedrock profile is the shipped instance, and since OQ-PT8 its config half is a
+// `config-overlay` contribution gated on the profile rather than a fold inside
+// SurfacesForReport — so this pins the DECLARATION and its gate, while the end-to-end
+// delivery through the collector is pinned in profileequivalence_test.go. The declaration
+// is the half that can silently rot: the profile shipped config-only for its whole first
+// day because nothing asked the real manifest what it carried.
 func TestBedrockProfilePatchesItsOwnSettingsEnv(t *testing.T) {
 	var claude *packload.Pack
 	for _, p := range loadAll(t) {
@@ -248,35 +248,31 @@ func TestBedrockProfilePatchesItsOwnSettingsEnv(t *testing.T) {
 		t.Fatal("the claude pack did not materialize")
 	}
 
-	surfaces, probs := claude.SurfacesFor(true, map[string]string{"claude": "bedrock"})
+	ovs := claude.Decl.ConfigOverlayContributions()
+	if len(ovs) != 1 {
+		t.Fatalf("packs/claude ships exactly one config-overlay (bedrock's), got %+v", ovs)
+	}
+	if ovs[0].Profile != "bedrock" {
+		t.Errorf("the overlay must be gated on the profile it serves, got %+v", ovs[0])
+	}
+	if ovs[0].Surface != "claude/settings" {
+		t.Errorf("the overlay must target the surface packs/claude itself owns, got %+v", ovs[0])
+	}
+	data, probs := manifest.DecodeOverlay(ovs[0].Surface, ovs[0].Config)
 	if len(probs) != 0 {
-		t.Fatalf("folding the bedrock profile raised problems: %v", probs)
+		t.Fatalf("the shipped overlay body does not decode: %v", probs)
 	}
-	var env map[string]any
-	for i := range surfaces {
-		if surfaces[i].Key().String() != "claude/settings" {
-			continue
-		}
-		m := surfaces[i].ManagedMap()
-		var ok bool
-		if env, ok = m["env"].(map[string]any); !ok {
-			t.Fatalf("the composed claude/settings managed layer carries no env block: %+v", m)
-		}
-	}
-	if env == nil {
-		t.Fatal("packs/claude declares no claude/settings surface to fold into")
-	}
-	if env["CLAUDE_CODE_USE_BEDROCK"] != "1" {
-		t.Errorf("with the bedrock profile selected, the settings env block must carry "+
-			"CLAUDE_CODE_USE_BEDROCK — the half that survives an invocation yolo did not "+
-			"launch: %+v", env)
+	m := data
+	env, ok := m["env"].(map[string]any)
+	if !ok || env["CLAUDE_CODE_USE_BEDROCK"] != "1" {
+		t.Errorf("the gated overlay must carry managed.env.CLAUDE_CODE_USE_BEDROCK=1 — the half "+
+			"that survives an invocation yolo did not launch: %+v", m)
 	}
 
 	// The payload split's other half: what composes from provider VALUES stays
-	// env-delivered. AWS_REGION and the ANTHROPIC_* model ids are the provider entry's
-	// own facts (the agent pack's env derive composes them at launch), and a literal
-	// here would be a second
-	// copy of a fact packs/claude's provider declaration already owns.
+	// env-delivered. AWS_REGION and the ANTHROPIC_* model ids are the provider entry's own
+	// facts (the agent pack's env derive composes them at launch), and a literal here would
+	// be a second copy of a fact packs/claude's provider declaration already owns.
 	for _, k := range []string{
 		"AWS_REGION", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL",
@@ -287,16 +283,19 @@ func TestBedrockProfilePatchesItsOwnSettingsEnv(t *testing.T) {
 		}
 	}
 
-	// The discriminator: without the variant selected the key is absent — pinning that
-	// the patch rides the PROFILE and not the pack's static managed layer, where it would
-	// switch Bedrock on for users who never chose the variant.
-	base, _ := claude.SurfacesFor(true, nil)
-	for i := range base {
-		if base[i].Key().String() != "claude/settings" {
+	// The discriminator: the pack's OWN surfaces carry no env block at all — the key rides
+	// the gated overlay and nothing else, so a user who never selects bedrock cannot get
+	// Bedrock switched on under them.
+	surfaces, fprobs := claude.SurfacesFor(true)
+	if len(fprobs) != 0 {
+		t.Fatalf("folding the pack's own surfaces raised problems: %v", fprobs)
+	}
+	for i := range surfaces {
+		if surfaces[i].Key().String() != "claude/settings" {
 			continue
 		}
-		if m := base[i].ManagedMap(); m["env"] != nil {
-			t.Errorf("an unselected profile must fold nothing into the env block: %+v", m["env"])
+		if m := surfaces[i].ManagedMap(); m["env"] != nil {
+			t.Errorf("an unselected profile must contribute nothing to the managed env block: %+v", m["env"])
 		}
 	}
 }

@@ -100,19 +100,26 @@ type Contribution struct {
 
 	// --- config / config-overlay ---
 	Surface string `json:"surface,omitempty"` // config-overlay: the target surface "agent/name"
-	// Profile, on a config-overlay contribution, gates the whole contribution on a profile
-	// being ACTIVE for the target surface's OWNING agent — the name the active-profile
-	// table holds at the target's agent segment, which is a CLI name, the namespace the
-	// table keys on (profiles-as-pack-variants.md §7). Absent means UNCONDITIONAL, the
-	// pre-field behavior every existing overlay keeps; an explicitly empty string decodes
-	// to the same fact, so there is no emptiness to validate — "" and undeclared are one
-	// declaration.
+	// Profile gates a whole contribution on a profile being ACTIVE. Absent means
+	// UNCONDITIONAL, the pre-field behavior every existing contribution keeps; an
+	// explicitly empty string decodes to the same fact, so there is no emptiness to
+	// validate — "" and undeclared are one declaration.
 	//
-	// The gate is a SKIP, not an error: profile values are free-form (parent OQ-3), so a
-	// name nothing selected is inert exactly like an unselected owner is. REFUSED ON EVERY
-	// OTHER KIND (validateContribution) — the same modifier is contemplated for `env` and
-	// `launch` (parent §7.2's closing line), but config-overlay is the one consumer today,
-	// and a field silently doing nothing on the kinds it does not gate is the
+	// It is a SKIP, not an error: a name nothing selected is inert exactly like an
+	// unselected owner is. Two kinds take it, and they key it differently, because they
+	// answer to different holders of the name:
+	//
+	//   - `config-overlay` keys it on the TARGET SURFACE'S OWNING agent — the name the
+	//     active-profile table holds at the target's agent segment, a CLI name
+	//     (packoverlay.go's gate). The surface is what names an agent, so the surface is
+	//     what the gate asks.
+	//   - `env` keys it on a bin: the profile active for a bin the pack installs, else
+	//     active for ANY bin (packload.EnvFold, mirroring ProviderFor's two passes — the
+	//     second is what makes a CLI-less pack's gated env reachable, packs/zai being the
+	//     shipped case). Env has no surface to name an agent, so it asks the table itself.
+	//
+	// REFUSED ON EVERY OTHER KIND (validateContribution): `launch` is contemplated and has
+	// no consumer, and a field silently doing nothing on the kinds it does not gate is the
 	// accepted-and-ignored defect this schema refuses everywhere else.
 	Profile string `json:"profile,omitempty"`
 
@@ -148,8 +155,8 @@ type Contribution struct {
 
 	// --- provider (profiles-as-pack-variants.md §4.1 as ruled, OQ-12) ---
 	// Name is REQUIRED and is the provider's whole identity: the key the entry lands
-	// under in the composed `providers` table, what a profile's `requires_provider`
-	// names, and what the derives emit as the provider/model id. Sole-owned across packs
+	// under in the composed `providers` table, what a profile's `provider` field names,
+	// and what the derives emit as the provider/model id. Sole-owned across packs
 	// (kinds.go), so two packs shipping one name is a collision — while one pack shipping
 	// two names is two contributions, which is the ordinary multi-provider pack.
 	Name string `json:"name,omitempty"`
@@ -202,28 +209,38 @@ type Contribution struct {
 	// The value is an OptionDefault and not a string for one reason: null is LEGAL here
 	// and means something no other null in this config means (see that type).
 	Options map[string]OptionDefault `json:"options,omitempty"`
-	// --- profile (profiles-as-pack-variants.md §3.1) ---
-	// The body rides fields declared above: Name is the profile's SELECTOR VALUE (the
-	// name the user writes in use_profiles or -p) and Raw is its `config` patch. What is
-	// new here is the part no other kind needed:
+	// --- profile (provider-catalog-and-selection.md §5.2) ---
+	// Provider is the profile's WHOLE BODY since OQ-PT8 shrank the kind (the sibling
+	// doc's §5.4 note is the ruling): a profile is a NAMED SELECTION OVER A PROVIDER —
+	// `name` is the selector the user types, `provider` is what it selects — and
+	// everything a `kind: "profile"` used to carry besides (a config patch, launch
+	// flags, an env map) was never a profile at all. Those are CONTRIBUTIONS GATED ON A
+	// PROFILE NAME, which is the `profile` modifier above; the decomposition table in
+	// §5.2 is the migration, and packs/claude's `bedrock` is its one worked case.
 	//
-	// Launch is the same per-binary shape a posture's is, at the TOP level of a
-	// contribution for the first time — `launch` the KIND carries Bin and Flags flat, and
-	// this is a LIST of those, so it cannot reuse the kind's own field.
+	// MANDATORY (§5.2 property 3): a profile naming no provider is the two-meanings
+	// problem the definition exists to end, and the mandatory declaration is what makes
+	// the modifier's name reference something — an unmatched name becomes diagnosable
+	// instead of silently inert (stringly-typed-references-principle.md).
 	//
-	// Env is deliberately NOT Vars: map[string]string cannot tell a JSON null from an
-	// empty string, and for a variant the difference is the whole meaning — null UNSETS
-	// the variable (OQ-7, the merge-patch convention `providers` already uses), an empty
-	// string sets it empty. EnvValue carries that bit. Its values are literal strings, the
-	// same restriction Vars carries — so like `env` and `autonomy` the kind reads nothing
-	// from the host and is not origin-gated.
-	//
-	// RequiresProvider names a provider entry this variant needs (parent §6.2): a
-	// reference into the user's `providers` config, resolved at launch — not a credential
-	// and not a host read, which is why the kind makes no host-access claim.
-	Launch           []AutonomyLaunch    `json:"launch,omitempty"`
-	Env              map[string]EnvValue `json:"env,omitempty"`
-	RequiresProvider string              `json:"requires_provider,omitempty"`
+	// It names an entry of the composed `providers` table, resolved at launch — not a
+	// credential and not a host read, which is why the kind makes no host-access claim.
+	Provider string `json:"provider,omitempty"`
+	// RequiresProvider is a TOMBSTONE for the name the field carried before OQ-PT8:
+	// decodable, so a manifest written against the old shape gets the migration named
+	// (retiredFieldProblems) instead of the strict decoder's bare `json: unknown field`.
+	// Nothing reads the value — a profile does not REQUIRE a provider, it IS a selection
+	// of one, which is why the name changed rather than only the field's neighbours.
+	RequiresProvider string `json:"requires_provider,omitempty"`
+	// Launch and Env are TOMBSTONES for the two body halves the profile kind used to
+	// carry and no kind carries any more — `launch` was profile-only from the start, and
+	// `env`'s kind spells its map `vars`. Both are refused with the migration named
+	// (retiredFieldProblems) rather than left to an unhelpful unknown-field error. Raw
+	// json, because a tombstone's job is to be SEEN and refused, never understood — and
+	// the old env map's null-means-unset decoder (EnvValue) dies with the body that
+	// needed it.
+	Launch json.RawMessage `json:"launch,omitempty"`
+	Env    json.RawMessage `json:"env,omitempty"`
 
 	// Raw carries kind-specific structured payloads that do not fit a scalar field
 	// — today only a `config` contribution's surface definition (the agentcfg
@@ -556,60 +573,21 @@ func (m *Manifest) PostureFor(autonomy bool) *AutonomyPosture {
 	return ac.Guarded
 }
 
-// EnvValue is one value in a profile's `env` map, which — alone in the manifest — may be
-// an explicit JSON null. Null means UNSET the variable (OQ-7), and it needs a type of its
-// own because map[string]string decodes a null to "" with no error, which would read back
-// as a deliberate empty value: the one distinction the field exists to carry.
-//
-// encoding/json calls UnmarshalJSON for a literal null too, so both shapes land here and
-// nothing about the null is lost on either decode path (the tolerant path decodes the same
-// field with the same method, so skew cannot turn an unset into an empty value).
-type EnvValue struct {
-	// Set is false only when the JSON value was null. An empty STRING is a real value —
-	// "set it to empty" is a different declaration from "remove it" — so Set is the
-	// meaning-bearing bit and Value is not consulted when it is false.
-	Set bool
-	// Value is the literal string to set. No interpolation, no host references: the same
-	// restriction Vars carries, so a profile is origin-gated exactly like autonomy is not.
-	Value string
-}
-
-// UnmarshalJSON accepts a JSON string or a JSON null, and refuses everything else — a
-// number or a bool in an env map is an author's typo, and a silent false would set the
-// variable to the empty string.
-func (v *EnvValue) UnmarshalJSON(b []byte) error {
-	if string(b) == "null" {
-		*v = EnvValue{}
-		return nil
-	}
-	var s string
-	if err := json.Unmarshal(b, &s); err != nil {
-		return err
-	}
-	*v = EnvValue{Set: true, Value: s}
-	return nil
-}
-
-// Unset reports whether this value REMOVES the variable rather than setting it — the
-// meaning of a JSON null in the map (OQ-7).
-func (v EnvValue) Unset() bool { return !v.Set }
-
 // OptionDefault is one value in a provider's `options` map — the profile surface the
-// provider declares (ProviderContribution.Options). Like EnvValue it must tell a JSON
-// null from an empty string, and like EnvValue it carries that distinction as an
-// explicit bit rather than letting map[string]string collapse the null to "".
+// provider declares (ProviderContribution.Options). It must tell a JSON null from an
+// empty string, and it carries that distinction as an explicit bit rather than letting
+// map[string]string collapse the null to "".
 //
-// THE NULL MEANS THE OPPOSITE OF WHAT IT MEANS IN EnvValue, and that is a decision on
-// the record rather than an accident of sharing a decoder (provider-catalog-and-
-// selection.md §9 OQ-CS7, note): here null is *declared, no default* — an option a
-// profile may set and whose absence hands the derive nothing. It is NOT the merge-patch
-// delete convention that null carries almost everywhere else in this config, including
-// one type up in EnvValue. The reason to depart: un-declaring an option is something
-// nobody wants (an unset option already reaches the derive as nothing, so a user gains
-// nothing by removing one their provider offers), while "keep the option, drop the
-// default" is a real override — and since the two readings would otherwise pick
-// different behaviours for the same syntax, the rule is written into the type's own
-// documentation, which is the place a reader lands when they ask what the null did.
+// THE NULL MEANS *DECLARED, NO DEFAULT* — a decision on the record rather than an
+// accident of sharing a decoder (provider-catalog-and-selection.md §9 OQ-CS7, note): an
+// option a profile may set, and whose absence hands the derive nothing. It is NOT the
+// merge-patch delete convention that null carries almost everywhere else in this
+// config. The reason to depart: un-declaring an option is something nobody wants (an
+// unset option already reaches the derive as nothing, so a user gains nothing by
+// removing one their provider offers), while "keep the option, drop the default" is a
+// real override — and since the two readings would otherwise pick different behaviours
+// for the same syntax, the rule is written into the type's own documentation, which is
+// the place a reader lands when they ask what the null did.
 //
 // The empty STRING, by contrast, is a real default: an option whose default is "".
 type OptionDefault struct {
@@ -638,22 +616,22 @@ func (v *OptionDefault) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// ProfileContribution is one named variant of a pack's own declarations: the name it
-// answers to, the config patch it folds into the pack's own surfaces, the launch flags it
-// merges, the env it sets (or unsets), and the provider it requires. The open-selector
-// twin of AutonomyContribution — whose selector is the confinement notch, not a name.
+// ProfileContribution is one named selection over a provider: the name it answers to —
+// the selector the user writes in `use_profiles` or `-p` — and the provider it selects.
+// That is the whole kind (OQ-PT8); a body lives on the contributions the `profile`
+// modifier gates, not here.
 type ProfileContribution struct {
-	Name             string
-	Config           json.RawMessage
-	Launch           []AutonomyLaunch
-	Env              map[string]EnvValue
-	RequiresProvider string
+	Name string
+	// Provider is MANDATORY (§5.2 property 3): the schema refuses a declaration without
+	// one, so a ProfileContribution in memory always carries a selection. It is what
+	// ProviderFor reads and what ResolveProfiles resolves the option map against.
+	Provider string
 }
 
 // Profiles returns every profile the pack declares, in declaration order — which is the
 // later-wins fold order, so it must not be normalized here.
 //
-// A SLICE, not a first-match accessor: a pack may ship as many variants as it has
+// A SLICE, not a first-match accessor: a pack may ship as many selections as it has
 // intentions (`bedrock` and `glm` on one pack is the ordinary case). The name is
 // sole-owned WITHIN the pack (validateProfileNames), so the slice never carries two
 // entries a ProfileFor lookup would have to choose between.
@@ -663,20 +641,14 @@ func (m *Manifest) Profiles() []ProfileContribution {
 		if c.Kind != KindProfile {
 			continue
 		}
-		out = append(out, ProfileContribution{
-			Name:             c.Name,
-			Config:           c.Raw,
-			Launch:           c.Launch,
-			Env:              c.Env,
-			RequiresProvider: c.RequiresProvider,
-		})
+		out = append(out, ProfileContribution{Name: c.Name, Provider: c.Provider})
 	}
 	return out
 }
 
 // ProfileFor returns the pack's profile declaration named by `name`, or nil when the pack
-// declares none — the shape the fold and the launch disclosure both key off ("did any
-// selected pack DECLARE this variant?").
+// declares none — the shape ProviderFor and the launch disclosure both key off ("did any
+// selected pack DECLARE this selection?").
 //
 // The selector is the name the user chose (`use_profiles`, `-p`), which is what makes
 // this the open-selector twin of PostureFor(autonomy bool): same body, different
@@ -686,13 +658,7 @@ func (m *Manifest) ProfileFor(name string) *ProfileContribution {
 		if c.Kind != KindProfile || c.Name != name {
 			continue
 		}
-		return &ProfileContribution{
-			Name:             c.Name,
-			Config:           c.Raw,
-			Launch:           c.Launch,
-			Env:              c.Env,
-			RequiresProvider: c.RequiresProvider,
-		}
+		return &ProfileContribution{Name: c.Name, Provider: c.Provider}
 	}
 	return nil
 }
@@ -921,13 +887,30 @@ func (m *Manifest) HostMountContributions() []HostFile {
 	return out
 }
 
-// EnvContributions merges every env contribution's vars into one map, later
-// contributions winning a key. Static values only — no interpolation, no host
-// reads — so this is never origin-gated. Returns nil when no pack sets env.
+// EnvContribution is one `kind: "env"` declaration as the env fold consumes it: the
+// vars it sets and, when it is gated, the profile name that gates it.
+type EnvContribution struct {
+	Vars map[string]string
+	// Profile is the gate, "" when the contribution is unconditional. MANDATORY to be
+	// resolvable: the name is a reference into the declared profile set (§5.2 property
+	// 3), so an unmatched name is inert rather than an error — the same skip the
+	// config-overlay gate applies, for the same reason.
+	Profile string
+}
+
+// EnvContributions returns every UNCONDITIONAL env contribution's vars merged into one
+// map, later contributions winning a key. Static values only — no interpolation, no
+// host reads — so this is never origin-gated. Returns nil when no pack sets env.
+//
+// A `profile`-gated env contribution is NOT in here, and that is the accessor's whole
+// contract: folding a gated declaration unconditionally would make the gate a
+// decoration. Its entries come back from ProfiledEnvContributions, whose consumer
+// decides whether the profile is active — which is why no reader of this map has to
+// know the gate exists.
 func (m *Manifest) EnvContributions() map[string]string {
 	var out map[string]string
 	for _, c := range m.Contributions() {
-		if c.Kind != KindEnv {
+		if c.Kind != KindEnv || c.Profile != "" {
 			continue
 		}
 		if out == nil {
@@ -936,6 +919,21 @@ func (m *Manifest) EnvContributions() map[string]string {
 		for k, v := range c.Vars {
 			out[k] = v
 		}
+	}
+	return out
+}
+
+// ProfiledEnvContributions returns the env contributions a `profile` gate holds, in
+// declaration order — the later-wins order the unconditional map above folds in. Each
+// entry carries its own gate; whether it is satisfied is the caller's question, because
+// the answer depends on the launch's profile table, which the manifest does not see.
+func (m *Manifest) ProfiledEnvContributions() []EnvContribution {
+	var out []EnvContribution
+	for _, c := range m.Contributions() {
+		if c.Kind != KindEnv || c.Profile == "" {
+			continue
+		}
+		out = append(out, EnvContribution{Vars: c.Vars, Profile: c.Profile})
 	}
 	return out
 }
@@ -1266,18 +1264,17 @@ func validateContribution(label string, c Contribution) []string {
 			problems = append(problems, fmt.Sprintf("%s: kind %q needs %q", label, c.Kind, field))
 		}
 	}
-	// `profile` gates ONE kind, and the refusal is this schema's standing answer to a
-	// field that would otherwise be accepted and ignored: the modifier is contemplated for
-	// `env` and `launch` too (profiles-as-pack-variants.md §7.2's closing line), but until
-	// one of those ships its consumer, a `profile` on any other kind is a declaration that
-	// silently does nothing — the exact defect `requires does not take "via"` refuses
-	// below, for the same reason. Ahead of the kind switch so a kind added tomorrow
-	// inherits the refusal instead of learning about it the hard way.
-	if c.Profile != "" && c.Kind != KindConfigOverlay {
+	// `profile` gates TWO kinds, and the refusal is this schema's standing answer to a
+	// field that would otherwise be accepted and ignored: `launch` is contemplated and
+	// has no consumer, so a `profile` on any other kind is a declaration that silently
+	// does nothing — the exact defect `requires does not take "via"` refuses below, for
+	// the same reason. Ahead of the kind switch so a kind added tomorrow inherits the
+	// refusal instead of learning about it the hard way.
+	if c.Profile != "" && c.Kind != KindConfigOverlay && c.Kind != KindEnv {
 		problems = append(problems, fmt.Sprintf(
-			"%s: kind %q does not take \"profile\" — it is the config-overlay modifier, "+
-				"gating a cross-pack contribution on a profile being active for the target "+
-				"surface's agent", label, c.Kind))
+			"%s: kind %q does not take \"profile\" — the modifier gates config-overlay "+
+				"(on the target surface's agent) and env (on the launch's profile table); "+
+				"no consumer reads it on this kind", label, c.Kind))
 	}
 	switch c.Kind {
 	case KindProgram:
@@ -1431,24 +1428,22 @@ func validateContribution(label string, c Contribution) []string {
 		}
 
 	case KindProfile:
-		// `name` is the whole selector, so it is the one required field: a variant that
-		// answers to nothing is unreachable, and nothing else about the body would tell
-		// the author that. Everything else is optional — a named variant carrying only an
-		// env map, or only launch flags, is a perfectly good one.
+		// Both fields ARE the kind (§5.2): the name is the selector, the provider is the
+		// selection, and a declaration missing either is unreachable in a different way —
+		// a nameless one answers to nothing, a providerless one selects nothing. Property
+		// 3 makes the second MANDATORY on purpose: the `profile` modifier references a
+		// name, and a name that resolves to no provider would be a gate that silently
+		// gates nothing.
 		req("name", c.Name)
-		// The launch entries are the posture's shape, so they go through the same bin
-		// guard the four other users of it do — the message cannot be allowed to drift
-		// from theirs.
-		for i, l := range c.Launch {
-			if l.Bin == "" {
-				problems = append(problems, fmt.Sprintf("%s.launch[%d]: needs a \"bin\"", label, i))
-			}
-			problems = binProblem(problems, fmt.Sprintf("%s.launch[%d].bin", label, i), l.Bin)
-		}
-		for _, k := range sortedKeys(c.Env) {
-			if k == "" {
-				problems = append(problems, label+": profile has an empty variable name")
-			}
+		req("provider", c.Provider)
+		// `config` is a body half the kind carried before OQ-PT8 and the one tombstone
+		// cannot catch, because `config` is a live field on two other kinds. Here it is
+		// the old variant patch, and the migration is the modifier.
+		if len(c.Raw) > 0 {
+			problems = append(problems, label+": kind \"profile\" does not take \"config\" "+
+				"— a profile is a selection over a provider (name + provider), and the "+
+				"patch it used to carry is a config-overlay contribution with \"profile\" "+
+				"set to this profile's name")
 		}
 	case KindLoophole:
 		// `from` is REQUIRED, unlike skills/briefing and like files: a loophole module has

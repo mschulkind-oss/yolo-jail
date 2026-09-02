@@ -30,7 +30,7 @@ func writeZaiLocalPack(t *testing.T, home string) {
 		`{"kind":"provider","name":"zai",` +
 		`"endpoints":{"anthropic":{"base_url":"https://api.z.ai/api/anthropic"}},` +
 		`"api_key_env_name":"ZAI_API_KEY"},` +
-		`{"kind":"profile","name":"zai","requires_provider":"zai"}]}`
+		`{"kind":"profile","name":"zai","provider":"zai"}]}`
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}

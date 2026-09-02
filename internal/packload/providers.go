@@ -125,20 +125,19 @@ func addressConflict(name string, entry *jsonx.OrderedMap, shipper string) error
 	return errors.New(msg)
 }
 
-// ProviderFor returns the provider the variant active at CLI name `bin` delivers: the
-// requires_provider of a profile declared under that name by a selected pack, or — when
-// no pack declares one — the profile's own name, which is the convention the composed
-// table has always keyed on (use_profiles.claude = "bedrock" reaching providers.bedrock).
+// ProviderFor returns the provider the profile active at CLI name `bin` selects: the
+// `provider` of a profile declared under that name by a selected pack, or — when no pack
+// declares one — the profile's own name, which is the convention the composed table has
+// always keyed on (use_profiles.claude = "bedrock" reaching providers.bedrock).
 //
-// The declaration need NOT live on the pack that installs the bin. Profile names are
-// free-form and global (profiles-as-pack-variants.md §3.3), and a provider pack usually
-// installs no CLI at all — so keying this on the bin's owner would make its
-// requires_provider unreachable and, with it, the whole deliver-the-provider-to-the-agent
-// shape the kind exists for. The bin owner's own declaration wins when both declare (the
-// agent's variant is the more specific intent), then the first pack in delivery order, so
-// the answer is stable rather than map-order.
+// The declaration need NOT live on the pack that installs the bin. A provider pack
+// usually installs no CLI at all (packs/zai is the shipped case), so keying this on the
+// bin's owner would make its declaration unreachable and, with it, the whole
+// deliver-the-provider-to-the-agent shape the kind exists for. The bin owner's own
+// declaration wins when both declare (the agent's own pack is the more specific intent),
+// then the first pack in delivery order, so the answer is stable rather than map-order.
 //
-// Empty when no variant is active, and the bare name when nothing requires anything:
+// Empty when no profile is active, and the bare name when no declaration narrows it:
 // agentenv treats both as inert, because escalating a provider that is missing or
 // unhydrated is the §6.2 preflight's business, not this lookup's.
 func ProviderFor(packs []*Pack, bin, profile string) string {
@@ -149,13 +148,13 @@ func ProviderFor(packs []*Pack, bin, profile string) string {
 		if !p.installsBin(bin) {
 			continue
 		}
-		if prof := p.Decl.ProfileFor(profile); prof != nil && prof.RequiresProvider != "" {
-			return prof.RequiresProvider
+		if prof := p.Decl.ProfileFor(profile); prof != nil && prof.Provider != "" {
+			return prof.Provider
 		}
 	}
 	for _, p := range packs {
-		if prof := p.Decl.ProfileFor(profile); prof != nil && prof.RequiresProvider != "" {
-			return prof.RequiresProvider
+		if prof := p.Decl.ProfileFor(profile); prof != nil && prof.Provider != "" {
+			return prof.Provider
 		}
 	}
 	return profile
@@ -192,7 +191,7 @@ func (p *Pack) installsBin(bin string) bool {
 // function cannot know which protocols a launch's agents speak, so it takes the union's
 // conservative form: some endpoint is what being in a dictionary means here.
 //
-// A variant's requires_provider creates NO requirement of its own. It selects a provider;
+// A profile's `provider` creates NO requirement of its own. It selects a provider;
 // one the catalog does not hold delivers nothing to any agent — no derive sees an entry,
 // and the env derive composes nothing — so demanding its credential would be
 // demanding a key for a delivery that cannot happen.
