@@ -663,7 +663,7 @@ whether it may carry the placeholder vocabulary `env_shape` already has.
 ### 💬 19 — A catalog and a selection are two features, and only one of them ships
 
 📄 [`provider-catalog-and-selection.md`](../design/provider-catalog-and-selection.md) —
-**OQ-CS3 · OQ-CS4 · OQ-CS5 · OQ-CS6** open · ~~OQ-CS1~~ ~~OQ-CS2~~ ruled 2026-09-01 · sibling to 💬 **18**, which reports defects in the same machinery ·
+**OQ-CS3 · OQ-CS5 · OQ-CS7** open · ~~OQ-CS1~~ ~~OQ-CS2~~ ~~OQ-CS4~~ ~~OQ-CS6~~ ruled · sibling to 💬 **18**, which reports defects in the same machinery ·
 splits what [`zai-plumbing.md`](../design/zai-plumbing.md) §5 assumed was one thing
 
 **The maintainer's own framing, 2026-09-01:** *"populating a directory of providers in an agent
@@ -700,11 +700,29 @@ problem. **Inverted:** every profile names a provider, declaration is mandatory 
 both profiles in the tree already do), and the schema is **two core-defined fields**, `provider` and
 `model`, with the provider defining only the legal *values*. No derivation, no reflection.
 
-**What remains is OQ-CS3 (which model a selection picks), OQ-CS4 (may a provider ever ADD a field —
-I lean no, not now and possibly not ever), OQ-CS5 (where user profiles live and at what scope — I
-lean a `profiles` key, user-scope only, for the reason `packs` is), OQ-CS6 (mandatory declaration
-**reverses** `profiles-as-pack-variants.md` OQ-5's free-form names — a ruled question, so reversing
-it is yours), and the research gap below.**
+**Two more rulings, and one overruled me.** *"Model can't be the only config we'll want, which is
+why I said the config surface/schema is dictated by the provider"* settles OQ-CS4 **against** my
+lean-conservative answer: a provider declares an `options` block, a profile is an instance of it, and
+the agent's own derive decides where each option lands — core learns no option names. And *"reversing
+old decisions is fine, we're debugging a mess of a design"* confirms OQ-CS6: `profiles-as-pack-variants.md`
+OQ-5's free-form names are **superseded**, so an undeclared profile name becomes a reportable error
+instead of a silent no-op.
+
+**And tracing "what do we actually use `ZAI_API_KEY` for" answered it and found a defect.** Three of
+four agents get the **name** and read the env themselves (pi `apiKeyEnv`, codex `api_key_env`,
+opencode `{env:…}`) — yolo never touches the secret and **it is embedded in no agent's config**.
+claude is the exception and it is a *rename*, not an embed: it reads `ANTHROPIC_AUTH_TOKEN`, nothing
+can alias one env var to another, so `{key}` copies the value. The defect: `writeUserEnvFile` writes
+the hydrated secrets to `<workspace>/.yolo/yolo-user-env.sh` at **0644** — measured `-rw-r--r--` with
+two keys in plaintext — while [`packs/zai/README.md`](../../packs/zai/README.md) tells the user to
+keep that key in a file that is *"untracked, 0600"*. Gitignored, so not a commit risk; the mode
+downgrade is real. Recorded as **D8** in 💬 **18**, along with the argv exposure the claude path
+carries structurally.
+
+**What remains is OQ-CS3 (which model a selection picks), OQ-CS5 (where user profiles live and at
+what scope — I lean a `profiles` key, user-scope only, for the reason `packs` is), OQ-CS7 (what
+validation a provider-declared option gets — I lean: against the provider's own declaration and
+nothing else), and the research gap below.**
 
 **Measured in a live jail today**, `packs: ["claude","zai"]` with `providers.zai` set:
 

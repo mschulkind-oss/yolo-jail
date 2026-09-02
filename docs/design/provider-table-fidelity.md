@@ -20,7 +20,7 @@ table can hold a `base_url`/`endpoints` pair that the config validator refuses w
 writes it directly, and `packs/zai` now spells one endpoint URL twice with nothing pinning the
 two copies equal. All three are **the abstraction being internally consistent and externally
 unchecked**, and §3.0a takes it one step further: the enum is not four protocols but three, with
-chat completions spelled twice. **Four** further defects share no cause with those (§5) — the
+chat completions spelled twice. **Five** further defects share no cause with those (§5) — the
 largest of them conceptual, and raised in review rather than found in the code: the word "profile"
 names three different things, only one of which a user can override, and `packs/zai`'s own
 `kind: "profile"` declaration is measurably a no-op — and, review found, **structurally unreachable**,
@@ -294,7 +294,7 @@ which is a schema question, not a code-placement one, and is OQ-PT3.
 
 ---
 
-## 5. Four more, sharing no cause with §3–§4
+## 5. Five more, sharing no cause with §3–§4
 
 These are grouped only by "found in the same review". Each stands alone. **§5.4 is the
 conceptual one, and it is the one a reader is most likely to have already noticed** — it came out of
@@ -458,6 +458,34 @@ process env, and the profile carries pack-authored literals).
 > ruling answers, and because the measurements in it — the empty body, the green suite, the
 > unreachable variant — are the evidence that the body was the wrong home. The design lives in
 > [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2.
+
+
+### 5.5 D8 — the hydrated secret lands in a 0644 file, and on the argv
+
+Found while tracing what `api_key_env_name` is actually used for
+([`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.3 has the full path).
+Two exposures, both measured in this jail **2026-09-01**:
+
+1. **`yolo-user-env.sh` is written 0644.** `writeUserEnvFile`
+   ([`internal/cli/run/userenv.go`](../../internal/cli/run/userenv.go)) writes every hydrated
+   `env_sources` value to `<workspace>/.yolo/yolo-user-env.sh` with `os.WriteFile(..., 0o644)`,
+   mounted into the jail at `~/.config/yolo-user-env.sh`. Measured: `-rw-r--r--`, holding
+   `ZAI_API_KEY` and `CEREBRAS_API_KEY` in plaintext. The path is gitignored, so this is not a
+   commit risk — but [`packs/zai/README.md`](../../packs/zai/README.md) instructs the user to keep
+   the key in a file that is *"untracked, **0600**"*, and yolo's own copy of that value **downgrades
+   the mode to world-readable**. The doc's promise and the code's behaviour disagree, and the doc is
+   the one making the stronger claim.
+2. **The claude path puts the value on the container argv.** `env_shape`'s `{key}` composes to
+   `-e ANTHROPIC_AUTH_TOKEN=<secret>` on the `podman run` command line
+   ([`assemble.go`](../../internal/cli/run/assemble.go)), visible in `ps` to anything on the host
+   that can see the process. This one is **structural rather than accidental** — an env var has to
+   reach the container somehow, and podman's alternatives (`--env-file`, or `-e KEY` inheriting from
+   the launcher's own environment) trade one exposure for another. Recorded because it is the kind
+   of fact a reader should not have to discover, not because the fix is obvious.
+
+Neither is a hazard the provider work introduced — `env_sources` predates it — but the
+provider/profile design is what made a credential routinely travel this path, and (1) is a
+one-character fix whose only real cost is deciding whether anything reads that file as a non-owner.
 
 ## 6. What this does NOT propose
 

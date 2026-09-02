@@ -227,10 +227,11 @@ That is one meaning, in one place, and it is the meaning a user already assumes 
 > [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) asks for and
 > that free-form names could never have.
 >
-> **This reverses a ruling**, and that is OQ-CS6's to confirm rather than this section's to assume.
+> **This reverses a ruling, and the reversal is confirmed** (OQ-CS6, 2026-09-01: *"reversing old
+> decisions is fine. we're debugging a mess of a design and need to change things."*).
 > `profiles-as-pack-variants.md` OQ-5 made profile names free-form and global — ruled when a profile
-> WAS a bare string. The definition has changed underneath that ruling; the ruling has not been
-> re-examined.
+> WAS a bare string. The definition changed underneath that ruling, so OQ-5 is **superseded**, not
+> contradicted, and a name with no declaration becomes a reportable error rather than a silent no-op.
 
 #### The worked examples
 
@@ -298,19 +299,83 @@ unreachable today for a pack that installs no CLI, because `ActiveProfiles` iter
 `profile:` modifier gates on the *target surface's* owning agent instead, so it works for a provider
 pack. Moving the body to modifiers is the fix for that, not merely a tidier spelling of it.
 
-#### There is no magic schema — two fields, and the provider defines their VALUES
+#### The schema is the provider's — declared, not derived (OQ-CS4)
 
-*"Some sort of magically enforced schema"* is a fair worry about an earlier phrasing, so this is the
-concrete version. **A profile has exactly two fields, both core-defined: `provider` and `model`.**
-Nothing is derived, nothing is discovered, nothing is enforced by reflection over a provider's shape.
+**Ruled 2026-09-01:** *"model can't be the only config we'll want, which is why I said the config
+surface/schema is dictated by the provider."* A previous draft of this section fixed the field set at
+two (`provider`, `model`) and deferred the general form; that is overruled. **A provider declares
+what a profile for it may carry**, and the profile is an instance of that declaration.
 
-What the provider defines is the **values**, not the field set: `model` must name one of that
-provider's own `models` aliases, so *what you can select* is determined by what the provider
-offers — which is the ruling read literally, and it needs no machinery beyond a lookup that already
-exists. The general form (a provider declaring an options block, so it can offer a tunable that is
-not a model) is **deferred to OQ-CS4** and should not be built until a provider wants one. Designing
-an options vocabulary against zero consumers is the mistake `wire_api`'s enum already made once in
-this corpus.
+The distinction that keeps this from being magic: the provider declares the **options**, and the
+*derive* decides how each one lands in its agent's config. Nothing is discovered by reflection over
+the provider's shape, and core learns no option names at all.
+
+```jsonc
+// the provider declares its surface
+{ "kind": "provider", "name": "zai",
+  "endpoints": { … }, "models": { "default": "glm-4.7", "fast": "glm-4.7-air" },
+  "options": {
+    "model":    { "kind": "model-alias", "default": "default" },
+    "thinking": { "kind": "enum", "values": ["off", "low", "high"] }
+  } }
+
+// a profile is an instance of it
+{ "profiles": { "zai-fast": { "provider": "zai", "model": "fast", "thinking": "low" } } }
+```
+
+`model` stops being special — it becomes one option of a declared kind, whose legal values are the
+provider's own `models` aliases. That is the same sentence as before, generalized: **the provider
+says what can be set and what the legal values are; the agent's own derive says where it lands.**
+
+> [!WARNING]
+> **An option nothing consumes is inert, and that has to stay true rather than become an error.**
+> A provider may offer `thinking` and an agent's derive may not know it; that composes to nothing,
+> the way an endpoint for a protocol no agent speaks already does. Refusing an unconsumed option
+> would make every provider's surface hostage to the least capable agent selected. The temptation to
+> close this vocabulary should be resisted for the reason `wire_api`'s enum records: a set validated
+> at one end and delivered verbatim at the other is not type safety, and closing an option set here
+> would repeat it one layer up. **Which validation an option DOES get is OQ-CS7** — the declaration
+> can be checked against itself (an enum's value is in its own list) without core knowing what
+> `thinking` means.
+
+
+### 5.3 What `api_key_env_name` is actually used for — two mechanisms, not one
+
+Traced 2026-09-01, because *"do we read it and pass it on directly to agents and embed the key in
+their config? would they have read from the env instead?"* has a different answer per agent.
+
+| Agent | What yolo does with `ZAI_API_KEY` | Does yolo read the secret? |
+| :--- | :--- | :--- |
+| pi | writes the **name** into `models.json` as `apiKeyEnv: "ZAI_API_KEY"` | **no** |
+| codex | writes the **name** into `config.toml` as `api_key_env = "ZAI_API_KEY"` | **no** |
+| opencode | writes a **name reference** into `opencode.json` as `apiKey: "{env:ZAI_API_KEY}"` | **no** |
+| claude | reads the **value** and re-emits it as `ANTHROPIC_AUTH_TOKEN=<secret>` | **yes** |
+
+**So for three of the four, the answer to "would they have read from the env instead?" is: they do,
+already.** yolo passes the name through and never touches the secret. **The key is not embedded in
+any agent's config file** — no derive writes a value, and `env_shape`'s `{key}` feeds only the
+process environment, never a composed surface.
+
+**claude is the exception, and it is a rename rather than an embed.** claude reads
+`ANTHROPIC_AUTH_TOKEN`; the user's variable is `ZAI_API_KEY`. Nothing can alias one environment
+variable to another, so the only way to serve both *"one key, spelled once"* and *"claude reads its
+own variable"* is to copy the value. That copy is the entire reason `{key}` exists, and it is why
+`api_key_env_name` is a **binding** (a fact about this machine) rather than a service fact — the
+point [`provider-table-fidelity.md`](provider-table-fidelity.md) §5.4 makes about the field sitting
+in the wrong record.
+
+> [!WARNING]
+> **The secret does reach a file, and the file is world-readable.** `writeUserEnvFile`
+> ([`internal/cli/run/userenv.go`](../../internal/cli/run/userenv.go)) writes the hydrated
+> `env_sources` values to `<workspace>/.yolo/yolo-user-env.sh` at **mode 0644**, mounted into the
+> jail at `~/.config/yolo-user-env.sh`. Measured in this jail 2026-09-01: `-rw-r--r--`, holding
+> `ZAI_API_KEY` and `CEREBRAS_API_KEY` in plaintext. The path is gitignored, so it is not a
+> commit risk — but [`packs/zai/README.md`](../../packs/zai/README.md) tells the user to keep the
+> key in a file that is *"untracked, 0600"*, and yolo's own copy of it downgrades the mode. The
+> claude path additionally puts the value on the `podman run` argv as `-e ANTHROPIC_AUTH_TOKEN=…`,
+> which is visible in `ps` to any process on the host that can see it. Neither is this doc's to
+> fix — both are recorded as **D8** in
+> [`provider-table-fidelity.md`](provider-table-fidelity.md), which owns the defect list.
 
 ---
 
@@ -366,21 +431,11 @@ unrelated to the sequence above.
    case is the agent's own business, and yolo writing a default would silently revert an
    interactive `/model` choice on the next boot. Folded into §5.1.
 
-3. 💬 **OQ-CS4: Does a provider ever get to ADD a profile field?** *(Reframed after review — the
-   original asked "derived or declared schema", and the maintainer's objection that this sounded
-   like "some sort of magically enforced schema" is why it is no longer that question. §5.2 now
-   fixes the field set at two, `provider` and `model`, both core-defined, with the provider defining
-   only the legal VALUES of `model`.)* What remains open is whether a provider may later declare an
-   options block offering a tunable that is not a model.
-
-   _Leaning:_ Not now, and possibly not ever. Two fixed fields cover every case in the tree and
-   every case either of us has been able to name; a provider-declared options vocabulary is schema
-   describing schema, built against zero consumers — which is precisely how `wire_api`'s enum came
-   to name protocols no agent speaks. Revisit when a real provider has a real tunable, and let that
-   provider's actual need pick the shape.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+3. ✅ **OQ-CS4: Does a provider ever get to ADD a profile field? — RESOLVED (2026-09-01). YES, and
+   it is the point.** *"Model can't be the only config we'll want, which is why I said the config
+   surface/schema is dictated by the provider."* A provider declares an `options` block; a profile is
+   an instance of it; the agent's derive decides where each option lands. My leaning — fix the field
+   set at two and defer — is overruled. Folded into §5.2.
 
 4. 💬 **OQ-CS5: Where do user-declared profiles live in config, and at which scope?** §5.2's
    examples assume a top-level `profiles` key beside `pack_profiles` (declaration and selection
@@ -398,20 +453,11 @@ unrelated to the sequence above.
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 **OQ-CS6: Confirm reversing `profiles-as-pack-variants.md` OQ-5 — profile names stop being
-   free-form.** §5.2 property 3 requires every profile to be declared and to name a provider, which
-   contradicts OQ-5's ruling that names are free-form and global. That ruling was made when a profile
-   **was** a bare string; the definition has changed underneath it, so this is a re-examination
-   rather than an oversight — but it is a ruled question and reversing it is yours, not mine.
-
-   _Leaning:_ Reverse it. Free-form names were the right call for a bare gate and are the wrong one
-   for a declared selection: they are what makes `-p zia` a silent no-op today rather than an error,
-   and mandatory declaration is what finally lets an unmatched name be reported. The cost is a
-   behaviour change for anyone gating a derive on an undeclared name — nothing in the tree does, and
-   the migration is one declaration per name in use.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+5. ✅ **OQ-CS6: Confirm reversing `profiles-as-pack-variants.md` OQ-5 — RESOLVED (2026-09-01).
+   Reversed.** *"Reversing old decisions is fine. We're debugging a mess of a design and need to
+   change things."* Profile names stop being free-form: declaration is mandatory, and an undeclared
+   name becomes a reportable error rather than a silent no-op. OQ-5 is **superseded** — it was ruled
+   when a profile was a bare string. Folded into §5.2 property 3.
 
 6. 💬 **OQ-CS3: Which model does selecting a provider select?** A provider carries `models` aliases
    (`default`, `fast`, …) and the alias vocabulary is deliberately open. Selection needs one
@@ -426,6 +472,21 @@ unrelated to the sequence above.
    **Answer:**
    > _(empty — fill in when decided)_
 
+7. 💬 **OQ-CS7: What validation does a provider-declared option get?** §5.2. Core cannot know what
+   `thinking` means, and an option no derive consumes must stay inert rather than become an error —
+   so the question is what CAN be checked. The declaration is checkable against itself: an `enum`
+   option's value is in its own `values` list, a `model-alias` option names a real alias of that
+   provider's `models`.
+
+   _Leaning:_ Exactly that — validate a profile's option values against the provider's own
+   declaration, and nothing else. It is the strongest check available without core learning a
+   vocabulary, it catches the typo class that matters (`"thinkng": "low"`, `"model": "fastt"`), and
+   it cannot repeat `wire_api`'s failure because the authority being checked against is shipped
+   alongside the value rather than baked into a yolo release.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
 ---
 
 ## 10. Decision Ledger
@@ -436,6 +497,8 @@ folded into the section named in the last column.
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-CS1 | **Option D** — catalog from presence, selection written into each agent's own selection key. *"Activating a profile should work for all."* B (gating the catalog) rejected with it. | 2026-09-01 | §5, §5.1 |
+| OQ-CS4 | **A provider declares an `options` block; a profile is an instance of it** — *"model can't be the only config we'll want."* The derive decides where each option lands; core learns no option names. Supersedes the fixed two-field draft. | 2026-09-01 | §5.2 |
+| OQ-CS6 | **OQ-5's free-form profile names are SUPERSEDED** — declaration is mandatory, and an undeclared name is a reportable error, not a silent no-op. *"Reversing old decisions is fine."* | 2026-09-01 | §5.2 property 3 |
 | OQ-CS2 | **Never write the selection key when no profile is active** — *"default can be left to the specific agent."* The no-profile case is the agent's own, and a written default would revert an interactive choice each boot. | 2026-09-01 | §5.1 |
 
 ---
