@@ -9,10 +9,11 @@ of `packs`; the twelve that ship with yolo live in `packs/*/pack.json` and are
 selected by BARE NAME — `"packs": ["claude"]` (counted against `ls packs/` 2026-09-02).
 Six install an agent (`claude`, `copilot`, `opencode`, `pi`, `codex`, `agy`) and
 **six install no CLI at all**, in two kinds: `audio`, `host-processes`, `journal`,
-`cgroup-delegate` and `serial` each ship a LOOPHOLE and nothing else, and `zai` ships
-neither CLI nor loophole — a provider, a profile and a config overlay, the first pack
-whose whole content is declarative facts. Anything that says "the six" is describing
-the agent SUBSET.
+`cgroup-delegate` and `serial` ship a LOOPHOLE each (`audio` also contributes two env
+vars — the only one of the five that ships anything beside its loophole), and `zai`
+ships neither CLI nor loophole — a provider, a profile and a config overlay, the first
+pack whose whole content is declarative facts. Anything that says "the six" is
+describing the agent SUBSET.
 
 **Every loophole yolo ships is a pack's, and there is no other channel** (2026-08-19).
 `journal` and `cgroup-delegate` were Go functions the run pipeline called by hand — one

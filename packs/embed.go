@@ -20,11 +20,12 @@
 // NOT EVERY OFFICIAL PACK IS AN AGENT. Twelve packs are embedded here (counted against
 // `ls packs/` 2026-09-02): six install a CLI and six do not. Of those six, `audio`,
 // `host-processes`, `journal`, `cgroup-delegate` and `serial` ship a LOOPHOLE (one of
-// seventeen contribution kinds, a count pinned by `internal/packdecl/kinds_test.go`) and
-// nothing else — they are the dogfood for docs/design/loophole-packaging.md §7 / OQ-LP11,
-// whose prize is that "AGENTS ARE PACKS" becomes true of loopholes too — and `zai` ships
-// neither CLI nor loophole: a provider, a profile and a config overlay, the first pack
-// whose whole content is declarative facts. Anything here that reasons
+// seventeen contribution kinds, a count pinned by `internal/packdecl/kinds_test.go`) —
+// `audio` also contributes an `env` block, the only one of the five that ships anything
+// beside its loophole — and they are the dogfood for docs/design/loophole-packaging.md
+// §7 / OQ-LP11, whose prize is that "AGENTS ARE PACKS" becomes true of loopholes too.
+// `zai` ships neither CLI nor loophole: a provider, a profile and a config overlay, the
+// first pack whose whole content is declarative facts. Anything here that reasons
 // about "the six agent packs" (a comment, a test's name list) is describing the agent
 // SUBSET, not this list.
 //
