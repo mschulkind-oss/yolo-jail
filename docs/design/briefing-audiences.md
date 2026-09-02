@@ -3,7 +3,7 @@ title: "Audiences: a pack's content should be able to name who it is for"
 date: 2026-08-31
 status: accepted
 tags: [packs, briefing, skills, resolution, context]
-summary: "A pack's briefing prose and skills reach every agent in the jail, so content that applies to one agent is either broadcast to all of them or deleted. An optional `agents` selector on `briefing` and `skills`, keyed by launcher command (the `bin` namespace `-p` and `pack_profiles` already use) rather than by pack slug, matched against an `agent` identity the destination declares for itself — so a content pack names its audience and never a path. Naming an agent the jail has not enabled is fatal, one name has exactly one owning pack, and all seven questions are ruled."
+summary: "A pack's briefing prose and skills reach every agent in the jail, so content that applies to one agent is either broadcast to all of them or deleted. An optional `agents` selector on `briefing` and `skills`, keyed by launcher command (the `bin` namespace `-p` and `use_profiles` already use) rather than by pack slug, matched against an `agent` identity the destination declares for itself — so a content pack names its audience and never a path. Naming an agent the jail has not enabled is fatal, one name has exactly one owning pack, and all seven questions are ruled."
 ---
 
 # Audiences: a pack's content should be able to name who it is for
@@ -15,7 +15,7 @@ Ledger, at the foot). Nothing built; §9 is the build order.
 **every** destination, so a pack whose rules apply to one agent must broadcast them to all
 of them or drop them. Skills have the same defect and take the same fix. The
 answer is an optional `agents` selector on `briefing` and `skills` — a list of **launcher
-commands**, which is the same `bin` namespace `-p <name> -- <bin>` and `pack_profiles.<cli>`
+commands**, which is the same `bin` namespace `-p <name> -- <bin>` and `use_profiles.<cli>`
 already key on, and explicitly **not** the pack slug. The destination it matches against
 **declares** that name as `agent`, exactly as a config surface already does — nothing is derived,
 because nothing in the `-p` chain derives anything either (§4.2). A content pack names only the
@@ -46,7 +46,7 @@ new namespace, no config key. Five principles carry the design:
 **P1. The audience namespace is the CLI-name namespace, and there is no second one.**
 [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) §2.5 already settled this for
 profiles: `program` and `launch` are `CombineExclusive` by `bin`
-([`kinds.go:197-198`](../../internal/packdecl/kinds.go#L197-L198),
+([`kinds.go:243-244`](../../internal/packdecl/kinds.go#L243-L244),
 [`:100`](../../internal/packdecl/kinds.go#L100)), so a CLI name resolves to at most one pack
 by construction, and *"the agents"* are simply the union of the `bin`s the selected packs
 install. An audience is the same question about the same set, so it gets the same key.
@@ -114,7 +114,7 @@ composes one string:
 
 - [`prepare.go:154`](../../internal/cli/run/prepare.go#L154) — `ComposePackBriefings(briefingBody, packBriefings)` folds **every** selected pack's prose into one body, each under a `<!-- from pack: NAME -->` header.
 - [`prepare.go:170-186`](../../internal/cli/run/prepare.go#L170-L186) — the write loop then iterates every pack's every `briefing` contribution and writes **that same body** to each, at `briefing-<pack>.md` in the staging dir ([`:457`](../../internal/cli/run/prepare.go#L457)).
-- [`assemble.go:615-643`](../../internal/cli/run/assemble.go#L615-L643) — each staging file is bind-mounted `:ro` at the contribution's `into`, deduplicated by destination.
+- [`assemble.go:660-688`](../../internal/cli/run/assemble.go#L660-L688) — each staging file is bind-mounted `:ro` at the contribution's `into`, deduplicated by destination.
 
 The host notch composes the same content by a different route:
 [`ComposeHostBriefings`](../../internal/entrypoint/hostbriefing.go#L133) builds a `byPath` map,
@@ -146,7 +146,7 @@ else. The five loophole-only packs (`audio`, `cgroup-delegate`, `host-processes`
 **`into` does not scope, and the reason is §2, not `from`.** A content pack that declares
 `briefing { into: ".claude/CLAUDE.md" }` does not thereby address Claude: composition already
 merged its prose into the one body every other destination receives, and the destination dedup
-at `assemble.go:632` means its mount is dropped as a duplicate of the `claude` pack's.
+at `assemble.go:677` means its mount is dropped as a duplicate of the `claude` pack's.
 
 > [!WARNING]
 > **`yolo config-ref` still carries a stale note that looks like it answers this.** It says a
@@ -158,7 +158,7 @@ at `assemble.go:632` means its mount is dropped as a duplicate of the `claude` p
 > stale note is a separate small fix; do not cite it as evidence either way.
 
 **`agents: [...]` on a pack entry is the one spelling already deleted on purpose.**
-[`internal/config/packs.go:73-80`](../../internal/config/packs.go#L73-L80) is its tombstone:
+[`internal/config/packs.go:75-82`](../../internal/config/packs.go#L75-L82) is its tombstone:
 
 > A PACK APPLIES TO THE WHOLE JAIL. There used to be a per-entry `agents` filter ("stage this
 > pack only for claude"), and it is gone: it presumed a fixed, known agent list, which is the
@@ -205,9 +205,9 @@ every session — but every rule in §4.2 and §4.3 reads the same with `skills`
 
 **`into` and `agents` are two answers to one question, and a contribution gives exactly one.**
 That is not a stylistic rule; it falls out of what the validator already says. `into` is
-**required** on `briefing` today ([`contributes.go:907`](../../internal/packdecl/contributes.go#L907)),
+**required** on `briefing` today ([`contributes.go:1222`](../../internal/packdecl/contributes.go#L1222)),
 and its own rationale states the reason it cannot be defaulted
-([`:899-903`](../../internal/packdecl/contributes.go#L899-L903)):
+([`:1214-1218`](../../internal/packdecl/contributes.go#L1214-L1218)):
 
 > *"A source has one right answer per KIND; a destination has one right answer **per AGENT**, so
 > inferring it means inferring the agent set — which is what the `packs` list is for."*
@@ -237,12 +237,12 @@ against a string a pack declared about itself.** End to end:
 
 | Step | Code | What happens to the name |
 | :--- | :--- | :--- |
-| produce | [`assemble.go:768-773`](../../internal/cli/run/assemble.go#L768-L773) | `filepath.Base(o.Args[0])` — literally the word the user typed after `--`, stored as a map key |
-| carry | [`assemble.go:730`](../../internal/cli/run/assemble.go#L730) | `for _, agent := range effectiveProfiles.Keys()` — iterates the keys of the map the user wrote |
-| match | [`agentenv.go:66`](../../internal/agentenv/agentenv.go#L66) | `if agent == "claude"` — a literal comparison |
-| match | [`packs/claude/derive.lua:5`](../../packs/claude/derive.lua#L5) | `ctx.agent_profiles.claude` — **the pack hardcodes its own name** |
+| produce | [`assemble.go:862`](../../internal/cli/run/assemble.go#L862) | `filepath.Base(o.Args[0])` — literally the word the user typed after `--`, stored as a map key |
+| carry | [`assemble.go:845`](../../internal/cli/run/assemble.go#L845) | `for k, v := range o.UseProfiles` — copies the map the user wrote; the value is carried as a plain string, never derived |
+| match | [`luahook/derive.go:163`](../../internal/agentcfg/luahook/derive.go#L163) | `fn, ok = envs[ctx.Agent]` — a map lookup keyed by the literal agent string, against whatever name a pack registered itself under |
+| match | [`packs/claude/derive.lua:5`](../../packs/claude/derive.lua#L5) | `ctx.use_profiles.claude` — **the pack hardcodes its own name** |
 
-**There is no `bin`→pack index in the tree** (checked 2026-08-31), because nothing needs one. And
+**There is no `bin`→pack index in the tree** (checked 2026-08-31, repinned 2026-09-02), because nothing needs one. And
 identity-by-declaration is not a quirk of profiles — it is the house style. A config surface's
 owner is a declared string, [`SurfaceDTO.Agent`](../../internal/agentcfg/manifest/load.go#L27),
 keyed as [`SurfaceKey{Agent, Name}`](../../internal/agentcfg/manifest/manifest.go#L208), and all
@@ -277,18 +277,18 @@ check is not "two `briefing` contributions declared `agent: claude`" but "two pa
 A same-pack repeat stays normal and legal: `packs/copilot` declares `copilot` on both `program`
 and `launch`, and one pack claiming its own name in five kinds is one pack owning one name.
 `Collisions` already ignores that case — it skips any target whose claimants are a single pack
-([`footprint.go:390-392`](../../internal/packload/footprint.go#L390-L392)) — so what changes is
+([`footprint.go:425-427`](../../internal/packload/footprint.go#L425-L427)) — so what changes is
 the KEY, from `(kind, target)` to the name itself for this one namespace.
 
 This also needs its own pass rather than falling out of the generic one:
-[`Collisions`](../../internal/packload/footprint.go#L364) keys claims by `(kind, target)` and
-**skips every kind that is not `CombineExclusive`** ([`:400`](../../internal/packload/footprint.go#L400)),
+[`Collisions`](../../internal/packload/footprint.go#L399) keys claims by `(kind, target)` and
+**skips every kind that is not `CombineExclusive`** ([`:435`](../../internal/packload/footprint.go#L435)),
 and `briefing` is `CombineConcat` by design — several packs contributing prose at one path is the
 whole point. So an `agent` claim inside it is invisible to that loop. The precedent is exact and
 already in the file twice: `pluginNameCollisions` exists because *"the generic loop above cannot
 see this (the claim's kind is skills, which merges by design), so it is its own pass"*
-([`:498-501`](../../internal/packload/footprint.go#L498-L501)), and `LoopholeNameCollisions`
-([`:530`](../../internal/packload/footprint.go#L530)) is the same shape. The agent-name namespace
+([`:460-461`](../../internal/packload/footprint.go#L460-L461)), and `LoopholeNameCollisions`
+([`:565`](../../internal/packload/footprint.go#L565)) is the same shape. The agent-name namespace
 is a third instance of it — and the widest, since it spans five kinds rather than sitting inside
 one.
 
@@ -335,7 +335,7 @@ per-destination `byPath` loop; the selector check goes beside the `prose == ""` 
 of by pack. Three things follow:
 
 1. `ComposePackBriefings` moves from [`prepare.go:154`](../../internal/cli/run/prepare.go#L154) into the loop at [`:170`](../../internal/cli/run/prepare.go#L170), taking the destination's audience as an argument.
-2. `briefingStagingName` ([`:457`](../../internal/cli/run/prepare.go#L457)) is keyed by destination, and `assemble.go`'s mount must use the same key — the two spellings are already coupled by comment ([`assemble.go:611-614`](../../internal/cli/run/assemble.go#L611-L614)) and would now be coupled by content too.
+2. `briefingStagingName` ([`:457`](../../internal/cli/run/prepare.go#L457)) is keyed by destination, and `assemble.go`'s mount must use the same key — the two spellings are already coupled by comment ([`assemble.go:656-659`](../../internal/cli/run/assemble.go#L656-L659)) and would now be coupled by content too.
 3. The per-destination `after: "host:<path>"` prepend and the `GeneratedHostBriefings` ownership gate ([`prepare.go:175-180`](../../internal/cli/run/prepare.go#L175-L180)) are already inside the loop and need no change.
 
 **What it lifts for free.** [`briefingsource.go:106-108`](../../internal/packload/briefingsource.go#L106-L108)
@@ -357,10 +357,10 @@ load-bearing in two places.
 
 | # | Alternative | Verdict |
 | :--- | :--- | :--- |
-| A1 | **Key by pack slug** — `for: ["claude"]` meaning *the pack named claude*. | **Rejected (maintainer, 2026-08-31).** A slug is a fetch-address artifact that config can rename per entry (`PackEntry.Name`, [`packs.go:88`](../../internal/config/packs.go#L88)), so a reference to it can be broken by a line the referencing pack cannot see. The `bin` namespace is exclusive by construction and is what the user types. |
-| A2 | **Derive the destination's identity** from the `bin`s its declaring pack installs, so no pack is edited. | **Rejected 2026-08-31 (OQ-BA2), and it was this doc's own first proposal.** Nothing in the `-p` chain derives an identity — the name is typed, carried as a map key, and matched against a string the pack declared about itself, down to `derive.lua` hardcoding `ctx.agent_profiles.claude`. There is no `bin`→pack index to derive through, and inventing one for briefings alone would make this the only kind whose owner is inferred. §4.2. |
-| A3 | **Use `files` instead** — deliver agent-specific prose as an owned tree at an agent-specific path. | **Rejected.** `files` is `CombineExclusive` ([`kinds.go:218`](../../internal/packdecl/kinds.go#L218)), so it cannot co-exist with the agent pack's briefing at that path, and it bypasses both the composed jail-environment prose and the provenance header. It works today only where an agent reads a *second* file nobody else claims (pi's `APPEND_SYSTEM.md`), which is precisely the split-mechanism problem this design closes. |
-| A4 | **Per-entry `only`/`exclude` globs** ([`packs.go:94`](../../internal/config/packs.go#L94)). | **Not applicable.** They filter the pack *tree* by glob — which files stage — not the destination. No combination of them routes one file to claude and another to pi. |
+| A1 | **Key by pack slug** — `for: ["claude"]` meaning *the pack named claude*. | **Rejected (maintainer, 2026-08-31).** A slug is a fetch-address artifact that config can rename per entry (`PackEntry.Name`, [`packs.go:90`](../../internal/config/packs.go#L90)), so a reference to it can be broken by a line the referencing pack cannot see. The `bin` namespace is exclusive by construction and is what the user types. |
+| A2 | **Derive the destination's identity** from the `bin`s its declaring pack installs, so no pack is edited. | **Rejected 2026-08-31 (OQ-BA2), and it was this doc's own first proposal.** Nothing in the `-p` chain derives an identity — the name is typed, carried as a map key, and matched against a string the pack declared about itself, down to `derive.lua` hardcoding `ctx.use_profiles.claude`. There is no `bin`→pack index to derive through, and inventing one for briefings alone would make this the only kind whose owner is inferred. §4.2. |
+| A3 | **Use `files` instead** — deliver agent-specific prose as an owned tree at an agent-specific path. | **Rejected.** `files` is `CombineExclusive` ([`kinds.go:264`](../../internal/packdecl/kinds.go#L264)), so it cannot co-exist with the agent pack's briefing at that path, and it bypasses both the composed jail-environment prose and the provenance header. It works today only where an agent reads a *second* file nobody else claims (pi's `APPEND_SYSTEM.md`), which is precisely the split-mechanism problem this design closes. |
+| A4 | **Per-entry `only`/`exclude` globs** ([`packs.go:96`](../../internal/config/packs.go#L96)). | **Not applicable.** They filter the pack *tree* by glob — which files stage — not the destination. No combination of them routes one file to claude and another to pi. |
 | A5 | **A denylist form** (`except: ["pi"]`). | **Rejected 2026-08-31 (OQ-BA3).** Under P3 an author may name only ENABLED agents, so an allowlist is already bounded by the jail rather than by the set of agents that exist — the burden a denylist relieves does not arise. §4.3. |
 
 ---
@@ -380,7 +380,7 @@ load-bearing in two places.
 | Risk | Mitigation |
 | :--- | :--- | 
 | **R1. A pack addresses a CLI whose pack is unselected, and silently briefs nothing.** The whole point of the pack is then inert with no signal. | The skip is *reported*, not silent (§4.3) — the launch banner already lists what each pack reads and honors; an addressed contribution that matched no destination belongs in the same report. |
-| **R2. The jail's staging-key change is a host↔jail contract move.** Renaming the staging file while `assemble.go` still emits the old name is exactly the skew class `AGENTS.md` warns about. | Both spellings are in one package and one commit; `version.SourceSkew` refuses a skewed launch. The existing comment coupling them ([`assemble.go:611-614`](../../internal/cli/run/assemble.go#L611-L614)) becomes a shared helper. |
+| **R2. The jail's staging-key change is a host↔jail contract move.** Renaming the staging file while `assemble.go` still emits the old name is exactly the skew class `AGENTS.md` warns about. | Both spellings are in one package and one commit; `version.SourceSkew` refuses a skewed launch. The existing comment coupling them ([`assemble.go:656-659`](../../internal/cli/run/assemble.go#L656-L659)) becomes a shared helper. |
 | **R3. A test that pins the selector's resolver while the call site stays unpinned.** The repo has shipped this shape five times. | The test that must exist: delete the filter call in `ComposeHostBriefings` and in the jail loop, and assert both fail. Per-notch, since §5 shows the two notches change differently. |
 | **R4. A third-party agent pack that declares no identity is not addressable**, and its users cannot tell why a scoped pack skipped it. | The remedy is one field in that pack, and §4.3's reporting names the destination that declared nothing whenever a selector finds no match. This is the cost §4.2 accepts in exchange for deleting the derivation, not one it hides. |
 
@@ -413,7 +413,7 @@ principles for the rulings that shaped the body. What is left is build order (§
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| OQ-BA1 | Key the selector by **CLI name (`bin`)**, not by pack slug — the namespace `-p <name> -- <bin>` and `pack_profiles.<cli>` already use | 2026-08-31 | §1 P1, §4.1, §6 A1 |
+| OQ-BA1 | Key the selector by **CLI name (`bin`)**, not by pack slug — the namespace `-p <name> -- <bin>` and `use_profiles.<cli>` already use | 2026-08-31 | §1 P1, §4.1, §6 A1 |
 | OQ-BA6 | The identity is **declared by the agent pack, which OWNS that name** — two packs claiming one `bin` is a **fatal** error. Needs its own collision pass, since `briefing` is `CombineConcat` and the generic loop skips non-exclusive kinds (`pluginNameCollisions`/`LoopholeNameCollisions` are the precedent). | 2026-08-31 | §4.1, §4.2 |
 | OQ-BA5 | The fields are **`agent`** (identity) and **`agents`** (selector) — not `bins`, not `for`. The value is still the bin; the spelling follows what users call the thing and what a config surface already calls it. | 2026-08-31 | §1 (after P4), §4.1 |
 | OQ-BA7 | Ownership is **per NAME, across kinds** — one `claude`, one owner, which provides all of that agent's plumbing (briefing, skills, surfaces, launch flags) whether it `program`s the binary or `requires` it. The "briefing-only pack owned by a second pack" case this question posed does not exist: `claude-official` and `claude-matt-fork` both launch as `claude` and cannot both be enabled. Collision key moves from `(kind, target)` to the name. | 2026-08-31 | §1 P5, §4.2 |
