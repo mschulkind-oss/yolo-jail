@@ -646,7 +646,8 @@ the table. Then: a
 (measured); `--profile` meant startup timing *or* a pack profile depending on the next token, after
 two commits patching that parse — OQ-PT5 has since taken the timing meaning away (`--timing`) and
 left the flag name-only; and the census — this work made `zai` the **twelfth** pack and the
-first that installs no CLI *and* ships no loophole, while `AGENTS.md:8` still says ten.
+first that installs no CLI *and* ships no loophole, while `AGENTS.md:8` still said ten — 67f87f36
+has since said twelve.
 
 **What needs no ruling, and is worth doing regardless:** the missing integration test — nothing in
 `integration/` mentions `zai`, `pack_profiles` or `providers`, though the pattern exists and **an

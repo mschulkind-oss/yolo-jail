@@ -13,9 +13,9 @@ import (
 )
 
 // agentPacks returns the embedded packs that INSTALL an agent — the ones with a
-// `program` contribution. The four that ship a loophole and no CLI (audio,
-// host-processes, journal, cgroup-delegate) have no briefing or skills to deliver and
-// are not the subject here.
+// `program` contribution. The packs that ship no CLI (today audio, host-processes,
+// journal, cgroup-delegate, serial and zai) deliver no briefing or skills and are
+// not the subject here.
 func agentPacks(t *testing.T) []*packload.Pack {
 	t.Helper()
 	var out []*packload.Pack

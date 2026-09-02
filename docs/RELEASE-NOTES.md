@@ -73,8 +73,9 @@ launcher, a blocked-tool shim), so a `bin` carrying path structure was a write o
 directory — the canonical target being a `~/.bashrc`. `yolo pack lint` and jail boot both refuse it
 now, and the writers re-check independently.
 
-**Who this bites.** No shipped pack is affected — the ten that yolo ships all use bare names. A
-third-party or hand-written pack with a path-shaped `bin` gets a loud refusal naming the rule.
+**Who this bites.** No shipped pack is affected — the twelve that yolo ships all use bare names
+(verified against `packs/*/pack.json` 2026-09-02). A third-party or hand-written pack with a
+path-shaped `bin` gets a loud refusal naming the rule.
 
 ### The `null` unset spelling is actually configurable now
 
