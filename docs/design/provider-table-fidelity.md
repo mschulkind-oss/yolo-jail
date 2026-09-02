@@ -3,7 +3,7 @@ title: "The provider table is checked in yolo's vocabulary and delivered in ever
 date: 2026-09-01
 status: accepted
 tags: [packs, providers, profiles, derives, zai, codex, pi]
-summary: "Follow-up to profiles-as-pack-variants and zai-plumbing, written from a review of the shipped work. The provider/profile machinery is sound; three defects share one cause — a value is validated against a set yolo owns and then handed verbatim to consumers that own different sets and different resolution rules. The headline instance ships a wire_api into codex's config that the repo's own source-verified research says codex refuses, and the enum it comes from turns out to be four borrowed spellings naming three protocols. Four further defects are independent, the largest of them conceptual: \"profile\" names three things, only one of which has a user layer, and zai's own profile declaration is measurably a no-op."
+summary: "Follow-up to profiles-as-pack-variants and zai-plumbing, written from a review of the shipped work. The provider/profile machinery is sound; three defects share one cause — a value is validated against a set yolo owns and then handed verbatim to consumers that own different sets and different resolution rules. The headline instance ships a wire_api into codex's config that the repo's own source-verified research says codex refuses, and the enum it comes from turns out to be four borrowed spellings naming three protocols. Four further defects are independent, the largest of them conceptual: \"profile\" names three things, only one of which has a user layer, and zai's own profile declaration is measurably a no-op. Verification of the delivery chain's far end (2026-09-02) added two defects of D1's class, §3.5: D10, opencode reads its provider URL and key only under `options` the derive does not emit; D11, pi has no `apiKeyEnv` field, so the credential the derive names is dead configuration."
 ---
 
 # The provider table is checked in yolo's vocabulary and delivered in everyone else's
@@ -166,12 +166,19 @@ enumerating protocols. That is why it validates and does not translate: a set of
 spellings has no canonical member to translate *from*.
 
 > [!NOTE]
-> **Residual uncertainty, stated rather than smoothed over.** That `openai-completions` means chat
-> completions rather than the legacy `/v1/completions` is strongly indicated — pi's own module is
-> `dist/api/openai-completions.js`, and the maintainer's working `~/.pi/agent/models.json` points
-> that value at z.ai's `/api/paas/v4`, which serves `/chat/completions` and nothing else — but it
-> is inferred from two data points, not read out of pi's source. It carries the same verification
-> debt this doc charges D1 with, and §9 step 2 pays it.
+> **VERIFIED from source 2026-09-02; the residual uncertainty this note used to carry is
+> retired.** pi 0.84.4 — the exact package `~/.yolo/bin/launch/pi` installs, npm-installed to a
+> scratch prefix with the CLI itself never run — keeps its `api` vocabulary in a **runtime
+> registry**, not the schema: `BUILTIN_APIS` (`pi-ai/dist/compat.js:108-119`) lists ten ids, of
+> which the OpenAI-protocol ones are exactly **`openai-completions`** and
+> **`openai-responses`**. The schema is a free string (`dist/core/model-config.js:173`), so an
+> unknown value loads cleanly and dies at first request — `No API provider registered for api:
+> <value>` (`dist/core/provider-composer.js:320`). `openai-completions` **is** chat completions:
+> `pi-ai/dist/api/openai-completions.js:213` calls `client.chat.completions.create(...)`. And pi
+> has **no default** — an absent `api` is a composition error that deletes the provider from the
+> model list (`dist/core/provider-composer.js:48-52`) — so the `openai-completions` default in
+> yolo's rendered configs is `packs/pi/derive.lua`'s choice, not pi's. `openai-chat` and
+> `responses` are not pi values: the two-data-point guess this note used to hedge on was right.
 
 ### 3.1 Where the value came from, and why the check missed it
 
@@ -228,6 +235,44 @@ doc works at:
 
 The alternative placements are weighed in §7.
 
+### 3.5 D10 and D11 — the catalog entries render and do not work (found while paying §3.0a's debt)
+
+Both found **2026-09-02**, verifying the delivery chain's far end against each agent's own
+source, and both are §3's class exactly: **a value yolo writes into an agent's config that the
+agent does not read**. They are numbered here rather than in §5 because they share D1's cause —
+the abstraction internally consistent, externally unchecked.
+
+**D10 — opencode reads `baseURL` and `apiKey` only under `options`; the derive writes them
+top-level.** Verified from upstream at the installed version (tag `v1.18.18`, commit `31406ccc`,
+2026-08-13 — the tag the shipped binary reports): the schema declares both inside `options`
+(`packages/core/src/v1/config/provider.ts`), the loader merges only `provider.options`
+(`provider.ts:1431`), and `resolveSDK` reads `{ ...provider.options }` (`provider.ts:1674-1712`).
+Measured against the installed binary with a local listener: the top-level spelling
+[`packs/opencode/derive.lua`](../../packs/opencode/derive.lua) emits (`:54-61`) produces
+`"undefined/chat/completions" cannot be parsed as a URL` and **zero requests**; the `options`
+spelling delivers `POST /v1/chat/completions` with the Authorization header. The rendered `zai`
+entry is therefore **visible-but-unusable**: it lists in `/models`, is selectable, and its URL
+never reaches the SDK. The fix keeps `npm` and `models` top-level and moves `baseURL`/`apiKey`
+under `options`; `{env:VAR}` stays valid there (substitution applies to the whole config text at
+load, `packages/opencode/src/config/variable.ts:34-38`).
+
+**D11 — pi has no `apiKeyEnv` field; the credential the derive names is dead configuration.**
+[`packs/pi/derive.lua`](../../packs/pi/derive.lua)`:42` writes `apiKeyEnv = <name>`; pi's
+`ProviderConfigSchema` has no such field (`dist/core/model-config.js:169-180` — name, baseUrl,
+apiKey, api, oauth, headers, compat, authHeader, models, modelOverrides) and nothing in the
+package reads one. The schema tolerates the extra key, so it passes through untouched and does
+nothing. pi's actual env-var indirection is the config-value syntax **on `apiKey`** —
+`"${ZAI_API_KEY}"` (`docs/custom-provider.md:186`; the maintainer's own hand-written
+`~/.pi/agent/models.json` uses it). A provider carrying only `apiKeyEnv` has no configured
+credential: its models are filtered from the available list, and a forced stream throws `No API
+key for provider: <id>`.
+
+Both fixes are one derive each and ride the sibling plan's derive work
+([`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) build-order steps
+3–5); neither changes a schema. **§2 of that doc measures the catalog as "ships today ✅ all
+four agents" — at the file level it does, and D10/D11 are the proof that file-level presence is
+not wire-level delivery.**
+
 ---
 
 ## 4. D2 and D3 — the same shape, one layer down
@@ -275,8 +320,11 @@ closes what OQ-16 deferred. But it delivers the URL as a **literal in the manife
 
 `https://api.z.ai/api/anthropic` now appears **twice** in
 [`packs/zai/pack.json`](../../packs/zai/pack.json) — once as the provider's
-`endpoints.anthropic.base_url`, once here — with no test asserting they agree (checked: the
-`api.z.ai` string appears in no Go test; every fixture uses `https://n/...`).
+`endpoints.anthropic.base_url`, once here — with no test asserting they agree. *(Corrected
+2026-09-02: this parenthetical originally claimed the `api.z.ai` string "appears in no Go test";
+it appears in 54 places across 15 `_test.go` files, as fixture URLs. The claim that matters held
+— no test reads `packs/zai/pack.json` and pins the two literals equal, so a fixture and the
+manifest can drift with the suite green.)*
 
 > [!WARNING]
 > **`d1e45e8d` declined this exact duplication one commit earlier**, and said why: for the bedrock
@@ -489,6 +537,13 @@ Neither is a hazard the provider work introduced — `env_sources` predates it �
 provider/profile design is what made a credential routinely travel this path, and (1) is a
 one-character fix whose only real cost is deciding whether anything reads that file as a non-owner.
 
+> [!NOTE]
+> **Half of D8 is already fixed (2026-09-01, the fix's own comment says so):**
+> `writeUserEnvFile` now writes **and `Chmod`s** `yolo-user-env.sh` to **0600**
+> ([`internal/cli/run/userenv.go`](../../internal/cli/run/userenv.go)) — `os.WriteFile` applies a
+> mode only on create, so the chmod is explicit and every launch narrows in place a file an
+> older yolo created 0644. Exposure (2), the value on the `podman run` argv, stands unchanged.
+
 
 ### 5.6 D9 — `derive.lua` is executable pack content with no row in the trust census
 
@@ -565,8 +620,9 @@ Three of these need no ruling and are independent of the rest.
    agent's real vocabulary. It fails today, which is the point: it is the regression test for D1
    and it makes step 2 verifiable rather than argued. No ruling needed.
 2. **The canonical vocabulary, then the dialect translation in the three derives** (§3.0a, §3.4),
-   with provenance on every entry — including paying the pi verification debt §3.0a's note names —
-   plus correcting `packs/zai/README.md`'s parity table to record §3.3's finding. Needs OQ-PT1.
+   with provenance on every entry — including paying the pi verification debt §3.0a's note names
+   *(paid 2026-09-02; see the note there)* — plus correcting `packs/zai/README.md`'s parity table
+   to record §3.3's finding. Needs OQ-PT1.
 3. **The census and the guide line** (§5.3, §5.2's doc half) — `AGENTS.md`, `packs/embed.go`,
    `USER_GUIDE.md:217`. No ruling needed, and worth doing regardless of everything above.
 4. **The address resolution rule** (§4.1), one answer for four consumers. Needs OQ-PT2.

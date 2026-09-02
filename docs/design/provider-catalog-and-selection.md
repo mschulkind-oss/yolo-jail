@@ -9,8 +9,10 @@ summary: "Splits the knot that profiles-as-pack-variants and zai-plumbing left t
 # A catalog and a selection are two features — and only one of them ships
 
 **Status:** DECIDED, 2026-09-01 — all questions ruled the day they were asked (ledger, §10); the
-tenth was **withdrawn as never having been a design question**. **Nothing built**, and §3's empty pi
-row remains the research blocker.
+tenth was **withdrawn as never having been a design question**. **Nothing built.** §3's empty pi
+row was **filled 2026-09-02 from source** (pi 0.84.4, opencode `v1.18.18`) — the research blocker
+is closed, and the verification found two delivery defects recorded in the sibling doc as
+D10/D11: the pi and opencode catalog entries render fields those agents do not read.
 
 **The short version.** *"Put z.ai in my agents' provider directory"* and *"start this agent
 **using** z.ai"* are two features. yolo drives both off one table and one selector, which is why
@@ -44,11 +46,19 @@ solved), [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) (the par
 | Natural trigger | a provider entry being **present** | an explicit act — `-p zai`, `use_profiles` |
 | Scope | every agent that speaks a protocol the provider offers | the agent(s) being launched |
 | Lifetime | durable — it is a directory | per-launch |
-| Ships today | ✅ all four agents | ⚠️ **claude only** |
+| Ships today | ✅ all four agents *(at the file level — D10/D11 below)* | ⚠️ **claude only** |
 
 They are orthogonal. A user can reasonably want a catalog of five providers and select one; or a
 catalog of one and select nothing. The confusion this doc exists to end is that **one table drives
 both**, so wanting a durable catalog entry and not wanting to use it right now has no spelling.
+
+> [!NOTE]
+> **"Ships today ✅" is a claim about files, not about the wire (verified 2026-09-02).** The pi
+> and opencode catalog entries render fields those agents do not read: opencode takes
+> `baseURL`/`apiKey` only under an `options` object the derive does not emit (D10), and pi has no
+> `apiKeyEnv` field at all (D11) — its indirection is `apiKey: "${VAR}"`. Both defects and their
+> measurements live in [`provider-table-fidelity.md`](provider-table-fidelity.md) §3.5, and both
+> fixes ride this doc's build-order steps 3–5, which touch those derives anyway.
 
 ---
 
@@ -90,12 +100,17 @@ the four are the same class of unverified claim the sibling doc charges D1 with.
 | :--- | :--- | :--- | :--- |
 | claude | process env | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` | **shipped and working** |
 | codex | `config.toml` | `model_provider = "<name>"` + `model = "<id>"` | **good** — [`local-model-endpoints.md`](../research/local-model-endpoints.md) §"Codex CLI", verified from the binary 2026-08-20 |
-| opencode | `opencode.json` | top-level `model`, as `"<provider>/<model>"` | **moderate** — the shipped binary's `models` command prints ids in exactly that form; not read from source |
-| pi | **unknown** | — | **none.** `models.json` carries only `providers`; pi's default model lives somewhere this doc has not identified |
+| opencode | `opencode.json` | top-level `model`, as `"<provider>/<model>"` (split on the FIRST `/`) | **source-verified 2026-09-02** — upstream `v1.18.18` = the installed binary: `packages/core/src/v1/config/config.ts:74-76` ("Model to use in the format of provider/model"), split at `model.ts:33-39`; an unknown prefix is `ModelNotFoundError` with no silent fallback; with `model` unset, opencode falls back to its own persisted interactive choice (`~/.local/state/opencode/model.json`) — OQ-CS2's ruling, confirmed from source |
+| pi | `~/.pi/agent/settings.json` | `defaultProvider = "<id>"` + `defaultModel = "<bare model id>"` — a **pair**, not a slash string | **source-verified 2026-09-02** — pi 0.84.4 `dist/core/settings-manager.d.ts:71-72`; ids match exactly (`===`) against the provider's model list; pi's own writer persists exactly this pair (`core/settings-manager.js:460-475`), and its save path overlays only modified fields under a lock (`:376-399`), so a pre-written selection survives unrelated in-session saves |
 
-**The pi row is the blocker**, and it is a research task, not a design one: until it is known where
-pi records "the model I use", no design can say what selecting a provider for pi means. §8 puts it
-first for that reason.
+**The pi row's blocker is closed** (2026-09-02): the surface is `~/.pi/agent/settings.json`, the
+keys are `defaultProvider` + `defaultModel`, and both were read out of the published package the
+launcher installs (0.84.4 — npm-extracted to a scratch prefix, the CLI never run) and confirmed
+against the live files in this jail, which carry exactly that pair for `zai`/`glm-5`. Two
+implementation notes that fell out of the verification: a project-scope twin (`.pi/settings.json`
+in the working directory) deep-merges over the global file, so the global file is the right
+surface for a jail-wide default; and pi resolves a saved default only when the provider's
+credential is configured — which is D11's fix (`apiKey: "${VAR}"`), not this table's business.
 
 
 ### 3.1 `env_shape` is declared by the provider and describes the AGENT — the mirror of D1
@@ -539,8 +554,8 @@ is not a one-liner and it should not ride another change.
 ## 8. What I would build, in order
 
 1. **Research pi's and opencode's selection surface** and write it into §3 with source-verified
-   evidence. This is a documentation task with no code, and **nothing else here can be designed
-   until it lands** — one row of §3 is empty and one is inferred.
+   evidence. **DONE 2026-09-02** — both rows filled from source (pi 0.84.4; opencode `v1.18.18`),
+   two delivery defects found and filed as the sibling doc's D10/D11.
 2. **Selection for codex**, the row that is already verified — `model_provider` + `model` from the
    active profile's provider. One derive, one behaviour, testable in isolation.
 3. **Selection for pi and opencode**, once step 1 says where.
