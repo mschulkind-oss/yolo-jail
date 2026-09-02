@@ -224,6 +224,12 @@ func DecodeSurfaceObject(codecName string, data []byte) map[string]any {
 // the map ApplySelection reads, or nil when there is nothing trustworthy. Numbers
 // are normalized the way the record's own writer normalized them, so a recorded
 // integer compares equal to the value the file decodes it back to.
+//
+// A non-scalar value is dropped rather than passed on, mirroring the gate TakeSelection
+// applies to the derive's own emit: the writer can only ever record scalars, so a
+// non-scalar in the file is a hand edit or corruption, and the fail-safe answer is the
+// same one an absent record gets — that key claims nothing, and whatever now sits in the
+// agent's file reads as the user's. nil when nothing survives.
 func ParseSelectionRecord(data []byte) map[string]any {
 	if len(data) == 0 {
 		return nil
@@ -232,10 +238,17 @@ func ParseSelectionRecord(data []byte) map[string]any {
 	if err := json.Unmarshal(data, &m); err != nil || m == nil {
 		return nil
 	}
+	out := make(map[string]any, len(m))
 	for k, v := range m {
-		m[k] = selectionScalar(v)
+		if !isScalar(v) {
+			continue
+		}
+		out[k] = selectionScalar(v)
 	}
-	return m
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // withoutKey returns m without the named key, as a new map. Values are shared, not

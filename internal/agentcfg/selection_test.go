@@ -290,3 +290,20 @@ func TestParseSelectionRecord(t *testing.T) {
 		t.Errorf("record = %v, want %v", got, want)
 	}
 }
+
+// A record the writer cannot have produced — the writer only ever persists what
+// TakeSelection let through, which is scalars — must claim nothing rather than feed a
+// table into ApplySelection, where it would flow into `next` and be written back as the
+// record of a write yolo never made.
+func TestParseSelectionRecordDropsNonScalars(t *testing.T) {
+	got := ParseSelectionRecord([]byte(
+		`{"model_provider":"llamacpp","nested":{"a":1},"list":[1,2],"nothing":null}`))
+	want := map[string]any{"model_provider": "llamacpp"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("record = %v, want the scalar keys alone %v", got, want)
+	}
+	if got := ParseSelectionRecord([]byte(`{"nested":{"a":1}}`)); got != nil {
+		t.Errorf("a record with no scalar at all = %v, want nil (nothing is trustworthy)",
+			got)
+	}
+}

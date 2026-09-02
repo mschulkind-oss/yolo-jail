@@ -241,20 +241,31 @@ const selectionDerive = `yolo.derive("example", "cfg", function(ctx)
   return { selection = { model_provider = "llamacpp" }, note = "kept" }
 end)`
 
-// TestReservedSelectionByMode pins both mode halves at the boot entry. The stateful
-// half is the lift the codex sequence above measures through a real pack; the computed
-// half is the drop, whose alternative is a literal `selection` table written into an
-// agent's file — and, on an rmw surface, regenerated there on every boot as a
-// wholesale-managed one.
+// TestReservedSelectionByMode pins all three mode halves at the boot entry. The
+// stateful half is the lift the codex sequence above measures through a real pack; the
+// other two are the drop, whose alternative is a literal `selection` table written into
+// an agent's file — overwritten wholesale on a computed surface, and on an rmw one
+// regenerated there on every boot as a wholesale-managed one. The rmw row exists
+// because the two drops sit in DIFFERENT branches of the mode switch: nothing keeps
+// `computed` routing through the drop when someone edits the rmw branch, and the failure
+// would then be an rmw surface growing a `selection` table no computed-mode test sees.
 func TestReservedSelectionByMode(t *testing.T) {
 	cases := []struct {
 		name   string
 		mode   string
 		want   string // model_provider in the rendered file; "" asserts absence
+		note   string // the derive's other scalar key, as far as the mode carries it
 		warned bool
 	}{
-		{name: "stateful lifts it onto the surface root", mode: "", want: "llamacpp"},
+		{name: "stateful lifts it onto the surface root", mode: "", want: "llamacpp",
+			note: "kept"},
 		{name: "computed drops it and names the drop", mode: manifest.ModeComputed,
+			want: "", note: "kept", warned: true},
+		// rmw writes no scalar computed key at all — only object-valued ones regenerate as
+		// managed tables — and this fixture's file starts empty, so the derive's `note` has
+		// nowhere to land. Which is the point of the row: the scalar keys were never the
+		// hazard; the OBJECT the namespace is would have been, and it must not appear.
+		{name: "rmw drops it too and names the drop", mode: manifest.ModeRMW,
 			want: "", warned: true},
 	}
 
@@ -280,8 +291,9 @@ func TestReservedSelectionByMode(t *testing.T) {
 			if absentOr(m["model_provider"]) != tc.want {
 				t.Errorf("model_provider = %v, want %q", m["model_provider"], tc.want)
 			}
-			if m["note"] != "kept" {
-				t.Errorf("note = %v, want the derive's other keys kept", m["note"])
+			if absentOr(m["note"]) != tc.note {
+				t.Errorf("note = %v, want %q — the drop must take the reserved namespace "+
+					"alone", m["note"], tc.note)
 			}
 			if _, leaked := m[selectionKey]; leaked {
 				t.Errorf("the file carries a literal %q table", selectionKey)

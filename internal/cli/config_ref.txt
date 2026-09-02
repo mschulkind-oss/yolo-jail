@@ -856,18 +856,27 @@
                     file or a dir).  Sole-owned: two packs claiming one `into` is a
                     launch error naming both.  Refused by name at the host notch.
       config        {config:[surface...]} — a composed config surface (see below)
-      config-overlay {surface:"agent/name", config:{managed:{...}}} — keys on a surface
+      config-overlay {surface:"agent/name", config:{managed:{...}}, profile} — keys on a surface
                     another pack owns.  `managed` is the ONLY body field: a contributor
                     contributes keys, so path/codec/mode/defaults are refused by name.
                     Folds in BELOW the owner's managed layer, so the owner wins a
                     conflict; `yolo config diff <agent>` says which pack set which key.
                     If no selected pack owns the target the overlay has NO EFFECT and
-                    is reported by name — it never creates the file.
+                    is reported by name — it never creates the file.  `profile` GATES
+                    the whole contribution on that profile being the one active for the
+                    TARGET SURFACE's agent: inactive means a clean skip (selection is
+                    the optionality), and a gated overlay naming a surface nobody owns
+                    is reported only while its profile is selected.
       state         {at (~ dir), scope:"workspace"|"machine", because} — persists
       reads-host    {host (~-relative file), into (/ctx dest)} — one file, :ro [gated]
       mount         {host (~-relative DIR or file), into (/ctx dest)} — :ro    [gated]
-      env           {vars:{KEY:"value"}} — STATIC strings only; no interpolation, no
-                    host reads, so it is honored for any origin
+      env           {vars:{KEY:"value"}, profile} — STATIC strings only; no
+                    interpolation, no host reads, so it is honored for any origin.
+                    `profile` GATES the whole contribution: it applies only while that
+                    profile is active at launch, and it is keyed on a bin the pack
+                    installs first, else on ANY bin — the second pass is what lets a
+                    pack that installs no CLI (a provider pack) still deliver a
+                    profile's environment.
       launch        {bin, flags, aliases} — inject flags after a binary
       hook          {hook:"shared_credentials"|"per_jail_history"|"claude_plugins"}
       autonomy      {autonomous:{...}, guarded:{...}} — the agent's two permission
@@ -877,25 +886,23 @@
                     {config:[surface...]} patching the managed layer of a surface THIS
                     pack owns, plus {launch:[{bin, flags}]}.  Either posture may be
                     empty (a permissive-by-default tool only needs `guarded`).
-      profile       {name, config:[surface...], launch:[{bin, flags}], env:{KEY: "v"|null},
-                    requires_provider} — a NAMED VARIANT of this pack's own declarations,
-                    selected at launch by `use_profiles` or `-p <name>`.  `config` patches
-                    the managed layer of a surface THIS pack owns, exactly as a posture's
-                    does, and folds AFTER it (later-wins on a key both touch); `launch`
-                    replaces that binary's own `launch` contribution for the same bin;
-                    `env` is literal strings, where a `null` UNSETS the variable instead of
-                    setting it empty.  A variant later-wins over its pack's own static
-                    `env`/`launch` — it is the more specific intent, not a second writer.
-                    `requires_provider` names a `providers` entry this variant needs — a
-                    reference the launch resolves, never a credential (the pack carries
-                    only a name, as `provider`'s api_key_env_name does).  A profile name is
-                    sole-owned WITHIN the pack only: two packs may both declare `bedrock`
-                    and stay unrelated.  A profile no launch selects does nothing.
+      profile       {name, provider} — a NAMED SELECTION OVER A PROVIDER, and that is the
+                    whole body.  `name` is the selector `use_profiles` or `-p <name>`
+                    sets; `provider` is the `providers` entry it selects and is
+                    REQUIRED — a profile without one is refused by the manifest schema.
+                    Whatever ELSE a launch under that profile should deliver (env
+                    vars, config keys) is declared by the gated contributions of the
+                    kinds that own those channels: `env` and `config-overlay` both take
+                    a `profile` field naming the profile that activates them.  A
+                    profile name is sole-owned WITHIN the pack only: two packs may both
+                    declare `bedrock` and stay unrelated.  A profile no launch selects
+                    does nothing.
       provider      {name, endpoints:{protocol:{base_url, wire_api}}, api_key_env_name,
-                    region, models:{alias: id}} —
+                    region, models:{alias: id}, options:{option: default|null}} —
                     the SERVICE facts of a named provider: the endpoints that speak each
-                    wire protocol, the region a regional provider is reached through, and
-                    the model ids an alias names.  Composed UNDER your
+                    wire protocol, the region a regional provider is reached through,
+                    the model ids an alias names, and the OPTION names a profile may
+                    set (`options`; see [bold]providers[/bold] below).  Composed UNDER your
                     `providers` entries per field, so overriding one model alias, one
                     region or one URL keeps everything else the pack shipped.  The
                     credential is NEVER
@@ -955,6 +962,75 @@
     pack you are authoring claims, and any collision, before you configure it.
     `explain` lists exactly which files stage and which the filters dropped.
     Example: ["claude", "file:///home/me/code/acme/tools/agent-pack"]
+
+  [bold]providers[/bold] (object): Your own provider entries, composed OVER the ones the
+    selected packs ship, per field — overriding one model alias, one region or one URL
+    keeps every other field the pack shipped.  Each key is a provider NAME, and the name
+    is sole-owned across packs and config together: two packs shipping one is a launch
+    error.  Per entry:
+      base_url       shorthand for a single-endpoint provider; refused together with
+                     `endpoints` (one provider carrying both is an ambiguity no
+                     consumer could resolve).
+      endpoints      {protocol:{base_url, wire_api}} — where each wire protocol points.
+                     A URL carrying userinfo is refused: a base_url routes an ADDRESS,
+                     never a credential.
+      wire_api       top-level spelling of the same fact for the shorthand form.
+      api_key_env_name  the NAME of the variable you hydrate (env_sources) — the
+                     credential itself is never in this config, and the launch
+                     pre-flight refuses to start a provider whose variable is empty.
+      region         the region a regional provider is reached through.
+      models         {alias: model id} — the aliases a profile's `model` option names.
+                     The agent pack's own derive.lua decides which alias each of the
+                     agent's keys reads; `default` is the alias used when a profile
+                     states no option, and it is an ordinary name, not a keyword.
+      capabilities   strings describing what the provider speaks.
+      options        {option: default} the profile surface this provider DECLARES —
+                     the only schema a `profiles` entry answers to.  A default value
+                     is what a profile inherits when it does not state the option;
+                     `null` declares the option settable but defaultless, so a profile
+                     that says nothing about it delivers nothing.  A profile entry
+                     naming an option this map does not hold is refused — but only
+                     once the provider declares at least one option, since a provider
+                     with no `options` imposes no schema at all.
+    Null removes an entry.  Which environment variable each fact lands in is the agent
+    pack's decision (its yolo.env producer) — this key carries facts, not bindings.
+    Example: {"zai": {"base_url": "https://api.z.ai/api/paas/v4",
+              "api_key_env_name": "ZAI_API_KEY",
+              "models": {"default": "glm-4.7", "fast": "glm-4.7-air"},
+              "options": {"model": "default"}}}
+
+  [bold]profiles[/bold] (object): Your own NAMED SELECTIONS over providers — profile
+    name → {provider, ...option values}.  USER-SCOPE ONLY: the key is read from your
+    user config directly, and a workspace config carrying it is REFUSED, because a
+    workspace file travels with the repo and is agent-editable, and a profile steers
+    WHICH ENDPOINT and WHICH MODEL an agent talks to.  Per entry:
+      provider       REQUIRED — what the name selects.  An entry without one is
+                     refused: a profile is a selection, so the name declares nothing
+                     by itself.
+      (any other key)  an OPTION VALUE, and it must be a string.  The option name must
+                     be one the resolved provider's `options` declares; what the value
+                     MEANS is the agent pack's derive.lua's business (for the shipped
+                     packs, `model` names an alias of the provider's `models` table).
+                     Omit a key to leave that option at its declared default; a null
+                     here is refused, not read as a delete.  A provider that declares
+                     NO options imposes no schema at all — an undeclared option name
+                     is refused only once the provider declares at least one.
+    A name both sides declare is yours to customize: your entry wins per option and
+    keeps the pack's provider when it states none.  Declaring a profile does nothing
+    until a launch selects it (use_profiles, or `-p <name>` before the `--`).
+    Example: {"zai-fast": {"provider": "zai", "model": "fast"}}
+
+  [bold]use_profiles[/bold] (object): The selections this launch ACTIVATES — CLI name →
+    profile name, where the key is the BINARY a pack installs (`claude`, `pi`, `codex`)
+    and NOT a pack or agent name; an unknown key is fatal, naming what is installed.
+    A global `-p <name>` with no command keys the same name for every selected pack, by
+    the CLI name each one installs.  A null value REMOVES a key and asserts nothing
+    about it.  Selecting a name nothing declares (pack-shipped or yours) refuses the
+    launch rather than selecting nothing — a silently inert selector is
+    indistinguishable from a working one.  A selected profile switches ON; deactivating
+    it does not write the agent's surface back — whatever a selection wrote stays, and
+    the agent's own choice stands.
+    Example: {"pi": "zai-fast", "codex": null}
 
   [bold]lsp_servers[/bold] (object): Additional language servers for Copilot (Claude uses its own tools).
     Default servers (always present): python (pyright), typescript, go (gopls).
