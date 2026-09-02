@@ -360,6 +360,24 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 		// what lands is imageName either way.
 		cacheDir := filepath.Join(paths.GlobalCache(), "images")
 		for _, tarFile := range newestTars(cacheDir) {
+			// P4 (minimal-disk-footprint.md §5, §10 step 2): newestTars is a
+			// LISTING, and by the time a candidate's turn comes a concurrent `yolo
+			// prune --apply` may have taken it. This reader runs on EVERY backend,
+			// which is why the guard is here and not only on the converter path
+			// below. Re-verifying at the point of use keeps someone else's reclaim
+			// from being announced as this launch's load and then reported as this
+			// launch's load failure.
+			//
+			// It does not make the window empty — the file can go one instruction
+			// later — but that residual is already survivable here: the loop tries
+			// the next candidate, which is exactly what a vanished tar deserves. The
+			// place where the same race was FATAL is the converter path, and that is
+			// where recovery rather than re-verification is the guard.
+			if !fileExists(tarFile) {
+				fmt.Fprintln(out, "Skipping cached image "+filepath.Base(tarFile)+
+					": it was removed after the cache was listed (a concurrent reclaim?).")
+				continue
+			}
 			fmt.Fprintln(out, "Loading image from cache: "+filepath.Base(tarFile))
 			if o.Runtime == "container" {
 				if o.LoadAppleContainer(tarFile, imageName) {
@@ -504,18 +522,7 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 				_ = os.Remove(outLink)
 				return LoadResult{}
 			}
-			if !fileExists(cacheFile) {
-				totalBytes := o.Materialize(currentPath, cacheFile)
-				if totalBytes == 0 {
-					fmt.Fprintln(out, "Error streaming image to cache.")
-					_ = os.Remove(outLink)
-					return LoadResult{}
-				}
-				fmt.Fprintln(out, "  Cached image: "+FormatImageSize(totalBytes))
-			}
-			if !o.LoadAppleContainer(cacheFile, contentRef) {
-				// The converters print their own diagnosis (which of skopeo/podman
-				// ran, and which step of it broke).
+			if !o.loadAppleContainerFromCache(cacheFile, currentPath, contentRef) {
 				_ = os.Remove(outLink)
 				return LoadResult{}
 			}
@@ -587,6 +594,89 @@ func (o *AutoLoadOptions) pointLatestAt(contentRef string) {
 	fmt.Fprintln(o.Out, "Warning: could not point "+legacy+" at "+contentRef+
 		" — this launch is unaffected (it runs the content ref); a later degraded "+
 		"launch may not find an image under the legacy name.")
+}
+
+// loadAppleContainerFromCache materializes cacheFile when it is absent and hands
+// it to the converters — and CLOSES P4, the tar-eviction race
+// (minimal-disk-footprint.md §5 P4, sequenced as §10 step 2).
+//
+// THE RACE, exactly. The Apple Container arm is the only launch-side code left
+// that holds a tar between two steps: it asks `fileExists(cacheFile)` and then
+// hands that same path to a converter that interpolates it (`skopeo copy
+// docker-archive:<path>`, `podman save -o <path>`). Nothing locks the cache and
+// nothing liveness-gates it, so a concurrent `yolo prune --apply` evicting a
+// REUSED tar inside that window used to make the launch exit 1 —
+// PruneImageCache's keep-N tail-drop deletes by mtime and knows nothing about
+// which tar a launch is mid-flight on. Since C3 the podman arm streams and has no
+// file between the two steps, so this is where the whole remaining exposure lives.
+//
+// THE GUARD IS RECOVERY, NOT MUTUAL EXCLUSION, and that is a deliberate choice
+// between three shapes:
+//
+//   - A LOCK over cache/images. Rejected: it is a new cross-process protocol
+//     between the launch path and a reclaimer that lives in another package, and
+//     the doc has not ruled who reclaims (OQ-DF2) — a lock would prejudge that by
+//     requiring every future deleter to take it. It also cannot help the case that
+//     actually matters, an eviction that already happened before this launch
+//     reached the branch.
+//   - RE-CHECKING fileExists immediately before the converter call. Rejected as
+//     insufficient rather than wrong: it narrows the window without closing it (the
+//     file can vanish one instruction later, and the converter is a subprocess that
+//     opens the path later still), which is precisely the shape AGENTS.md warns
+//     about — a guard that makes the race rarer reads as closed while staying open.
+//   - THIS: treat a missing tar at USE time as a recoverable condition. The tar is
+//     regenerable from the store path by construction — materializeImage is right
+//     here, and P3 says a cache tar is never load-bearing for anything else — so a
+//     lost race costs a re-materialization, never a failed launch. It needs no
+//     agreement from the deleter, which is what makes it safe to land before
+//     OQ-DF2 rules who the deleter is.
+//
+// So this returns false ONLY for a genuine failure: a materialization that could
+// not produce the file, or a converter that ran against a file that WAS there and
+// broke on its own terms. One retry, not a loop: a second miss is no longer a
+// race with a reclaimer, it is a cache directory that cannot hold a file, and
+// looping would turn that into a hang.
+//
+// Deliberately NOT delete-on-success (OQ-DF2 option (i), unruled) and NOT a
+// sweep: this adds no deletion of any kind, which is why closing P4 does not
+// front-run the ruling that will make reclamation automatic. §10 step 2's whole
+// point is that the guard lands BEFORE the trigger, not after.
+func (o *AutoLoadOptions) loadAppleContainerFromCache(cacheFile, storePath, contentRef string) bool {
+	out := o.Out
+	// TWO PASSES, AND THE BOUND IS THE POINT: the one the launch planned, plus one
+	// recovery after a concurrent reclaim. An unbounded loop would turn a cache
+	// directory that cannot keep a file (a full disk, a reclaimer in a tight loop)
+	// into a hang that re-materializes a multi-GB tar forever — worse than the
+	// failure it is trying to avoid.
+	for pass := 0; pass < 2; pass++ {
+		if !fileExists(cacheFile) {
+			totalBytes := o.Materialize(storePath, cacheFile)
+			if totalBytes == 0 {
+				fmt.Fprintln(out, "Error streaming image to cache.")
+				return false
+			}
+			fmt.Fprintln(out, "  Cached image: "+FormatImageSize(totalBytes))
+		}
+		if o.LoadAppleContainer(cacheFile, contentRef) {
+			return true
+		}
+		// The converters print their own diagnosis (which of skopeo/podman ran, and
+		// which step of it broke) — but a tar that is GONE now is a different event
+		// from a tar that is broken, and only the launch can tell them apart, because
+		// only it knows the file was there when it looked. A tar that is still on disk
+		// means the conversion itself failed, and re-caching a healthy file would
+		// duplicate a multi-GB write to hide the real fault.
+		if fileExists(cacheFile) {
+			return false
+		}
+		if pass == 0 {
+			fmt.Fprintln(out, "The cached image "+filepath.Base(cacheFile)+" was removed "+
+				"mid-launch (a concurrent reclaim?); re-caching it and retrying.")
+		}
+	}
+	fmt.Fprintln(out, "Error: the cached image "+filepath.Base(cacheFile)+
+		" keeps disappearing mid-launch; declining to re-cache it again.")
+	return false
 }
 
 // buildImageStorePath ports _build_image_store_path for the run path: run
