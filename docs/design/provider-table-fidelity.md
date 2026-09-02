@@ -447,8 +447,17 @@ the user-side half of a two-layer story and is only a selector.
 It also means the natural reading of the two words is **inverted from the implementation**: one
 would expect the provider to carry the service's facts (it does) and the profile to carry what this
 machine or this user contributes (it does not — machine values arrive through `env_sources` and the
-process env, and the profile carries pack-authored literals). Whether that is a naming problem or a
-missing layer is OQ-PT6; whether (1) and (2) should stop sharing a word is OQ-PT7.
+process env, and the profile carries pack-authored literals).
+
+> [!NOTE]
+> **RULED 2026-09-01 (OQ-PT6/PT7/PT8): the natural reading wins.** A profile becomes what a reader
+> already assumes it is — *user-declared intent, a named selection over a provider, with the
+> tunables it may carry defined by that provider*. The pack-variant body described above is not a
+> profile under that definition; it is contributions gated on a profile name, and it moves to the
+> `profile:` modifier. The section is kept in its original tense because it is the diagnosis the
+> ruling answers, and because the measurements in it — the empty body, the green suite, the
+> unreachable variant — are the evidence that the body was the wrong home. The design lives in
+> [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2.
 
 ## 6. What this does NOT propose
 
@@ -602,71 +611,31 @@ reader stops checking.
    **Answer:**
    > _(empty — fill in when decided)_
 
-6. 💬 **OQ-PT6: Does a profile get a user layer, the way a provider has one?** §5.4. A provider is
-   declared by packs **and** users and merges per field; a profile is declared only by packs, and
-   `pack_profiles` is a selector, not an override. So "take `bedrock` but with one more launch flag"
-   has no spelling short of forking the pack. This decides whether `pack_profiles` stays a
-   name-to-name map or grows an optional body.
+6. ✅ **OQ-PT6: Does a profile get a user layer, the way a provider has one? — RESOLVED
+   (2026-09-01). YES, and it is the primary layer, not a second one.** *"That's what I want a
+   profile to be. User declared, user intent."* A profile is a **named selection over a provider**,
+   written in user config, customizable by name; a pack-shipped one is a default the user overrides,
+   the way a pack-shipped provider already is. Settled in
+   [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2, which owns the
+   definition.
 
-   _Leaning:_ Yes, and by making the profile body mergeable exactly the way a provider entry is —
-   pack under user, per field, `null` to drop — because that convention is already built, already
-   documented, and already what a reader expects on seeing the two kinds side by side. What I would
-   **not** do is invent a second merge shape for it. The honest counter-argument is that a profile
-   body can carry launch flags and a config patch, which are a good deal more dangerous in a
-   workspace-scope config than a URL is; if this lands it should be user-scope only, the way `packs`
-   already is.
+7. ✅ **OQ-PT7: Should the pack-variant and the global mode name stop sharing the word "profile"?
+   — RESOLVED (2026-09-01), and neither of my options was taken.** I proposed renaming the selector;
+   the ruling instead makes the **selector meaning the only meaning**. "Profile" = user-declared
+   intent over a provider. The pack-variant body is not a profile at all — it is contributions
+   gated on a profile name, which is the `profile:` modifier, so there is nothing left to rename.
+   `render.Profile` (the confinement preset) is untouched and remains an unrelated homonym in Go.
+   Settled in [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-7. 💬 **OQ-PT7: Should the pack-variant and the global mode name stop sharing the word "profile"?**
-   §5.4's (1) versus (2). They are different mechanisms with different owners and different scopes —
-   a declared, pack-scoped variant, and an undeclared, global, free-form string — and (2) works with
-   no instance of (1) anywhere, which is measurably true of `packs/zai` today. This decides whether
-   the confusion is fixed in the vocabulary or documented and lived with.
-
-   _Leaning:_ Rename (2), not (1). (1) is the one with a schema, a footprint claim and a ledger
-   behind it; (2) is a bare selector string and is the cheaper thing to move. **I floated "mode" for
-   (2) and withdraw it** — the maintainer's objection is right that a third generic noun beside
-   "provider" and "profile" costs more than it buys, and
-   [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) shows the vocabulary that
-   actually earns its place is **catalog** and **selection**, which name features rather than
-   renaming a string. If (2) is renamed at all it should borrow from that pair. And this is a rename
-   across a config key, a CLI flag, a Lua `ctx` field and an env var, so I would not do it alone; I
-   would ride it on whichever break lands first.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-8. 💬 **OQ-PT8: Should `kind: "profile"` shrink to a declaration, with the body moving to a
-   `profile:` modifier on the kinds that already exist?** *(Raised in review: "isn't this just
-   syntax sugar?")* Decompose the body and every part has a non-profile spelling — the `config`
-   patch is `config`/`config-overlay` plus a gate, `launch` is `kind: "launch"` plus a gate, `env`
-   is `kind: "env"` plus a gate. `568d5a3a` **already built that gate** as a modifier on
-   `config-overlay`, and its own commit message says the modifier "is contemplated for `env` and
-   `launch` too". So the sugar reading is the design's own trajectory, not an outside proposal.
-   This decides whether the kind survives at all.
-
-   Three things are **not** sugar, and all three are about the declaration rather than the body:
-   the **name anchor** (something must say "this pack answers to X" for the footprint claim,
-   `validateProfileNames`' duplicate detection, and the launch disclosure at
-   [`run.go:467`](../../internal/cli/run/run.go#L467)); **`requires_provider`**, which has no other
-   home; and **`env`'s null-unset**, which `kind: "env"`'s `map[string]string` cannot express at all
-   (`EnvValue` exists for exactly that bit).
-
-   _Leaning:_ Yes — shrink it to the anchor plus `requires_provider`, and move the body to
-   modifiers. Two reasons beyond tidiness. **The modifier is strictly more reachable** (§5.4): it
-   gates on the target surface's owning agent, so it works for a pack that installs no CLI, which
-   the kind cannot — and that is precisely the case zai is. And it removes a whole class of silent
-   deadness: a body on a CLI-less pack is unreachable today with nothing reporting it, whereas an
-   orphaned overlay is already named by `OrphanOverlay`. The honest cost is that `packs/claude`'s
-   `bedrock` — the one real body in the tree — becomes three gated contributions instead of one
-   block, which reads worse. If that cost is judged too high, the fallback is to keep the kind and
-   make an unreachable body a **load error** for a pack with no `InstallBins()`, which is the
-   smaller change and fixes the measured defect without touching the schema.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+8. ✅ **OQ-PT8: Should `kind: "profile"` shrink to a declaration, with the body moving to a
+   `profile:` modifier? — RESOLVED (2026-09-01). YES**, as a consequence of OQ-PT6/PT7 rather than
+   on its own merits. `kind: "profile"` becomes name + provider (+ the provider's tunables); `env`,
+   `launch` and the config patch move to `profile:`-modified contributions. *(The direction is the
+   maintainer's; this specific mechanism is the derivation, and the fallback recorded in the
+   original question — keep the kind, make an unreachable body a load error — is moot, since the
+   modifier form has no unreachable case.)* The migration for `packs/claude`'s `bedrock`, the one
+   real body in the tree, is tabulated in
+   [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2.
 
 ---
 
@@ -677,6 +646,9 @@ the section named in the last column.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
+| OQ-PT6 | **A profile gets a user layer, and it is the primary one** — a profile is user-declared intent: a named selection over a provider, customizable by name, with a pack-shipped one as an overridable default. | 2026-09-01 | [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2 |
+| OQ-PT7 | **The selector meaning becomes the only meaning** — no rename. The pack-variant body is not a profile; it is contributions gated on a profile name. `render.Profile` stays an unrelated Go homonym. | 2026-09-01 | [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2 |
+| OQ-PT8 | **`kind: "profile"` shrinks to name + provider**; `env`, `launch` and the config patch move to `profile:`-modified contributions. Derived from OQ-PT6/PT7, and it removes the CLI-less reachability defect rather than guarding it. | 2026-09-01 | [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2 |
 | OQ-PT4 | **The credential requirement follows CATALOG MEMBERSHIP, not the pack declaration** — *"pack presence means in the dictionary, which also means fatal errors if no API key found."* A `null`-dropped provider leaves the catalog and stops being required, so the supplies-vs-offers discriminator is unnecessary. | 2026-09-01 | [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §4; measurement kept in §5.1 |
 
 ---

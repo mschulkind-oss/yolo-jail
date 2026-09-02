@@ -593,7 +593,7 @@ stops the launch. That is the intended trade under your ruling, and it is the on
 ### 💬 18 — The provider table is checked in yolo's vocabulary and delivered in everyone else's
 
 📄 [`provider-table-fidelity.md`](../design/provider-table-fidelity.md) —
-**OQ-PT1 · OQ-PT2 · OQ-PT3 · OQ-PT5 · OQ-PT6 · OQ-PT7 · OQ-PT8** · ~~OQ-PT4~~ ruled 2026-09-01 · follow-on to
+**OQ-PT1 · OQ-PT2 · OQ-PT3 · OQ-PT5** open · ~~OQ-PT4~~ ~~OQ-PT6~~ ~~OQ-PT7~~ ~~OQ-PT8~~ ruled 2026-09-01 · follow-on to
 [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) and
 [`zai-plumbing.md`](../design/zai-plumbing.md), both of which shipped 2026-08-29 → 2026-09-01 and are
 otherwise sound · continues 💬 **17** §7 step 3 rather than contradicting it
@@ -663,7 +663,7 @@ whether it may carry the placeholder vocabulary `env_shape` already has.
 ### 💬 19 — A catalog and a selection are two features, and only one of them ships
 
 📄 [`provider-catalog-and-selection.md`](../design/provider-catalog-and-selection.md) —
-**OQ-CS3** open · ~~OQ-CS1~~ ~~OQ-CS2~~ ruled 2026-09-01 · sibling to 💬 **18**, which reports defects in the same machinery ·
+**OQ-CS3 · OQ-CS4 · OQ-CS5** open · ~~OQ-CS1~~ ~~OQ-CS2~~ ruled 2026-09-01 · sibling to 💬 **18**, which reports defects in the same machinery ·
 splits what [`zai-plumbing.md`](../design/zai-plumbing.md) §5 assumed was one thing
 
 **The maintainer's own framing, 2026-09-01:** *"populating a directory of providers in an agent
@@ -676,7 +676,19 @@ specific agent"* settles that yolo writes nothing when no profile is active. A t
 in 💬 **18**: *"pack presence means in the dictionary, which also means fatal errors if no API key
 found"* keys the credential requirement to **catalog membership** instead of the pack declaration —
 which dissolves OQ-PT4 rather than answering it, since a `null`-dropped provider then stops being
-required. **What remains is OQ-CS3 (which model a selection picks) and the research gap below.**
+required. **And a fourth ruling defined the word.** *"That's what I want a profile to be. User declared, user
+intent … and the config surface of a profile needs to be defined by the provider."* A **profile** is
+a named selection over a provider, written in user config, whose legal tunables the provider
+defines — one meaning, in one place, and the one a user already assumes when they type `-p zai`.
+That closes 💬 **18**'s OQ-PT6, OQ-PT7 and OQ-PT8 together: the pack-variant body is not a profile
+at all but contributions gated on a profile name, so it moves to the `profile:` modifier — which
+also repairs the measured defect that a variant body is **unreachable** for a pack installing no
+CLI. `kind: "profile"` shrinks to name + provider.
+
+**What remains is OQ-CS3 (which model a selection picks), OQ-CS4 (is the profile's field set derived
+from the provider's shape or declared by it — I lean derived, no schema), OQ-CS5 (where user
+profiles live, and at what scope — I lean a `profiles` key, user-scope only, for the reason `packs`
+is), and the research gap below.**
 
 **Measured in a live jail today**, `packs: ["claude","zai"]` with `providers.zai` set:
 

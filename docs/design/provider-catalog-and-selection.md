@@ -134,7 +134,9 @@ reads as one sentence: **in the dictionary means you need the key; not in it mea
 
 ---
 
-## 5. Options, with verdicts
+## 5. The design
+
+### 5.0 Options, with verdicts
 
 | # | Shape | Verdict |
 | :--- | :--- | :--- |
@@ -162,6 +164,108 @@ The consequence to keep in view: yolo can turn a selection **on** and cannot tur
 user who selects a profile once and then launches without one keeps the selection that launch
 wrote. Whether that needs an explicit "back to the agent's default" spelling is not settled here —
 it is the first thing to re-examine once D has shipped and there is real usage to look at.
+
+
+### 5.2 What a profile is — user-declared intent, over a surface the provider defines
+
+**The maintainer's ruling, 2026-09-01:** *"that's what I want a profile to be. user declared, user
+intent … being customized just as you say, and then config surface of a profile needs to be defined
+by the provider."*
+
+So, stated as the definition this corpus has been missing:
+
+> A **profile** is a **named selection over a provider** — user intent, expressed in user config.
+> Its name is the selector `-p` sets. Its body says **which provider** and **which of that
+> provider's tunables**, and the set of tunables it may carry is **defined by the provider**, not by
+> the profile and not by core.
+
+That is one meaning, in one place, and it is the meaning a user already assumes when they type
+`-p zai`. Three properties follow, and each closes something that was open:
+
+1. **A user declares them.** Not only a pack. Same shape either way, so a pack-shipped profile is a
+   *default* a user overrides, exactly as a pack-shipped provider is.
+2. **The provider owns the schema.** A profile for zai may name a model because zai declares
+   `models`; it may not name a knob zai does not have. The provider is the extension point, which
+   is the shape [`extension-point-principle.md`](extension-point-principle.md) already asks for and
+   the reason a profile does not need a schema of its own.
+3. **A profile that names no provider is still a valid gate.** Declaration is *optional*: the name
+   alone continues to gate `profile:`-modified contributions and to reach a derive as
+   `ctx.pack_profiles`, which is what today's free-form names already do. Declaring a profile adds
+   selection semantics; it does not become a prerequisite for the name working.
+
+#### The worked examples
+
+**Shipped as they are today** — the pack supplies the service facts and one default profile:
+
+```jsonc
+// packs/zai/pack.json (contributions, abridged)
+{ "kind": "provider", "name": "zai",
+  "api_key_env_name": "ZAI_API_KEY",
+  "endpoints": { "anthropic": {...}, "openai": {...} },
+  "models": { "default": "glm-4.7", "fast": "glm-4.7-air" } }
+
+{ "kind": "profile", "name": "zai", "provider": "zai" }      // the default intent
+```
+
+**A user adding a second intent over the same provider** — the case that is not expressible today
+(measured: `ProviderFor(claude, "zai-fast")` returns `"zai-fast"`, the name fallback, so the second
+name resolves to a provider that does not exist):
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc
+{
+  "packs": ["claude", "codex", "zai"],
+  "profiles": {
+    "zai-fast": { "provider": "zai", "model": "fast" }       // NEW name, SAME provider
+  },
+  "pack_profiles": { "claude": "zai-fast" }                  // or: yolo -p zai-fast
+}
+```
+
+**A user customizing the pack's own profile**, by declaring the same name — field merge, pack under
+user, the convention `providers` already uses:
+
+```jsonc
+{ "profiles": { "zai": { "model": "fast" } } }               // keep provider zai, change the model
+```
+
+**What each agent then gets**, from one selection — this is §3's table doing its job:
+
+| Agent | Written | From |
+| :--- | :--- | :--- |
+| claude | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` | the provider's `env_shape` *(ships today)* |
+| codex | `model_provider = "zai"`, `model = "glm-4.7-air"` | the profile's provider + resolved model |
+| opencode | `model = "zai/glm-4.7-air"` | same, in opencode's spelling |
+| pi | **unknown** | §3's empty row — the blocker |
+
+#### What happens to the pack's variant body
+
+`kind: "profile"` today carries a `config` patch, `launch` flags and an `env` map — a *body*, not a
+selection. Under this definition those are not profiles at all; they are **contributions gated on a
+profile name**, which is the `profile:` modifier `568d5a3a` already built for `config-overlay` and
+whose own commit message says is contemplated for `env` and `launch`.
+
+So `packs/claude`'s `bedrock` — the one real variant body in the tree — decomposes cleanly:
+
+| Today, inside `kind: "profile"` | Becomes |
+| :--- | :--- |
+| `requires_provider: "bedrock"` | `{"kind": "profile", "name": "bedrock", "provider": "bedrock"}` — the selection |
+| `env: {CLAUDE_CODE_USE_BEDROCK: "1"}` | `kind: "env"` with `profile: "bedrock"` |
+| `config:` patch on `claude/settings` | `kind: "config-overlay"` with `profile: "bedrock"` |
+
+**And this repairs the reachability defect rather than working around it.** A variant body is
+unreachable today for a pack that installs no CLI, because `ActiveProfiles` iterates the pack's own
+`InstallBins()` — measured, `packs/zai` can never activate its variant under any profile table. The
+`profile:` modifier gates on the *target surface's* owning agent instead, so it works for a provider
+pack. Moving the body to modifiers is the fix for that, not merely a tidier spelling of it.
+
+#### What this leaves undecided
+
+The provider-defines-the-surface rule has a cheap reading and a general one, and §9's OQ-CS4 asks
+which. The cheap one: a profile's legal fields are **derived** from the provider's own shape —
+`model` is legal because the provider has `models`, and nothing else is legal yet. The general one:
+a provider declares an explicit options block naming its tunables. The cheap one needs no schema at
+all and is what the worked examples above assume.
 
 ---
 
@@ -217,7 +321,38 @@ unrelated to the sequence above.
    case is the agent's own business, and yolo writing a default would silently revert an
    interactive `/model` choice on the next boot. Folded into §5.1.
 
-3. 💬 **OQ-CS3: Which model does selecting a provider select?** A provider carries `models` aliases
+3. 💬 **OQ-CS4: Is a profile's legal field set DERIVED from the provider's shape, or DECLARED by
+   it?** §5.2. Derived: `model` is legal because the provider has `models`, full stop — no schema,
+   nothing to author. Declared: a provider carries an options block naming its tunables, which is
+   the general extension point and is schema describing schema.
+
+   _Leaning:_ Derived, for v1. It needs nothing authored, it covers every case in the tree, and the
+   ruling it implements — *"the config surface of a profile needs to be defined by the provider"* —
+   is satisfied either way, because the provider's own shape IS a definition. The declared form
+   earns its place the first time a provider has a tunable that is not a model, and not before;
+   building it now would mean designing an options vocabulary against zero consumers, which is the
+   mistake `wire_api`'s enum already made once.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+4. 💬 **OQ-CS5: Where do user-declared profiles live in config, and at which scope?** §5.2's
+   examples assume a top-level `profiles` key beside `pack_profiles` (declaration and selection
+   kept separate, since one is durable and the other per-launch). The scope question is the sharper
+   half: `packs` is **user-scope only**, because a workspace config travels with the repo and is
+   agent-editable.
+
+   _Leaning:_ A separate top-level `profiles` key, **user-scope only**, for the same reason `packs`
+   is. A profile names a provider and therefore steers which endpoint an agent talks to; a repo
+   that could set that could point its own agent at a service the user never chose. Merging
+   declaration into `pack_profiles`' values (making them objects as well as strings) is the
+   tempting alternative and I would not take it — it overloads one key with a durable declaration
+   and a per-launch selection, which is the exact conflation this doc exists to undo.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+5. 💬 **OQ-CS3: Which model does selecting a provider select?** A provider carries `models` aliases
    (`default`, `fast`, …) and the alias vocabulary is deliberately open. Selection needs one
    concrete id.
 
