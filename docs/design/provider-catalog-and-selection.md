@@ -649,19 +649,60 @@ unrelated to the sequence above.
    set core owned and delivered verbatim to consumers that owned different ones. **The derive
    validates, and errors propagate** — the propagation OQ-PT9 already requires.
 
-   What that leaves open is whether `options` is a schema or barely anything:
+   What that leaves open is whether `options` is a small declaration or nothing at all. Spelled out,
+   because the difference is easy to under-describe:
 
-   | | `options` carries | Core does | Cost |
-   | :--- | :--- | :--- | :--- |
-   | **(i) names + defaults** | `{"model": {"default": "default"}}` | merges defaults under the profile's values, validates nothing | one small schema, no typechecker |
-   | **(ii) nothing — free-form keys** | — | passes the profile through untouched | no defaults, no `yolo pack footprint` listing, and `knownProviderKeys` must open |
+   **First, a distinction the previous draft blurred.** *Validating a value* ("is `low` a legal
+   `thinking`?") is what core is getting out of. *Checking a key census* ("does zai accept a
+   `thinking` at all?") is a different thing, and this repo already does it everywhere —
+   `knownProviderKeys`, `knownEndpointKeys`, `reportUnknownKeys`. Option (i) buys the census, not the
+   typechecker.
 
-   _Leaning:_ **(i), and it is not a typechecker** — it is a defaults table with a name list. The
-   merge is a real function (a profile states only what it changes, which is what OQ-CS9 rests on),
-   and the name list is what lets `yolo pack footprint` say *"zai accepts: model, thinking"*, which a
-   free-form bag cannot. No `kind`, no `values`, no enum checking — those were the half-schema and
-   they go. If even the defaults table proves unearned, (ii) is a smaller doc change than a larger
-   one, which is the direction to be wrong in.
+   **(i) — the provider declares option NAMES and DEFAULTS.**
+
+   ```jsonc
+   // packs/zai — the declaration
+   { "kind": "provider", "name": "zai",
+     "models":  { "default": "glm-4.7", "fast": "glm-4.7-air" },
+     "options": { "model": { "default": "default" }, "thinking": { "default": "off" } } }
+
+   // user config — the profile states only what it changes
+   { "profiles": { "zai-fast": { "provider": "zai", "model": "fast" } } }
+   ```
+
+   - The derive receives the **merged** result — `{model = "fast", thinking = "off"}` — so a profile
+     never restates a default.
+   - A profile key the provider does not declare is an **error naming what it does accept**:
+     `profiles.zai-fast.thinkng: unknown option for provider "zai" (accepts: model, thinking)`. That
+     is `reportUnknownKeys` on a per-provider census, not a new mechanism.
+   - `yolo pack footprint zai` can print `accepts: model, thinking`.
+   - Core still never asks what `low` means. `{ "default": … }` is the whole option schema — no
+     `kind`, no `values`, no enum.
+
+   **(ii) — no declaration; profile keys are free-form.**
+
+   ```jsonc
+   // packs/zai declares no options at all
+   { "profiles": { "zai-fast": { "provider": "zai", "model": "fast", "thinking": "low" } } }
+   ```
+
+   - Core passes the profile through untouched; the derive reads what it recognizes.
+   - A typo is **silently inert** — `"thinkng": "low"` reaches the derive, matches nothing, and
+     nothing reports it. That is the `[PASS]`-then-nothing-works class
+     [`reference-mismatch-diagnostics.md`](reference-mismatch-diagnostics.md) exists to close, minted
+     fresh in a new key.
+   - **No defaults, and this is the cost I under-weighted.** Defaults do not disappear; they move
+     into each agent's derive, so N derives each default the same provider's option independently and
+     can disagree. And without them a profile must restate every option — which **weakens OQ-CS9**,
+     since "point, don't inherit" was ruled precisely on the grounds that defaults leave little to
+     duplicate.
+   - Nothing to print in a footprint, and a user discovers the available options by reading Lua.
+
+   _Leaning:_ **(i)**, and the case rests on the two consequences above rather than on tidiness — it
+   is the only one of the pair that keeps a typo reportable and keeps OQ-CS9's ruling standing on its
+   own reasoning. It costs one new provider key (`options`) whose value schema is a single optional
+   field. If even that proves unearned, (ii) is a smaller doc change than a larger one, which is the
+   direction to be wrong in.
 
    **Answer:**
    > _(empty — fill in when decided)_

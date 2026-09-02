@@ -821,15 +821,26 @@ protocol table**, which is `pack-code-separation.md`'s "core does not know what 
 somewhere it had been explicitly excepted. And *"yes of course user"* settles OQ-CS5's scope: user
 scope only, both keys.
 
-**One left, and the review sharpened it rather than answering it.** *"Exactly what? Check a few
-things? Some optional half schema thing with a low grade type checker?"* — deserved; the leaning
+**One left, and two review rounds sharpened it rather than answering it.** *"Exactly what? Check a
+few things? Some optional half schema thing with a low grade type checker?"* — deserved; the leaning
 proposed value-checking against a provider-declared shape without saying what the shape was.
 Rescoped: **core validates nothing** (a typechecker there is `wire_api`'s enum again — a set core
-owns, delivered verbatim to consumers that own different ones), the derive validates and errors
-propagate. What is open is whether `options` is a names-plus-defaults table or nothing at all. I lean
-the former and it is **not a typechecker** — no `kind`, no `values`, no enum checking; those were the
-half-schema and they go. It is a defaults table whose merge is what OQ-CS9 rests on, plus the name
-list that lets `yolo pack footprint` say what a provider accepts.
+owns, delivered verbatim to consumers that own different ones); the derive validates and errors
+propagate.
+
+**The distinction that draft blurred, and the one the choice turns on:** *validating a value* ("is
+`low` a legal `thinking`?") is what core is getting out of; *checking a key census* ("does zai accept
+a `thinking` at all?") is a different thing this repo already does everywhere —
+`knownProviderKeys`, `reportUnknownKeys`. So **(i)** — a provider declares option NAMES and DEFAULTS,
+`{"model": {"default": "default"}}` and nothing more — buys the census, not the typechecker: a
+mistyped profile key errors *naming what the provider does accept*, defaults merge so a profile
+states only what it changes, and the footprint can print `accepts: model, thinking`. **(ii)** — no
+declaration, free-form profile keys — has the appeal of zero schema and two costs I had
+under-weighted: a typo is **silently inert** (the `[PASS]`-then-nothing-works class 💬 **17** exists
+to close, minted fresh in a new key), and defaults do not vanish but **move into each agent's derive**,
+so N derives default the same provider's option independently — and without them a profile restates
+everything, which **weakens OQ-CS9's ruling**, made precisely on the grounds that defaults leave
+little to duplicate. Leaning (i) on those two consequences.
 
 **Step 1 needs no ruling and blocks the rest:** the doc's §3 per-agent selection table has one row
 empty (pi — its `models.json` carries only `providers`, and where pi records "the model I use" is
