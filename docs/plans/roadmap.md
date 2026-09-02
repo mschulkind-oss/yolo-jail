@@ -696,7 +696,7 @@ whether it may carry the placeholder vocabulary `env_shape` already has.
 ### 💬 19 — A catalog and a selection are two features, and only one of them ships
 
 📄 [`provider-catalog-and-selection.md`](../design/provider-catalog-and-selection.md) —
-**OQ-CS3 · OQ-CS5 (scope) · OQ-CS7 · OQ-CS8** open · ~~OQ-CS1~~ ~~OQ-CS2~~ ~~OQ-CS4~~ ~~OQ-CS6~~ ruled · sibling to 💬 **18**, which reports defects in the same machinery ·
+**OQ-CS7** open · the other eight ruled 2026-09-01 · ~~OQ-CS1~~ ~~OQ-CS2~~ ~~OQ-CS4~~ ~~OQ-CS6~~ ruled · sibling to 💬 **18**, which reports defects in the same machinery ·
 splits what [`zai-plumbing.md`](../design/zai-plumbing.md) §5 assumed was one thing
 
 **The maintainer's own framing, 2026-09-01:** *"populating a directory of providers in an agent
@@ -808,32 +808,28 @@ non-test occurrences** of `pack_profiles`/`YOLO_PACK_PROFILES`/`PackProfiles` ac
 88 in tests — a config key, an env var, a Lua `ctx` field the derives read, and the Go identifiers
 between them. Mechanical, but its own commit.
 
-**What remains is OQ-CS3 (which model a selection picks), OQ-CS5's SCOPE half (I lean user-scope
-only for both keys, same as `packs`, since a profile steers which endpoint an agent talks to — the
-honest cost is that a repo cannot ship "use this model here"), OQ-CS7 (what validation a
-provider-declared option gets), OQ-CS8, and the research gap below.**
+**A review round closed three more, and two of them dissolved because I had not propagated 💬 18's
+OQ-PT9 into this doc.** *"Who is doing this selecting? Isn't this up to derive?"* — yes: **core
+resolves no model at all** (OQ-CS3), it hands the derive the active profile and the provider entry
+and the derive writes its agent's key, so `default` stays an ordinary alias and core reserves
+nothing. *"'Move' means the pack handles it? I need clearer details here."* — the leaning said "move
+the field" when OQ-PT9 had already deleted the field. **Nothing declares the binding; the agent's
+pack composes it in its own env-emitting derive** (OQ-CS8), and the doc now carries the Lua and the
+deletion list: `env_shape` plus its validators, the four placeholder constants, the env_shape skew
+tests, and most of a 250-line `internal/agentenv` — **including core's `agentProtocols` agent →
+protocol table**, which is `pack-code-separation.md`'s "core does not know what an agent is" arriving
+somewhere it had been explicitly excepted. And *"yes of course user"* settles OQ-CS5's scope: user
+scope only, both keys.
 
-**Measured in a live jail today**, `packs: ["claude","zai"]` with `providers.zai` set:
-
-| Agent | Catalog | Selection key | Set? |
-|---|---|---|---|
-| pi | `providers: {bedrock-mantle, zai}` | the file has only a `providers` key | **absent** |
-| opencode | `provider: {zai}` | top-level `model` | **absent** |
-| codex | `[model_providers.zai]` | `model_provider` / `model` | **absent** |
-| claude | *(no catalog)* | `ANTHROPIC_BASE_URL` + token | **set** |
-
-So *"what do pi and opencode do if no provider is specified?"* — they fall through to their own
-built-in default and the `zai` entry sits in the directory unused. **`-p zai` changes the behaviour
-of exactly one agent of four**, while [`zai-plumbing.md`](../design/zai-plumbing.md)'s stated want is
-*"`-p zai` works anywhere; every selected agent fires at z.ai"*. The catalog half works everywhere;
-the selection half is claude-only, and nothing prevents fixing it — the derives are ordinary Lua in
-the packs that own each agent.
-
-**And the disable complaint falls out of the same conflation.** A provider entry can only express
-catalog presence, so "off" can only mean "absent", the only absence-maker is `null`, and `null`
-replaces the settings it disables — with no alternative, since `knownProviderKeys` is closed and
-`enabled: false` would be refused as an unknown key. Once the two features are separate the want is
-trivial: the entry stays, nothing selects it.
+**One left, and the review sharpened it rather than answering it.** *"Exactly what? Check a few
+things? Some optional half schema thing with a low grade type checker?"* — deserved; the leaning
+proposed value-checking against a provider-declared shape without saying what the shape was.
+Rescoped: **core validates nothing** (a typechecker there is `wire_api`'s enum again — a set core
+owns, delivered verbatim to consumers that own different ones), the derive validates and errors
+propagate. What is open is whether `options` is a names-plus-defaults table or nothing at all. I lean
+the former and it is **not a typechecker** — no `kind`, no `values`, no enum checking; those were the
+half-schema and they go. It is a defaults table whose merge is what OQ-CS9 rests on, plus the name
+list that lets `yolo pack footprint` say what a provider accepts.
 
 **Step 1 needs no ruling and blocks the rest:** the doc's §3 per-agent selection table has one row
 empty (pi — its `models.json` carries only `providers`, and where pi records "the model I use" is

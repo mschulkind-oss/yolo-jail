@@ -149,8 +149,10 @@ Two costs, and the second is the one that bites:
 > that it is filed as work rather than as a reason to wait.
 
 **The shape of the fix, and it is the same rule §3 is already built on.** Each **agent pack**
-declares how a selection reaches it, per protocol — codex and opencode name a config key, and claude
-names a set of environment variables:
+composes how a selection reaches it — codex and opencode into a config key, claude into environment
+variables. *(Ruled 2026-09-01, OQ-CS8: it is composed by the agent pack's own derive, not declared.
+The block below is kept as a statement of WHAT claude needs delivered; §9 OQ-CS8 has the shape that
+delivers it and the list of what that deletes.)*
 
 ```jsonc
 // packs/claude declares its own binding, once, for every anthropic provider
@@ -569,24 +571,11 @@ unrelated to the sequence above.
    an instance of it; the agent's derive decides where each option lands. My leaning — fix the field
    set at two and defer — is overruled. Folded into §5.2.
 
-4. 💬 **OQ-CS5: At what SCOPE do user-declared profiles live?** *(The naming half is RESOLVED,
-   2026-09-01: the selection key becomes **`use_profiles`**, `pack_profiles` retired by name — §5.4.
-   What is left is the scope, deliberately not read into that answer, because it is the half with a
-   security consequence.)*
-
-   A profile names a provider and therefore steers **which endpoint an agent talks to**. `packs` is
-   already user-scope only, on the reasoning that a workspace config travels with the repo and is
-   agent-editable.
-
-   _Leaning:_ **User-scope only, same as `packs`, for both keys.** A repo that could declare a
-   profile could point its own agent at a service the user never chose — and a repo that could
-   *select* one could activate a profile the user declared for something else. The cost is that a
-   project cannot ship "use this model for this repo", which is a real want and the honest argument
-   against; my answer is that it is the same want `packs` already refuses, and refusing it in one
-   place and allowing it in another is worse than either rule consistently applied.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+4. ✅ **OQ-CS5: At what SCOPE do user-declared profiles live? — RESOLVED (2026-09-01). User scope
+   only, both keys.** *"Yes of course user."* Same rule `packs` follows: a workspace config travels
+   with the repo and is agent-editable, and a profile steers which endpoint an agent talks to. The
+   cost stands and is accepted — a project cannot ship "use this model for this repo". *(The naming
+   half resolved in the same round: the selection key is `use_profiles` — §5.4.)*
 
 5. ✅ **OQ-CS6: Confirm reversing `profiles-as-pack-variants.md` OQ-5 — RESOLVED (2026-09-01).
    Reversed.** *"Reversing old decisions is fine. We're debugging a mess of a design and need to
@@ -594,51 +583,88 @@ unrelated to the sequence above.
    name becomes a reportable error rather than a silent no-op. OQ-5 is **superseded** — it was ruled
    when a profile was a bare string. Folded into §5.2 property 3.
 
-6. 💬 **OQ-CS3: Which model does selecting a provider select?** A provider carries `models` aliases
-   (`default`, `fast`, …) and the alias vocabulary is deliberately open. Selection needs one
-   concrete id.
+6. ✅ **OQ-CS3: Which model does selecting a provider select? — RESOLVED (2026-09-01), and the
+   question dissolved.** *"Who is doing this selecting? Isn't this up to derive?"* — yes, and asking
+   it exposes that I had not propagated
+   [`provider-table-fidelity.md`](provider-table-fidelity.md) OQ-PT9 into this doc. Once everything
+   goes to the derive, **core resolves no model at all**: it hands the derive the active profile
+   (which carries the alias the user chose, if any) and the composed provider entry (which carries
+   `models`), and the derive writes its agent's selection key. If the profile names no alias, the
+   fallback is that agent's business — its own default, or the provider's `default` if its author
+   wants that. **Core reserves nothing, so `default` stays an ordinary open-vocabulary alias** and
+   the small closing my leaning proposed does not happen.
 
-   _Leaning:_ The `default` alias, and refuse the selection with a named error when the provider
-   has no `default` — rather than picking one, which would make the choice depend on map order.
-   That effectively promotes `default` from an open-vocabulary alias to a reserved one, which is a
-   small closing of something the parent design deliberately left open, and should be recorded as
-   such if it is taken.
+7. ✅ **OQ-CS8: Where does an agent's protocol binding live? — RESOLVED (2026-09-01), and my
+   answer was stale.** *"'Move' means the pack handles it? I need clearer details here."* Fair — the
+   leaning said "move the field" and by then there was no field to move:
+   [`provider-table-fidelity.md`](provider-table-fidelity.md) OQ-PT9 had already ruled the whole
+   substitution vocabulary out. Concretely, and this is the detail the question asked for:
+
+   **Nothing declares the binding. The agent's pack composes it in its own derive.** `packs/claude`
+   gains an env-emitting derive that reads the composed provider entry and returns the variables
+   claude needs:
+
+   ```lua
+   yolo.derive("claude", "env", function(ctx)
+     local p = ctx.providers[ctx.selected_provider]      -- the active profile's provider
+     if not p then return {} end
+     local ep = p.endpoints and p.endpoints.anthropic
+     return {
+       ANTHROPIC_BASE_URL  = ep and ep.base_url,
+       ANTHROPIC_AUTH_TOKEN = p.api_key,                 -- resolved value (OQ-PT9)
+       AWS_REGION          = p.region,
+       ANTHROPIC_DEFAULT_OPUS_MODEL = p.models and p.models[ctx.profile.model or "default"],
+     }
+   end)
+   ```
+
+   **What this deletes, counted 2026-09-01** — the reason to prefer it over any declarative form:
+
+   | Goes | Where |
+   | :--- | :--- |
+   | `EnvShape` field, `ValidateProviderEnvShape`, `KnownEnvShapeValue`, the four placeholder constants | [`packdecl/contributes.go`](../../internal/packdecl/contributes.go) |
+   | `validateProviderEnvShape`, `env_shape` in `knownProviderKeys` | [`config/validate.go`](../../internal/config/validate.go) |
+   | `agentProtocols`, `ProtocolFor`, `Resolve`, `providerVars` — most of a 250-line package | [`internal/agentenv`](../../internal/agentenv/agentenv.go) |
+   | the env_shape skew-tolerance tests at both levels | packdecl, packload |
+
+   **`agentProtocols` going is the one worth naming.** It is core's agent → wire-protocol table, and
+   its own comment concedes it exists only because the manifest has no field for it. With the derive
+   composing, each agent's derive reads the endpoint it speaks and core stops holding a table of
+   agent names — which is `pack-code-separation.md`'s rule ("core does not know what an agent is")
+   arriving somewhere it had been explicitly excepted.
+
+   What core still does: compose the providers table, resolve which profile is active, hydrate the
+   credential, and run derives. What it stops doing is knowing what any of it *means*.
+
+8. 💬 **OQ-CS7: Does a provider's `options` declaration carry any validation at all — or any
+   schema?** *(Rescoped after review: "Exactly what? Check a few things? Some optional half schema
+   thing with a low grade type checker?" The previous leaning deserved that. It proposed
+   value-checking against a provider-declared shape without saying what the shape was, which is a
+   half-schema by any name.)*
+
+   **The consistent answer is that core validates nothing**, and I now think the previous leaning was
+   inconsistent with two rulings already made. OQ-PT9 sends the values to the derive; OQ-CS3 makes
+   the derive resolve them. A typechecker in core would be the only place left that claims to
+   understand an option — and it is the same shape as `wire_api`'s enum, which validated against a
+   set core owned and delivered verbatim to consumers that owned different ones. **The derive
+   validates, and errors propagate** — the propagation OQ-PT9 already requires.
+
+   What that leaves open is whether `options` is a schema or barely anything:
+
+   | | `options` carries | Core does | Cost |
+   | :--- | :--- | :--- | :--- |
+   | **(i) names + defaults** | `{"model": {"default": "default"}}` | merges defaults under the profile's values, validates nothing | one small schema, no typechecker |
+   | **(ii) nothing — free-form keys** | — | passes the profile through untouched | no defaults, no `yolo pack footprint` listing, and `knownProviderKeys` must open |
+
+   _Leaning:_ **(i), and it is not a typechecker** — it is a defaults table with a name list. The
+   merge is a real function (a profile states only what it changes, which is what OQ-CS9 rests on),
+   and the name list is what lets `yolo pack footprint` say *"zai accepts: model, thinking"*, which a
+   free-form bag cannot. No `kind`, no `values`, no enum checking — those were the half-schema and
+   they go. If even the defaults table proves unearned, (ii) is a smaller doc change than a larger
+   one, which is the direction to be wrong in.
 
    **Answer:**
    > _(empty — fill in when decided)_
-
-7. 💬 **OQ-CS8: Where does an agent's protocol binding live?** §3.1. The `env_shape` an agent needs
-   is currently declared by every provider that wants to serve it; it should be declared once, by
-   the agent's own pack, per protocol. Open: whether that is a new contribution kind (`binding`), a
-   protocol-keyed field on an existing one, or simply `env_shape` moved off `kind: "provider"` and
-   onto the agent pack with a `protocol` key.
-
-   _Leaning:_ Move the field rather than mint a kind. `env_shape`'s shape is already
-   protocol → {VAR → placeholder}, the placeholder vocabulary is already closed and shared, and the
-   composition already reads it out of the composed table — so relocating WHO declares it is a
-   smaller change than it looks, and a new kind would need its own footprint, combine rule and
-   collision story for no new claim on the environment. The part that genuinely changes is the
-   lookup: `agentenv` currently finds the shape on the provider entry and would instead find it on
-   the agent's pack and fill it from the provider entry.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-8. 💬 **OQ-CS7: What validation does a provider-declared option get?** §5.2. Core cannot know what
-   `thinking` means, and an option no derive consumes must stay inert rather than become an error —
-   so the question is what CAN be checked. The declaration is checkable against itself: an `enum`
-   option's value is in its own `values` list, a `model-alias` option names a real alias of that
-   provider's `models`.
-
-   _Leaning:_ Exactly that — validate a profile's option values against the provider's own
-   declaration, and nothing else. It is the strongest check available without core learning a
-   vocabulary, it catches the typo class that matters (`"thinkng": "low"`, `"model": "fastt"`), and
-   it cannot repeat `wire_api`'s failure because the authority being checked against is shipped
-   alongside the value rather than baked into a yolo release.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
 
 9. ✅ **OQ-CS9: Does a profile point at a provider, inherit from another profile, or both? —
    RESOLVED (2026-09-01). Point only — option (a).** No `extends`, no inheritance semantics to
@@ -660,6 +686,9 @@ folded into the section named in the last column.
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | OQ-CS1 | **Option D** — catalog from presence, selection written into each agent's own selection key. *"Activating a profile should work for all."* B (gating the catalog) rejected with it. | 2026-09-01 | §5, §5.1 |
+| OQ-CS3 | **Core resolves no model** — it hands the derive the active profile and the provider entry; the derive writes its agent's selection key and picks its own fallback. `default` stays an ordinary open-vocabulary alias. | 2026-09-01 | §9 OQ-CS3 |
+| OQ-CS8 | **Nothing declares the binding — the agent's pack composes it in its own env-emitting derive.** Deletes `env_shape` and its validators, the four placeholder constants, and most of `internal/agentenv` including core's `agentProtocols` agent→protocol table. | 2026-09-01 | §3.1, §9 OQ-CS8 |
+| OQ-CS5 *(scope)* | **User scope only, both keys** — a profile steers which endpoint an agent talks to, and a workspace config is agent-editable. Same rule `packs` follows. | 2026-09-01 | §9 OQ-CS5 |
 | OQ-CS5 *(naming half)* | **The selection key becomes `use_profiles`**; `pack_profiles` retired by name — it named neither packs nor profiles, its keys being CLI names. The scope half stays open. | 2026-09-01 | §5.4 |
 | OQ-CS9 | **Profiles POINT at a provider; no `extends`.** Provider-declared option defaults already remove the duplication inheritance would fix; same-name merging is a separate feature and stays. | 2026-09-01 | §5.2, §5.4 |
 | OQ-CS4 | **A provider declares an `options` block; a profile is an instance of it** — *"model can't be the only config we'll want."* The derive decides where each option lands; core learns no option names. Supersedes the fixed two-field draft. | 2026-09-01 | §5.2 |
