@@ -302,8 +302,8 @@ func TestProviderCredentialGapsFollowCatalogMembership(t *testing.T) {
 	}
 
 	// The SAME table with the entry null-dropped: the provider left the catalog, and the
-	// requirement left with it. This is the launch D4 measured refusing before the rule
-	// moved — packs: ["claude"] with providers: {"bedrock": null} came out as "pack claude
+	// requirement left with it. The shape D4 measured refusing before the rule moved —
+	// packs: ["claude"] with providers: {"bedrock": null}, which came out as "pack claude
 	// requires provider "bedrock", and the composed providers table has no entry by that
 	// name", the user's own "no" read back as a fault.
 	user := userProviders(t, `{"zai":null}`)

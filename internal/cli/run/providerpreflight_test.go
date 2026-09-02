@@ -105,10 +105,11 @@ func TestCheckProviderCredentialsRefusesAnUnhydratedKey(t *testing.T) {
 // that consumes the answer:
 //
 //   - a provider the user null-drops left the composed table, and the requirement left
-//     with it. This is the launch the design measured refusing before the rule moved —
-//     `providers: {"zai": null}` over a pack shipping zai came out as "pack zai requires
-//     provider "zai", and the composed providers table has no entry by that name", the
-//     user's own "no" read back as a fault;
+//     with it. The design measured the shape refusing before the rule moved
+//     (provider-table-fidelity.md §5.1: packs: ["claude"] with providers: {"bedrock":
+//     null} came out as "…and the composed providers table has no entry by that name"),
+//     the user's own "no" read back as a fault. This fixture is that shape on the zai pack
+//     the rest of this file uses;
 //   - the same pack with its entry cataloged still refuses, naming the provider and the
 //     variable — which is what keeps this a refusal test rather than a delete-the-check
 //     test. The ONLY thing that changed between the two halves is table membership;
