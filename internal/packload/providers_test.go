@@ -118,6 +118,53 @@ func TestComposeProvidersShipsUnderUserConfig(t *testing.T) {
 	}
 }
 
+// TestComposeProvidersHonorTheNullDropBelowTheTopLevel pins the merge's own convention one
+// level under the entry (provider-catalog-and-selection.md §4's note, provider-table-
+// fidelity-plan.md step 4): a null in the user's override is a DELETE wherever it appears,
+// not a value. At the top level ComposeProviders already dropped the whole entry; below it
+// the per-field fold set the key to a literal null instead — `models.fast: null` composed
+// an alias whose value is nothing, which no reader of the table has a meaning for.
+func TestComposeProvidersHonorTheNullDropBelowTheTopLevel(t *testing.T) {
+	pack := shippedZaiPack(t)
+
+	// One level under the entry: the alias goes, the one beside it stays.
+	user := userProviders(t, `{"zai":{"models":{"fast":null}}}`)
+	got := compose(t, user, []*Pack{pack})
+	if s := dump(t, got); strings.Contains(s, "fast") {
+		t.Errorf("a null model alias must delete the alias, got %s", s)
+	}
+	if s := dump(t, got); !strings.Contains(s, `"default": "glm-4.7"`) {
+		t.Errorf("the alias beside the null must survive, got %s", s)
+	}
+
+	// Two levels under it, and over an OBJECT: the null takes the whole subtree with it.
+	user = userProviders(t, `{"zai":{"env_shape":{"anthropic":{"ANTHROPIC_AUTH_TOKEN":null,
+	  "ANTHROPIC_BASE_URL":"https://my.proxy.example/v1"}}}}`)
+	got = compose(t, user, []*Pack{pack})
+	if s := dump(t, got); strings.Contains(s, "ANTHROPIC_AUTH_TOKEN") {
+		t.Errorf("a null placeholder mapping must delete the mapping, got %s", s)
+	}
+	if s := dump(t, got); !strings.Contains(s, `"ANTHROPIC_BASE_URL": "https://my.proxy.example/v1"`) {
+		t.Errorf("the mapping beside the null must survive, got %s", s)
+	}
+	if s := dump(t, got); !strings.Contains(s, `"zai"`) {
+		t.Errorf("the entry itself must survive a null inside it, got %s", s)
+	}
+
+	user = userProviders(t, `{"zai":{"models":null}}`)
+	if s := dump(t, compose(t, user, []*Pack{pack})); strings.Contains(s, "glm-4.7") {
+		t.Errorf("a null over a whole subtree must delete the subtree, got %s", s)
+	}
+
+	// Non-null still replaces — the convention this sits beside, already pinned by
+	// TestComposeProvidersShipsUnderUserConfig and pinned here once more beside the delete
+	// it shares a fold with.
+	user = userProviders(t, `{"zai":{"models":{"fast":"glm-5"}}}`)
+	if s := dump(t, compose(t, user, []*Pack{pack})); !strings.Contains(s, `"fast": "glm-5"`) {
+		t.Errorf("a non-null override still replaces, got %s", s)
+	}
+}
+
 // TestComposeProvidersRefusesAManufacturedAddressPair pins D2 (provider-table-fidelity.md
 // §4.1, OQ-PT2): the shorthand and the endpoint map are each legal alone, and the config
 // validator refuses them together in an entry a user wrote — but this merge is PER FIELD,

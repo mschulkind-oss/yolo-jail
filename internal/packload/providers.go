@@ -30,7 +30,9 @@ import (
 // alias overrides `models.fast` and keeps the pack's endpoints, which is the whole point
 // of shipping the facts (zai-plumbing.md §7 — "overrides, not authoring"). Objects merge
 // recursively; every other value replaces. A null user entry DROPS the provider outright,
-// the same convention the `providers` config key already has for a null entry.
+// the same convention the `providers` config key already has for a null entry — and a null
+// NESTED in an entry is a delete too, at every depth (see mergeUnder), so an alias can be
+// removed without restating the aliases around it.
 //
 // The merge REFUSES a composed entry that ends up carrying both `base_url` and
 // `endpoints` (provider-table-fidelity.md §4.1, OQ-PT2). Each half is legal alone — the
@@ -389,13 +391,26 @@ func shippedProviderEntry(prov packdecl.ProviderContribution) *jsonx.OrderedMap 
 	return entry
 }
 
-// mergeUnder folds src into dst IN PLACE, recursively: an object on both sides merges,
-// anything else replaces. Used for the user's override of a shipped provider, where a
-// whole-entry replacement would force the user to restate the endpoints they did not
-// want to change.
+// mergeUnder folds src into dst IN PLACE, recursively: a null on the right DELETES the key
+// it is under, an object on both sides merges, anything else replaces. Used for the user's
+// override of a shipped provider, where a whole-entry replacement would force the user to
+// restate the endpoints they did not want to change.
+//
+// The null is a delete, not a value — the same convention ComposeProviders applies to the
+// entry itself, one level up. It has to hold at every depth or the override layer speaks
+// two dialects of "no": `providers.zai: null` removes a provider, while
+// `providers.zai.models.fast: null` composed a literal `"fast": null` — an alias whose
+// value is nothing, which no reader of the composed table has a meaning for
+// (provider-catalog-and-selection.md §4, note). Merge-patch's own rule (RFC 7386 §2) is
+// the same one, and for the same reason: a null member name defines the member's
+// removal.
 func mergeUnder(dst, src *jsonx.OrderedMap) {
 	for _, k := range src.Keys() {
 		v, _ := src.Get(k)
+		if v == nil {
+			dst.Delete(k)
+			continue
+		}
 		cur, ok := dst.Get(k)
 		if ok {
 			if dm, isMap := cur.(*jsonx.OrderedMap); isMap {
