@@ -220,7 +220,9 @@ func TestProviderDerivesKeepTheBaseURLShorthand(t *testing.T) {
 // what an omitted wire_api means for it; pi has NO default (an absent api is a
 // composition error that deletes the provider, pi 0.84.4 provider-composer.js:48-52), so
 // the derive must choose, and it chooses pi's chat-completions spelling — the protocol
-// the `openai` endpoint key names (zai-plumbing.md §5).
+// the `openai` endpoint key names (zai-plumbing.md §5). The last row is not a default at
+// all but the version-skew case: a canonical name these derives predate, which both maps
+// must treat as unspeakable rather than pass through.
 func TestProviderDerivesTranslateTheCanonicalVocabulary(t *testing.T) {
 	const url = "https://provider.example/v1"
 	cases := []struct {
@@ -237,6 +239,17 @@ func TestProviderDerivesTranslateTheCanonicalVocabulary(t *testing.T) {
 			wantPi: "anthropic-messages", wantCodex: ""},
 		{name: "undeclared", wireAPI: "",
 			wantPi: "openai-completions", wantCodex: "responses"},
+		// A canonical name this build's derives have never heard of. Reachable without any
+		// authoring mistake: packdecl refuses an unknown wire_api when the MANIFEST is read
+		// and internal/config refuses one in user config, but the composed table crosses the
+		// host→jail boundary as data, so a newer host staging a fourth protocol lands in THIS
+		// jail's older derives unvalidated (packdecl's unknownWireAPISkip is the same skew,
+		// seen from the other side). Both dialect maps miss, so BOTH agents must get no
+		// entry — this row exists because pi's drop path otherwise has no input at all: the
+		// three real names all have pi spellings, so only codex's was exercised.
+		// "openai-realtime" is a stand-in for any such future name.
+		{name: "canonical-name-this-build-does-not-know", wireAPI: "openai-realtime",
+			wantPi: "", wantCodex: ""},
 	}
 
 	for _, tc := range cases {
