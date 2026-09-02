@@ -29,11 +29,11 @@ import (
 // renderCodexConfig drives the boot render of the real codex pack over the given provider
 // table and selection table, and returns the decoded config.toml.
 //
-// The zai pack rides along because it is the pack that DECLARES the `zai` variant — the
+// The zai pack rides along because it is the pack that DECLARES the `zai` profile — the
 // shipped shape where the profile lives on a pack that installs no CLI, so the resolution
 // is cross-pack by construction. Without it, `{"codex": "zai"}` would resolve to the bare
 // name and this harness would be testing a different rule than the one that ships.
-func renderCodexConfig(t *testing.T, providersJSON, profilesJSON string) map[string]any {
+func renderCodexConfig(t *testing.T, providersJSON, profilesJSON, wireProfiles string) map[string]any {
 	t.Helper()
 	codex, err := embeddedPack("codex")
 	if err != nil {
@@ -44,10 +44,18 @@ func renderCodexConfig(t *testing.T, providersJSON, profilesJSON string) map[str
 		t.Fatalf("embedded zai: %v", err)
 	}
 	var errw bytes.Buffer
-	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{
+	vars := map[string]string{
 		"YOLO_PROVIDERS":    providersJSON,
 		"YOLO_USE_PROFILES": profilesJSON,
-	}, Stderr: &errw}
+	}
+	// wireProfiles is the resolved table a real launch lowers in (YOLO_PROFILES) — the
+	// input ctx.profile reads, which the model half of the selection derives from. ""
+	// leaves it unset: the no-option world, and the world of a launch that composed no
+	// profiles at all.
+	if wireProfiles != "" {
+		vars["YOLO_PROFILES"] = wireProfiles
+	}
+	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: vars, Stderr: &errw}
 	withCtxRoot(t, t.TempDir(), "codex")
 
 	ConfigurePackSurfaces(e, []*packload.Pack{codex, zai})
@@ -88,6 +96,9 @@ func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
 		profiles     string
 		wantProvider string // "" asserts the key is ABSENT
 		wantModel    string // "" asserts the key is ABSENT
+		// wire is the resolved YOLO_PROFILES table this case launches with; "" carries
+		// none, which is the no-option world every profile without a `model` value lives in.
+		wire string
 		// cataloged states whether model_providers carries an entry for wantProvider;
 		// ignored when wantProvider is "". It is asserted BESIDE the selection keys, not
 		// instead of them: a model_provider naming a row the catalog dropped is a config
@@ -106,6 +117,33 @@ func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
 			profiles:     `{"codex":"llamacpp"}`,
 			wantProvider: "llamacpp",
 			wantModel:    "llama",
+			cataloged:    true,
+		},
+		{
+			// OQ-CS4 at codex's own key: the profile's `model` option names an alias of the
+			// provider it selects, and the id under it is what `model` gets — not the
+			// declared default. The option crosses the resolved table, so the wire table
+			// here is the shape a real launch lowers in, not a second spelling.
+			name: "the profile's model option names the alias",
+			providers: `{"llamacpp":{"base_url":"http://127.0.0.1:8080/v1",` +
+				`"models":{"default":"llama","fast":"llama-3.1-8b-q4"}}}`,
+			profiles:     `{"codex":"llamacpp"}`,
+			wire:         `{"llamacpp": {"provider": "llamacpp", "model": "fast"}}`,
+			wantProvider: "llamacpp",
+			wantModel:    "llama-3.1-8b-q4",
+			cataloged:    true,
+		},
+		{
+			// An option naming an alias the provider does not declare is not a licence to
+			// guess: the id under a wrong alias is not one the provider declared, and no
+			// other id is either. model_provider stands alone — the same degradation as a
+			// provider with no declared default — and codex supplies its own model.
+			name: "an option naming an unknown alias writes model_provider alone",
+			providers: `{"llamacpp":{"base_url":"http://127.0.0.1:8080/v1",` +
+				`"models":{"default":"llama","fast":"llama-3.1-8b-q4"}}}`,
+			profiles:     `{"codex":"llamacpp"}`,
+			wire:         `{"llamacpp": {"provider": "llamacpp", "model": "turbo"}}`,
+			wantProvider: "llamacpp",
 			cataloged:    true,
 		},
 		{
@@ -139,9 +177,9 @@ func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
 			guard:     "llamacpp",
 		},
 		{
-			// A variant whose requires_provider the composed table does not hold delivers
-			// nothing to any agent (packload.requiredProviders says the same from the
-			// preflight side), so it selects nothing either.
+			// A profile whose provider the composed table does not hold delivers nothing
+			// to any agent (packload.requiredProviders says the same from the preflight
+			// side), so it selects nothing either.
 			name:      "a selected name the table does not hold selects nothing",
 			providers: reachableProviderJSON,
 			profiles:  `{"codex":"mystery"}`,
@@ -163,7 +201,7 @@ func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := renderCodexConfig(t, tc.providers, tc.profiles)
+			got := renderCodexConfig(t, tc.providers, tc.profiles, tc.wire)
 
 			// An absent TOML key decodes as nil, which is what absence reads as here.
 			if absentOr(got["model_provider"]) != tc.wantProvider {

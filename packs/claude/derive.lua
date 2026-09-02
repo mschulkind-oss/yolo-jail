@@ -62,8 +62,14 @@ yolo.env("claude", function(ctx)
     out.AWS_REGION = p.region
   end
   local m = p.models or {}
-  if m.default then
-    out.ANTHROPIC_DEFAULT_OPUS_MODEL = m.default
+  -- OPUS takes the alias the active profile's `model` option names (OQ-CS4: what an
+  -- option means is the derive's business), falling back to the provider's declared
+  -- `default` when the profile carries none (OQ-CS3). SONNET and HAIKU keep their own
+  -- aliases: they are Claude's routing names inside the same provider, not a selection
+  -- surface, and no profile option speaks for them.
+  local alias = (ctx.profile and ctx.profile.model) or "default"
+  if m[alias] then
+    out.ANTHROPIC_DEFAULT_OPUS_MODEL = m[alias]
   end
   if m.sonnet then
     out.ANTHROPIC_DEFAULT_SONNET_MODEL = m.sonnet

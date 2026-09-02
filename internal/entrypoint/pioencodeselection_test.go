@@ -114,6 +114,15 @@ func (r *pioencodeRender) render(t *testing.T, profilesJSON string) {
 	}
 }
 
+// wireProfiles installs the RESOLVED profile table a real launch composes on the host and
+// lowers into the jail as YOLO_PROFILES — the table activeProfileOptions reads to fill
+// ctx.profile, the input the model half of a selection derives from. It stays in force
+// across renders on purpose: a launch delivers the table every boot, so a multi-boot
+// sequence that keeps the selection selected sees the same options each time. A test that
+// never sets it exercises the no-option world, which is also the world of a launch that
+// composed no profiles.
+func (r *pioencodeRender) wireProfiles(json string) { r.e.Vars["YOLO_PROFILES"] = json }
+
 // surface reads one rendered surface back and decodes it. A missing file is fatal rather
 // than an empty map: "the key is absent" is only an assertion if the file it is absent
 // FROM is the file the agent reads.
@@ -224,6 +233,9 @@ func TestPiDeriveWritesTheSelectionPair(t *testing.T) {
 		profiles     string
 		wantProvider string // "" asserts the key is ABSENT
 		wantModel    string // "" asserts the key is ABSENT
+		// wire is the resolved YOLO_PROFILES table this case launches with; "" carries
+		// none, which is the no-option world every profile without a `model` value lives in.
+		wire string
 		// guard names a provider that MUST reach the catalog even though it is not
 		// selected — a case whose provider table holds nothing pi can speak would make the
 		// absence of a selection key vacuous, so those cases carry a speakable neighbour
@@ -236,6 +248,29 @@ func TestPiDeriveWritesTheSelectionPair(t *testing.T) {
 			profiles:     `{"pi":"zai"}`,
 			wantProvider: "zai",
 			wantModel:    "glm-4.7",
+		},
+		{
+			// OQ-CS4's arrival at pi's own key: the profile's `model` option names an alias
+			// of the SAME provider table, and the id under it is what defaultModel gets —
+			// not the declared default. The option crosses the resolved table, so the wire
+			// table here is the shape a real launch lowers in, not a second spelling.
+			name:         "the profile's model option names the alias",
+			providers:    zaiReachableJSON,
+			profiles:     `{"pi":"zai"}`,
+			wire:         `{"zai": {"provider": "zai", "model": "fast"}}`,
+			wantProvider: "zai",
+			wantModel:    "glm-4.7-air",
+		},
+		{
+			// An option naming an alias the provider does not declare is not a licence to
+			// guess: the id under a wrong alias is not on the list pi matches against
+			// exactly, and neither is any other id. defaultProvider stands, defaultModel
+			// stays absent — the same degradation as a provider with no default alias.
+			name:         "an option naming an unknown alias writes defaultProvider alone",
+			providers:    zaiReachableJSON,
+			profiles:     `{"pi":"zai"}`,
+			wire:         `{"zai": {"provider": "zai", "model": "turbo"}}`,
+			wantProvider: "zai",
 		},
 		{
 			// OQ-CS2: the no-profile case is the agent's own — pi's own persisted
@@ -261,7 +296,7 @@ func TestPiDeriveWritesTheSelectionPair(t *testing.T) {
 			guard:     "llamacpp",
 		},
 		{
-			// A variant whose requires_provider the composed table does not hold delivers
+			// A profile whose provider the composed table does not hold delivers
 			// nothing to any agent, so it selects nothing either.
 			name:      "a selected name the table does not hold selects nothing",
 			providers: zaiReachableJSON,
@@ -292,6 +327,9 @@ func TestPiDeriveWritesTheSelectionPair(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := newPioencodeRender(t, tc.providers)
+			if tc.wire != "" {
+				r.wireProfiles(tc.wire)
+			}
 			r.render(t, tc.profiles)
 			settings, models := r.piSettings(t), r.piModels(t)
 
@@ -329,13 +367,38 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 		providers string
 		profiles  string
 		wantModel string // "" asserts the key is ABSENT
-		guard     string // a provider that must still be cataloged; "" selects the only one
+		// wire is the resolved YOLO_PROFILES table this case launches with; "" carries
+		// none, which is the no-option world every profile without a `model` value lives in.
+		wire  string
+		guard string // a provider that must still be cataloged; "" selects the only one
 	}{
 		{
 			name:      "an opencode-reachable provider is selected with its default alias",
 			providers: zaiReachableJSON,
 			profiles:  `{"opencode":"zai"}`,
 			wantModel: "zai/glm-4.7",
+		},
+		{
+			// OQ-CS4 at opencode's key: the option names the alias, the id under it joins
+			// the provider with the one slash opencode splits on, and the catalog row the
+			// prefix names is the same one this derive wrote.
+			name:      "the profile's model option names the alias",
+			providers: zaiReachableJSON,
+			profiles:  `{"opencode":"zai"}`,
+			wire:      `{"zai": {"provider": "zai", "model": "fast"}}`,
+			wantModel: "zai/glm-4.7-air",
+		},
+		{
+			// An option naming an alias the provider does not declare asks a question the
+			// table cannot answer, and the one-model fallback is deliberately NOT the
+			// answer — that fallback belongs to the default ask, where "which model" has
+			// only one possible reply. Here it would be a silent override of an explicit
+			// one, so the key stays absent and opencode's own choice stands.
+			name:      "an option naming an unknown alias writes nothing",
+			providers: noDefaultJSON,
+			profiles:  `{"opencode":"solo"}`,
+			wire:      `{"solo": {"provider": "solo", "model": "turbo"}}`,
+			guard:     "solo",
 		},
 		{
 			// OQ-CS2 again, with a guard: with `model` unset opencode falls back to its own
@@ -384,6 +447,9 @@ func TestOpencodeDeriveWritesTheSelectionKey(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := newPioencodeRender(t, tc.providers)
+			if tc.wire != "" {
+				r.wireProfiles(tc.wire)
+			}
 			r.render(t, tc.profiles)
 			config := r.ocConfig(t)
 

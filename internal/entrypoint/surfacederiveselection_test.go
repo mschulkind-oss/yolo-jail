@@ -30,17 +30,21 @@ import (
 
 // selectionDeriveLua is the fixture's whole derive: report what the ctx held, nothing
 // else. Any transform here would blur which half of the value came from the ctx.
+// `profile_model` is the one option ctx.profile can carry — the key the shipped derives
+// read (packs/*/derive.lua) — reported raw so the assertion is on what the SURFACE path
+// handed over and not on anything a derive might compute from it.
 const selectionDeriveLua = `yolo.derive("acme", "settings", function(ctx)
   return {
     selected_provider = ctx.selected_provider or "",
     profile_name = ctx.profile_name or "",
+    profile_model = (ctx.profile and ctx.profile.model) or "",
   }
 end)
 `
 
 // selectionAcmePack installs the acme bin and owns ONE computed surface, so the boot
 // loop renders it and the derive's report is the file's whole content. It declares NO
-// profile: the variant the test selects lives on the other pack, which is the shipped
+// profile: the profile the test selects lives on the other pack, which is the shipped
 // shape (packs/zai declares the profile, packs/claude owns the surface) and the reason
 // the resolution cannot be done from one pack's view.
 func selectionAcmePack(t *testing.T) *packload.Pack {
@@ -73,13 +77,18 @@ func selectionProviderPack(t *testing.T) *packload.Pack {
 }
 
 // renderAcmeSelection drives the BOOT LOOP over the two fixture packs with the given
-// jail profile table and returns the rendered settings file parsed.
-func renderAcmeSelection(t *testing.T, profiles string) map[string]any {
+// jail profile table and returns the rendered settings file parsed. wireProfiles is the
+// resolved profile table a real launch lowers in as YOLO_PROFILES — the table
+// activeProfileOptions reads to fill ctx.profile — and "" leaves it unset, the state of
+// a launch that composed no profiles.
+func renderAcmeSelection(t *testing.T, profiles, wireProfiles string) map[string]any {
 	t.Helper()
 	var errw bytes.Buffer
-	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{
-		"YOLO_USE_PROFILES": profiles,
-	}, Stderr: &errw}
+	vars := map[string]string{"YOLO_USE_PROFILES": profiles}
+	if wireProfiles != "" {
+		vars["YOLO_PROFILES"] = wireProfiles
+	}
+	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: vars, Stderr: &errw}
 	withCtxRoot(t, t.TempDir(), "acme")
 
 	ConfigurePackSurfaces(e, []*packload.Pack{selectionAcmePack(t), selectionProviderPack(t)})
@@ -101,24 +110,46 @@ func renderAcmeSelection(t *testing.T, profiles string) map[string]any {
 // profile DELIVERS, not the profile's name — the distinction the resolution rule exists
 // for, and the one a derive re-deriving from ctx.use_profiles in Lua would get wrong.
 func TestSurfaceDeriveSeesTheResolvedProvider(t *testing.T) {
-	got := renderAcmeSelection(t, `{"acme":"aws"}`)
+	got := renderAcmeSelection(t, `{"acme":"aws"}`, "")
 	if got["selected_provider"] != "aws-bedrock" {
-		t.Errorf("selected_provider = %v, want the variant's requires_provider "+
-			"aws-bedrock — the derive must read the resolved selection, not re-derive it "+
-			"from ctx.use_profiles (which names the profile, aws):\n%v", got["selected_provider"], got)
+		t.Errorf("selected_provider = %v, want the profile's provider aws-bedrock — the "+
+			"derive must read the resolved selection, not re-derive it from "+
+			"ctx.use_profiles (which names the profile, aws):\n%v", got["selected_provider"], got)
 	}
 	if got["profile_name"] != "aws" {
-		t.Errorf("profile_name = %v, want the active variant's name aws:\n%v", got["profile_name"], got)
+		t.Errorf("profile_name = %v, want the active profile's name aws:\n%v", got["profile_name"], got)
 	}
 }
 
-// No variant at this agent's CLI name — no table, an empty one, or a selection naming a
+// THE OPTION HALF of the same ctx, at the same call site. profilesctx_test.go owns the
+// exposure mechanics of ctx.profile (the parse, the always-a-table rule, the empty cases);
+// what belongs here is the UNION this file is about — one render handing a derive BOTH
+// halves of a cross-pack selection, the provider resolved through ProviderFor and the
+// options read off YOLO_PROFILES. Every shipped selection derive reads exactly
+// ctx.profile.model, so a call site that stopped passing Profile would leave it empty,
+// every shipped derive would silently answer with the provider's `default` alias, and
+// nothing that tested the resolution alone would know.
+func TestSurfaceDeriveSeesTheResolvedProviderAndItsOptions(t *testing.T) {
+	got := renderAcmeSelection(t, `{"acme":"aws"}`,
+		`{"aws": {"provider": "aws-bedrock", "model": "fast"}}`)
+	if got["profile_model"] != "fast" {
+		t.Errorf("profile_model = %v, want the profile's own option value fast — the "+
+			"surface derive path must hand the resolved option table to ctx.profile:\n%v",
+			got["profile_model"], got)
+	}
+	if got["selected_provider"] != "aws-bedrock" {
+		t.Errorf("selected_provider = %v, want aws-bedrock beside the option above",
+			got["selected_provider"])
+	}
+}
+
+// No profile at this agent's CLI name — no table, an empty one, or a selection naming a
 // DIFFERENT agent: the ctx fields are empty, which is the derive's signal to write
 // nothing (OQ-CS2). Another agent's selection leaking in here would write acme a
 // selection its own launch never made.
 func TestSurfaceDeriveSeesNoSelectionWhenNoneIsActive(t *testing.T) {
 	for _, table := range []string{``, `{}`, `{"claude":"aws"}`} {
-		got := renderAcmeSelection(t, table)
+		got := renderAcmeSelection(t, table, "")
 		if got["selected_provider"] != "" {
 			t.Errorf("table %q: selected_provider = %v, want empty — no profile is active "+
 				"at acme's CLI name (OQ-CS2: the no-profile case is the agent's own)",
@@ -130,13 +161,13 @@ func TestSurfaceDeriveSeesNoSelectionWhenNoneIsActive(t *testing.T) {
 	}
 }
 
-// A variant active but declared by NO pack: the resolution falls back to the bare name,
+// A profile active but declared by NO pack: the resolution falls back to the bare name,
 // the convention the composed providers table has always keyed on
 // (use_profiles.acme = "mystery" reaching providers.mystery).
 func TestSurfaceDeriveFallsBackToTheProfileName(t *testing.T) {
-	got := renderAcmeSelection(t, `{"acme":"mystery"}`)
+	got := renderAcmeSelection(t, `{"acme":"mystery"}`, "")
 	if got["selected_provider"] != "mystery" {
-		t.Errorf("selected_provider = %v, want the undeclared variant's own name mystery "+
+		t.Errorf("selected_provider = %v, want the undeclared profile's own name mystery "+
 			"— the convention ProviderFor keeps for a profile no pack declares:\n%v",
 			got["selected_provider"], got)
 	}

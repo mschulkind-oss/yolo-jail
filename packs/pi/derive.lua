@@ -156,11 +156,14 @@ end)
 -- it out of the selection: no keys at all, never a defaultProvider naming a provider whose
 -- catalog row the same gate dropped.
 --
--- defaultModel is the provider's declared `default` alias (OQ-CS3: the fallback is the
--- derive's business, and `default` stays an ordinary open-vocabulary alias). It is omitted
--- when the provider declares no models or names no default, leaving pi to resolve its own
--- model within the named provider — model ids must match the provider's list exactly, so
--- guessing one would be a selection pi refuses at resolution time.
+-- defaultModel is the id under the alias the active profile's `model` option names
+-- (OQ-CS4: what an option means is the derive's business, and for pi that meaning is a
+-- key of the provider's own models table), falling back to the provider's declared
+-- `default` alias when the profile carries no option (OQ-CS3: the fallback is the
+-- derive's business, and `default` stays an ordinary open-vocabulary alias). It is
+-- omitted when the provider declares no models or names no such alias, leaving pi to
+-- resolve its own model within the named provider — model ids must match the provider's
+-- list exactly, so guessing one would be a selection pi refuses at resolution time.
 yolo.derive("pi", "settings", function(ctx)
   if ctx.selected_provider == nil or ctx.selected_provider == "" then
     return {}
@@ -169,9 +172,10 @@ yolo.derive("pi", "settings", function(ctx)
   if not piReachable(p) then
     return {}
   end
+  local alias = (ctx.profile and ctx.profile.model) or "default"
   local sel = { defaultProvider = ctx.selected_provider }
-  if type(p) == "table" and type(p.models) == "table" and p.models.default then
-    sel.defaultModel = p.models.default
+  if type(p) == "table" and type(p.models) == "table" and p.models[alias] then
+    sel.defaultModel = p.models[alias]
   end
   return { selection = sel }
 end)

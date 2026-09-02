@@ -131,11 +131,11 @@ yolo.derive("codex", "config", function(ctx)
   -- 3. The selection — model_provider and model, codex's OWN selection keys, verified from
   -- the codex CLI binary 2026-08-20 (docs/research/local-model-endpoints.md §"Codex CLI";
   -- provider-catalog-and-selection.md §3 codex row). An active profile names the provider
-  -- it selects; a provider codex can reach becomes the selection, and
-  -- its `default` alias becomes the model (provider-catalog-and-selection.md §9 OQ-CS3:
-  -- core resolves no model — the fallback is the derive's business, and `default` stays an
-  -- ordinary open-vocabulary alias. A profile naming one of the provider's own aliases is
-  -- a later step; today the derive answers with what the provider declares).
+  -- it selects; a provider codex can reach becomes the selection, and the model is the id
+  -- under the alias the profile's `model` option names (OQ-CS4: what an option means is
+  -- the derive's business), or under the provider's declared `default` alias when the
+  -- profile carries none (OQ-CS3: core resolves no model — the fallback is the derive's
+  -- business, and `default` stays an ordinary open-vocabulary alias).
   --
   -- They travel under the RESERVED `selection` key of the computed layer, not as plain
   -- computed keys, and that is load-bearing rather than cosmetic. A plain computed key is
@@ -160,8 +160,9 @@ yolo.derive("codex", "config", function(ctx)
     if codexReachable(p) then
       local sel = { model_provider = ctx.selected_provider }
       local m = type(p) == "table" and p.models or nil
-      if type(m) == "table" and m.default then
-        sel.model = m.default
+      local alias = (ctx.profile and ctx.profile.model) or "default"
+      if type(m) == "table" and m[alias] then
+        sel.model = m[alias]
       end
       res.selection = sel
     end

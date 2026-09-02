@@ -33,6 +33,7 @@ func envArgValues(argv []string, keys ...string) []string {
 func bedrockConfig() *jsonx.OrderedMap {
 	models := jsonx.NewOrderedMap()
 	models.Set("default", "us.anthropic.opus")
+	models.Set("fast", "us.anthropic.fast")
 	models.Set("haiku", "us.anthropic.haiku")
 	models.Set("sonnet", "us.anthropic.sonnet")
 	bedrock := jsonx.NewOrderedMap()
@@ -52,10 +53,17 @@ func bedrockConfig() *jsonx.OrderedMap {
 	)
 }
 
-func assembleWithConfig(t *testing.T, cfg *jsonx.OrderedMap) []string {
+func assembleWithConfig(t *testing.T, cfg *jsonx.OrderedMap, hooks ...func()) []string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// The hooks run once HOME is the assembly's own temp dir, which is what a user-scope
+	// write needs: `profiles` is read off the USER FILE (config.LoadProfiles), never off
+	// the merged cfg, so an option-carrying profile can only be handed in through the
+	// filesystem this test controls.
+	for _, hook := range hooks {
+		hook()
+	}
 	emptyLoopholeDirs(t)
 	o := goldenOptions("/ws", home)
 	in := &assembleInput{
@@ -84,10 +92,11 @@ func assembleWithConfig(t *testing.T, cfg *jsonx.OrderedMap) []string {
 //
 // The five vars arrive by two routes, and both are this launch's own composition: the
 // env derive packs/claude ships composes AWS_REGION and the three model ids from the
-// user's providers.bedrock entry (the packload.AgentEnv loop), and the variant's
-// own CLAUDE_CODE_USE_BEDROCK literal rides the pack env block (EnvVarsFor), which sits
-// LATER in the argv — hence the order, and hence the two routes being pinned together
-// here rather than in either of their own packages.
+// user's providers.bedrock entry (the packload.AgentEnv loop), and the
+// CLAUDE_CODE_USE_BEDROCK literal rides the pack's PROFILE-GATED kind:env contribution,
+// folded by the same pass that composes the derive's vars — which sits LATER in the argv,
+// hence the order, and hence the two routes being pinned together here rather than in
+// either of their own packages.
 func TestAssembleEmitsProfileEnvForBedrock(t *testing.T) {
 	argv := assembleWithConfig(t, bedrockConfig())
 	got := envArgValues(argv,
@@ -100,6 +109,34 @@ func TestAssembleEmitsProfileEnvForBedrock(t *testing.T) {
 		"ANTHROPIC_DEFAULT_SONNET_MODEL=us.anthropic.sonnet",
 		"AWS_REGION=us-east-1",
 		"CLAUDE_CODE_USE_BEDROCK=1",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("profile env args = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("profile env arg %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// The OPTION half, on the same real derive: the profile's own `model` value names the
+// alias, and the id under it is what ANTHROPIC_DEFAULT_OPUS_MODEL carries — not the
+// provider's declared default. The user entry is the SAME NAME as the shipped profile,
+// which is §5.2's "customize the pack's own profile" case: the pack's provider stands and
+// the user's option rides on top. Sonnet and haiku keep their own aliases — they are
+// Claude's routing names, not a selection surface, so a `model` option must not reach
+// them.
+func TestAssembleEmitsTheAliasTheProfileOptionNames(t *testing.T) {
+	argv := assembleWithConfig(t, bedrockConfig(), func() {
+		writeProfilesAtHome(t, `{"bedrock": {"provider": "bedrock", "model": "fast"}}`)
+	})
+	got := envArgValues(argv, "ANTHROPIC_DEFAULT_OPUS_MODEL",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL")
+	want := []string{
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL=us.anthropic.haiku",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL=us.anthropic.fast",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL=us.anthropic.sonnet",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("profile env args = %q, want %q", got, want)

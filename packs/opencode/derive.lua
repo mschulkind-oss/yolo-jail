@@ -105,18 +105,25 @@ yolo.derive("opencode", "config", function(ctx)
   -- choice (~/.local/state/opencode/model.json) that `model` unset falls back to.
   --
   -- The model half is the derive's business (OQ-CS3), and the fallback ladder is
-  -- shortest-claim-first: the provider's declared `default` alias; else the ONE model it
-  -- declares, where "which model" has only one possible answer; else nothing — and with
-  -- `model` being a single key, nothing means NO selection at all, never a half one
-  -- naming a provider with no model under it.
+  -- shortest-claim-first: the alias the active profile's `model` option names (OQ-CS4 —
+  -- for opencode that is a key of the provider's models table, the same keying the
+  -- catalog half above already builds); else the provider's declared `default` alias;
+  -- else the ONE model it declares, where "which model" has only one possible answer;
+  -- else nothing — and with `model` being a single key, nothing means NO selection at
+  -- all, never a half one naming a provider with no model under it. The one-model
+  -- answer belongs to the DEFAULT ask only: a profile that named an alias the provider
+  -- does not declare asked a question the table cannot answer, and "some other model
+  -- that happened to be alone" is not the answer — that is the same honest degradation
+  -- as declaring nothing at all.
   if ctx.selected_provider ~= nil and ctx.selected_provider ~= "" then
     local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
     if providerEndpoint(p) then
+      local alias = (ctx.profile and ctx.profile.model) or "default"
       local modelID = nil
       if type(p) == "table" and type(p.models) == "table" then
-        if p.models.default then
-          modelID = p.models.default
-        else
+        if p.models[alias] then
+          modelID = p.models[alias]
+        elseif alias == "default" then
           local count
           -- The VALUES are the model ids (the keys are the aliases); see the catalog
           -- half above, which builds opencode's models table keyed the same way.
