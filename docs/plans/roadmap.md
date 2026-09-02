@@ -663,7 +663,7 @@ whether it may carry the placeholder vocabulary `env_shape` already has.
 ### 💬 19 — A catalog and a selection are two features, and only one of them ships
 
 📄 [`provider-catalog-and-selection.md`](../design/provider-catalog-and-selection.md) —
-**OQ-CS3 · OQ-CS4 · OQ-CS5** open · ~~OQ-CS1~~ ~~OQ-CS2~~ ruled 2026-09-01 · sibling to 💬 **18**, which reports defects in the same machinery ·
+**OQ-CS3 · OQ-CS4 · OQ-CS5 · OQ-CS6** open · ~~OQ-CS1~~ ~~OQ-CS2~~ ruled 2026-09-01 · sibling to 💬 **18**, which reports defects in the same machinery ·
 splits what [`zai-plumbing.md`](../design/zai-plumbing.md) §5 assumed was one thing
 
 **The maintainer's own framing, 2026-09-01:** *"populating a directory of providers in an agent
@@ -685,10 +685,26 @@ at all but contributions gated on a profile name, so it moves to the `profile:` 
 also repairs the measured defect that a variant body is **unreachable** for a pack installing no
 CLI. `kind: "profile"` shrinks to name + provider.
 
-**What remains is OQ-CS3 (which model a selection picks), OQ-CS4 (is the profile's field set derived
-from the provider's shape or declared by it — I lean derived, no schema), OQ-CS5 (where user
-profiles live, and at what scope — I lean a `profiles` key, user-scope only, for the reason `packs`
-is), and the research gap below.**
+**Two review objections corrected the draft, and both were mine to fix.** *"What happens with
+bedrock? It can't be default enabled because a user may not have creds."* — I had restated the rule
+as "pack presence means in the dictionary", and pack presence is **not** catalog membership: a
+selected pack's providers all reach the composed table, but only endpoint-bearing ones reach a
+catalog, because that is what the derives gate on. Measured: with `packs: ["claude"]`, `bedrock`
+composes with **no endpoints and no credential pointer** — so it reaches no catalog, demands nothing
+with nothing hydrated, and **a user who has never touched AWS is never asked for anything**. Bedrock
+is a *selection-only* provider, and that falls out of "has no endpoint" rather than being an
+exemption. And *"profiles are a generic thing without a provider, and now also sorta provider
+profiles with a magically enforced schema — isn't this overloaded?"* — yes, and I built the overload:
+a property offering optional declaration for backward compatibility recreated the two-meanings
+problem. **Inverted:** every profile names a provider, declaration is mandatory (costs nothing —
+both profiles in the tree already do), and the schema is **two core-defined fields**, `provider` and
+`model`, with the provider defining only the legal *values*. No derivation, no reflection.
+
+**What remains is OQ-CS3 (which model a selection picks), OQ-CS4 (may a provider ever ADD a field —
+I lean no, not now and possibly not ever), OQ-CS5 (where user profiles live and at what scope — I
+lean a `profiles` key, user-scope only, for the reason `packs` is), OQ-CS6 (mandatory declaration
+**reverses** `profiles-as-pack-variants.md` OQ-5's free-form names — a ruled question, so reversing
+it is yours), and the research gap below.**
 
 **Measured in a live jail today**, `packs: ["claude","zai"]` with `providers.zai` set:
 

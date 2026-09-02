@@ -117,13 +117,35 @@ selection are separate, the want is trivial — the entry stays, and nothing sel
 
 **And catalog membership is what should carry the credential requirement.** The maintainer's rule,
 2026-09-01: *pack presence means in the dictionary, which also means fatal errors if no API key
-found.* That is stricter than what ships and better defined — and adopting it repairs a defect the
+found.*
+
+> [!WARNING]
+> **"Pack presence" is not catalog membership, and an earlier draft of this section said it was.**
+> A selected pack's providers all reach the **composed table**; only the ones carrying an
+> **endpoint for a protocol the agent speaks** reach a **catalog**, because that is what the derives
+> gate on. The two are not the same set, and conflating them would have made the rule demand
+> credentials for a provider no agent can browse to. Measured 2026-09-01 with `packs: ["claude"]`:
+> `bedrock` composes into the table with **no endpoints and no `api_key_env_name`** — only an
+> `env_shape` — so it reaches no catalog and the preflight demands nothing for it, with nothing
+> hydrated at all.
+
+**Which answers "what happens to bedrock?"** — nothing, and by construction rather than by
+exemption. **Bedrock is a selection-only provider**: it has no endpoints, so it can never be in
+anyone's dictionary, and no credential pointer, because its credential is the ambient AWS chain that
+yolo cannot inspect. `zai` is in both — endpoints *and* a key — so it is catalogued and its key is
+demanded. The rule lands exactly where it was aimed and nowhere else. **A user who has never touched
+AWS is not asked for anything**, and that is not a special case for Bedrock; it is what "has no
+endpoint" already means.
+
+Keyed properly, the rule is stricter than what ships and better defined — and adopting it repairs a defect the
 sibling doc reports separately. Today the requirement is computed from what a pack **declares**
 (`requiredProviders` walks `p.Decl.Providers()`), not from the composed catalog, so a user who drops
 a provider with `null` **still has the launch refused for it** — measured: with `packs: ["claude"]`
 and `providers: {"bedrock": null}` the catalog composes empty and `bedrock` is still required. Keyed
 to catalog membership instead, the null removes the entry and the requirement with it, and the rule
-reads as one sentence: **in the dictionary means you need the key; not in it means you do not.**
+reads as one sentence: **in a dictionary means you need the key; not in one means you do not** —
+where "in a dictionary" is *present in the composed table AND carrying an endpoint an agent speaks*,
+which is the same predicate the derives already apply.
 
 > [!NOTE]
 > **A smaller, separate bug found while measuring this** (belongs in the sibling doc's defect list,
@@ -188,10 +210,27 @@ That is one meaning, in one place, and it is the meaning a user already assumes 
    `models`; it may not name a knob zai does not have. The provider is the extension point, which
    is the shape [`extension-point-principle.md`](extension-point-principle.md) already asks for and
    the reason a profile does not need a schema of its own.
-3. **A profile that names no provider is still a valid gate.** Declaration is *optional*: the name
-   alone continues to gate `profile:`-modified contributions and to reach a derive as
-   `ctx.pack_profiles`, which is what today's free-form names already do. Declaring a profile adds
-   selection semantics; it does not become a prerequisite for the name working.
+3. **Every profile names a provider, and declaration is MANDATORY.**
+
+> [!WARNING]
+> **Property 3 said the opposite in the first draft of this section, and it was wrong.** It read
+> *"a profile that names no provider is still a valid gate — declaration is optional"*, offered for
+> backward compatibility, and the maintainer's objection is correct: it re-created the exact overload
+> this definition exists to end. A word that means *a named selection over a provider* in one place
+> and *a bare gate string* in another is the two-meanings problem wearing a new coat. The property is
+> **inverted**, not softened.
+>
+> The cost is nil today and the benefit is real. Both profiles in the tree name a provider already
+> (`packs/claude`'s `bedrock`, `packs/zai`'s `zai`), so nothing shipped has to change shape. And a
+> mandatory declaration is what makes the `profile:` modifier reference *something*: an unmatched
+> name becomes diagnosable instead of silently inert, which is the fail-closed property
+> [`stringly-typed-references-principle.md`](stringly-typed-references-principle.md) asks for and
+> that free-form names could never have.
+>
+> **This reverses a ruling**, and that is OQ-CS6's to confirm rather than this section's to assume.
+> `profiles-as-pack-variants.md` OQ-5 made profile names free-form and global — ruled when a profile
+> WAS a bare string. The definition has changed underneath that ruling; the ruling has not been
+> re-examined.
 
 #### The worked examples
 
@@ -259,13 +298,19 @@ unreachable today for a pack that installs no CLI, because `ActiveProfiles` iter
 `profile:` modifier gates on the *target surface's* owning agent instead, so it works for a provider
 pack. Moving the body to modifiers is the fix for that, not merely a tidier spelling of it.
 
-#### What this leaves undecided
+#### There is no magic schema — two fields, and the provider defines their VALUES
 
-The provider-defines-the-surface rule has a cheap reading and a general one, and §9's OQ-CS4 asks
-which. The cheap one: a profile's legal fields are **derived** from the provider's own shape —
-`model` is legal because the provider has `models`, and nothing else is legal yet. The general one:
-a provider declares an explicit options block naming its tunables. The cheap one needs no schema at
-all and is what the worked examples above assume.
+*"Some sort of magically enforced schema"* is a fair worry about an earlier phrasing, so this is the
+concrete version. **A profile has exactly two fields, both core-defined: `provider` and `model`.**
+Nothing is derived, nothing is discovered, nothing is enforced by reflection over a provider's shape.
+
+What the provider defines is the **values**, not the field set: `model` must name one of that
+provider's own `models` aliases, so *what you can select* is determined by what the provider
+offers — which is the ruling read literally, and it needs no machinery beyond a lookup that already
+exists. The general form (a provider declaring an options block, so it can offer a tunable that is
+not a model) is **deferred to OQ-CS4** and should not be built until a provider wants one. Designing
+an options vocabulary against zero consumers is the mistake `wire_api`'s enum already made once in
+this corpus.
 
 ---
 
@@ -321,17 +366,18 @@ unrelated to the sequence above.
    case is the agent's own business, and yolo writing a default would silently revert an
    interactive `/model` choice on the next boot. Folded into §5.1.
 
-3. 💬 **OQ-CS4: Is a profile's legal field set DERIVED from the provider's shape, or DECLARED by
-   it?** §5.2. Derived: `model` is legal because the provider has `models`, full stop — no schema,
-   nothing to author. Declared: a provider carries an options block naming its tunables, which is
-   the general extension point and is schema describing schema.
+3. 💬 **OQ-CS4: Does a provider ever get to ADD a profile field?** *(Reframed after review — the
+   original asked "derived or declared schema", and the maintainer's objection that this sounded
+   like "some sort of magically enforced schema" is why it is no longer that question. §5.2 now
+   fixes the field set at two, `provider` and `model`, both core-defined, with the provider defining
+   only the legal VALUES of `model`.)* What remains open is whether a provider may later declare an
+   options block offering a tunable that is not a model.
 
-   _Leaning:_ Derived, for v1. It needs nothing authored, it covers every case in the tree, and the
-   ruling it implements — *"the config surface of a profile needs to be defined by the provider"* —
-   is satisfied either way, because the provider's own shape IS a definition. The declared form
-   earns its place the first time a provider has a tunable that is not a model, and not before;
-   building it now would mean designing an options vocabulary against zero consumers, which is the
-   mistake `wire_api`'s enum already made once.
+   _Leaning:_ Not now, and possibly not ever. Two fixed fields cover every case in the tree and
+   every case either of us has been able to name; a provider-declared options vocabulary is schema
+   describing schema, built against zero consumers — which is precisely how `wire_api`'s enum came
+   to name protocols no agent speaks. Revisit when a real provider has a real tunable, and let that
+   provider's actual need pick the shape.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -352,7 +398,22 @@ unrelated to the sequence above.
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 **OQ-CS3: Which model does selecting a provider select?** A provider carries `models` aliases
+5. 💬 **OQ-CS6: Confirm reversing `profiles-as-pack-variants.md` OQ-5 — profile names stop being
+   free-form.** §5.2 property 3 requires every profile to be declared and to name a provider, which
+   contradicts OQ-5's ruling that names are free-form and global. That ruling was made when a profile
+   **was** a bare string; the definition has changed underneath it, so this is a re-examination
+   rather than an oversight — but it is a ruled question and reversing it is yours, not mine.
+
+   _Leaning:_ Reverse it. Free-form names were the right call for a bare gate and are the wrong one
+   for a declared selection: they are what makes `-p zia` a silent no-op today rather than an error,
+   and mandatory declaration is what finally lets an unmatched name be reported. The cost is a
+   behaviour change for anyone gating a derive on an undeclared name — nothing in the tree does, and
+   the migration is one declaration per name in use.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+6. 💬 **OQ-CS3: Which model does selecting a provider select?** A provider carries `models` aliases
    (`default`, `fast`, …) and the alias vocabulary is deliberately open. Selection needs one
    concrete id.
 
