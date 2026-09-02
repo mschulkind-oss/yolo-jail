@@ -123,12 +123,17 @@ var inheritCensus = map[string]keyDisposition{
 	//
 	// They are also the key class the raw bind got RIGHT, and the reason the filter is not
 	// "drop anything host-shaped": every referent here is inside the jail.
-	"security":              {preflight: true, nested: true, reason: "blocked_tools decides this jail's shims; the check dry-run generates them and a launcher passes them on"},
-	"mise_tools":            {preflight: true, nested: true, reason: "the check dry-run runs ConfigureMisePrism over it; an inner launcher installs from it"},
-	"mcp_servers":           {preflight: true, nested: true, reason: "MCP processes run in the jail; the check dry-run renders their wrappers and a launcher passes them on"},
-	"mcp_presets":           {preflight: true, nested: true, reason: "MCP presets the check dry-run resolves and an inner launcher passes on"},
-	"lsp_servers":           {preflight: true, nested: true, reason: "LSP servers installed in the jail; the check dry-run renders their config"},
-	"providers":             {preflight: true, nested: true, reason: "cloud provider declarations for agent configuration and nested launches"},
+	"security":    {preflight: true, nested: true, reason: "blocked_tools decides this jail's shims; the check dry-run generates them and a launcher passes them on"},
+	"mise_tools":  {preflight: true, nested: true, reason: "the check dry-run runs ConfigureMisePrism over it; an inner launcher installs from it"},
+	"mcp_servers": {preflight: true, nested: true, reason: "MCP processes run in the jail; the check dry-run renders their wrappers and a launcher passes them on"},
+	"mcp_presets": {preflight: true, nested: true, reason: "MCP presets the check dry-run resolves and an inner launcher passes on"},
+	"lsp_servers": {preflight: true, nested: true, reason: "LSP servers installed in the jail; the check dry-run renders their config"},
+	"providers":   {preflight: true, nested: true, reason: "cloud provider declarations for agent configuration and nested launches"},
+	// `profiles` is user-scope-only BY CONSTRUCTION, exactly like `packs` two entries up
+	// (config/profiles.go reads the user file directly), so it too can only arrive through
+	// this file: the host CLI resolves the entries into the YOLO_PROFILES table for THIS
+	// jail, and an inner launcher composes the same table for the jail it spawns.
+	"profiles":              {preflight: true, nested: true, reason: "user-declared profiles over provider-declared options; the launch resolves them into YOLO_PROFILES here and in nested launches"},
 	"use_profiles":          {preflight: true, nested: true, reason: "active CLI-to-profile-name selections for this jail and nested launches (keys are CLI names: core knows packs, not agents)"},
 	"required_capabilities": {preflight: true, nested: true, reason: "required capabilities validated at pre-flight and passed to nested launches"},
 

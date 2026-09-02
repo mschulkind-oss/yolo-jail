@@ -89,6 +89,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateProviders(config, errs, warns)
 	validateAgentProfilesRetired(config, errs, warns)
 	validateUseProfiles(config, errs)
+	validateProfiles(workspace, errs)
 	validateRequiredCapabilities(config, errs)
 	validateDevices(config, errs, warns)
 	validateGPU(config, errs, warns)
