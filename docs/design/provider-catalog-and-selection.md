@@ -96,6 +96,68 @@ the four are the same class of unverified claim the sibling doc charges D1 with.
 pi records "the model I use", no design can say what selecting a provider for pi means. §8 puts it
 first for that reason.
 
+
+### 3.1 `env_shape` is declared by the provider and describes the AGENT — the mirror of D1
+
+*"It's more that the claude pack specifically needs the env_name config, although I guess that could
+be shared with other agents that need this rename."* That is the right instinct and the conclusion is
+stronger than it sounds: **the rename is not the provider's fact to state, and today it is stated
+there.**
+
+Measured 2026-09-01 — who declares `env_shape`, and about whom:
+
+| Declared in | On provider | Variables it names | Whose facts are those? |
+| :--- | :--- | :--- | :--- |
+| `packs/zai` | `zai` | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` | **claude's** |
+| `packs/claude` | `bedrock` | `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL`, `AWS_REGION` | claude's (right pack, wrong record) |
+
+**z.ai does not care what environment variable you use.** `ANTHROPIC_AUTH_TOKEN` is a fact about
+claude that a provider pack is forced to restate — which is
+[`provider-table-fidelity.md`](provider-table-fidelity.md)'s D1 pointed the other way. There, an
+agent's vocabulary was hoisted into a core enum; here, an agent's requirement is pushed down into a
+provider declaration. Both put a fact in a record that cannot own it.
+
+Two costs, and the second is the one that bites:
+
+1. **N×M restatement.** Every provider that wants to serve claude copies claude's variable names.
+   Two providers today; the maintainer's own config already carries a `CEREBRAS_API_KEY`, so the
+   third is not hypothetical. The parent design's §3.2 argument against a pack-per-agent-per-provider
+   grid is exactly this shape, arriving through a different door.
+2. **Nothing says what claude actually needs, so each provider guesses a different subset.** zai
+   declares endpoint + token and **no model variables**; bedrock declares models + region and no
+   endpoint or token. Each is defensible alone — bedrock authenticates through the ambient AWS chain
+   and needs no token — but the *reason* lives nowhere, and a third provider author has no
+   declaration to copy from. The visible consequence: **`packs/zai` ships `models: {default:
+   glm-4.7, fast: glm-4.7-air}` and nothing delivers them to claude**, because the `{model:…}`
+   placeholders exist only inside `packs/claude`'s bedrock declaration.
+
+> [!NOTE]
+> **Whether that last one breaks anything is not established here.** z.ai's Anthropic-compatible
+> route may well ignore or remap the model name it is sent, in which case claude-on-zai works while
+> the aliases sit unused. What is established is structural: the aliases a provider declares reach
+> claude through nothing, and no test or type says they should. Verifying the runtime half needs an
+> authenticated request, which is outside what this repo's tests may do.
+
+**The shape of the fix, and it is the same rule §3 is already built on.** Each **agent pack**
+declares how a selection reaches it, per protocol — codex and opencode name a config key, and claude
+names a set of environment variables:
+
+```jsonc
+// packs/claude declares its own binding, once, for every anthropic provider
+{ "kind": "binding", "protocol": "anthropic",
+  "env": { "ANTHROPIC_BASE_URL": "{endpoint}", "ANTHROPIC_AUTH_TOKEN": "{key}",
+           "AWS_REGION": "{region}",
+           "ANTHROPIC_DEFAULT_OPUS_MODEL": "{model:default}" } }
+```
+
+Then `packs/zai` declares **no `env_shape` at all** — it declares an `anthropic` endpoint, and that
+is sufficient. A placeholder whose input is missing already drops its variable, so the same
+declaration serves bedrock (no endpoint, no key, a region) and zai (endpoint and key, no region)
+with no per-provider subset to choose. **claude stops being the special case**: three agents deliver
+a selection through a config file, one through the environment, and all four declare it themselves.
+
+Whether the binding is a new contribution kind or a field on the existing ones is OQ-CS8.
+
 ---
 
 ## 4. Why "disable it but keep my settings" has no spelling
@@ -472,7 +534,24 @@ unrelated to the sequence above.
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 **OQ-CS7: What validation does a provider-declared option get?** §5.2. Core cannot know what
+7. 💬 **OQ-CS8: Where does an agent's protocol binding live?** §3.1. The `env_shape` an agent needs
+   is currently declared by every provider that wants to serve it; it should be declared once, by
+   the agent's own pack, per protocol. Open: whether that is a new contribution kind (`binding`), a
+   protocol-keyed field on an existing one, or simply `env_shape` moved off `kind: "provider"` and
+   onto the agent pack with a `protocol` key.
+
+   _Leaning:_ Move the field rather than mint a kind. `env_shape`'s shape is already
+   protocol → {VAR → placeholder}, the placeholder vocabulary is already closed and shared, and the
+   composition already reads it out of the composed table — so relocating WHO declares it is a
+   smaller change than it looks, and a new kind would need its own footprint, combine rule and
+   collision story for no new claim on the environment. The part that genuinely changes is the
+   lookup: `agentenv` currently finds the shape on the provider entry and would instead find it on
+   the agent's pack and fill it from the provider entry.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+8. 💬 **OQ-CS7: What validation does a provider-declared option get?** §5.2. Core cannot know what
    `thinking` means, and an option no derive consumes must stay inert rather than become an error —
    so the question is what CAN be checked. The declaration is checkable against itself: an `enum`
    option's value is in its own `values` list, a `model-alias` option names a real alias of that

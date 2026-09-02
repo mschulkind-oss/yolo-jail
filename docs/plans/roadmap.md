@@ -663,7 +663,7 @@ whether it may carry the placeholder vocabulary `env_shape` already has.
 ### 💬 19 — A catalog and a selection are two features, and only one of them ships
 
 📄 [`provider-catalog-and-selection.md`](../design/provider-catalog-and-selection.md) —
-**OQ-CS3 · OQ-CS5 · OQ-CS7** open · ~~OQ-CS1~~ ~~OQ-CS2~~ ~~OQ-CS4~~ ~~OQ-CS6~~ ruled · sibling to 💬 **18**, which reports defects in the same machinery ·
+**OQ-CS3 · OQ-CS5 · OQ-CS7 · OQ-CS8** open · ~~OQ-CS1~~ ~~OQ-CS2~~ ~~OQ-CS4~~ ~~OQ-CS6~~ ruled · sibling to 💬 **18**, which reports defects in the same machinery ·
 splits what [`zai-plumbing.md`](../design/zai-plumbing.md) §5 assumed was one thing
 
 **The maintainer's own framing, 2026-09-01:** *"populating a directory of providers in an agent
@@ -719,10 +719,31 @@ keep that key in a file that is *"untracked, 0600"*. Gitignored, so not a commit
 downgrade is real. Recorded as **D8** in 💬 **18**, along with the argv exposure the claude path
 carries structurally.
 
+**And the follow-up question found the mirror of 💬 18's headline defect.** *"Yolo must know how auth
+passes in case a rename is necessary … it's more that the claude pack specifically needs the env_name
+config, although that could be shared with other agents that need this rename."* Right, and stronger:
+**`env_shape` is declared by the PROVIDER and describes the AGENT.** `packs/zai` names
+`ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` — facts about claude, which z.ai has no opinion
+about. D1 hoisted an agent's vocabulary up into a core enum; this pushes an agent's requirement down
+into a provider record. Two costs: every provider serving claude restates claude's variable names
+(the maintainer's config already carries a `CEREBRAS_API_KEY`, so the third is not hypothetical),
+and — because nothing declares what claude needs — **each provider guesses a different subset**. zai
+declares endpoint + token and no model vars; bedrock declares models + region and no endpoint or
+token. Visible consequence: `packs/zai` ships `models: {default: glm-4.7, fast: glm-4.7-air}` and
+**nothing delivers them to claude**, since the `{model:…}` placeholders live only in `packs/claude`'s
+bedrock declaration. Whether that breaks anything at runtime is NOT established — z.ai's Anthropic
+route may remap the model name, and settling it needs an authenticated request this repo's tests may
+not make.
+
+The fix is the rule §3 is already built on: **each agent pack declares how a selection reaches it**,
+per protocol — codex and opencode name a config key, claude names a set of env vars — so `packs/zai`
+declares no `env_shape` at all and claude stops being the special case. New **OQ-CS8** asks whether
+that is a new kind or the existing field relocated (I lean relocate).
+
 **What remains is OQ-CS3 (which model a selection picks), OQ-CS5 (where user profiles live and at
 what scope — I lean a `profiles` key, user-scope only, for the reason `packs` is), OQ-CS7 (what
 validation a provider-declared option gets — I lean: against the provider's own declaration and
-nothing else), and the research gap below.**
+nothing else), OQ-CS8, and the research gap below.**
 
 **Measured in a live jail today**, `packs: ["claude","zai"]` with `providers.zai` set:
 
