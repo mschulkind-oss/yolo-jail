@@ -231,6 +231,34 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 				"reads it only under options, so a value here is dead configuration (D10)", zai.BaseURL)
 		}
 	})
+
+	// The claude half of the same delivery, in the same real jail — and the acceptance bar
+	// for the env-derive flip (OQ-CS8): pi's and opencode's halves above read the composed
+	// table out of a FILE their derives rendered, but claude's is ENV, composed by
+	// packs/claude's own yolo.env producer host-side onto the container argv. Unit tests
+	// pin both call sites (internal/cli/run providershapeenv_test.go, internal/cli
+	// hostprovidershape_test.go); only a launch proves the pair survives config
+	// resolution, staging, the credential lookup and argv assembly together.
+	t.Run("claude env carries the selected provider's pair", func(t *testing.T) {
+		// The invoking environment may already carry these keys (the very session running
+		// this suite exports all five ANTHROPIC_* vars) — pin them to a sentinel so the
+		// assertion reads what yolo COMPOSED, not what it inherited (the OQ-Z4 scrub
+		// discipline; an inherited BASE_URL makes a composed one indistinguishable).
+		t.Setenv("ANTHROPIC_BASE_URL", "inherited")
+		t.Setenv("ANTHROPIC_AUTH_TOKEN", "inherited")
+		// The persistent spelling, in the user config where selection keys live (OQ-CS5).
+		// Last subtest on purpose: this packHome redirect wins for the rest of the test.
+		packHome(t, `{"packs": ["claude", "zai"], "use_profiles": {"claude": "zai"}}`)
+		r := runYolo(t, dir, `env | grep -E '^ANTHROPIC_(BASE_URL|AUTH_TOKEN)=' | sort`)
+		if r.rc != 0 {
+			t.Fatalf("profiled launch failed: rc %d\n%s", r.rc, r.combined())
+		}
+		want := "ANTHROPIC_AUTH_TOKEN=integration-probe-not-a-real-key\n" +
+			"ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic\n"
+		if got := r.stdout; got != want {
+			t.Errorf("claude's provider env =\n%s\nwant exactly the composed pair:\n%s", got, want)
+		}
+	})
 }
 
 // keysOf is the diagnostic half of a missing-entry failure: naming what IS there turns
