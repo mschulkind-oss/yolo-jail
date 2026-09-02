@@ -64,6 +64,31 @@ local function providerEndpoint(prov)
   return nil
 end
 
+-- codexReachable is THE gate both halves below ask — can codex reach this provider at
+-- all — so the catalog and the selection cannot grow two answers to it. It returns the
+-- URL and the wire_api codex would use, or nil when the provider names no URL for the
+-- protocol codex speaks (anthropic-only, or none at all) or names one whose wire_api codex
+-- cannot speak. Reusing the catalog's own predicate for the selection is what makes a
+-- half-selection unrepresentable: `model_provider = <id>` with no `model_providers.<id>`
+-- row underneath it is a config codex refuses at startup, which is the catalog's dropped
+-- entry reintroduced one level up — so a provider that loses its catalog row loses its
+-- selection key with it.
+--
+-- Total over non-tables, like providerEndpoint: a selected name that is absent from the
+-- composed table (a variant whose requires_provider the table does not hold — which
+-- creates no requirement of its own) reads as nil here, and nil selects nothing.
+local function codexReachable(prov)
+  if type(prov) ~= "table" then return nil end
+  local baseUrl, wireApi = providerEndpoint(prov)
+  -- An endpoint's own wire_api is the per-protocol fact; the provider-level one only
+  -- speaks for the shorthand.
+  local api = codexWireAPI(wireApi or prov.wire_api)
+  if baseUrl and api then
+    return baseUrl, api
+  end
+  return nil
+end
+
 yolo.derive("codex", "config", function(ctx)
   local res = {}
 
@@ -86,11 +111,8 @@ yolo.derive("codex", "config", function(ctx)
   if ctx.providers and next(ctx.providers) ~= nil then
     local provOut = {}
     for name, prov in pairs(ctx.providers) do
-      local baseUrl, wireApi = providerEndpoint(prov)
-      -- An endpoint's own wire_api is the per-protocol fact; the provider-level one only
-      -- speaks for the shorthand.
-      local api = codexWireAPI(wireApi or prov.wire_api)
-      if baseUrl and api then
+      local baseUrl, api = codexReachable(prov)
+      if baseUrl then
         local entry = {
           base_url = baseUrl,
           wire_api = api,
@@ -103,6 +125,33 @@ yolo.derive("codex", "config", function(ctx)
     end
     if next(provOut) ~= nil then
       res.model_providers = provOut
+    end
+  end
+
+  -- 3. The selection — model_provider and model, codex's OWN selection keys, verified from
+  -- the codex CLI binary 2026-08-20 (docs/research/local-model-endpoints.md §"Codex CLI";
+  -- provider-catalog-and-selection.md §3 codex row). An active variant names the provider
+  -- its requires_provider delivers; a provider codex can reach becomes the selection, and
+  -- its `default` alias becomes the model (provider-catalog-and-selection.md §9 OQ-CS3:
+  -- core resolves no model — the fallback is the derive's business, and `default` stays an
+  -- ordinary open-vocabulary alias. A profile naming one of the provider's own aliases is
+  -- a later step; today the derive answers with what the provider declares).
+  --
+  -- OQ-CS2 is the GUARD, not a default: when no variant is active at codex's CLI name,
+  -- nothing selection-shaped is written — not a default, not a clear. The no-profile case
+  -- is the agent's own (provider-catalog-and-selection.md §5.1), and a key yolo re-asserted
+  -- every boot would revert a model the user picked interactively. And when the selected
+  -- provider is not codex-reachable, the SAME gate that keeps it out of the catalog keeps
+  -- it out of the selection: no keys at all, never a `model_provider` naming a provider
+  -- whose row the catalog dropped — codex refuses that config at startup.
+  if ctx.selected_provider ~= nil and ctx.selected_provider ~= "" then
+    local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
+    if codexReachable(p) then
+      res.model_provider = ctx.selected_provider
+      local m = type(p) == "table" and p.models or nil
+      if type(m) == "table" and m.default then
+        res.model = m.default
+      end
     end
   end
 
