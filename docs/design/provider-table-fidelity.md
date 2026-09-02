@@ -512,7 +512,7 @@ one-character fix whose only real cost is deciding whether anything reads that f
 | A1 | **Make the enum the union of all agents' spellings** (add `openai-responses`, `chat`, …) and keep verbatim pass-through. | **Rejected.** Two agents spelling the same protocol differently makes the union ambiguous by construction — a pack author writing `openai-responses` has silently chosen "pi, and nothing else". The canonical/dialect split exists to stop that. |
 | A2 | **Translate centrally in Go**, composing a per-agent value into the table before it crosses. | **Rejected, and it was rejected before this doc.** It puts an agent-name switch back in core, which `pack-code-separation.md` forbids and which `agentenv.agentProtocols` is already an acknowledged exception to. Recorded here so the refusal has a home, not because it was ever live — see OQ-PT1's rescoping note. |
 | A3 | **Declare the dialect in the manifest** — a per-agent spelling table on the pack. | **Rejected as premature**, same status as A2. It is schema for a fact that changes when an agent releases, not when a pack does; the derive is already versioned with the pack that owns the agent, which is the same argument that made the placement question not a question. |
-| A4 | **Refuse the composed `base_url`/`endpoints` pair** rather than resolving it. | **Rejected as the primary fix, viable as an addition.** A refusal makes a per-field override of a pack-shipped provider impossible to spell, which is the feature `zai-plumbing.md` §7 calls "overrides, not authoring". The resolution rule is the fix; a warning on the manufactured pair is the open half of OQ-PT2. |
+| A4 | **Refuse the composed `base_url`/`endpoints` pair** rather than resolving it. | **ADOPTED 2026-09-01 (OQ-PT2) — this row's original verdict was wrong.** I rejected it on the grounds that "a refusal makes a per-field override impossible to spell"; it does not. A user overriding a pack that ships `endpoints` writes `endpoints.<protocol>.base_url` — the same per-field merge, in the shape the pack already used. Refusing costs only the *shorthand as an override spelling*, and that shorthand is precisely what is ambiguous once more than one protocol exists. |
 | A5 | **Leave D4 as-is and document the hatch.** | **Rejected.** `YOLO_ALLOW_MISSING_PROVIDERS=1` is a launch-refusal escape hatch; a user who has to set it permanently has lost the refusal for every real case too. |
 
 ---
@@ -561,60 +561,31 @@ reader stops checking.
 
 ## 10. Open Questions
 
-1. 💬 **OQ-PT1: What should the canonical protocol vocabulary BE?** *(Rescoped after review —
-   the original question asked **where** the translation lives, and that was never open: the pack
-   that ships the agent knows its dialect, so it is the derive, and
-   [`zai-plumbing.md`](zai-plumbing.md) §5 already ruled it in as many words — "each agent's derive
-   (or a shared derive library) emits its own dialect of the one provider it selected". §3.4 is
-   executing that ruling, not proposing it. A2/A3 in §7 are kept as recorded refusals, not as live
-   options.)*
+1. ✅ **OQ-PT1: What should the canonical protocol vocabulary BE? — RESOLVED (2026-09-01).**
+   Three protocol-shaped names — `anthropic`, `openai-chat-completions`, `openai-responses` — chosen
+   to be **nobody's dialect**, so a derive cannot pass one through by accident and have it work.
+   `openai-chat` and `openai-completions` collapse into one name (they were one protocol under two
+   agents' spellings, §3.0a) and `responses` loses codex's spelling. Each derive translates
+   canonical → its own agent's value and emits **nothing** for a protocol that agent cannot speak.
+   Migration is a key rename with the retired-key convention's shape. Folded into §3.4.
 
-   What is actually open is the set being translated **from**. §3.0a shows `knownWireAPIs` is not a
-   protocol vocabulary — it is four borrowed spellings naming three protocols, with chat
-   completions spelled twice (`openai-chat`, `openai-completions`) and responses carrying only
-   codex's spelling. A translation table has to map from canonical names, and today there is no
-   canonical name to map from. This decides what a pack author writes and what the config validator
-   enforces.
+2. ✅ **OQ-PT2: What is the address resolution rule? — RESOLVED (2026-09-01). There is no
+   resolution rule; the pair is REFUSED.** *"Why would we allow both of these? That right there seems
+   broken."* Correct, and **my §7 A4 was wrong to reject the refusal.** I argued a refusal "makes a
+   per-field override of a pack-shipped provider impossible to spell" — it does not. A user
+   overriding a pack that ships `endpoints` writes `endpoints.<protocol>.base_url`, which is the same
+   per-field merge, in the shape the pack already used. The only thing refusing costs is the
+   shorthand as an override spelling, and that shorthand is exactly what is ambiguous when more than
+   one protocol is in play. So: the composer refuses a composed entry carrying both, naming both
+   sources, rather than picking a winner and leaving the two consumers to disagree. Folded into §4.1;
+   A4's verdict is corrected in place.
 
-   _Leaning:_ Three protocol-shaped names — `anthropic`, `openai-chat-completions`,
-   `openai-responses` — chosen to be nobody's dialect so that no derive can pass one through by
-   accident and have it work. That last property is worth more than the migration cost: a canonical
-   value that happens to be valid in one agent's config is exactly how D1 stayed invisible. The
-   cost is a rename of a key `packs/zai` and any user `providers` entry already carry, which the
-   retired-key convention (`api_key_env` → `api_key_env_name`) already has a shape for.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-PT2: What is the address resolution rule, and does the manufactured pair also warn?**
-   Two halves. (a) When a composed entry carries both `base_url` and `endpoints[P]`, which wins?
-   (b) Does composition additionally report the pair the config validator would have refused?
-   Deciding (a) alone closes the split-brain; (b) decides whether the user learns their override
-   half-landed.
-
-   _Leaning:_ `endpoints[P]` wins when it exists for the protocol being resolved, because it is
-   the specific spelling and `base_url` is documented as the single-protocol shorthand — and
-   **yes** to (b), as a warning naming both sources, because a user who wrote the shorthand
-   intending a full override should hear that the endpoint map outranked it. I hold (a) less
-   firmly than (b): the opposite precedence ("the user's own key wins over the pack's") is also
-   defensible and would change which agent moves.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-PT3: Should a profile-gated `config-overlay` carry `env_shape`'s placeholders?**
-   §4.2's duplication is only removable if the overlay can name `{endpoint}` instead of restating
-   the URL. This is a schema addition to a kind that currently takes literals, and it decides
-   whether "a fact the provider owns is spelled once" is a rule or an aspiration.
-
-   _Leaning:_ Yes, and reusing the existing closed placeholder set rather than a new one — the
-   vocabulary is already single-sourced (`ValidateProviderEnvShape`, exported for exactly this
-   kind of second consumer in `0329b781`) and the skew story is already written. The narrower
-   alternative is a test asserting the two literals agree, which fixes this instance and not the
-   class.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+3. ✅ **OQ-PT3: Should a profile-gated `config-overlay` carry the substitution vocabulary? —
+   RESOLVED (2026-09-01). YES** — a fact the provider owns is spelled once, and `packs/zai`'s
+   duplicated URL literal (§4.2) comes out. **Which vocabulary** is now OQ-PT9's, not this
+   question's: if the placeholder set is replaced by a derive, the overlay composes its value the
+   same way everything else does, and the ruling stands unchanged either way. What is settled is that
+   the literal is not restated.
 
 4. ✅ **OQ-PT4: What distinguishes a provider a pack *supplies* from one it *offers*? — RESOLVED
    (2026-09-01), and the question dissolved rather than being answered.** The maintainer's rule —
@@ -626,18 +597,13 @@ reader stops checking.
    [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §4, which owns the
    catalog model; §5.1 here keeps the measurement.
 
-5. 💬 🤷 **OQ-PT5: Does `--profile` keep both meanings?** §5.2. `--pack-profile` already spells
-   the profile case unambiguously, and the timing meaning is older. Options: leave it (and fix
-   only the guide line), rename the timing flag, or drop the bare-`--profile` profile spelling
-   and keep `-p`.
-
-   _Leaning:_ Genuinely your call — it is a breaking CLI change and the current parse works. If
-   pressed: keep `-p`, keep `--profile` for timing only, and let `--pack-profile` carry the long
-   form, because that is the one reading where no token's meaning depends on the next token. But
-   the status quo is survivable and I would not spend a break on it alone.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+5. ✅ **OQ-PT5: Does `--profile` keep both meanings? — RESOLVED (2026-09-01). No — the profile
+   wins the good name.** *"Name the `--profile` timing thing whatever you want, that is rare, make
+   the pack profile stuff short and easy."* The startup-timing flag is renamed (`--timing` is the
+   obvious candidate and the name is not load-bearing), `--profile <name>` and `-p <name>` become
+   unambiguous, and `profileValueAt`'s look-at-the-next-token heuristic — which cost two fix commits
+   — is deleted rather than made more careful. `--pack-profile <cli>=<name>` stays for the per-CLI
+   form. Folded into §5.2.
 
 6. ✅ **OQ-PT6: Does a profile get a user layer, the way a provider has one? — RESOLVED
    (2026-09-01). YES, and it is the primary layer, not a second one.** *"That's what I want a
@@ -665,6 +631,44 @@ reader stops checking.
    real body in the tree, is tabulated in
    [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2.
 
+
+9. 💬 **OQ-PT9: Does the placeholder vocabulary survive, or does a derive replace it?** *"I'm not
+   convinced we should have some interpolation format. What does that buy us? Are we now having a
+   typechecker? Why not just throw everything at derive? Could propagate errors from derive if
+   needed."*
+
+   **What it buys, honestly: exactly one thing.** `{key}` is the only way a credential enters a
+   composed value, and `ValidateProviderEnvShape` refuses every other spelling — so **the secret
+   never enters Lua**. Derives receive the composed table, which carries `api_key_env_name` (a name)
+   and never a value; that is a real guarantee and the reason the vocabulary is closed. Everything
+   *else* the placeholders do — `{endpoint}`, `{region}`, `{model:alias}` — is substitution a real
+   language does better, and the awkwardness of `{model:alias}` (a parameterised placeholder, alone
+   in the set) is the vocabulary running out of room.
+
+   **So the two properties are separable, and only one needs a mini-language.**
+
+   _Leaning:_ Keep the containment, drop the vocabulary. A derive composes the env freely, and the
+   one thing it may not have is fetched through a **sentinel** — `yolo.secret("ZAI_API_KEY")` —
+   whose value Go substitutes on the way out. This is not a new mechanism: the derive path already
+   round-trips two `LUserData` sentinels (`ctx.tombstone`, `ctx.empty_array`,
+   [`luahook/derive.go`](../../internal/agentcfg/luahook/derive.go)) for exactly this
+   "Lua carries a marker Go interprets" reason. Under it, `{endpoint}`/`{region}`/`{model:alias}`
+   all disappear, and §3.1's model-delivery gap in
+   [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) closes by writing the
+   loop rather than by minting a placeholder.
+
+   To the typechecker question: **no, and that is the point.** The closed set exists to make a
+   *credential* unrepresentable, not to type-check substitution. Errors move from authoring time to
+   derive-run time, which needs the error propagation the question already offers — and the derive
+   path has no propagation today, so that is the real cost, not a footnote.
+
+   The genuine blocker is that **derives emit config surfaces, not environment** — they are keyed
+   `(agent, surface)` and there is no env-emitting derive. That is the work this question is really
+   asking to authorize, and it is larger than it looks.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
 ---
 
 ## 11. Decision Ledger
@@ -674,6 +678,10 @@ the section named in the last column.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
+| OQ-PT1 | **Three protocol-shaped canonical names** — `anthropic`, `openai-chat-completions`, `openai-responses` — deliberately nobody's dialect, so a pass-through cannot work by accident. Each derive translates and emits nothing for a protocol its agent cannot speak. | 2026-09-01 | §3.4, §3.0a |
+| OQ-PT2 | **No resolution rule — the composed `base_url`/`endpoints` pair is REFUSED.** Overriding a pack that ships `endpoints` is spelled `endpoints.<protocol>.base_url`; only the shorthand-as-override is lost, and it is the ambiguous spelling. §7 A4's original rejection corrected. | 2026-09-01 | §4.1, §7 A4 |
+| OQ-PT3 | **A profile-gated `config-overlay` composes the provider's fact rather than restating it** — zai's duplicated URL literal comes out. Which substitution mechanism is OQ-PT9's. | 2026-09-01 | §4.2 |
+| OQ-PT5 | **The profile wins the good name** — the startup-timing flag is renamed, `-p`/`--profile` become unambiguous, and `profileValueAt`'s next-token heuristic is deleted. | 2026-09-01 | §5.2 |
 | OQ-PT6 | **A profile gets a user layer, and it is the primary one** — a profile is user-declared intent: a named selection over a provider, customizable by name, with a pack-shipped one as an overridable default. | 2026-09-01 | [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2 |
 | OQ-PT7 | **The selector meaning becomes the only meaning** — no rename. The pack-variant body is not a profile; it is contributions gated on a profile name. `render.Profile` stays an unrelated Go homonym. | 2026-09-01 | [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2 |
 | OQ-PT8 | **`kind: "profile"` shrinks to name + provider**; `env`, `launch` and the config patch move to `profile:`-modified contributions. Derived from OQ-PT6/PT7, and it removes the CLI-less reachability defect rather than guarding it. | 2026-09-01 | [`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) §5.2 |

@@ -593,7 +593,7 @@ stops the launch. That is the intended trade under your ruling, and it is the on
 ### 💬 18 — The provider table is checked in yolo's vocabulary and delivered in everyone else's
 
 📄 [`provider-table-fidelity.md`](../design/provider-table-fidelity.md) —
-**OQ-PT1 · OQ-PT2 · OQ-PT3 · OQ-PT5** open · ~~OQ-PT4~~ ~~OQ-PT6~~ ~~OQ-PT7~~ ~~OQ-PT8~~ ruled 2026-09-01 · follow-on to
+**OQ-PT9** open · OQ-PT1…PT8 all ruled 2026-09-01 · follow-on to
 [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) and
 [`zai-plumbing.md`](../design/zai-plumbing.md), both of which shipped 2026-08-29 → 2026-09-01 and are
 otherwise sound · continues 💬 **17** §7 step 3 rather than contradicting it
@@ -652,6 +652,28 @@ first that installs no CLI *and* ships no loophole, while `AGENTS.md:8` still sa
 in-jail assertion on the rendered `~/.codex/config.toml` is the single check that would have caught
 the headline defect**; and the census lines (`AGENTS.md`, `packs/embed.go`, `USER_GUIDE.md:217`).
 The doc's §9 puts the test first deliberately: it fails today.
+
+**Eight of nine ruled in one review round, and two of my leanings were overturned.** OQ-PT1 takes
+three protocol-shaped canonical names that are deliberately **nobody's dialect**, so a pass-through
+cannot work by accident. OQ-PT2 — *"why would we allow both of these? that right there seems
+broken"* — **refuses** the `base_url`/`endpoints` pair outright, and §7's A4 row is corrected: I had
+rejected the refusal claiming it made per-field override unspellable, and it does not (you override
+with `endpoints.<protocol>.base_url`, the shape the pack already used). OQ-PT5 gives the profile the
+good name — *"make the pack profile stuff short and easy"* — so the startup-timing flag is renamed
+and `profileValueAt`'s next-token heuristic, which cost two fix commits, is deleted rather than made
+more careful.
+
+**What is left is one question, and it is the biggest.** *"I'm not convinced we should have some
+interpolation format. What does that buy us? Are we now having a typechecker? Why not just throw
+everything at derive?"* — **OQ-PT9**. Honest answer: the placeholders buy exactly ONE thing, which is
+that `{key}` is the only way a credential enters a composed value, so **the secret never enters
+Lua**. Everything else they do is substitution a real language does better, and `{model:alias}` — a
+parameterised placeholder, alone in the set — is the vocabulary running out of room. The two
+properties separate: keep the containment, drop the vocabulary, and fetch the one forbidden value
+through a `yolo.secret()` **sentinel** — which is not a new mechanism, since the derive path already
+round-trips `ctx.tombstone` and `ctx.empty_array` as `LUserData` for the same reason. The real cost
+is that derives are keyed `(agent, surface)` and **emit no environment at all**, plus the error
+propagation the question already offers; that is what OQ-PT9 is really asking to authorize.
 
 **What this row is NOT.** Not a retraction of either parent doc — the credential boundary, the
 three-level skew handling and the backend-parity repairs all re-measured clean. Not a proposal to

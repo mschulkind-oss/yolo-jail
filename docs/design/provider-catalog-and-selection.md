@@ -119,10 +119,18 @@ provider declaration. Both put a fact in a record that cannot own it.
 
 Two costs, and the second is the one that bites:
 
-1. **N×M restatement.** Every provider that wants to serve claude copies claude's variable names.
-   Two providers today; the maintainer's own config already carries a `CEREBRAS_API_KEY`, so the
-   third is not hypothetical. The parent design's §3.2 argument against a pack-per-agent-per-provider
-   grid is exactly this shape, arriving through a different door.
+1. **Restatement that grows with providers.** Every provider serving claude copies claude's
+   variable names. Two providers today; the maintainer's own config already carries a
+   `CEREBRAS_API_KEY`, so the third is not hypothetical.
+
+   *(Framing corrected 2026-09-01 — an earlier draft claimed the fix "kills the N×M", and the
+   maintainer's response is the accurate one: **"I don't think we can get around N×M, but we can
+   make it easy to fill in the grid."** Right. Moving the binding to the agent makes the COMMON case
+   N+M — each agent declares one binding per protocol, each provider declares one endpoint per
+   protocol, and any pair whose protocols meet works with nothing written for that pair. The grid
+   does not vanish: a pairing that needs something specific still needs a cell, and the design should
+   make that cell cheap to write rather than pretend it is never needed. What is eliminated is the
+   **obligatory** cell for every pair, not the possibility of one.)*
 2. **Nothing says what claude actually needs, so each provider guesses a different subset.** zai
    declares endpoint + token and **no model variables**; bedrock declares models + region and no
    endpoint or token. Each is defensible alone — bedrock authenticates through the ambient AWS chain
@@ -132,11 +140,13 @@ Two costs, and the second is the one that bites:
    placeholders exist only inside `packs/claude`'s bedrock declaration.
 
 > [!NOTE]
-> **Whether that last one breaks anything is not established here.** z.ai's Anthropic-compatible
-> route may well ignore or remap the model name it is sent, in which case claude-on-zai works while
-> the aliases sit unused. What is established is structural: the aliases a provider declares reach
-> claude through nothing, and no test or type says they should. Verifying the runtime half needs an
-> authenticated request, which is outside what this repo's tests may do.
+> **This is a gap to close, not an uncertainty to weigh.** An earlier draft hedged on whether the
+> missing model delivery *matters* — z.ai's Anthropic route may remap the model name it is sent, so
+> claude-on-zai may work anyway. That hedge let a current limitation shape the design, which is
+> backwards: **if models are not plumbed, plumb them.** Whether today's specific pairing happens to
+> survive the omission is worth knowing and is not the design question. The runtime half still needs
+> an authenticated request this repo's tests may not make, so it stays unverified — what changes is
+> that it is filed as work rather than as a reason to wait.
 
 **The shape of the fix, and it is the same rule §3 is already built on.** Each **agent pack**
 declares how a selection reaches it, per protocol — codex and opencode name a config key, and claude
@@ -156,7 +166,13 @@ declaration serves bedrock (no endpoint, no key, a region) and zai (endpoint and
 with no per-provider subset to choose. **claude stops being the special case**: three agents deliver
 a selection through a config file, one through the environment, and all four declare it themselves.
 
-Whether the binding is a new contribution kind or a field on the existing ones is OQ-CS8.
+Whether the binding is a new contribution kind or a field on the existing ones is OQ-CS8 — and
+whether its values stay placeholders at all is
+[`provider-table-fidelity.md`](provider-table-fidelity.md) **OQ-PT9**, which asks why there is an
+interpolation format rather than a derive. The example above is written in today's vocabulary
+because that is what exists; if OQ-PT9 goes the way it leans, the same binding is a few lines of Lua
+reading `prov.endpoints`, `prov.models` and a `yolo.secret()` sentinel, and **the model loop that
+§3.1 says is missing gets written rather than encoded in a new placeholder.**
 
 ---
 
