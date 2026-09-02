@@ -649,11 +649,16 @@ left the flag name-only; and the census — this work made `zai` the **twelfth**
 first that installs no CLI *and* ships no loophole, while `AGENTS.md:8` still said ten — 67f87f36
 has since said twelve.
 
-**What needs no ruling, and is worth doing regardless:** the missing integration test — nothing in
-`integration/` mentions `zai`, `pack_profiles` or `providers`, though the pattern exists and **an
-in-jail assertion on the rendered `~/.codex/config.toml` is the single check that would have caught
-the headline defect**; and the census lines (`AGENTS.md`, `packs/embed.go`, `USER_GUIDE.md:217`).
-The doc's §9 puts the test first deliberately: it fails today.
+**What needs no ruling, and is worth doing regardless:** the integration test this called missing —
+nothing in `integration/` mentioned `zai`, `pack_profiles` or `providers`, though the pattern existed
+and **an in-jail assertion on the rendered `~/.codex/config.toml` is the single check that would have
+caught the headline defect**. `cee9c1fc` landed that test on 2026-09-02, **RED on purpose**: its
+assertions name only what pi, codex and opencode themselves accept, so it fails on today's
+`openai-chat` and stays red until D1's derive fix (§3.4) and D10/D11's catalog fix (§3.5) land.
+`pack_profiles` is the one word of the original complaint still without any coverage. The census half
+is done: `67f87f36` rewrote `AGENTS.md` and `packs/embed.go`, and `886a9191` fixed `USER_GUIDE.md:217`
+— which was never a census line but §5.2's `--profile` doc half, since renamed `--timing`. The doc's
+§9 puts the test first deliberately: it fails today.
 
 **Eight of nine ruled in one review round, and two of my leanings were overturned.** OQ-PT1 takes
 three protocol-shaped canonical names that are deliberately **nobody's dialect**, so a pass-through
