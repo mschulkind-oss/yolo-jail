@@ -100,7 +100,7 @@ question exists only for podman/AC.
 
 | Builder | Runtime | Status | Notes |
 |---|---|---|---|
-| **Cachix / prebuilt download** | any | 🟡 | THE happy path. **"Account deferred" is stale (checked 2026-08-23):** the substituter + public key are live (`flake.nix:13-16`, `730c258`), the `yolo-jail` cache and the `CACHIX_AUTH_TOKEN` secret both exist, and yolo passes `--accept-flake-config` on every nix invocation so the flake's own cache is actually consulted (`internal/image/nixflags.go:35`, `internal/darwinpkg/darwinpkg.go:91`). Remaining: the **Mac download proof**, and — disputed — the first push: `docs/plans/README.md:64` (repinned 2026-09-02) says CI has already pushed, `handoff-cachix-cache.md` still lists it as remaining. **Not checkable from a Linux jail.** No build → no builder needed. |
+| **Cachix / prebuilt download** | any | 🟡 | THE happy path. **"Account deferred" is stale (checked 2026-08-23):** the substituter + public key are live (`flake.nix:13-16`, `730c258`), the `yolo-jail` cache and the `CACHIX_AUTH_TOKEN` secret both exist, and yolo passes `--accept-flake-config` on every nix invocation so the flake's own cache is actually consulted (`internal/image/nixflags.go:35`, `internal/darwinpkg/darwinpkg.go:91`). Remaining: the **Mac download proof**, and that is now all — **the push is confirmed** (2026-09-02, from the Actions log: run `31749547095`, `v0.8.0`, both arches pushed, and the same run substituted the four this-repo-source paths back from `yolo-jail.cachix.org`). Two caveats: the push is tag-triggered so the cache holds `v0.8.0` only, and the claim above about `--accept-flake-config` was true of yolo's Go invocations but **false of CI's six `nix build` calls** until 2026-09-02, so off-release CI runs were rebuilding the closure from source. No build → no builder needed. |
 | **Container builder** (nix+sshd container on the runtime) | **podman** | ✅ [L] | **proven end-to-end in-jail**: image built, `ssh-ng` build ran inside container, result read back. `packages.builderImage` in flake. |
 | **Container builder** | **Apple Container** | ✅ [M] | **PROVEN on real HW 2026-07-17** (macOS 26.5 arm64, AC 0.12.3, nix 2.34.7): AC pulled the GHCR image, ran it with internal-network IP `192.168.64.2:22`, host nix `store info` → `Trusted: 1`, proof build returned `AC-CONTAINER-BUILDER-WORKS`. No `-p` needed — AC's per-container VM IP is directly reachable. **Runbook → docs/plans/runbooks/mac-ac-container-builder.md.** |
 | **Container builder → CLI wiring** | podman + AC | ✅ [L] *(2026-08-23)* | **The "Go-port gap" in §5 item 3 is CLOSED.** `internal/containerbuilder` was resurrected (`8abb67ce`) and wired into the image path (`c2f0b941`), both 2026-07-21: `internal/image/autoload.go:13` imports it and `:219` calls it through the `BuildOffload` seam, which is a nil-returning stub on Linux and in tests (`autoload.go:105-106`). |
@@ -240,9 +240,9 @@ is the single collected list, with the open questions attached.
    `730c258`, 2026-07-20), and `--accept-flake-config` is passed on every nix
    invocation so it is actually consulted (`internal/image/nixflags.go:35`,
    `internal/darwinpkg/darwinpkg.go:91`). Cache, account and
-   `CACHIX_AUTH_TOKEN` all exist. What is left is the Mac **download** proof —
-   plus, disputed and not checkable from a Linux jail, whether the first push
-   has happened (§2 Cachix row). Removes the builder entirely for cached images.
+   `CACHIX_AUTH_TOKEN` all exist. What is left is the Mac **download** proof,
+   and only that: the first push was confirmed 2026-09-02 from the Actions log
+   (§2 Cachix row). Removes the builder entirely for cached images.
 7. ~~QEMU `darwin.linux-builder` as the documented fallback~~ — REMOVED
    (Open Decision #3, 2026-07-23). No longer a documented fallback; the
    container builder is the sole builder. A user's own nix-darwin

@@ -68,8 +68,9 @@ the real number was closer to 50.
 > [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md); **S5** is in
 > [`BACKLOG.md`](BACKLOG.md) §Stage E. **Cite a state row or an OQ ID — never a letter.**
 
-**And the real number is now countable rather than estimated: the sweep returns 102**, re-run
-2026-09-02 after the audit's edits landed. Against 2026-08-30's **113** it reconciles in two
+**And the real number is now countable rather than estimated: the sweep returns 101**, re-run
+2026-09-02 after the audit's edits landed (it read 102 before OQ-GN3 was answered later the same
+day — see the last row of the table). Against 2026-08-30's **113** it reconciles in two
 halves. **−6 before this audit touched anything:**
 [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) went 5 → 0 (its §14 ledger
 closed six questions on 2026-09-01) and one more moved in other sessions' work. **−5 from the
@@ -83,11 +84,12 @@ audit itself, row-exact:**
 | **−4** | this file: 💬 3, 4, 9, 12 deleted (18 → 14 entries — 13 `### 💬` headings + the Mac-config bullet) |
 | **+1** | `agent-auth-modes.md` OQ-9 — the AWS-pair question carried back in; the rewrite had dropped it unanswered |
 | **+1** | `trust-paths.md` OQ-TP8 — the pack-Lua census gap, newly named |
+| **−1** | `handoff-guest-notch-macos.md` OQ-GN3 — *has the Cachix cache been pushed to?* Answered from the Actions log the same day: yes, and CI reads from it too |
 
 > [!WARNING]
 > **A roadmap row and the questions it points at are counted twice, and that is a bias in the tool
 > this file trusts.** A row is a *grouping* of questions that already live in their design docs —
-> 💬 16 and the three live `OQ-DF*` are four entries for one decision. The "gap between 102 and 13"
+> 💬 16 and the three live `OQ-DF*` are four entries for one decision. The "gap between 101 and 13"
 > framing below compares a number against a set that contains it. Not worth redefining mid-sprint —
 > worth saying out loud, because the last time this count was quietly wrong it was wrong by six.
 
@@ -112,7 +114,7 @@ heading anchors. All five, and the allowlists they need, are in
 > the count moves.
 
 **Thirteen rows below is what the blocking subset groups into** — the rest are named
-in *What the roadmap does not cover* at the end, deliberately. The gap between 102 and 13 is the
+in *What the roadmap does not cover* at the end, deliberately. The gap between 101 and 13 is the
 point of this file: a row is a *decision*, and one decision usually closes several questions.
 **💬 6's four rulings closed a whole row in a single turn**, and the 2026-09-02 audit closed four
 rows without any ruling at all — the other way the gap earns its keep, since re-verifying a row
@@ -249,8 +251,10 @@ question is now the harder one: *we shipped it — does the Linux row stay?*
 item) and a macOS build sandbox. **Q1 left this row on 2026-09-02: it was mooted by `46655873`**
 (2026-08-31), which deleted the cwd walk-up wholesale — a strictly stronger fix than the
 workspace-exclusion Q1 proposed, shipped for source-skew hygiene rather than security. Vector B and
-H1 are recorded dead in the doc. **OQ-L1** explicitly blocks Track L part 2. **OQ-GN1 … OQ-GN4** are
-new (2026-08-23),
+H1 are recorded dead in the doc. **OQ-L1** explicitly blocks Track L part 2. **OQ-GN1 · OQ-GN2 · OQ-GN4** are
+new (2026-08-23) —
+**OQ-GN3 was answered 2026-09-02** from the Actions log (the Cachix push happened AND the
+cache is being read; D4 is down to the Mac download proof) —
 in the guest-notch handoff — which now says plainly that its item 1.4 is only *half* answered: the
 sandbox reads the staged pack root and runs the toolchain, so what is untested is the
 `sudo -u _yolojail` staging step above it, not the confinement.
@@ -1236,8 +1240,10 @@ asked to make and these are not blocking anything:
   documented nowhere else — a per-side path that is a symlink or a regular file cannot be shadowed,
   so the launcher warns and the jail silently sees the host's copy.)*
 
-Plus the **OQ-GN1 … OQ-GN4** in the guest-notch handoff, which are Mac-gated rather than
-undecided, and are cited from 💬 7 above.
+Plus **OQ-GN1 · OQ-GN2 · OQ-GN4** in the guest-notch handoff, which are Mac-gated rather than
+undecided, and are cited from 💬 7 above. *(OQ-GN3 left on 2026-09-02 — it asked whether the
+Cachix cache had ever been pushed to, and the Actions log answered it: yes, and CI reads from it
+too. Chasing it found the six CI `nix build` calls that were discarding the flake's substituter.)*
 
 They are named and countable now, which is the point — a question with an ID can be promoted to a
 row the day it starts blocking something, and demoted the day it stops. **That is the whole

@@ -1,19 +1,39 @@
 # Handoff — publish the prebuilt image to a Cachix cache
 
-**Status:** **ENABLED** (2026-07-20) — the `yolo-jail` cache exists, the
-`nixConfig` substituter + public key are live in `flake.nix`, and the
-`CACHIX_AUTH_TOKEN` secret is set, so the release-gated push job now runs.
-Remaining: the first push + the Mac-side download proof (steps 4 and "Final
-test" below), which need a Linux box and a Mac respectively.
+**Status:** **WORKING** — the push has happened and the cache is being read.
+**Settled 2026-09-02 from the Actions log**, which closes the disagreement this doc
+carried against [`README.md`](README.md): README's *"CI has already pushed data"* was
+the correct sentence. Remaining: only the Mac-side download proof ("Final test" below),
+which needs the hardware.
 
 > [!NOTE]
-> **This doc and [`README.md`](README.md) disagree about the push, and 2026-08-23 narrowed the
-> disagreement without settling it.** README's row says *"CI has already pushed data"*; this line
-> says the first push is still owed. What is verifiable from in here: the push job is **tag-driven**
-> (`publish.yml` — the `v*` tag push is the load-bearing trigger, and the job no-ops without
-> `CACHIX_AUTH_TOKEN`), the token was set on 2026-07-20, and **`v0.8.0` was tagged 2026-08-13** —
-> so a run *should* have happened. Whether it **succeeded** needs the Actions log, which no in-jail
-> agent can read. Check that before trusting either sentence.
+> **The measurement, so nobody has to re-take it.** Run **`31749547095`** (`v0.8.0`,
+> 2026-08-13), job `push-image-cache`, **both** arches (`ubuntu-latest` and
+> `ubuntu-24.04-arm`) → **success**, gate **open** (`Set up Cachix` ran with the real
+> token, `name: yolo-jail`, `skipPush: false`), and the step logged
+> `Pushed image closures to yolo-jail.cachix.org`.
+>
+> **And the same log shows CI READING the cache**, which is stronger than the push:
+> the second variant reported `these 4 paths will be fetched (507.7 KiB download,
+> 25.7 MiB unpacked)` and substituted all four from `https://yolo-jail.cachix.org` —
+> `stream-yolo-jail`, `bin-path-links`, `yolo-jail-conf.json`,
+> `yolo-jail-customisation-layer`, i.e. exactly the this-repo-source derivations that
+> are never on `cache.nixos.org` and that the "Why" below is about.
+>
+> ⚠ **A real defect was found in the same log and fixed 2026-09-02.** The build step
+> ran bare `nix build --impure` with **no `--accept-flake-config`**, so nix printed
+> `ignoring untrusted flake configuration setting 'extra-substituters'` and the flake's
+> own declaration was DISCARDED. The hits above happened only because `cachix-action`
+> adds the substituter to `nix.conf` itself — a grace that would vanish silently if the
+> step were reordered or the action swapped. The flag is now passed at **all six**
+> `nix build` sites across `publish.yml`, `ci.yml`, `nightly-macos.yml` and `packs.yml`;
+> the latter three have **no** `cachix-action` at all, so before the fix they could not
+> see the cache under any circumstances and rebuilt the closure from source every run.
+>
+> **Scope caveat worth keeping:** the push is **release-gated only** (`on: push: tags:
+> v*`), so the cache holds `v0.8.0`'s closure and nothing newer. Between releases a
+> consumer gets a cache hit on the release-day paths and builds the delta.
+
 **Why:** the OCI image contains a few `aarch64-linux` derivations built from
 *this repo's* source (`yolo-jail-conf`, the entrypoint pkg, the stream
 script) that are **never** on `cache.nixos.org`. So building the image on
@@ -35,11 +55,11 @@ VM.
   builds + pushes on every published release. It gates on the
   `CACHIX_AUTH_TOKEN` **secret alone** (set ✅); the cache name defaults to
   `yolo-jail`, overridable by the optional `CACHIX_CACHE` variable.
-- **Proven:** the image builds cleanly on Linux here (`nix build .#ociImageMinimal`
-  → exit 0), so the build/publish-from-Linux path is validated; the first
-  actual push + the Mac download proof remain.
+- **Proven end to end in CI** (run `31749547095`, `v0.8.0`, 2026-08-13, both arches):
+  both variants built, the closures pushed, and the four this-repo-source paths were
+  **substituted back from the cache** in the same run. Only the Mac download proof remains.
 
-## Setup runbook (wiring done; first push + Mac proof remain)
+## Setup runbook (wiring done; only the Mac proof remains)
 
 1. **Create the cache.** ✅ Done — the **public** `yolo-jail` cache exists at
    <https://app.cachix.org>. (Cache names are **global**; the wiring assumes
@@ -64,7 +84,10 @@ VM.
      `yolo-jail` when unset; only set it to push to a differently-named cache
      (e.g. a fork's).
 
-4. **First push (prove it) — still TODO, from a Linux box:**
+4. **First push — ✅ DONE by CI**, not by hand: the release-gated `push-image-cache`
+   job did it on the `v0.8.0` tag (run `31749547095`, 2026-08-13, both arches). The
+   manual route below still works and is the way to push a closure **between**
+   releases, since the CI trigger is tag-only:
    ```sh
    nix profile install nixpkgs#cachix     # if cachix isn't installed
    cachix authtoken <write-token>          # or: export CACHIX_AUTH_TOKEN=…

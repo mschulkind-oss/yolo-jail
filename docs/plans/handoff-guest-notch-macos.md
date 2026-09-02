@@ -166,7 +166,7 @@ have closed, one has changed shape, and one is new and blocks every other row on
 |---|---|---|
 | **🔴 The Mac's config** | **Do this first or nothing below can run.** Measured 2026-08-19: that machine's `~/.config/yolo-jail/config.jsonc` still uses the **removed `agents` key**, so every current `yolo` — every backend, `yolo check` included — refuses with the config-invalid fatal, and its installed `yolo` was **531 commits stale**. All four names it selects (`claude`, `pi`, `codex`, `agy`) exist as packs; the fix is renaming the key to `packs`. **Maintainer's config, maintainer's call** | `roadmap.md` 🔒 macOS rows |
 | **Item 1.4's staging step** | The `sudo -u _yolojail` copy into `/var/yolo-jail/packs/<session>` + the sandbox-uid read. The confinement half was measured 2026-08-19; **this half never has been** | §2 |
-| **D4 Cachix** | ONE real download proof. Substituter live at `flake.nix:13-16`; cache + account + `CACHIX_AUTH_TOKEN` all done. **Sources disagree on whether the first push has happened** — `README.md:64` (anchor repinned 2026-09-02; was `:31`) says CI already pushed, `handoff-cachix-cache.md` still lists it as remaining; not checkable from a Linux jail | [`handoff-cachix-cache.md`](handoff-cachix-cache.md), [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md) D4 |
+| **D4 Cachix** | ONE real download proof, and it is now genuinely the only item. **The push question is SETTLED (2026-09-02, OQ-GN3):** run `31749547095` (`v0.8.0`, both arches) pushed both variants and substituted the four this-repo-source paths back from the cache. Substituter live at `flake.nix:13-16`; cache + account + token all done. Note the cache holds `v0.8.0` only (tag-triggered push), and the CI `--accept-flake-config` omission that made off-release runs miss the cache entirely is fixed | [`handoff-cachix-cache.md`](handoff-cachix-cache.md), [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md) D4 |
 | ~~**E8's nightly**~~ | **CLOSED, and its stated cause was wrong.** `BACKLOG.md:208` marks E8 done 2026-08-03, and the macOS nightly is **GREEN** as of run `32623453131` (2026-08-23). The row said the nightly stayed red until the multi-arch builder image reached GHCR — but the nightly builds the image on `ubuntu-latest` and downloads it as an artifact (`nightly-macos.yml`, `build-image` → `integration-macos`); it never pulls the GHCR builder. **The 29 red nights were the flake throwing on `x86_64-darwin`**, fixed by `927fb9f` (2026-08-18). *(v0.8.0 did ship 2026-08-13, so `publish.yml` has run since E8's fix — whether GHCR carries the multi-arch index is not verifiable from here.)* | [`BACKLOG.md`](BACKLOG.md) E8 |
 | **agent-auth macos-user parity** | 4 verified defects whose fixes need a Mac to verify. *(The "ROADMAP item 4" pointer is dead; the defects are in the agent-auth design doc.)* | [`../design/agent-auth-modes.md`](../design/agent-auth-modes.md) |
 | **`cache_relocations`** | One real cross-filesystem move as an acceptance step. Still **held** — `roadmap.md` keeps it in 🧊 Icebox as genuinely undecided, not merely unscheduled | [`cache-relocation.md`](cache-relocation.md) |
@@ -360,22 +360,31 @@ fourth needs a ruling. IDs are stable — cite them from commits and sibling doc
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-GN3: Has the Cachix cache actually been pushed to?** Two docs in this repo
-   disagree: `docs/plans/README.md:64` (repinned 2026-09-02) says CI has already pushed data;
-   [`handoff-cachix-cache.md`](handoff-cachix-cache.md) still lists the first push as
-   remaining. **Neither is checkable from a Linux jail** — it needs a look at the cache or at
-   a release run. **What it decides:** whether D4's remaining work is one item (the Mac
-   download proof) or two (push, then download), and therefore whether a Mac visit can close
-   D4 at all.
+3. ~~💬~~ **OQ-GN3: Has the Cachix cache actually been pushed to?** Two docs disagreed;
+   neither was checkable from a Linux jail without reading the Actions log. **What it
+   decided:** whether D4's remaining work is one item (the Mac download proof) or two.
 
-   _Leaning:_ Pushed. v0.8.0 shipped 2026-08-13 and the `push-image-cache` job is
-   release-gated on the `CACHIX_AUTH_TOKEN` secret alone, which is set — so a release has run
-   under the conditions the job needs. But that is inference from the workflow, not
-   observation of the cache, and the two docs disagreeing is itself the evidence that nobody
-   has looked.
+   _Leaning was:_ Pushed — but by inference from the workflow, not observation, and the
+   disagreement was itself the evidence nobody had looked.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-02): PUSHED, and the cache is also being READ.** The leaning was
+   right and the inference is now unnecessary. Measured from the Actions log: run
+   **`31749547095`** (`v0.8.0`, 2026-08-13), job `push-image-cache`, **both** arches
+   success, gate open (`Set up Cachix` with the real token, `skipPush: false`), step
+   logged `Pushed image closures to yolo-jail.cachix.org`. The same run substituted the
+   four this-repo-source paths **from** `yolo-jail.cachix.org`
+   (`these 4 paths will be fetched (507.7 KiB download, 25.7 MiB unpacked)`), which is
+   the stronger fact. **So D4's remaining work is ONE item — the Mac download proof — and
+   a Mac visit can close it.** `README.md` was the correct half; `handoff-cachix-cache.md`
+   is corrected.
+
+   ⚠ **Chasing it found a defect, now fixed:** all six CI `nix build` calls lacked
+   `--accept-flake-config`, so nix discarded the flake's own substituter with a warning.
+   The push job read the cache only because `cachix-action` adds the substituter to
+   `nix.conf` itself; `ci.yml`, `nightly-macos.yml` and `packs.yml` have no such action
+   and were rebuilding the closure from source every run. **This matters for the Mac
+   proof**: the flag is what makes `yolo check`'s "served from the binary cache" claim
+   true off a release runner.
 
 4. 💬 **OQ-GN4: The three Linux-path MCP wrappers a macos-user home gets — skip, port, or
    document as dead?** `internal/entrypoint/darwin.go:59` runs `GenerateMCPWrappers`
