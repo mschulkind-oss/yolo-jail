@@ -891,6 +891,15 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	clearOwnerPID(cname)
 	o.maybeWarnAboutOOMKiller(rc, rt)
 
+	// The host-side half of --timing's report — the other is the env pair
+	// assemble.go puts on the container argv, which timingenv_test.go pins. This
+	// half is deliberately UNPINNED, and a reader should know that before trusting
+	// a green suite here: no test names the flag below this line, runContainer is
+	// out of a unit test's reach, and deleting the block ships green. Debt handed
+	// down rather than incurred — o.Profile was equally unpinned before the
+	// OQ-PT5 rename (provider-table-fidelity.md §5.2). Whoever next touches this
+	// surface owns the pin; if none comes, the flag's tested surface is the parse
+	// and the argv pair, and the total is best-effort.
 	if o.Timing {
 		o.pr(o.Stderr).printf("[bold cyan]--- Host-side timing ---[/bold cyan]")
 		o.pr(o.Stderr).printf("  Total (host-side):  %.3fs", o.Now().Sub(timingStart).Seconds())
