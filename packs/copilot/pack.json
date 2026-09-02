@@ -11,6 +11,7 @@
     },
     {
       "after": "host:.copilot/copilot-instructions.md",
+      "agent": "copilot",
       "into": ".copilot/copilot-instructions.md",
       "kind": "briefing"
     },

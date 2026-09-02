@@ -92,7 +92,7 @@ func (p *Pack) ResolveDestinations(set []*Pack) Destinations {
 			// packs, including all six shipped ones for `files`-shaped content.
 			continue
 		}
-		dests := borrowedDestinations(kind, p, set)
+		dests := borrowedDestinations(kind, p, set, p.audienceFor(kind))
 		if len(dests) == 0 {
 			out.Orphaned = append(out.Orphaned, kind)
 			continue
@@ -137,14 +137,50 @@ func ResolveDestinations(set []*Pack) ([]*Pack, []Destinations) {
 	return packs, outcomes
 }
 
-// declares reports whether the pack names any destination of its own for `kind`.
+// declares reports whether the pack names any DESTINATION of its own for `kind`.
+//
+// A DESTINATION, not a contribution of the kind — and after briefing-audiences.md those are two
+// different questions. A contribution that names an AUDIENCE (`agents`) and no `into` has said
+// who its content is for and deliberately nothing about where that content goes, because where
+// an agent reads is the agent pack's business (P4). Reading it as a declaration would skip
+// inference for the kind entirely and deliver the prose NOWHERE — silently, since there is no
+// destination left to notice the absence at.
+//
+// Equivalent to the old `c.Kind == kind` for every manifest that predates the field: `into` was
+// required on all three staged-tree kinds, so a contribution of the kind always carried one.
 func (p *Pack) declares(kind packdecl.Kind) bool {
 	for _, c := range p.Decl.Contributions() {
-		if c.Kind == kind {
+		if c.Kind == kind && c.Into != "" {
 			return true
 		}
 	}
 	return false
+}
+
+// audienceFor is the union of the audiences this pack's own into-less contributions of `kind`
+// name, or nil when it names none.
+//
+// NIL IS BROADCAST, and the distinction from an empty-but-non-nil list is the whole safety of
+// landing this field ahead of any pack adopting it (P2): a zero-ceremony pack has no manifest to
+// put a selector in, and a pack that declares `{kind: briefing}` with neither field is today's
+// unaudienced contribution. Both must keep reaching every destination.
+//
+// Only into-less contributions are consulted, because a contribution carrying an `into` named its
+// own destination and is not borrowing one — it never reaches the inference at all.
+func (p *Pack) audienceFor(kind packdecl.Kind) map[string]bool {
+	var out map[string]bool
+	for _, c := range p.Decl.Contributions() {
+		if c.Kind != kind || c.Into != "" || len(c.Agents) == 0 {
+			continue
+		}
+		if out == nil {
+			out = map[string]bool{}
+		}
+		for _, a := range c.Agents {
+			out[a] = true
+		}
+	}
+	return out
 }
 
 // borrowedDestinations is one synthesized contribution per distinct destination the OTHER packs
@@ -171,7 +207,13 @@ func (p *Pack) declares(kind packdecl.Kind) bool {
 // Deduplicated by destination, first in set order winning: several packs naming one skills dir
 // is `skills`' CombineMerge feature, not a conflict, and delivering the same content twice
 // would just archive one copy of itself over the other.
-func borrowedDestinations(kind packdecl.Kind, p *Pack, set []*Pack) []packdecl.Contribution {
+//
+// `audience` NARROWS the list to destinations whose owner declared a matching `agent`, and nil
+// means every destination — which is both today's behavior and the only behavior a pack with no
+// manifest can ask for (audienceFor). The match is against the string the DESTINATION declared
+// about itself, never anything derived from the declaring pack's bins (OQ-BA2), so a destination
+// that declares no identity is simply never named by any selector (R4).
+func borrowedDestinations(kind packdecl.Kind, p *Pack, set []*Pack, audience map[string]bool) []packdecl.Contribution {
 	var out []packdecl.Contribution
 	seen := map[string]bool{}
 	for _, other := range set {
@@ -182,6 +224,12 @@ func borrowedDestinations(kind packdecl.Kind, p *Pack, set []*Pack) []packdecl.C
 		}
 		for _, c := range other.Decl.Contributions() {
 			if c.Kind != kind || c.Into == "" || seen[c.Into] {
+				continue
+			}
+			if audience != nil && (c.Agent == "" || !audience[c.Agent]) {
+				// Not `seen`-marked: another pack may own the same PATH under a name this
+				// selector does name, and the audience is the question being asked, not the
+				// path.
 				continue
 			}
 			seen[c.Into] = true

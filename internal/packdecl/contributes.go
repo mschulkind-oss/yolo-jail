@@ -88,6 +88,35 @@ type Contribution struct {
 	// approval for, whether or not this launch is in a jail.
 	After string `json:"after,omitempty"`
 
+	// --- audiences (briefing-audiences.md) ---
+	// Agent is the IDENTITY a destination declares for itself: "this `into` is where the
+	// agent launched as `claude` reads". It is the same field name, holding the same
+	// string, that a config surface already uses to name its owner (`"agent": "pi"` in
+	// agentcfg/manifest) — and the value is a BIN, the launcher command `-p <name> -- <bin>`
+	// and `use_profiles.<cli>` key on, never the pack slug (OQ-BA1/BA5). Declared by the
+	// AGENT pack, beside its `into`, because where an agent reads is a fact about that
+	// agent and changes when it changes.
+	//
+	// Nothing is DERIVED from the pack's `program`/`requires` bins (OQ-BA2): nothing in the
+	// `-p` chain derives an identity — the name is typed, carried as a map key, and compared
+	// literally, down to packs/claude/derive.lua hardcoding its own name — and there is no
+	// bin→pack index to derive through. A destination that declares no identity is simply
+	// never named by any selector.
+	Agent string `json:"agent,omitempty"`
+	// Agents is the AUDIENCE a contribution names: deliver this content only to the
+	// destinations whose owner declared a matching Agent. ABSENT MEANS BROADCAST — the
+	// pre-field behavior, which is what lets a zero-ceremony pack (no manifest to put a
+	// selector in) keep working untouched.
+	//
+	// A contribution that names its audience must NOT name a path: `agents` and `into` are
+	// two answers to one question and an entry gives exactly one (validateContribution).
+	// That is the whole point of the field — a house-rules pack hardcoding
+	// ".claude/CLAUDE.md" would be coupled to a fact only the claude pack can keep current.
+	//
+	// Taken by `briefing` and `skills` only, and refused elsewhere: the two kinds with a
+	// conventional source that many packs merge into destinations agent packs name.
+	Agents []string `json:"agents,omitempty"`
+
 	// Tier is a TOMBSTONE for the per-contribution tier S2 removed: it declared a GLOBAL
 	// property (what a skill is called) at a PER-DESTINATION site, so it could not express a
 	// consistent name — and mergedest inherited it per destination, which is how a pack that
@@ -1300,6 +1329,26 @@ func validateContribution(label string, c Contribution) []string {
 				"(on the target surface's agent) and env (on the launch's profile table); "+
 				"no consumer reads it on this kind", label, c.Kind))
 	}
+	// `agent`/`agents` are the AUDIENCE pair, and they are refused everywhere else for
+	// `profile`'s reason and in `profile`'s position — ahead of the kind switch, so a kind
+	// added tomorrow inherits the refusal instead of accepting a field nothing reads on it.
+	// Only `briefing` and `skills` have an audience to name: they are the two kinds whose
+	// content MANY packs merge into destinations AGENT packs name, which is the only place
+	// "who is this for?" is a question with more than one answer.
+	if c.Kind != KindBriefing && c.Kind != KindSkills {
+		for _, f := range []struct {
+			name string
+			set  bool
+		}{{"agent", c.Agent != ""}, {"agents", len(c.Agents) > 0}} {
+			if !f.set {
+				continue
+			}
+			problems = append(problems, fmt.Sprintf(
+				"%s: kind %q does not take %q — a destination's identity and a contribution's "+
+					"audience are read for \"briefing\" and \"skills\" only; no consumer reads "+
+					"either on this kind", label, c.Kind, f.name))
+		}
+	}
 	switch c.Kind {
 	case KindProgram:
 		req("bin", c.Bin)
@@ -1372,7 +1421,38 @@ func validateContribution(label string, c Contribution) []string {
 		if c.Kind == KindFiles {
 			req("from", c.From)
 		}
-		req("into", c.Into)
+		// `into` and `agents` ARE TWO ANSWERS TO ONE QUESTION, and an entry gives exactly
+		// one. That falls out of the paragraph above rather than adding to it: a destination
+		// has one right answer PER AGENT, so `into` could not be inferred while the agent set
+		// was unknown — and a selector supplies precisely that missing input. Naming the
+		// audience therefore makes the destination inferable (packload.ResolveDestinations
+		// borrows it from the pack that OWNS that agent), and naming both would be a content
+		// pack asserting a path it has no business knowing (briefing-audiences.md §4.1, P4).
+		//
+		// `files` is excluded from the addressed shape by the refusal above — it takes no
+		// audience — so its `into` stays unconditionally required.
+		if addressed := len(c.Agents) > 0 && c.Kind != KindFiles; addressed {
+			if c.Into != "" {
+				problems = append(problems, fmt.Sprintf(
+					"%s: kind %q takes \"into\" or \"agents\", not both — a contribution that "+
+						"names its audience has its destination inferred from the pack that owns "+
+						"that agent, and must not name a path it cannot keep current",
+					label, c.Kind))
+			}
+		} else {
+			req("into", c.Into)
+		}
+		// The audience namespace IS the bin namespace (OQ-BA1), so it gets the bin
+		// namespace's guard — reusing binProblem is what stops the two drifting apart.
+		problems = binProblem(problems, label+".agent", c.Agent)
+		for i, a := range c.Agents {
+			if a == "" {
+				problems = append(problems, fmt.Sprintf(
+					"%s.agents[%d]: empty agent name", label, i))
+				continue
+			}
+			problems = binProblem(problems, fmt.Sprintf("%s.agents[%d]", label, i), a)
+		}
 		problems = appendPathProblems(problems, label+".from", c.From)
 		problems = appendPathProblems(problems, label+".into", c.Into)
 		// A DESTINATION IN THE JAIL HOME MAY NOT BE ON PATH. `files` is the kind this

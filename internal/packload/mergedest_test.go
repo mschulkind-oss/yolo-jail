@@ -160,6 +160,107 @@ func TestResolveDestinationsDoesNotInheritTier(t *testing.T) {
 	}
 }
 
+// AN ADDRESSED CONTRIBUTION IS ROUTED, AND ONLY TO ITS AUDIENCE (briefing-audiences.md §4.1).
+//
+// A content pack says WHO its prose is for and never WHERE it goes: `{kind: briefing, agents:
+// ["claude"]}` with no `into`. Two things have to hold at once, and each is a separate defect
+// if it does not:
+//
+//   - `declares` must test for a DESTINATION, not for the kind. An `agents`-only contribution
+//     names no destination, so a pack carrying one is still silent about where its prose goes —
+//     and a `Kind == kind` test would call it a declaring pack and skip inference entirely,
+//     which is prose delivered NOWHERE, silently.
+//   - `borrowedDestinations` must narrow to the destinations whose owner declared a matching
+//     `agent`. Without the filter the selector is decoration: the prose reaches `.pi/agent/
+//     AGENTS.md` too, which is the broadcast the field exists to stop.
+//
+// Built in memory rather than through LoadDir on purpose — an `into`-less briefing has to be
+// constructible here before the validator learns to accept one.
+func TestResolveDestinationsRoutesAnAddressedBriefing(t *testing.T) {
+	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".claude/CLAUDE.md", Agent: "claude"})
+	pi := agentPack(t, "pi", packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".pi/agent/AGENTS.md", Agent: "pi"})
+	// A content pack: an AGENTS.md at its root, and a manifest that names an AUDIENCE only.
+	house := zeroCeremonyPack(t, "house", false, true)
+	house.Decl = &packdecl.Manifest{Contributes: []packdecl.Contribution{{
+		Kind: packdecl.KindBriefing, Agents: []string{"claude"}}}}
+
+	d := house.ResolveDestinations([]*Pack{claude, pi, house})
+	if len(d.Orphaned) != 0 {
+		t.Fatalf("Orphaned = %v — claude declared `agent: claude` and a destination, so the "+
+			"selector matched something", d.Orphaned)
+	}
+	got := intos(d.Inferred, packdecl.KindBriefing)
+	if want := []string{".claude/CLAUDE.md"}; !sameStrings(got, want) {
+		t.Fatalf("inferred briefing = %v, want %v — an `agents`-only contribution names no "+
+			"destination (so it must be INFERRED, not treated as a declaration) and names an "+
+			"audience (so pi's destination must not be borrowed)", got, want)
+	}
+}
+
+// A SELECTOR THAT MATCHES NOTHING IS ORPHANED, NOT SILENT (risk R1). A content pack addressing
+// `codex` in a jail that selected only claude is the whole pack going inert, and the one thing
+// it must not do is go inert quietly — the filter has to route into the report the inference
+// already has, not into an empty slice nobody looks at.
+//
+// (What the two GATES then do with that — refuse the launch or report and skip — is §4.3's
+// question, not this function's. Here it is data.)
+func TestResolveDestinationsReportsAnUnmatchedAudience(t *testing.T) {
+	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".claude/CLAUDE.md", Agent: "claude"})
+	house := zeroCeremonyPack(t, "house", false, true)
+	house.Decl = &packdecl.Manifest{Contributes: []packdecl.Contribution{{
+		Kind: packdecl.KindBriefing, Agents: []string{"codex"}}}}
+
+	d := house.ResolveDestinations([]*Pack{claude, house})
+	if len(d.Inferred) != 0 {
+		t.Errorf("Inferred = %v for prose addressed to an agent this set does not have",
+			d.Inferred)
+	}
+	if want := []packdecl.Kind{packdecl.KindBriefing}; len(d.Orphaned) != 1 ||
+		d.Orphaned[0] != want[0] {
+		t.Errorf("Orphaned = %v, want %v — a pack whose whole content reaches nothing must "+
+			"never be silent about it", d.Orphaned, want)
+	}
+}
+
+// A DESTINATION THAT DECLARES NO IDENTITY IS NEVER SELECTED — and is still BROADCAST to (R4).
+//
+// The two halves are one rule read from both ends. A third-party agent pack that has not added
+// `agent` cannot be named by any selector, because the design deleted the derivation that would
+// have guessed a name for it (OQ-BA2); and a pack that names no audience must still reach it,
+// because silence means broadcast (P2) and that is what makes this field safe to land before any
+// pack adopts it.
+func TestResolveDestinationsSkipsUnidentifiedDestinationsOnlyForASelector(t *testing.T) {
+	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".claude/CLAUDE.md", Agent: "claude"})
+	// Declares a destination and no identity — the third-party agent pack of R4.
+	anon := agentPack(t, "anon", packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".anon/AGENTS.md"})
+
+	addressed := zeroCeremonyPack(t, "house", false, true)
+	addressed.Decl = &packdecl.Manifest{Contributes: []packdecl.Contribution{{
+		Kind: packdecl.KindBriefing, Agents: []string{"claude"}}}}
+	d := addressed.ResolveDestinations([]*Pack{claude, anon, addressed})
+	if want := []string{".claude/CLAUDE.md"}; !sameStrings(
+		intos(d.Inferred, packdecl.KindBriefing), want) {
+		t.Errorf("addressed inference = %v, want %v — an empty `agent` must not match a "+
+			"selector, or every unidentified destination would receive every audience",
+			intos(d.Inferred, packdecl.KindBriefing), want)
+	}
+
+	// The same set, an UNAUDIENCED pack: both destinations, including the unidentified one.
+	zc := zeroCeremonyPack(t, "zc", false, true)
+	d2 := zc.ResolveDestinations([]*Pack{claude, anon, zc})
+	if want := []string{".claude/CLAUDE.md", ".anon/AGENTS.md"}; !sameStrings(
+		intos(d2.Inferred, packdecl.KindBriefing), want) {
+		t.Errorf("unaudienced inference = %v, want %v — silence means BROADCAST, and a pack "+
+			"with no manifest has no way to opt in to anything else",
+			intos(d2.Inferred, packdecl.KindBriefing), want)
+	}
+}
+
 // A pack that DECLARES a destination is honored exactly: the inference must not widen what an
 // existing manifest means by adding every other agent's dir to it.
 func TestResolveDestinationsLeavesADeclaringPackAlone(t *testing.T) {

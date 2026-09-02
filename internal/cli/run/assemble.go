@@ -660,7 +660,12 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	seenBriefingDest := map[string]bool{}
 	for _, p := range in.packs {
 		for _, c := range p.Decl.Contributions() {
-			if c.Kind != packdecl.KindBriefing {
+			// `into` is CHECKED, not assumed, exactly as ComposeHostBriefings and
+			// hostBriefingPaths check it at the host notch. Since briefing-audiences.md a
+			// contribution may legally name an AUDIENCE instead of a destination, and the
+			// line below appends `":/home/agent/" + c.Into`: an empty `into` bind-mounts a
+			// single staged FILE over /home/agent itself, which is the jail's whole home.
+			if c.Kind != packdecl.KindBriefing || c.Into == "" {
 				continue
 			}
 			// DEDUP BY DESTINATION. `briefing` is CombineConcat — several packs contributing

@@ -11,6 +11,7 @@
     },
     {
       "after": "host:.gemini/config/AGENTS.md",
+      "agent": "agy",
       "into": ".gemini/config/AGENTS.md",
       "kind": "briefing"
     },

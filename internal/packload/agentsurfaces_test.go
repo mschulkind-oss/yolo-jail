@@ -79,6 +79,86 @@ func TestEveryAgentPackDeliversBothSurfaces(t *testing.T) {
 	}
 }
 
+// binsOf is the CLI names a pack owns — the `program` it installs or the `requires` it asserts.
+func binsOf(p *packload.Pack) []string {
+	var out []string
+	for _, c := range p.Decl.Contributions() {
+		if c.Kind == packdecl.KindProgram || c.Kind == packdecl.KindRequires {
+			out = append(out, c.Bin)
+		}
+	}
+	return out
+}
+
+// EVERY AGENT PACK'S BRIEFING DECLARES ITS IDENTITY, AND IT EQUALS THE BIN
+// (briefing-audiences.md §4.2, OQ-BA2). Nothing DERIVES a destination's audience from the
+// declaring pack's bins — the whole design turns on the name being a string the pack wrote
+// about itself, exactly as its config surfaces already do — so the two being equal is an
+// invariant a test has to hold, not one the code can.
+//
+// An agent pack that omits it is not an error anywhere: it is simply never named by any
+// selector (R4), which means a content pack addressing that agent silently reaches nothing.
+// That is the failure this test exists to make loud, in the one place it can be seen at all.
+func TestEveryAgentPackDeclaresItsBriefingIdentity(t *testing.T) {
+	for _, p := range agentPacks(t) {
+		bins := map[string]bool{}
+		for _, b := range binsOf(p) {
+			bins[b] = true
+		}
+		found := false
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind != packdecl.KindBriefing {
+				continue
+			}
+			found = true
+			if c.Agent == "" {
+				t.Errorf("pack %q declares a briefing destination %q with no `agent` — it is "+
+					"then unaddressable, and a content pack naming this agent delivers nothing "+
+					"while nothing anywhere reports it", p.Name, c.Into)
+				continue
+			}
+			if !bins[c.Agent] {
+				t.Errorf("pack %q briefing declares `agent: %q`, which is not a bin it owns "+
+					"(%v) — the audience namespace IS the bin namespace, and `-p %s` would "+
+					"resolve to a different pack", p.Name, c.Agent, binsOf(p), c.Agent)
+			}
+		}
+		if !found {
+			t.Errorf("pack %q installs an agent and declares no briefing at all", p.Name)
+		}
+	}
+}
+
+// THE SHIPPED PACKS KEEP `into` FOREVER, and this is a VERSION-BOUNDARY constraint rather than
+// a style rule. DecodeTolerant ignores unknown FIELDS, so adding `agent`/`agents` is skew-safe —
+// but it still validates the entries it keeps, and an entrypoint baked before this change
+// refuses `{"kind":"briefing"}` with `kind "briefing" needs "into"`. That is a fatal boot, from
+// a manifest the host staged, unrecoverable without a `just load`.
+//
+// The image rebuilds on every launch while the host `yolo` moves only on `just install`, so the
+// two halves are skewed by default. A shipped pack that dropped `into` for the new shape would
+// therefore brick the boot of anyone mid-upgrade. Only a USER's own pack — which no old
+// entrypoint has ever seen — may reach the addressed shape.
+func TestShippedAgentPacksKeepIntoForSkew(t *testing.T) {
+	for _, p := range agentPacks(t) {
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind != packdecl.KindBriefing && c.Kind != packdecl.KindSkills {
+				continue
+			}
+			if c.Into == "" {
+				t.Errorf("pack %q ships a %s contribution with no `into` — an entrypoint baked "+
+					"before the audiences field refuses it outright, so the very next launch on a "+
+					"skewed machine dies at boot", p.Name, c.Kind)
+			}
+			if len(c.Agents) != 0 {
+				t.Errorf("pack %q ships a %s contribution with `agents: %v` — an agent pack owns "+
+					"a destination and names its own identity with `agent`; the audience selector "+
+					"belongs to CONTENT packs", p.Name, c.Kind, c.Agents)
+			}
+		}
+	}
+}
+
 // TestAgentSurfaceDestinationsAreDistinct: two agent packs sharing a destination would
 // mean one agent's briefing is the other's, and `files`/`skills` collisions across packs
 // are exactly what packload.Collisions exists to refuse. Cheap to assert, and it is the

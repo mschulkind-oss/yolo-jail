@@ -12,6 +12,7 @@
     },
     {
       "after": "host:.codex/AGENTS.md",
+      "agent": "codex",
       "into": ".codex/AGENTS.md",
       "kind": "briefing"
     },

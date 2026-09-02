@@ -15,6 +15,7 @@
     },
     {
       "after": "host:.pi/agent/AGENTS.md",
+      "agent": "pi",
       "into": ".pi/agent/AGENTS.md",
       "kind": "briefing"
     },

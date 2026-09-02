@@ -15,6 +15,7 @@
     },
     {
       "after": "host:.claude/CLAUDE.md",
+      "agent": "claude",
       "into": ".claude/CLAUDE.md",
       "kind": "briefing"
     },
