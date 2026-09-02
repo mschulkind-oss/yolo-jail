@@ -51,7 +51,9 @@ func gitRepo(t *testing.T, files map[string]string) string {
 		t.Helper()
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
+		// CleanGitEnv first: hook-exported git state is ABSOLUTE from a linked
+		// worktree and would redirect this helper onto the committer's repo.
+		cmd.Env = append(CleanGitEnv(os.Environ()),
 			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
 			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
 		if out, err := cmd.CombinedOutput(); err != nil {

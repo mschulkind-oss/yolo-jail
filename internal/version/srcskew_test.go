@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 )
 
 // gitRepo builds a throwaway repo and returns a commit helper. Identity is passed
@@ -25,6 +27,10 @@ func gitRepo(t *testing.T) (root string, commit func(relPath, content string) st
 		}, args...)
 		cmd := exec.Command("git", full...)
 		cmd.Dir = root
+		// CleanGitEnv: under the pre-commit hook git exports its own
+		// (worktree-relative, ABSOLUTE from a linked worktree) state; without
+		// the strip this helper runs against the COMMITTER's repository.
+		cmd.Env = packsrc.CleanGitEnv(os.Environ())
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
