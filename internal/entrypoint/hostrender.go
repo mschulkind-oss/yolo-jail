@@ -403,6 +403,16 @@ func hostTableKeys(p *packload.Pack, s manifest.Surface) []string {
 	}
 	var keys []string
 	for k, v := range derived {
+		// The reserved selection namespace is never a table, whatever a derive returns
+		// under it. Its body is a flat map of SCALARS by contract
+		// (agentcfg.TakeSelection refuses the rest), and this probe is exactly the reader
+		// that would misread one: an object-valued key here is claimed as yolo-owned and
+		// wholesale-written (regenerateManagedTables), so a table-shaped selection would
+		// reach the agent's file as a literal `selection` table the host render also does
+		// not apply — the host notch runs no edge-triggered apply at all.
+		if k == agentcfg.SelectionKey {
+			continue
+		}
 		// Only OBJECT-valued keys are tables, matching regenerateManagedTables exactly — a
 		// tombstone or scalar is an ordinary managed key.
 		if _, isObj := v.(map[string]any); isObj {

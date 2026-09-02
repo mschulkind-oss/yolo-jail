@@ -137,21 +137,33 @@ yolo.derive("codex", "config", function(ctx)
   -- ordinary open-vocabulary alias. A profile naming one of the provider's own aliases is
   -- a later step; today the derive answers with what the provider declares).
   --
+  -- They travel under the RESERVED `selection` key of the computed layer, not as plain
+  -- computed keys, and that is load-bearing rather than cosmetic. A plain computed key is
+  -- re-asserted by every boot — right for an MCP table, which is yolo's own output, and
+  -- exactly wrong for a model the user can change interactively mid-session (`/model`), so
+  -- that a key yolo re-asserted would silently revert their choice on the next launch
+  -- (provider-catalog-and-selection.md §5.1, the hazard OQ-CS2 names). The stateful render
+  -- takes the namespace, decides per key — write on activation, never on absence, and a
+  -- user's interactive edit stands until a NEW selection value differs from the last one
+  -- yolo wrote — and lifts the winners onto the surface root, so config.toml still shows
+  -- `model_provider` and `model` at top level where codex reads them. The namespace is an
+  -- implementation detail of the layer, never of the file.
+  --
   -- OQ-CS2 is the GUARD, not a default: when no variant is active at codex's CLI name,
   -- nothing selection-shaped is written — not a default, not a clear. The no-profile case
-  -- is the agent's own (provider-catalog-and-selection.md §5.1), and a key yolo re-asserted
-  -- every boot would revert a model the user picked interactively. And when the selected
+  -- is the agent's own (provider-catalog-and-selection.md §5.1). And when the selected
   -- provider is not codex-reachable, the SAME gate that keeps it out of the catalog keeps
   -- it out of the selection: no keys at all, never a `model_provider` naming a provider
   -- whose row the catalog dropped — codex refuses that config at startup.
   if ctx.selected_provider ~= nil and ctx.selected_provider ~= "" then
     local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
     if codexReachable(p) then
-      res.model_provider = ctx.selected_provider
+      local sel = { model_provider = ctx.selected_provider }
       local m = type(p) == "table" and p.models or nil
       if type(m) == "table" and m.default then
-        res.model = m.default
+        sel.model = m.default
       end
+      res.selection = sel
     end
   end
 

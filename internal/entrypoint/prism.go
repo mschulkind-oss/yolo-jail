@@ -50,6 +50,63 @@ func prismLastRenderPath(e *Env, agent, name string) string {
 	return filepath.Join(prismSidecarDir(e), agent+"-"+name+".last_render")
 }
 
+// prismSelectionRecordPath is the selection record for one surface: the value
+// yolo's SELECTION mechanism last wrote, per config key (JSON). It is the state the
+// edge-triggered apply (agentcfg.ApplySelection) reads to tell a yolo-written value
+// from a user-written one, and it is deliberately NOT the last_render sidecar: that
+// one is the bytes of the render one boot ago, so a user's edit — captured into the
+// overlay and re-asserted by it — is indistinguishable in it from yolo's own write
+// one boot later. See agentcfg.ApplySelection for the trace that forces a separate
+// record.
+//
+// It sits beside the other §5 sidecars because it is the same kind of thing they
+// are: per-surface state the boot render owns, the agent never sees, and a
+// `yolo config diff` reader may have to explain. Unlike them it is written ONLY
+// when the surface writes a selection — a surface whose derive emits no selection
+// gets no file at all.
+func prismSelectionRecordPath(e *Env, agent, name string) string {
+	return filepath.Join(prismSidecarDir(e), agent+"-"+name+".selection.json")
+}
+
+// readSelectionRecord loads the selection record a previous boot left, or nil when
+// there is nothing to read. FAIL-SAFE, like readProvenanceRecord: the record is
+// yolo's memory of which values are its own, so an absent, truncated, or corrupt
+// one must mean "claim nothing" — every key then reads as the user's, and the apply
+// keeps their values rather than re-asserting over them. A lost record costs yolo
+// its claims; it can never cost the user their file.
+func readSelectionRecord(e *Env, agent, name string) map[string]any {
+	data, err := os.ReadFile(prismSelectionRecordPath(e, agent, name))
+	if err != nil {
+		return nil
+	}
+	return agentcfg.ParseSelectionRecord(data)
+}
+
+// writeSelectionRecord persists a surface's selection record, best-effort and only
+// when there is something to record. An EMPTY record is never written: a surface
+// whose derive emits no selection keeps no selection state at all, so the sidecar
+// tree grows only where the mechanism is actually in use.
+//
+// The write sits beside the last_render write because the two records answer the
+// same question about the same boot — "which of these values did yolo write?" — for
+// different mechanisms, and a surface write that skipped one while writing the
+// other would leave the pair disagreeing about a boot that did not happen.
+func writeSelectionRecord(e *Env, agent, name string, record map[string]any) {
+	if len(record) == 0 {
+		return
+	}
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		e.warn("warning: could not encode the selection record for " + agent + "/" + name +
+			": " + err.Error())
+		return
+	}
+	if err := writeInPlaceString(prismSelectionRecordPath(e, agent, name), string(data)+"\n"); err != nil {
+		e.warn("warning: could not write the selection record for " + agent + "/" + name +
+			": " + err.Error())
+	}
+}
+
 // prismProvenancePath is the provenance record for one surface: per-key "which
 // layer set this key" (Compose already computes it; this persists it). It is what
 // makes config-overlay overrides legible
@@ -211,6 +268,10 @@ func surfaceScript(e *Env, surface manifest.Surface) (string, error) {
 // and omitted from the output. Pass nil for a static-only surface (copilot/agy/pi
 // settings).
 //
+// The reserved selection namespace (agentcfg.SelectionKey) is a computed-layer
+// citizen like any other at this entry, and is taken out and applied here with the
+// rest — see renderSurfaceStatefulSurface.
+//
 // A recoverable on-disk condition never aborts boot (ComposeStateful self-heals
 // corrupt/absent sidecars); only a genuine error (unknown codec, Lua failure)
 // propagates, and boot's genStep downgrades even that to a warning.
@@ -247,6 +308,34 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 	lastRenderPath := prismLastRenderPath(e, surface.Agent, surface.Name)
 	lastRenderBytes, lastErr := os.ReadFile(lastRenderPath)
 	overlayJSON, _ := os.ReadFile(prismOverlayPath(e, surface.Agent, surface.Name))
+
+	// The reserved selection namespace, taken out of the computed layer and decided
+	// BEFORE the compose, so its keys enter the fold as ordinary computed keys at the
+	// surface root — the file must not show the namespace, only the keys it names.
+	//
+	// The decision needs the file AS IT IS, before this render rewrites it: the whole
+	// point of the edge trigger is comparing what the agent's file holds now against
+	// what yolo's selection last wrote, and the render's own output is the wrong
+	// baseline for that. See agentcfg.ApplySelection for the per-key rules and for
+	// why the baseline is a record of its own rather than lastRenderBytes.
+	computed, selection, selProblems := agentcfg.TakeSelection(computed)
+	for _, problem := range selProblems {
+		e.warn(surface.Agent + "/" + surface.Name + ": " + problem)
+	}
+	selectionRecord := readSelectionRecord(e, surface.Agent, surface.Name)
+	if len(selection) > 0 && surface.Kind() != codec.KindObject {
+		// A keyless surface has no keys to lift, so there is nothing the namespace
+		// could mean. Dropped above; named here because a pack author reading a
+		// silent no-op deserves the reason.
+		e.warn(surface.Agent + "/" + surface.Name + ": derive emitted the reserved " +
+			agentcfg.SelectionKey + " namespace, which needs an object surface; dropped")
+		selection = nil
+	}
+	if lift, next := agentcfg.ApplySelection(selection,
+		agentcfg.DecodeSurfaceObject(surface.Codec, current), selectionRecord); len(lift) > 0 {
+		computed = mergeSurfaceRoot(computed, lift)
+		selectionRecord = next
+	}
 
 	script, serr := surfaceScript(e, surface)
 	if serr != nil {
@@ -297,6 +386,12 @@ func renderSurfaceStatefulSurface(e *Env, surface manifest.Surface, hostBytes []
 	if err := writeInPlaceString(lastRenderPath, surfaceText(surface, out.LastRenderBytes)); err != nil {
 		return nil, err
 	}
+	// The selection record, if this surface carries a selection at all: what yolo's
+	// selection mechanism wrote THIS boot, so the next boot can tell its own values
+	// from the user's. Beside the last_render write for the reason
+	// writeSelectionRecord gives; skipped on the mount-point early return above,
+	// where no render reached the file.
+	writeSelectionRecord(e, surface.Agent, surface.Name, selectionRecord)
 	if err := writeInPlaceString(prismOverlayPath(e, surface.Agent, surface.Name), string(out.OverlayJSON)+"\n"); err != nil {
 		return nil, err
 	}
@@ -937,6 +1032,26 @@ func sortedKeys(m map[string]any) []string {
 		out = append(out, k)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// mergeSurfaceRoot returns base with every key of over written at its top level, as
+// a new map. It is how the decided selection reaches the fold: the namespace's keys
+// are SURFACE keys, so they lift to the surface root and fold as ordinary computed
+// keys — above the captured overlay, below the transform and managed — which is
+// both what puts them at the top level of the agent's file and what lets a NEW
+// selection outrank a stale captured edit.
+//
+// A shallow merge is exact here, because a lifted value is always a scalar
+// (agentcfg.TakeSelection refuses the rest): there is nothing to recurse into.
+func mergeSurfaceRoot(base, over map[string]any) map[string]any {
+	out := make(map[string]any, len(base)+len(over))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range over {
+		out[k] = v
+	}
 	return out
 }
 

@@ -325,6 +325,23 @@ func liveTables(e *Env) map[string]map[string]any {
 	}
 }
 
+// dropReservedSelection removes the reserved selection namespace
+// (agentcfg.SelectionKey) from a computed layer headed for a surface that cannot
+// apply it, naming the drop. Only the stateful render runs the edge-triggered apply
+// — `computed` mode overwrites the file wholesale every boot and `rmw` keeps no
+// capture baseline, so neither has the state the apply decides from — and the
+// alternative to removing the key here is worse than the mistake it reports: an rmw
+// surface treats every object-valued computed key as a wholesale-managed table
+// (regenerateManagedTables), so a flat `selection` map would be regenerated INTO the
+// agent's config as a literal `selection` table.
+func dropReservedSelection(e *Env, surface manifest.Surface, computed map[string]any) map[string]any {
+	rest, problems := agentcfg.DropSelection(computed)
+	for _, problem := range problems {
+		e.warn(surface.Agent + "/" + surface.Name + ": " + problem)
+	}
+	return rest
+}
+
 // renderDeclaredSurface writes one declared surface by the mechanism its mode names.
 //
 // sel is the resolved selection this surface's derive reads (surfaceSelection), computed
@@ -359,10 +376,12 @@ func renderDeclaredSurface(e *Env, surface manifest.Surface, tables map[string]m
 
 	switch surface.ResolvedMode() {
 	case manifest.ModeComputed:
+		computed = dropReservedSelection(e, surface, computed)
 		_, err := renderSurfaceStatelessSurface(e, surface, hostSurfaceBytes(e, surface),
 			computed, overlays)
 		return err
 	case manifest.ModeRMW:
+		computed = dropReservedSelection(e, surface, computed)
 		err := renderSurfaceRMWSurface(e, surface, computed, overlays)
 		// A REFUSAL IS A WARNING HERE, NOT AN A12 BOOT FAILURE, and the distinction is the
 		// difference between the two things that can go wrong with an rmw surface.

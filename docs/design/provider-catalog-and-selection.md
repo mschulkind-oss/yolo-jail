@@ -292,6 +292,35 @@ user who selects a profile once and then launches without one keeps the selectio
 wrote. Whether that needs an explicit "back to the agent's default" spelling is not settled here —
 it is the first thing to re-examine once D has shipped and there is real usage to look at.
 
+> **Implemented, 2026-09-02** — as the reserved `selection` namespace of the computed layer, with
+> an edge-triggered apply. A derive returns its selection under one reserved top-level key rather
+> than as plain computed keys (`packs/codex/derive.lua`; `{selection = {model_provider = …, model =
+> …}}`), and the stateful render takes it out, decides it per key, and lifts the winners onto the
+> surface root — so the agent's file shows `model_provider` at top level exactly as a plain
+> computed key would have, and the namespace never reaches the file. The namespace is what makes
+> the ruled sentence above expressible at all: a plain computed key is re-asserted every boot,
+> which is the revert this section refuses, so a selection cannot travel as one.
+>
+> The apply's three rules are this section's three sentences. **Write on activation** — a key the
+> file lacks gets the selected value. **Never on absence** — a key the selection stops naming is
+> lifted at its CURRENT value rather than cleared, which is also what keeps it from falling back
+> to a stale captured edit (the stateful render rewrites the file wholesale, so a key no layer
+> asserts would otherwise change under a deactivation). **The user edit guard** — a key whose
+> value differs from what yolo last wrote stands, until a NEW selection value differs from the
+> last one yolo wrote, which is an explicit choice outranking a stale interactive one.
+>
+> One deliberate departure from the first sketch: the "what yolo last wrote" baseline is a
+> per-surface record of its own (`<workspace>/.yolo/prism/<agent>-<name>.selection.json`), not the
+> `last_render` sidecar. `last_render` cannot serve, and not as a shortcut: it holds the bytes of
+> the render one boot ago, a user's edit is captured into the overlay on the very next boot (that
+> capture is what keeps the edit alive across the wholesale rewrite), the overlay wins the fold,
+> and `last_render` then records the user's value as if yolo had written it. One boot later
+> "is this mine?" is unanswerable from it, and a same-selection re-render would revert the user —
+> the exact failure. The record is written only by the selection mechanism, so it moves only when
+> yolo's selection moves, and it is written only where a selection exists: a surface whose derive
+> emits none keeps no selection state at all, and a lost or corrupt record claims nothing, which
+> is the safe direction (it costs yolo a claim, never the user a value).
+
 
 ### 5.2 What a profile is — user-declared intent, over a surface the provider defines
 

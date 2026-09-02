@@ -175,6 +175,16 @@ func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
 				t.Errorf("model = %v, want %q (provider-catalog-and-selection.md §9 OQ-CS3: "+
 					"the fallback is the derive's business)", got["model"], tc.wantModel)
 			}
+			// The keys are LIFTED out of the layer's reserved namespace before the render,
+			// so the file codex reads shows them at top level and shows nothing else: the
+			// namespace is an implementation detail of the computed layer, never of the
+			// file, and a literal `selection` table in config.toml is a key codex does not
+			// read. selectionapply_test.go owns the mechanism's own pin; this is the
+			// end-to-end half of the same claim.
+			if _, leaked := got["selection"]; leaked {
+				t.Errorf("config.toml carries a literal `selection` table — the reserved "+
+					"namespace reached the file: %#v", got)
+			}
 
 			provs, haveCatalog := got["model_providers"].(map[string]any)
 			if tc.wantProvider != "" {
@@ -197,6 +207,30 @@ func TestCodexDeriveWritesTheSelectionKeys(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestCodexSelectionDeactivatesAcrossRenders is the end-to-end OQ-CS2 pair. The fresh
+// half is the "no active profile" case in the table above; this is the OTHER half, on a
+// home a selecting launch already wrote: a launch with no profile keeps the keys the
+// selection left. yolo can turn a selection on and cannot turn it off (§5.1) — which is
+// why the harness here is the multi-boot one (selectionRender, selectionapply_test.go)
+// and not renderCodexConfig, which starts fresh every call and can only ever test the
+// first boot.
+func TestCodexSelectionDeactivatesAcrossRenders(t *testing.T) {
+	r := newSelectionRender(t, reachableProviderJSON)
+
+	requireSelection(t, r.render(t, `{"codex":"llamacpp"}`), "llamacpp", "llama")
+
+	got := r.render(t, ``)
+	if absentOr(got["model_provider"]) != "llamacpp" || absentOr(got["model"]) != "llama" {
+		t.Errorf("after deactivation model_provider/model = %v/%v, want the selection left "+
+			"standing — deactivation clears nothing (provider-catalog-and-selection.md §5.1 "+
+			"OQ-CS2)", got["model_provider"], got["model"])
+	}
+	if _, leaked := got["selection"]; leaked {
+		t.Errorf("config.toml carries a literal `selection` table — the reserved namespace "+
+			"reached the file: %#v", got)
 	}
 }
 
