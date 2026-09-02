@@ -34,14 +34,25 @@ yolo.derive("pi", "models", function(ctx)
           table.insert(modelList, { id = modelId, name = alias })
         end
       end
-      providers[name] = {
+      local entry = {
         baseUrl = baseUrl,
         -- An endpoint's own wire_api is the per-protocol fact; the provider-level one
         -- only speaks for the shorthand.
         api = wireApi or prov.wire_api or "openai-completions",
-        apiKeyEnv = prov.api_key_env_name,
         models = modelList,
       }
+      -- D11: pi has no `apiKeyEnv` field — ProviderConfigSchema is name, baseUrl, apiKey,
+      -- api, oauth, headers, compat, authHeader, models, modelOverrides, and nothing in the
+      -- package reads one, so the name we used to write here was dead configuration that
+      -- read as the thing delivering the credential. pi's env indirection is the config-value
+      -- syntax ON apiKey (`${VAR}`; docs/custom-provider.md — the maintainer's own hand-written
+      -- models.json uses it), and pi expands it at read time, so yolo writes the reference
+      -- verbatim and the consumer resolves it. Written only when the provider names a var, so
+      -- a key-less provider stays key-less rather than claiming an empty one.
+      if prov.api_key_env_name then
+        entry.apiKey = "${" .. prov.api_key_env_name .. "}"
+      end
+      providers[name] = entry
     end
   end
   if next(providers) == nil then

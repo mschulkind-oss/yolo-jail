@@ -51,13 +51,21 @@ yolo.derive("opencode", "config", function(ctx)
             models[modelId] = { name = alias }
           end
         end
+        -- D10: opencode's Info schema declares baseURL/apiKey inside `options` only
+        -- (packages/core/src/v1/config/provider.ts), the loader merges only
+        -- `provider.options` into what the SDK sees, and resolveSDK reads
+        -- `{ ...provider.options }` — a top-level spelling lists in /models and never
+        -- reaches the SDK ("undefined/chat/completions cannot be parsed as a URL", zero
+        -- requests). npm and models stay top-level: those ARE the two top-level fields
+        -- upstream reads. `{env:VAR}` stays valid under options — substitution applies to
+        -- the whole config text at load, before the schema ever sees it.
         local entry = {
           npm = "@ai-sdk/openai-compatible",
-          baseURL = baseUrl,
           models = models,
         }
+        entry.options = { baseURL = baseUrl }
         if prov.api_key_env_name then
-          entry.apiKey = "{env:" .. prov.api_key_env_name .. "}"
+          entry.options.apiKey = "{env:" .. prov.api_key_env_name .. "}"
         end
         provOut[name] = entry
       end

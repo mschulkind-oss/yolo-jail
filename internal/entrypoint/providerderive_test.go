@@ -93,8 +93,15 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 		if zai["api"] != "openai-chat" {
 			t.Errorf("api = %v, want the endpoint's wire_api openai-chat", zai["api"])
 		}
-		if zai["apiKeyEnv"] != "ZAI_API_KEY" {
-			t.Errorf("apiKeyEnv = %v, want ZAI_API_KEY", zai["apiKeyEnv"])
+		// pi has no apiKeyEnv field (provider-table-fidelity.md §3.5 D11): its env
+		// indirection is the config-value syntax ON apiKey, so the credential reaches pi
+		// as "${ZAI_API_KEY}" — a reference pi expands at read time — and never as a
+		// separate field pi's schema has no entry for.
+		if zai["apiKey"] != "${ZAI_API_KEY}" {
+			t.Errorf("apiKey = %v, want the ${ZAI_API_KEY} config-value reference pi expands", zai["apiKey"])
+		}
+		if _, present := zai["apiKeyEnv"]; present {
+			t.Errorf("apiKeyEnv = %v, and pi has no such field — dead configuration (D11)", zai["apiKeyEnv"])
 		}
 		if _, present := zai["models"]; !present {
 			t.Error("models alias map missing from the pi entry")
@@ -140,11 +147,29 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 		if !ok {
 			t.Fatalf("provider.zai missing: %#v", provs)
 		}
-		if zai["baseURL"] != openaiURL {
-			t.Errorf("baseURL = %v, want the openai endpoint %s", zai["baseURL"], openaiURL)
+		// opencode reads baseURL/apiKey only inside `options` (provider-table-fidelity.md
+		// §3.5 D10): the loader merges only provider.options and resolveSDK reads
+		// { ...provider.options }, so a top-level value lists in /models and never dials.
+		opts, ok := zai["options"].(map[string]any)
+		if !ok {
+			t.Fatalf("provider.zai has no options table: %#v", zai)
 		}
-		if zai["apiKey"] != "{env:ZAI_API_KEY}" {
-			t.Errorf("apiKey = %v, want the {env:ZAI_API_KEY} interpolation", zai["apiKey"])
+		if opts["baseURL"] != openaiURL {
+			t.Errorf("options.baseURL = %v, want the openai endpoint %s", opts["baseURL"], openaiURL)
+		}
+		if opts["apiKey"] != "{env:ZAI_API_KEY}" {
+			t.Errorf("options.apiKey = %v, want the {env:ZAI_API_KEY} interpolation", opts["apiKey"])
+		}
+		// The negative half: the top-level spelling is the part opencode ignores, so both
+		// halves must move together or the entry stays visible-but-unusable.
+		if _, present := zai["baseURL"]; present {
+			t.Errorf("top-level baseURL = %v, and opencode reads it only under options (D10)", zai["baseURL"])
+		}
+		if _, present := zai["apiKey"]; present {
+			t.Errorf("top-level apiKey = %v, and opencode reads it only under options (D10)", zai["apiKey"])
+		}
+		if zai["npm"] != "@ai-sdk/openai-compatible" {
+			t.Errorf("npm = %v, want the SDK package kept top-level (the one place upstream reads it)", zai["npm"])
 		}
 	})
 }
@@ -174,6 +199,11 @@ func TestProviderDerivesKeepTheBaseURLShorthand(t *testing.T) {
 	}
 	if zai["api"] != "openai-chat" {
 		t.Errorf("api = %v, want the provider's own wire_api", zai["api"])
+	}
+	// The credential rides the same config-value syntax on the shorthand path too — the
+	// shorthand and the endpoints form share one body, and this is what keeps them shared.
+	if zai["apiKey"] != "${GLM_API_KEY}" {
+		t.Errorf("apiKey = %v, want the ${GLM_API_KEY} reference on the shorthand path too", zai["apiKey"])
 	}
 }
 
@@ -246,6 +276,11 @@ func TestProviderDerivesSkipAProviderWithNoURLForThem(t *testing.T) {
 	}
 	if _, present := providers["glm"]; !present {
 		t.Errorf("the one openai-speaking provider must still be emitted: %#v", providers)
+	}
+	// glm names no api_key_env_name, so it must get NO apiKey key at all — an empty or
+	// literal "$" value would read as a credential pi would try to expand.
+	if got := providers["glm"].(map[string]any)["apiKey"]; got != nil {
+		t.Errorf("a provider with no api_key_env_name must carry no apiKey, got %v", got)
 	}
 	for _, name := range []string{"__yolo_table_probe__", "claude_only"} {
 		if _, present := providers[name]; present {
