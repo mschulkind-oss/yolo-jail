@@ -55,7 +55,10 @@ func DeriveScript(p *Pack) string {
 // table itself stays secret-free (provider-table-fidelity.md §5.5, D8) and is never
 // mutated. A lookup that finds nothing composes no api_key at all — an empty credential
 // is the pre-flight's refusal to make, not a token to hand an agent. useProfiles is the
-// effective profile table in ProfileTable's shape, exposed as ctx.use_profiles.
+// effective profile table in ProfileTable's shape, exposed as ctx.use_profiles; the
+// resolved profile table (WithResolvedProfiles) is exposed as ctx.profile — the option
+// map of THIS agent's active profile (provider-catalog-and-selection.md §5.2), empty when
+// none was supplied or the name resolves to nothing.
 //
 // The producer is discovered by bin ownership: the one selected pack that installs the
 // agent's CLI. Nothing composes when the inputs are inert — no profile at this agent's
@@ -66,7 +69,11 @@ func DeriveScript(p *Pack) string {
 // this composition IS the delivery, so a broken producer refuses the launch rather than
 // composing half an environment.
 func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string]string,
-	agent, profile string, lookup func(string) (string, bool)) ([]agentenv.Var, error) {
+	agent, profile string, lookup func(string) (string, bool), opts ...AgentEnvOption) ([]agentenv.Var, error) {
+	cfg := agentEnvOpts{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	if agent == "" || profile == "" {
 		return nil, nil
 	}
@@ -89,6 +96,7 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 		Env:              true,
 		ProfileName:      profile,
 		SelectedProvider: ProviderFor(packs, agent, profile),
+		Profile:          cfg.profileOptions(profile),
 		Tables: map[string]map[string]any{
 			manifest.SourceProviders:   hydrateProviders(providers, lookup),
 			manifest.SourceUseProfiles: plainProfiles(useProfiles),
@@ -125,6 +133,36 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 		}
 	}
 	return vars, nil
+}
+
+// agentEnvOpts carries the optional inputs AgentEnv grew after its first callers were
+// written. It is an OPTION and not a parameter for one reason: the seven call sites the
+// signature already has pass nothing, and the resolved-profile table is only available
+// to a caller that composed it — demanding it positionally would have made every one of
+// them hand over a nil it does not have.
+type agentEnvOpts struct {
+	resolved map[string]ResolvedProfile
+}
+
+// AgentEnvOption mutates the optional inputs.
+type AgentEnvOption func(*agentEnvOpts)
+
+// WithResolvedProfiles hands the runner the launch's resolved profile table
+// (ResolveProfiles), from which ctx.profile is read: the option map of the profile
+// active at THIS agent. Absent or not supplied, the derive sees an empty ctx.profile —
+// the same world as a profile with no options, which is what keeps a caller that does
+// not know the table from inventing a second, worse answer for it.
+func WithResolvedProfiles(resolved map[string]ResolvedProfile) AgentEnvOption {
+	return func(o *agentEnvOpts) { o.resolved = resolved }
+}
+
+// profileOptions returns the option map of the named profile, never nil — a Lua table
+// field cannot be nil, and an empty map is the honest "nothing resolved".
+func (o agentEnvOpts) profileOptions(name string) map[string]string {
+	if r, ok := o.resolved[name]; ok && r.Options != nil {
+		return r.Options
+	}
+	return map[string]string{}
 }
 
 // hydrateProviders deep-copies the composed providers table into the plain value model

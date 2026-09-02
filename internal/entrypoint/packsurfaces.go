@@ -280,12 +280,34 @@ func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, 
 		Surface:          surface.Name,
 		ProfileName:      sel.Profile,
 		SelectedProvider: sel.Provider,
+		Profile:          activeProfileOptions(e, sel.Profile),
 		Tables:           tables,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("surface %s/%s: derive: %w", surface.Agent, surface.Name, err)
 	}
 	return out, nil
+}
+
+// activeProfileOptions returns the resolved option map of the named profile, read off
+// the YOLO_PROFILES table the launcher composed — never re-derived here, for the same
+// reason liveTables reads YOLO_PROVIDERS rather than recomposing it: one resolution per
+// launch, on the host, and this side reads the result. Always non-nil and empty for no
+// profile (or a name the table does not hold), so a derive reads ctx.profile.model with
+// no nil guard and "no profile" is the same world as "a profile with no options".
+//
+// The name arrives from the surface's resolved selection (surfaceSelectionFor), which is
+// where the SURFACE path learns which profile is active — the env path resolves it per
+// profiled agent instead (packload.AgentEnv), and both read the same table, so the two
+// derive paths cannot answer differently about what the active profile carries.
+func activeProfileOptions(e *Env, name string) map[string]string {
+	if name == "" {
+		return map[string]string{}
+	}
+	if p, ok := e.LoadProfiles()[name]; ok && p.Options != nil {
+		return p.Options
+	}
+	return map[string]string{}
 }
 
 // liveTables gathers the live config tables a surface's `computed` declarations may draw

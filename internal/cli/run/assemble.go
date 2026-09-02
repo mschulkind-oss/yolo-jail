@@ -786,6 +786,7 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(cfgMap(cfg, "mcp_servers")),
 		"-e", "YOLO_MCP_PRESETS="+jsonDumpsOrEmptyList(cfgList(cfg, "mcp_presets")),
 		"-e", "YOLO_PROVIDERS="+jsonDumpsOrEmptyObj(providers),
+		"-e", "YOLO_PROFILES="+jsonDumpsOrEmptyObj(packload.ProfilesWireTable(channel.resolvedProfiles)),
 		"-e", "YOLO_USE_PROFILES="+jsonDumpsOrEmptyObj(effectiveProfiles),
 		"-e", "YOLO_REQUIRED_CAPABILITIES="+jsonDumpsOrEmptyList(cfgList(cfg, "required_capabilities")),
 		"-e", "YOLO_RUNTIME=podman",

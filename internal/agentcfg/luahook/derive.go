@@ -26,6 +26,7 @@ package luahook
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -58,6 +59,16 @@ type DeriveCtx struct {
 	// ProfileName is the variant active at this agent's CLI name, exposed as
 	// ctx.profile_name.
 	ProfileName string
+
+	// Profile is the ACTIVE profile's resolved option map (the provider-declared defaults
+	// with the profile's own values over them — provider-catalog-and-selection.md §5.2),
+	// exposed as ctx.profile. ALWAYS a table, empty when no profile is active, so a derive
+	// can read ctx.profile.model without a nil guard and "no profile" is the same world to
+	// it as "a profile with no options". What the options MEAN — which one is the
+	// selection surface — is the derive's business (OQ-CS4); the empty map is what carries
+	// OQ-CS2's ruling (§5.1) to it: no active profile means the derive writes nothing, so
+	// the agent's own choice of model stays untouched.
+	Profile map[string]string
 
 	// Tables are the live config tables a derive may read, keyed by source name
 	// (manifest.SourceMCPServers / SourceLSPServers). Exposed read-only as
@@ -199,6 +210,13 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 	L.SetField(t, "surface", lua.LString(ctx.Surface))
 	L.SetField(t, "selected_provider", lua.LString(ctx.SelectedProvider))
 	L.SetField(t, "profile_name", lua.LString(ctx.ProfileName))
+	// ctx.profile, always a table. Keys are sorted because a Go map has no order and a
+	// derive that iterates it must not see a different order between runs.
+	profile := L.NewTable()
+	for _, k := range sortedStringKeys(ctx.Profile) {
+		L.SetField(profile, k, lua.LString(ctx.Profile[k]))
+	}
+	L.SetField(t, "profile", profile)
 	for _, src := range knownDeriveSources {
 		table := ctx.Tables[src]
 		if table == nil {
@@ -211,6 +229,17 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 		L.SetField(t, src, lv)
 	}
 	return t, nil
+}
+
+// sortedStringKeys returns a string map's keys sorted — a Go map has no order, and the
+// ctx table a derive reads must not reshuffle between runs.
+func sortedStringKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // knownDeriveSources are the live-table names exposed to a derive as ctx.<name>.

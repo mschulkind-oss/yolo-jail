@@ -77,18 +77,17 @@ type ResolvedProfile struct {
 //     shrink that moves a body into options does not re-order it;
 //  3. the user's own values — the intent the definition puts on top.
 //
-// Two refusals, both fatal, because a launch that silently mis-composes a profile is
+// ONE refusal, fatal, because a launch that silently mis-composes a profile is
 // indistinguishable from a working one:
 //
 //   - an option NAME the resolved provider does not declare (OQ-CS7): the provider owns
 //     the schema, so the refusal names what it accepts. Asked only when the provider
 //     DECLARES at least one option — a provider with no `options` imposes no census, or
-//     every profile over today's shipped providers would be refused on sight;
-//   - a profile whose resolution ends with NO provider at all (property 3): a name
-//     that selects nothing is not a profile. Unreachable through config (the config
-//     layer refuses an entry without `provider`) and unreachable through a validated
-//     manifest (a kind:profile must name its requires_provider), so it is the belt for
-//     a caller that skipped one of those — and the brace that makes this function total.
+//     every profile over today's shipped providers would be refused on sight.
+//
+// A name that resolves to NO provider is left OUT of the table rather than refused — see
+// the skip below for why that is the honest reading while a body-only kind:profile is
+// still a legal manifest shape.
 //
 // A name both sides declare is the §5.2 "customize the pack's own profile" case: the
 // user's entry keeps the pack's provider when it states none, and wins per option key.
@@ -121,13 +120,20 @@ func ResolveProfiles(packs []*Pack, user map[string]UserProfile) (map[string]Res
 			provider = userProf.Provider
 		case fromPack:
 			provider = profileProvider(packProf)
-		case fromUser:
-			provider = userProf.Provider // "" — the belt, refused below
 		}
 		if provider == "" {
-			problems = append(problems, fmt.Sprintf(
-				"profile %q names no provider — a profile is a selection over a provider, "+
-					"so the name declares nothing", name))
+			// A declaration with NO provider is left out of the table, and that is
+			// deliberate rather than a refusal. The manifest schema still allows a
+			// kind:profile that is a pure BODY (env, launch flags) with no provider —
+			// validateContribution requires only the name, and the host fold's own test
+			// packs carry exactly that shape, which is what made this file's first draft
+			// refuse three otherwise-green host launches — and such a profile is legal
+			// and working today: its env folds, and ProviderFor falls back to the bare
+			// name. Refusing it would break launches selecting a pack that ships one,
+			// for a ruling (§5.2 property 3) the SHRINK is what lands, together with the
+			// schema change that makes the field mandatory. It composes no YOLO_PROFILES
+			// entry, so a derive activating it reads ctx.profile as empty — which is the
+			// truth: it selects nothing.
 			continue
 		}
 

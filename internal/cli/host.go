@@ -378,6 +378,41 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 		agentTable[agent] = profileName
 	}
 
+	// The user's profile declarations, resolved ONCE for this launch — the host notch's
+	// half of the resolution the jail notch composes in its channel, read from the same
+	// user scope (this cfg IS user scope, but LoadProfiles is the `profiles` key's one
+	// reader, and its direct read of the user file is what keeps a workspace spelling
+	// inexpressible for this key too). Both the OQ-CS6 refusal and the AgentEnv call
+	// below consume the one result, so a host launch cannot describe a profile its env
+	// did not compose.
+	//
+	// DECLARATION IS MANDATORY (OQ-CS6), so a selected name nothing declares refuses
+	// here exactly as the jail notch's channel refuses: a host launch that silently ran
+	// without the profile its operator named would be the same undetectable no-op the
+	// reversal was ruled to end. The declared set is the staged packs' kind:profile names
+	// plus the user's own entries — and this notch's known gap applies to it as it does
+	// to the provider table above: a pack that could not be resolved this launch
+	// contributes no declaration, so a profile only THAT pack declared refuses here
+	// rather than composing nothing.
+	userProfiles, err := config.LoadProfiles(warn)
+	if err != nil {
+		c.err = err
+		return c
+	}
+	resolvedProfiles, err := packload.ResolveProfiles(packs, userProfiles)
+	if err != nil {
+		c.err = err
+		return c
+	}
+	if profileName != "" {
+		declared := packload.DeclaredProfileNames(packs, userProfiles)
+		if i := sort.SearchStrings(declared, profileName); i >= len(declared) || declared[i] != profileName {
+			c.err = fmt.Errorf("packs: profile %q selected for %s: %s", profileName, agent,
+				packload.UndeclaredProfileMessage(profileName, declared))
+			return c
+		}
+	}
+
 	// (1) the pack env fold, PER PACK — each pack's static `kind: "env"` keys, then its own
 	// selected variants' literals (OQ-8). The sequence is packload.EnvFold's, the ONE fold
 	// the jail notch reduces through packload.EnvVarsFor: folding it here as all-static-
@@ -456,7 +491,7 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 		return c
 	}
 	providerVars, err := packload.AgentEnv(packs, providers, agentTable,
-		agent, profileName, lookup)
+		agent, profileName, lookup, packload.WithResolvedProfiles(resolvedProfiles))
 	if err != nil {
 		c.err = err
 		return c

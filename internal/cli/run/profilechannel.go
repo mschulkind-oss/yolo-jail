@@ -23,7 +23,9 @@ package run
 // spellings of one launch.
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -57,6 +59,11 @@ type packChannel struct {
 	// once, here, because the container arm also writes it to yolo-user-env.sh and two
 	// hydrations would read every dotenv file twice and warn twice.
 	userEnv *jsonx.OrderedMap
+	// resolvedProfiles is every profile name this launch could activate, resolved to its
+	// provider and option map (packload.ResolveProfiles). Emitted as YOLO_PROFILES and
+	// handed to the env-derive runner, so both consumers of a profile's body — the jail's
+	// derives and the host notch's env composition — read ONE resolution.
+	resolvedProfiles map[string]packload.ResolvedProfile
 }
 
 // composePackChannel composes the channel from the config and the STAGED pack set.
@@ -73,15 +80,39 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 		})
 	}
 	profiles := o.effectiveUseProfiles(cfg, packs)
+	// The user's profile DECLARATIONS, at user scope — never read off `cfg`, which is the
+	// merged map and would let a workspace spelling through (config.LoadProfiles reads
+	// the user file directly; OQ-CS5). Malformed entries arrive as warnings, which this
+	// is the right place to surface: the fatal form of the same problem already refused
+	// the launch in ValidateConfig.
+	userProfiles, err := config.LoadProfiles(func(msg string) {
+		o.pr(o.Stdout).print(msg)
+	})
+	if err != nil {
+		return nil, err
+	}
+	// THE EIGHTH bespoke pre-flight (the numbering is packs.go's and
+	// providerpreflight.go's; checkProfileTargets was the fifth), and the one OQ-CS6
+	// buys: declaration is MANDATORY, so a selected name nothing declares refuses here
+	// rather than silently doing nothing. Before the resolution below, because an
+	// undeclared name has no resolution to argue about.
+	if err := o.checkProfileDeclarations(profiles, userProfiles, packs); err != nil {
+		return nil, err
+	}
+	resolved, err := packload.ResolveProfiles(packs, userProfiles)
+	if err != nil {
+		return nil, err
+	}
 	providers, err := composedProviders(cfg, packs)
 	if err != nil {
 		return nil, err
 	}
 	c := &packChannel{
-		profiles:  profiles,
-		providers: providers,
-		packEnv:   packload.EnvVarsFor(packs, packload.ProfileTable(profiles)),
-		userEnv:   userEnv,
+		profiles:         profiles,
+		providers:        providers,
+		packEnv:          packload.EnvVarsFor(packs, packload.ProfileTable(profiles)),
+		userEnv:          userEnv,
+		resolvedProfiles: resolved,
 	}
 	// The provider environment, one pass over the profile table in table order — the
 	// same iteration the container argv's env block makes, so the two spellings emit the
@@ -95,13 +126,49 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	for _, agent := range profiles.Keys() {
 		profile := mapStr(profiles, agent)
 		vars, err := packload.AgentEnv(packs, providers, packload.ProfileTable(profiles),
-			agent, profile, lookup)
+			agent, profile, lookup, packload.WithResolvedProfiles(resolved))
 		if err != nil {
 			return nil, err
 		}
 		c.shapeVars = append(c.shapeVars, vars...)
 	}
 	return c, nil
+}
+
+// checkProfileDeclarations refuses a SELECTED profile name nothing declares — the flag
+// and config spellings alike: a `use_profiles` value and a `-p <name>` are both in the
+// table this reads (effectiveUseProfiles merged them). It sits beside
+// checkProfileTargets, its CLI-name twin on the same table, and shares that check's
+// reason for being FATAL: a silently inert selector is indistinguishable from a working
+// one (OQ-CS6 — the reversal of the old free-form-names ruling).
+//
+// The declared set is packload.DeclaredProfileNames — every kind:profile the staged
+// packs ship plus every user `profiles` entry — because that is exactly the union the
+// design makes a profile name answer to; a second list here would be a second idea of
+// "declared".
+func (o *Options) checkProfileDeclarations(profiles *jsonx.OrderedMap,
+	userProfiles map[string]packload.UserProfile, packs []*packload.Pack) error {
+	if profiles.Len() == 0 {
+		return nil
+	}
+	declared := packload.DeclaredProfileNames(packs, userProfiles)
+	isDeclared := map[string]bool{}
+	for _, name := range declared {
+		isDeclared[name] = true
+	}
+	var problems []string
+	for _, agent := range profiles.Keys() {
+		name := mapStr(profiles, agent)
+		if name == "" || isDeclared[name] {
+			continue
+		}
+		problems = append(problems, fmt.Sprintf("profile %q selected for %s: %s",
+			name, agent, packload.UndeclaredProfileMessage(name, declared)))
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("packs: %s", strings.Join(problems, "\npacks: "))
 }
 
 // shapeLookup is the lookup the provider environment resolves a credential through: the
@@ -188,6 +255,7 @@ func (c *packChannel) launchEnv() *jsonx.OrderedMap {
 		env.Set(v.Key, v.Value)
 	}
 	env.Set("YOLO_PROVIDERS", jsonDumpsOrEmptyObj(c.providers))
+	env.Set("YOLO_PROFILES", jsonDumpsOrEmptyObj(packload.ProfilesWireTable(c.resolvedProfiles)))
 	env.Set("YOLO_USE_PROFILES", jsonDumpsOrEmptyObj(c.profiles))
 	return env
 }

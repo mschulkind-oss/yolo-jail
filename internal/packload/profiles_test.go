@@ -8,6 +8,8 @@ package packload
 import (
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 )
 
 // optionProviderPack returns a pack whose provider DECLARES a surface: `model` with a
@@ -144,19 +146,22 @@ func TestResolveProfilesNoDeclaredOptionsImposesNoCensus(t *testing.T) {
 	}
 }
 
-// TestResolveProfilesRefusesAProfileThatSelectsNothing is property 3's fatal arm: the
-// manifest schema requires only a profile NAME today, so a kind:profile with no provider
-// is a legal declaration that still declares nothing — and a name that selects no
-// provider is not a profile.
-func TestResolveProfilesRefusesAProfileThatSelectsNothing(t *testing.T) {
+// TestResolveProfilesLeavesOutAProfileThatSelectsNothing pins the boundary the other
+// way: a kind:profile that names no provider is still a LEGAL manifest shape today (a
+// pure body — env, launch flags — which the shrink will move to `profile:`-gated
+// contributions), so it must not refuse the launch. It composes no entry, which is the
+// honest table: the name selects nothing, so there is nothing to resolve. Its env body
+// keeps folding through EnvVarsFor exactly as before this package existed.
+func TestResolveProfilesLeavesOutAProfileThatSelectsNothing(t *testing.T) {
 	pack := &Pack{Name: "ghost", Decl: declFrom(t, `{"contributes":[
-	  {"kind":"profile","name":"ghost"}]}`)}
-	_, err := ResolveProfiles([]*Pack{pack}, nil)
-	if err == nil {
-		t.Fatal("a profile that names no provider should refuse the launch")
+	  {"kind":"profile","name":"ghost"},
+	  {"kind":"profile","name":"real","requires_provider":"zai"}]}`)}
+	got := resolve(t, []*Pack{pack}, nil)
+	if _, present := got["ghost"]; present {
+		t.Errorf("a profile that selects nothing has no resolution to carry, got %v", got)
 	}
-	if !strings.Contains(err.Error(), `profile "ghost" names no provider`) {
-		t.Errorf("refusal should say what the name failed to declare, got: %v", err)
+	if _, present := got["real"]; !present {
+		t.Errorf("its provider-naming neighbour still resolves, got %v", got)
 	}
 }
 
@@ -179,15 +184,18 @@ func TestResolveProfilesUnknownProviderResolvesWithoutACensus(t *testing.T) {
 // error the message spells out with the list of what IS declared.
 func TestDeclaredProfileNamesIsTheUnionOfBothSides(t *testing.T) {
 	pack := &Pack{Name: "zai", Decl: declFrom(t, `{"contributes":[
-	  {"kind":"profile","name":"zai","requires_provider":"zai"}]}`)}
+	  {"kind":"profile","name":"zai","requires_provider":"zai"},
+	  {"kind":"profile","name":"bedrock"}]}`)}
 	user := map[string]UserProfile{"zai-fast": {Provider: "zai"}}
 	declared := DeclaredProfileNames([]*Pack{pack}, user)
-	if strings.Join(declared, ",") != "zai,zai-fast" {
+	// `bedrock` is in the list even though it names no provider: it IS declared, so
+	// selecting it is not the undeclared-name error (see the lowering's skip).
+	if strings.Join(declared, ",") != "bedrock,zai,zai-fast" {
 		t.Errorf("declared names should be the sorted union of both sides, got %v", declared)
 	}
 	msg := UndeclaredProfileMessage("zai-fst", declared)
 	if !strings.Contains(msg, `no profile named "zai-fst" is declared`) ||
-		!strings.Contains(msg, "declared: zai, zai-fast") {
+		!strings.Contains(msg, "declared: bedrock, zai, zai-fast") {
 		t.Errorf("the undeclared-name refusal should name the typo and the real list, got %q", msg)
 	}
 	if none := UndeclaredProfileMessage("x", nil); !strings.Contains(none, "(declared: none)") {
@@ -211,5 +219,103 @@ func TestProfilesWireTableIsDeterministic(t *testing.T) {
 	want := `{"zai-fast": {"provider": "zai", "model": "default", "thinking": "low"}}`
 	if got != want {
 		t.Errorf("wire table should be %s, got %s", want, got)
+	}
+}
+
+// THE ENV PATH of ctx.profile: AgentEnv is the runner the host notch composes through,
+// and the resolved table reaches its derive only through WithResolvedProfiles — an option,
+// not a parameter, which is exactly the kind of input a caller forgets to hand over. So
+// the test drives the runner the way the host does and asserts the option's effect on what
+// the derive saw; deleting the option from the caller's argument list (or the field from
+// the ctx) leaves these vars empty.
+
+// profileEnvClaudePack is the agent pack whose env producer reports what its ctx.profile
+// held: the model option's value and how many keys the map carried.
+func profileEnvClaudePack(t *testing.T) *Pack {
+	return envClaudePack(t, `
+yolo.env("claude", function(ctx)
+  local n = 0
+  for _ in pairs(ctx.profile) do n = n + 1 end
+  return { PROFILE_MODEL = ctx.profile.model or "", PROFILE_KEYS = tostring(n) }
+end)`)
+}
+
+func TestAgentEnvHandsTheActiveProfileOptionsToTheDerive(t *testing.T) {
+	claude := profileEnvClaudePack(t)
+	zai := optionProviderPack(t)
+	providers, err := ComposeProviders(nil, []*Pack{claude, zai})
+	if err != nil {
+		t.Fatalf("composing providers: %v", err)
+	}
+	resolved, err := ResolveProfiles([]*Pack{claude, zai}, map[string]UserProfile{
+		"glm": {Provider: "zai", Options: map[string]string{"model": "fast"}},
+	})
+	if err != nil {
+		t.Fatalf("resolving: %v", err)
+	}
+	vars, err := AgentEnv([]*Pack{claude, zai}, providers,
+		map[string]string{"claude": "glm"}, "claude", "glm", envLookup,
+		WithResolvedProfiles(resolved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One key: `model` is the profile's own value, and `thinking` — declared with no
+	// default and set by nobody — composes nothing (OQ-CS7's null reading).
+	want := []agentenv.Var{
+		{Key: "PROFILE_KEYS", Value: "1"},
+		{Key: "PROFILE_MODEL", Value: "fast"},
+	}
+	if len(vars) != len(want) {
+		t.Fatalf("vars = %#v, want %#v (the resolved table reached the derive)", vars, want)
+	}
+	for i := range want {
+		if vars[i] != want[i] {
+			t.Errorf("var %d = %#v, want %#v", i, vars[i], want[i])
+		}
+	}
+}
+
+// The declared defaults arrive with the profile, not just its own values: `glm` says
+// nothing about `model`, and the derive still sees the default — a producer should not
+// have to re-read the provider's declaration to know what a profile resolves to.
+func TestAgentEnvSeesTheDeclaredDefaultsUnderTheProfile(t *testing.T) {
+	claude := profileEnvClaudePack(t)
+	zai := optionProviderPack(t)
+	providers, err := ComposeProviders(nil, []*Pack{claude, zai})
+	if err != nil {
+		t.Fatalf("composing providers: %v", err)
+	}
+	vars, err := AgentEnv([]*Pack{claude, zai}, providers,
+		map[string]string{"claude": "glm"}, "claude", "glm", envLookup,
+		WithResolvedProfiles(map[string]ResolvedProfile{
+			"glm": {Provider: "zai", Options: map[string]string{"model": "default"}},
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range vars {
+		if v.Key == "PROFILE_MODEL" && v.Value != "default" {
+			t.Errorf("PROFILE_MODEL = %q, want the declared default", v.Value)
+		}
+	}
+}
+
+// A caller that never hands the table over (an older notch, or one that does not compose
+// it) gets an EMPTY ctx.profile — the same world as a profile with no options, which is
+// the honest answer for "this composition does not know", and never a second, worse one.
+func TestAgentEnvWithoutTheResolvedTableSeesAnEmptyProfile(t *testing.T) {
+	claude := profileEnvClaudePack(t)
+	zai := optionProviderPack(t)
+	providers, err := ComposeProviders(nil, []*Pack{claude, zai})
+	if err != nil {
+		t.Fatalf("composing providers: %v", err)
+	}
+	vars, err := AgentEnv([]*Pack{claude, zai}, providers,
+		map[string]string{"claude": "glm"}, "claude", "glm", envLookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vars) != 1 || vars[0] != (agentenv.Var{Key: "PROFILE_KEYS", Value: "0"}) {
+		t.Errorf("vars = %#v, want exactly PROFILE_KEYS=0 — empty, not somebody else's options", vars)
 	}
 }

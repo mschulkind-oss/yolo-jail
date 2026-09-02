@@ -132,22 +132,28 @@ func assembleWithProfiles(t *testing.T, cfg *jsonx.OrderedMap, packs []*packload
 	return o.assembleRunCmd(in)
 }
 
-// GLOBAL -p (§3.3, OQ-5): `-p dev` with NO command keys the name for every selected
+// GLOBAL -p (§3.3, OQ-5): `-p bedrock` with NO command keys the name for every selected
 // pack, by the CLI name each one installs. Before this the empty-argv case was a no-op
 // — the target bin was "" and the assignment was silently skipped — so `yolo -p dev`
 // looked accepted and selected nothing.
+//
+// The name is packs/claude's own `bedrock` because declaration is MANDATORY now
+// (OQ-CS6): a name nothing declares refuses the launch instead of keying it, which is
+// its own test below. `bedrock` is declared by only ONE of the two selected packs, so
+// this also pins that a profile name is global across the selection rather than
+// per-pack — pi receives a name only claude ships.
 //
 // Asserted on the ASSEMBLED env, not the merge, because the table is the launch's
 // contract with the jail: a merge that changed and an env block that did not follow
 // would pass a test on the merge alone.
 func TestAssembleGlobalProfileReachesEverySelectedPack(t *testing.T) {
 	packs := packsFixture(t, "claude", "pi")
-	argv := assembleWithProfiles(t, newConfig(), packs, func(o *Options) { o.ProfileName = "dev" })
+	argv := assembleWithProfiles(t, newConfig(), packs, func(o *Options) { o.ProfileName = "bedrock" })
 	got := envArgValues(argv, "YOLO_USE_PROFILES")
 	if len(got) != 1 {
 		t.Fatalf("YOLO_USE_PROFILES emitted %q, want exactly one", got)
 	}
-	if got[0] != `YOLO_USE_PROFILES={"claude": "dev", "pi": "dev"}` {
+	if got[0] != `YOLO_USE_PROFILES={"claude": "bedrock", "pi": "bedrock"}` {
 		t.Errorf("global -p must key every selected pack by the CLI it installs, got %s", got[0])
 	}
 }
@@ -158,14 +164,14 @@ func TestAssembleGlobalProfileReachesEverySelectedPack(t *testing.T) {
 func TestAssembleProfileWithACommandKeysOnlyThatBin(t *testing.T) {
 	packs := packsFixture(t, "claude", "pi")
 	argv := assembleWithProfiles(t, newConfig(), packs, func(o *Options) {
-		o.ProfileName = "dev"
+		o.ProfileName = "bedrock"
 		o.Args = []string{"claude"}
 	})
 	got := envArgValues(argv, "YOLO_USE_PROFILES")
 	if len(got) != 1 {
 		t.Fatalf("YOLO_USE_PROFILES emitted %q, want exactly one", got)
 	}
-	if got[0] != `YOLO_USE_PROFILES={"claude": "dev"}` {
+	if got[0] != `YOLO_USE_PROFILES={"claude": "bedrock"}` {
 		t.Errorf("-p with a command must key only that bin, got %s", got[0])
 	}
 }

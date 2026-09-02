@@ -494,6 +494,10 @@ func podmanLinuxGolden(home string) []string {
 		// selects claude carries it — a shape with no values in it, since the region and
 		// model ids are the user's providers.bedrock entry to supply.
 		"-e", `YOLO_PROVIDERS={"bedrock": {}}`,
+		// packs/claude ships the bedrock profile over that provider, so the resolved
+		// table carries it even for a launch that activates nothing: the table is the
+		// whole DECLARED set, and the jail reads it verbatim (profilechannel.go).
+		"-e", `YOLO_PROFILES={"bedrock": {"provider": "bedrock"}}`,
 		"-e", "YOLO_USE_PROFILES={}",
 		"-e", "YOLO_REQUIRED_CAPABILITIES=[]",
 		"-e", "YOLO_RUNTIME=podman",
