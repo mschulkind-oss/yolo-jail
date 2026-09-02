@@ -11,7 +11,7 @@ summary: "Splits the knot that profiles-as-pack-variants and zai-plumbing left t
 **Status:** DECIDED, 2026-09-01 — all questions ruled the day they were asked (ledger, §10); the
 tenth was **withdrawn as never having been a design question**. **Built 2026-09-02** — §8's order,
 executed from the canonical-vocabulary work through the profiles/options work: `0f04632d`
-(canonical `wire_api`, translated per agent) opens the run and `e338c9e7` (HEAD) closes it, with
+(canonical `wire_api`, translated per agent) opens the run and `e338c9e7` closes it, with
 the failing-first integration tier and the D10/D11 catalog fixes just before it (`cee9c1fc`,
 `7fa624ba`), and selection landing for all four agents inside the window — the profiles table and
 its options (`ad1899c0`, `8aceeb0f`, `767170ec`), codex (`58437e8b`), pi and opencode
