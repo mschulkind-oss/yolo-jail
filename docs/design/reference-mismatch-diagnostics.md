@@ -46,7 +46,7 @@ Not an argument — a measurement, taken 2026-08-30 in this jail against `yolo` 
 > [!NOTE]
 > **This reproduction is DEAD as of 2026-09-02, which is the point of keeping it.** The
 > `agent_profiles` spelling below now refuses by name before any value is read
-> (`validate.go:1108-1122`), and rewritten with the current key (`use_profiles`) the same config
+> (`validate.go:1058-1072`), and rewritten with the current key (`use_profiles`) the same config
 > produces **three separate `[FAIL]` rows** — unknown CLI name `cloude`, unknown `wire_api` value,
 > `base_url` carrying userinfo — the exact opposite of the `[PASS]` measured here. The one
 > mechanism from this section still reproducing is the buried supersession warning (§3), because
@@ -82,9 +82,9 @@ Three defects in four lines, all clean:
    find out from the agent, later, as a protocol error.
 3. **A plaintext credential sits in a git-tracked config file** and validation does not mind. The one
    field guarded against this is `api_key_env_name`
-   ([`validate.go:944-950`](../../internal/config/validate.go#L944-L950), repinned 2026-09-02);
+   ([`validate.go:940-946`](../../internal/config/validate.go#L940-L946), repinned 2026-09-02);
    `base_url` **was** wide open — `0bc29bd5` closed it (`providerURLProblem`,
-   `validate.go:981-990`).
+   `validate.go:978-991`).
 
 Now move one typo, from a *value* to a *key*, in the same file:
 
@@ -160,7 +160,7 @@ existing check or gives an existing namespace the check its neighbours already h
 
 | | |
 | :--- | :--- |
-| **Today** | ~~`[PASS] Merged config is semantically valid`~~ **SHIPPED (§7 step 2)**: a mistyped `use_profiles` key now `[FAIL]`s naming every installed CLI (`unknownProfileCLIMessage`, `validate.go:1178-1189`) |
+| **Today** | ~~`[PASS] Merged config is semantically valid`~~ **SHIPPED (§7 step 2)**: a mistyped `use_profiles` key now `[FAIL]`s naming every installed CLI (`unknownProfileCLIMessage`, `validate.go:1133-1141`) |
 | **After (as proposed)** | `[FAIL] config.pack_profiles.cloude: no pack named 'cloude' is selected — did you mean 'claude'? Selected packs: [claude, pi, codex]. Add the pack to 'packs', or remove this entry.` — the shipped message differs in two honest ways: the key is `use_profiles`, and there is **no edit-distance did-you-mean**, only the full candidate list. Whether that residue is worth building is R3's call, not settled here. |
 | **Where** | `yolo check` **and** launch preflight. Both shipped. |
 | **Also fixed** | `-p <name> -- <bin>` resolves the binary to a pack slug and refuses when no pack owns that bin. Today it keys the profile by binary basename with no check; every shipped pack happens to have `bin == slug`, so it works by coincidence. |
@@ -300,13 +300,13 @@ when they fire.** That is the premise this work is built on; it is a ruling, not
    and its three callers are unchanged. Still the highest payoff per line in this doc.
 2. **Selection-key validation.** *(Written as `pack_profiles`; the key is `use_profiles` since
    `43d24e9e`.)* **SHIPPED** — `86a56f6b` (key-namespace check), `5124dee3` (shape-check survives an
-   unresolvable pack); live at `validateUseProfiles` (`validate.go:1124-1175`) with the CLI-flag
+   unresolvable pack); live at `validateUseProfiles` (`validate.go:1074-1126`) with the CLI-flag
    preflight in `internal/cli/run/packs.go:363-400`, pinned by
    `internal/config/useprofilekeys_test.go`. One deviation from §4.1's proposed message: the shipped
    refusal **lists every installed CLI name but computes no edit-distance did-you-mean**.
 3. **`wire_api` enum and `base_url` credential refusal.** **SHIPPED** — the canonical closed enum
-   (`2ced4944` + `0f04632d`, `validateWireAPI` at `validate.go:1097-1103`) and the userinfo refusal
-   (`0bc29bd5`, `providerURLProblem` at `validate.go:981-990`). Adjacent hardening from the same
+   (`2ced4944` + `0f04632d`, `validateWireAPI` at `validate.go:1047-1053`) and the userinfo refusal
+   (`0bc29bd5`, `providerURLProblem` at `validate.go:978-991`). Adjacent hardening from the same
    cluster: a composed `base_url`+`endpoints` pair is refused (`5d8bd1fe`, OQ-PT2).
 4. **Relocate the supersession match to the launch path.** Message unchanged; disposition and
    surface change. Needs OQ-RM2 ruled first. **NOT SHIPPED** — `discover.go:717-728` /

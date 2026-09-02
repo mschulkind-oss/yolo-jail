@@ -351,7 +351,7 @@ never needed.
 *confirmation*, not a fork: the leaning was uncontested since 2026-08-13, and the implementation
 had already built it — `supersedes` is a field on the **manifest top level**
 (`internal/packdecl/packdecl.go:86`, beside `skills_tier`), and
-`TestSupersedesNotAContributionKind` (`internal/packdecl/supersedes_test.go:117-131`) **refuses**
+`TestSupersedesIsNotAContributionKind` (`internal/packdecl/supersedes_test.go:120-136`) **refuses**
 the alternative outright: a `contributes[]` entry with `kind: "supersedes"` is a validation error.
 A question whose losing option is pinned rejected by a test is not open; recording that is what
 [`../plans/further-roadmap-ideas.md`](../plans/further-roadmap-ideas.md) §4b asked for. Reopen only

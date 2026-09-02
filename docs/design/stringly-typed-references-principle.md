@@ -200,7 +200,7 @@ attributable to skew, say *that*, with the rebuild command.
   ([`manifest.go:215`](../../internal/agentcfg/manifest/manifest.go#L215)). **`providers.*.wire_api`
   was a slot of this shape that was not closed** — it is now (2026-09-01, `2ced4944`/`0f04632d`): a
   canonical three-member enum checked at parse time, `validateWireAPI`
-  ([`validate.go:1097-1103`](../../internal/config/validate.go#L1097-L1103)). *(`notch` is not an example
+  ([`validate.go:1047-1053`](../../internal/config/validate.go#L1047-L1053)). *(`notch` is not an example
   of this rule at all: it is a Go type a constructor sets, never a manifest string.)*
 - **Open semantic slots** — pack slugs, profile names, capability identifiers, provider names — are
   validated against the live resolved registry, at the point R5 selects.
@@ -228,10 +228,10 @@ picture.)*
 
 | Mechanism | String field | **Today (2026-08-30, updated 2026-09-02)** | **Target under R1–R5** |
 | :--- | :--- | :--- | :--- |
-| `use_profiles` (was `agent_profiles` → `pack_profiles`) | the `<cli>` key | ~~**Unchecked.** The key is compared to nothing; `{"cloude": "bedrock"}` returns `[PASS]`.~~ **CHECKED since `86a56f6b`**: `validateUseProfiles` ([`validate.go:1124-1175`](../../internal/config/validate.go#L1124-L1175)) fails a key naming no installed CLI, listing the candidates; the retired spellings refuse by name (`validate.go:1108-1122`). | ✅ **Reached.** Fatal at `check` and at launch, against the installed-CLI universe. |
+| `use_profiles` (was `agent_profiles` → `pack_profiles`) | the `<cli>` key | ~~**Unchecked.** The key is compared to nothing; `{"cloude": "bedrock"}` returns `[PASS]`.~~ **CHECKED since `86a56f6b`**: `validateUseProfiles` ([`validate.go:1074-1126`](../../internal/config/validate.go#L1074-L1126)) fails a key naming no installed CLI, listing the candidates; the retired spellings refuse by name (`validate.go:1058-1072`). | ✅ **Reached.** Fatal at `check` and at launch, against the installed-CLI universe. |
 | `pack-capabilities` | `supersedes.capability` | **A stderr warning** at discovery ([`discover.go:717-728`](../../internal/loopholes/discover.go#L717-L728)). `SupersessionProblems()` is a value-shaped seam whose "obvious next reader" does not exist yet. Structural validity (empty `capability`, missing `because`, duplicates) *is* refused at load in `packdecl`. **Still true 2026-09-02 — the one unreached row.** | Fatal on the **launch** path, where `NewHostSet` holds the full set. Reported, not fatal, at `loopholes list`. Message unchanged (§5.2). Gated on OQ-RM2. |
-| `providers.*` | `wire_api` | ~~**Unchecked beyond "is a string".** `"totally-not-a-wire-api"` passes.~~ **CLOSED ENUM since `2ced4944`/`0f04632d`** (`validateWireAPI`, [`validate.go:1097-1103`](../../internal/config/validate.go#L1097-L1103)) — three canonical members, translated per agent by the derives. | ✅ **Reached** (R4). |
-| `providers.*` | `base_url` | ~~**Unchecked beyond "is a string".** A plaintext credential in a git-tracked file passes.~~ **REFUSED since `0bc29bd5`** (`providerURLProblem`, [`validate.go:981-990`](../../internal/config/validate.go#L981-L990)): userinfo in a provider URL fails validation. | ✅ **Reached.** |
+| `providers.*` | `wire_api` | ~~**Unchecked beyond "is a string".** `"totally-not-a-wire-api"` passes.~~ **CLOSED ENUM since `2ced4944`/`0f04632d`** (`validateWireAPI`, [`validate.go:1047-1053`](../../internal/config/validate.go#L1047-L1053)) — three canonical members, translated per agent by the derives. | ✅ **Reached** (R4). |
+| `providers.*` | `base_url` | ~~**Unchecked beyond "is a string".** A plaintext credential in a git-tracked file passes.~~ **REFUSED since `0bc29bd5`** (`providerURLProblem`, [`validate.go:978-991`](../../internal/config/validate.go#L978-L991)): userinfo in a provider URL fails validation. | ✅ **Reached.** |
 | `env_sources` | file paths | **Warn + skip** ([`envsources.go:173-175`](../../internal/config/envsources.go#L173-L175), repinned — the file was restructured) — a stderr `warning:` line, not a trace log. | **Unchanged — this is correct.** A host path absent on this machine is portability, not a typo. The *active-selection* credential preflight shipped separately (`c77cfd05`, scoped to the selected pack — see reference-mismatch §7 step 6). |
 | Config **keys** (all) | key names | **Fatal.** `reportUnknownKeys` ([`validate.go:119-126`](../../internal/config/validate.go#L119-L126)) — `[FAIL] config.agent_profilez: unknown key`. | Unchanged — this row is the model. |
 

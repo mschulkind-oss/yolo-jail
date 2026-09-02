@@ -46,8 +46,9 @@ new namespace, no config key. Five principles carry the design:
 **P1. The audience namespace is the CLI-name namespace, and there is no second one.**
 [`profiles-as-pack-variants.md`](profiles-as-pack-variants.md) §2.5 already settled this for
 profiles: `program` and `launch` are `CombineExclusive` by `bin`
-([`kinds.go:243-244`](../../internal/packdecl/kinds.go#L243-L244),
-[`:100`](../../internal/packdecl/kinds.go#L100)), so a CLI name resolves to at most one pack
+([`kinds.go:243-244`](../../internal/packdecl/kinds.go#L243-L244) for `program`,
+[`:291-292`](../../internal/packdecl/kinds.go#L291-L292) for `launch`, whose declaration
+[`:99-100`](../../internal/packdecl/kinds.go#L99-L100) says *"Sole-owned by bin name"*), so a CLI name resolves to at most one pack
 by construction, and *"the agents"* are simply the union of the `bin`s the selected packs
 install. An audience is the same question about the same set, so it gets the same key.
 
