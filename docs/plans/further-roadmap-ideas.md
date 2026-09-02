@@ -242,7 +242,11 @@ say.
 
 ## 4. Two rows already on the roadmap that I would drop
 
-*(§4a generalises them into a class, found on the second pass.)*
+*(§4a generalises them into a class, found on the second pass. **Executed 2026-09-02:** (b) is
+done — OQ-CAP retired into `pack-capabilities.md` §10's settled record, the one-line residue queued
+under the roadmap's Small repairs; and 💬 12 with it, its OQ-B folded into 💬 8. (a) was already a
+bullet inside 💬 10 rather than a row, which is where it stays as evidence for the vocabulary
+ruling.)*
 
 The roadmap's 📦 note points here for this argument. Both of these are rows I believe we **invented**
 rather than found — they read as decisions but nothing turns on either answer.
