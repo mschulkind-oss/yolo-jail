@@ -399,7 +399,17 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 		c.err = err
 		return c
 	}
-	resolvedProfiles, err := packload.ResolveProfiles(packs, userProfiles)
+	// Composed HERE rather than at (3) below, because the profile resolution reads the
+	// declared options off it (packload.providerOptions) and must measure the surface
+	// this launch carries. The same object is reused at (3), so the pre-flight and the
+	// env derive read the table the resolution was measured against.
+	providers, err := composedHostProviders(cfg, packs)
+	if err != nil {
+		c.err = err
+		return c
+	}
+	c.providers = providers
+	resolvedProfiles, err := packload.ResolveProfiles(packs, userProfiles, providers)
 	if err != nil {
 		c.err = err
 		return c
@@ -479,11 +489,6 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 		}
 		return os.LookupEnv(name)
 	}
-	providers, err := composedHostProviders(cfg, packs)
-	if err != nil {
-		c.err = err
-		return c
-	}
 	providerVars, err := packload.AgentEnv(packs, providers, agentTable,
 		agent, profileName, lookup, packload.WithResolvedProfiles(resolvedProfiles))
 	if err != nil {
@@ -491,7 +496,6 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 		return c
 	}
 	vars = append(vars, providerVars...)
-	c.providers = providers
 
 	// (4) removals last, so an unset beats every assignment above no matter which source
 	// made it — the env_sources nulls from the same pass as (2) (the same scoped config,

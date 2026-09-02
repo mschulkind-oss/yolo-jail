@@ -159,6 +159,47 @@ func TestComposeProvidersHonorTheNullDropBelowTheTopLevel(t *testing.T) {
 	}
 }
 
+// TestComposeProvidersRendersTheDeclaredOptionsBlock pins the third fact the composed
+// table carries: the provider's declared option surface. A pack's manifest can declare it
+// and the table can omit it, and nothing complains — the derives read named fields and
+// ignore the rest — so the omission was invisible until the profile resolution started
+// reading its census off the table and came up empty against a provider that declares.
+func TestComposeProvidersRendersTheDeclaredOptionsBlock(t *testing.T) {
+	pack := optionProviderPack(t)
+	got := compose(t, nil, []*Pack{pack})
+	// The null survives INTO the table: it is what tells the reader the option is
+	// declared with no default (OQ-CS7), and collapsing it to an absent key would turn a
+	// declared surface into no surface at all.
+	want := `{"zai": {"endpoints": {"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}}, ` +
+		`"options": {"model": "default", "thinking": null}}}`
+	if s := dump(t, got); s != want {
+		t.Errorf("pack-only composition:\n got %s\nwant %s", s, want)
+	}
+
+	// The user overrides a default per option, and the option they do not touch keeps the
+	// pack's spelling — declared-no-default included.
+	user := userProviders(t, `{"zai":{"options":{"model":"fast"}}}`)
+	if s := dump(t, compose(t, user, []*Pack{pack})); !strings.Contains(s, `"options": {"model": "fast", "thinking": null}`) {
+		t.Errorf("an option default should compose per field, got %s", s)
+	}
+
+	// THE ONE NULL THAT IS NOT A DELETE (OQ-CS7): under `options`, a null lowers the
+	// default and keeps the option declared. Everywhere else in this entry the same
+	// syntax removes the key — pinned by the test above this one — and applying that rule
+	// here would silently UNDECLARE an option the user only asked to un-default, so a
+	// profile naming it would then be refused as undeclared.
+	user = userProviders(t, `{"zai":{"options":{"model":null}}}`)
+	if s := dump(t, compose(t, user, []*Pack{pack})); !strings.Contains(s, `"options": {"model": null, "thinking": null}`) {
+		t.Errorf("a null option default must keep the option declared, got %s", s)
+	}
+
+	// The map itself is still an ordinary field: null deletes the whole block.
+	user = userProviders(t, `{"zai":{"options":null}}`)
+	if s := dump(t, compose(t, user, []*Pack{pack})); strings.Contains(s, "options") {
+		t.Errorf("a null over the whole options block must delete it, got %s", s)
+	}
+}
+
 // TestComposeProvidersRefusesAManufacturedAddressPair pins D2 (provider-table-fidelity.md
 // §4.1, OQ-PT2): the shorthand and the endpoint map are each legal alone, and the config
 // validator refuses them together in an entry a user wrote — but this merge is PER FIELD,

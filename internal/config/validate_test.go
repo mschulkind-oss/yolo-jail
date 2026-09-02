@@ -721,6 +721,70 @@ func TestValidateProvidersWithNoAddressIsLegal(t *testing.T) {
 	}
 }
 
+// `options` is the profile surface a provider DECLARES (provider-catalog-and-selection.md
+// §5.2, OQ-CS4): a flat map of option name to default, with null meaning *declared, no
+// default* rather than delete (OQ-CS7). It is a config key as well as a manifest field —
+// a user may declare a provider of their own, or add an option to one a pack ships — and
+// until it was in knownProviderKeys the reference documented a key this layer refused.
+func TestValidateProvidersOptionsIsADeclaredSurface(t *testing.T) {
+	if _, listed := knownProviderKeys["options"]; !listed {
+		t.Fatal("`options` must be in knownProviderKeys — the reference documents it, and " +
+			"the generic unknown-key error is what a documented key must never earn")
+	}
+	errs := providerErrors(t, `{"zai": {
+		"endpoints": {"anthropic": {"base_url": "https://api.z.ai/api/anthropic"}},
+		"options": {"model": "default", "thinking": null}}}`)
+	if len(errs) != 0 {
+		t.Errorf("a declared options block passes validation, got: %v", errs)
+	}
+}
+
+// The census is the option NAME set, and the values are free — what `model` means is the
+// derive's business (OQ-CS7). So the only shape a value can have is string or null, and
+// anything else is an author's typo that must not silently become "declared, no default".
+func TestValidateProvidersOptionsRefusesANonScalarValue(t *testing.T) {
+	for name, value := range map[string]string{
+		"number": `{"model": 3}`,
+		"bool":   `{"model": true}`,
+		"object": `{"model": {"alias": "glm-4.7"}}`,
+		"array":  `{"model": ["glm-4.7"]}`,
+	} {
+		errs := providerErrors(t, `{"zai": {"options": `+value+`}}`)
+		found := ""
+		for _, e := range errs {
+			if strings.HasPrefix(e, "config.providers.zai.options.model") {
+				found = e
+			}
+		}
+		if found == "" {
+			t.Errorf("%s: a non-scalar option value must be refused, got %v", name, errs)
+			continue
+		}
+		if !strings.Contains(found, "expected a string or null") {
+			t.Errorf("%s: the refusal should say what a value may be, got %q", name, found)
+		}
+		if !strings.Contains(found, "not the delete") {
+			t.Errorf("%s: the refusal should correct the null reading a reader will assume, got %q", name, found)
+		}
+	}
+}
+
+// An empty option name declares a key no profile can spell, and the census refusal
+// downstream would quote it — packdecl refuses the same emptiness in a manifest
+// (validateContributions), so the config layer refuses it here.
+func TestValidateProvidersOptionsRefusesAnEmptyName(t *testing.T) {
+	errs := providerErrors(t, `{"zai": {"options": {"": "default"}}}`)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e, ".options: an option name cannot be empty") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("an empty option name must be refused, got %v", errs)
+	}
+}
+
 // The old credential-pointer spelling gets NO special handling: it was renamed on
 // 2026-09-01, never shipped in a release under the old name, and the maintainer's call was
 // that it does not earn a deprecation path. So it is an ordinary unknown key — which is

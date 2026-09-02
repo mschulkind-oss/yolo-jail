@@ -68,7 +68,7 @@ end)`)
 	if err != nil {
 		t.Fatalf("composing providers: %v", err)
 	}
-	resolved, err := ResolveProfiles([]*Pack{claude, zai}, nil)
+	resolved, err := ResolveProfiles([]*Pack{claude, zai}, nil, providers)
 	if err != nil {
 		t.Fatalf("resolving: %v", err)
 	}
@@ -113,7 +113,7 @@ end)`)
 	}
 	resolved, err := ResolveProfiles([]*Pack{claude, zai}, map[string]UserProfile{
 		"zai-fast": {Provider: "zai"},
-	})
+	}, providers)
 	if err != nil {
 		t.Fatalf("resolving: %v", err)
 	}
@@ -151,7 +151,7 @@ end)`)
 	if err != nil {
 		t.Fatalf("composing providers: %v", err)
 	}
-	resolved, err := ResolveProfiles([]*Pack{claude, zai}, nil)
+	resolved, err := ResolveProfiles([]*Pack{claude, zai}, nil, providers)
 	if err != nil {
 		t.Fatalf("resolving: %v", err)
 	}
@@ -190,7 +190,7 @@ yolo.env("claude", function(ctx)
 end)`)
 	zai := envZaiPack(t)
 	providers, _ := ComposeProviders(nil, []*Pack{claude, zai})
-	resolved, err := ResolveProfiles([]*Pack{claude, zai}, nil)
+	resolved, err := ResolveProfiles([]*Pack{claude, zai}, nil, providers)
 	if err != nil {
 		t.Fatalf("resolving: %v", err)
 	}

@@ -71,10 +71,18 @@ func (r *selectionRender) render(t *testing.T, profilesJSON string) map[string]a
 		t.Fatalf("embedded zai: %v", err)
 	}
 	r.e.Vars["YOLO_USE_PROFILES"] = profilesJSON
+	// The composed provider table a launch would resolve against — composed first, the
+	// order a real launch has, because the resolution reads its declared-options census
+	// off it. Neither llamacpp nor vllm is in it (no pack here ships them), so neither
+	// provider imposes a census, which is what the user-only declarations above rely on.
+	providers, err := packload.ComposeProviders(nil, []*packload.Pack{codex, zai})
+	if err != nil {
+		t.Fatalf("composing the provider table: %v", err)
+	}
 	resolved, err := packload.ResolveProfiles(nil, map[string]packload.UserProfile{
 		"llamacpp": {Provider: "llamacpp"},
 		"vllm":     {Provider: "vllm"},
-	})
+	}, providers)
 	if err != nil {
 		t.Fatalf("resolving the declared profiles: %v", err)
 	}

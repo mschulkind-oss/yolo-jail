@@ -616,6 +616,28 @@ func (v *OptionDefault) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// OptionDefaultFromValue lowers an ALREADY-DECODED JSON value into an OptionDefault —
+// the same rule UnmarshalJSON applies, for the one place a provider's options arrive
+// without going through this package's decoder: the user's `providers` entry, which
+// internal/config holds as an OrderedMap and validates field by field.
+//
+// It is the entry point on purpose, not a convenience. The two spellings of a provider
+// (a pack's manifest and a user's config entry) are the same entry in the same composed
+// table, so "what may sit in an options map" cannot be two predicates without the two
+// layers drifting into accepting different files. ok=false refuses the value, and the
+// caller words the refusal; the RULE — string, or null meaning declared-no-default, and
+// nothing else — is stated once, here and in UnmarshalJSON, which this function mirrors
+// value for value.
+func OptionDefaultFromValue(v any) (OptionDefault, bool) {
+	switch t := v.(type) {
+	case nil:
+		return OptionDefault{}, true
+	case string:
+		return OptionDefault{Defaulted: true, Value: t}, true
+	}
+	return OptionDefault{}, false
+}
+
 // ProfileContribution is one named selection over a provider: the name it answers to —
 // the selector the user writes in `use_profiles` or `-p` — and the provider it selects.
 // That is the whole kind (OQ-PT8); a body lives on the contributions the `profile`

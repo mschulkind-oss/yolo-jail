@@ -341,6 +341,11 @@ func shippedProviderEntry(prov packdecl.ProviderContribution) *jsonx.OrderedMap 
 		}
 		entry.Set("endpoints", endpoints)
 	}
+	// LAST, matching the order the design's own example spells the surface in (§5.2) —
+	// the declared options are the profile half of the entry, after its service facts.
+	if len(prov.Options) > 0 {
+		entry.Set(optionsKey, providerOptionsEntry(prov.Options))
+	}
 	return entry
 }
 
@@ -357,9 +362,29 @@ func shippedProviderEntry(prov packdecl.ProviderContribution) *jsonx.OrderedMap 
 // (provider-catalog-and-selection.md §4, note). Merge-patch's own rule (RFC 7386 §2) is
 // the same one, and for the same reason: a null member name defines the member's
 // removal.
+//
+// ONE key steps outside that rule, and it is the one whose null has its own ruling:
+// under `options`, a null means *declared, no default*, deliberately NOT the delete
+// (provider-catalog-and-selection.md §9 OQ-CS7). mergeOptionDefaults is the whole of the
+// exception — the map itself (`providers.zai.options: null`) still deletes, like every
+// other field, because the ruling is about a value IN the map and not about the map.
 func mergeUnder(dst, src *jsonx.OrderedMap) {
 	for _, k := range src.Keys() {
 		v, _ := src.Get(k)
+		if k == optionsKey {
+			if sm, isMap := v.(*jsonx.OrderedMap); isMap {
+				cur, _ := dst.Get(k)
+				if dm, isMap := cur.(*jsonx.OrderedMap); isMap {
+					mergeOptionDefaults(dm, sm)
+					continue
+				}
+				dst.Set(k, sm)
+				continue
+			}
+			// Not an object on the right: fall through to the ordinary rule, so
+			// `options: null` deletes the block and anything malformed replaces it —
+			// the config validator has already reported the malformed shapes.
+		}
 		if v == nil {
 			dst.Delete(k)
 			continue
@@ -375,6 +400,47 @@ func mergeUnder(dst, src *jsonx.OrderedMap) {
 		}
 		dst.Set(k, v)
 	}
+}
+
+// mergeOptionDefaults folds a user's `options` map over a composed one, flat: a string
+// replaces, and a null LOWERS THE DEFAULT while keeping the option declared (OQ-CS7).
+// There is no recursion because the map is flat by schema — a nested value is refused by
+// both producers (packdecl's decoder and config.validateProviderOptions), so it never
+// reaches a composition.
+//
+// The null is the whole reason this is not mergeUnder: the delete convention would
+// silently UNDECLARE the option, and a profile that then names it would be refused as
+// undeclared — the provider offered it, the user only asked to drop its default, and the
+// composition turned one into the other. Setting the null through keeps the census and
+// the entry in agreement, which is the property providerOptionsEntry exists for.
+func mergeOptionDefaults(dst, src *jsonx.OrderedMap) {
+	for _, k := range src.Keys() {
+		v, _ := src.Get(k)
+		dst.Set(k, v)
+	}
+}
+
+// optionsKey is the one provider entry key whose VALUE-position null is not a delete.
+// It lives beside the merge that has to honour that, because the merge is the only place
+// the two spellings of the map meet.
+const optionsKey = "options"
+
+// providerOptionsEntry lowers a declaration's options map into the composed entry's
+// spelling: option name → string default, or an explicit JSON null for an option
+// declared with none (OQ-CS7). The null has to survive INTO the table rather than
+// collapsing to an absent key, because the table is what providerOptions reads back —
+// the census and the composed entry would otherwise disagree about whether the provider
+// declared the option at all.
+func providerOptionsEntry(options map[string]packdecl.OptionDefault) *jsonx.OrderedMap {
+	out := jsonx.NewOrderedMap()
+	for _, name := range sortedOptionNames(options) {
+		if d := options[name]; d.Defaulted {
+			out.Set(name, d.Value)
+			continue
+		}
+		out.Set(name, nil)
+	}
+	return out
 }
 
 // sortedEndpointProtocols returns an endpoint map's protocols sorted — a Go map has no

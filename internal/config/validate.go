@@ -959,6 +959,9 @@ func validateProviders(config *jsonx.OrderedMap, errs, warns *[]string) {
 				}
 			}
 		}
+		if o, ok := cfg.Get("options"); ok && o != nil {
+			validateProviderOptions(o, path, errs)
+		}
 		if c, ok := cfg.Get("capabilities"); ok && c != nil {
 			validateStringList(c, path+".capabilities", errs)
 		}
@@ -1050,6 +1053,50 @@ func validateWireAPI(w any, path string, errs *[]string) {
 	if !inStrList(apis, w) {
 		add(errs, fmt.Sprintf("%s: expected one of %s (got %s)",
 			path, pyListRepr(apis), pyReprValue(w)))
+	}
+}
+
+// validateProviderOptions checks the profile surface a provider DECLARES
+// (provider-catalog-and-selection.md §5.2, OQ-CS4): a FLAT map of option name to default
+// value, shaped exactly like its neighbour `models` except that a null is LEGAL here.
+//
+// Two checks, neither of which invents a vocabulary:
+//
+//   - the NAME must be non-empty. packdecl's validateContributions refuses the same
+//     emptiness in a manifest, for the same reason — the name is the key every profile
+//     for this provider is measured against, so an empty one declares a key no profile
+//     can spell and the downstream refusal would quote it.
+//   - the VALUE must be a string or a null, decided by packdecl.OptionDefaultFromValue
+//     rather than by a local predicate. That is the field's own contract, the same one
+//     validateWireAPI one function up records for wire_api: a pack's manifest and a
+//     user's config entry compose into the SAME table entry, so what may sit in the map
+//     cannot be two predicates without the two spellings drifting into accepting
+//     different files. The message spells out what the null means, because it is the one
+//     null in this config that is not the delete (OQ-CS7) — a reader meeting it in an
+//     error would otherwise assume the merge-patch convention this key deliberately
+//     departs from.
+//
+// What is deliberately NOT checked: whether the value MEANS anything. Core learns no
+// option names and validates no values — what `model` or `thinking` does is the agent
+// pack's derive's business (OQ-CS7), so an option no derive consumes composes to nothing
+// rather than to an error.
+func validateProviderOptions(v any, path string, errs *[]string) {
+	opts, ok := asMap(v)
+	if !ok {
+		add(errs, path+".options: expected an object")
+		return
+	}
+	for _, name := range opts.Keys() {
+		val, _ := opts.Get(name)
+		if name == "" {
+			add(errs, path+".options: an option name cannot be empty")
+			continue
+		}
+		if _, legal := packdecl.OptionDefaultFromValue(val); !legal {
+			add(errs, path+".options."+name+": expected a string or null (null declares the "+
+				"option settable with no default — it is not the delete it is elsewhere in "+
+				"this config)")
+		}
 	}
 }
 

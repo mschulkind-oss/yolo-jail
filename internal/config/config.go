@@ -113,7 +113,7 @@ var (
 	// a provider's delivery is the agent pack's env derive now (OQ-CS8), so the key is an
 	// ordinary unknown key and nothing checks its values.
 	knownProviderKeys = set("base_url", "endpoints", "wire_api", "api_key_env_name",
-		"models", "region", "capabilities")
+		"models", "region", "capabilities", "options")
 	knownDeviceKeys    = set("usb", "description", "cgroup_rule")
 	knownResourcesKeys = set("memory", "cpus", "pids_limit")
 	// knownHostServiceKeys is the INLINE loophole entry's key census. It must

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // optionProviderPack returns a pack whose provider DECLARES a surface: `model` with a
@@ -22,11 +23,20 @@ func optionProviderPack(t *testing.T) *Pack {
 	   "options":{"model":"default","thinking":null}}]}`)}
 }
 
+// composePacks is the providers table a launch with no user `providers` entries would
+// carry, built through the package's own compose helper. ResolveProfiles reads its
+// declared-options census off the COMPOSED table rather than off the manifests, so a
+// test that resolves a profile needs the table a real launch would have composed first —
+// handing it one built by hand would be testing a caller that does not exist.
+func composePacks(t *testing.T, packs []*Pack) *jsonx.OrderedMap {
+	return compose(t, nil, packs)
+}
+
 // resolve is ResolveProfiles with the refusal channel turned into a failure; the tests
 // that ARE about a refusal call ResolveProfiles directly and read the error.
 func resolve(t *testing.T, packs []*Pack, user map[string]UserProfile) map[string]ResolvedProfile {
 	t.Helper()
-	got, err := ResolveProfiles(packs, user)
+	got, err := ResolveProfiles(packs, user, composePacks(t, packs))
 	if err != nil {
 		t.Fatalf("resolving profiles: %v", err)
 	}
@@ -114,7 +124,7 @@ func TestResolveProfilesUndeclaredOptionNamesWhatTheProviderAccepts(t *testing.T
 	pack := optionProviderPack(t)
 	_, err := ResolveProfiles([]*Pack{pack}, map[string]UserProfile{
 		"zai-fast": {Provider: "zai", Options: map[string]string{"model": "fast", "temperature": "0.2"}},
-	})
+	}, composePacks(t, []*Pack{pack}))
 	if err == nil {
 		t.Fatal("an option the provider does not declare should refuse the launch")
 	}
@@ -127,8 +137,8 @@ func TestResolveProfilesUndeclaredOptionNamesWhatTheProviderAccepts(t *testing.T
 	}
 }
 
-// TestResolveProfilesNoDeclaredOptionsImposesNoCensus is the rule that keeps today's
-// tree launching: no pack SHIPS options yet, so a provider with no `options` declares no
+// TestResolveProfilesNoDeclaredOptionsImposesNoCensus is the rule that keeps an
+// un-declaring provider launching: a provider whose entry carries no `options` imposes no
 // schema and cannot refuse anything. The brief's own integration case —
 // `{"zai-fast": {"provider": "zai", "model": "fast"}}` over the shipped zai — depends on
 // this, and a census keyed to "the provider exists" instead of "the provider declared"
@@ -145,6 +155,78 @@ func TestResolveProfilesNoDeclaredOptionsImposesNoCensus(t *testing.T) {
 	}
 }
 
+// TestResolveProfilesComposesAUserProviderOptionsUnderAProfileValue pins the OTHER way a
+// provider comes to declare a surface: the user's own `providers` entry. A user-declared
+// provider is an ordinary entry of the composed table, so its `options` must reach the
+// resolution the way a pack's do — the declared default UNDER the profile's own value,
+// per §5.2's merge order. (The config layer's half of this — that such an entry validates
+// clean at all — is TestValidateProvidersOptionsIsADeclaredSurface.)
+func TestResolveProfilesComposesAUserProviderOptionsUnderAProfileValue(t *testing.T) {
+	pack := &Pack{Name: "mine", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"provider","name":"mine",
+	   "endpoints":{"openai":{"base_url":"https://mine.example/v4"}}}]}`)}
+	user := userProviders(t, `{"mine":{"options":{"model":"default","thinking":null}}}`)
+	got, err := ResolveProfiles([]*Pack{pack}, map[string]UserProfile{
+		"mine-slow": {Provider: "mine"},
+		"mine-fast": {Provider: "mine", Options: map[string]string{"model": "fast"}},
+	}, compose(t, user, []*Pack{pack}))
+	if err != nil {
+		t.Fatalf("resolving: %v", err)
+	}
+	if p := got["mine-slow"]; p.Provider != "mine" || p.Options["model"] != "default" {
+		t.Errorf("a user-declared default should reach a profile that says nothing, got %+v", p)
+	}
+	if p := got["mine-fast"]; p.Options["model"] != "fast" {
+		t.Errorf("the profile's own value should win over the user-declared default, got %+v", p)
+	}
+	if _, set := got["mine-slow"].Options["thinking"]; set {
+		t.Errorf("a user-declared option with no default composes nothing, got %+v", got["mine-slow"].Options)
+	}
+}
+
+// TestResolveProfilesCensusReadsTheComposedTable pins WHY the census is taken off the
+// composed table rather than off the manifests: the user's `providers` entry changes what
+// a provider declares, and the census has to change with it. Adding an option to the entry
+// makes it settable by a profile — under a manifest-only census this same profile is
+// REFUSED for naming an option the pack never declared — and nulling a declared default
+// keeps the option settable while taking its default away.
+func TestResolveProfilesCensusReadsTheComposedTable(t *testing.T) {
+	pack := &Pack{Name: "zai", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"provider","name":"zai",
+	   "endpoints":{"anthropic":{"base_url":"https://api.z.ai/api/anthropic"}},
+	   "options":{"model":"default"}}]}`)}
+
+	// The user's entry ADDS an option: the census widens, so the profile naming it
+	// resolves instead of refusing.
+	added := userProviders(t, `{"zai":{"options":{"thinking":null}}}`)
+	got, err := ResolveProfiles([]*Pack{pack}, map[string]UserProfile{
+		"thinker": {Provider: "zai", Options: map[string]string{"thinking": "low"}},
+	}, compose(t, added, []*Pack{pack}))
+	if err != nil {
+		t.Fatalf("an option the user's entry declares should be settable: %v", err)
+	}
+	if v := got["thinker"].Options["thinking"]; v != "low" {
+		t.Errorf("a user-added option should resolve, got %+v", got["thinker"].Options)
+	}
+
+	// And the user LOWERS a default: `model` stays declared, so it stays settable, but the
+	// profile that says nothing about it reaches the derive as nothing.
+	lowered := userProviders(t, `{"zai":{"options":{"model":null}}}`)
+	got, err = ResolveProfiles([]*Pack{pack}, map[string]UserProfile{
+		"silent":   {Provider: "zai"},
+		"zai-fast": {Provider: "zai", Options: map[string]string{"model": "fast"}},
+	}, compose(t, lowered, []*Pack{pack}))
+	if err != nil {
+		t.Fatalf("a lowered default keeps the option declared, so a profile may still set it: %v", err)
+	}
+	if _, set := got["silent"].Options["model"]; set {
+		t.Errorf("a lowered default composes nothing, got %+v", got["silent"].Options)
+	}
+	if v := got["zai-fast"].Options["model"]; v != "fast" {
+		t.Errorf("the lowered option is still settable, got %+v", got["zai-fast"].Options)
+	}
+}
+
 // TestResolveProfilesRefusesAProfileThatSelectsNothing pins the boundary the shrink
 // moved: a kind:profile that names no provider is no longer a legal manifest shape (the
 // schema refuses it, and so does the config layer for a user entry), so the one way this
@@ -157,7 +239,7 @@ func TestResolveProfilesRefusesAProfileThatSelectsNothing(t *testing.T) {
 	  {"kind":"profile","name":"real","provider":"zai"}]}`)}
 	_, err := ResolveProfiles([]*Pack{pack}, map[string]UserProfile{
 		"ghost": {Options: map[string]string{"model": "fast"}},
-	})
+	}, composePacks(t, []*Pack{pack}))
 	if err == nil {
 		t.Fatal("a profile resolving to no provider must refuse, not resolve to an empty selection")
 	}
@@ -210,7 +292,7 @@ func TestProfilesWireTableIsDeterministic(t *testing.T) {
 	pack := optionProviderPack(t)
 	resolved, err := ResolveProfiles([]*Pack{pack}, map[string]UserProfile{
 		"zai-fast": {Provider: "zai", Options: map[string]string{"thinking": "low"}},
-	})
+	}, composePacks(t, []*Pack{pack}))
 	if err != nil {
 		t.Fatalf("resolving: %v", err)
 	}
@@ -248,7 +330,7 @@ func TestAgentEnvHandsTheActiveProfileOptionsToTheDerive(t *testing.T) {
 	}
 	resolved, err := ResolveProfiles([]*Pack{claude, zai}, map[string]UserProfile{
 		"glm": {Provider: "zai", Options: map[string]string{"model": "fast"}},
-	})
+	}, composePacks(t, []*Pack{claude, zai}))
 	if err != nil {
 		t.Fatalf("resolving: %v", err)
 	}

@@ -94,9 +94,17 @@ type ResolvedProfile struct {
 // user's entry wins per option key, and keeps the pack's provider when it states none.
 // A name only a pack declares resolves to the pack's provider plus that provider's
 // defaults — the shipped profile is a DEFAULT a user overrides, never a second schema.
-func ResolveProfiles(packs []*Pack, user map[string]UserProfile) (map[string]ResolvedProfile, error) {
+//
+// providers is the COMPOSED table (ComposeProviders' output, the same object the launch
+// relays as YOLO_PROVIDERS), and the declared-options census is read off it rather than
+// off the manifests — see providerOptions for why the two cannot be allowed to differ.
+// The call sites compose before they resolve, so both notches hand the one table their
+// derives see and neither can resolve a profile against a provider surface the launch is
+// not carrying.
+func ResolveProfiles(packs []*Pack, user map[string]UserProfile,
+	providers *jsonx.OrderedMap) (map[string]ResolvedProfile, error) {
 	shipped := packShippedProfiles(packs)
-	options := providerOptions(packs)
+	options := providerOptions(providers)
 
 	names := make([]string, 0, len(shipped)+len(user))
 	for name := range shipped {
@@ -199,17 +207,48 @@ func packShippedProfiles(packs []*Pack) map[string]packdecl.ProfileContribution 
 	return out
 }
 
-// providerOptions returns each pack-declared provider's `options` map, keyed by
-// provider name, first shipper winning — ComposeProviders' convention, so the census
-// and the composed table can never disagree about which pack's declaration applies.
-func providerOptions(packs []*Pack) map[string]map[string]packdecl.OptionDefault {
+// providerOptions returns each provider's DECLARED options, read off the COMPOSED table
+// rather than off the manifests — keyed by provider name, one entry per provider the
+// table holds.
+//
+// The composed table, not the manifest walk, because the census has to measure the same
+// surface the profile's defaults come from. The table is the user's `providers` entries
+// composed OVER the packs' shipped facts, per field — so a user who re-points a provider
+// (or drops it with a null, or declares one no pack ships) changes what it declares, and
+// a census taken from the manifests would keep measuring the provider the user just
+// overrode: the option the user un-defaulted would still be accepted with its pack
+// default, and an option the user's own entry declared would be refused as undeclared.
+// Reading the composition is what makes a provider's option surface a fact like every
+// other provider fact — overridable per field, pack under user.
+//
+// A value that is neither a string nor a null is skipped rather than lowered: both
+// producers refuse that shape (packdecl's decoder for a manifest,
+// config.validateProviderOptions for a config entry), so it cannot reach a launch, and
+// inventing a declaration for it — even the defaultless one — would widen the census to
+// admit option names nothing checked. Skipping keeps the census the narrow of the two
+// readings.
+func providerOptions(providers *jsonx.OrderedMap) map[string]map[string]packdecl.OptionDefault {
 	out := map[string]map[string]packdecl.OptionDefault{}
-	for _, p := range packs {
-		for _, prov := range p.Decl.Providers() {
-			if _, seen := out[prov.Name]; !seen {
-				out[prov.Name] = prov.Options
+	if providers == nil {
+		return out
+	}
+	for _, name := range providers.Keys() {
+		entry := providerEntry(providers, name)
+		if entry == nil {
+			continue
+		}
+		declared := map[string]packdecl.OptionDefault{}
+		if raw, ok := entry.Get(optionsKey); ok {
+			if opts, isMap := raw.(*jsonx.OrderedMap); isMap {
+				for _, opt := range opts.Keys() {
+					v, _ := opts.Get(opt)
+					if d, legal := packdecl.OptionDefaultFromValue(v); legal {
+						declared[opt] = d
+					}
+				}
 			}
 		}
+		out[name] = declared
 	}
 	return out
 }

@@ -99,11 +99,16 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	if err := o.checkProfileDeclarations(profiles, userProfiles, packs); err != nil {
 		return nil, err
 	}
-	resolved, err := packload.ResolveProfiles(packs, userProfiles)
+	// The provider table composes BEFORE the profiles resolve, because the resolution
+	// reads the declared options off it (packload.providerOptions) and the census must
+	// measure the surface this launch actually carries — not the one a manifest walk
+	// would have described. Same object for both, so the env derive below and the
+	// resolution cannot disagree about what a provider declares.
+	providers, err := composedProviders(cfg, packs)
 	if err != nil {
 		return nil, err
 	}
-	providers, err := composedProviders(cfg, packs)
+	resolved, err := packload.ResolveProfiles(packs, userProfiles, providers)
 	if err != nil {
 		return nil, err
 	}

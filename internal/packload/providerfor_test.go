@@ -63,7 +63,7 @@ func TestProviderForAnswersWhatResolveProfilesResolved(t *testing.T) {
 		// The user RE-POINTING the pack's own profile at another provider — the case the
 		// manifest walk answered with the PACK's selection, "zai", over the user's head.
 		"glm": {Provider: "zai-eu"},
-	})
+	}, composePacks(t, packs))
 	if err != nil {
 		t.Fatalf("resolving: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestProviderForAnswersWhatResolveProfilesResolved(t *testing.T) {
 
 	// With no user entry at all, the pack's own declaration is what lands in the table —
 	// the shipped `-p glm` case, which must keep working through the table.
-	resolved, err = ResolveProfiles(packs, nil)
+	resolved, err = ResolveProfiles(packs, nil, composePacks(t, packs))
 	if err != nil {
 		t.Fatalf("resolving: %v", err)
 	}
