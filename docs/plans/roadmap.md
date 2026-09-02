@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status: 13 needing you · 5 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
+**Status: 11 needing you · 5 ready · 0 in progress · 6 waiting · 0 broken · 3 icebox.**
 
 Last updated **2026-09-02**. Counts tallied from this file, not asserted — one per `### 💬` heading,
 one per top-level bullet in every other section, and each bullet's glyph matches the section it is
@@ -42,6 +42,19 @@ in.
 > **four-sixths shipped** by the provider arc, so its row shrank and its no-ruling step is queued
 > 📦 below.
 >
+> **And the provider arc then finished shipping, so 💬 18 and 💬 19 left the same day** — both had
+> been ruled 2026-09-01 and neither held an open question; what they held was work. The fidelity
+> row's defect list is fully dispositioned: D1 (`0f04632d`), D2 (`5d8bd1fe`), D3 (resolved by
+> deletion, `3144fbed`), D4 (`868b610f`), D5 (`886a9191`), D6 (`67f87f36` + the integration test
+> `cee9c1fc`), D7 (`714e987e`, with `886a9191` taking the flag's other meaning) and D10/D11
+> (`7fa624ba`); D8's remaining half (the secret on the
+> container argv) and D9 (the ungated derive) are recorded where they belong —
+> [`provider-table-fidelity.md`](../design/provider-table-fidelity.md) §5.5 and
+> [`trust-paths.md`](../design/trust-paths.md) row 26. The catalog row's selection half — the
+> reason it existed — shipped for all four agents (`58437e8b`, `6d1d7c54`, `3c6ed6f1`); its one
+> residue, §8 step 4's explicit disable, is named unbuilt in that doc rather than re-rowed here.
+> The design docs are the record, not this file.
+>
 > *(The 2026-08-25 image-staging rulings that used to fill this box are done history except two
 > residues: OQ-DF3 still gates the retention rule — 💬 16 — and the C4/C5 go/no-go is now an
 > explicit 🧊 row instead of a paragraph here. The 606 GiB tar headline those rulings were made on
@@ -68,9 +81,10 @@ the real number was closer to 50.
 > [`noncontainer-nix-environment.md`](../design/noncontainer-nix-environment.md); **S5** is in
 > [`BACKLOG.md`](BACKLOG.md) §Stage E. **Cite a state row or an OQ ID — never a letter.**
 
-**And the real number is now countable rather than estimated: the sweep returns 101**, re-run
-2026-09-02 after the audit's edits landed (it read 102 before OQ-GN3 was answered later the same
-day — see the last row of the table). Against 2026-08-30's **113** it reconciles in two
+**And the real number is now countable rather than estimated: the sweep returns 99**, re-run
+2026-09-02 after the audit's edits landed, OQ-GN3's answer, and the provider arc's departure (it
+read 102 before OQ-GN3 was answered later the same day — see the last row of the table — and 101
+before the provider rows left). Against 2026-08-30's **113** it reconciles in two
 halves. **−6 before this audit touched anything:**
 [`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) went 5 → 0 (its §14 ledger
 closed six questions on 2026-09-01) and one more moved in other sessions' work. **−5 from the
@@ -86,10 +100,15 @@ audit itself, row-exact:**
 | **+1** | `trust-paths.md` OQ-TP8 — the pack-Lua census gap, newly named |
 | **−1** | `handoff-guest-notch-macos.md` OQ-GN3 — *has the Cachix cache been pushed to?* Answered from the Actions log the same day: yes, and CI reads from it too |
 
+**−2 after the audit, work leaving rather than questions closing:** 💬 18 and 💬 19 were deleted
+with their commits (14 → 12 entries here — both were `### 💬` headings and neither held a live
+question; see the box above). Neither row's design doc lost a question: every OQ they carried was
+ruled on 2026-09-01, which is why the departure counts as shipped work leaving, not a ruling.
+
 > [!WARNING]
 > **A roadmap row and the questions it points at are counted twice, and that is a bias in the tool
 > this file trusts.** A row is a *grouping* of questions that already live in their design docs —
-> 💬 16 and the three live `OQ-DF*` are four entries for one decision. The "gap between 101 and 13"
+> 💬 16 and the three live `OQ-DF*` are four entries for one decision. The "gap between 99 and 11"
 > framing below compares a number against a set that contains it. Not worth redefining mid-sprint —
 > worth saying out loud, because the last time this count was quietly wrong it was wrong by six.
 
@@ -113,8 +132,8 @@ heading anchors. All five, and the allowlists they need, are in
 > was about, found by an adversarial re-check of the pass itself. If you add a heading style, check
 > the count moves.
 
-**Thirteen rows below is what the blocking subset groups into** — the rest are named
-in *What the roadmap does not cover* at the end, deliberately. The gap between 101 and 13 is the
+**Eleven rows below is what the blocking subset groups into** — the rest are named
+in *What the roadmap does not cover* at the end, deliberately. The gap between 99 and 11 is the
 point of this file: a row is a *decision*, and one decision usually closes several questions.
 **💬 6's four rulings closed a whole row in a single turn**, and the 2026-09-02 audit closed four
 rows without any ruling at all — the other way the gap earns its keep, since re-verifying a row
@@ -168,7 +187,9 @@ What is still open:
   receipts (`af46c9b4`) record the resolved npm version, but nothing reads them back — so what is
   left is promoting the record into a row `install` obeys, and it should be one design with
   program-delivery §10's *user-scope gap receipt* step (📦 below).
-- **OQ-TP8** *(new 2026-09-02, executing 💬 18's D9)* — **pack-shipped `derive.lua` runs ungated for
+- **OQ-TP8** *(new 2026-09-02, executing D9 of
+  [`provider-table-fidelity.md`](../design/provider-table-fidelity.md) §5.6 — the review row that
+  found it left this file when the work shipped)* — **pack-shipped `derive.lua` runs ungated for
   every origin, and its census row did not exist.** Row 26 now records the facts: sandboxed
   allowlist Lua (no `os`/`io`/`require`, timeout-bounded), executed in-jail every boot, host-side
   during `yolo host apply` as a sentinel probe — and, since `3144fbed`, **at every
@@ -306,9 +327,10 @@ leaning and an empty Answer in Stage E.
 - **OQ-CO and OQ-S4 are the same question asked of different kinds:** should the two notches agree?
   One is `config-overlay`'s silent last-one-wins; the other is whether a pack's `into` **narrows**
   skills delivery or only adds to it — the jail and the host answer differently today. *(OQ-CO
-  freshness, 2026-09-02: `packs/zai` is now the first shipped `config-overlay` contributor — sole on
-  its surface, so still no collision — and the new `profile` gate changes whether an overlay
-  participates, not what happens when two active ones share a key.)*
+  freshness, 2026-09-02: the provider arc's own `packs/zai` overlay was deleted the same day —
+  `3144fbed`, D3's resolution — so `packs/claude`'s `bedrock` overlay is the shipped contributor
+  again, and it is sole on `claude/settings`, so still no collision. The new `profile` gate changes
+  whether an overlay participates, not what happens when two active ones share a key.)*
 - **OQ-E4** is the ~15% of E4 that did not ship: do `stateful` surfaces get comment preservation?
   `rmw` preserves, `computed` correctly does not, `json` is provably vacuous.
 
@@ -522,287 +544,6 @@ same config now yields three `[FAIL]`s, and the docs' census flips three rows to
 **What this row is NOT.** Not a new config key, manifest field, or contribution kind — every name
 checked here already exists. Not a re-litigation of `env_sources`' permissiveness, which is correct
 and stays (a missing host file is portability, not a typo).
-
-### 💬 18 — The provider table is checked in yolo's vocabulary and delivered in everyone else's
-
-📄 [`provider-table-fidelity.md`](../design/provider-table-fidelity.md) —
-**all nine ruled 2026-09-01** — the doc is DECIDED; **D9** is the finding that outgrew it · follow-on to
-[`profiles-as-pack-variants.md`](../design/profiles-as-pack-variants.md) and
-[`zai-plumbing.md`](../design/zai-plumbing.md), both of which shipped 2026-08-29 → 2026-09-01 and are
-otherwise sound · continues 💬 **17** §7 step 3 rather than contradicting it
-
-**Review finding, 2026-09-01, against `980aed71`.** The provider/profile machinery is right and its
-tests pin call sites, not callees — two production call sites mutated, both failed loudly. What is
-wrong sits at the **edges of the abstraction**: a value validated against a set yolo owns, then
-handed verbatim to consumers that own different sets.
-
-**The one that puts a wrong value in a file an agent reads.** `knownWireAPIs` is
-`{anthropic, openai-chat, openai-completions, responses}` and the derives emit it unchanged into
-codex's `wire_api` and pi's `api`. This repo's own source-verified research says codex accepts
-**`responses` only** — `chat` was removed from the product
-([`local-model-endpoints.md`](../research/local-model-endpoints.md) §"Codex CLI", *verified from
-source: codex-cli 0.145.0 binary, 2026-08-20*) — and pi's attested spellings are
-`openai-completions` / `openai-responses`. **`openai-chat` is nobody's value.** `18045688` made it
-codex's derive *default*, so this is wider than zai: every codex provider that omits `wire_api` now
-gets an invalid value where it previously got the only legal one. The commit's z.ai measurement is
-correct and load-bearing (`/v4/responses` 404s on both routes); its **inference** is not — that is a
-fact about the provider's HTTP surface, not about codex's config vocabulary. The honest conclusion
-is that **codex cannot reach z.ai's OpenAI route at all**, which is a fact to record, not a bug to
-fix in code.
-
-**The same shape, twice more.** The composed table can hold the `base_url`/`endpoints` pair that
-`validateProviders` refuses when a user writes it directly — measured: a user `base_url` over
-`packs/zai` sends pi/codex/opencode to the user's URL and claude to the pack's, silently, falsifying
-`agentenv.Resolve`'s own comment that the two *"cannot disagree about where a protocol points"*. And
-`980aed71` now spells one z.ai URL **twice** in `packs/zai/pack.json` with no test pinning them
-equal — the duplication `d1e45e8d` had explicitly declined one commit earlier, for the right reason.
-
-**And the enum is not four protocols but three.** `openai-chat` and `openai-completions` name the
-same wire protocol under two agents' spellings, responses carries only codex's, and copilot's
-`{completions, responses}` is a fifth dialect nothing models. The set was assembled by collecting
-the spellings that appeared in the derives, which is why it validates and cannot translate — there
-is no canonical member to translate *from*.
-
-**Four more, sharing no cause — the largest raised in review, not found in the code.** **"Profile"
-names three things**: a pack's declared variant, a global free-form mode string any pack may gate on
-(`-p`, `ctx.pack_profiles`, the new `config-overlay` gate), and `render.Profile`'s confinement
-preset. Only the first has a schema, and **only providers have a user layer** — `pack_profiles` is a
-selector, so "take `bedrock` plus one launch flag" has no spelling short of forking the pack.
-Measured: `packs/zai`'s own `kind: "profile"` has an **empty body**, its `requires_provider` is
-already implied by the provider half, and **deleting it leaves the whole suite green** — and a body
-there would have been dead too, because a variant activates only through a CLI its **own** pack
-installs, and zai installs none. The `config-overlay` `profile` modifier `568d5a3a` landed gates on
-the *target* surface's agent instead, so it is **strictly more reachable than the kind**; zai ships
-both and only the modifier does anything, which is what puts OQ-PT8 — *is the kind just sugar?* — on
-the table. Then: a
-`providers: {"bedrock": null}` — the documented opt-out — refuses a `claude` launch outright
-(measured); `--profile` meant startup timing *or* a pack profile depending on the next token, after
-two commits patching that parse — OQ-PT5 has since taken the timing meaning away (`--timing`) and
-left the flag name-only; and the census — this work made `zai` the **twelfth** pack and the
-first that installs no CLI *and* ships no loophole, while `AGENTS.md:8` still said ten — 67f87f36
-has since said twelve.
-
-**What needs no ruling, and is worth doing regardless:** the integration test this called missing —
-nothing in `integration/` mentioned `zai`, `pack_profiles` or `providers`, though the pattern existed
-and **an in-jail assertion on the rendered `~/.codex/config.toml` is the single check that would have
-caught the headline defect**. `cee9c1fc` landed that test on 2026-09-02, **RED on purpose** — its
-assertions name only what pi, codex and opencode themselves accept — and it went green in the same
-cycle: `7fa624ba` turned the D10/D11 subtests green and `0f04632d` the D1 subtests, so all four
-subtests now pass (re-verified by running it). `pack_profiles` is the one word of the original
-complaint still without coverage **in `integration/`** — its unit coverage exists
-(`internal/config/useprofilekeys_test.go` — renamed with the key in `43d24e9e` —
-`internal/cli/configoverlayprofile_test.go`). The census
-half is done: `67f87f36` rewrote `AGENTS.md` and `packs/embed.go`, and `886a9191` fixed
-`USER_GUIDE.md:217` — which was never a census line but §5.2's `--profile` doc half, since renamed
-`--timing`. The doc's §9 puts the test first deliberately: it landed red, which is how it caught the
-defect.
-
-**Eight of nine ruled in one review round, and two of my leanings were overturned.** OQ-PT1 takes
-three protocol-shaped canonical names that are deliberately **nobody's dialect**, so a pass-through
-cannot work by accident. OQ-PT2 — *"why would we allow both of these? that right there seems
-broken"* — **refuses** the `base_url`/`endpoints` pair outright, and §7's A4 row is corrected: I had
-rejected the refusal claiming it made per-field override unspellable, and it does not (you override
-with `endpoints.<protocol>.base_url`, the shape the pack already used). OQ-PT5 gives the profile the
-good name — *"make the pack profile stuff short and easy"* — so the startup-timing flag is renamed
-and `profileValueAt`'s next-token heuristic, which cost two fix commits, is deleted rather than made
-more careful.
-
-**OQ-PT9 closed, against both positions I had argued.** *"So it can set environment vars that can do
-literally anything, but we won't let it pass through a token, in a way that would simplify
-everything?"* — right, and checked: a derive **already** controls its surface's computed layer
-including `mcp_servers` `command`/`args` with no schema validation, and
-[`trust-paths.md`](../design/trust-paths.md) **row 18 already records a fetched pack's `env` as
-"in-jail exec in practice (no key allowlist, so LD_PRELOAD etc.)" with approval "never,
-explicitly."** The capability is not being withheld; it is granted knowingly one row down. So the
-derive gets the resolved credential, and `{endpoint}`/`{key}`/`{region}`/`{model:alias}`, the
-`yolo.secret()` sentinel and the declared `credential_env` **all go** — the substitution vocabulary
-disappears rather than being replaced. The cost is recorded honestly as an auditability trade, not a
-security one: a derive reading a token from `ctx` is silent, while exfiltration through a written MCP
-command leaves an artifact `yolo config diff` shows.
-
-**And settling it found D9, which outranks the whole row.** `derive.lua` is **Lua that yolo executes**,
-loaded from any pack's root with **no origin gate** — the check `host_files` gets
-(`MayGrantHostFiles`: fetched content may never name a host file) has no counterpart — and its output
-becomes a config surface unvalidated. **It has no row in `trust-paths.md`'s 25-path census**: "lua"
-occurs once in that document, inside "re-derive". Row 13 is a *workspace* `yolo-jail.config.lua`; row
-17 is fetched-pack **content**, which is data. So: **a fetched pack may not name a host file to READ,
-and may ship code yolo RUNS.** The weaker capability is gated, the stronger is not. Filed as a census
-gap rather than a verdict — ungated derives may well be the right answer, given rows 18 and 19 — but
-no ruling exists to point at, and `trust-paths.md` owns that call.
-
-**What this row is NOT.** Not a retraction of either parent doc — the credential boundary, the
-three-level skew handling and the backend-parity repairs all re-measured clean. Not a proposal to
-reopen the enum, which would restore what 💬 **17** §7 step 3 closed. Not a new contribution kind:
-the `config-overlay` `profile` gate `568d5a3a` landed is the right mechanism, and OQ-PT3 asks only
-whether it may carry the placeholder vocabulary `env_shape` already has.
-
-
-### 💬 19 — A catalog and a selection are two features, and only one of them ships
-
-📄 [`provider-catalog-and-selection.md`](../design/provider-catalog-and-selection.md) —
-**all ruled 2026-09-01** — the doc is DECIDED; a tenth was raised and withdrawn · plans: [`catalog`](../design/provider-catalog-and-selection-plan.md) · [`fidelity`](../design/provider-table-fidelity-plan.md) · ~~OQ-CS1~~ ~~OQ-CS2~~ ~~OQ-CS4~~ ~~OQ-CS6~~ ruled · sibling to 💬 **18**, which reports defects in the same machinery ·
-splits what [`zai-plumbing.md`](../design/zai-plumbing.md) §5 assumed was one thing
-
-**The maintainer's own framing, 2026-09-01:** *"populating a directory of providers in an agent
-config"* and *"starting an agent using a specific profile"* are two features, and yolo mixes them.
-They are — and separating them shows the second is largely **unbuilt**.
-
-**Two of the three questions were ruled the same day.** *"Activating a profile should work for all"*
-takes option D (selection written into each agent's own key), and *"default can be left to the
-specific agent"* settles that yolo writes nothing when no profile is active. A third ruling landed
-in 💬 **18**: *"pack presence means in the dictionary, which also means fatal errors if no API key
-found"* keys the credential requirement to **catalog membership** instead of the pack declaration —
-which dissolves OQ-PT4 rather than answering it, since a `null`-dropped provider then stops being
-required. **And a fourth ruling defined the word.** *"That's what I want a profile to be. User declared, user
-intent … and the config surface of a profile needs to be defined by the provider."* A **profile** is
-a named selection over a provider, written in user config, whose legal tunables the provider
-defines — one meaning, in one place, and the one a user already assumes when they type `-p zai`.
-That closes 💬 **18**'s OQ-PT6, OQ-PT7 and OQ-PT8 together: the pack-variant body is not a profile
-at all but contributions gated on a profile name, so it moves to the `profile:` modifier — which
-also repairs the measured defect that a variant body is **unreachable** for a pack installing no
-CLI. `kind: "profile"` shrinks to name + provider.
-
-**Two review objections corrected the draft, and both were mine to fix.** *"What happens with
-bedrock? It can't be default enabled because a user may not have creds."* — I had restated the rule
-as "pack presence means in the dictionary", and pack presence is **not** catalog membership: a
-selected pack's providers all reach the composed table, but only endpoint-bearing ones reach a
-catalog, because that is what the derives gate on. Measured: with `packs: ["claude"]`, `bedrock`
-composes with **no endpoints and no credential pointer** — so it reaches no catalog, demands nothing
-with nothing hydrated, and **a user who has never touched AWS is never asked for anything**. Bedrock
-is a *selection-only* provider, and that falls out of "has no endpoint" rather than being an
-exemption. And *"profiles are a generic thing without a provider, and now also sorta provider
-profiles with a magically enforced schema — isn't this overloaded?"* — yes, and I built the overload:
-a property offering optional declaration for backward compatibility recreated the two-meanings
-problem. **Inverted:** every profile names a provider, declaration is mandatory (costs nothing —
-both profiles in the tree already do), and the schema is **two core-defined fields**, `provider` and
-`model`, with the provider defining only the legal *values*. No derivation, no reflection.
-
-**Two more rulings, and one overruled me.** *"Model can't be the only config we'll want, which is
-why I said the config surface/schema is dictated by the provider"* settles OQ-CS4 **against** my
-lean-conservative answer: a provider declares an `options` block, a profile is an instance of it, and
-the agent's own derive decides where each option lands — core learns no option names. And *"reversing
-old decisions is fine, we're debugging a mess of a design"* confirms OQ-CS6: `profiles-as-pack-variants.md`
-OQ-5's free-form names are **superseded**, so an undeclared profile name becomes a reportable error
-instead of a silent no-op.
-
-**And tracing "what do we actually use `ZAI_API_KEY` for" answered it and found a defect.** Three of
-four agents get the **name** and read the env themselves (pi `apiKeyEnv`, codex `api_key_env`,
-opencode `{env:…}`) — yolo never touches the secret and **it is embedded in no agent's config**.
-claude is the exception and it is a *rename*, not an embed: it reads `ANTHROPIC_AUTH_TOKEN`, nothing
-can alias one env var to another, so `{key}` copies the value. The defect: `writeUserEnvFile` writes
-the hydrated secrets to `<workspace>/.yolo/yolo-user-env.sh` at **0644** — measured `-rw-r--r--` with
-two keys in plaintext — while [`packs/zai/README.md`](../../packs/zai/README.md) tells the user to
-keep that key in a file that is *"untracked, 0600"*. Gitignored, so not a commit risk; the mode
-downgrade is real. Recorded as **D8** in 💬 **18**, along with the argv exposure the claude path
-carries structurally.
-
-**And the follow-up question found the mirror of 💬 18's headline defect.** *"Yolo must know how auth
-passes in case a rename is necessary … it's more that the claude pack specifically needs the env_name
-config, although that could be shared with other agents that need this rename."* Right, and stronger:
-**`env_shape` is declared by the PROVIDER and describes the AGENT.** `packs/zai` names
-`ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` — facts about claude, which z.ai has no opinion
-about. D1 hoisted an agent's vocabulary up into a core enum; this pushes an agent's requirement down
-into a provider record. Two costs: every provider serving claude restates claude's variable names
-(the maintainer's config already carries a `CEREBRAS_API_KEY`, so the third is not hypothetical),
-and — because nothing declares what claude needs — **each provider guesses a different subset**. zai
-declares endpoint + token and no model vars; bedrock declares models + region and no endpoint or
-token. Visible consequence: `packs/zai` ships `models: {default: glm-4.7, fast: glm-4.7-air}` and
-**nothing delivers them to claude**, since the `{model:…}` placeholders live only in `packs/claude`'s
-bedrock declaration. Whether that breaks anything at runtime is NOT established — z.ai's Anthropic
-route may remap the model name, and settling it needs an authenticated request this repo's tests may
-not make.
-
-The fix is the rule §3 is already built on: **each agent pack declares how a selection reaches it**,
-per protocol — codex and opencode name a config key, claude names a set of env vars — so `packs/zai`
-declares no `env_shape` at all and claude stops being the special case. New **OQ-CS8** asks whether
-that is a new kind or the existing field relocated (I lean relocate).
-
-**Two follow-ups, and the first found a naming problem worth fixing before anything ships.** *"Why do
-we have profiles and pack profiles? What's the diff?"* — they ARE two things (a **declaration**, name
-→ provider + options, durable; and a **selection**, which profile each CLI uses), and that split is
-the catalog/selection one a level up, so merging them re-creates the conflation this row exists to
-undo. **But `pack_profiles` names neither.** Its keys are **CLI names**, validated as such by
-`config.PackProfileCLINames`; no pack is named in it anywhere. It was `agent_profiles` until
-2026-09-01 and the rename's stated reason — *"the keys were always CLI names and core knows packs,
-not agents"* — is true about `agent` and does not make `pack` right. Standing a new `profiles` key
-beside it would leave two near-synonyms. I lean renaming the selection key to `use_profile`
-(*"use profile zai for claude"*), folded into OQ-CS5.
-
-*"Should new profiles point to a provider, or copy and override another profile? Option for both?"* —
-new **OQ-CS9**, leaning **provider-pointing only**, because OQ-CS4 already removed most of
-inheritance's value: a provider declares its options WITH DEFAULTS, so a profile states only what it
-changes and there is little to duplicate. `extends` costs cycles, chains and nested-override
-semantics to save one field. The residual case is honest and unresolved — a variant of a heavily
-customized profile would restate everything — but no profile in the tree has more than one option
-yet, so that evidence does not exist.
-
-**Both ruled: `use_profiles`, and (a).** The selection key becomes **`use_profiles`** — *"use profile
-zai-fast for claude"* — so the config reads `profiles` for what a profile IS and `use_profiles` for
-which CLI uses it, with no two keys that sound alike. And **profiles POINT at a provider; no
-`extends`** (OQ-CS9): provider-declared option defaults already remove the duplication inheritance
-would fix, and the residual case (a variant of a heavily customized profile) is recorded as the
-evidence that would reopen it, which does not exist yet.
-
-**The rename is one step, not two, by the maintainer's own precedent.** `pack_profiles` landed
-2026-08-31 and `v0.8.0` is dated 2026-08-13, so the intermediate name **has never been in a
-release** — it gets no deprecation path and becomes an ordinary unknown key, exactly as
-`api_key_env` did this morning. `agent_profiles` KEEPS its by-name message, because that spelling is
-in every host-generated jail snapshot in existence. Size on the record before scheduling: **92
-non-test occurrences** of `pack_profiles`/`YOLO_PACK_PROFILES`/`PackProfiles` across 12+ files plus
-88 in tests — a config key, an env var, a Lua `ctx` field the derives read, and the Go identifiers
-between them. Mechanical, but its own commit.
-
-**A review round closed three more, and two of them dissolved because I had not propagated 💬 18's
-OQ-PT9 into this doc.** *"Who is doing this selecting? Isn't this up to derive?"* — yes: **core
-resolves no model at all** (OQ-CS3), it hands the derive the active profile and the provider entry
-and the derive writes its agent's key, so `default` stays an ordinary alias and core reserves
-nothing. *"'Move' means the pack handles it? I need clearer details here."* — the leaning said "move
-the field" when OQ-PT9 had already deleted the field. **Nothing declares the binding; the agent's
-pack composes it in its own env-emitting derive** (OQ-CS8), and the doc now carries the Lua and the
-deletion list: `env_shape` plus its validators, the four placeholder constants, the env_shape skew
-tests, and most of a 250-line `internal/agentenv` — **including core's `agentProtocols` agent →
-protocol table**, which is `pack-code-separation.md`'s "core does not know what an agent is" arriving
-somewhere it had been explicitly excepted. And *"yes of course user"* settles OQ-CS5's scope: user
-scope only, both keys.
-
-**The last one closed, and the review corrected its shape.** OQ-CS7: core validates **nothing** — a
-typechecker there is `wire_api`'s enum again, a set core owns delivered verbatim to consumers that
-own different ones — and the derive validates with errors propagating. What core does keep is the
-**key census** this repo already runs everywhere (`knownProviderKeys`, `reportUnknownKeys`), which is
-a different thing from validating a value and is what makes the answer not a half-schema. So a
-provider declares its option names and defaults, a mistyped profile key errors *naming what the
-provider accepts*, and the footprint can print `accepts: model, thinking`.
-
-**And the shape got simpler under review:** *"I don't get why `{options: {model: {default: foo}}}`
-and not just `{options: {model: foo}}`"* — no reason. Once `kind`, `values` and enum checking were
-gone, `default` was the only field left and the wrapper object was the half-schema keeping a hole to
-climb back through. It is now a **flat name → default-value map**, which also matches its neighbour
-`models`. One wrinkle written into the ruling rather than left to be discovered: **`null` means
-*declared, no default*, NOT the delete convention** — un-declaring an option is a thing nobody wants,
-while "keep the option, drop the default" is a real override.
-
-**Writing the plans raised a tenth question and it was withdrawn on sight** — *"I don't get it, why
-would we NOT support env on the host too?"* There is no case on the other side: `yolo host -- claude`
-composing the same environment is behaviour [`host-agent-environment.md`](../design/host-agent-environment.md)
-§2.2 already fixes. Asking it as open invited a "no" nobody wants. **The fact underneath is real and
-moved to the plan as a constraint:** env composition is host-launch-time with three consumers —
-`profilechannel.go:93`, `host.go:432` (**no jail there**) and macos-user — while a derive runs in-jail
-at boot, so OQ-CS8's work must give the host notch a way to run the env derive. And the seam that was
-cited for it is wrong: `hostrender.go:377` is a **key-name probe against sentinel inputs**, whose own
-comment says content deliberately does not cross ("a jail's derived MCP table embeds jail-absolute
-paths"). A host-side env derive needs real tables — a new invocation, not a reuse. Both corrections
-are in the plan.
-
-**Step 1 needs no ruling and blocks the rest:** the doc's §3 per-agent selection table has one row
-empty (pi — its `models.json` carries only `providers`, and where pi records "the model I use" is
-not established) and one inferred rather than source-verified (opencode's `"<provider>/<model>"`).
-That is the same unverified-vocabulary class 💬 **18** exists to report, so this doc writes the rule
-down before building rather than after.
-
-**What this row is NOT.** No new vocabulary — two words, **catalog** and **selection**, both already
-meaningful; the "mode" coinage floated in 💬 18 is withdrawn. No new config key in the recommended
-option, which writes into keys the agents already define. No change to `kind: "provider"`, the
-composition, or the credential boundary — that is 💬 18's territory.
 
 
 # 📦 Up next
