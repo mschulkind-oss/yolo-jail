@@ -12,6 +12,7 @@ package packload
 // schema the derived configs never see.
 
 import (
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,23 +32,38 @@ import (
 // recursively; every other value replaces. A null user entry DROPS the provider outright,
 // the same convention the `providers` config key already has for a null entry.
 //
+// The merge REFUSES a composed entry that ends up carrying both `base_url` and
+// `endpoints` (provider-table-fidelity.md §4.1, OQ-PT2). Each half is legal alone — the
+// config validator takes them one at a time — but composed they are the pair it refuses,
+// and the consumers genuinely disagree about which wins: the derives prefer the shorthand
+// and fall back to `endpoints`, agentenv reads `endpoints` only. Per-field composition
+// would hand a user who wrote `base_url` over z.ai two different addresses, split by
+// consumer, silently. The refusal names both sources — the pack that shipped the
+// endpoints and the config key that shipped the shorthand — rather than picking a winner
+// and leaving the two consumers to disagree; the override the user wanted is still
+// spellable, as `endpoints.<protocol>.base_url`. A pack cannot start this: the manifest
+// schema has no entry-level `base_url` to ship (ProviderContribution), so a pack-only
+// entry can never carry the pair and only a user key can add the shorthand.
+//
 // A provider NAME claimed by two packs is refused by the launch pre-flight (the kind is
 // sole-owned by name; the claim target is the bare name, so packload.Collisions' generic
 // exclusive loop reports it). This compose keeps the FIRST and never overwrites, so a
 // caller that skipped the pre-flight degrades to a stable table rather than to whichever
 // pack happened to sort last.
-func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack) *jsonx.OrderedMap {
+func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack) (*jsonx.OrderedMap, error) {
 	out := jsonx.NewOrderedMap()
+	shipper := map[string]string{}
 	for _, p := range packs {
 		for _, prov := range p.Decl.Providers() {
 			if _, seen := out.Get(prov.Name); seen {
 				continue
 			}
 			out.Set(prov.Name, shippedProviderEntry(prov))
+			shipper[prov.Name] = p.Name
 		}
 	}
 	if user == nil {
-		return orderedOrNil(out)
+		return orderedOrNil(out), nil
 	}
 	for _, name := range user.Keys() {
 		v, _ := user.Get(name)
@@ -67,13 +83,44 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack) *jsonx.OrderedMap {
 			out.Set(name, u)
 			continue
 		}
-		if cm, ok := cur.(*jsonx.OrderedMap); ok {
-			mergeUnder(cm, u)
+		cm, ok := cur.(*jsonx.OrderedMap)
+		if !ok {
+			out.Set(name, u)
 			continue
 		}
-		out.Set(name, u)
+		mergeUnder(cm, u)
+		if err := addressConflict(name, cm, shipper[name]); err != nil {
+			return nil, err
+		}
 	}
-	return orderedOrNil(out)
+	return orderedOrNil(out), nil
+}
+
+// addressConflict refuses a COMPOSED entry that carries both the base_url shorthand and
+// an endpoints map. ComposeProviders calls it after every per-field merge, because the
+// merge is what can produce the pair out of two inputs that each pass validation — the
+// config validator's own refusal covers only an entry a user wrote whole (see
+// packdecl.ProviderAddressConflictMessage for why the words are shared).
+//
+// shipper is the pack that shipped the entry the user's key merged under, "" when none
+// did. It is what makes the refusal name both sources; a provider no pack shipped cannot
+// reach here through a launch (the user-layer validator refuses the whole-entry pair),
+// so an empty shipper names only what the composer can prove.
+func addressConflict(name string, entry *jsonx.OrderedMap, shipper string) error {
+	base, hasBase := entry.Get("base_url")
+	ends, hasEnds := entry.Get("endpoints")
+	if !(hasBase && base != nil && hasEnds && ends != nil) {
+		return nil
+	}
+	msg := "composing the providers table produced an entry the config validator refuses:\n" +
+		"  providers." + quoted(name) + ": " + packdecl.ProviderAddressConflictMessage
+	if shipper != "" {
+		msg += "\n  The endpoints are pack " + shipper + "'s; the base_url shorthand came " +
+			"from your config's providers." + name + ".base_url."
+	}
+	msg += "\n  To re-point one protocol, write the URL under it: " +
+		"providers." + name + ".endpoints.<protocol>.base_url"
+	return errors.New(msg)
 }
 
 // ProviderFor returns the provider the variant active at CLI name `bin` delivers: the

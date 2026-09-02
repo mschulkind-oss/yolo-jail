@@ -113,7 +113,16 @@ func (in *assembleInput) envChannel(o *Options) *packChannel {
 	if in.channel != nil {
 		return in.channel
 	}
-	return o.composePackChannel(in.cfg, in.packs, in.userEnv)
+	c, err := o.composePackChannel(in.cfg, in.packs, in.userEnv)
+	if err != nil {
+		// Unreachable from the run pipeline: Run composes above the backend dispatch,
+		// refuses there, and hands the channel in. A nil in.channel is a hand-built
+		// input — every one a test — and assembling an argv from a table the launch
+		// refused would be exactly the ambiguity this error exists to prevent, so fail
+		// loudly rather than quietly compose one.
+		panic("envChannel: the provider composition refused: " + err.Error())
+	}
+	return c
 }
 
 // lspNPM / lspGo return the resolved YOLO_LSP_*_INSTALL values.
@@ -707,7 +716,11 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 // happens — the result crosses to the jail whole and the derives read it verbatim — so a
 // user override of one model alias cannot cost the pack's endpoints, and nothing
 // downstream re-derives a second copy of the merge.
-func composedProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack) *jsonx.OrderedMap {
+//
+// The error is a launch refusal, not a degraded table: composition can manufacture the
+// base_url+endpoints pair every consumer would resolve differently, and handing the launch
+// a table like that is the defect the refusal exists to prevent.
+func composedProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack) (*jsonx.OrderedMap, error) {
 	return packload.ComposeProviders(cfgMap(cfg, "providers"), packs)
 }
 

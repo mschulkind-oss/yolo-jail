@@ -1391,6 +1391,25 @@ func validateAutonomyPosture(label string, p *AutonomyPosture) []string {
 // be the `tier` incident again. DecodeTolerant drops the unknown VALUE and reports it
 // (unknownWireAPISkip); an endpoint that declares NO wire_api is simply unremarkable here,
 // so the skip's output passes this check clean.
+// ProviderAddressConflictMessage is the ONE refusal both layers give a provider entry
+// carrying the `base_url` shorthand AND an `endpoints` map. internal/config's
+// validateProviders spends it on an entry a user wrote; packload.ComposeProviders spends
+// it on the same entry COMPOSED — a user `base_url` over a pack that ships `endpoints`
+// merges per field into exactly the pair this names, which is the pair the validator
+// refuses (provider-table-fidelity.md §4.1, OQ-PT2). One text, not two wordings, because
+// a message stated twice is the same drift a vocabulary stated twice is: the layer that
+// refuses the input and the layer that composes the output would come to disagree about
+// whether the pair is a defect at all.
+//
+// Overriding a pack that ships endpoints stays spellable, and the message says how: write
+// the URL under the protocol — `endpoints.<protocol>.base_url` — the same per-field merge
+// in the shape the pack already used. What the refusal costs is only the shorthand as an
+// override spelling, and the shorthand is precisely what is ambiguous once more than one
+// protocol is in play.
+const ProviderAddressConflictMessage = "base_url and endpoints are both set — base_url is " +
+	"the single-protocol shorthand and cannot be combined with it; move the URL into " +
+	"endpoints, under the protocol it speaks (zai-plumbing.md §5)"
+
 func validateProviderEndpoints(label string, endpoints map[string]ProviderEndpoint) []string {
 	var problems []string
 	for _, proto := range sortedKeys(endpoints) {

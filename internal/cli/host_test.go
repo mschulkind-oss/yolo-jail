@@ -785,7 +785,10 @@ func TestHostEnvRefusesUnanchoredRelativeEntries(t *testing.T) {
 	cfg.Set("env_sources", []any{"rel.env", map[string]any{"KEEP": "yes"}})
 
 	var warnings []string
-	vars := hostEnvVars(cfg, ws, "claude", "", func(msg string) { warnings = append(warnings, msg) })
+	vars, err := hostEnvVars(cfg, ws, "claude", "", func(msg string) { warnings = append(warnings, msg) })
+	if err != nil {
+		t.Fatalf("hostEnvVars: %v", err)
+	}
 	var env []string
 	for _, v := range vars {
 		env = append(env, v.Key+"="+v.Value)
@@ -924,5 +927,37 @@ func TestHostEnvIsNotGatedByTheCredentialPreflight(t *testing.T) {
 	}
 	if strings.Contains(errw.String(), "ZAI_API_KEY") {
 		t.Errorf("the observe verb must not inherit the exec half's refusal:\n%s", errw.String())
+	}
+}
+
+// The composition refusal reaches the HOST notch too. composedHostProviders is this
+// notch's one provider composition, and a user `base_url` over the local zai pack's
+// `endpoints` is the pair per-field composition manufactures out of two legal inputs
+// (provider-table-fidelity.md §4.1, OQ-PT2) — here handed to agentenv, which reads
+// endpoints only, with the derives preferring the shorthand. The exec refuses rather
+// than run on a table the launch cannot resolve consistently.
+func TestHostExecRefusesAManufacturedAddressPair(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("ZAI_API_KEY", "sk-zai") // the credential is fine; the ADDRESS is what refuses
+	t.Chdir(t.TempDir())
+	writeZaiLocalPack(t, home)
+	userCfg(t, home, `{"providers": {"zai": {"base_url": "https://my.proxy.example/v1"}}}`)
+
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 1 {
+		t.Fatalf("rc = %d, want 1\nstderr:\n%s", rc, errw.String())
+	}
+	got := errw.String()
+	for _, want := range []string{
+		`"zai"`,
+		"pack local",                    // the staged name of the pack that shipped the endpoints
+		"providers.zai.base_url",        // where the shorthand came from
+		"endpoints.<protocol>.base_url", // the override that still works
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal must name %q:\n%s", want, got)
+		}
 	}
 }

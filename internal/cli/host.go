@@ -151,6 +151,15 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "Warning: %s\n", msg)
 	})
 
+	// THE PROVIDER COMPOSITION's own refusal, before anything else: a provider table this
+	// notch cannot compose is one no launch may exec from, and the credential pre-flight
+	// below would be answering a question about a table that was never built. Same exit
+	// the pre-flight takes, same renderer's shape — verdict first, then the remedy.
+	if launch.err != nil {
+		fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", launch.err)
+		return 1
+	}
+
 	// THE CREDENTIAL PRE-FLIGHT at the host notch (profiles-as-pack-variants.md §6.2,
 	// OQ-13) — the same check the jail's launcher runs, on the environment THIS notch
 	// would exec with. Before resolveHostTarget, deliberately: a launch that would fail
@@ -235,6 +244,11 @@ type hostComposition struct {
 	// vars were composed from.
 	packs     []*packload.Pack
 	providers *jsonx.OrderedMap
+	// err is the refusal composing the provider table produced, if any. A field and not
+	// a second return because every consumer of this composition already owns an exit:
+	// the exec path prints and refuses, `yolo host env` returns an error to its caller.
+	// A caller that ignores it would exec an environment the launch refused to compose.
+	err error
 	// consulted is everything this launch asked for credentials: the env_sources entries
 	// it walked (relative ones already dropped, with their own warning) and the invoking
 	// shell's environment.
@@ -274,7 +288,7 @@ func (c *hostComposition) credentialGaps(getenv func(string) string) []string {
 // the agent name it resolved.
 func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, error) {
 	c := composeHostLaunch(bin, profile, warn)
-	return c.environ(), c.agent, nil
+	return c.environ(), c.agent, c.err
 }
 
 // composeHostLaunch composes the whole launch `yolo host -- <bin>` would exec: the
@@ -326,8 +340,9 @@ func composeHostLaunch(bin, profile string, warn func(string)) *hostComposition 
 // yolo-jail.jsonc is agent-editable; composing a host process's environment from it would
 // hand a cloned repo LD_PRELOAD on the user's machine. See UserScopeConfig for the whole
 // argument.
-func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn func(string)) []agentenv.Var {
-	return composeHostVars(cfg, workspace, agent, profile, warn).vars
+func hostEnvVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, warn func(string)) ([]agentenv.Var, error) {
+	c := composeHostVars(cfg, workspace, agent, profile, warn)
+	return c.vars, c.err
 }
 
 // composeHostVars is hostEnvVars' body, returning the whole composition rather than just
@@ -428,7 +443,11 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 		}
 		return os.LookupEnv(name)
 	}
-	providers := composedHostProviders(cfg, packs)
+	providers, err := composedHostProviders(cfg, packs)
+	if err != nil {
+		c.err = err
+		return c
+	}
 	vars = append(vars, agentenv.Resolve(
 		providers,
 		agent, profileName, packload.ProviderFor(packs, agent, profileName), lookup)...)
@@ -463,7 +482,7 @@ func composeHostVars(cfg *jsonx.OrderedMap, workspace, agent, profile string, wa
 // c.providers — because packload/providers.go states the composition happens exactly once
 // per launch, and two compositions would be two chances for the check and the exec to
 // disagree about what the launch carries.
-func composedHostProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack) *jsonx.OrderedMap {
+func composedHostProviders(cfg *jsonx.OrderedMap, packs []*packload.Pack) (*jsonx.OrderedMap, error) {
 	var user *jsonx.OrderedMap
 	if v, ok := cfg.Get("providers"); ok {
 		user, _ = v.(*jsonx.OrderedMap)
@@ -693,12 +712,15 @@ func hostEnv(args []string, out, errw io.Writer) int {
 }
 
 // hostEnvDelta returns just the variables yolo would add or remove, in composition order.
+// The composition's own refusal travels with it — `yolo host env` is an observe verb and
+// has to say why it has no environment to show, but it says it as an error rather than
+// printing a refusal an eval'ing shell would swallow.
 func hostEnvDelta(agent, profile string, warn func(string)) ([]agentenv.Var, error) {
 	workspace, err := os.Getwd()
 	if err != nil {
 		workspace = "."
 	}
-	return hostEnvVars(config.UserScopeConfigOrEmpty(), workspace, agent, profile, warn), nil
+	return hostEnvVars(config.UserScopeConfigOrEmpty(), workspace, agent, profile, warn)
 }
 
 // shellQuote wraps a value in single quotes for `export K=V`, escaping embedded quotes.

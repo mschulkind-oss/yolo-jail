@@ -915,10 +915,14 @@ func validateProviders(config *jsonx.OrderedMap, errs, warns *[]string) {
 		// say where a protocol points, and one provider carrying both is an ambiguity no
 		// consumer could resolve. The refusal names `endpoints` because that is where a
 		// URL belongs once more than one protocol is in play.
+		//
+		// The message is packdecl's, not a local literal: composition can MANUFACTURE
+		// this pair from two legal inputs (a user base_url over a pack that ships
+		// endpoints), and packload.ComposeProviders refuses the output with the same
+		// words (provider-table-fidelity.md §4.1, OQ-PT2). Sharing the text is what stops
+		// the two layers drifting into disagreeing about whether the pair is a defect.
 		if hasBase && base != nil && hasEndpoints && endpoints != nil {
-			add(errs, path+": base_url and endpoints are both set — base_url is the "+
-				"single-protocol shorthand and cannot be combined with it; move the URL "+
-				"into endpoints, under the protocol it speaks (zai-plumbing.md §5)")
+			add(errs, path+": "+packdecl.ProviderAddressConflictMessage)
 		}
 		if u, ok := cfg.Get("base_url"); ok && u != nil {
 			if s, isStrOk := asStr(u); !isStrOk {

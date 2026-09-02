@@ -757,6 +757,14 @@ func TestValidateProvidersBaseURLAndEndpointsTogetherIsRefused(t *testing.T) {
 	if !strings.Contains(errs[0], "endpoints") {
 		t.Errorf("the coexistence refusal must point at endpoints: %s", errs[0])
 	}
+	// The words are packdecl's, not this layer's own literal (provider-table-fidelity.md
+	// §4.1, OQ-PT2): composition can manufacture this pair out of two legal inputs, and
+	// packload.ComposeProviders refuses the output. Quoting the const here is the pin —
+	// if either layer rewords its half, this fails and the two have to be re-agreed.
+	if !strings.Contains(errs[0], packdecl.ProviderAddressConflictMessage) {
+		t.Errorf("the coexistence refusal must carry the SHARED message the composer refuses "+
+			"with (packdecl.ProviderAddressConflictMessage):\n%s", errs[0])
+	}
 }
 
 // ...and the other half of rule 1: a provider that is a NAME only — the thing a

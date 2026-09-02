@@ -22,6 +22,8 @@ package run
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -182,5 +184,81 @@ func TestUnprofiledNativeLaunchStillCarriesTheEmptyWireTables(t *testing.T) {
 	if envAt(got, "ANTHROPIC_AUTH_TOKEN") != "" {
 		t.Error("an unprofiled launch must compose no env_shape vars — presence is not " +
 			"selection, and a quiet reroute is the failure §7 names")
+	}
+}
+
+// writeUserConfig writes a whole user config body (not just the `packs` key) under a
+// temp HOME — writeUserPacks' general form, for a test that has to say something ABOUT
+// a pack rather than only select it.
+func writeUserConfig(t *testing.T, home, body string) {
+	t.Helper()
+	p := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// THE COMPOSITION's own refusal, pinned at the dispatch (provider-table-fidelity.md §4.1,
+// OQ-PT2). Every test above drives a channel that COMPOSED and asks what the credential
+// pre-flight says about it; this one drives a launch whose composition refuses, and asks
+// that no backend ever see it.
+//
+// The input is two LEGAL halves: the shipped zai pack ships `endpoints`, and the user
+// writes `providers.zai.base_url` — which the config validator accepts, base_url alone
+// being legal. Per-field composition used to merge them into exactly the pair the
+// validator refuses when a user writes it whole, and hand it to consumers that resolve it
+// differently (the three derives prefer the shorthand and fall back to endpoints;
+// agentenv reads endpoints only). A launch like that pointed claude at z.ai and everything
+// else at the user's proxy, silently, which is why the composer refuses rather than picks
+// a winner. Deleting the check at the dispatch makes this test fail on both counts: the
+// handler is reached, and the launch succeeds.
+func TestRunRefusesAManufacturedAddressPair(t *testing.T) {
+	home := packHome(t)
+	writeUserConfig(t, home, `{
+	  "packs": ["claude", "zai"],
+	  "providers": {"zai": {"base_url": "https://my.proxy.example/v1"}}
+	}`)
+	ws := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	o.Args = []string{"claude"}
+	o.ProfileName = "zai"
+	o.Getenv = func(name string) string {
+		if name == "YOLO_RUNTIME" {
+			return "macos-user"
+		}
+		if name == "ZAI_API_KEY" {
+			return "tok-shell" // the credential is fine; the ADDRESS is what refuses
+		}
+		return ""
+	}
+	reached := false
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ bool,
+		_ *jsonx.OrderedMap) int {
+		reached = true
+		return 0
+	}
+	if rc := Run(*o); rc != 1 {
+		t.Fatalf("Run() = %d, want 1: a composition that manufactures the base_url+endpoints "+
+			"pair must refuse the launch\nstderr:\n%s", rc, stderr.String())
+	}
+	if reached {
+		t.Error("the refused launch still reached the macos-user handler — the composition " +
+			"refusal must land before the backend is dispatched")
+	}
+	got := stderr.String()
+	for _, want := range []string{
+		`"zai"`,                         // the entry that came out ambiguous
+		"pack zai",                      // source 1: who shipped the endpoints
+		"providers.zai.base_url",        // source 2: where the user's shorthand came from
+		"endpoints.<protocol>.base_url", // the override that still works
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal must name %q:\n%s", want, got)
+		}
 	}
 }

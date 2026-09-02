@@ -66,14 +66,17 @@ type packChannel struct {
 // rather than resolving env_sources a second time; a hand-built assembleInput (every one
 // is a test) passes whatever it has, or nil.
 func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pack,
-	userEnv *jsonx.OrderedMap) *packChannel {
+	userEnv *jsonx.OrderedMap) (*packChannel, error) {
 	if userEnv == nil {
 		userEnv = config.ResolveEnvSources(o.Workspace, cfg, func(msg string) {
 			o.pr(o.Stdout).print(msg)
 		})
 	}
 	profiles := o.effectivePackProfiles(cfg, packs)
-	providers := composedProviders(cfg, packs)
+	providers, err := composedProviders(cfg, packs)
+	if err != nil {
+		return nil, err
+	}
 	c := &packChannel{
 		profiles:  profiles,
 		providers: providers,
@@ -93,7 +96,7 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 		c.shapeVars = append(c.shapeVars, agentenv.Resolve(providers, agent, profile,
 			packload.ProviderFor(packs, agent, profile), lookup)...)
 	}
-	return c
+	return c, nil
 }
 
 // shapeLookup is the lookup the env_shape composition resolves a {key} placeholder

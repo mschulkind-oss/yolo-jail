@@ -155,7 +155,15 @@ func Run(opts Options) int {
 	// is that both arms below consume THIS value, so `yolo -p zai -- claude` composes the
 	// same environment on a container and on a native sandbox instead of composing it
 	// twice (or, on one of them, not at all).
-	channel := o.composePackChannel(cfg, staged.packs, nil)
+	channel, err := o.composePackChannel(cfg, staged.packs, nil)
+	if err != nil {
+		// The composed provider table is the one thing a launch cannot disagree with
+		// itself about, so a composition that refuses refuses HERE — above the backend
+		// dispatch, before either arm starts a thing. printProviderRefusal is the same
+		// renderer the credential pre-flight uses, so both refusals read alike.
+		o.printProviderRefusal([]string{"Refusing to launch: " + err.Error()})
+		return 1
+	}
 	injectedArgs := o.Args
 	if len(injectedArgs) > 0 {
 		injectedArgs = packload.InjectLaunchFlags(staged.packs,
