@@ -125,41 +125,6 @@ func addressConflict(name string, entry *jsonx.OrderedMap, shipper string) error
 	return errors.New(msg)
 }
 
-// ProviderFor returns the provider the profile active at CLI name `bin` selects: the
-// `provider` of a profile declared under that name by a selected pack, or — when no pack
-// declares one — the profile's own name, which is the convention the composed table has
-// always keyed on (use_profiles.claude = "bedrock" reaching providers.bedrock).
-//
-// The declaration need NOT live on the pack that installs the bin. A provider pack
-// usually installs no CLI at all (packs/zai is the shipped case), so keying this on the
-// bin's owner would make its declaration unreachable and, with it, the whole
-// deliver-the-provider-to-the-agent shape the kind exists for. The bin owner's own
-// declaration wins when both declare (the agent's own pack is the more specific intent),
-// then the first pack in delivery order, so the answer is stable rather than map-order.
-//
-// Empty when no profile is active, and the bare name when no declaration narrows it:
-// agentenv treats both as inert, because escalating a provider that is missing or
-// unhydrated is the §6.2 preflight's business, not this lookup's.
-func ProviderFor(packs []*Pack, bin, profile string) string {
-	if profile == "" {
-		return ""
-	}
-	for _, p := range packs {
-		if !p.installsBin(bin) {
-			continue
-		}
-		if prof := p.Decl.ProfileFor(profile); prof != nil && prof.Provider != "" {
-			return prof.Provider
-		}
-	}
-	for _, p := range packs {
-		if prof := p.Decl.ProfileFor(profile); prof != nil && prof.Provider != "" {
-			return prof.Provider
-		}
-	}
-	return profile
-}
-
 // installsBin reports whether this pack puts bin on PATH.
 func (p *Pack) installsBin(bin string) bool {
 	for _, b := range p.InstallBins() {

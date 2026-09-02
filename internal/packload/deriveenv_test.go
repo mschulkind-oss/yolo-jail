@@ -68,8 +68,13 @@ end)`)
 	if err != nil {
 		t.Fatalf("composing providers: %v", err)
 	}
+	resolved, err := ResolveProfiles([]*Pack{claude, zai}, nil)
+	if err != nil {
+		t.Fatalf("resolving: %v", err)
+	}
 	vars, err := AgentEnv([]*Pack{claude, zai}, providers,
-		map[string]string{"claude": "glm"}, "claude", "glm", envLookup)
+		map[string]string{"claude": "glm"}, "claude", "glm", envLookup,
+		WithResolvedProfiles(resolved))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,6 +85,48 @@ end)`)
 	}
 	if len(vars) != len(want) {
 		t.Fatalf("vars = %#v, want %#v", vars, want)
+	}
+	for i := range want {
+		if vars[i] != want[i] {
+			t.Errorf("var %d = %#v, want %#v", i, vars[i], want[i])
+		}
+	}
+}
+
+// THE SELECTION HALF of the ctx, pinned where it can only fail for real: the profile is
+// declared by the USER alone — `zai-fast` is in no manifest, so a resolution that walked
+// the pack manifests falls back to the bare name and indexes a provider that does not
+// exist — and the producer still emits the provider's environment. The empty result a
+// revert produces is the failure mode this test exists to catch: the launch composes no
+// provider env for a profile it accepted, and says nothing about it.
+func TestAgentEnvResolvesAUserDeclaredProfileToItsProvider(t *testing.T) {
+	claude := envClaudePack(t, `
+yolo.env("claude", function(ctx)
+  local p = ctx.providers[ctx.selected_provider]
+  if not p then return {} end
+  return { ANTHROPIC_BASE_URL = p.endpoints.anthropic.base_url }
+end)`)
+	zai := envZaiPack(t)
+	providers, err := ComposeProviders(nil, []*Pack{claude, zai})
+	if err != nil {
+		t.Fatalf("composing providers: %v", err)
+	}
+	resolved, err := ResolveProfiles([]*Pack{claude, zai}, map[string]UserProfile{
+		"zai-fast": {Provider: "zai"},
+	})
+	if err != nil {
+		t.Fatalf("resolving: %v", err)
+	}
+	vars, err := AgentEnv([]*Pack{claude, zai}, providers,
+		map[string]string{"claude": "zai-fast"}, "claude", "zai-fast", envLookup,
+		WithResolvedProfiles(resolved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []agentenv.Var{{Key: "ANTHROPIC_BASE_URL", Value: "https://api.z.ai/api/anthropic"}}
+	if len(vars) != len(want) {
+		t.Fatalf("vars = %#v, want %#v — a user-declared profile must select the provider "+
+			"it names, not fall back to its own name", vars, want)
 	}
 	for i := range want {
 		if vars[i] != want[i] {
@@ -104,8 +151,13 @@ end)`)
 	if err != nil {
 		t.Fatalf("composing providers: %v", err)
 	}
+	resolved, err := ResolveProfiles([]*Pack{claude, zai}, nil)
+	if err != nil {
+		t.Fatalf("resolving: %v", err)
+	}
 	if _, err := AgentEnv([]*Pack{claude, zai}, providers,
-		map[string]string{"claude": "glm"}, "claude", "glm", envLookup); err != nil {
+		map[string]string{"claude": "glm"}, "claude", "glm", envLookup,
+		WithResolvedProfiles(resolved)); err != nil {
 		t.Fatal(err)
 	}
 	dumped := jsonDumps(providers)
@@ -138,9 +190,14 @@ yolo.env("claude", function(ctx)
 end)`)
 	zai := envZaiPack(t)
 	providers, _ := ComposeProviders(nil, []*Pack{claude, zai})
+	resolved, err := ResolveProfiles([]*Pack{claude, zai}, nil)
+	if err != nil {
+		t.Fatalf("resolving: %v", err)
+	}
 	miss := func(string) (string, bool) { return "", false }
 	vars, err := AgentEnv([]*Pack{claude, zai}, providers,
-		map[string]string{"claude": "glm"}, "claude", "glm", miss)
+		map[string]string{"claude": "glm"}, "claude", "glm", miss,
+		WithResolvedProfiles(resolved))
 	if err != nil {
 		t.Fatal(err)
 	}

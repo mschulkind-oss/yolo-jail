@@ -382,7 +382,7 @@ type EnvFoldEntry struct {
 // The GATE is the OQ-PT8 shrink's consumer — a profile's env used to ride the
 // `kind: "profile"` body, and it lives on the gated contribution now. A gate is
 // satisfied when the profile is active for a bin the pack installs, or — the second
-// pass, ProviderFor's two-pass shape — when it is active for ANY bin at all, which is
+// pass, profileActive's wide half — when it is active for ANY bin at all, which is
 // what makes a CLI-less pack's gated env reachable: packs/zai installs nothing, so
 // keying on its own bins could never fire (the reachability defect
 // provider-table-fidelity.md §5.4 measures for the kind). The gate asks the launch's
@@ -422,12 +422,11 @@ func EnvFold(packs []*Pack, profiles map[string]string) []EnvFoldEntry {
 
 // profileActive answers the env fold's gate: is `name` active for a bin `p` installs,
 // or — the pass that reaches a pack installing nothing — for any bin the launch
-// installs at all? The two passes are in that order for the same reason ProviderFor's
-// are: the pack's own claim is the more specific question, and the wide one is what
-// keeps the answer from depending on who happens to install the CLI the profile steers.
-// The launch's bins, not the table's keys, are what the wide pass walks: a caller hands
-// this fold a table it built (the host notch's single-agent one), and a key that names
-// no installed CLI is no activation.
+// installs at all? The two passes are in that order because the pack's own claim is the
+// more specific question, and the wide one is what keeps the answer from depending on
+// who happens to install the CLI the profile steers. The launch's bins, not the table's
+// keys, are what the wide pass walks: a caller hands this fold a table it built (the
+// host notch's single-agent one), and a key that names no installed CLI is no activation.
 func profileActive(packs []*Pack, p *Pack, name string, profiles map[string]string) bool {
 	if name == "" || len(profiles) == 0 {
 		return false

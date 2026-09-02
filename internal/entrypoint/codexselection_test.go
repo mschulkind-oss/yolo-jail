@@ -29,10 +29,10 @@ import (
 // renderCodexConfig drives the boot render of the real codex pack over the given provider
 // table and selection table, and returns the decoded config.toml.
 //
-// The zai pack rides along because it is the pack that DECLARES the `zai` profile — the
-// shipped shape where the profile lives on a pack that installs no CLI, so the resolution
-// is cross-pack by construction. Without it, `{"codex": "zai"}` would resolve to the bare
-// name and this harness would be testing a different rule than the one that ships.
+// The zai pack rides along because it SHIPS the zai provider facts — the shipped pairing
+// the derive translates (its provider reaches the derive through YOLO_PROVIDERS, which the
+// fixture sets directly) — and because a launch that selects zai at codex's CLI name is
+// the case the shipped catalogue answers.
 func renderCodexConfig(t *testing.T, providersJSON, profilesJSON, wireProfiles string) map[string]any {
 	t.Helper()
 	codex, err := embeddedPack("codex")
@@ -49,11 +49,14 @@ func renderCodexConfig(t *testing.T, providersJSON, profilesJSON, wireProfiles s
 		"YOLO_USE_PROFILES": profilesJSON,
 	}
 	// wireProfiles is the resolved table a real launch lowers in (YOLO_PROFILES) — the
-	// input ctx.profile reads, which the model half of the selection derives from. ""
-	// leaves it unset: the no-option world, and the world of a launch that composed no
-	// profiles at all.
+	// table BOTH halves of the selection read from: the provider through
+	// packload.ProviderFor and the option map through activeProfileOptions. "" lowers the
+	// names-as-providers default instead: the spelling a launch resolves for a config whose
+	// every selected name declares itself (OQ-CS6 refuses anything else before rendering).
 	if wireProfiles != "" {
 		vars["YOLO_PROFILES"] = wireProfiles
+	} else {
+		vars["YOLO_PROFILES"] = nameAsProviderTable(t, profilesJSON)
 	}
 	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: vars, Stderr: &errw}
 	withCtxRoot(t, t.TempDir(), "codex")

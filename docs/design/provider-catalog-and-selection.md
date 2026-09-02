@@ -395,9 +395,13 @@ That is one meaning, in one place, and it is the meaning a user already assumes 
 { "kind": "profile", "name": "zai", "provider": "zai" }      // the default intent
 ```
 
-**A user adding a second intent over the same provider** — the case that is not expressible today
-(measured: `ProviderFor(claude, "zai-fast")` returns `"zai-fast"`, the name fallback, so the second
-name resolves to a provider that does not exist):
+**A user adding a second intent over the same provider** — the case the selection resolution
+exists for, and the one its first implementation got wrong (measured, before the fix: the
+selection resolved off the PACK MANIFESTS alone, so a name only the user declares fell back to
+itself — `zai-fast` — and indexed a provider that does not exist, writing no selection at all.
+`ProviderFor` now reads the resolved table, user declarations included, so the second name
+resolves to `zai`:
+[`TestProfileOptionSelectsTheAliasInTheAgentsOwnFile`](../../integration/profiles_options_test.go)):
 
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc

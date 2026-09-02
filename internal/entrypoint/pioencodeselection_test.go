@@ -29,6 +29,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -89,6 +90,12 @@ func newPioencodeRender(t *testing.T, providersJSON string) *pioencodeRender {
 
 // render runs one boot with the given profile table. A boot failure is fatal: every later
 // step of a sequence would be measuring a render that never happened.
+//
+// Unless the case installed a resolved table of its own (wireProfiles), one is lowered for
+// the names this boot ACTIVATES, each declaring its own name as its provider — the
+// OQ-CS6-declared spelling, since a launch refuses a name nothing declares before any of
+// this renders. A case that needs the table to carry more than that (an option, or a
+// provider other than the name) sets its own and is not second-guessed here.
 func (r *pioencodeRender) render(t *testing.T, profilesJSON string) {
 	t.Helper()
 	pi, err := embeddedPack("pi")
@@ -99,15 +106,17 @@ func (r *pioencodeRender) render(t *testing.T, profilesJSON string) {
 	if err != nil {
 		t.Fatalf("embedded opencode: %v", err)
 	}
-	// zai rides along because it is the pack that DECLARES the `zai` variant — the shipped
-	// shape where the profile lives on a pack that installs no CLI, so the resolution is
-	// cross-pack by construction. Without it, `{"pi": "zai"}` would resolve to the bare
-	// name and this harness would be testing a different rule than the one that ships.
+	// zai rides along because it is the pack that SHIPS the zai provider facts — the
+	// shipped pairing these derives translate (its provider reaches the derives through
+	// YOLO_PROVIDERS, which the fixture sets directly).
 	zai, err := embeddedPack("zai")
 	if err != nil {
 		t.Fatalf("embedded zai: %v", err)
 	}
 	r.e.Vars["YOLO_USE_PROFILES"] = profilesJSON
+	if _, lowered := r.e.Vars["YOLO_PROFILES"]; !lowered {
+		r.wireProfiles(nameAsProviderTable(t, profilesJSON))
+	}
 	ConfigurePackSurfaces(r.e, []*packload.Pack{pi, ocode, zai})
 	if fails := r.e.GenFailures(); len(fails) != 0 {
 		t.Fatalf("boot render failed: %v\n%s", fails, r.errw.String())
@@ -115,13 +124,47 @@ func (r *pioencodeRender) render(t *testing.T, profilesJSON string) {
 }
 
 // wireProfiles installs the RESOLVED profile table a real launch composes on the host and
-// lowers into the jail as YOLO_PROFILES — the table activeProfileOptions reads to fill
-// ctx.profile, the input the model half of a selection derives from. It stays in force
-// across renders on purpose: a launch delivers the table every boot, so a multi-boot
-// sequence that keeps the selection selected sees the same options each time. A test that
-// never sets it exercises the no-option world, which is also the world of a launch that
-// composed no profiles.
+// lowers into the jail as YOLO_PROFILES — the table BOTH halves of the ctx read from: the
+// provider through packload.ProviderFor and the options through activeProfileOptions. It
+// stays in force across renders on purpose: a launch delivers the table every boot, so a
+// multi-boot sequence that keeps the selection selected sees the same options each time. A
+// test that never sets it gets the names-as-providers default the render lowers.
 func (r *pioencodeRender) wireProfiles(json string) { r.e.Vars["YOLO_PROFILES"] = json }
+
+// nameAsProviderTable is the resolved wire table for an active-profile table whose every
+// selected name is the user's own declaration of a provider of the same name:
+// name → {provider: name}. It is what a launch resolves to for such a config, and it keeps
+// a case whose point is the PROVIDER table (a name the table does not hold, a protocol the
+// agent cannot speak) honest about the selection half.
+func nameAsProviderTable(t *testing.T, profilesJSON string) string {
+	t.Helper()
+	out := jsonx.NewOrderedMap()
+	if profilesJSON != "" {
+		decoded, err := jsonx.Decode([]byte(profilesJSON))
+		if err != nil {
+			t.Fatalf("decoding the profile table %s: %v", profilesJSON, err)
+		}
+		m, ok := decoded.(*jsonx.OrderedMap)
+		if !ok {
+			t.Fatalf("profile table %s is not an object", profilesJSON)
+		}
+		for _, agent := range m.Keys() {
+			v, _ := m.Get(agent)
+			name, _ := v.(string)
+			if name == "" {
+				continue
+			}
+			entry := jsonx.NewOrderedMap()
+			entry.Set("provider", name)
+			out.Set(name, entry)
+		}
+	}
+	data, err := jsonx.DumpsCompact(out)
+	if err != nil {
+		t.Fatalf("encoding the resolved table: %v", err)
+	}
+	return data
+}
 
 // surface reads one rendered surface back and decodes it. A missing file is fatal rather
 // than an empty map: "the key is absent" is only an assertion if the file it is absent

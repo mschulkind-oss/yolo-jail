@@ -154,12 +154,38 @@ func ResolveProfiles(packs []*Pack, user map[string]UserProfile) (map[string]Res
 	return out, nil
 }
 
+// ProviderFor returns the provider the named profile selects, read off a RESOLVED table —
+// ResolveProfiles' output, the one place a profile name means a provider, user
+// declarations included.
+//
+// It is the whole of the selection resolution, and BOTH derive paths answer through it:
+// the env path (AgentEnv's ctx.selected_provider) and the surface path (the entrypoint's
+// surfaceSelectionFor, reading the same table after it crosses as YOLO_PROFILES). Reading
+// the pack manifests here instead was the defect: a name only the USER declares is in no
+// manifest, so a manifest walk fell back to the bare name, and the bare name is a provider
+// that does not exist — the profile was accepted (OQ-CS6 sees user declarations), its
+// option map crossed, and the selection still wrote nothing. A manifest walk is also where
+// the two sources can disagree: a user re-pointing a PACK-declared profile at another
+// provider (the §5.2 customize case) resolves here to the user's provider, which no
+// manifest holds.
+//
+// Empty when the table does not hold the name. A SELECTED name is always in it — the
+// launcher resolves before it emits, and OQ-CS6 refuses a name nothing declares — so an
+// empty answer means only "no profile is active at this CLI name" or "no table crossed",
+// which are the same signal downstream: the derive writes nothing (OQ-CS2).
+func ProviderFor(resolved map[string]ResolvedProfile, profile string) string {
+	if r, ok := resolved[profile]; ok {
+		return r.Provider
+	}
+	return ""
+}
+
 // packShippedProfiles returns every `kind: "profile"` the selected packs declare, keyed
-// by name, first pack in delivery order winning — the same resolution ProviderFor
-// applies (bin-owner first, then delivery order) with no bin to key on. A name claimed
-// across packs is not refused here: the selector fold downstream already had to pick
-// one, and refusing would move a decision that has always been "first wins" into the
-// one pass that can least afford to invent a second rule for it.
+// by name, first pack in delivery order winning — the same convention ComposeProviders
+// applies to a provider name two packs ship. A name claimed across packs is not refused
+// here: the selector fold downstream already had to pick one, and refusing would move a
+// decision that has always been "first wins" into the one pass that can least afford to
+// invent a second rule for it.
 func packShippedProfiles(packs []*Pack) map[string]packdecl.ProfileContribution {
 	out := map[string]packdecl.ProfileContribution{}
 	for _, p := range packs {

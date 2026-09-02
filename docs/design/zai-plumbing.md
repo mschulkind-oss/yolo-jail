@@ -141,8 +141,10 @@ exists for. That gap is Route B's entrance.
 > `yolo.env("claude", …)` producer that reads `ctx.providers[ctx.selected_provider]` and emits
 > `ANTHROPIC_BASE_URL` from the provider's `endpoints.anthropic.base_url` and
 > `ANTHROPIC_AUTH_TOKEN` from the hydrated key (OQ-CS8/OQ-PT9 — the same derive §4's note names
-> as the whole route-B delivery). `ProviderFor` falls back to the profile's own name when no
-> selected pack declares one, so Route A plus `-p zai` reaches claude with **no zai pack at all**.
+> as the whole route-B delivery). The selection resolves off the launch's resolved profile
+> table (`packload.ProviderFor` over `YOLO_PROFILES` — user declarations included, since
+> OQ-CS6 makes a declaration mandatory), so Route A plus `-p zai` reaches claude with **no
+> zai pack at all** — provided the user's own `profiles` entry declares the name.
 > Two conditions the paragraph above never had: the selection is required (`selected_provider`
 > is empty without one and nothing composes), and the provider must name the protocol —
 > `endpoints.anthropic.base_url` — because the single-`base_url` shorthand names no protocol, so

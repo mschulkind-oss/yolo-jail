@@ -78,9 +78,10 @@ func selectionProviderPack(t *testing.T) *packload.Pack {
 
 // renderAcmeSelection drives the BOOT LOOP over the two fixture packs with the given
 // jail profile table and returns the rendered settings file parsed. wireProfiles is the
-// resolved profile table a real launch lowers in as YOLO_PROFILES — the table
-// activeProfileOptions reads to fill ctx.profile — and "" leaves it unset, the state of
-// a launch that composed no profiles.
+// resolved profile table a real launch lowers in as YOLO_PROFILES — the table BOTH halves
+// of the ctx read from, the provider through packload.ProviderFor and the options through
+// activeProfileOptions — and "" leaves it unset, the state of a launch that composed no
+// profiles.
 func renderAcmeSelection(t *testing.T, profiles, wireProfiles string) map[string]any {
 	t.Helper()
 	var errw bytes.Buffer
@@ -109,8 +110,10 @@ func renderAcmeSelection(t *testing.T, profiles, wireProfiles string) map[string
 // A profile active at the surface agent's CLI name: the derive sees the provider the
 // profile DELIVERS, not the profile's name — the distinction the resolution rule exists
 // for, and the one a derive re-deriving from ctx.use_profiles in Lua would get wrong.
+// The provider arrives off the resolved table, so this render lowers one, exactly as the
+// launcher does for the pack-declared profile the fixture selects.
 func TestSurfaceDeriveSeesTheResolvedProvider(t *testing.T) {
-	got := renderAcmeSelection(t, `{"acme":"aws"}`, "")
+	got := renderAcmeSelection(t, `{"acme":"aws"}`, `{"aws": {"provider": "aws-bedrock"}}`)
 	if got["selected_provider"] != "aws-bedrock" {
 		t.Errorf("selected_provider = %v, want the profile's provider aws-bedrock — the "+
 			"derive must read the resolved selection, not re-derive it from "+
@@ -121,14 +124,33 @@ func TestSurfaceDeriveSeesTheResolvedProvider(t *testing.T) {
 	}
 }
 
+// THE REGRESSION this file exists for: the active profile is declared by the USER alone —
+// `zai-fast` is in no pack manifest, so the manifest walk this replaced answered with the
+// bare name, a provider that does not exist, and a profile the launch had already ACCEPTED
+// (OQ-CS6 reads user declarations) selected nothing. The table the launcher lowered in is
+// the one source that holds the name, so the derive sees its provider. A revert to
+// manifests-only resolution answers "zai-fast" here and fails this test.
+func TestSurfaceDeriveSeesAUserDeclaredProfilesProvider(t *testing.T) {
+	got := renderAcmeSelection(t, `{"acme":"zai-fast"}`, `{"zai-fast": {"provider": "zai"}}`)
+	if got["selected_provider"] != "zai" {
+		t.Errorf("selected_provider = %v, want the provider the user-declared profile names "+
+			"(zai) — the surface path resolves off the launch's resolved table, which user "+
+			"declarations are part of, never off the pack manifests:\n%v", got["selected_provider"], got)
+	}
+	if got["profile_name"] != "zai-fast" {
+		t.Errorf("profile_name = %v, want the active profile's own name zai-fast:\n%v",
+			got["profile_name"], got)
+	}
+}
+
 // THE OPTION HALF of the same ctx, at the same call site. profilesctx_test.go owns the
 // exposure mechanics of ctx.profile (the parse, the always-a-table rule, the empty cases);
 // what belongs here is the UNION this file is about — one render handing a derive BOTH
 // halves of a cross-pack selection, the provider resolved through ProviderFor and the
-// options read off YOLO_PROFILES. Every shipped selection derive reads exactly
-// ctx.profile.model, so a call site that stopped passing Profile would leave it empty,
-// every shipped derive would silently answer with the provider's `default` alias, and
-// nothing that tested the resolution alone would know.
+// options read off the same YOLO_PROFILES entry. Every shipped selection derive reads
+// exactly ctx.profile.model, so a call site that stopped passing Profile would leave it
+// empty, every shipped derive would silently answer with the provider's `default` alias,
+// and nothing that tested the resolution alone would know.
 func TestSurfaceDeriveSeesTheResolvedProviderAndItsOptions(t *testing.T) {
 	got := renderAcmeSelection(t, `{"acme":"aws"}`,
 		`{"aws": {"provider": "aws-bedrock", "model": "fast"}}`)
@@ -148,8 +170,9 @@ func TestSurfaceDeriveSeesTheResolvedProviderAndItsOptions(t *testing.T) {
 // nothing (OQ-CS2). Another agent's selection leaking in here would write acme a
 // selection its own launch never made.
 func TestSurfaceDeriveSeesNoSelectionWhenNoneIsActive(t *testing.T) {
+	resolved := `{"aws": {"provider": "aws-bedrock"}}`
 	for _, table := range []string{``, `{}`, `{"claude":"aws"}`} {
-		got := renderAcmeSelection(t, table, "")
+		got := renderAcmeSelection(t, table, resolved)
 		if got["selected_provider"] != "" {
 			t.Errorf("table %q: selected_provider = %v, want empty — no profile is active "+
 				"at acme's CLI name (OQ-CS2: the no-profile case is the agent's own)",
@@ -161,14 +184,19 @@ func TestSurfaceDeriveSeesNoSelectionWhenNoneIsActive(t *testing.T) {
 	}
 }
 
-// A profile active but declared by NO pack: the resolution falls back to the bare name,
-// the convention the composed providers table has always keyed on
-// (use_profiles.acme = "mystery" reaching providers.mystery).
-func TestSurfaceDeriveFallsBackToTheProfileName(t *testing.T) {
-	got := renderAcmeSelection(t, `{"acme":"mystery"}`, "")
-	if got["selected_provider"] != "mystery" {
-		t.Errorf("selected_provider = %v, want the undeclared profile's own name mystery "+
-			"— the convention ProviderFor keeps for a profile no pack declares:\n%v",
-			got["selected_provider"], got)
+// A profile active whose name the resolved table does not hold. A real launch cannot get
+// here — the launcher refuses an undeclared name before it emits anything (OQ-CS6) — so
+// the empty selection is the honest rendering of a table that never crossed, not a
+// fallback to be preserved: the bare name would index a provider the table does not hold,
+// which is exactly the half-selection the shared gate exists to make unrepresentable.
+func TestSurfaceDeriveSelectsNothingWhenTheTableLacksTheName(t *testing.T) {
+	got := renderAcmeSelection(t, `{"acme":"mystery"}`, `{"aws": {"provider": "aws-bedrock"}}`)
+	if got["selected_provider"] != "" {
+		t.Errorf("selected_provider = %v, want empty — the resolved table holds no "+
+			"\"mystery\", and the bare name is not a provider:\n%v", got["selected_provider"], got)
+	}
+	if got["profile_name"] != "mystery" {
+		t.Errorf("profile_name = %v, want the active profile's own name mystery:\n%v",
+			got["profile_name"], got)
 	}
 }

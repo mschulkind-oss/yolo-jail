@@ -157,6 +157,12 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 	// follow (every pack sees every key), which is what makes a profile visible to a pack
 	// that installs no CLI (packs/zai) rather than only to one with a bin to gate on.
 	profiles := packload.ProfileTable(e.LoadUseProfiles())
+	// The resolved table (YOLO_PROFILES) the same launch lowered in: what every profile
+	// NAME means, user declarations included. The selection below reads it — the pack
+	// manifests cannot answer for a name only the user declares, and re-deriving here
+	// would be the second implementation of ResolveProfiles the one-composition rule
+	// forbids.
+	resolved := e.LoadProfiles()
 	// config-overlay contributions are collected BEFORE the per-pack loop and across the
 	// whole set, because an overlay in pack B targets a surface pack A owns — the only
 	// case the kind exists for. Collecting per-pack would find, for that case, exactly
@@ -195,7 +201,7 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 			surface := s
 			genStep(e, "configure_"+surface.Agent+"_"+surface.Name, func() error {
 				return renderDeclaredSurface(e, surface, tables, deriveScript,
-					surfaceSelectionFor(packs, profiles, surface),
+					surfaceSelectionFor(resolved, profiles, surface),
 					overlays.For(surface.Agent, surface.Name))
 			})
 		}
@@ -235,12 +241,11 @@ func reportOverlayResolution(e *Env, overlays *packoverlay.OverlaySet) {
 //
 // "Resolved" is the operative word, and it is why the surface loop computes this rather
 // than leaving the derive to read the profile table itself: the provider is NOT
-// necessarily the profile's name. packload.ProviderFor reads the `provider` field of the
-// profile a selected pack declares under that name — the CLI-owning pack's declaration
-// winning when both declare — and it reads EVERY selected pack's, because the pack that
-// declares it usually installs no CLI at all (packs/zai is the shipped case); so the
-// fallback a derive can write for itself, "index use_profiles by my own agent name",
-// answers a different question. The Provider field is "" when no profile is active at
+// necessarily the profile's name. The provider comes off the resolved table the launcher
+// composed (YOLO_PROFILES) — packload.ProviderFor over LoadProfiles, the ONE rule both
+// derive paths answer through, user declarations included — so the fallback a derive can
+// write for itself, "index use_profiles by my own agent name", answers a different
+// question. The Provider field is "" when no profile is active at
 // this agent's CLI name, which is the derive's signal to write nothing (OQ-CS2: the
 // no-profile case is the agent's own).
 type surfaceSelection struct {
@@ -253,14 +258,22 @@ type surfaceSelection struct {
 }
 
 // surfaceSelectionFor resolves one surface's selection: packload.ProviderFor — the ONE
-// rule both derive paths answer through — over the set of loaded packs and the profile
-// table the caller already lowered. Both entries that render surfaces call this
-// (ConfigurePackSurfaces on the boot path, ConfigurePackByName for `yolo check`), so
-// there is no second place to spell the resolution differently.
-func surfaceSelectionFor(packs []*packload.Pack, profiles map[string]string, s manifest.Surface) surfaceSelection {
+// rule both derive paths answer through — over the resolved profile table the caller
+// already read (LoadProfiles) and the active-profile table it lowered. Both entries that
+// render surfaces call this (ConfigurePackSurfaces on the boot path, ConfigurePackByName
+// for `yolo check`), so there is no second place to spell the resolution differently.
+//
+// The packs are NOT an input, and their absence from this signature is the fix rather
+// than a shortcut: resolving off the loaded packs' manifests answered only the names a
+// PACK declared, so a user-declared profile launched cleanly (the OQ-CS6 declaration
+// check reads user entries) and still selected nothing — the manifest walk fell back to
+// the bare name. The launcher's table is the one source that holds every declared name,
+// pack under user; the manifests are only what fed it.
+func surfaceSelectionFor(resolved map[string]packload.ResolvedProfile,
+	profiles map[string]string, s manifest.Surface) surfaceSelection {
 	return surfaceSelection{
 		Profile:  profiles[s.Agent],
-		Provider: packload.ProviderFor(packs, s.Agent, profiles[s.Agent]),
+		Provider: packload.ProviderFor(resolved, profiles[s.Agent]),
 	}
 }
 
@@ -294,7 +307,9 @@ func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, 
 // activeProfileOptions returns the resolved option map of the named profile, read off
 // the YOLO_PROFILES table the launcher composed — never re-derived here, for the same
 // reason liveTables reads YOLO_PROVIDERS rather than recomposing it: one resolution per
-// launch, on the host, and this side reads the result. Always non-nil and empty for no
+// launch, on the host, and this side reads the result. It is the SAME table
+// surfaceSelectionFor reads the provider out of, so one profile's two ctx halves come
+// from one entry and cannot disagree. Always non-nil and empty for no
 // profile (or a name the table does not hold), so a derive reads ctx.profile.model with
 // no nil guard and "no profile" is the same world as "a profile with no options".
 //

@@ -18,6 +18,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/tomlx"
 )
@@ -53,6 +54,12 @@ func newSelectionRender(t *testing.T, providersJSON string) *selectionRender {
 // render runs one boot with the given profile table and returns the config.toml the
 // agent would read. A boot failure is fatal: every later step of a sequence would be
 // measuring a render that never happened.
+//
+// The resolved table is lowered the way the launcher lowers it (ResolveProfiles over the
+// DECLARED set, whatever this boot activates): the names selected here are the user's own
+// provider names, so a real launch refuses them unless the user declares them (OQ-CS6),
+// and the selection a derive sees is read off that table — not off the pack manifests,
+// which hold neither name.
 func (r *selectionRender) render(t *testing.T, profilesJSON string) map[string]any {
 	t.Helper()
 	codex, err := embeddedPack("codex")
@@ -64,6 +71,17 @@ func (r *selectionRender) render(t *testing.T, profilesJSON string) map[string]a
 		t.Fatalf("embedded zai: %v", err)
 	}
 	r.e.Vars["YOLO_USE_PROFILES"] = profilesJSON
+	resolved, err := packload.ResolveProfiles(nil, map[string]packload.UserProfile{
+		"llamacpp": {Provider: "llamacpp"},
+		"vllm":     {Provider: "vllm"},
+	})
+	if err != nil {
+		t.Fatalf("resolving the declared profiles: %v", err)
+	}
+	r.e.Vars["YOLO_PROFILES"], err = jsonx.DumpsCompact(packload.ProfilesWireTable(resolved))
+	if err != nil {
+		t.Fatalf("encoding the resolved table: %v", err)
+	}
 	ConfigurePackSurfaces(r.e, []*packload.Pack{codex, zai})
 	if fails := r.e.GenFailures(); len(fails) != 0 {
 		t.Fatalf("boot render failed: %v\n%s", fails, r.errw.String())

@@ -114,9 +114,9 @@ type Contribution struct {
 	//     (packoverlay.go's gate). The surface is what names an agent, so the surface is
 	//     what the gate asks.
 	//   - `env` keys it on a bin: the profile active for a bin the pack installs, else
-	//     active for ANY bin (packload.EnvFold, mirroring ProviderFor's two passes — the
-	//     second is what makes a CLI-less pack's gated env reachable, packs/zai being the
-	//     shipped case). Env has no surface to name an agent, so it asks the table itself.
+	//     active for ANY bin (packload.EnvFold — the second pass is what makes a CLI-less
+	//     pack's gated env reachable, packs/zai being the shipped case). Env has no
+	//     surface to name an agent, so it asks the table itself.
 	//
 	// REFUSED ON EVERY OTHER KIND (validateContribution): `launch` is contemplated and has
 	// no consumer, and a field silently doing nothing on the kinds it does not gate is the
@@ -623,8 +623,8 @@ func (v *OptionDefault) UnmarshalJSON(b []byte) error {
 type ProfileContribution struct {
 	Name string
 	// Provider is MANDATORY (§5.2 property 3): the schema refuses a declaration without
-	// one, so a ProfileContribution in memory always carries a selection. It is what
-	// ProviderFor reads and what ResolveProfiles resolves the option map against.
+	// one, so a ProfileContribution in memory always carries a selection. It is what the
+	// lowering reads and what ResolveProfiles resolves the option map against.
 	Provider string
 }
 
@@ -647,8 +647,8 @@ func (m *Manifest) Profiles() []ProfileContribution {
 }
 
 // ProfileFor returns the pack's profile declaration named by `name`, or nil when the pack
-// declares none — the shape ProviderFor and the launch disclosure both key off ("did any
-// selected pack DECLARE this selection?").
+// declares none — the shape the launch disclosure keys off ("did any selected pack DECLARE
+// this selection?"), beside DeclaredProfileNames, the union a selected name must answer to.
 //
 // The selector is the name the user chose (`use_profiles`, `-p`), which is what makes
 // this the open-selector twin of PostureFor(autonomy bool): same body, different

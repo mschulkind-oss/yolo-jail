@@ -56,9 +56,10 @@ func DeriveScript(p *Pack) string {
 // mutated. A lookup that finds nothing composes no api_key at all — an empty credential
 // is the pre-flight's refusal to make, not a token to hand an agent. useProfiles is the
 // effective profile table in ProfileTable's shape, exposed as ctx.use_profiles; the
-// resolved profile table (WithResolvedProfiles) is exposed as ctx.profile — the option
-// map of THIS agent's active profile (provider-catalog-and-selection.md §5.2), empty when
-// none was supplied or the name resolves to nothing.
+// resolved profile table (WithResolvedProfiles) is BOTH remaining halves of the ctx: the
+// option map of THIS agent's active profile (ctx.profile, §5.2) and the provider that
+// profile selects (ctx.selected_provider, through ProviderFor — the one resolution rule
+// the surface path answers through too).
 //
 // The producer is discovered by bin ownership: the one selected pack that installs the
 // agent's CLI. Nothing composes when the inputs are inert — no profile at this agent's
@@ -95,7 +96,7 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 		Agent:            agent,
 		Env:              true,
 		ProfileName:      profile,
-		SelectedProvider: ProviderFor(packs, agent, profile),
+		SelectedProvider: ProviderFor(cfg.resolved, profile),
 		Profile:          cfg.profileOptions(profile),
 		Tables: map[string]map[string]any{
 			manifest.SourceProviders:   hydrateProviders(providers, lookup),
@@ -148,10 +149,14 @@ type agentEnvOpts struct {
 type AgentEnvOption func(*agentEnvOpts)
 
 // WithResolvedProfiles hands the runner the launch's resolved profile table
-// (ResolveProfiles), from which ctx.profile is read: the option map of the profile
-// active at THIS agent. Absent or not supplied, the derive sees an empty ctx.profile —
-// the same world as a profile with no options, which is what keeps a caller that does
-// not know the table from inventing a second, worse answer for it.
+// (ResolveProfiles). It is the runner's WHOLE input on the selection: ctx.profile reads
+// its option map for the profile active at THIS agent, and ctx.selected_provider reads
+// the provider that entry names (ProviderFor) — the table user declarations are part of,
+// which is why nothing here re-derives a selection off the pack manifests. Absent or not
+// supplied, no selection resolves: the derive sees an empty ctx.profile and an empty
+// provider name, and composes nothing — the same world as no profile being active, which
+// is what keeps a caller that does not know the table from inventing a second, worse
+// answer for it.
 func WithResolvedProfiles(resolved map[string]ResolvedProfile) AgentEnvOption {
 	return func(o *agentEnvOpts) { o.resolved = resolved }
 }
