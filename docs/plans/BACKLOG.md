@@ -307,7 +307,7 @@ mode bits"*, and anyone can `chmod +w`. Three places in the tree make the same t
 
 | Site | What it does | Which ID |
 |---|---|---|
-| `internal/entrypoint/hostfiles.go:112-157` | `host_files` `readonly` renders `0o444` (`0o555` if the source is executable) every boot | **E2** |
+| `internal/entrypoint/hostfiles.go:116-134` | `host_files` `readonly` renders `0o444` (`0o555` if the source is executable) every boot | **E2** |
 | `internal/config/hostfiles.go:40-56` | the four-mode vocabulary that names it | **E1** |
 | `internal/entrypoint/hostfilestree.go:182-200` | pack-delivered `files` at the host notch: *"READ-ONLY (0o444/0o555) mirrors the jail's `:ro` mount, which is the closest a plain filesystem gets to the same statement"* | **OQ-B** |
 
@@ -342,7 +342,7 @@ lost today, only observability lags"*. Verified against the tree 2026-08-23:
   `internal/cli/configcapture.go`, whose opening line is literally *"configcapture.go is E3's
   second half: capture on TERMINATE"*. Shipped in commit `29ccf212`, 2026-08-15,
   *"feat(config): capture in-jail config edits when a jail terminates (E3)"*.
-- **It is wired, not orphaned** — `internal/cli/commands.go:572` injects it as
+- **It is wired, not orphaned** — `internal/cli/commands.go:580` injects it as
   `run.Options.CaptureOnTerminate`, with the comment naming E3.
 - It ships **unconditional, not opt-in**, and `configcapture.go:10-45` records the four-point
   argument for that (idempotent with the boot capture; only touches `mode: capture` surfaces;
@@ -453,8 +453,13 @@ Option 2"* measures it printing `fileSuggestion contributed by fzf-overlay but m
 when the overlay's value is the one that actually landed and no `managed` value existed.
 
 **Stakes.** Nothing is blocked. No shipped pack collides — all declare disjoint identities
-(§9 *"What it did NOT change"*). It is worth deciding anyway because the **neighbouring kind
-answers the same shaped question the opposite way**: since 2026-08-02 a same-identity `config`
+(§9 *"What it did NOT change"*). *(Freshness note 2026-09-02: the kind stopped being hypothetical —
+`packs/zai` is the first shipped `config-overlay` contributor (`980aed71`, targeting
+`claude/settings`, gated on its profile), and it is that surface's sole contributor, so the
+no-collision fact still holds. `568d5a3a`'s `profile` gate changes *whether* an overlay
+participates, not what happens when two active overlays share a key — last-one-wins is unchanged,
+re-verified in `internal/packoverlay` which has no collision logic.)* It is worth deciding anyway
+because the **neighbouring kind answers the same shaped question the opposite way**: since 2026-08-02 a same-identity `config`
 declaration is a LOUD collision, named in `yolo pack footprint` and refused at launch and by
 `yolo host apply` (§9). Two adjacent kinds with opposite silence policies is the drift.
 Provenance: born 2026-08-13 (`58ae8227`) as the generic residue of the retired auth-pack

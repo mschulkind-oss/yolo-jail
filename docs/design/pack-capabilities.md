@@ -1,8 +1,9 @@
 # Capabilities — naming the job, so a pack can say a bundled loophole is unnecessary
 
-**Status:** **LANDED 2026-08-15**, re-checked 2026-08-23 — one live question remains (**OQ-CAP**,
-§10, a confirmation rather than a fork). Designed 2026-08-13, rewritten the same day against
-[`loophole-packaging.md`](loophole-packaging.md), which is its prerequisite.
+**Status:** **LANDED 2026-08-15**, re-checked 2026-08-23; **no open questions since 2026-09-02** —
+OQ-CAP (§10) was a confirmation rather than a fork, and it is now recorded as settled by the
+implementation that had already shipped its leaning (see §10). Designed 2026-08-13, rewritten the
+same day against [`loophole-packaging.md`](loophole-packaging.md), which is its prerequisite.
 
 *(This line used to cite "queue row **A6**"; the roadmap's lettered queue was retired on 2026-08-17,
 and the ruling that letter pointed at is [`loophole-activation.md`](loophole-activation.md)
@@ -346,22 +347,25 @@ never needed.
 
 ## 10. Open question (design detail)
 
-💬 **OQ-CAP** — and it is a *confirmation*, not a fork. Both options are one line apart and the
-leaning below has not been contested since 2026-08-13; if it stays uncontested it should be built
-rather than asked again ([`../plans/further-roadmap-ideas.md`](../plans/further-roadmap-ideas.md)
-§4b argues exactly that).
+~~💬~~ **OQ-CAP — SETTLED 2026-09-02, by the tree rather than by a fresh ruling.** It was a
+*confirmation*, not a fork: the leaning was uncontested since 2026-08-13, and the implementation
+had already built it — `supersedes` is a field on the **manifest top level**
+(`internal/packdecl/packdecl.go:86`, beside `skills_tier`), and
+`TestSupersedesNotAContributionKind` (`internal/packdecl/supersedes_test.go:117-131`) **refuses**
+the alternative outright: a `contributes[]` entry with `kind: "supersedes"` is a validation error.
+A question whose losing option is pinned rejected by a test is not open; recording that is what
+[`../plans/further-roadmap-ideas.md`](../plans/further-roadmap-ideas.md) §4b asked for. Reopen only
+with a migration case nobody has.
 
-**OQ-CAP.** `supersedes` lives at the **manifest top level**, beside `name`, rather than as a
-`contributes[]` entry. That matches `skills_tier` (a per-pack fact, not a contribution) and reads
-correctly — superseding is a property *of the pack*, not a thing it delivers. The alternative is a
-`kind: "supersedes"` contribution, which would put it in the same list as everything else a pack does
-and make `yolo pack footprint` pick it up for free. **My read: top-level**, with footprint taught to
-print it explicitly — a contribution that contributes nothing is a category error, and `footprint`
-already reads the manifest. **(B) strengthens this:** the thing that *is* a contribution is now the
-loophole; `supersedes` staying top-level keeps the two visibly different.
+The reasoning, kept for the record: top-level matches `skills_tier` (a per-pack fact, not a
+contribution) and reads correctly — superseding is a property *of the pack*, not a thing it
+delivers; a contribution that contributes nothing is a category error. **(B) strengthens this:**
+the thing that *is* a contribution is the loophole; `supersedes` staying top-level keeps the two
+visibly different.
 
-_Leaning:_ **Top-level, with `footprint` taught to print it** — as above, uncontested since
-2026-08-13.
+**The one-line residue is work, not a question:** the leaning's second half — `yolo pack footprint`
+taught to print `supersedes` — is still unbuilt (verified 2026-09-02: `internal/cli/pack.go`
+mentions supersession nowhere). It is queued as a small repair on the roadmap.
 
 **Answer:**
 > _(empty — fill in when decided)_
