@@ -23,8 +23,8 @@ summary: "Replaces the inverted agent_profiles schema with a dual-layer architec
 > (OQ-CS6, reversing `profiles-as-pack-variants.md` OQ-5); and `env_shape` is deleted — an
 > agent's delivery, credential included, is composed by that agent pack's own env-emitting
 > derive (OQ-PT9, folded into OQ-CS8). The body below is kept as the argument that produced
-> those answers, and still spells the key `api_key_env`, renamed `api_key_env_name`; §5.1's
-> `wire_api` row alone was corrected in place (2026-09-02, `a01dbda5`).
+> those answers, and still spells the key `api_key_env`, renamed `api_key_env_name`; of the
+> three, only §5.1's `wire_api` row was already corrected in place (2026-09-02, `a01dbda5`).
 
 **Status:** DRAFT, 2026-08-29. Nothing built.
 
