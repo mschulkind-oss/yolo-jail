@@ -2,11 +2,15 @@
 
 **Status:** EXPLORATORY analysis, 2026-08-02 — **re-verified against the tree 2026-08-23**, and
 partly overtaken by it. §8 **Option 1 has largely SHIPPED** (the rename and the GC root, carried
-as the roadmap's **N2** `11f8bb72` and **N1** `23cee7a6`, both 2026-08-05). Options 2 and 3 are
-still sketches for their *packages* half; the launch verb Option 2 depends on **shipped
-2026-08-30** as `yolo host -- <cmd>` (with `yolo --at host -- <cmd>` as its alias), so "nothing
-launches at the `host` notch" is no longer true, and **OQ-1 — the question every other one here
-is subordinate to — is still open.** Seven questions live, two settled; see the Decision Ledger.
+as the roadmap's **N2** `11f8bb72` and **N1** `23cee7a6`, both 2026-08-05). **OQ-1 — the fork this
+doc could not pick — is ANSWERED BY EVENTS as of 2026-09-02:** the host notch is a place agents
+*run*. The launch verb shipped 2026-08-30 as `yolo host -- <cmd>` (`--at host --` as its alias),
+and the maintainer's 2026-09-01 rulings in
+[`provider-catalog-and-selection.md`](provider-catalog-and-selection.md) treat host launches as a
+peer of jail launches (*"why would we NOT support env on the host too?"* — the withdrawn OQ-CS10,
+whose plan carries "the host notch runs the env derive" as a constraint, not a choice). See the
+Decision Ledger. **Six questions live, three settled.** Option 3's *installer* half is a separate
+product question (OQ-3) and remains unpicked.
 
 > **Postscript, 2026-08-23 (item 4 added 2026-08-30) — what moved underneath this doc.** §1–§8
 > keep their original 2026-08-02 tense: read them as the analysis that *motivated* the work, not
@@ -410,7 +414,8 @@ with `nix develop` and behaves nothing like it.
 
 ### 4.1 The flake's rejection of a devShell holds at the host notch, with more force
 
-The comment at `flake.nix:934-941` is the load-bearing prior art:
+The comment at `flake.nix:1186-1194` (cited as `:934-941` when written; the file grew above it) is
+the load-bearing prior art:
 
 > *"A devShell's `print-dev-env` would dump the whole stdenv toolchain (clang, GNU
 > coreutils/sed/grep, make, …) onto the agent PATH ahead of the macOS BSD userland; a buildEnv
@@ -909,12 +914,12 @@ which is OQ-1.
 **And fix Option 0's two defects regardless.** They are independent of everything above.
 
 > [!NOTE]
-> **Status of the recommendation, 2026-08-23.** Option 0 is done; Option 1 is done except for
-> the two reporting leftovers and the Go-package rename. **The fork is now the whole of what is
-> left**, and it is untouched: Option 2 and Option 3 are both unbuilt, and choosing between them
-> is OQ-1. The roadmap's "no longer urgent — the auth thread routed around the `env` refusal
-> that motivated it" is accurate about urgency and says nothing about the question, which is
-> still the one everything else here is subordinate to.
+> **Status of the recommendation, 2026-08-23, updated 2026-09-02.** Option 0 is done; Option 1 is
+> done except for the two reporting leftovers and the Go-package rename. **The fork is resolved:
+> Option 2 shipped** (`yolo host -- <cmd>`, 2026-08-30) and OQ-1's Answer block records the events
+> that settled it. What survives of Option 3 is not the fork's other arm but a separate installer
+> product ("put `copilot` on the user's own PATH, reproducibly"), which is OQ-3's question and is
+> still unbuilt and unruled.
 
 **What would talk me out of all of it:** if the answer to OQ-1 is "the host notch is
 configure-only, forever" *and* the maintainer is content with `install_hints` coverage, then
@@ -926,39 +931,42 @@ conclusion is *"already solved for macos-user; the real gap is Linux `guest`, wh
 
 ## 9. Open Questions
 
-Seven live, ordered by how much else they block. Two more are settled — see the Decision Ledger
-below. **IDs are cited outside this doc:** `OQ-1` is spelled **`N3/OQ-1`** in
-[`boundary-broker.md`](boundary-broker.md) §10 and [`agent-auth-modes.md`](agent-auth-modes.md),
-where it is named as a blocker; the roadmap calls it "nix OQ-1". Both spellings mean this
-question and neither may be renumbered.
+Six live, ordered by how much else they block; OQ-1 is kept in place below with its Answer filled
+(2026-09-02) because sibling docs cite it by position and ID. **IDs are cited outside this doc:**
+`OQ-1` is spelled **`N3/OQ-1`** in [`boundary-broker.md`](boundary-broker.md) §10 and
+[`agent-auth-modes.md`](agent-auth-modes.md), where it was named as a blocker — those blocks are
+now released; the roadmap called it "nix OQ-1". Both spellings mean this question and neither may
+be renumbered.
 
 > [!NOTE]
 > The ✅/❌/⚠️ marks in §5 and §6 are **platform-availability and portability** marks inside
 > tables — they are not answered-question markers, and there is no ✅-flavored OQ anywhere in
 > this doc. Live questions are the 💬 items below; settled ones are ledger rows.
 
-1. 💬 **OQ-1 (also cited as N3) — Is the `host` notch a place where agents *run*, or only a
-   place where they are *configured*?** Today it is configure-only: `--at` is `apply`-only
-   (`internal/cli/apply.go:54-64`) and `launch`/`env` are honored-but-unbuilt for exactly that
-   reason (`internal/render/fieldset.go:83-103`). Option 2 says "run"; Option 3 says "install";
-   Option 1 says "neither, just report."
+1. ~~💬~~ **OQ-1 (also cited as N3) — Is the `host` notch a place where agents *run*, or only a
+   place where they are *configured*?** When this was written it was configure-only: `--at` was
+   `apply`-only and `launch`/`env` were honored-but-unbuilt for exactly that reason
+   (`internal/render/fieldset.go:83-103`). Option 2 said "run"; Option 3 said "install"; Option 1
+   said "neither, just report."
 
-   **What it decides:** everything left in this doc — §3's consumer table has a different winner
-   per answer, and Options 2 and 3 are different products. It also gates the boundary broker's
-   approval tier (`boundary-broker.md` §10: *"a boundary approval service is much more
-   compelling in a world where yolo launches processes at multiple notches, and its shape
-   differs"*), and it is the difference between the blocked-tool shims being an agent nudge and
-   a change to a human's own terminal (§6).
+   **What it decided:** everything left in this doc — §3's consumer table had a different winner
+   per answer, and Options 2 and 3 are different products. It also gated the boundary broker's
+   approval tier (`boundary-broker.md` §10) and the status of the blocked-tool shims (§6).
 
-   _Leaning:_ **"a place agents run"** — Option 2. It is the shape the codebase is already built
-   for, it dissolves the shim dilemma instead of arguing about it, and `render.HostUnimplemented`
-   now says in its own comment that the refusal is a limit of `yolo host apply` rather than of the
-   notch. But this is a product call, not a research finding, and the counter-argument is real:
-   the env-manager design's own §8 warns `host` will be over-used, and a convenient launcher
-   accelerates that.
+   _Leaning was:_ **"a place agents run"** — Option 2, with the honest caveat that this is a
+   product call and the env-manager design's own §8 warns `host` will be over-used.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer (2026-09-02, recording events rather than a fresh ruling):** **"a place agents run" —
+   Option 2, which is built.** `yolo host -- <cmd>` shipped 2026-08-30 (`d546e9e1`: `syscall.Exec`
+   under a fully composed launch environment — pack env fold, `env_sources`, resolved provider
+   vars, plus a credential pre-flight; `e23df4aa` added `--at host --` as the systematic alias via
+   `stripHostNotch`, `internal/cli/dispatch.go:97-107`). The maintainer then endorsed the shape
+   rather than merely tolerating it: the provider-catalog review withdrew its own "should env work
+   at host?" question with *"why would we NOT support env on the host too?"*, and that work's plan
+   carries "the host notch runs the env derive" as a **constraint** (2026-09-01/02, `f55f2109`'s
+   `packload.AgentEnv` is the one runner both notches will share). Reopen only if that shipped
+   behavior turns out to be unintended — the counter-argument (§8's over-use warning) was known
+   and the events went the other way.
 
 2. 💬 **OQ-3 — Is `nix profile --profile <yolo-dir>` (§4.3) attractive or a trap?** It gives a
    stable path *plus* generations, rollback, and a self-managing GC root — but it is mutable
@@ -1075,6 +1083,7 @@ traps that made each ruling safe are preserved there as `> [!WARNING]` blocks.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
+| OQ-1 / N3 | **The host notch is a place agents RUN (Option 2), answered by events**: `yolo host -- <cmd>` shipped with a fully composed launch env (`d546e9e1`, `e23df4aa`), and the provider-catalog rulings made host launches a peer of jail launches (*"the host notch runs the env derive"* — constraint, not choice) | 2026-09-02 (events 2026-08-30 → 09-02) | §9 OQ-1's Answer block |
 | OQ-2 | **Yes, GC-root it** — and the root IS the build's `--out-link`, at `build/package-roots/packages`, a sibling of the image roots so `prune` cannot sweep it. Shipped as **N1** (`23cee7a6`) | 2026-08-05 | §5.4 (+ its warning block) |
 | OQ-6 | **Warn-and-skip, via `meta.available`** — an unfree attr in `packages:` is skipped with a named reason instead of aborting the build; yolo never sets `allowUnfree` for the user, and an opted-in user still gets the package. Shipped `e40df9f1` | 2026-08-02 | §2 (+ its warning block) |
 | — | Option 0's two `install_hints` defects (brew-cask Brewfile verb; unfree hint) — **both fixed** | 2026-08-02 | §8 Option 0 |
