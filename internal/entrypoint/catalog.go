@@ -35,9 +35,17 @@ import (
 // by ruling.
 const catalogPrefix = "boot catalog: "
 
-// CatalogInstalledOrphans reports every installed package and ~/.local/bin entry that no
-// selected pack, preset or LSP recipe declares — one line each, naming the orphan and, for
-// a file in ~/.local/bin, its size.
+// CatalogInstalledOrphans reports every installed package, ~/.local/bin entry and $GOBIN
+// binary that no selected pack, preset or LSP recipe declares — one line each, naming the
+// orphan and, for a file, its size.
+//
+// THE THREE FINDERS ARE THE THREE PLACES A yolo-RUN INSTALL LANDS, and the set is closed by
+// the mechanisms rather than by taste: an npm program resolves under
+// $NPM_CONFIG_PREFIX/lib/node_modules, a native installer's program under ~/.local/bin, and
+// the bootstrap's LSP go arm under $GOBIN (shell.go's `go install` + its `rm -f "$GOBIN/$bin"`
+// uninstall). A finder missing for one of them does not make that class clean — it makes it
+// INVISIBLE, which is worse the moment an explicit removal act reads this list: the act's
+// candidates would be the two classes someone happened to walk.
 //
 // It runs only when YOLO_PACK_ROOT is set. Without a staged pack tree the declared set is
 // empty for a reason that has nothing to do with what is installed (an older host launcher,
@@ -60,6 +68,10 @@ func CatalogInstalledOrphans(e *Env) {
 	for _, orphan := range catalogLocalBinOrphans(e, packs) {
 		e.warn(catalogPrefix + orphan.path + " installed but not declared by any " +
 			"selected pack" + orphan.size)
+	}
+	for _, orphan := range catalogGoBinOrphans(e) {
+		e.warn(catalogPrefix + orphan.path + " installed but not declared by any " +
+			"selected pack or LSP recipe" + orphan.size)
 	}
 }
 
@@ -158,17 +170,33 @@ func installedNpmPackages(e *Env) []string {
 	return out
 }
 
-// localBinOrphan is one ~/.local/bin finding: the path as a reader would type it, plus a
-// rendered size (empty when there is none to state).
-type localBinOrphan struct {
+// pathOrphan is one file-tree finding: the path as a reader would type it, plus a rendered
+// size (empty when there is none to state). Shared by the two directory finders — a
+// ~/.local/bin entry and a $GOBIN entry are the same kind of report about different
+// resolvers, and one struct is what keeps the two lines rendering alike.
+type pathOrphan struct {
 	path string
 	size string
+}
+
+// catalogPath renders an absolute path the way a reader would type it: home-relative with a
+// tilde when it is under the jail home, verbatim otherwise.
+//
+// The tilde is not cosmetic for $GOBIN specifically. GOPATH is an ordinary environment
+// variable, so $GOPATH/bin need not be under the home at all, and a hardcoded "~/go/bin/"
+// prefix would print a path that does not exist on a jail whose GOPATH was set elsewhere —
+// in a report whose whole value is that a reader can go look at the file.
+func catalogPath(e *Env, abs string) string {
+	if rel, ok := strings.CutPrefix(abs, e.Home+string(filepath.Separator)); ok {
+		return "~/" + filepath.ToSlash(rel)
+	}
+	return abs
 }
 
 // catalogLocalBinOrphans compares ~/.local/bin against everything that has an owner: a
 // pack's native installer, the two MCP wrapper surfaces, the macOS log helper, and the
 // stale in-jail clients RemoveStaleGeneratedClients is already unlinking this boot.
-func catalogLocalBinOrphans(e *Env, packs []*packload.Pack) []localBinOrphan {
+func catalogLocalBinOrphans(e *Env, packs []*packload.Pack) []pathOrphan {
 	declared := map[string]struct{}{
 		"chrome-devtools-mcp-wrapper": {}, // GenerateMCPWrappers
 		"mcp-wrappers":                {}, // its sibling directory
@@ -188,18 +216,77 @@ func catalogLocalBinOrphans(e *Env, packs []*packload.Pack) []localBinOrphan {
 		}
 	}
 
-	entries, err := os.ReadDir(e.LocalBin())
+	return catalogDirOrphans(e, e.LocalBin(), declared)
+}
+
+// catalogGoBinOrphans compares $GOBIN against the go tools that have an owner.
+//
+// THE DECLARED SET HERE IS THE LSP RECIPE TABLE'S GO ARM AND NOTHING ELSE, because that arm
+// is the only thing in yolo that ever runs `go install` into this directory (shell.go's LSP
+// loop; the two launcher templates land under the npm prefix and ~/.local/bin respectively,
+// and no `via` value installs a Go module — `knownVias` is {npm, installer}). A pack
+// therefore contributes no candidate here, which is why this finder takes no packs: an
+// argument nothing reads would read as "packs can own a go binary", and the next edit would
+// believe it.
+//
+// It is derived from BOTH halves of the LSP set for the same reason catalogNpmOrphans is:
+// YOLO_LSP_GO_INSTALL is what THIS launch asked for, the sentinel is what the last bootstrap
+// installed and the uninstall loop is about to remove. A binary in the sentinel and not the
+// env has an owner — the loop that is about to `rm -f` it.
+//
+// The BIN NAME is what indexes this directory, so the declaration's module path is reduced
+// the same way shell.go reduces it (`base=${pkg%@*}; bin=${base##*/}`). Comparing module
+// paths against filenames would match nothing and report every installed go tool as an
+// orphan — including the two the recipe table itself installs.
+func catalogGoBinOrphans(e *Env) []pathOrphan {
+	declared := map[string]struct{}{}
+	for _, pkg := range splitLSPInstallList(e.Getenv("YOLO_LSP_GO_INSTALL")) {
+		if bin := goModuleBinName(pkg); bin != "" {
+			declared[bin] = struct{}{}
+		}
+	}
+	for _, entry := range readLSPSentinel(e) {
+		if pkg, ok := strings.CutPrefix(entry, "go:"); ok {
+			if bin := goModuleBinName(pkg); bin != "" {
+				declared[bin] = struct{}{}
+			}
+		}
+	}
+	return catalogDirOrphans(e, e.GoBin(), declared)
+}
+
+// goModuleBinName reduces a `go install` argument to the binary name it lands as — the same
+// two steps shell.go's LSP go arm takes (`base=${pkg%@*}`, then `bin=${base##*/}`), so the
+// catalog indexes $GOBIN by the name that is actually there.
+//
+// `golang.org/x/tools/gopls@latest` → `gopls`; a bare `tool` → `tool`. Kept beside its one
+// caller rather than exported: the derivation is shell.go's, and a second spelling of it is
+// how the two stop agreeing about which file a declaration owns.
+func goModuleBinName(pkg string) string {
+	base, _, _ := strings.Cut(strings.TrimSpace(pkg), "@")
+	if i := strings.LastIndex(base, "/"); i >= 0 {
+		base = base[i+1:]
+	}
+	return base
+}
+
+// catalogDirOrphans lists every entry of dir whose name is not in declared, rendered as a
+// finding. A dir that does not exist reads as empty — a jail that installed nothing there
+// has nothing to report, which is not the same as a finding.
+func catalogDirOrphans(e *Env, dir string, declared map[string]struct{}) []pathOrphan {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
-	var out []localBinOrphan
+	var out []pathOrphan
 	for _, ent := range entries {
 		if _, ok := declared[ent.Name()]; ok {
 			continue
 		}
-		out = append(out, localBinOrphan{
-			path: "~/.local/bin/" + ent.Name(),
-			size: catalogSize(filepath.Join(e.LocalBin(), ent.Name())),
+		full := filepath.Join(dir, ent.Name())
+		out = append(out, pathOrphan{
+			path: catalogPath(e, full),
+			size: catalogSize(full),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].path < out[j].path })

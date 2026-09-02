@@ -233,6 +233,126 @@ func TestCatalogNamesLocalBinOrphansWithTheirSize(t *testing.T) {
 	}
 }
 
+// seedGoBin writes size-byte files into $GOBIN ($GOPATH/bin).
+func seedGoBin(t *testing.T, home string, size int, names ...string) {
+	t.Helper()
+	dir := filepath.Join(home, "go", "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range names {
+		if err := os.WriteFile(filepath.Join(dir, n), make([]byte, size), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestCatalogNamesGoBinOrphansAndSparesTheDeclaredRecipe is the third orphan CLASS, which
+// was invisible: the catalog walked node_modules and ~/.local/bin and never $GOBIN, so a go
+// tool the bootstrap's LSP arm installed under a declaration that has since gone had no line
+// anywhere. MEASURED in this jail on 2026-09-02: ~/go/bin held gopls AND mcp-language-server,
+// the latter's only consumer deleted with the gemini agent (internal/cli/run/lsp.go:50-55),
+// and the boot catalog named five orphans — none of them either one.
+//
+// A missing finder is worse than an unreported directory once an explicit removal act reads
+// this list (OQ-PD4's other half): the act's candidates would be whichever classes someone
+// happened to walk, which is a removal list that is silently wrong rather than short.
+func TestCatalogNamesGoBinOrphansAndSparesTheDeclaredRecipe(t *testing.T) {
+	home, packRoot := catalogHome(t)
+	seedGoBin(t, home, 2*1024*1024,
+		"gopls",               // this launch's YOLO_LSP_GO_INSTALL (the `go` recipe)
+		"tool",                // the PREVIOUS boot's sentinel
+		"mcp-language-server", // the live orphan: nothing declares it any more
+	)
+	if err := os.WriteFile(filepath.Join(home, ".yolo-installed-lsps"),
+		[]byte("go:github.com/example/tool@v1.4.2\nnpm:pyright\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := runCatalog(t, map[string]string{
+		"JAIL_HOME":           home,
+		"YOLO_PACK_ROOT":      packRoot,
+		"YOLO_LSP_GO_INSTALL": "golang.org/x/tools/gopls@latest\n",
+	})
+
+	if !lineWithBoth(got, "~/go/bin/mcp-language-server", "(2.0 MB)") {
+		t.Errorf("the $GOBIN orphan must be named with its size:\n%s", got)
+	}
+	for _, spared := range []string{"gopls", "~/go/bin/tool"} {
+		if strings.Contains(got, spared) {
+			t.Errorf("%q has an owner and must not be cataloged as an orphan:\n%s", spared, got)
+		}
+	}
+	// The declared set is indexed by the BIN NAME, not the module path: comparing
+	// `golang.org/x/tools/gopls@latest` against the filename `gopls` matches nothing, so a
+	// path-keyed set would report every installed go tool — the recipe's own included.
+	if strings.Contains(got, "golang.org/x/tools") {
+		t.Errorf("a declaration's module path is not a $GOBIN filename:\n%s", got)
+	}
+}
+
+// TestGoModuleBinName is the reduction shell.go's LSP go arm makes
+// (`base=${pkg%@*}; bin=${base##*/}`), which is the only thing that lets a declaration and a
+// file in $GOBIN be compared at all.
+func TestGoModuleBinName(t *testing.T) {
+	for _, tc := range []struct{ pkg, want string }{
+		{"golang.org/x/tools/gopls@latest", "gopls"},
+		{"github.com/isaacphi/mcp-language-server@v0.1.0", "mcp-language-server"},
+		{"github.com/example/tool", "tool"},
+		{"tool@v1.2.3", "tool"},
+		{"  golang.org/x/tools/gopls@latest  ", "gopls"},
+		{"", ""},
+	} {
+		if got := goModuleBinName(tc.pkg); got != tc.want {
+			t.Errorf("goModuleBinName(%q) = %q, want %q", tc.pkg, got, tc.want)
+		}
+	}
+}
+
+// TestCatalogGoBinFinderIsReachedFromTheProductionPath is the CALL-SITE half for Part A,
+// one level down from the boot: CatalogInstalledOrphans is what boot.go calls, so a
+// catalogGoBinOrphans nobody calls from THERE leaves the whole finder dead with its own unit
+// test green. Driven through the exported entry point with a $GOBIN orphan present and
+// nothing else installed, so the only line it can produce is that finder's.
+func TestCatalogGoBinFinderIsReachedFromTheProductionPath(t *testing.T) {
+	home, packRoot := catalogHome(t)
+	seedGoBin(t, home, 32, "unowned-go-tool")
+
+	got := runCatalog(t, map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
+	if !strings.Contains(got, "~/go/bin/unowned-go-tool") {
+		t.Fatalf("CatalogInstalledOrphans must reach the $GOBIN finder — without this the "+
+			"finder's own tests pass against a catalog that never walks it:\n%s", got)
+	}
+}
+
+// TestCatalogRendersAGoBinOutsideTheHomeVerbatim: GOPATH is an ordinary environment
+// variable, so $GOPATH/bin need not sit under the jail home — and a hardcoded "~/go/bin/"
+// prefix would print a path that does not exist, in a report whose only value is that the
+// reader can go look at the file.
+func TestCatalogRendersAGoBinOutsideTheHomeVerbatim(t *testing.T) {
+	home, packRoot := catalogHome(t)
+	gopath := t.TempDir()
+	gobin := filepath.Join(gopath, "bin")
+	if err := os.MkdirAll(gobin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gobin, "elsewhere-tool"), make([]byte, 8), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := runCatalog(t, map[string]string{
+		"JAIL_HOME":      home,
+		"GOPATH":         gopath,
+		"YOLO_PACK_ROOT": packRoot,
+	})
+	if !strings.Contains(got, filepath.Join(gobin, "elsewhere-tool")) {
+		t.Errorf("a $GOBIN outside the home must be named by its real path:\n%s", got)
+	}
+	if strings.Contains(got, "~/go/bin") {
+		t.Errorf("nothing may assume $GOBIN is ~/go/bin:\n%s", got)
+	}
+}
+
 // lineWithBoth reports whether ONE line of out carries both substrings — the catalog states
 // a finding and its size on the same line, and asserting on the whole blob would pass with
 // the size attached to a different orphan.
@@ -253,6 +373,7 @@ func TestCatalogTouchesNothing(t *testing.T) {
 	home, packRoot := catalogHome(t)
 	seedNpm(t, home, "leftover-agent")
 	seedLocalBin(t, home, 8, "huge-orphan")
+	seedGoBin(t, home, 8, "orphan-go-tool")
 	sentinel := filepath.Join(home, ".yolo-installed-lsps")
 	if err := os.WriteFile(sentinel, []byte("npm:pyright\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -295,6 +416,7 @@ func TestCatalogIsSilentWithoutAStagedPackTree(t *testing.T) {
 	home := t.TempDir()
 	seedNpm(t, home, "leftover-agent")
 	seedLocalBin(t, home, 8, "huge-orphan")
+	seedGoBin(t, home, 8, "orphan-go-tool")
 
 	if got := runCatalog(t, map[string]string{"JAIL_HOME": home}); got != "" {
 		t.Errorf("no pack root means no declared set and therefore no catalog, got:\n%s", got)
@@ -308,10 +430,11 @@ func TestCatalogLinesReadAsACatalog(t *testing.T) {
 	home, packRoot := catalogHome(t)
 	seedNpm(t, home, "leftover-agent")
 	seedLocalBin(t, home, 8, "huge-orphan")
+	seedGoBin(t, home, 8, "orphan-go-tool")
 
 	got := runCatalog(t, map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot})
 	lines := strings.Split(strings.TrimSpace(got), "\n")
-	if len(lines) != 2 {
+	if len(lines) != 3 {
 		t.Fatalf("want one line per orphan, got %d:\n%s", len(lines), got)
 	}
 	for _, line := range lines {
