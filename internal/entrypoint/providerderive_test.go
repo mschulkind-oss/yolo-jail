@@ -173,6 +173,58 @@ func TestProviderDerivesResolveAnEndpointsOnlyProvider(t *testing.T) {
 	})
 }
 
+// TestClaudeDeriveReadsTheUseProfilesTable pins the one thing the claude/config derive
+// needs from core: that the selection table reaches it under the name its Lua reads.
+// The derive reads `ctx.use_profiles.claude` and falls back to "default" when that index
+// is nil — a silent skip, not an error — so a rename on either side of the seam (the
+// Source* constant that keys the table, the knownDeriveSources entry that exposes it,
+// or the field name in packs/claude/derive.lua) would flip every jail back to
+// subscription mode without anything anywhere failing. All three are in this one
+// assertion's path, which is why it runs the REAL derive.lua rather than a copy.
+func TestClaudeDeriveReadsTheUseProfilesTable(t *testing.T) {
+	script, s := deriveSurface(t, "claude", "claude/config")
+	search := map[string]any{"command": "mcp-search", "provides": "web_search"}
+
+	mcpServers := func() map[string]map[string]any {
+		return map[string]map[string]any{
+			manifest.SourceMCPServers: {"search": search},
+		}
+	}
+	render := func(tables map[string]map[string]any) map[string]any {
+		t.Helper()
+		got, err := deriveComputedLayer(&Env{Vars: map[string]string{}}, s, script, tables)
+		if err != nil {
+			t.Fatal(err)
+		}
+		servers, ok := got["mcpServers"].(map[string]any)
+		if !ok {
+			t.Fatalf("claude/config produced no mcpServers table: %#v", got)
+		}
+		return servers
+	}
+
+	selected := func(profile any) map[string]map[string]any {
+		tables := mcpServers()
+		tables[manifest.SourceUseProfiles] = map[string]any{"claude": profile}
+		return tables
+	}
+
+	// Bedrock mode passes the search MCPs through: native web search is a first-party
+	// subscription feature, so the suppression that runs otherwise must not.
+	if _, present := render(selected("bedrock"))["search"]; !present {
+		t.Error("a bedrock selection must keep the web_search MCP server")
+	}
+	if _, present := render(selected("glm"))["search"]; present {
+		t.Error("a non-bedrock selection must suppress the web_search MCP server")
+	}
+	// No selection at all is the same as a non-bedrock one (OQ-CS2: the no-profile case
+	// is the agent's own default), and it is reached through the same nil fallback this
+	// test exists to observe.
+	if _, present := render(mcpServers())["search"]; present {
+		t.Error("no use_profiles table must behave as the agent's own default, not bedrock")
+	}
+}
+
 // TestProviderDerivesKeepTheBaseURLShorthand: the single-protocol form still works and
 // still carries the provider's own wire_api — translated, like every other path — which is
 // what every provider written before `endpoints` existed relies on.
