@@ -343,8 +343,8 @@ Dropping a pack removes its **launcher** (`resetAnchorDir` clears the anchor dir
 boot, `internal/entrypoint/shims.go:24`) and now removes its **staged tree** (`packstage` rule 3,
 the fix that closed [`program-kind-defects.md`](program-kind-defects.md) 11.3). It has never removed
 the **installed program**. **MEASURED:** the only `npm uninstall -g` in the entire tree is in the LSP
-bootstrap (`internal/entrypoint/shell.go:298`), keyed on the `~/.yolo-installed-lsps` sentinel
-(`shell.go:245`).
+bootstrap (`internal/entrypoint/shell.go:381`), keyed on the `~/.yolo-installed-lsps` sentinel
+(`shell.go:312`). *(Anchors repinned 2026-09-02 — the receipts feature grew this file.)*
 
 Two consequences worth stating separately:
 
@@ -490,7 +490,7 @@ boot.
 | :--- | :--- |
 | the machine-global artifact cache | `NPM_CONFIG_CACHE=$HOME/.cache/npm` — 672 MB and growing, shared by every workspace |
 | the explicit update act | `yolo pack update` (npm-only and jail-only today, `packupdate.go:95-103`) |
-| the reconcile loop | the LSP sentinel's install **and uninstall** (`shell.go:245-312`) |
+| the reconcile loop | the LSP sentinel's install **and uninstall** (`shell.go:312-381`) |
 | the receipt's file format | `packs.lock.json` — schema-versioned, already the place a resolution would go |
 
 **What it costs.** A new artifact class and its retention policy — and this repo's track record there
@@ -816,7 +816,8 @@ made here is used here, and publishing one is a provenance question for
 - **`macos-user` package delivery.** It has no image and already resolves `packages:` as a store
   `buildEnv`.
 - **A task list.** Sequencing is [§10](#10-what-i-would-build-in-order); ticket granularity lives in
-  `docs/tasks/` and `roadmap.md`.
+  [`../plans/roadmap.md`](../plans/roadmap.md). *(This line used to also name `docs/tasks/`, a
+  directory that has never existed in this tree — corrected 2026-09-02.)*
 
 ---
 

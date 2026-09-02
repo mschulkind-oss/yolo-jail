@@ -1,8 +1,19 @@
 # Ctrl-Z, claude-in-jail, and the host-side TTY proxy
 
-**Status:** POST-MORTEM + REFERENCE, last reviewed **2026-08-23**. Describes shipped behaviour;
+**Status:** POST-MORTEM + REFERENCE, last reviewed **2026-08-23**, path disclaimer added
+**2026-09-02**. Describes shipped behaviour;
 the TTY proxy is still what a `yolo -- <cmd>` launch runs under, and the sudo prompt on `macos-user`
 rides it (one password per launch, not per command).
+
+> [!WARNING]
+> **Every `src/*.py` / `tests/*.py` path and the `f10feda` commit below are Python-era names, and
+> the tool is entirely Go now** — this was the one doc in the Python-path family missing the
+> disclaimer its siblings carry (e.g. `claude-token-logouts.md`). The living implementation is
+> `internal/ttyproxy/ttyproxy.go` with the run-pipeline call sites in
+> `internal/cli/run/proxy_linux.go` / `proxy_other.go` (Go port commit `cb31ade3`); `f10feda` and
+> the `src/cli/tty_proxy.py` module it shipped live only in the pre-wipe Python history. The
+> *analysis* — the wedge, the design space, the signal semantics — is what this doc is kept for,
+> and it transfers unchanged.
 
 This is a session-spanning brain dump on why pressing Ctrl-Z while Claude
 Code (or any TTY app) was running under `yolo -- <cmd>` could wedge the
