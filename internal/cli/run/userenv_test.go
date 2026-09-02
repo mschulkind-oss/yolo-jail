@@ -68,3 +68,57 @@ func TestWriteUserEnvFileEmptyClearsStaleRender(t *testing.T) {
 		t.Errorf("stale render survived an empty env: %q", got)
 	}
 }
+
+// The file holds hydrated env_sources values — API keys in practice — so it is
+// owner-only. It was 0644 until 2026-09-01, measured in a live jail as
+// `-rw-r--r--` carrying two provider keys, while packs/zai's README tells the user
+// to keep that key in a file that is "untracked, 0600": yolo's own copy was
+// downgrading the mode the user chose.
+func TestWriteUserEnvFileIsOwnerOnly(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "yolo-user-env.sh")
+
+	env := jsonx.NewOrderedMap()
+	env.Set("ZAI_API_KEY", "sk-secret")
+	writeUserEnvFile(f, env)
+	st, err := os.Stat(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Mode().Perm(); got != 0o600 {
+		t.Errorf("a file holding a plaintext credential must be 0600, got %04o", got)
+	}
+
+	// The EMPTY path carries the mode too: dropping env_sources truncates rather
+	// than removing, and a truncation that widened the mode back would undo this on
+	// the next launch.
+	writeUserEnvFile(f, jsonx.NewOrderedMap())
+	st, err = os.Stat(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Mode().Perm(); got != 0o600 {
+		t.Errorf("the truncating path must keep 0600, got %04o", got)
+	}
+}
+
+// os.WriteFile applies its mode only when CREATING, so a file an older yolo left
+// at 0644 would keep it forever without an explicit chmod. Every launch is the
+// migration, and this is the test that fails if the chmod is dropped.
+func TestWriteUserEnvFileNarrowsAnExistingWideFile(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "yolo-user-env.sh")
+	if err := os.WriteFile(f, []byte("# left by an older yolo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := jsonx.NewOrderedMap()
+	env.Set("ZAI_API_KEY", "sk-secret")
+	writeUserEnvFile(f, env)
+	st, err := os.Stat(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Mode().Perm(); got != 0o600 {
+		t.Errorf("an existing 0644 file must be narrowed in place, got %04o", got)
+	}
+}
