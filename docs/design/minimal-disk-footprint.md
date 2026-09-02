@@ -142,6 +142,33 @@ Three things the rates say that the levels do not:
 - **The 08-15 device figure is a `df -h` rounding** ("2.5 T", "69 %"). The ≈+550 GiB is derived from the percentage against the precise total; from the rounded "2.5 T" it is ≈+600 GiB. The runway is 11–12 days either way, which is the only thing the number is load-bearing for.
 - **"100 % reclaimable" in `podman system df` is measured on a nested podman with zero running containers.** It correctly reports that nothing holds these images *right now*; it is not a claim that a real host's running jail image is reclaimable. The orphaned `<none>` rows in §3.3 — **three** of them as of the post-C2 pass, not the one this console block shows — are orphaned regardless.
 
+### 2.4 Re-measured 2026-09-02 — the backlog is gone here, and the device kept filling anyway
+
+Same jail, eight days later; three facts that move the questions below.
+
+- **The nested `cache/images` backlog was reclaimed: 3 tars, 10 GiB** (was 148 / 480.71 GiB),
+  newest tar mtime 2026-08-25 19:17 and nothing since — C3 doing its job. Three is exactly
+  `ImageCacheKeep`'s default, which is the fingerprint of a **manual `yolo prune --apply`** having
+  run. That is **field evidence for OQ-DF2's leaning (iii)**: the recovery tool works when a human
+  reaches for it — and it is exactly the "reclamation that waits for a human" the title objects
+  to, so it argues *for* this doc, not against it. §10's "pre-C3 backlog untouched" is discharged
+  for this machine's nested cache; the host-side 125.41 GiB cache was **NOT observable** from this
+  jail today (`~/.cache/yolo-jail` holds 164 KiB of loophole remnants; the mount §2's warning
+  described is not present in this session), so that backlog's fate is unknown.
+- **The device lost ~92 GiB of free space in those same eight days** — 87 % full, 516 GiB free,
+  vs. 84 % / 608 GiB on 08-25 — **despite** the ~470 GiB reclaim, and `/nix/store` grew only
+  +6 GiB (659 → 665). So the current growth driver is in **none of the three ledgers**: something
+  else on the shared block device ([`storage-lifecycle.md`](../plans/storage-lifecycle.md)'s
+  scope does not cover it either). **That is a new input to OQ-DF4**: a budget scoped to yolo's
+  ledgers can be met while the device fills at ~11.5 GiB/day, which is roughly the pre-C3 rate —
+  the doc that reaches "minimal disk space" needs at least a named pointer at the untracked
+  remainder, even if the mechanism stays out of scope.
+- **Ledger C observations do not survive a jail restart**: this container instance's podman store
+  is empty (`GraphRoot=/var/lib/containers/storage`, outside the persistent home), so §3.3's
+  eight-row/three-nameless snapshot cannot be re-taken from here. Ledgers B and C have now been
+  *observed* drifting fully independently on one machine — 480 GiB in B while C was empty — which
+  is the separateness OQ-DF2/OQ-DF3 already assume, measured rather than argued.
+
 ---
 
 ## 3. The three ledgers
