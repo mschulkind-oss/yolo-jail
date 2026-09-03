@@ -562,8 +562,15 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 //     documented promise being kept rather than a problem, so it is dim — one line per kind,
 //     naming the destinations, so "why is there a skill in ~/.pi/agent/skills?" has its answer
 //     in the report that put it there.
-//   - ORPHANED. The pack carries content for a kind that NO pack in `packs` names a destination
-//     for, so that content reaches nothing.
+//   - ORPHANED. The pack carries content that reached nothing. TWO CAUSES, and they get two
+//     phrasings, because the fields to change are different ones. Either no pack in `packs`
+//     names a destination for the kind at all — fixed by selecting an agent pack or writing an
+//     `into` — or the contribution named an AUDIENCE (its `agents` selector) that no
+//     destination's declared `agent` matches, which `into` cannot fix and is refused alongside
+//     (packdecl's validateContribution: a contribution names an audience or a destination,
+//     never both). The orphan carries which one it is (packload.Orphan.Agents); this function
+//     must not guess, and before it carried the reason the reader of the second case was told
+//     to declare `into`.
 //
 // The severity of an orphan turns on whether the pack reaches anything AT ALL, and the split is
 // ruling R2's, already applied to an orphaned config-overlay a few lines above: inert is named
@@ -594,23 +601,59 @@ func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) in
 		return 0
 	}
 	inert := len(d.Pack.Decl.Contributions()) == 0
-	for _, kind := range d.Orphaned {
+	for _, o := range d.Orphaned {
+		kind := string(o.Kind)
+		if len(o.Agents) > 0 {
+			// THE AUDIENCE IS UNMATCHED, NOT MISSING, and neither line below is true of it:
+			// destinations for this kind may well exist and be receiving other packs' content.
+			// So the remedy is the owner of the NAME — one name, one owning pack
+			// (briefing-audiences.md P5) — or the selector itself. Naming a path is not on the
+			// list, and saying so is the point: it is what the reader would otherwise try.
+			//
+			// Severity is deliberately unchanged (the `no effect` warning, rc 0). Whether an
+			// unmatched audience should refuse the launch outright is a live disagreement
+			// between P3 and risk R1 in that design — roadmap 💬 20 — and this reporter is not
+			// where it gets settled.
+			pr.Printf("  [yellow]%-10s no effect[/yellow] — %s addresses %s (its `agents` "+
+				"selector: the launcher commands this %s content is FOR), and no %s destination "+
+				"your packs name declares a matching `agent` (the identity an agent pack "+
+				"declares beside its own `into`) [dim](select the pack that owns %s, or correct "+
+				"`agents` in %s's pack.json — declaring `into` is not the remedy: a "+
+				"contribution names an audience or a destination, never both)[/dim]",
+				kind, d.Pack.Name, quotedAgents(o.Agents), kind, kind, quotedAgents(o.Agents),
+				d.Pack.Name)
+			continue
+		}
 		if !inert {
 			pr.Printf("  [yellow]%-10s no effect[/yellow] — %s carries %s content, and no pack "+
 				"in `packs` names a %s destination [dim](select the agent pack that owns one, "+
 				"or declare `into` in %s's pack.json)[/dim]",
-				string(kind), d.Pack.Name, string(kind), string(kind), d.Pack.Name)
+				kind, d.Pack.Name, kind, kind, d.Pack.Name)
 			continue
 		}
 		pr.Printf("  [yellow]%-10s refused[/yellow] — %s ships %s but no pack in `packs` names a "+
 			"destination for it, so this pack renders NOTHING. Select the agent pack that owns "+
 			"the destination, or declare `into` in %s's pack.json.",
-			string(kind), d.Pack.Name, string(kind), d.Pack.Name)
+			kind, d.Pack.Name, kind, d.Pack.Name)
 	}
 	if inert {
 		return 1
 	}
 	return 0
+}
+
+// quotedAgents renders an audience for the orphan report: the names quoted, joined with "or"
+// because the selector is an allowlist — any ONE of them matching would have routed the
+// content, so "select the pack that owns X or Y" is the remedy as stated.
+func quotedAgents(agents []string) string {
+	quoted := make([]string, 0, len(agents))
+	for _, a := range agents {
+		quoted = append(quoted, fmt.Sprintf("%q", a))
+	}
+	if len(quoted) < 2 {
+		return strings.Join(quoted, "")
+	}
+	return strings.Join(quoted[:len(quoted)-1], ", ") + " or " + quoted[len(quoted)-1]
 }
 
 // embeddedPacksForPrune returns the packs yolo SHIPS, as prune candidates. A pack the user

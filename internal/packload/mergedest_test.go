@@ -252,10 +252,9 @@ func TestResolveDestinationsReportsAnUnmatchedAudience(t *testing.T) {
 		t.Errorf("Inferred = %v for prose addressed to an agent this set does not have",
 			d.Inferred)
 	}
-	if want := []packdecl.Kind{packdecl.KindBriefing}; len(d.Orphaned) != 1 ||
-		d.Orphaned[0] != want[0] {
-		t.Errorf("Orphaned = %v, want %v — a pack whose whole content reaches nothing must "+
-			"never be silent about it", d.Orphaned, want)
+	if len(d.Orphaned) != 1 || d.Orphaned[0].Kind != packdecl.KindBriefing {
+		t.Errorf("Orphaned = %v, want one %q — a pack whose whole content reaches nothing must "+
+			"never be silent about it", d.Orphaned, packdecl.KindBriefing)
 	}
 }
 
@@ -395,8 +394,8 @@ func TestResolveDestinationsReportsAnAddressedSourceNothingCanDeliver(t *testing
 			d.Inferred)
 	}
 	got := map[packdecl.Kind]int{}
-	for _, k := range d.Orphaned {
-		got[k]++
+	for _, o := range d.Orphaned {
+		got[o.Kind]++
 	}
 	for _, want := range []packdecl.Kind{packdecl.KindBriefing, packdecl.KindSkills} {
 		if got[want] != 1 {
@@ -404,6 +403,76 @@ func TestResolveDestinationsReportsAnAddressedSourceNothingCanDeliver(t *testing
 				"nothing must never go inert quietly, and must not be reported twice for one kind",
 				d.Orphaned, want)
 		}
+	}
+}
+
+// AN ORPHAN CARRIES WHY IT IS ORPHANED, because since the audience selector there are two whys
+// and their remedies are opposites:
+//
+//   - NO DESTINATION EXISTS for the kind, anywhere in the set. Fixed by selecting an agent pack
+//     or by writing an `into`.
+//   - A DESTINATION EXISTS and no destination's declared `agent` matches the contribution's
+//     `agents`. Fixed by selecting the pack that OWNS that name, or by correcting the selector —
+//     and NOT by writing an `into`, which validateContribution refuses beside `agents`.
+//
+// The audience is what tells them apart, so the report cannot say which one it is unless the
+// resolver hands it over. One set holds both at once here: claude declares a briefing
+// destination and owns the name `claude`, and declares no skills destination at all.
+func TestResolveDestinationsOrphanCarriesItsAudience(t *testing.T) {
+	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".claude/CLAUDE.md", Agent: "claude"})
+	house := addressedPack(t, "house", map[string]string{
+		"prose/codex.md":         "codex only\n",
+		"skills/review/SKILL.md": "body\n",
+	}, packdecl.Contribution{Kind: packdecl.KindBriefing, From: "prose/codex.md",
+		Agents: []string{"codex"}})
+
+	d := house.ResolveDestinations([]*Pack{claude, house})
+	if len(d.Orphaned) != 2 {
+		t.Fatalf("Orphaned = %v, want two — one briefing (unmatched audience) and one skills "+
+			"(no destination at all)", d.Orphaned)
+	}
+	byKind := map[packdecl.Kind]Orphan{}
+	for _, o := range d.Orphaned {
+		byKind[o.Kind] = o
+	}
+	if got := byKind[packdecl.KindBriefing].Agents; !sameStrings(got, []string{"codex"}) {
+		t.Errorf("briefing orphan Agents = %v, want [codex] — a briefing destination exists and "+
+			"is being written to; the audience it addressed is what nothing owns, and a report "+
+			"that cannot see the audience tells this author to declare `into` instead", got)
+	}
+	if got := byKind[packdecl.KindSkills].Agents; len(got) != 0 {
+		t.Errorf("skills orphan Agents = %v, want none — the conventional skills tree named no "+
+			"audience, so it was eligible for every destination of its kind and there were none",
+			got)
+	}
+}
+
+// TWO UNMATCHED AUDIENCES ARE TWO FACTS, so the orphan dedup key is the kind AND the audience.
+// Per kind alone (what it was while there was one reason to be orphaned) reports the first and
+// drops the second, and the two can differ in exactly the thing the report is now keyed on.
+func TestResolveDestinationsOrphansEachUnmatchedAudienceSeparately(t *testing.T) {
+	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindBriefing,
+		Into: ".claude/CLAUDE.md", Agent: "claude"})
+	house := addressedPack(t, "house", map[string]string{
+		"prose/codex.md": "codex\n",
+		"prose/agy.md":   "agy\n",
+	},
+		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "prose/codex.md",
+			Agents: []string{"codex"}},
+		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "prose/agy.md",
+			Agents: []string{"agy"}})
+
+	d := house.ResolveDestinations([]*Pack{claude, house})
+	var got []string
+	for _, o := range d.Orphaned {
+		if o.Kind == packdecl.KindBriefing && len(o.Agents) == 1 {
+			got = append(got, o.Agents[0])
+		}
+	}
+	if want := []string{"codex", "agy"}; !sameStrings(got, want) {
+		t.Errorf("orphaned briefing audiences = %v, want %v — each addressed contribution that "+
+			"reached nothing is its own line in the report", got, want)
 	}
 }
 
@@ -608,9 +677,9 @@ func TestResolveDestinationsReportsAnOrphanedKind(t *testing.T) {
 		t.Fatalf("Orphaned = %v, want both carried kinds — a pack that reaches nothing must "+
 			"never be silent", d.Orphaned)
 	}
-	for _, k := range d.Orphaned {
-		if !want[k] {
-			t.Errorf("Orphaned names %q, which the pack does not carry", k)
+	for _, o := range d.Orphaned {
+		if !want[o.Kind] {
+			t.Errorf("Orphaned names %q, which the pack does not carry", o.Kind)
 		}
 	}
 }

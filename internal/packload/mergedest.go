@@ -44,6 +44,7 @@ package packload
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
@@ -67,11 +68,32 @@ type Destinations struct {
 	// Inferred is what was added, for the report. A destination the user never wrote down is
 	// still a destination yolo writes to, so the apply says which ones and why.
 	Inferred []packdecl.Contribution
-	// Orphaned names each kind the pack CARRIES content for that no pack in the set declares
-	// a destination for. Not an inference failure — a config the user has to hear about: a
+	// Orphaned names each kind the pack CARRIES content for that reached no destination, and
+	// WHY it reached none. Not an inference failure — a config the user has to hear about: a
 	// content pack selected with no agent pack delivers nothing, which is F1 reached by a
 	// different route.
-	Orphaned []packdecl.Kind
+	Orphaned []Orphan
+}
+
+// Orphan is one kind of content that reached no destination, together with the reason — which
+// is the AUDIENCE the orphaned contribution named, or none.
+//
+// IT CARRIES THE REASON BECAUSE THERE ARE NOW TWO, and the remedies are opposites. Before the
+// audience selector there was one: nobody in `packs` declared a destination for the kind at all,
+// fixed by selecting an agent pack or writing an `into`. An addressed contribution
+// (`{from: "prose/claude.md", agents: ["claude"]}`) can reach nothing while destinations exist
+// and are being written to — because none of them declared a matching `agent` — and for that one
+// `into` is not a remedy at all: a contribution names an audience or a destination, never both
+// (validateContribution). A report that cannot tell the two apart sends half its readers to
+// change the wrong field, so the kind alone is not enough to say.
+type Orphan struct {
+	// Kind is the content kind that reached nothing.
+	Kind packdecl.Kind
+	// Agents is the `agents` selector of the contribution that reached nothing — the launcher
+	// commands its content was FOR (briefing-audiences.md §4.1). EMPTY means the contribution
+	// named no audience, so it was eligible for every destination of its kind and there were
+	// none.
+	Agents []string
 }
 
 // ResolveDestinations resolves this pack's delivery destinations against `set`, the packs the
@@ -106,7 +128,7 @@ type Destinations struct {
 // its own, against its own audience, carrying its own source.
 func (p *Pack) ResolveDestinations(set []*Pack) Destinations {
 	out := Destinations{Pack: p}
-	orphaned := map[packdecl.Kind]bool{}
+	orphaned := map[string]bool{}
 	for _, kind := range inferrableKinds {
 		for _, src := range p.borrowingSources(kind) {
 			if !p.carriesFor(src) {
@@ -121,13 +143,19 @@ func (p *Pack) ResolveDestinations(set []*Pack) Destinations {
 				// above, before reaching here, so a content pack that named a source the pack
 				// really holds went inert with `Inferred=[] Orphaned=[]`.
 				//
-				// Deduplicated per KIND because that is the report's granularity (apply.go's
-				// reportInferredDestinations prints one line per kind); a pack with two addressed
-				// briefings, one matched and one not, still names `briefing` here — half-true is
-				// the most this shape can carry, and it beats silence.
-				if !orphaned[kind] {
-					orphaned[kind] = true
-					out.Orphaned = append(out.Orphaned, kind)
+				// Deduplicated per KIND AND AUDIENCE, which is the report's granularity
+				// (apply.go's reportInferredDestinations prints one line per Orphan, and the line
+				// it prints depends on the audience). Per kind alone was the granularity while
+				// the reason was one reason: it collapsed an unaddressed orphan and an addressed
+				// one into a single entry, so whichever came first chose the message for both.
+				// The audience is what the two differ by, so it belongs in the key — a pack
+				// briefing claude from one file and pi from another, neither matched, is two
+				// facts and gets two lines.
+				key := string(kind) + "\x00" + strings.Join(src.Agents, "\x00")
+				if !orphaned[key] {
+					orphaned[key] = true
+					out.Orphaned = append(out.Orphaned,
+						Orphan{Kind: kind, Agents: src.Agents})
 				}
 				continue
 			}

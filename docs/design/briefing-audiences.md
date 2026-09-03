@@ -54,9 +54,16 @@ which govern any new name-a-component-by-string field),
 >    (claude prose → claude, pi prose → pi) cannot be expressed by a union over the kind. **The first
 >    implementation attempt shipped exactly the gap this list describes** — validation landed,
 >    routing did not.
-> 2. **`Orphaned []Kind` cannot express risk R1.** With two addressed entries of one kind, one
->    matched and one not, the report can only name the kind. Deduped per kind and commented in the
->    code rather than hidden; making R1's promise literal means the type carries the contribution.
+> 2. **`Orphaned []Kind` could not express risk R1, and now carries the audience.** With two
+>    addressed entries of one kind, one matched and one not, a list of kinds can only name the kind.
+>    It shipped deduped per kind and commented in the code rather than hidden; since 2026-09-03 the
+>    element is a `packload.Orphan` — the kind PLUS the `agents` selector of the contribution that
+>    reached nothing — deduped per kind AND audience. What forced the move was the REPORT rather
+>    than R1: an orphan now has two causes (no destination of the kind exists anywhere in `packs`,
+>    or one exists and no destination's declared `agent` matches), their remedies are opposites, and
+>    `yolo host apply` sent both readers to declare `into` — which §4.1 refuses beside `agents`. It
+>    still does not carry the whole contribution, so two entries addressing the SAME audience remain
+>    one line.
 >
 > **And one contradiction is now a live question — roadmap 💬 20.** P3 makes an unenabled *name*
 > fatal; risk R1 describes an addressed contribution that matched no destination as *reported*. Both
