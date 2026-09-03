@@ -26,7 +26,8 @@ import (
 // corrupt or missing record must fail closed independently: a files render that cannot prove
 // ownership refuses and touches nothing, which is the correct outcome whether or not skill
 // delivery in the same run had the same problem.
-func applyHostFiles(pr richtext.Printer, errw io.Writer, p *packload.Pack, home, stamp string, write bool) int {
+func applyHostFiles(pr richtext.Printer, errw io.Writer, p *packload.Pack, home, stamp string,
+	write bool, survey *hostApplySurvey) int {
 	if !declaresKind(p, packdecl.KindFiles) {
 		return 0
 	}
@@ -52,6 +53,7 @@ func applyHostFiles(pr richtext.Printer, errw io.Writer, p *packload.Pack, home,
 		return 1
 	}
 	for _, r := range results {
+		survey.note(string(packdecl.KindFiles), r.Surface, r.Path, r.WouldChange)
 		pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 	}
 	if write {

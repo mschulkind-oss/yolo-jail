@@ -25,6 +25,7 @@ package hostskills
 // alternative is a plugin that looks installed and half works.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -109,9 +110,17 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 	}
 
 	skills := req.Plugin.SkillDirs()
+	// THE CHANGE PREDICATE for the tree, computed before anything is written so both postures
+	// agree (Result.WouldChange). An unchanged tree keeps its own action rather than becoming
+	// ActionUnchanged only where nothing is copied — see the write gate below.
+	changed := changedPluginTree(req.Plugin.Dir, dest, req.Plugin.ManifestRel())
+	action := wroteAction(req.Observe)
+	if !changed {
+		action = ActionUnchanged
+	}
 	out := []Result{{
-		Name: name, Path: dest, Action: wroteAction(req.Observe),
-		Detail: pluginTreeDetail(name, skills),
+		Name: name, Path: dest, Action: action,
+		Detail: pluginTreeDetail(name, skills), WouldChange: changed,
 	}}
 	// Claimed BEFORE the writes, and in both postures: the claim is what a later layer and the
 	// composition's retire pass read, so gating it on the write succeeding would make an
@@ -132,6 +141,12 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 		out = append(out, Result{
 			Name: name + ":" + c.Name, Path: req.Plugin.ManifestPath,
 			Action: wroteAction(req.Observe), Detail: detail,
+			// The components arrive with the tree, in the same copy, so they carry the tree's
+			// verdict. The ACTION stays the always-warn wording whatever the verdict — "a pack
+			// put a hook in my real home" is a fact about what is there, not about what this
+			// apply moved, and rewording it to `unchanged` would retire the warning the moment
+			// it became a standing one.
+			WouldChange: changed,
 		})
 	}
 
@@ -140,7 +155,10 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 	// create it, so the raw `file exists` was the entire user-visible output.
 	out = append(out, clearDanglingDirs(req.SkillsDir, dest, req.Observe)...)
 
-	if req.Observe {
+	if req.Observe || !changed {
+		// !changed short-circuits the write for the same reason the flat and namespaced skill
+		// deliveries do: the RemoveAll below is a delete-and-rewrite of a whole plugin tree in a
+		// real home, and doing it for content that has not moved is churn with no result.
 		return out, nil
 	}
 	if err := os.MkdirAll(req.SkillsDir, 0o755); err != nil {
@@ -152,15 +170,15 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 	// alternative — diffing the two trees — would be the same result with more ways to leave
 	// a stale file behind.
 	if err := os.RemoveAll(dest); err != nil {
-		out[0].Action, out[0].Detail = ActionRefused, err.Error()
+		out[0].Action, out[0].Detail, out[0].WouldChange = ActionRefused, err.Error(), false
 		return out, nil
 	}
 	if err := copyTree(req.Plugin.Dir, dest); err != nil {
-		out[0].Action, out[0].Detail = ActionRefused, err.Error()
+		out[0].Action, out[0].Detail, out[0].WouldChange = ActionRefused, err.Error(), false
 		return out, nil
 	}
 	if err := markManifest(dest, req.Plugin.ManifestRel()); err != nil {
-		out[0].Action, out[0].Detail = ActionRefused, err.Error()
+		out[0].Action, out[0].Detail, out[0].WouldChange = ActionRefused, err.Error(), false
 		return out, nil
 	}
 	return out, nil
@@ -241,25 +259,73 @@ func pluginTreeDetail(name string, skills map[string]string) string {
 // `.plugin/plugin.json` is not silently given a second one under `.claude-plugin/`.
 func markManifest(destDir, rel string) error {
 	path := filepath.Join(destDir, filepath.FromSlash(rel))
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
+	marked, changes, err := markedManifestBytes(path)
+	if err != nil || !changes {
 		// A manifest yolo cannot re-encode is left exactly as copied. The cost is that the
 		// next apply will not recognize the dir as yolo's and will leave it alone — the safe
 		// direction, and better than rewriting someone's file from a partial parse.
-		return nil
+		return err
+	}
+	return os.WriteFile(path, marked, 0o644)
+}
+
+// markedManifestBytes returns what markManifest WOULD write for the manifest at path, plus
+// whether it would write at all (false for a manifest it cannot re-encode, which is left as
+// copied).
+//
+// Split out of markManifest so the change predicate can ask the question without writing:
+// a delivered plugin tree is NOT a byte copy of the pack's — this marker is added to it — so
+// comparing the two trees directly reports every plugin as changed forever. changedPluginTree
+// is the caller, and it compares the source manifest's MARKED form against what is on disk.
+func markedManifestBytes(path string) ([]byte, bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false, err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return data, false, nil
 	}
 	marker, err := json.Marshal(yoloManagedMarker)
 	if err != nil {
-		return err
+		return nil, false, err
 	}
 	raw["x-yolo-managed-by"] = marker
 	out, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
-		return err
+		return nil, false, err
 	}
-	return os.WriteFile(path, append(out, '\n'), 0o644)
+	return append(out, '\n'), true, nil
+}
+
+// changedPluginTree reports whether delivering the plugin at src over dest would alter it —
+// the change predicate for a tier-A plugin delivery (Result.WouldChange).
+//
+// It cannot be a plain tree comparison, and that is the whole reason it exists: the delivery
+// copies the tree verbatim and then REWRITES the manifest to carry yolo's ownership marker
+// (markManifest), so the destination is deliberately one file different from the source. A
+// digest of the two would report CHANGED on every apply forever, which as a change predicate
+// means a prompt on every launch (docs/design/host-apply-staleness.md R3).
+//
+// So the tree is compared with the manifest excluded, and the manifest is compared against its
+// MARKED form. Every failure to read either side reads as CHANGED, matching Changed's
+// direction: the cost of a false positive is one redundant copy, and of a false negative
+// content nobody compared.
+func changedPluginTree(src, dest, manifestRel string) bool {
+	rel := filepath.FromSlash(manifestRel)
+	// Skipped on BOTH sides, unlike changedExcept's src-only skip: the manifest is present in
+	// the destination (rewritten, not omitted), so leaving it in the destination's digest would
+	// re-introduce exactly the difference this function exists to hold aside.
+	if changedTreeSkipping(src, dest, map[string]bool{rel: true}) {
+		return true
+	}
+	want, _, err := markedManifestBytes(filepath.Join(src, rel))
+	if err != nil {
+		return true
+	}
+	got, err := os.ReadFile(filepath.Join(dest, rel))
+	if err != nil {
+		return true
+	}
+	return !bytes.Equal(want, got)
 }

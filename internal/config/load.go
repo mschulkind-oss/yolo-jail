@@ -316,6 +316,16 @@ func inJail() bool {
 	return os.Getenv("YOLO_VERSION") != ""
 }
 
+// InJail is inJail for callers outside this package — a DELEGATION rather than a
+// second copy of the probe, so there is one answer to "am I in a jail?" and
+// re-siting the discriminator moves every caller at once.
+//
+// The first outside caller is the host-launch gate (internal/cli's
+// hostApplyGate), which must be a hard no-op in a jail: it re-renders the
+// INVOKING USER'S REAL HOME, and paths.Home() in here is /home/agent — the
+// container's own disposable home, which no host render is about.
+func InJail() bool { return inJail() }
+
 // jailOwnWorkspace reports whether workspace is the workspace THIS jail was
 // launched for — i.e. the one whose config-assembled.json the host wrote for this
 // launch, and the only one the short-circuit may speak for.

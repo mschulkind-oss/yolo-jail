@@ -621,6 +621,62 @@
     Example (~/.config/yolo-jail/config.jsonc):
       "host_wrappers": true
 
+  [bold]host_apply_on_launch[/bold] (boolean): Re-check the host render at a wrapped launch.
+    Default false.  `yolo host apply` writes into your real home once and nothing
+    ever looks again, so what is in your agents' config files and what your packs
+    NOW say drift apart in silence.  Turn this on and a launch through a generated
+    wrapper (see [bold]host_wrappers[/bold] above) asks first: if a re-apply would change
+    nothing it execs straight through, and if it would change something it shows
+    you what and waits.
+
+    It behaves exactly like a jail launch, which is the point — the same gate
+    `yolo -- <cmd>` puts in front of a changed config:
+
+      nothing would change      silent; the agent starts as usual.
+      change, terminal attached shows what would change and prompts.  Accept and
+                                yolo applies then launches; decline and the launch
+                                is ABORTED, as a jail launch is.
+      change, no terminal       REFUSED, naming the two commands that fix it —
+                                unless the approval is in the environment (below).
+      cannot tell               execs.  A malformed pack, an unreadable home or a
+                                concurrent apply is not something a launch may
+                                stop over.
+
+    [bold yellow]The key enables the mechanism.  It does not grant the approval.[/bold yellow]  A launch
+    under an enabled key still prompts, and still refuses when there is nobody to
+    prompt.  A config key that pre-approved would be standing consent — read on
+    every launch forever with no act of granting — which yolo refuses for the same
+    reason `--accept-config-changes` is a flag rather than a variable.
+
+    A scripted launch has no slot for a flag: the wrapper is a fixed
+    `exec yolo host -- <program> "$@"`, and everything after `--` belongs to the
+    program.  So on THAT PATH ONLY the approval may come from the environment:
+      YOLO_ACCEPT_CONFIG_CHANGES=1 claude --print ...
+    Any non-empty value grants it, for this process.  It is honored by the wrapped
+    launch and NOWHERE else — never by `yolo`, which takes the flag, and never by
+    `yolo host apply`, which needs no approval of its own: applying is what you
+    asked it to do.  Exported in a shell rc the variable becomes standing consent
+    for every wrapped launch in that shell, so the two-step remedy is the better
+    habit — it leaves nothing behind:
+      yolo host apply --assert
+      claude --print ...
+
+    What it compares is the RENDER, not your config — so a file you hand-edited is
+    caught even though nothing in `packs` moved.  Concurrent launches serialize on
+    a per-home lock, and one that cannot take the lock execs rather than waiting.
+
+    [bold]Coverage:[/bold] only launches that go through a generated wrapper.  An agent
+    started by its real binary, by an IDE extension or by a desktop app is not
+    observed and runs against whatever the last explicit apply left.  That is the
+    same boundary [bold]host_wrappers[/bold] has, and `yolo check` reports both.
+
+    [bold yellow]Scope: user config only[/bold yellow] (~/.config/yolo-jail/config.jsonc).  The key lets a
+    launch WRITE INTO YOUR REAL HOME, and a workspace config travels with the repo
+    and is agent-editable, so it must never make that claim for you.  A workspace
+    value is a `yolo check` error, and is never read.
+    Example (~/.config/yolo-jail/config.jsonc):
+      "host_apply_on_launch": true
+
   [bold]workspace_readonly[/bold] (array of strings): Workspace sub-paths to overlay as read-only.
     Each entry is a relative path inside the workspace (no leading /, no ..).
     Mounted on top of the writable /workspace volume so agents cannot modify

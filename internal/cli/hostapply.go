@@ -58,7 +58,8 @@ func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 // that is wrong in both directions (it nags after an rc edit made in another shell, and
 // says nothing after a one-off `export`). `yolo check` carries that observation instead,
 // where it is both decidable and actionable.
-func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs []*packload.Pack, write bool) int {
+func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs []*packload.Pack,
+	write bool, survey *hostApplySurvey) int {
 	dir := paths.WrapDirUnder(home)
 	enabled := config.HostWrappersEnabled()
 
@@ -68,7 +69,13 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 		// is turned back OFF: leaving live wrappers on a user's PATH after they said no
 		// would be the worst of both.
 		plan, err := hostwrap.PlanFor(dir, nil)
-		if err != nil || !plan.Changed() {
+		if err != nil {
+			// Cannot determine, so nothing is noted: an unreadable wrapper dir is not a change
+			// the launch gate may stop on (§4.4).
+			return 0
+		}
+		noteWrapperPlan(survey, dir, plan)
+		if !plan.Changed() {
 			return 0
 		}
 		if !write {
@@ -92,6 +99,7 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 			fmt.Fprintf(errw, "yolo host apply: planning wrappers: %v\n", err)
 			return 1
 		}
+		noteWrapperPlan(survey, dir, plan)
 		pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]",
 			"host_wrappers", describeWrapperPlan(plan, false), dir)
 		return 0
@@ -101,6 +109,7 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 		fmt.Fprintf(errw, "yolo host apply: generating wrappers: %v\n", err)
 		return 1
 	}
+	noteWrapperPlan(survey, dir, plan)
 	pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]",
 		"host_wrappers", describeWrapperPlan(plan, true), dir)
 	if plan.Changed() {
@@ -110,6 +119,18 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 		pr.Printf("    [bold]%s[/bold]", hostwrap.PathLine(dir))
 	}
 	return 0
+}
+
+// noteWrapperPlan records the wrapper directory's change predicate in the apply's roll-up.
+//
+// THE WRAPPER DIR IS A FIFTH DESTINATION, beyond the four written kinds §3.4 enumerates, and it
+// is included on purpose: `applyHost` writes it, `hostwrap.Plan.Changed` is already an exact
+// content predicate for it, and a launch reaching this gate arrived THROUGH one of these
+// wrappers. Leaving it out would mean "the host is up to date whenever an agent launches" was
+// false for the one mechanism that made the launch observable at all — a pack added since the
+// last apply has no wrapper, and nothing else in the survey would say so.
+func noteWrapperPlan(survey *hostApplySurvey, dir string, plan hostwrap.Plan) {
+	survey.note("host_wrappers", "host_wrappers", dir, plan.Changed())
 }
 
 func describeWrapperPlan(plan hostwrap.Plan, wrote bool) string {

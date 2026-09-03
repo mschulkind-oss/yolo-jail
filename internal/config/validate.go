@@ -101,6 +101,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateWritableHomeDirs(config, errs)
 	validateHostFiles(config, workspace, errs)
 	validateHostWrappers(config, workspace, errs)
+	validateHostApplyOnLaunch(config, workspace, errs)
 	validatePacks(workspace, errs)
 
 	errors = *errs
@@ -477,6 +478,38 @@ func validateHostWrappers(config *jsonx.OrderedMap, workspace string, errs *[]st
 	if wsValue, atWorkspace := wsCfg.Get(hostWrappersKey); atWorkspace && wsValue != nil {
 		add(errs, "config."+hostWrappersKey+": user-scope only — it puts generated "+
 			"executables on your PATH, so it is read from "+paths.UserConfigPath()+
+			" and a workspace value has no effect. Move it there, or remove it.")
+	}
+}
+
+// validateHostApplyOnLaunch shape-checks the `host_apply_on_launch` opt-in.
+//
+// A plain boolean for host_wrappers' reason: what the key decides is whether the mechanism
+// runs at all, not which surfaces or which agents it covers — two tiers of "up to date" was
+// refused outright (docs/design/host-apply-staleness.md OQ-HS4), so there is nothing for a
+// list to enumerate.
+//
+// The scope half is the same defense-in-depth host_wrappers takes, and the leak it guards is
+// larger: the key licenses a WRITE into the real $HOME as a side effect of launching an agent,
+// so a workspace value that merely looked accepted would be a silent no-op on the one class of
+// key where a silent no-op is indistinguishable from a working exploit.
+func validateHostApplyOnLaunch(config *jsonx.OrderedMap, workspace string, errs *[]string) {
+	v, present := config.Get(hostApplyOnLaunchKey)
+	if !present {
+		// Every workspace key survives into the merged map, so an absent key here proves the
+		// workspace config has none either — no re-read needed.
+		return
+	}
+	if v != nil && !isBool(v) {
+		add(errs, "config."+hostApplyOnLaunchKey+": expected a boolean (got "+pyReprValue(v)+")")
+	}
+	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
+	if err != nil || wsCfg == nil {
+		return
+	}
+	if wsValue, atWorkspace := wsCfg.Get(hostApplyOnLaunchKey); atWorkspace && wsValue != nil {
+		add(errs, "config."+hostApplyOnLaunchKey+": user-scope only — it lets a wrapped agent "+
+			"launch write into your real home, so it is read from "+paths.UserConfigPath()+
 			" and a workspace value has no effect. Move it there, or remove it.")
 	}
 }

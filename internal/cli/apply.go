@@ -127,7 +127,26 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 // real dep state (present/missing + the remedy for the detected manager) without running
 // an install — that stays confirm-gated behind env-manager plan Phase 4.3.
 func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int {
+	return applyHostSurveyed(out, errw, color, write, stdin, nil)
+}
+
+// applyHostSurveyed is applyHost with the change-predicate ROLL-UP handed back to the caller
+// (hostapplysurvey.go). It is the same operation and the same output; the survey is an extra
+// return channel, not a mode.
+//
+// It exists so §4.3's launch gate can ask "would an --assert change anything in this home?"
+// by running THIS pass in observe posture with the output discarded, rather than growing its
+// own traversal of the four written kinds — which would be a second model of the apply, free
+// to drift out of step with the apply it describes.
+func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Reader,
+	survey *hostApplySurvey) int {
 	pr := richtext.Printer{W: out, Color: color}
+	// The roll-up is always collected, even when the caller wants none: the observe posture
+	// ends with it, and a nil survey there would mean the dry run could not report the very
+	// summary §10 step 1 asks for. See hostapplysurvey.go.
+	if survey == nil {
+		survey = &hostApplySurvey{}
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host apply: cannot resolve your home: %v\n", err)
@@ -161,9 +180,9 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 		// nil reload: with no pack configured there is nothing for a migration to compose back,
 		// so re-resolving would find the same empty set.
 		rc := applyHostBriefings(pr, out, stdin, nil, packload.Embedded(), empty, true,
-			home, stamp, write, nil)
+			home, stamp, write, nil, survey)
 		if src := applyHostSkills(pr, out, stdin, nil, packload.Embedded(), empty, empty, true,
-			home, stamp, write, nil); src != 0 {
+			home, stamp, write, nil, survey); src != 0 {
 			rc = src
 		}
 		if prc := pruneDroppedPackOutput(pr, out, stdin, packload.Embedded(), empty,
@@ -176,7 +195,7 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 		// orphan pointing at something nothing will reinstall. Leaving them behind is
 		// exactly the "delivered output nobody will ever ask about again" this branch
 		// exists to prevent — and these are EXECUTABLES, at the front of a PATH.
-		if wrc := applyHostWrappers(pr, errw, home, nil, write); wrc != 0 {
+		if wrc := applyHostWrappers(pr, errw, home, nil, write, survey); wrc != 0 {
 			rc = wrc
 		}
 		return rc
@@ -358,7 +377,7 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 				}
 			}
 		}
-		if frc := applyHostFiles(pr, errw, p, home, stamp, write); frc != 0 {
+		if frc := applyHostFiles(pr, errw, p, home, stamp, write, survey); frc != 0 {
 			rc = frc
 		}
 		results, rerr := entrypoint.RenderHostPack(p, home, !write, overlays)
@@ -368,6 +387,7 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 			continue
 		}
 		for _, r := range results {
+			survey.note("config", r.Surface, r.Path, r.WouldChange)
 			pr.Printf("  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 			// Which packs contributed config-overlay keys to this surface (ruling R3). An
 			// overlay folds BELOW the owner's managed layer, so it leaves no trace in the
@@ -444,11 +464,11 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 	// asked about the bigger move first, and moving a directory of skills is bigger than moving
 	// one file's prose.
 	if src := applyHostSkills(pr, out, stdin, loaded, candidates, active, configured, resolvedAll,
-		home, stamp, write, reloadPacks); src != 0 {
+		home, stamp, write, reloadPacks, survey); src != 0 {
 		rc = src
 	}
 	if brc := applyHostBriefings(pr, out, stdin, loaded, candidates, active, resolvedAll,
-		home, stamp, write, reloadPacks); brc != 0 {
+		home, stamp, write, reloadPacks, survey); brc != 0 {
 		rc = brc
 	}
 
@@ -471,11 +491,20 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 	// Launch wrappers, last: they are the only stage that writes OUTSIDE the composed
 	// surfaces, and generating them after the surfaces means a wrapper never appears for
 	// a pack whose own apply just failed. Silent unless opted in (§5.5).
-	if wrc := applyHostWrappers(pr, errw, home, loaded, write); wrc != 0 {
+	if wrc := applyHostWrappers(pr, errw, home, loaded, write, survey); wrc != 0 {
 		rc = wrc
 	}
 
 	if !write {
+		// THE ROLL-UP, and it is the point of the change predicate at this surface: an observe
+		// pass over an already-applied home used to end in N identical `would render` lines with
+		// nothing saying they were all no-ops (§10 step 1). Printed before the "nothing written"
+		// line, so the last two lines read as verdict-then-posture.
+		pr.Printf("[bold]%s[/bold]", survey.Summary())
+		for _, c := range survey.Changed {
+			pr.Printf("  [yellow]would change[/yellow] [cyan]%-10s %s[/cyan] [dim]%s[/dim]",
+				c.Kind, c.Surface, c.Path)
+		}
 		pr.Printf("[dim]observe only — nothing written. Re-run with --assert to apply.[/dim]")
 	}
 	return rc

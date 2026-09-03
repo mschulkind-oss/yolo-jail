@@ -45,6 +45,13 @@ Exec flags (yolo host -- ...):
   --profile <name>, -p <name>   Profile/provider preset for the wrapped agent.
   --help, -h                    Show this help.
 
+With ` + "`host_apply_on_launch`" + ` set in your user config, ` + "`yolo host -- <agent>`" + ` first
+checks whether ` + "`yolo host apply`" + ` would change anything, and stops to ask when it
+would — silently exec'ing when it would not. There is no flag for that approval:
+the launch hands everything after ` + "`--`" + ` to the agent, so on that path only it is
+read from ` + "`YOLO_ACCEPT_CONFIG_CHANGES`" + ` (any non-empty value, this launch only).
+See ` + "`yolo config-ref`" + `.
+
 apply flags:
   --assert        Write. Without it apply OBSERVES and writes nothing.
   --dry-run       Force observe, even alongside --assert.
@@ -82,7 +89,7 @@ func runHost(args []string) int {
 // have to re-implement flag parsing to find out whether a verb was even present.
 func hostMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
 	if i := indexOf(args, "--"); i >= 0 {
-		return hostExec(args[:i], args[i+1:], out, errw)
+		return hostExec(args[:i], args[i+1:], out, errw, stdin)
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(out, hostUsage)
@@ -136,7 +143,7 @@ func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 // agent starts — no teardown hook, no lock, no capture fold, none of what makes
 // `yolo run` supervise a child — so staying resident would only add a process to every
 // launch and put yolo between the agent and its terminal signals.
-func hostExec(flagArgs, cmd []string, out, errw io.Writer) int {
+func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int {
 	flags, ok := parseHostExecFlags(flagArgs, errw)
 	if !ok {
 		return 2
@@ -146,6 +153,16 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer) int {
 		return 2
 	}
 	_ = out
+
+	// THE HOST-RENDER GATE, before anything else this function does (hostapplygate.go, and
+	// docs/design/host-apply-staleness.md §4.1). It is the host notch's answer to the jail's
+	// launch-time config approval, and it sits FIRST for the reason the credential pre-flight
+	// below gives for its own placement: a launch that is going to be stopped should be stopped
+	// while the only thing it has done is read some files. It is silent unless the user opted
+	// in, and it is a no-op in a jail.
+	if !hostApplyGate(errw, stdin, cmd[0]) {
+		return 1
+	}
 
 	launch := composeHostLaunch(cmd[0], flags.profile, func(msg string) {
 		fmt.Fprintf(errw, "Warning: %s\n", msg)
