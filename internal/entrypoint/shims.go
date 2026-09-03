@@ -262,6 +262,19 @@ func GenerateAgentLaunchers(e *Env) error {
 // whatever selector the pack asked for. Splitting it in bash would mean re-deriving npm's
 // scoped-package rule in a launcher that has to keep working when the pack author gets it
 // slightly wrong.
+//
+// EVERY VALUE IS shquote'd — see the splice contract on npmLauncherTemplate. `flags` takes
+// Join rather than Quote because it is a LIST that must reach npm as several argv words;
+// Join quotes each word and leaves only the separating spaces splittable, which is the one
+// place in these templates where word splitting is intended rather than tolerated. The
+// trailing space is the template's, not the value's: the sentinel is glued to
+// `--prefer-online`, so an empty list must render nothing at all.
+//
+// __YOLO_PINNED__ IS THE ONE QUOTING CALL NO TEST CAN KILL, and that is a property of the
+// value rather than a gap: `pinned` is the string "0" or "1", decided three lines up from a
+// bool, so Quote is the identity on every input it can ever receive. It is quoted anyway so
+// the contract has no exemptions for a reader to memorize; a mutation run will report it as
+// a survivor, and that report is correct.
 func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string) string {
 	binName := inst.Bin
 	pkgName, pkgVersion := splitNpmSpec(inst.Package)
@@ -269,16 +282,16 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string) str
 	if npmSpecIsPinned(pkgVersion) {
 		pinned = "1"
 	}
-	extraFlags := strings.Join(inst.Flags, " ")
+	extraFlags := shquote.Join(inst.Flags)
 	if extraFlags != "" {
 		extraFlags += " "
 	}
 	r := strings.NewReplacer(
-		"__YOLO_BIN__", binName,
-		"__YOLO_PKG__", pkgName,
-		"__YOLO_SPEC__", npmInstallSpec(pkgName, pkgVersion),
-		"__YOLO_PINNED__", pinned,
-		"__YOLO_STAMP_DIR__", stampDir,
+		"__YOLO_BIN__", shquote.Quote(binName),
+		"__YOLO_PKG__", shquote.Quote(pkgName),
+		"__YOLO_SPEC__", shquote.Quote(npmInstallSpec(pkgName, pkgVersion)),
+		"__YOLO_PINNED__", shquote.Quote(pinned),
+		"__YOLO_STAMP_DIR__", shquote.Quote(stampDir),
 		"__YOLO_EXTRA__", extraFlags,
 		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsPath),
 		"__YOLO_RECEIPT_HEAD__", shquote.Quote(receiptPrefix("npm", binName, inst.Package)),
@@ -286,13 +299,22 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string) str
 	return r.Replace(npmLauncherTemplate)
 }
 
+// nativeAgentLauncher renders the installer-URL launcher for one `program via native`
+// contribution. Same splice contract as npmAgentLauncher: every value is shquote'd and
+// lands in a bare position.
+//
+// THE URL IS THE SHARPEST ONE. It used to be spliced raw onto curl's argv
+// (`curl -fsSL __YOLO_URL__ -o "$script"`), so an `installerUrl` carrying a space, a `;` or
+// a `$(…)` was shell source rather than an argument — the values are post-approval (a human
+// accepted the pack), which made this hardening rather than a live hole, and is not a reason
+// to leave one generator quoting and another not.
 func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string) string {
 	binName := inst.Bin
 	installerURL := inst.InstallerURL
 	r := strings.NewReplacer(
-		"__YOLO_BIN__", binName,
-		"__YOLO_URL__", installerURL,
-		"__YOLO_STAMP_DIR__", stampDir,
+		"__YOLO_BIN__", shquote.Quote(binName),
+		"__YOLO_URL__", shquote.Quote(installerURL),
+		"__YOLO_STAMP_DIR__", shquote.Quote(stampDir),
 		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsPath),
 		"__YOLO_RECEIPT_HEAD__", shquote.Quote(receiptPrefix("installer", binName, installerURL)),
 	)
@@ -300,8 +322,11 @@ func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string) 
 }
 
 // GeneratePackageManagerLaunchers writes lazy npm launchers for package managers not
-// pre-installed via mise (pnpm) into the LAUNCHER dir. The stamp dir path is shlex.quote'd
-// so a $HOME with shell metacharacters doesn't break the launcher.
+// pre-installed via mise (pnpm) into the LAUNCHER dir. Every spliced value is shlex.quote'd
+// (see the splice contract on npmLauncherTemplate) so a $HOME with shell metacharacters
+// doesn't break the launcher. This generator quoted its stamp dir — through a
+// `__YOLO_STAMP_DIR_LIT__` sentinel whose `_LIT_` suffix marked it as the exception — while
+// the other two spliced the same value raw. The suffix is gone with the exception it named.
 //
 // It writes a gap receipt for the same reason the agent launchers do: this is an install
 // yolo itself runs, and "every install yolo runs leaves one line" (§10 step one) is a claim
@@ -316,7 +341,6 @@ func GeneratePackageManagerLaunchers(e *Env) error {
 		return err
 	}
 	stampDir := filepath.Join(e.Home, ".cache", "yolo-package-manager-stamps")
-	stampDirLiteral := shquote.Quote(stampDir)
 
 	// The only lazily-installed package manager is pnpm. The package string goes through
 	// the same split as a pack's, so `pnpm` still renders `pnpm@latest` byte-for-byte
@@ -328,24 +352,38 @@ func GeneratePackageManagerLaunchers(e *Env) error {
 		if pathExists(launcherPath) {
 			continue // a pack already claimed this bin name
 		}
-		pkgName, pkgVersion := splitNpmSpec(pm.pkg)
-		r := strings.NewReplacer(
-			"__YOLO_BIN__", pm.bin,
-			"__YOLO_SPEC__", npmInstallSpec(pkgName, pkgVersion),
-			"__YOLO_STAMP_DIR_LIT__", stampDirLiteral,
-			"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsFile(e)),
-			// kind "npm" because the RESOLVER is npm — the receipt names the mechanism that
-			// did the install, not the declaration's origin. pnpm is declared by this list
-			// rather than by a pack, and a reader comparing receipts to bytes has no use for
-			// that distinction; a reader looking for "which resolver do I ask about this
-			// package" has every use for the kind.
-			"__YOLO_RECEIPT_HEAD__", shquote.Quote(receiptPrefix("npm", pm.bin, pm.pkg)),
-		)
-		if err := writeExecutable(launcherPath, r.Replace(pkgManagerLauncherTemplate)); err != nil {
+		body := pkgManagerLauncher(pm.bin, pm.pkg, stampDir, receiptsFile(e))
+		if err := writeExecutable(launcherPath, body); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// pkgManagerLauncher renders one package-manager launcher body.
+//
+// It is split out of GeneratePackageManagerLaunchers for the same reason npmAgentLauncher
+// and nativeAgentLauncher are separate from GenerateAgentLaunchers, and for one more: the
+// bin and package above are a HARDCODED list, so `shquote.Quote("pnpm")` is byte-identical
+// to no quoting at all and a test driving the generator could never tell the two apart. A
+// seam that takes bin and pkg as arguments is what makes the splice contract measurable on
+// those two sentinels — see TestPkgManagerLauncherQuotesItsBinAndSpec. The production call
+// site stays pinned by every test that reads the emitted pnpm launcher.
+func pkgManagerLauncher(bin, pkg, stampDir, receiptsPath string) string {
+	pkgName, pkgVersion := splitNpmSpec(pkg)
+	r := strings.NewReplacer(
+		"__YOLO_BIN__", shquote.Quote(bin),
+		"__YOLO_SPEC__", shquote.Quote(npmInstallSpec(pkgName, pkgVersion)),
+		"__YOLO_STAMP_DIR__", shquote.Quote(stampDir),
+		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsPath),
+		// kind "npm" because the RESOLVER is npm — the receipt names the mechanism that
+		// did the install, not the declaration's origin. pnpm is declared by that list
+		// rather than by a pack, and a reader comparing receipts to bytes has no use for
+		// that distinction; a reader looking for "which resolver do I ask about this
+		// package" has every use for the kind.
+		"__YOLO_RECEIPT_HEAD__", shquote.Quote(receiptPrefix("npm", bin, pkg)),
+	)
+	return r.Replace(pkgManagerLauncherTemplate)
 }
 
 // stampMtimeFn is the `_stamp_mtime` helper every launcher template embeds, and it exists
@@ -558,27 +596,51 @@ _yolo_receipt() {
 // npmLauncherTemplate is the npm agent launcher body, with the per-agent
 // fields replaced by __YOLO_*__ sentinels.
 //
+// THE SPLICE CONTRACT, which all three templates in this file obey and which the three
+// generators above implement:
+//
+//	Every __YOLO_*__ sentinel that carries a value is a SHELL LITERAL — shquote'd in Go
+//	(Quote, or Join for a list) and landing in a BARE, unquoted position: the right-hand
+//	side of an assignment, or a whole argv word. No sentinel appears inside quotes, no
+//	sentinel appears mid-word, and no sentinel appears in a `#` comment.
+//
+// The bare position is what makes the quoting load-bearing rather than decorative: a value
+// spliced into `X="__SENTINEL__"` cannot be Quote'd (the emitted single quotes would land
+// INSIDE the double quotes and become data), which is precisely why the raw form was chosen
+// there in the first place and precisely why it could not be fixed in place. A value needed
+// inside a string is therefore assigned ONCE at the top and referenced as "$VAR" — that is
+// why BIN, PKG, SPEC and URL are shell variables and why the header comment no longer names
+// the program (a bin name carrying a newline would have ended the comment and turned its
+// tail into shell source; the file's own name in ~/.yolo/bin/launch/ says it instead).
+//
+// The values arrive from a pack manifest a human already approved, so this is hardening, not
+// a live exploit. There are 18 value splices across the three replacers (8 + 5 + 5, counted
+// 2026-09-03), and 7 of them were ALREADY correct before this contract was written: both
+// receipt fields in all three templates, plus the package-manager stamp dir. That is what
+// made the other 11 legible as a mistake rather than as a decision.
+//
 // THE LAUNCHER NEVER RESOLVES A NEW VERSION ON ITS OWN (docs/design/trust-paths.md §1
 // row 1, ruled 2026-08-18: "no magical evergreen npm packages"). It installs on first
 // use, it reports when the registry has moved, and the ONE input that makes it resolve
 // anything after that is YOLO_PACK_UPDATE=1 — which `yolo pack update` sets and nothing
 // else does. See _poll_and_report and _update below for the whole of the rule.
 const npmLauncherTemplate = `#!/bin/bash
-# Lazy-install launcher for __YOLO_BIN__ — installs on first use, not at boot, and never
-# resolves a new version unless YOLO_PACK_UPDATE=1 asks it to.
+# Lazy-install launcher — installs on first use, not at boot, and never resolves a new
+# version unless YOLO_PACK_UPDATE=1 asks it to. BIN below names the program.
 set -euo pipefail
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
-STAMP_DIR="__YOLO_STAMP_DIR__"
-STAMP="$STAMP_DIR/__YOLO_BIN__.stamp"
-SPEC_FILE="$STAMP_DIR/__YOLO_BIN__.spec"
-REAL_BIN="$NPM_CONFIG_PREFIX/bin/__YOLO_BIN__"
+BIN=__YOLO_BIN__
+STAMP_DIR=__YOLO_STAMP_DIR__
+STAMP="$STAMP_DIR/$BIN.stamp"
+SPEC_FILE="$STAMP_DIR/$BIN.spec"
+REAL_BIN="$NPM_CONFIG_PREFIX/bin/$BIN"
 # PKG is the package NAME alone; SPEC is what "npm install" is handed. They differ whenever
 # the pack declared a version, and the two are NOT interchangeable: only PKG may index
 # node_modules or be passed to "npm view", and only SPEC may be installed.
-PKG="__YOLO_PKG__"
-SPEC="__YOLO_SPEC__"
-PINNED="__YOLO_PINNED__"   # 1 when the declaration carried a version selector
+PKG=__YOLO_PKG__
+SPEC=__YOLO_SPEC__
+PINNED=__YOLO_PINNED__   # 1 when the declaration carried a version selector
 UPDATE_INTERVAL=3600  # seconds between update CHECKS — a check reports, it never installs
 # Baked, never read from the environment: see receiptsFile.
 _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
@@ -681,7 +743,7 @@ _poll_and_report() {
     INSTALLED=$(_installed_version)
     LATEST=$(YOLO_BYPASS_SHIMS=1 npm view "$PKG" version 2>/dev/null || echo "$INSTALLED")
     if [ "$INSTALLED" != "$LATEST" ]; then
-        echo "  __YOLO_BIN__ $INSTALLED → $LATEST is available. Run 'yolo pack update' to install it." >&2
+        echo "  $BIN $INSTALLED → $LATEST is available. Run 'yolo pack update' to install it." >&2
     fi
     touch "$STAMP"
 }
@@ -707,7 +769,7 @@ _update() {
         if [ ! -x "$REAL_BIN" ] || [ "$(cat "$SPEC_FILE" 2>/dev/null || true)" != "$SPEC" ]; then
             _do_install
         else
-            echo "  __YOLO_BIN__ is pinned to $SPEC by its pack — nothing to resolve." >&2
+            echo "  $BIN is pinned to $SPEC by its pack — nothing to resolve." >&2
         fi
         return
     fi
@@ -728,15 +790,15 @@ _update() {
     # to come back with nothing useful, and every one of them means "unknown", never "same".
     LATEST=$(YOLO_BYPASS_SHIMS=1 npm view "$PKG" version 2>/dev/null || true)
     if [ -z "$LATEST" ]; then
-        echo "  ⚠ __YOLO_BIN__: could not ask the npm registry for a newer version — leaving $INSTALLED in place." >&2
+        echo "  ⚠ $BIN: could not ask the npm registry for a newer version — leaving $INSTALLED in place." >&2
         return 1
     fi
     if [ "$INSTALLED" = "$LATEST" ]; then
-        echo "  __YOLO_BIN__ $INSTALLED is already current." >&2
+        echo "  $BIN $INSTALLED is already current." >&2
         touch "$STAMP"
         return 0
     fi
-    echo "  Updating __YOLO_BIN__ $INSTALLED → $LATEST..." >&2
+    echo "  Updating $BIN $INSTALLED → $LATEST..." >&2
     _do_install
 }
 
@@ -788,18 +850,22 @@ fi
 if [ -x "$REAL_BIN" ]; then
     exec "$REAL_BIN" "$@"
 else
-    echo "  ⚠ __YOLO_BIN__ not available" >&2
+    echo "  ⚠ $BIN not available" >&2
     exit 1
 fi
 `
 
-// nativeLauncherTemplate is the native agent launcher body.
+// nativeLauncherTemplate is the native agent launcher body. Same splice contract as
+// npmLauncherTemplate: every sentinel is a shquote'd literal in a bare position, and the
+// values that a string needs (BIN, URL) are shell variables assigned once at the top.
 const nativeLauncherTemplate = `#!/bin/bash
-# Lazy-update launcher for __YOLO_BIN__ — installs/updates on first use, not at boot.
+# Lazy-update launcher — installs/updates on first use, not at boot. BIN names the program.
 set -euo pipefail
-STAMP_DIR="__YOLO_STAMP_DIR__"
-STAMP="$STAMP_DIR/__YOLO_BIN__.stamp"
-REAL_BIN="$HOME/.local/bin/__YOLO_BIN__"
+BIN=__YOLO_BIN__
+URL=__YOLO_URL__
+STAMP_DIR=__YOLO_STAMP_DIR__
+STAMP="$STAMP_DIR/$BIN.stamp"
+REAL_BIN="$HOME/.local/bin/$BIN"
 UPDATE_INTERVAL=3600
 # Baked, never read from the environment: see receiptsFile.
 _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
@@ -807,15 +873,18 @@ _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
 mkdir -p "$STAMP_DIR"
 ` + stampMtimeFn + receiptShellFns + `
 _do_install() {
-    echo "  Installing __YOLO_BIN__..." >&2
+    echo "  Installing $BIN..." >&2
     # Download to a file BEFORE running it, rather than curl | bash. A stale or moved
     # installer endpoint usually keeps answering 200 with a web page, and piping that
     # straight into bash reports the HTML as a bash syntax error plus a curl broken-pipe
     # error — three messages, none naming the wrong URL. Landing it first lets us say so.
     local script
-    script="$(mktemp -t __YOLO_BIN__-install-XXXXXX.sh)"
-    if ! YOLO_BYPASS_SHIMS=1 curl -fsSL __YOLO_URL__ -o "$script"; then
-        echo "  ⚠ __YOLO_BIN__ installer download failed: __YOLO_URL__" >&2
+    script="$(mktemp -t "$BIN-install-XXXXXX.sh")"
+    # "$URL", quoted at the point of use as well as at the splice: the Go side hands this
+    # script a shell literal, and the variable it lands in must still reach curl as ONE
+    # argv word rather than as however many the value's spaces suggest.
+    if ! YOLO_BYPASS_SHIMS=1 curl -fsSL "$URL" -o "$script"; then
+        echo "  ⚠ $BIN installer download failed: $URL" >&2
         rm -f "$script"
         touch "$STAMP"
         return
@@ -827,8 +896,8 @@ _do_install() {
     shopt -s nocasematch
     if [[ "$head_line" =~ ^[[:space:]]*\<(\!doctype|html|\?xml) ]]; then
         shopt -u nocasematch
-        echo "  ⚠ __YOLO_BIN__ installer URL is not a shell script — it served a web page." >&2
-        echo "    __YOLO_URL__" >&2
+        echo "  ⚠ $BIN installer URL is not a shell script — it served a web page." >&2
+        echo "    $URL" >&2
         echo "    The pack's install.installerUrl is probably stale; check the tool's docs" >&2
         echo "    for its current install command." >&2
         rm -f "$script"
@@ -877,24 +946,27 @@ fi
 if [ -x "$REAL_BIN" ]; then
     exec "$REAL_BIN" "$@"
 else
-    echo "  ⚠ __YOLO_BIN__ not available" >&2
+    echo "  ⚠ $BIN not available" >&2
     exit 1
 fi
 `
 
-// pkgManagerLauncherTemplate is the per-manager package-manager launcher body.
+// pkgManagerLauncherTemplate is the per-manager package-manager launcher body. Same splice
+// contract as npmLauncherTemplate; this is the template the contract was READ OFF, since its
+// stamp dir was the one value in the file already spliced as a quoted literal.
 const pkgManagerLauncherTemplate = `#!/bin/bash
 set -euo pipefail
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
-STAMP_DIR=__YOLO_STAMP_DIR_LIT__
-STAMP="$STAMP_DIR/__YOLO_BIN__.stamp"
-REAL_BIN="$NPM_CONFIG_PREFIX/bin/__YOLO_BIN__"
+BIN=__YOLO_BIN__
+STAMP_DIR=__YOLO_STAMP_DIR__
+STAMP="$STAMP_DIR/$BIN.stamp"
+REAL_BIN="$NPM_CONFIG_PREFIX/bin/$BIN"
 # Only the install SPEC, deliberately: unlike the agent launcher this body never indexes
 # node_modules and never calls "npm view", which are the only two things the bare package
 # NAME is good for. Carrying an unread PKG beside it would read as "the name matters here
 # too" and invite the next edit to use it in a place only the spec belongs.
-SPEC="__YOLO_SPEC__"  # what npm install is handed: name@<selector>
+SPEC=__YOLO_SPEC__  # what npm install is handed: name@<selector>
 RETRY_INTERVAL=3600  # seconds before retrying a failed install
 # Baked, never read from the environment: see receiptsFile.
 _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
@@ -936,7 +1008,7 @@ fi
 if [ -x "$REAL_BIN" ]; then
     exec "$REAL_BIN" "$@"
 else
-    echo "  ⚠ __YOLO_BIN__ not available" >&2
+    echo "  ⚠ $BIN not available" >&2
     exit 1
 fi
 `

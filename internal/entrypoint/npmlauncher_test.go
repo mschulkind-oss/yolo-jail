@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // npmlauncher_test.go pins the npm `program` launcher's VERSION handling.
@@ -72,23 +73,34 @@ func TestSplitNpmSpec(t *testing.T) {
 // TestNpmLauncherBodyCarriesNameAndSpecSeparately pins the structural half: the rendered
 // launcher must hold the NAME and the INSTALL SPEC as two different variables. Collapsing
 // them is exactly the old bug, and it is invisible from the outside until npm is called.
+//
+// The assertions are whole LINES rather than substrings, and the expected right-hand side
+// runs through shquote.Quote — which is the splice contract on npmLauncherTemplate stated as
+// a test. It used to assert `PKG="<value>"`, the raw-inside-double-quotes form; a substring
+// check on `PKG=<value>` would still pass against that spelling, so pinning the whole line
+// is what makes this assertion strictly stronger rather than merely different.
 func TestNpmLauncherBodyCarriesNameAndSpecSeparately(t *testing.T) {
 	cases := []struct{ pkg, wantPKG, wantSPEC, wantPINNED string }{
 		{"foo", "foo", "foo@latest", "0"},
 		{"foo@1.2.3", "foo", "foo@1.2.3", "1"},
 		{"@scope/foo", "@scope/foo", "@scope/foo@latest", "0"},
 		{"@scope/foo@2.0.0", "@scope/foo", "@scope/foo@2.0.0", "1"},
+		// A selector npm accepts and the shell does not: a range carries a space and a
+		// `<`, so raw-in-double-quotes rendered `SPEC="name@>=1.0.0 <2.0.0"` and quoting
+		// is the only reason the launcher still parses. This row is here to make the
+		// contract load-bearing on a value a real pack may write.
+		{"foo@>=1.0.0 <2.0.0", "foo", "foo@>=1.0.0 <2.0.0", "1"},
 	}
 	for _, tc := range cases {
 		body := npmAgentLauncher(&packdecl.Install{Kind: "npm", Bin: "foo", Package: tc.pkg},
 			"/stamps", filepath.Join(t.TempDir(), "receipts.jsonl"))
 		for _, want := range []string{
-			`PKG="` + tc.wantPKG + `"`,
-			`SPEC="` + tc.wantSPEC + `"`,
-			`PINNED="` + tc.wantPINNED + `"`,
+			"\nPKG=" + shquote.Quote(tc.wantPKG) + "\n",
+			"\nSPEC=" + shquote.Quote(tc.wantSPEC) + "\n",
+			"\nPINNED=" + shquote.Quote(tc.wantPINNED) + " ",
 		} {
 			if !strings.Contains(body, want) {
-				t.Errorf("package %q: launcher missing %s\n%s", tc.pkg, want, body)
+				t.Errorf("package %q: launcher missing %q\n%s", tc.pkg, want, body)
 			}
 		}
 		// The literal that caused the defect must not survive anywhere in a versioned
@@ -111,7 +123,7 @@ func TestNpmLauncherBodyCarriesNameAndSpecSeparately(t *testing.T) {
 	}
 	// ...and its behaviour is unchanged: pnpm carries no version, so it still installs
 	// pnpm@latest byte-for-byte.
-	if !strings.Contains(string(body), `SPEC="pnpm@latest"`) {
+	if !strings.Contains(string(body), "\nSPEC=pnpm@latest ") {
 		t.Errorf("pnpm must still resolve to pnpm@latest:\n%s", body)
 	}
 }
